@@ -10,12 +10,13 @@ on:
     types: [published]
 
 jobs:
-  update-version:
-    # Verify that the tag matches the version in src/version.h, and generate a PR to bump the version for the next patch
+  validate-tag:
+    # Verify that the tag matches the version in src/version.h
     runs-on: ${{ vars.RUNS_ON }}
     outputs:
       cur_version: ${{ steps.verify.outputs.cur_version }}
       next_version: ${{ steps.verify.outputs.next_version }}
+      next_patch: ${{ steps.verify.outputs.next_patch }}
     steps:
       - uses: actions/checkout@v4
       - name: Verify Tag and Version
@@ -40,29 +41,36 @@ jobs:
             print(f"next_version={major}.{minor}.{patch+1}", file=fp)
             print(f"next_patch={patch+1}", file=fp)
 
+  update-version:
+    # Generate a PR to bump the version for the next patch
+    runs-on: ${{ vars.RUNS_ON }}
+    needs: validate-tag
+    steps:
+      - uses: actions/checkout@v4
       - name: Update version for next patch
         env:
-          LINE: '#define REDISEARCH_VERSION_PATCH'
+          PATCH_LINE_PREFIX: '#define REDISEARCH_VERSION_PATCH'
+          NEXT_PATCH: ${{ needs.validate-tag.outputs.next_patch }}
         # find the line with the patch version and replace it with the next patch version
-        run: sed -i "s/^${{ env.LINE }} [0-9]\+$/${{ env.LINE }} ${{ steps.verify.outputs.next_patch }}/" src/version.h
+        run: sed -i "s/^${{ env.PATCH_LINE_PREFIX }} [0-9]\+$/${{ env.PATCH_LINE_PREFIX }} ${{ env.NEXT_PATCH }}/" src/version.h
 
       - name: Commit and push
         run: |
           git config --global user.name "${{ github.triggering_actor }}"
           git config --global user.email "${{ github.event.sender.id }}+${{ github.event.sender.login }}@users.noreply.github.com"
-          git checkout -b bump-version-${{ steps.verify.outputs.next_version }}
+          git checkout -b bump-version-${{ needs.validate-tag.outputs.next_version }}
           git add src/version.h
-          git commit -m "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}"
-          git push origin bump-version-${{ steps.verify.outputs.next_version }}
+          git commit -m "Bump version from ${{ needs.validate-tag.outputs.cur_version }} to ${{ needs.validate-tag.outputs.next_version }}"
+          git push origin bump-version-${{ needs.validate-tag.outputs.next_version }}
 
       - name: Create Pull Request
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh pr create \
-            --title    "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}" \
+            --title    "Bump version from ${{ needs.validate-tag.outputs.cur_version }} to ${{ needs.validate-tag.outputs.next_version }}" \
             --body     "This PR was automatically created by the release workflow of ${{ github.event.release.tag_name }}." \
-            --head     "bump-version-${{ steps.verify.outputs.next_version }}" \
+            --head     "bump-version-${{ needs.validate-tag.outputs.next_version }}" \
             --base     "${{ github.event.release.target_commitish }}" \
             --reviewer "alonre24,DvirDukhan,oshadmi,${{ github.actor }}" \
             --draft
@@ -70,13 +78,13 @@ jobs:
       - name: Trigger CI
         env:
           GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
-          BRANCH: bump-version-${{ steps.verify.outputs.next_version }}
+          BRANCH: bump-version-${{ needs.validate-tag.outputs.next_version }}
         run: |
           gh pr ready $BRANCH -R ${{ github.repository }}
           gh pr merge $BRANCH -R ${{ github.repository }} --auto
 
   set-artifacts:
-    needs: update-version
+    needs: validate-tag
     runs-on: ${{ vars.RUNS_ON }}
     steps:
       - name: Configure AWS Credentials Using Role
@@ -108,7 +116,7 @@ jobs:
           ent_dir = "redisearch"
 
           suffix = ".${{ github.event.release.target_commitish }}.zip"
-          new_suffix = ".${{ needs.update-version.outputs.cur_version }}.zip"
+          new_suffix = ".${{ needs.validate-tag.outputs.cur_version }}.zip"
           expected_sha = "${{ github.sha }}"
 
           client = boto3.client("s3")
