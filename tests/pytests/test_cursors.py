@@ -404,7 +404,6 @@ def testCursorDepletionNonStrictTimeoutPolicySortby():
     # Ensure that the cursors we opened were closed properly
     env.assertEqual(getCursorStats(env, 'idx')['index_total'], starting_cursor_count)
 
-RLTEST_TEST_TIMEOUT=300
 def testCursorDepletionNonStrictTimeoutPolicy(env):
     """Tests that the cursor id is returned in case the timeout policy is
     non-strict (i.e., the default `RETURN`), even when a timeout is experienced"""
@@ -412,44 +411,26 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
     conn = getConnectionByEnv(env)
 
     # Create the index
-    env.expect('FT.CREATE idx SCHEMA n numeric sortable').ok()
+    env.expect('FT.CREATE idx SCHEMA t text').ok()
 
     # Populate the index
-    num_docs = 3500 * env.shardsCount
+    num_docs = 1500 * env.shardsCount
     for i in range(num_docs):
-        conn.execute_command('HSET', f'doc{i}' ,'n', i)
+        conn.execute_command('HSET', f'doc{i}' ,'t', i)
 
     starting_cursor_count = getCursorStats(env, 'idx')['index_total']
 
     # Create a cursor with a small `timeout` and large `count`, and read from
     # it until depleted
-    # res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '10000', 'load', '2', 'n', '__key')
-    # res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '10000', 'load', '2', 'n', '__key', 'TIMEOUT', '1')
-    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'sortby', '1', '@n', 'WITHCURSOR', 'COUNT', '10000', 'TIMEOUT', '1')
-    n_received = len(res['results'])
-    env.debugPrint(f"res['results'][0]: {res['results'][0]}", force=True)
-    env.debugPrint(f'First cursor run, Received {n_received} results', force=True)
-    i = 1
-    try:
-        # Little less than RLTest timeout
-        with TimeLimit(RLTEST_TEST_TIMEOUT - 2):
-            while cursor:
-                res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-                n_received += len(res['results'])
-                env.debugPrint(f'{i} cursor run, received {n_received} results', force=True)
-                env.debugPrint(f'{res["warning"]}', force=True)
-                i += 1
-                if n_received > num_docs:
-                    env.debugPrint(f"{res['results']}", force=True)
+    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '10000', 'TIMEOUT', '1')
+    n_recieved = len(res) - 1
+    while cursor:
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        n_recieved += len(res) - 1
 
-
-    except Exception as e:
-        env.assertTrue(False, message=f'exception {e}. Cursor read failed after retrieving {n_received} results, cursor id: {cursor}')
-
-    env.assertEqual(n_received, num_docs)
+    env.assertEqual(n_recieved, num_docs)
     # Ensure that the cursors we opened were closed properly
     env.assertEqual(getCursorStats(env, 'idx')['index_total'], starting_cursor_count)
-
 
 def testCursorDepletionStrictTimeoutPolicy():
     """Tests that the cursor returns a timeout error in case of a timeout, when
