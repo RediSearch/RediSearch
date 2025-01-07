@@ -320,7 +320,7 @@ def test_create():
     dummy_val = 'dummy_supplement'
 
     # Test for INT32, INT64 as well when support for these types is added.
-    for data_type in VECSIM_DATA_TYPES:
+    for data_type in VECSIM_DATA_TYPES + ['INT8', 'UINT8']:
         conn.execute_command('FT.CREATE', 'idx1', 'SCHEMA', 'v_HNSW', 'VECTOR', 'HNSW', '14', 'TYPE', data_type,
                              'DIM', '1024', 'DISTANCE_METRIC', 'COSINE', 'INITIAL_CAP', '10', 'M', '16',
                              'EF_CONSTRUCTION', '200', 'EF_RUNTIME', '10')
@@ -352,6 +352,43 @@ def test_create():
 
         conn.execute_command('FT.DROP', 'idx1')
         conn.execute_command('FT.DROP', 'idx2')
+
+@skip(cluster=True)
+def test_search_ints(env:Env):
+    dim = 4
+    idx = 'idx'
+    fld = 'v'
+    dataset = {
+        'a': [40]*dim,
+        'b': [30]*dim,
+        'c': [20]*dim,
+        'd': [10]*dim,
+    }
+    expected_scores = {k: str(int(spatial.distance.sqeuclidean(np.array(v), np.zeros(dim)))) for k, v in dataset.items()}
+
+    for data_type in ['INT8', 'UINT8']:
+        env.flush()
+
+        env.cmd('FT.CREATE', idx, 'SCHEMA', fld, 'VECTOR', 'FLAT', '6', 'TYPE', data_type, 'DIM', dim, 'DISTANCE_METRIC', 'L2')
+        for k, v in dataset.items():
+            env.cmd('HSET', k, fld, create_np_array_typed(v, data_type).tobytes())
+
+        query_vec = create_np_array_typed([0]*dim, data_type)
+
+        expected_res = [len(dataset)]
+        for k in dataset:
+            expected_res.extend([k, ['score', expected_scores[k]]])
+        res = env.cmd('FT.SEARCH', idx, f'*=>[KNN 4 @{fld} $blob AS score]', 'DIALECT', 2,
+                      'PARAMS', 2, 'blob', query_vec.tobytes(), 'RETURN', 1, 'score')
+        env.assertEqual(res, expected_res, message=data_type)
+
+        for _ in env.reloadingIterator():
+            expected_res = [len(dataset)]
+            for k in sorted(dataset, key=lambda x: int(expected_scores[x])):
+                expected_res.extend([k, ['score', expected_scores[k]]])
+            res = env.cmd('FT.SEARCH', idx, f'*=>[KNN 4 @{fld} $blob AS score]', 'DIALECT', 2, 'SORTBY', 'score',
+                          'PARAMS', 2, 'blob', query_vec.tobytes(), 'RETURN', 1, 'score')
+            env.assertEqual(res, expected_res, message=data_type)
 
 @skip(cluster=True)
 def test_create_multiple_vector_fields():
@@ -873,7 +910,7 @@ def test_hybrid_query_with_numeric():
         expected_res.append(str(index_size-i))
         expected_res.append(['__v_score', str(dim*i**2), 'num', str(index_size-i)])
 
-    execute_hybrid_query(env, '(@num:[0 {}])=>[KNN 10 @v $vec_param]'.format(index_size), query_data, 'num').equal(expected_res)
+    execute_hybrid_query(env, f'(@num:[0 {index_size}])=>[KNN 10 @v $vec_param]', query_data, 'num').equal(expected_res)
     execute_hybrid_query(env, '(@num:[0 inf])=>[KNN 10 @v $vec_param]', query_data, 'num').equal(expected_res)
 
     # Expect that no result will pass the filter.
@@ -886,7 +923,7 @@ def test_hybrid_query_with_numeric():
         expected_res.append(str(index_size-lower_bound_num-i))
         expected_res.append(['__v_score', str(dim*(lower_bound_num+i)**2), 'num', str(index_size-lower_bound_num-i)])
     # We switch from batches to ad-hoc BF mode during the run.
-    execute_hybrid_query(env, '(@num:[-inf {}])=>[KNN 10 @v $vec_param]'.format(index_size-lower_bound_num), query_data, 'num',
+    execute_hybrid_query(env, f'(@num:[-inf {index_size - lower_bound_num}])=>[KNN 10 @v $vec_param]', query_data, 'num',
                             hybrid_mode='HYBRID_BATCHES_TO_ADHOC_BF').equal(expected_res)
     execute_hybrid_query(env, '(@num:[-inf {}] | @num:[{} {}])=>[KNN 10 @v $vec_param]'
                             .format(lower_bound_num, index_size-2*lower_bound_num, index_size-lower_bound_num), query_data, 'num',
@@ -2390,7 +2427,21 @@ def test_switch_write_mode_multiple_indexes(env):
     if bg_indexing == 0:
         prefix = "::warning title=Bad scenario in test_vecsim:test_switch_write_mode_multiple_indexes::" if GHA else ''
         print(f"{prefix}All vectors were done reindex before switching back to in-place mode")
-
+        
+def test_max_knn_k():
+    env = Env(moduleArgs='DEFAULT_DIALECT 3')
+    conn = getConnectionByEnv(env)
+    dim = 2
+    k = pow(2, 59)
+    score_name = 'SCORE'
+    vec_fieldname = 'VEC'
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA',
+                         vec_fieldname, 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2')
+    for i in range(10):
+        conn.execute_command("HSET", f'doc{i}', vec_fieldname, create_np_array_typed([i] * dim).tobytes())
+    env.expect('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB AS {score_name.lower()}]',
+               'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
+               'RETURN', '1', score_name).error().contains('KNN K parameter is too large')
 
 def test_vector_index_ptr_valid(env):
     conn = getConnectionByEnv(env)

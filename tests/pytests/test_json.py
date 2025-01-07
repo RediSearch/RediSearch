@@ -947,10 +947,10 @@ def check_index_with_null(env, idx):
                     'doc5', ['sort', '5', '$', '{"sort":5,"num":0.8,"txt":"hello","tag":"world","geo":"1.23,4.56","vec":null}']]
 
     res = env.cmd('FT.SEARCH', idx, '*', 'SORTBY', "sort")
-    env.assertEqual(res, expected, message = '{} * sort'.format(idx))
+    env.assertEqual(res, expected, message = f'{idx} * sort')
 
     res = env.cmd('FT.SEARCH', idx, '@sort:[1 5]', 'SORTBY', "sort")
-    env.assertEqual(res, expected, message = '{} [1 5] sort'.format(idx))
+    env.assertEqual(res, expected, message = f'{idx} [1 5] sort')
 
     info_res = index_info(env, idx)
     env.assertEqual(int(info_res['hash_indexing_failures']), 0)
@@ -1050,6 +1050,44 @@ def testVector_correct_eval(env):
             else:  # data type is float64, expect higher precision
                 env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-9)
         conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+
+    # Test INT8
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'INT8', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    env.assertOk(conn.execute_command('JSON.SET', 'j1', '$', r'{"vec":[1,1]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[-128,-128]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[127,127]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j4', '$', r'{"vec":[-128,127]}'))
+    query_vec = create_np_array_typed([1]*dim, 'INT8')
+    expected_res = [4,  'j1', ['score', spatial.distance.sqeuclidean(np.array([1, 1]), query_vec)],
+                        'j2', ['score', spatial.distance.sqeuclidean(np.array([-128, -128]), query_vec)],
+                        'j3', ['score', spatial.distance.sqeuclidean(np.array([127, 127]), query_vec)],
+                        'j4', ['score', spatial.distance.sqeuclidean(np.array([-128,127]), query_vec)]]
+    actual_res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @vec $b AS scores]', 'PARAMS', '2', 'b', query_vec.tobytes(),
+                                'RETURN', '1', 'scores').res
+    env.assertEqual(expected_res[0], actual_res[0])
+    for i in range(1, len(expected_res), 2):
+        env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-6)
+    conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
+
+    # Test UINT8
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON',
+               'SCHEMA', '$.vec', 'AS', 'vec', 'VECTOR', 'FLAT', '6', 'TYPE', 'UINT8', 'DIM', dim, 'DISTANCE_METRIC', 'L2').ok()
+    env.assertOk(conn.execute_command('JSON.SET', 'j1', '$', r'{"vec":[1,1]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j2', '$', r'{"vec":[0,0]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j3', '$', r'{"vec":[255,255]}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'j4', '$', r'{"vec":[0,255]}'))
+    query_vec = create_np_array_typed([1]*dim, 'UINT8')
+    expected_res = [4,  'j1', ['score', spatial.distance.sqeuclidean(np.array([1, 1]), query_vec)],
+                        'j2', ['score', spatial.distance.sqeuclidean(np.array([0, 0]), query_vec)],
+                        'j3', ['score', spatial.distance.sqeuclidean(np.array([255, 255]), query_vec)],
+                        'j4', ['score', spatial.distance.sqeuclidean(np.array([0, 255]), query_vec)]]
+    actual_res = env.expect('FT.SEARCH', 'idx', '*=>[KNN 4 @vec $b AS scores]', 'PARAMS', '2', 'b', query_vec.tobytes(),
+                                'RETURN', '1', 'scores').res
+    env.assertEqual(expected_res[0], actual_res[0])
+    for i in range(1, len(expected_res), 2):
+        env.assertAlmostEqual(expected_res[i+1][1], float(actual_res[i+1][1]), 1E-6)
+    conn.execute_command('FT.DROPINDEX', 'idx', 'DD')
 
 
 @skip(msan=True, no_json=True)
@@ -1182,7 +1220,7 @@ def testTagAutoescaping(env):
 
     conn = getConnectionByEnv(env)
     # We are using ',' as tag SEPARATOR to get the same results of HASH index
-    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON',
             'SCHEMA', '$.tag', 'AS', 'tag', 'TAG', 'SEPARATOR', ',')
 
     # create sample data
