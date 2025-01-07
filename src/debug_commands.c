@@ -1152,6 +1152,10 @@ DEBUG_COMMAND(VecsimInfo) {
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
   VecSimIndex *vecsimIndex = openVectorIndex(sctx->spec, keyName, CREATE_INDEX);
+  if(!vecsimIndex) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Can't open vector index");
+  }
 
   VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
   // Recursively reply with the info iterator
@@ -1218,6 +1222,12 @@ DEBUG_COMMAND(dumpHNSWData) {
   // This call can't fail, since we already checked that the key exists
   // (or should exist, and this call will create it).
   VecSimIndex *vecsimIndex = openVectorIndex(sctx->spec, keyName, CREATE_INDEX);
+  if(!vecsimIndex) {
+    RedisModule_ReplyWithError(ctx, "Can't open vector index");
+    goto cleanup;
+  }
+
+
   VecSimIndexBasicInfo info = VecSimIndex_BasicInfo(vecsimIndex);
   if (info.algo != VecSimAlgo_HNSWLIB) {
 	  RedisModule_ReplyWithError(ctx, "Vector index is not an HNSW index");
