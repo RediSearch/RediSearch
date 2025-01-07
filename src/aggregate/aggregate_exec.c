@@ -886,6 +886,8 @@ static void parseProfile(AREQ *r, int withProfile) {
     if (withProfile == PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
     }
+  } else {
+    r->qiter.isProfile = false;
   }
 }
 
