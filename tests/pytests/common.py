@@ -691,3 +691,8 @@ def compare_index_info_dict(env, idx, expected_info_dict, msg="", depth=0):
 def check_index_info_empty(env, idx, fields, msg="after delete all and gc", depth=0):
     expected_size = getInvertedIndexInitialSize_MB(env, fields, depth=depth+1)
     check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)
+
+def index_errors(env, idx = 'idx'):
+    return to_dict(index_info(env, idx)['Index Errors'])
+def field_errors(env, idx = 'idx', fld_index = 0):
+    return to_dict(to_dict(to_dict(index_info(env, idx)['field statistics'][fld_index]))['Index Errors'])
