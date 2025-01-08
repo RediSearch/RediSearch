@@ -223,7 +223,6 @@ typedef struct {
   struct {
     MRReply *root;  // Root reply. We need to free this when done with the rows
     MRReply *rows;  // Array containing reply rows for quick access
-    size_t results_len;  // Array containing reply rows for quick access
   } current;
   // Lookup - the rows are written in here
   RLookup *lookup;
@@ -239,7 +238,6 @@ typedef struct {
 static void RPNet_resetCurrent(RPNet *nc) {
     nc->current.root = NULL;
     nc->current.rows = NULL;
-    nc->current.results_len = 0;
 }
 
 static int getNextReply(RPNet *nc) {
@@ -342,8 +340,16 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   if (rows) {
       bool resp3 = MRReply_Type(rows) == MR_REPLY_MAP;
+      size_t len;
+      if (resp3) {
+        MRReply *results = MRReply_MapElement(rows, "results");
+        RS_LOG_ASSERT(results, "invalid results record: missing 'results' key");
+        len = MRReply_Length(results);
+      } else {
+        len = MRReply_Length(rows);
+      }
 
-      if (nc->curIdx == nc->current.results_len) {
+      if (nc->curIdx == len) {
         bool timed_out = false;
         // Check for a warning (resp3 only)
         MRReply *warning = MRReply_MapElement(rows, "warning");
@@ -418,11 +424,9 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       MRReply *results = MRReply_MapElement(rows, "results");
       RS_LOG_ASSERT(results, "invalid results record: missing 'results' key");
       nc->base.parent->totalResults += MRReply_Length(results);
-      nc->current.results_len = MRReply_Length(results);
     } else { // RESP2
-      size_t results_count = MRReply_Length(rows) - 1; // not including (maybe) estimated results count entry
-      nc->base.parent->totalResults += results_count;
-      nc->current.results_len = results_count;
+      // Get the index from the first
+      nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
       nc->curIdx = 1;
     }
   }
