@@ -115,6 +115,7 @@ jobs:
               # Initialize a Git repository
               git init
               git remote add origin "$REPO_URL"
+              git clone $REPO_URL setup  # Clone the repository into the 'setup' directory
 
               # Fetch and checkout ref
               git fetch origin "${{ env.REF }}" || {
