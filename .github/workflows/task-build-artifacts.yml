@@ -116,13 +116,14 @@ jobs:
               # Initialize a Git repository
               git init
               git remote add origin "$REPO_URL"
+              git clone $REPO_URL setup  # Clone the repository into the 'setup' directory
 
               # Fetch and checkout ref
-              git fetch origin "${{ github.ref }}" || {
-                echo "Failed to fetch ref: '${{ github.ref }}'";
+              git fetch origin --tags || {
+                echo "Failed to fetch ref: '${{ env.REF }}'";
                 exit 1;
               }
-              git checkout FETCH_HEAD  # Check out the fetched ref
+              git checkout "${{ env.REF }}"  # Check out the fetched ref
 
               # Update submodules
               git submodule update --init --recursive
