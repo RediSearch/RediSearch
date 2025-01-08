@@ -267,6 +267,13 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   REPLY_KVINT("cleaning", CleanInProgressOrPending());
 
+  size_t activeQueries = IndexSpec_GetActiveQueries(sp);
+  size_t activeWrites = IndexSpec_GetActiveWrites(sp);
+  REPLY_KVSTR("is_active_read", activeQueries > 0 ? "true" : "false");
+  REPLY_KVSTR("is_active_write", activeWrites > 0 ? "true" : "false");
+  REPLY_KVINT("active_reads_count", activeQueries);
+  REPLY_KVINT("active_writes_count", activeWrites);
+
   if (sp->gc) {
     RedisModule_ReplyKV_Map(reply, "gc_stats");
     GCContext_RenderStats(sp->gc, reply);
