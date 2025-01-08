@@ -180,8 +180,6 @@ typedef int (*RSConfigExternalTrigger)(RSConfig *);
 // global config extern references
 extern RSConfig RSGlobalConfig;
 extern RSConfigOptions RSGlobalConfigOptions;
-extern RedisModuleString *config_ext_load;
-extern RedisModuleString *config_friso_ini;
 
 /**
  * Add new configuration options to the chain of already recognized options

@@ -478,7 +478,7 @@ numericConfigs = [
     ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False, True),
 ]
 
-@skip(redis_less_than='8.0')
+@skip(redis_less_than='7.99')
 def testConfigAPIRunTimeNumericParams():
     env = Env(noDefaultModuleArgs=True)
 
@@ -539,7 +539,7 @@ def testConfigAPIRunTimeNumericParams():
         else:
             _testNumericConfig(env, configName, ftConfigName, default, min, max)
 
-@skip(cluster=True, redis_less_than='8.0')
+@skip(cluster=True, redis_less_than='7.99')
 def testModuleLoadexNumericParams():
     env = Env(noDefaultModuleArgs=True)
 
@@ -656,7 +656,7 @@ def testConfigAPILoadTimeNumericParams():
         env.assertTrue(env.isUp())
         env.stop()
 
-@skip(cluster=True, redis_less_than='8.0')
+@skip(cluster=True, redis_less_than='7.99')
 def testConfigFileNumericParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileNumericParams.conf'
@@ -685,7 +685,7 @@ def testConfigFileNumericParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, str(minValue)]])
 
-@skip(cluster=False, redis_less_than='8.0')
+@skip(cluster=False, redis_less_than='7.99')
 def testClusterConfigFileNumericParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testClusterConfigFileNumericParams.conf'
@@ -705,7 +705,7 @@ def testClusterConfigFileNumericParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, str(minValue)]])
 
-@skip(cluster=True, redis_less_than='8.0')
+@skip(cluster=True, redis_less_than='7.99')
 def testConfigFileAndArgsNumericParams():
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsNumericParams.conf'
@@ -734,7 +734,7 @@ def testConfigFileAndArgsNumericParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, str(minValue)]])
 
-@skip(cluster=True, redis_less_than='8.0')
+@skip(cluster=True, redis_less_than='7.99')
 def testModuleLoadexNumericParamsLastWins():
     env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
     redisearch_module_path = os.getenv('MODULE')
@@ -814,7 +814,7 @@ def testModuleLoadexNumericParamsLastWins():
 ################################################################################
 # Test CONFIG SET/GET enum parameters
 ################################################################################
-@skip(redis_less_than='8.0')
+@skip(redis_less_than='7.99')
 def testConfigAPIRunTimeEnumParams():
     env = Env(noDefaultModuleArgs=True)
 
@@ -835,7 +835,7 @@ def testConfigAPIRunTimeEnumParams():
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'invalid_value').error()\
             .contains('CONFIG SET failed')
 
-@skip(cluster=True, redis_less_than='8.0')
+@skip(cluster=True, redis_less_than='7.99')
 def testModuleLoadexEnumParams():
     env = Env(noDefaultModuleArgs=True)
 
@@ -890,7 +890,7 @@ def testModuleLoadexEnumParams():
     env.stop()
     os.unlink(rdbFilePath)
 
-@skip(redis_less_than='8.0')
+@skip(redis_less_than='7.99')
 def testConfigFileEnumParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileEnumParams.conf'
@@ -913,7 +913,7 @@ def testConfigFileEnumParams():
     res = env.cmd(config_cmd(), 'GET', argName)
     env.assertEqual(res, [[argName, testValue]])
 
-@skip(redis_less_than='8.0')
+@skip(redis_less_than='7.99')
 def testConfigFileAndArgsEnumParams():
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsEnumParams.conf'
@@ -948,7 +948,7 @@ stringConfigs = [
     ('search-friso-ini', 'FRISOINI', None, 'deps/cndict/friso.ini'),
 ]
 
-@skip(redis_less_than='8.0')
+@skip(redis_less_than='7.99')
 def testConfigAPIRunTimeStringParams():
     env = Env(noDefaultModuleArgs=True)
 
@@ -971,7 +971,7 @@ def testConfigAPIRunTimeStringParams():
         _testImmutableStringConfig(env, configName, ftConfigName, ftDefault,
                                    testValue)
 
-@skip(cluster=True, redis_less_than='8.0')
+@skip(cluster=True, redis_less_than='7.99')
 def testModuleLoadexStringParams():
     env = Env(noDefaultModuleArgs=True)
 
@@ -1025,7 +1025,7 @@ def testModuleLoadexStringParams():
         env.stop()
         os.unlink(rdbFilePath)
 
-@skip(redis_less_than='8.0')
+@skip(redis_less_than='7.99')
 def testConfigFileStringParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileStringParams.conf'
@@ -1061,7 +1061,7 @@ def testConfigFileStringParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, testValue]])
 
-@skip(cluster=True, redis_less_than='8.0')
+@skip(cluster=True, redis_less_than='7.99')
 def testConfigFileAndArgsStringParams():
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsStringParams.conf'
@@ -1127,7 +1127,7 @@ booleanConfigs = [
     # ('search-_fork-gc-clean-numeric-empty-nodes', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'yes', False)
 ]
 
-@skip(redis_less_than='8.0')
+@skip(redis_less_than='7.99')
 def testConfigAPIRunTimeBooleanParams():
     env = Env(noDefaultModuleArgs=True)
 
@@ -1173,7 +1173,7 @@ def testConfigAPIRunTimeBooleanParams():
         else:
             _testBooleanConfig(env, configName, ftConfigName, defaultValue)
 
-@skip(cluster=True, redis_less_than='8.0')
+@skip(cluster=True, redis_less_than='7.99')
 def testModuleLoadexBooleanParams():
     env = Env(noDefaultModuleArgs=True)
 
@@ -1253,7 +1253,7 @@ def testModuleLoadexBooleanParams():
         env.stop()
         os.unlink(rdbFilePath)
 
-@skip(cluster=True, redis_less_than='8.0')
+@skip(cluster=True, redis_less_than='7.99')
 def testModuleLoadexSearchPartialIndexedDocs():
     '''Test `search-partial-indexed-docs` because
     `PARTIAL_INDEXED_DOCS` is set using a number but it returns a boolean'''
@@ -1311,7 +1311,7 @@ def testModuleLoadexSearchPartialIndexedDocs():
     env.stop()
     os.unlink(rdbFilePath)
 
-@skip(redis_less_than='8.0')
+@skip(redis_less_than='7.99')
 def testConfigFileBooleanParams():
     '''Test using only redis config file'''
     redisConfigFile = '/tmp/testConfigFileBooleanParams.conf'
@@ -1336,7 +1336,7 @@ def testConfigFileBooleanParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, ftExpectedValue]])
 
-@skip(redis_less_than='8.0')
+@skip(redis_less_than='7.99')
 def testConfigFileAndArgsBooleanParams():
     '''Test using redis config file and module arguments. The module arguments
     should take precedence over the config file values'''
