@@ -129,7 +129,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     if (map && MRReply_Type(map) == MR_REPLY_MAP) {
       results = MRReply_MapElement(map, "results");
       if (cmd->forProfiling) results = MRReply_MapElement(results, "results"); // profile has an extra level
-      if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 0) {
+      if (results && MRReply_Type(results) == MR_REPLY_ARRAY) {
         MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
         // User code now owns the reply, so we can't free it here ourselves!
         rep = NULL;
@@ -223,6 +223,7 @@ typedef struct {
   struct {
     MRReply *root;  // Root reply. We need to free this when done with the rows
     MRReply *rows;  // Array containing reply rows for quick access
+    size_t results_len;  // Array containing reply rows for quick access
   } current;
   // Lookup - the rows are written in here
   RLookup *lookup;
@@ -235,23 +236,25 @@ typedef struct {
   arrayof(MRReply *) shardsProfile;
 } RPNet;
 
+static void RPNet_resetCurrent(RPNet *nc) {
+    nc->current.root = NULL;
+    nc->current.rows = NULL;
+    nc->current.results_len = 0;
+}
 static int getNextReply(RPNet *nc) {
   if (nc->cmd.forCursor) {
     // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
     // TODO: could be replaced with a query specific configuration
     if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
       // No more replies
-      nc->current.root = NULL;
-      nc->current.rows = NULL;
+      RPNet_resetCurrent(nc);
       return 0;
     }
   }
   MRReply *root = MRIterator_Next(nc->it);
   if (root == NULL) {
     // No more replies
-    nc->current.root = NULL;
-    nc->current.rows = NULL;
-    return 0;
+    RPNet_resetCurrent(nc);
   }
 
   // Check if an error was returned
@@ -338,15 +341,8 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
   if (rows) {
       bool resp3 = MRReply_Type(rows) == MR_REPLY_MAP;
       size_t len;
-      if (resp3) {
-        MRReply *results = MRReply_MapElement(rows, "results");
-        RS_LOG_ASSERT(results, "invalid results record: missing 'results' key");
-        len = MRReply_Length(results);
-      } else {
-        len = MRReply_Length(rows);
-      }
 
-      if (nc->curIdx == len) {
+      if (nc->curIdx == nc->current.results_len) {
         bool timed_out = false;
         // Check for a warning (resp3 only)
         MRReply *warning = MRReply_MapElement(rows, "warning");
@@ -368,7 +364,8 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
         } else {
           MRReply_Free(root);
         }
-        nc->current.root = nc->current.rows = root = rows = NULL;
+        root = rows = NULL;
+        RPNet_resetCurrent(nc);
 
         if (timed_out) {
           return RS_RESULT_TIMEDOUT;
@@ -420,12 +417,16 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       MRReply *results = MRReply_MapElement(rows, "results");
       RS_LOG_ASSERT(results, "invalid results record: missing 'results' key");
       nc->base.parent->totalResults += MRReply_Length(results);
+      nc->current.results_len = MRReply_Length(results);
     } else { // RESP2
-      // Get the index from the first
-      nc->base.parent->totalResults += MRReply_Integer(MRReply_ArrayElement(rows, 0));
+      size_t results_count = MRReply_Length(rows) - 1; // not including (maybe) estimated results count entry
+      nc->base.parent->totalResults += results_count;
+      nc->current.results_len = results_count;
       nc->curIdx = 1;
     }
   }
+
+  if (!nc->current.results_len) return RS_RESULT_OK;
 
   if (resp3) // RESP3
   {
