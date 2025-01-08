@@ -55,4 +55,5 @@ MRClusterType DetectClusterType();
 
 RSConfigOptions *GetClusterConfigOptions(void);
 void ClusterConfig_RegisterTriggers(void);
+
 int RegisterClusterModuleConfig(RedisModuleCtx *ctx);

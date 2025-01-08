@@ -59,7 +59,26 @@ CONFIG_SETTER(setGlobalPass) {
 }
 
 CONFIG_GETTER(getGlobalPass) {
+  RedisModule_Log(RSDummyContext, "warning",
+    "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG GET search-oss-global-password` instead");
   return sdsnew("Password: *******");
+}
+
+// global-password
+int set_immutable_cluster_string_config(const char *name, RedisModuleString *val,
+                                      void *privdata, RedisModuleString **err) {
+  REDISMODULE_NOT_USED(name);
+  REDISMODULE_NOT_USED(err);
+  char **ptr = (char **)privdata;
+  size_t len;
+  const char *ret = RedisModule_StringPtrLen(val, &len);
+  *ptr = rm_strndup(ret, len);
+  return REDISMODULE_OK;
+}
+
+RedisModuleString * get_oss_global_password(const char *get_oss_global_password,
+                                            void *privdata) {
+  return RedisModule_CreateString(NULL, "Password: *******", 17);
 }
 
 // CONN_PER_SHARD
@@ -148,6 +167,11 @@ CONFIG_SETTER(setOSSACLUsername) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
   int acrc = AC_GetString(ac, &realConfig->aclUsername, NULL, 0);
   RETURN_STATUS(acrc);
+}
+
+RedisModuleString * get_cluster_string_config(const char *name, void *privdata) {
+  char *str = *(char **)privdata;
+  return RedisModule_CreateString(NULL, str, strlen(str));
 }
 
 // topology-validation-timeout
@@ -267,6 +291,26 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
       (void*)&RSGlobalConfig
     )
   )
+
+  if (clusterConfig.type == ClusterType_RedisOSS) {
+    if (RedisModule_RegisterStringConfig (
+          ctx, "search-oss-global-password", "",
+          REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED | REDISMODULE_CONFIG_SENSITIVE,
+          get_oss_global_password, set_immutable_cluster_string_config, NULL,
+          (void*)&clusterConfig.globalPass) == REDISMODULE_ERR) {
+      return REDISMODULE_ERR;
+    }
+  }
+
+  if (clusterConfig.type == ClusterType_RedisOSS) {
+    if (RedisModule_RegisterStringConfig (
+          ctx, "search-oss-acl-username", DEFAULT_ACL_USERNAME,
+          REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+          get_cluster_string_config, set_immutable_cluster_string_config, NULL,
+          (void*)&clusterConfig.aclUsername) == REDISMODULE_ERR) {
+      return REDISMODULE_ERR;
+    }
+  }
 
   return REDISMODULE_OK;
 }
