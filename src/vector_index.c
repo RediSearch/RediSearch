@@ -88,10 +88,10 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
-        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
-                               "Error parsing vector similarity query: query vector blob size"
-                               , " (%zu) does not match index's expected size (%zu).",
-                               vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
+        QueryError_SetUserDataAgnosticErrorFmt(q->status, QUERY_EINVAL,
+                                               "Error parsing vector similarity query: query vector blob size"
+                                               , " (%zu) does not match index's expected size (%zu).",
+                                               vq->knn.vecLen, (dim * VecSimType_sizeof(type)));
         return NULL;
       }
       VecsimQueryType queryType = child_it != NULL ? QUERY_TYPE_HYBRID : QUERY_TYPE_KNN;
