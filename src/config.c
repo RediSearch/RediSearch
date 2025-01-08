@@ -99,7 +99,7 @@ CONFIG_GETTER(getForkGCSleep) {
 CONFIG_SETTER(setMaxDocTableSize) {
   size_t newsize = 0;
   int acrc = AC_GetSize(ac, &newsize, AC_F_GE1);
-  CHECK_RETURN_PARSE_ERROR(acrc);
+  CHECK_RETURN_PARSE_ERROR(acrc)
   if (newsize > MAX_DOC_TABLE_SIZE) {
     QueryError_SetError(status, QUERY_ELIMIT, "Value exceeds maximum possible document table size");
     return REDISMODULE_ERR;
@@ -115,19 +115,21 @@ CONFIG_GETTER(getMaxDocTableSize) {
 
 // MAXSEARCHRESULTS
 CONFIG_SETTER(setMaxSearchResults) {
-  long long newsize = 0;
-  int acrc = AC_GetLongLong(ac, &newsize, 0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (newsize == -1) {
-    newsize = UINT64_MAX;
+  long long newSize = 0;
+  int acrc = AC_GetLongLong(ac, &newSize, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc)
+  if (newSize < 0) {
+    newSize = MAX_SEARCH_REQUEST_RESULTS;
+  } else {
+    newSize = MIN(newSize, MAX_SEARCH_REQUEST_RESULTS);
   }
-  config->maxSearchResults = newsize;
+  config->maxSearchResults = newSize;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMaxSearchResults) {
   sds ss = sdsempty();
-  if (config->maxSearchResults == UINT64_MAX) {
+  if (config->maxSearchResults == MAX_SEARCH_REQUEST_RESULTS) {
     return sdscatprintf(ss, "unlimited");
   }
   return sdscatprintf(ss, "%lu", config->maxSearchResults);
@@ -135,19 +137,21 @@ CONFIG_GETTER(getMaxSearchResults) {
 
 // MAXAGGREGATERESULTS
 CONFIG_SETTER(setMaxAggregateResults) {
-  long long newsize = 0;
-  int acrc = AC_GetLongLong(ac, &newsize, 0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (newsize == -1) {
-    newsize = UINT64_MAX;
+  long long newSize = 0;
+  int acrc = AC_GetLongLong(ac, &newSize, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc)
+  if (newSize < 0) {
+    newSize = MAX_AGGREGATE_REQUEST_RESULTS;
+  } else {
+    newSize = MIN(newSize, MAX_AGGREGATE_REQUEST_RESULTS);
   }
-  config->maxAggregateResults = newsize;
+  config->maxAggregateResults = newSize;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMaxAggregateResults) {
   sds ss = sdsempty();
-  if (config->maxAggregateResults == UINT64_MAX) {
+  if (config->maxAggregateResults == MAX_AGGREGATE_REQUEST_RESULTS) {
     return sdscatprintf(ss, "unlimited");
   }
   return sdscatprintf(ss, "%lu", config->maxAggregateResults);
@@ -1013,7 +1017,7 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", config->cursorMaxIdle);
   ss = sdscatprintf(ss, "max doctable size: %lu, ", config->maxDocTableSize);
   ss = sdscatprintf(ss, "max number of search results: ");
-  ss = (config->maxSearchResults == UINT64_MAX)
+  ss = (config->maxSearchResults == MAX_SEARCH_REQUEST_RESULTS)
            ?  // value for MaxSearchResults
            sdscatprintf(ss, "unlimited, ")
            : sdscatprintf(ss, " %lu, ", config->maxSearchResults);
