@@ -117,8 +117,8 @@ jobs:
               git remote add origin "$REPO_URL"
 
               # Fetch and checkout ref
-              git fetch origin "${{ github.ref }}" || {
-                echo "Failed to fetch ref: '${{ github.ref }}'";
+              git fetch origin "${{ env.REF }}" || {
+                echo "Failed to fetch ref: '${{ env.REF }}'";
                 exit 1;
               }
               git checkout "${{ env.REF }}"  # Check out the fetched ref
