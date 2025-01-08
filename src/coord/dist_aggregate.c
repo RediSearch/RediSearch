@@ -129,7 +129,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep) {
     if (map && MRReply_Type(map) == MR_REPLY_MAP) {
       results = MRReply_MapElement(map, "results");
       if (cmd->forProfiling) results = MRReply_MapElement(results, "results"); // profile has an extra level
-      if (results && MRReply_Type(results) == MR_REPLY_ARRAY) {
+      if (results && MRReply_Type(results) == MR_REPLY_ARRAY && MRReply_Length(results) > 0) {
         MRIteratorCallback_AddReply(ctx, rep); // to be picked up by getNextReply
         // User code now owns the reply, so we can't free it here ourselves!
         rep = NULL;
