@@ -35,7 +35,7 @@ static void maybeFrisoInit() {
   friso_g = friso_new();
   config_g = friso_new_config();
 
-  if (configfile) {
+  if (configfile && strlen(configfile)) {
     if (!friso_init_from_ifile(friso_g, config_g, (char *)configfile)) {
       fprintf(stderr, "Failed to initialize friso. Abort\n");
       abort();

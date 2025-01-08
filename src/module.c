@@ -882,6 +882,8 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
+  RedisModule_Log(ctx, "warning", "FT.CONFIG is deprecated, please use CONFIG instead");
+
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   const char *action = RedisModule_StringPtrLen(argv[1], NULL);
@@ -1023,7 +1025,7 @@ int IsEnterprise() {
 }
 
 int CheckSupportedVestion() {
-  if (CompareVestions(redisVersion, supportedVersion) < 0) {
+  if (CompareVersions(redisVersion, supportedVersion) < 0) {
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
@@ -1073,6 +1075,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
 
+  // Read module configuration from module ARGS
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
     rm_free(err);
@@ -3492,14 +3495,34 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RSConfigOptions_AddConfigs(&RSGlobalConfigOptions, GetClusterConfigOptions());
   ClusterConfig_RegisterTriggers();
 
+  // Register the module configuration parameters
+  GetRedisVersion(ctx);
+  const Version unstableRedis = {8, 0, 0};
+  const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
+  if (unprefixedConfigSupported) {
+    if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
+      RedisModule_Log(ctx, "warning", "Error registering module configuration");
+      return REDISMODULE_ERR;
+    }
+  }
+
+  // Check if we are actually in cluster mode
+  const bool isClusterEnabled = checkClusterEnabled(ctx);
+
+  // Apply configuration
+  if (unprefixedConfigSupported) {
+    if (isClusterEnabled) {
+      // Register module configuration parameters for cluster
+      RM_TRY_F(RegisterClusterModuleConfig, ctx);
+    }
+    RM_TRY_F(RedisModule_LoadConfigs, ctx);
+  }
+
   // Init RediSearch internal search
   if (RediSearch_InitModuleInternal(ctx, argv, argc) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not init search library...");
     return REDISMODULE_ERR;
   }
-
-  // Check if we are actually in cluster mode
-  bool isClusterEnabled = checkClusterEnabled(ctx);
 
   // Init the global cluster structs
   if (initSearchCluster(ctx, argv, argc, isClusterEnabled) == REDISMODULE_ERR) {
