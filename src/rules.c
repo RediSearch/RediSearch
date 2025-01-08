@@ -118,7 +118,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     }
     if (RSGlobalConfig.multibyteChars) {
       const char *locale = RSLanguage_ToLocale(lang);
-      const char* currentLocale = querylocale(LC_ALL_MASK, NULL);
+      const char* currentLocale = setlocale(LC_ALL, NULL);
 
       if (strcmp(currentLocale, locale) != 0) {
         // Check if the locale is available in the system

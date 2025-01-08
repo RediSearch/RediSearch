@@ -16,8 +16,10 @@
 #include <wctype.h>
 #include <wchar.h>
 #include <locale.h>
-#include <xlocale.h>
 #include <language.h>
+#if defined(__APPLE__)
+#include <xlocale.h>
+#endif
 
 typedef struct {
   RSTokenizer base;
@@ -97,8 +99,8 @@ static char *DefaultNormalize_utf8(char *s, char *dst, size_t *len,
   locale_t old_locale_t = (locale_t)0;
   locale_t new_locale_t = (locale_t)0;
 
-  // Get the current thread-specific locale
-  const char* currentLocale = querylocale(LC_ALL_MASK, NULL);
+  // Get the current locale settings
+  const char *currentLocale = setlocale(LC_ALL, NULL);
 
   if (strcmp(currentLocale, locale) != 0) {
     new_locale_t = newlocale(LC_ALL_MASK, locale, (locale_t)0);
@@ -177,8 +179,6 @@ static char *DefaultNormalize_utf8(char *s, char *dst, size_t *len,
 }
 
 static char *DefaultNormalize(char *s, char *dst, size_t *len, const char *locale) {
-  char* currentLocale = setlocale(LC_CTYPE, NULL);
-
   if (RSGlobalConfig.multibyteChars) {
     return DefaultNormalize_utf8(s, dst, len, locale);
   } else {
