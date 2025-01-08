@@ -2445,6 +2445,7 @@ def test_max_knn_k():
     env.expect('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB AS {score_name.lower()}]',
                'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
                'RETURN', '1', score_name).error().contains('KNN K parameter is too large')
+    
 def test_vector_index_ptr_valid(env):
     conn = getConnectionByEnv(env)
     # Scenerio1: Vecsim Index scheme with numeric (or non-vector type) and vector type with invalid parameter
