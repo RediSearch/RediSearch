@@ -6,12 +6,13 @@
 
 #pragma once
 #include "redismodule.h"
-#include "hiredis/sds.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+// forward declaration for sds
+typedef char *sds;
 
 // Unicode Strings support
 

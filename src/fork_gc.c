@@ -800,7 +800,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     }
     if (!Trie_Delete(sctx->spec->terms, term, len)) {
       RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting the term '%s' from"
-                      " trie in index '%s' failed", term, sctx->spec->name);
+                      " trie in index '%s' failed", term, IndexSpec_FormatName(sctx->spec, RSGlobalConfig.hideUserDataFromLog));
     }
     sctx->spec->stats.numTerms--;
     sctx->spec->stats.termsSize -= len;
@@ -953,7 +953,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     RedisSearchCtx_LockSpecWrite(sctx);
 
     if (!initialized) {
-      fs = IndexSpec_GetField(sctx->spec, fieldName);
+      fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, strlen(fieldName));
       keyName = IndexSpec_GetFormattedKey(sctx->spec, fs, fs->types);
       rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
       initialized = true;

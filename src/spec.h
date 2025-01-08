@@ -408,6 +408,7 @@ void IndexSpecCache_Decref(IndexSpecCache *cache);
  * Return the field spec if found, NULL if not
  */
 const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenString *name);
+const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char *name, size_t len);
 
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 

@@ -97,7 +97,7 @@ static void Cursors_initSpec(IndexSpec *spec) {
  * Return the field spec if found, NULL if not.
  * Assuming the spec is properly locked before calling this function.
  */
-const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name, size_t len) {
+const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char *name, size_t len) {
   for (size_t i = 0; i < spec->numFields; i++) {
     const FieldSpec *fs = spec->fields + i;
     if (!HiddenString_CompareC(fs->fieldName, name, len)) {
@@ -1128,7 +1128,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       fieldPath = NULL;
     }
 
-    if (IndexSpec_GetField(sp, fieldName, namelen)) {
+    if (IndexSpec_GetFieldWithLength(sp, fieldName, namelen)) {
       QueryError_SetErrorFmt(status, QUERY_EINVAL, "Duplicate field in schema", " - %s", fieldName);
       goto reset;
     }

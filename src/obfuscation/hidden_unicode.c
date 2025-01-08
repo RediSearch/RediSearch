@@ -1,3 +1,4 @@
+#include "hiredis/sds.h"
 #include "obfuscation/hidden_unicode.h"
 
 HiddenUnicodeString *NewHiddenUnicodeString(const char *name) {

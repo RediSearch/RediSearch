@@ -11,6 +11,7 @@
 #include "rmutil/rm_assert.h"
 #include "query_node.h"
 #include "query_param.h"
+#include "query_error.h"
 
 static double extractUnitFactor(GeoDistance unit);
 

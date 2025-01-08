@@ -5,6 +5,7 @@
  */
 
 #include "debug_commands.h"
+#include "info/info_command.h"
 #include "coord/src/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
 #include "inverted_index.h"
@@ -70,7 +71,7 @@ static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
 static RedisModuleString *getFieldKeyName(IndexSpec *spec, RedisModuleString *fieldNameRS,
                                           FieldType t) {
   const char *fieldName = RedisModule_StringPtrLen(fieldNameRS, NULL);
-  const FieldSpec *fieldSpec = IndexSpec_GetField(spec, fieldName, strlen(fieldName));
+  const FieldSpec *fieldSpec = IndexSpec_GetFieldWithLength(spec, fieldName, strlen(fieldName));
   if (!fieldSpec) {
     return NULL;
   }
@@ -275,7 +276,7 @@ DEBUG_COMMAND(DumpGeometryIndex) {
   }
   GET_SEARCH_CTX(argv[2])
   const char *fieldName = RedisModule_StringPtrLen(argv[3], NULL);
-  const FieldSpec *fs = IndexSpec_GetField(sctx->spec, fieldName, strlen(fieldName));
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, strlen(fieldName));
   if (!fs) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
