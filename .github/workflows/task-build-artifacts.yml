@@ -118,7 +118,7 @@ jobs:
               git clone $REPO_URL setup  # Clone the repository into the 'setup' directory
 
               # Fetch and checkout ref
-              git fetch origin "${{ env.REF }}" || {
+              git fetch origin --tags || {
                 echo "Failed to fetch ref: '${{ env.REF }}'";
                 exit 1;
               }
