@@ -162,7 +162,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       VecSimParams vec_params = fs->vectorOpts.vecSimParams;
       VecSimAlgo field_algo = vec_params.algo;
       AlgoParams algo_params = vec_params.algoParams;
-
+      VectorIndexStats info = IndexSpec_GetVectorIndexFieldStats(sp, fs);
+      
       if (field_algo == VecSimAlgo_TIERED) {
         VecSimParams *primary_params = algo_params.tieredParams.primaryIndexParams;
         if (primary_params->algo == VecSimAlgo_HNSWLIB) {
@@ -180,6 +181,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         REPLY_KVINT("dim", algo_params.bfParams.dim);
         REPLY_KVSTR("distance_metric", VecSimMetric_ToString(algo_params.bfParams.metric));
       }
+      REPLY_KVNUM("memory", info.memory);
+      REPLY_KVNUM("marked_deleted", info.marked_deleted);
     }
 
     if (has_map) {

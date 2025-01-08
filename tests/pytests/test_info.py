@@ -52,7 +52,7 @@ def test_vecsim_info():
 
   for alg in ["HNSW", "FLAT"]:
     info_expected = {"identifier": "vec", "attribute": "vec", "type": "VECTOR", "algorithm": alg,
-                     "dim": dim, "flags": []}
+                     "dim": dim, "flags": [], 'marked_deleted': ANY, 'memory': ANY}
     additional_params = {"M": 12, "ef_construction": 100} if alg == "HNSW" else {}
     info_expected.update(additional_params)
     # for each data type
