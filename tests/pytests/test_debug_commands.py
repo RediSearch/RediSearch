@@ -55,7 +55,7 @@ class TestDebugCommands(object):
             "WORKERS",
             "INDEXES",
             "INFO",
-            'GET_HIDE_USER_DATA_FROM_LOG',
+            'GET_HIDE_USER_DATA_FROM_LOGS',
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
@@ -402,10 +402,10 @@ def testIndexes(env: Env):
 # Didn't want to "break" the API by adding a new config parameter
 def test_hideUserDataFromLogs(env):
     env.skipOnCluster()
-    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOG')
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
     env.assertEqual(value, 0)
     env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'yes').ok()
-    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOG').ok()
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS').ok()
     env.assertEqual(value, 1)
     env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'no').ok()
     env.assertEqual(value, 0)
