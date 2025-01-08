@@ -100,8 +100,8 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
         return NULL;
       }
       if (vq->knn.k > MAX_KNN_K) {
-        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
-                               "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
+        QueryError_SetUserDataAgnosticErrorFmt(q->status, QUERY_EINVAL,
+                                               "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
         return NULL;
       }
       HybridIteratorParams hParams = {.index = vecsim,
