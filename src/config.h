@@ -258,7 +258,8 @@ void UpgradeDeprecatedMTConfigs();
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
-    .extLoad = NULL,                                                           \
+    .extLoad = "",                                                             \
+    .frisoIni = "",                                                            \
     .gcConfigParams.enableGC = 1,                                              \
     .iteratorsConfigParams.minTermPrefix = DEFAULT_MIN_TERM_PREFIX,            \
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \
@@ -281,9 +282,9 @@ void UpgradeDeprecatedMTConfigs();
     .gcConfigParams.forkGc.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
     .noMemPool = 0,                                                            \
     .filterCommands = 0,                                                       \
-    .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                            \
-    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,                                                 \
-    .iteratorsConfigParams.minUnionIterHeap = DEFAULT_UNION_ITERATOR_HEAP,                              \
+    .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \
+    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,              \
+    .iteratorsConfigParams.minUnionIterHeap = DEFAULT_UNION_ITERATOR_HEAP,     \
     .numericCompress = false,                                                  \
     .numericTreeMaxDepthRange = 0,                                             \
     .requestConfigParams.printProfileClock = 1,                                \
