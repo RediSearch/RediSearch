@@ -150,10 +150,7 @@ int set_immutable_string_config(const char *name, RedisModuleString *val, void *
 
 RedisModuleString * get_string_config(const char *name, void *privdata) {
   char *str = *(char **)privdata;
-  if (str) {
-    return RedisModule_CreateString(NULL, str, strlen(str));
-  }
-  return NULL;
+  return RedisModule_CreateString(NULL, str, strlen(str));
 }
 
 // EXTLOAD
