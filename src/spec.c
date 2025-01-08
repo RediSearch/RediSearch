@@ -1034,12 +1034,12 @@ size_t IndexSpec_VectorIndexSize(IndexSpec *sp) {
   return total_memory;
 }
 
-VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp) {
+VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
   VectorIndexStats stats = {0};
   for (size_t i = 0; i < sp->numFields; ++i) {
     const FieldSpec *fs = sp->fields + i;
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      VectorIndexStats field_stats = IndexSpec_GetVectorIndexFieldStats(sp, fs);
+      VectorIndexStats field_stats = IndexSpec_GetVectorIndexStats(sp, fs);
       stats.memory += field_stats.memory;
       stats.marked_deleted += field_stats.marked_deleted;
     }
@@ -1047,7 +1047,7 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp) {
   return stats;
 }
 
-VectorIndexStats IndexSpec_GetVectorIndexFieldStats(IndexSpec *sp, const FieldSpec *fs){
+VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *fs){
   VectorIndexStats stats = {0};
   RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
   VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);

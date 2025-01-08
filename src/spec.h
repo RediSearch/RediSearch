@@ -533,13 +533,13 @@ typedef struct {
 /**
  * Return the total stats sum of all vector indexes in an index.
  */
-VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp);
+VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp);
 
 /**
 /**
  * Get an index's vector index stats for the field fs.
  */
-VectorIndexStats IndexSpec_GetVectorIndexFieldStats(IndexSpec *sp, const FieldSpec *fs);
+VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *fs);
 
 /**
  * Gets the next text id from the index. This does not currently

@@ -162,7 +162,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       VecSimParams vec_params = fs->vectorOpts.vecSimParams;
       VecSimAlgo field_algo = vec_params.algo;
       AlgoParams algo_params = vec_params.algoParams;
-      VectorIndexStats info = IndexSpec_GetVectorIndexFieldStats(sp, fs);
+      VectorIndexStats info = IndexSpec_GetVectorIndexStats(sp, fs);
       
       if (field_algo == VecSimAlgo_TIERED) {
         VecSimParams *primary_params = algo_params.tieredParams.primaryIndexParams;

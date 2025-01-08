@@ -34,8 +34,8 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     if (info.max_mem < cur_mem) info.max_mem = cur_mem;
     info.indexing_time += sp->stats.totalIndexTime;
 
-    // Vector index stats
-    VectorIndexStats vec_info = IndexSpec_GetVectorIndexStats(sp);
+    // Vector indexes stats
+    VectorIndexStats vec_info = IndexSpec_GetVectorIndexesStats(sp);
     info.fields_stats.total_vector_idx_mem += vec_info.memory;
     info.fields_stats.total_mark_deleted_vectors += vec_info.marked_deleted;
 
