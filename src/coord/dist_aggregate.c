@@ -241,6 +241,7 @@ static void RPNet_resetCurrent(RPNet *nc) {
     nc->current.rows = NULL;
     nc->current.results_len = 0;
 }
+
 static int getNextReply(RPNet *nc) {
   if (nc->cmd.forCursor) {
     // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
@@ -255,6 +256,7 @@ static int getNextReply(RPNet *nc) {
   if (root == NULL) {
     // No more replies
     RPNet_resetCurrent(nc);
+    return MRIterator_GetPending(nc->it);
   }
 
   // Check if an error was returned
@@ -340,7 +342,6 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
 
   if (rows) {
       bool resp3 = MRReply_Type(rows) == MR_REPLY_MAP;
-      size_t len;
 
       if (nc->curIdx == nc->current.results_len) {
         bool timed_out = false;
@@ -425,8 +426,6 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
       nc->curIdx = 1;
     }
   }
-
-  if (!nc->current.results_len) return RS_RESULT_OK;
 
   if (resp3) // RESP3
   {
