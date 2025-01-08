@@ -2,8 +2,9 @@ name: Release a Version
 
 # Added these to use JWT token to connect with AWS
 permissions:
-  id-token: write   # This is required for requesting the JWT
-  contents: write   # This is required for actions/checkout
+  id-token:       write   # This is required for requesting the JWT
+  contents:       write   # This is required for actions/checkout (read) and to push commits (write)
+  pull-requests:  write   # This is required for creating a PR
 
 on:
   release:
