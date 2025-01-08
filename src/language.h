@@ -50,6 +50,7 @@ typedef enum {
 /* check if a language is supported by our stemmers */
 RSLanguage RSLanguage_Find(const char *language, size_t len);
 const char *RSLanguage_ToString(RSLanguage language);
+const char *RSLanguage_ToLocale(RSLanguage language);
 
 #ifdef __cplusplus
 }

@@ -322,13 +322,15 @@ expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
 }
 
 expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
-    A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
+    const char* locale = RSLanguage_ToLocale(ctx->sctx->spec->rule->lang_default);
+    A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len, locale), -1);
     A->opts.flags |= QueryNode_Verbatim;
 
 }
 
 expr(A) ::= term(B) . [LOWEST]  {
-   A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
+    const char* locale = RSLanguage_ToLocale(ctx->sctx->spec->rule->lang_default);
+    A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len, locale), -1);
 }
 
 expr(A) ::= affix(B) . [PREFIX]  {
@@ -345,13 +347,15 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 
 termlist(A) ::= term(B) term(C). [TERMLIST]  {
     A = NewPhraseNode(0);
-    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1));
-    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len), -1));
+    const char* locale = RSLanguage_ToLocale(ctx->sctx->spec->rule->lang_default);
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(B.s, B.len, locale), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len, locale), -1));
 }
 
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
-    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len), -1));
+    const char* locale = RSLanguage_ToLocale(ctx->sctx->spec->rule->lang_default);
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_strdupcase(C.s, C.len, locale), -1));
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {

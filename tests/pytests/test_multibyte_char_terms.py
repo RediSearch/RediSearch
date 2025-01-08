@@ -2,21 +2,11 @@
 
 from common import *
 from RLTest import Env
-import locale
-
-
-def is_locale_available(locale_name):
-    try:
-        locale.setlocale(locale.LC_ALL, locale_name)
-        return True
-    except locale.Error:
-        return False
 
 def testMultibyteChars(env):
     ''' Test that multibyte characters are correctly converted to lowercase and
     that queries are case-insensitive.'''
-    if not is_locale_available('en_US.UTF-8'):
-        env.skip()
+    env.cmd(config_cmd(), 'SET', 'MULTIBYTE_CHARS', 'true')
 
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
@@ -93,8 +83,7 @@ def testMultibyteChars(env):
 
 def testRussianAlphabet(env):
     '''Test that the russian alphabet is correctly indexed and searched.'''
-    if not is_locale_available('en_US.UTF-8'):
-        env.skip()
+    env.cmd(config_cmd(), 'SET', 'MULTIBYTE_CHARS', 'true')
 
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
@@ -151,12 +140,10 @@ def testDiacritics(env):
     ''' Test that caracters with diacritics are converted to lowercase, but the
     diacritics are not removed.
     '''
-    if not is_locale_available('en_US.UTF-8'):
-        env.skip()
-
+    env.cmd(config_cmd(), 'SET', 'MULTIBYTE_CHARS', 'true')
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
-            'LANGUAGE', 'ENGLISH', 'SCHEMA', 't', 'TEXT')
+            'LANGUAGE', 'SPANISH', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
 
     conn.execute_command('HSET', 'test:1', 't', 'éèêë')
     conn.execute_command('HSET', 'test:2', 't', 'ÉÈÊË')
@@ -182,13 +169,12 @@ def testDiacritics(env):
         # only 9 terms are indexed, the lowercase representation of the terms
         # with diacritics, but the diacritis are not removed.
         env.assertEqual(len(res), 9)
+        env.assertEqual(res, ['àâä', 'æ', 'ç', 'éèêë', 'îï', 'ôö', 'ùûü', 'ÿ', 'œ'])
 
 def testDiacriticLimitation(env):
     ''' Test that the diacritics are not removed, so the terms with diacritics
     are not found when searching for terms without diacritics, and vice versa.'''
-    if not is_locale_available('en_US.UTF-8'):
-        env.skip()
-
+    env.cmd(config_cmd(), 'SET', 'MULTIBYTE_CHARS', 'true')
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
             'LANGUAGE', 'FRENCH', 'SCHEMA', 't', 'TEXT')
@@ -232,8 +218,7 @@ def testStopWords(env):
     '''Test that stopwords are not indexed, but for multibyte characters they
     are not converted to lowercase correctly. This is a limitation that will be
     fixed by MOD-8443'''
-    if not is_locale_available('en_US.UTF-8'):
-        env.skip()
+    env.cmd(config_cmd(), 'SET', 'MULTIBYTE_CHARS', 'true')
 
     conn = getConnectionByEnv(env)
     # test with russian lowercase stopwords
@@ -302,10 +287,7 @@ def testStopWords(env):
 
 def testInvalidMultiByteSequence(env):
     ''' Test that invalid multi-byte sequences are ignored when indexing terms.'''
-
-    if not is_locale_available('en_US.UTF-8'):
-        env.skip()
-
+    env.cmd(config_cmd(), 'SET', 'MULTIBYTE_CHARS', 'true')
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
             'SCHEMA', 't', 'TEXT')
     conn = getConnectionByEnv(env)

@@ -454,6 +454,10 @@ CONFIG_GETTER(getMinPhoneticTermLen) {
   return sdscatprintf(ss, "%lu", config->minPhoneticTermLen);
 }
 
+// MULTIBYTE_CHARS
+CONFIG_BOOLEAN_SETTER(setMultibyteChars, multibyteChars)
+CONFIG_BOOLEAN_GETTER(getMultibyteChars, multibyteChars, 0)
+
 // _NUMERIC_COMPRESS
 CONFIG_BOOLEAN_SETTER(setNumericCompress, numericCompress)
 CONFIG_BOOLEAN_GETTER(getNumericCompress, numericCompress, 0)
@@ -927,6 +931,10 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "overall estimated number of results instead.",
          .setValue = set_PrioritizeIntersectUnionChildren,
          .getValue = get_PrioritizeIntersectUnionChildren},
+        {.name = "MULTIBYTE_CHARS",
+         .helpText = "Enable multibyte characters support",
+         .setValue = setMultibyteChars,
+         .getValue = getMultibyteChars},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {

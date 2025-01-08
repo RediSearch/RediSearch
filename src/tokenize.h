@@ -66,6 +66,7 @@ typedef struct {
   uint32_t lastOffset;
   uint16_t options;
   bool empty_input;
+  RSLanguage language;
 } TokenizerCtx;
 
 typedef struct RSTokenizer {
@@ -101,7 +102,7 @@ RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint
  */
 RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords);
 RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords);
-RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords);
+RSTokenizer *GetSimpleTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords);
 void Tokenizer_Release(RSTokenizer *t);
 
 #ifdef __cplusplus

@@ -105,3 +105,43 @@ RSLanguage RSLanguage_Find(const char *language, size_t len) {
   }
   return RS_LANG_UNSUPPORTED;
 }
+
+const char *RSLanguage_ToLocale(RSLanguage language) {
+char *ret = NULL;
+  switch (language) {
+    case  RS_LANG_ARABIC:      ret = "ar_AE.UTF-8";   break;
+    case  RS_LANG_ARMENIAN:    ret = "hy_AM";         break;
+    case  RS_LANG_BASQUE:      ret = "eu_ES.UTF-8";   break;
+    case  RS_LANG_CATALAN:     ret = "ca_ES.UTF-8";   break;
+    case  RS_LANG_DANISH:      ret = "da_DK.UTF-8";   break;
+    case  RS_LANG_DUTCH:       ret = "nl_NL.UTF-8";   break;
+    case  RS_LANG_ENGLISH:     ret = "en_US.UTF-8";   break;
+    case  RS_LANG_FINNISH:     ret = "fi_FI.UTF-8";   break;
+    case  RS_LANG_FRENCH:      ret = "fr_FR.UTF-8";   break;
+    case  RS_LANG_GERMAN:      ret = "de_DE.UTF-8";   break;
+    case  RS_LANG_GREEK:       ret = "el_GR.UTF-8";   break;
+    case  RS_LANG_HINDI:       ret = "hi_IN";         break;
+    case  RS_LANG_HUNGARIAN:   ret = "hu_HU.UTF-8";   break;
+    case  RS_LANG_INDONESIAN:  ret = "id_ID.UTF-8";   break;
+    case  RS_LANG_IRISH:       ret = "ga_IE.UTF-8";   break;
+    case  RS_LANG_ITALIAN:     ret = "it_IT.UTF-8";   break;
+    case  RS_LANG_LITHUANIAN:  ret = "lt_LT.UTF-8";   break;
+    case  RS_LANG_NEPALI:      ret = "ne_NP";         break;
+    case  RS_LANG_NORWEGIAN:   ret = "en_US.UTF-8";   break;
+    case  RS_LANG_PORTUGUESE:  ret = "pt_PT.UTF-8";   break;
+    case  RS_LANG_ROMANIAN:    ret = "ro_RO.UTF-8";   break;
+    case  RS_LANG_RUSSIAN:     ret = "ru_RU.UTF-8";   break;
+    case  RS_LANG_SERBIAN:     ret = "sr_RS";         break;
+    case  RS_LANG_SPANISH:     ret = "es_ES.UTF-8";   break;
+    case  RS_LANG_SWEDISH:     ret = "sv_SE.UTF-8";   break;
+    case  RS_LANG_TAMIL:       ret = "ta_IN";         break;
+    case  RS_LANG_TURKISH:     ret = "tr_TR.UTF-8";   break;
+    case  RS_LANG_YIDDISH:     ret = "en_US.UTF-8";   break;
+    case  RS_LANG_CHINESE:     ret = "";   break;
+    case  RS_LANG_UNSUPPORTED:
+    default:
+      ret = "";   break;
+      break;
+  }
+  return (const char *)ret;
+}

@@ -15,6 +15,9 @@
 #include <wctype.h>
 #include <wchar.h>
 #include <locale.h>
+#include <xlocale.h>
+#include <language.h>
+#include <config.h>
 /* Strconv - common simple string conversion utils */
 
 // Case insensitive string equal
@@ -57,7 +60,7 @@ static int ParseDouble(const char *arg, double *d, int sign) {
       *e != '\0') {
     return 0;
   }
-  
+
   if(sign == -1) {
     *d = -(*d);
   }
@@ -129,9 +132,22 @@ static char *rm_strdupcase_singleByteChars(const char *s, size_t len) {
   return ret;
 }
 
-static char *rm_strdupcase_utf8(const char *s, size_t len) {
-  // TODO: set locale depending on the index language?
-  setlocale(LC_ALL, "en_US.UTF-8");
+static char *rm_strdupcase_utf8(const char *s, size_t len, const char* locale) {
+  locale_t old_locale_t = (locale_t)0;
+  locale_t new_locale_t = (locale_t)0;
+
+  // Get the current thread-specific locale
+  const char* currentLocale = querylocale(LC_ALL_MASK, NULL);
+
+  if (strcmp(currentLocale, locale) != 0) {
+    new_locale_t = newlocale(LC_ALL_MASK, locale, (locale_t)0);
+    if (new_locale_t == (locale_t)0) {
+      RedisModule_Log(NULL, "warning", "Unable to set locale - current:%s new:%s error:%s", currentLocale, locale, strerror(errno));
+      return NULL;
+    }
+    // Save the current locale and switch to the new locale
+    old_locale_t = uselocale(new_locale_t);
+  }
 
   // Allocate memory for the destination string
   char *ret = rm_strndup(s, len);
@@ -174,13 +190,20 @@ static char *rm_strdupcase_utf8(const char *s, size_t len) {
 
   *dst = '\0';
 
+  if (old_locale_t != (locale_t)0) {
+    // Restore the original thread-specific locale
+    uselocale(old_locale_t);
+    // Free the new locale object
+    freelocale(new_locale_t);
+  }
+
   return ret;
 }
 
 // strndup + lowercase in one pass!
-static char *rm_strdupcase(const char *s, size_t len) {
-  if (setlocale(LC_ALL, "en_US.UTF-8") != NULL) {
-    return rm_strdupcase_utf8(s,len);
+static char *rm_strdupcase(const char *s, size_t len, const char* locale) {
+  if (RSGlobalConfig.multibyteChars) {
+    return rm_strdupcase_utf8(s,len, locale);
   } else {
     return rm_strdupcase_singleByteChars(s, len);
   }

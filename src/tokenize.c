@@ -16,6 +16,7 @@
 #include <wctype.h>
 #include <wchar.h>
 #include <locale.h>
+#include <xlocale.h>
 #include <language.h>
 
 typedef struct {
@@ -42,7 +43,7 @@ static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uin
  * removing control characters.
  * - s contains the raw token
  * - dst is the destination buffer which contains the normalized text
- * - len on input contains the length of the raw token. On output contains the 
+ * - len on input contains the length of the raw token. On output contains the
  *   length of the normalized token
  */
 static char *DefaultNormalize_singleByteChars(char *s, char *dst, size_t *len) {
@@ -84,16 +85,30 @@ static char *DefaultNormalize_singleByteChars(char *s, char *dst, size_t *len) {
 
 
 /**
- * Normalize a UTF-8 string, converting it to lower case and removing control 
+ * Normalize a UTF-8 string, converting it to lower case and removing control
  * characters.
  * - s contains the raw token
  * - dst is the destination buffer which contains the normalized text
  * - len on input contains the length of the raw token. On output contains the
  *   length of the normalized token
  */
-static char *DefaultNormalize_utf8(char *s, char *dst, size_t *len) {
-  // TODO: set locale depending on the index language?
-  setlocale(LC_ALL, "en_US.UTF-8");
+static char *DefaultNormalize_utf8(char *s, char *dst, size_t *len,
+                                   const char *locale) {
+  locale_t old_locale_t = (locale_t)0;
+  locale_t new_locale_t = (locale_t)0;
+
+  // Get the current thread-specific locale
+  const char* currentLocale = querylocale(LC_ALL_MASK, NULL);
+
+  if (strcmp(currentLocale, locale) != 0) {
+    new_locale_t = newlocale(LC_ALL_MASK, locale, (locale_t)0);
+    if (new_locale_t == (locale_t)0) {
+      RedisModule_Log(NULL, "warning", "Unable to set locale - current:%s new:%s error:%s", currentLocale, locale, strerror(errno));
+      return NULL;
+    }
+    // Save the current locale and switch to the new locale
+    old_locale_t = uselocale(new_locale_t);
+  }
 
   size_t origLen = *len;   // original length of the token
   char *realDest = s;      // pointer to the current destination buffer
@@ -150,13 +165,22 @@ static char *DefaultNormalize_utf8(char *s, char *dst, size_t *len) {
     escaped = 0;
   }
 
+  if (old_locale_t != (locale_t)0) {
+    // Restore the original thread-specific locale
+    uselocale(old_locale_t);
+    // Free the new locale object
+    freelocale(new_locale_t);
+  }
+
   *len = dstLen;
   return dst;
 }
 
-static char *DefaultNormalize(char *s, char *dst, size_t *len) {
-  if (setlocale(LC_ALL, "en_US.UTF-8") != NULL) {
-    return DefaultNormalize_utf8(s, dst, len);
+static char *DefaultNormalize(char *s, char *dst, size_t *len, const char *locale) {
+  char* currentLocale = setlocale(LC_CTYPE, NULL);
+
+  if (RSGlobalConfig.multibyteChars) {
+    return DefaultNormalize_utf8(s, dst, len, locale);
   } else {
     return DefaultNormalize_singleByteChars(s, dst, len);
   }
@@ -183,7 +207,8 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
       normBuf = tok;
     }
 
-    char *normalized = DefaultNormalize(tok, normBuf, &normLen);
+    const char *locale = RSLanguage_ToLocale(base->ctx.language);
+    char *normalized = DefaultNormalize(tok, normBuf, &normLen, locale);
 
     // ignore tokens that turn into nothing, unless the whole string is empty.
     if ((normalized == NULL || normLen == 0) && !ctx->empty_input) {
@@ -271,11 +296,12 @@ static void tokenizerFree(void *p) {
   t->Free(t);
 }
 
-RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords) {
+RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer,
+                        StopWordList *stopwords) {
   if (language == RS_LANG_CHINESE) {
     return GetChineseTokenizer(stemmer, stopwords);
   } else {
-    return GetSimpleTokenizer(stemmer, stopwords);
+    return GetSimpleTokenizer(language, stemmer, stopwords);
   }
 }
 
@@ -287,17 +313,20 @@ RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   }
 
   RSTokenizer *t = mempool_get(tokpoolCn_g);
+  t->ctx.language = RS_LANG_CHINESE;
   t->Reset(t, stemmer, stopwords, 0);
   return t;
 }
 
-RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
+RSTokenizer *GetSimpleTokenizer(RSLanguage language, Stemmer *stemmer,
+                                StopWordList *stopwords) {
   if (!tokpoolLatin_g) {
     mempool_options opts = {
         .initialCap = 16, .alloc = newLatinTokenizerAlloc, .free = tokenizerFree};
     mempool_test_set_global(&tokpoolLatin_g, &opts);
   }
   RSTokenizer *t = mempool_get(tokpoolLatin_g);
+  t->ctx.language = language;
   t->Reset(t, stemmer, stopwords, 0);
   return t;
 }
