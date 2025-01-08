@@ -87,11 +87,6 @@ static int DIST_AGG_THREADPOOL = -1;
 // Number of shards in the cluster. Hint we can read and modify from the main thread
 size_t NumShards = 0;
 
-// Strings returned by CONFIG GET functions
-RedisModuleString *config_ext_load = NULL;
-RedisModuleString *config_friso_ini = NULL;
-RedisModuleString *config_oss_acl_username = NULL;
-
 static inline bool SearchCluster_Ready() {
   return NumShards != 0;
 }
@@ -1680,11 +1675,16 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
         goto cleanup;
       }
       Param_DictFree(params);
+      params = NULL;
   }
 
   if (queryNode->type == QN_VECTOR) {
     QueryVectorNode queryVectorNode = queryNode->vn;
     size_t k = queryVectorNode.vq->knn.k;
+    if (k > MAX_KNN_K) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
+      goto cleanup;
+    }
     specialCaseCtx *ctx = SpecialCaseCtx_New();
     ctx->knn.k = k;
     ctx->knn.fieldName = queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField;
@@ -3600,20 +3600,4 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1, "read admin dangerous"))
 
   return REDISMODULE_OK;
-}
-
-int RedisModule_OnUnload(RedisModuleCtx *ctx) {
-    if (config_ext_load) {
-        RedisModule_FreeString(ctx, config_ext_load);
-        config_ext_load = NULL;
-    }
-    if (config_friso_ini) {
-        RedisModule_FreeString(ctx, config_friso_ini);
-        config_friso_ini = NULL;
-    }
-    if (config_oss_acl_username) {
-        RedisModule_FreeString(ctx, config_oss_acl_username);
-        config_oss_acl_username = NULL;
-    }
-    return REDISMODULE_OK;
 }

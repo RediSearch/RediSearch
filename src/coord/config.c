@@ -69,16 +69,10 @@ int set_immutable_cluster_string_config(const char *name, RedisModuleString *val
                                       void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
-  RSConfig *config = (RSConfig *)privdata;
-  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   char **ptr = (char **)privdata;
-  if (val) {
-    size_t len;
-    const char *ret = RedisModule_StringPtrLen(val, &len);
-    if (len > 0) {
-      *ptr = rm_strndup(ret, len);
-    }
-  }
+  size_t len;
+  const char *ret = RedisModule_StringPtrLen(val, &len);
+  *ptr = rm_strndup(ret, len);
   return REDISMODULE_OK;
 }
 
@@ -175,11 +169,9 @@ CONFIG_SETTER(setOSSACLUsername) {
   RETURN_STATUS(acrc);
 }
 
-// acl-username
-RedisModuleString * get_oss_acl_username(const char *name, void *privdata) {
+RedisModuleString * get_cluster_string_config(const char *name, void *privdata) {
   char *str = *(char **)privdata;
-  config_oss_acl_username = RedisModule_CreateString(NULL, str, strlen(str));
-  return config_oss_acl_username;
+  return RedisModule_CreateString(NULL, str, strlen(str));
 }
 
 // topology-validation-timeout
@@ -314,7 +306,7 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
     if (RedisModule_RegisterStringConfig (
           ctx, "search-oss-acl-username", DEFAULT_ACL_USERNAME,
           REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-          get_oss_acl_username, set_immutable_cluster_string_config, NULL,
+          get_cluster_string_config, set_immutable_cluster_string_config, NULL,
           (void*)&clusterConfig.aclUsername) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
     }
