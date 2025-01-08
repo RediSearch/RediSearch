@@ -53,7 +53,7 @@ jobs:
           if not valid_tag(tag):
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
           version_branch = '${{ env.checkout_target }}'
-          if not valid_version_branch(version_branch) and ${{ github.event_name }} == 'release':
+          if not valid_version_branch(version_branch) and '${{ github.event_name }}' == 'release':
             raise Exception(f"Version branch {version_branch} does not match the tag {tag}")
 
           import os
@@ -97,9 +97,9 @@ jobs:
           gh pr create \
             --title    "Bump version from ${{ needs.validate-tag.outputs.cur_version }} to ${{ needs.validate-tag.outputs.next_version }}" \
             --body     "This PR was automatically created by the release workflow of ${{ inputs.tag || github.event.release.tag_name }}." \
-            --head     "bump-version-${{ needs.validate-tag.outputs.next_version }}" \
+            --head     "${{ env.BRANCH }}" \
             --base     "${{ env.checkout_target }}" \
-            --reviewer "alonre24,DvirDukhan,oshadmi,${{ github.actor }}" \
+            --reviewer "${{ vars.TEAM_LEADERS }},${{ vars.ISSUES_SHIFT_ASSIGNEE }},${{ github.actor }}" \
             --draft
 
       - name: Trigger CI
@@ -210,4 +210,4 @@ jobs:
           if len(exclude_list) > 0:
               print("::warning title=Unexpected Files::The workflow has encountered files that do not match the "
                     "expected git sha. These files will not be included in the release artifacts. Look for the "
-                    "`Excluded files` section above for more details.")
+                    "`Excluded Files` section above for more details.")
