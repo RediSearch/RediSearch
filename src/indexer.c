@@ -268,7 +268,9 @@ static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
             RedisModuleString *rmstr = IndexSpec_GetFormattedKey(spec, &spec->fields[i], INDEXFLD_T_VECTOR);
-            VecSimIndex *vecsim = OpenVectorIndex(sctx, rmstr);
+            VecSimIndex *vecsim = openVectorKeysDict(spec, rmstr, false);
+            if(!vecsim)
+              continue;
             spec->stats.vectorIndexSize += VecSimIndex_DeleteVector(vecsim, dmd->id);
             // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
           }
