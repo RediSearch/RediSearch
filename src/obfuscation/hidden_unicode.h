@@ -8,6 +8,11 @@
 #include "redismodule.h"
 #include "hiredis/sds.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
 // Unicode Strings support
 
 typedef struct HiddenUnicodeString HiddenUnicodeString;
@@ -21,3 +26,7 @@ sds HiddenUnicodeString_GetUnsafe(const HiddenUnicodeString *value, size_t *leng
 // Creates a redis module string from a hidden string
 RedisModuleString *HiddenUnicodeString_CreateRedisModuleString(const HiddenUnicodeString* value, RedisModuleCtx* ctx);
 void HiddenUnicodeString_SaveToRdb(const HiddenUnicodeString* value, RedisModuleIO* rdb);
+
+#ifdef __cplusplus
+}
+#endif

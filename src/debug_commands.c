@@ -1317,6 +1317,11 @@ DEBUG_COMMAND(ListIndexesSwitch) {
   return REDISMODULE_OK;
 }
 
+DEBUG_COMMAND(getHideUserDataFromLogs) {
+  const long long value = RSGlobalConfig.hideUserDataFromLog;
+  return RedisModule_ReplyWithLongLong(ctx, value);
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1350,6 +1355,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"WORKERS", WorkerThreadsSwitch},
                                {"INDEXES", ListIndexesSwitch},
                                {"INFO", IndexObfuscatedInfo},
+                               {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                {NULL, NULL}};
 
 int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

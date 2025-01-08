@@ -1,5 +1,10 @@
+extern "C" {
+#include "hiredis/sds.h"
+}
+
 #include "gtest/gtest.h"
 #include "obfuscation/hidden.h"
+#include "obfuscation/hidden_unicode.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -35,6 +40,28 @@ TEST_F(HiddenTest, testHiddenCompare) {
   HiddenString_Free(first, true);
   HiddenString_Free(second, true);
   HiddenString_Free(lower, true);
+}
+
+TEST_F(HiddenTest, testHiddenUnicodeCompare) {
+  sds expected = sdsnew("¥£€$®a");
+  HiddenUnicodeString *first = NewHiddenUnicodeString(expected);
+  const char *internalExpected = HiddenUnicodeString_GetUnsafe(first, NULL);
+  sds unicode = sdsnew("¥£€$®A");
+  HiddenUnicodeString *second = NewHiddenUnicodeString(unicode);
+  const char *internalUnicode = HiddenUnicodeString_GetUnsafe(second, NULL);
+  ASSERT_NE(expected, internalExpected);
+  ASSERT_NE(unicode, internalUnicode);
+
+  // Compare Hidden with Hidden
+  ASSERT_NE(HiddenUnicodeString_Compare(first, second), 0);
+  // Compare Hidden with sds
+  ASSERT_EQ(HiddenUnicodeString_CompareC(first, expected), 0);
+  ASSERT_NE(HiddenUnicodeString_CompareC(first, unicode), 0);
+
+  HiddenUnicodeString_Free(first);
+  HiddenUnicodeString_Free(second);
+  sdsfree(expected);
+  sdsfree(unicode);
 }
 
 TEST_F(HiddenTest, testHiddenDuplicate) {

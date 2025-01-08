@@ -55,6 +55,7 @@ class TestDebugCommands(object):
             "WORKERS",
             "INDEXES",
             "INFO",
+            'GET_HIDE_USER_DATA_FROM_LOG',
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
@@ -367,8 +368,25 @@ def testIndexes(env: Env):
     debug_output = env.cmd(debug_cmd(), 'INDEXES')
     env.assertEqual(debug_output, ['Index@4e7f626df794f6491574a236f22c100c34ed804f'])
 
+# For now allowing access to the value through the debug command
+# Maybe in the future it should be accessible through the FT.CONFIG command and the test move to test_config.py
+# Didn't want to "break" the API by adding a new config parameter
+def test_hideUserDataFromLogs(env):
+    env.skipOnCluster()
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOG')
+    env.assertEqual(value, 0)
+    env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'yes').ok()
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOG').ok()
+    env.assertEqual(value, 1)
+    env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'no').ok()
+    env.assertEqual(value, 0)
+
 def testIndexObfuscatedInfo(env: Env):
+    # we create more indexes to cover the found case in the code(it should break from the loop)
+    env.expect('FT.CREATE', 'first', 'SCHEMA', 'name', 'TEXT').ok()
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    env.expect('FT.CREATE', 'last', 'SCHEMA', 'name', 'TEXT').ok()
+
     obfuscated_name = 'Index@4e7f626df794f6491574a236f22c100c34ed804f'
     debug_output = env.cmd(debug_cmd(), 'INFO', obfuscated_name)
     info = to_dict(debug_output[0])
