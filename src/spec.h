@@ -531,7 +531,7 @@ typedef struct {
 } VectorIndexStats;
 
 /**
- * Accumulate and return the total stats of all vector indexes in an index.
+ * Return the total stats sum of all vector indexes in an index.
  */
 VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp);
 
