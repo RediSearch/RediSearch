@@ -148,11 +148,6 @@ int set_immutable_string_config(const char *name, RedisModuleString *val, void *
   return REDISMODULE_OK;
 }
 
-RedisModuleString * get_string_config(const char *name, void *privdata) {
-  char *str = *(char **)privdata;
-  return RedisModule_CreateString(NULL, str, strlen(str));
-}
-
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
   int acrc = AC_GetString(ac, &config->extLoad, NULL, 0);
@@ -165,6 +160,17 @@ CONFIG_GETTER(getExtLoad) {
   } else {
     return NULL;
   }
+}
+
+// ext-load
+RedisModuleString* get_ext_load(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
+  char *str = *(char **)privdata;
+  if (config_ext_load) {
+    RedisModule_FreeString(NULL, config_ext_load);
+  }
+  config_ext_load = RedisModule_CreateString(NULL, str, strlen(str));
+  return config_ext_load;
 }
 
 // NOGC
@@ -514,6 +520,16 @@ CONFIG_GETTER(getFrisoINI) {
   } else {
     return NULL;
   }
+}
+
+// friso-ini
+RedisModuleString * get_friso_ini(const char *name, void *privdata) {
+  char *str = *(char **)privdata;
+  if (config_friso_ini) {
+    RedisModule_FreeString(NULL, config_friso_ini);
+  }
+  config_friso_ini = RedisModule_CreateString(NULL, str, strlen(str));
+  return config_friso_ini;
 }
 
 // ON_TIMEOUT
@@ -1559,7 +1575,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_RegisterStringConfig(
       ctx, "search-ext-load", "",
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-      get_string_config, set_immutable_string_config, NULL,
+      get_ext_load, set_immutable_string_config, NULL,
       (void *)&(RSGlobalConfig.extLoad)
     )
   )
@@ -1568,7 +1584,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_RegisterStringConfig(
       ctx, "search-friso-ini", "",
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-      get_string_config, set_immutable_string_config, NULL,
+      get_friso_ini, set_immutable_string_config, NULL,
       (void *)&(RSGlobalConfig.frisoIni)
     )
   )

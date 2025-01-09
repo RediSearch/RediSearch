@@ -169,9 +169,14 @@ CONFIG_SETTER(setOSSACLUsername) {
   RETURN_STATUS(acrc);
 }
 
-RedisModuleString * get_cluster_string_config(const char *name, void *privdata) {
+// acl-username
+RedisModuleString * get_oss_acl_username(const char *name, void *privdata) {
   char *str = *(char **)privdata;
-  return RedisModule_CreateString(NULL, str, strlen(str));
+  if (config_oss_acl_username) {
+    RedisModule_FreeString(NULL, config_oss_acl_username);
+  }
+  config_oss_acl_username = RedisModule_CreateString(NULL, str, strlen(str));
+  return config_oss_acl_username;
 }
 
 // topology-validation-timeout
@@ -306,7 +311,7 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
     if (RedisModule_RegisterStringConfig (
           ctx, "search-oss-acl-username", DEFAULT_ACL_USERNAME,
           REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-          get_cluster_string_config, set_immutable_cluster_string_config, NULL,
+          get_oss_acl_username, set_immutable_cluster_string_config, NULL,
           (void*)&clusterConfig.aclUsername) == REDISMODULE_ERR) {
       return REDISMODULE_ERR;
     }
