@@ -12,7 +12,7 @@ import itertools
 from redis.client import NEVER_DECODE
 from redis import exceptions as redis_exceptions
 import RLTest
-from typing import Any, Callable
+from typing import Any, Callable, List
 from RLTest import Env
 from RLTest.env import Query
 import numpy as np
@@ -743,6 +743,21 @@ def check_index_info_empty(env, idx, fields, msg="after delete all and gc", dept
     expected_size = getInvertedIndexInitialSize_MB(env, fields, depth=depth+1)
     check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)
 
+def recursive_index(lst, target):
+    for i, element in enumerate(lst):
+        if isinstance(element, list):
+            sublist_index = recursive_index(element, target)
+            if sublist_index is not None:
+                return [i] + sublist_index
+        elif element == target:
+            return [i]
+    return None  
+
+def access_nested_list(y: List[List[Any]], x: List[int]) -> Any:
+    result = y
+    for index in x:
+        result = result[index] 
+    return result
 
 def downloadFile(env, file_name, depth=0):
     path = os.path.join(REDISEARCH_CACHE_DIR, file_name)

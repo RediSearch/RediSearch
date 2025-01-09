@@ -641,3 +641,18 @@ def testPofileGILTime():
   expected_total_GIL_time = ['Total GIL time', ANY]
   env.assertContains(res, expected_result_processor_stats)
   env.assertContains(res[1][1], expected_total_GIL_time)
+
+
+  # extract the GIL time of the threadsafe loader result processor
+  rp_index = recursive_index(res, 'Threadsafe-Loader')[:-1]
+  rp_record = access_nested_list(res, rp_index)
+  rp_GIL_time = rp_record[rp_record.index('GIL-Time') + 1]
+
+  # extract the total GIL time
+  total_GIL_index = recursive_index(res, 'Total GIL time')
+  total_GIL_index[-1] += 1
+  total_GIL_time = access_nested_list(res, total_GIL_index)
+
+  env.assertGreater(float(total_GIL_time), 0)
+  env.assertGreater(float(rp_GIL_time), 0)
+  env.assertGreater(float(total_GIL_time), float(rp_GIL_time))
