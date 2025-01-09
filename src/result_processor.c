@@ -896,7 +896,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
   if (isQueryProfile) {
     clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
-    rs_time_sub(&rpEndTime, &rpStartTime, &rpEndTime);
+    rs_timersub(&rpEndTime, &rpStartTime, &rpEndTime);
     rs_timeradd(&rpEndTime, &rp->GILTime, &rp->GILTime);
     rs_timeradd(&rpEndTime, &rp->parent->GILTime, &rp->parent->GILTime);
   }
