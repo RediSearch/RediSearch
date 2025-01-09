@@ -9,3 +9,4 @@ $MODE apt install -yqq locales
 $MODE localedef -i en_US -f UTF-8 en_US.UTF-8
 $MODE localedef -i ru_RU -f UTF-8 ru_RU.UTF-8
 $MODE localedef -i es_ES -f UTF-8 es_ES.UTF-8
+$MODE localedef -i fr_FR -f UTF-8 fr_FR.UTF-8
