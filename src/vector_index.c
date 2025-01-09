@@ -10,9 +10,8 @@
 #include "query_param.h"
 #include "rdb.h"
 
-static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
+VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName,
                                              int write) {
-  IndexSpec *spec = ctx->spec;
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
@@ -56,7 +55,7 @@ static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *k
 
 VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
                             RedisModuleString *keyName) {
-  return openVectorKeysDict(ctx, keyName, 1);
+  return openVectorKeysDict(ctx->spec, keyName, 1);
 }
 
 IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
@@ -86,7 +85,7 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
-  VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
+  VecSimIndex *vecsim = openVectorKeysDict(ctx->spec, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
   if (!vecsim) {
     return NULL;
@@ -122,6 +121,11 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
       VecsimQueryType queryType = child_it != NULL ? QUERY_TYPE_HYBRID : QUERY_TYPE_KNN;
       if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
                                     &qParams, queryType, q->status) != VecSim_OK)  {
+        return NULL;
+      }
+      if (vq->knn.k > MAX_KNN_K) {
+        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
+                               "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
         return NULL;
       }
       HybridIteratorParams hParams = {.index = vecsim,

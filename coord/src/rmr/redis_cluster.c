@@ -11,6 +11,8 @@
 #include "redismodule.h"
 #include "rmutil/periodic.h"
 #include "version.h"
+#include "module.h"
+#include "util/strconv.h"
 
 #define REDIS_CLUSTER_REFRESH_TIMEOUT 1000
 

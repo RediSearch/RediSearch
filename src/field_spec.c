@@ -8,6 +8,8 @@
 #include "indexer.h"
 #include "rmalloc.h"
 #include "rmutil/rm_assert.h"
+#include "vector_index.h"
+#include "info/global_stats.h"
 
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string
@@ -19,6 +21,8 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
     rm_free(fs->name);
     fs->name = NULL;
   }
+
+  IndexError_Clear(fs->indexError);
 }
 
 void FieldSpec_SetSortable(FieldSpec* fs) {
@@ -38,4 +42,21 @@ const char *FieldSpec_GetTypeNames(int idx) {
     RS_LOG_ASSERT(0, "oops");
     break;
   }
+}
+
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
+  FieldSpecInfo info = {0};
+  FieldSpecInfo_SetIdentifier(&info, fs->path);
+  FieldSpecInfo_SetAttribute(&info, fs->name);
+  FieldSpecInfo_SetIndexError(&info, fs->indexError);
+  return info;
+}
+
+void FieldSpec_AddError(FieldSpec *fs, const char *error_message, RedisModuleString *key) {
+  IndexError_AddError(&fs->indexError, error_message, key);
+  FieldsGlobalStats_UpdateIndexError(fs->types, 1);
+}
+
+size_t FieldSpec_GetIndexErrorCount(const FieldSpec *fs) {
+  return IndexError_ErrorCount(&fs->indexError);
 }

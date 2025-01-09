@@ -394,6 +394,30 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
     return;
   }
 
+  // Check that there is at least one stemmable field in the query
+  if (expCtx->handle && expCtx->handle->spec) {
+    const IndexSpec *spec = expCtx->handle->spec;
+    t_fieldMask fm = qn->opts.fieldMask;
+    if ( fm != RS_FIELDMASK_ALL) {
+      int expand = 0;
+      t_fieldMask bit_mask = 1;
+      while (fm) {
+        if (fm & bit_mask) {
+          const FieldSpec *fs = IndexSpec_GetFieldByBit(spec, bit_mask);
+          if (fs && !FieldSpec_IsNoStem(fs)) {
+            expand = 1;
+            break;
+          }
+        }
+        fm &= ~bit_mask;
+        bit_mask <<= 1;
+      }
+      if (!expand) {
+        return;
+      }
+    }
+  }
+
   if (qn->type == QN_TOKEN) {
     expCtx->currentNode = pqn;
     expander(expCtx, &qn->tn);
@@ -859,7 +883,7 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
 static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_VECTOR, "query node type should be vector");
 
-  if((q->reqFlags & QEXEC_F_IS_EXTENDED)) {
+  if((q->reqFlags & QEXEC_F_IS_AGGREGATE)) {
     QueryError_SetErrorFmt(q->status, QUERY_EAGGPLAN, "VSS is not yet supported on FT.AGGREGATE");
     return NULL;
   }

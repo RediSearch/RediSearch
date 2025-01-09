@@ -130,7 +130,7 @@ CONFIG_GETTER(getForkGCSleep) {
 CONFIG_SETTER(setMaxDocTableSize) {
   size_t newsize = 0;
   int acrc = AC_GetSize(ac, &newsize, AC_F_GE1);
-  CHECK_RETURN_PARSE_ERROR(acrc);
+  CHECK_RETURN_PARSE_ERROR(acrc)
   if (newsize > MAX_DOC_TABLE_SIZE) {
     QueryError_SetError(status, QUERY_ELIMIT, "Value exceeds maximum possible document table size");
     return REDISMODULE_ERR;
@@ -146,19 +146,21 @@ CONFIG_GETTER(getMaxDocTableSize) {
 
 // MAXSEARCHRESULTS
 CONFIG_SETTER(setMaxSearchResults) {
-  long long newsize = 0;
-  int acrc = AC_GetLongLong(ac, &newsize, 0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (newsize == -1) {
-    newsize = UINT64_MAX;
+  long long newSize = 0;
+  int acrc = AC_GetLongLong(ac, &newSize, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc)
+  if (newSize < 0) {
+    newSize = MAX_SEARCH_REQUEST_RESULTS;
+  } else {
+    newSize = MIN(newSize, MAX_SEARCH_REQUEST_RESULTS);
   }
-  config->maxSearchResults = newsize;
+  config->maxSearchResults = newSize;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMaxSearchResults) {
   sds ss = sdsempty();
-  if (config->maxSearchResults == UINT64_MAX) {
+  if (config->maxSearchResults == MAX_SEARCH_REQUEST_RESULTS) {
     return sdscatprintf(ss, "unlimited");
   }
   return sdscatprintf(ss, "%lu", config->maxSearchResults);
@@ -166,19 +168,21 @@ CONFIG_GETTER(getMaxSearchResults) {
 
 // MAXAGGREGATERESULTS
 CONFIG_SETTER(setMaxAggregateResults) {
-  long long newsize = 0;
-  int acrc = AC_GetLongLong(ac, &newsize, 0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (newsize == -1) {
-    newsize = UINT64_MAX;
+  long long newSize = 0;
+  int acrc = AC_GetLongLong(ac, &newSize, 0);
+  CHECK_RETURN_PARSE_ERROR(acrc)
+  if (newSize < 0) {
+    newSize = MAX_AGGREGATE_REQUEST_RESULTS;
+  } else {
+    newSize = MIN(newSize, MAX_AGGREGATE_REQUEST_RESULTS);
   }
-  config->maxAggregateResults = newsize;
+  config->maxAggregateResults = newSize;
   return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getMaxAggregateResults) {
   sds ss = sdsempty();
-  if (config->maxAggregateResults == UINT64_MAX) {
+  if (config->maxAggregateResults == MAX_AGGREGATE_REQUEST_RESULTS) {
     return sdscatprintf(ss, "unlimited");
   }
   return sdscatprintf(ss, "%lu", config->maxAggregateResults);
@@ -829,7 +833,7 @@ sds RSConfig_GetInfoString(const RSConfig *config) {
   ss = sdscatprintf(ss, "cursor max idle (ms): %lld, ", config->cursorMaxIdle);
   ss = sdscatprintf(ss, "max doctable size: %lu, ", config->maxDocTableSize);
   ss = sdscatprintf(ss, "max number of search results: ");
-  ss = (config->maxSearchResults == UINT64_MAX)
+  ss = (config->maxSearchResults == MAX_SEARCH_REQUEST_RESULTS)
            ?  // value for MaxSearchResults
            sdscatprintf(ss, "unlimited, ")
            : sdscatprintf(ss, " %lu, ", config->maxSearchResults);
@@ -913,43 +917,6 @@ int RSConfig_SetOption(RSConfig *config, RSConfigOptions *options, const char *n
   int rc = var->setValue(config, &ac, status);
   *offset += ac.offset;
   return rc;
-}
-
-void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx) {
-  RedisModule_InfoAddSection(ctx, "runtime_configurations");
-
-  RedisModule_InfoAddFieldCString(ctx, "concurrent_mode", RSGlobalConfig.concurrentMode ? "ON" : "OFF");
-  if (RSGlobalConfig.extLoad != NULL) {
-    RedisModule_InfoAddFieldCString(ctx, "extension_load", (char*)RSGlobalConfig.extLoad);
-  }
-  if (RSGlobalConfig.frisoIni != NULL) {
-    RedisModule_InfoAddFieldCString(ctx, "friso_ini", (char*)RSGlobalConfig.frisoIni);
-  }
-  RedisModule_InfoAddFieldCString(ctx, "enableGC", RSGlobalConfig.enableGC ? "ON" : "OFF");
-  RedisModule_InfoAddFieldLongLong(ctx, "minimal_term_prefix", RSGlobalConfig.minTermPrefix);
-  RedisModule_InfoAddFieldLongLong(ctx, "maximal_prefix_expansions", RSGlobalConfig.maxPrefixExpansions);
-  RedisModule_InfoAddFieldLongLong(ctx, "query_timeout_ms", RSGlobalConfig.queryTimeoutMS);
-  RedisModule_InfoAddFieldCString(ctx, "timeout_policy", (char*)TimeoutPolicy_ToString(RSGlobalConfig.timeoutPolicy));
-  RedisModule_InfoAddFieldLongLong(ctx, "cursor_read_size", RSGlobalConfig.cursorReadSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "cursor_max_idle_time", RSGlobalConfig.cursorMaxIdle);
-
-  RedisModule_InfoAddFieldLongLong(ctx, "max_doc_table_size", RSGlobalConfig.maxDocTableSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "max_search_results", RSGlobalConfig.maxSearchResults);
-  RedisModule_InfoAddFieldLongLong(ctx, "max_aggregate_results", RSGlobalConfig.maxAggregateResults);
-  RedisModule_InfoAddFieldLongLong(ctx, "search_pool_size", RSGlobalConfig.searchPoolSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "index_pool_size", RSGlobalConfig.indexPoolSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcScanSize);
-  RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length", RSGlobalConfig.minPhoneticTermLen);
-}
-
-void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx) {
-  RedisModule_InfoAddSection(ctx, "dialect_statistics");
-  for (int dialect = MIN_DIALECT_VERSION; dialect <= MAX_DIALECT_VERSION; ++dialect) {
-    char field[16] = {0};
-    snprintf(field, sizeof field, "dialect_%d", dialect);
-    // extract the d'th bit of the dialects bitfield.
-    RedisModule_InfoAddFieldULongLong(ctx, field, GET_DIALECT(RSGlobalConfig.used_dialects, dialect));
-  }
 }
 
 const char *TimeoutPolicy_ToString(RSTimeoutPolicy policy) {

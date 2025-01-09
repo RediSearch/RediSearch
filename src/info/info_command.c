@@ -10,6 +10,9 @@
 #include "vector_index.h"
 #include "cursor.h"
 #include "reply_macros.h"
+#include "redis_index.h"
+#include "info/global_stats.h"
+#include "util/units.h"
 
 #define REPLY_KVNUM(n, k, v)                       \
   do {                                             \
@@ -204,15 +207,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM(n, "inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   REPLY_KVNUM(n, "vector_index_sz_mb", sp->stats.vectorIndexSize / (float)0x100000);
   REPLY_KVNUM(n, "total_inverted_index_blocks", TotalIIBlocks);
-  // REPLY_KVNUM(n, "inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
-
-  // REPLY_KVNUM(n, "inverted_cap_ovh", 0);
-  //(float)(sp->stats.invertedCap - sp->stats.invertedSize) / (float)sp->stats.invertedCap);
 
   REPLY_KVNUM(n, "offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
-  // REPLY_KVNUM(n, "skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
-  //  REPLY_KVNUM(n, "score_index_size_mb", sp->stats.scoreIndexesSize / (float)0x100000);
-
   REPLY_KVNUM(n, "doc_table_size_mb", sp->docs.memsize / (float)0x100000);
   REPLY_KVNUM(n, "sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
 
@@ -232,7 +228,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
               (float)sp->stats.offsetVecRecords / (float)sp->stats.numRecords);
   REPLY_KVNUM(n, "offset_bits_per_record_avg",
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
-  REPLY_KVNUM(n, "hash_indexing_failures", sp->stats.indexingFailures);
+  REPLY_KVNUM(n, "hash_indexing_failures", sp->stats.indexError.error_count);
   REPLY_KVNUM(n, "total_indexing_time", sp->stats.totalIndexTime / 1000.0);
   REPLY_KVNUM(n, "indexing", !!global_spec_scanner || sp->scan_in_progress);
 

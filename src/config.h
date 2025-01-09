@@ -10,7 +10,7 @@
 #include "redismodule.h"
 #include "rmutil/sds.h"
 #include "query_error.h"
-#include "fields_global_stats.h"
+#include "info/global_stats.h"
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
@@ -87,8 +87,6 @@ typedef struct {
   size_t forkGcSleepBeforeExit;
   int forkGCCleanNumericEmptyNodes;
 
-  FieldsGlobalStats fieldsStats;
-
   // Chained configuration data
   void *chainedConfig;
 
@@ -118,8 +116,6 @@ typedef struct {
   // Can allow to control the seperation between phrases in different array slots (related to the SLOP parameter in ft.search command)
   // Default value is 100. 0 will not increment (as if all text is a continus phrase).
   unsigned int multiTextOffsetDelta;
-  // bitarray of dialects used by all indices
-  uint_least8_t used_dialects;
   // The number of iterations to run while performing background indexing
   // before we call usleep(1) (sleep for 1 micro-second) and make sure that
   // we allow redis process other commands.
@@ -188,8 +184,6 @@ sds RSConfig_GetInfoString(const RSConfig *config);
 
 void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 
-void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
-
 #define DEFAULT_DOC_TABLE_SIZE 1000000
 #define MAX_DOC_TABLE_SIZE 100000000
 #define CONCURRENT_SEARCH_POOL_DEFAULT_SIZE 20
@@ -200,13 +194,12 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
 #define DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE 1000
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
-#define SEARCH_REQUEST_RESULTS_MAX 1000000
+#define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
+#define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
+#define DEFAULT_MAX_SEARCH_REQUEST_RESULTS 1000000
+#define MAX_SEARCH_REQUEST_RESULTS (1ULL << 31)
+#define MAX_KNN_K (1ULL << 58)
 #define NR_MAX_DEPTH_BALANCE 2
-#define MIN_DIALECT_VERSION 1 // MIN_DIALECT_VERSION is expected to change over time as dialects become deprecated.
-#define MAX_DIALECT_VERSION 3 // MAX_DIALECT_VERSION may not exceed MIN_DIALECT_VERSION + 7.
-#define DIALECT_OFFSET(d) (1ULL << (d - MIN_DIALECT_VERSION))// offset of the d'th bit. begins at MIN_DIALECT_VERSION (bit 0) up to MAX_DIALECT_VERSION.
-#define GET_DIALECT(barr, d) (!!(barr & DIALECT_OFFSET(d)))  // return the truth value of the d'th dialect in the dialect bitarray.
-#define SET_DIALECT(barr, d) (barr |= DIALECT_OFFSET(d))     // set the d'th dialect in the dialect bitarray to true.
 
 // default configuration
 #define RS_DEFAULT_CONFIG                                                                         \
@@ -220,14 +213,14 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .gcPolicy = GCPolicy_Fork, .forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,              \
     .forkGcSleepBeforeExit = 0, .maxResultsToUnsortedMode = DEFAULT_MAX_RESULTS_TO_UNSORTED_MODE, \
     .forkGcRetryInterval = 5, .forkGcCleanThreshold = 100, .noMemPool = 0, .filterCommands = 0,   \
-    .maxSearchResults = SEARCH_REQUEST_RESULTS_MAX, .maxAggregateResults = -1,                    \
+    .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS, .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,                    \
     .minUnionIterHeap = 20, .numericCompress = false, .numericTreeMaxDepthRange = 0,              \
     .printProfileClock = 1, .invertedIndexRawDocidEncoding = false,                               \
     .forkGCCleanNumericEmptyNodes = true, .freeResourcesThread = true, .defaultDialectVersion = 1,\
-    .vssMaxResize = 0, .multiTextOffsetDelta = 100, .used_dialects = 0,                           \
+    .vssMaxResize = 0, .multiTextOffsetDelta = 100,                                               \
     .numBGIndexingIterationsBeforeSleep = 100,                                                    \
-    .prioritizeIntersectUnionChildren = false,                                                                        \
-    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                                                                    \
+    .prioritizeIntersectUnionChildren = false,                                                    \
+    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                                                \
   }
 
 #define REDIS_ARRAY_LIMIT 7

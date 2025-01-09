@@ -29,7 +29,7 @@ extern RSConfig RSGlobalConfig;
  * @param status the error object
  */
 static bool ensureSimpleMode(AREQ *areq) {
-  if(areq->reqflags & QEXEC_F_IS_EXTENDED) {
+  if(areq->reqflags & QEXEC_F_IS_AGGREGATE) {
     return false;
   }
   areq->reqflags |= QEXEC_F_IS_SEARCH;
@@ -48,7 +48,7 @@ static int ensureExtendedMode(AREQ *areq, const char *name, QueryError *status) 
                            name);
     return 0;
   }
-  areq->reqflags |= QEXEC_F_IS_EXTENDED;
+  areq->reqflags |= QEXEC_F_IS_AGGREGATE;
   return 1;
 }
 
@@ -1037,20 +1037,13 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     astp = &astp_s;
   }
 
-  size_t limit = astp->offset + astp->limit;
-  if (!limit) {
-    limit = DEFAULT_LIMIT;
+  size_t maxResults = astp->offset + astp->limit;
+  if (!maxResults) {
+    maxResults = DEFAULT_LIMIT;
   }
 
-  if (IsSearch(req) && RSGlobalConfig.maxSearchResults != UINT64_MAX) {
-    limit = MIN(limit, RSGlobalConfig.maxSearchResults);
-  }
-
-  if (!IsSearch(req) && RSGlobalConfig.maxAggregateResults != UINT64_MAX) {
-    limit = MIN(limit, RSGlobalConfig.maxAggregateResults);
-  }
-
-  if (IsCount(req) || !limit) {
+  maxResults = MIN(maxResults, IsSearch(req) ? RSGlobalConfig.maxSearchResults : RSGlobalConfig.maxAggregateResults);
+  if (IsCount(req) || !maxResults) {
     rp = RPCounter_New();
     up = pushRP(req, rp, up);
     return up;
@@ -1073,13 +1066,13 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
       }
     }
 
-    rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
+    rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
     up = pushRP(req, rp, up);
   }
 
   // No sort? then it must be sort by score, which is the default.
   if (rp == NULL && (req->reqflags & QEXEC_F_IS_SEARCH)) {
-    rp = RPSorter_NewByScore(limit);
+    rp = RPSorter_NewByScore(maxResults);
     up = pushRP(req, rp, up);
   }
 

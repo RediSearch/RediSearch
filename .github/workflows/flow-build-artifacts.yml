@@ -86,7 +86,7 @@ jobs:
           if '${{ inputs.architecture }}' in ['all', 'x86_64']:
             platforms.append('macos-13')
           if '${{ inputs.architecture }}' in ['all', 'aarch64']:
-            platforms.append('macos-13-xlarge')
+            platforms.append('macos-latest-xlarge')
 
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
             print(f'platforms={platforms}', file=f)

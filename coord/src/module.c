@@ -30,7 +30,8 @@
 #include "value.h"
 #include "cluster_spell_check.h"
 #include "profile.h"
-
+#include "info/global_stats.h"
+#include "util/units.h"
 #include "libuv/include/uv.h"
 
 #include <stdlib.h>
@@ -84,9 +85,9 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
       nArrs++;
       for (size_t j = 0; j < MRReply_Length(replies[i]); j++) {
         size_t sl = 0;
-        char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
+        const char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
         if (s && sl) {
-          TrieMap_Add(dict, s, sl, NULL, NULL);
+          TrieMap_Add(dict, (char*)s, sl, NULL, NULL);
         }
       }
     } else if (MRReply_Type(replies[i]) == MR_REPLY_ERROR && err == NULL) {
@@ -370,6 +371,7 @@ typedef struct {
   char *queryString;
   long long offset;
   long long limit;
+  long long initClock;
   long long requestedResultsCount;
   int withScores;
   int withExplainScores;
@@ -519,6 +521,12 @@ void prepareOptionalTopKCase(searchRequestCtx *req, RedisModuleString **argv, in
     // Default: No SORTBY is given, or SORTBY is given by other field
     // When first sorting by different field, the topk vectors should be passed to the coordinator heap
     ctx->knn.shouldSort = true;
+    // after setting the special case which will free the node can now validate the request
+    if (k > MAX_KNN_K) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
+      return;
+    }
+
     // We need to get K results from the shards
     // For example the command request SORTBY text_field LIMIT 2 3
     // In this case the top 5 results relevant for this sort might be the in the last 5 results of the TOPK
@@ -565,6 +573,8 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   }
 
   searchRequestCtx *req = searchRequestCtx_New();
+
+  req->initClock = clock();
 
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
@@ -736,7 +746,7 @@ searchResult *newResult(searchResult *cached, MRReply *arr, int j, searchReplyOf
     res->id = NULL;
     return res;
   }
-  res->id = MRReply_String(MRReply_ArrayElement(arr, j), &res->idLen);
+  res->id = (char*)MRReply_String(MRReply_ArrayElement(arr, j), &res->idLen);
   if (!res->id) {
     return res;
   }
@@ -1253,6 +1263,8 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     postProccesTime = clock();
     profileSearchReply(ctx, &rCtx, count, replies, req->profileClock, postProccesTime);
   }
+
+  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, clock() - req->initClock);
 
 cleanup:
   if (rCtx.pq) {

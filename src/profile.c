@@ -6,6 +6,7 @@
 
 #include "profile.h"
 #include "reply_macros.h"
+#include "util/units.h"
 
 void printReadIt(RedisModuleCtx *ctx, IndexIterator *root, size_t counter, double cpuTime) {
   IndexReader *ir = root->ctx;
