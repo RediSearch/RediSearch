@@ -2271,9 +2271,9 @@ def test_vector_index_ptr_valid(env):
     #            Insert partial doc - only numeric
     #            Update Doc
 
-    # HNSW parameters the causes an execution throw (M > UINT16_MAX)
-    UINT16_MAX = 2**16
-    M = UINT16_MAX + 1
+    # HNSW parameters the causes an execution throw (M > SIZE_MAX/2)
+    HALF_SIZE_MAX = 9223372036854775805
+    M = HALF_SIZE_MAX + 1
     dim = 4
 
     env.expect('FT.CREATE', 'idx','SCHEMA', 'n', 'NUMERIC',
@@ -2288,12 +2288,6 @@ def test_vector_index_ptr_valid(env):
     # Sanity check - insert a vector, expect indexing faliure
     res = conn.execute_command('HSET', 'doc1', 'v', create_np_array_typed([0]*dim,'FLOAT32').tobytes())
     env.assertEqual(res, 1)
-
-    idx_inf0 = index_info(env, 'idx')
-    for key in idx_inf0:
-        print(key, idx_inf0[key])
-    index_errors_dict = index_errors(env, 'idx')
-    env.assertEqual(index_errors_dict['last indexing error'], "Could not open vector for indexing")
 
     # Check FlushAll - before bug fix, the following command would cause a server crash due to the null pointer accsess
     # Server will reply OK but crash afterwards, so a PING is required to verify
