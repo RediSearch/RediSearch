@@ -81,7 +81,6 @@ int testQueryNodeObfuscation() {
         "Vector",
         "WildcardQuery",
         "Null",
-        "Missing"
     };
     for (int i = QN_PHRASE; i < QN_MAX; ++i) {
         struct RSQueryNode node = {
