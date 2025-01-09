@@ -1807,29 +1807,139 @@ def testInfoCommandImplied(env):
     env.assertNotEqual(-1, d['index_options'].index('NOHL'))
 
 def testNoStem(env):
-    env.cmd('ft.create', 'idx', 'ON', 'HASH',
-            'schema', 'body', 'text', 'name', 'text', 'nostem')
-    if not env.isCluster():
-        # todo: change it to be more generic to pass on is_cluster
-        res = env.cmd('ft.info', 'idx')
-        env.assertEqual(res[7][1][8], 'NOSTEM')
-    for _ in env.retry_with_reload():
+    conn = getConnectionByEnv(env)
+
+    env.expect('ft.create', 'idx', 'ON', 'HASH',
+            'schema', 'body', 'text', 'name', 'text', 'nostem',
+            'body2', 'text', 'name2', 'text', 'nostem').ok()
+    d = index_info(env, 'idx')
+    env.assertEqual(d['attributes'][1][8],'NOSTEM')
+    env.assertEqual(d['attributes'][3][8],'NOSTEM')
+    for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         try:
-            env.cmd('ft.del', 'idx', 'doc')
+            conn.execute_command('ft.del', 'idx', 'doc')
         except redis.ResponseError:
             pass
 
-        # Insert a document
-        env.assertCmdOk('ft.add', 'idx', 'doc', 1.0, 'fields',
-                         'body', "located",
-                         'name', "located")
+        # Insert documents
+        conn.execute_command('HSET', 'doc1', 'body', "located", 'name', "located")
+        conn.execute_command('HSET', 'doc2', 'body', "smith", 'name', "smith")
+        conn.execute_command('HSET', 'doc3', 'body', "smiths", 'name', "smiths")
+        conn.execute_command('HSET', 'doc4', 'body', "cherry")
+        conn.execute_command('HSET', 'doc5', 'body', "cherries")
+        conn.execute_command('HSET', 'doc6', 'name', "candy")
+        conn.execute_command('HSET', 'doc7', 'name', "candies")
+        conn.execute_command('HSET', 'doc8', 'body2', "cherries")
+        conn.execute_command('HSET', 'doc9', 'name2', "candies")
 
         # Now search for the fields
-        res_body = env.cmd('ft.search', 'idx', '@body:location')
-        res_name = env.cmd('ft.search', 'idx', '@name:location')
-        env.assertEqual(0, res_name[0])
+        res_body = conn.execute_command('ft.search', 'idx', '@body:location')
         env.assertEqual(1, res_body[0])
+        res_name = conn.execute_command('ft.search', 'idx', '@name:location')
+        env.assertEqual(0, res_name[0])
+
+        res_body = conn.execute_command('ft.search', 'idx', '@body:smith')
+        env.assertEqual(2, res_body[0])
+        res_name = conn.execute_command('ft.search', 'idx', '@name:smith')
+        env.assertEqual(1, res_name[0])
+
+        res_body = conn.execute_command('ft.search', 'idx', '@body:smiths')
+        env.assertEqual(2, res_body[0])
+        res_name = conn.execute_command('ft.search', 'idx', '@name:smiths')
+        env.assertEqual(1, res_name[0])
+
+        # Test modifier list
+        # 2 results are returned because 'body' field is stemming 'cherry'
+        res = conn.execute_command('ft.search', 'idx', '@body|name:cherry')
+        env.assertEqual(2, res[0])
+        res = conn.execute_command('ft.search', 'idx', '@body|name:cherries')
+        env.assertEqual(2, res[0])
+
+        # only 1 result is returned because 'name' field is not stemming
+        res = conn.execute_command('ft.search', 'idx', '@body|name:candy')
+        env.assertEqual(1, res[0])
+        res = conn.execute_command('ft.search', 'idx', '@body|name:candies')
+        env.assertEqual(1, res[0])
+
+        # 3 results are returned because 'body' field is stemming 'candy' 
+        # but 'name' field is not stemming  
+        res = conn.execute_command(
+            'ft.search', 'idx','@body|name:(candy|cherry)', 'dialect', 2)
+        env.assertEqual(3, res[0])
+        res2 = conn.execute_command(
+            'ft.search', 'idx','@body:(candy|cherry) | @name:(candy|cherry)',
+            'dialect', 2)
+        env.assertEqual(res, res2)
+
+        res = conn.execute_command(
+            'ft.search', 'idx', '@body|name:(candies|cherries)', 'dialect', 2)
+        env.assertEqual(3, res[0])
+        res2 = conn.execute_command(
+            'ft.search', 'idx', '@body:(candies|cherries) | @name:(candies|cherries)',
+            'dialect', 2)
+        env.assertEqual(res, res2)
+
+        # Test explaincli single field stemming
+        env.expect('ft.explain', 'idx', '@body:candy').equal(r'''
+@body:UNION {
+  @body:candy
+  @body:+candi(expanded)
+  @body:candi(expanded)
+}
+'''[1:])
+        
+        # Test explaincli with modifier list fields, all fields expanded
+        env.expect('ft.explain', 'idx', '@body|body2:candy').equal(r'''
+@body|body2:UNION {
+  @body|body2:candy
+  @body|body2:+candi(expanded)
+  @body|body2:candi(expanded)
+}
+'''[1:])
+        
+        # Test explaincli single field with NOSTEM
+        env.expect('ft.explain', 'idx', '@name:candy').equal(r'''
+@name:candy
+'''[1:])
+        
+        # Test explaincli with modifier list NOSTEM fields
+        env.expect('ft.explain', 'idx', '@name|name2:candy').equal(r'''
+@name|name2:candy
+'''[1:])
+
+        # Mixing NOSTEM and stemming fields in the same modifier list
+        env.expect('ft.explain', 'idx', '@body|name:candy').equal(r'''
+@body|name:UNION {
+  @body|name:candy
+  @body:+candi(expanded)
+  @body:candi(expanded)
+}
+'''[1:])
+        
+        env.expect('ft.explain', 'idx', '@name2|body|name:candy').equal(r'''
+@body|name|name2:UNION {
+  @body|name|name2:candy
+  @body:+candi(expanded)
+  @body:candi(expanded)
+}
+'''[1:])
+        
+        env.expect('ft.explain', 'idx', '@body2|body|name:candy').equal(r'''
+@body|name|body2:UNION {
+  @body|name|body2:candy
+  @body|body2:+candi(expanded)
+  @body|body2:candi(expanded)
+}
+'''[1:])
+        
+        env.expect('ft.explain', 'idx', '@body2|body|name|name2:candy').equal(r'''
+@body|name|body2|name2:UNION {
+  @body|name|body2|name2:candy
+  @body|body2:+candi(expanded)
+  @body|body2:candi(expanded)
+}
+'''[1:])
 
 def testSortbyMissingField(env):
     # GH Issue 131
