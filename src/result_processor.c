@@ -883,13 +883,9 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // First, we verify that we unlocked the spec before we lock Redis.
   RedisSearchCtx_UnlockSpec(sctx);
 
-  struct timespec rpStartTime, rpEndTime;
   bool isQueryProfile = rp->parent->isProfile;
-  if (isQueryProfile) {
-    clock_gettime(CLOCK_MONOTONIC, &rpStartTime);
-  } else {
-    rpStartTime.tv_nsec = 0;
-  }
+  struct timespec rpStartTime = {0}, rpEndTime = {0};
+  if (isQueryProfile) clock_gettime(CLOCK_MONOTONIC, &rpStartTime);
   // Then, lock Redis to guarantee safe access to Redis keyspace
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
 
@@ -898,14 +894,9 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // Done loading. Unlock Redis
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
 
-  if (isQueryProfile) {
-    clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
-  } else {
-    rpEndTime.tv_nsec = 0;
-  }
-  double GILDuration =  (rpEndTime.tv_nsec - rpStartTime.tv_nsec)/1000000.0;
-  rp->parent->GILTime += GILDuration;
-  rp->GILTime += GILDuration;
+  if (isQueryProfile) clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
+  rs_timersub(&rpEndTime, &rpStartTime, &rp->GILTime);
+  rs_timeradd(&rp->GILTime, &rp->parent->GILTime, &rp->parent->GILTime);
 
   // Move to the yielding phase
   rp->Next = rpSafeLoaderNext_Yield;

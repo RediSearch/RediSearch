@@ -129,15 +129,18 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         if (profile_verbose)
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
             (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
+
       //Print total GIL time
         if (profile_verbose){
           if (RunInThread()){
-            RedisModule_ReplyKV_Double(reply, "Total GIL time", req->qiter.GILTime);
+            RedisModule_ReplyKV_Double(reply, "Total GIL time", 
+              req->qiter.GILTime.tv_sec*1000.0 + (double)req->qiter.GILTime.tv_nsec/1000000.0);
           } else {
             struct timespec rpEndTime;
             clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
+            rs_timersub(&rpEndTime, &req->qiter.initTime, &rpEndTime);
             RedisModule_ReplyKV_Double(reply, "Total GIL time",
-              (double)(rpEndTime.tv_nsec - req->qiter.initTime.tv_nsec)/1000000.0);
+              rpEndTime.tv_sec*1000 + (double)rpEndTime.tv_nsec/1000000);
           }
         }
 

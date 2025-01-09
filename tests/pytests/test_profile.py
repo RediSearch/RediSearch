@@ -632,12 +632,12 @@ def testPofileGILTime():
 
   # Populate db
   for i in range(100):
-    res = conn.execute_command('hset', 'doc%d' % i,
+    res = conn.execute_command('hset', f'doc{i}',
                                   'f', 'hello world')
     env.assertEqual(1, res) 
   env.cmd('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT')
   res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello', 'SORTBY', '1', '@f')
-  expected_result_processor_stats = ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', '0', 'Counter', 100]
+  expected_result_processor_stats = ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', ANY, 'Counter', 100]
   expected_total_GIL_time = ['Total GIL time', ANY]
   env.assertContains(res, expected_result_processor_stats)
   env.assertContains(res[1][1], expected_total_GIL_time)
