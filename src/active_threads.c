@@ -110,14 +110,14 @@ void activeThreads_RemoveCurrentThread() {
  */
 void activeThreads_RemoveThread(pthread_t tid) {
   ActiveThread *at = (ActiveThread *)pthread_getspecific(_activeThreadKey);
-  if (at == NULL) {
-    return;
-  }
-  // RS_LOG_ASSERT(at, "Active thread not found in TLS");
+  RS_LOG_ASSERT(at, "Active thread not found in TLS");
 
   pthread_mutex_lock(&activeThreads->lock);
   dllist_delete(&at->llnode);
   pthread_mutex_unlock(&activeThreads->lock);
+
+  // Free the node
+  rm_free(at);
 
   pthread_setspecific(_activeThreadKey, NULL);
   // The StrongRef is released later by the executing thread.
