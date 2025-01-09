@@ -2427,7 +2427,7 @@ def test_vector_index_ptr_valid(env):
     dim = 4
 
     env.expect('FT.CREATE', 'idx','SCHEMA', 'n', 'NUMERIC',
-                    'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
+                    'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
 
     res = conn.execute_command('HSET', 'doc', 'n', 0)
     env.assertEqual(res, 1)
@@ -2436,7 +2436,7 @@ def test_vector_index_ptr_valid(env):
     env.assertEqual(res, 0)
 
     # Sanity check - insert a vector, expect indexing faliure
-    res = conn.execute_command('HSET', 'doc1', 'v', create_np_array_typed([0]*dim,'FLOAT16').tobytes())
+    res = conn.execute_command('HSET', 'doc1', 'v', create_np_array_typed([0]*dim,'FLOAT32').tobytes())
     env.assertEqual(res, 1)
 
     index_errors_dict = index_errors(env, 'idx')
