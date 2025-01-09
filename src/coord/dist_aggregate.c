@@ -761,7 +761,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
       goto err;
     }
   } else {
-    sendChunk(r, reply, -1);
+    sendChunk(r, reply, UINT64_MAX);
     AREQ_Free(r);
   }
   SpecialCaseCtx_Free(knnCtx);

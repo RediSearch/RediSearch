@@ -404,7 +404,7 @@ void Spec_AddToDict(RefManager *w_spec);
 /**
  * Compare redis versions
  */
-int CompareVestions(Version v1, Version v2);
+int CompareVersions(Version v1, Version v2);
 
 /**
  * Retrieves the current spec cache from the index, incrementing its
@@ -620,7 +620,6 @@ int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
 int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, int when);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
-int CompareVestions(Version v1, Version v2);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(StrongRef ref);
