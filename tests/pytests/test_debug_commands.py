@@ -214,5 +214,5 @@ class TestDebugCommands(object):
         dim = 2
         self.env.expect('FT.CREATE', 'idx','SCHEMA','v', 'VECTOR', 'HNSW', '8',
                     'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
-        self.expect('ft.debug', 'VECSIM_INFO', 'idx','v').error() \
+        self.env.expect('ft.debug', 'VECSIM_INFO', 'idx','v').error() \
             .contains("Vector index not found")
