@@ -29,6 +29,7 @@ typedef struct {
 
 extern SearchClusterConfig clusterConfig;
 extern RedisModuleString *config_oss_acl_username;
+extern RedisModuleString *config_dummy_password;
 
 #define CLUSTER_TYPE_OSS "redis_oss"
 #define CLUSTER_TYPE_RLABS "redislabs"

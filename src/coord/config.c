@@ -54,6 +54,9 @@ CONFIG_GETTER(getClusterTimeout) {
 
 CONFIG_SETTER(setGlobalPass) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  if (realConfig->globalPass) {
+    rm_free((void *)realConfig->globalPass);
+  }
   int acrc = AC_GetString(ac, &realConfig->globalPass, NULL, 0);
   RETURN_STATUS(acrc);
 }
@@ -78,7 +81,12 @@ int set_immutable_cluster_string_config(const char *name, RedisModuleString *val
 
 RedisModuleString * get_oss_global_password(const char *get_oss_global_password,
                                             void *privdata) {
-  return RedisModule_CreateString(NULL, "Password: *******", 17);
+  REDISMODULE_NOT_USED(get_oss_global_password);
+  REDISMODULE_NOT_USED(privdata);
+  if (!config_dummy_password) {
+    config_dummy_password = RedisModule_CreateString(NULL, "Password: *******", 17);
+  }
+  return config_dummy_password;
 }
 
 // CONN_PER_SHARD
@@ -165,6 +173,9 @@ CONFIG_GETTER(getOSSACLUsername) {
 
 CONFIG_SETTER(setOSSACLUsername) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
+  if (realConfig->aclUsername) {
+    rm_free((void *)realConfig->aclUsername);
+  }
   int acrc = AC_GetString(ac, &realConfig->aclUsername, NULL, 0);
   RETURN_STATUS(acrc);
 }
@@ -172,6 +183,9 @@ CONFIG_SETTER(setOSSACLUsername) {
 // acl-username
 RedisModuleString * get_oss_acl_username(const char *name, void *privdata) {
   char *str = *(char **)privdata;
+  if (!str) {
+    return NULL;
+  }
   if (config_oss_acl_username) {
     RedisModule_FreeString(NULL, config_oss_acl_username);
   }

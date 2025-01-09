@@ -91,6 +91,7 @@ size_t NumShards = 0;
 RedisModuleString *config_ext_load = NULL;
 RedisModuleString *config_friso_ini = NULL;
 RedisModuleString *config_oss_acl_username = NULL;
+RedisModuleString *config_dummy_password = NULL;
 
 static inline bool SearchCluster_Ready() {
   return NumShards != 0;
@@ -3620,6 +3621,10 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RedisModule_FreeString(ctx, config_oss_acl_username);
     config_oss_acl_username = NULL;
   }
+  if (config_dummy_password) {
+    RedisModule_FreeString(ctx, config_dummy_password);
+    config_dummy_password = NULL;
+  }
   if (RSGlobalConfig.extLoad) {
     rm_free((void *)RSGlobalConfig.extLoad);
     RSGlobalConfig.extLoad = NULL;
@@ -3627,6 +3632,14 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
   if (RSGlobalConfig.frisoIni) {
     rm_free((void *)RSGlobalConfig.frisoIni);
     RSGlobalConfig.frisoIni = NULL;
+  }
+  if (clusterConfig.aclUsername) {
+    rm_free((void *)clusterConfig.aclUsername);
+    clusterConfig.aclUsername = NULL;
+  }
+  if (clusterConfig.globalPass) {
+    rm_free((void *)clusterConfig.globalPass);
+    clusterConfig.globalPass = NULL;
   }
 
   return REDISMODULE_OK;
