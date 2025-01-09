@@ -60,8 +60,6 @@ char *Obfuscate_QueryNode(struct RSQueryNode *node) {
       return "Optional";
     case QN_GEO:
       return "Geo";
-    case QN_GEOMETRY:
-      return "Geometry";
     case QN_PREFIX:
       return "Prefix";
     case QN_IDS:
