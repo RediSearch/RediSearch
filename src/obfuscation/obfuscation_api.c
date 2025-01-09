@@ -78,8 +78,6 @@ char *Obfuscate_QueryNode(struct RSQueryNode *node) {
       return "Vector";
     case QN_NULL:
       return "Null";
-    case QN_MISSING:
-      return "Missing";
     case QN_WILDCARD_QUERY:
       return "WildcardQuery";
   }
