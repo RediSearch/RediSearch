@@ -150,6 +150,10 @@ int set_immutable_string_config(const char *name, RedisModuleString *val, void *
 
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
+  if (config->extLoad) {
+    rm_free((void *)config->extLoad);
+    config->extLoad = NULL;
+  }
   int acrc = AC_GetString(ac, &config->extLoad, NULL, 0);
   RETURN_STATUS(acrc);
 }
@@ -166,6 +170,9 @@ CONFIG_GETTER(getExtLoad) {
 RedisModuleString* get_ext_load(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   char *str = *(char **)privdata;
+  if (str == NULL) {
+    return NULL;
+  }
   if (config_ext_load) {
     RedisModule_FreeString(NULL, config_ext_load);
   }
@@ -511,6 +518,10 @@ CONFIG_SETTER(setPrivilegedThreadsNum) {
 
 // FRISOINI
 CONFIG_SETTER(setFrisoINI) {
+  if(config->frisoIni) {
+    rm_free((void *) config->frisoIni);
+    config->frisoIni = NULL;
+  }
   int acrc = AC_GetString(ac, &config->frisoIni, NULL, 0);
   RETURN_STATUS(acrc);
 }
@@ -525,6 +536,9 @@ CONFIG_GETTER(getFrisoINI) {
 // friso-ini
 RedisModuleString * get_friso_ini(const char *name, void *privdata) {
   char *str = *(char **)privdata;
+  if (str == NULL) {
+    return NULL;
+  }
   if (config_friso_ini) {
     RedisModule_FreeString(NULL, config_friso_ini);
   }

@@ -260,8 +260,8 @@ void UpgradeDeprecatedMTConfigs();
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
-    .extLoad = "",                                                             \
-    .frisoIni = "",                                                            \
+    .extLoad = NULL,                                                           \
+    .frisoIni = NULL,                                                          \
     .gcConfigParams.enableGC = 1,                                              \
     .iteratorsConfigParams.minTermPrefix = DEFAULT_MIN_TERM_PREFIX,            \
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \

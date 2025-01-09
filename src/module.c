@@ -3620,5 +3620,14 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RedisModule_FreeString(ctx, config_oss_acl_username);
     config_oss_acl_username = NULL;
   }
+  if (RSGlobalConfig.extLoad) {
+    rm_free((void *)RSGlobalConfig.extLoad);
+    RSGlobalConfig.extLoad = NULL;
+  }
+  if (RSGlobalConfig.frisoIni) {
+    rm_free((void *)RSGlobalConfig.frisoIni);
+    RSGlobalConfig.frisoIni = NULL;
+  }
+
   return REDISMODULE_OK;
 }
