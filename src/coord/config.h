@@ -47,7 +47,7 @@ extern RedisModuleString *config_dummy_password;
     .cursorReplyThreshold = 1,                                                 \
     .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                      \
     .topologyValidationTimeoutMS = DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,        \
-    .aclUsername = DEFAULT_ACL_USERNAME,                                       \
+    .aclUsername = NULL,                                                       \
   }
 
 /* Detect the cluster type, by trying to see if we are running inside RLEC.
