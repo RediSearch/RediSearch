@@ -55,7 +55,7 @@ if [[ $NOP != 1 ]]; then
 	if [[ -n $SAN ]]; then
 		rustup component add rust-src --toolchain nightly
 	fi
-	BINROOT=$TARGET_DIR make SAN=$SAN
+	BINROOT=$TARGET_DIR make SAN=
 	echo "Created ${TARGET_DIR}/rejson.so"
 fi
 
