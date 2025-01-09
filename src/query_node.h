@@ -16,6 +16,7 @@ struct RSQueryNode;
 struct numericFilter;
 struct geoFilter;
 struct idFilter;
+struct IndexSpec;
 
 /* The types of query nodes */
 typedef enum {
@@ -212,7 +213,7 @@ typedef struct RSQueryNode {
 } QueryNode;
 
 int QueryNode_ApplyAttributes(QueryNode *qn, QueryAttribute *attr, size_t len, QueryError *status);
-int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const IndexSpec *spec, bool anyField, QueryError *status);
+int QueryNode_CheckAllowSlopAndInorder(QueryNode *qn, const struct IndexSpec *spec, bool anyField, QueryError *status);
 
 void QueryNode_AddChildren(QueryNode *parent, QueryNode **children, size_t n);
 void QueryNode_AddChild(QueryNode *parent, QueryNode *child);
