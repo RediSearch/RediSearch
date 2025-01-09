@@ -134,13 +134,12 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         if (profile_verbose){
           if (RunInThread()){
             RedisModule_ReplyKV_Double(reply, "Total GIL time", 
-              req->qiter.GILTime.tv_sec*1000.0 + (double)req->qiter.GILTime.tv_nsec/1000000.0);
+            rs_timer_ms(&req->qiter.initTime));
           } else {
             struct timespec rpEndTime;
             clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
             rs_timersub(&rpEndTime, &req->qiter.initTime, &rpEndTime);
-            RedisModule_ReplyKV_Double(reply, "Total GIL time",
-              rpEndTime.tv_sec*1000 + (double)rpEndTime.tv_nsec/1000000);
+            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_timer_ms(&rpEndTime));
           }
         }
 

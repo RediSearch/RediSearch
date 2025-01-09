@@ -8,11 +8,12 @@
 
 #include "value.h"
 #include "aggregate/aggregate.h"
+#include "util/timeout.h"
 
 #define printProfileType(vtype) RedisModule_ReplyKV_SimpleString(reply, "Type", (vtype))
 #define printProfileTime(vtime) RedisModule_ReplyKV_Double(reply, "Time", (vtime))
 #define printProfileCounter(vcounter) RedisModule_ReplyKV_LongLong(reply, "Counter", (vcounter))
-#define printProfileGILTime(vtime) RedisModule_ReplyKV_Double(reply, "GIL-Time", (vtime.tv_sec*1000.0 + (double)vtime.tv_nsec/1000000.0))
+#define printProfileGILTime(vtime) RedisModule_ReplyKV_Double(reply, "GIL-Time", (rs_timer_ms(&(vtime))))
 #define printProfileNumBatches(hybrid_reader) \
   RedisModule_ReplyKV_LongLong(reply, "Batches number", (hybrid_reader)->numIterations)
 #define printProfileOptimizationType(oi) \
