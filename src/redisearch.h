@@ -20,6 +20,11 @@ typedef uint64_t t_offset;
 // to produce a field mask we calculate 2^fieldId
 typedef uint16_t t_fieldId;
 
+typedef uint64_t t_uniqueId;
+#define SIGN_CHAR_LENGTH 0 // t_uniqueId is unsigned
+#define LOG_10_ON_256_UPPER_BOUND 3 // 2^8 = 10 ^ y, 2^16 = 2^8 * 2^8 = 10^y * 10^y = 10^2y -> y == 2.40824 -> upper bound for y is 3
+#define MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND ((sizeof(t_uniqueId) * LOG_10_ON_256_UPPER_BOUND) + SIGN_CHAR_LENGTH)
+
 #define DOCID_MAX UINT64_MAX
 
 #if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
