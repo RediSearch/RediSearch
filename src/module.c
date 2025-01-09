@@ -3525,8 +3525,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   } else {
     // For backward compatibility, if the new API is not available, set the
     // default username
-    // clusterConfig.aclUsername = strdup("default");
-    clusterConfig.aclUsername = strdup(__STRING(DEFAULT_ACL_USERNAME));
+    clusterConfig.aclUsername = rm_strdup(__STRING(DEFAULT_ACL_USERNAME));
   }
 
   // Init RediSearch internal search
