@@ -40,7 +40,8 @@ void activeThreads_Init() {
 void activeThreads_Destroy() {
   pthread_mutex_destroy(&activeThreads->lock);
   // Assert that the list is empty
-  RS_LOG_ASSERT(activeThreads->list.prev == activeThreads->list.next == &activeThreads->list,
+  RS_LOG_ASSERT((activeThreads->list.prev == activeThreads->list.next) &&
+                (activeThreads->list.next == &activeThreads->list),
                 "Active threads list is not empty");
   rm_free(activeThreads);
   pthread_key_delete(_activeThreadKey);
