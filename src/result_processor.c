@@ -894,9 +894,11 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // Done loading. Unlock Redis
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
 
-  if (isQueryProfile) clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
-  rs_timersub(&rpEndTime, &rpStartTime, &rp->GILTime);
-  rs_timeradd(&rp->GILTime, &rp->parent->GILTime, &rp->parent->GILTime);
+  if (isQueryProfile){
+    clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
+    rs_timersub(&rpEndTime, &rpStartTime, &rp->GILTime);
+    rs_timeradd(&rp->GILTime, &rp->parent->GILTime, &rp->parent->GILTime);
+  }
 
   // Move to the yielding phase
   rp->Next = rpSafeLoaderNext_Yield;
