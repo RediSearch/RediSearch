@@ -87,6 +87,12 @@ static int DIST_AGG_THREADPOOL = -1;
 // Number of shards in the cluster. Hint we can read and modify from the main thread
 size_t NumShards = 0;
 
+// Strings returned by CONFIG GET functions
+RedisModuleString *config_ext_load = NULL;
+RedisModuleString *config_friso_ini = NULL;
+RedisModuleString *config_oss_acl_username = NULL;
+RedisModuleString *config_dummy_password = NULL;
+
 static inline bool SearchCluster_Ready() {
   return NumShards != 0;
 }
@@ -3516,6 +3522,10 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RM_TRY_F(RegisterClusterModuleConfig, ctx);
     }
     RM_TRY_F(RedisModule_LoadConfigs, ctx);
+  } else {
+    // For backward compatibility, if the new API is not available, set the
+    // default username
+    clusterConfig.aclUsername = rm_strdup(DEFAULT_ACL_USERNAME);
   }
 
   // Init RediSearch internal search
@@ -3598,6 +3608,43 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Deprecated commands. Grouped here for easy tracking
   RM_TRY(RMCreateSearchCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1, "read admin"))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1, "read admin dangerous"))
+
+  return REDISMODULE_OK;
+}
+
+int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+  if (config_ext_load) {
+    RedisModule_FreeString(ctx, config_ext_load);
+    config_ext_load = NULL;
+  }
+  if (config_friso_ini) {
+    RedisModule_FreeString(ctx, config_friso_ini);
+    config_friso_ini = NULL;
+  }
+  if (config_oss_acl_username) {
+    RedisModule_FreeString(ctx, config_oss_acl_username);
+    config_oss_acl_username = NULL;
+  }
+  if (config_dummy_password) {
+    RedisModule_FreeString(ctx, config_dummy_password);
+    config_dummy_password = NULL;
+  }
+  if (RSGlobalConfig.extLoad) {
+    rm_free((void *)RSGlobalConfig.extLoad);
+    RSGlobalConfig.extLoad = NULL;
+  }
+  if (RSGlobalConfig.frisoIni) {
+    rm_free((void *)RSGlobalConfig.frisoIni);
+    RSGlobalConfig.frisoIni = NULL;
+  }
+  if (clusterConfig.aclUsername) {
+    rm_free((void *)clusterConfig.aclUsername);
+    clusterConfig.aclUsername = NULL;
+  }
+  if (clusterConfig.globalPass) {
+    rm_free((void *)clusterConfig.globalPass);
+    clusterConfig.globalPass = NULL;
+  }
 
   return REDISMODULE_OK;
 }

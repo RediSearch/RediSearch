@@ -180,6 +180,8 @@ typedef int (*RSConfigExternalTrigger)(RSConfig *);
 // global config extern references
 extern RSConfig RSGlobalConfig;
 extern RSConfigOptions RSGlobalConfigOptions;
+extern RedisModuleString *config_ext_load;
+extern RedisModuleString *config_friso_ini;
 
 /**
  * Add new configuration options to the chain of already recognized options
@@ -258,8 +260,8 @@ void UpgradeDeprecatedMTConfigs();
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
-    .extLoad = "",                                                             \
-    .frisoIni = "",                                                            \
+    .extLoad = NULL,                                                           \
+    .frisoIni = NULL,                                                          \
     .gcConfigParams.enableGC = 1,                                              \
     .iteratorsConfigParams.minTermPrefix = DEFAULT_MIN_TERM_PREFIX,            \
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \
