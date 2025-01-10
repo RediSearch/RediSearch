@@ -79,9 +79,8 @@ int set_immutable_cluster_string_config(const char *name, RedisModuleString *val
   return REDISMODULE_OK;
 }
 
-RedisModuleString * get_oss_global_password(const char *get_oss_global_password,
-                                            void *privdata) {
-  REDISMODULE_NOT_USED(get_oss_global_password);
+RedisModuleString * get_oss_global_password(const char *name, void *privdata) {
+  REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(privdata);
   if (!config_dummy_password) {
     config_dummy_password = RedisModule_CreateString(NULL, "Password: *******", 17);
@@ -183,13 +182,14 @@ CONFIG_SETTER(setOSSACLUsername) {
 // acl-username
 RedisModuleString * get_oss_acl_username(const char *name, void *privdata) {
   char *str = *(char **)privdata;
-  if (!str) {
-    return NULL;
-  }
   if (config_oss_acl_username) {
     RedisModule_FreeString(NULL, config_oss_acl_username);
   }
-  config_oss_acl_username = RedisModule_CreateString(NULL, str, strlen(str));
+  if (!str) {
+    config_oss_acl_username = RedisModule_CreateString(NULL, "", 0);
+  } else {
+    config_oss_acl_username = RedisModule_CreateString(NULL, str, strlen(str));
+  }
   return config_oss_acl_username;
 }
 
