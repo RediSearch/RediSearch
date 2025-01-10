@@ -36,11 +36,14 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
   }
 
   // create new vector data structure
+  VecSimIndex* temp = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
+  if (!temp) {
+    return NULL;
+  }
   kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->p = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
-
-  dictAdd(spec->keysDict, keyName, kdv);
+  kdv->p = temp;
   kdv->dtor = (void (*)(void *))VecSimIndex_Free;
+  dictAdd(spec->keysDict, keyName, kdv);  
   return kdv->p;
 }
 
@@ -94,6 +97,11 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
       VecsimQueryType queryType = child_it != NULL ? QUERY_TYPE_HYBRID : QUERY_TYPE_KNN;
       if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
                                     &qParams, queryType, q->status) != VecSim_OK)  {
+        return NULL;
+      }
+      if (vq->knn.k > MAX_KNN_K) {
+        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
+                               "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
         return NULL;
       }
       HybridIteratorParams hParams = {.index = vecsim,
@@ -199,6 +207,8 @@ const char *VecSimType_ToString(VecSimType type) {
     case VecSimType_FLOAT64: return VECSIM_TYPE_FLOAT64;
     case VecSimType_FLOAT16: return VECSIM_TYPE_FLOAT16;
     case VecSimType_BFLOAT16: return VECSIM_TYPE_BFLOAT16;
+    case VecSimType_UINT8: return VECSIM_TYPE_UINT8;
+    case VecSimType_INT8: return VECSIM_TYPE_INT8;
     case VecSimType_INT32: return VECSIM_TYPE_INT32;
     case VecSimType_INT64: return VECSIM_TYPE_INT64;
   }
@@ -211,6 +221,8 @@ size_t VecSimType_sizeof(VecSimType type) {
         case VecSimType_FLOAT64: return sizeof(double);
         case VecSimType_FLOAT16: return sizeof(float)/2;
         case VecSimType_BFLOAT16: return sizeof(float)/2;
+        case VecSimType_UINT8: return sizeof(uint8_t);
+        case VecSimType_INT8: return sizeof(int8_t);
         case VecSimType_INT32: return sizeof(int32_t);
         case VecSimType_INT64: return sizeof(int64_t);
     }
