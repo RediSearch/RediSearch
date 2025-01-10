@@ -28,6 +28,8 @@ typedef struct {
 } SearchClusterConfig;
 
 extern SearchClusterConfig clusterConfig;
+extern RedisModuleString *config_oss_acl_username;
+extern RedisModuleString *config_dummy_password;
 
 #define CLUSTER_TYPE_OSS "redis_oss"
 #define CLUSTER_TYPE_RLABS "redislabs"
@@ -45,7 +47,7 @@ extern SearchClusterConfig clusterConfig;
     .cursorReplyThreshold = 1,                                                 \
     .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                      \
     .topologyValidationTimeoutMS = DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,        \
-    .aclUsername = DEFAULT_ACL_USERNAME,                                       \
+    .aclUsername = NULL,                                                       \
   }
 
 /* Detect the cluster type, by trying to see if we are running inside RLEC.
