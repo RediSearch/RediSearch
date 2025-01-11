@@ -362,7 +362,8 @@ def CursorOnCoordinator(env: Env):
             for i in range(n_docs):
                 env.assertContains(i, result_set)
 
-def testCursorDepletionNonStrictTimeoutPolicy(env):
+def testCursorDepletionNonStrictTimeoutPolicy():
+    env = Env(protocol=3)
     """Tests that the cursor id is returned in case the timeout policy is
     non-strict (i.e., the default `RETURN`), even when a timeout is experienced"""
 
@@ -381,10 +382,25 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
     # Create a cursor with a small `timeout` and large `count`, and read from
     # it until depleted
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '10000', 'TIMEOUT', '1')
-    n_recieved = len(res) - 1
-    while cursor:
-        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-        n_recieved += len(res) - 1
+    n_recieved = len(res['results'])
+    env.debugPrint(f"res['results'][0]: {res['results'][0]}", force=True)
+    env.debugPrint(f'First cursor run, Received {n_recieved} results', force=True)
+    i = 1
+    try:
+        # Little less than RLTest timeout
+        with TimeLimit(RLTEST_TEST_TIMEOUT - 2):
+            while cursor:
+                res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+                n_recieved += len(res['results'])
+                env.debugPrint(f'{i} cursor run, received {n_recieved} results', force=True)
+                env.debugPrint(f'{res["warning"]}', force=True)
+                i += 1
+                if n_recieved > 4500:
+                    env.debugPrint(f"{res['results']}", force=True)
+
+
+    except Exception as e:
+        env.assertEqual(str(e), f'Cursor read failed after retrieving {n_recieved} results, cursor id: {cursor}')
 
     env.assertEqual(n_recieved, num_docs)
     # Ensure that the cursors we opened were closed properly
