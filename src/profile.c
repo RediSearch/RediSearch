@@ -143,7 +143,6 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
           }
         }
 
-
       // Print whether a warning was raised throughout command execution
       if (timedout) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ETIMEDOUT));
