@@ -376,6 +376,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
   BlkAlloc_Init(&dstp->alloc);
 
   // TODO: The while condition is buggy, since it returns the `AGGPlan`, not the `PLN_BaseStep` that is actually needed
+  // Should be fixed to `DLLIST_FOREACH(it, ll) {}`.
   while (current != PLN_END_STEP(src)) {
     switch (current->type) {
       case PLN_T_ROOT:
