@@ -9,7 +9,7 @@
 #include "inverted_index.h"
 #include "numeric_index.h"
 #include "rwlock.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
 #include "redis_index.h"
 #include "index_utils.h"
 extern "C" {
@@ -47,22 +47,26 @@ static timespec getTimespecCb(void *) {
 typedef struct {
   void *fgc;
   RefManager *ism;
+  volatile bool runGc;
 } args_t;
-
-static pthread_t thread;
 
 void *cbWrapper(void *args) {
   args_t *fgcArgs = (args_t *)args;
-  ForkGC *fgc = reinterpret_cast<ForkGC *>(get_spec(fgcArgs->ism)->gc->gcCtx);
+  GCContext *gc = get_spec(fgcArgs->ism)->gc;
+  ForkGC *fgc = reinterpret_cast<ForkGC *>(gc->gcCtx);
 
-  // sync thread
-  while (fgc->pauseState != FGC_PAUSED_CHILD) {
-    usleep(500);
+  while (true) {
+    // sync thread
+    while (fgcArgs->runGc && fgc->pauseState != FGC_PAUSED_CHILD) {
+      usleep(500);
+    }
+    if (!fgcArgs->runGc) {
+      break;
+    }
+
+    // run ForkGC
+    gc->callbacks.periodicCallback(fgc);
   }
-
-  // run ForkGC
-  get_spec(fgcArgs->ism)->gc->callbacks.periodicCallback(fgc);
-  rm_free(args);
   return NULL;
 }
 
@@ -71,6 +75,8 @@ class FGCTest : public ::testing::Test {
   RMCK::Context ctx;
   RefManager *ism;
   ForkGC *fgc;
+  args_t args;
+  pthread_t thread;
 
   void SetUp() override {
     ism = createSpec(ctx);
@@ -82,17 +88,16 @@ class FGCTest : public ::testing::Test {
   void runGcThread() {
     fgc = reinterpret_cast<ForkGC *>(get_spec(ism)->gc->gcCtx);
     thread = {0};
-    args_t *args = (args_t *)rm_calloc(1, sizeof(*args));
-    *args = {.fgc = fgc, .ism = ism};
+    args = {.fgc = fgc, .ism = ism, .runGc = true};
 
-    pthread_create(&thread, NULL, cbWrapper, args);
+    pthread_create(&thread, NULL, cbWrapper, &args);
   }
 
   void TearDown() override {
+    args.runGc = false;
+    // wait for the gc thread to finish current loop and exit the thread
+    pthread_join(thread, NULL);
     freeSpec(ism);
-    // Detach from the gc to make sure we are not stuck on waiting
-    // for the pauseState to be changed.
-    pthread_detach(thread);
   }
 
   size_t addDocumentWrapper(const char *docid, const char *field, const char *value) {
@@ -636,4 +641,111 @@ TEST_F(FGCTestTag, testDeleteDuringGCCleanup) {
   FGC_Apply(fgc);
 
   ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 0);
+}
+
+TEST_F(FGCTestNumeric, testNumericBlocksSinceFork) {
+  constexpr size_t docs_per_block = INDEX_BLOCK_SIZE;
+  constexpr size_t first_split_card = 16; // from `numeric_index.c`
+  size_t cur_cardinality = 0;
+  size_t cur_id = 1;
+  size_t expected_total_blocks = 0;
+  EXPECT_EQ(TotalIIBlocks, expected_total_blocks);
+
+  /*
+   * Scenario 1: Taking the child last block, and need to address the parent's changes.
+   */
+
+  // Add a block worth of documents with the same value
+  ASSERT_LT(++cur_cardinality, first_split_card);
+  expected_total_blocks++;
+  for (size_t i = 0; i < docs_per_block; i++) {
+    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(3.1416).c_str());
+  }
+  NumericRangeTree *rt = getNumericTree(get_spec(ism), numeric_field_name);
+
+  EXPECT_EQ(TotalIIBlocks, expected_total_blocks);
+  ASSERT_TRUE(rt->root->range);
+  EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rt->root->range));
+  FGC_WaitBeforeFork(fgc);
+
+  // Delete some docs from the blocks
+  for (size_t i = expected_total_blocks; i < cur_id; i += 10) {
+    auto rv = RS::deleteDocument(ctx, ism, numToDocStr(i).c_str());
+    ASSERT_TRUE(rv) << "Failed to delete doc " << i;
+  }
+
+  FGC_ForkAndWaitBeforeApply(fgc);
+
+  // Add a half block worth of documents to the index with a different value. The fork is not aware of these changes.
+  ASSERT_LT(++cur_cardinality, first_split_card);
+  expected_total_blocks++;
+  for (size_t i = 0; i < docs_per_block / 2; i++) {
+    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(1.4142).c_str());
+  }
+
+  FGC_Apply(fgc);
+
+  EXPECT_EQ(TotalIIBlocks, expected_total_blocks);
+  ASSERT_TRUE(rt->root->range);
+  // The fork is not aware of the new value added after the fork, but the parent should update the
+  // cardinality after applying the fork's changes.
+  EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rt->root->range));
+
+  /*
+   * Scenario 2: Not taking the child last block, and need to address the parent's changes (ignored + last block).
+   */
+
+  FGC_WaitBeforeFork(fgc);
+
+  // Delete some docs from the blocks
+  for (size_t i = expected_total_blocks; i < cur_id; i += 10) {
+    auto rv = RS::deleteDocument(ctx, ism, numToDocStr(i).c_str());
+    ASSERT_TRUE(rv) << "Failed to delete doc " << i;
+  }
+
+  FGC_ForkAndWaitBeforeApply(fgc);
+
+  // Add a half block worth of documents to the index with a different value. The fork is not aware of these changes.
+  ASSERT_LT(++cur_cardinality, first_split_card);
+  for (size_t i = 0; i < docs_per_block / 2; i++) {
+    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(2.718).c_str());
+  }
+  EXPECT_EQ(TotalIIBlocks, expected_total_blocks) << "Number of blocks should not change";
+  // Add another half block worth of documents to the index with a different value.
+  ASSERT_LT(++cur_cardinality, first_split_card);
+  expected_total_blocks++;
+  for (size_t i = 0; i < docs_per_block / 2; i++) {
+    this->addDocumentWrapper(numToDocStr(cur_id++).c_str(), numeric_field_name, std::to_string(1.618).c_str());
+  }
+  EXPECT_EQ(TotalIIBlocks, expected_total_blocks);
+
+  FGC_Apply(fgc);
+
+  EXPECT_EQ(TotalIIBlocks, expected_total_blocks);
+  ASSERT_TRUE(rt->root->range);
+  // The child is aware of 1 value in the first block and one in the second,
+  // while the parent is aware of a third value in the second block and a fourth in the third.
+  EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rt->root->range));
+
+  /*
+   * Scenario 3: Taking the child last block, without any parent changes.
+   */
+
+  FGC_WaitBeforeFork(fgc);
+
+  // Delete the entire second block
+  for (size_t i = rt->root->range->entries->blocks[1].firstId; i <= rt->root->range->entries->blocks[1].lastId; i++) {
+    RS::deleteDocument(ctx, ism, numToDocStr(i).c_str());
+  }
+  EXPECT_EQ(TotalIIBlocks, expected_total_blocks);
+
+  FGC_ForkAndWaitBeforeApply(fgc);
+  FGC_Apply(fgc);
+
+  expected_total_blocks--;
+  EXPECT_EQ(TotalIIBlocks, expected_total_blocks);
+  ASSERT_TRUE(rt->root->range);
+  // We had 2 values in the second block and in it only. We expect the cardinality to decrease by 2.
+  cur_cardinality -= 2;
+  EXPECT_EQ(cur_cardinality, NumericRange_GetCardinality(rt->root->range));
 }

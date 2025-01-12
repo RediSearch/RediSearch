@@ -11,16 +11,16 @@ def testHammingScorer(env):
     waitForIndex(env, 'idx')
 
     for i in range(16):
-        res = conn.execute_command('hset', 'doc%d' % i, 'PAYLOAD', ('%x' % i) * 8, 'title', 'hello world')
+        res = conn.execute_command('hset', 'doc%d' % i, 'PAYLOAD', (f'{i:x}') * 8, 'title', 'hello world')
         env.assertEqual(res, 2)
 
     for i in range(16):
-        res = env.cmd('ft.search', 'idx', '*', 'PAYLOAD', ('%x' % i) * 8,
+        res = env.cmd('ft.search', 'idx', '*', 'PAYLOAD', (f'{i:x}') * 8,
                       'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
         env.assertEqual(res[1], 'doc%d' % i)
         env.assertEqual(res[2], '1')
         # test with payload of different length
-        res = env.cmd('ft.search', 'idx', '*', 'PAYLOAD', ('%x' % i) * 7,
+        res = env.cmd('ft.search', 'idx', '*', 'PAYLOAD', (f'{i:x}') * 7,
                       'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
         env.assertEqual(res[2], '0')
         # test with no payload
@@ -216,6 +216,7 @@ def testBM25STDScorerExplanation(env):
 def testOptionalAndWildcardScoring(env):
     conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx', 'schema', 'title', 'text').ok()
+    env.expect('ft.create', 'idx_opt', 'INDEXALL', 'ENABLE', 'schema', 'title', 'text').ok()
 
     conn.execute_command('HSET', 'doc1', 'title', 'some text here')
     conn.execute_command('HSET', 'doc2', 'title', 'some text more words here')
@@ -226,6 +227,12 @@ def testOptionalAndWildcardScoring(env):
     res = conn.execute_command('ft.search', 'idx', 'text ~more', 'withscores', 'scorer', 'BM25STD', 'nocontent')
     env.assertEqual(res, expected_res)
     res = conn.execute_command('ft.search', 'idx', 'text | ~more', 'withscores', 'scorer', 'BM25STD', 'nocontent')
+    env.assertEqual(res, expected_res)
+
+    # Check the same for the optimized version
+    res = conn.execute_command('ft.search', 'idx_opt', 'text ~more', 'withscores', 'scorer', 'BM25STD', 'nocontent')
+    env.assertEqual(res, expected_res)
+    res = conn.execute_command('ft.search', 'idx_opt', 'text | ~more', 'withscores', 'scorer', 'BM25STD', 'nocontent')
     env.assertEqual(res, expected_res)
 
     expected_res = [2, 'doc1', ['1.073170733125631',
@@ -292,30 +299,36 @@ def testScoreError(env):
     env.expect('ft.add idx doc1 0.01 fields title hello').ok()
     env.expect('ft.search idx hello EXPLAINSCORE').error().contains('EXPLAINSCORE must be accompanied with WITHSCORES')
 
-def testExposeScore(env: Env):
-    env.expect('FT.CREATE idx ON HASH SCHEMA title TEXT').ok()
-    with env.getClusterConnectionIfNeeded() as conn:
-        conn.execute_command('HSET', 'doc1', 'title', 'hello')
+def _test_expose_score(env, idx):
+    conn = env.getClusterConnectionIfNeeded()
+    conn.execute_command('HSET', 'doc1', 'title', 'hello')
 
     # MOD-8060 - `SCORER` should propagate to the shards on `FT.AGGREGATE` (cluster mode)
     # Test with default scorer (TFIDF)
     expected = [1, ['__score', '1']]
-    env.expect('FT.AGGREGATE', 'idx', '~hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
+    env.expect('FT.AGGREGATE', idx, '~hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
     # Test with explicit TFIDF scorer
-    env.expect('FT.AGGREGATE', 'idx', '~hello', 'SCORER', 'TFIDF', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
+    env.expect('FT.AGGREGATE', idx, '~hello', 'SCORER', 'TFIDF', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
     # Test with explicit BM25 scorer
     expected = [1, ['__score', str(0.454545444693)]] # BM25 score (different from TFIDF)
-    env.expect('FT.AGGREGATE', 'idx', '~hello', 'SCORER', 'BM25', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
+    env.expect('FT.AGGREGATE', idx, '~hello', 'SCORER', 'BM25', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
 
-    with env.getClusterConnectionIfNeeded() as conn:
-        conn.execute_command('HSET', 'doc2', 'title', 'world')
+    conn.execute_command('HSET', 'doc2', 'title', 'world')
 
     doc1_score = 1 if env.isCluster() else 2 # TODO: why?
 
     expected = [2, ['__score', str(doc1_score)], ['__score', '0']]
-    env.expect('FT.AGGREGATE', 'idx', '~hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
+    env.expect('FT.AGGREGATE', idx, '~hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
 
     expected = [1, ['count', '1']]
-    env.expect('FT.AGGREGATE', 'idx', '~hello', 'ADDSCORES', 'FILTER', '@__score > 0', 'GROUPBY', 0, 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(expected)
+    env.expect('FT.AGGREGATE', idx, '~hello', 'ADDSCORES', 'FILTER', '@__score > 0', 'GROUPBY', 0, 'REDUCE', 'COUNT', '0', 'AS', 'count').equal(expected)
 
-    env.expect('FT.SEARCH', 'idx', '~hello', 'ADDSCORES').error().equal('ADDSCORES is not supported on FT.SEARCH')
+    env.expect('FT.SEARCH', idx, '~hello', 'ADDSCORES').error().equal('ADDSCORES is not supported on FT.SEARCH')
+
+def testExposeScore(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    _test_expose_score(env, 'idx')
+
+def testExposeScoreOptimized(env: Env):
+    env.expect('FT.CREATE', 'idxOpt', 'INDEXALL', 'ENABLE', 'SCHEMA', 'title', 'TEXT').ok()
+    _test_expose_score(env, 'idxOpt')

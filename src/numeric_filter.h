@@ -17,9 +17,6 @@
 extern "C" {
 #endif
 
-#define NF_INFINITY (1.0 / 0.0)
-#define NF_NEGATIVE_INFINITY (-1.0 / 0.0)
-
 typedef struct NumericFilter {
   const FieldSpec *field;   // the numeric field
   double min;               // beginning of range

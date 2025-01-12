@@ -1,4 +1,3 @@
-
 from includes import *
 try:
     from collections.abc import Iterable
@@ -337,7 +336,7 @@ def no_msan(f):
     def wrapper(env, *args, **kwargs):
         if SANITIZER == 'memory':
             fname = f.__name__
-            env.debugPrint("skipping {} due to memory sanitizer".format(fname), force=True)
+            env.debugPrint(f"skipping {fname} due to memory sanitizer", force=True)
             env.skip()
             return
         return f(env, *args, **kwargs)
@@ -348,7 +347,7 @@ def unstable(f):
     def wrapper(env, *args, **kwargs):
         if UNSTABLE == True:
             fname = f.__name__
-            env.debugPrint("skipping {} because it is unstable".format(fname), force=True)
+            env.debugPrint(f"skipping {fname} because it is unstable", force=True)
             env.skip()
             return
         return f(env, *args, **kwargs)
@@ -511,11 +510,11 @@ def compare_lists(env, list1, list2, delta=0.01, _assert=True):
     res = compare_lists_rec(list1, list2, delta + 0.000001)
     if res:
         if _assert:
-            env.assertTrue(True, message='%s ~ %s' % (str(list1), str(list2)))
+            env.assertTrue(True, message=f'{str(list1)} ~ {str(list2)}')
         return True
     else:
         if _assert:
-            env.assertTrue(False, message='%s ~ %s' % (str(list1), str(list2)))
+            env.assertTrue(False, message=f'{str(list1)} ~ {str(list2)}')
         return False
 
 class ConditionalExpected:
@@ -655,25 +654,36 @@ def get_TLS_args():
 
     return cert_file, key_file, ca_cert_file, passphrase
 
-# Dispatch an FT.CREATE command to make sure that the module is loaded and initialized
+# Dispatch a command to make sure that the module is loaded and initialized
+# We need to dispatch a command that will activate the topology updater, by
+# sending a command to the shards. Otherwise the cluster.refresh command will
+# not be effective, due to lazy initialization of the topology updater.
+# Thus we dispatch a command that does not have an index, as it is not stopped
+# in the coordinator level.
 def verify_shard_init(shard):
+    # One of the following errors can be raised (timing), yet they
+    # mean the same thing in this case - the command was dispatched
+    # to the shards before the connections were ready. Continue to
+    # try until success\timeout.
+    uninitialized_errors = [
+        'ERRCLUSTER Uninitialized cluster state, could not perform command',
+        'Could not distribute command'
+    ]
+    # The following error means that the cluster is initialized, as it was
+    # returned from the shards.
+    initialized_error = 'Alias does not exist'
+
     with TimeLimit(5, 'Failed to verify shard initialization'):
         while True:
             try:
-                shard.execute_command('FT.CREATE', 'init_shard_idx' ,'SCHEMA', 't', 'TEXT')
-                shard.execute_command('FT.DROPINDEX', 'init_shard_idx')
+                shard.execute_command('FT.ALIASDEL', 'non-existing-alias')
                 break
             except redis_exceptions.ResponseError as e:
-                # One of the following errors can be raised (timing), yet they
-                # mean the same thing in this case - the command was dispatched
-                # to the shards before the connections were ready. Continue to
-                # try until success\timeout.
-                possible_errors = [
-                    'ERRCLUSTER Uninitialized cluster state, could not perform command',
-                    'Could not distribute command'
-                ]
-                if any([err in str(e) for err in possible_errors]):
+                if any([err in str(e) for err in uninitialized_errors]):
                     continue
+                elif initialized_error in str(e):
+                    break
+                # Unexpected error, raise it.
                 raise
 
 def cmd_assert(env, cmd, res, message=None):
@@ -687,7 +697,7 @@ def getInvertedIndexInitialSize(env, fields, depth=0):
         if field in ['GEO', 'NUMERIC']:
             block_size = 48
             initial_block_cap = 6
-            inverted_index_meta_data = 48
+            inverted_index_meta_data = 40
             total_size += (block_size + initial_block_cap + inverted_index_meta_data)
             continue
         env.assertTrue(field in ['TEXT', 'TAG', 'GEOMETRY', 'VECTOR'], message=f"type {field} is not supported", depth=depth+1)
@@ -733,15 +743,58 @@ def check_index_info_empty(env, idx, fields, msg="after delete all and gc", dept
     expected_size = getInvertedIndexInitialSize_MB(env, fields, depth=depth+1)
     check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)
 
-def downloadFiles(rdbs = None):
+
+def downloadFile(env, file_name, depth=0):
+    path = os.path.join(REDISEARCH_CACHE_DIR, file_name)
+    path_dir = os.path.dirname(path)
+    os.makedirs(path_dir, exist_ok=True)  # create dir if not exists
+    if not os.path.exists(path):
+        env.debugPrint(f"downloading {file_name}", force=True)
+        try:
+            subprocess.run(
+                [
+                    "wget",
+                    "--no-check-certificate",
+                    BASE_RDBS_URL + file_name,
+                    "-O",
+                    path,
+                    "-q",
+                ],
+                check=True,
+            )
+        except subprocess.CalledProcessError as e:
+            env.assertTrue(
+                False,
+                message=f"Failed to download {BASE_RDBS_URL + file_name}. Return code: {e.returncode}, output: {e.output}, stderr: {e.stderr}",
+                depth=depth + 1,
+            )
+            try:
+                os.remove(path)
+                env.debugPrint(f"Partially downloaded file {path}. Removing it.", force=True)
+            except OSError:
+                env.debugPrint(f"Failed to remove {path}", force=True)
+                pass
+            return False
+    if not os.path.exists(path):
+        env.assertTrue(
+            False,
+            message=f"{path} does not exist after download",
+            depth=depth + 1,
+        )
+        return False
+    return True
+
+
+def downloadFiles(env, rdbs=None, depth=0):
     if rdbs is None:
         return False
 
-    os.makedirs(REDISEARCH_CACHE_DIR, exist_ok=True) # create cache dir if not exists
     for f in rdbs:
-        path = os.path.join(REDISEARCH_CACHE_DIR, f)
-        if not os.path.exists(path):
-            subprocess.run(["wget", "--no-check-certificate", BASE_RDBS_URL + f, "-O", path, "-q"])
-        if not os.path.exists(path):
+        if not downloadFile(env, f, depth=depth + 1):
             return False
     return True
+
+def index_errors(env, idx = 'idx'):
+    return to_dict(index_info(env, idx)['Index Errors'])
+def field_errors(env, idx = 'idx', fld_index = 0):
+    return to_dict(to_dict(to_dict(index_info(env, idx)['field statistics'][fld_index]))['Index Errors'])

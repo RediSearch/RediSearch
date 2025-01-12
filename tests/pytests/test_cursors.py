@@ -10,7 +10,7 @@ def loadDocs(env, count=100, idx='idx', text='hello world'):
     env.expect('FT.CREATE', idx, 'ON', 'HASH', 'prefix', 1, idx, 'SCHEMA', 'f1', 'TEXT').ok()
     waitForIndex(env, idx)
     for x in range(count):
-        cmd = ['FT.ADD', idx, '{}_doc{}'.format(idx, x), 1.0, 'FIELDS', 'f1', text]
+        cmd = ['FT.ADD', idx, f'{idx}_doc{x}', 1.0, 'FIELDS', 'f1', text]
         env.cmd(*cmd)
     r1 = env.cmd('ft.search', idx, text)
     r2 = list(set(map(lambda x: x[1], filter(lambda x: isinstance(x, list), r1))))
@@ -66,7 +66,7 @@ def testCursorsBGEdgeCasesSanity():
     loadDocs(env, count=count)
     # Add an extra field to every other document
     for x in range(0, count, 2):
-        env.cmd('HSET', 'idx_doc{}'.format(x), 'foo', 'bar')
+        env.cmd('HSET', f'idx_doc{x}', 'foo', 'bar')
 
     queries = [
         f'FT.AGGREGATE idx * WITHCURSOR COUNT 10 SORTBY 1 @f1 MAX {count} LOAD 1 irrelevant',
@@ -227,12 +227,7 @@ def testIndexDropWhileIdle(env: Env):
     # drop the index while the cursor is idle/running in bg
     env.expect('FT.DROPINDEX', 'idx').ok()
 
-    # Try to read from the cursor
-    if env.isCluster():
-        res, cursor = env.cmd(f'FT.CURSOR READ idx {cursor} COUNT 1') # read the last result
-        env.assertEqual(res[1:], [[]] , message=f'res == {res}')
-    else:
-        env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('The index was dropped while the cursor was idle')
+    env.expect(f'FT.CURSOR READ idx {cursor}').error().contains('no such index')
 
 def testIndexDropWhileIdleBG():
     env = Env(moduleArgs='WORKERS 1')

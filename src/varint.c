@@ -60,9 +60,10 @@ size_t WriteVarint(uint32_t value, BufferWriter *w) {
   varintBuf varint;
   size_t pos = varintEncode(value, varint);
   size_t nw = VARINT_LEN(pos);
-  size_t mem_growth = 0;
 
-  if(!!(mem_growth = Buffer_Reserve(w->buf, nw))) {
+  size_t mem_growth = 0;
+  // we assume buffer reserve will not fail
+  if (!!(mem_growth = Buffer_Reserve(w->buf, nw))) {
     w->pos = w->buf->data + w->buf->offset;
   }
 
@@ -104,7 +105,7 @@ void VVW_Init(VarintVectorWriter *w, size_t cap) {
 Write an integer to the vector.
 @param w a vector writer
 @param i the integer we want to write
-@retur 0 if we're out of capacity, the varint's actual size otherwise
+@return 0 if we're out of capacity, the varint's actual size otherwise
 */
 size_t VVW_Write(VarintVectorWriter *w, uint32_t i) {
   Buffer_Reserve(&w->buf, 16);
