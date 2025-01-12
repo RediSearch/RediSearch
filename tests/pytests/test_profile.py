@@ -658,4 +658,3 @@ def testPofileGILTime():
   env.assertGreaterEqual(float(total_GIL_time), 0)
   env.assertGreaterEqual(float(rp_GIL_time), 0)
   env.assertGreaterEqual(float(total_GIL_time), float(rp_GIL_time))
-  
