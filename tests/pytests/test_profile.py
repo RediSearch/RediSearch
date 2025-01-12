@@ -636,7 +636,7 @@ def testPofileGILTime():
                     'f', 'hello world',
                     'g', 'foo bar',
                     'h', 'baz qux')
-    # env.assertEqual(1, res) 
+    # env.assertEqual(1, res)
   env.cmd('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT', 'g', 'TEXT', 'h', 'TEXT')
   res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello' ,'SORTBY', '1', '@f')
   expected_result_processor_stats = ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', ANY, 'Counter', 100]
