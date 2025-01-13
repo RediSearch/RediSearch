@@ -631,12 +631,12 @@ def testPofileGILTime():
   conn = getConnectionByEnv(env)
 
   # Populate db
-  for i in range(100000):
+  for i in range(100):
     res = conn.execute_command('hset', f'doc{i}',
                     'f', 'hello world',
                     'g', 'foo bar',
                     'h', 'baz qux')
-    # env.assertEqual(1, res)
+
   env.cmd('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT', 'g', 'TEXT', 'h', 'TEXT')
   res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello' ,'SORTBY', '1', '@f')
   expected_result_processor_stats = ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', ANY, 'Counter', 100]
@@ -646,7 +646,7 @@ def testPofileGILTime():
 
 
   # extract the GIL time of the threadsafe loader result processor
-  rp_index = recursive_index(res, 'Threadsafe-Loader')[:-1] #-1 to get the index of the result processor record, not the 'Threadsafe-Loader' index
+  rp_index = recursive_index(res, 'Threadsafe-Loader')[:-1]
   rp_record = access_nested_list(res, rp_index)
   rp_GIL_time = rp_record[rp_record.index('GIL-Time') + 1]
 

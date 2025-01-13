@@ -76,7 +76,7 @@ typedef struct {
   RedisSearchCtx *sctx;
 
   struct timespec initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
-  struct timespec GILTime; // milliseconds
+  struct timespec GILTime;  //milliseconds
 
   // the minimal score applicable for a result. It can be used to optimize the scorers
   double minScore;

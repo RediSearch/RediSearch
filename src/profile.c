@@ -82,7 +82,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
         printProfileType(RPTypeToString(rp->type));
         printProfileGILTime(rp->GILTime);
         break;
-        
+
       case RP_PROFILE:
       case RP_MAX:
         RS_LOG_ASSERT(0, "RPType error");
@@ -133,8 +133,8 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
       //Print total GIL time
         if (profile_verbose){
           if (RunInThread()){
-            RedisModule_ReplyKV_Double(reply, "Total GIL time", 
-            rs_timer_ms(&req->qiter.initTime));
+            RedisModule_ReplyKV_Double(reply, "Total GIL time",
+            rs_timer_ms(&req->qiter.GILTime));
           } else {
             struct timespec rpEndTime;
             clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
