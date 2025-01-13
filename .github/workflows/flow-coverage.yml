@@ -10,7 +10,7 @@ env:
 
 jobs:
   coverage:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # Temporary hard coded until we resolve the issues with ubuntu-latest(24)
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
