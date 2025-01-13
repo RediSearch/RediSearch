@@ -2272,8 +2272,9 @@ def test_vector_index_ptr_valid(env):
     #            Update Doc
 
     # HNSW parameters the causes an execution throw (M > SIZE_MAX/2)
-    HALF_SIZE_MAX = 9223372036854775805
+    HALF_SIZE_MAX = 9223372036854775808
     M = HALF_SIZE_MAX + 1
+    M = 1
     dim = 4
 
     env.expect('FT.CREATE', 'idx','SCHEMA', 'n', 'NUMERIC',
@@ -2281,13 +2282,17 @@ def test_vector_index_ptr_valid(env):
 
     res = conn.execute_command('HSET', 'doc', 'n', 0)
     env.assertEqual(res, 1)
-    # efore bug fix, the following command would cause a server crash due to null pointer access to the vector index that filed to be created.
+    # before bug fix, the following command would cause a server crash due to null pointer access to the vector index that filed to be created.
     res = conn.execute_command('HSET', 'doc', 'n', 1)
     env.assertEqual(res, 0)
 
     # Sanity check - insert a vector, expect indexing faliure
+    # doc is indexed, doc1 is not indexed
+    hash_fails = int(index_info(env, 'idx')['hash_indexing_failures'])
     res = conn.execute_command('HSET', 'doc1', 'v', create_np_array_typed([0]*dim,'FLOAT32').tobytes())
     env.assertEqual(res, 1)
+    # hash indexing failures should be increased by 1
+    env.assertEqual(int(index_info(env, 'idx')['hash_indexing_failures']), hash_fails+1)
 
     # Check FlushAll - before bug fix, the following command would cause a server crash due to the null pointer accsess
     # Server will reply OK but crash afterwards, so a PING is required to verify
