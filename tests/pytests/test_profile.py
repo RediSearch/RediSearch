@@ -468,6 +468,7 @@ def TimeoutWarningInProfile(env):
      [['Total profile time', ANY,
        'Parsing time', ANY,
        'Pipeline creation time', ANY,
+       'Total GIL time', ANY,
        'Warning', 'Timeout limit was reached',
        'Iterators profile',
          ['Type', 'WILDCARD', 'Time', ANY, 'Counter', ANY],
@@ -488,6 +489,7 @@ def TimeoutWarningInProfile(env):
      [['Total profile time', ANY,
        'Parsing time', ANY,
        'Pipeline creation time', ANY,
+       'Total GIL time', ANY,
        'Warning', 'Timeout limit was reached',
        'Iterators profile',
         ['Type', 'WILDCARD', 'Time', ANY, 'Counter', ANY],
@@ -645,3 +647,36 @@ def testNonZeroTimers(env):
     test_cluster_timer(env)
   else:
     test_shard_timers(env)
+
+def testPofileGILTime():
+  env = Env(moduleArgs='WORKERS 1')
+  conn = getConnectionByEnv(env)
+
+  # Populate db
+  for i in range(100):
+    res = conn.execute_command('hset', f'doc{i}',
+                    'f', 'hello world',
+                    'g', 'foo bar',
+                    'h', 'baz qux')
+
+  env.cmd('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT', 'g', 'TEXT', 'h', 'TEXT')
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello' ,'SORTBY', '1', '@f')
+  expected_result_processor_stats = ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', ANY, 'Counter', 100]
+  expected_total_GIL_time = ['Total GIL time', ANY]
+  env.assertContains(res, expected_result_processor_stats)
+  env.assertContains(res[1][1], expected_total_GIL_time)
+
+
+  # extract the GIL time of the threadsafe loader result processor
+  rp_index = recursive_index(res, 'Threadsafe-Loader')[:-1]
+  rp_record = access_nested_list(res, rp_index)
+  rp_GIL_time = rp_record[rp_record.index('GIL-Time') + 1]
+
+  # extract the total GIL time
+  total_GIL_index = recursive_index(res, 'Total GIL time')
+  total_GIL_index[-1] += 1
+  total_GIL_time = access_nested_list(res, total_GIL_index)
+
+  env.assertGreaterEqual(float(total_GIL_time), 0)
+  env.assertGreaterEqual(float(rp_GIL_time), 0)
+  env.assertGreaterEqual(float(total_GIL_time), float(rp_GIL_time))
