@@ -808,3 +808,8 @@ def downloadFiles(env, rdbs=None, depth=0):
         if not downloadFile(env, f, depth=depth + 1):
             return False
     return True
+
+def index_errors(env, idx = 'idx'):
+    return to_dict(index_info(env, idx)['Index Errors'])
+def field_errors(env, idx = 'idx', fld_index = 0):
+    return to_dict(to_dict(to_dict(index_info(env, idx)['field statistics'][fld_index]))['Index Errors'])

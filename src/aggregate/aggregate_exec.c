@@ -378,11 +378,11 @@ static int populateReplyWithResults(RedisModule_Reply *reply,
 long calc_results_len(AREQ *req, size_t limit) {
   long resultsLen;
   PLN_ArrangeStep *arng = AGPLN_GetArrangeStep(&req->ap);
-  size_t reqLimit = arng && arng->isLimited? arng->limit : DEFAULT_LIMIT;
-  size_t reqOffset = arng && arng->isLimited? arng->offset : 0;
+  size_t reqLimit = arng && arng->isLimited ? arng->limit : DEFAULT_LIMIT;
+  size_t reqOffset = arng && arng->isLimited ? arng->offset : 0;
   size_t resultFactor = getResultsFactor(req);
 
-  size_t expected_res = reqLimit + reqOffset <= req->maxSearchResults ? req->qiter.totalResults : MIN(req->maxSearchResults, req->qiter.totalResults);
+  size_t expected_res = ((reqLimit + reqOffset) <= req->maxSearchResults) ? req->qiter.totalResults : MIN(req->maxSearchResults, req->qiter.totalResults);
   size_t reqResults = expected_res > reqOffset ? expected_res - reqOffset : 0;
 
   return 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
@@ -673,7 +673,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   };
 
   // Set the chunk size limit for the query
-    req->qiter.resultLimit = limit;
+  req->qiter.resultLimit = limit;
 
   if (reply->resp3) {
     sendChunk_Resp3(req, reply, limit, cv);
@@ -688,7 +688,7 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
 
 void AREQ_Execute(AREQ *req, RedisModuleCtx *ctx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  sendChunk(req, reply, -1);
+  sendChunk(req, reply, UINT64_MAX);
   RedisModule_EndReply(reply);
   AREQ_Free(req);
 }
