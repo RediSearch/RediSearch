@@ -1053,6 +1053,7 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     }
     // Found a document that match the field mask and greater or equal the searched docid
     *hit = ir->record;
+    ir->lastId = ir->record->docId;
     return (ir->record->docId == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
   } else {
     int rc;
