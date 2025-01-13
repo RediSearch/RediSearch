@@ -780,6 +780,7 @@ found:
 final:
   res->docId = curVal + IR_CURRENT_BLOCK(ir).firstId;
   res->freq = 1;
+  ir->lastId = res->docId;
   return 1;
 }
 
