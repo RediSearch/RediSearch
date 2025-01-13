@@ -540,26 +540,23 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
-  int delDocs;
-  if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
-      RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
-    delDocs = 1;
-    if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
-      delDocs = 0;
-    }
-  } else {  // FT.DROPINDEX
-    delDocs = 0;
-    if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
-      delDocs = 1;
+  bool dropCommand = RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
+               RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP");
+  bool delDocs = dropCommand;
+  if (argc == 3){
+    if (RMUtil_StringEqualsCaseC(argv[2], "_FORCEKEEPDOCS")) {
+      delDocs = false;
+    } else if (dropCommand && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
+      delDocs = false;
+    } else if (!dropCommand && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
+      delDocs = true;
+    } else {
+      return RedisModule_ReplyWithError(ctx, "Unknown argument");
     }
   }
 
-  int keepDocs = 0;
-  if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "_FORCEKEEPDOCS")) {
-    keepDocs = 1;
-  }
 
-  if((delDocs || sp->flags & Index_Temporary) && !keepDocs) {
+  if((delDocs || sp->flags & Index_Temporary)) {
     // We take a strong reference to the index, so it will not be freed
     // and we can still use it's doc table to delete the keys.
     StrongRef own_ref = StrongRef_Clone(global_ref);
