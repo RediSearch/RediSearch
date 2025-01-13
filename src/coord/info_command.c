@@ -47,7 +47,9 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "percent_indexed", .type = InfoField_DoubleAverage},
     {.name = "hash_indexing_failures", .type = InfoField_WholeSum},
     {.name = "number_of_uses", .type = InfoField_Max},
-    {.name = "cleaning", .type = InfoField_WholeSum}};
+    {.name = "cleaning", .type = InfoField_WholeSum},
+    {.name = "is_active_read", .type = InfoField_Max},
+    {.name = "is_active_write", .type = InfoField_Max}};
 
 static InfoFieldSpec gcSpecs[] = {
     {.name = "bytes_collected", .type = InfoField_WholeSum},

@@ -1019,19 +1019,8 @@ error:
 
 // Assuming the spec is properly locked before calling this function.
 size_t IndexSpec_VectorIndexSize(IndexSpec *sp) {
-  size_t total_memory = 0;
-  for (size_t i = 0; i < sp->numFields; ++i) {
-    const FieldSpec *fs = sp->fields + i;
-    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-      VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
-      if (!vecsim) {
-        continue;
-      }
-      total_memory += VecSimIndex_Info(vecsim).commonInfo.memory;
-    }
-  }
-  return total_memory;
+  VectorIndexStats stats = IndexSpec_GetVectorIndexesStats(sp);
+  return stats.memory;
 }
 
 VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
@@ -1064,7 +1053,6 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *f
   }
   return stats;
 }
-
 
 // Assuming the spec is properly locked before calling this function.
 int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
@@ -3007,7 +2995,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         RedisModuleString *rmskey = IndexSpec_GetFormattedKey(spec, spec->fields + i, INDEXFLD_T_VECTOR);
-        VecSimIndex *vecsim = openVectorIndex(spec, rmskey, DONT_CREATE_INDEX); 
+        VecSimIndex *vecsim = openVectorIndex(spec, rmskey, DONT_CREATE_INDEX);
         if(!vecsim)
           continue;
         VecSimIndex_DeleteVector(vecsim, id);

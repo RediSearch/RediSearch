@@ -163,7 +163,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       VecSimAlgo field_algo = vec_params.algo;
       AlgoParams algo_params = vec_params.algoParams;
       VectorIndexStats info = IndexSpec_GetVectorIndexStats(sp, fs);
-      
+
       if (field_algo == VecSimAlgo_TIERED) {
         VecSimParams *primary_params = algo_params.tieredParams.primaryIndexParams;
         if (primary_params->algo == VecSimAlgo_HNSWLIB) {
@@ -272,8 +272,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   size_t activeQueries = IndexSpec_GetActiveQueries(sp);
   size_t activeWrites = IndexSpec_GetActiveWrites(sp);
-  REPLY_KVSTR("is_active_read", activeQueries > 0 ? "true" : "false");
-  REPLY_KVSTR("is_active_write", activeWrites > 0 ? "true" : "false");
+  REPLY_KVINT("is_active_read", activeQueries > 0 ? 1 : 0);
+  REPLY_KVINT("is_active_write", activeWrites > 0 ? 1: 0);
   REPLY_KVINT("active_reads_count", activeQueries);
   REPLY_KVINT("active_writes_count", activeWrites);
 
