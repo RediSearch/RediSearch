@@ -1605,9 +1605,11 @@ TEST_F(IndexTest, testRawDocId) {
     int rc = IR_SkipTo(ir, id, &cur);
     if (id % 2 == 0) {
       ASSERT_EQ(INDEXREAD_NOTFOUND, rc);
+      ASSERT_EQ(id + 1, ir->lastId);
       ASSERT_EQ(id + 1, cur->docId) << "Expected to skip to " << id + 1 << " but got " << cur->docId;
     } else {
       ASSERT_EQ(INDEXREAD_OK, rc);
+      ASSERT_EQ(id, ir->lastId);
       ASSERT_EQ(id, cur->docId);
     }
   }
