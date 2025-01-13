@@ -2271,9 +2271,7 @@ def test_vector_index_ptr_valid(env):
     #            Insert partial doc - only numeric
     #            Update Doc
 
-    # HNSW parameters the causes an execution throw (M > SIZE_MAX/2)
-    HALF_SIZE_MAX = 9223372036854775808
-    M = HALF_SIZE_MAX + 1
+    # HNSW parameters the causes an execution throw (M == 1)
     M = 1
     dim = 4
 
