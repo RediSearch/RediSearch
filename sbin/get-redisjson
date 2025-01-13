@@ -159,7 +159,7 @@ if [[ -z $REPO_PATH ]]; then
 				exit 1
 			fi
 			echo "Cannot download binary artifacts - building ${MOD_NAME} from source."
-			$ROOT/sbin/build-redisjson BINROOT=$BINROOT BRANCH=$BRANCH
+			BINROOT=$BINROOT BRANCH=$BRANCH $ROOT/sbin/build-redisjson
 			exit $?
 		fi
 	fi
