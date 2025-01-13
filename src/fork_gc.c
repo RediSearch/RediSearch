@@ -506,11 +506,17 @@ static void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
 static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
   RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes start", sctx.spec->name);
+  RedisModule_SendChildHeartbeat(0);
   FGC_childCollectTerms(gc, &sctx);
+  RedisModule_SendChildHeartbeat(0.2);
   FGC_childCollectNumeric(gc, &sctx);
+  RedisModule_SendChildHeartbeat(0.4);
   FGC_childCollectTags(gc, &sctx);
+  RedisModule_SendChildHeartbeat(0.6);
   FGC_childCollectMissingDocs(gc, &sctx);
+  RedisModule_SendChildHeartbeat(0.8);
   FGC_childCollectExistingDocs(gc, &sctx);
+  RedisModule_SendChildHeartbeat(1);
   RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes end", sctx.spec->name);
 }
 
