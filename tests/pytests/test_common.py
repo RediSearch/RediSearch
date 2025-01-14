@@ -58,40 +58,40 @@ def test_compare_numeric_dicts(env):
     except KeyError:
         pass
 
-def test_recursive_index():
+def test_recursive_index(env):
     # Test with a simple list
-    assert recursive_index([1, 2, 3], 2) == [1]
-    assert recursive_index([1, 2, 3], 4) is None
+    env.assertEqual(recursive_index([1, 2, 3], 2), [1])
+    env.assertEqual(recursive_index([1, 2, 3], 4), None)
     # Test with a nested list
-    assert recursive_index([1, [2, 3], 4], 3) == [1, 1]
-    assert recursive_index([1, [2, 3], 4], 5) is None
+    env.assertEqual(recursive_index([1, [2, 3], 4], 3), [1, 1])
+    env.assertEqual(recursive_index([1, [2, 3], 4], 5), None)
     # Test with a deeply nested list
-    assert recursive_index([1, [2, [3, 4]], 5], 4) == [1, 1, 1]
-    assert recursive_index([1, [2, [3, 4]], 5], 6) is None
+    env.assertEqual(recursive_index([1, [2, [3, 4]], 5], 4), [1, 1, 1])
+    env.assertEqual(recursive_index([1, [2, [3, 4]], 5], 6), None)
     # Test with a list of strings
-    assert recursive_index(["a", "b", "c"], "b") == [1]
-    assert recursive_index(["a", "b", "c"], "d") is None
+    env.assertEqual(recursive_index(["a", "b", "c"], "b"), [1])
+    env.assertEqual(recursive_index(["a", "b", "c"], "d"), None)
     # Test with a nested list of strings
-    assert recursive_index(["a", ["b", "c"], "d"], "c") == [1, 1]
-    assert recursive_index(["a", ["b", "c"], "d"], "e") is None
+    env.assertEqual(recursive_index(["a", ["b", "c"], "d"], "c"), [1, 1])
+    env.assertEqual(recursive_index(["a", ["b", "c"], "d"], "e"), None)
     # Test with a deeply nested list of strings
-    assert recursive_index(["a", ["b", ["c", "d"]], "e"], "d") == [1, 1, 1]
-    assert recursive_index(["a", ["b", ["c", "d"]], "e"], "f") is None
+    env.assertEqual(recursive_index(["a", ["b", ["c", "d"]], "e"], "d"), [1, 1, 1])
+    env.assertEqual(recursive_index(["a", ["b", ["c", "d"]], "e"], "f"), None)
 
-def test_access_nested_list():
+def test_access_nested_list(env):
     # Test with a simple list
-    assert access_nested_list([1, 2, 3], [1]) == 2
+    env.assertEqual(access_nested_list([1, 2, 3], [1]), 2)
     # Test with a nested list
-    assert access_nested_list([1, [2, 3], 4], [1, 1]) == 3
+    env.assertEqual(access_nested_list([1, [2, 3], 4], [1, 1]), 3)
     # Test with a deeply nested list
-    assert access_nested_list([1, [2, [3, 4]], 5], [1, 1, 1]) == 4
+    env.assertEqual(access_nested_list([1, [2, [3, 4]], 5], [1, 1, 1]), 4)
 
-def test_recursive_index_and_access_nested_list():
+def test_recursive_index_and_access_nested_list(env):
     # Test with a nested list
     nested_list = [1, [2, 3], 4]
     target = 3
-    assert access_nested_list(nested_list, recursive_index(nested_list, target)) == target
+    env.assertEqual(access_nested_list(nested_list, recursive_index(nested_list, target)), target)
     # Test with a deeply nested list
     nested_list = [1, [2, [3, 4]], 5]
     target = 4
-    assert access_nested_list(nested_list, recursive_index(nested_list, target)) == target
+    env.assertEqual(access_nested_list(nested_list, recursive_index(nested_list, target)), target)
