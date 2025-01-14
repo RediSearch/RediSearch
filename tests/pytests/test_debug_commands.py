@@ -203,3 +203,16 @@ class TestDebugCommands(object):
         with TimeLimit(10):
             while len(self.env.cmd('FT._LIST')) > num_indexes:
                 pass
+    def testVecsimInfo_badParams(self):
+
+        # Scenerio1: Vecsim Index scheme with vector type with invalid parameter
+
+        # HNSW parameters the causes an execution throw (M > SIZE_MAX/2)
+        HALF_SIZE_MAX = 9223372036854775805
+        M = HALF_SIZE_MAX + 1
+        print(M)
+        dim = 2
+        self.env.expect('FT.CREATE', 'vectorIdx','SCHEMA','v', 'VECTOR', 'HNSW', '8',
+                    'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
+        self.env.expect('ft.debug', 'VECSIM_INFO', 'vectorIdx','v').error() \
+            .contains("Vector index not found")

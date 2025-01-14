@@ -34,8 +34,12 @@ VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName,
   }
 
   // create new vector data structure
+  VecSimIndex* temp = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
+  if (!temp) {
+    return NULL;
+  }
   kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->p = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
+  kdv->p = temp;
   VecSimIndexInfo indexInfo = VecSimIndex_Info(kdv->p);
   switch (indexInfo.algo)
   {
