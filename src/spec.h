@@ -540,6 +540,16 @@ VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp);
  */
 VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *fs);
 
+FieldSpecStats FieldSpec_GetStats(const FieldSpec *fs, IndexSpec *sp);
+
+typedef struct FieldSpecStats {
+  union {
+    VectorIndexStats vecStats;
+  };
+  FieldType type;
+} FieldSpecStats;
+
+
 /**
  * Gets the next text id from the index. This does not currently
  * modify the index

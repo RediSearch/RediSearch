@@ -15,6 +15,7 @@
 #include "reply_macros.h"
 #include "info/global_stats.h"
 #include "util/units.h"
+#include "field_spec.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 
@@ -310,6 +311,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   for (int i = 0; i < sp->numFields; i++) {
     const FieldSpec *fs = &sp->fields[i];
     FieldSpecInfo info = FieldSpec_GetInfo(fs);
+    FieldSpecStats stats = FieldSpec_GetStats(fs, sp);
+    info.stats = &stats;
     FieldSpecInfo_Reply(&info, reply, with_times);
   }
   REPLY_ARRAY_END; // >Field statistics

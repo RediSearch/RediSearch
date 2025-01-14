@@ -37,18 +37,37 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *info, IndexError error) {
 
 // IO and cluster traits
 
+#include "spec.h"
+
+void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply){
+    if (!stats) {
+        return;
+    }
+    switch (stats->type) {
+    case INDEXFLD_T_VECTOR:
+        REPLY_KVNUM("memory", stats->vecStats.memory);
+        REPLY_KVNUM("marked_deleted", stats->vecStats.marked_deleted);
+        break;
+    default:
+        break;
+    }
+}
+
 // Reply a Field spec info.
 void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool with_timestamp) {
     RedisModule_Reply_Map(reply);
 
     REPLY_KVSTR_SAFE("identifier", info->identifier);
     REPLY_KVSTR_SAFE("attribute", info->attribute);
+    FieldSpecStats_Reply(info->stats, reply);
     // Set the error as a new object.
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
     IndexError_Reply(&info->error, reply, with_timestamp);
 
     RedisModule_Reply_MapEnd(reply);
 }
+
+
 
 #include "coord/rmr/reply.h"
 
