@@ -32,7 +32,7 @@ jobs:
     with:
       env: ubuntu-latest
       test-config: QUICK=1
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      get-redis: ${{ needs.get-latest-redis-7-2-tag.outputs.tag }}
     secrets: inherit
 
   coverage:
