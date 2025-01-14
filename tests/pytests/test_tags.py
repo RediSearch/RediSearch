@@ -82,6 +82,7 @@ def testTagPrefix(env):
             env.assertEqual(res[0], 1)
 
 def testTagFieldCase(env):
+    dialect = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1]
     env.expect(
         'ft.create', 'idx', 'ON', 'HASH',
         'schema', 'title', 'text', 'TAgs', 'tag').ok()
@@ -95,8 +96,15 @@ def testTagFieldCase(env):
         env.assertEqual([1, 'doc1'], env.cmd(
             'FT.SEARCH', 'idx', '@TAgs:{foo bar}', 'NOCONTENT'))
 
-        env.expect('FT.SEARCH', 'idx', '@tags:{HELLO WORLD}').error().contains('Unknown field')
-        env.expect('FT.SEARCH', 'idx', '@TAGS:{foo bar}').error().contains('Unknown field')
+        # Bad queries
+        if dialect == '1':
+            env.assertEqual([0], env.cmd(
+                'FT.SEARCH', 'idx', '@tags:{HELLO WORLD}'))
+            env.assertEqual([0], env.cmd(
+                'FT.SEARCH', 'idx', '@TAGS:{foo bar}', 'NOCONTENT'))
+        else:
+            env.expect('FT.SEARCH', 'idx', '@tags:{HELLO WORLD}').error().contains('Unknown field')
+            env.expect('FT.SEARCH', 'idx', '@TAGS:{foo bar}').error().contains('Unknown field')
 
 def testInvalidSyntax(env):
     # invalid syntax
