@@ -2014,8 +2014,8 @@ def testNoStem(env):
         res = conn.execute_command('ft.search', 'idx', '@body|name:candies')
         env.assertEqual(1, res[0])
 
-        # 3 results are returned because 'body' field is stemming 'candy' 
-        # but 'name' field is not stemming  
+        # 3 results are returned because 'body' field is stemming 'candy'
+        # but 'name' field is not stemming
         res = conn.execute_command(
             'ft.search', 'idx','@body|name:(candy|cherry)', 'dialect', 2)
         env.assertEqual(3, res[0])
@@ -2040,7 +2040,7 @@ def testNoStem(env):
   @body:candi(expanded)
 }
 '''[1:])
-        
+
         # Test explaincli with modifier list fields, all fields expanded
         env.expect('ft.explain', 'idx', '@body|body2:candy').equal(r'''
 @body|body2:UNION {
@@ -2049,12 +2049,12 @@ def testNoStem(env):
   @body|body2:candi(expanded)
 }
 '''[1:])
-        
+
         # Test explaincli single field with NOSTEM
         env.expect('ft.explain', 'idx', '@name:candy').equal(r'''
 @name:candy
 '''[1:])
-        
+
         # Test explaincli with modifier list NOSTEM fields
         env.expect('ft.explain', 'idx', '@name|name2:candy').equal(r'''
 @name|name2:candy
@@ -2068,7 +2068,7 @@ def testNoStem(env):
   @body:candi(expanded)
 }
 '''[1:])
-        
+
         env.expect('ft.explain', 'idx', '@name2|body|name:candy').equal(r'''
 @body|name|name2:UNION {
   @body|name|name2:candy
@@ -2076,7 +2076,7 @@ def testNoStem(env):
   @body:candi(expanded)
 }
 '''[1:])
-        
+
         env.expect('ft.explain', 'idx', '@body2|body|name:candy').equal(r'''
 @body|name|body2:UNION {
   @body|name|body2:candy
@@ -2084,7 +2084,7 @@ def testNoStem(env):
   @body|body2:candi(expanded)
 }
 '''[1:])
-        
+
         env.expect('ft.explain', 'idx', '@body2|body|name|name2:candy').equal(r'''
 @body|name|body2|name2:UNION {
   @body|name|body2|name2:candy
@@ -3507,32 +3507,48 @@ def testFieldsCaseSensetive(env):
     # this test will not pass on coordinator coorently as if one shard return empty results coordinator
     # will not reflect the errors
     conn = getConnectionByEnv(env)
+    dialect = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1]
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC f TEXT t TAG g GEO')
 
     # make sure text fields are case sesitive
     conn.execute_command('hset', 'doc1', 'F', 'test')
     conn.execute_command('hset', 'doc2', 'f', 'test')
     env.expect('ft.search idx @f:test').equal([1, 'doc2', ['f', 'test']])
-    env.expect('ft.search idx @F:test DIALECT 1').equal([0])
-    env.expect('ft.search idx @F:test DIALECT 2').error().contains("Unknown field at offset 0 near F")
+    res = env.expect('ft.search idx @F:test')
+    if dialect == '1':
+        res.equal([0])
+    else:
+        res.error().contains("Unknown field at offset 0 near F")
 
     # make sure numeric fields are case sesitive
     conn.execute_command('hset', 'doc3', 'N', '1.0')
     conn.execute_command('hset', 'doc4', 'n', '1.0')
     env.expect('ft.search', 'idx', '@n:[0 2]').equal([1, 'doc4', ['n', '1.0']])
-    env.expect('ft.search', 'idx', '@N:[0 2]').error().contains("Unknown field at offset 0 near N")
+    res = env.expect('ft.search', 'idx', '@N:[0 2]')
+    if dialect == '1':
+        res.equal([0])
+    else:
+        res.error().contains("Unknown field at offset 0 near N")
 
     # make sure tag fields are case sesitive
     conn.execute_command('hset', 'doc5', 'T', 'tag')
     conn.execute_command('hset', 'doc6', 't', 'tag')
     env.expect('ft.search', 'idx', '@t:{tag}').equal([1, 'doc6', ['t', 'tag']])
-    env.expect('ft.search', 'idx', '@T:{tag}').error().contains("Unknown field at offset 0 near T")
+    res = env.expect('ft.search', 'idx', '@T:{tag}')
+    if dialect == '1':
+        res.equal([0])
+    else:
+        res.error().contains("Unknown field at offset 0 near T")
 
     # make sure geo fields are case sesitive
     conn.execute_command('hset', 'doc8', 'G', '-113.524,53.5244')
     conn.execute_command('hset', 'doc9', 'g', '-113.524,53.5244')
     env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1, 'doc9', ['g', '-113.524,53.5244']])
-    env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').error().contains("Unknown field at offset 0 near G")
+    res = env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]')
+    if dialect == '1':
+        res.equal([0])
+    else:
+        res.error().contains("Unknown field at offset 0 near G")
 
     # make sure RETURN are case sensitive
     env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'n').equal([1, 'doc4', ['n', '1']])
@@ -3568,32 +3584,48 @@ def testSortedFieldsCaseSensetive(env):
     # this test will not pass on coordinator coorently as if one shard return empty results coordinator
     # will not reflect the errors
     conn = getConnectionByEnv(env)
+    dialect = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1]
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE f TEXT SORTABLE t TAG SORTABLE g GEO SORTABLE')
 
     # make sure text fields are case sesitive
     conn.execute_command('hset', 'doc1', 'F', 'test')
     conn.execute_command('hset', 'doc2', 'f', 'test')
     env.expect('ft.search idx @f:test').equal([1, 'doc2', ['f', 'test']])
-    env.expect('ft.search idx @F:test DIALECT 1').equal([0])
-    env.expect('ft.search idx @F:test DIALECT 2').error().contains("Unknown field at offset 0 near F")
+    res = env.expect('ft.search idx @F:test')
+    if dialect == '1':
+        res.equal([0])
+    else:
+        res.error().contains("Unknown field at offset 0 near F")
 
     # make sure numeric fields are case sesitive
     conn.execute_command('hset', 'doc3', 'N', '1.0')
     conn.execute_command('hset', 'doc4', 'n', '1.0')
     env.expect('ft.search', 'idx', '@n:[0 2]').equal([1, 'doc4', ['n', '1.0']])
-    env.expect('ft.search', 'idx', '@N:[0 2]').error().contains("Unknown field at offset 0 near N")
+    res = env.expect('ft.search', 'idx', '@N:[0 2]')
+    if dialect == '1':
+        res.equal([0])
+    else:
+        res.error().contains("Unknown field at offset 0 near N")
 
     # make sure tag fields are case sesitive
     conn.execute_command('hset', 'doc5', 'T', 'tag')
     conn.execute_command('hset', 'doc6', 't', 'tag')
     env.expect('ft.search', 'idx', '@t:{tag}').equal([1, 'doc6', ['t', 'tag']])
-    env.expect('ft.search', 'idx', '@T:{tag}').error().contains("Unknown field at offset 0 near T")
+    res = env.expect('ft.search', 'idx', '@T:{tag}')
+    if dialect == '1':
+        res.equal([0])
+    else:
+        res.error().contains("Unknown field at offset 0 near T")
 
     # make sure geo fields are case sesitive
     conn.execute_command('hset', 'doc8', 'G', '-113.524,53.5244')
     conn.execute_command('hset', 'doc9', 'g', '-113.524,53.5244')
     env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1, 'doc9', ['g', '-113.524,53.5244']])
-    env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]').error().contains("Unknown field at offset 0 near G")
+    res = env.expect('ft.search', 'idx', '@G:[-113.52 53.52 20 mi]')
+    if dialect == '1':
+        res.equal([0])
+    else:
+        res.error().contains("Unknown field at offset 0 near G")
 
     # make sure RETURN are case sensitive
     env.expect('ft.search', 'idx', '@n:[0 2]', 'RETURN', '1', 'n').equal([1, 'doc4', ['n', '1']])
