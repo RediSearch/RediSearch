@@ -1216,7 +1216,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     setpriority(PRIO_PROCESS, getpid(), 19);
     close(gc->pipefd[GC_READERFD]);
     // Pass the index to the child process
-    FGC_childScanIndexes(gc, StrongRef_Get(early_check));
+    FGC_childScanIndexes(gc);
     close(gc->pipefd[GC_WRITERFD]);
     sleep(RSGlobalConfig.forkGcSleepBeforeExit);
     RedisModule_ExitFromChild(EXIT_SUCCESS);
@@ -1240,7 +1240,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     RedisModule_ThreadSafeContextLock(ctx);
     RedisModule_KillForkChild(cpid);
     RedisModule_ThreadSafeContextUnlock(ctx);
-
+  }
   IndexsGlobalStats_UpdateLogicallyDeleted(-num_docs_to_clean);
   gc->execState = FGC_STATE_IDLE;
   TimeSampler_End(&ts);
