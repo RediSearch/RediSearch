@@ -631,18 +631,19 @@ def testPofileGILTime():
   conn = getConnectionByEnv(env)
 
   # Populate db
-  for i in range(100):
-    res = conn.execute_command('hset', f'doc{i}',
-                    'f', 'hello world',
-                    'g', 'foo bar',
-                    'h', 'baz qux')
+  with env.getClusterConnectionIfNeeded() as conn:
+    for i in range(100):
+      res = conn.execute_command('hset', f'doc{i}',
+                      'f', 'hello world',
+                      'g', 'foo bar',
+                      'h', 'baz qux')
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT', 'g', 'TEXT', 'h', 'TEXT')
   res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello' ,'SORTBY', '1', '@f')
   expected_result_processor_stats = ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', ANY, 'Counter', 100]
   expected_total_GIL_time = ['Total GIL time', ANY]
   env.assertContains(res, expected_result_processor_stats)
-  env.assertContains(res[1][1], expected_total_GIL_time)
+  env.assertContains(res, expected_total_GIL_time)
 
 
   # extract the GIL time of the threadsafe loader result processor

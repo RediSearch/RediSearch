@@ -751,12 +751,12 @@ def recursive_index(lst, target):
                 return [i] + sublist_index
         elif element == target:
             return [i]
-    return None  
+    return None
 
-def access_nested_list(y: List[List[Any]], x: List[int]) -> Any:
-    result = y
-    for index in x:
-        result = result[index] 
+def access_nested_list(lst, index):
+    result = lst
+    for entry in index:
+        result = result[entry]
     return result
 
 def downloadFile(env, file_name, depth=0):
