@@ -131,6 +131,8 @@ struct IndexReader;
  *
  * The implementation of this function is optional. If this is not used, then
  * the decoder() implementation will be used instead.
+ *
+ * Note: This function must update the reader's `lastId`.
  */
 typedef bool (*IndexSeeker)(BufferReader *br, const IndexDecoderCtx *ctx, struct IndexReader *ir,
                             t_docId to, RSIndexResult *res);
