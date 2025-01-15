@@ -76,15 +76,6 @@ void LegacySchemaRulesArgs_Free(RedisModuleCtx *ctx) {
   legacySpecRules = NULL;
 }
 
-static int is_locale_available(const char *locale_name) {
-    locale_t new_locale = newlocale(LC_ALL_MASK, locale_name, (locale_t)0);
-    if (new_locale != (locale_t)0) {
-        freelocale(new_locale);
-        return 1; // Locale is available
-    }
-    return 0; // Locale is not available
-}
-
 SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *status) {
   SchemaRule *rule = rm_calloc(1, sizeof(*rule));
 
@@ -115,20 +106,6 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
     if (lang == RS_LANG_UNSUPPORTED) {
       QueryError_SetError(status, QUERY_EADDARGS, "Invalid language");
       goto error;
-    }
-    if (RSGlobalConfig.multibyteChars) {
-      const char *locale = RSLanguage_ToLocale(lang);
-      const char* currentLocale = setlocale(LC_ALL, NULL);
-
-      if (strcmp(currentLocale, locale) != 0) {
-        // Check if the locale is available in the system
-        if (!is_locale_available(locale)) {
-          QueryError_SetErrorFmt(status, QUERY_EADDARGS,
-            "Locale %s is not available. Please install it to support multibyte characters with language %s",
-            locale, RSLanguage_ToString(lang));
-          goto error;
-        }
-      }
     }
     rule->lang_default = lang;
   } else {

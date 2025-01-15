@@ -9,4 +9,3 @@ $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 60 --slave 
 # align gcov version with gcc version
 $MODE update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-12 60
 source install_cmake.sh $MODE
-source install_locales.sh $MODE

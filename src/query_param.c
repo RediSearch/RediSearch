@@ -83,8 +83,7 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
 
   case QT_TERM:
     target_param->type = PARAM_NONE;
-    const char* locale = RSLanguage_ToLocale(q->sctx->spec->rule->lang_default);
-    *(char**)target_value = rm_strdupcase(source->s, source->len, locale);
+    *(char**)target_value = rm_strdupcase(source->s, source->len);
     if (target_len) *target_len = strlen(target_value);
     return false; // done
 
@@ -180,8 +179,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
         // parsed as double to check +inf, -inf
         val_is_numeric = 1;
       }
-      // we don't support multi-byte char parameter name
-      *(char**)param->target = rm_strdupcase_singleByteChars(val, val_len);
+      *(char**)param->target = rm_strdupcase(val, val_len);
       if (param->target_len) *param->target_len = strlen(*(char**)param->target);
       return 1 + val_is_numeric;
 

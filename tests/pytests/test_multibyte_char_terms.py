@@ -6,7 +6,6 @@ from RLTest import Env
 def testMultibyteChars(env):
     ''' Test that multibyte characters are correctly converted to lowercase and
     that queries are case-insensitive.'''
-    env.cmd(config_cmd(), 'SET', 'MULTIBYTE_CHARS', 'true')
 
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
@@ -83,7 +82,6 @@ def testMultibyteChars(env):
 
 def testRussianAlphabet(env):
     '''Test that the russian alphabet is correctly indexed and searched.'''
-    env.cmd(config_cmd(), 'SET', 'MULTIBYTE_CHARS', 'true')
 
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
@@ -140,7 +138,6 @@ def testDiacritics(env):
     ''' Test that caracters with diacritics are converted to lowercase, but the
     diacritics are not removed.
     '''
-    env.cmd(config_cmd(), 'SET', 'MULTIBYTE_CHARS', 'true')
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
             'LANGUAGE', 'SPANISH', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
@@ -174,7 +171,6 @@ def testDiacritics(env):
 def testDiacriticLimitation(env):
     ''' Test that the diacritics are not removed, so the terms with diacritics
     are not found when searching for terms without diacritics, and vice versa.'''
-    env.cmd(config_cmd(), 'SET', 'MULTIBYTE_CHARS', 'true')
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
             'LANGUAGE', 'FRENCH', 'SCHEMA', 't', 'TEXT')
@@ -218,7 +214,6 @@ def testStopWords(env):
     '''Test that stopwords are not indexed, but for multibyte characters they
     are not converted to lowercase correctly. This is a limitation that will be
     fixed by MOD-8443'''
-    env.cmd(config_cmd(), 'SET', 'MULTIBYTE_CHARS', 'true')
 
     conn = getConnectionByEnv(env)
     # test with russian lowercase stopwords
@@ -267,6 +262,7 @@ def testStopWords(env):
     # check the stopwords list - uppercase
     res = index_info(env, 'idx2')['stopwords_list']
     env.assertEqual(res, ['И', 'НЕ', 'ОТ'])
+    print(res)
 
     for dialect in range(1, 5):
         env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
@@ -287,7 +283,6 @@ def testStopWords(env):
 
 def testInvalidMultiByteSequence(env):
     ''' Test that invalid multi-byte sequences are ignored when indexing terms.'''
-    env.cmd(config_cmd(), 'SET', 'MULTIBYTE_CHARS', 'true')
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
             'SCHEMA', 't', 'TEXT')
     conn = getConnectionByEnv(env)
@@ -313,3 +308,18 @@ def testInvalidMultiByteSequence(env):
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
         # Only the valid terms are indexed
         env.assertEqual(res, ['abcabc'])
+
+# def testGermanAlphabet(env):
+#     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'LANGUAGE', 'GERMAN',
+#             'SCHEMA', 't', 'TEXT', 'NOSTEM')
+#     conn = getConnectionByEnv(env)
+#     conn.execute_command('HSET', 'test:1', 't', 'grüßen')
+#     conn.execute_command('HSET', 'test:2', 't', 'GRÜẞEN')
+#     conn.execute_command('HSET', 'test:2', 't', 'GRÜSSEN')
+#     conn.execute_command('HSET', 'test:2', 't', 'grüssen')
+
+
+#     if not env.isCluster():
+#         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
+#         env.assertEqual(len(res), 1)
+#         print(res)

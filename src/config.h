@@ -151,8 +151,6 @@ typedef struct {
   int prioritizeIntersectUnionChildren;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
-  // Support multi-byte characters
-  int multibyteChars;
 } RSConfig;
 
 typedef enum {
@@ -300,8 +298,7 @@ void UpgradeDeprecatedMTConfigs();
     .multiTextOffsetDelta = DEFAULT_MULTI_TEXT_SLOP,                           \
     .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,          \
     .prioritizeIntersectUnionChildren = false,                                 \
-    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
-    .multibyteChars = false,                                                   \
+    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                             \
   }
 
 #define REDIS_ARRAY_LIMIT 7

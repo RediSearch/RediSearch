@@ -22,4 +22,3 @@ $MODE apt -y install python3.8 python3.8-venv python3.8-dev python3-venv python3
 $MODE update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 2
 
 source install_cmake.sh $MODE
-source install_locales.sh $MODE

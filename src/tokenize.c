@@ -13,13 +13,6 @@
 #include <stdlib.h>
 #include <strings.h>
 #include "phonetic_manager.h"
-#include <wctype.h>
-#include <wchar.h>
-#include <locale.h>
-#include <language.h>
-#if defined(__APPLE__)
-#include <xlocale.h>
-#endif
 
 typedef struct {
   RSTokenizer base;
@@ -41,17 +34,16 @@ static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uin
 #define MAX_NORMALIZE_SIZE 128
 
 /**
- * Normalize a single-byte character string, converting it to lower case and
- * removing control characters.
+ * Normalizes text.
  * - s contains the raw token
  * - dst is the destination buffer which contains the normalized text
- * - len on input contains the length of the raw token. On output contains the
- *   length of the normalized token
+ * - len on input contains the length of the raw token. on output contains the
+ * on output contains the length of the normalized token
  */
-static char *DefaultNormalize_singleByteChars(char *s, char *dst, size_t *len) {
-  size_t origLen = *len;  // original length of the token
-  char *realDest = s;     // pointer to the current destination buffer
-  size_t dstLen = 0;      // length of the destination buffer
+static char *DefaultNormalize(char *s, char *dst, size_t *len) {
+  size_t origLen = *len;
+  char *realDest = s;
+  size_t dstLen = 0;
 
 #define SWITCH_DEST()        \
   if (realDest != dst) {     \
@@ -62,128 +54,41 @@ static char *DefaultNormalize_singleByteChars(char *s, char *dst, size_t *len) {
   int escaped = 0;
   for (size_t ii = 0; ii < origLen; ++ii) {
     if (isupper(s[ii])) {
-      // convert the character to lower case
       SWITCH_DEST();
       realDest[dstLen++] = tolower(s[ii]);
     } else if ((isblank(s[ii]) && !escaped) || iscntrl(s[ii])) {
-      // skip blank characters and control characters
       SWITCH_DEST();
     } else if (s[ii] == '\\' && !escaped) {
-      // handle backslash escapes
       SWITCH_DEST();
       escaped = 1;
       continue;
     } else {
-      // copy the character as is
       dst[dstLen++] = s[ii];
     }
-    // reset the escape flag
     escaped = 0;
   }
 
   *len = dstLen;
+  if (dstLen) {
+    char *tmp = rm_strndup(dst, dstLen);
+    if (!tmp) {
+      return dst;
+    }
+    size_t lower_len = 0;
+    char *lower_dst = nunicode_tolower(tmp, dstLen, &lower_len);
+    if (lower_dst == NULL) {
+      rm_free(tmp);
+      return dst;
+    }
+    if (lower_len == dstLen) {
+    // if (1) {
+      memcpy(dst, lower_dst, lower_len);
+      *len = lower_len;
+      rm_free(lower_dst);
+    }
+    rm_free(tmp);
+  }
   return dst;
-}
-
-
-/**
- * Normalize a UTF-8 string, converting it to lower case and removing control
- * characters.
- * - s contains the raw token
- * - dst is the destination buffer which contains the normalized text
- * - len on input contains the length of the raw token. On output contains the
- *   length of the normalized token
- */
-static char *DefaultNormalize_utf8(char *s, char *dst, size_t *len,
-                                   const char *locale) {
-  locale_t old_locale_t = (locale_t)0;
-  locale_t new_locale_t = (locale_t)0;
-
-  // Get the current locale settings
-  const char *currentLocale = setlocale(LC_ALL, NULL);
-
-  if (strcmp(currentLocale, locale) != 0) {
-    new_locale_t = newlocale(LC_ALL_MASK, locale, (locale_t)0);
-    if (new_locale_t == (locale_t)0) {
-      RedisModule_Log(NULL, "warning", "Unable to set locale - current:%s new:%s error:%s", currentLocale, locale, strerror(errno));
-      return NULL;
-    }
-    // Save the current locale and switch to the new locale
-    old_locale_t = uselocale(new_locale_t);
-  }
-
-  size_t origLen = *len;   // original length of the token
-  char *realDest = s;      // pointer to the current destination buffer
-  size_t dstLen = 0;       // length of the destination buffer
-
-#define SWITCH_DEST()        \
-  if (realDest != dst) {     \
-    realDest = dst;          \
-    memcpy(realDest, s, ii); \
-  }
-  // set to 1 if the previous character was a backslash escape
-  int escaped = 0;
-
-  // Initialize the state for multi-byte character conversion
-  mbstate_t state;
-  memset(&state, 0, sizeof(state));
-
-  wchar_t wc;       // wide character
-  size_t len_wc;    // number of bytes consumed by the wide character
-
-  for (size_t ii = 0; ii < origLen;) {
-    // Convert the next character to a wide character
-    // len_wc is the number of bytes consumed
-    len_wc = mbrtowc(&wc, &s[ii], MB_CUR_MAX, &state);
-    if (len_wc == (size_t)-1 || len_wc == (size_t)-2) {
-      // Handle invalid multi-byte sequence
-      ii++;
-      continue;
-    }
-
-    if (iswupper(wc)) {
-      // If the character is upper case, convert it to lower case
-      SWITCH_DEST();
-      wchar_t lower_wc = towlower(wc);
-      wcrtomb(&realDest[dstLen], lower_wc, &state);
-      dstLen += len_wc;
-    } else if ((iswblank(wc) && !escaped) || iswcntrl(wc)) {
-      // Skip blank characters and control characters
-      SWITCH_DEST();
-    } else if (wc == L'\\' && !escaped) {
-      // Handle backslash escapes
-      SWITCH_DEST();
-      escaped = 1;
-      ii += len_wc;
-      continue;
-    } else {
-      // Copy the character as is
-      memcpy(&dst[dstLen], &s[ii], len_wc);
-      dstLen += len_wc;
-    }
-    // Move to the next character
-    ii += len_wc;
-    // Reset the escape flag
-    escaped = 0;
-  }
-
-  if (old_locale_t != (locale_t)0) {
-    // Restore the original thread-specific locale
-    uselocale(old_locale_t);
-    // Free the new locale object
-    freelocale(new_locale_t);
-  }
-
-  *len = dstLen;
-  return dst;
-}
-
-static char *DefaultNormalize(char *s, char *dst, size_t *len, const char *locale) {
-  if (RSGlobalConfig.multibyteChars) {
-    return DefaultNormalize_utf8(s, dst, len, locale);
-  } else {
-    return DefaultNormalize_singleByteChars(s, dst, len);
-  }
 }
 
 // tokenize the text in the context
@@ -207,8 +112,7 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
       normBuf = tok;
     }
 
-    const char *locale = RSLanguage_ToLocale(base->ctx.language);
-    char *normalized = DefaultNormalize(tok, normBuf, &normLen, locale);
+    char *normalized = DefaultNormalize(tok, normBuf, &normLen);
 
     // ignore tokens that turn into nothing, unless the whole string is empty.
     if ((normalized == NULL || normLen == 0) && !ctx->empty_input) {
@@ -296,12 +200,11 @@ static void tokenizerFree(void *p) {
   t->Free(t);
 }
 
-RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer,
-                        StopWordList *stopwords) {
+RSTokenizer *GetTokenizer(RSLanguage language, Stemmer *stemmer, StopWordList *stopwords) {
   if (language == RS_LANG_CHINESE) {
     return GetChineseTokenizer(stemmer, stopwords);
   } else {
-    return GetSimpleTokenizer(language, stemmer, stopwords);
+    return GetSimpleTokenizer(stemmer, stopwords);
   }
 }
 
@@ -313,20 +216,17 @@ RSTokenizer *GetChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   }
 
   RSTokenizer *t = mempool_get(tokpoolCn_g);
-  t->ctx.language = RS_LANG_CHINESE;
   t->Reset(t, stemmer, stopwords, 0);
   return t;
 }
 
-RSTokenizer *GetSimpleTokenizer(RSLanguage language, Stemmer *stemmer,
-                                StopWordList *stopwords) {
+RSTokenizer *GetSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords) {
   if (!tokpoolLatin_g) {
     mempool_options opts = {
         .initialCap = 16, .alloc = newLatinTokenizerAlloc, .free = tokenizerFree};
     mempool_test_set_global(&tokpoolLatin_g, &opts);
   }
   RSTokenizer *t = mempool_get(tokpoolLatin_g);
-  t->ctx.language = language;
   t->Reset(t, stemmer, stopwords, 0);
   return t;
 }

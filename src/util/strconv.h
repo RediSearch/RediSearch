@@ -12,14 +12,7 @@
 #include <math.h>
 #include <string.h>
 #include <ctype.h>
-#include <wctype.h>
-#include <wchar.h>
-#include <locale.h>
-#include <language.h>
-#include <config.h>
-#if defined(__APPLE__)
-#include <xlocale.h>
-#endif
+#include <../trie/rune_util.h>
 /* Strconv - common simple string conversion utils */
 
 // Case insensitive string equal
@@ -114,7 +107,66 @@ static char *rm_strndup_unescape(const char *s, size_t len) {
   return ret;
 }
 
-static char *rm_strdupcase_singleByteChars(const char *s, size_t len) {
+// transform utf8 string to lowercase using nunicode library
+// returns the transformed string
+// the length of the transformed string is stored in len
+static char* nunicode_tolower(const char *encoded, size_t in_len, size_t *len) {
+	ssize_t unicode_len = nu_strtransformlen(encoded, nu_utf8_read, nu_tolower, nu_casemap_read);
+	uint32_t *unicode_buffer = (uint32_t *)rm_malloc(sizeof(*unicode_buffer) * (unicode_len + 1));
+
+  // Decode utf8 string into Unicode codepoints and convert to lowercase
+	uint32_t unicode;
+	unsigned i = 0;
+	while (1) {
+    // Read unicode codepoint from utf8 string
+		encoded = nu_utf8_read(encoded, &unicode);
+    // Transform unicode codepoint to lowercase
+		const char *map = nu_tolower(unicode);
+
+    // Read the transformed codepoint and store it in the unicode buffer
+		if (map != 0) {
+			uint32_t mu;
+			while (1) {
+				map = nu_casemap_read(map, &mu);
+				if (mu == 0) {
+					break;
+				}
+				unicode_buffer[i] = mu;
+				++i;
+			}
+		}
+		else {
+      // If no transformation is needed, just copy the unicode codepoint
+			unicode_buffer[i] = unicode;
+			++i;
+		}
+
+    // Break if the end of the string is reached
+		if (unicode == 0) {
+			break;
+		}
+	}
+
+  // Encode Unicode codepoints back to utf8 string
+  char *reencoded = NULL;
+  ssize_t reencoded_len = nu_bytelen(unicode_buffer, nu_utf8_write);
+  if (reencoded_len > 0 && reencoded_len <= in_len) {
+    reencoded = (char*)rm_malloc(reencoded_len + 1);
+    nu_writenstr(unicode_buffer, reencoded_len, reencoded, nu_utf8_write);
+  } else {
+    reencoded_len = 0;
+  }
+
+	rm_free(unicode_buffer);
+  if (len) {
+    *len = reencoded_len;
+  }
+	return reencoded;
+}
+
+
+// strndup + lowercase in one pass!
+static char *rm_strdupcase(const char *s, size_t len) {
   char *ret = rm_strndup(s, len);
   char *dst = ret;
   char *src = ret;
@@ -131,84 +183,14 @@ static char *rm_strdupcase_singleByteChars(const char *s, size_t len) {
   }
   *dst = '\0';
 
+  // convert multibyte-chars to lowercase
+  size_t lower_len = 0;
+  char *lowerCase = nunicode_tolower(ret, len, &lower_len);
+  if (lowerCase) {
+    rm_free(ret);
+    return lowerCase;
+  }
   return ret;
-}
-
-static char *rm_strdupcase_utf8(const char *s, size_t len, const char* locale) {
-  locale_t old_locale_t = (locale_t)0;
-  locale_t new_locale_t = (locale_t)0;
-
-  // Get the current locale settings
-  const char* currentLocale = setlocale(LC_ALL, NULL);
-
-  if (strcmp(currentLocale, locale) != 0) {
-    new_locale_t = newlocale(LC_ALL_MASK, locale, (locale_t)0);
-    if (new_locale_t == (locale_t)0) {
-      RedisModule_Log(NULL, "warning", "Unable to set locale - current:%s new:%s error:%s", currentLocale, locale, strerror(errno));
-      return NULL;
-    }
-    // Save the current locale and switch to the new locale
-    old_locale_t = uselocale(new_locale_t);
-  }
-
-  // Allocate memory for the destination string
-  char *ret = rm_strndup(s, len);
-  if (!ret) {
-    return NULL;
-  }
-
-  char *dst = ret;
-  char *src = dst;
-  mbstate_t state;
-  memset(&state, 0, sizeof(state));
-  wchar_t wc;
-  size_t len_wc;
-
-  while (*src) {
-    len_wc = mbrtowc(&wc, src, MB_CUR_MAX, &state);
-    if (len_wc == (size_t)-1 || len_wc == (size_t)-2) {
-      // Handle invalid multi-byte sequence
-      src++;
-      continue;
-    }
-
-    // Unescape
-    if (wc == L'\\' && (iswpunct(*(src + len_wc)) || iswspace(*(src + len_wc)))) {
-      src++;
-      continue;
-    }
-
-    wc = towlower(wc);
-    len_wc = wcrtomb(dst, wc, &state);
-    if (len_wc == (size_t)-1) {
-      // Handle conversion error
-      src++;
-      continue;
-    }
-
-    dst += len_wc;
-    src += len_wc;
-  }
-
-  *dst = '\0';
-
-  if (old_locale_t != (locale_t)0) {
-    // Restore the original thread-specific locale
-    uselocale(old_locale_t);
-    // Free the new locale object
-    freelocale(new_locale_t);
-  }
-
-  return ret;
-}
-
-// strndup + lowercase in one pass!
-static char *rm_strdupcase(const char *s, size_t len, const char* locale) {
-  if (RSGlobalConfig.multibyteChars) {
-    return rm_strdupcase_utf8(s,len, locale);
-  } else {
-    return rm_strdupcase_singleByteChars(s, len);
-  }
 }
 
 #endif
