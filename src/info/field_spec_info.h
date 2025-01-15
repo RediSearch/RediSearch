@@ -9,7 +9,38 @@
 #include "index_error.h"
 #include "reply.h"
 
-typedef struct FieldSpecStats FieldSpecStats;
+
+typedef enum {
+  // Newline
+  INDEXFLD_T_FULLTEXT_ITZIK = 0x01,
+  INDEXFLD_T_NUMERIC_ITZIK = 0x02,
+  INDEXFLD_T_GEO_ITZIK = 0x04,
+  INDEXFLD_T_TAG_ITZIK = 0x08,
+  INDEXFLD_T_VECTOR_ITZIK = 0x10,
+  INDEXFLD_T_GEOMETRY_ITZIK = 0x20,
+} FieldTypeItzik;
+
+// typedef FieldType;
+typedef struct {
+  size_t memory;
+  size_t marked_deleted;
+} VectorIndexStats;
+
+
+typedef struct BaseStats {
+  size_t memory;
+  size_t marked_deleted;
+} BaseStats;
+
+typedef struct FieldSpecStats {
+  union {
+    VectorIndexStats vecStats;
+    BaseStats baseStats;
+  };
+  FieldTypeItzik type;
+} FieldSpecStats;
+
+
 
 // A struct to hold the information of a field specification.
 // To be used while field spec is still alive with respect to object lifetime.
@@ -17,8 +48,11 @@ typedef struct {
     const char *identifier; // The identifier of the field spec.
     const char *attribute; // The attribute of the field spec.
     IndexError error; // Indexing error of the field spec.
-    FieldSpecStats* stats;
+    FieldSpecStats stats;
 } FieldSpecInfo;
+
+FieldSpecStats FieldStats_Deserialize(const char* type,const MRReply* reply);
+
 
 // Create stack allocated FieldSpecInfo.
 FieldSpecInfo FieldSpecInfo_Init();

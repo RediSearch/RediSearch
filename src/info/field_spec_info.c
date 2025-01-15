@@ -6,6 +6,11 @@
 
 #include "field_spec_info.h"
 #include "reply_macros.h"
+#include "coord/rmr/reply.h"
+
+FieldTypeItzik getFieldType(const char* type);
+VectorIndexStats VectorFieldStats_Deserialize(const MRReply* reply);
+void FieldSpecStats_OpPlusEquals(FieldSpecStats *dst, const FieldSpecStats *src);
 
 FieldSpecInfo FieldSpecInfo_Init() {
     FieldSpecInfo info = {0};
@@ -37,16 +42,15 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *info, IndexError error) {
 
 // IO and cluster traits
 
-#include "spec.h"
 
 void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply){
     if (!stats) {
         return;
     }
     switch (stats->type) {
-    case INDEXFLD_T_VECTOR:
-        REPLY_KVNUM("memory", stats->vecStats.memory);
-        REPLY_KVNUM("marked_deleted", stats->vecStats.marked_deleted);
+    case INDEXFLD_T_VECTOR_ITZIK:
+        REPLY_KVINT("memory", stats->vecStats.memory);
+        REPLY_KVINT("marked_deleted", stats->vecStats.marked_deleted);
         break;
     default:
         break;
@@ -59,7 +63,7 @@ void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bo
 
     REPLY_KVSTR_SAFE("identifier", info->identifier);
     REPLY_KVSTR_SAFE("attribute", info->attribute);
-    FieldSpecStats_Reply(info->stats, reply);
+    FieldSpecStats_Reply(&info->stats, reply);
     // Set the error as a new object.
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
     IndexError_Reply(&info->error, reply, with_timestamp);
@@ -67,9 +71,6 @@ void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bo
     RedisModule_Reply_MapEnd(reply);
 }
 
-
-
-#include "coord/rmr/reply.h"
 
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
 void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other) {
@@ -82,6 +83,7 @@ void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other)
         info->attribute = other->attribute;
     }
     IndexError_OpPlusEquals(&info->error, &other->error);
+    FieldSpecStats_OpPlusEquals(&info->stats, &other->stats);
 }
 
 // Deserializes a FieldSpecInfo from a MRReply.
@@ -108,6 +110,54 @@ FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
     MRReply *error = MRReply_MapElement(reply, IndexError_ObjectName);
     RedisModule_Assert(error);
     info.error = IndexError_Deserialize(error);
+    info.stats = FieldStats_Deserialize(info.attribute, reply);
 
     return info;
 }
+
+FieldSpecStats FieldStats_Deserialize(const char* type,const MRReply* reply){
+    FieldSpecStats stats = {0};
+    FieldTypeItzik fieldType = getFieldType(type);
+    switch (fieldType) {
+        case INDEXFLD_T_VECTOR_ITZIK:
+            stats.vecStats = VectorFieldStats_Deserialize(reply);
+            stats.type = INDEXFLD_T_VECTOR_ITZIK;
+        default:
+            break;
+    }
+    return stats;
+}
+
+FieldTypeItzik getFieldType(const char* type){
+    if(strcmp(type, "vector") == 0){
+        return INDEXFLD_T_VECTOR_ITZIK;
+    }
+    return 0;
+}
+
+VectorIndexStats VectorFieldStats_Deserialize(const MRReply* reply){
+    VectorIndexStats vecStats;
+    vecStats.memory = MRReply_Integer(MRReply_MapElement(reply, "memory"));
+    vecStats.marked_deleted = MRReply_Integer(MRReply_MapElement(reply, "marked_deleted"));
+    return vecStats;
+}
+
+
+void FieldSpecStats_OpPlusEquals(FieldSpecStats *first, const FieldSpecStats *second) {
+    if (!first || !second) {
+        return;
+    }
+    if (!first->type){
+        *first = *second;
+        return;
+    }
+    switch (first->type) {
+    case INDEXFLD_T_VECTOR_ITZIK:
+        first->vecStats.memory += second->vecStats.memory;
+        first->vecStats.marked_deleted += second->vecStats.marked_deleted;
+        break;
+    default:
+        break;
+    }
+}
+

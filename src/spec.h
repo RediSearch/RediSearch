@@ -524,10 +524,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
  */
 size_t IndexSpec_VectorIndexSize(IndexSpec *sp);
 
-typedef struct {
-  size_t memory;
-  size_t marked_deleted;
-} VectorIndexStats;
+
 
 /**
  * Return the total stats sum of all vector indexes in an index.
@@ -542,12 +539,7 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *f
 
 FieldSpecStats FieldSpec_GetStats(const FieldSpec *fs, IndexSpec *sp);
 
-typedef struct FieldSpecStats {
-  union {
-    VectorIndexStats vecStats;
-  };
-  FieldType type;
-} FieldSpecStats;
+
 
 
 /**
