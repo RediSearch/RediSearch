@@ -1519,7 +1519,6 @@ static YYACTIONTYPE yy_reduce(
             yymsp[-2].minor.yy0.len = unescapen((char*)yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
             yylhsminor.yy75->tag.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
             if (!yylhsminor.yy75->tag.fs) {
-                QueryError_SetErrorFmt(ctx->status, QUERY_EINVAL, "Unknown field at offset %d near %.*s", yymsp[-2].minor.yy0.pos, yymsp[-2].minor.yy0.len, yymsp[-2].minor.yy0.s);
                 QueryNode_Free(yylhsminor.yy75);
                 yylhsminor.yy75 = NULL;
             }
@@ -1565,7 +1564,6 @@ static YYACTIONTYPE yy_reduce(
     if (ctx->sctx->spec) {
         yylhsminor.yy75->nn.nf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
         if (!yylhsminor.yy75->nn.nf->field) {
-            QueryError_SetErrorFmt(ctx->status, QUERY_EINVAL, "Unknown field at offset %d near %.*s", yymsp[-2].minor.yy0.pos, yymsp[-2].minor.yy0.len, yymsp[-2].minor.yy0.s);
             QueryNode_Free(yylhsminor.yy75);
             yylhsminor.yy75 = NULL;
         }
@@ -1586,7 +1584,6 @@ static YYACTIONTYPE yy_reduce(
     if (ctx->sctx->spec) {
         yylhsminor.yy75->gn.gf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
         if (!yylhsminor.yy75->gn.gf->field) {
-            QueryError_SetErrorFmt(ctx->status, QUERY_EINVAL, "Unknown field at offset %d near %.*s", yymsp[-2].minor.yy0.pos, yymsp[-2].minor.yy0.len, yymsp[-2].minor.yy0.s);
             QueryNode_Free(yylhsminor.yy75);
             yylhsminor.yy75 = NULL;
         }

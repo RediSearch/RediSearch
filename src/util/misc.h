@@ -14,6 +14,7 @@
  */
 void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *key, void *value);
 
+//null-unsafe
 int GetRedisErrorCodeLength(const char* error);
 
 #endif
