@@ -706,11 +706,11 @@ def testDefaultValues(env: Env):
     with env.getClusterConnectionIfNeeded() as con:
         con.execute_command('HSET', 'doc', 'n', '46')
 
-    def query(*args):
+    def query(*reduce_args):
         return ['FT.AGGREGATE', 'idx', '*',
                 'LOAD', '2', '@missing', '@n',
                 'GROUPBY', '0',
-                'REDUCE'] + list(args) + ['AS', 'res']
+                'REDUCE'] + list(reduce_args) + ['AS', 'res']
 
     # Test Count - Not relevant as it does not relay on a specific field
 
