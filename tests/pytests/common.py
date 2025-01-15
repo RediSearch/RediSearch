@@ -753,6 +753,9 @@ def recursive_index(lst, target):
             return [i]
     return None
 
+def recursive_in(lst, target):
+    return recursive_index(lst, target) is not None
+
 def access_nested_list(lst, index):
     result = lst
     for entry in index:

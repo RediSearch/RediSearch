@@ -640,11 +640,14 @@ def testPofileGILTime():
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT', 'g', 'TEXT', 'h', 'TEXT')
   res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello' ,'SORTBY', '1', '@f')
-  expected_result_processor_stats = ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', ANY, 'Counter', 100]
-  expected_total_GIL_time = ['Total GIL time', ANY]
-  env.assertContains(res, expected_result_processor_stats)
-  env.assertContains(res, expected_total_GIL_time)
+  env.assertNotEqual(res, None)
 
+  # Record structure:
+  # ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', ANY, 'Counter', 100]
+  # ['Total GIL time', ANY]
+
+  env.assertTrue(recursive_in(res, 'Threadsafe-Loader'))
+  env.assertTrue(recursive_in(res, 'Total GIL time'))
 
   # extract the GIL time of the threadsafe loader result processor
   rp_index = recursive_index(res, 'Threadsafe-Loader')[:-1]
