@@ -646,8 +646,8 @@ def testPofileGILTime():
   # ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', ANY, 'Counter', 100]
   # ['Total GIL time', ANY]
 
-  env.assertTrue(recursive_in(res, 'Threadsafe-Loader'))
-  env.assertTrue(recursive_in(res, 'Total GIL time'))
+  env.assertTrue(recursive_contains(res, 'Threadsafe-Loader'))
+  env.assertTrue(recursive_contains(res, 'Total GIL time'))
 
   # extract the GIL time of the threadsafe loader result processor
   rp_index = recursive_index(res, 'Threadsafe-Loader')[:-1]

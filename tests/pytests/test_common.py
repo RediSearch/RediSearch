@@ -78,6 +78,26 @@ def test_recursive_index(env):
     env.assertEqual(recursive_index(["a", ["b", ["c", "d"]], "e"], "d"), [1, 1, 1])
     env.assertEqual(recursive_index(["a", ["b", ["c", "d"]], "e"], "f"), None)
 
+def test_recursive_contains(env):
+    # Test with a simple list
+    env.assertTrue(recursive_contains([1, 2, 3], 2))
+    env.assertFalse(recursive_contains([1, 2, 3], 4))
+    # Test with a nested list
+    env.assertTrue(recursive_contains([1, [2, 3], 4], 3))
+    env.assertFalse(recursive_contains([1, [2, 3], 4], 5))
+    # Test with a deeply nested list
+    env.assertTrue(recursive_contains([1, [2, [3, 4]], 5], 4))
+    env.assertFalse(recursive_contains([1, [2, [3, 4]], 5], 6))
+    # Test with a list of strings
+    env.assertTrue(recursive_contains(["a", "b", "c"], "b"))
+    env.assertFalse(recursive_contains(["a", "b", "c"], "d"))
+    # Test with a nested list of strings
+    env.assertTrue(recursive_contains(["a", ["b", "c"], "d"], "c"))
+    env.assertFalse(recursive_contains(["a", ["b", "c"], "d"], "e"))
+    # Test with a deeply nested list of strings
+    env.assertTrue(recursive_contains(["a", ["b", ["c", "d"]], "e"], "d"))
+    env.assertFalse(recursive_contains(["a", ["b", ["c", "d"]], "e"], "f"))
+
 def test_access_nested_list(env):
     # Test with a simple list
     env.assertEqual(access_nested_list([1, 2, 3], [1]), 2)
