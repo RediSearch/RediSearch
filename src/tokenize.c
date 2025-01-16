@@ -82,12 +82,12 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
     char *tok = toksep(&self->pos, &origLen);
     // normalize the token
     size_t normLen = origLen;
-    if (normLen > MAX_NORMALIZE_SIZE) {
-      normLen = MAX_NORMALIZE_SIZE;
-    }
     char normalized_s[MAX_NORMALIZE_SIZE];
     char *normBuf;
     if (ctx->options & TOKENIZE_NOMODIFY) {
+      if (normLen > MAX_NORMALIZE_SIZE) {
+        normLen = MAX_NORMALIZE_SIZE;
+      }
       normBuf = normalized_s;
     } else {
       normBuf = tok;
