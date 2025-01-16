@@ -4496,15 +4496,29 @@ def testLegacyFilters(env: Env):
         for i in range(n_docs):
             con.execute_command('HSET', f'doc{i}', 'n', i, 'g', f'{i/km_in_a_degree},0.0')
 
+    ## Test filters (valid queries)
     expected = [10] + [f'doc{i}' for i in range(10, 20)]
+    geo_pivot = (20+10-1)/2/km_in_a_degree
+
     # Test a single numeric filter
     env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '10', '(20', 'NOCONTENT').equal(expected)
     # Test multiple numeric filters (intersection)
     env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '-10', '(20', 'FILTER', 'n', '10', '(40', 'NOCONTENT').equal(expected)
 
-    geo_pivot = (20+10-1)/2/km_in_a_degree
     # Test a single geo filter
     env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', geo_pivot, 0, 5, 'km', 'NOCONTENT').equal(expected)
+
+    ## Test values syntax errors
+
+    env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', 'NOCONTENT').error().contains('FILTER requires 3 arguments')
+    env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', 'banana', 'NOCONTENT').error().contains('Bad lower range: banana')
+    env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '10', 'banana', 'NOCONTENT').error().contains('Bad upper range: banana')
+
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 'NOCONTENT').error().contains('GEOFILTER requires 5 arguments')
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 'banana', 0, 5, 'km', 'NOCONTENT').error().contains('Bad arguments for <lon>')
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 0, 'banana', 5, 'km', 'NOCONTENT').error().contains('Bad arguments for <lat>')
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 0, 0, 'banana', 'km', 'NOCONTENT').error().contains('Bad arguments for <radius>')
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 0, 0, 5, 'banana', 'NOCONTENT').error().contains('Unknown distance unit')
 
     ## Test bad filters fields
     dialect_1 = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1] == '1'
