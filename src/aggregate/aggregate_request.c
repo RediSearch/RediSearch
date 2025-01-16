@@ -465,7 +465,7 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
     options->legacy.gf = rm_calloc(1, sizeof(*options->legacy.gf));
     if (GeoFilter_LegacyParse(options->legacy.gf, ac, status) != REDISMODULE_OK) {
-      rm_free(options->legacy.gf->field); // Free the field name (if set by the legacy parser)
+      rm_free((char *)options->legacy.gf->field); // Free the field name (if set by the legacy parser)
       GeoFilter_Free(options->legacy.gf);
       return ARG_ERROR;
     }
