@@ -527,6 +527,8 @@ size_t IndexSpec_VectorIndexSize(IndexSpec *sp);
 
 FieldSpecStats FieldSpec_GetStats(const FieldSpec *fs, IndexSpec *sp);
 
+VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp);
+
 VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *fs);
 /**
  * Gets the next text id from the index. This does not currently

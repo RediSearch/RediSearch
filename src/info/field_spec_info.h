@@ -11,8 +11,8 @@
 #include "index_error.h"
 #include "reply.h"
 #include "coord/rmr/reply.h"
-#include "vector_index_stats.h"
 #include "field_spec.h"
+#include "vector_index_stats.h"
 
 
 typedef struct FieldSpecStats {
@@ -34,7 +34,7 @@ typedef struct {
 
 FieldSpecStats FieldStats_Deserialize(const char* type,const MRReply* reply);
 
-// FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
 // Create stack allocated FieldSpecInfo.
 FieldSpecInfo FieldSpecInfo_Init();
 
@@ -61,6 +61,7 @@ void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other)
 
 // Deserializes a FieldSpecInfo from a MRReply.
 FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply);
+
 
 
 

@@ -15,7 +15,8 @@
 #include "reply_macros.h"
 #include "info/global_stats.h"
 #include "util/units.h"
-#include "field_spec.h"
+#include "field_spec_info.h"
+
 
 static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 

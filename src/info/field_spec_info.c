@@ -162,8 +162,6 @@ void FieldSpecStats_OpPlusEquals(FieldSpecStats *first, const FieldSpecStats *se
     }
 }
 
-
-
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
   FieldSpecInfo info = {0};
   FieldSpecInfo_SetIdentifier(&info, fs->path);
