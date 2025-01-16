@@ -107,7 +107,6 @@ typedef struct {
   size_t *errorIndexes;
   InfoValue toplevelValues[NUM_FIELDS_SPEC];
   FieldSpecInfo *fieldSpecInfo_arr;
-  InfoValue *fieldSpecStats_arr; // number_of_fields * num_of_shards (responses)
   IndexError indexError;
   InfoValue gcValues[NUM_GC_FIELDS_SPEC];
   InfoValue cursorValues[NUM_CURSOR_FIELDS_SPEC];

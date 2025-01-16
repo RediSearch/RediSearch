@@ -58,8 +58,9 @@ void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply)
     }
     switch (stats->type) {
         case INDEXFLD_T_VECTOR:
-            REPLY_KVINT("memory", stats->vecStats.memory);
-            REPLY_KVINT("marked_deleted", stats->vecStats.marked_deleted);
+            for (int i = 0; VectorIndexStats_Metrics[i] != NULL; i++) {
+                REPLY_KVINT(VectorIndexStats_Metrics[i], VectorIndexStats_GetGetter(VectorIndexStats_Metrics[i])(&stats->vecStats));
+            }
             break;
         default:
             break;
@@ -147,6 +148,7 @@ FieldType getFieldType(const char* type){
     }
     return 0;
 }
+
 
 void FieldSpecStats_OpPlusEquals(FieldSpecStats *first, const FieldSpecStats *second) {
     if (!first->type){

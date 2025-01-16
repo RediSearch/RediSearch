@@ -1021,18 +1021,8 @@ FieldSpecStats FieldSpec_GetStats(const FieldSpec *fs, IndexSpec *sp){
   FieldSpecStats stats = {0};
   stats.type = fs->types;
   switch (stats.type) {
-    // case INDEXFLD_T_FULLTEXT:
-    //   return sp->stats.textFields;
-    // case INDEXFLD_T_NUMERIC:
-    //   return sp->stats.numericFields;
-    // case INDEXFLD_T_GEO:
-    //   return sp->stats.geoFields;
-    // case INDEXFLD_T_TAG:
-    //   return sp->stats.tagFields;
     case INDEXFLD_T_VECTOR:
       stats.vecStats = IndexSpec_GetVectorIndexStats(sp, fs);
-      return stats;
-    case INDEXFLD_T_GEOMETRY:
       return stats;
     default:
       return (FieldSpecStats){0};

@@ -1,6 +1,5 @@
-// #ifndef VECTOR_INDEX_STATS_H
-// #define VECTOR_INDEX_STATS_H
-// #include <stddef.h>
+#ifndef VECTOR_INDEX_STATS_H
+#define VECTOR_INDEX_STATS_H
 #include <string.h>
 
 
@@ -10,17 +9,28 @@ typedef struct {
 } VectorIndexStats;
 
 typedef void (*VectorIndexStats_Setter)(VectorIndexStats*, size_t);
+typedef size_t (*VectorIndexStats_Getter)(const VectorIndexStats*);
 
 typedef struct {
     const char* name;
     VectorIndexStats_Setter setter;
 } VectorIndexStats_SetterMapping;
 
+typedef struct {
+    const char* name;
+    VectorIndexStats_Getter getter;
+} VectorIndexStats_GetterMapping;
+
+
 void VectorIndexStats_Agg(VectorIndexStats *first, const VectorIndexStats *second);
 VectorIndexStats VectorIndexStats_Init();
 
 VectorIndexStats_Setter VectorIndexStats_GetSetter(const char* name);
-//Metrics setters
+VectorIndexStats_Getter VectorIndexStats_GetGetter(const char* name);
+
+//Metrics getters setters
+size_t VectorIndexStats_GetMemory(const VectorIndexStats *stats);
+size_t VectorIndexStats_GetMarkedDeleted(const VectorIndexStats *stats);
 void VectorIndexStats_SetMemory(VectorIndexStats *stats, size_t memory);
 void VectorIndexStats_SetMarkedDeleted(VectorIndexStats *stats, size_t marked_deleted);
 
@@ -36,4 +46,11 @@ static VectorIndexStats_SetterMapping VectorIndexStats_SetterMappingsContainer[]
     {"marked_deleted", VectorIndexStats_SetMarkedDeleted},
     {NULL, NULL} // Sentinel value to mark the end of the array
 };
-// #endif
+
+static VectorIndexStats_GetterMapping VectorIndexStats_GetterMappingContainer[] = {
+    {"memory", VectorIndexStats_GetMemory},
+    {"marked_deleted", VectorIndexStats_GetMarkedDeleted},
+    {NULL, NULL} // Sentinel value to mark the end of the array
+};
+
+#endif

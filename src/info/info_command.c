@@ -312,8 +312,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   for (int i = 0; i < sp->numFields; i++) {
     const FieldSpec *fs = &sp->fields[i];
     FieldSpecInfo info = FieldSpec_GetInfo(fs);
-    FieldSpecStats stats = FieldSpec_GetStats(fs, sp);
-    info.stats = stats;
+    info.stats = FieldSpec_GetStats(fs, sp);
     FieldSpecInfo_Reply(&info, reply, with_times);
   }
   REPLY_ARRAY_END; // >Field statistics
