@@ -1005,6 +1005,8 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
     } else {
       QAST_GlobalFilterOptions legacyOpts = {.geo = gf};
       QAST_SetGlobalFilters(ast, &legacyOpts);
+      opts->legacy.gf = NULL; // so AREQ_Free() doesn't free the filter itself, which is now owned
+                              // by the query object
     }
   }
 
@@ -1705,6 +1707,9 @@ void AREQ_Free(AREQ *req) {
       }
     }
     array_free(req->searchopts.legacy.filters);
+  }
+  if (req->searchopts.legacy.gf) {
+    GeoFilter_Free(req->searchopts.legacy.gf);
   }
   rm_free(req->searchopts.inids);
   if (req->searchopts.params) {
