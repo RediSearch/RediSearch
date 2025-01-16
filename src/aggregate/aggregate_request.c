@@ -465,7 +465,6 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
     options->legacy.gf = rm_calloc(1, sizeof(*options->legacy.gf));
     if (GeoFilter_LegacyParse(options->legacy.gf, ac, status) != REDISMODULE_OK) {
-      rm_free((char *)options->legacy.gf->field); // Free the field name (if set by the legacy parser)
       GeoFilter_Free(options->legacy.gf);
       return ARG_ERROR;
     }
@@ -967,13 +966,19 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       NumericFilter *filter = opts->legacy.filters[ii];
       const char *fieldName = (const char *)filter->field;
       filter->field = IndexSpec_GetField(sctx->spec, fieldName);
-      if (!filter->field && dialect != 1) {
-        QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
-        return REDISMODULE_ERR;
-      } else if (!filter->field) {
-        QAST_GlobalFilterOptions legacyFilterOpts = {.empty = true};
-        QAST_SetGlobalFilters(ast, &legacyFilterOpts);
-        continue; // Keep the filter entry in the legacy filters array for AREQ_Free()
+      if (!filter->field || !FIELD_IS(filter->field, INDEXFLD_T_NUMERIC)) {
+        if (dialect != 1) {
+          if (!filter->field) {
+            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
+          } else {
+            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field '%s' is not a numeric field", fieldName);
+          }
+          return REDISMODULE_ERR;
+        } else {
+          QAST_GlobalFilterOptions legacyFilterOpts = {.empty = true};
+          QAST_SetGlobalFilters(ast, &legacyFilterOpts);
+          continue; // Keep the filter entry in the legacy filters array for AREQ_Free()
+        }
       }
       QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = filter};
       QAST_SetGlobalFilters(ast, &legacyFilterOpts);
@@ -985,12 +990,18 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
     GeoFilter *gf = opts->legacy.gf;
     const char *fieldName = (const char *)gf->field;
     gf->field = IndexSpec_GetField(sctx->spec, fieldName);
-    if (!gf->field && dialect != 1) {
-      QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
-      return REDISMODULE_ERR;
-    } else if (!gf->field) {
-      QAST_GlobalFilterOptions legacyOpts = {.empty = true};
-      QAST_SetGlobalFilters(ast, &legacyOpts);
+    if (!gf->field || !FIELD_IS(gf->field, INDEXFLD_T_GEO)) {
+      if (dialect != 1) {
+        if (!gf->field) {
+          QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
+        } else {
+          QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field '%s' is not a geo field", fieldName);
+        }
+        return REDISMODULE_ERR;
+      } else {
+        QAST_GlobalFilterOptions legacyOpts = {.empty = true};
+        QAST_SetGlobalFilters(ast, &legacyOpts);
+      }
     } else {
       QAST_GlobalFilterOptions legacyOpts = {.geo = gf};
       QAST_SetGlobalFilters(ast, &legacyOpts);
