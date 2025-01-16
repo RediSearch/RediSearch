@@ -55,7 +55,7 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
 
 // Adds the error message of the other IndexError to the IndexError. The error_count is incremented and the last_error is set to the error_message.
 // This is used when merging errors from different shards in a cluster.
-void IndexError_OpPlusEquals(IndexError *error, const IndexError *other);
+void IndexError_Fold(IndexError *error, const IndexError *other);
 
 IndexError IndexError_Deserialize(MRReply *reply);
 

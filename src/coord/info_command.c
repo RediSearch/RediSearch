@@ -47,9 +47,7 @@ static InfoFieldSpec toplevelSpecs_g[] = {
     {.name = "percent_indexed", .type = InfoField_DoubleAverage},
     {.name = "hash_indexing_failures", .type = InfoField_WholeSum},
     {.name = "number_of_uses", .type = InfoField_Max},
-    {.name = "cleaning", .type = InfoField_WholeSum},
-    {.name = "is_active_read", .type = InfoField_Max},
-    {.name = "is_active_write", .type = InfoField_Max}};
+    {.name = "cleaning", .type = InfoField_WholeSum}};
 
 static InfoFieldSpec gcSpecs[] = {
     {.name = "bytes_collected", .type = InfoField_WholeSum},
@@ -182,7 +180,7 @@ void handleFieldStatistics(MRReply *src, InfoFields *fields) {
   for (size_t i = 0; i < len; i++) {
     MRReply *serializedFieldSpecInfo = MRReply_ArrayElement(src, i);
     FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Deserialize(serializedFieldSpecInfo);
-    FieldSpecInfo_OpPlusEquals(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
+    FieldSpecInfo_Fold(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
     FieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources
   }
 }
@@ -193,7 +191,7 @@ static void handleIndexError(InfoFields *fields, MRReply *src) {
     fields->indexError = IndexError_Init();
   }
   IndexError indexError = IndexError_Deserialize(src);
-  IndexError_OpPlusEquals(&fields->indexError, &indexError);
+  IndexError_Fold(&fields->indexError, &indexError);
   IndexError_Clear(indexError); // Free Resources
 }
 

@@ -9,10 +9,8 @@
 #include "coord/rmr/reply.h"
 
 
-
 FieldType getFieldType(const char* type);
-// VectorIndexStats VectorFieldStats_Deserialize(const MRReply* reply);
-void FieldSpecStats_OpPlusEquals(FieldSpecStats *dst, const FieldSpecStats *src);
+void FieldSpecStats_Fold(FieldSpecStats *dst, const FieldSpecStats *src);
 
 FieldSpecInfo FieldSpecInfo_Init() {
     FieldSpecInfo info = {0};
@@ -48,23 +46,22 @@ void FieldSpecInfo_SetStats(FieldSpecInfo *info, FieldSpecStats stats) {
     info->stats = stats;
 }
 
-
 // IO and cluster traits
 
-
 void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply){
-    if (!stats) {
-        return;
-    }
-    switch (stats->type) {
-        case INDEXFLD_T_VECTOR:
-            for (int i = 0; VectorIndexStats_Metrics[i] != NULL; i++) {
-                REPLY_KVINT(VectorIndexStats_Metrics[i], VectorIndexStats_GetGetter(VectorIndexStats_Metrics[i])(&stats->vecStats));
-            }
-            break;
-        default:
-            break;
-    }
+if (!stats) {
+    return;
+}
+switch (stats->type) {
+    case INDEXFLD_T_VECTOR:
+        for (int i = 0; VectorIndexStats_Metrics[i] != NULL; i++) {
+            REPLY_KVINT(VectorIndexStats_Metrics[i],
+                        VectorIndexStats_GetGetter(VectorIndexStats_Metrics[i])(&stats->vecStats));
+        }
+        break;
+    default:
+        break;
+}
 }
 
 // Reply a Field spec info.
@@ -83,7 +80,7 @@ void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bo
 
 
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
-void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other) {
+void FieldSpecInfo_Fold(FieldSpecInfo *info, const FieldSpecInfo *other) {
     RedisModule_Assert(info);
     RedisModule_Assert(other);
     if(!info->identifier) {
@@ -92,13 +89,13 @@ void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other)
     if(!info->attribute) {
         info->attribute = other->attribute;
     }
-    IndexError_OpPlusEquals(&info->error, &other->error);
-    FieldSpecStats_OpPlusEquals(&info->stats, &other->stats);
+    IndexError_Fold(&info->error, &other->error);
+    FieldSpecStats_Fold(&info->stats, &other->stats);
 }
 
 // Deserializes a FieldSpecInfo from a MRReply.
 FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
-    FieldSpecInfo info = {0};
+    FieldSpecInfo info = FieldSpecInfo_Init();
     RedisModule_Assert(reply);
     // Validate the reply type - array or map.
     RedisModule_Assert(MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0));
@@ -150,7 +147,7 @@ FieldType getFieldType(const char* type){
 }
 
 
-void FieldSpecStats_OpPlusEquals(FieldSpecStats *first, const FieldSpecStats *second) {
+void FieldSpecStats_Fold(FieldSpecStats *first, const FieldSpecStats *second) {
     if (!first->type){
         *first = *second;
         return;
@@ -164,10 +161,3 @@ void FieldSpecStats_OpPlusEquals(FieldSpecStats *first, const FieldSpecStats *se
     }
 }
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
-  FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, fs->path);
-  FieldSpecInfo_SetAttribute(&info, fs->name);
-  FieldSpecInfo_SetIndexError(&info, fs->indexError);
-  return info;
-}
