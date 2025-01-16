@@ -194,10 +194,10 @@ def testDiacriticLimitation(env):
         # not found
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:etude', 'NOCONTENT', 'SORTBY', 't')
-        env.assertEqual(res, [2, 'mot:1', 'mot:3'])
+        env.assertEqual(res, [2, 'mot:1', 'mot:3'], message=f'Dialect: {dialect}')
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:Etude', 'NOCONTENT', 'SORTBY', 't')
-        env.assertEqual(res, [2, 'mot:1', 'mot:3'])
+        env.assertEqual(res, [2, 'mot:1', 'mot:3'], message=f'Dialect: {dialect}')
 
         # search term with diacritics
         # the diacritics are not removed, so the terms WITHOUT diacritics are

@@ -69,7 +69,7 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
   }
 
   *len = dstLen;
-  if (dstLen) {
+  if (dstLen > 0) {
     char *tmp = rm_strndup(dst, dstLen);
     if (!tmp) {
       return dst;
@@ -80,12 +80,9 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
       rm_free(tmp);
       return dst;
     }
-    if (lower_len == dstLen) {
-    // if (1) {
-      memcpy(dst, lower_dst, lower_len);
-      *len = lower_len;
-      rm_free(lower_dst);
-    }
+    memcpy(dst, lower_dst, lower_len);
+    *len = lower_len;
+    rm_free(lower_dst);
     rm_free(tmp);
   }
   return dst;
