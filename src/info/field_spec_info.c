@@ -8,13 +8,16 @@
 #include "reply_macros.h"
 #include "coord/rmr/reply.h"
 
-FieldTypeItzik getFieldType(const char* type);
-VectorIndexStats VectorFieldStats_Deserialize(const MRReply* reply);
+
+
+FieldType getFieldType(const char* type);
+// VectorIndexStats VectorFieldStats_Deserialize(const MRReply* reply);
 void FieldSpecStats_OpPlusEquals(FieldSpecStats *dst, const FieldSpecStats *src);
 
 FieldSpecInfo FieldSpecInfo_Init() {
     FieldSpecInfo info = {0};
     info.error = IndexError_Init();
+    info.stats = (FieldSpecStats){0};
     return info;
 }
 
@@ -40,6 +43,12 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *info, IndexError error) {
     info->error = error;
 }
 
+// Sets the stats of the field spec.
+void FieldSpecInfo_SetStats(FieldSpecInfo *info, FieldSpecStats stats) {
+    info->stats = stats;
+}
+
+
 // IO and cluster traits
 
 
@@ -48,12 +57,12 @@ void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply)
         return;
     }
     switch (stats->type) {
-    case INDEXFLD_T_VECTOR_ITZIK:
-        REPLY_KVINT("memory", stats->vecStats.memory);
-        REPLY_KVINT("marked_deleted", stats->vecStats.marked_deleted);
-        break;
-    default:
-        break;
+        case INDEXFLD_T_VECTOR:
+            REPLY_KVINT("memory", stats->vecStats.memory);
+            REPLY_KVINT("marked_deleted", stats->vecStats.marked_deleted);
+            break;
+        default:
+            break;
     }
 }
 
@@ -117,47 +126,48 @@ FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
 
 FieldSpecStats FieldStats_Deserialize(const char* type,const MRReply* reply){
     FieldSpecStats stats = {0};
-    FieldTypeItzik fieldType = getFieldType(type);
+    FieldType fieldType = getFieldType(type);
     switch (fieldType) {
-        case INDEXFLD_T_VECTOR_ITZIK:
-            stats.vecStats = VectorFieldStats_Deserialize(reply);
-            stats.type = INDEXFLD_T_VECTOR_ITZIK;
+        case INDEXFLD_T_VECTOR:
+            // char const **metrics = (char const**)VectorIndexStats_Metrics;
+            for(int i = 0; VectorIndexStats_Metrics[i] != NULL; i++){
+                size_t metricValue = MRReply_Integer(MRReply_MapElement(reply, VectorIndexStats_Metrics[i]));
+                VectorIndexStats_GetSetter(VectorIndexStats_Metrics[i])(&stats.vecStats, metricValue);
+            }
+            stats.type = INDEXFLD_T_VECTOR;
         default:
             break;
     }
     return stats;
 }
 
-FieldTypeItzik getFieldType(const char* type){
+FieldType getFieldType(const char* type){
     if(strcmp(type, "vector") == 0){
-        return INDEXFLD_T_VECTOR_ITZIK;
+        return INDEXFLD_T_VECTOR;
     }
     return 0;
 }
 
-VectorIndexStats VectorFieldStats_Deserialize(const MRReply* reply){
-    VectorIndexStats vecStats;
-    vecStats.memory = MRReply_Integer(MRReply_MapElement(reply, "memory"));
-    vecStats.marked_deleted = MRReply_Integer(MRReply_MapElement(reply, "marked_deleted"));
-    return vecStats;
-}
-
-
 void FieldSpecStats_OpPlusEquals(FieldSpecStats *first, const FieldSpecStats *second) {
-    if (!first || !second) {
-        return;
-    }
     if (!first->type){
         *first = *second;
         return;
     }
     switch (first->type) {
-    case INDEXFLD_T_VECTOR_ITZIK:
-        first->vecStats.memory += second->vecStats.memory;
-        first->vecStats.marked_deleted += second->vecStats.marked_deleted;
+    case INDEXFLD_T_VECTOR:
+        VectorIndexStats_Agg(&first->vecStats, &second->vecStats);
         break;
     default:
         break;
     }
 }
 
+
+
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
+  FieldSpecInfo info = {0};
+  FieldSpecInfo_SetIdentifier(&info, fs->path);
+  FieldSpecInfo_SetAttribute(&info, fs->name);
+  FieldSpecInfo_SetIndexError(&info, fs->indexError);
+  return info;
+}

@@ -5,41 +5,22 @@
  */
 
 #pragma once
+#ifndef __FIELD_SPEC_INFO_H__
+#define __FIELD_SPEC_INFO_H__
 
 #include "index_error.h"
 #include "reply.h"
+#include "coord/rmr/reply.h"
+#include "vector_index_stats.h"
+#include "field_spec.h"
 
-
-typedef enum {
-  // Newline
-  INDEXFLD_T_FULLTEXT_ITZIK = 0x01,
-  INDEXFLD_T_NUMERIC_ITZIK = 0x02,
-  INDEXFLD_T_GEO_ITZIK = 0x04,
-  INDEXFLD_T_TAG_ITZIK = 0x08,
-  INDEXFLD_T_VECTOR_ITZIK = 0x10,
-  INDEXFLD_T_GEOMETRY_ITZIK = 0x20,
-} FieldTypeItzik;
-
-// typedef FieldType;
-typedef struct {
-  size_t memory;
-  size_t marked_deleted;
-} VectorIndexStats;
-
-
-typedef struct BaseStats {
-  size_t memory;
-  size_t marked_deleted;
-} BaseStats;
 
 typedef struct FieldSpecStats {
   union {
     VectorIndexStats vecStats;
-    BaseStats baseStats;
   };
-  FieldTypeItzik type;
+  FieldType type;
 } FieldSpecStats;
-
 
 
 // A struct to hold the information of a field specification.
@@ -53,7 +34,7 @@ typedef struct {
 
 FieldSpecStats FieldStats_Deserialize(const char* type,const MRReply* reply);
 
-
+// FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
 // Create stack allocated FieldSpecInfo.
 FieldSpecInfo FieldSpecInfo_Init();
 
@@ -74,10 +55,14 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *, IndexError error);
 // Reply a Field spec info.
 void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool with_timestamp);
 
-#include "coord/rmr/reply.h"
 
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
 void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other);
 
 // Deserializes a FieldSpecInfo from a MRReply.
 FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply);
+
+
+
+
+#endif // __FIELD_SPEC_INFO_H__

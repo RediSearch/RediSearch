@@ -18,7 +18,8 @@
 #include "gc.h"
 #include "synonym_map.h"
 #include "query_error.h"
-#include "field_spec.h"
+// #include "field_spec.h"
+#include "info/field_spec_info.h"
 #include "util/dict.h"
 #include "util/references.h"
 #include "redisearch_api.h"
@@ -524,24 +525,9 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
  */
 size_t IndexSpec_VectorIndexSize(IndexSpec *sp);
 
-
-
-/**
- * Return the total stats sum of all vector indexes in an index.
- */
-VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp);
-
-/**
-/**
- * Get an index's vector index stats for the field fs.
- */
-VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *fs);
-
 FieldSpecStats FieldSpec_GetStats(const FieldSpec *fs, IndexSpec *sp);
 
-
-
-
+VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *fs);
 /**
  * Gets the next text id from the index. This does not currently
  * modify the index
