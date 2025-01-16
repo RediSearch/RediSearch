@@ -747,7 +747,7 @@ def recursive_index(lst, target):
     for i, element in enumerate(lst):
         if isinstance(element, list):
             sublist_index = recursive_index(element, target)
-            if sublist_index is not None:
+            if sublist_index is not -1:
                 return [i] + sublist_index
         elif element == target:
             return [i]
