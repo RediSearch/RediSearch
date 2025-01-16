@@ -88,6 +88,9 @@ typedef enum {
   // The query is internal (responding to a command from the coordinator)
   QEXEC_F_INTERNAL = 0x400000,
 
+  // The query is for debugging. Note that this is the last bit of uint32_t
+  QEXEC_F_DEBUG = 0x80000000,
+
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
@@ -101,6 +104,7 @@ typedef enum {
 #define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
 #define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
+#define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
 // Get the index search context from the result processor
 #define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 
@@ -346,6 +350,24 @@ int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *sta
 void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 
 #define AREQ_RP(req) (req)->qiter.endProc
+
+/***************************** DEBUG ONLY *****************************/
+
+typedef struct {
+  RedisModuleString **debug_argv;
+  unsigned long long debug_params_count; // not including the DEBUG_PARAMS_COUNT <count> args
+} AREQ_Debug_params;
+
+typedef struct {
+  AREQ r;
+  AREQ_Debug_params debug_params;
+} AREQ_Debug;
+
+// Will hold AREQ by value, so we can use AREQ_Debug->r in all functions
+// expecting AREQ, including AREQ_Free
+AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *status);
+AREQ_Debug_params parseDebugParams(RedisModuleString **argv, int argc, QueryError *status);
+int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status);
 
 #ifdef __cplusplus
 }

@@ -1640,3 +1640,43 @@ void AREQ_Free(AREQ *req) {
   rm_free(req->args);
   rm_free(req);
 }
+
+AREQ_Debug_params parseDebugParams(RedisModuleString **argv, int argc, QueryError *status) {
+  AREQ_Debug_params debug_params = {0};
+  // Verify DEBUG_PARAMS_COUNT exists in its expected position
+  size_t n;
+  const char *arg = RedisModule_StringPtrLen(argv[argc - 2], &n);
+  if (!(strncasecmp(arg, "DEBUG_PARAMS_COUNT", n) == 0)) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "DEBUG_PARAMS_COUNT arg is missing or not in the expected position");
+    return debug_params;
+  }
+
+  unsigned long long debug_params_count;
+  // The count of debug params is the last argument in argv
+  if (RedisModule_StringToULongLong(argv[argc - 1], &debug_params_count) != REDISMODULE_OK) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid DEBUG_PARAMS_COUNT count");
+    return debug_params;
+  }
+
+  debug_params.debug_params_count = debug_params_count;
+  int debug_argv_count = debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
+  debug_params.debug_argv = argv + (argc - debug_argv_count);
+
+  return debug_params;
+}
+
+AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *status) {
+
+  AREQ_Debug_params debug_params = parseDebugParams(argv, argc, status);
+  if (debug_params.debug_params_count == 0) {
+    return NULL;
+  }
+
+  AREQ_Debug *debug_req = rm_realloc(AREQ_New(), sizeof(*debug_req));
+  debug_req->debug_params = debug_params;
+
+  AREQ *r = &debug_req->r;
+  r->reqflags |= QEXEC_F_DEBUG;
+
+  return debug_req;
+}

@@ -17,3 +17,9 @@ typedef struct DebugCommandType {
 } DebugCommandType;
 
 int RegisterDebugCommands(RedisModuleCommand *debugCommand);
+
+// Debug command to wrap single shard FT.AGGREGATE
+int DEBUG_RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+
+// Debug command to wrap single shard FT.SEARCH
+int DEBUG_RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
