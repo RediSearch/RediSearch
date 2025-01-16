@@ -12,7 +12,7 @@
 #include <math.h>
 #include <string.h>
 #include <ctype.h>
-#include <../trie/rune_util.h>
+#include "libnu/libnu.h"
 /* Strconv - common simple string conversion utils */
 
 // Case insensitive string equal
@@ -108,44 +108,47 @@ static char *rm_strndup_unescape(const char *s, size_t len) {
 }
 
 // transform utf8 string to lowercase using nunicode library
-// returns the transformed string
-// the length of the transformed string is stored in len
+// encoded: the utf8 string to transform
+// in_len: the length of the utf8 string
+// len: the length of the transformed string
+// returns the transformed string or NULL if the length of the transformed 
+// string is greater than in_len
 static char* nunicode_tolower(const char *encoded, size_t in_len, size_t *len) {
   ssize_t unicode_len = nu_strtransformnlen(encoded, in_len, nu_utf8_read, nu_tolower, nu_casemap_read);
-	uint32_t *unicode_buffer = (uint32_t *)rm_malloc(sizeof(*unicode_buffer) * (unicode_len + 1));
+  uint32_t *unicode_buffer = (uint32_t *)rm_malloc(sizeof(*unicode_buffer) * (unicode_len + 1));
 
   // Decode utf8 string into Unicode codepoints and convert to lowercase
-	uint32_t unicode;
-	unsigned i = 0;
-	while (1) {
+  uint32_t unicode;
+  unsigned i = 0;
+  while (1) {
     // Read unicode codepoint from utf8 string
-		encoded = nu_utf8_read(encoded, &unicode);
+    encoded = nu_utf8_read(encoded, &unicode);
     // Transform unicode codepoint to lowercase
-		const char *map = nu_tolower(unicode);
+    const char *map = nu_tolower(unicode);
 
     // Read the transformed codepoint and store it in the unicode buffer
-		if (map != 0) {
-			uint32_t mu;
-			while (1) {
-				map = nu_casemap_read(map, &mu);
-				if (mu == 0) {
-					break;
-				}
-				unicode_buffer[i] = mu;
-				++i;
-			}
-		}
-		else {
+    if (map != 0) {
+      uint32_t mu;
+      while (1) {
+        map = nu_casemap_read(map, &mu);
+        if (mu == 0) {
+          break;
+        }
+        unicode_buffer[i] = mu;
+        ++i;
+      }
+    }
+    else {
       // If no transformation is needed, just copy the unicode codepoint
-			unicode_buffer[i] = unicode;
-			++i;
-		}
+      unicode_buffer[i] = unicode;
+      ++i;
+    }
 
     // Break if the end of the string is reached
-		if (unicode == 0) {
-			break;
-		}
-	}
+    if (unicode == 0) {
+      break;
+    }
+  }
 
   // Encode Unicode codepoints back to utf8 string
   char *reencoded = NULL;
@@ -158,11 +161,11 @@ static char* nunicode_tolower(const char *encoded, size_t in_len, size_t *len) {
     reencoded_len = 0;
   }
 
-	rm_free(unicode_buffer);
+  rm_free(unicode_buffer);
   if (len) {
     *len = reencoded_len;
   }
-	return reencoded;
+  return reencoded;
 }
 
 
