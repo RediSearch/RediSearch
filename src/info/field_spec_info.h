@@ -5,8 +5,6 @@
  */
 
 #pragma once
-#ifndef __FIELD_SPEC_INFO_H__
-#define __FIELD_SPEC_INFO_H__
 
 #include "index_error.h"
 #include "reply.h"
@@ -61,9 +59,3 @@ void FieldSpecInfo_Fold(FieldSpecInfo *info, const FieldSpecInfo *other);
 
 // Deserializes a FieldSpecInfo from a MRReply.
 FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply);
-
-
-
-
-
-#endif // __FIELD_SPEC_INFO_H__

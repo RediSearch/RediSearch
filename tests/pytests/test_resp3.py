@@ -1298,10 +1298,6 @@ def test_ft_info():
         ],
         'bytes_per_record_avg': nan,
         'cleaning': 0,
-        'active_reads_count': 0,
-        'active_writes_count': 0,
-        'is_active_read': "false",
-        'is_active_write': "false",
         'cursor_stats': {
           'global_idle': 0,
           'global_total': 0,

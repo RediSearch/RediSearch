@@ -127,7 +127,6 @@ FieldSpecStats FieldStats_Deserialize(const char* type,const MRReply* reply){
     FieldType fieldType = getFieldType(type);
     switch (fieldType) {
         case INDEXFLD_T_VECTOR:
-            // char const **metrics = (char const**)VectorIndexStats_Metrics;
             for(int i = 0; VectorIndexStats_Metrics[i] != NULL; i++){
                 size_t metricValue = MRReply_Integer(MRReply_MapElement(reply, VectorIndexStats_Metrics[i]));
                 VectorIndexStats_GetSetter(VectorIndexStats_Metrics[i])(&stats.vecStats, metricValue);
@@ -146,7 +145,6 @@ FieldType getFieldType(const char* type){
     return 0;
 }
 
-
 void FieldSpecStats_Fold(FieldSpecStats *first, const FieldSpecStats *second) {
     if (!first->type){
         *first = *second;
@@ -160,4 +158,3 @@ void FieldSpecStats_Fold(FieldSpecStats *first, const FieldSpecStats *second) {
         break;
     }
 }
-

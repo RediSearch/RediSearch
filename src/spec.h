@@ -18,7 +18,6 @@
 #include "gc.h"
 #include "synonym_map.h"
 #include "query_error.h"
-// #include "field_spec.h"
 #include "info/field_spec_info.h"
 #include "util/dict.h"
 #include "util/references.h"
