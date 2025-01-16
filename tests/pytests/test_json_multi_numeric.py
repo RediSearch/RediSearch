@@ -150,8 +150,8 @@ def testMultiNonNumeric(env):
     #
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_numeric_dict.values()):
-        doc = 'doc:{}:'.format(i+1)
-        idx = 'idx{}'.format(i+1)
+        doc = f'doc:{i + 1}:'
+        idx = f'idx{i + 1}'
         conn.execute_command('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'NUMERIC')
         waitForIndex(env, idx)
         conn.execute_command('JSON.SET', doc, '$', json.dumps(v))
@@ -177,13 +177,13 @@ def testMultiNonNumericNested(env):
     # Create indices, e.g.,
     #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr NUMERIC
     for (i,v) in enumerate(non_numeric_dict.values()):
-        conn.execute_command('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'NUMERIC')
+        conn.execute_command('FT.CREATE', f'idx{i + 1}', 'ON', 'JSON', 'SCHEMA', f'$.attr{i + 1}', 'AS', 'attr', 'NUMERIC')
     conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_numeric_content)
 
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_numeric_dict.values()):
         res_failures = 0 if i+1 <= 5 else 1
-        env.assertEqual(int(index_info(env, 'idx{}'.format(i+1))['hash_indexing_failures']), res_failures)
+        env.assertEqual(int(index_info(env, f'idx{i + 1}')['hash_indexing_failures']), res_failures)
 
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@attr:[131 132]', 'NOCONTENT').equal([1, 'doc:1'])
@@ -216,41 +216,41 @@ def testRange(env):
         top = {}
         for (i,arr) in enumerate(sub_arrays):
             delta = 100 if i < len(sub_arrays) / 2 else -100
-            top['arr{}'.format(i+1)] = {'value': [v + doc * delta for v in arr]}
-        conn.execute_command('JSON.SET', 'doc:{}'.format(doc + 1), '$', json.dumps({'top': top}))
+            top[f'arr{i + 1}'] = {'value': [v + doc * delta for v in arr]}
+        conn.execute_command('JSON.SET', f'doc:{doc + 1}', '$', json.dumps({'top': top}))
 
     env.expect('FT.CREATE', 'idx:all', 'ON', 'JSON', 'SCHEMA', '$..value[*]', 'AS', 'val', 'NUMERIC').ok()
     waitForIndex(env, 'idx:all')
 
     max_val = (doc_num - 1) * 100 + arr_len
-    env.expect('FT.SEARCH', 'idx:all', '@val:[-inf (-{}]'.format(max_val), 'NOCONTENT').equal([0])
-    env.expect('FT.SEARCH', 'idx:all', '@val:[({} +inf]'.format(max_val), 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx:all', f'@val:[-inf (-{max_val}]', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx:all', f'@val:[({max_val} +inf]', 'NOCONTENT').equal([0])
 
     for dialect in [1, 2, 3]:
         for doc in range(doc_num, 0, -1):
             expected = [doc_num + 1 - doc]
             max_val = (doc - 1) * 100 + arr_len
             for i in range(doc_num, doc -1, -1):
-                lastdoc = 'doc:{}'.format(i)
+                lastdoc = f'doc:{i}'
                 expected.append(lastdoc)
             res = conn.execute_command('FT.SEARCH', 'idx:all',
-                                       '@val:[-inf -{}]'.format(max_val),
+                                       f'@val:[-inf -{max_val}]',
                                        'NOCONTENT', 'DIALECT', dialect)
             env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected),
-                            message = '[-inf -{}]'.format(max_val))
+                            message = f'[-inf -{max_val}]')
 
             res = conn.execute_command('FT.SEARCH', 'idx:all',
-                                       '@val:[{} +inf]'.format(max_val),
+                                       f'@val:[{max_val} +inf]',
                                        'NOCONTENT', 'DIALECT', dialect)
             env.assertEqual(toSortedFlatList(res), toSortedFlatList(expected),
-                            message = '[{} +inf]'.format(max_val))
+                            message = f'[{max_val} +inf]')
 
             if dialect > 1:
                 res = conn.execute_command('FT.SEARCH', 'idx:all',
-                                           '@val:[{}]'.format(max_val),
+                                           f'@val:[{max_val}]',
                                            'NOCONTENT', 'DIALECT', dialect)
                 env.assertEqual(toSortedFlatList(res), [1, lastdoc],
-                                message = '[{}]'.format(lastdoc))
+                                message = f'[{lastdoc}]')
 
 @skip(cluster=True, no_json=True)
 def testDebugDump(env):
@@ -262,9 +262,10 @@ def testDebugDump(env):
     conn.execute_command('JSON.SET', 'doc:2', '$', json.dumps([-2, -1, 2]))
 
     env.expect(debug_cmd(), 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
-    env.expect(debug_cmd(), 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
-                                                                      'lastDocId', 2, 'revisionId', 0,
-                                                                      'emptyLeaves', 0, 'RootMaxDepth', 0])
+    env.expect(debug_cmd(), 'NUMIDX_SUMMARY', 'idx:top', 'val').equal([
+        'numRanges', 1, 'numLeaves', 1, 'numEntries', 6, 'lastDocId', 2, 'revisionId', 0,
+        'emptyLeaves', 0, 'RootMaxDepth', 0,'MemoryUsage', ANY
+    ])
 
 @skip(cluster=True, no_json=True)
 def testInvertedIndexMultipleBlocks(env):
@@ -287,7 +288,7 @@ def testInvertedIndexMultipleBlocks(env):
     #   JSON.SET doc:2 $ '{\"arr\": [2, 192], \"arr2\": [2]}'
     #   JSON.SET doc:1 $ '{\"arr\": [1, 191], \"arr2\": [1]}'
     for doc in range(doc_num, 0, -1):
-        conn.execute_command('JSON.SET', 'doc:{}'.format(doc), '$', json.dumps({ 'arr':  [doc, doc + doc_num - overlap],
+        conn.execute_command('JSON.SET', f'doc:{doc}', '$', json.dumps({ 'arr':  [doc, doc + doc_num - overlap],
                                                                                  'arr2': [doc]}))
     expected_ids = range(1, doc_num + 1)
     res = conn.execute_command(debug_cmd(), 'DUMP_NUMIDX' ,'idx', 'arr')
@@ -300,8 +301,8 @@ def testInvertedIndexMultipleBlocks(env):
     # Should find the first and last overlap docs
     # e.g., for 200 docs:
     #   FT.SEARCH idx '@arr:[191 200]' NOCONTENT LIMIT 0 20
-    res = conn.execute_command('FT.SEARCH', 'idx', '@arr:[{} {}]'.format(doc_num - overlap + 1, doc_num), 'NOCONTENT', 'LIMIT', '0', overlap * 2)
-    expected_docs = ['doc:{}'.format(i) for i in chain(range(1, overlap + 1), range(doc_num - overlap + 1, doc_num + 1))]
+    res = conn.execute_command('FT.SEARCH', 'idx', f'@arr:[{doc_num - overlap + 1} {doc_num}]', 'NOCONTENT', 'LIMIT', '0', overlap * 2)
+    expected_docs = [f'doc:{i}' for i in chain(range(1, overlap + 1), range(doc_num - overlap + 1, doc_num + 1))]
     env.assertEqual(toSortedFlatList(res[1:]),toSortedFlatList(expected_docs), message='FT.SEARCH')
 
 
@@ -310,7 +311,7 @@ def checkInfoAndGC(env, idx, doc_num, create, delete):
     conn = getConnectionByEnv(env)
 
     # Start empty
-    env.assertEqual(True, True, message = 'check {}'.format(idx))
+    env.assertEqual(True, True, message = f'check {idx}')
     info = index_info(env, idx)
     env.assertEqual(int(info['num_docs']), 0)
     env.assertLessEqual(int(info['total_inverted_index_blocks']), 1) # 1 block might already be there
@@ -328,10 +329,13 @@ def checkInfoAndGC(env, idx, doc_num, create, delete):
     forceInvokeGC(env, idx)
 
     # Cleaned up
+    expected_info = { 'num_docs': 0,
+                     'total_inverted_index_blocks': 1, # 1 block might be left
+                     # an initialized numeric tree alawys contains a range in its root
+                     'inverted_sz_mb': getInvertedIndexInitialSize_MB(env, ['NUMERIC'])
+                    }
     info = index_info(env, idx)
-    env.assertEqual(int(info['num_docs']), 0)
-    env.assertLessEqual(int(info['total_inverted_index_blocks']), 1) # 1 block might be left
-    env.assertEqual(float(info['inverted_sz_mb']), 0)
+    compare_index_info_dict(env, idx, expected_info)
 
 def printSeed(env):
     # Print the random seed for reproducibility
@@ -359,23 +363,23 @@ def testInfoAndGC(env):
                 # Fill up an inverted index block with all values from the same doc
                 val_count = random.randint(100, 150)
             val_list = [random.uniform(1, 100000) for i in range(val_count)]
-            conn.execute_command('JSON.SET', 'doc:{}'.format(doc), '$', json.dumps({'top': val_list}))
+            conn.execute_command('JSON.SET', f'doc:{doc}', '$', json.dumps({'top': val_list}))
 
     def create_json_docs_single(env, doc_num):
         for doc in range(1, doc_num + 1):
-            conn.execute_command('JSON.SET', 'doc:{}'.format(doc), '$', json.dumps({'top': random.uniform(1, 100000)}))
+            conn.execute_command('JSON.SET', f'doc:{doc}', '$', json.dumps({'top': random.uniform(1, 100000)}))
 
     def delete_json_docs(env, doc_num):
         for doc in range(1, doc_num + 1):
-            conn.execute_command('JSON.DEL', 'doc:{}'.format(doc), '$')
+            conn.execute_command('JSON.DEL', f'doc:{doc}', '$')
 
     def create_hash_docs(env, doc_num):
         for doc in range(1, doc_num + 1):
-            conn.execute_command('HSET', 'doc:{}'.format(doc), 'top', random.uniform(1, 100000))
+            conn.execute_command('HSET', f'doc:{doc}', 'top', random.uniform(1, 100000))
 
     def delete_hash_docs(env, doc_num):
         for doc in range(1, doc_num + 1):
-            conn.execute_command('DEL', 'doc:{}'.format(doc), '$')
+            conn.execute_command('DEL', f'doc:{doc}', '$')
 
     # The actual test
     doc_num = 1000
@@ -415,11 +419,11 @@ def prepareSortBy(env, is_flat_arr, default_dialect):
                 val_list.insert(0, -doc)
                 # Set the first value which is the sort key
                 val_list.insert(0, doc)
-            conn.execute_command('JSON.SET', '{}'.format(doc), '$', json.dumps({'top': val_list}))
+            conn.execute_command('JSON.SET', f'{doc}', '$', json.dumps({'top': val_list}))
 
     # Make sure there are at least 2 result
     query = ['FT.SEARCH', 'idx',
-        '@val:[3000 8000] | @val:[{} {}] | @val:[{} {}]'.format(int(doc_num/2), int(doc_num/2), doc_num, doc_num),
+        f'@val:[3000 8000] | @val:[{int(doc_num / 2)} {int(doc_num / 2)}] | @val:[{doc_num} {doc_num}]',
         'NOCONTENT', 'LIMIT', 0, doc_num, *dialect_param]
     return query
 
@@ -427,7 +431,7 @@ def checkSortByBWC(env, is_flat_arr):
     """ Helper function for backward compatibility of sorting multi numeric values """
 
     default_dialect = True
-    env.assertEqual(1, 1, message='flat {}, default dialect {}'.format(is_flat_arr, default_dialect))
+    env.assertEqual(1, 1, message=f'flat {is_flat_arr}, default dialect {default_dialect}')
     query = prepareSortBy(env, is_flat_arr, default_dialect)
     conn = getConnectionByEnv(env)
 
@@ -473,7 +477,7 @@ def checkSortBy(env, is_flat_arr):
     """ Helper function for testing of sorting multi numeric values """
 
     default_dialect = False
-    env.assertEqual(1, 1, message='flat {}, default dialect {}'.format(is_flat_arr, default_dialect))
+    env.assertEqual(1, 1, message=f'flat {is_flat_arr}, default dialect {default_dialect}')
     query = prepareSortBy(env, is_flat_arr, default_dialect)
     conn = getConnectionByEnv(env)
 
@@ -519,10 +523,10 @@ def testInfoStats(env):
         val_list = [random.uniform(1, 100000) for i in range(val_count)]
         doc_created += 1
         # Single doc with multi value
-        conn.execute_command('JSON.SET', 'doc:multi:{{{}}}'.format(doc_created), '$', json.dumps({'top': val_list}))
+        conn.execute_command('JSON.SET', f'doc:multi:{{{doc_created}}}', '$', json.dumps({'top': val_list}))
         # Multi docs with single value
         for i in range(val_count):
-            conn.execute_command('JSON.SET', 'doc:single:{{{}}}'.format(doc_created + i), '$', json.dumps({'top': val_list[i]}))
+            conn.execute_command('JSON.SET', f'doc:single:{{{doc_created + i}}}', '$', json.dumps({'top': val_list[i]}))
         doc_created += val_count - 1
 
     interesting_attr = ['num_records', 'total_inverted_index_blocks']
@@ -538,7 +542,7 @@ def testInfoStatsAndSearchAsSingle(env):
 
     conn = getConnectionByEnv(env)
     max_attr_num = 5
-    schema_list = [['$.val{}'.format(i), 'AS', 'val{}'.format(i), 'NUMERIC'] for i in range(1, max_attr_num + 1)]
+    schema_list = [[f'$.val{i}', 'AS', f'val{i}', 'NUMERIC'] for i in range(1, max_attr_num + 1)]
     create_idx_single = ['FT.CREATE', 'idx:single', 'ON', 'JSON', 'PREFIX', 1, 'doc:single:', 'SCHEMA']
     [create_idx_single.extend(a) for a in schema_list]
     create_idx_multi = ['FT.CREATE', 'idx:multi', 'ON', 'JSON', 'PREFIX', 1, 'doc:multi:', 'SCHEMA']
@@ -557,11 +561,11 @@ def testInfoStatsAndSearchAsSingle(env):
         # Use slot id tag to make results from single and multi indices in same order
         # Doc with a single multi value, e.g.,
         #  JSON.SET doc:single:1 $ '{"val1": 10, "val2": 20, "val3": 30}'
-        conn.execute_command('JSON.SET', 'doc:multi:{{{}}}'.format(doc), '$', json.dumps({'val1': val_list}))
+        conn.execute_command('JSON.SET', f'doc:multi:{{{doc}}}', '$', json.dumps({'val1': val_list}))
         # Doc with several single values, e.g.,
         #  JSON.SET doc:multi:1 $ '{"val1": [10, 20, 30]}'
-        json_val = {k:v for (k,v) in zip(['val{}'.format(i + 1) for i in range(val_count)], val_list)}
-        conn.execute_command('JSON.SET', 'doc:single:{{{}}}'.format(doc), '$', json.dumps(json_val))
+        json_val = {k:v for (k,v) in zip([f'val{i + 1}' for i in range(val_count)], val_list)}
+        conn.execute_command('JSON.SET', f'doc:single:{{{doc}}}', '$', json.dumps(json_val))
 
     # Compare INFO stats
     interesting_attr = ['num_docs', 'max_doc_id', 'num_records', 'total_inverted_index_blocks']
@@ -573,12 +577,12 @@ def testInfoStatsAndSearchAsSingle(env):
     for _ in range(1000):
         val_from = random.uniform(-70000, 70000)
         val_to = max(1000, val_from + random.uniform(1, 140000 - val_from))
-        expression_for_single = '|'.join(['@val{}:[{} {}]'.format(i, val_from, val_to) for i in range(1, max_attr_num + 1)])
+        expression_for_single = '|'.join([f'@val{i}:[{val_from} {val_to}]' for i in range(1, max_attr_num + 1)])
         res_single = conn.execute_command('FT.SEARCH', 'idx:single', expression_for_single, 'NOCONTENT')
         res_single = list(map(lambda v: v.replace(':single:', '::') if isinstance(v, str) else v, res_single))
-        res_multi = conn.execute_command('FT.SEARCH', 'idx:multi', '@val1:[{} {}]'.format(val_from, val_to), 'NOCONTENT')
+        res_multi = conn.execute_command('FT.SEARCH', 'idx:multi', f'@val1:[{val_from} {val_to}]', 'NOCONTENT')
         res_multi = list(map(lambda v: v.replace(':multi:', '::') if isinstance(v, str) else v, res_multi))
-        env.assertEqual(res_single, res_multi, message = '[{} {}]'.format(val_from, val_to))
+        env.assertEqual(res_single, res_multi, message = f'[{val_from} {val_to}]')
 
 @skip(cluster=True, no_json=True)
 def testConsecutiveValues(env):
@@ -595,7 +599,7 @@ def testConsecutiveValues(env):
     i = -5000
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.val', 'AS', 'val', 'NUMERIC').ok()
     for doc in range(1, num_docs + 1):
-        conn.execute_command('JSON.SET', 'doc:{}'.format(doc), '$', json.dumps({'val': [i, i+1]}))
+        conn.execute_command('JSON.SET', f'doc:{doc}', '$', json.dumps({'val': [i, i+1]}))
         i = i + 1
 
     env.expect('FT.SEARCH', 'idx', '@val:[-5000 -4999]', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
@@ -609,7 +613,7 @@ def testConsecutiveValues(env):
     i = 5000
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', '$.val', 'AS', 'val', 'NUMERIC').ok()
     for doc in range(1, num_docs + 1):
-        conn.execute_command('JSON.SET', 'doc:{}'.format(doc), '$', json.dumps({'val': [i, i-1]}))
+        conn.execute_command('JSON.SET', f'doc:{doc}', '$', json.dumps({'val': [i, i-1]}))
         i = i - 1
 
     env.expect('FT.SEARCH', 'idx', '@val:[4999 5000]', 'NOCONTENT').equal([2, 'doc:1', 'doc:2'])
@@ -617,7 +621,7 @@ def testConsecutiveValues(env):
     env.expect('FT.SEARCH', 'idx', '@val:[-5000 -4999]', 'NOCONTENT').equal([2, 'doc:9999', 'doc:10000'])
     summary2 = env.cmd(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'val')
 
-    env.assertEqual(summary1, summary2)
+    env.assertEqual(summary1[:-1], summary2[:-1]) # Ignore memory usage
 
 @skip(cluster=True, no_json=True)
 def testDebugRangeTree(env):
@@ -632,10 +636,10 @@ def testDebugRangeTree(env):
     conn.execute_command('JSON.SET', 'doc:3', '$', json.dumps({'val': [3, 4, 5]}))
 
     env.expect(debug_cmd(), 'DUMP_NUMIDXTREE', 'idx', 'val').equal(['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0, 'emptyLeaves', 0,
-        'root', ['range', ['minVal', str(1), 'maxVal', str(5), 'unique_sum', str(0), 'invertedIndexSize [bytes]', str(109), 'card', 0, 'cardCheck', 1, 'splitCard', 16,
+        'root', ['range', ['minVal', str(1), 'maxVal', str(5), 'invertedIndexSize [bytes]', str(101), 'card', 5,
                 'entries', ['numDocs', 3, 'numEntries', 9, 'lastId', 3, 'size', 1, 'blocks_efficiency (numEntries/size)', str(9), 'values',
                     ['value', str(1), 'docId', 1, 'value', str(2), 'docId', 1, 'value', str(3), 'docId', 1, 'value', str(1), 'docId', 2, 'value', str(2), 'docId', 2, 'value', str(3), 'docId', 2, 'value', str(3), 'docId', 3, 'value', str(4), 'docId', 3, 'value', str(5), 'docId', 3]]]],
-            'Tree stats:', ['Average memory efficiency (numEntries/size)/numRanges', str(9)]])
+            'Tree stats', ['Average memory efficiency (numEntries/size)/numRanges', str(9)]])
 
 def checkUpdateNumRecords(env, is_json):
     """ Helper function for testing update of `num_records` """
@@ -725,7 +729,7 @@ def checkMultiNumericReturn(env, expected, default_dialect, is_sortable):
 
     dialect_param = ['DIALECT', 3] if not default_dialect else []
     sortable_param = ['SORTABLE'] if is_sortable else []
-    message='dialect {}, sortable {}'.format('default' if default_dialect else 3, is_sortable)
+    message=f"dialect {'default' if default_dialect else 3}, sortable {is_sortable}"
     env.assertEqual(len(expected), 3, message=message)
 
     env.expect('FT.CREATE', 'idx_flat', 'ON', 'JSON', 'SCHEMA', '$.arr[*]', 'AS', 'val', 'NUMERIC', *sortable_param).ok()

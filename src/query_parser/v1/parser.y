@@ -486,16 +486,22 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
     if (!C) {
         A= NULL;
     } else {
-        // Tag field names must be case sensitive, we we can't do strdupcase
-        char *s = rm_strndup(B.s, B.len);
-        size_t slen = unescapen((char*)s, B.len);
-
-        A = NewTagNode(s, slen);
+        A = NewTagNode(NULL);
         QueryNode_AddChildren(A, C->children, QueryNode_NumChildren(C));
 
         // Set the children count on C to 0 so they won't get recursively free'd
         QueryNode_ClearChildren(C, 0);
         QueryNode_Free(C);
+
+        if (ctx->sctx->spec) {
+            // Tag field names must be case sensitive, we we can't do strdupcase
+            B.len = unescapen((char*)B.s, B.len);
+            A->tag.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
+            if (!A->tag.fs) {
+                QueryNode_Free(A);
+                A = NULL;
+            }
+        }
     }
 }
 
@@ -551,8 +557,14 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
-    C->nf->fieldName = rm_strndup(B.s, B.len);
     A = NewNumericNode(C);
+    if (ctx->sctx->spec) {
+        A->nn.nf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
+        if (!A->nn.nf->field) {
+            QueryNode_Free(A);
+            A = NULL;
+        }
+    }
 }
 
 // v2.2.9 diff - geo_filter type changed to match current functions usage
@@ -568,8 +580,14 @@ numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
-    C->gf->property = rm_strndup(B.s, B.len);
     A = NewGeofilterNode(C);
+    if (ctx->sctx->spec) {
+        A->gn.gf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
+        if (!A->gn.gf->field) {
+            QueryNode_Free(A);
+            A = NULL;
+        }
+    }
 }
 
 // v2.2.9 diff - geo_filter type changed to match current functions usage

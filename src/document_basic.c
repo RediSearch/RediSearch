@@ -120,44 +120,6 @@ static inline timespec timespecFromMilliseconds(int64_t totalMilliseconds) {
   return result;
 }
 
-
-static inline FieldExpiration* callHashFieldExpirationTime(RedisModuleCtx* ctx, RedisModuleString *keystr, RedisModuleString** fields) {
-  size_t vectorElementCount = array_len(fields);
-  long long fieldCount = vectorElementCount;
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "HPEXPIRETIME", "sclv", keystr, "FIELDS", fieldCount, fields, vectorElementCount);
-  if (rep == NULL) {
-    RedisModule_Log(ctx, "warning", "Error calling HPEXPIRETIME, error: %d", errno);
-    return NULL;
-  }
-  RS_LOG_ASSERT_FMT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY, "HPEXPIRETIME returned unexpected reply type: %d", RedisModule_CallReplyType(rep));
-  size_t sz = RedisModule_CallReplyLength(rep);
-  arrayof(FieldExpiration) result = NULL;
-  for (t_fieldIndex i = 0; i < sz; i++) {
-    const int64_t milliseconds = RedisModule_CallReplyInteger(RedisModule_CallReplyArrayElement(rep, i));
-    if (milliseconds < 0) {
-      continue;
-    }
-    const FieldExpiration fieldExpiration = { .index = i, .point = timespecFromMilliseconds(milliseconds)};
-    array_ensure_append_1(result, fieldExpiration);
-  }
-  RedisModule_FreeCallReply(rep);
-  return result;
-}
-
-static inline FieldExpiration* getHashFieldExpirationTime(const IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key) {
-  arrayof(RedisModuleString *) fields = array_newlen(RedisModuleString *, spec->numFields);
-  for (t_fieldIndex field = 0; field < spec->numFields; ++field) {
-    const FieldSpec *f = spec->fields + field;
-    fields[f->index] = RedisModule_CreateString(ctx, f->name, strlen(f->name));
-  }
-  FieldExpiration* result = callHashFieldExpirationTime(ctx, key, fields);
-  for (t_fieldIndex field = 0; field < spec->numFields; ++field) {
-    RedisModule_FreeString(ctx, fields[field]);
-  }
-  array_free(fields);
-  return result;
-}
-
 static inline t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, RedisModuleKey *openedKey) {
   t_expirationTimePoint zero = {.tv_sec = 0, .tv_nsec = 0};
   mstime_t totalMilliseconds = RedisModule_GetAbsExpire(openedKey);
@@ -172,12 +134,10 @@ static inline t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, Re
 int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError *status) {
   // must happen before opening the key, in case the call will cause a lazy expiration
   IndexSpec *spec = sctx->spec;
-  if (spec->monitorFieldExpiration) {
-    doc->fieldExpirations = getHashFieldExpirationTime(spec, sctx->redisCtx, doc->docKey);
-  }
-  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
+  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey,
+    REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
   int rv = REDISMODULE_ERR;
-  // DvirDu: Is this even possible?
+  // This is possible if the key has expired for example in previous redis API calls in this notification flow.
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
     QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key %s does not exist or is not a hash", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
@@ -200,6 +160,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     RedisModule_FreeString(sctx->redisCtx, payload_rms);
   }
 
+  const bool hasExpireTimeOnFields = spec->monitorFieldExpiration && RedisModule_HashFieldMinExpire(k) != REDISMODULE_NO_EXPIRE;
   // Load indexed fields from the document
   doc->fields = rm_calloc(nitems, sizeof(*doc->fields));
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
@@ -209,6 +170,16 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     if (v == NULL) {
       continue;
     }
+
+    if (hasExpireTimeOnFields) {
+      mstime_t expireAt = REDISMODULE_NO_EXPIRE;
+      RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXPIRE_TIME, field->path, &expireAt, NULL);
+      if (expireAt != REDISMODULE_NO_EXPIRE) {
+        FieldExpiration fieldExpiration = { .index = ii, .point = timespecFromMilliseconds(expireAt)};
+        array_ensure_append_1(doc->fieldExpirations, fieldExpiration);
+      }
+    }
+
     size_t oix = doc->numFields++;
     doc->fields[oix].path = rm_strdup(field->path);
     doc->fields[oix].name = (field->name == field->path) ? doc->fields[oix].path
@@ -243,7 +214,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   size_t nitems = sctx->spec->numFields;
   JSONResultsIterator jsonIter = NULL;
 
-  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
+  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
   if (!k) {
     QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key %s does not exist", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;

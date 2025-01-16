@@ -1,7 +1,6 @@
 from includes import *
 from common import getConnectionByEnv, waitForIndex, toSortedFlatList
 
-
 def testBasicSynonymsUseCase(env):
     env.expect(
         'ft.create', 'idx', 'ON', 'HASH',
@@ -68,7 +67,6 @@ def testSynonymWithMultipleDocs(env):
     env.assertEqual(res[3], 'doc2')
     env.assertEqual(set(res[4]), set(['title', 'she is a girl', 'body', 'the child sister']))
 
-
 def testSynonymUpdate(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
     env.assertEqual(env.cmd('ft.synupdate', 'idx', 'id1', 'SKIPINITIALSCAN', 'boy', 'child', 'offspring'), 'OK')
@@ -101,7 +99,7 @@ def testSynonymUpdateWorngArity(env):
         env.cmd('ft.synupdate', 'idx', 'id1')
 
 def testSynonymUpdateUnknownIndex(env):
-    env.expect('ft.synupdate', 'idx', '0', 'child').error().contains('Unknown index name')
+    env.expect('ft.synupdate', 'idx', '0', 'child').error().contains('no such index')
 
 def testSynonymDumpWorngArity(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()
@@ -111,7 +109,7 @@ def testSynonymDumpWorngArity(env):
     env.expect('ft.syndump idx foo').error().contains('wrong number of arguments')
 
 def testSynonymUnknownIndex(env):
-    env.expect('ft.syndump', 'idx').error().equal('Unknown index name')
+    env.expect('ft.syndump', 'idx').error().contains('no such index')
 
 def testSynonymsRdb(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'body', 'text').ok()

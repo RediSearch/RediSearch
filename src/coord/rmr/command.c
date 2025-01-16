@@ -31,7 +31,7 @@ static void assignStr(MRCommand *cmd, size_t idx, const char *s, size_t n) {
   char *news = rm_malloc(n + 1);
   cmd->strs[idx] = news;
   cmd->lens[idx] = n;
-  news[n] = 0;
+  news[n] = '\0';
   memcpy(news, s, n);
 }
 
@@ -168,7 +168,7 @@ void MRCommand_ReplaceArgNoDup(MRCommand *cmd, int index, const char *newArg, si
 }
 void MRCommand_ReplaceArg(MRCommand *cmd, int index, const char *newArg, size_t len) {
   char *news = rm_malloc(len + 1);
-  news[len] = 0;
+  news[len] = '\0';
   memcpy(news, newArg, len);
   MRCommand_ReplaceArgNoDup(cmd, index, news, len);
 }

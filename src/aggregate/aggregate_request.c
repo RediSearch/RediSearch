@@ -329,6 +329,14 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if (parseValueFormat(&req->reqflags, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+  } else if (AC_AdvanceIfMatch(ac, "_INDEX_PREFIXES")) {
+    // Set the offset of the prefixes in the query, for further processing later
+    req->prefixesOffset = ac->offset - 1;
+
+    ArgsCursor tmp = {0};
+    if (AC_GetVarArgs(ac, &tmp) != AC_OK) {
+      RS_LOG_ASSERT(false, "Bad arguments for _INDEX_PREFIXES (coordinator)");
+    }
   } else {
     return ARG_UNKNOWN;
   }
@@ -446,26 +454,6 @@ err:
   return REDISMODULE_ERR;
 }
 
-static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryError *status) {
-  if (AC_AdvanceIfMatch(ac, "FILTER")) {
-    // Numeric filter
-    NumericFilter **curpp = array_ensure_tail(&options->legacy.filters, NumericFilter *);
-    *curpp = NumericFilter_Parse(ac, status);
-    if (!*curpp) {
-      return ARG_ERROR;
-    }
-  } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
-    options->legacy.gf = rm_calloc(1, sizeof(*options->legacy.gf));
-    if (GeoFilter_Parse(options->legacy.gf, ac, status) != REDISMODULE_OK) {
-      GeoFilter_Free(options->legacy.gf);
-      return ARG_ERROR;
-    }
-  } else {
-    return ARG_UNKNOWN;
-  }
-  return ARG_HANDLED;
-}
-
 static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts,
                           AggregatePlan *plan, QueryError *status) {
   // Parse query-specific arguments..
@@ -537,11 +525,6 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
       req->reqflags |= QEXEC_F_SEND_HIGHLIGHT;
 
-    } else if ((req->reqflags & QEXEC_F_IS_SEARCH) &&
-               ((rv = parseQueryLegacyArgs(ac, searchOpts, status)) != ARG_UNKNOWN)) {
-      if (rv == ARG_ERROR) {
-        return REDISMODULE_ERR;
-      }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
       req->reqflags &= ~QEXEC_OPTIMIZE;
       optimization_specified = true;
@@ -953,19 +936,6 @@ error:
 
 static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisSearchCtx *sctx) {
   /** The following blocks will set filter options on the entire query */
-  if (opts->legacy.filters) {
-    for (size_t ii = 0; ii < array_len(opts->legacy.filters); ++ii) {
-      QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = opts->legacy.filters[ii]};
-      QAST_SetGlobalFilters(ast, &legacyFilterOpts);
-    }
-    array_clear(opts->legacy.filters);  // so AREQ_Free() doesn't free the filters themselves, which
-                                        // are now owned by the query object
-  }
-  if (opts->legacy.gf) {
-    QAST_GlobalFilterOptions legacyOpts = {.geo = opts->legacy.gf};
-    QAST_SetGlobalFilters(ast, &legacyOpts);
-  }
-
   if (opts->inkeys) {
     opts->inids = rm_malloc(sizeof(*opts->inids) * opts->ninkeys);
     for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
@@ -979,11 +949,45 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
   }
 }
 
+static bool IsIndexCoherent(AREQ *req) {
+  if (req->prefixesOffset == 0) {
+    // No prefixes in the query --> No validation needed.
+    return true;
+  }
+
+  IndexSpec *spec = req->sctx->spec;
+  sds *args = req->args;
+  long long n_prefixes = strtol(args[req->prefixesOffset + 1], NULL, 10);
+
+  arrayof(sds) spec_prefixes = req->sctx->spec->rule->prefixes;
+  if (n_prefixes != array_len(spec_prefixes)) {
+    return false;
+  }
+
+  // Validate that the prefixes in the arguments are the same as the ones in the
+  // index (also in the same order)
+  // The first argument is at req->prefixesOffset + 2
+  uint base_idx = req->prefixesOffset + 2;
+  for (uint i = 0; i < n_prefixes; i++) {
+    if (sdscmp(spec_prefixes[i], args[base_idx + i]) != 0) {
+      // Unmatching prefixes
+      return false;
+    }
+  }
+
+  return true;
+}
+
 int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   // Sort through the applicable options:
   IndexSpec *index = sctx->spec;
   RSSearchOptions *opts = &req->searchopts;
   req->sctx = sctx;
+
+  if (!IsIndexCoherent(req)) {
+    QueryError_SetError(status, QUERY_EMISSMATCH, NULL);
+    return REDISMODULE_ERR;
+  }
 
   if (isSpecJson(index) && (req->reqflags & QEXEC_F_SEND_HIGHLIGHT)) {
     QueryError_SetError(
@@ -1174,7 +1178,7 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
   for (size_t i = 0; i < array_len(requests); i++) {
     char *name = requests[i].metric_name;
     size_t name_len = strlen(name);
-    if (IndexSpec_GetField(req->sctx->spec, name, name_len)) {
+    if (IndexSpec_GetFieldWithLength(req->sctx->spec, name, name_len)) {
       QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", name);
       return NULL;
     }
@@ -1207,22 +1211,16 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     astp = &astp_s;
   }
 
-  size_t limit = astp->offset + astp->limit;
-  if (!limit) {
-    limit = DEFAULT_LIMIT;
+  size_t maxResults = astp->offset + astp->limit;
+  if (!maxResults) {
+    maxResults = DEFAULT_LIMIT;
   }
 
   // TODO: unify if when req holds only maxResults according to the query type.
   //(SEARCH / AGGREGATE)
-  if (IsSearch(req) && req->maxSearchResults != UINT64_MAX) {
-    limit = MIN(limit, req->maxSearchResults);
-  }
+  maxResults = MIN(maxResults, IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults);
 
-  if (!IsSearch(req) && req->maxAggregateResults != UINT64_MAX) {
-    limit = MIN(limit, req->maxAggregateResults);
-  }
-
-  if (IsCount(req) || !limit) {
+  if (IsCount(req) || !maxResults) {
     rp = RPCounter_New();
     up = pushRP(req, rp, up);
     return up;
@@ -1260,12 +1258,12 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
         ResultProcessor *rpLoader = RPLoader_New(req, lk, loadKeys, array_len(loadKeys), forceLoad);
         up = pushRP(req, rpLoader, up);
       }
-      rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
+      rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(req, rp, up);
     } else if (IsSearch(req) && (!IsOptimized(req) || HasScorer(req))) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
-      rp = RPSorter_NewByScore(limit);
+      rp = RPSorter_NewByScore(maxResults);
       up = pushRP(req, rp, up);
     }
   }
@@ -1274,7 +1272,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(req, rp, up);
   } else if (IsSearch(req) && IsOptimized(req) && !rp) {
-    rp = RPPager_New(0, limit);
+    rp = RPPager_New(0, maxResults);
     up = pushRP(req, rp, up);
   }
 
@@ -1621,15 +1619,6 @@ void AREQ_Free(AREQ *req) {
   }
   for (size_t ii = 0; ii < req->nargs; ++ii) {
     sdsfree(req->args[ii]);
-  }
-  if (req->searchopts.legacy.filters) {
-    for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {
-      NumericFilter *nf = req->searchopts.legacy.filters[ii];
-      if (nf) {
-        NumericFilter_Free(req->searchopts.legacy.filters[ii]);
-      }
-    }
-    array_free(req->searchopts.legacy.filters);
   }
   rm_free(req->searchopts.inids);
   if (req->searchopts.params) {

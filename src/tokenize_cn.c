@@ -35,7 +35,7 @@ static void maybeFrisoInit() {
   friso_g = friso_new();
   config_g = friso_new_config();
 
-  if (configfile) {
+  if (configfile && strlen(configfile)) {
     if (!friso_init_from_ifile(friso_g, config_g, (char *)configfile)) {
       fprintf(stderr, "Failed to initialize friso. Abort\n");
       abort();
@@ -52,11 +52,12 @@ static void maybeFrisoInit() {
   config_g->en_sseg = 0;
 }
 
-static void cnTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint32_t options) {
+static void cnTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint16_t options) {
   cnTokenizer *self = (cnTokenizer *)base;
   base->ctx.text = text;
   base->ctx.len = len;
   base->ctx.options = options;
+  base->ctx.empty_input = len == 0;
   friso_set_text(self->fTask, text);
   self->nescapebuf = 0;
 }
@@ -225,12 +226,12 @@ static void cnTokenizer_Free(RSTokenizer *base) {
 }
 
 static void cnTokenizer_Reset(RSTokenizer *base, Stemmer *stemmer, StopWordList *stopwords,
-                              uint32_t opts) {
+                              uint16_t opts) {
   // Nothing to do here
   base->ctx.lastOffset = 0;
 }
 
-RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
+RSTokenizer *NewChineseTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint16_t opts) {
   cnTokenizer *tokenizer = rm_calloc(1, sizeof(*tokenizer));
   tokenizer->fTask = friso_new_task();
   maybeFrisoInit();

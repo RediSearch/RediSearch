@@ -35,12 +35,16 @@ typedef struct {
 } FieldsGlobalStats;
 
 typedef struct {
-  size_t total_queries_processed;     // Number of successful queries. If using cursors, not counting reading from the cursor
-  size_t total_query_commands;        // Number of successful query commands, including `FT.CURSOR READ`
-  clock_t total_query_execution_time; // Total time spent on queries (in clock ticks)
-  uint_least8_t used_dialects;        // bitarray of dialects used by all indices
-  size_t logically_deleted;           // Number of logically deleted documents in all indices
-                                      // (i.e., marked with DELETED flag but their memory was not yet cleaned by the GC)
+  size_t total_queries_processed;       // Number of successful queries. If using cursors, not counting reading from the cursor
+  size_t total_query_commands;          // Number of successful query commands, including `FT.CURSOR READ`
+  clock_t total_query_execution_time;   // Total time spent on queries (in clock ticks)
+} QueriesGlobalStats;
+
+typedef struct {
+  QueriesGlobalStats queries;   // Queries statistics. values should be fetched by calling `TotalGlobalStats_GetQueryStats`, otherwise not safe.
+  uint_least8_t used_dialects;  // bitarray of dialects used by all indices
+  size_t logically_deleted;     // Number of logically deleted documents in all indices
+                                // (i.e., marked with DELETED flag but their memory was not yet cleaned by the GC)
 } TotalGlobalStats;
 
 // The global stats object type
@@ -64,9 +68,10 @@ void FieldsGlobalStats_UpdateStats(FieldSpec *fs, int toAdd);
 void FieldsGlobalStats_UpdateIndexError(FieldType field_type, int toAdd);
 
 /**
- * Exposing stats on all the field's type with existing field count > 0 to INFO command.
+ * Get the total count of index errors caused by field_type.
+ * Assuming the GIL is locked.
  */
-void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *, TotalSpecsFieldInfo *);
+size_t FieldsGlobalStats_GetIndexErrorCount(FieldType field_type);
 
 /**
  * Increase all relevant counters in the global stats object.
@@ -74,14 +79,9 @@ void FieldsGlobalStats_AddToInfo(RedisModuleInfoCtx *, TotalSpecsFieldInfo *);
 void TotalGlobalStats_CountQuery(uint32_t reqflags, clock_t duration);
 
 /**
- * Add all the query-related information to the INFO command.
+ * Safely reads and returns a copy of the global queries stats.
  */
-void TotalGlobalStats_Queries_AddToInfo(RedisModuleInfoCtx *ctx);
-
-/**
- * Add all the dialect-related information to the INFO command.
- */
-void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
+QueriesGlobalStats TotalGlobalStats_GetQueryStats();
 
 /**
  * Increase the number of logically deleted documents in all indices by `toAdd`.
@@ -89,6 +89,6 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 void IndexsGlobalStats_UpdateLogicallyDeleted(int64_t toAdd);
 
 /**
- * Add all the index-related global information to the INFO command.
+ * Get the number of logically deleted documents in all indices.
  */
-void IndexesGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx, TotalSpecsInfo *total_info);
+size_t IndexesGlobalStats_GetLogicallyDeletedDocs();

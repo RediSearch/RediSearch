@@ -11,13 +11,14 @@
 #include "rdb.h"
 #include "util/workers_pool.h"
 #include "util/threadpool_api.h"
+#include "redis_index.h"
 
-static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName, int write) {
+VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index) {
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
   }
-  if (!write) {
+  if (!create_if_index) {
     return NULL;
   }
 
@@ -35,16 +36,15 @@ static VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyNa
   }
 
   // create new vector data structure
+  VecSimIndex* temp = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
+  if (!temp) {
+    return NULL;
+  }
   kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->p = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
-
-  dictAdd(spec->keysDict, keyName, kdv);
+  kdv->p = temp;
   kdv->dtor = (void (*)(void *))VecSimIndex_Free;
+  dictAdd(spec->keysDict, keyName, kdv);  
   return kdv->p;
-}
-
-VecSimIndex *OpenVectorIndex(IndexSpec *sp, RedisModuleString *keyName) {
-  return openVectorKeysDict(sp, keyName, 1);
 }
 
 IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *reply, bool yields_metric) {
@@ -70,11 +70,10 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryReply *repl
   return NewMetricIterator(docIdsList, metricList, VECTOR_DISTANCE, yields_metric);
 }
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it, t_fieldIndex fieldIndex) {
+IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
-  RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
-  VecSimIndex *vecsim = openVectorKeysDict(ctx->spec, key, 0);
-  RedisModule_FreeString(ctx->redisCtx, key);
+  RedisModuleString *key = IndexSpec_GetFormattedKey(ctx->spec, vq->field, INDEXFLD_T_VECTOR);
+  VecSimIndex *vecsim = openVectorIndex(ctx->spec, key, DONT_CREATE_INDEX);
   if (!vecsim) {
     return NULL;
   }
@@ -85,7 +84,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   VecSimMetric metric = info.metric;
 
   VecSimQueryParams qParams = {0};
-  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fieldIndex}}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = vq->field->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   switch (vq->type) {
     case VECSIM_QT_KNN: {
       if ((dim * VecSimType_sizeof(type)) != vq->knn.vecLen) {
@@ -98,6 +97,11 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
       VecsimQueryType queryType = child_it != NULL ? QUERY_TYPE_HYBRID : QUERY_TYPE_KNN;
       if (VecSim_ResolveQueryParams(vecsim, vq->params.params, array_len(vq->params.params),
                                     &qParams, queryType, q->status) != VecSim_OK)  {
+        return NULL;
+      }
+      if (vq->knn.k > MAX_KNN_K) {
+        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
+                               "Error parsing vector similarity query: query " VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", must not exceed %zu", MAX_KNN_K);
         return NULL;
       }
       HybridIteratorParams hParams = {.index = vecsim,
@@ -182,7 +186,6 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
 }
 
 void VectorQuery_Free(VectorQuery *vq) {
-  if (vq->property) rm_free((char *)vq->property);
   if (vq->scoreField) rm_free((char *)vq->scoreField);
   switch (vq->type) {
     case VECSIM_QT_KNN: // no need to free the vector as we pointes to the query dictionary
@@ -204,6 +207,8 @@ const char *VecSimType_ToString(VecSimType type) {
     case VecSimType_FLOAT64: return VECSIM_TYPE_FLOAT64;
     case VecSimType_FLOAT16: return VECSIM_TYPE_FLOAT16;
     case VecSimType_BFLOAT16: return VECSIM_TYPE_BFLOAT16;
+    case VecSimType_UINT8: return VECSIM_TYPE_UINT8;
+    case VecSimType_INT8: return VECSIM_TYPE_INT8;
     case VecSimType_INT32: return VECSIM_TYPE_INT32;
     case VecSimType_INT64: return VECSIM_TYPE_INT64;
   }
@@ -216,6 +221,8 @@ size_t VecSimType_sizeof(VecSimType type) {
         case VecSimType_FLOAT64: return sizeof(double);
         case VecSimType_FLOAT16: return sizeof(float)/2;
         case VecSimType_BFLOAT16: return sizeof(float)/2;
+        case VecSimType_UINT8: return sizeof(uint8_t);
+        case VecSimType_INT8: return sizeof(int8_t);
         case VecSimType_INT32: return sizeof(int32_t);
         case VecSimType_INT64: return sizeof(int64_t);
     }
@@ -540,7 +547,7 @@ int VecSim_CallTieredIndexesGC(WeakRef spRef) {
           sp->fields[ii].vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED) {
         // Get the vector index
         RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, sp->fields + ii, INDEXFLD_T_VECTOR);
-        VecSimIndex *vecsim = openVectorKeysDict(sp, vecsim_name, 0);
+        VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
         // Call the tiered index GC if the vector index is not empty
         if (vecsim) VecSimTieredIndex_GC(vecsim);
       }

@@ -137,7 +137,10 @@ if [[ $OSS == 1 && -z $REPO_PATH ]]; then
 	fi
 fi
 
-DEST_DIR="$ROOT/bin/$($READIES/bin/platform -t)/RedisJSON/${BRANCH}"
+if [[ -z $BINROOT ]]; then
+	BINROOT=$ROOT/bin/$($READIES/bin/platform -t)
+fi
+DEST_DIR="$BINROOT/RedisJSON/${BRANCH}"
 
 if [[ -n $MODULE_FILE ]]; then
 	echo "${DEST_DIR}/rejson.so" > $MODULE_FILE
@@ -145,7 +148,6 @@ fi
 
 if [[ $FORCE != 1 && -d $DEST_DIR && -f $DEST_DIR/rejson.so ]]; then
 	echo "${MOD_NAME} is in ${DEST_DIR}:"
-	$OP du -ah --apparent-size $DEST_DIR
 	exit 0
 fi
 
@@ -166,7 +168,7 @@ if [[ -z $REPO_PATH ]]; then
 					exit 1
 				fi
 				echo "Cannot download binary artifacts - building ${MOD_NAME} from source."
-				$ROOT/sbin/build-redisjson
+				BINROOT=$BINROOT BRANCH=$BRANCH $ROOT/sbin/build-redisjson
 				exit $?
 			fi
 		fi
@@ -184,7 +186,7 @@ if [[ -e ${DEST_DIR} ]]; then
 	echo "Removing existing ${DEST_DIR}"
 	$OP rm -rf ${DEST_DIR}
 fi
-# $OP mv $WORK_DIR $DEST_DIR
+
 runn rsync -a --no-owner --no-group --remove-source-files $WORK_DIR/* $DEST_DIR
 
 echo "${MOD_NAME} installed into ${DEST_DIR}:"

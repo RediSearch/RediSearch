@@ -17,17 +17,14 @@
 #include "concurrent_ctx.h"
 #include "inverted_index.h"
 #include "numeric_filter.h"
+#include "hll/hll.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define NR_CARD_CHECK 10
-
-typedef struct {
-  double value;
-  size_t appearances;
-} CardinalityValue;
+#define NR_BIT_PRECISION 6 // For error rate of `1.04 / sqrt(2^6)` = 13%
+#define NR_REG_SIZE (1 << NR_BIT_PRECISION)
 
 /* A numeric range is a node in a numeric range tree, representing a range of
  * values bunched together.
@@ -40,15 +37,9 @@ typedef struct {
 typedef struct {
   double minVal;
   double maxVal;
-
-  double unique_sum;
+  struct HLL hll;
 
   size_t invertedIndexSize;
-
-  u_int16_t card;
-  u_int16_t cardCheck;
-  uint32_t splitCard;
-  CardinalityValue *values;
   InvertedIndex *entries;
 } NumericRange;
 
@@ -68,6 +59,7 @@ typedef struct {
   int numRecords;
   int changed;
   int numRanges;
+  int numLeaves;
 } NRN_AddRv;
 
 typedef struct {
@@ -78,7 +70,10 @@ typedef struct {
 typedef struct {
   NumericRangeNode *root;
   size_t numRanges;
+  size_t numLeaves;
   size_t numEntries;
+  size_t invertedIndexesSize;
+
   t_docId lastDocId;
 
   uint32_t revisionId;
@@ -99,14 +94,6 @@ struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const 
                                                ConcurrentSearchCtx *csx, FieldType forType,
                                                IteratorsConfig *config, const FieldFilterContext* filterCtx);
 
-/* Add an entry to a numeric range node. Returns the cardinality of the range after the
- * inserstion.
- * No deduplication is done */
-size_t NumericRange_Add(NumericRange *r, t_docId docId, double value, int checkCard);
-
-/* Create a new range node with the given capacity, minimum and maximum values */
-NumericRangeNode *NewLeafNode(size_t cap, size_t splitCard);
-
 /* Recursively find all the leaves under a node that correspond to a given min-max range. Returns a
  * vector with range node pointers.  */
 Vector *NumericRangeNode_FindRange(NumericRangeNode *n, const NumericFilter *nf);
@@ -124,10 +111,6 @@ NumericRangeTree *NewNumericRangeTree();
 /* Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes */
 NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value, int isMulti);
 
-/* Remove a node containing a range with value.
-   Returns 1 if node was found, 0 otherwise */
-int NumericRangeTree_DeleteNode(NumericRangeTree *t, double value);
-
 /* Recursively find all the leaves under tree's root, that correspond to a given min-max range.
  * Returns a vector with range node pointers. */
 Vector *NumericRangeTree_Find(NumericRangeTree *t, const NumericFilter *nf);
@@ -135,29 +118,23 @@ Vector *NumericRangeTree_Find(NumericRangeTree *t, const NumericFilter *nf);
 /* Free the tree and all nodes */
 void NumericRangeTree_Free(NumericRangeTree *t);
 
+/* Return the estimated cardinality of the numeric range */
+size_t NumericRange_GetCardinality(const NumericRange *nr);
+
 extern RedisModuleType *NumericIndexType;
 
-NumericRangeTree *OpenNumericIndex(const RedisSearchCtx *ctx, RedisModuleString *keyName);
+NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName, bool create_if_missing);
 
 int NumericIndexType_Register(RedisModuleCtx *ctx);
 void *NumericIndexType_RdbLoad(RedisModuleIO *rdb, int encver);
 void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value);
 void NumericIndexType_Digest(RedisModuleDigest *digest, void *value);
 void NumericIndexType_Free(void *value);
+unsigned long NumericIndexType_MemUsage(const void *value);
 
 NumericRangeTreeIterator *NumericRangeTreeIterator_New(NumericRangeTree *t);
 NumericRangeNode *NumericRangeTreeIterator_Next(NumericRangeTreeIterator *iter);
 void NumericRangeTreeIterator_Free(NumericRangeTreeIterator *iter);
-
-#ifdef _DEBUG
-static inline void PRINT_INDENT(int indent) {
-  for (int i = 0; i < indent; ++i)
-    printf("  ");
-}
-
-void NumericRangeNode_Dump(NumericRangeNode *n, int indent);
-void NumericRange_Dump(NumericRange *r, int indent);
-#endif // #ifdef _DEBUG
 
 #ifdef __cplusplus
 }

@@ -11,18 +11,7 @@
 #include <stdbool.h>
 #include "../tokenize.h"
 #include "VecSim/vec_sim_common.h"
-
-/* A query-specific tokenizer, that reads symbols like quots, pipes, etc */
-typedef struct {
-  const char *text;
-  size_t len;
-  char *pos;
-  const char *separators;
-  NormalizeFunc normalize;
-  const char **stopwords;
-
-} QueryTokenizer;
-
+#include "spec.h"
 
 typedef enum {
   // Concrete types
@@ -52,7 +41,6 @@ typedef struct {
   int len;
   int pos;
   double numval;
-  int inclusive;
   QueryTokenType type;
   int sign; // for numeric range, it stores the sign of the parameter
 } QueryToken;
@@ -67,6 +55,9 @@ typedef struct {
   bool needResolve;
 } SingleVectorQueryParam;
 
-#define QUERY_STOPWORDS DEFAULT_STOPWORDS;
+typedef struct {
+  QueryToken tok;
+  const FieldSpec *fs;
+} FieldName;
 
 #endif

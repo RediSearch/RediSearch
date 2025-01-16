@@ -15,6 +15,8 @@
 #define VECSIM_TYPE_FLOAT16 "FLOAT16"
 #define VECSIM_TYPE_FLOAT32 "FLOAT32"
 #define VECSIM_TYPE_FLOAT64 "FLOAT64"
+#define VECSIM_TYPE_UINT8 "UINT8"
+#define VECSIM_TYPE_INT8 "INT8"
 #define VECSIM_TYPE_INT32 "INT32"
 #define VECSIM_TYPE_INT64 "INT64"
 
@@ -40,6 +42,8 @@
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
   QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create %s index without specifying %s argument", algorithm, arg)
+
+#define VECSIM_KNN_K_TOO_LARGE_ERR_MSG "KNN K parameter is too large"
 
 typedef enum {
   VECSIM_QT_KNN,
@@ -74,7 +78,7 @@ typedef struct {
 } RangeVectorQuery;
 
 typedef struct VectorQuery {
-  char *property;                     // name of field
+  const FieldSpec *field;             // the vector field
   char *scoreField;                   // name of score field
   union {
     KNNVectorQuery knn;
@@ -109,11 +113,9 @@ typedef struct VecSimLogCtx {
     const char *index_field_name;  // should point to the field_spec name string.
 } VecSimLogCtx;
 
-// TODO: remove idxKey from all OpenFooIndex functions
-VecSimIndex *OpenVectorIndex(IndexSpec *sp,
-  RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
+VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool create_if_index);
 
-IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it, t_fieldIndex fieldIndex);
+IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it);
 
 int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);

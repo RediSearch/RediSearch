@@ -27,12 +27,16 @@ on:
       pre-steps-script:
         type: string
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
+      rejson:
+        type: number
+        default: 1
       test-timeout:
         type: number
         default: 50
 
 env:
   BOOST_VERSION: ${{ vars.BOOST_VERSION }}
+  LLVM_VERSION: ${{vars.LLVM_VERSION}}
   VERBOSE_UTESTS: 1
 
 jobs:
@@ -57,14 +61,9 @@ jobs:
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for theses platforms
         run: |
-          for platform in ubuntu:bionic centos:7 amazonlinux:2 alpine:3; do
+          for platform in ubuntu:bionic amazonlinux:2 alpine:3; do
             if [[ "${{ inputs.container }}" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
-              # https://github.com/actions/checkout/issues/1809
-              echo "ACTIONS_RUNNER_FORCED_INTERNAL_NODE_VERSION=node16" >> $GITHUB_ENV
-              echo "ACTIONS_RUNNER_FORCE_ACTIONS_NODE_VERSION=node16" >> $GITHUB_ENV
-              # https://github.blog/changelog/2024-03-07-github-actions-all-actions-will-run-on-node20-instead-of-node16-by-default/
-              echo "ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true" >> $GITHUB_ENV
               exit 0
             fi
           done
@@ -80,16 +79,69 @@ jobs:
             tests/pytests/requirements.*
       - name: Deps checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        uses: actions/checkout@v3
-        with:
-          path: setup
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            .install
-            tests/pytests/requirements.*
-      - name: Setup specific
+        run: |
+          # Execute the logic based on the detected platform
+          echo "Detected platform: ${{ inputs.container }}"
+          case "${{ inputs.container }}" in
+            ubuntu:bionic | amazonlinux:2 | alpine:3)
+              echo "Installing prerequisites for ${{ inputs.container }}..."
+
+              # Install git (platform-specific package management)
+              case "${{ inputs.container }}" in
+                ubuntu:bionic)
+                  apt update
+                  apt install -y git
+                  ;;
+                amazonlinux:2)
+                  yum update -y
+                  yum install -y git
+                  ;;
+                alpine:3)
+                  apk update
+                  apk add --no-cache git
+                  ;;
+              esac
+
+              # Configure the safe directory
+              git config --global --add safe.directory /__w/${{ github.repository }}
+
+              # Checkout
+              REPO_URL="https://github.com/${{ github.repository }}.git"
+
+              # Initialize a Git repository
+              git init
+              git remote add origin "$REPO_URL"
+
+              # Fetch and checkout ref
+              git fetch origin "${{ github.ref }}" || {
+                echo "Failed to fetch ref: '${{ github.ref }}'";
+                exit 1;
+              }
+              git checkout FETCH_HEAD  # Check out the fetched ref
+
+              # Update submodules
+              git submodule update --init --recursive
+              ;;
+            *)
+              echo "Unsupported platform: '${{ inputs.container }}'"
+              exit 1
+              ;;
+          esac
+      - name: Setup specific (node20)
+        if: steps.node20.outputs.supported == 'true'
         working-directory: setup/.install
-        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Setup specific (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
+        working-directory: .install
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Install LLVM for sanitizer
+        if: inputs.san == 'address'
+        working-directory: setup/.install
+        run: |
+          ./test_deps/install_llvm.sh ${{ env.LLVM_VERSION }} ${{ steps.mode.outputs.mode }}
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
@@ -97,35 +149,45 @@ jobs:
           submodules: recursive
       - name: Full checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
-        uses: actions/checkout@v3
-        with:
-          submodules: recursive
+        run: echo "Done already earlier."
       - name: Setup common
-        run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
-
+        run: |
+          .install/common_installations.sh ${{ steps.mode.outputs.mode }}
+          .install/test_deps/install_rust.sh
       - name: Install Boost
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
-
       - name: Get Redis (node20)
-        if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'true' }}
+        if: ${{ steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
         with:
           repository: redis/redis
           ref: ${{ inputs.get-redis }}
           path: redis
       - name: Get Redis (node20 not supported)
-        if: ${{ inputs.get-redis != 'skip getting redis' && steps.node20.outputs.supported == 'false' }}
-        uses: actions/checkout@v3
-        with:
-          repository: redis/redis
-          ref: ${{ inputs.get-redis }}
-          path: redis
+        if: ${{ steps.node20.outputs.supported == 'false' }}
+        run: |
+          REPO_URL="https://github.com/redis/redis.git"
+          DEST_DIR="redis"  # Directory to clone into
+          
+          # Clone the repository (shallow clone without tags)
+          git clone $REPO_URL $DEST_DIR
+          cd $DEST_DIR
+          
+          # Checkout the REF
+          git fetch origin ${{ inputs.get-redis }}
+          git checkout ${{ inputs.get-redis }}
+      - name: verify CC and CXX
+        if: inputs.san == 'address'
+        run: |
+          echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
+          echo "CC=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
+          echo "CXX=$(which clang++-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
+          echo "LD=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
       - name: Build Redis
-        if: inputs.get-redis != 'skip getting redis'
         working-directory: redis
-        run: ${{ steps.mode.outputs.mode }} make install BUILD_TLS=yes
-
+        run: |
+          ${{ steps.mode.outputs.mode }} SANITIZER=${{ inputs.san }} BUILD_TLS=yes make install
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
         # We also remove invalid characters from the name.
@@ -133,9 +195,8 @@ jobs:
         run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
           echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
-
       - name: Build
-        run: make SAN=${{ inputs.san }}
+        run: make SAN=${{ inputs.san }} REDIS_VER=${{ inputs.get-redis }}
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
@@ -146,16 +207,16 @@ jobs:
         id: standalone_tests
         if: ${{ inputs.standalone }}
         continue-on-error: true
-        run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+        run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }}
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
         if: ${{ inputs.coordinator }}
         continue-on-error: true
-        run: make pytest SA=0 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+        run: make pytest SA=0 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
-      - name: Upload Artifacts
+      - name: Upload Artifacts (node20)
         # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
         if: >
           steps.node20.outputs.supported == 'true' &&
@@ -167,16 +228,11 @@ jobs:
           if-no-files-found: ignore
       # If node20 is not supported, we can only use version 3.
       # Here we only upload the artifacts if the tests had failed, since it is very slow
-      - name: Upload Artifacts (node20 not supported)
-        # Upload artifacts only if tests failed (including sanitizer failures)
+      - name: Upload Artifacts (node20 not supported) (temporarily disabled)
         if: >
           steps.node20.outputs.supported == 'false' &&
           (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
-        uses: actions/upload-artifact@v3
-        with:
-          name: Test Logs ${{ steps.artifact-names.outputs.name }}
-          path: tests/**/logs/*.log*
-          if-no-files-found: ignore
+        run: echo "Currently not available..."
 
       - name: Fail flow if tests failed
         if: steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'

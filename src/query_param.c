@@ -44,17 +44,18 @@ QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, Query
   if(min != NULL) {
     QueryParam_SetParam(q, &ret->params[0], &nf->min, NULL, min);
   } else {
-    nf->min = NF_NEGATIVE_INFINITY;
+    nf->min = -INFINITY;
   }
   if(max != NULL) {
     QueryParam_SetParam(q, &ret->params[1], &nf->max, NULL, max);
   } else {
-    nf->max = NF_INFINITY;
+    nf->max = INFINITY;
   }
   return ret;
 }
 
 void QueryParam_Free(QueryParam *p) {
+  if (!p) return;
   switch (p->type) {
     case QP_GEO_FILTER:
       GeoFilter_Free(p->gf);
@@ -186,7 +187,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
       *(char**)param->target = rm_calloc(1, val_len + 1);
       memcpy(*(char**)param->target, val, val_len);
       if (param->target_len) *param->target_len = val_len;
-      return 1;    
+      return 1;
 
     case PARAM_TERM_CASE:
       *(char**)param->target = rm_strdup(val);
@@ -213,9 +214,8 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     case PARAM_NUMERIC_MIN_RANGE:
     case PARAM_NUMERIC_MAX_RANGE:
     {
-      int inclusive = 1;
       int isMin = param->type == PARAM_NUMERIC_MIN_RANGE ? 1 : 0;
-      if (parseDoubleRange(val, &inclusive, (double*)param->target, isMin, param->sign, status) == REDISMODULE_OK)
+      if (parseDoubleRange(val, (double*)param->target, isMin, param->sign, status) == REDISMODULE_OK)
         return 1;
       else
         return -1;
