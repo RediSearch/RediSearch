@@ -465,7 +465,6 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
     options->legacy.gf = rm_calloc(1, sizeof(*options->legacy.gf));
     if (GeoFilter_LegacyParse(options->legacy.gf, ac, status) != REDISMODULE_OK) {
-      GeoFilter_Free(options->legacy.gf);
       return ARG_ERROR;
     }
   } else {
@@ -975,6 +974,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
           }
           return REDISMODULE_ERR;
         } else {
+          // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
           QAST_GlobalFilterOptions legacyFilterOpts = {.empty = true};
           QAST_SetGlobalFilters(ast, &legacyFilterOpts);
           continue; // Keep the filter entry in the legacy filters array for AREQ_Free()
@@ -999,6 +999,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
         }
         return REDISMODULE_ERR;
       } else {
+        // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
         QAST_GlobalFilterOptions legacyOpts = {.empty = true};
         QAST_SetGlobalFilters(ast, &legacyOpts);
       }
