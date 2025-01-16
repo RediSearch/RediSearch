@@ -751,10 +751,10 @@ def recursive_index(lst, target):
                 return [i] + sublist_index
         elif element == target:
             return [i]
-    return None
+    return -1
 
 def recursive_contains(lst, target):
-    return recursive_index(lst, target) is not None
+    return recursive_index(lst, target) != -1
 
 def access_nested_list(lst, index):
     result = lst

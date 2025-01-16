@@ -61,22 +61,22 @@ def test_compare_numeric_dicts(env):
 def test_recursive_index(env):
     # Test with a simple list
     env.assertEqual(recursive_index([1, 2, 3], 2), [1])
-    env.assertEqual(recursive_index([1, 2, 3], 4), None)
+    env.assertEqual(recursive_index([1, 2, 3], 4), -1)
     # Test with a nested list
     env.assertEqual(recursive_index([1, [2, 3], 4], 3), [1, 1])
-    env.assertEqual(recursive_index([1, [2, 3], 4], 5), None)
+    env.assertEqual(recursive_index([1, [2, 3], 4], 5), -1)
     # Test with a deeply nested list
     env.assertEqual(recursive_index([1, [2, [3, 4]], 5], 4), [1, 1, 1])
-    env.assertEqual(recursive_index([1, [2, [3, 4]], 5], 6), None)
+    env.assertEqual(recursive_index([1, [2, [3, 4]], 5], 6), -1)
     # Test with a list of strings
     env.assertEqual(recursive_index(["a", "b", "c"], "b"), [1])
-    env.assertEqual(recursive_index(["a", "b", "c"], "d"), None)
+    env.assertEqual(recursive_index(["a", "b", "c"], "d"), -1)
     # Test with a nested list of strings
     env.assertEqual(recursive_index(["a", ["b", "c"], "d"], "c"), [1, 1])
-    env.assertEqual(recursive_index(["a", ["b", "c"], "d"], "e"), None)
+    env.assertEqual(recursive_index(["a", ["b", "c"], "d"], "e"), -1)
     # Test with a deeply nested list of strings
     env.assertEqual(recursive_index(["a", ["b", ["c", "d"]], "e"], "d"), [1, 1, 1])
-    env.assertEqual(recursive_index(["a", ["b", ["c", "d"]], "e"], "f"), None)
+    env.assertEqual(recursive_index(["a", ["b", ["c", "d"]], "e"], "f"), -1)
 
 def test_recursive_contains(env):
     # Test with a simple list
