@@ -15,12 +15,6 @@
 extern "C" {
 #endif
 
-#define VALIDATE_ARGS(fname, minargs, maxargs, err)                                           \
-  if (argc < minargs || argc > maxargs) {                                                     \
-    QueryError_SetError(err, QUERY_EPARSEARGS, "Invalid arguments for function '" fname "'"); \
-    return EXPR_EVAL_ERR;                                                                     \
-  }
-
 #define VALIDATE_ARG__COMMON(fname, args, idx, verifier, varg)                                 \
   {                                                                                            \
     RSValue *dref = RSValue_Dereference(args[idx]);                                            \
@@ -60,23 +54,25 @@ struct ExprEval;
 typedef int (*RSFunction)(struct ExprEval *e, RSValue *result, RSValue **args, size_t nargs,
                           QueryError *err);
 
+typedef struct RSFunctionInfo {
+  RSFunction f;
+  const char *name;
+  RSValueType retType;
+  uint8_t minArgs;
+  uint16_t maxArgs;
+} RSFunctionInfo;
+
 typedef struct {
   size_t len;
   size_t cap;
-  struct RSFunctionInfo {
-    RSFunction f;
-    const char *name;
-    RSValueType retType;
-    unsigned minargs;
-    int maxargs;
-  } * funcs;
+  RSFunctionInfo* funcs;
 } RSFunctionRegistry;
 
 typedef struct RSFunctionInfo RSFunctionInfo;
 
-RSFunction RSFunctionRegistry_Get(const char *name, size_t len);
+RSFunctionInfo *RSFunctionRegistry_Get(const char *name, size_t len);
 
-int RSFunctionRegistry_RegisterFunction(const char *name, RSFunction f, RSValueType retType);
+int RSFunctionRegistry_RegisterFunction(const char *name, RSFunction f, RSValueType retType, uint8_t minArgs, uint16_t maxArgs);
 
 void RegisterMathFunctions();
 void RegisterStringFunctions();
