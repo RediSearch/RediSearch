@@ -166,7 +166,7 @@ class TestAggregate():
             res = self.env.cmd(*cmd)
 
             self.env.assertEqual(expected, res[1])
-        
+
         # Test longer date-time format '%Y-%m-%dT%H:%M:%SZ' equivalent to the
         # short format '%FT%TZ' which is not supported on Alpine Linux
         cmd = ['FT.AGGREGATE', 'games', '*',
@@ -659,7 +659,7 @@ class TestAggregate():
         # With Floats
         res = self.env.cmd('ft.aggregate', 'games', '*',
                                        'APPLY', '547758.3 % 5.1')
-        self.env.assertEqual(res[1][1], '3')
+        self.env.assertEqual(res[1][1], '3.00000000008')
 
 
     # def testLoadAfterSortBy(self):
