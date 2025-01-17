@@ -10,9 +10,10 @@
 
 %left OR.
 %left AND.
+%left NOT.
+
 %left EQ NE LT LE GT GE.
 
-%left NOT.
 %left PLUS MINUS.
 %left DIVIDE TIMES MOD.
 %right POW.
