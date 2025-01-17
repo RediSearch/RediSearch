@@ -180,7 +180,7 @@ static size_t nunicode_tolower(const char *encoded, size_t in_len, char *dst) {
   ssize_t reencoded_len = nu_bytelen(u_buffer, nu_utf8_write);
   if (reencoded_len > 0 && reencoded_len <= in_len) {
     nu_writenstr(u_buffer, reencoded_len, dst, nu_utf8_write);
-    dst[reencoded_len] = '\0';
+    // dst[reencoded_len] = '\0';
   } else {
     reencoded_len = 0;
   }
