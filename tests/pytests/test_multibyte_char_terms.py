@@ -3,9 +3,9 @@
 from common import *
 from RLTest import Env
 
-def testMultibyteChars(env):
-    ''' Test that multibyte characters are correctly converted to lowercase and
-    that queries are case-insensitive.'''
+def testMultibyteText(env):
+    '''Test that multibyte characters are correctly converted to lowercase and
+    that queries are case-insensitive using TEXT fields'''
 
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
@@ -170,7 +170,9 @@ def testDiacritics(env):
 
 def testDiacriticLimitation(env):
     ''' Test that the diacritics are not removed, so the terms with diacritics
-    are not found when searching for terms without diacritics, and vice versa.'''
+    are not found when searching for terms without diacritics, and vice versa.
+    This limitation should be removed in the future, see MOD-5366.
+    '''
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH',
             'LANGUAGE', 'FRENCH', 'SCHEMA', 't', 'TEXT')
@@ -279,9 +281,9 @@ def testStopWords(env):
                                    'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, [0], message=f'Dialect: {dialect}')
 
-
 def testInvalidMultiByteSequence(env):
-    ''' Test that invalid multi-byte sequences are ignored when indexing terms.'''
+    '''Test that invalid multi-byte sequences are ignored when indexing terms.
+    '''
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
             'SCHEMA', 't', 'TEXT')
     conn = getConnectionByEnv(env)
@@ -312,7 +314,10 @@ def testInvalidMultiByteSequence(env):
     env.assertEqual(res, [2, 'test:1', 'test:2'])
 
 def testGermanEszett(env):
-    '''Test that the german eszett is correctly indexed and searched.'''
+    '''Test that the german eszett is correctly indexed and searched.
+    The eszett is a special case, because the uppercase unicode character
+    occupies 3 bytes, and the lowercase unicode character occupies 2 bytes.
+    '''
     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'LANGUAGE', 'GERMAN',
             'SCHEMA', 't', 'TEXT', 'NOSTEM')
     conn = getConnectionByEnv(env)
@@ -345,7 +350,9 @@ def testGermanEszett(env):
     env.assertEqual(res, expected)
 
 def testLongTerms(env):
-    '''Test that long terms are correctly indexed'''
+    '''Test that long terms are correctly indexed.
+    This tests the case where unicode_tolower() uses heap memory allocation
+    '''
     env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
             'SCHEMA', 't', 'TEXT', 'NOSTEM')
     conn = getConnectionByEnv(env)
