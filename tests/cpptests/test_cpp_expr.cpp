@@ -170,7 +170,7 @@ static EvalResult testEval(const char *e, RLookup *lk, RLookupRow *rr, QueryErro
     return EvalResult::failure(&ctx.status_s);
   }
 
-  return EvalResult::ok(ctx.result().numval);
+  return EvalResult::ok(RSValue_Dereference(&ctx.result())->numval);
 }
 
 TEST_F(ExprTest, testPredicate) {
@@ -224,6 +224,19 @@ TEST_F(ExprTest, testPredicate) {
   TEST_EVAL("!1", 0);
   TEST_EVAL("!('foo' == 'bar')", 1);
   TEST_EVAL("!NULL", 1);
+
+  // Test order of operations
+  TEST_EVAL("1 + 2 * 3", 7);
+  TEST_EVAL("1 + 2 * 3 + 4", 11);
+  TEST_EVAL("1 + 2 * 3 ^ 2", 19);
+  TEST_EVAL("1 + 2 * sqrt(9)", 7);
+  TEST_EVAL("1 + sqrt(9) * 2", 7);
+  TEST_EVAL("2 * sqrt(9) + 1", 7);
+  TEST_EVAL("sqrt(9) * 2 + 1", 7);
+  TEST_EVAL("1 + 3 * @bar", 7);
+  TEST_EVAL("1 + @bar * 3", 7);
+  TEST_EVAL("3 * @bar + 1", 7);
+  TEST_EVAL("@bar * 3 + 1", 7);
 
   RLookupRow_Cleanup(&rr);
   RLookup_Cleanup(&lk);
