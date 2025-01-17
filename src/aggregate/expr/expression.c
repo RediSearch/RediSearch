@@ -17,7 +17,7 @@ static void setReferenceValue(RSValue *dst, RSValue *src) {
   RSValue_MakeReference(dst, src);
 }
 
-extern int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err);
+extern int func_exists(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result);
 
 static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   int rc = EXPR_EVAL_ERR;
@@ -25,23 +25,19 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   /** First, evaluate every argument */
   size_t nusedargs = 0;
   size_t nargs = f->args->len;
-  RSValue *argspp[nargs];
   RSValue args[nargs];
 
   for (size_t ii = 0; ii < nargs; ii++) {
     args[ii] = (RSValue)RSVALUE_STATIC;
-    argspp[ii] = &args[ii];
     int internalRes = evalInternal(eval, f->args->args[ii], &args[ii]);
     if (internalRes == EXPR_EVAL_ERR ||
         (internalRes == EXPR_EVAL_NULL && f->Call != func_exists)) {
-      // TODO: Free other results
       goto cleanup;
     }
     nusedargs++;
   }
 
-  /** We pass an RSValue**, not an RSValue*, as the arguments */
-  rc = f->Call(eval, result, argspp, nargs, eval->err);
+  rc = f->Call(eval, args, nargs, result);
 
 cleanup:
   for (size_t ii = 0; ii < nusedargs; ii++) {

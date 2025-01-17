@@ -17,11 +17,11 @@ extern "C" {
 
 #define VALIDATE_ARG__COMMON(fname, args, idx, verifier, varg)                                 \
   {                                                                                            \
-    RSValue *dref = RSValue_Dereference(args[idx]);                                            \
+    RSValue *dref = RSValue_Dereference(&args[idx]);                                           \
     if (!verifier(dref, varg)) {                                                               \
                                                                                                \
       QueryError_SetErrorFmt(                                                                  \
-          err, QUERY_EPARSEARGS,                                                               \
+          ctx->err, QUERY_EPARSEARGS,                                                          \
           "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.", dref->t, \
           idx, fname, #verifier, #varg);                                                       \
       return EXPR_EVAL_ERR;                                                                    \
@@ -51,8 +51,7 @@ struct ExprEval;
  *
  * @return EXPR_EVAL_ERR or EXPR_EVAL_OK
  */
-typedef int (*RSFunction)(struct ExprEval *e, RSValue *result, RSValue **args, size_t nargs,
-                          QueryError *err);
+typedef int (*RSFunction)(struct ExprEval *e, RSValue *args, size_t nargs, RSValue *result);
 
 typedef struct RSFunctionInfo {
   RSFunction f;
