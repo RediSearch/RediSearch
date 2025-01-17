@@ -258,7 +258,8 @@ TEST_F(ExprTest, testPropertyFetch) {
   rc = ctx.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   ASSERT_EQ(RSValue_Number, ctx.result().t);
-  // RSValue_Print(&ctx.result());
+  ASSERT_FLOAT_EQ(log(10) + 2 * sqrt(10), ctx.result().numval);
+
   RLookupRow_Cleanup(&rr);
   RLookup_Cleanup(&lk);
 }
