@@ -93,6 +93,48 @@ TEST_F(ExprTest, testExpr) {
   ASSERT_EQ(6, eval.result().numval);
 }
 
+TEST_F(ExprTest, testArithmetics) {
+  TEvalCtx ctx("");
+#define TEST_ARITHMETIC(e, expected)                \
+  {                                                 \
+    ctx.assign(e);                                  \
+    ASSERT_TRUE(ctx) << ctx.error();                \
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());            \
+    auto res = RSValue_Dereference(&ctx.result());  \
+    ASSERT_EQ(RSValue_Number, res->t);              \
+    ASSERT_EQ(expected, res->numval);               \
+  }
+
+  TEST_ARITHMETIC("3 + 3", 6);
+  TEST_ARITHMETIC("3 - 3", 0);
+  TEST_ARITHMETIC("3 * 3", 9);
+  TEST_ARITHMETIC("3 / 3", 1);
+  TEST_ARITHMETIC("3 % 3", 0);
+  TEST_ARITHMETIC("3 ^ 3", 27);
+
+  TEST_ARITHMETIC("3 + sqrt(9)", 6);
+  TEST_ARITHMETIC("3 - sqrt(9)", 0);
+  TEST_ARITHMETIC("3 * sqrt(9)", 9);
+  TEST_ARITHMETIC("3 / sqrt(9)", 1);
+  TEST_ARITHMETIC("3 % sqrt(9)", 0);
+  TEST_ARITHMETIC("3 ^ sqrt(9)", 27);
+
+  TEST_ARITHMETIC("sqrt(9) + 3", 6);
+  TEST_ARITHMETIC("sqrt(9) - 3", 0);
+  TEST_ARITHMETIC("sqrt(9) * 3", 9);
+  TEST_ARITHMETIC("sqrt(9) / 3", 1);
+  TEST_ARITHMETIC("sqrt(9) % 3", 0);
+  TEST_ARITHMETIC("sqrt(9) ^ 3", 27);
+
+  TEST_ARITHMETIC("sqrt(9) + sqrt(9)", 6);
+  TEST_ARITHMETIC("sqrt(9) - sqrt(9)", 0);
+  TEST_ARITHMETIC("sqrt(9) * sqrt(9)", 9);
+  TEST_ARITHMETIC("sqrt(9) / sqrt(9)", 1);
+  TEST_ARITHMETIC("sqrt(9) % sqrt(9)", 0);
+  TEST_ARITHMETIC("sqrt(9) ^ sqrt(9)", 27);
+
+}
+
 TEST_F(ExprTest, testParser) {
   const char *e = "(((2 + 2) * (3 / 4) + 2 % 3 - 0.43) ^ -3)";
   QueryError status = {QueryErrorCode(0)};
@@ -131,13 +173,13 @@ TEST_F(ExprTest, testGetFields) {
 TEST_F(ExprTest, testFunction) {
   const char *e = "floor(log2(35) + sqrt(4) % 10) - abs(-5/20)";
   TEvalCtx ctx(e);
-  // ExprAST_Print(ctx.root);
-  int rc = ctx.eval();
-  if (rc != EXPR_EVAL_OK) {
-    FAIL() << "Could not parse " << e << " " << ctx.error();
-  }
-  ASSERT_EQ(RSValue_Number, ctx.result().t);
-  // RSValue_Print(&ctx.result());
+
+  EXPECT_EQ(ctx.eval(), EXPR_EVAL_OK) << "Could not parse " << e << " " << ctx.error();
+  EXPECT_EQ(RSValue_Number, ctx.result().t);
+
+  ctx.assign("banana(1, 2, 3)");
+  EXPECT_TRUE(!ctx) << "Parsed invalid function";
+  EXPECT_STREQ(ctx.error(), "Unknown function name 'banana'");
 }
 
 struct EvalResult {
@@ -222,6 +264,8 @@ TEST_F(ExprTest, testPredicate) {
   TEST_EVAL("!(1 == 3) || 2", 1);
   TEST_EVAL("!0", 1);
   TEST_EVAL("!1", 0);
+  TEST_EVAL("!!1", 1);
+  TEST_EVAL("!!0", 0);
   TEST_EVAL("!('foo' == 'bar')", 1);
   TEST_EVAL("!NULL", 1);
 
