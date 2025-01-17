@@ -118,21 +118,22 @@ number(A) ::= NUMBER(B). { A = B.numval; }
 expr(A) ::= PROPERTY(B). { A = RS_NewProp(B.s, B.len); }
 expr(A) ::= SYMBOL(B) LP arglist(C) RP. {
     RSFunctionInfo *cb = RSFunctionRegistry_Get(B.s, B.len);
-    if (!cb) {
-        rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", B.len, B.s);
-        ctx->ok = 0;
-        A = NULL;
-    } else if (cb->minArgs > C->len || cb->maxArgs < C->len) {
-        if (cb->minArgs == cb->maxArgs) {
-            rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects %d arguments, but got %d", B.len, B.s, cb->minArgs, C->len);
-        } else {
-            rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects between %d and %d arguments, but got %d", B.len, B.s, cb->minArgs,
-                        cb->maxArgs, C->len);
-        }
-        ctx->ok = 0;
-        A = NULL;
-    } else {
+    if (cb && cb->minArgs <= C->len && C->len <= cb->maxArgs) {
         A = RS_NewFunc(cb, C);
+    } else { // Syntax error
+        A = NULL;
+        ctx->ok = 0;
+        RSArgList_Free(C);
+        if (!cb) { // Function not found
+            rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", B.len, B.s);
+        } else { // Argument count mismatch
+            if (cb->minArgs == cb->maxArgs) {
+                rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects %d arguments, but got %d", B.len, B.s, cb->minArgs, C->len);
+            } else {
+                rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects between %d and %d arguments, but got %d",
+                                                B.len, B.s, cb->minArgs, cb->maxArgs, C->len);
+            }
+        }
     }
 }
 

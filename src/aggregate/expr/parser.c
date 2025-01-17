@@ -1202,21 +1202,22 @@ static YYACTIONTYPE yy_reduce(
       case 39: /* expr ::= SYMBOL LP arglist RP */
 {
     RSFunctionInfo *cb = RSFunctionRegistry_Get(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
-    if (!cb) {
-        rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s);
-        ctx->ok = 0;
+    if (cb && cb->minArgs <= yymsp[-1].minor.yy12->len && yymsp[-1].minor.yy12->len <= cb->maxArgs) {
+        yylhsminor.yy35 = RS_NewFunc(cb, yymsp[-1].minor.yy12);
+    } else { // Syntax error
         yylhsminor.yy35 = NULL;
-    } else if (cb->minArgs > yymsp[-1].minor.yy12->len || cb->maxArgs < yymsp[-1].minor.yy12->len) {
-        if (cb->minArgs == cb->maxArgs) {
-            rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects %d arguments, but got %d", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s, cb->minArgs, yymsp[-1].minor.yy12->len);
-        } else {
-            rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects between %d and %d arguments, but got %d", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s, cb->minArgs,
-                        cb->maxArgs, yymsp[-1].minor.yy12->len);
+        ctx->ok = 0;
+        RSArgList_Free(yymsp[-1].minor.yy12);
+        if (!cb) { // Function not found
+            rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s);
+        } else { // Argument count mismatch
+            if (cb->minArgs == cb->maxArgs) {
+                rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects %d arguments, but got %d", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s, cb->minArgs, yymsp[-1].minor.yy12->len);
+            } else {
+                rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects between %d and %d arguments, but got %d",
+                                                yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s, cb->minArgs, cb->maxArgs, yymsp[-1].minor.yy12->len);
+            }
         }
-        ctx->ok = 0;
-        yylhsminor.yy35 = NULL;
-    } else {
-        yylhsminor.yy35 = RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy12, cb->f);
     }
 }
   yymsp[-3].minor.yy35 = yylhsminor.yy35;
