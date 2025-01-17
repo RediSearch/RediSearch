@@ -10,16 +10,13 @@
 
 %left OR.
 %left AND.
-%left NOT.
+%right NOT.
 
-%left EQ NE LT LE GT GE.
+%nonassoc EQ NE LT LE GT GE.
 
 %left PLUS MINUS.
 %left DIVIDE TIMES MOD.
 %right POW.
-
-%right LP.
-%left RP.
 
 %left PROPERTY.
 %right SYMBOL.
@@ -63,21 +60,29 @@ program ::= expr(A). { ctx->root = A; }
 
 expr(A) ::= LP expr(B) RP. { A = B; }
 
+// "Manual" expansion of the arithmetic operators, to optimize the AST in-place when possible
+// expr ::= expr OP expr
 expr(A) ::= expr(B) PLUS   expr(C). { A = RS_NewOp('+', B, C); }
 expr(A) ::= expr(B) DIVIDE expr(C). { A = RS_NewOp('/', B, C); }
 expr(A) ::= expr(B) TIMES  expr(C). { A = RS_NewOp('*', B, C); }
 expr(A) ::= expr(B) MINUS  expr(C). { A = RS_NewOp('-', B, C); }
 expr(A) ::= expr(B) POW    expr(C). { A = RS_NewOp('^', B, C); }
 expr(A) ::= expr(B) MOD    expr(C). { A = RS_NewOp('%', B, C); }
-// In case we shifted on a number earlier, we need to create a new expression
+// expr ::= number OP expr
 expr(A) ::= number(B) PLUS   expr(C). { A = RS_NewOp('+', RS_NewNumberLiteral(B), C); }
 expr(A) ::= number(B) DIVIDE expr(C). { A = RS_NewOp('/', RS_NewNumberLiteral(B), C); }
 expr(A) ::= number(B) TIMES  expr(C). { A = RS_NewOp('*', RS_NewNumberLiteral(B), C); }
 expr(A) ::= number(B) MINUS  expr(C). { A = RS_NewOp('-', RS_NewNumberLiteral(B), C); }
 expr(A) ::= number(B) POW    expr(C). { A = RS_NewOp('^', RS_NewNumberLiteral(B), C); }
 expr(A) ::= number(B) MOD    expr(C). { A = RS_NewOp('%', RS_NewNumberLiteral(B), C); }
-
-// In-place arithmetic, to optimize the AST
+// expr ::= expr OP number
+expr(A) ::= expr(B) PLUS   number(C). { A = RS_NewOp('+', B, RS_NewNumberLiteral(C)); }
+expr(A) ::= expr(B) DIVIDE number(C). { A = RS_NewOp('/', B, RS_NewNumberLiteral(C)); }
+expr(A) ::= expr(B) TIMES  number(C). { A = RS_NewOp('*', B, RS_NewNumberLiteral(C)); }
+expr(A) ::= expr(B) MINUS  number(C). { A = RS_NewOp('-', B, RS_NewNumberLiteral(C)); }
+expr(A) ::= expr(B) POW    number(C). { A = RS_NewOp('^', B, RS_NewNumberLiteral(C)); }
+expr(A) ::= expr(B) MOD    number(C). { A = RS_NewOp('%', B, RS_NewNumberLiteral(C)); }
+// number := number OP number. In-place arithmetic, to optimize the AST
 number(A) ::= number(B) PLUS   number(C). { A = B + C; }
 number(A) ::= number(B) DIVIDE number(C). { A = B / C; }
 number(A) ::= number(B) TIMES  number(C). { A = B * C; }

@@ -51,13 +51,13 @@
 #define TIMES                          14
 #define MOD                            15
 #define POW                            16
-#define LP                             17
-#define RP                             18
-#define PROPERTY                       19
-#define SYMBOL                         20
-#define STRING                         21
-#define NUMBER                         22
-#define ARGLIST                        23
+#define PROPERTY                       17
+#define SYMBOL                         18
+#define STRING                         19
+#define NUMBER                         20
+#define ARGLIST                        21
+#define LP                             22
+#define RP                             23
 #define COMMA                          24
 #endif
 /**************** End token definitions ***************************************/
@@ -141,18 +141,18 @@ typedef union {
 #define RSExprParser_ParseCTX_PARAM
 #define RSExprParser_ParseCTX_FETCH
 #define RSExprParser_ParseCTX_STORE
-#define YYNSTATE             59
-#define YYNRULE              38
-#define YYNRULE_WITH_ACTION  38
+#define YYNSTATE             65
+#define YYNRULE              44
+#define YYNRULE_WITH_ACTION  44
 #define YYNTOKEN             25
-#define YY_MAX_SHIFT         58
-#define YY_MIN_SHIFTREDUCE   64
-#define YY_MAX_SHIFTREDUCE   101
-#define YY_ERROR_ACTION      102
-#define YY_ACCEPT_ACTION     103
-#define YY_NO_ACTION         104
-#define YY_MIN_REDUCE        105
-#define YY_MAX_REDUCE        142
+#define YY_MAX_SHIFT         64
+#define YY_MIN_SHIFTREDUCE   70
+#define YY_MAX_SHIFTREDUCE   113
+#define YY_ERROR_ACTION      114
+#define YY_ACCEPT_ACTION     115
+#define YY_NO_ACTION         116
+#define YY_MIN_REDUCE        117
+#define YY_MAX_REDUCE        160
 /************* End control #defines *******************************************/
 #define YY_NLOOKAHEAD ((int)(sizeof(yy_lookahead)/sizeof(yy_lookahead[0])))
 
@@ -219,74 +219,76 @@ typedef union {
 **  yy_default[]       Default action for each state.
 **
 *********** Begin parsing tables **********************************************/
-#define YY_ACTTAB_COUNT (167)
+#define YY_ACTTAB_COUNT (170)
 static const YYACTIONTYPE yy_action[] = {
- /*     0 */   104,   32,   11,   10,   27,   17,   16,   15,   14,   13,
- /*    10 */    12,   24,   20,   22,   21,   18,   19,  105,   65,   11,
- /*    20 */    10,    1,   17,   16,   15,   14,   13,   12,   24,   20,
- /*    30 */    22,   21,   18,   19,   11,   10,    5,   17,   16,   15,
- /*    40 */    14,   13,   12,   24,   20,   22,   21,   18,   19,   10,
- /*    50 */    19,   17,   16,   15,   14,   13,   12,   24,   20,   22,
- /*    60 */    21,   18,   19,   17,   16,   15,   14,   13,   12,   24,
- /*    70 */    20,   22,   21,   18,   19,    3,    9,    6,    8,    7,
- /*    80 */     4,    5,   22,   21,   18,   19,   32,   45,   23,   28,
- /*    90 */    96,   46,   93,   95,    8,    7,    4,    5,  104,  104,
- /*   100 */    24,   20,   22,   21,   18,   19,  104,   32,   32,  103,
- /*   110 */    26,   30,   47,   49,  104,   48,   50,   40,   51,   53,
- /*   120 */    41,   52,   54,   42,  104,  104,   43,   32,   32,   32,
- /*   130 */    31,   29,   33,   32,   32,   32,   34,   35,   36,   32,
- /*   140 */   104,   32,   37,   32,   38,   32,   55,   32,   56,   32,
- /*   150 */    44,  104,   57,   32,   32,   32,   58,   25,   39,  104,
- /*   160 */    97,  104,  104,  104,  104,  104,    2,
+ /*     0 */   116,   38,   11,   10,   27,   17,   16,   15,   14,   13,
+ /*    10 */    12,   24,   20,   22,   21,   18,   19,    9,    6,    8,
+ /*    20 */     7,    4,    5,   71,  117,    5,   11,   10,   19,   17,
+ /*    30 */    16,   15,   14,   13,   12,   24,   20,   22,   21,   18,
+ /*    40 */    19,   11,   10,    1,   17,   16,   15,   14,   13,   12,
+ /*    50 */    24,   20,   22,   21,   18,   19,   10,  116,   17,   16,
+ /*    60 */    15,   14,   13,   12,   24,   20,   22,   21,   18,   19,
+ /*    70 */    17,   16,   15,   14,   13,   12,   24,   20,   22,   21,
+ /*    80 */    18,   19,  114,  114,  114,  114,  114,  114,   24,   20,
+ /*    90 */    22,   21,   18,   19,    3,    8,    7,    4,    5,   22,
+ /*   100 */    21,   18,   19,   38,  116,  115,   26,  108,   52,  105,
+ /*   110 */   107,  116,   23,   38,   47,  116,   28,   38,   53,   55,
+ /*   120 */    30,   54,   56,   42,   57,   59,   43,   58,   60,   44,
+ /*   130 */   116,   38,   45,   38,   31,   38,   29,  116,   32,   38,
+ /*   140 */    38,  116,   33,   34,   38,   38,   38,   35,   36,   37,
+ /*   150 */    51,   50,   41,   61,   62,   46,  116,   49,   48,   38,
+ /*   160 */    63,   64,   25,  116,   39,  116,  116,   40,  109,    2,
 };
 static const YYCODETYPE yy_lookahead[] = {
  /*     0 */    29,   25,    2,    3,   28,    5,    6,    7,    8,    9,
- /*    10 */    10,   11,   12,   13,   14,   15,   16,    0,   18,    2,
- /*    20 */     3,   17,    5,    6,    7,    8,    9,   10,   11,   12,
- /*    30 */    13,   14,   15,   16,    2,    3,   16,    5,    6,    7,
- /*    40 */     8,    9,   10,   11,   12,   13,   14,   15,   16,    3,
- /*    50 */    16,    5,    6,    7,    8,    9,   10,   11,   12,   13,
- /*    60 */    14,   15,   16,    5,    6,    7,    8,    9,   10,   11,
- /*    70 */    12,   13,   14,   15,   16,    4,   11,   12,   13,   14,
- /*    80 */    15,   16,   13,   14,   15,   16,   25,   26,   17,   28,
- /*    90 */    19,   20,   21,   22,   13,   14,   15,   16,   29,   29,
- /*   100 */    11,   12,   13,   14,   15,   16,   29,   25,   25,   27,
- /*   110 */    28,   28,   25,   25,   29,   28,   28,   25,   25,   25,
- /*   120 */    28,   28,   28,   25,   29,   29,   28,   25,   25,   25,
- /*   130 */    28,   28,   28,   25,   25,   25,   28,   28,   28,   25,
- /*   140 */    29,   25,   28,   25,   28,   25,   28,   25,   28,   25,
- /*   150 */    28,   29,   28,   25,   25,   25,   28,   28,   28,   29,
- /*   160 */    18,   29,   29,   29,   29,   29,   24,   29,   29,   29,
+ /*    10 */    10,   11,   12,   13,   14,   15,   16,   11,   12,   13,
+ /*    20 */    14,   15,   16,   23,    0,   16,    2,    3,   16,    5,
+ /*    30 */     6,    7,    8,    9,   10,   11,   12,   13,   14,   15,
+ /*    40 */    16,    2,    3,   22,    5,    6,    7,    8,    9,   10,
+ /*    50 */    11,   12,   13,   14,   15,   16,    3,   29,    5,    6,
+ /*    60 */     7,    8,    9,   10,   11,   12,   13,   14,   15,   16,
+ /*    70 */     5,    6,    7,    8,    9,   10,   11,   12,   13,   14,
+ /*    80 */    15,   16,    5,    6,    7,    8,    9,   10,   11,   12,
+ /*    90 */    13,   14,   15,   16,    4,   13,   14,   15,   16,   13,
+ /*   100 */    14,   15,   16,   25,   29,   27,   28,   17,   18,   19,
+ /*   110 */    20,   29,   22,   25,   26,   29,   28,   25,   25,   25,
+ /*   120 */    28,   28,   28,   25,   25,   25,   28,   28,   28,   25,
+ /*   130 */    29,   25,   28,   25,   28,   25,   28,   29,   28,   25,
+ /*   140 */    25,   29,   28,   28,   25,   25,   25,   28,   28,   28,
+ /*   150 */    25,   25,   25,   28,   28,   28,   29,   25,   25,   25,
+ /*   160 */    28,   28,   28,   29,   25,   29,   29,   28,   23,   24,
  /*   170 */    29,   29,   29,   29,   29,   29,   29,   29,   29,   29,
- /*   180 */    29,   29,   29,   29,   29,   29,   25,   25,   25,   25,
- /*   190 */    25,   25,
+ /*   180 */    29,   29,   29,   29,   29,   29,   29,   29,   29,   29,
+ /*   190 */    29,   29,   29,   29,   25,
 };
-#define YY_SHIFT_COUNT    (58)
+#define YY_SHIFT_COUNT    (64)
 #define YY_SHIFT_MIN      (0)
-#define YY_SHIFT_MAX      (142)
+#define YY_SHIFT_MAX      (145)
 static const unsigned char yy_shift_ofst[] = {
- /*     0 */    71,   71,   71,   71,   71,   71,   71,   71,   71,   71,
- /*    10 */    71,   71,   71,   71,   71,   71,   71,   71,   71,   71,
- /*    20 */    71,   71,   71,   71,   71,    0,   17,   32,   32,   46,
- /*    30 */    58,   58,   65,   89,   89,   89,   89,   89,   89,   69,
- /*    40 */    81,   69,   81,   69,   69,  142,    4,   20,   34,   20,
- /*    50 */    34,   20,   34,   20,   34,   34,   34,   34,   34,
+ /*     0 */    90,   90,   90,   90,   90,   90,   90,   90,   90,   90,
+ /*    10 */    90,   90,   90,   90,   90,   90,   90,   90,   90,   90,
+ /*    20 */    90,   90,   90,   90,   90,    0,   24,   39,   39,   53,
+ /*    30 */    65,   65,   77,   77,   77,   77,   77,   77,    6,   82,
+ /*    40 */    86,   82,   82,   86,   82,   86,   86,  145,    9,    9,
+ /*    50 */     9,    9,   21,    9,   12,    9,   12,    9,   12,    9,
+ /*    60 */    12,   12,   12,   12,   12,
 };
 #define YY_REDUCE_COUNT (24)
 #define YY_REDUCE_MIN   (-24)
-#define YY_REDUCE_MAX   (130)
+#define YY_REDUCE_MAX   (139)
 static const short yy_reduce_ofst[] = {
- /*     0 */    82,   61,  -24,   83,   87,   88,   92,   93,   94,   98,
- /*    10 */   102,  103,  104,  108,  109,  110,  114,  116,  118,  120,
- /*    20 */   122,  124,  128,  129,  130,
+ /*     0 */    78,   88,  -24,   92,   93,   94,   98,   99,  100,  104,
+ /*    10 */   106,  108,  110,  114,  115,  119,  120,  121,  125,  126,
+ /*    20 */   127,  132,  133,  134,  139,
 };
 static const YYACTIONTYPE yy_default[] = {
- /*     0 */   102,  140,  102,  102,  102,  102,  102,  102,  102,  102,
- /*    10 */   102,  102,  102,  102,  102,  102,  102,  102,  102,  102,
- /*    20 */   102,  102,  102,  102,  102,  102,  102,  142,  141,  131,
- /*    30 */   133,  132,  135,  130,  129,  128,  127,  126,  125,  107,
- /*    40 */   122,  116,  119,  113,  110,  102,  139,  124,  118,  123,
- /*    50 */   117,  121,  115,  120,  114,  112,  111,  109,  108,
+ /*     0 */   114,  158,  114,  114,  114,  114,  114,  114,  114,  114,
+ /*    10 */   114,  114,  114,  114,  114,  114,  114,  114,  114,  114,
+ /*    20 */   114,  114,  114,  114,  114,  114,  114,  160,  159,  149,
+ /*    30 */   151,  150,  148,  147,  146,  145,  144,  143,  153,  131,
+ /*    40 */   119,  134,  140,  128,  137,  125,  122,  114,  132,  133,
+ /*    50 */   135,  136,  157,  142,  130,  141,  129,  139,  127,  138,
+ /*    60 */   126,  124,  123,  121,  120,
 };
 /********** End of lemon-generated parsing tables *****************************/
 
@@ -411,13 +413,13 @@ static const char *const yyTokenName[] = {
   /*   14 */ "TIMES",
   /*   15 */ "MOD",
   /*   16 */ "POW",
-  /*   17 */ "LP",
-  /*   18 */ "RP",
-  /*   19 */ "PROPERTY",
-  /*   20 */ "SYMBOL",
-  /*   21 */ "STRING",
-  /*   22 */ "NUMBER",
-  /*   23 */ "ARGLIST",
+  /*   17 */ "PROPERTY",
+  /*   18 */ "SYMBOL",
+  /*   19 */ "STRING",
+  /*   20 */ "NUMBER",
+  /*   21 */ "ARGLIST",
+  /*   22 */ "LP",
+  /*   23 */ "RP",
   /*   24 */ "COMMA",
   /*   25 */ "number",
   /*   26 */ "arglist",
@@ -444,30 +446,36 @@ static const char *const yyRuleName[] = {
  /*  11 */ "expr ::= number MINUS expr",
  /*  12 */ "expr ::= number POW expr",
  /*  13 */ "expr ::= number MOD expr",
- /*  14 */ "number ::= number PLUS number",
- /*  15 */ "number ::= number DIVIDE number",
- /*  16 */ "number ::= number TIMES number",
- /*  17 */ "number ::= number MINUS number",
- /*  18 */ "number ::= number POW number",
- /*  19 */ "number ::= number MOD number",
- /*  20 */ "expr ::= expr EQ expr",
- /*  21 */ "expr ::= expr NE expr",
- /*  22 */ "expr ::= expr LT expr",
- /*  23 */ "expr ::= expr LE expr",
- /*  24 */ "expr ::= expr GT expr",
- /*  25 */ "expr ::= expr GE expr",
- /*  26 */ "expr ::= expr OR expr",
- /*  27 */ "expr ::= expr AND expr",
- /*  28 */ "expr ::= NOT expr",
- /*  29 */ "expr ::= STRING",
- /*  30 */ "expr ::= number",
- /*  31 */ "number ::= NUMBER",
- /*  32 */ "expr ::= PROPERTY",
- /*  33 */ "expr ::= SYMBOL LP arglist RP",
- /*  34 */ "expr ::= SYMBOL",
- /*  35 */ "arglist ::=",
- /*  36 */ "arglist ::= expr",
- /*  37 */ "arglist ::= arglist COMMA expr",
+ /*  14 */ "expr ::= expr PLUS number",
+ /*  15 */ "expr ::= expr DIVIDE number",
+ /*  16 */ "expr ::= expr TIMES number",
+ /*  17 */ "expr ::= expr MINUS number",
+ /*  18 */ "expr ::= expr POW number",
+ /*  19 */ "expr ::= expr MOD number",
+ /*  20 */ "number ::= number PLUS number",
+ /*  21 */ "number ::= number DIVIDE number",
+ /*  22 */ "number ::= number TIMES number",
+ /*  23 */ "number ::= number MINUS number",
+ /*  24 */ "number ::= number POW number",
+ /*  25 */ "number ::= number MOD number",
+ /*  26 */ "expr ::= expr EQ expr",
+ /*  27 */ "expr ::= expr NE expr",
+ /*  28 */ "expr ::= expr LT expr",
+ /*  29 */ "expr ::= expr LE expr",
+ /*  30 */ "expr ::= expr GT expr",
+ /*  31 */ "expr ::= expr GE expr",
+ /*  32 */ "expr ::= expr OR expr",
+ /*  33 */ "expr ::= expr AND expr",
+ /*  34 */ "expr ::= NOT expr",
+ /*  35 */ "expr ::= STRING",
+ /*  36 */ "expr ::= number",
+ /*  37 */ "number ::= NUMBER",
+ /*  38 */ "expr ::= PROPERTY",
+ /*  39 */ "expr ::= SYMBOL LP arglist RP",
+ /*  40 */ "expr ::= SYMBOL",
+ /*  41 */ "arglist ::=",
+ /*  42 */ "arglist ::= expr",
+ /*  43 */ "arglist ::= arglist COMMA expr",
 };
 #endif /* NDEBUG */
 
@@ -910,30 +918,36 @@ static const YYCODETYPE yyRuleInfoLhs[] = {
     28,  /* (11) expr ::= number MINUS expr */
     28,  /* (12) expr ::= number POW expr */
     28,  /* (13) expr ::= number MOD expr */
-    25,  /* (14) number ::= number PLUS number */
-    25,  /* (15) number ::= number DIVIDE number */
-    25,  /* (16) number ::= number TIMES number */
-    25,  /* (17) number ::= number MINUS number */
-    25,  /* (18) number ::= number POW number */
-    25,  /* (19) number ::= number MOD number */
-    28,  /* (20) expr ::= expr EQ expr */
-    28,  /* (21) expr ::= expr NE expr */
-    28,  /* (22) expr ::= expr LT expr */
-    28,  /* (23) expr ::= expr LE expr */
-    28,  /* (24) expr ::= expr GT expr */
-    28,  /* (25) expr ::= expr GE expr */
-    28,  /* (26) expr ::= expr OR expr */
-    28,  /* (27) expr ::= expr AND expr */
-    28,  /* (28) expr ::= NOT expr */
-    28,  /* (29) expr ::= STRING */
-    28,  /* (30) expr ::= number */
-    25,  /* (31) number ::= NUMBER */
-    28,  /* (32) expr ::= PROPERTY */
-    28,  /* (33) expr ::= SYMBOL LP arglist RP */
-    28,  /* (34) expr ::= SYMBOL */
-    26,  /* (35) arglist ::= */
-    26,  /* (36) arglist ::= expr */
-    26,  /* (37) arglist ::= arglist COMMA expr */
+    28,  /* (14) expr ::= expr PLUS number */
+    28,  /* (15) expr ::= expr DIVIDE number */
+    28,  /* (16) expr ::= expr TIMES number */
+    28,  /* (17) expr ::= expr MINUS number */
+    28,  /* (18) expr ::= expr POW number */
+    28,  /* (19) expr ::= expr MOD number */
+    25,  /* (20) number ::= number PLUS number */
+    25,  /* (21) number ::= number DIVIDE number */
+    25,  /* (22) number ::= number TIMES number */
+    25,  /* (23) number ::= number MINUS number */
+    25,  /* (24) number ::= number POW number */
+    25,  /* (25) number ::= number MOD number */
+    28,  /* (26) expr ::= expr EQ expr */
+    28,  /* (27) expr ::= expr NE expr */
+    28,  /* (28) expr ::= expr LT expr */
+    28,  /* (29) expr ::= expr LE expr */
+    28,  /* (30) expr ::= expr GT expr */
+    28,  /* (31) expr ::= expr GE expr */
+    28,  /* (32) expr ::= expr OR expr */
+    28,  /* (33) expr ::= expr AND expr */
+    28,  /* (34) expr ::= NOT expr */
+    28,  /* (35) expr ::= STRING */
+    28,  /* (36) expr ::= number */
+    25,  /* (37) number ::= NUMBER */
+    28,  /* (38) expr ::= PROPERTY */
+    28,  /* (39) expr ::= SYMBOL LP arglist RP */
+    28,  /* (40) expr ::= SYMBOL */
+    26,  /* (41) arglist ::= */
+    26,  /* (42) arglist ::= expr */
+    26,  /* (43) arglist ::= arglist COMMA expr */
 };
 
 /* For rule J, yyRuleInfoNRhs[J] contains the negative of the number
@@ -953,30 +967,36 @@ static const signed char yyRuleInfoNRhs[] = {
    -3,  /* (11) expr ::= number MINUS expr */
    -3,  /* (12) expr ::= number POW expr */
    -3,  /* (13) expr ::= number MOD expr */
-   -3,  /* (14) number ::= number PLUS number */
-   -3,  /* (15) number ::= number DIVIDE number */
-   -3,  /* (16) number ::= number TIMES number */
-   -3,  /* (17) number ::= number MINUS number */
-   -3,  /* (18) number ::= number POW number */
-   -3,  /* (19) number ::= number MOD number */
-   -3,  /* (20) expr ::= expr EQ expr */
-   -3,  /* (21) expr ::= expr NE expr */
-   -3,  /* (22) expr ::= expr LT expr */
-   -3,  /* (23) expr ::= expr LE expr */
-   -3,  /* (24) expr ::= expr GT expr */
-   -3,  /* (25) expr ::= expr GE expr */
-   -3,  /* (26) expr ::= expr OR expr */
-   -3,  /* (27) expr ::= expr AND expr */
-   -2,  /* (28) expr ::= NOT expr */
-   -1,  /* (29) expr ::= STRING */
-   -1,  /* (30) expr ::= number */
-   -1,  /* (31) number ::= NUMBER */
-   -1,  /* (32) expr ::= PROPERTY */
-   -4,  /* (33) expr ::= SYMBOL LP arglist RP */
-   -1,  /* (34) expr ::= SYMBOL */
-    0,  /* (35) arglist ::= */
-   -1,  /* (36) arglist ::= expr */
-   -3,  /* (37) arglist ::= arglist COMMA expr */
+   -3,  /* (14) expr ::= expr PLUS number */
+   -3,  /* (15) expr ::= expr DIVIDE number */
+   -3,  /* (16) expr ::= expr TIMES number */
+   -3,  /* (17) expr ::= expr MINUS number */
+   -3,  /* (18) expr ::= expr POW number */
+   -3,  /* (19) expr ::= expr MOD number */
+   -3,  /* (20) number ::= number PLUS number */
+   -3,  /* (21) number ::= number DIVIDE number */
+   -3,  /* (22) number ::= number TIMES number */
+   -3,  /* (23) number ::= number MINUS number */
+   -3,  /* (24) number ::= number POW number */
+   -3,  /* (25) number ::= number MOD number */
+   -3,  /* (26) expr ::= expr EQ expr */
+   -3,  /* (27) expr ::= expr NE expr */
+   -3,  /* (28) expr ::= expr LT expr */
+   -3,  /* (29) expr ::= expr LE expr */
+   -3,  /* (30) expr ::= expr GT expr */
+   -3,  /* (31) expr ::= expr GE expr */
+   -3,  /* (32) expr ::= expr OR expr */
+   -3,  /* (33) expr ::= expr AND expr */
+   -2,  /* (34) expr ::= NOT expr */
+   -1,  /* (35) expr ::= STRING */
+   -1,  /* (36) expr ::= number */
+   -1,  /* (37) number ::= NUMBER */
+   -1,  /* (38) expr ::= PROPERTY */
+   -4,  /* (39) expr ::= SYMBOL LP arglist RP */
+   -1,  /* (40) expr ::= SYMBOL */
+    0,  /* (41) arglist ::= */
+   -1,  /* (42) arglist ::= expr */
+   -3,  /* (43) arglist ::= arglist COMMA expr */
 };
 
 static void yy_accept(yyParser*);  /* Forward Declaration */
@@ -1072,63 +1092,87 @@ static YYACTIONTYPE yy_reduce(
 { yylhsminor.yy35 = RS_NewOp('%', RS_NewNumberLiteral(yymsp[-2].minor.yy6), yymsp[0].minor.yy35); }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
-      case 14: /* number ::= number PLUS number */
+      case 14: /* expr ::= expr PLUS number */
+{ yylhsminor.yy35 = RS_NewOp('+', yymsp[-2].minor.yy35, RS_NewNumberLiteral(yymsp[0].minor.yy6)); }
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
+        break;
+      case 15: /* expr ::= expr DIVIDE number */
+{ yylhsminor.yy35 = RS_NewOp('/', yymsp[-2].minor.yy35, RS_NewNumberLiteral(yymsp[0].minor.yy6)); }
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
+        break;
+      case 16: /* expr ::= expr TIMES number */
+{ yylhsminor.yy35 = RS_NewOp('*', yymsp[-2].minor.yy35, RS_NewNumberLiteral(yymsp[0].minor.yy6)); }
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
+        break;
+      case 17: /* expr ::= expr MINUS number */
+{ yylhsminor.yy35 = RS_NewOp('-', yymsp[-2].minor.yy35, RS_NewNumberLiteral(yymsp[0].minor.yy6)); }
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
+        break;
+      case 18: /* expr ::= expr POW number */
+{ yylhsminor.yy35 = RS_NewOp('^', yymsp[-2].minor.yy35, RS_NewNumberLiteral(yymsp[0].minor.yy6)); }
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
+        break;
+      case 19: /* expr ::= expr MOD number */
+{ yylhsminor.yy35 = RS_NewOp('%', yymsp[-2].minor.yy35, RS_NewNumberLiteral(yymsp[0].minor.yy6)); }
+  yymsp[-2].minor.yy35 = yylhsminor.yy35;
+        break;
+      case 20: /* number ::= number PLUS number */
 { yylhsminor.yy6 = yymsp[-2].minor.yy6 + yymsp[0].minor.yy6; }
   yymsp[-2].minor.yy6 = yylhsminor.yy6;
         break;
-      case 15: /* number ::= number DIVIDE number */
+      case 21: /* number ::= number DIVIDE number */
 { yylhsminor.yy6 = yymsp[-2].minor.yy6 / yymsp[0].minor.yy6; }
   yymsp[-2].minor.yy6 = yylhsminor.yy6;
         break;
-      case 16: /* number ::= number TIMES number */
+      case 22: /* number ::= number TIMES number */
 { yylhsminor.yy6 = yymsp[-2].minor.yy6 * yymsp[0].minor.yy6; }
   yymsp[-2].minor.yy6 = yylhsminor.yy6;
         break;
-      case 17: /* number ::= number MINUS number */
+      case 23: /* number ::= number MINUS number */
 { yylhsminor.yy6 = yymsp[-2].minor.yy6 - yymsp[0].minor.yy6; }
   yymsp[-2].minor.yy6 = yylhsminor.yy6;
         break;
-      case 18: /* number ::= number POW number */
+      case 24: /* number ::= number POW number */
 { yylhsminor.yy6 = pow(yymsp[-2].minor.yy6, yymsp[0].minor.yy6); }
   yymsp[-2].minor.yy6 = yylhsminor.yy6;
         break;
-      case 19: /* number ::= number MOD number */
+      case 25: /* number ::= number MOD number */
 { yylhsminor.yy6 = fmod(yymsp[-2].minor.yy6, yymsp[0].minor.yy6); }
   yymsp[-2].minor.yy6 = yylhsminor.yy6;
         break;
-      case 20: /* expr ::= expr EQ expr */
+      case 26: /* expr ::= expr EQ expr */
 { yylhsminor.yy35 = RS_NewPredicate(RSCondition_Eq,  yymsp[-2].minor.yy35, yymsp[0].minor.yy35); }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
-      case 21: /* expr ::= expr NE expr */
+      case 27: /* expr ::= expr NE expr */
 { yylhsminor.yy35 = RS_NewPredicate(RSCondition_Ne,  yymsp[-2].minor.yy35, yymsp[0].minor.yy35); }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
-      case 22: /* expr ::= expr LT expr */
+      case 28: /* expr ::= expr LT expr */
 { yylhsminor.yy35 = RS_NewPredicate(RSCondition_Lt,  yymsp[-2].minor.yy35, yymsp[0].minor.yy35); }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
-      case 23: /* expr ::= expr LE expr */
+      case 29: /* expr ::= expr LE expr */
 { yylhsminor.yy35 = RS_NewPredicate(RSCondition_Le,  yymsp[-2].minor.yy35, yymsp[0].minor.yy35); }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
-      case 24: /* expr ::= expr GT expr */
+      case 30: /* expr ::= expr GT expr */
 { yylhsminor.yy35 = RS_NewPredicate(RSCondition_Gt,  yymsp[-2].minor.yy35, yymsp[0].minor.yy35); }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
-      case 25: /* expr ::= expr GE expr */
+      case 31: /* expr ::= expr GE expr */
 { yylhsminor.yy35 = RS_NewPredicate(RSCondition_Ge,  yymsp[-2].minor.yy35, yymsp[0].minor.yy35); }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
-      case 26: /* expr ::= expr OR expr */
+      case 32: /* expr ::= expr OR expr */
 { yylhsminor.yy35 = RS_NewPredicate(RSCondition_Or,  yymsp[-2].minor.yy35, yymsp[0].minor.yy35); }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
-      case 27: /* expr ::= expr AND expr */
+      case 33: /* expr ::= expr AND expr */
 { yylhsminor.yy35 = RS_NewPredicate(RSCondition_And, yymsp[-2].minor.yy35, yymsp[0].minor.yy35); }
   yymsp[-2].minor.yy35 = yylhsminor.yy35;
         break;
-      case 28: /* expr ::= NOT expr */
+      case 34: /* expr ::= NOT expr */
 {
     if (yymsp[0].minor.yy35->t == RSExpr_Inverted) {
         yymsp[-1].minor.yy35 = yymsp[0].minor.yy35->inverted.child; // double negation
@@ -1139,23 +1183,23 @@ static YYACTIONTYPE yy_reduce(
     }
 }
         break;
-      case 29: /* expr ::= STRING */
+      case 35: /* expr ::= STRING */
 { yylhsminor.yy35 = RS_NewStringLiteral(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len); }
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
-      case 30: /* expr ::= number */
+      case 36: /* expr ::= number */
 { yylhsminor.yy35 = RS_NewNumberLiteral(yymsp[0].minor.yy6); }
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
-      case 31: /* number ::= NUMBER */
+      case 37: /* number ::= NUMBER */
 { yylhsminor.yy6 = yymsp[0].minor.yy0.numval; }
   yymsp[0].minor.yy6 = yylhsminor.yy6;
         break;
-      case 32: /* expr ::= PROPERTY */
+      case 38: /* expr ::= PROPERTY */
 { yylhsminor.yy35 = RS_NewProp(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len); }
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
-      case 33: /* expr ::= SYMBOL LP arglist RP */
+      case 39: /* expr ::= SYMBOL LP arglist RP */
 {
     RSFunctionInfo *cb = RSFunctionRegistry_Get(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
     if (!cb) {
@@ -1177,7 +1221,7 @@ static YYACTIONTYPE yy_reduce(
 }
   yymsp[-3].minor.yy35 = yylhsminor.yy35;
         break;
-      case 34: /* expr ::= SYMBOL */
+      case 40: /* expr ::= SYMBOL */
 {
     if (yymsp[0].minor.yy0.len == 4 && !strncmp(yymsp[0].minor.yy0.s, "NULL", 4)) {
         yylhsminor.yy35 = RS_NewNullLiteral();
@@ -1189,14 +1233,14 @@ static YYACTIONTYPE yy_reduce(
 }
   yymsp[0].minor.yy35 = yylhsminor.yy35;
         break;
-      case 35: /* arglist ::= */
+      case 41: /* arglist ::= */
 { yymsp[1].minor.yy12 = RS_NewArgList(NULL); }
         break;
-      case 36: /* arglist ::= expr */
+      case 42: /* arglist ::= expr */
 { yylhsminor.yy12 = RS_NewArgList(yymsp[0].minor.yy35); }
   yymsp[0].minor.yy12 = yylhsminor.yy12;
         break;
-      case 37: /* arglist ::= arglist COMMA expr */
+      case 43: /* arglist ::= arglist COMMA expr */
 {
     yylhsminor.yy12 = RSArgList_Append(yymsp[-2].minor.yy12, yymsp[0].minor.yy35);
 }
