@@ -6,6 +6,8 @@
 
 %name RSExprParser_Parse
 
+%left LOWEST.
+
 %left OR.
 %left AND.
 %left EQ NE LT LE GT GE.
@@ -60,30 +62,45 @@ program ::= expr(A). { ctx->root = A; }
 
 expr(A) ::= LP expr(B) RP. { A = B; }
 
-expr(A) ::= expr(B) PLUS expr(C).   { A = RS_NewOp('+', B, C); }
+expr(A) ::= expr(B) PLUS   expr(C). { A = RS_NewOp('+', B, C); }
 expr(A) ::= expr(B) DIVIDE expr(C). { A = RS_NewOp('/', B, C); }
-expr(A) ::= expr(B) TIMES expr(C).  { A = RS_NewOp('*', B, C); }
-expr(A) ::= expr(B) MINUS expr(C).  { A = RS_NewOp('-', B, C); }
-expr(A) ::= expr(B) POW expr(C).    { A = RS_NewOp('^', B, C); }
-expr(A) ::= expr(B) MOD expr(C).    { A = RS_NewOp('%', B, C); }
+expr(A) ::= expr(B) TIMES  expr(C). { A = RS_NewOp('*', B, C); }
+expr(A) ::= expr(B) MINUS  expr(C). { A = RS_NewOp('-', B, C); }
+expr(A) ::= expr(B) POW    expr(C). { A = RS_NewOp('^', B, C); }
+expr(A) ::= expr(B) MOD    expr(C). { A = RS_NewOp('%', B, C); }
+
+// In-place arithmetic, to optimize the AST
+number(A) ::= number(B) PLUS   number(C). { A = B + C; }
+number(A) ::= number(B) DIVIDE number(C). { A = B / C; }
+number(A) ::= number(B) TIMES  number(C). { A = B * C; }
+number(A) ::= number(B) MINUS  number(C). { A = B - C; }
+number(A) ::= number(B) POW    number(C). { A = pow(B, C); }
+number(A) ::= number(B) MOD    number(C). { A = fmod(B, C); }
 
 // Logical predicates
-expr(A) ::= expr(B) EQ expr(C).  { A = RS_NewPredicate(RSCondition_Eq, B, C); }
-expr(A) ::= expr(B) NE expr(C).  { A = RS_NewPredicate(RSCondition_Ne, B, C); }
-expr(A) ::= expr(B) LT expr(C).  { A = RS_NewPredicate(RSCondition_Lt, B, C); }
-expr(A) ::= expr(B) LE expr(C).  { A = RS_NewPredicate(RSCondition_Le, B, C); }
-expr(A) ::= expr(B) GT expr(C).  { A = RS_NewPredicate(RSCondition_Gt, B, C); }
-expr(A) ::= expr(B) GE expr(C).  { A = RS_NewPredicate(RSCondition_Ge, B, C); }
+expr(A) ::= expr(B) EQ expr(C).  { A = RS_NewPredicate(RSCondition_Eq,  B, C); }
+expr(A) ::= expr(B) NE expr(C).  { A = RS_NewPredicate(RSCondition_Ne,  B, C); }
+expr(A) ::= expr(B) LT expr(C).  { A = RS_NewPredicate(RSCondition_Lt,  B, C); }
+expr(A) ::= expr(B) LE expr(C).  { A = RS_NewPredicate(RSCondition_Le,  B, C); }
+expr(A) ::= expr(B) GT expr(C).  { A = RS_NewPredicate(RSCondition_Gt,  B, C); }
+expr(A) ::= expr(B) GE expr(C).  { A = RS_NewPredicate(RSCondition_Ge,  B, C); }
+expr(A) ::= expr(B) OR expr(C).  { A = RS_NewPredicate(RSCondition_Or,  B, C); }
 expr(A) ::= expr(B) AND expr(C). { A = RS_NewPredicate(RSCondition_And, B, C); }
-expr(A) ::= expr(B) OR expr(C).  { A = RS_NewPredicate(RSCondition_Or, B, C); }
-expr(A) ::= NOT expr(B). { A = RS_NewInverted(B); }
 
+expr(A) ::= NOT expr(B). {
+    if (B->t == RSExpr_Inverted) {
+        A = B->inverted.child; // double negation
+        B->inverted.child = NULL;
+        RSExpr_Free(B);
+    } else {
+        A = RS_NewInverted(B);
+    }
+}
 
 expr(A) ::= STRING(B). { A = RS_NewStringLiteral(B.s, B.len); }
-expr(A) ::= number(B). { A = RS_NewNumberLiteral(B); }
+expr(A) ::= number(B). [LOWEST] { A = RS_NewNumberLiteral(B); }
 
 number(A) ::= NUMBER(B). { A = B.numval; }
-number(A) ::= MINUS NUMBER(B). { A = -B.numval; }
 
 expr(A) ::= PROPERTY(B). { A = RS_NewProp(B.s, B.len); }
 expr(A) ::= SYMBOL(B) LP arglist(C) RP. {

@@ -26,7 +26,7 @@ void RSExprParser_ParseFree(void *p, void (*freeProc)(void *));
 machine expr;
 
 inf = ['+\-']? 'inf' $ 3;
-number = [+\-]? digit+('.' digit+)? (('E'|'e') [+\-]. digit+)? $ 2;
+number = [+\-]? digit+('.' digit+)? (('E'|'e') [+\-]? digit+)? $ 2;
 
 lp = '(';
 rp = ')';
