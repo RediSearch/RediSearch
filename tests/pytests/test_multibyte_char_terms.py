@@ -262,7 +262,6 @@ def testStopWords(env):
     # check the stopwords list - uppercase
     res = index_info(env, 'idx2')['stopwords_list']
     env.assertEqual(res, ['И', 'НЕ', 'ОТ'])
-    print(res)
 
     for dialect in range(1, 5):
         env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
@@ -309,17 +308,64 @@ def testInvalidMultiByteSequence(env):
         # Only the valid terms are indexed
         env.assertEqual(res, ['abcabc'])
 
-# def testGermanAlphabet(env):
-#     env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'LANGUAGE', 'GERMAN',
-#             'SCHEMA', 't', 'TEXT', 'NOSTEM')
-#     conn = getConnectionByEnv(env)
-#     conn.execute_command('HSET', 'test:1', 't', 'grüßen')
-#     conn.execute_command('HSET', 'test:2', 't', 'GRÜẞEN')
-#     conn.execute_command('HSET', 'test:2', 't', 'GRÜSSEN')
-#     conn.execute_command('HSET', 'test:2', 't', 'grüssen')
+    res = conn.execute_command('FT.SEARCH', 'idx', '@t:abcabc', 'NOCONTENT')
+    env.assertEqual(res, [2, 'test:1', 'test:2'])
 
+def testGermanEszett(env):
+    '''Test that the german eszett is correctly indexed and searched.'''
+    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'LANGUAGE', 'GERMAN',
+            'SCHEMA', 't', 'TEXT', 'NOSTEM')
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'test:1', 't', 'GRÜẞEN') # term: grüßen
+    conn.execute_command('HSET', 'test:2', 't', 'grüßen') # term: grüßen
+    # Some times the 'ẞ' (eszett) is written as 'ss', but this will result in a
+    # different term
+    conn.execute_command('HSET', 'test:3', 't', 'GRÜSSEN')
+    conn.execute_command('HSET', 'test:4', 't', 'grüssen')
 
-#     if not env.isCluster():
-#         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
-#         env.assertEqual(len(res), 1)
-#         print(res)
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
+        env.assertEqual(len(res), 2)
+        env.assertEqual(res, ['grüssen', 'grüßen'])
+
+    # Query for terms with 'ẞ'
+    expected = [2, 'test:1', 'test:2']
+    res = conn.execute_command('FT.SEARCH', 'idx', '@t:GRÜẞEN', 'NOCONTENT')
+    env.assertEqual(res, expected)
+    res = conn.execute_command('FT.SEARCH', 'idx', '@t:grüßen', 'NOCONTENT')
+    env.assertEqual(res, expected)
+    res = conn.execute_command('FT.SEARCH', 'idx', '@t:GrüßeN', 'NOCONTENT')
+    env.assertEqual(res, expected)
+
+    # Query for terms with 'ss'
+    expected = [2, 'test:3', 'test:4']
+    res = conn.execute_command('FT.SEARCH', 'idx', '@t:GRÜSSEN', 'NOCONTENT')
+    env.assertEqual(res, expected)
+    res = conn.execute_command('FT.SEARCH', 'idx', '@t:grüssen', 'NOCONTENT')
+    env.assertEqual(res, expected)
+
+def testLongTerms(env):
+    '''Test that long terms are correctly indexed'''
+    env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
+            'SCHEMA', 't', 'TEXT', 'NOSTEM')
+    conn = getConnectionByEnv(env)
+
+    # lowercase
+    conn.execute_command('HSET', 'w1', 't', 'частнопредпринимательский')
+    # uppercase
+    conn.execute_command('HSET', 'w2', 't', 'ЧАСТНОПРЕДПРИНИМАТЕЛЬСКИЙ')
+
+    # A single term should be generated in lower case.
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx1')
+        env.assertEqual(res, ['частнопредпринимательский'])
+
+    # For index with STEMMING enabled, two terms are expected
+    env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
+            'SCHEMA', 't', 'TEXT')
+    waitForIndex(env, 'idx2')
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx2')
+        env.assertEqual(res, ['+частнопредпринимательск',
+                              'частнопредпринимательский'])
+

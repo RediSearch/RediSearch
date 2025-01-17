@@ -550,7 +550,7 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
     size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
     if(tokLen > 0) {
-      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), tokLen);
+      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), -1);
       QueryNode_AddChild(A, C);
     }
   }

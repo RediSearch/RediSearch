@@ -69,22 +69,13 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
   }
 
   *len = dstLen;
-  if (dstLen > 0) {
-    char *tmp = rm_strndup(dst, dstLen);
-    if (!tmp) {
-      return dst;
-    }
-    size_t lower_len = 0;
-    char *lower_dst = nunicode_tolower(tmp, dstLen, &lower_len);
-    if (lower_dst == NULL) {
-      rm_free(tmp);
-      return dst;
-    }
-    memcpy(dst, lower_dst, lower_len);
-    *len = lower_len;
-    rm_free(lower_dst);
-    rm_free(tmp);
+
+  // convert multi-byte characters to lowercase
+  size_t newLen = nunicode_tolower(dst, dstLen, dst);
+  if (newLen) {
+    *len = newLen;
   }
+
   return dst;
 }
 
