@@ -93,11 +93,11 @@ RSExpr *RS_NewPredicate(RSCondition cond, RSExpr *left, RSExpr *right) {
   return e;
 }
 
-RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb) {
+RSExpr *RS_NewFunc(RSFunctionInfo *cb, RSArgList *args) {
   RSExpr *e = newExpr(RSExpr_Function);
   e->func.args = args;
-  e->func.name = rm_strndup(str, len);
-  e->func.Call = cb;
+  e->func.name = cb->name;
+  e->func.Call = cb->f;
   return e;
 }
 
@@ -129,7 +129,6 @@ void RSExpr_Free(RSExpr *e) {
       RSValue_Clear(&e->literal);
       break;
     case RSExpr_Function:
-      rm_free((char *)e->func.name);
       RSArgList_Free(e->func.args);
       break;
     case RSExpr_Op:

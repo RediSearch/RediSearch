@@ -132,7 +132,7 @@ expr(A) ::= SYMBOL(B) LP arglist(C) RP. {
         ctx->ok = 0;
         A = NULL;
     } else {
-        A = RS_NewFunc(B.s, B.len, C, cb->f);
+        A = RS_NewFunc(cb, C);
     }
 }
 
