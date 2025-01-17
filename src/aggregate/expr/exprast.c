@@ -29,7 +29,7 @@ static RSExpr *newExpr(RSExprType t) {
 }
 
 // unquote and unescape a stirng literal, and return a cleaned copy of it
-char *unescapeStringDup(const char *s, size_t sz) {
+char *unescapeStringDup(const char *s, size_t sz, uint32_t *newSz) {
 
   char *dst = rm_malloc(sz);
   char *dstStart = dst;
@@ -44,13 +44,16 @@ char *unescapeStringDup(const char *s, size_t sz) {
     *dst++ = *src++;
   }
   *dst = '\0';
+  *newSz = dst - dstStart;
   return dstStart;
 }
+
 RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Literal);
   e->literal = RS_StaticValue(RSValue_String);
-  e->literal.strval.str = unescapeStringDup(str, len);
-  e->literal.strval.len = strlen(e->literal.strval.str);
+  uint32_t newLen;
+  e->literal.strval.str = unescapeStringDup(str, len, &newLen);
+  e->literal.strval.len = newLen;
   e->literal.strval.stype = RSString_Malloc;
   return e;
 }
