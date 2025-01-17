@@ -121,9 +121,6 @@ expr(A) ::= SYMBOL(B) LP arglist(C) RP. {
     if (cb && cb->minArgs <= C->len && C->len <= cb->maxArgs) {
         A = RS_NewFunc(cb, C);
     } else { // Syntax error
-        A = NULL;
-        ctx->ok = 0;
-        RSArgList_Free(C);
         if (!cb) { // Function not found
             rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", B.len, B.s);
         } else { // Argument count mismatch
@@ -134,6 +131,9 @@ expr(A) ::= SYMBOL(B) LP arglist(C) RP. {
                                                 B.len, B.s, cb->minArgs, cb->maxArgs, C->len);
             }
         }
+        A = NULL;
+        ctx->ok = 0;
+        RSArgList_Free(C);
     }
 }
 
