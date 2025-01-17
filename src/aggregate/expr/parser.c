@@ -34,16 +34,16 @@
 /**************** End of %include directives **********************************/
 /* These constants specify the various numeric values for terminal symbols.
 ***************** Begin token definitions *************************************/
-#ifndef AND
-#define AND                             1
-#define OR                              2
-#define NOT                             3
-#define EQ                              4
-#define NE                              5
-#define LT                              6
-#define LE                              7
-#define GT                              8
-#define GE                              9
+#ifndef OR
+#define OR                              1
+#define AND                             2
+#define EQ                              3
+#define NE                              4
+#define LT                              5
+#define LE                              6
+#define GT                              7
+#define GE                              8
+#define NOT                             9
 #define PLUS                           10
 #define MINUS                          11
 #define DIVIDE                         12
@@ -140,11 +140,11 @@ typedef union {
 #define RSExprParser_ParseCTX_PARAM
 #define RSExprParser_ParseCTX_FETCH
 #define RSExprParser_ParseCTX_STORE
-#define YYNSTATE             37
+#define YYNSTATE             41
 #define YYNRULE              27
 #define YYNRULE_WITH_ACTION  27
 #define YYNTOKEN             24
-#define YY_MAX_SHIFT         36
+#define YY_MAX_SHIFT         40
 #define YY_MIN_SHIFTREDUCE   48
 #define YY_MAX_SHIFTREDUCE   74
 #define YY_ERROR_ACTION      75
@@ -218,60 +218,67 @@ typedef union {
 **  yy_default[]       Default action for each state.
 **
 *********** Begin parsing tables **********************************************/
-#define YY_ACTTAB_COUNT (122)
+#define YY_ACTTAB_COUNT (148)
 static const YYACTIONTYPE yy_action[] = {
- /*     0 */    96,    5,    4,   21,   11,   10,    9,    8,    7,    6,
- /*    10 */    18,   14,   16,   15,   12,   13,   77,   49,   78,    5,
- /*    20 */     4,    1,   11,   10,    9,    8,    7,    6,   18,   14,
- /*    30 */    16,   15,   12,   13,    5,    4,   68,   11,   10,    9,
- /*    40 */     8,    7,    6,   18,   14,   16,   15,   12,   13,   11,
- /*    50 */    10,    9,    8,    7,    6,   18,   14,   16,   15,   12,
- /*    60 */    13,    3,   18,   14,   16,   15,   12,   13,   96,   36,
- /*    70 */    76,   20,   96,   34,   17,   22,   69,   35,   65,   67,
- /*    80 */    16,   15,   12,   13,   96,   96,   96,   23,   24,   25,
- /*    90 */    96,   96,   77,   26,   27,   96,   96,   96,   28,   29,
- /*   100 */    30,   96,   96,   96,   31,   85,   84,   96,   96,   96,
- /*   110 */    33,   82,   81,   96,   96,   70,   19,   32,   77,   77,
- /*   120 */    77,    2,
+ /*     0 */    77,    4,    5,   11,   10,    9,    8,    7,    6,   77,
+ /*    10 */    18,   14,   16,   15,   12,   13,   77,   49,   78,    4,
+ /*    20 */     5,   11,   10,    9,    8,    7,    6,    1,   18,   14,
+ /*    30 */    16,   15,   12,   13,    4,    5,   11,   10,    9,    8,
+ /*    40 */     7,    6,   68,   18,   14,   16,   15,   12,   13,    5,
+ /*    50 */    11,   10,    9,    8,    7,    6,   13,   18,   14,   16,
+ /*    60 */    15,   12,   13,   11,   10,    9,    8,    7,    6,   77,
+ /*    70 */    18,   14,   16,   15,   12,   13,    3,   96,   36,   76,
+ /*    80 */    20,   77,   77,   17,   77,   69,   35,   65,   67,   18,
+ /*    90 */    14,   16,   15,   12,   13,   77,   16,   15,   12,   13,
+ /*   100 */    96,   34,   96,   22,   96,   21,   77,   25,   77,   77,
+ /*   110 */    96,   96,   96,   23,   24,   26,   96,   96,   96,   27,
+ /*   120 */    28,   29,   96,   96,   96,   30,   31,   37,   96,   96,
+ /*   130 */    96,   38,   33,   39,   77,   96,   96,   96,   40,   19,
+ /*   140 */    32,   70,   77,   77,   77,   77,   77,    2,
 };
 static const YYCODETYPE yy_lookahead[] = {
- /*     0 */    24,    1,    2,   27,    4,    5,    6,    7,    8,    9,
+ /*     0 */    28,    1,    2,    3,    4,    5,    6,    7,    8,   28,
  /*    10 */    10,   11,   12,   13,   14,   15,   28,   17,    0,    1,
- /*    20 */     2,   16,    4,    5,    6,    7,    8,    9,   10,   11,
- /*    30 */    12,   13,   14,   15,    1,    2,   21,    4,    5,    6,
- /*    40 */     7,    8,    9,   10,   11,   12,   13,   14,   15,    4,
- /*    50 */     5,    6,    7,    8,    9,   10,   11,   12,   13,   14,
- /*    60 */    15,    3,   10,   11,   12,   13,   14,   15,   24,   11,
- /*    70 */    26,   27,   24,   25,   16,   27,   18,   19,   20,   21,
- /*    80 */    12,   13,   14,   15,   24,   24,   24,   27,   27,   27,
- /*    90 */    24,   24,   28,   27,   27,   24,   24,   24,   27,   27,
- /*   100 */    27,   24,   24,   24,   27,   27,   27,   24,   24,   24,
- /*   110 */    27,   27,   27,   24,   24,   17,   27,   27,   28,   28,
- /*   120 */    28,   23,   28,   28,   28,   28,   28,   28,   28,   28,
- /*   130 */    28,   28,   28,   28,   28,   28,   28,   28,   28,   28,
- /*   140 */    24,   24,   24,   24,   24,   24,
+ /*    20 */     2,    3,    4,    5,    6,    7,    8,   16,   10,   11,
+ /*    30 */    12,   13,   14,   15,    1,    2,    3,    4,    5,    6,
+ /*    40 */     7,    8,   21,   10,   11,   12,   13,   14,   15,    2,
+ /*    50 */     3,    4,    5,    6,    7,    8,   15,   10,   11,   12,
+ /*    60 */    13,   14,   15,    3,    4,    5,    6,    7,    8,   28,
+ /*    70 */    10,   11,   12,   13,   14,   15,    9,   24,   11,   26,
+ /*    80 */    27,   28,   28,   16,   28,   18,   19,   20,   21,   10,
+ /*    90 */    11,   12,   13,   14,   15,   28,   12,   13,   14,   15,
+ /*   100 */    24,   25,   24,   27,   24,   27,   28,   27,   28,   28,
+ /*   110 */    24,   24,   24,   27,   27,   27,   24,   24,   24,   27,
+ /*   120 */    27,   27,   24,   24,   24,   27,   27,   27,   24,   24,
+ /*   130 */    24,   27,   27,   27,   28,   24,   24,   24,   27,   27,
+ /*   140 */    27,   17,   28,   28,   28,   28,   28,   23,   28,   28,
+ /*   150 */    28,   28,   28,   28,   28,   28,   28,   28,   28,   28,
+ /*   160 */    28,   28,   28,   28,   28,   28,   24,   24,   24,   24,
+ /*   170 */    24,   24,
 };
-#define YY_SHIFT_COUNT    (36)
+#define YY_SHIFT_COUNT    (40)
 #define YY_SHIFT_MIN      (0)
-#define YY_SHIFT_MAX      (98)
+#define YY_SHIFT_MAX      (124)
 static const unsigned char yy_shift_ofst[] = {
- /*     0 */    58,   58,   58,   58,   58,   58,   58,   58,   58,   58,
- /*    10 */    58,   58,   58,   58,   58,   58,   58,   58,   58,    0,
- /*    20 */    18,   33,   33,   45,   45,   45,   52,   52,   52,   52,
- /*    30 */    52,   52,   68,   68,   98,    5,   15,
+ /*     0 */    67,   67,   67,   67,   67,   67,   67,   67,   67,   67,
+ /*    10 */    67,   67,   67,   67,   67,   67,   67,   67,   67,    0,
+ /*    20 */    18,   33,   33,   47,   60,   79,   79,   79,   79,   79,
+ /*    30 */    79,   79,   84,   84,  124,   11,   21,   41,   41,   41,
+ /*    40 */    41,
 };
 #define YY_REDUCE_COUNT (18)
-#define YY_REDUCE_MIN   (-24)
-#define YY_REDUCE_MAX   (90)
+#define YY_REDUCE_MIN   (0)
+#define YY_REDUCE_MAX   (113)
 static const signed char yy_reduce_ofst[] = {
- /*     0 */    44,   48,  -24,   60,   61,   62,   66,   67,   71,   72,
- /*    10 */    73,   77,   78,   79,   83,   84,   85,   89,   90,
+ /*     0 */    53,   76,   78,   80,   86,   87,   88,   92,   93,   94,
+ /*    10 */    98,   99,  100,  104,  105,  106,  111,  112,  113,
 };
 static const YYACTIONTYPE yy_default[] = {
  /*     0 */    75,  102,   75,   75,   75,   75,   75,   75,   75,   75,
  /*    10 */    75,   75,   75,   75,   75,   75,   75,   75,   75,   75,
- /*    20 */    75,  104,  103,   94,   93,   92,   91,   90,   89,   88,
- /*    30 */    87,   86,   80,   83,   75,  101,   75,
+ /*    20 */    75,  104,  103,   93,   92,   94,   91,   90,   89,   88,
+ /*    30 */    87,   86,   80,   83,   75,  101,   75,   85,   84,   82,
+ /*    40 */    81,
 };
 /********** End of lemon-generated parsing tables *****************************/
 
@@ -380,15 +387,15 @@ void RSExprParser_ParseTrace(FILE *TraceFILE, char *zTracePrompt){
 ** are required.  The following table supplies these names */
 static const char *const yyTokenName[] = { 
   /*    0 */ "$",
-  /*    1 */ "AND",
-  /*    2 */ "OR",
-  /*    3 */ "NOT",
-  /*    4 */ "EQ",
-  /*    5 */ "NE",
-  /*    6 */ "LT",
-  /*    7 */ "LE",
-  /*    8 */ "GT",
-  /*    9 */ "GE",
+  /*    1 */ "OR",
+  /*    2 */ "AND",
+  /*    3 */ "EQ",
+  /*    4 */ "NE",
+  /*    5 */ "LT",
+  /*    6 */ "LE",
+  /*    7 */ "GT",
+  /*    8 */ "GE",
+  /*    9 */ "NOT",
   /*   10 */ "PLUS",
   /*   11 */ "MINUS",
   /*   12 */ "DIVIDE",
@@ -980,19 +987,19 @@ static YYACTIONTYPE yy_reduce(
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 3: /* expr ::= expr DIVIDE expr */
-{  yylhsminor.yy19 = RS_NewOp('/', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{ yylhsminor.yy19 = RS_NewOp('/', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 4: /* expr ::= expr TIMES expr */
-{  yylhsminor.yy19 = RS_NewOp('*', yymsp[-2].minor.yy19, yymsp[0].minor.yy19);}
+{ yylhsminor.yy19 = RS_NewOp('*', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 5: /* expr ::= expr MINUS expr */
-{  yylhsminor.yy19 = RS_NewOp('-', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{ yylhsminor.yy19 = RS_NewOp('-', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 6: /* expr ::= expr POW expr */
-{  yylhsminor.yy19 = RS_NewOp('^', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
+{ yylhsminor.yy19 = RS_NewOp('^', yymsp[-2].minor.yy19, yymsp[0].minor.yy19); }
   yymsp[-2].minor.yy19 = yylhsminor.yy19;
         break;
       case 7: /* expr ::= expr MOD expr */
@@ -1035,7 +1042,7 @@ static YYACTIONTYPE yy_reduce(
 { yymsp[-1].minor.yy19 = RS_NewInverted(yymsp[0].minor.yy19); }
         break;
       case 17: /* expr ::= STRING */
-{ yylhsminor.yy19 =  RS_NewStringLiteral((char*)yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len); }
+{ yylhsminor.yy19 = RS_NewStringLiteral(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len); }
   yymsp[0].minor.yy19 = yylhsminor.yy19;
         break;
       case 18: /* expr ::= number */
@@ -1055,13 +1062,22 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 22: /* expr ::= SYMBOL LP arglist RP */
 {
-    RSFunction cb = RSFunctionRegistry_Get(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
+    RSFunctionInfo *cb = RSFunctionRegistry_Get(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
     if (!cb) {
         rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s);
         ctx->ok = 0;
         yylhsminor.yy19 = NULL;
+    } else if (cb->minArgs > yymsp[-1].minor.yy46->len || cb->maxArgs < yymsp[-1].minor.yy46->len) {
+        if (cb->minArgs == cb->maxArgs) {
+            rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects %d arguments, but got %d", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s, cb->minArgs, yymsp[-1].minor.yy46->len);
+        } else {
+            rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects between %d and %d arguments, but got %d", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s, cb->minArgs,
+                        cb->maxArgs, yymsp[-1].minor.yy46->len);
+        }
+        ctx->ok = 0;
+        yylhsminor.yy19 = NULL;
     } else {
-        yylhsminor.yy19 = RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy46, cb);
+        yylhsminor.yy19 = RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy46, cb->f);
     }
 }
   yymsp[-3].minor.yy19 = yylhsminor.yy19;

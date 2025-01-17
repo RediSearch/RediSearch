@@ -4,14 +4,16 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-
 %name RSExprParser_Parse
 
-%left AND OR NOT.
+%left OR.
+%left AND.
 %left EQ NE LT LE GT GE.
 
+%left NOT.
 %left PLUS MINUS.
-%left DIVIDE TIMES MOD POW.
+%left DIVIDE TIMES MOD.
+%right POW.
 
 %right LP.
 %left RP.
@@ -57,26 +59,27 @@
 program ::= expr(A). { ctx->root = A; }
 
 expr(A) ::= LP expr(B) RP. { A = B; }
-expr(A) ::= expr(B) PLUS expr(C). { A = RS_NewOp('+', B, C); }
-expr(A) ::= expr(B) DIVIDE expr(C). {  A = RS_NewOp('/', B, C); }
-expr(A) ::= expr(B) TIMES expr(C). {  A = RS_NewOp('*', B, C);}
-expr(A) ::= expr(B) MINUS expr(C). {  A = RS_NewOp('-', B, C); }
-expr(A) ::= expr(B) POW expr(C). {  A = RS_NewOp('^', B, C); }
-expr(A) ::= expr(B) MOD expr(C). { A = RS_NewOp('%', B, C); }
+
+expr(A) ::= expr(B) PLUS expr(C).   { A = RS_NewOp('+', B, C); }
+expr(A) ::= expr(B) DIVIDE expr(C). { A = RS_NewOp('/', B, C); }
+expr(A) ::= expr(B) TIMES expr(C).  { A = RS_NewOp('*', B, C); }
+expr(A) ::= expr(B) MINUS expr(C).  { A = RS_NewOp('-', B, C); }
+expr(A) ::= expr(B) POW expr(C).    { A = RS_NewOp('^', B, C); }
+expr(A) ::= expr(B) MOD expr(C).    { A = RS_NewOp('%', B, C); }
 
 // Logical predicates
-expr(A) ::= expr(B) EQ expr(C). { A = RS_NewPredicate(RSCondition_Eq, B, C); }
-expr(A) ::= expr(B) NE expr(C). { A = RS_NewPredicate(RSCondition_Ne, B, C); }
-expr(A) ::= expr(B) LT expr(C). { A = RS_NewPredicate(RSCondition_Lt, B, C); }
-expr(A) ::= expr(B) LE expr(C). { A = RS_NewPredicate(RSCondition_Le, B, C); }
-expr(A) ::= expr(B) GT expr(C). { A = RS_NewPredicate(RSCondition_Gt, B, C); }
-expr(A) ::= expr(B) GE expr(C). { A = RS_NewPredicate(RSCondition_Ge, B, C); }
+expr(A) ::= expr(B) EQ expr(C).  { A = RS_NewPredicate(RSCondition_Eq, B, C); }
+expr(A) ::= expr(B) NE expr(C).  { A = RS_NewPredicate(RSCondition_Ne, B, C); }
+expr(A) ::= expr(B) LT expr(C).  { A = RS_NewPredicate(RSCondition_Lt, B, C); }
+expr(A) ::= expr(B) LE expr(C).  { A = RS_NewPredicate(RSCondition_Le, B, C); }
+expr(A) ::= expr(B) GT expr(C).  { A = RS_NewPredicate(RSCondition_Gt, B, C); }
+expr(A) ::= expr(B) GE expr(C).  { A = RS_NewPredicate(RSCondition_Ge, B, C); }
 expr(A) ::= expr(B) AND expr(C). { A = RS_NewPredicate(RSCondition_And, B, C); }
-expr(A) ::= expr(B) OR expr(C). { A = RS_NewPredicate(RSCondition_Or, B, C); }
+expr(A) ::= expr(B) OR expr(C).  { A = RS_NewPredicate(RSCondition_Or, B, C); }
 expr(A) ::= NOT expr(B). { A = RS_NewInverted(B); }
 
 
-expr(A) ::= STRING(B). { A =  RS_NewStringLiteral((char*)B.s, B.len); }
+expr(A) ::= STRING(B). { A = RS_NewStringLiteral(B.s, B.len); }
 expr(A) ::= number(B). { A = RS_NewNumberLiteral(B); }
 
 number(A) ::= NUMBER(B). { A = B.numval; }
@@ -84,13 +87,22 @@ number(A) ::= MINUS NUMBER(B). { A = -B.numval; }
 
 expr(A) ::= PROPERTY(B). { A = RS_NewProp(B.s, B.len); }
 expr(A) ::= SYMBOL(B) LP arglist(C) RP. {
-    RSFunction cb = RSFunctionRegistry_Get(B.s, B.len);
+    RSFunctionInfo *cb = RSFunctionRegistry_Get(B.s, B.len);
     if (!cb) {
         rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", B.len, B.s);
         ctx->ok = 0;
         A = NULL;
+    } else if (cb->minArgs > C->len || cb->maxArgs < C->len) {
+        if (cb->minArgs == cb->maxArgs) {
+            rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects %d arguments, but got %d", B.len, B.s, cb->minArgs, C->len);
+        } else {
+            rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects between %d and %d arguments, but got %d", B.len, B.s, cb->minArgs,
+                        cb->maxArgs, C->len);
+        }
+        ctx->ok = 0;
+        A = NULL;
     } else {
-        A = RS_NewFunc(B.s, B.len, C, cb);
+        A = RS_NewFunc(B.s, B.len, C, cb->f);
     }
 }
 
