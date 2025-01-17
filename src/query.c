@@ -1265,6 +1265,8 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
 }
 
 static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
+  size_t origLen = *len;
+  char *origStr = str;
   char *p = str;
   if (caseSensitive) {
     while (*p) {
@@ -1273,7 +1275,8 @@ static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
         --*len;
       }
       *str++ = *p++;
-      }
+    }
+    *str = '\0';
   } else {
     while (*p) {
       if (*p == '\\' && (ispunct(*(p+1)) || isspace(*(p+1)))) {
@@ -1282,8 +1285,11 @@ static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
       }
       *str++ = tolower(*p++);
     }
+    *str = '\0';
+
+    // convert multi-byte characters to lowercase
+    nunicode_tolower(origStr, origLen, origStr);
   }
-  *str = '\0';
 }
 
 static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
@@ -1296,6 +1302,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   switch (n->type) {
     case QN_TOKEN: {
+      n->tn.len = strlen(n->tn.str);
       ret = TagIndex_OpenReader(idx, q->sctx, n->tn.str, n->tn.len, weight, fs->index);
       break;
     }

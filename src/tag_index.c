@@ -93,7 +93,7 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
   if (sep == TAG_FIELD_DEFAULT_JSON_SEP) {
     char *tok = rm_strdup(str);
     if (!(flags & TagField_CaseSensitive)) { // check case sensitive
-      tok = strtolower(tok);
+      nunicode_tolower(tok, strlen(tok), tok);
     }
     array_append(*resArray, tok);
     return REDISMODULE_OK;
@@ -110,9 +110,12 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
     tok = TagIndex_SepString(sep, &p, &toklen, indexEmpty);
 
     if (tok) {
-      // lowercase the string (TODO: non latin lowercase)
+      // lowercase the string
       if (!(flags & TagField_CaseSensitive)) { // check case sensitive
-        tok = strtolower(tok);
+        size_t newLen = nunicode_tolower(tok, strlen(tok), tok);
+        if (newLen) {
+          toklen = newLen;
+        }
       }
       tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
       array_append(*resArray, tok);
