@@ -68,6 +68,13 @@ expr(A) ::= expr(B) TIMES  expr(C). { A = RS_NewOp('*', B, C); }
 expr(A) ::= expr(B) MINUS  expr(C). { A = RS_NewOp('-', B, C); }
 expr(A) ::= expr(B) POW    expr(C). { A = RS_NewOp('^', B, C); }
 expr(A) ::= expr(B) MOD    expr(C). { A = RS_NewOp('%', B, C); }
+// In case we shifted on a number earlier, we need to create a new expression
+expr(A) ::= number(B) PLUS   expr(C). { A = RS_NewOp('+', RS_NewNumberLiteral(B), C); }
+expr(A) ::= number(B) DIVIDE expr(C). { A = RS_NewOp('/', RS_NewNumberLiteral(B), C); }
+expr(A) ::= number(B) TIMES  expr(C). { A = RS_NewOp('*', RS_NewNumberLiteral(B), C); }
+expr(A) ::= number(B) MINUS  expr(C). { A = RS_NewOp('-', RS_NewNumberLiteral(B), C); }
+expr(A) ::= number(B) POW    expr(C). { A = RS_NewOp('^', RS_NewNumberLiteral(B), C); }
+expr(A) ::= number(B) MOD    expr(C). { A = RS_NewOp('%', RS_NewNumberLiteral(B), C); }
 
 // In-place arithmetic, to optimize the AST
 number(A) ::= number(B) PLUS   number(C). { A = B + C; }
