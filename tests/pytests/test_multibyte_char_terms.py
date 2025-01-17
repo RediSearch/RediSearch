@@ -553,3 +553,18 @@ def testMultibyteTagCaseSensitive(env):
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:{*ЪЛГА*}', 'NOCONTENT', 'SORTBY', 'id')
         env.assertEqual(res, [1, 'doc:upper'])
+
+def testMultibyteBasicSynonymsUseCase(env):
+    '''Test multi-byte synonyms with upper and lower case terms.'''
+    conn = getConnectionByEnv(env)
+    env.expect(
+        'ft.create', 'idx', 'ON', 'HASH',
+        'schema', 'title', 'text', 'body', 'text').ok()
+    # Create synonyms for 'fußball' using uppercase letters
+    conn.execute_command('ft.synupdate', 'idx', 'id1', 'FUẞBALL', 'Football')
+    conn.execute_command('HSET', 'doc1', 'title', 'Football ist gut')
+
+    # Search for 'fußball' using lowercase letters
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', 'fußball', 'EXPANDER', 'SYNONYM')
+    env.assertEqual(res, [1, 'doc1', ['title', 'Football ist gut']])

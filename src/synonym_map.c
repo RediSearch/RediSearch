@@ -146,7 +146,10 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, con
   int ret;
   for (size_t i = 0; i < size; i++) {
     char *lowerSynonym = rm_strdup(synonyms[i]);
-    strtolower(lowerSynonym);
+    size_t newLen = nunicode_tolower(lowerSynonym, strlen(lowerSynonym), lowerSynonym);
+    if (newLen) {
+      lowerSynonym[newLen] = '\0';
+    }
     TermData* termData = dictFetchValue(smap->h_table, lowerSynonym);
     if (termData) {
       // if term exists in dictionary, we should release the lower cased string
