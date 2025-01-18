@@ -48,7 +48,12 @@ int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) 
     lowStr = rm_strndup(term, len);
   }
 
-  strtolower(lowStr);
+  // convert multi-byte characters to lowercase
+  size_t newLen = nunicode_tolower(lowStr, len, lowStr);
+  if (newLen) {
+    len = newLen;
+  }
+
   int ret = TrieMap_Find(sl->m, (char *)lowStr, len) != TRIEMAP_NOTFOUND;
 
   // free memory if allocated
@@ -76,12 +81,12 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
     }
     size_t tlen = strlen(t);
 
-    // lowercase the letters
-    for (size_t pos = 0; pos < tlen; pos++) {
-      if (isalpha(t[pos])) {
-        t[pos] = tolower(t[pos]);
-      }
+    // convert multi-byte characters to lowercase
+    size_t newLen = nunicode_tolower(t, tlen, t);
+    if (newLen) {
+      tlen = newLen;
     }
+
     // printf("Adding stopword %s\n", t);
     TrieMap_Add(sl->m, t, tlen, NULL, NULL);
     rm_free(t);
@@ -186,7 +191,7 @@ void ReplyWithStopWordsList(RedisModule_Reply *reply, struct StopWordList *sl) {
       RedisModule_Reply_StringBuffer(reply, str, len);
     }
   RedisModule_Reply_ArrayEnd(reply);
-  
+
   TrieMapIterator_Free(it);
 
 }
