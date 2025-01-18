@@ -8,8 +8,10 @@
  *
  * This function behaves similarly to the standard strtod function, converting
  * the initial portion of the string pointed to by `nptr` to a `double` value,
- * using the fast_float library for high performance. If the conversion fails,
- * errno is set to EINVAL error code.
+ * using the fast_float library for high performance.
+ * If the conversion fails, the function sets `errno` to:
+ * - ERANGE if the result overflows or underflows
+ * - EINVAL for other errors
  *
  * @param nptr   A pointer to the null-terminated byte string to be interpreted.
  * @param endptr A pointer to a pointer to character. If `endptr` is not NULL,
@@ -23,7 +25,8 @@ extern "C" double fast_float_strtod(const char *nptr, char **endptr) {
   double result = 0.0;
   auto answer = fast_float::from_chars(nptr, nptr + strlen(nptr), result);
   if (answer.ec != std::errc()) {
-    errno = EINVAL;  // Fallback to  for other errors
+    // Fallback to EINVAL for other errors except ERANGE
+    errno = (answer.ec == std::errc::result_out_of_range) ? ERANGE : EINVAL;
   }
   if (endptr != NULL) {
     *endptr = (char *)answer.ptr;

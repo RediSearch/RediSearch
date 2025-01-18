@@ -48,10 +48,8 @@ static int ParseDouble(const char *arg, double *d, int sign) {
 
   *d = fast_float_strtod(arg, &e);
 
-  // We use EINVAL to check valid range since fast_flow_strtod() maps ERANGE to 
-  // EINVAL
-  if ((errno == EINVAL && (*d == HUGE_VAL || *d == -HUGE_VAL))
-      || (errno != 0 && *d == 0) || *e != '\0') {
+  if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
+      *e != '\0') {
     return 0;
   }
 
