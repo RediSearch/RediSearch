@@ -750,7 +750,7 @@ static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Rep
       return REDISMODULE_ERR;
     }
   } else {
-    sendChunk(r, reply, -1);
+    sendChunk(r, reply, UINT64_MAX);
     AREQ_Free(r);
   }
   return REDISMODULE_OK;

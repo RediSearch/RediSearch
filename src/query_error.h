@@ -66,6 +66,7 @@ extern "C" {
   X(QUERY_EMISSMATCH, "Index mismatch: Shard index is different than queried index")            \
   X(QUERY_EUNKNOWNINDEX, "Unknown index name")                                                  \
   X(QUERY_EDROPPEDBACKGROUND, "The index was dropped before the query could be executed")       \
+  X(QUERY_EALIASCONFLICT, "Alias conflicts with an existing index name")                                      \
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 
