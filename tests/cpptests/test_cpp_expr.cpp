@@ -145,7 +145,7 @@ TEST_F(ExprTest, testParser) {
   const char *e = "(((2 + 2) * (3 / 4) + 2 % 3 - 0.43) ^ -3)";
   QueryError status = {QueryErrorCode(0)};
   RSExpr *root = ExprAST_Parse(e, strlen(e), &status);
-  ASSERT_NE(root, NULL) << "Could not parse expression " << e << " " << QueryError_GetError(&status);
+  ASSERT_TRUE(root) << "Could not parse expression " << e << " " << QueryError_GetError(&status);
   // ExprAST_Print(root);
   // printf("\n");
 
