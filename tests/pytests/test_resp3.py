@@ -182,7 +182,7 @@ def test_profile(env):
         'Coordinator': {}
       }
     }
-    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING").equal(exp)
+    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING", 'SCORER', 'TFIDF').equal(exp)
 
 @skip(cluster=False, redis_less_than="7.0.0")
 def test_coord_profile():
