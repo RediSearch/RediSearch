@@ -168,6 +168,7 @@ def test_profile(env):
           'Total profile time': ANY,
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
+          'Total GIL time': ANY,
           'Warning': 'None',
           'Iterators profile':
             {'Type': 'WILDCARD', 'Time': ANY, 'Counter': 2},
@@ -209,7 +210,7 @@ def test_coord_profile():
       },
       'Profile': {
         'Shards': env.shardsCount * [
-                      {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
+                      {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Total GIL time': ANY, 'Warning': 'None',
                         'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY},
                         'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
                                                       {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
@@ -239,6 +240,7 @@ def test_coord_profile():
           'Total profile time': ANY,
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
+          'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [{'Type': 'Network', 'Time': ANY, 'Counter': 2}]
         }
@@ -248,6 +250,7 @@ def test_coord_profile():
       'Total profile time': ANY,
       'Parsing time': ANY,
       'Pipeline creation time': ANY,
+      'Total GIL time': ANY,
       'Warning': 'None',
       'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY},
       'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},]
@@ -662,6 +665,7 @@ def test_profile_crash_mod5323():
             },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
+          'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [
             { 'Counter': 3, 'Time': ANY, 'Type': 'Index' },
@@ -710,6 +714,7 @@ def test_profile_child_itrerators_array():
             },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
+          'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [
             {'Counter': 2, 'Time': ANY, 'Type': 'Index'},
@@ -747,6 +752,7 @@ def test_profile_child_itrerators_array():
             },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
+          'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [
             { 'Counter': 0, 'Time': ANY, 'Type': 'Index'},

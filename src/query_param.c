@@ -44,12 +44,12 @@ QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, Query
   if(min != NULL) {
     QueryParam_SetParam(q, &ret->params[0], &nf->min, NULL, min);
   } else {
-    nf->min = NF_NEGATIVE_INFINITY;
+    nf->min = -INFINITY;
   }
   if(max != NULL) {
     QueryParam_SetParam(q, &ret->params[1], &nf->max, NULL, max);
   } else {
-    nf->max = NF_INFINITY;
+    nf->max = INFINITY;
   }
   return ret;
 }

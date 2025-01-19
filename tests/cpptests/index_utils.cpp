@@ -70,10 +70,7 @@ RefManager *createSpec(RedisModuleCtx *ctx) {
 }
 
 void freeSpec(RefManager *ism) {
-    int free_resources_config = RSGlobalConfig.freeResourcesThread;
-    RSGlobalConfig.freeResourcesThread = false;
     IndexSpec_RemoveFromGlobals({ism});
-    RSGlobalConfig.freeResourcesThread = free_resources_config;
 }
 
 NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field) {
@@ -85,7 +82,7 @@ NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field) {
 size_t NumericRangeGetMemory(const NumericRangeNode *Node) {
     InvertedIndex *idx = Node->range->entries;
 
-    size_t curr_node_memory = sizeof(InvertedIndex);
+    size_t curr_node_memory = sizeof_InvertedIndex(Index_StoreNumeric);
 
     // iterate idx blocks
     for (size_t i = 0; i < idx->size; ++i) {

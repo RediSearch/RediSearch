@@ -31,7 +31,7 @@
 #include "rdb.h"
 #include "commands.h"
 #include "util/workers.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -490,6 +490,10 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
     *type = VecSimType_FLOAT16;
   else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_BFLOAT16))
     *type = VecSimType_BFLOAT16;
+  else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_UINT8))
+    *type = VecSimType_UINT8;
+  else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT8))
+    *type = VecSimType_INT8;
   // else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT32))
   //   *type = VecSimType_INT32;
   // else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT64))
@@ -1797,9 +1801,7 @@ IndexSpec *NewIndexSpec(const char *name) {
   sp->scanner = NULL;
   sp->scan_in_progress = false;
   sp->monitorDocumentExpiration = true;
-  // Todo: this is now disabled by default, since otherwise we call HPEXPIRETIME on every indexing
-  // of a document, which causes performance regressions and lazy expiration even if not inteded.
-  sp->monitorFieldExpiration = false;
+  sp->monitorFieldExpiration = RedisModule_HashFieldMinExpire != NULL;
   sp->used_dialects = 0;
 
   memset(&sp->stats, 0, sizeof(sp->stats));
@@ -2578,7 +2580,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   }
 
 
-  //    DocTable_RdbLoad(&sp->docs, rdb, encver);
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
   /* For version 3 or up - load the generic trie */
   //  if (encver >= 3) {
@@ -2829,10 +2830,16 @@ void Indexes_RdbSave(RedisModuleIO *rdb, int when) {
   dictReleaseIterator(iter);
 }
 
+void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
+  if (dictSize(specDict_g)) {
+    Indexes_RdbSave(rdb, when);
+  }
+}
+
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
-int CompareVestions(Version v1, Version v2) {
+int CompareVersions(Version v1, Version v2) {
   if (v1.majorVersion < v2.majorVersion) {
     return -1;
   } else if (v1.majorVersion > v2.majorVersion) {
@@ -2907,6 +2914,7 @@ int IndexSpec_RegisterType(RedisModuleCtx *ctx) {
       .free = IndexSpec_LegacyFree,
       .aof_rewrite = GenericAofRewrite_DisabledHandler,
       .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB,
+      .aux_save2 = Indexes_RdbSave2,
   };
 
   IndexSpecType = RedisModule_CreateDataType(ctx, "ft_index0", INDEX_CURRENT_VERSION, &tm);
@@ -2990,11 +2998,9 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         RedisModuleString *rmskey = IndexSpec_GetFormattedKey(spec, spec->fields + i, INDEXFLD_T_VECTOR);
-        KeysDictValue *kdv = dictFetchValue(spec->keysDict, rmskey);
-        if (!kdv) {
+        VecSimIndex *vecsim = openVectorIndex(spec, rmskey, DONT_CREATE_INDEX); 
+        if(!vecsim)
           continue;
-        }
-        VecSimIndex *vecsim = kdv->p;
         VecSimIndex_DeleteVector(vecsim, id);
       }
     }

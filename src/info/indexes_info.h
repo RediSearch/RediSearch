@@ -4,22 +4,21 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include "redismodule.h"
-#ifndef INFO_COMMAND_H
-#define INFO_COMMAND_H
-#define CLOCKS_PER_MILLISEC (CLOCKS_PER_SEC / 1000)
+#pragma once
+#include <stddef.h>
+#include "fork_gc.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct TotalSpecsFieldInfo {
+typedef struct {
   // Vector Indexing
   size_t total_vector_idx_mem;        // Total memory used by the vector index
   size_t total_mark_deleted_vectors;  // Number of vectors marked as deleted
-} TotalSpecsFieldInfo;
+} TotalIndexesFieldsInfo;
 
-typedef struct TotalSpecsInfo {
+typedef struct {
   // Memory
   size_t total_mem;  // Total memory used by the indexes
   size_t min_mem;    // Memory used by the smallest (local) index
@@ -31,7 +30,7 @@ typedef struct TotalSpecsInfo {
   // GC
   InfoGCStats gc_stats;  // Garbage collection statistics
 
-  TotalSpecsFieldInfo fields_stats;  // Aggregated Fields statistics
+  TotalIndexesFieldsInfo fields_stats;  // Aggregated Fields statistics
 
   // Indexing Errors
   size_t indexing_failures;      // Total count of indexing errors
@@ -41,12 +40,14 @@ typedef struct TotalSpecsInfo {
   size_t num_active_indexes;           // Number of active indexes
   size_t num_active_indexes_querying;  // Number of active read indexes
   size_t num_active_indexes_indexing;  // Number of active write indexes
-  size_t total_active_writes;          // Total number of active writes
+  size_t total_active_write_threads;   // Total number of active writes (proportional to the number
+                                       // of threads)
   size_t total_active_queries;         // Total number of active queries (reads)
-} TotalSpecsInfo;
+} TotalIndexesInfo;
 
-int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+// Retrunes an aggregated statistics of all the currently existing indexes
+TotalIndexesInfo IndexesInfo_TotalInfo();
+
 #ifdef __cplusplus
 }
-#endif
 #endif
