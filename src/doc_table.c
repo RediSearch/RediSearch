@@ -348,7 +348,6 @@ void DocTable_Free(DocTable *t) {
       DMD_Return(md);
     }
   }
-  t->memsize -= t->cap * sizeof(DMDChain);
   rm_free(t->buckets);
   TimeToLiveTable_Destroy(&t->ttl);
   DocIdMap_Free(&t->dim);
