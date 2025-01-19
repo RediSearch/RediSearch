@@ -11,6 +11,7 @@
 #include <query_node.h>
 #include <coord/rmr/reply.h>
 #include <util/heap.h>
+#include "rmutil/rm_assert.h"
 
 // Hack to support Alpine Linux 3 where __STRING is not defined
 #if !defined(__GLIBC__) && !defined(__STRING)
@@ -20,6 +21,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define PROXY_FILTERED "_proxy-filtered"
+
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int IsMaster();
@@ -53,6 +57,7 @@ do {                                            \
   RedisModule_ReplyWithStringBuffer(ctx, literal, sizeof(literal) - 1)
 
 #define SEARCH_ACL_CATEGORY "search"
+#define SEARCH_ACL_INTERNAL_CATEGORY "_search_internal"
 
 #define RM_TRY(expr)                                                  \
   if (expr == REDISMODULE_ERR) {                                      \

@@ -1,18 +1,42 @@
 name: Release a Version
 
+# Added these to use JWT token to connect with AWS
+permissions:
+  id-token:       write   # This is required for requesting the JWT
+  contents:       write   # This is required for actions/checkout (read) and to push commits (write)
+  pull-requests:  write   # This is required for creating a PR
+
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The version tag to release'
+        required: true
+      snapshot_of:
+        description: 'The branch/tag/commit of the snapshots to release. Defaults to the given tag'
+
+env:
+  checkout_target: ${{ inputs.snapshot_of || inputs.tag || github.event.release.target_commitish }}
 
 jobs:
-  update-version:
-    # Verify that the tag matches the version in src/version.h, and generate a PR to bump the version for the next patch
+  validate-tag:
+    # Verify that the tag matches the version in src/version.h
     runs-on: ${{ vars.RUNS_ON }}
     outputs:
       cur_version: ${{ steps.verify.outputs.cur_version }}
       next_version: ${{ steps.verify.outputs.next_version }}
+      next_patch: ${{ steps.verify.outputs.next_patch }}
+      should_bump: ${{ steps.verify.outputs.should_bump }}
+      expected_sha: ${{ steps.get_sha.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.checkout_target }}
+      - name: Get SHA
+        id: get_sha
+        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
       - name: Verify Tag and Version
         id: verify
         env:
@@ -22,11 +46,15 @@ jobs:
         run: |
           with open("src/version.h", "r") as fp:
             major, minor, patch = [int(l.rsplit(maxsplit=1)[-1]) for l in fp if l.startswith("#define REDISEARCH_VERSION_")]
-          tag = '${{ github.event.release.tag_name }}'
-          if tag != f"v{major}.{minor}.{patch}":
+          def valid_tag(tag):
+            return tag == f"v{major}.{minor}.{patch}"
+          def valid_version_branch(branch):
+            return branch == f"{major}.{minor}"
+          tag = '${{ inputs.tag || github.event.release.tag_name }}'
+          if not valid_tag(tag):
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
-          version_branch = '${{ github.event.release.target_commitish }}'
-          if version_branch != f"{major}.{minor}":
+          version_branch = '${{ env.checkout_target }}'
+          if not valid_version_branch(version_branch) and '${{ github.event_name }}' == 'release':
             raise Exception(f"Version branch {version_branch} does not match the tag {tag}")
 
           import os
@@ -34,44 +62,56 @@ jobs:
             print(f"cur_version={major}.{minor}.{patch}", file=fp)
             print(f"next_version={major}.{minor}.{patch+1}", file=fp)
             print(f"next_patch={patch+1}", file=fp)
+            print(f"should_bump={str(valid_version_branch(version_branch)).lower()}", file=fp)
 
+  update-version:
+    # Generate a PR to bump the version for the next patch (if releasing from a version branch)
+    runs-on: ${{ vars.RUNS_ON }}
+    needs: validate-tag
+    if: needs.validate-tag.outputs.should_bump == 'true'
+    env:
+      BRANCH: bump-version-${{ needs.validate-tag.outputs.next_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.checkout_target }}
       - name: Update version for next patch
         env:
-          LINE: '#define REDISEARCH_VERSION_PATCH'
+          PATCH_LINE_PREFIX: '#define REDISEARCH_VERSION_PATCH'
+          NEXT_PATCH: ${{ needs.validate-tag.outputs.next_patch }}
         # find the line with the patch version and replace it with the next patch version
-        run: sed -i "s/^${{ env.LINE }} [0-9]\+$/${{ env.LINE }} ${{ steps.verify.outputs.next_patch }}/" src/version.h
+        run: sed -i "s/^${{ env.PATCH_LINE_PREFIX }} [0-9]\+$/${{ env.PATCH_LINE_PREFIX }} ${{ env.NEXT_PATCH }}/" src/version.h
 
       - name: Commit and push
         run: |
           git config --global user.name "${{ github.triggering_actor }}"
           git config --global user.email "${{ github.event.sender.id }}+${{ github.event.sender.login }}@users.noreply.github.com"
-          git checkout -b bump-version-${{ steps.verify.outputs.next_version }}
+          git checkout -b ${{ env.BRANCH }}
           git add src/version.h
-          git commit -m "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}"
-          git push origin bump-version-${{ steps.verify.outputs.next_version }}
+          git commit -m "Bump version from ${{ needs.validate-tag.outputs.cur_version }} to ${{ needs.validate-tag.outputs.next_version }}"
+          git push origin ${{ env.BRANCH }}
 
       - name: Create Pull Request
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh pr create \
-            --title    "Bump version from ${{ steps.verify.outputs.cur_version }} to ${{ steps.verify.outputs.next_version }}" \
-            --body     "This PR was automatically created by the release workflow of ${{ github.event.release.tag_name }}." \
-            --head     "bump-version-${{ steps.verify.outputs.next_version }}" \
-            --base     "${{ github.event.release.target_commitish }}" \
+            --title    "Bump version from ${{ needs.validate-tag.outputs.cur_version }} to ${{ needs.validate-tag.outputs.next_version }}" \
+            --body     "This PR was automatically created by the release workflow of ${{ inputs.tag || github.event.release.tag_name }}." \
+            --head     "${{ env.BRANCH }}" \
+            --base     "${{ env.checkout_target }}" \
             --reviewer "alonre24,DvirDukhan,oshadmi,${{ github.actor }}" \
             --draft
 
       - name: Trigger CI
         env:
           GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
-          BRANCH: bump-version-${{ steps.verify.outputs.next_version }}
         run: |
-          gh pr ready $BRANCH -R ${{ github.repository }}
-          gh pr merge $BRANCH -R ${{ github.repository }} --auto
+          gh pr ready ${{ env.BRANCH }} -R ${{ github.repository }}
+          gh pr merge ${{ env.BRANCH }} -R ${{ github.repository }} --auto
 
   set-artifacts:
-    needs: update-version
+    needs: validate-tag
     runs-on: ${{ vars.RUNS_ON }}
     steps:
       - name: Configure AWS Credentials Using Role
@@ -102,9 +142,9 @@ jobs:
           oss_dir = "redisearch-oss"
           ent_dir = "redisearch"
 
-          suffix = ".${{ github.event.release.target_commitish }}.zip"
-          new_suffix = ".${{ needs.update-version.outputs.cur_version }}.zip"
-          expected_sha = "${{ github.sha }}"
+          suffix = ".${{ env.checkout_target }}.zip"
+          new_suffix = ".${{ needs.validate-tag.outputs.cur_version }}.zip"
+          expected_sha = "${{ needs.validate-tag.outputs.expected_sha }}"
 
           client = boto3.client("s3")
 
@@ -148,7 +188,7 @@ jobs:
           for dir in [oss_dir, ent_dir]:
               files.extend(list_snapshots_by_branch(dir))
 
-          group_print("${{ github.event.release.target_commitish }} Branch candidates", files)
+          group_print("${{ env.checkout_target }} Build Candidates", files)
 
           with ThreadPoolExecutor() as executor:
               sha_list = executor.map(extract_sha, files)
@@ -158,8 +198,8 @@ jobs:
           dest_files = [get_target_name(f) for f in include_list]
 
           # Log files
-          group_print("Excluded files", exclude_list)
-          group_print("Included files", include_list)
+          group_print("Excluded Files", exclude_list)
+          group_print("Included Files", include_list)
           group_print("Unexpected SHAs", set([sha for _, sha in exclude_list]))
 
           # Copy included files to new location
@@ -171,4 +211,4 @@ jobs:
           if len(exclude_list) > 0:
               print("::warning title=Unexpected Files::The workflow has encountered files that do not match the "
                     "expected git sha. These files will not be included in the release artifacts. Look for the "
-                    "`Excluded files` section above for more details.")
+                    "`Excluded Files` section above for more details.")

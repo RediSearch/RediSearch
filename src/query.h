@@ -82,11 +82,6 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
  * to set global properties for the entire query
  */
 typedef struct {
-  // Used only to support legacy FILTER keyword. Should not be used by newer code
-  const NumericFilter *numeric;
-  // Used only to support legacy GEOFILTER keyword. Should not be used by newer code
-  const GeoFilter *geo;
-
   /** List of IDs to limit to, and the length of that array */
   t_docId *ids;
   size_t nids;

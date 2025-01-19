@@ -27,6 +27,11 @@ typedef uint16_t t_fieldIndex;
 struct timespec;
 typedef struct timespec t_expirationTimePoint;
 
+typedef uint64_t t_uniqueId;
+#define SIGN_CHAR_LENGTH 0 // t_uniqueId is unsigned
+#define LOG_10_ON_256_UPPER_BOUND 3 // 2^8 = 10 ^ y, 2^16 = 2^8 * 2^8 = 10^y * 10^y = 10^2y -> y == 2.40824 -> upper bound for y is 3
+#define MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND ((sizeof(t_uniqueId) * LOG_10_ON_256_UPPER_BOUND) + SIGN_CHAR_LENGTH)
+
 #define DOCID_MAX UINT64_MAX
 
 #if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
@@ -328,28 +333,19 @@ typedef struct RSYieldableMetric{
 
 typedef struct RSIndexResult {
 
-  /******************************************************************************
-   * IMPORTANT: The order of the following 4 variables must remain the same, and all
-   * their type aliases must remain uint32_t. The record is decoded by casting it
-   * to an array of 4 uint32_t integers to avoid redundant memcpy
-   *******************************************************************************/
   /* The docId of the result */
   t_docId docId;
   const RSDocumentMetadata *dmd;
 
-  /* the total frequency of all the records in this result */
-  uint32_t freq;
-
   /* The aggregate field mask of all the records in this result */
   t_fieldMask fieldMask;
+
+  /* the total frequency of all the records in this result */
+  uint32_t freq;
 
   /* For term records only. This is used as an optimization, allowing the result to be loaded
    * directly into memory */
   uint32_t offsetsSz;
-
-  /*******************************************************************************
-   * END OF the "magic 4 uints" section
-   ********************************************************************************/
 
   union {
     // Aggregate record
@@ -364,12 +360,12 @@ typedef struct RSIndexResult {
 
   RSResultType type;
 
-  // Holds an array of metrics yielded by the different iterators in the AST
-  RSYieldableMetric *metrics;
-
   // we mark copied results so we can treat them a bit differently on deletion, and pool them if we
   // want
-  int isCopy;
+  bool isCopy;
+
+  // Holds an array of metrics yielded by the different iterators in the AST
+  RSYieldableMetric *metrics;
 
   /* Relative weight for scoring calculations. This is derived from the result's iterator weight */
   double weight;

@@ -118,7 +118,7 @@ sds DocTable_GetKey(const DocTable *t, t_docId docId, size_t *n);
  * document */
 int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, size_t len);
 
-int DocTable_Exists(const DocTable *t, t_docId docId);
+bool DocTable_Exists(const DocTable *t, t_docId docId);
 
 /* Set the sorting vector for a document. If the vector is NULL we mark the doc as not having a
  * vector. Returns 1 on success, 0 if the document does not exist. No further validation is done */
@@ -195,13 +195,7 @@ static inline void DMD_Return(const RSDocumentMetadata *cdmd) {
   }
 }
 
-/* Save the table to RDB. Called from the owning index */
-void DocTable_RdbSave(DocTable *t, RedisModuleIO *rdb);
-
 void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
-
-/* Load the table from RDB */
-void DocTable_RdbLoad(DocTable *t, RedisModuleIO *rdb, int encver);
 
 #ifdef __cplusplus
 }
