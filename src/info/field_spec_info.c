@@ -14,6 +14,7 @@ void FieldSpecStats_Fold(FieldSpecStats *dst, const FieldSpecStats *src);
 
 FieldSpecInfo FieldSpecInfo_Init() {
     FieldSpecInfo info = {0};
+    info.error = IndexError_Init();
     return info;
 }
 
@@ -150,12 +151,12 @@ void FieldSpecStats_Fold(FieldSpecStats *first, const FieldSpecStats *second) {
         return;
     }
     switch (first->type) {
-    case INDEXFLD_T_VECTOR:
-        VectorIndexStats_Agg(&first->vecStats, &second->vecStats);
-        break;
-    default:
-        break;
-    }
+        case INDEXFLD_T_VECTOR:
+            VectorIndexStats_Agg(&first->vecStats, &second->vecStats);
+            break;
+        default:
+            break;
+        }
 }
 
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
