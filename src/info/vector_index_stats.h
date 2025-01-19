@@ -1,8 +1,6 @@
-#ifndef VECTOR_INDEX_STATS_H
-#define VECTOR_INDEX_STATS_H
+#pragma once
+
 #include <string.h>
-
-
 typedef struct {
   size_t memory;
   size_t marked_deleted;
@@ -20,7 +18,6 @@ typedef struct {
     const char* name;
     VectorIndexStats_Getter getter;
 } VectorIndexStats_GetterMapping;
-
 
 void VectorIndexStats_Agg(VectorIndexStats *first, const VectorIndexStats *second);
 VectorIndexStats VectorIndexStats_Init();
@@ -52,5 +49,3 @@ static VectorIndexStats_GetterMapping VectorIndexStats_GetterMappingContainer[] 
     {"marked_deleted", VectorIndexStats_GetMarkedDeleted},
     {NULL, NULL} // Sentinel value to mark the end of the array
 };
-
-#endif

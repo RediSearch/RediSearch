@@ -183,8 +183,6 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         REPLY_KVINT("dim", algo_params.bfParams.dim);
         REPLY_KVSTR("distance_metric", VecSimMetric_ToString(algo_params.bfParams.metric));
       }
-      REPLY_KVINT("memory", info.memory);
-      REPLY_KVINT("marked_deleted", info.marked_deleted);
     }
 
     if (has_map) {

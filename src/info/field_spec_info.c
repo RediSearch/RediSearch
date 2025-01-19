@@ -70,10 +70,10 @@ void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bo
 
     REPLY_KVSTR_SAFE("identifier", info->identifier);
     REPLY_KVSTR_SAFE("attribute", info->attribute);
-    FieldSpecStats_Reply(&info->stats, reply);
     // Set the error as a new object.
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
     IndexError_Reply(&info->error, reply, with_timestamp);
+    FieldSpecStats_Reply(&info->stats, reply);
 
     RedisModule_Reply_MapEnd(reply);
 }

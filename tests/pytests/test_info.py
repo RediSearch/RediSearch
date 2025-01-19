@@ -1,6 +1,6 @@
 from common import *
 import time
-
+import string
 # The output for this test can be used for recreating documentation for `FT.INFO`
 @skip()
 def testInfo(env):
@@ -154,3 +154,15 @@ def test_info_text_tag_overhead(env):
   res = index_info(env, 'idx')
   env.assertEqual(float(res['tag_overhead_sz_mb']), 0)
   env.assertEqual(float(res['text_overhead_sz_mb']), 0)
+
+def test_vecsim_info_stats(env):
+  env = Env(protocol=3)
+  conn = env.getClusterConnectionIfNeeded()
+  hex_chars = string.hexdigits[:16]  # '0123456789abcdef'
+  length = len(hex_chars)
+  for i in range(1, 1001):
+    conn.execute_command('HSET', f'doc{i}', 'vector', hex_chars[i % length] * 12)
+  conn.execute_command('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', 6, 'DIM', 6, 'TYPE', 'float16', 'DISTANCE_METRIC', 'L2')
+  info = env.executeCommand('ft.info', 'idx')
+  env.assertTrue("field statistics" in info)
+  env.assertGreater(info["field statistics"][0]["memory"], 0)
