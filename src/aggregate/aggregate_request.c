@@ -463,10 +463,11 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
-    options->legacy.gf = rm_calloc(1, sizeof(*options->legacy.gf));
-    if (GeoFilter_LegacyParse(options->legacy.gf, ac, status) != REDISMODULE_OK) {
+    GeoFilter *cur_gf = rm_calloc(1, sizeof(*cur_gf));
+    if (GeoFilter_LegacyParse(cur_gf, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+    array_ensure_append_1(options->legacy.geo_filters, cur_gf);
   } else {
     return ARG_UNKNOWN;
   }
@@ -986,28 +987,30 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
                                         // are now owned by the query object
     }
   }
-  if (opts->legacy.gf) {
-    GeoFilter *gf = opts->legacy.gf;
-    const char *fieldName = (const char *)gf->field;
-    gf->field = IndexSpec_GetField(sctx->spec, fieldName);
-    if (!gf->field || !FIELD_IS(gf->field, INDEXFLD_T_GEO)) {
-      if (dialect != 1) {
-        if (!gf->field) {
-          QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
+  if (opts->legacy.geo_filters) {
+    for (size_t ii = 0; ii < array_len(opts->legacy.geo_filters); ++ii) {
+      GeoFilter *gf = opts->legacy.geo_filters[ii];
+      const char *fieldName = (const char *)gf->field;
+      gf->field = IndexSpec_GetField(sctx->spec, fieldName);
+      if (!gf->field || !FIELD_IS(gf->field, INDEXFLD_T_GEO)) {
+        if (dialect != 1) {
+          if (!gf->field) {
+            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
+          } else {
+            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field '%s' is not a geo field", fieldName);
+          }
+          return REDISMODULE_ERR;
         } else {
-          QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field '%s' is not a geo field", fieldName);
+          // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
+          QAST_GlobalFilterOptions legacyOpts = {.empty = true};
+          QAST_SetGlobalFilters(ast, &legacyOpts);
         }
-        return REDISMODULE_ERR;
       } else {
-        // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
-        QAST_GlobalFilterOptions legacyOpts = {.empty = true};
+        QAST_GlobalFilterOptions legacyOpts = {.geo = gf};
         QAST_SetGlobalFilters(ast, &legacyOpts);
+        opts->legacy.geo_filters[ii] = NULL;  // so AREQ_Free() doesn't free the filter itself, which is now owned
+                                              // by the query object
       }
-    } else {
-      QAST_GlobalFilterOptions legacyOpts = {.geo = gf};
-      QAST_SetGlobalFilters(ast, &legacyOpts);
-      opts->legacy.gf = NULL; // so AREQ_Free() doesn't free the filter itself, which is now owned
-                              // by the query object
     }
   }
 
@@ -1709,8 +1712,9 @@ void AREQ_Free(AREQ *req) {
     }
     array_free(req->searchopts.legacy.filters);
   }
-  if (req->searchopts.legacy.gf) {
-    GeoFilter_Free(req->searchopts.legacy.gf);
+  if (req->searchopts.legacy.geo_filters) {
+    array_foreach(req->searchopts.legacy.geo_filters, gf, if (gf) GeoFilter_Free(gf));
+    array_free(req->searchopts.legacy.geo_filters);
   }
   rm_free(req->searchopts.inids);
   if (req->searchopts.params) {
