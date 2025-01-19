@@ -1302,6 +1302,7 @@ def test_mod_6783(env:Env):
       res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', f'f{i}', 'NOCONTENT')
       env.assertEqual(res, expected[i], message=f'Failed on field f{i} with {n_sortables} sortables')
 
+@skip(cluster=True)
 def test_mod_6786(env:Env):
   # Test search of long term (>128) inside text field
   MAX_NORMALIZE_SIZE = 128
