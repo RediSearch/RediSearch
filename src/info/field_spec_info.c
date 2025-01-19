@@ -14,8 +14,6 @@ void FieldSpecStats_Fold(FieldSpecStats *dst, const FieldSpecStats *src);
 
 FieldSpecInfo FieldSpecInfo_Init() {
     FieldSpecInfo info = {0};
-    info.error = IndexError_Init();
-    info.stats = (FieldSpecStats){0};
     return info;
 }
 
@@ -49,19 +47,19 @@ void FieldSpecInfo_SetStats(FieldSpecInfo *info, FieldSpecStats stats) {
 // IO and cluster traits
 
 void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply){
-if (!stats) {
-    return;
-}
-switch (stats->type) {
-    case INDEXFLD_T_VECTOR:
-        for (int i = 0; VectorIndexStats_Metrics[i] != NULL; i++) {
-            REPLY_KVINT(VectorIndexStats_Metrics[i],
-                        VectorIndexStats_GetGetter(VectorIndexStats_Metrics[i])(&stats->vecStats));
-        }
-        break;
-    default:
-        break;
-}
+    if (!stats) {
+        return;
+    }
+    switch (stats->type) {
+        case INDEXFLD_T_VECTOR:
+            for (int i = 0; VectorIndexStats_Metrics[i] != NULL; i++) {
+                REPLY_KVINT(VectorIndexStats_Metrics[i],
+                            VectorIndexStats_GetGetter(VectorIndexStats_Metrics[i])(&stats->vecStats));
+            }
+            break;
+        default:
+            break;
+    }
 }
 
 // Reply a Field spec info.
@@ -117,6 +115,7 @@ FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
     MRReply *error = MRReply_MapElement(reply, IndexError_ObjectName);
     RedisModule_Assert(error);
     info.error = IndexError_Deserialize(error);
+    // attribute used to determine field type
     info.stats = FieldStats_Deserialize(info.attribute, reply);
 
     return info;
