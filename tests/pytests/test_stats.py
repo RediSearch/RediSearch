@@ -331,9 +331,9 @@ def testDocTableInfo(env):
         res = conn.execute_command("cluster info")
         nodes = float(res['cluster_known_nodes'])
 
-    # Initial size = INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *)
-    #              = 1000 * 16 = 16000 bytes
-    doc_table_size_mb = 16000 / (1024 * 1024)
+    # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
+    #              = 72 + (1000 * 16) = 16072 bytes
+    doc_table_size_mb = 16072 / (1024 * 1024)
 
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 0)
@@ -436,7 +436,7 @@ def testKeyTableInfo(env):
     key_table_size = float(d['key_table_size_mb'])
     conn.execute_command('DEL', 'b:1')
     env.assertEqual(float(d['key_table_size_mb']), key_table_size)
-    
+
     # update a key, should not affect the key table size
     conn.execute_command('HSET', 'b:1', 'txt', '1')
     conn.execute_command('HSET', 'b:10', 'txt', '10')
