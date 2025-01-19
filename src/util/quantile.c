@@ -260,7 +260,7 @@ double QS_Query(QuantStream *stream, double q) {
   double r = 0;
 
   if (!prev) {
-    return 0;
+    return NAN;
   }
 
   for (const Sample *cur = prev->next; cur; cur = cur->next) {
