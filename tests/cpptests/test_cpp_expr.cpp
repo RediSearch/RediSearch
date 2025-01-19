@@ -15,6 +15,12 @@ struct TEvalCtx : ExprEval {
   QueryError status_s = {QueryErrorCode(0)};
   RSValue res_s = {RSValue_Null};
 
+  TEvalCtx() {
+    root = NULL;
+    lookup = NULL;
+    memset(static_cast<ExprEval *>(this), 0, sizeof(ExprEval));
+  }
+
   TEvalCtx(const char *s) {
     lookup = NULL;
     root = NULL;
@@ -94,7 +100,7 @@ TEST_F(ExprTest, testExpr) {
 }
 
 TEST_F(ExprTest, testArithmetics) {
-  TEvalCtx ctx("");
+  TEvalCtx ctx;
 #define TEST_ARITHMETIC(e, expected)                \
   {                                                 \
     ctx.assign(e);                                  \
@@ -139,10 +145,7 @@ TEST_F(ExprTest, testParser) {
   const char *e = "(((2 + 2) * (3 / 4) + 2 % 3 - 0.43) ^ -3)";
   QueryError status = {QueryErrorCode(0)};
   RSExpr *root = ExprAST_Parse(e, strlen(e), &status);
-  if (!root) {
-    FAIL() << "Could not parse expression";
-  }
-  ASSERT_TRUE(root != NULL);
+  ASSERT_NE(root, NULL) << "Could not parse expression " << e << " " << QueryError_GetError(&status);
   // ExprAST_Print(root);
   // printf("\n");
 
