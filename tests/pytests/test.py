@@ -321,7 +321,7 @@ def testReplace(env):
 def testDrop(env):
     conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
-    
+
     docs_count = 100
     for i in range(docs_count):
         env.assertEqual(1, conn.execute_command('hset', f"doc{i}", 't1', 'foo bar'))
@@ -360,7 +360,7 @@ def testDropIndex(env):
     env.assertEqual(docs_count, countKeys(env))
     env.expect('FT.DROPINDEX', 'idx', 'dd').ok()
     env.assertEqual(0, countKeys(env))
- 
+
     # test default behavior - FT.DROPINDEX
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
 
@@ -4487,3 +4487,58 @@ def test_incompatibleIndex(env):
             env.assertTrue(False)
         except Exception as e:
             env.assertContains("Index mismatch: Shard index is different than queried index", str(e))
+
+def testLegacyFilters(env: Env):
+    n_docs = 100
+    km_in_a_degree = 1.852 * 60 # 1 degree on the equator is 60 nautical miles
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'g', 'GEO').ok()
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(n_docs):
+            con.execute_command('HSET', f'doc{i}', 'n', i, 'g', f'{i/km_in_a_degree},0.0')
+
+    ## Test filters (valid queries)
+    expected = [10] + [f'doc{i}' for i in range(10, 20)]
+    geo_pivot = (20+10-1)/2/km_in_a_degree
+
+    # Test a single numeric filter
+    env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '10', '(20', 'NOCONTENT').equal(expected)
+    # Test multiple numeric filters (intersection)
+    env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '-10', '(20', 'FILTER', 'n', '10', '(40', 'NOCONTENT').equal(expected)
+
+    # Test a single geo filter
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', geo_pivot, 0, 5, 'km', 'NOCONTENT').equal(expected)
+
+    ## Test values syntax errors
+
+    env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', 'NOCONTENT').error().contains('FILTER requires 3 arguments')
+    env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', 'banana', 'NOCONTENT').error().contains('Bad lower range: banana')
+    env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '10', 'banana', 'NOCONTENT').error().contains('Bad upper range: banana')
+
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 'NOCONTENT').error().contains('GEOFILTER requires 5 arguments')
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 'banana', 0, 5, 'km', 'NOCONTENT').error().contains('Bad arguments for <lon>')
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 0, 'banana', 5, 'km', 'NOCONTENT').error().contains('Bad arguments for <lat>')
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 0, 0, 'banana', 'km', 'NOCONTENT').error().contains('Bad arguments for <radius>')
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 0, 0, 5, 'banana', 'NOCONTENT').error().contains('Unknown distance unit')
+
+    ## Test bad filters fields
+    dialect_1 = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1] == '1'
+    def expected_error(res:Query, err='Unknown Field'):
+        return res.noError().equal([0]) if dialect_1 else res.error().contains(err)
+
+    # Test bad numeric filter
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'not_in_schema', '10', '20', 'NOCONTENT'))
+    # Test bad geo filter
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'not_in_schema', geo_pivot, 0, 5, 'km', 'NOCONTENT'))
+
+    # Test field mismatch in numeric filter
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'g', '10', '20', 'NOCONTENT'), "Field 'g' is not a numeric field")
+    # Test field mismatch in geo filter
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'n', geo_pivot, 0, 5, 'km', 'NOCONTENT'), "Field 'n' is not a geo field")
+
+    # Test bad numeric filter with multiple filters
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'not_in_schema', '10', '20', 'FILTER', 'n', '10', '20', 'NOCONTENT'))
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '10', '20', 'FILTER', 'not_in_schema', '10', '20', 'NOCONTENT'))
+    # Test bad geo filter with multiple filters
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'not_in_schema', geo_pivot, 0, 5, 'km', 'FILTER', 'n', '10', '20', 'NOCONTENT'))
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', geo_pivot, 0, 5, 'km', 'FILTER', 'not_in_schema', '10', '20', 'NOCONTENT'))
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'not_in_schema', '10', '20', 'GEOFILTER', 'g', geo_pivot, 0, 5, 'km', 'NOCONTENT'))

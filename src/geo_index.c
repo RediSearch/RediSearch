@@ -14,6 +14,51 @@
 
 static double extractUnitFactor(GeoDistance unit);
 
+/* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], and FILTER
+ * is not passed to us.
+ * The GEO filter syntax is (FILTER) <property> LONG LAT DIST m|km|ft|mi
+ * Returns REDISMODUEL_OK or ERR  */
+int GeoFilter_LegacyParse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
+  gf->lat = 0;
+  gf->lon = 0;
+  gf->radius = 0;
+  gf->unitType = GEO_DISTANCE_KM;
+
+  if (AC_NumRemaining(ac) < 5) {
+    QERR_MKBADARGS_FMT(status, "GEOFILTER requires 5 arguments");
+    return REDISMODULE_ERR;
+  }
+
+  int rv;
+  // Store the field name at the field spec pointer, to validate later
+  if ((rv = AC_GetString(ac, (const char **)&gf->field, NULL, 0)) != AC_OK) {
+    QERR_MKBADARGS_AC(status, "<geo property>", rv);
+    return REDISMODULE_ERR;
+  }
+  if ((rv = AC_GetDouble(ac, &gf->lon, 0) != AC_OK)) {
+    QERR_MKBADARGS_AC(status, "<lon>", rv);
+    return REDISMODULE_ERR;
+  }
+
+  if ((rv = AC_GetDouble(ac, &gf->lat, 0)) != AC_OK) {
+    QERR_MKBADARGS_AC(status, "<lat>", rv);
+    return REDISMODULE_ERR;
+  }
+
+  if ((rv = AC_GetDouble(ac, &gf->radius, 0)) != AC_OK) {
+    QERR_MKBADARGS_AC(status, "<radius>", rv);
+    return REDISMODULE_ERR;
+  }
+
+  const char *unitstr = AC_GetStringNC(ac, NULL);
+  if ((gf->unitType = GeoDistance_Parse(unitstr)) == GEO_DISTANCE_INVALID) {
+    QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", unitstr);
+    return REDISMODULE_ERR;
+  }
+
+  return REDISMODULE_OK;
+}
+
 void GeoFilter_Free(GeoFilter *gf) {
   if (gf->numericFilters) {
     for (int i = 0; i < GEO_RANGE_COUNT; ++i) {
