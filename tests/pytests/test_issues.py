@@ -1308,7 +1308,7 @@ def test_mod_6786(env:Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
   long_term = 'a'*(MAX_NORMALIZE_SIZE+1)
-  text_with_long_term = '_'.join([long_term, long_term[:MAX_NORMALIZE_SIZE/2]])
+  text_with_long_term = '_'.join([long_term, long_term[:MAX_NORMALIZE_SIZE//2]])
   env.cmd('HSET', 'doc1', 't', text_with_long_term)
 
   # Searching for the long term should return the document
