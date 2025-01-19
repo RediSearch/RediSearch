@@ -12,7 +12,7 @@ typedef struct MREndpoint {
   char *host;
   int port;
   char *unixSock;
-  char *auth;
+  char *password;
 } MREndpoint;
 
 /* Parse a TCP address into an endpoint, in the format of host:port */

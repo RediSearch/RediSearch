@@ -10,6 +10,7 @@
 #include "util/dict.h"
 #include "rdb.h"
 #include "resp3.h"
+#include "rmutil/rm_assert.h"
 
 dict *spellCheckDicts = NULL;
 
@@ -38,13 +39,11 @@ int Dictionary_Add(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
   return valuesAdded;
 }
 
-int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len,
-                   char **err) {
+int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString **values, int len) {
   int valuesDeleted = 0;
-  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_WRITE);
+  Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_READ);
   if (t == NULL) {
-    *err = "could not open dict key";
-    return -1;
+    return 0;
   }
 
   for (int i = 0; i < len; ++i) {
@@ -53,14 +52,20 @@ int Dictionary_Del(RedisModuleCtx *ctx, const char *dictName, RedisModuleString 
     valuesDeleted += Trie_Delete(t, (char *)val, valLen);
   }
 
+  // Delete the dictionary if it's empty
+  if (t->size == 0) {
+    dictDelete(spellCheckDicts, dictName);
+    TrieType_Free(t);
+  }
+
   return valuesDeleted;
 }
 
-int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
+void Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName) {
   Trie *t = SpellCheck_OpenDict(ctx, dictName, REDISMODULE_READ);
   if (t == NULL) {
-    *err = "could not open dict key";
-    return -1;
+    RedisModule_ReplyWithSetOrArray(ctx, 0);
+    return;
   }
 
   rune *rstr = NULL;
@@ -78,8 +83,6 @@ int Dictionary_Dump(RedisModuleCtx *ctx, const char *dictName, char **err) {
     rm_free(res);
   }
   TrieIterator_Free(it);
-
-  return 1;
 }
 
 int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
@@ -89,11 +92,7 @@ int DictDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
-  char *error;
-  int retVal = Dictionary_Dump(ctx, dictName, &error);
-  if (retVal < 0) {
-    RedisModule_ReplyWithError(ctx, error);
-  }
+  Dictionary_Dump(ctx, dictName);
 
   return REDISMODULE_OK;
 }
@@ -106,13 +105,8 @@ int DictDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   const char *dictName = RedisModule_StringPtrLen(argv[1], NULL);
 
-  char *error;
-  int retVal = Dictionary_Del(ctx, dictName, argv + 2, argc - 2, &error);
-  if (retVal < 0) {
-    RedisModule_ReplyWithError(ctx, error);
-  } else {
-    RedisModule_ReplyWithLongLong(ctx, retVal);
-  }
+  int retVal = Dictionary_Del(ctx, dictName, argv + 2, argc - 2);
+  RedisModule_ReplyWithLongLong(ctx, retVal);
 
   RedisModule_ReplicateVerbatim(ctx);
   return REDISMODULE_OK;
@@ -172,7 +166,11 @@ static int SpellCheckDictAuxLoad(RedisModuleIO *rdb, int encver, int when) {
       RedisModule_Free(key);
       goto cleanup;
     }
-    dictAdd(spellCheckDicts, key, val);
+    if (val->size) {
+      dictAdd(spellCheckDicts, key, val);
+    } else {
+      TrieType_Free(val);
+    }
     RedisModule_Free(key);
   }
   return REDISMODULE_OK;
@@ -191,11 +189,18 @@ static void SpellCheckDictAuxSave(RedisModuleIO *rdb, int when) {
   dictEntry *entry;
   while ((entry = dictNext(iter))) {
     const char *key = dictGetKey(entry);
-    RedisModule_SaveStringBuffer(rdb, key, strlen(key) + 1 /* we save the /0*/);
     Trie *val = dictGetVal(entry);
+    RS_LOG_ASSERT(val->size != 0, "Empty dictionary should not exist in the dictionary list");
+    RedisModule_SaveStringBuffer(rdb, key, strlen(key) + 1 /* we save the /0*/);
     TrieType_GenericSave(rdb, val, false);
   }
   dictReleaseIterator(iter);
+}
+
+static void SpellCheckDictAuxSave2(RedisModuleIO *rdb, int when) {
+  if (dictSize(spellCheckDicts)) {
+    SpellCheckDictAuxSave(rdb, when);
+  }
 }
 
 #define SPELL_CHECK_ENCVER_CURRENT 1
@@ -208,6 +213,7 @@ int DictRegister(RedisModuleCtx *ctx) {
       .aux_load = SpellCheckDictAuxLoad,
       .aux_save = SpellCheckDictAuxSave,
       .aux_save_triggers = REDISMODULE_AUX_BEFORE_RDB | REDISMODULE_AUX_AFTER_RDB,
+      .aux_save2 = SpellCheckDictAuxSave2,
   };
   SpellCheckDictType =
       RedisModule_CreateDataType(ctx, "scdtype00", SPELL_CHECK_ENCVER_CURRENT, &spellCheckDictType);

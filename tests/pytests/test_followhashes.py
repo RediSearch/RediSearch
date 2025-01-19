@@ -565,7 +565,7 @@ def testEvicted(env):
     conn.execute_command('CONFIG', 'SET', 'MAXMEMORY-POLICY', 'ALLKEYS-RANDOM')
     conn.execute_command('CONFIG', 'SET', 'MAXMEMORY', memory + 150000)
     for i in range(1000):
-        env.expect('HSET', 'doc{}'.format(i), 'test', 'foo').equal(1)
+        env.expect('HSET', f'doc{i}', 'test', 'foo').equal(1)
     res = env.cmd('FT.SEARCH idx foo limit 0 0')
     env.assertLess(res[0], 1000)
     env.assertGreater(res[0], 0)

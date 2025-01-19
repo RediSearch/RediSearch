@@ -7,6 +7,7 @@
 #include "misc.h"
 #include <stdlib.h>
 #include <ctype.h>
+#include <string.h>
 
 void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *key, void *value) {
   RedisModule_Log(RedisModule_GetContextFromIO(aof), "error",
@@ -14,11 +15,7 @@ void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *ke
   abort();
 }
 
-char *strtolower(char *str) {
-  char *p = str;
-  while (*p) {
-    *p = tolower(*p);
-    p++;
-  }
-  return str;
+int GetRedisErrorCodeLength(const char* error) {
+  const char* errorSpace = strchr(error, ' ');
+  return errorSpace ? errorSpace - error : 0;
 }

@@ -20,7 +20,7 @@ jobs:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
       repo: redis/redis
-      prefix: '7.4'
+      prefix: '8.0'
 
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml
@@ -48,12 +48,16 @@ jobs:
     secrets: inherit
 
   sanitize:
-    needs: docs-only
+    needs: [docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
-    uses: ./.github/workflows/flow-sanitizer.yml
     secrets: inherit
+    uses: ./.github/workflows/task-test.yml
     with:
-      flow-config: '' # full sanitization
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      test-config: '' # run all tests
+      san: address
+      env: ubuntu-latest
+      container: ubuntu:jammy
 
   pr-validation:
     needs:

@@ -4,8 +4,13 @@
 #include "numeric_index.h"
 #include "index.h"
 #include "rmutil/alloc.h"
+#include "index_utils.h"
+#include "redisearch_api.h"
+#include "common.h"
 
 #include <stdio.h>
+#include <random>
+#include <unordered_set>
 
 extern "C" {
 // declaration for an internal function implemented in numeric_index.c
@@ -33,7 +38,7 @@ TEST_F(RangeTest, testRangeTree) {
 
     NumericRangeTree_Add(t, i + 1, (double)(1 + prng() % 5000), false);
   }
-  ASSERT_EQ(t->numRanges, 12);
+  ASSERT_EQ(t->numRanges, 8);
   ASSERT_EQ(t->numEntries, 50000);
 
   struct {
@@ -71,7 +76,6 @@ void testRangeIteratorHelper(bool isMulti) {
   NumericRangeTree *t = NewNumericRangeTree();
   ASSERT_TRUE(t != NULL);
 
-  
   const size_t N = 100000;
   std::vector<d_arr> lookup;
   std::vector<uint8_arr> matched;
@@ -147,13 +151,13 @@ void testRangeIteratorHelper(bool isMulti) {
         }
       }
       ASSERT_NE(found_mult, -1);
-      
+
       ASSERT_EQ(res->type, RSResultType_Numeric);
       // ASSERT_EQUAL(res->agg.typeMask, RSResultType_Virtual);
       ASSERT_TRUE(!RSIndexResult_HasOffsets(res));
       ASSERT_TRUE(!RSIndexResult_IsAggregate(res));
       ASSERT_TRUE(res->docId > 0);
-      ASSERT_EQ(res->fieldMask, RS_FIELDMASK_ALL);      
+      ASSERT_EQ(res->fieldMask, RS_FIELDMASK_ALL);
     }
 
     for (int i = 1; i <= N; i++) {
@@ -168,7 +172,7 @@ void testRangeIteratorHelper(bool isMulti) {
           // Keep trying - could be found
         }
       }
-      
+
       if (missed) {
         printf("Miss: %d\n", i);
       }
@@ -180,16 +184,16 @@ void testRangeIteratorHelper(bool isMulti) {
     NumericFilter_Free(flt);
   }
 
-  ASSERT_EQ(t->numRanges, !isMulti ? 14 : 42);
+  ASSERT_EQ(t->numRanges, !isMulti ? 12 : 36);
   ASSERT_EQ(t->numEntries, !isMulti ? N : N * MULT_COUNT);
 
 
   // test loading limited range
-  double rangeArray[6][2] = {{0, 1000}, {0, 3000}, {1000, 3000}, {15000, 20000}, {19500, 20000}, {-1000, 21000}}; 
+  double rangeArray[6][2] = {{0, 1000}, {0, 3000}, {1000, 3000}, {15000, 20000}, {19500, 20000}, {-1000, 21000}};
 
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   for (size_t i = 0; i < 6; i++) {
-    for (int j = 0; j < 2; ++j) {   
+    for (int j = 0; j < 2; ++j) {
       // j==1 for ascending order, j==0 for descending order
       NumericFilter *flt = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j);
       IndexIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
@@ -218,6 +222,157 @@ TEST_F(RangeTest, testRangeIteratorMulti) {
   testRangeIteratorHelper(true);
 }
 
+/** Currently, a new tree always initialized with a single range node (root).
+ * A range node contains an inverted index struct and at least one block with initial block capacity.
+ */
+TEST_F(RangeTest, EmptyTreeSanity) {
+  NumericRangeNode *failed_range = NULL;
+
+  NumericRangeTree *rt = NewNumericRangeTree();
+  size_t empty_numeric_mem_size = sizeof_InvertedIndex(Index_StoreNumeric) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  size_t numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
+  if (failed_range) {
+    FAIL();
+  }
+
+  ASSERT_EQ(numeric_tree_mem, empty_numeric_mem_size);
+  ASSERT_EQ(numeric_tree_mem, rt->invertedIndexesSize);
+
+  NumericRangeTree_Free(rt);
+}
+
+class RangeIndexTest : public ::testing::Test {
+protected:
+  RefManager *index;
+  RMCK::Context ctx;
+
+  void SetUp() override {
+    RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec = 3000000;
+    index = createSpec(ctx);
+
+  }
+
+  void TearDown() override {
+    IndexSpec_RemoveFromGlobals({index});
+  }
+};
+
+/** This test purpose is to verify the invertedIndexesSize member of the tree struct properly captures the sum of
+ * all the inverted indexes in the tree.
+ */
+TEST_F(RangeIndexTest, testNumericTreeMemory) {
+  size_t num_docs = 1000;
+
+  // adding the numeric field to the index
+  const char *numeric_field_name = "n";
+  RediSearch_CreateNumericField(index, numeric_field_name);
+
+  std::mt19937 gen(42);
+  std::uniform_int_distribution<size_t> dis(0, num_docs - 1);
+  std::unordered_set<size_t> generated_numbers;
+
+  size_t expected_mem = 0;
+  size_t last_added_mem = 0;
+  NumericRangeNode *failed_range = NULL;
+
+  auto print_failure = [&]() {
+    std::cout << "Expected range memory = " << expected_mem << std::endl;
+    std::cout << "Failed range mem: " << NumericRangeGetMemory(failed_range) << std::endl;
+  };
+
+  // add docs with random numbers
+  for (size_t i = 0 ; i < num_docs ; i++) {
+    size_t random_val = dis(gen);
+    generated_numbers.insert(random_val);
+    std::string val_str = std::to_string(random_val);
+    last_added_mem = ::addDocumentWrapper(ctx, index, numToDocStr(i).c_str(), numeric_field_name, val_str.c_str());
+    expected_mem += last_added_mem;
+  }
+
+  // Get the numeric tree
+  NumericRangeTree *rt = getNumericTree(get_spec(index), numeric_field_name);
+  ASSERT_NE(rt, nullptr);
+
+  // check memory
+  size_t numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
+  ASSERT_EQ(rt->invertedIndexesSize, numeric_tree_mem);
+  ASSERT_EQ(rt->invertedIndexesSize, expected_mem);
+
+  if (failed_range) {
+    print_failure();
+    FAIL();
+  }
+
+  // delete some docs
+  size_t deleted_docs = num_docs / 4;
+
+  // Add random numbers if needed
+  while (generated_numbers.size() < deleted_docs) {
+      size_t random_val = dis(gen);
+      generated_numbers.insert(random_val);
+  }
+
+  for (const size_t& random_id : generated_numbers) {
+    auto rv = RS::deleteDocument(ctx, index, numToDocStr(random_id).c_str());
+    ASSERT_TRUE(rv) << "Failed to delete doc " << random_id;
+  }
+
+  // config gc
+  RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+  // Collect deleted docs
+  GCContext *gc = get_spec(index)->gc;
+  gc->callbacks.periodicCallback(gc->gcCtx);
+
+  // check memory
+  expected_mem = get_spec(index)->stats.invertedSize;
+  numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
+  if (failed_range) {
+    print_failure();
+    FAIL();
+  }
+  ASSERT_EQ(rt->invertedIndexesSize, numeric_tree_mem);
+  ASSERT_EQ(rt->invertedIndexesSize, expected_mem);
+
+}
+
+/**
+ * Test the overhead of the numeric tree struct (not including the inverted indices memory)
+ */
+TEST_F(RangeIndexTest, testNumericTreeOverhead) {
+
+  // Create index with multiple numeric indices
+  RediSearch_CreateNumericField(index, "n1");
+  RediSearch_CreateNumericField(index, "n2");
+
+  // expect 0 overhead
+  size_t overhead = IndexSpec_collect_numeric_overhead(get_spec(index));
+  ASSERT_EQ(overhead, 0);
+
+  // add docs to one field to trigger its index creation.
+  ::addDocumentWrapper(ctx, index, numToDocStr(1).c_str(), "n1", "1");
+  overhead = IndexSpec_collect_numeric_overhead(get_spec(index));
+  ASSERT_EQ(overhead, sizeof(NumericRangeTree));
+
+  // Delete the doc, the overhead shouldn't change
+  auto rv = RS::deleteDocument(ctx, index, numToDocStr(1).c_str());
+  ASSERT_TRUE(rv) << "Failed to delete doc1 ";
+
+  // config gc
+  RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
+  // Collect deleted docs
+  GCContext *gc = get_spec(index)->gc;
+  gc->callbacks.periodicCallback(gc->gcCtx);
+
+  overhead = IndexSpec_collect_numeric_overhead(get_spec(index));
+  ASSERT_EQ(overhead, sizeof(NumericRangeTree));
+
+  // Add a doc to trigger the creation of the second index
+  ::addDocumentWrapper(ctx, index, numToDocStr(1).c_str(), "n1", "1");
+  ::addDocumentWrapper(ctx, index, numToDocStr(2).c_str(), "n2", "1");
+  overhead = IndexSpec_collect_numeric_overhead(get_spec(index));
+
+  ASSERT_EQ(overhead, 2 * sizeof(NumericRangeTree));
+}
 // int benchmarkNumericRangeTree() {
 //   NumericRangeTree *t = NewNumericRangeTree();
 //   int count = 1;

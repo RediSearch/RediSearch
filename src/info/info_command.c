@@ -13,6 +13,8 @@
 #include "geometry_index.h"
 #include "redismodule.h"
 #include "reply_macros.h"
+#include "info/global_stats.h"
+#include "util/units.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 
@@ -89,7 +91,7 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 2) return RedisModule_WrongArity(ctx);
 
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
+  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -149,9 +151,11 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
       REPLY_KVSTR("coord_system", GeometryCoordsToName(fs->geometryOpts.geometryCoords));
-      const GeometryIndex *idx = OpenGeometryIndex(ctx, sp, NULL, fs);
-      const GeometryApi *api = GeometryApi_Get(idx);
-      geom_idx_sz += api->report(idx);
+      const GeometryIndex *idx = OpenGeometryIndex(sp, fs, DONT_CREATE_INDEX);
+      if (idx) {
+        const GeometryApi *api = GeometryApi_Get(idx);
+        geom_idx_sz += api->report(idx);
+      }
     }
 
     if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
@@ -226,14 +230,8 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
   REPLY_KVNUM("vector_index_sz_mb", IndexSpec_VectorIndexSize(sp) / (float)0x100000);
   REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks);
-  // REPLY_KVNUM("inverted_cap_mb", sp->stats.invertedCap / (float)0x100000);
-
-  // REPLY_KVNUM("inverted_cap_ovh", 0);
-  //(float)(sp->stats.invertedCap - sp->stats.invertedSize) / (float)sp->stats.invertedCap);
 
   REPLY_KVNUM("offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
-  // REPLY_KVNUM("skip_index_size_mb", sp->stats.skipIndexesSize / (float)0x100000);
-  // REPLY_KVNUM("score_index_size_mb", sp->stats.scoreIndexesSize / (float)0x100000);
 
   REPLY_KVNUM("doc_table_size_mb", sp->docs.memsize / (float)0x100000);
   REPLY_KVNUM("sortable_values_size_mb", sp->docs.sortablesSize / (float)0x100000);
@@ -262,7 +260,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVINT("indexing", !!global_spec_scanner || sp->scan_in_progress);
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
-  double percent_indexed = IndexesScanner_IndexedPercent(scanner, sp);
+  double percent_indexed = IndexesScanner_IndexedPercent(ctx, scanner, sp);
   REPLY_KVNUM("percent_indexed", percent_indexed);
 
   REPLY_KVINT("number_of_uses", sp->counter);
