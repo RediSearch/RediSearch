@@ -425,6 +425,19 @@ static void setFilterNode(QueryAST *q, QueryNode *n) {
 }
 
 void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options) {
+  if (options->empty) {
+    setFilterNode(ast, NewQueryNode(QN_NULL));
+  }
+  if (options->numeric) {
+    QueryNode *n = NewQueryNode(QN_NUMERIC);
+    n->nn.nf = options->numeric;
+    setFilterNode(ast, n);
+  }
+  if (options->geo) {
+    QueryNode *n = NewQueryNode(QN_GEO);
+    n->gn.gf = options->geo;
+    setFilterNode(ast, n);
+  }
   if (options->ids) {
     QueryNode *n = NewQueryNode(QN_IDS);
     n->fn.ids = options->ids;
