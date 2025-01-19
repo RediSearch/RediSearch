@@ -1,4 +1,3 @@
-
 #include "vector_index_stats.h"
 
 VectorIndexStats VectorIndexStats_Init() {
@@ -23,7 +22,6 @@ VectorIndexStats_Getter VectorIndexStats_GetGetter(const char* name){
     }
     return NULL;
 }
-
 
 void VectorIndexStats_Agg(VectorIndexStats *first, const VectorIndexStats *second) {
     first->memory += second->memory;
