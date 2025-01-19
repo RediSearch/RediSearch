@@ -463,11 +463,11 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
-    GeoFilter *cur_gf = rm_calloc(1, sizeof(*cur_gf));
+    GeoFilter *cur_gf = rm_new(*cur_gf);
+    array_ensure_append_1(options->legacy.geo_filters, cur_gf);
     if (GeoFilter_LegacyParse(cur_gf, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-    array_ensure_append_1(options->legacy.geo_filters, cur_gf);
   } else {
     return ARG_UNKNOWN;
   }
