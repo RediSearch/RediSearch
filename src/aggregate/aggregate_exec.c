@@ -912,6 +912,9 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (!IsInternal(r) || IsProfile(r)) {
     // We currently don't need to measure the time for internal and non-profile commands
     r->initClock = clock();
+  }
+
+  if (r->qiter.isProfile) {
     clock_gettime(CLOCK_MONOTONIC, &r->qiter.initTime);
   }
 
