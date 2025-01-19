@@ -32,7 +32,7 @@ def test_search():
         {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]}
-    env.expect('FT.search', 'idx1', "*").equal(exp)
+    env.expect('FT.search', 'idx1', "*", 'SCORER', 'TFIDF').equal(exp)
 
     # test withscores
     exp = {
@@ -111,7 +111,7 @@ def test_search():
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]
     }
-    env.expect('FT.search', 'idx1', "*").equal(exp)
+    env.expect('FT.search', 'idx1', "*", 'SCORER', 'TFIDF').equal(exp)
 
 @skip(redis_less_than="7.0.0")
 def test_search_timeout():
@@ -219,8 +219,8 @@ def test_coord_profile():
         'Coordinator': {'Total Coordinator time': ANY, 'Post Processing time': ANY},
       },
     }
-    res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', 'FORMAT', 'STRING')
-    res['Results']['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f1') == None else x['extra_attributes']['f1'])
+    res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', 'FORMAT', 'STRING', 'SCORER', 'TFIDF')
+    res['Results']['results'].sort(key=lambda x: x['extra_attributes'].get('f1', ''))
     env.assertEqual(res, exp)
 
     exp = {
