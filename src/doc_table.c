@@ -39,7 +39,7 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
       .dim = NewDocIdMap(),
   };
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
-  ret.memsize = cap * sizeof(*ret.buckets);
+  ret.memsize = cap * sizeof(*ret.buckets) + sizeof(DocTable);
   return ret;
 }
 
