@@ -1016,8 +1016,7 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     goto eof;
   }
 
-  const t_docId lastIdOfCurrentBlock = IR_CURRENT_BLOCK(ir).lastId;
-  if (lastIdOfCurrentBlock < docId || (BufferReader_AtEnd(&ir->br) && lastIdOfCurrentBlock != docId)) {
+  if (IR_CURRENT_BLOCK(ir).lastId < docId) {
     // We need to skip to a next block since the requested doc id isn't in the current block
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
