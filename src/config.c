@@ -30,7 +30,9 @@ RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
 
 // EXTLOAD
 CONFIG_SETTER(setExtLoad) {
-  int acrc = AC_GetString(ac, &config->extLoad, NULL, 0);
+  HiddenString *hextLoad;
+  int acrc = AC_GetHiddenString(ac, &hextLoad);
+  config->extLoad = HiddenString_GetUnsafe(hextLoad, NULL);
   RETURN_STATUS(acrc);
 }
 
@@ -280,14 +282,14 @@ CONFIG_GETTER(getDeprWorkThreads) {
 // MT_MODE
 CONFIG_SETTER(setMtMode) {
   RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
-  const char *mt_mode;
-  int acrc = AC_GetString(ac, &mt_mode, NULL, 0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(mt_mode, "MT_MODE_OFF")) {
+  HiddenString *hmt_mode;
+  int acrc = AC_GetHiddenString(ac, &hmt_mode);
+  CHECK_RETURN_PARSE_ERROR(acrc);\
+  if (HiddenString_CaseInsensitiveCompareC(hmt_mode, "MT_MODE_OFF", strlen("MT_MODE_OFF"))) {
     mt_mode_config = MT_MODE_OFF;
-  } else if (!strcasecmp(mt_mode, "MT_MODE_ONLY_ON_OPERATIONS")){
+  } else if (HiddenString_CaseInsensitiveCompareC(hmt_mode, "MT_MODE_ONLY_ON_OPERATIONS", strlen("MT_MODE_ONLY_ON_OPERATIONS"))) {
     mt_mode_config = MT_MODE_ONLY_ON_OPERATIONS;
-  } else if (!strcasecmp(mt_mode, "MT_MODE_FULL")){
+  } else if (HiddenString_CaseInsensitiveCompareC(hmt_mode, "MT_MODE_FULL", strlen("MT_MODE_FULL"))) {
     mt_mode_config = MT_MODE_FULL;
   } else {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Invalie MT mode");
@@ -344,7 +346,9 @@ CONFIG_SETTER(setPrivilegedThreadsNum) {
 
 // FRISOINI
 CONFIG_SETTER(setFrisoINI) {
-  int acrc = AC_GetString(ac, &config->frisoIni, NULL, 0);
+  HiddenString *hfrisoIni;
+  int acrc = AC_GetHiddenString(ac, &hfrisoIni);
+  config->frisoIni = HiddenString_GetUnsafe(hfrisoIni, NULL);
   RETURN_STATUS(acrc);
 }
 CONFIG_GETTER(getFrisoINI) {
@@ -353,10 +357,11 @@ CONFIG_GETTER(getFrisoINI) {
 
 // ON_TIMEOUT
 CONFIG_SETTER(setOnTimeout) {
-  size_t len;
-  const char *policy;
-  int acrc = AC_GetString(ac, &policy, &len, 0);
+  HiddenString *hpolicy;
+  int acrc = AC_GetHiddenString(ac, &hpolicy);
   CHECK_RETURN_PARSE_ERROR(acrc);
+  size_t len;
+  const char *policy = HiddenString_GetUnsafe(hpolicy, &len);
   RSTimeoutPolicy top = TimeoutPolicy_Parse(policy, len);
   if (top == TimeoutPolicy_Invalid) {
     QueryError_SetError(status, QUERY_EBADVAL, "Invalid ON_TIMEOUT value");
@@ -527,12 +532,13 @@ CONFIG_GETTER(getMultiTextOffsetDelta) {
 }
 
 CONFIG_SETTER(setGcPolicy) {
-  const char *policy;
-  int acrc = AC_GetString(ac, &policy, NULL, 0);
+  HiddenString *hpolicy;
+  int acrc = AC_GetHiddenString(ac, &hpolicy);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  if (!strcasecmp(policy, "DEFAULT") || !strcasecmp(policy, "FORK")) {
+  if (!HiddenString_CaseInsensitiveCompareC(hpolicy, "DEFAULT", strlen("DEFAULT")) ||
+   !HiddenString_CaseInsensitiveCompareC(hpolicy, "FORK", strlen("FORK"))) {
     config->gcConfigParams.gcPolicy = GCPolicy_Fork;
-  } else if (!strcasecmp(policy, "LEGACY")) {
+  } else if (HiddenString_CaseInsensitiveCompareC(hpolicy, "LEGACY", strlen("LEGACY"))) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Legacy GC policy is no longer supported (since 2.6.0)");
     return REDISMODULE_ERR;
   } else {
@@ -553,10 +559,9 @@ CONFIG_SETTER(setFilterCommand) {
 
 CONFIG_SETTER(setUpgradeIndex) {
   size_t dummy2;
-  const char *rawIndexName;
+  HiddenString *hrawIndexName;
   SchemaRuleArgs *rule = NULL;
-  size_t len;
-  int acrc = AC_GetString(ac, &rawIndexName, &len, 0);
+  int acrc = AC_GetHiddenString(ac, &hrawIndexName);
 
   if (acrc != AC_OK) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Index name was not given to upgrade argument");
@@ -564,9 +569,8 @@ CONFIG_SETTER(setUpgradeIndex) {
   }
 
   // We aren't taking ownership on the string we got from the user, less cost memory-wise
-  HiddenString *indexName = NewHiddenString(rawIndexName, len, false);
-  if (dictFetchValue(legacySpecRules, indexName)) {
-    HiddenString_Free(indexName, false);
+  if (dictFetchValue(legacySpecRules, hrawIndexName)) {
+    HiddenString_Free(hrawIndexName, false);
     QueryError_SetError(status, QUERY_EPARSEARGS,
                         "Upgrade index definition was given more then once on the same index");
     return REDISMODULE_ERR;
@@ -588,7 +592,7 @@ CONFIG_SETTER(setUpgradeIndex) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
       rm_free(rule);
-      HiddenString_Free(indexName, false);
+      HiddenString_Free(hrawIndexName, false);
       return REDISMODULE_ERR;
     }
   }
@@ -617,8 +621,8 @@ CONFIG_SETTER(setUpgradeIndex) {
   rule->type = rm_strdup(RULE_TYPE_HASH);
 
   // add rule to rules dictionary
-  dictAdd(legacySpecRules, (void*)indexName, rule);
-  HiddenString_Free(indexName, false);
+  dictAdd(legacySpecRules, (void*)hrawIndexName, rule);
+  HiddenString_Free(hrawIndexName, false);
   return REDISMODULE_OK;
 }
 
@@ -680,7 +684,8 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv, argc);
   while (!AC_IsAtEnd(&ac)) {
-    const char *name = AC_GetStringNC(&ac, NULL);
+    HiddenString *hname = AC_GetHiddenStringNoCopy(&ac);
+    const char *name = HiddenString_GetUnsafe(hname, NULL);
     RSConfigVar *curVar = findConfigVar(&RSGlobalConfigOptions, name);
     if (curVar == NULL) {
       rm_asprintf(err, "No such configuration option `%s`", name);

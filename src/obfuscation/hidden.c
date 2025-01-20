@@ -122,3 +122,22 @@ RedisModuleString *HiddenString_CreateRedisModuleString(const HiddenString* valu
   const UserString* text = (const UserString*)value;
   return RedisModule_CreateString(ctx, text->user, text->length);
 }
+
+bool HiddenString_StartsWith(HiddenString *hs, const char* s) {
+  UserString *us = (UserString*)hs;
+  size_t s_len = strlen(s);
+  if (us->length < s_len) {
+    return false;
+  }
+  return strncmp(us->user, s, s_len) == 0;
+}
+
+int HiddenString_AdvanceBy(HiddenString *hs, size_t l) {
+  UserString *us = (UserString*)hs;
+  if (l > us->length) {
+    return AC_ERR_NOARG;
+  }
+  us->user += l;
+  us->length -= l;
+  return AC_OK;
+}

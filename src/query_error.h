@@ -14,8 +14,8 @@
 #include <stdbool.h>
 
 #ifdef __cplusplus
-extern "C" {      
-#endif      
+extern "C" {
+#endif
 
 #define QUERY_XERRS(X)                                                                          \
   X(QUERY_EGENERIC, "Generic error evaluating the query")                                       \
@@ -152,8 +152,8 @@ void QueryError_SetUserDataAgnosticErrorFmt(QueryError *status, QueryErrorCode c
  *
  * Equivalent to the following boilerplate:
  * @code{c}
- *  const char *unknown = AC_GetStringNC(ac, NULL);
- *  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument for %s:", " %s", name, unknown);
+ *  HiddenString *hs = AC_GetHiddenStringNoCopy(ac);
+ *  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument for %s:", " %s", name, hs);
  * @endcode
  */
 void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name);

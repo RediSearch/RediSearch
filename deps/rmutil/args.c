@@ -221,7 +221,6 @@ int *AC_GetHiddenString(ArgsCursor *ac, HiddenString** hs) {
   return rc;
 }
 
-
 int AC_GetVarArgs(ArgsCursor *ac, ArgsCursor *dst) {
   unsigned nargs;
   int rv = AC_GetUnsigned(ac, &nargs, 0);

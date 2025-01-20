@@ -52,7 +52,9 @@ CONFIG_GETTER(getClusterTimeout) {
 
 CONFIG_SETTER(setGlobalPass) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  int acrc = AC_GetString(ac, &realConfig->globalPass, NULL, 0);
+  HiddenString *hglobalPass;
+  int acrc = AC_GetHiddenString(ac, &hglobalPass);
+  realConfig->globalPass = HiddenString_GetUnsafe(hglobalPass, NULL);
   RETURN_STATUS(acrc);
 }
 
@@ -129,7 +131,9 @@ CONFIG_GETTER(getOSSACLUsername) {
 
 CONFIG_SETTER(setOSSACLUsername) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  int acrc = AC_GetString(ac, &realConfig->aclUsername, NULL, 0);
+  HiddenString *haclUsername;
+  int acrc = AC_GetHiddenString(ac, &haclUsername);
+  realConfig->aclUsername = HiddenString_GetUnsafe(haclUsername, NULL);
   RETURN_STATUS(acrc);
 }
 
