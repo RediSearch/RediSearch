@@ -71,7 +71,7 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
   *len = dstLen;
 
   // convert multi-byte characters to lowercase
-  size_t newLen = nunicode_tolower(dst, dstLen, dst);
+  size_t newLen = unicode_tolower(dst, dstLen);
   if (newLen) {
     *len = newLen;
   }

@@ -1288,7 +1288,10 @@ static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
     *str = '\0';
 
     // convert multi-byte characters to lowercase
-    nunicode_tolower(origStr, origLen, origStr);
+    size_t newLen = unicode_tolower(origStr, origLen);
+    if (newLen && newLen < origLen) {
+      origStr[newLen] = '\0';
+    }
   }
 }
 

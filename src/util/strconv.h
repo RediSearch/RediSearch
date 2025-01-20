@@ -116,9 +116,7 @@ static char *rm_strndup_unescape(const char *s, size_t len) {
 // dst: the destination buffer to store the transformed string
 // returns the bytes written to encoded, or 0 if the length of the transformed
 // string is greater than in_len and no transformation was done
-static size_t nunicode_tolower(const char *encoded, size_t in_len, char *dst) {
-  char encoded_stack_buffer[SSO_MAX_LENGTH];
-  const char *encoded_copy = encoded_stack_buffer;
+static size_t unicode_tolower(char *encoded, size_t in_len) {
   uint32_t u_stack_buffer[SSO_MAX_LENGTH * 2];
   uint32_t *u_buffer = u_stack_buffer;
 
@@ -126,17 +124,8 @@ static size_t nunicode_tolower(const char *encoded, size_t in_len, char *dst) {
     return 0;
   }
 
-  // create a zero-terminated copy of the encoded string
-  if (in_len >= SSO_MAX_LENGTH - 1) {
-    encoded_copy = rm_strndup(encoded, in_len);
-  } else {
-    // do not use heap allocation for short strings
-    memcpy(encoded_stack_buffer, encoded, in_len);
-    encoded_stack_buffer[in_len] = '\0';
-  }
-
-  const char *encoded_char = encoded_copy;
-  ssize_t u_len = nu_strtransformnlen(encoded_copy, in_len, nu_utf8_read,
+  const char *encoded_char = encoded;
+  ssize_t u_len = nu_strtransformnlen(encoded, in_len, nu_utf8_read,
                                               nu_tolower, nu_casemap_read);
 
   if (u_len >= (SSO_MAX_LENGTH * 2) - 1) {
@@ -146,7 +135,7 @@ static size_t nunicode_tolower(const char *encoded, size_t in_len, char *dst) {
   // Decode utf8 string into Unicode codepoints and convert to lowercase
   uint32_t codepoint;
   unsigned i = 0;
-  while (1) {
+  for (ssize_t j = 0; j < u_len; j++) {
     // Read unicode codepoint from utf8 string
     encoded_char = nu_utf8_read(encoded_char, &codepoint);
     // Transform unicode codepoint to lowercase
@@ -169,25 +158,17 @@ static size_t nunicode_tolower(const char *encoded, size_t in_len, char *dst) {
       u_buffer[i] = codepoint;
       ++i;
     }
-
-    // Break if the end of the string is reached
-    if (codepoint == 0) {
-      break;
-    }
   }
 
   // Encode Unicode codepoints back to utf8 string
-  ssize_t reencoded_len = nu_bytelen(u_buffer, nu_utf8_write);
+  ssize_t reencoded_len = nu_bytenlen(u_buffer, u_len, nu_utf8_write);
   if (reencoded_len > 0 && reencoded_len <= in_len) {
-    nu_writenstr(u_buffer, reencoded_len, dst, nu_utf8_write);
+    nu_writenstr(u_buffer, u_len, encoded, nu_utf8_write);
   } else {
     reencoded_len = 0;
   }
 
-  // Free heap-allocated memory
-  if (encoded_copy != encoded_stack_buffer) {
-    rm_free((void *)encoded_copy);
-  }
+  // Free heap-allocated memory if needed
   if (u_buffer != u_stack_buffer) {
     rm_free(u_buffer);
   }
@@ -215,7 +196,10 @@ static char *rm_strdupcase(const char *s, size_t len) {
   *dst = '\0';
 
   // convert multi-byte characters to lowercase
-  size_t newLen = nunicode_tolower(ret, len, ret);
+  size_t newLen = unicode_tolower(ret, len);
+  if (newLen && newLen <= len) {
+    ret[newLen] = '\0';
+  }
 
   return ret;
 }
