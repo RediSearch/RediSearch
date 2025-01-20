@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include "hiredis/sds.h"
 #include "redismodule.h"
+#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -94,6 +95,8 @@ int AC_Equals(ArgsCursor *first, ArgsCursor *second);
 // Gets the string (and optionally the length). If the string does not exist,
 // it returns NULL. Used when caller is sure the arg exists
 const char *AC_GetStringNC(ArgsCursor *ac, size_t *len);
+int *AC_GetHiddenString(ArgsCursor *ac, HiddenString** hs) ;
+HiddenString *AC_GetHiddenStringNoCopy(ArgsCursor *ac);
 
 int AC_Advance(ArgsCursor *ac);
 int AC_AdvanceBy(ArgsCursor *ac, size_t by);

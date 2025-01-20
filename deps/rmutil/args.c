@@ -202,6 +202,26 @@ const char *AC_GetStringNC(ArgsCursor *ac, size_t *len) {
   return s;
 }
 
+HiddenString *AC_GetHiddenStringNoCopy(ArgsCursor *ac) {
+  size_t n;
+  const char *text = NULL;
+  const int rc = AC_GetString(ac, &text, &n, 0);
+  return rc == AC_OK ? NewHiddenString(text, n, false) : NULL;
+}
+
+int *AC_GetHiddenString(ArgsCursor *ac, HiddenString** hs) {
+  size_t n;
+  const char *text = NULL;
+  const int rc = AC_GetString(ac, &text, &n, 0);
+  if (rc == AC_OK) {
+    *hs = NewHiddenString(text, n, true);
+  } else {
+    *hs = NULL;
+  }
+  return rc;
+}
+
+
 int AC_GetVarArgs(ArgsCursor *ac, ArgsCursor *dst) {
   unsigned nargs;
   int rv = AC_GetUnsigned(ac, &nargs, 0);
