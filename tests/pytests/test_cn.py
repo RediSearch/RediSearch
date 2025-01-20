@@ -49,11 +49,21 @@ def testMixedHighlight(env):
     txt = r"""
 Redis支持主从同步。数据可以从主服务器向任意数量的从服务器上同步，从服务器可以是关联其他从服务器的主服务器。这使得Redis可执行单层树复制。从盘可以有意无意的对数据进行写操作。由于完全实现了发布/订阅机制，使得从数据库在任何地方同步树时，可订阅一个频道并接收主服务器完整的消息发布记录。同步对读取操作的可扩展性和数据冗余很有帮助。[8]
 """
-    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE_FIELD', '__language', 'schema', 'txt', 'text')
+    # This test sets LANGUAGE_FIELD to a field that is not part of the document
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE_FIELD', 'chinese', 'schema', 'txt', 'text')
     waitForIndex(env, 'idx')
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', txt)
     # Should not crash!
     env.cmd('ft.search', 'idx', 'redis', 'highlight')
+
+    # Tests with LANGUAGE_FIELD = __language
+    env.cmd('ft.create', 'idx2', 'ON', 'HASH', 'LANGUAGE_FIELD', '__language',
+            'schema', 'txt', 'text')
+    waitForIndex(env, 'idx2')
+    env.cmd('ft.add', 'idx2', 'doc2', 1.0, 'language', 'chinese',
+            'fields', 'txt', txt)
+    # Should not crash!
+    env.cmd('ft.search', 'idx2', 'redis', 'highlight')
 
 def testTradSimp(env):
     # Ensure that traditional chinese characters get converted to their simplified variants
@@ -103,7 +113,7 @@ def testSynonym(env):
     # TODO: remove once Sanitizer/Coordinator problem is fixed (issue #3523)
     if SANITIZER:
         env.skipOnCluster()
-    
+
     txt = r"""
 测试 同义词 功能
 """

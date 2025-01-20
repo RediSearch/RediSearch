@@ -22,7 +22,7 @@
 #define STR_EQ(str, len, other) (len == strlen(other) && !strncmp(str, other, len))
 
 // Threshold for Small String Optimization (SSO)
-#define SSO_MAX_LENGTH 16
+#define SSO_MAX_LENGTH 128
 
 /* Parse string into int, returning 1 on success, 0 otherwise */
 static int ParseInteger(const char *arg, long long *val) {
@@ -111,13 +111,13 @@ static char *rm_strndup_unescape(const char *s, size_t len) {
 }
 
 // transform utf8 string to lowercase using nunicode library
-// encoded: the utf8 string to transform
+// encoded: the utf8 string to transform, if the transformation is successful
+//          the transformed string will be written back to this buffer
 // in_len: the length of the utf8 string
-// dst: the destination buffer to store the transformed string
 // returns the bytes written to encoded, or 0 if the length of the transformed
 // string is greater than in_len and no transformation was done
 static size_t unicode_tolower(char *encoded, size_t in_len) {
-  uint32_t u_stack_buffer[SSO_MAX_LENGTH * 2];
+  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
   uint32_t *u_buffer = u_stack_buffer;
 
   if (in_len == 0) {
@@ -128,7 +128,7 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
   ssize_t u_len = nu_strtransformnlen(encoded, in_len, nu_utf8_read,
                                               nu_tolower, nu_casemap_read);
 
-  if (u_len >= (SSO_MAX_LENGTH * 2) - 1) {
+  if (u_len >= (SSO_MAX_LENGTH - 1)) {
     u_buffer = (uint32_t *)rm_malloc(sizeof(*u_buffer) * (u_len + 1));
   }
 
