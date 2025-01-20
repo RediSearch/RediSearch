@@ -579,8 +579,10 @@ static int rppagerNext_Limit(ResultProcessor *base, SearchResult *r) {
     return RS_RESULT_EOF;
   }
 
-  self->remaining--;
-  return base->upstream->Next(base->upstream, r);
+  int ret = base->upstream->Next(base->upstream, r);
+  // Account for the result only if we got one.
+  if (ret == RS_RESULT_OK) self->remaining--;
+  return ret;
 }
 
 static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
