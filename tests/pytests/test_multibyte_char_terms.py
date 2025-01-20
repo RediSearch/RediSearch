@@ -392,10 +392,11 @@ def testMultibyteTag(env):
     conn.execute_command('HSET', 'doc:eszett_1', 't', 'GRÜẞEN', 'id', 6)
     conn.execute_command('HSET', 'doc:eszett_2', 't', 'grüßen', 'id', 7)
 
-    # if not env.isCluster():
-    # only 3 terms are indexed, the lowercase representation of the terms
-    res = env.cmd('FT.TAGVALS', 'idx', 't')
-    env.assertEqual(res, ['бълга123', 'abcabc', 'grüßen'])
+    if not env.isCluster():
+        # only 3 terms are indexed, the lowercase representation of the terms
+        res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
+        env.assertEqual(res, [['бълга123', [3, 4, 5]], ['abcabc', [1, 2]],
+                              ['grüßen', [6, 7]]])
 
     for dialect in range(1, 5):
         env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
@@ -485,11 +486,13 @@ def testMultibyteTagCaseSensitive(env):
     conn.execute_command('HSET', 'doc:eszett_1', 't', 'GRÜẞEN', 'id', 6)
     conn.execute_command('HSET', 'doc:eszett_2', 't', 'grüßen', 'id', 7)
 
-    # if not env.isCluster():
-    # 7 terms are indexed because the TAG field is CASESENSITIVE
-    res = env.cmd('FT.TAGVALS', 'idx', 't')
-    env.assertEqual(res, ['БЪЛГА123', 'БЪлга123', 'бълга123', 'ABCABC',
-                          'GRÜẞEN', 'abcabc', 'grüßen'])
+    if not env.isCluster():
+        # 7 terms are indexed because the TAG field is CASESENSITIVE
+        res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
+        env.assertEqual(res, [['БЪЛГА123', [3]], ['БЪлга123', [5]],
+                              ['бълга123', [4]], ['ABCABC', [2]],
+                              ['GRÜẞEN', [6]], ['abcabc', [1]],
+                              ['grüßen', [7]]])
 
     for dialect in range(1, 5):
         env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
