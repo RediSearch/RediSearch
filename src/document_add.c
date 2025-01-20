@@ -83,9 +83,8 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
     if ((rv = AC_ParseArgSpec(ac, argList, &errArg)) == AC_OK) {
       continue;
     } else if (rv == AC_ERR_ENOENT) {
-      size_t narg;
-      const char *s = AC_GetStringNC(ac, &narg);
-      if (STR_EQCASE(s, narg, "FIELDS")) {
+      HiddenString* hs = AC_GetHiddenStringNoCopy(ac);
+      if (HiddenString_CaseInsensitiveCompareC(hs, "FIELDS", strlen("FIELDS"))){
         size_t numRemaining = AC_NumRemaining(ac);
         if (numRemaining % 2 != 0) {
           QueryError_SetError(status, QUERY_EADDARGS,
@@ -99,7 +98,9 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
         break;
 
       } else {
-        QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Unknown keyword", " `%.*s` provided", (int)narg, s);
+        size_t length;
+        const char* s = HiddenString_GetUnsafe(hs, &length);
+        QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Unknown keyword", " `%.*s` provided", (int)length, s);
         return REDISMODULE_ERR;
       }
       // Argument not found, that's ok. We'll handle it below

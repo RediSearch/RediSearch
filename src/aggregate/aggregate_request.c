@@ -139,7 +139,8 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
   // If we need to use them in reply we should make a copy of those strings.
   const char** requiredFields = array_new(const char*, requiredFieldNum);
   for(size_t i=0; i < requiredFieldNum; i++) {
-    const char *s = AC_GetStringNC(&args, NULL); {
+    HiddenString *hs = AC_GetHiddenStringNoCopy(&args);
+    const char *s = HiddenString_GetUnsafe(hs, NULL); {
       if(!s) {
         array_free(requiredFields);
         return REDISMODULE_ERR;
@@ -171,17 +172,18 @@ int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
 
 // Parse the available formats for search result values: FORMAT STRING|EXPAND
 int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
-  const char *format;
-  int rv = AC_GetString(ac, &format, NULL, 0);
+  HiddenString *hformat;
+  int rv = AC_GetHiddenString(ac, &hformat);
   if (rv != AC_OK) {
     QueryError_SetError(status, QUERY_EBADVAL, "Need an argument for FORMAT");
     return REDISMODULE_ERR;
   }
-  if (!strcasecmp(format, "EXPAND")) {
+  if (HiddenString_CaseInsensitiveCompareC(hformat, "EXPAND", strlen("EXPAND"))){
     *flags |= QEXEC_FORMAT_EXPAND;
-  } else if (!strcasecmp(format, "STRING")) {
+  } else if (HiddenString_CaseInsensitiveCompareC(hformat, "STRING", strlen("STRING"))){
     *flags &= ~QEXEC_FORMAT_EXPAND;
   } else {
+    const char *format = HiddenString_GetUnsafe(hformat, NULL);
     QERR_MKBADARGS_FMT(status, "FORMAT", " %s is not supported", format);
     return REDISMODULE_ERR;
   }
@@ -388,10 +390,11 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
 
   keys = array_new(const char *, 8);
 
+  HiddenString *hs = AC_GetHiddenStringNoCopy(&subArgs);
   if (isLegacy) {
     // Legacy demands one field and an optional ASC/DESC parameter. Both
     // of these are handled above, so no need for argument parsing
-    const char *s = AC_GetStringNC(&subArgs, NULL);
+    const char *s = HiddenString_GetUnsafe(hs, NULL);
     array_append(keys, s);
 
     if (legacyDesc) {
@@ -399,24 +402,24 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     }
   } else {
     while (!AC_IsAtEnd(&subArgs)) {
-
-      const char *s = AC_GetStringNC(&subArgs, NULL);
-      if (*s == '@') {
+      hs = AC_GetHiddenStringNoCopy(&subArgs);
+      if (HiddenString_StartsWith(hs, "@")) {
         if (array_len(keys) >= SORTASCMAP_MAXFIELDS) {
           QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ELIMIT, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
           goto err;
         }
-        s++;
-        array_append(keys, s);
+        HiddenString_AdvanceBy(hs, 1);
+        array_append(keys, HiddenString_GetUnsafe(hs, NULL));
         continue;
       }
 
-      if (!strcasecmp(s, "ASC")) {
+      if (!HiddenString_CaseInsensitiveCompareC(hs, "ASC", strlen("ASC"))) {
         SORTASCMAP_SETASC(ascMap, array_len(keys) - 1);
-      } else if (!strcasecmp(s, "DESC")) {
+      } else if (HiddenString_CaseInsensitiveCompareC(hs, "DESC", strlen("DESC"))) {
         SORTASCMAP_SETDESC(ascMap, array_len(keys) - 1);
       } else {
         // Unknown token - neither a property nor ASC/DESC
+        const char *s = HiddenString_GetUnsafe(hs, NULL);
         QERR_MKBADARGS_FMT(status, "MISSING ASC or DESC after sort field", " (%s)", s);
         goto err;
       }
@@ -610,18 +613,20 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     }
 
     while (!AC_IsAtEnd(&returnFields)) {
-      const char *path = AC_GetStringNC(&returnFields, NULL);
-      const char *name = path;
+      HiddenString *hpath = AC_GetHiddenStringNoCopy(&returnFields);
+      HiddenString *hname = hpath;
       if (AC_AdvanceIfMatch(&returnFields, SPEC_AS_STR)) {
-        int rv = AC_GetString(&returnFields, &name, NULL, 0);
+        int rv = AC_GetHiddenString(&returnFields, &hname);
         if (rv != AC_OK) {
           QERR_MKBADARGS(status, "RETURN path AS name - must be accompanied with NAME");
           return REDISMODULE_ERR;
-        } else if (!strcasecmp(name, SPEC_AS_STR)) {
+        } else if (HiddenString_CaseInsensitiveCompareC(hname, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
           QERR_MKBADARGS(status, "Alias for RETURN cannot be `AS`");
           return REDISMODULE_ERR;
         }
       }
+      const char *name = HiddenString_GetUnsafe(hname, NULL);
+      const char *path = HiddenString_GetUnsafe(hpath, NULL);
       ReturnedField *f = FieldList_GetCreateField(&req->outFields, name, path);
       f->explicitReturn = 1;
     }
@@ -707,18 +712,19 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
     goto error;
   }
 
-  const char *alias = NULL;
+  HiddenString *halias = NULL;
   // See if there is an alias
   if (AC_AdvanceIfMatch(ac, "AS")) {
-    rv = AC_GetString(ac, &alias, NULL, 0);
+    rv = AC_GetHiddenString(ac, &halias);
     if (rv != AC_OK) {
       QERR_MKBADARGS_AC(status, "AS", rv);
       goto error;
     }
   }
-  if (alias == NULL) {
+  if (halias == NULL) {
     gr->alias = getReducerAlias(gstp, name, &gr->args);
   } else {
+    const char *alias = HiddenString_GetUnsafe(halias, NULL);
     gr->alias = rm_strdup(alias);
   }
   gr->isHidden = 0; // By default, reducers are not hidden
@@ -745,8 +751,8 @@ PLN_GroupStep *PLNGroupStep_New(const char **properties, size_t nproperties) {
 
 static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor groupArgs = {0};
-  const char *s;
-  AC_GetString(ac, &s, NULL, AC_F_NOADVANCE);
+  HiddenString *hs;
+  AC_GetHiddenString(ac, &hs);
   int rv = AC_GetVarArgs(ac, &groupArgs);
   if (rv != AC_OK) {
     QERR_MKBADARGS_AC(status, "GROUPBY", rv);
@@ -767,10 +773,12 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
 
   while (AC_AdvanceIfMatch(ac, "REDUCE")) {
     const char *name;
-    if (AC_GetString(ac, &name, NULL, 0) != AC_OK) {
+    HiddenString *hname;
+    if (AC_GetHiddenString(ac, &name) != AC_OK) {
       QERR_MKBADARGS_AC(status, "REDUCE", rv);
       return REDISMODULE_ERR;
     }
+    const char *name = HiddenString_GetUnsafe(hname, NULL);
     if (PLNGroupStep_AddReducer(gstp, name, ac, status) != REDISMODULE_OK) {
       goto error;
     }
@@ -801,30 +809,31 @@ PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString* expr, int mode) {
 
 static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, int isApply) {
   // Parse filters!
-  const char *expr = NULL;
-  size_t exprLen;
-  int rv = AC_GetString(ac, &expr, &exprLen, 0);
+  HiddenString *hexpr = NULL;
+  int rv = AC_GetHiddenString(ac, &hexpr);
   if (rv != AC_OK) {
     QERR_MKBADARGS_AC(status, "APPLY/FILTER", rv);
     return REDISMODULE_ERR;
   }
 
-  HiddenString* expression = NewHiddenString(expr, exprLen, false);
-  PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, isApply ? PLN_T_APPLY : PLN_T_FILTER);
-  HiddenString_Free(expression, false);
+  PLN_MapFilterStep *stp = PLNMapFilterStep_New(hexpr, isApply ? PLN_T_APPLY : PLN_T_FILTER);
+  HiddenString_Free(hexpr, false);
   AGPLN_AddStep(&req->ap, &stp->base);
 
   if (isApply) {
+    const char *alias;
+    size_t aliasLen;
     if (AC_AdvanceIfMatch(ac, "AS")) {
-      const char *alias;
-      size_t aliasLen;
-      if (AC_GetString(ac, &alias, &aliasLen, 0) != AC_OK) {
+      HiddenString *halias;
+      if (AC_GetHiddenString(ac, &halias) != AC_OK) {
         QERR_MKBADARGS(status, "AS needs argument");
         goto error;
       }
+      alias = HiddenString_GetUnsafe(halias, &aliasLen);
       stp->base.alias = rm_strndup(alias, aliasLen);
     } else {
-      stp->base.alias = rm_strndup(expr, exprLen);
+      alias = HiddenString_GetUnsafe(hexpr, &aliasLen);
+      stp->base.alias = rm_strndup(alias, aliasLen);
     }
   }
   return REDISMODULE_OK;
@@ -1608,26 +1617,27 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
         // Get all the keys for this lookup...
         while (!AC_IsAtEnd(&lstp->args)) {
           size_t name_len;
-          const char *name, *path = AC_GetStringNC(&lstp->args, &name_len);
-          if (*path == '@') {
-            path++;
-            name_len--;
+          HiddenString *hname, *hpath = AC_GetHiddenStringNoCopy(&lstp->args);
+          if (HiddenString_StartsWith(hpath, '@')){
+            HiddenString_AdvanceBy(hpath, 1);
           }
           if (AC_AdvanceIfMatch(&lstp->args, SPEC_AS_STR)) {
-            int rv = AC_GetString(&lstp->args, &name, &name_len, 0);
+            int rv = AC_GetHiddenString(&lstp->args, &hname);
             if (rv != AC_OK) {
               QERR_MKBADARGS(status, "LOAD path AS name - must be accompanied with NAME");
               return REDISMODULE_ERR;
-            } else if (!strcasecmp(name, SPEC_AS_STR)) {
+            } else if (HiddenString_CaseInsensitiveCompareC(hname, SPEC_AS_STR, strlen(SPEC_AS_STR))){
               QERR_MKBADARGS(status, "Alias for LOAD cannot be `AS`");
               return REDISMODULE_ERR;
             }
           } else {
             // Set the name to the path. name_len is already the length of the path.
-            name = path;
+            hname = hpath;
           }
 
-          RLookupKey *kk = RLookup_GetKey_LoadEx(curLookup, name, name_len, path, loadFlags);
+          const char *name = HiddenString_GetUnsafe(hname, name_len);
+          RLookupKey *kk = RLookup_GetKey_LoadEx(curLookup, name, name_len,
+                                                      HiddenString_GetUnsafe(hpath, NULL), loadFlags);
           // We only get a NULL return if the key already exists, which means
           // that we don't need to retrieve it again.
           if (kk) {
