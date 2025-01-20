@@ -903,6 +903,8 @@ int IR_Read(void *ctx, RSIndexResult **e) {
 
     // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
     while (BufferReader_AtEnd(&ir->br)) {
+      RS_LOG_ASSERT_FMT(ir->currentBlock < ir->idx->size, "Current block %d is out of bounds %d",
+                        ir->currentBlock, ir->idx->size);
       if (ir->currentBlock + 1 == ir->idx->size) {
         // We're at the end of the last block...
         goto eof;
@@ -1014,7 +1016,9 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     goto eof;
   }
 
-  if (IR_CURRENT_BLOCK(ir).lastId < docId || BufferReader_AtEnd(&ir->br)) {
+  const t_docId lastIdOfCurrentBlock = IR_CURRENT_BLOCK(ir).lastId;
+  if (lastIdOfCurrentBlock < docId || (BufferReader_AtEnd(&ir->br) && lastIdOfCurrentBlock != docId)) {
+    // We need to skip to a next block since the requested doc id isn't in the current block
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
     IndexReader_SkipToBlock(ir, docId);
