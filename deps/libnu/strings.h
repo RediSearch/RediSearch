@@ -14,16 +14,6 @@
  * codepoint, but will go further than 3rd byte while reading "б".
  */
 
-/** @defgroup transformations Codepoint transformations
- *
- * @example folding.c
- */
-
-/** @defgroup transformations_internal Codepoint transformations (internal)
- *
- * @example special_casing.c
- */
-
 #include <stdint.h>
 #include <sys/types.h>
 
@@ -34,7 +24,10 @@
 extern "C" {
 #endif
 
-/** @defgroup iterators Iterators
+/**
+ * @defgroup iterators Iterators
+ * @defgroup transformations Codepoint transformations
+ * @defgroup transformations_internal Codepoint transformations (internal)
  */
 
 /** Read (decode) iterator

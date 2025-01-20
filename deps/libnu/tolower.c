@@ -5,7 +5,11 @@
 #ifdef NU_WITH_TOLOWER
 
 #include "casemap_internal.h"
-#include "gen/_tolower.c"
+#ifndef NU_WITH_BMP_ONLY
+# include "gen/_tolower.c"
+#else
+# include "gen/_tolower_compact.c"
+#endif /* NU_WITH_BMP_ONLY */
 
 /* in nu_casemap_read (UTF-8), zero-terminated */
 static const char *__nu_final_sigma = "ς";
@@ -32,8 +36,6 @@ const char* _nu_tolower(const char *encoded, const char *limit, nu_read_iterator
 	 *
 	 * this is the only language-independent exception described in
 	 * SpecialCasing.txt (Unicode 7.0) */
-
-	assert(nu_casemap_read == nu_utf8_read);
 
 	if (_u == 0x03A3) {
 		if (np >= limit) {
