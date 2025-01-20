@@ -2190,32 +2190,15 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   const char* error;
   // Get the memory limit and memory usage
   setMemoryInfo(ctx);
-  if(used_memory > 0.8 * memoryLimit) {
-      error = "Used memory is more than 80% of max memory, cancelling the scan";
+  if (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit/100) * memoryLimit) {
+      error = "Used memory is more than 80%% of max memory, cancelling the scan";
       RedisModule_Log(ctx, "warning", error);
       scanner->cancelled = true;
   }
 
-  if(scanner->cancelled) {
-    // We need to report the error message besides the log, so we can show it in FT.INFO
-    if(scanner->global) {
-      // Dvirdu: Do we really get here?
-    } else {
-      StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
-      IndexSpec *sp = StrongRef_Get(curr_run_ref);
-      if (sp) {
-        IndexSpec_SetIndexErrorMessage(sp, error, keyname);
-        StrongRef_Release(curr_run_ref);
-      } else {
-        // spec was deleted
-        RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (index deleted)",
-                      scanner->spec_name);
-      }
-    }
-
+  if (scanner->cancelled) {
     return;
   }
-
   // RMKey it is provided as best effort but in some cases it might be NULL
   bool keyOpened = false;
   if (!key) {
@@ -2247,8 +2230,6 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
       StrongRef_Release(curr_run_ref);
     } else {
       // spec was deleted, cancel scan
-      RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (index deleted)",
-                      scanner->spec_name);
       scanner->cancelled = true;
     }
   }
@@ -3037,7 +3018,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         RedisModuleString *rmskey = IndexSpec_GetFormattedKey(spec, spec->fields + i, INDEXFLD_T_VECTOR);
-        VecSimIndex *vecsim = openVectorIndex(spec, rmskey, DONT_CREATE_INDEX); 
+        VecSimIndex *vecsim = openVectorIndex(spec, rmskey, DONT_CREATE_INDEX);
         if(!vecsim)
           continue;
         VecSimIndex_DeleteVector(vecsim, id);

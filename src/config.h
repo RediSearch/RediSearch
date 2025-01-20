@@ -151,6 +151,8 @@ typedef struct {
   int prioritizeIntersectUnionChildren;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
+  // Limit the memory ration used until we stop indexing
+  uint32_t indexingMemoryLimit;
 } RSConfig;
 
 typedef enum {
@@ -257,6 +259,7 @@ void UpgradeDeprecatedMTConfigs();
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 #define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
+#define DEFAULT_INDEXING_MEMORY_LIMIT 80
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
@@ -298,7 +301,8 @@ void UpgradeDeprecatedMTConfigs();
     .multiTextOffsetDelta = DEFAULT_MULTI_TEXT_SLOP,                           \
     .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,          \
     .prioritizeIntersectUnionChildren = false,                                 \
-    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                             \
+    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                             \
+    .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT                       \
   }
 
 #define REDIS_ARRAY_LIMIT 7
