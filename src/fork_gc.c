@@ -1215,7 +1215,6 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     // fork process
     setpriority(PRIO_PROCESS, getpid(), 19);
     close(gc->pipefd[GC_READERFD]);
-    // Pass the index to the child process
     FGC_childScanIndexes(gc);
     close(gc->pipefd[GC_WRITERFD]);
     sleep(RSGlobalConfig.forkGcSleepBeforeExit);
@@ -1234,12 +1233,30 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
       gcrv = 1;
     }
     close(gc->pipefd[GC_READERFD]);
+
+    if (gc->type == FGC_TYPE_NOKEYSPACE) {
+      // If we are not in key space we still need to acquire the GIL to use the fork api
+      RedisModule_ThreadSafeContextLock(ctx);
+    }
+
+    if (!FGC_lock(gc, ctx)) {
+      if (gc->type == FGC_TYPE_NOKEYSPACE) {
+        RedisModule_ThreadSafeContextUnlock(ctx);
+      }
+
+      return 0;
+    }
+
     // KillForkChild must be called when holding the GIL
     // otherwise it might cause a pipe leak and eventually run
     // out of file descriptor
-    RedisModule_ThreadSafeContextLock(ctx);
     RedisModule_KillForkChild(cpid);
-    RedisModule_ThreadSafeContextUnlock(ctx);
+
+    if (gc->type == FGC_TYPE_NOKEYSPACE) {
+      RedisModule_ThreadSafeContextUnlock(ctx);
+    }
+
+    FGC_unlock(gc, ctx);
   }
   IndexsGlobalStats_UpdateLogicallyDeleted(-num_docs_to_clean);
   gc->execState = FGC_STATE_IDLE;
