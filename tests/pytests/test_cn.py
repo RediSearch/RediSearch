@@ -55,15 +55,14 @@ Redis支持主从同步。数据可以从主服务器向任意数量的从服务
     env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', txt)
     # Should not crash!
     env.cmd('ft.search', 'idx', 'redis', 'highlight')
+    env.flush()
 
-    # Tests with LANGUAGE_FIELD = __language
-    env.cmd('ft.create', 'idx2', 'ON', 'HASH', 'LANGUAGE_FIELD', '__language',
-            'schema', 'txt', 'text')
-    waitForIndex(env, 'idx2')
-    env.cmd('ft.add', 'idx2', 'doc2', 1.0, 'language', 'chinese',
-            'fields', 'txt', txt)
+    # Test with LANGUAGE_FIELD = __language
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE_FIELD', '__language', 'schema', 'txt', 'text')
+    waitForIndex(env, 'idx')
+    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', txt)
     # Should not crash!
-    env.cmd('ft.search', 'idx2', 'redis', 'highlight')
+    env.cmd('ft.search', 'idx', 'redis', 'highlight')
 
 def testTradSimp(env):
     # Ensure that traditional chinese characters get converted to their simplified variants
@@ -117,6 +116,17 @@ def testSynonym(env):
     txt = r"""
 测试 同义词 功能
 """
+    # This test sets LANGUAGE_FIELD to a field that is not part of the document
+    env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE_FIELD', 'chinese', 'schema', 'txt', 'text')
+    waitForIndex(env, 'idx')
+    env.cmd('ft.synupdate', 'idx', 'group1', '同义词', '近义词')
+    env.cmd('ft.add', 'idx', 'doc1', 1.0, 'language', 'chinese', 'fields', 'txt', txt)
+    r = env.cmd('ft.search', 'idx', '近义词', 'language', 'chinese')
+    env.assertEqual(1, r[0])
+    env.assertContains('doc1', r)
+    env.flush()
+
+    # Test with LANGUAGE_FIELD = __language
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'LANGUAGE_FIELD', '__language', 'schema', 'txt', 'text')
     waitForIndex(env, 'idx')
     env.cmd('ft.synupdate', 'idx', 'group1', '同义词', '近义词')
