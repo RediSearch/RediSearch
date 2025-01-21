@@ -396,6 +396,7 @@ class TestQueryDebugCommands(object):
     def __init__(self):
         # self.workers_count = 2
         # self.env = Env(testName="testing query debug commands", moduleArgs=f'WORKERS {self.workers_count}')
+        # self.env = Env(testName="testing query debug commands", protocol=protocol, moduleArgs=f'WORKERS {workers_count}')
         self.env = Env(testName="testing query debug commands", protocol=3)
 
         conn = getConnectionByEnv(self.env)
@@ -455,20 +456,20 @@ class TestQueryDebugCommands(object):
         res = env.cmd(*basic_query, *debug_params)
         self.verifyResults(res, 0, "QueryDebug:", depth=depth+1)
 
-    def QueryWithSorter(self, sortby_params=[], depth=0):
+    def QueryWithSorter(self, limit=2, sortby_params=[], depth=0):
         # For queries with sorter, the LIMIT determines the heap size.
         # The sorter will continue to ask for results until it gets timeout or EOF.
         # the number of results in this case is the minimum between the LIMIT and the TIMEOUT_AFTER_N counter.
 
         # Therefor, as opposed to queries without sorter and LIMIT < TIMEOUT_AFTER_N,
         # we will get LIMIT results *and* TIMEOUT warning.
-        limit = 2
         res = self.QueryWithLimit([*self.basic_query, *sortby_params], timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=True, depth=depth+1)
         res_values = [doc_content['extra_attributes']['n'] for doc_content in res["results"]]
         self.env.assertTrue(res_values == sorted(res_values), depth=depth+1, message="QueryWithSorter: expected sorted results")
         self.env.assertTrue(len(res_values) == len(set(res_values)), depth=depth+1, message="QueryWithSorter: expected unique results")
 
-    def testSearchDebug(self):
+    ######################## Main tests ########################
+    def SearchDebug(self):
         self.setBasicQuery("SEARCH")
         basic_query = self.basic_query
         self.QueryDebug()
@@ -487,7 +488,14 @@ class TestQueryDebugCommands(object):
         # with no sorter (dialect 4)
         self.QueryWithLimit(basic_query, timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
 
-    def testAggregateDebug(self):
+    def testSearchDebug(self):
+        self.SearchDebug()
+
+    def testSearchDebug_MT(self):
+        self.env.expect(config_cmd(), 'SET', 'WORKERS', 4).ok()
+        self.SearchDebug()
+
+    def AggregateDebug(self):
         env = self.env
         self.setBasicQuery("AGGREGATE")
         basic_query = self.basic_query
@@ -497,7 +505,7 @@ class TestQueryDebugCommands(object):
         limit = 2
         res = self.QueryWithLimit(basic_query, timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=False)
 
-        self.QueryWithSorter(['sortby', 1, '@n', 'load', 1, '@n'])
+        self.QueryWithSorter(sortby_params=['sortby', 1, '@n', 'load', 1, '@n'])
 
         # with cursor
         timeout_res_count = 200
@@ -550,3 +558,34 @@ class TestQueryDebugCommands(object):
         res, cursor = env.cmd(*cursor_query, 'LIMIT', 0, limit, *debug_params)
         should_timeout = False
         self.verifyResults(res, cursor_count, should_timeout=should_timeout, message="AggregateDebug with cursor count lower than timeout_res_count:")
+
+    def testAggregateDebug(self):
+        self.AggregateDebug()
+
+
+    def testAggregateDebug_MT(self):
+        self.env.expect(config_cmd(), 'SET', 'WORKERS', 4).ok()
+        self.AggregateDebug()
+
+    # compare results of regular query and debug query
+    def Sanity(self, cmd, sortby_n):
+        # avoid running this test in cluster mode, as it relies on the order of the results
+        skipTest(cluster=True)
+        env = self.env
+        results_count = 200
+        timeout_res_count = results_count - 1
+        query = ['FT.' + cmd, 'idx', '*', *sortby_n, 'LIMIT', 0, results_count]
+        debug_params = ["TIMEOUT_AFTER_N", timeout_res_count, "DEBUG_PARAMS_COUNT", 2]
+        # We rely on the fact that search sorts the results according to the doc id.
+        # expect that the first timeout_res_count of the regular query will be the same as the debug query
+        regular_res = env.cmd(*query)
+        debug_res = env.cmd(debug_cmd(), *query, *debug_params)
+        self.verifyResults(debug_res, timeout_res_count, f"{cmd} Sanity: compare regular and debug results", should_timeout=True)
+
+        for i in range(timeout_res_count):
+            env.assertEqual(regular_res["results"][i], debug_res["results"][i], message=f"Sanity: compare regular and debug results at index {i}")
+
+    def testSearchSanity(self):
+        self.Sanity("SEARCH", ['SORTBY', 'n'])
+    def testAggSanity(self):
+        self.Sanity("AGGREGATE", ['SORTBY', 1, '@n'])
