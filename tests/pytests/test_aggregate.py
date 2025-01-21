@@ -1408,3 +1408,11 @@ def testErrorStatsResp3():
             'REDUCE', 'count', '0', 'AS', 'count', 'SORTBY', '2', '@n', 'DESC')
         res = conn.execute_command('info', 'errorstats')
         env.assertEqual(res, expected_errorstats)
+
+def testAggregateBadLoadArgs(env):
+    """Tests that we get a proper error message when passing bad arguments to LOAD"""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'title').error() \
+        .contains('Bad arguments for LOAD: Expected an argument')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 'lali').error() \
+        .contains('Bad arguments for LOAD: Could not convert argument to expected type')

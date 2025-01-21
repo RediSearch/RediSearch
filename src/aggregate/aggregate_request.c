@@ -842,7 +842,8 @@ static void loadDtor(PLN_BaseStep *bstp) {
 static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
   int rc = AC_GetVarArgs(ac, &loadfields);
-  if (rc != AC_OK) {
+  if (rc == AC_ERR_PARSE) {
+    // Didn't get a number, but we might have gotten a '*'
     const char *s = NULL;
     rc = AC_GetString(ac, &s, NULL, 0);
     if (rc != AC_OK || strcmp(s, "*")) {
@@ -850,6 +851,9 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
       return REDISMODULE_ERR;
     }
     req->reqflags |= QEXEC_AGG_LOAD_ALL;
+  } else if (rc != AC_OK) {
+    QERR_MKBADARGS_AC(status, "LOAD", rc);
+    return REDISMODULE_ERR;
   }
 
   PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
