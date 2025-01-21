@@ -37,7 +37,7 @@ static int MRConn_SendAuth(MRConn *conn);
   fprintf(stderr, "[%p %s:%d %s]" fmt "\n", conn, conn->ep.host, conn->ep.port, \
           MRConnState_Str((conn)->state), ##__VA_ARGS__)
 
-/** detaches from our redis context */
+/* detaches from our redis context */
 static redisAsyncContext *detachFromConn(MRConn *conn, int shouldFree) {
   if (!conn->conn) {
     return NULL;
@@ -425,8 +425,10 @@ static int MRConn_SendAuth(MRConn *conn) {
   CONN_LOG(conn, "Authenticating...");
 
   // if we failed to send the auth command, start a reconnect loop
-  if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn, "AUTH %s %s", clusterConfig.aclUsername, conn->ep.password) ==
-      REDIS_ERR) {
+  size_t len = 0;
+  const char *internal_secret = RedisModule_GetInternalSecret(NULL, &len);
+  if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn,
+      "INTERNALAUTH %s", internal_secret) == REDIS_ERR) {
     MRConn_SwitchState(conn, MRConn_ReAuth);
     return REDIS_ERR;
   } else {
@@ -627,16 +629,11 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     if (ssl_context) SSL_CTX_free(ssl_context);
   }
 
-  // If this is an authenticated connection, we need to authenticate
-  if (conn->ep.password) {
-    if (MRConn_SendAuth(conn) != REDIS_OK) {
-      detachFromConn(conn, 1);
-      MRConn_SwitchState(conn, MRConn_Connecting);
-    }
-  } else {
-    MRConn_SwitchState(conn, MRConn_Connected);
+  // We always connect to the shards with an internal connection.
+  if (MRConn_SendAuth(conn) != REDIS_OK) {
+    detachFromConn(conn, 1);
+    MRConn_SwitchState(conn, MRConn_Connecting);
   }
-  // fprintf(stderr, "Connected %s:%d...\n", conn->ep.host, conn->ep.port);
 }
 
 static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
