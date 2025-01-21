@@ -74,7 +74,7 @@ def testAttributes(env):
     env.assertEqual([2, 'doc1', 'doc2'], res)
 
     res = env.cmd(
-        'ft.search', 'idx', '(t3 t5) => {$slop: 4}', 'nocontent')
+        'ft.search', 'idx', '(t3 t5) => {$slop: 4}', 'nocontent', 'scorer', 'TFIDF')
     env.assertEqual([2, 'doc2', 'doc1'], res)
     res = env.cmd(
         'ft.search', 'idx', '(t5 t3) => {$slop: 0}', 'nocontent')
@@ -841,20 +841,17 @@ def testPartial(env):
         'ft.search', 'idx', 'hello', 'nocontent', 'withscores')
     # Updating only indexed field affects search results
     env.expect('ft.add', 'idx', 'doc1', '0.1', 'replace', 'partial', 'fields', 'foo', 'wat wet').ok()
-    res = env.cmd(
-        'ft.search', 'idx', 'hello world', 'nocontent')
+    res = env.cmd('ft.search', 'idx', 'hello world', 'nocontent')
     env.assertEqual([1, 'doc2'], res)
     res = env.cmd('ft.search', 'idx', 'wat', 'nocontent')
     env.assertEqual([1, 'doc1'], res)
 
     # Test updating of score and no fields
-    res = env.cmd(
-        'ft.search', 'idx', 'wat', 'nocontent', 'withscores')
+    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'TFIDF')
     env.assertLess(float(res[2]), 1)
     # env.assertEqual([1, 'doc1'], res)
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'replace', 'partial', 'fields').ok()
-    res = env.cmd(
-        'ft.search', 'idx', 'wat', 'nocontent', 'withscores')
+    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'TFIDF')
     # We reindex though no new fields, just score is updated. this effects score
     env.assertEqual(float(res[2]), 1)
 
@@ -1037,7 +1034,7 @@ def testSortBy(env):
                           'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
 
         res = env.cmd('ft.search', 'idx', 'world', 'nocontent',
-                                'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
+                                'sortby', 'bar', 'desc', 'withscores', 'scorer', 'TFIDF', 'limit', '2', '5')
         env.assertEqual(
             [100, 'doc2', '1', 'doc3', '1', 'doc4', '1', 'doc5', '1', 'doc6', '1'], res)
 
@@ -1084,7 +1081,7 @@ def testSortByWithoutSortable(env):
                           'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
 
         res = env.cmd('ft.search', 'idx', 'world', 'nocontent',
-                                'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
+                                'sortby', 'bar', 'desc', 'withscores', 'scorer', 'TFIDF', 'limit', '2', '5')
         env.assertEqual(
             [100, 'doc2', '1', 'doc3', '1', 'doc4', '1', 'doc5', '1', 'doc6', '1'], res)
 
@@ -1101,8 +1098,8 @@ def testSortByWithTie(env):
         conn.execute_command('hset', i, 't', 'hello')
 
     # Assert that the order of results is the same in both configurations (by ascending id).
-    res1 = env.cmd('ft.search', 'idx', 'hello', 'nocontent')
-    res2 = env.cmd('ft.search', 'idx', 'hello', 'nocontent', 'sortby', 't')
+    res1 = env.cmd('ft.search', 'idx', 'hello', 'nocontent', 'SCORER', 'TFIDF')
+    res2 = env.cmd('ft.search', 'idx', 'hello', 'nocontent', 'SCORER', 'TFIDF', 'sortby', 't')
     env.assertEqual(res1, res2)
 
 
@@ -1825,8 +1822,7 @@ def testReturning(env):
     with env.assertResponseError():
         res = env.cmd('ft.search', 'idx', 'val*', 'return', 700, 'nonexist')
 
-def _test_create_options_real(env, *options):
-    options = [x for x in options if x]
+def _test_create_options_real(env, options: list):
     has_offsets = 'NOOFFSETS' not in options
     has_fields = 'NOFIELDS' not in options
     has_freqs = 'NOFREQS' not in options
@@ -1856,7 +1852,7 @@ def _test_create_options_real(env, *options):
                      1.0, 'fields', 'f1', 'foo bar')
     env.assertCmdOk('ft.add', 'idx', 'doc200', 1.0,
                      'fields', 'f1', ('foo ' * 10) + ' bar')
-    res = env.cmd('ft.search', 'idx', 'foo')
+    res = env.cmd('ft.search', 'idx', 'foo', 'scorer', 'TFIDF')
     env.assertEqual(2, res[0])
     if has_offsets:
         docname = res[1]
@@ -1876,9 +1872,10 @@ def _test_create_options_real(env, *options):
 
 def testCreationOptions(env):
     from itertools import combinations
-    for x in range(1, 5):
-        for combo in combinations(('NOOFFSETS', 'NOFREQS', 'NOFIELDS', ''), x):
-            _test_create_options_real(env, *combo)
+    options = ('NOOFFSETS', 'NOFREQS', 'NOFIELDS')
+    for x in range(len(options) + 1):
+        for combo in combinations(options, x):
+            _test_create_options_real(env, list(combo))
 
     env.expect('ft.create', 'idx').error()
 
