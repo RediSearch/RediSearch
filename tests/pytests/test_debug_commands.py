@@ -53,6 +53,10 @@ class TestDebugCommands(object):
             "DUMP_HNSW",
             "SET_MONITOR_EXPIRATION",
             "WORKERS",
+            'FT.AGGREGATE',
+            '_FT.AGGREGATE',
+            'FT.SEARCH',
+            '_FT.SEARCH',
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
@@ -362,29 +366,187 @@ def testSpecIndexesInfo(env: Env):
 
 def testVecsimInfo_badParams(env: Env):
 
-    # Scenerio1: Vecsim Index scheme with vector type with invalid parameter 
+    # Scenerio1: Vecsim Index scheme with vector type with invalid parameter
 
     # HNSW parameters the causes an execution throw (M > UINT16_MAX)
     UINT16_MAX = 2**16
     M = UINT16_MAX + 1
     dim = 2
     env.expect('FT.CREATE', 'idx','SCHEMA','v', 'VECTOR', 'HNSW', '8',
-                'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()   
+                'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
     env.expect(debug_cmd(), 'VECSIM_INFO', 'idx','v').error() \
         .contains("Can't open vector index")
 
 def testHNSWdump_badParams(env: Env):
-    # Scenerio1: Vecsim Index scheme with vector type with invalid parameter 
+    # Scenerio1: Vecsim Index scheme with vector type with invalid parameter
 
     # HNSW parameters the causes an execution throw (M > UINT16_MAX)
     UINT16_MAX = 2**16
     M = UINT16_MAX + 1
     dim = 2
     env.expect('FT.CREATE', 'idx','SCHEMA','v', 'VECTOR', 'HNSW', '8',
-                'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()   
-    
+                'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
+
     # Test dump HNSW with invalid index name
     # If index error is "Can't open vector index" then function tries to accsses null pointer
     env.expect(debug_cmd(), 'DUMP_HNSW', 'idx','v').error() \
         .contains("Can't open vector index")
-    
+
+class TestQueryDebugCommands(object):
+    def __init__(self):
+        # self.workers_count = 2
+        # self.env = Env(testName="testing query debug commands", moduleArgs=f'WORKERS {self.workers_count}')
+        self.env = Env(testName="testing query debug commands", protocol=3)
+
+        conn = getConnectionByEnv(self.env)
+
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+        waitForIndex(self.env, 'idx')
+        self.num_docs = 1500 * self.env.shardsCount
+        for i in range(self.num_docs):
+            conn.execute_command('HSET', f'doc{i}' ,'n', i)
+
+        self.basic_query = []
+
+    def setBasicQuery(self, cmd):
+        self.basic_query = [debug_cmd(), 'FT.' + cmd, 'idx', '*']
+
+    def verifyWarning(self, res, message, should_timeout=True, depth=0):
+        if should_timeout:
+            self.env.assertTrue(res['warning'], depth=depth+1, message=message + " expected warning")
+            if (res['warning']):
+                self.env.assertContains("Timeout", res["warning"][0], depth=depth+1, message=message + " expected timeout warning")
+        else:
+            self.env.assertFalse(res['warning'], depth=depth+1, message=message + " unexpected warning")
+
+
+    def verifyResults(self, res, expected_results_count, message, should_timeout=True, depth=0):
+        env = self.env
+        env.assertEqual(len(res["results"]), expected_results_count, depth=depth+1, message=message + " unexpected results count")
+        self.verifyWarning(res, message, should_timeout=should_timeout, depth=depth+1)
+
+    def QueryWithLimit(self, query, timeout_res_count, limit, expected_res_count, should_timeout=False, message="", depth=0):
+        env = self.env
+        debug_params = ['TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2]
+        res = env.cmd(*query, 'LIMIT', 0, limit, *debug_params)
+        self.verifyResults(res, expected_res_count, message=message + " QueryWithLimit:", should_timeout=should_timeout, depth=depth+1)
+
+        return res
+
+    def QueryDebug(self, depth=0):
+        env = self.env
+        basic_query = self.basic_query
+
+        # Test invalid params
+        # expected_cmd = [debug_cmd(), 'FT.' + cmd, 'idx', '*', 'TIMEOUT_AFTER_N', 3, 'DEBUG_PARAMS_COUNT', 2]
+        env.expect(*basic_query).error().contains('wrong number of arguments for')
+
+        basic_query_with_args = [*basic_query, 'limit', 0, 0, 'timeout', 10000] # add random params to reach the minimum required
+        env.expect(*basic_query_with_args).error().contains('DEBUG_PARAMS_COUNT arg is missing')
+        test_cmd = [*basic_query_with_args, 'DEBUG_PARAMS_COUNT', 'meow'] # expect a number
+        env.expect(*test_cmd).error().contains('Invalid DEBUG_PARAMS_COUNT count')
+
+        # in this case we try to parse [*basic_query, 'limit', 0, 0, 'TIMEOUT'] so TIMEOUT count is missing
+        test_cmd = [*basic_query_with_args, 'MEOW', 'DEBUG_PARAMS_COUNT', 2]
+        env.expect(*test_cmd).error().contains('argument for TIMEOUT')
+
+        # ft.<cmd> idx * TIMEOUT_AFTER_N 0 -> expect empty result
+        debug_params = ['TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2]
+        res = env.cmd(*basic_query, *debug_params)
+        self.verifyResults(res, 0, "QueryDebug:", depth=depth+1)
+
+    def QueryWithSorter(self, sortby_params=[], depth=0):
+        # For queries with sorter, the LIMIT determines the heap size.
+        # The sorter will continue to ask for results until it gets timeout or EOF.
+        # the number of results in this case is the minimum between the LIMIT and the TIMEOUT_AFTER_N counter.
+
+        # Therefor, as opposed to queries without sorter and LIMIT < TIMEOUT_AFTER_N,
+        # we will get LIMIT results *and* TIMEOUT warning.
+        limit = 2
+        res = self.QueryWithLimit([*self.basic_query, *sortby_params], timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=True, depth=depth+1)
+        res_values = [doc_content['extra_attributes']['n'] for doc_content in res["results"]]
+        self.env.assertTrue(res_values == sorted(res_values), depth=depth+1, message="QueryWithSorter: expected sorted results")
+        self.env.assertTrue(len(res_values) == len(set(res_values)), depth=depth+1, message="QueryWithSorter: expected unique results")
+
+    def testSearchDebug(self):
+        self.setBasicQuery("SEARCH")
+        basic_query = self.basic_query
+        self.QueryDebug()
+
+        timeout_res_count = 4
+
+        # FT.SEARCH with coord doesn't have a timeout check, therefore it will return shards * timeout_res_count results
+        expected_results_count = self.env.shardsCount * timeout_res_count
+        # set LIMIT to be larger than the expected results count
+        limit = expected_results_count + 1
+        self.QueryWithLimit(basic_query, timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
+
+        # SEARCH always has a sorter
+        self.QueryWithSorter()
+
+        # with no sorter (dialect 4)
+        self.QueryWithLimit(basic_query, timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
+
+    def testAggregateDebug(self):
+        env = self.env
+        self.setBasicQuery("AGGREGATE")
+        basic_query = self.basic_query
+        self.QueryDebug()
+
+        # EOF will be reached before the timeout counter
+        limit = 2
+        res = self.QueryWithLimit(basic_query, timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=False)
+
+        self.QueryWithSorter(['sortby', 1, '@n', 'load', 1, '@n'])
+
+        # with cursor
+        timeout_res_count = 200
+        limit = self.num_docs
+        cursor_count = 600 # higher than timeout_res_count, but lower than limit
+        debug_params = ["TIMEOUT_AFTER_N", timeout_res_count, "DEBUG_PARAMS_COUNT", 2]
+        cursor_query = [*basic_query, 'WITHCURSOR', 'COUNT', cursor_count]
+        res, cursor = env.cmd(*cursor_query, 'LIMIT', 0, limit, *debug_params)
+        self.verifyResults(res, timeout_res_count, "AggregateDebug with cursor:")
+
+        iter = 0
+        total_returned = len(res['results'])
+        expected_results_per_iter = timeout_res_count
+
+        should_timeout = True
+        check_res_count = True
+        while (cursor):
+            # The counter of timeout simulator rp is initialized to timeout_res_count and decreases with each result returned from the upstream rp.
+            # In cluster mode, RPNet_next (the upstream rp) checks for timeouts at the end/start of reading each shard's reply.
+            # i.e we will always consume the entire chunk of results from each shard before checking for timeout.
+            # If some shards returns fewer than timeout_res_count results (due to EOF), we will continue to read replies until
+            # the sum of their results exceeds timeout_res_count.
+            # if the sum of results from all shards exceeds timeout_res_count but *each* shard individually returns fewer:
+            # no timeout warning is issued, the cursor is depleted.
+            # if the sum of results from all shards exceeds timeout_res_count but *one* shard returns timeout_res_count:
+            # we will get a timeout warning, and a valid cursor id.
+            remaining = limit - total_returned
+            if remaining <= timeout_res_count * env.shardsCount:
+                # we don't know how many results are left in each shard, check only timeout
+                if env.isCluster():
+                    check_res_count = False
+                else:
+                    # in a single shard the next read will return EOF
+                    expected_results_per_iter = remaining
+            res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+            total_returned += len(res['results'])
+            if cursor == 0:
+                should_timeout = False
+
+            if check_res_count == False:
+                self.verifyWarning(res, f"AggregateDebug with cursor: iter: {iter}, total_returned: {total_returned}", should_timeout=should_timeout)
+            else:
+                self.verifyResults(res, expected_results_per_iter, f"AggregateDebug with cursor: iter: {iter}, total_returned: {total_returned}", should_timeout=should_timeout)
+            iter += 1
+        env.assertEqual(total_returned, self.num_docs, message=f"AggregateDebug with cursor: depletion took {iter} iterations")
+
+        # cursor count smaller than timeout count, expect no timeout
+        cursor_count = timeout_res_count // 2
+        cursor_query = [*basic_query, 'WITHCURSOR', 'COUNT', cursor_count]
+        res, cursor = env.cmd(*cursor_query, 'LIMIT', 0, limit, *debug_params)
+        should_timeout = False
+        self.verifyResults(res, cursor_count, should_timeout=should_timeout, message="AggregateDebug with cursor count lower than timeout_res_count:")
