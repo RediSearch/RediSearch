@@ -2995,10 +2995,14 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
+  // Coord callback
+  ConcurrentCmdHandler dist_callback = RSExecDistAggregate;
+
   bool isDebug = (RMUtil_ArgIndex("_FT.DEBUG", argv, 1) != -1);
   if (isDebug) {
     argv++;
     argc--;
+    dist_callback = DEBUG_RSExecDistAggregate;
   }
 
   // Prepare the spec ref for the background thread
@@ -3020,16 +3024,13 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
-    if (!isDebug) return RSAggregateCommand(ctx, argv, argc);
-    return DEBUG_RSAggregateCommand(ctx, argv, argc);
+    return RSAggregateCommand(ctx, argv, argc);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
 
-  ConcurrentCmdHandler callback = !isDebug ? RSExecDistAggregate : DEBUG_RSExecDistAggregate;
-
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
-                                               callback, ctx, argv, argc,
+                                               dist_callback, ctx, argv, argc,
                                                StrongRef_Demote(spec_ref));
 }
 
@@ -3165,10 +3166,16 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
   }
 }
 
+static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
+  RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
+  QueryError_ReplyAndClear(clientCtx, status);
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
+  RedisModule_UnblockClient(bc, NULL);
+  RedisModule_FreeThreadSafeContext(clientCtx);
+}
 
 static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBlockedClient *bc, int protocol,
-      RedisModuleString **argv, int argc, WeakRef spec_ref, QueryError *status) {
-
+  RedisModuleString **argv, int argc, WeakRef spec_ref, QueryError *status) {
 
   cmd->protocol = protocol;
 
@@ -3203,13 +3210,9 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
     MRCommand_Free(cmd);
-
-    RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
     QueryError_SetCode(status, QUERY_EDROPPEDBACKGROUND);
-    QueryError_ReplyAndClear(clientCtx, status);
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, NULL);
-    RedisModule_FreeThreadSafeContext(clientCtx);
+
+    bailOut(bc, status);
     return REDISMODULE_ERR;
   }
 
@@ -3237,18 +3240,14 @@ static searchRequestCtx *createReq(RedisModuleString **argv, int argc, RedisModu
   searchRequestCtx *req = rscParseRequest(argv, argc, status);
 
   if (!req) {
-    RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
-    RedisModule_ReplyWithError(clientCtx, QueryError_GetError(status));
-    QueryError_ClearError(status);
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, NULL);
-    RedisModule_FreeThreadSafeContext(clientCtx);
+    bailOut(bc, status);
     return NULL;
   }
   return req;
 }
+
 int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
-      RedisModuleString **argv, int argc, WeakRef spec_ref) {
+  RedisModuleString **argv, int argc, WeakRef spec_ref) {
   QueryError status = {0};
 
   searchRequestCtx *req = createReq(argv, argc, bc, &status);
@@ -3271,9 +3270,14 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
 }
 
 int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
-      RedisModuleString **argv, int argc, WeakRef spec_ref) {
+  RedisModuleString **argv, int argc, WeakRef spec_ref) {
   QueryError status = {0};
   AREQ_Debug_params debug_params = parseDebugParams(argv, argc, &status);
+
+  if (debug_params.debug_params_count == 0) {
+    bailOut(bc, &status);
+    return REDISMODULE_OK;
+  }
 
   int debug_argv_count = debug_params.debug_params_count + 2;
   int base_argc = argc - debug_argv_count;
@@ -3357,10 +3361,14 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
+  // Coord callback
+  void (*dist_callback)(void *) = DistSearchCommandHandler;
+
   bool isDebug = (RMUtil_ArgIndex("_FT.DEBUG", argv, 1) != -1);
   if (isDebug) {
     argv++;
     argc--;
+    dist_callback = DEBUG_DistSearchCommandHandler;
   }
 
   // Prepare spec ref for the background thread
@@ -3382,8 +3390,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
-    if (!isDebug) return RSSearchCommand(ctx, argv, argc);
-    return DEBUG_RSSearchCommand(ctx, argv, argc);
+    return RSSearchCommand(ctx, argv, argc);
   } else if (cannotBlockCtx(ctx)) {
     return ReplyBlockDeny(ctx, argv[0]);
   }
@@ -3402,8 +3409,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
   RedisModule_BlockedClientMeasureTimeStart(bc);
 
-  void (*callback)(void *) = !isDebug ? DistSearchCommandHandler : DEBUG_DistSearchCommandHandler;
-  ConcurrentSearch_ThreadPoolRun(callback, sCmdCtx, DIST_AGG_THREADPOOL);
+  ConcurrentSearch_ThreadPoolRun(dist_callback, sCmdCtx, DIST_AGG_THREADPOOL);
 
   return REDISMODULE_OK;
 }
@@ -3498,6 +3504,11 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   return REDISMODULE_OK;
 }
+
+size_t GetNumShards_UnSafe() {
+  return NumShards;
+}
+
 
 /** A dummy command handler, for commands that are disabled when running the module in OSS
  * clusters

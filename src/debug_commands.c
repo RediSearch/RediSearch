@@ -1304,6 +1304,36 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+DEBUG_COMMAND(DistSearchCommand_DebugWrapper) {
+  // at least one debug_param should be provided
+  // (1)_FT.DEBUG (2)FT.SEARCH (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (GetNumShards_UnSafe() == 1) {
+    // skip _FT.DEBUG
+    return DEBUG_RSSearchCommand(ctx, ++argv, --argc);
+  }
+
+  DistSearchCommand(ctx, argv, argc);
+}
+
+DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
+  // at least one debug_param should be provided
+  // (1)_FT.DEBUG (2)FT.AGGREGATE (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (GetNumShards_UnSafe() == 1) {
+    // skip _FT.DEBUG
+    return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
+  }
+
+  DistAggregateCommand(ctx, argv, argc);
+}
+
 DEBUG_COMMAND(RSSearchCommandShard) {
   DEBUG_RSSearchCommand(ctx, ++argv, --argc);
 }
@@ -1343,9 +1373,9 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_HNSW", dumpHNSWData},
                                {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
                                {"WORKERS", WorkerThreadsSwitch},
-                               {"FT.AGGREGATE", DistAggregateCommand},
+                               {"FT.AGGREGATE", DistAggregateCommand_DebugWrapper},
                                {"_FT.AGGREGATE", RSAggregateCommandShard}, // internal use only, in SA use FT.AGGREGATE
-                               {"FT.SEARCH", DistSearchCommand},
+                               {"FT.SEARCH", DistSearchCommand_DebugWrapper},
                                {"_FT.SEARCH", RSSearchCommandShard}, // internal use only, in SA use FT.SEARCH
                                {NULL, NULL}};
 
