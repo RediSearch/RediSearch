@@ -1415,4 +1415,4 @@ def testAggregateBadLoadArgs(env):
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'title').error() \
         .contains('Bad arguments for LOAD: Expected an argument')
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 'lali').error() \
-        .contains('Bad arguments for LOAD: Could not convert argument to expected type')
+        .contains("Bad arguments for LOAD: Expected number of fields or `*`")
