@@ -22,7 +22,8 @@
 extern "C" {
 #endif
 
-#define PROXY_FILTERED "_proxy-filtered"
+#define CMD_PROXY_FILTERED "_proxy-filtered"
+#define CMD_INTERNAL "internal"
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
