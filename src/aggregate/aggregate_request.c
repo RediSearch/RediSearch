@@ -849,7 +849,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
     if (rc != AC_OK) {
       QERR_MKBADARGS_AC(status, "LOAD", rc);
       return REDISMODULE_ERR;
-    } else if (rc == AC_OK && strcmp(s, "*")) {
+    } else if (strcmp(s, "*")) {
       QERR_MKBADARGS_FMT(status, "Bad arguments for LOAD: Expected number of fields or `*`");
       return REDISMODULE_ERR;
     }
