@@ -61,7 +61,10 @@
 
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 #define NOPERM_ERR "-NOPERM User does not have the required permissions to query the index"
-#define IS_INTERNAL_COMMAND(command) (!strncmp(command, "_", 1))
+// Internal commands: Start with an underscore ("_"), but not "_FT.DEBUG *" or "_FT.CONFIG *"
+#define IS_INTERNAL_COMMAND(command) (!strncmp(command, "_", 1)          && \
+                                      strncmp(command, "_FT.CONFIG", 10) && \
+                                      strncmp(command, "_FT.DEBUG", 9))
 
 #define VERIFY_ACL(ctx, idxR)                                                  \
   do {                                                                         \
@@ -1059,8 +1062,8 @@ int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
   bool is_internal = false;
 
   if (IS_INTERNAL_COMMAND(name)) {
-    // Internal command, register to the internal ACL category ONLY
-    categories = SEARCH_ACL_INTERNAL_CATEGORY;
+    // Internal command, do not register to any ACL command category
+    categories = "";
     is_internal = true;
   } else {
     rm_asprintf(&categories, strcmp(aclCategories, "") != 0 ? "%s %s" : "%.0s%s", aclCategories, SEARCH_ACL_CATEGORY);
@@ -1139,12 +1142,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   // Create the `search` ACL command category
   if (RedisModule_AddACLCategory(ctx, SEARCH_ACL_CATEGORY) == REDISMODULE_ERR) {
       RedisModule_Log(ctx, "warning", "Could not add " SEARCH_ACL_CATEGORY " ACL category, errno: %d\n", errno);
-      return REDISMODULE_ERR;
-  }
-
-  // Create the ACL command category for our internal commands
-  if (RedisModule_AddACLCategory(ctx, SEARCH_ACL_INTERNAL_CATEGORY) == REDISMODULE_ERR) {
-      RedisModule_Log(ctx, "warning", "Could not add " SEARCH_ACL_INTERNAL_CATEGORY " ACL category, errno: %d\n", errno);
       return REDISMODULE_ERR;
   }
 
@@ -1245,6 +1242,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write deny-oom",
          INDEX_ONLY_CMD_ARGS, ""))
 
+  // TODO: Add to `admin` ACL category? Condition on the redis `enable-debug-command` config param?
   RM_TRY(RMCreateSearchCommand(ctx, RS_DEBUG, NULL,
          IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", RS_DEBUG_FLAGS, ""))
   RM_TRY_F(RegisterDebugCommands, RedisModule_GetCommand(ctx, RS_DEBUG))

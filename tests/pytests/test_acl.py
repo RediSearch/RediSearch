@@ -7,7 +7,7 @@ INTERNAL_SEARCH_COMMANDS = [
         '_FT.ALIASDEL', '_FT.AGGREGATE', '_FT.ALIASADD', '_FT.ALIASUPDATE',
         '_FT.CURSOR', '_FT.INFO', '_FT.ALTER', '_FT.DICTDEL', '_FT.SYNUPDATE',
         '_FT.SPELLCHECK', '_FT.CREATE', '_FT.DICTADD', '_FT.PROFILE',
-        '_FT.SEARCH', '_FT.DEBUG', '_FT.CONFIG', '_FT.TAGVALS', '_FT._ALTERIFNX',
+        '_FT.SEARCH', '_FT.TAGVALS', '_FT._ALTERIFNX',
         '_FT._ALIASDELIFX', '_FT._ALIASADDIFNX', '_FT._DROPINDEXIFX',
         '_FT.DROPINDEX', '_FT.ADD', '_FT.DROP', '_FT.GET', '_FT._CREATEIFNX',
         '_FT.MGET', '_FT.DEL', '_FT._DROPIFX', '_FT.SAFEADD'
@@ -17,8 +17,7 @@ def test_acl_category(env):
     """Test that the `search` category was added appropriately in module
     load"""
     res = env.cmd('ACL', 'CAT')
-    for category in ['search', '_search_internal']:
-        env.assertContains(category, res)
+    env.assertContains('search', res)
 
 @skip(redis_less_than="8.0")
 def test_acl_search_commands(env):
@@ -37,7 +36,7 @@ def test_acl_search_commands(env):
         'FT._ALIASADDIFNX', 'FT._ALTERIFNX', 'search.CLUSTERSET',
         'search.CLUSTERINFO', 'FT._DROPINDEXIFX', 'FT.DROPINDEX', 'FT.TAGVALS',
         'FT._DROPIFX', 'FT.DROP', 'FT.GET', 'FT.SYNADD', 'FT.ADD', 'FT.MGET',
-        'FT.DEL'
+        'FT.DEL', '_FT.CONFIG', '_FT.DEBUG'
     ]
     if not env.isCluster():
         commands.append('FT.CONFIG')
@@ -45,14 +44,7 @@ def test_acl_search_commands(env):
     # Use a set since the order of the response is not consistent.
     env.assertEqual(set(res), set(commands))
 
-    # ---------------- internal search command category ----------------
-    res = env.cmd('ACL', 'CAT', '_search_internal')
-    commands = INTERNAL_SEARCH_COMMANDS
-
-    # Use a set since the order of the response is not consistent.
-    env.assertEqual(set(res), set(commands))
-
-    # Check that one of our commands is listed in a non-search category
+    # Check that one of our commands is listed in a non-search category (sanity)
     res = env.cmd('ACL', 'CAT', 'read')
     env.assertTrue('FT.SEARCH' in res)
 
@@ -111,7 +103,7 @@ def test_acl_non_default_user(env):
 
         # Add `test` search permissions
         conn.execute_command('AUTH', 'default', '')
-        conn.execute_command('ACL', 'SETUSER', 'test', '+@search', '+@_search_internal')
+        conn.execute_command('ACL', 'SETUSER', 'test', '+@search')
         conn.execute_command('AUTH', 'test', '123')
 
         # `test` should now be able to run `search` commands like `FT.CREATE`
@@ -173,37 +165,6 @@ def test_sug_commands_acl(env):
             env.assertEqual(str(e), "No permissions to access a key")
         res = conn.execute_command('FT.SUGDEL', 'h:test_key', 'hello world')
         env.assertEqual(res, 1)
-
-def test_internal_commands(env):
-    """Tests the internal commands' category"""
-
-    # Create a user with all command permissions (full keyspace and pubsub access)
-    env.expect('ACL', 'SETUSER', 'test', 'on', '>123', '~*', '&*', '+@all').ok()
-    env.expect('AUTH', 'test', '123').true()
-
-    # `test` user should be able to execute internal commands
-    env.expect('_FT.SEARCH', 'idx', '*').error().contains("idx: no such index")
-
-    # Remove the `_search_internal` permissions from the `test` user
-    env.expect('ACL', 'SETUSER', 'test', '-@_search_internal').ok()
-
-    # `test` user should still be able to run non-internal commands
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    env.expect('FT.SEARCH', 'idx', '*').equal([0])
-
-    # Now `test` should not be able to execute RediSearch internal commands
-    # `_FT.DEBUG` has only subcommands, so we check it separately.
-    internal_commands = INTERNAL_SEARCH_COMMANDS[::]
-    internal_commands.remove('_FT.DEBUG')
-    for command in internal_commands:
-        env.expect(command).error().contains("User test has no permissions to run")
-
-    # Check `_FT.DEBUG`
-    env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').error().contains("User test has no permissions to run")
-
-    # Authenticate as `default`, and run the internal debug command
-    env.expect('AUTH', 'default', 'nopass').true()
-    env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').equal([])
 
 @skip(redis_less_than="8.0")
 def test_acl_key_permissions_validation(env):
