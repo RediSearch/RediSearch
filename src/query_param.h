@@ -44,7 +44,7 @@ void QueryParam_Free(QueryParam *p);
  * Return 2 if a parameter of type PARAM_TERM has a numeric value
  * Return -1 if param is missing or its kind is wrong
  */
-int QueryParam_Resolve(Param *param, dict *params, QueryError *status);
+int QueryParam_Resolve(Param *param, dict *params, QueryError *status, unsigned int dialectVersion);
 
 /*
  * Set the `target` Param according to `source`

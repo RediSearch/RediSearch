@@ -1126,15 +1126,17 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   SetSearchCtx(sctx, req);
   QueryAST *ast = &req->ast;
 
-  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->reqConfig.dialectVersion, status);
+  unsigned long dialectVersion = req->reqConfig.dialectVersion;
+
+  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
-  if (QAST_EvalParams(ast, opts, status) != REDISMODULE_OK) {
+  if (QAST_EvalParams(ast, opts, status, dialectVersion) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  if (applyGlobalFilters(opts, ast, sctx, req->reqConfig.dialectVersion, status) != REDISMODULE_OK) {
+  if (applyGlobalFilters(opts, ast, sctx, dialectVersion, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
