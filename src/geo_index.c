@@ -19,10 +19,7 @@ static double extractUnitFactor(GeoDistance unit);
  * The GEO filter syntax is (FILTER) <property> LONG LAT DIST m|km|ft|mi
  * Returns REDISMODUEL_OK or ERR  */
 int GeoFilter_LegacyParse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
-  gf->lat = 0;
-  gf->lon = 0;
-  gf->radius = 0;
-  gf->unitType = GEO_DISTANCE_KM;
+  *gf = (GeoFilter){0};
 
   if (AC_NumRemaining(ac) < 5) {
     QERR_MKBADARGS_FMT(status, "GEOFILTER requires 5 arguments");
