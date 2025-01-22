@@ -1161,7 +1161,7 @@ typedef struct {
 /** For debugging purposes
  * Will add a result processor that will return timeout according to the results count specified.
  * @param results_count: number of results to return. should be greater equal 0.
- * The result processor will also change the query timing so futher checks down the pipeline will also result in timeout.
+ * The result processor will also change the query timing so further checks down the pipeline will also result in timeout.
  */
 void PipelineAddTimeoutAfterCount(AREQ *r, size_t results_count) {
   ResultProcessor *cur = r->qiter.endProc;
@@ -1198,6 +1198,7 @@ static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout) {
       rp_index->timeoutLimiter = TIMEOUT_COUNTER_LIMIT - 1;
     }
 }
+
 static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
   RPTimeoutAfterCount *self = (RPTimeoutAfterCount *)base;
 

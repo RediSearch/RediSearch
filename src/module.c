@@ -3272,7 +3272,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
 int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   RedisModuleString **argv, int argc, WeakRef spec_ref) {
   QueryError status = {0};
-  AREQ_Debug_params debug_params = parseDebugParams(argv, argc, &status);
+  AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
 
   if (debug_params.debug_params_count == 0) {
     bailOut(bc, &status);

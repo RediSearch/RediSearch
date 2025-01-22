@@ -414,6 +414,7 @@ class TestQueryDebugCommands(object):
 
     def verifyWarning(self, res, message, should_timeout=True, depth=0):
         if should_timeout:
+            VerifyTimeoutWarningResp3(self.env, res, depth=depth+1, message=message + " expected warning")
             self.env.assertTrue(res['warning'], depth=depth+1, message=message + " expected warning")
             if (res['warning']):
                 self.env.assertContains("Timeout", res["warning"][0], depth=depth+1, message=message + " expected timeout warning")
@@ -469,6 +470,17 @@ class TestQueryDebugCommands(object):
         self.env.assertTrue(len(res_values) == len(set(res_values)), depth=depth+1, message="QueryWithSorter: expected unique results")
 
     ######################## Main tests ########################
+    def StrictPolicy(self):
+        env = self.env
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
+
+        debug_params = ['TIMEOUT_AFTER_N', 2, 'DEBUG_PARAMS_COUNT', 2]
+        with env.assertResponseError(contained="Timeout limit was reached"):
+            env.cmd(*self.basic_query, *debug_params)
+
+        # restore the default policy
+        env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+
     def SearchDebug(self):
         self.setBasicQuery("SEARCH")
         basic_query = self.basic_query
@@ -488,12 +500,15 @@ class TestQueryDebugCommands(object):
         # with no sorter (dialect 4)
         self.QueryWithLimit(basic_query, timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
 
+        self.StrictPolicy()
+
     def testSearchDebug(self):
         self.SearchDebug()
 
     def testSearchDebug_MT(self):
         self.env.expect(config_cmd(), 'SET', 'WORKERS', 4).ok()
         self.SearchDebug()
+        self.env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
 
     def AggregateDebug(self):
         env = self.env
@@ -559,9 +574,10 @@ class TestQueryDebugCommands(object):
         should_timeout = False
         self.verifyResults(res, cursor_count, should_timeout=should_timeout, message="AggregateDebug with cursor count lower than timeout_res_count:")
 
+        self.StrictPolicy()
+
     def testAggregateDebug(self):
         self.AggregateDebug()
-
 
     def testAggregateDebug_MT(self):
         self.env.expect(config_cmd(), 'SET', 'WORKERS', 4).ok()
@@ -589,3 +605,20 @@ class TestQueryDebugCommands(object):
         self.Sanity("SEARCH", ['SORTBY', 'n'])
     def testAggSanity(self):
         self.Sanity("AGGREGATE", ['SORTBY', 1, '@n'])
+
+    def testInternalOnly(self):
+        env = self.env
+        # test we get count * num_shards results with internal only
+        timeout_res_count = 4
+        limit = self.env.shardsCount * timeout_res_count + 1
+
+        def runCmd(cmd, expected_results_count):
+            query = [debug_cmd(), 'FT.' + cmd, 'idx', '*', 'LIMIT', 0, limit + 1, "TIMEOUT_AFTER_N", timeout_res_count, "INTERNAL_ONLY", "DEBUG_PARAMS_COUNT", 3]
+            res = env.cmd(*query)
+            self.verifyResults(res, expected_results_count, f"InternalOnly: FT.{cmd}:")
+
+        # we get timeout_res_count from each shard
+        runCmd("SEARCH", self.env.shardsCount * timeout_res_count)
+
+        # with AGGREGATE we will get timeout_res_count results because the shard returned timeout
+        runCmd("AGGREGATE", timeout_res_count)

@@ -1635,7 +1635,7 @@ void AREQ_Free(AREQ *req) {
   rm_free(req);
 }
 
-AREQ_Debug_params parseDebugParams(RedisModuleString **argv, int argc, QueryError *status) {
+AREQ_Debug_params parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status) {
   AREQ_Debug_params debug_params = {0};
   // Verify DEBUG_PARAMS_COUNT exists in its expected position
   size_t n;
@@ -1661,7 +1661,7 @@ AREQ_Debug_params parseDebugParams(RedisModuleString **argv, int argc, QueryErro
 
 AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *status) {
 
-  AREQ_Debug_params debug_params = parseDebugParams(argv, argc, status);
+  AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, status);
   if (debug_params.debug_params_count == 0) {
     return NULL;
   }

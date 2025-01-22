@@ -9,6 +9,7 @@
 #include "search_ctx.h"
 #include "aggregate.h"
 #include "cursor.h"
+#include "module.h"
 #include "rmutil/util.h"
 #include "util/timeout.h"
 #include "util/workers.h"
@@ -578,9 +579,6 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     // <total_results>
     if (ShouldReplyWithTimeoutError(rc, req)) {
       RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
-    } else if (rc == RS_RESULT_TIMEDOUT) {
-      // Set rc to OK such that we will respond with the partial results
-      RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
     } else {
       RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
     }
@@ -1310,8 +1308,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   unsigned long long debug_params_count = debug_req->debug_params.debug_params_count;
 
   // Parse the debug params
-  // For example debug_params = TIMEOUT_AFTER_N 2 DEBUG_PARAMS_COUNT 2
-
+  // For example debug_params = TIMEOUT_AFTER_N 2 [INTERNAL_ONLY]
   size_t debug_argv_iter = 0;
   while (debug_argv_iter < debug_params_count) {
     size_t n;
@@ -1322,12 +1319,21 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid TIMEOUT_AFTER_N count");
         return REDISMODULE_ERR;
       }
-        // Note, this will add a result processor as the downstream of the last result processor
-        // (rpidnext for SA, or RPNext for cluster)
-        // Take this into account when adding more debug types that are modifying the rp pipeline.
-        PipelineAddTimeoutAfterCount(&debug_req->r, results_count);
+      // Check for optional argument
+      if (debug_argv_iter != debug_params_count) {
+        // timeout should be applied only for shard commands
+        cmd = RedisModule_StringPtrLen(debug_argv[debug_argv_iter++], &n);
+        if ((GetNumShards_UnSafe() > 1) && (strncasecmp(cmd, "INTERNAL_ONLY", n) == 0) && !(debug_req->r.reqflags & QEXEC_F_INTERNAL)) {
+          break;
+        }
       }
-    }
 
-    return REDISMODULE_OK;
+      // Note, this will add a result processor as the downstream of the last result processor
+      // (rpidnext for SA, or RPNext for cluster)
+      // Take this into account when adding more debug types that are modifying the rp pipeline.
+      PipelineAddTimeoutAfterCount(&debug_req->r, results_count);
+    }
+  }
+
+  return REDISMODULE_OK;
 }
