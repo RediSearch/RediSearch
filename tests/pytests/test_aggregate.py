@@ -396,7 +396,7 @@ class TestAggregate():
         # Test Sorting by multiple properties
         res = self.env.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
                            'REDUCE', 'sum', 1, '@price', 'as', 'price',
-                           'APPLY', '(@price % 10)', 'AS', 'price',
+                           'APPLY', '(floor(@price) % 10)', 'AS', 'price',
                            'SORTBY', 4, '@price', 'asc', '@brand', 'desc', 'MAX', 10,
                            )
         self.env.assertEqual([292, ['brand', 'zps', 'price', '0'], ['brand', 'zalman', 'price', '0'], ['brand', 'yoozoo', 'price', '0'], ['brand', 'white label', 'price', '0'], ['brand', 'stinky', 'price', '0'], [

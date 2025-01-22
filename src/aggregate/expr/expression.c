@@ -71,11 +71,7 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
       res = n1 + n2;
       break;
     case '/':
-      if (n2 != 0) {
-        res = n1 / n2;
-      } else {
-        res = NAN;
-      }
+      res = n1 / n2;
       break;
     case '-':
       res = n1 - n2;
@@ -84,20 +80,12 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
       res = n1 * n2;
       break;
     case '%':
-        // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=30484
-        if (n2 == -1){
-          res = 0;
-        } else if (n2 != 0) {
-          res = (long long)n1 % (long long)n2;
-        } else {
-          res = NAN;
-        }
+      res = fmod(n1, n2);
       break;
     case '^':
       res = pow(n1, n2);
       break;
-    default:
-      res = NAN;  // todo : we can not really reach here
+    default: RS_LOG_ASSERT_FMT(0, "Invalid operator %c", op->op);
   }
 
   result->numval = res;

@@ -108,7 +108,11 @@ TEST_F(ExprTest, testArithmetics) {
     ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());            \
     auto res = RSValue_Dereference(&ctx.result());  \
     ASSERT_EQ(RSValue_Number, res->t);              \
-    ASSERT_EQ(expected, res->numval);               \
+    if (std::isnan(expected)) {                     \
+      EXPECT_TRUE(std::isnan(res->numval));         \
+    } else {                                        \
+      EXPECT_FLOAT_EQ(expected, res->numval);       \
+    }                                               \
   }
 
   TEST_ARITHMETIC("3 + 3", 6);
@@ -138,6 +142,31 @@ TEST_F(ExprTest, testArithmetics) {
   TEST_ARITHMETIC("sqrt(9) / sqrt(9)", 1);
   TEST_ARITHMETIC("sqrt(9) % sqrt(9)", 0);
   TEST_ARITHMETIC("sqrt(9) ^ sqrt(9)", 27);
+
+  // Test 0 edge cases
+  TEST_ARITHMETIC("0 / 0", NAN);
+  TEST_ARITHMETIC("0 % 0", NAN);
+  TEST_ARITHMETIC("0 ^ 0", 1);
+  TEST_ARITHMETIC("1 / 0", INFINITY);
+  TEST_ARITHMETIC("1 % 0", NAN);
+
+  TEST_ARITHMETIC("sqrt(0) / 0", NAN);
+  TEST_ARITHMETIC("sqrt(0) % 0", NAN);
+  TEST_ARITHMETIC("sqrt(0) ^ 0", 1);
+  TEST_ARITHMETIC("sqrt(1) / 0", INFINITY);
+  TEST_ARITHMETIC("sqrt(1) % 0", NAN);
+
+  TEST_ARITHMETIC("0 / sqrt(0)", NAN);
+  TEST_ARITHMETIC("0 % sqrt(0)", NAN);
+  TEST_ARITHMETIC("0 ^ sqrt(0)", 1);
+  TEST_ARITHMETIC("1 / sqrt(0)", INFINITY);
+  TEST_ARITHMETIC("1 % sqrt(0)", NAN);
+
+  TEST_ARITHMETIC("sqrt(0) / sqrt(0)", NAN);
+  TEST_ARITHMETIC("sqrt(0) % sqrt(0)", NAN);
+  TEST_ARITHMETIC("sqrt(0) ^ sqrt(0)", 1);
+  TEST_ARITHMETIC("sqrt(1) / sqrt(0)", INFINITY);
+  TEST_ARITHMETIC("sqrt(1) % sqrt(0)", NAN);
 
 }
 
