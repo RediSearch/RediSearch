@@ -1303,6 +1303,7 @@ def test_mod_6783(env:Env):
       res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', f'f{i}', 'NOCONTENT')
       env.assertEqual(res, expected[i], message=f'Failed on field f{i} with {n_sortables} sortables')
 
+@skip(cluster=True)
 def test_mod_8568(env:Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
   env.expect('HSET', 'doc1', 'g', '1.1,1.1').equal(1)
