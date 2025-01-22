@@ -1247,19 +1247,13 @@ def testInvalidUseOfEmptyString():
         env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 '' km]').error().\
             contains(expected_error)
 
-        # Fix this tests after implementing MOD-7244
-        # empty string is evaluated as 0
-        res = env.execute_command(
-            'FT.SEARCH', 'idx', '@location:[$long 4.56 10 km]',
-            'PARAMS', 2, 'long', '')
-        env.assertEqual(res, EMPTY_RESULT)
-        res = env.execute_command(
-            'FT.SEARCH', 'idx', '@location:[1.23 $lat 10 km]',
-            'PARAMS', 2, 'lat', '')
-        env.assertEqual(res, EMPTY_RESULT)
-        env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 $radius km]',
-            'PARAMS', 2, 'radius', '').error().\
-            contains('Invalid GeoFilter radius')
+        expected_error_format = 'Invalid value () for parameter `{}`'
+        env.expect('FT.SEARCH', 'idx', '@location:[$long 4.56 10 km]', 'PARAMS', 2, long:='long', '').error().\
+            contains(expected_error_format.format(long))
+        env.expect('FT.SEARCH', 'idx', '@location:[1.23 $lat 10 km]', 'PARAMS', 2, lat:='lat', '').error().\
+            contains(expected_error_format.format(lat))
+        env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 $radius km]', 'PARAMS', 2, radius:='radius', '').error().\
+            contains(expected_error_format.format(radius))
 
         # Invalid use of empty string as $weight value
         expected_error = 'Invalid value () for `weight`'

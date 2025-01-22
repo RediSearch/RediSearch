@@ -159,15 +159,33 @@ void QueryParam_InitParams(QueryParam *p, size_t num) {
   memset(p->params, 0, sizeof(*p->params) * num);
 }
 
-int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
+int checkNumericValueValid(ParamType type, const char *val, unsigned int dialectVersion) {
+  if (type == PARAM_TERM || type == PARAM_ANY || type == PARAM_NUMERIC || type == PARAM_GEO_COORD ||
+      type == PARAM_SIZE || type == PARAM_NUMERIC_MIN_RANGE) {
+    if (dialectVersion >= 2 && (!*val)) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
+
+int QueryParam_Resolve(Param *param, dict *params, QueryError *status, unsigned int dialectVersion) {
   if (param->type == PARAM_NONE)
     return 0;
   size_t val_len;
   const char *val = Param_DictGet(params, param->name, &val_len, status);
   if (!val)
     return -1;
+  
+  if (!checkNumericValueValid(param->type, val, dialectVersion)) {
+    QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid value (%s) for parameter `%s`", val, param->name);
+    return -1;
+  }
 
   int val_is_numeric = 0;
+
+
   switch(param->type) {
 
     case PARAM_NONE:

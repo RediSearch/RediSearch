@@ -154,9 +154,9 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   return NULL;
 }
 
-int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status) {
+int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status, unsigned int dialectVersion) {
   for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
-    int res = QueryParam_Resolve(&node->params[i], params, status);
+    int res = QueryParam_Resolve(&node->params[i], params, status, dialectVersion);
     if (res < 0) {
       return REDISMODULE_ERR;
     }

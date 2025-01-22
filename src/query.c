@@ -1568,19 +1568,19 @@ int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisS
   return REDISMODULE_OK;
 }
 
-int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status) {
+int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status,  unsigned int dialectVersion) {
   if (!q || !q->root || q->numParams == 0)
     return REDISMODULE_OK;
-  QueryNode_EvalParams(opts->params, q->root, status);
+  QueryNode_EvalParams(opts->params, q->root, status, dialectVersion);
   return REDISMODULE_OK;
 }
 
-int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
+int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status, unsigned int dialectVersion) {
   int withChildren = 1;
   int res = REDISMODULE_OK;
   switch(n->type) {
     case QN_VECTOR:
-      res = VectorQuery_EvalParams(params, n, status);
+      res = VectorQuery_EvalParams(params, n, status, dialectVersion);
       break;
     case QN_GEO:
     case QN_TOKEN:
@@ -1596,7 +1596,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
     case QN_WILDCARD:
     case QN_WILDCARD_QUERY:
     case QN_GEOMETRY:
-      res = QueryNode_EvalParamsCommon(params, n, status);
+      res = QueryNode_EvalParamsCommon(params, n, status, dialectVersion);
       break;
     case QN_UNION:
       // no immediately owned params to resolve
@@ -1610,7 +1610,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, QueryError *status) {
   // Handle children
   if (withChildren && res == REDISMODULE_OK) {
     for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
-      res = QueryNode_EvalParams(params, n->children[ii], status);
+      res = QueryNode_EvalParams(params, n->children[ii], status, dialectVersion);
       if (res == REDISMODULE_ERR)
         break;
     }
@@ -1790,10 +1790,10 @@ void QueryNode_ClearChildren(QueryNode *n, int shouldFree) {
   }
 }
 
-int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status) {
+int QueryNode_EvalParamsCommon(dict *params, QueryNode *node, QueryError *status, unsigned int dialectVersion) {
   if (node->params) {
     for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
-      int res = QueryParam_Resolve(&node->params[i], params, status);
+      int res = QueryParam_Resolve(&node->params[i], params, status, dialectVersion);
       if (res < 0)
         return REDISMODULE_ERR;
       // If parameter's value is a number, don't expand the node.

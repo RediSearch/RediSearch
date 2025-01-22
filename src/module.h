@@ -120,7 +120,7 @@ typedef struct {
 } searchRequestCtx;
 
 specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc,
-                             QueryError *status);
+                             QueryError *status, unsigned int dialectVersion);
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx);
 

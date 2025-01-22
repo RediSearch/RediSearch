@@ -124,8 +124,8 @@ IndexIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
 int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx,
                 QueryError *status);
 
-int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status);
-int QueryNode_EvalParams(dict *params, QueryNode *node, QueryError *status);
+int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status, unsigned int dialectVersion);
+int QueryNode_EvalParams(dict *params, QueryNode *node, QueryError *status, unsigned int dialectVersion);
 
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
 
