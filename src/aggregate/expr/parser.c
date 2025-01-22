@@ -1201,20 +1201,27 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 39: /* expr ::= SYMBOL LP arglist RP */
 {
+    bool error = true; // Assume syntax error until proven otherwise
     RSFunctionInfo *cb = RSFunctionRegistry_Get(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
-    if (cb && cb->minArgs <= yymsp[-1].minor.yy12->len && yymsp[-1].minor.yy12->len <= cb->maxArgs) {
+    if (!cb) {
+        // Function not found
+        rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s);
+    } else if (yymsp[-1].minor.yy12->len < cb->minArgs || cb->maxArgs < yymsp[-1].minor.yy12->len) {
+        // Argument count mismatch
+        if (cb->minArgs == cb->maxArgs) {
+            rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects %d arguments, but got %d", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s, cb->minArgs, yymsp[-1].minor.yy12->len);
+        } else {
+            rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects between %d and %d arguments, but got %d",
+                                            yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s, cb->minArgs, cb->maxArgs, yymsp[-1].minor.yy12->len);
+        }
+    } else {
+        // No syntax error
+        error = false;
+    }
+
+    if (!error) {
         yylhsminor.yy35 = RS_NewFunc(cb, yymsp[-1].minor.yy12);
     } else { // Syntax error
-        if (!cb) { // Function not found
-            rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s);
-        } else { // Argument count mismatch
-            if (cb->minArgs == cb->maxArgs) {
-                rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects %d arguments, but got %d", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s, cb->minArgs, yymsp[-1].minor.yy12->len);
-            } else {
-                rm_asprintf(&ctx->errorMsg, "Function '%.*s' expects between %d and %d arguments, but got %d",
-                                                yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s, cb->minArgs, cb->maxArgs, yymsp[-1].minor.yy12->len);
-            }
-        }
         yylhsminor.yy35 = NULL;
         ctx->ok = 0;
         RSArgList_Free(yymsp[-1].minor.yy12);
