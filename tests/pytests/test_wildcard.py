@@ -361,10 +361,11 @@ def testBasic():
   conn.execute_command('HSET', 'doc7', 't', 'hall')
   conn.execute_command('HSET', 'doc8', 't', 'hallo')
 
-  env.expect('FT.SEARCH', 'idx', "w'*el*'", 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
-  env.expect('FT.SEARCH', 'idx', "w'*ll*'", 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc7', 'doc8'])
-  env.expect('FT.SEARCH', 'idx', "w'*llo'", 'NOCONTENT').equal([2, 'doc1', 'doc8'])
-  env.expect('FT.SEARCH', 'idx', "w'he*'", 'NOCONTENT').equal([5, 'doc1', 'doc2', 'doc3', 'doc4', 'doc6'])
+  q_params = ('NOCONTENT', 'SCORER', 'TFIDF')
+  env.expect('FT.SEARCH', 'idx', "w'*el*'", *q_params).equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
+  env.expect('FT.SEARCH', 'idx', "w'*ll*'", *q_params).equal([4, 'doc1', 'doc2', 'doc7', 'doc8'])
+  env.expect('FT.SEARCH', 'idx', "w'*llo'", *q_params).equal([2, 'doc1', 'doc8'])
+  env.expect('FT.SEARCH', 'idx', "w'he*'", *q_params).equal([5, 'doc1', 'doc2', 'doc3', 'doc4', 'doc6'])
 
   env.expect('FT.AGGREGATE', 'idx', "w'*el*'", 'LOAD', 1, '@t', 'SORTBY', 1, '@t')    \
         .equal([4, ['t', 'helen'], ['t', 'hell'], ['t', 'hello'], ['t', 'help']])

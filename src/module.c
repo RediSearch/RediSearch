@@ -3410,8 +3410,9 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       // Init the topology updater cron loop.
       InitRedisTopologyUpdater(ctx);
     } else {
-      // We are not in cluster mode. No need to init the topology updater cron loop.
+      // We are not in OSS cluster. No need to init the topology updater cron loop.
       // Set the number of shards to 1 to indicate the topology is "set"
+      // Note: On Enterprise cluster, this will be updated by the `CLUSTERSET` command.
       NumShards = 1;
     }
   }

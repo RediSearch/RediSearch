@@ -24,7 +24,7 @@ def test_existing_argument(env):
 @skip(cluster=True)
 def test_existing_GC():
     """Tests the GC functionality on the existing docs inverted index."""
-    
+
     env = Env(moduleArgs="DEFAULT_DIALECT 2")
     conn = getConnectionByEnv(env)
 
@@ -100,13 +100,13 @@ def testOptimized():
     env.cmd('HSET', 'doc11', 't', 'world')
 
     # Test the optimized version of the optional iterator
-    res = env.cmd('FT.SEARCH', 'idx', '~@t:hello*', 'WITHSCORES')
-    for i in range(1, len(res), 3):
+    exp_score = env.cmd('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'NOCONTENT', 'LIMIT', '0', '1')[2]
+    expected = [n_docs / 2 + 1]
+    for i in range(1, n_docs + 2, 2):
         # Only doc11 should have score 0
-        if res[i] != 'doc11':
-            env.assertEqual(res[i+1], '1')    # The score should be 1
-        else:
-            env.assertEqual(res[i+1], '0')    # The score should be 0
+        expected.extend([f'doc{i}', exp_score if i != 11 else '0'])
+
+    env.expect('FT.SEARCH', 'idx', '~@t:hello*', 'WITHSCORES', 'NOCONTENT').equal(expected)
 
     # Test the optimized version of the NOT iterator
     env.expect('FT.SEARCH', 'idx', '-@t:world', 'NOCONTENT').equal(
