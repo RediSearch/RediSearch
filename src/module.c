@@ -93,8 +93,6 @@ size_t NumShards = 0;
 // Strings returned by CONFIG GET functions
 RedisModuleString *config_ext_load = NULL;
 RedisModuleString *config_friso_ini = NULL;
-RedisModuleString *config_oss_acl_username = NULL;
-RedisModuleString *config_dummy_password = NULL;
 
 static inline bool SearchCluster_Ready() {
   return NumShards != 0;
@@ -3544,10 +3542,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       RM_TRY_F(RegisterClusterModuleConfig, ctx);
     }
     RM_TRY_F(RedisModule_LoadConfigs, ctx);
-  } else {
-    // For backward compatibility, if the new API is not available, set the
-    // default username
-    clusterConfig.aclUsername = rm_strdup(DEFAULT_ACL_USERNAME);
   }
 
   // Init RediSearch internal search
@@ -3643,14 +3637,6 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
     RedisModule_FreeString(ctx, config_friso_ini);
     config_friso_ini = NULL;
   }
-  if (config_oss_acl_username) {
-    RedisModule_FreeString(ctx, config_oss_acl_username);
-    config_oss_acl_username = NULL;
-  }
-  if (config_dummy_password) {
-    RedisModule_FreeString(ctx, config_dummy_password);
-    config_dummy_password = NULL;
-  }
   if (RSGlobalConfig.extLoad) {
     rm_free((void *)RSGlobalConfig.extLoad);
     RSGlobalConfig.extLoad = NULL;
@@ -3658,10 +3644,6 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
   if (RSGlobalConfig.frisoIni) {
     rm_free((void *)RSGlobalConfig.frisoIni);
     RSGlobalConfig.frisoIni = NULL;
-  }
-  if (clusterConfig.aclUsername) {
-    rm_free((void *)clusterConfig.aclUsername);
-    clusterConfig.aclUsername = NULL;
   }
   if (clusterConfig.globalPass) {
     rm_free((void *)clusterConfig.globalPass);

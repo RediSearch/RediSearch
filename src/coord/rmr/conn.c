@@ -426,12 +426,28 @@ static int MRConn_SendAuth(MRConn *conn) {
 
   // if we failed to send the auth command, start a reconnect loop
   size_t len = 0;
-  const char *internal_secret = RedisModule_GetInternalSecret(NULL, &len);
-  if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn,
-      "INTERNALAUTH %s", internal_secret) == REDIS_ERR) {
-    MRConn_SwitchState(conn, MRConn_ReAuth);
-    return REDIS_ERR;
+
+  if (!IsEnterprise()) {
+    // On OSS, we use the internal secret to authenticate as an internal connection
+    // We should be running against a redis version that has this API
+    RedisModule_Assert(RedisModule_GetInternalSecret);
+    // Take the GIL before calling the internal function getter
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
+    const char *internal_secret = RedisModule_GetInternalSecret(RSDummyContext, &len);
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn,
+        "INTERNALAUTH %s", internal_secret) == REDIS_ERR) {
+      MRConn_SwitchState(conn, MRConn_ReAuth);
+      return REDIS_ERR;
+    }
+    return REDIS_OK;
   } else {
+    // On Enterprise, we use the password we got from `CLUSTERSET`
+    if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn, "AUTH %s",
+          conn->ep.password) == REDIS_ERR) {
+      MRConn_SwitchState(conn, MRConn_ReAuth);
+      return REDIS_ERR;
+    }
     return REDIS_OK;
   }
 }

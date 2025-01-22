@@ -95,6 +95,13 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
         globalPass = clusterConfig.globalPass;
       }
 
+      // TODO: This is a good place to call the `GetInternalSecret` function.
+      // But, it is not enough, as it may not be correct yet.
+      // This means that we will need to also call the `GetInternalSecret`
+      // function in the `MRConn_SendAuth` function, probably (under GIL lock!).
+
+      // TODO: Q: Do we need to keep the password for Enterprise topologies??
+
       MRClusterNode node = {
           .endpoint =
               (MREndpoint){

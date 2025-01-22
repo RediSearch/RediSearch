@@ -23,12 +23,9 @@ typedef struct {
   size_t cursorReplyThreshold;
   size_t coordinatorPoolSize; // number of threads in the coordinator thread pool
   size_t topologyValidationTimeoutMS;
-  // The username for the ACL user used by the coordinator to connect to the shards on OSS cluster.
-  const char* aclUsername;
 } SearchClusterConfig;
 
 extern SearchClusterConfig clusterConfig;
-extern RedisModuleString *config_oss_acl_username;
 extern RedisModuleString *config_dummy_password;
 
 #define CLUSTER_TYPE_OSS "redis_oss"
@@ -47,7 +44,6 @@ extern RedisModuleString *config_dummy_password;
     .cursorReplyThreshold = 1,                                                 \
     .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                      \
     .topologyValidationTimeoutMS = DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,        \
-    .aclUsername = NULL,                                                       \
   }
 
 /* Detect the cluster type, by trying to see if we are running inside RLEC.
