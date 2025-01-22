@@ -1,6 +1,11 @@
 #pragma once
 
+#ifdef __cplusplus
+    extern "C" {
+#endif
+
 #include <string.h>
+
 typedef struct {
   size_t memory;
   size_t marked_deleted;
@@ -49,3 +54,7 @@ static VectorIndexStats_GetterMapping VectorIndexStats_GetterMappingContainer[] 
     {"marked_deleted", VectorIndexStats_GetMarkedDeleted},
     {NULL, NULL} // Sentinel value to mark the end of the array
 };
+
+#ifdef __cplusplus
+    }
+#endif
