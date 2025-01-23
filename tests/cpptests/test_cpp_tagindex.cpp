@@ -86,16 +86,6 @@ TEST_F(TagIndexTest, testSkipToLastId) {
   TagIndex_Free(idx);
 }
 
-#define TEST_MY_SEP(sep, str)                            \
-  orig = s = strdup(str);                                \
-  token = TagIndex_SepString(sep, &s, &tokenLen, false); \
-  EXPECT_STREQ(token, "foo");                            \
-  ASSERT_EQ(tokenLen, 3);                                \
-  token = TagIndex_SepString(sep, &s, &tokenLen, false); \
-  EXPECT_STREQ(token, "bar");                            \
-  ASSERT_EQ(tokenLen, 3);                                \
-  token = TagIndex_SepString(sep, &s, &tokenLen, false); \
-  ASSERT_FALSE(token);                                   \
 #define TEST_MY_SEP(sep, str)                     \
   orig = s = strdup(str);                         \
   token = TagIndex_SepString(sep, &s, &tokenLen); \
