@@ -166,7 +166,7 @@ class TestAggregate():
             res = self.env.cmd(*cmd)
 
             self.env.assertEqual(expected, res[1])
-        
+
         # Test longer date-time format '%Y-%m-%dT%H:%M:%SZ' equivalent to the
         # short format '%FT%TZ' which is not supported on Alpine Linux
         cmd = ['FT.AGGREGATE', 'games', '*',
@@ -700,6 +700,54 @@ class TestAggregateSecondUseCases():
     def testSimpleAggregateWithCursor(self):
         _, cursor = self.env.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNT', 1000)
         self.env.assertNotEqual(cursor, 0)
+
+def testDefaultValues(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'missing', 'NUMERIC', 'n', 'NUMERIC').ok()
+    with env.getClusterConnectionIfNeeded() as con:
+        con.execute_command('HSET', 'doc', 'n', '46')
+
+    def query(*reduce_args):
+        return ['FT.AGGREGATE', 'idx', '*',
+                'LOAD', '2', '@missing', '@n',
+                'GROUPBY', '0',
+                'REDUCE'] + list(reduce_args) + ['AS', 'res']
+
+    # Test Count - Not relevant as it does not relay on a specific field
+
+    # Test Sum
+    env.expect(*query('SUM', 1, '@missing')).equal([1, ['res', 'nan']])
+
+    # Test Min
+    env.expect(*query('MIN', 1, '@missing')).equal([1, ['res', 'inf']])
+
+    # Test Max
+    env.expect(*query('MAX', 1, '@missing')).equal([1, ['res', '-inf']])
+
+    # Test Avg
+    env.expect(*query('AVG', 1, '@missing')).equal([1, ['res', 'nan']])
+
+    # Test Quantile
+    env.expect(*query('QUANTILE', 2, '@missing', 0.5)).equal([1, ['res', 'nan']])
+
+    # Test Stddev
+    env.expect(*query('STDDEV', 1, '@missing')).equal([1, ['res', '0']])
+
+    # Test Count Distinct
+    env.expect(*query('COUNT_DISTINCT', 1, '@missing')).equal([1, ['res', '0']])
+
+    # Test Count Distinctish
+    env.expect(*query('COUNT_DISTINCTISH', 1, '@missing')).equal([1, ['res', '0']])
+
+    # Test Random Sample
+    env.expect(*query('RANDOM_SAMPLE', 2, '@missing', 1)).equal([1, ['res', []]])
+
+    # Test First Value
+    env.expect(*query('FIRST_VALUE', 3, '@missing', 'BY', '@n')).equal([1, ['res', None]])
+    env.expect(*query('FIRST_VALUE', 3, '@missing', 'BY', '@missing')).equal([1, ['res', None]])
+    env.expect(*query('FIRST_VALUE', 1, '@missing')).equal([1, ['res', None]])
+
+    # Test To List
+    env.expect(*query('TOLIST', 1, '@missing')).equal([1, ['res', []]])
 
 
 def grouper(iterable, n, fillvalue=None):
@@ -1360,3 +1408,13 @@ def testErrorStatsResp3():
             'REDUCE', 'count', '0', 'AS', 'count', 'SORTBY', '2', '@n', 'DESC')
         res = conn.execute_command('info', 'errorstats')
         env.assertEqual(res, expected_errorstats)
+
+def testAggregateBadLoadArgs(env):
+    """Tests that we get a proper error message when passing bad arguments to LOAD"""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'title').error() \
+        .contains('Bad arguments for LOAD: Expected an argument')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 'lali').error() \
+        .contains("Bad arguments for LOAD: Expected number of fields or `*`")
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD').error() \
+        .contains("Bad arguments for LOAD: Expected an argument, but none provided")
