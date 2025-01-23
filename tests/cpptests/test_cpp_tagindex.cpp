@@ -74,7 +74,7 @@ TEST_F(TagIndexTest, testSkipToLastId) {
   std::vector<const char *> v{"hello"};
   t_docId docId = 1;
   TagIndex_Index(idx, &v[0], v.size(), docId);
-  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
+  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1);
   RSIndexResult *r;
   int rc = it->Read(it->ctx, &r);
   ASSERT_EQ(rc, INDEXREAD_OK);
