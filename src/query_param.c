@@ -169,7 +169,6 @@ int checkNumericValueValid(ParamType type, const char *val, unsigned int dialect
   return 1;
 }
 
-
 int QueryParam_Resolve(Param *param, dict *params, QueryError *status, unsigned int dialectVersion) {
   if (param->type == PARAM_NONE)
     return 0;
