@@ -455,15 +455,6 @@ def testTimeoutPartialWithEmptyResults(env):
     for i in range(num_docs):
         conn.execute_command('HSET', f'doc{i}' ,'n', i)
 
-
-# Simulate a scenario where shards return empty results due to a timeout (cursor remains valid),
-# but the coordinator calls 'getNextReply' and waits for replies in MRChannel_Pop before checking for a timeout.
-# Note: An empty reply does not wake up the coordinator.
-# Since the cursor is not depleted, MRIteratorCallback_Done (which decreases the pending count and calls MRChannel_Unblock to wake MRChannel_Pop) is skipped.
-# Instead, MRIteratorCallback_ProcessDone is called, ending the shards' job and leaving MRChannel_Pop hanging.
-# After the fix, MRChannel_Unblock was moved to MRIteratorCallback_ProcessDone to be called when no shards are processing results, thus waking up the coordinator.
-
-
     # This simulates a scenario where shards return empty results due to timeout (cursor is still valid),
     # but the coordinator managed to call 'getNextReply' and waits for replies in MRChannel_Pop, before it checked timeout.
     # Note: An empty reply does not wake up the coordinator.
