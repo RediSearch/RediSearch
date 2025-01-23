@@ -149,6 +149,14 @@ def testProfileAggregate(env):
 
   expected_res = [['Type', 'Index', 'Counter', 2],
                   ['Type', 'Loader', 'Counter', 2],
+                  ['Type', 'Projector - Literal banana', 'Counter', 2]]
+  actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
+                'load', 1, 't',
+                'apply', '"banana"', 'as', 'prefix')
+  env.assertEqual(actual_res[1][1][0][5], expected_res)
+
+  expected_res = [['Type', 'Index', 'Counter', 2],
+                  ['Type', 'Loader', 'Counter', 2],
                   ['Type', 'Sorter', 'Counter', 2],
                   ['Type', 'Loader', 'Counter', 2]]
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*', 'sortby', 2, '@t', 'asc', 'limit', 0, 10, 'LOAD', 2, '@__key', '@t')
