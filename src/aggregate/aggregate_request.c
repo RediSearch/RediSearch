@@ -454,11 +454,11 @@ err:
   return REDISMODULE_ERR;
 }
 
-static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryError *status) {
+static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryError *status, bool *isEmptyFilterValue) {
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
     // Numeric filter
     NumericFilter **curpp = array_ensure_tail(&options->legacy.filters, NumericFilter *);
-    *curpp = NumericFilter_LegacyParse(ac, status);
+    *curpp = NumericFilter_LegacyParse(ac, status, isEmptyFilterValue);
     if (!*curpp) {
       return ARG_ERROR;
     }
@@ -509,6 +509,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   req->reqflags |= QEXEC_FORMAT_DEFAULT;
   bool optimization_specified = false;
+  bool isEmptyFilterValue = false;
   while (!AC_IsAtEnd(ac)) {
     ACArgSpec *errSpec = NULL;
     int rv = AC_ParseArgSpec(ac, querySpecs, &errSpec);
@@ -546,7 +547,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       req->reqflags |= QEXEC_F_SEND_HIGHLIGHT;
 
     } else if ((req->reqflags & QEXEC_F_IS_SEARCH) &&
-               ((rv = parseQueryLegacyArgs(ac, searchOpts, status)) != ARG_UNKNOWN)) {
+               ((rv = parseQueryLegacyArgs(ac, searchOpts, status, &isEmptyFilterValue)) != ARG_UNKNOWN)) {
       if (rv == ARG_ERROR) {
         return REDISMODULE_ERR;
       }
@@ -567,6 +568,12 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
     }
   }
+
+  // In dialect 2, we require a non empty numeric filter
+  if (req->reqConfig.dialectVersion >= 2 && isEmptyFilterValue){
+      QERR_MKBADARGS_FMT(status, "Invalid numeric filter");
+      return REDISMODULE_ERR;
+    }
 
   if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
     // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4

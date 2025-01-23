@@ -21,6 +21,7 @@ typedef struct NumericFilter {
   const FieldSpec *field;   // the numeric field
   double min;               // beginning of range
   double max;               // end of range
+  bool emptyVal;            // min is empty
   const void *geoFilter;    // geo filter
   bool inclusiveMin;        // range includes min value
   bool inclusiveMax;        // range includes max val
@@ -35,7 +36,7 @@ typedef struct NumericFilter {
 
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax,
                                 bool asc);
-NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, QueryError *status);
+NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, QueryError *status, bool *isEmptyFilterValue);
 int NumericFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
 void NumericFilter_Free(NumericFilter *nf);
 
