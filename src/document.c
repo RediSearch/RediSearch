@@ -605,7 +605,6 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
                            fs->vectorOpts.expBlobSize);
     return -1;
   }
-  aCtx->fwIdx->maxFreq++;
   return 0;
 }
 
