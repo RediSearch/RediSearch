@@ -1313,3 +1313,17 @@ def test_mod_8568(env:Env):
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km').equal(expected)
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km',
                                       'GEOFILTER', 'g', '1.1', '1.1', '1000', 'km').equal(expected)
+ 
+@skip(cluster=True)
+def test_mod_6786(env:Env):
+  # Test search of long term (>128) inside text field
+  MAX_NORMALIZE_SIZE = 128
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  long_term = 'A'*(MAX_NORMALIZE_SIZE+1)
+  text_with_long_term = ' '.join([long_term, long_term[:MAX_NORMALIZE_SIZE//2]])
+  env.cmd('HSET', 'doc1', 't', text_with_long_term)
+
+  # Searching for the long term should return the document
+  # Before fix, the long term was partialy normalized and the document was not found
+  env.expect('FT.SEARCH', 'idx', long_term).equal([1, 'doc1', ['t', text_with_long_term]])
