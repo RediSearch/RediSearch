@@ -1304,6 +1304,13 @@ def test_mod_6783(env:Env):
       env.assertEqual(res, expected[i], message=f'Failed on field f{i} with {n_sortables} sortables')
 
 @skip(cluster=True)
+def test_mod_8589(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  env.cmd('HSET', 'doc1', 'v', '????????', 't', 'foo bar foo') # Max frequency is 2 (foo)
+  docinfo = to_dict(env.cmd(debug_cmd(), 'DOCINFO', 'idx', 'doc1'))
+  env.assertEqual(docinfo['max_freq'], 2)
+
+@skip(cluster=True)
 def test_mod_8568(env:Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
   env.expect('HSET', 'doc1', 'g', '1.1,1.1').equal(1)
@@ -1313,7 +1320,7 @@ def test_mod_8568(env:Env):
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km').equal(expected)
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km',
                                       'GEOFILTER', 'g', '1.1', '1.1', '1000', 'km').equal(expected)
- 
+
 @skip(cluster=True)
 def test_mod_6786(env:Env):
   # Test search of long term (>128) inside text field
