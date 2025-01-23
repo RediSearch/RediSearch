@@ -2429,7 +2429,7 @@ def test_switch_write_mode_multiple_indexes(env):
     if bg_indexing == 0:
         prefix = "::warning title=Bad scenario in test_vecsim:test_switch_write_mode_multiple_indexes::" if GHA else ''
         print(f"{prefix}All vectors were done reindex before switching back to in-place mode")
-
+        
 def test_max_knn_k():
     env = Env(moduleArgs='DEFAULT_DIALECT 3')
     conn = getConnectionByEnv(env)
