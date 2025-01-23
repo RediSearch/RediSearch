@@ -60,7 +60,14 @@ program ::= expr(A). { ctx->root = A; }
 
 expr(A) ::= LP expr(B) RP. { A = B; }
 
-// "Manual" expansion of the arithmetic operators, to optimize the AST in-place when possible
+// "Manual" expansion of the arithmetic operators, to optimize the AST in-place when possible.
+// All the cases below are of the form expr OP expr, where OP is an arithmetic operator.
+// All of them are required in order to keep the precedence of the operators correct, while
+// allowing for in-place optimization of the AST.
+// Note that the rule that reduces a number node to an expression node must have a lower precedence
+// than any of the arithmetic operators, so that the number node is not reduced to an expression node
+// before performing any arithmetic operation.
+// See `test_cpp_expr.cpp`, test `testPredicate` for an example of a test that requires all of these rules.
 // expr ::= expr OP expr
 expr(A) ::= expr(B) PLUS   expr(C). { A = RS_NewOp('+', B, C); }
 expr(A) ::= expr(B) DIVIDE expr(C). { A = RS_NewOp('/', B, C); }
