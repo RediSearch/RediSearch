@@ -579,6 +579,10 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     // <total_results>
     if (ShouldReplyWithTimeoutError(rc, req)) {
       RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
+    } else if (rc == RS_RESULT_TIMEDOUT) {
+      // Set rc to OK such that we will respond with the partial results
+      rc = RS_RESULT_OK;
+      RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
     } else {
       RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
     }

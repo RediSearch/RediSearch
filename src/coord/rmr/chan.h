@@ -26,9 +26,6 @@ void *MRChannel_UnsafeForcePop(MRChannel *chan);
 // Make channel unblocking. All subsequent calls to MRChannel_Pop will return NULL if the channel is empty.
 void MRChannel_Unblock(MRChannel *chan);
 
-// Make channel unblocking. All subsequent calls to MRChannel_Pop will return NULL if the channel is empty.
-void MRChannel_Block(MRChannel *chan);
-
 size_t MRChannel_Size(MRChannel *chan);
 
 // Free the channel. Assumes the caller has already emptied the channel.

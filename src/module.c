@@ -3307,6 +3307,7 @@ int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   MR_Fanout(mrctx, NULL, cmd, false);
   return REDISMODULE_OK;
 }
+
 typedef struct SearchCmdCtx {
   RedisModuleString **argv;
   int argc;
@@ -3508,7 +3509,6 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 size_t GetNumShards_UnSafe() {
   return NumShards;
 }
-
 
 /** A dummy command handler, for commands that are disabled when running the module in OSS
  * clusters

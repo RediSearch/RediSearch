@@ -113,9 +113,3 @@ void MRChannel_Unblock(MRChannel *chan) {
   pthread_cond_broadcast(&chan->cond);
   pthread_mutex_unlock(&chan->lock);
 }
-
-void MRChannel_Block(MRChannel *chan) {
-  pthread_mutex_lock(&chan->lock);
-  chan->wait = true;
-  pthread_mutex_unlock(&chan->lock);
-}
