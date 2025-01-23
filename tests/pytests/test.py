@@ -2901,7 +2901,7 @@ def testErrorWithApply(env):
     env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo bar').equal('OK')
     env.expect(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'split()'
-    ).error().contains('Invalid number of arguments for split')
+    ).error().contains("Function 'split' expects between 1 and 3 arguments, but got 0")
 
 def testSummerizeWithAggregateRaiseError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
@@ -3103,7 +3103,7 @@ def testGroupByWithApplyError(env):
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').ok()
     env.expect(
         'FT.AGGREGATE', 'idx', '*', 'APPLY', 'split()', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'AS', 'count'
-    ).error().contains('Invalid number of arguments for split')
+    ).error().contains("Function 'split' expects between 1 and 3 arguments, but got 0")
 
 def testSubStrErrors(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -3116,9 +3116,9 @@ def testSubStrErrors(env):
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",3,-2)', 'as', 'a')
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",3,1000)', 'as', 'a')
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",-1,2)', 'as', 'a')
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test")', 'as', 'a').error().contains("Invalid arguments for function 'substr'")
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr(1)', 'as', 'a').error().contains("Invalid arguments for function 'substr'")
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "test")', 'as', 'a').error().contains("Invalid arguments for function 'substr'")
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test")', 'as', 'a').error().contains("Function 'substr' expects 3 arguments, but got 1")
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr(1)', 'as', 'a').error().contains("Function 'substr' expects 3 arguments, but got 1")
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "test")', 'as', 'a').error().contains("Function 'substr' expects 3 arguments, but got 2")
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "test", "test")', 'as', 'a').error().contains("Invalid type (3) for argument 1 in function 'substr'")
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "-1", "-1")', 'as', 'a').error().contains("Invalid type (3) for argument 1 in function 'substr'")
     env.assertTrue(env.isUp())
@@ -3245,11 +3245,11 @@ def testParseTime(env):
     # check for errors
     env.expect(
         'ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime()', 'as', 'a'
-    ).error().contains("Invalid arguments for function 'parsetime'")
+    ).error().contains("Function 'parsetime' expects 2 arguments, but got 0")
 
     env.expect(
         'ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11)', 'as', 'a'
-    ).error().contains("Invalid arguments for function 'parsetime'")
+    ).error().contains("Function 'parsetime' expects 2 arguments, but got 1")
 
     env.expect(
         'ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11,22)', 'as', 'a'
