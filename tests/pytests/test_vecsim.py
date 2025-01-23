@@ -754,12 +754,12 @@ def test_hybrid_query_batches_mode_with_tags():
 
     for data_type in VECSIM_DATA_TYPES:
         conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
-                            'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG')
+                            'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG', 'text', 'TEXT')
 
         p = conn.pipeline(transaction=False)
         for i in range(1, index_size+1):
             vector = create_np_array_typed([i]*dim, data_type)
-            p.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid')
+            p.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid', 'text', 'text')
         p.execute()
 
         query_data = create_np_array_typed([index_size/2]*dim, data_type)
