@@ -831,7 +831,7 @@ def test_hybrid_query_batches_mode_with_tags():
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
         vector = create_np_array_typed([i]*dim, data_type)
-        p.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid')
+        p.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid', 'text', 'text')
     p.execute()
 
     query_data = create_np_array_typed([index_size/2]*dim, data_type)
