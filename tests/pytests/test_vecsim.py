@@ -787,7 +787,7 @@ def test_hybrid_query_batches_mode_with_tags():
     env.debugPrint(f"data_type for test {env.testName}: {data_type}", force=True)
 
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
-                        'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG')
+                        'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG', 'text', 'TEXT')
 
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
@@ -2445,7 +2445,7 @@ def test_max_knn_k():
     env.expect('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB AS {score_name.lower()}]',
                'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
                'RETURN', '1', score_name).error().contains('KNN K parameter is too large')
-    
+
 def test_vector_index_ptr_valid(env):
     conn = getConnectionByEnv(env)
     # Scenerio1: Vecsim Index scheme with numeric (or non-vector type) and vector type with invalid parameter
