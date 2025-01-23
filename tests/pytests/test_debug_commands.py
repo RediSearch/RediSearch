@@ -408,54 +408,56 @@ class TestQueryDebugCommands(object):
             conn.execute_command('HSET', f'doc{i}' ,'n', i)
 
         self.basic_query = []
+        self.basic_debug_query = []
 
-    def setBasicQuery(self, cmd):
-        self.basic_query = [debug_cmd(), 'FT.' + cmd, 'idx', '*']
+    def setBasicDebugQuery(self, cmd):
+        self.basic_query  = ['FT.' + cmd, 'idx', '*']
+        self.basic_debug_query = [debug_cmd(), *self.basic_query]
 
     def verifyWarning(self, res, message, should_timeout=True, depth=0):
         if should_timeout:
             VerifyTimeoutWarningResp3(self.env, res, depth=depth+1, message=message + " expected warning")
-            self.env.assertTrue(res['warning'], depth=depth+1, message=message + " expected warning")
-            if (res['warning']):
-                self.env.assertContains("Timeout", res["warning"][0], depth=depth+1, message=message + " expected timeout warning")
         else:
             self.env.assertFalse(res['warning'], depth=depth+1, message=message + " unexpected warning")
 
-
-    def verifyResults(self, res, expected_results_count, message, should_timeout=True, depth=0):
+    def verifyResultsResp3(self, res, expected_results_count, message, should_timeout=True, depth=0):
         env = self.env
         env.assertEqual(len(res["results"]), expected_results_count, depth=depth+1, message=message + " unexpected results count")
         self.verifyWarning(res, message, should_timeout=should_timeout, depth=depth+1)
+
+    def verifyResultsResp2(self, res, expected_results_count, message, depth=0):
+        env = self.env
+        env.assertEqual(len(res[1:] / 2), expected_results_count, depth=depth+1, message=message + " unexpected results count")
 
     def QueryWithLimit(self, query, timeout_res_count, limit, expected_res_count, should_timeout=False, message="", depth=0):
         env = self.env
         debug_params = ['TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2]
         res = env.cmd(*query, 'LIMIT', 0, limit, *debug_params)
-        self.verifyResults(res, expected_res_count, message=message + " QueryWithLimit:", should_timeout=should_timeout, depth=depth+1)
+        self.verifyResultsResp3(res, expected_res_count, message=message + " QueryWithLimit:", should_timeout=should_timeout, depth=depth+1)
 
         return res
 
     def QueryDebug(self, depth=0):
         env = self.env
-        basic_query = self.basic_query
+        basic_debug_query = self.basic_debug_query
 
         # Test invalid params
         # expected_cmd = [debug_cmd(), 'FT.' + cmd, 'idx', '*', 'TIMEOUT_AFTER_N', 3, 'DEBUG_PARAMS_COUNT', 2]
-        env.expect(*basic_query).error().contains('wrong number of arguments for')
+        env.expect(*basic_debug_query).error().contains('wrong number of arguments for')
 
-        basic_query_with_args = [*basic_query, 'limit', 0, 0, 'timeout', 10000] # add random params to reach the minimum required
-        env.expect(*basic_query_with_args).error().contains('DEBUG_PARAMS_COUNT arg is missing')
-        test_cmd = [*basic_query_with_args, 'DEBUG_PARAMS_COUNT', 'meow'] # expect a number
+        basic_debug_query_with_args = [*basic_debug_query, 'limit', 0, 0, 'timeout', 10000] # add random params to reach the minimum required
+        env.expect(*basic_debug_query_with_args).error().contains('DEBUG_PARAMS_COUNT arg is missing')
+        test_cmd = [*basic_debug_query_with_args, 'DEBUG_PARAMS_COUNT', 'meow'] # expect a number
         env.expect(*test_cmd).error().contains('Invalid DEBUG_PARAMS_COUNT count')
 
-        # in this case we try to parse [*basic_query, 'limit', 0, 0, 'TIMEOUT'] so TIMEOUT count is missing
-        test_cmd = [*basic_query_with_args, 'MEOW', 'DEBUG_PARAMS_COUNT', 2]
+        # in this case we try to parse [*basic_debug_query, 'limit', 0, 0, 'TIMEOUT'] so TIMEOUT count is missing
+        test_cmd = [*basic_debug_query_with_args, 'MEOW', 'DEBUG_PARAMS_COUNT', 2]
         env.expect(*test_cmd).error().contains('argument for TIMEOUT')
 
         # ft.<cmd> idx * TIMEOUT_AFTER_N 0 -> expect empty result
         debug_params = ['TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2]
-        res = env.cmd(*basic_query, *debug_params)
-        self.verifyResults(res, 0, "QueryDebug:", depth=depth+1)
+        res = env.cmd(*basic_debug_query, *debug_params)
+        self.verifyResultsResp3(res, 0, "QueryDebug:", depth=depth+1)
 
     def QueryWithSorter(self, limit=2, sortby_params=[], depth=0):
         # For queries with sorter, the LIMIT determines the heap size.
@@ -464,7 +466,7 @@ class TestQueryDebugCommands(object):
 
         # Therefor, as opposed to queries without sorter and LIMIT < TIMEOUT_AFTER_N,
         # we will get LIMIT results *and* TIMEOUT warning.
-        res = self.QueryWithLimit([*self.basic_query, *sortby_params], timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=True, depth=depth+1)
+        res = self.QueryWithLimit([*self.basic_debug_query, *sortby_params], timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=True, depth=depth+1)
         res_values = [doc_content['extra_attributes']['n'] for doc_content in res["results"]]
         self.env.assertTrue(res_values == sorted(res_values), depth=depth+1, message="QueryWithSorter: expected sorted results")
         self.env.assertTrue(len(res_values) == len(set(res_values)), depth=depth+1, message="QueryWithSorter: expected unique results")
@@ -474,16 +476,15 @@ class TestQueryDebugCommands(object):
         env = self.env
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
 
-        debug_params = ['TIMEOUT_AFTER_N', 2, 'DEBUG_PARAMS_COUNT', 2]
         with env.assertResponseError(contained="Timeout limit was reached"):
-            env.cmd(*self.basic_query, *debug_params)
+            runDebugQueryCommand(env, self.basic_query, 2, depth=1)
 
         # restore the default policy
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
 
     def SearchDebug(self):
-        self.setBasicQuery("SEARCH")
-        basic_query = self.basic_query
+        self.setBasicDebugQuery("SEARCH")
+        basic_debug_query = self.basic_debug_query
         self.QueryDebug()
 
         timeout_res_count = 4
@@ -492,13 +493,13 @@ class TestQueryDebugCommands(object):
         expected_results_count = self.env.shardsCount * timeout_res_count
         # set LIMIT to be larger than the expected results count
         limit = expected_results_count + 1
-        self.QueryWithLimit(basic_query, timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
+        self.QueryWithLimit(basic_debug_query, timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
 
         # SEARCH always has a sorter
         self.QueryWithSorter()
 
         # with no sorter (dialect 4)
-        self.QueryWithLimit(basic_query, timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
+        self.QueryWithLimit(basic_debug_query, timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
 
         self.StrictPolicy()
 
@@ -512,13 +513,13 @@ class TestQueryDebugCommands(object):
 
     def AggregateDebug(self):
         env = self.env
-        self.setBasicQuery("AGGREGATE")
-        basic_query = self.basic_query
+        self.setBasicDebugQuery("AGGREGATE")
+        basic_debug_query = self.basic_debug_query
         self.QueryDebug()
 
         # EOF will be reached before the timeout counter
         limit = 2
-        res = self.QueryWithLimit(basic_query, timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=False)
+        res = self.QueryWithLimit(basic_debug_query, timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=False)
 
         self.QueryWithSorter(sortby_params=['sortby', 1, '@n', 'load', 1, '@n'])
 
@@ -527,9 +528,9 @@ class TestQueryDebugCommands(object):
         limit = self.num_docs
         cursor_count = 600 # higher than timeout_res_count, but lower than limit
         debug_params = ["TIMEOUT_AFTER_N", timeout_res_count, "DEBUG_PARAMS_COUNT", 2]
-        cursor_query = [*basic_query, 'WITHCURSOR', 'COUNT', cursor_count]
+        cursor_query = [*basic_debug_query, 'WITHCURSOR', 'COUNT', cursor_count]
         res, cursor = env.cmd(*cursor_query, 'LIMIT', 0, limit, *debug_params)
-        self.verifyResults(res, timeout_res_count, "AggregateDebug with cursor:")
+        self.verifyResultsResp3(res, timeout_res_count, "AggregateDebug with cursor:")
 
         iter = 0
         total_returned = len(res['results'])
@@ -563,16 +564,16 @@ class TestQueryDebugCommands(object):
             if check_res_count == False:
                 self.verifyWarning(res, f"AggregateDebug with cursor: iter: {iter}, total_returned: {total_returned}", should_timeout=should_timeout)
             else:
-                self.verifyResults(res, expected_results_per_iter, f"AggregateDebug with cursor: iter: {iter}, total_returned: {total_returned}", should_timeout=should_timeout)
+                self.verifyResultsResp3(res, expected_results_per_iter, f"AggregateDebug with cursor: iter: {iter}, total_returned: {total_returned}", should_timeout=should_timeout)
             iter += 1
         env.assertEqual(total_returned, self.num_docs, message=f"AggregateDebug with cursor: depletion took {iter} iterations")
 
         # cursor count smaller than timeout count, expect no timeout
         cursor_count = timeout_res_count // 2
-        cursor_query = [*basic_query, 'WITHCURSOR', 'COUNT', cursor_count]
+        cursor_query = [*basic_debug_query, 'WITHCURSOR', 'COUNT', cursor_count]
         res, cursor = env.cmd(*cursor_query, 'LIMIT', 0, limit, *debug_params)
         should_timeout = False
-        self.verifyResults(res, cursor_count, should_timeout=should_timeout, message="AggregateDebug with cursor count lower than timeout_res_count:")
+        self.verifyResultsResp3(res, cursor_count, should_timeout=should_timeout, message="AggregateDebug with cursor count lower than timeout_res_count:")
 
         self.StrictPolicy()
 
@@ -582,21 +583,22 @@ class TestQueryDebugCommands(object):
     def testAggregateDebug_MT(self):
         self.env.expect(config_cmd(), 'SET', 'WORKERS', 4).ok()
         self.AggregateDebug()
+        self.env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
 
     # compare results of regular query and debug query
-    def Sanity(self, cmd, sortby_n):
+    def Sanity(self, cmd, query_params):
         # avoid running this test in cluster mode, as it relies on the order of the results
         skipTest(cluster=True)
         env = self.env
         results_count = 200
         timeout_res_count = results_count - 1
-        query = ['FT.' + cmd, 'idx', '*', *sortby_n, 'LIMIT', 0, results_count]
+        query = ['FT.' + cmd, 'idx', '*', *query_params, 'LIMIT', 0, results_count]
         debug_params = ["TIMEOUT_AFTER_N", timeout_res_count, "DEBUG_PARAMS_COUNT", 2]
-        # We rely on the fact that search sorts the results according to the doc id.
+
         # expect that the first timeout_res_count of the regular query will be the same as the debug query
         regular_res = env.cmd(*query)
         debug_res = env.cmd(debug_cmd(), *query, *debug_params)
-        self.verifyResults(debug_res, timeout_res_count, f"{cmd} Sanity: compare regular and debug results", should_timeout=True)
+        self.verifyResultsResp3(debug_res, timeout_res_count, f"{cmd} Sanity: compare regular and debug results", should_timeout=True)
 
         for i in range(timeout_res_count):
             env.assertEqual(regular_res["results"][i], debug_res["results"][i], message=f"Sanity: compare regular and debug results at index {i}")
@@ -604,7 +606,7 @@ class TestQueryDebugCommands(object):
     def testSearchSanity(self):
         self.Sanity("SEARCH", ['SORTBY', 'n'])
     def testAggSanity(self):
-        self.Sanity("AGGREGATE", ['SORTBY', 1, '@n'])
+        self.Sanity("AGGREGATE", ['LOAD', 1, '@n', 'SORTBY', 1, '@n'])
 
     def testInternalOnly(self):
         env = self.env
@@ -615,10 +617,37 @@ class TestQueryDebugCommands(object):
         def runCmd(cmd, expected_results_count):
             query = [debug_cmd(), 'FT.' + cmd, 'idx', '*', 'LIMIT', 0, limit + 1, "TIMEOUT_AFTER_N", timeout_res_count, "INTERNAL_ONLY", "DEBUG_PARAMS_COUNT", 3]
             res = env.cmd(*query)
-            self.verifyResults(res, expected_results_count, f"InternalOnly: FT.{cmd}:")
+            self.verifyResultsResp3(res, expected_results_count, f"InternalOnly: FT.{cmd}:")
 
         # we get timeout_res_count from each shard
         runCmd("SEARCH", self.env.shardsCount * timeout_res_count)
 
         # with AGGREGATE we will get timeout_res_count results because the shard returned timeout
         runCmd("AGGREGATE", timeout_res_count)
+
+    def Resp2(self, cmd, query_params, listResults_func):
+        skipTest(cluster=True)
+        conn = getConnectionByEnv(self.env)
+        conn.execute_command("hello", "2")
+
+        timeout_res_count = 4
+        limit = self.env.shardsCount * timeout_res_count + 1
+        query = ['FT.' + cmd, 'idx', '*', *query_params, 'LIMIT', 0, limit]
+        debug_params = ["TIMEOUT_AFTER_N", timeout_res_count, "DEBUG_PARAMS_COUNT", 2]
+        # expect that the first timeout_res_count of the regular query will be the same as the debug query
+        regular_res = listResults_func(conn.execute_command(*query))
+        debug_res = listResults_func(conn.execute_command(debug_cmd(), *query, *debug_params))
+        self.env.assertEqual(len(debug_res), timeout_res_count, message=f"Resp2 with FT.{cmd}: expected results count")
+
+        for i in range(timeout_res_count):
+            self.env.assertEqual(regular_res[i], debug_res[i], message=f"Resp2 with FT.{cmd}: compare regular and debug results at index {i}")
+
+    def testAggResp2(self):
+        def listResults(res):
+            return res[1:]
+        self.Resp2("AGGREGATE", ['LOAD', 1, '@n', 'SORTBY', 1, '@n'], listResults)
+
+    def testSearchResp2(self):
+        def listResults(res):
+            return [{res[i]: res[i + 1]} for i in range(1, len(res[1:]), 2)]
+        self.Resp2("SEARCH", ['SORTBY', 'n'], listResults)
