@@ -58,6 +58,8 @@ CONFIG_SETTER(setGlobalPass) {
 
   RedisModule_Log(RSDummyContext, "warning",
     "OSS_GLOBAL_PASSWORD is deprecated, inter-shard communication is now done via internal connections");
+  // Read next arg, but do nothing with it
+  int acrc = AC_Advance(ac);
   return REDISMODULE_OK;
 }
 
@@ -174,8 +176,7 @@ static RSConfigOptions clusterOptions_g = {
             {.name = "OSS_GLOBAL_PASSWORD",
              .helpText = "(Deprecated) Global oss cluster password that will be used to connect to other shards",
              .setValue = setGlobalPass,
-             .getValue = getGlobalPass,
-             .flags = RSCONFIGVAR_F_IMMUTABLE},
+             .getValue = getGlobalPass},
             {.name = "CONN_PER_SHARD",
              .helpText = "Number of connections to each shard in the cluster. Default to 0. "
                          "If 0, the number of connections is set to `WORKERS` + 1.",
