@@ -16,12 +16,14 @@ def testMultibyteText(env):
     conn.execute_command('HSET', 'test:upper', 't', 'БЪЛГА123') # uppercase
     conn.execute_command('HSET', 'test:lower', 't', 'бълга123') # lowercase
     conn.execute_command('HSET', 'test:mixed', 't', 'БЪлга123') # mixed case
+    conn.execute_command('HSET', 'doc:eszett_1', 't', 'GRÜẞEN')
+    conn.execute_command('HSET', 'doc:eszett_2', 't', 'grüßen')
 
     if not env.isCluster():
         # only 2 terms are indexed, the lowercase representation of the terms
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
-        env.assertEqual(len(res), 2)
-        env.assertEqual(res, ['abcabc', 'бълга123'])
+        env.assertEqual(len(res), 3)
+        env.assertEqual(res, ['abcabc', 'grüßen', 'бълга123'])
 
     for dialect in range(1, 5):
         env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
@@ -78,6 +80,105 @@ def testMultibyteText(env):
         # Search with uppercase contains
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:*ЪЛГА*', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # Search for term with eszett
+        expected = [2, 'doc:eszett_1', 'doc:eszett_2']
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:(GRÜẞEN)', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:(grüßen)', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+def testJsonMultibyteText(env):
+    '''Test that multibyte characters are correctly converted to lowercase and
+    that queries are case-insensitive using TEXT fields on JSON index'''
+
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON',
+            'LANGUAGE', 'RUSSIAN', 'SCHEMA', '$.t', 'AS', 't', 'TEXT')
+
+    conn.execute_command('JSON.SET', 'test:1', '$', r'{"t": "abcabc"}')
+    conn.execute_command('JSON.SET', 'test:2', '$', r'{"t": "ABCABC"}')
+    conn.execute_command('JSON.SET', 'test:upper', '$', r'{"t": "БЪЛГА123"}')
+    conn.execute_command('JSON.SET', 'test:lower', '$', r'{"t": "бълга123"}')
+    conn.execute_command('JSON.SET', 'test:mixed', '$', r'{"t": "БЪлга123"}')
+    conn.execute_command('JSON.SET', 'doc:eszett_1', '$', r'{"t": "GRÜẞEN"}')
+    conn.execute_command('JSON.SET', 'doc:eszett_2', '$', r'{"t": "grüßen"}')
+
+    if not env.isCluster():
+        # only 2 terms are indexed, the lowercase representation of the terms
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
+        env.assertEqual(len(res), 3)
+        env.assertEqual(res, ['abcabc', 'grüßen', 'бълга123'])
+
+    for dialect in range(1, 5):
+        env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
+
+        # Search term without multibyte chars
+        expected = [2, 'test:1', 'test:2']
+        res = conn.execute_command('FT.SEARCH', 'idx', '@t:abcabc', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command('FT.SEARCH', 'idx', '@t:ABCABC', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        expected = [3, 'test:upper', 'test:lower', 'test:mixed']
+        # Search uppercase term
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:БЪЛГА123', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # Search lowercase term
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:бълга123', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # Search mixed case term
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:БЪлга123', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # Search with lowercase prefix
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:бълга*', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # Search with uppercase prefix
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:БЪЛГА*', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # Search with lowercase suffix
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:*ълга123', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # Search with uppercase suffix
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:*ЪЛГА123', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # Search with lowercase contains
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:*ълга*', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # Search with uppercase contains
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:*ЪЛГА*', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        # Search for term with eszett
+        expected = [2, 'doc:eszett_1', 'doc:eszett_2']
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:(GRÜẞEN)', 'NOCONTENT')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:(grüßen)', 'NOCONTENT')
         env.assertEqual(res, expected)
 
 def testRussianAlphabet(env):
@@ -358,14 +459,16 @@ def testLongTerms(env):
     conn = getConnectionByEnv(env)
 
     # lowercase
-    conn.execute_command('HSET', 'w1', 't', 'частнопредпринимательский')
+    long_term_lower = 'частнопредпринимательский' * 6;
+    conn.execute_command('HSET', 'w1', 't', long_term_lower)
     # uppercase
-    conn.execute_command('HSET', 'w2', 't', 'ЧАСТНОПРЕДПРИНИМАТЕЛЬСКИЙ')
+    long_term_upper = 'ЧАСТНОПРЕДПРИНИМАТЕЛЬСКИЙ' * 6;
+    conn.execute_command('HSET', 'w2', 't', long_term_lower)
 
     # A single term should be generated in lower case.
     if not env.isCluster():
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx1')
-        env.assertEqual(res, ['частнопредпринимательский'])
+        env.assertEqual(res, [long_term_lower])
 
     # For index with STEMMING enabled, two terms are expected
     env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
@@ -373,8 +476,7 @@ def testLongTerms(env):
     waitForIndex(env, 'idx2')
     if not env.isCluster():
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx2')
-        env.assertEqual(res, ['+частнопредпринимательск',
-                              'частнопредпринимательский'])
+        env.assertEqual(res, [f'+{long_term_lower[:148]}', long_term_lower])
 
 def testMultibyteTag(env):
     '''Test that multibyte characters are correctly converted to lowercase and
@@ -391,6 +493,98 @@ def testMultibyteTag(env):
     conn.execute_command('HSET', 'doc:mixed', 't', 'БЪлга123', 'id', 5)
     conn.execute_command('HSET', 'doc:eszett_1', 't', 'GRÜẞEN', 'id', 6)
     conn.execute_command('HSET', 'doc:eszett_2', 't', 'grüßen', 'id', 7)
+
+    if not env.isCluster():
+        # only 3 terms are indexed, the lowercase representation of the terms
+        res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
+        env.assertEqual(res, [['abcabc', [1, 2]], ['grüßen', [6, 7]],
+                              ['бълга123', [3, 4, 5]]])
+
+    for dialect in range(1, 5):
+        env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
+
+        # Search term without multibyte chars
+        # ANY because for dialect 4 the count can be different
+        expected = [ANY, 'doc:1', 'doc:2']
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{abcabc}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected, message=f'Dialect: {dialect}')
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{ABCABC}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected, message=f'Dialect: {dialect}')
+
+        expected = [ANY, 'doc:upper', 'doc:lower', 'doc:mixed']
+        # Search uppercase term
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{БЪЛГА123}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        # Search lowercase term
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{бълга123}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected, message=f'Dialect: {dialect}')
+
+        # Search mixed case term
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{БЪлга123}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        # Search with lowercase prefix
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{бълга*}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        # Search with uppercase prefix
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{БЪЛГА*}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        # Search with lowercase suffix
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{*ълга123}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        # Search with uppercase suffix
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{*ЪЛГА123}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        # Search with lowercase contains
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{*ълга*}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        # Search with uppercase contains
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{*ЪЛГА*}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        # Search for term with eszett
+        expected = [2, 'doc:eszett_1', 'doc:eszett_2']
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{GRÜẞEN}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{grüßen}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+def testJsonMultibyteTag(env):
+    '''Test that multibyte characters are correctly converted to lowercase and
+    that queries are case-insensitive using TAG fields on JSON index'''
+
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx', 'ON', 'JSON', 'LANGUAGE', 'ENGLISH', 'SCHEMA',
+            '$.t', 'AS', 't', 'TAG', '$.id', 'AS', 'id', 'NUMERIC')
+
+    conn.execute_command('JSON.SET', 'doc:1', '$', r'{"t": "abcabc", "id": 1}')
+    conn.execute_command('JSON.SET', 'doc:2', '$', r'{"t": "ABCABC", "id": 2}')
+    conn.execute_command('JSON.SET', 'doc:upper', '$', r'{"t": "БЪЛГА123", "id": 3}')
+    conn.execute_command('JSON.SET', 'doc:lower', '$', r'{"t": "бълга123", "id": 4}')
+    conn.execute_command('JSON.SET', 'doc:mixed', '$', r'{"t": "БЪлга123", "id": 5}')
+    conn.execute_command('JSON.SET', 'doc:eszett_1', '$', r'{"t": "GRÜẞEN", "id": 6}')
+    conn.execute_command('JSON.SET', 'doc:eszett_2', '$', r'{"t": "grüßen", "id": 7}')
 
     if not env.isCluster():
         # only 3 terms are indexed, the lowercase representation of the terms

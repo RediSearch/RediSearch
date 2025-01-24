@@ -93,7 +93,10 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
   if (sep == TAG_FIELD_DEFAULT_JSON_SEP) {
     char *tok = rm_strdup(str);
     if (!(flags & TagField_CaseSensitive)) { // check case sensitive
-      unicode_tolower(tok, strlen(tok));
+      size_t newLen = unicode_tolower(tok, strlen(tok));
+      if (newLen) {
+        tok[newLen] = '\0';
+      }
     }
     array_append(*resArray, tok);
     return REDISMODULE_OK;
