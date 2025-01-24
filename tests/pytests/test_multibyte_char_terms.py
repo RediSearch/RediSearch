@@ -395,8 +395,8 @@ def testMultibyteTag(env):
     if not env.isCluster():
         # only 3 terms are indexed, the lowercase representation of the terms
         res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
-        env.assertEqual(res, [['бълга123', [3, 4, 5]], ['abcabc', [1, 2]],
-                              ['grüßen', [6, 7]]])
+        env.assertEqual(res, [['abcabc', [1, 2]], ['grüßen', [6, 7]],
+                              ['бълга123', [3, 4, 5]]])
 
     for dialect in range(1, 5):
         env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
@@ -489,10 +489,9 @@ def testMultibyteTagCaseSensitive(env):
     if not env.isCluster():
         # 7 terms are indexed because the TAG field is CASESENSITIVE
         res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
-        env.assertEqual(res, [['БЪЛГА123', [3]], ['БЪлга123', [5]],
-                              ['бълга123', [4]], ['ABCABC', [2]],
-                              ['GRÜẞEN', [6]], ['abcabc', [1]],
-                              ['grüßen', [7]]])
+        env.assertEqual(res, [['ABCABC', [2]], ['GRÜẞEN', [6]], ['abcabc', [1]],
+                              ['grüßen', [7]], ['БЪЛГА123', [3]],
+                              ['БЪлга123', [5]], ['бълга123', [4]]])
 
     for dialect in range(1, 5):
         env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
