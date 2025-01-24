@@ -48,26 +48,28 @@ static int fvAdd_noSort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
   fvCtx *fvx = ctx;
   RSValue *val = RLookup_GetItem(fvx->retprop, srcrow);
-  if (!val) {
-    return 1;
-  }
+  if (!val) val = RS_NullVal();
 
   RSValue *curSortval = RLookup_GetItem(fvx->sortprop, srcrow);
   if (!curSortval) curSortval = RS_NullVal();
 
   if (!fvx->sortval) {
-    // No current value: assign value and continue
+    // This is the first value we see
     fvx->value = RSValue_IncrRef(val);
     fvx->sortval = RSValue_IncrRef(curSortval);
-    return 1;
-  }
-
-  int rc = (fvx->ascending ? -1 : 1) * RSValue_Cmp(curSortval, fvx->sortval, NULL);
-  int isnull = RSValue_IsNull(fvx->sortval);
-
-  if (!fvx->value || (!isnull && rc > 0) || (isnull && rc < 0)) {
+  } else if (RSValue_IsNull(curSortval)) {
+    // If the current value is null, we don't need to do anything
+  } else if (RSValue_IsNull(fvx->sortval)) {
+    // If the best value is null, replace it with the current value (which is not null)
     RSVALUE_REPLACE(&fvx->sortval, curSortval);
     RSVALUE_REPLACE(&fvx->value, val);
+  } else {
+    // If both values are not null, compare them and replace if necessary
+    int rc = RSValue_Cmp(curSortval, fvx->sortval, NULL);
+    if (fvx->ascending ? rc < 0 : rc > 0) {
+      RSVALUE_REPLACE(&fvx->sortval, curSortval);
+      RSVALUE_REPLACE(&fvx->value, val);
+    }
   }
 
   return 1;
