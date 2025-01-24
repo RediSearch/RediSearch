@@ -1281,26 +1281,18 @@ static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
   size_t origLen = *len;
   char *origStr = str;
   char *p = str;
-  if (caseSensitive) {
-    while (*p) {
-      if (*p == '\\' && (ispunct(*(p+1)) || isspace(*(p+1)))) {
-        ++p;
-        --*len;
-      }
-      *str++ = *p++;
-    }
-    *str = '\0';
-  } else {
-    while (*p) {
-      if (*p == '\\' && (ispunct(*(p+1)) || isspace(*(p+1)))) {
-        ++p;
-        --*len;
-      }
-      *str++ = tolower(*p++);
-    }
-    *str = '\0';
 
-    // convert multi-byte characters to lowercase
+  while (*p) {
+    if (*p == '\\' && (ispunct(*(p+1)) || isspace(*(p+1)))) {
+      ++p;
+      --*len;
+    }
+    *str++ = *p++;
+  }
+  *str = '\0';
+
+  if (!caseSensitive) {
+    // convert to lowercase
     size_t newLen = unicode_tolower(origStr, origLen);
     if (newLen && newLen < origLen) {
       origStr[newLen] = '\0';

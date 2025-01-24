@@ -53,10 +53,7 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
   // set to 1 if the previous character was a backslash escape
   int escaped = 0;
   for (size_t ii = 0; ii < origLen; ++ii) {
-    if (isupper(s[ii])) {
-      SWITCH_DEST();
-      realDest[dstLen++] = tolower(s[ii]);
-    } else if ((isblank(s[ii]) && !escaped) || iscntrl(s[ii])) {
+    if ((isblank(s[ii]) && !escaped) || iscntrl(s[ii])) {
       SWITCH_DEST();
     } else if (s[ii] == '\\' && !escaped) {
       SWITCH_DEST();
@@ -70,7 +67,7 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
 
   *len = dstLen;
 
-  // convert multi-byte characters to lowercase
+  // convert to lowercase
   size_t newLen = unicode_tolower(dst, dstLen);
   if (newLen) {
     *len = newLen;

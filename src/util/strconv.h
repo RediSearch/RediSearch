@@ -188,14 +188,14 @@ static char *rm_strdupcase(const char *s, size_t len) {
       ++src;
       continue;
     }
-    *dst = tolower(*src);
+    *dst = *src;
     ++dst;
     ++src;
 
   }
   *dst = '\0';
 
-  // convert multi-byte characters to lowercase
+  // convert to lowercase
   size_t newLen = unicode_tolower(ret, len);
   if (newLen && newLen <= len) {
     ret[newLen] = '\0';
