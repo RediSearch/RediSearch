@@ -435,11 +435,16 @@ static int MRConn_SendAuth(MRConn *conn) {
     RedisModule_ThreadSafeContextLock(RSDummyContext);
     const char *internal_secret = RedisModule_GetInternalSecret(RSDummyContext, &len);
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+
+    sds secret = sdsnewlen(internal_secret, len);
+
     if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn,
-        "INTERNALAUTH %s", internal_secret) == REDIS_ERR) {
+        "INTERNALAUTH %s", secret) == REDIS_ERR) {
+      sdsfree(secret);
       MRConn_SwitchState(conn, MRConn_ReAuth);
       return REDIS_ERR;
     }
+    sdsfree(secret);
     return REDIS_OK;
   } else {
     // On Enterprise, we use the password we got from `CLUSTERSET`
