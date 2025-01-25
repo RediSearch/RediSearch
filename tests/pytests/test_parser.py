@@ -617,3 +617,29 @@ def testModifierList(env):
   }
 }
 '''[1:])
+
+def testCreateOptionalArgs(env):
+  # the order of the optional arguments is not important
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'genre', 'TAG',
+             'SEPARATOR', ',', 'SORTABLE').ok()
+  env.expect('FT.DROP', 'idx')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'genre', 'TAG',
+             'SORTABLE', 'SEPARATOR', ',').ok()
+  env.expect('FT.DROP', 'idx')
+
+  # test case with multiple fields
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT',
+    'WEIGHT', '5.0', 'plot', 'TEXT', 'SORTABLE', 'genre', 'TAG', 'SORTABLE',
+    'SEPARATOR', ',', 'release_year', 'NUMERIC', 'SORTABLE', 'rating',
+    'NUMERIC', 'SORTABLE', 'votes', 'NUMERIC', 'SORTABLE').ok()
+  env.expect('FT.DROP', 'idx')
+
+  # test optional argument: SORTABLE
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'SORTABLE').ok()
+  env.expect('FT.DROP', 'idx')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'SORTABLE').ok()
+  env.expect('FT.DROP', 'idx')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geo', 'GEO', 'SORTABLE').ok()
+  env.expect('FT.DROP', 'idx')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'geom', 'GEOSHAPE', 'SORTABLE').ok()
+  env.expect('FT.DROP', 'idx')

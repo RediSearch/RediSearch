@@ -810,6 +810,13 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
       fs->options |= FieldSpec_IndexEmpty;
     } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
       fs->options |= FieldSpec_IndexMissing;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
+      FieldSpec_SetSortable(fs);
+      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR)) {      // Explicitly requested UNF
+          fs->options |= FieldSpec_UNF;
+      }
+    } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
+      fs->options |= FieldSpec_NotIndexable;
     } else {
       break;
     }
@@ -845,6 +852,12 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
         fs->options |= FieldSpec_IndexEmpty;
       } else if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
         fs->options |= FieldSpec_IndexMissing;
+      } else if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
+        FieldSpec_SetSortable(fs);
+        if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
+            TAG_FIELD_IS(fs, TagField_CaseSensitive)) { // We don't normalize case sensitive tags. Implicit UNF
+          fs->options |= FieldSpec_UNF;
+        }
       } else {
         break;
       }
@@ -935,6 +948,8 @@ static int parseGeometryField(IndexSpec *sp, FieldSpec *fs, ArgsCursor *ac, Quer
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Cartesian;
     } else if (AC_AdvanceIfMatch(ac, SPEC_GEOMETRY_SPHERE_STR)) {
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
+    } else if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
+      FieldSpec_SetSortable(fs);
     } else {
       fs->geometryOpts.geometryCoords = GEOMETRY_COORDS_Geographic;
     }
@@ -987,13 +1002,19 @@ static int parseFieldSpec(ArgsCursor *ac, IndexSpec *sp, StrongRef sp_ref, Field
 
   while (!AC_IsAtEnd(ac)) {
     if (AC_AdvanceIfMatch(ac, SPEC_SORTABLE_STR)) {
-      FieldSpec_SetSortable(fs);
-      if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
-          FIELD_IS(fs, INDEXFLD_T_NUMERIC) ||         // We don't normalize numeric fields. Implicit UNF
-          TAG_FIELD_IS(fs, TagField_CaseSensitive)) { // We don't normalize case sensitive tags. Implicit UNF
-        fs->options |= FieldSpec_UNF;
+      if(FIELD_IS(fs, INDEXFLD_T_NUMERIC) || FIELD_IS(fs, INDEXFLD_T_GEO)) {
+        FieldSpec_SetSortable(fs);
+        if (AC_AdvanceIfMatch(ac, SPEC_UNF_STR) ||      // Explicitly requested UNF
+            FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {         // We don't normalize numeric fields. Implicit UNF
+          fs->options |= FieldSpec_UNF;
+        }
+        continue;
+      } else if (!FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && 
+          !FIELD_IS(fs, INDEXFLD_T_TAG) && !FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
+        QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
+                        "Field `%s` can't have the option SORTABLE", fs->name);
+        goto error;
       }
-      continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_NOINDEX_STR)) {
       fs->options |= FieldSpec_NotIndexable;
       continue;
