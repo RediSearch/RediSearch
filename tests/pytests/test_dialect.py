@@ -53,8 +53,49 @@ def test_v1_vs_v2(env):
     env.expect('FT.EXPLAIN', 'idx', '@title:(@num:[0 10])', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 10.000000}\n')
     env.expect('FT.EXPLAIN', 'idx', '@title:(@num:[0 10])', 'DIALECT', 2).error().contains('Syntax error')
 
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 0.1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 0.1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
+
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
-    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .01]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .01]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.010000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 1.]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 1.]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1. +1.]', 'DIALECT', 1).contains('NUMERIC {-1.000000 <= @num <= 1.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1. +1.]', 'DIALECT', 2).contains('NUMERIC {-1.000000 <= @num <= 1.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[1e 0]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[1e 0]', 'DIALECT', 2).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e 0]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e 0]', 'DIALECT', 2).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[+1e 0]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[+1e 0]', 'DIALECT', 2).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e1 1e1]', 'DIALECT', 1).contains('NUMERIC {-10.000000 <= @num <= 10.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e1 1e1]', 'DIALECT', 2).contains('NUMERIC {-10.000000 <= @num <= 10.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e-1 +1e1]', 'DIALECT', 1).contains('NUMERIC {-0.100000 <= @num <= 10.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e-1 +1e1]', 'DIALECT', 2).contains('NUMERIC {-0.100000 <= @num <= 10.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e-1 1e+1]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1e-1 1e+1]', 'DIALECT', 2).contains('NUMERIC {-0.100000 <= @num <= 10.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[1e1.1 0]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[1e1.1 0]', 'DIALECT', 2).error().contains('Syntax error')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 . 1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+    # This does not return error because the '.' is consumed by the lexer, should be fixed by MOD-6933
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 . 1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 #$^ 1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
+    # This does not return error because '#$^' are consumed by the lexer, should be fixed by MOD-6933
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 #$^ 1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
 
     env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 1).contains('@NULL:hello\n')
     env.expect('FT.EXPLAIN', 'idx', '@t1:@t2:@t3:hello', 'DIALECT', 2).error().contains('Syntax error')
