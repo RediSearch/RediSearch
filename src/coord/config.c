@@ -57,7 +57,7 @@ CONFIG_SETTER(setGlobalPass) {
   // it affect something (replaced by internal connections)
 
   RedisModule_Log(RSDummyContext, "warning",
-    "OSS_GLOBAL_PASSWORD is deprecated, inter-shard communication is now done via internal connections");
+    "Notice: OSS_GLOBAL_PASSWORD is deprecated, inter-shard communication is now done via internal connections");
   // Read next arg, but do nothing with it
   int acrc = AC_Advance(ac);
   return REDISMODULE_OK;
@@ -65,7 +65,7 @@ CONFIG_SETTER(setGlobalPass) {
 
 CONFIG_GETTER(getGlobalPass) {
   RedisModule_Log(RSDummyContext, "warning",
-    "OSS_GLOBAL_PASSWORD is deprecated.");
+    "Notice: OSS_GLOBAL_PASSWORD is deprecated, inter-shard communication is now done via internal connections");
   return sdsnew("Password: *******");
 }
 

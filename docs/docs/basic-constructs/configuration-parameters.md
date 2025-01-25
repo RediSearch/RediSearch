@@ -491,7 +491,7 @@ $ redis-server --loadmodule ./redisearch.so UPGRADE_INDEX idx PREFIX 1 tt LANGUA
 
 ### OSS_GLOBAL_PASSWORD
 
-Deprecated. Global oss cluster password that was be used to connect to other shards.
+Deprecated. Global oss cluster password that was used to connect to other shards. Now done via internal connections/commands.
 
 #### Default
 

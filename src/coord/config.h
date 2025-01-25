@@ -31,7 +31,6 @@ extern RedisModuleString *config_dummy_password;
 #define CLUSTER_TYPE_RLABS "redislabs"
 
 #define COORDINATOR_POOL_DEFAULT_SIZE 20
-#define DEFAULT_ACL_USERNAME "default"
 #define DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT 30000
 
 #define DEFAULT_CLUSTER_CONFIG                                                 \

@@ -216,7 +216,7 @@ def test_acl_key_permissions_validation(env):
     non_index_commands = [
         [config_cmd(), 'GET', 'TIMEOUT'],
         [config_cmd(), 'SET', 'TIMEOUT', '1000'],
-        ['FT.CREATE', 'idx2', 'SCHEMA', 'n', 'NUMERIC'],  # TODO: Currently here - consider moving and validating ACL key permissions
+        ['FT.CREATE', 'idx2', 'SCHEMA', 'n', 'NUMERIC'],
         ['FT.DICTADD', 'dict', 'hello'],
         ['FT.DICTDEL', 'dict', 'hello'],
         ['FT.DICTDUMP', 'dict'],
