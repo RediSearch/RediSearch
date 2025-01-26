@@ -2443,7 +2443,7 @@ def testTimeout(env):
 
     num_range = 20000
     env.cmd(config_cmd(), 'set', 'timeout', '1')
-    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
     env.cmd(config_cmd(), 'set', 'maxprefixexpansions', num_range)
 
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
