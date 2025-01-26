@@ -59,13 +59,6 @@
 #include "info/global_stats.h"
 #include "util/units.h"
 
-#define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
-#define NOPERM_ERR "-NOPERM User does not have the required permissions to query the index"
-// Internal commands: Start with an underscore ("_"), but not "_FT.DEBUG *" or "_FT.CONFIG *"
-#define IS_INTERNAL_COMMAND(command) (!strncmp(command, "_", 1)          && \
-                                      strncmp(command, "_FT.CONFIG", 10) && \
-                                      strncmp(command, "_FT.DEBUG", 9))
-
 #define VERIFY_ACL(ctx, idxR)                                                  \
   do {                                                                         \
     const char *idxName = RedisModule_StringPtrLen(idxR, NULL);                \
@@ -98,7 +91,7 @@ static inline bool SearchCluster_Ready() {
   return NumShards != 0;
 }
 
-static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
+bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
   if (RedisModule_ACLCheckKeyPrefixPermissions == NULL) {
     // API not supported -> allow access (ACL will not be enforced).
     return true;
@@ -1045,45 +1038,37 @@ static int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
                   RedisModuleCmdFunc callback, const char *flags, int firstkey,
                   int lastkey, int keystep, const char *aclCategories,
                   bool internalCommand) {
+  int rc = REDISMODULE_OK;
   char *internalFlags;
+  char *categories;
+
   if (internalCommand) {
-      if (IsEnterprise()) {
-          rm_asprintf(&internalFlags, "%s %s", flags, CMD_PROXY_FILTERED);
-      } else {
-          rm_asprintf(&internalFlags, "%s %s", flags, CMD_INTERNAL);
-      }
+    // Do not register to ANY ACL command category
+    categories = "";
+    // We don't want the user running internal commands. For that, we mark the
+    // command internal on OSS, or exclude it from the proxy on Enterprise.
+    if (IsEnterprise()) {
+        rm_asprintf(&internalFlags, "%s %s", flags, CMD_PROXY_FILTERED);
+    } else {
+        rm_asprintf(&internalFlags, "%s %s", flags, CMD_INTERNAL);
+    }
   } else {
-      internalFlags = (char *)flags;
+    internalFlags = (char *)flags;
+    // Register non-internal commands to the `search` ACL category.
+    rm_asprintf(&categories, strcmp(aclCategories, "") != 0 ? "%s %s" : "%.0s%s", aclCategories, SEARCH_ACL_CATEGORY);
   }
 
   if (RedisModule_CreateCommand(ctx, name, callback, internalFlags, firstkey, lastkey, keystep) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not create command: %s", name);
-    if (internalCommand) {
-        rm_free(internalFlags);
-    }
-    return REDISMODULE_ERR;
-  }
-
-  if (internalCommand) {
-      rm_free(internalFlags);
+    rc = REDISMODULE_ERR;
+    goto cleanup;
   }
 
   RedisModuleCommand *command = RedisModule_GetCommand(ctx, name);
   if (!command) {
     RedisModule_Log(ctx, "warning", "Could not find command: %s", name);
-    return REDISMODULE_ERR;
-  }
-
-  int rc = REDISMODULE_OK;
-  char *categories;
-  bool is_internal = false;
-
-  if (IS_INTERNAL_COMMAND(name)) {
-    // Internal command, do not register to any ACL command category
-    categories = "";
-    is_internal = true;
-  } else {
-    rm_asprintf(&categories, strcmp(aclCategories, "") != 0 ? "%s %s" : "%.0s%s", aclCategories, SEARCH_ACL_CATEGORY);
+    rc = REDISMODULE_ERR;
+    goto cleanup;
   }
 
   if (RedisModule_SetCommandACLCategories(command, categories) == REDISMODULE_ERR) {
@@ -1091,10 +1076,12 @@ static int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
     rc = REDISMODULE_ERR;
   }
 
-  if (!is_internal) {
+cleanup:
+  if (internalCommand) {
+    rm_free(internalFlags);
+  } else {
     rm_free(categories);
   }
-
   return rc;
 }
 
@@ -3421,9 +3408,8 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       // Init the topology updater cron loop.
       InitRedisTopologyUpdater(ctx);
     } else {
-      // We are not in OSS cluster. No need to init the topology updater cron loop.
+      // We are not in cluster mode. No need to init the topology updater cron loop.
       // Set the number of shards to 1 to indicate the topology is "set"
-      // Note: On Enterprise cluster, this will be updated by the `CLUSTERSET` command.
       NumShards = 1;
     }
   }
@@ -3609,7 +3595,7 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RMCreateSearchCommand(ctx, "FT.CREATE", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, "", false))
     RM_TRY(RMCreateSearchCommand(ctx, "FT._CREATEIFNX", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, "", false))
     RM_TRY(RMCreateSearchCommand(ctx, "FT.ALTER", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, -1, "", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALTERIFNX", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, "", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALTERIFNX", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, -1, "", false))
     RM_TRY(RMCreateSearchCommand(ctx, "FT.DROPINDEX", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write",0, 0, -1, "write slow dangerous", false))
     RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(FanoutCommandHandlerIndexless), "write",0, 0, -1, "write slow dangerous", false))
     // search write slow dangerous

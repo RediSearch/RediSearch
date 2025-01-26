@@ -113,7 +113,6 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
          REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH, RS_GetExtraVersion());
   RS_Initialized = 1;
 
-  // TODO: I think we can remove this one, since we already initialize the dummy context in OnLoad.
   if (!RSDummyContext) {
     RSDummyContext = RedisModule_GetDetachedThreadSafeContext(ctx);
   }

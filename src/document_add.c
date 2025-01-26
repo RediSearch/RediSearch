@@ -9,6 +9,8 @@
 #include "util/logging.h"
 #include "rmutil/rm_assert.h"
 
+bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp);
+
 /*
 ## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [PARTIAL] [IF <expr>] [LANGUAGE <lang>]
 [PAYLOAD {payload}] FIELDS <field> <text> ....] Add a documet to the index.
@@ -216,10 +218,15 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
+  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
   ArgsCursor ac;
   AddDocumentOptions opts = {.keyStr = argv[2], .scoreStr = argv[3], .donecb = replyCallback};
   QueryError status = {0};
-  IndexSpec *sp = NULL;
 
   ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
 
@@ -234,13 +241,6 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   if (QueryError_HasError(&status)) {
     RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    goto cleanup;
-  }
-
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
-  sp = StrongRef_Get(ref);
-  if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
     goto cleanup;
   }
 

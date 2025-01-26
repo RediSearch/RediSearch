@@ -166,6 +166,23 @@ def test_sug_commands_acl(env):
         res = conn.execute_command('FT.SUGDEL', 'h:test_key', 'hello world')
         env.assertEqual(res, 1)
 
+def test_internal_commands(env):
+    """
+    Tests that internal commands are not allowed for non-internal
+    connections, and are by internal connections.
+    """
+
+    # Internal commands are treated as unknown commands for non-internal
+    # connections
+    env.expect('_FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').error().contains("unknown command")
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    env.expect('_FT.SEARCH', 'idx', '*').error().contains("unknown command")
+
+    # Promote the connection to internal
+    env.expect('DEBUG', 'PROMOTE-CONN').ok()
+    env.expect('_FT.SEARCH', 'idx', '*').equal([0])
+
 @skip(redis_less_than="8.0")
 def test_acl_key_permissions_validation(env):
     """Tests that the key permission validation works properly"""

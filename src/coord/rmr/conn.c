@@ -652,7 +652,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
 
   // Authenticate on OSS always (as an internal connection), or on Enterprise if
   // a password is set to the `default` ACL user.
-  if (!isEnterprise() || conn->ep.password) {
+  if (!IsEnterprise() || conn->ep.password) {
     if (MRConn_SendAuth(conn) != REDIS_OK) {
       detachFromConn(conn, 1);
       MRConn_SwitchState(conn, MRConn_Connecting);
