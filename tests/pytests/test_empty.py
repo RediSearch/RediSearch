@@ -1310,6 +1310,27 @@ def testInvalidUseOfEmptyString():
         env.expect('FT.SEARCH', 'idx', '*=>[KNN "" @v $blob AS dist]').error().\
             contains('Syntax error')
 
+        
+        env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '', '')
+
+
+def testEmptyLegacyFilters():
+    """Tests empty values in legacy filters"""
+
+    env = DialectEnv()
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+
+    conn.execute_command('HSET', 'doc1', 'n', 0)
+    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '', '', 'DIALECT', 1)
+    env.assertEqual(res, [1, 'doc1', ['n', '0']])
+    
+    MAX_DIALECT = set_max_dialect(env)
+    for dialect in range(2, MAX_DIALECT + 1):
+        env.set_dialect(dialect)
+        env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '', '').error().contains('Invalid numeric filter')
+
+
 def testEmptyParam():
     """Tests that we can use an empty string as a parameter in a query"""
 

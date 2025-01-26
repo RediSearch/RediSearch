@@ -103,7 +103,6 @@ NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int in
 
   f->min = min;
   f->max = max;
-  f->emptyVal = false;
   f->field = NULL;
   f->inclusiveMax = inclusiveMax;
   f->inclusiveMin = inclusiveMin;
