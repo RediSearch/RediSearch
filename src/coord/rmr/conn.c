@@ -650,10 +650,13 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     if (ssl_context) SSL_CTX_free(ssl_context);
   }
 
-  // We always connect to the shards with an internal connection.
-  if (MRConn_SendAuth(conn) != REDIS_OK) {
-    detachFromConn(conn, 1);
-    MRConn_SwitchState(conn, MRConn_Connecting);
+  // Authenticate on OSS always (as an internal connection), or on Enterprise if
+  // a password is set to the `default` ACL user.
+  if (!isEnterprise() || conn->ep.password) {
+    if (MRConn_SendAuth(conn) != REDIS_OK) {
+      detachFromConn(conn, 1);
+      MRConn_SwitchState(conn, MRConn_Connecting);
+    }
   }
 }
 
