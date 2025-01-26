@@ -205,7 +205,7 @@ def testInitConfig():
 
     _test_config_str('GC_POLICY', 'fork')
     _test_config_str('GC_POLICY', 'default', 'fork')
-    _test_config_str('ON_TIMEOUT', 'fail')
+    _test_config_str('ON_TIMEOUT', 'return')
     _test_config_str('TIMEOUT', '0', '0')
     _test_config_str('PARTIAL_INDEXED_DOCS', '0', 'false')
     _test_config_str('PARTIAL_INDEXED_DOCS', '1', 'true')
