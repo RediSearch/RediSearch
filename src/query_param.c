@@ -159,13 +159,11 @@ void QueryParam_InitParams(QueryParam *p, size_t num) {
   memset(p->params, 0, sizeof(*p->params) * num);
 }
 
-int checkNumericValueValid(ParamType type, const char *val, unsigned int dialectVersion) {
-  if (type == PARAM_TERM || type == PARAM_ANY || type == PARAM_NUMERIC || type == PARAM_GEO_COORD ||
-      type == PARAM_SIZE || type == PARAM_NUMERIC_MIN_RANGE) {
+int checkNumericValueValid(const char *val, unsigned int dialectVersion) {
     if (dialectVersion >= 2 && (!*val)) {
       return 0;
     }
-  }
+
   return 1;
 }
 
@@ -177,10 +175,10 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status, unsigned 
   if (!val)
     return -1;
   
-  if (!checkNumericValueValid(param->type, val, dialectVersion)) {
-    QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid value (%s) for parameter `%s`", val, param->name);
-    return -1;
-  }
+  // if (!checkNumericValueValid(param->type, val, dialectVersion)) {
+  //   QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid value (%s) for parameter `%s`", val, param->name);
+  //   return -1;
+  // }
 
   int val_is_numeric = 0;
 
@@ -213,7 +211,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status, unsigned 
 
     case PARAM_NUMERIC:
     case PARAM_GEO_COORD:
-      if (!ParseDouble(val, (double*)param->target, param->sign)) {
+      if (!checkNumericValueValid(val, dialectVersion) || !ParseDouble(val, (double*)param->target, param->sign)) {
         QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
         val, param->name);
         return -1;
@@ -221,7 +219,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status, unsigned 
       return 1;
 
     case PARAM_SIZE:
-      if (!ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
+      if (!checkNumericValueValid(val, dialectVersion) || !ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
         QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
         val, param->name);
         return -1;
@@ -233,7 +231,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status, unsigned 
     {
       bool inclusive = true; // TODO: use?
       int isMin = param->type == PARAM_NUMERIC_MIN_RANGE ? 1 : 0;
-      if (parseDoubleRange(val, &inclusive, (double*)param->target, isMin, param->sign, status) == REDISMODULE_OK)
+      if (!checkNumericValueValid(val, dialectVersion) || parseDoubleRange(val, &inclusive, (double*)param->target, isMin, param->sign, status) == REDISMODULE_OK)
         return 1;
       else
         return -1;
