@@ -92,12 +92,16 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
     return 1;
 }
 
-%%{
 
+%%{
 machine query;
+
+alphabetic = (any - (punct | cntrl | space | digit | '\\'));
+alphanum = (alphabetic | digit);
 
 inf = [+\-]? 'inf'i $ 4;
 size = digit+ $ 2;
+minus_alphanum = '-' digit alphanum+ ;
 number = [+\-]? digit+('.' digit+)? (('E'|'e') ['+\-]? digit+)? $ 3;
 
 quote = '"';
@@ -119,7 +123,7 @@ escape = '\\';
 squote = "'";
 escaped_character = escape (punct | space | escape);
 exact = quote . ((any - quote) | (escape.quote))+ . quote;
-term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $0 ;
+term = ((alphanum | escaped_character) | '_')+  $0 ;
 empty_string = quote.quote | squote.squote;
 mod = '@'.term $ 1;
 attr = '$'.term $ 1;
@@ -139,7 +143,6 @@ as = 'as'i;
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
 wildcard = 'w' . verbatim $4;
 ismissing = 'ismissing'i $1;
-
 main := |*
 
   size => {
@@ -319,6 +322,23 @@ main := |*
   minus =>  {
     tok.pos = ts-q->raw;
     RSQuery_Parse_v2(pParser, MINUS, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+  };
+
+  minus_alphanum => {
+    tok.pos = ts - q->raw;
+    tok.len = 1;
+    tok.s = ts;
+    RSQuery_Parse_v2(pParser, MINUS, tok, q);
+    if (!QPCTX_ISOK(q)) {
+      fbreak;
+    }
+    tok.pos = ts - q->raw + 1;
+    tok.len = te - (ts + 1);
+    tok.s = ts + 1;
+    RSQuery_Parse_v2(pParser, TERM, tok, q);
     if (!QPCTX_ISOK(q)) {
       fbreak;
     }
