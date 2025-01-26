@@ -1267,7 +1267,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   // we also don't want them to be internal on OSS.
   RM_TRY(RMCreateSearchCommand(ctx, RS_DEBUG, NULL,
          IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
-         RS_DEBUG_FLAGS, "", false))
+         RS_DEBUG_FLAGS, "admin", false))
   RM_TRY_F(RegisterDebugCommands, RedisModule_GetCommand(ctx, RS_DEBUG))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_SPELL_CHECK, SpellCheckCommand,
