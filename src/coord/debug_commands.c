@@ -10,6 +10,7 @@
 #include "debug_command_names.h"
 #include "coord/rmr/redis_cluster.h"
 #include "module.h"
+#include "src/config.h"
 #include <assert.h>
 
 DEBUG_COMMAND(shardConnectionStates) {
@@ -38,6 +39,9 @@ DEBUG_COMMAND(resumeTopologyUpdater) {
 
 DEBUG_COMMAND(clearTopology) {
   if (argc != 2) return RedisModule_WrongArity(ctx);
+  if (!RSGlobalConfig.enableDebugCommands) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   RQ_Debug_ClearPendingTopo();
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }

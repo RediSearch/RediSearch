@@ -8,6 +8,7 @@
 #include "reply.h"
 #include "src/coord/config.h"
 #include "module.h"
+#include "src/config.h"
 #include "hiredis/adapters/libuv.h"
 
 #include <uv.h>
@@ -519,28 +520,6 @@ static SSL_CTX* MRConn_CreateSSLContext(const char *cacert_filename,
 error:
     if (ssl_ctx) SSL_CTX_free(ssl_ctx);
     return NULL;
-}
-
-
-static char* getConfigValue(RedisModuleCtx *ctx, const char* confName){
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "config", "cc", "get", confName);
-  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
-  if (RedisModule_CallReplyLength(rep) == 0){
-    RedisModule_FreeCallReply(rep);
-    return NULL;
-  }
-  RedisModule_Assert(RedisModule_CallReplyLength(rep) == 2);
-  RedisModuleCallReply *valueRep = RedisModule_CallReplyArrayElement(rep, 1);
-  RedisModule_Assert(RedisModule_CallReplyType(valueRep) == REDISMODULE_REPLY_STRING);
-  size_t len;
-  const char* valueRepCStr = RedisModule_CallReplyStringPtr(valueRep, &len);
-
-  char* res = rm_calloc(1, len + 1);
-  memcpy(res, valueRepCStr, len);
-
-  RedisModule_FreeCallReply(rep);
-
-  return res;
 }
 
 extern RedisModuleCtx *RSDummyContext;

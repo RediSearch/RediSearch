@@ -1097,6 +1097,13 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
+  // We condition our debug commands on the same config-param as redis.
+  char *enableDebug = getConfigValue(ctx, "enable-debug-commands");
+  if (enableDebug && !strcmp(enableDebug, "yes")) {
+    RSGlobalConfig.enableDebugCommands = true;
+  } // Default is `false`.
+  rm_free(enableDebug);
+
   GetRedisVersion(ctx);
 
   char ver[64];

@@ -58,6 +58,7 @@ do {                                            \
 
 #define NOPERM_ERR "-NOPERM User does not have the required permissions to query the index"
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
+#define NODEBUG_ERR "Debug commands are disabled"
 
 #define RM_TRY(expr)                                                  \
   if (expr == REDISMODULE_ERR) {                                      \
