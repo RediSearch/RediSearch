@@ -174,14 +174,8 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status, unsigned 
   const char *val = Param_DictGet(params, param->name, &val_len, status);
   if (!val)
     return -1;
-  
-  // if (!checkNumericValueValid(param->type, val, dialectVersion)) {
-  //   QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid value (%s) for parameter `%s`", val, param->name);
-  //   return -1;
-  // }
 
   int val_is_numeric = 0;
-
 
   switch(param->type) {
 
