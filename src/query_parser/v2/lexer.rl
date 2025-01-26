@@ -92,7 +92,6 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
     return 1;
 }
 
-
 %%{
 machine query;
 
@@ -143,6 +142,7 @@ as = 'as'i;
 verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
 wildcard = 'w' . verbatim $4;
 ismissing = 'ismissing'i $1;
+
 main := |*
 
   size => {
