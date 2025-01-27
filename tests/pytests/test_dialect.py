@@ -56,6 +56,18 @@ def test_v1_vs_v2(env):
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 0.1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 0.1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
 
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .00]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 0.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[0 .00]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-0 -.00]', 'DIALECT', 1).contains('NUMERIC {-0.000000 <= @num <= -0.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-0 -.00]', 'DIALECT', 2).contains('NUMERIC {-0.000000 <= @num <= -0.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[+0 +.00]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 0.000000}\n')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[+0 +.00]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-0.02 -.01]', 'DIALECT', 1).error().contains('Invalid numeric range (min > max): @num:[-0.020000 -1.000000]')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-0.02 -.01]', 'DIALECT', 2).contains('NUMERIC {-0.020000 <= @num <= -0.010000}\n')
+
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 .1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 0.100000}\n')
 
