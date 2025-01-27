@@ -155,7 +155,7 @@ def test_info_text_tag_overhead(env):
   env.assertEqual(float(res['tag_overhead_sz_mb']), 0)
   env.assertEqual(float(res['text_overhead_sz_mb']), 0)
 
-def test_vecsim_info_stats(env):
+def test_vecsim_info_stats_memory(env):
   env = Env(protocol=3)
   conn = env.getClusterConnectionIfNeeded()
   vec_size = 6
@@ -166,3 +166,23 @@ def test_vecsim_info_stats(env):
   info = env.executeCommand('ft.info', 'idx')
   env.assertTrue("field statistics" in info)
   env.assertGreater(info["field statistics"][0]["memory"], 0)
+
+def test_vecsim_info_stats_marked_deleted(env):
+  env = Env(protocol=3, moduleArgs='WORKERS 1')
+  conn = env.getClusterConnectionIfNeeded()
+  vec_size = 6
+  data_type = 'FLOAT16'
+  for i in range(1, 1001):
+    conn.execute_command('HSET', f'doc{i}', 'vector', create_np_array_typed(np.random.rand(vec_size), data_type).tobytes())
+  conn.execute_command('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', 6, 'DIM', 6, 'TYPE', 'float16', 'DISTANCE_METRIC', 'L2')
+  for i in range(1, 101):
+    conn.execute_command('DEL', f'doc{i}')
+  env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+  info = conn.execute_command('ft.info', 'idx')
+  env.assertTrue("field statistics" in info)
+  vecsim_info = conn.execute_command('_FT.DEBUG', 'VECSIM_INFO', 'idx', 'vector')
+  # get marked deleted from 'FT.DEBUG VECSIM_INFO idx vector' output
+  def get_marked_deleted(data): return data[data.index('BACKEND_INDEX') + 1][data[data.index('BACKEND_INDEX') + 1].index('NUMBER_OF_MARKED_DELETED') + 1]
+  vecsim_info_marked_deleted = get_marked_deleted(vecsim_info)
+  # compare results to FT.DEBUG VECSIM_INFO idx vector
+  env.assertEqual(info["field statistics"][0]["marked_deleted"], vecsim_info_marked_deleted)
