@@ -35,7 +35,7 @@ typedef struct NumericFilter {
 
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax,
                                 bool asc);
-NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, QueryError *status, bool *isEmptyFilterValue);
+NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status);
 int NumericFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
 void NumericFilter_Free(NumericFilter *nf);
 

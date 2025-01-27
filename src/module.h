@@ -119,8 +119,8 @@ typedef struct {
   void *reducer;
 } searchRequestCtx;
 
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc,
-                             QueryError *status, unsigned int dialectVersion);
+specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc, unsigned int dialectVersion,
+                             QueryError *status);
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx);
 

@@ -159,15 +159,11 @@ void QueryParam_InitParams(QueryParam *p, size_t num) {
   memset(p->params, 0, sizeof(*p->params) * num);
 }
 
-int checkNumericValueValid(const char *val, unsigned int dialectVersion) {
-    if (dialectVersion >= 2 && (!*val)) {
-      return 0;
-    }
-
-  return 1;
+static inline bool checkNumericValueValid(const char *val, unsigned int dialectVersion) {
+  return (dialectVersion < 2 || *val);
 }
 
-int QueryParam_Resolve(Param *param, dict *params, QueryError *status, unsigned int dialectVersion) {
+int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, QueryError *status) {
   if (param->type == PARAM_NONE)
     return 0;
   size_t val_len;

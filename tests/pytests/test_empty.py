@@ -1310,10 +1310,6 @@ def testInvalidUseOfEmptyString():
         env.expect('FT.SEARCH', 'idx', '*=>[KNN "" @v $blob AS dist]').error().\
             contains('Syntax error')
 
-        
-        env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '', '')
-
-
 def testEmptyLegacyFilters():
     """Tests empty values in legacy filters"""
 
@@ -1322,14 +1318,52 @@ def testEmptyLegacyFilters():
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
 
     conn.execute_command('HSET', 'doc1', 'n', 0)
+    
     res = conn.execute_command('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '', '', 'DIALECT', 1)
     env.assertEqual(res, [1, 'doc1', ['n', '0']])
     
     MAX_DIALECT = set_max_dialect(env)
     for dialect in range(2, MAX_DIALECT + 1):
         env.set_dialect(dialect)
-        env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '', '').error().contains('Invalid numeric filter')
+        env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '', '').error().contains('Invalid numeric')
 
+def testEmptyLegacyGeoFilters():
+    """Tests empty values in legacy geo filters"""
+    env = DialectEnv()
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'location', 'GEO').ok()
+
+    conn.execute_command('HSET', 'Tel Aviv', 'location', '2.2945,48.8584')
+    conn.execute_command('HSET', 'Ramat Gan', 'location', '-74.0445,40.6892')
+    conn.execute_command('HSET', 'New York', 'location', '0,51.47')
+    conn.execute_command('HSET', 'Chicago', 'location', '51.47,0')
+
+    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '2.2945', '48.8584', '10', 'km', 'DIALECT', 1)
+    env.assertEqual(res, [1, 'Tel Aviv', ['location', '2.2945,48.8584']])
+    
+    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '', '51.47',  '1', 'km', 'DIALECT', 1)
+    env.assertEqual(res, [1, 'New York', ['location', '0,51.47']])
+
+    res = conn.execute_command('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '', '1', 'km', 'DIALECT', 1)
+    env.assertEqual(res, [1, 'Chicago', ['location', '51.47,0']])
+    
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '0', '', 'km', 'DIALECT', 1).error().contains('Invalid GeoFilter radius')
+    
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '0', '1', '', 'DIALECT', 1).error().contains('Unknown distance unit')
+
+    MAX_DIALECT = set_max_dialect(env)
+    for dialect in range(2, MAX_DIALECT + 1):
+        env.set_dialect(dialect)
+        res = conn.execute_command('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '2.2945', '48.8584', '10', 'km')
+        env.assertEqual(res, [1, 'Tel Aviv', ['location', '2.2945,48.8584']])
+    
+        env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '', '51.47',  '1', 'km').error().contains('Invalid numeric/geo')
+
+        env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '', '1', 'km').contains('Invalid numeric/geo')
+        
+        env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '0', '', 'km', 'DIALECT', 1).error().contains('Invalid GeoFilter radius')
+        
+        env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '0', '1', '', 'DIALECT', 1).error().contains('Unknown distance unit')
 
 def testEmptyParam():
     """Tests that we can use an empty string as a parameter in a query"""
