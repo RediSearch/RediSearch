@@ -224,6 +224,11 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
+  // On Enterprise, we validate ACL permission to the index
+  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
   ArgsCursor ac;
   AddDocumentOptions opts = {.keyStr = argv[2], .scoreStr = argv[3], .donecb = replyCallback};
   QueryError status = {0};

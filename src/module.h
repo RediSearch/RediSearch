@@ -28,7 +28,7 @@ extern "C" {
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int IsMaster();
-int IsEnterprise();
+bool IsEnterprise();
 
 void GetFormattedRedisVersion(char *buf, size_t len);
 void GetFormattedRedisEnterpriseVersion(char *buf, size_t len);

@@ -175,6 +175,11 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
+  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sctx->spec)) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
   if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0) {
     RedisModule_ReplyWithNull(ctx);
   } else {
@@ -359,6 +364,11 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
+  // On Enterprise, we validate ACL permission to the index
+  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
   RedisModuleCallReply *rep = NULL;
   RedisModuleString *doc_id = argv[2];
   rep = RedisModule_Call(ctx, "DEL", "!s", doc_id);
@@ -510,6 +520,10 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
+  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
   bool dropCommand = RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
                RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP");
   bool delDocs = dropCommand;
@@ -560,6 +574,11 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   if (!sp) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
+
+  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
   RedisModuleString *oldCommand = argv[0];
   if (RMUtil_StringEqualsCaseC(argv[0], RS_DROP_IF_X_CMD)) {
     argv[0] = RedisModule_CreateString(ctx, RS_DROP_CMD, strlen(RS_DROP_CMD));
@@ -600,6 +619,10 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
   bool initialScan = true;
@@ -703,6 +726,11 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
+
+  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
 
   bool initialScan = true;
@@ -773,6 +801,10 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   if (!sp) {
     QueryError_SetError(error, QUERY_ENOINDEX, "Unknown index name (or name is an alias itself)");
     return REDISMODULE_ERR;
+  }
+
+  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+    QueryError_SetCode(error, QUERY_NOPERM);
   }
 
   const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
@@ -1022,7 +1054,7 @@ int IsMaster() {
   }
 }
 
-int IsEnterprise() {
+bool IsEnterprise() {
   return rlecVersion.majorVersion != -1;
 }
 
@@ -1097,13 +1129,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
-  // We condition our debug commands on the same config-param as redis.
-  char *enableDebug = getConfigValue(ctx, "enable-debug-commands");
-  if (enableDebug && !strcmp(enableDebug, "yes")) {
-    RSGlobalConfig.enableDebugCommands = true;
-  } // Default is `false`.
-  rm_free(enableDebug);
-
   GetRedisVersion(ctx);
 
   char ver[64];
@@ -1160,7 +1185,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
          0, 0, 0, "slow admin", false))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_ADD_CMD, RSAddDocumentCommand,
-         "write deny-oom", INDEX_DOC_CMD_ARGS, "write", true))
+         "write deny-oom", INDEX_DOC_CMD_ARGS, "write", !IsEnterprise()))
 
 #ifdef RS_CLUSTER_ENTERPRISE
   // on enterprise cluster we need to keep the _ft.safeadd/_ft.del command
@@ -1174,47 +1199,47 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 #endif
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_SAFEADD_CMD, RSAddDocumentCommand,
-        "write deny-oom", INDEX_DOC_CMD_ARGS, "write", true))
+        "write deny-oom", INDEX_DOC_CMD_ARGS, "write", false))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DEL_CMD, DeleteCommand, "write",
-         INDEX_DOC_CMD_ARGS, "write", true))
+         INDEX_DOC_CMD_ARGS, "write", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_SEARCH_CMD, RSSearchCommand, "readonly",
-         INDEX_ONLY_CMD_ARGS, "read", true))
+         INDEX_ONLY_CMD_ARGS, "", true))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_AGGREGATE_CMD, RSAggregateCommand,
          "readonly", INDEX_ONLY_CMD_ARGS, "read", true))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_GET_CMD, GetSingleDocumentCommand,
-         "readonly", INDEX_DOC_CMD_ARGS, "read", true))
+         "readonly", INDEX_DOC_CMD_ARGS, "read", !IsEnterprise()))
 
   // Do not force cross slot validation since coordinator will handle it.
   RM_TRY(RMCreateSearchCommand(ctx, RS_MGET_CMD, GetDocumentsCommand,
          "readonly", 0, 0, 0, "read", true))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_CMD, CreateIndexCommand,
-         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", true))
+         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_CREATE_IF_NX_CMD, CreateIndexIfNotExistsCommand,
-         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", true))
+         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_CMD, DropIndexCommand, "write",
-         INDEX_ONLY_CMD_ARGS, "write slow dangerous admin", true))
+         INDEX_ONLY_CMD_ARGS, "write slow dangerous", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_INDEX_CMD, DropIndexCommand,
-         "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous", true))
+         "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_IF_X_CMD, DropIfExistsIndexCommand,
-         "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous admin", true))
+         "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DROP_INDEX_IF_X_CMD, DropIfExistsIndexCommand,
-         "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous", true))
+         "write", INDEX_ONLY_CMD_ARGS, "write slow dangerous", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_INFO_CMD, IndexInfoCommand,
          "readonly", INDEX_ONLY_CMD_ARGS, "", true))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_TAGVALS_CMD, TagValsCommand,
-         "readonly", INDEX_ONLY_CMD_ARGS, "read dangerous", true))
+         "readonly", INDEX_ONLY_CMD_ARGS, "read slow dangerous", true))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_PROFILE_CMD, RSProfileCommand,
          "readonly", INDEX_ONLY_CMD_ARGS, "read", true))
@@ -1246,16 +1271,16 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
          "write deny-oom", INDEX_ONLY_CMD_ARGS, "", false))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_SYNUPDATE_CMD, SynUpdateCommand,
-         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", true))
+         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly",
          INDEX_ONLY_CMD_ARGS, "", false))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_CMD, AlterIndexCommand,
-         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", true))
+         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand,
-         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", true))
+         "write deny-oom", INDEX_ONLY_CMD_ARGS, "", !IsEnterprise()))
 
   // "Special" case - we do not allow debug commands from the user on RE, while
   // we also don't want them to be internal on OSS.
@@ -1268,10 +1293,10 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
          "readonly", INDEX_ONLY_CMD_ARGS, "", true))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_ADD, DictAddCommand,
-         "write deny-oom", 0, 0, 0, "", true))
+         "write deny-oom", 0, 0, 0, "", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_DEL, DictDelCommand, "write", 0, 0,
-         0, "", true))
+         0, "", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_DUMP, DictDumpCommand, "readonly",
          0, 0, 0, "", false))
@@ -1284,16 +1309,16 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   // Alias is a special case, we can not use the INDEX_ONLY_CMD_ARGS/INDEX_DOC_CMD_ARGS macros
   // Cluster is managed outside of module lets trust it and not raise cross slot error.
   RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD, AliasAddCommand,
-         "write deny-oom", 0, 0, 0, "", true))
+         "write deny-oom", 0, 0, 0, "", !IsEnterprise()))
   RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX,
-         "write deny-oom", 0, 0, 0, "", true))
+         "write deny-oom", 0, 0, 0, "", !IsEnterprise()))
   RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASUPDATE, AliasUpdateCommand,
-         "write deny-oom", 0, 0, 0, "", true))
+         "write deny-oom", 0, 0, 0, "", !IsEnterprise()))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL, AliasDelCommand, "write", 0, 0,
-         0, "", true))
+         0, "", !IsEnterprise()))
   RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand,
-         "write", 0, 0, 0, "", true))
+         "write", 0, 0, 0, "", !IsEnterprise()))
   return REDISMODULE_OK;
 }
 
@@ -3620,18 +3645,27 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RM_TRY(RMCreateSearchCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, -1, "read", false))
     RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, -1, "write", false))
     RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write", 0, 0, -1, "write", false))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write", 0, 0, -1, "write slow dangerous admin", false))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write", 0, 0, -1, "write slow dangerous", false))
     RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPIFX", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, "write", false))
 #endif
 
-  // cluster set commands
-  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERSET", SafeCmd(SetClusterCommand), "readonly allow-loading deny-script", 0,0, -1, "", false))
-  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH", SafeCmd(RefreshClusterCommand),"readonly deny-script", 0, 0, -1, "", false))
-  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO", SafeCmd(ClusterInfoCommand), "readonly allow-loading deny-script",0, 0, -1, "", false))
+  // cluster set commands. We filter from the proxy, but do not mark them as internal.
+  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERSET",
+         SafeCmd(SetClusterCommand),
+         IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script",
+         0, 0, -1, "", false))
+  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERREFRESH",
+         SafeCmd(RefreshClusterCommand),
+         IsEnterprise() ? "readonly deny-script " CMD_PROXY_FILTERED : "readonly deny-script",
+         0, 0, -1, "", false))
+  RM_TRY(RMCreateSearchCommand(ctx, REDISEARCH_MODULE_NAME".CLUSTERINFO",
+         SafeCmd(ClusterInfoCommand),
+         IsEnterprise() ? "readonly allow-loading deny-script " CMD_PROXY_FILTERED : "readonly allow-loading deny-script",
+         0, 0, -1, "", false))
 
   // Deprecated commands. Grouped here for easy tracking
   RM_TRY(RMCreateSearchCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1, "read", false))
-  RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1, "read dangerous", false))
+  RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1, "read slow dangerous", false))
 
   return REDISMODULE_OK;
 }

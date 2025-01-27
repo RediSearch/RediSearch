@@ -3,15 +3,6 @@ from common import *
 READ_SEARCH_COMMANDS = ['FT.SEARCH', 'FT.AGGREGATE', 'FT.CURSOR', 'FT.CURSOR',
                  'FT.PROFILE', 'FT.SUGGET', 'FT.SUGLEN']
 WRITE_SEARCH_COMMANDS = ['FT.DROPINDEX', 'FT.SUGADD', 'FT.SUGDEL']
-INTERNAL_SEARCH_COMMANDS = [
-        '_FT.ALIASDEL', '_FT.AGGREGATE', '_FT.ALIASADD', '_FT.ALIASUPDATE',
-        '_FT.CURSOR', '_FT.INFO', '_FT.ALTER', '_FT.DICTDEL', '_FT.SYNUPDATE',
-        '_FT.SPELLCHECK', '_FT.CREATE', '_FT.DICTADD', '_FT.PROFILE',
-        '_FT.SEARCH', '_FT.TAGVALS', '_FT._ALTERIFNX',
-        '_FT._ALIASDELIFX', '_FT._ALIASADDIFNX', '_FT._DROPINDEXIFX',
-        '_FT.DROPINDEX', '_FT.ADD', '_FT.DROP', '_FT.GET', '_FT._CREATEIFNX',
-        '_FT.MGET', '_FT.DEL', '_FT._DROPIFX', '_FT.SAFEADD'
-    ]
 
 def test_acl_category(env):
     """Test that the `search` category was added appropriately in module
@@ -32,14 +23,15 @@ def test_acl_search_commands(env):
         'FT.DICTDUMP', 'FT.EXPLAIN', 'FT.AGGREGATE', 'FT.SUGLEN',
         'FT.PROFILE', 'FT.ALTER', 'FT.SUGGET', 'FT.DICTDEL', 'FT.CURSOR',
         'FT.ALIASDEL', 'FT.SUGADD', 'FT.SYNDUMP', 'FT.CREATE', 'FT.DICTADD',
-        'FT._ALIASDELIFX', 'FT._CREATEIFNX', 'search.CLUSTERREFRESH',
-        'FT._ALIASADDIFNX', 'FT._ALTERIFNX', 'search.CLUSTERSET',
-        'search.CLUSTERINFO', 'FT._DROPINDEXIFX', 'FT.DROPINDEX', 'FT.TAGVALS',
-        'FT._DROPIFX', 'FT.DROP', 'FT.GET', 'FT.SYNADD', 'FT.ADD', 'FT.MGET',
-        'FT.DEL', '_FT.CONFIG', '_FT.DEBUG'
+        'FT._ALIASDELIFX', 'FT._CREATEIFNX', 'FT._ALIASADDIFNX', 'FT._ALTERIFNX',
+        'FT._DROPINDEXIFX', 'FT.DROPINDEX', 'FT.TAGVALS', 'FT._DROPIFX',
+        'FT.DROP', 'FT.GET', 'FT.SYNADD', 'FT.ADD', 'FT.MGET', 'FT.DEL',
+        '_FT.CONFIG', '_FT.DEBUG', '_FT.SAFEADD'
     ]
     if not env.isCluster():
         commands.append('FT.CONFIG')
+    if env.env != 'enterprise':
+        commands.extend(['search.CLUSTERINFO', 'search.CLUSTERREFRESH', 'search.CLUSTERSET'])
 
     # Use a set since the order of the response is not consistent.
     env.assertEqual(set(res), set(commands))
