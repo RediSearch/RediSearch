@@ -572,11 +572,7 @@ text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
 }
 
 text_expr(A) ::= param_term(B) . [LOWEST]  {
-  if (B.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, B.s, B.len)) {
-    A = NULL;
-  } else {
-    A = NewTokenNode_WithParams(ctx, &B);
-  }
+  A = NewTokenNode_WithParams(ctx, &B);
 }
 
 text_expr(A) ::= affix(B) . [PREFIX]  {
@@ -595,9 +591,7 @@ termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
 
 termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
   A = B;
-  if (!(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len))) {
-    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
-  }
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
 
 /////////////////////////////////////////////////////////////////
