@@ -1017,55 +1017,6 @@ error:
   return 0;
 }
 
-FieldSpecStats FieldSpec_GetStats(const FieldSpec *fs, IndexSpec *sp){
-  FieldSpecStats stats = {0};
-  stats.type = fs->types;
-  switch (stats.type) {
-    case INDEXFLD_T_VECTOR:
-      stats.vecStats = IndexSpec_GetVectorIndexStats(sp, fs);
-      return stats;
-    default:
-      return (FieldSpecStats){0};
-  }
-}
-
-// Assuming the spec is properly locked before calling this function.
-size_t IndexSpec_VectorIndexSize(IndexSpec *sp) {
-  VectorIndexStats stats = IndexSpec_GetVectorIndexesStats(sp);
-  return stats.memory;
-}
-
-VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
-  VectorIndexStats stats = {0};
-  for (size_t i = 0; i < sp->numFields; ++i) {
-    const FieldSpec *fs = sp->fields + i;
-    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      VectorIndexStats field_stats = IndexSpec_GetVectorIndexStats(sp, fs);
-      stats.memory += field_stats.memory;
-      stats.marked_deleted += field_stats.marked_deleted;
-    }
-  }
-  return stats;
-}
-
-VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *fs){
-  VectorIndexStats stats = {0};
-  RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-  VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
-  if (!vecsim) {
-    return stats;
-  }
-  VecSimIndexInfo info = VecSimIndex_Info(vecsim);
-  stats.memory += info.commonInfo.memory;
-  if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
-    stats.marked_deleted += info.hnswInfo.numberOfMarkedDeletedNodes;
-  } else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
-            fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
-    stats.marked_deleted += info.tieredInfo.backendInfo.hnswInfo.numberOfMarkedDeletedNodes;
-  }
-  return stats;
-}
-
 // Assuming the spec is properly locked before calling this function.
 int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
   size_t length = array_len(sp->fieldIdToIndex);

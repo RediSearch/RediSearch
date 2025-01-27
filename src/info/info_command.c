@@ -164,7 +164,6 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       VecSimParams vec_params = fs->vectorOpts.vecSimParams;
       VecSimAlgo field_algo = vec_params.algo;
       AlgoParams algo_params = vec_params.algoParams;
-      VectorIndexStats info = IndexSpec_GetVectorIndexStats(sp, fs);
 
       if (field_algo == VecSimAlgo_TIERED) {
         VecSimParams *primary_params = algo_params.tieredParams.primaryIndexParams;
@@ -302,8 +301,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVARRAY("field statistics"); // Field statistics
   for (int i = 0; i < sp->numFields; i++) {
     const FieldSpec *fs = &sp->fields[i];
-    FieldSpecInfo info = FieldSpec_GetInfo(fs);
-    info.stats = FieldSpec_GetStats(fs, sp); // TODO: call this function from within FieldSpec_GetInfo
+    FieldSpecInfo info = FieldSpec_GetInfo(fs, sp);
     FieldSpecInfo_Reply(&info, reply, with_times);
   }
   REPLY_ARRAY_END; // >Field statistics

@@ -11,7 +11,9 @@
 #include "coord/rmr/reply.h"
 #include "field_spec.h"
 #include "vector_index_stats.h"
-
+#include "spec.h"
+#include "redis_index.h"
+#include "vector_index.h"
 
 typedef struct FieldSpecStats {
   union {
@@ -19,7 +21,6 @@ typedef struct FieldSpecStats {
   };
   FieldType type;
 } FieldSpecStats;
-
 
 // A struct to hold the information of a field specification.
 // To be used while field spec is still alive with respect to object lifetime.
@@ -30,7 +31,8 @@ typedef struct {
     FieldSpecStats stats;
 } FieldSpecInfo;
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, IndexSpec *sp);
+
 // Create stack allocated FieldSpecInfo.
 FieldSpecInfo FieldSpecInfo_Init();
 
@@ -56,3 +58,8 @@ void FieldSpecInfo_Combine(FieldSpecInfo *info, const FieldSpecInfo *other);
 
 // Deserializes a FieldSpecInfo from a MRReply.
 FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply);
+
+size_t IndexSpec_VectorIndexSize(IndexSpec *sp);
+VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp);
+VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *fs);
+FieldSpecStats IndexSpec_GetFieldStats(const FieldSpec *fs, IndexSpec *sp);

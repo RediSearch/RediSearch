@@ -7,6 +7,7 @@
 #include "indexes_info.h"
 #include "util/dict.h"
 #include "spec.h"
+#include "field_spec_info.h"
 
 // Assuming the GIL is held by the caller
 TotalIndexesInfo IndexesInfo_TotalInfo() {

@@ -6,7 +6,7 @@
 
 #include <string.h>
 
-typedef struct {
+typedef struct VectorIndexStats {
   size_t memory;
   size_t marked_deleted;
 } VectorIndexStats;
@@ -27,8 +27,8 @@ typedef struct {
 void VectorIndexStats_Agg(VectorIndexStats *first, const VectorIndexStats *second);
 VectorIndexStats VectorIndexStats_Init();
 
-VectorIndexStats_Setter VectorIndexStats_GetSetter(const char* name);
-VectorIndexStats_Getter VectorIndexStats_GetGetter(const char* name);
+VectorIndexStats_Setter VectorIndexStats_GetSetter(const char *name);
+VectorIndexStats_Getter VectorIndexStats_GetGetter(const char *name);
 
 //Metrics getters setters
 size_t VectorIndexStats_GetMemory(const VectorIndexStats *stats);
