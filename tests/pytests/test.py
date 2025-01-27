@@ -4451,7 +4451,7 @@ def test_incompatibleIndex(env):
 
     def modify_index(conn, index_name, prefixes):
         # Promote the connection to an internal one, such that we can execute internal (shard-local) commands
-        conn.execute_command('DEBUG', 'PROMOTE-CONN')
+        conn.execute_command('DEBUG', 'PROMOTE-CONN-INTERNAL')
         # Connect to a shard, and create an index with a different schema, but
         # the same name
         res = conn.execute_command('_FT.DROPINDEX', index_name)

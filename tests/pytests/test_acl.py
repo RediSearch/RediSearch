@@ -172,7 +172,7 @@ def test_internal_commands(env):
     env.expect('_FT.SEARCH', 'idx', '*').error().contains("unknown command")
 
     # Promote the connection to internal
-    env.expect('DEBUG', 'PROMOTE-CONN').ok()
+    env.expect('DEBUG', 'PROMOTE-CONN-INTERNAL').ok()
     env.expect('_FT.SEARCH', 'idx', '*').equal([0])
 
 @skip(redis_less_than="8.0")
