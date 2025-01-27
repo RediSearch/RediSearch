@@ -383,7 +383,7 @@ def test_filters_v1():
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
 
-    env.expect('FT.EXPLAIN', 'idx', 'very simple | @t:hello @t2:{ free\ world } (@n:[1 2]|@n:[3 4]) (@g:[1.5 0.5 0.5 km] -@g:[2.5 1.5 0.5 km])').equal(r'''
+    env.expect('FT.EXPLAIN', 'idx', 'very simple | @t:hello @t2:{ free\\ world } (@n:[1 2]|@n:[3 4]) (@g:[1.5 0.5 0.5 km] -@g:[2.5 1.5 0.5 km])').equal(r'''
 INTERSECT {
   UNION {
     INTERSECT {
@@ -424,7 +424,7 @@ def test_filters_v2():
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 't2', 'TAG', 'n', 'NUMERIC', 'g', 'GEO', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2','DISTANCE_METRIC', 'L2').ok()
 
-    env.expect('FT.EXPLAIN', 'idx', 'very simple | @t:hello @t2:{ free\ world } (@n:[1 2]|@n:[3 4]) (@g:[1.5 0.5 0.5 km] -@g:[2.5 1.5 0.5 km])').equal(r'''
+    env.expect('FT.EXPLAIN', 'idx', 'very simple | @t:hello @t2:{ free\\ world } (@n:[1 2]|@n:[3 4]) (@g:[1.5 0.5 0.5 km] -@g:[2.5 1.5 0.5 km])').equal(r'''
 UNION {
   INTERSECT {
     UNION {
@@ -660,3 +660,25 @@ def testModifierList(env):
   }
 }
 '''[1:])
+
+def testQuotes_v2():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TAG', 'INDEXEMPTY').ok()
+    query_to_explain = {
+        '@t1:("hello")':
+            'EXACT {\n  t1\n  hello\n}\n',
+        '@t1:("hello world")':
+            'EXACT {\n  t1\n  hello\n  world\n}\n',
+        '@t1:("$param")':
+            'EXACT {\n  t1\n  $param\n}\n',
+        '@t2:{"hello world"}':
+            'EXACT {\n  t2\n  hello\n  world\n}\n',
+        '@t2:{"" world}':
+            'EXACT {\n  t2\n  world\n}\n',
+        r'@t2:{"$param\!"}': # The escaping here
+            'EXACT {\n  t2\n  $param!\n}\n',
+    }
+    for query, expected in query_to_explain.items():
+        env.expect('FT.EXPLAIN', 'idx', f'\'{query}\'').equal(expected)
+        squote_query = query.replace('"', '\'')
+        env.expect('FT.EXPLAIN', 'idx', f'"{squote_query}"').equal(expected)
