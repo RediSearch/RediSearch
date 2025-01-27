@@ -871,6 +871,16 @@ CONFIG_GETTER(getIndexCursorLimit) {
   return sdscatprintf(ss, "%lld", config->indexCursorLimit);
 }
 
+CONFIG_SETTER(setQueryLoadCountType) {
+  int acrc = AC_GetLongLong(ac, &config->queryLoadCountType, AC_F_GE0);
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getQueryLoadCountType) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%d", config->queryLoadCountType);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -1083,6 +1093,10 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Max number of cursors for a given index that can be opened inside of a shard. Default is 128",
          .setValue = setIndexCursorLimit,
          .getValue = getIndexCursorLimit},
+        {.name = "QUERY_LOAD_COUNT_TYPE",
+         .helpText = "Indicate the meaning of the query load count. 0 - number of tokens, 1 - number of fields, using 1 aligns the behaviour of LOAD with REDUCE. Default is 0 for backward compatability",
+         .setValue = setQueryLoadCountType,
+         .getValue = getQueryLoadCountType},
         {.name = "NO_MEM_POOLS",
          .helpText = "Set RediSearch to run without memory pools",
          .setValue = setNoMemPools,

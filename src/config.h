@@ -151,6 +151,10 @@ typedef struct {
   int prioritizeIntersectUnionChildren;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
+  // The meaning of the COUNT in the LOAD command
+  // 0 - the count in LOAD represnts the number of tokens, the alias tokens are included in the count
+  // 1- the count in LOAD represents the number of fields, each field can have an alias separated from the count
+  long long queryLoadCountType;
 } RSConfig;
 
 typedef enum {
@@ -251,6 +255,7 @@ void UpgradeDeprecatedMTConfigs();
 #define DEFAULT_QUERY_TIMEOUT_MS 500
 #define DEFAULT_UNION_ITERATOR_HEAP 20
 #define DEFAULT_VSS_MAX_RESIZE 0
+#define DEFAULT_LOAD_COUNT_TYPE 0
 #define DEFAULT_WORKER_THREADS 0
 #define MAX_DOC_TABLE_SIZE 100000000
 #define NR_MAX_DEPTH_BALANCE 2
@@ -298,7 +303,8 @@ void UpgradeDeprecatedMTConfigs();
     .multiTextOffsetDelta = DEFAULT_MULTI_TEXT_SLOP,                           \
     .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,          \
     .prioritizeIntersectUnionChildren = false,                                 \
-    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                             \
+    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
+    .queryLoadCountType = DEFAULT_LOAD_COUNT_TYPE                              \
   }
 
 #define REDIS_ARRAY_LIMIT 7

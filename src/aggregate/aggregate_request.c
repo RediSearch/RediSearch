@@ -840,11 +840,10 @@ static void loadDtor(PLN_BaseStep *bstp) {
   rm_free(lstp);
 }
 
-static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
-  ArgsCursor loadfields = {0};
-  int rc = AC_GetVarArgs(ac, &loadfields);
-  if (rc == AC_ERR_PARSE) {
-    // Didn't get a number, but we might have gotten a '*'
+static int GetLoadFieldCount(ArgsCursor* ac, unsigned int* count, QueryError* status) {
+  // try and get field count after LOAD
+  int rc = AC_GetUnsigned(ac, count, 0);
+  if (rc == AC_ERR_PARSE) { // Didn't get a number, but we might have gotten a '*'
     const char *s = NULL;
     rc = AC_GetString(ac, &s, NULL, 0);
     if (rc != AC_OK) {
@@ -854,13 +853,76 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
       QERR_MKBADARGS_FMT(status, "Bad arguments for LOAD: Expected number of fields or `*`");
       return REDISMODULE_ERR;
     }
-    // Successfuly got a '*', load all fields
-    req->reqflags |= QEXEC_AGG_LOAD_ALL;
+    *count = 0;
+    return REDISMODULE_OK;
   } else if (rc != AC_OK) {
     QERR_MKBADARGS_AC(status, "LOAD", rc);
     return REDISMODULE_ERR;
   }
+  return REDISMODULE_OK;
+}
 
+// Assumes the count in loadfields means the number of fields that need to be sliced
+// Each field can have an optional alias which is not included in the count
+static int SliceLoadArgs(ArgsCursor* ac, ArgsCursor* loadfields, QueryError* status) {
+  int tokenCount = 0;
+  ArgsCursor start = *ac;
+  int rc = REDISMODULE_OK;
+  for (size_t field = 0; field < loadfields->argc; ++field) {
+    rc = AC_Advance(&start); // We need to advance to the next field
+    if (rc != AC_OK) {
+      // we expected to have a string field name
+      QERR_MKBADARGS_AC(status, "LOAD", rc);
+      return REDISMODULE_ERR;
+    }
+    ++tokenCount; // include the field token
+    if (AC_AdvanceIfMatch(&start, SPEC_AS_STR)) {
+      ++tokenCount; // include the AS token
+      const char *s = NULL;
+      rc = AC_GetString(&start, &s, NULL, 0);
+      if (rc != AC_OK) {
+        // we expected to have an alias here
+        QERR_MKBADARGS_AC(status, "LOAD", rc);
+        return REDISMODULE_ERR;
+      } else if (!strcasecmp(s, SPEC_AS_STR)) {
+        // we expected to have an alias here
+        QERR_MKBADARGS_FMT(status, "LOAD: Alias cannot be `AS`");
+        return REDISMODULE_ERR;
+      }
+      ++tokenCount; // include the alias token
+    }
+  }
+  // save the modified count into loadFields
+  loadfields->argc = tokenCount;
+  rc = AC_GetSlice(ac, loadfields, tokenCount);
+  if (rc != AC_OK) {
+    QERR_MKBADARGS_AC(status, "LOAD", rc);
+  }
+  return rc;
+}
+
+static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
+  unsigned int count = 0;
+  int rc = GetLoadFieldCount(ac, &count, status);
+  if (rc != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  ArgsCursor loadfields = {0};
+  loadfields.argc = count;
+  if (loadfields.argc == 0) {
+    req->reqflags |= QEXEC_AGG_LOAD_ALL;
+  } else if (RSGlobalConfig.queryLoadCountType >= 1) {
+    rc = SliceLoadArgs(ac, &loadfields, status);
+    if (rc != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+  } else {
+    rc = AC_GetSlice(ac, &loadfields, loadfields.argc);
+    if (rc != AC_OK) {
+      QERR_MKBADARGS_AC(status, "LOAD", rc);
+      return REDISMODULE_ERR;
+    }
+  }
   PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
   lstp->base.type = PLN_T_LOAD;
   lstp->base.dtor = loadDtor;
