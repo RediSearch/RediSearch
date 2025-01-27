@@ -180,7 +180,7 @@ void handleFieldStatistics(MRReply *src, InfoFields *fields) {
   for (size_t i = 0; i < len; i++) {
     MRReply *serializedFieldSpecInfo = MRReply_ArrayElement(src, i);
     FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Deserialize(serializedFieldSpecInfo);
-    FieldSpecInfo_Fold(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
+    FieldSpecInfo_Combine(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
     FieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources
   }
 }
@@ -191,7 +191,7 @@ static void handleIndexError(InfoFields *fields, MRReply *src) {
     fields->indexError = IndexError_Init();
   }
   IndexError indexError = IndexError_Deserialize(src);
-  IndexError_Fold(&fields->indexError, &indexError);
+  IndexError_Combine(&fields->indexError, &indexError);
   IndexError_Clear(indexError); // Free Resources
 }
 

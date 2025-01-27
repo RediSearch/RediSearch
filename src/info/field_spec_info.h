@@ -53,9 +53,8 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *, IndexError error);
 // Reply a Field spec info.
 void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool with_timestamp);
 
-
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
-void FieldSpecInfo_Fold(FieldSpecInfo *info, const FieldSpecInfo *other);
+void FieldSpecInfo_Combine(FieldSpecInfo *info, const FieldSpecInfo *other);
 
 // Deserializes a FieldSpecInfo from a MRReply.
 FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply);

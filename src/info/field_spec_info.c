@@ -10,7 +10,7 @@
 
 
 FieldType getFieldType(const char* type);
-void FieldSpecStats_Fold(FieldSpecStats *dst, const FieldSpecStats *src);
+void FieldSpecStats_Combine(FieldSpecStats *dst, const FieldSpecStats *src);
 
 FieldSpecInfo FieldSpecInfo_Init() {
     FieldSpecInfo info = {0};
@@ -79,7 +79,7 @@ void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bo
 
 
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
-void FieldSpecInfo_Fold(FieldSpecInfo *info, const FieldSpecInfo *other) {
+void FieldSpecInfo_Combine(FieldSpecInfo *info, const FieldSpecInfo *other) {
     RedisModule_Assert(info);
     RedisModule_Assert(other);
     if(!info->identifier) {
@@ -88,8 +88,8 @@ void FieldSpecInfo_Fold(FieldSpecInfo *info, const FieldSpecInfo *other) {
     if(!info->attribute) {
         info->attribute = other->attribute;
     }
-    IndexError_Fold(&info->error, &other->error);
-    FieldSpecStats_Fold(&info->stats, &other->stats);
+    IndexError_Combine(&info->error, &other->error);
+    FieldSpecStats_Combine(&info->stats, &other->stats);
 }
 
 // Deserializes a FieldSpecInfo from a MRReply.
@@ -145,7 +145,7 @@ FieldType getFieldType(const char* type){
     return 0;
 }
 
-void FieldSpecStats_Fold(FieldSpecStats *first, const FieldSpecStats *second) {
+void FieldSpecStats_Combine(FieldSpecStats *first, const FieldSpecStats *second) {
     if (!first->type){
         *first = *second;
         return;
