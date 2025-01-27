@@ -8,9 +8,26 @@
 #include "reply_macros.h"
 #include "coord/rmr/reply.h"
 
+static FieldType getFieldType(const char *type){
+    if(strcmp(type, "vector") == 0){
+        return INDEXFLD_T_VECTOR;
+    }
+    return 0;
+}
 
-FieldType getFieldType(const char* type);
-void FieldSpecStats_Combine(FieldSpecStats *dst, const FieldSpecStats *src);
+static void FieldSpecStats_Combine(FieldSpecStats *first, const FieldSpecStats *second) {
+    if (!first->type){
+        *first = *second;
+        return;
+    }
+    switch (first->type) {
+        case INDEXFLD_T_VECTOR:
+            VectorIndexStats_Agg(&first->vecStats, &second->vecStats);
+            break;
+        default:
+            break;
+        }
+}
 
 FieldSpecInfo FieldSpecInfo_Init() {
     FieldSpecInfo info = {0};
@@ -136,27 +153,6 @@ FieldSpecStats FieldStats_Deserialize(const char* type,const MRReply* reply){
             break;
     }
     return stats;
-}
-
-FieldType getFieldType(const char* type){
-    if(strcmp(type, "vector") == 0){
-        return INDEXFLD_T_VECTOR;
-    }
-    return 0;
-}
-
-void FieldSpecStats_Combine(FieldSpecStats *first, const FieldSpecStats *second) {
-    if (!first->type){
-        *first = *second;
-        return;
-    }
-    switch (first->type) {
-        case INDEXFLD_T_VECTOR:
-            VectorIndexStats_Agg(&first->vecStats, &second->vecStats);
-            break;
-        default:
-            break;
-        }
 }
 
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
