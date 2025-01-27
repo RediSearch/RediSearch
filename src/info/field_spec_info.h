@@ -30,8 +30,6 @@ typedef struct {
     FieldSpecStats stats;
 } FieldSpecInfo;
 
-FieldSpecStats FieldStats_Deserialize(const char* type,const MRReply* reply);
-
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
 // Create stack allocated FieldSpecInfo.
 FieldSpecInfo FieldSpecInfo_Init();

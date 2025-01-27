@@ -42,24 +42,36 @@ void FieldSpecInfo_Clear(FieldSpecInfo *info) {
 }
 
 // Setters
-// Sets the identifier of the field spec.
 void FieldSpecInfo_SetIdentifier(FieldSpecInfo *info, const char *identifier) {
     info->identifier = identifier;
 }
 
-// Sets the attribute of the field spec.
 void FieldSpecInfo_SetAttribute(FieldSpecInfo *info, const char *attribute) {
     info->attribute = attribute;
 }
 
-// Sets the index error of the field spec.
 void FieldSpecInfo_SetIndexError(FieldSpecInfo *info, IndexError error) {
     info->error = error;
 }
 
-// Sets the stats of the field spec.
 void FieldSpecInfo_SetStats(FieldSpecInfo *info, FieldSpecStats stats) {
     info->stats = stats;
+}
+
+static FieldSpecStats FieldStats_Deserialize(const char* type,const MRReply* reply){
+    FieldSpecStats stats = {0};
+    FieldType fieldType = getFieldType(type);
+    switch (fieldType) {
+        case INDEXFLD_T_VECTOR:
+            for(int i = 0; VectorIndexStats_Metrics[i] != NULL; i++){
+                size_t metricValue = MRReply_Integer(MRReply_MapElement(reply, VectorIndexStats_Metrics[i]));
+                VectorIndexStats_GetSetter(VectorIndexStats_Metrics[i])(&stats.vecStats, metricValue);
+            }
+            stats.type = INDEXFLD_T_VECTOR;
+        default:
+            break;
+    }
+    return stats;
 }
 
 // IO and cluster traits
@@ -137,22 +149,6 @@ FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
     info.stats = FieldStats_Deserialize(info.attribute, reply);
 
     return info;
-}
-
-FieldSpecStats FieldStats_Deserialize(const char* type,const MRReply* reply){
-    FieldSpecStats stats = {0};
-    FieldType fieldType = getFieldType(type);
-    switch (fieldType) {
-        case INDEXFLD_T_VECTOR:
-            for(int i = 0; VectorIndexStats_Metrics[i] != NULL; i++){
-                size_t metricValue = MRReply_Integer(MRReply_MapElement(reply, VectorIndexStats_Metrics[i]));
-                VectorIndexStats_GetSetter(VectorIndexStats_Metrics[i])(&stats.vecStats, metricValue);
-            }
-            stats.type = INDEXFLD_T_VECTOR;
-        default:
-            break;
-    }
-    return stats;
 }
 
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
