@@ -15,8 +15,10 @@
 static double extractUnitFactor(GeoDistance unit);
 
 static void CheckAndSetEmptyFilterValue(ArgsCursor *ac, bool *hasEmptyFilterValue) {
-  const char *endptr = AC_CURRENT(ac);
-  if (!(*endptr)) {
+  const char *val;
+
+  int rv = AC_GetString(ac, &val, NULL, AC_F_NOADVANCE);
+  if (rv == AC_OK && !(*val)) {
     *hasEmptyFilterValue = true;
   }
 }

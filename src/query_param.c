@@ -159,6 +159,10 @@ void QueryParam_InitParams(QueryParam *p, size_t num) {
   memset(p->params, 0, sizeof(*p->params) * num);
 }
 
+/**
+ * Checks if the given numeric value is not empty.
+ * If the dialect version is 2 or higher, the value must not be empty, otherwise it can be 0 for backward compatibility.
+ */
 static inline bool checkNumericValueValid(const char *val, unsigned int dialectVersion) {
   return (dialectVersion < 2 || *val);
 }

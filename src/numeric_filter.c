@@ -74,7 +74,7 @@ NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterVal
 
   // Parse the min range
   const char *s = AC_GetStringNC(ac, NULL);
-  if (!s || !*s) {
+  if (!*s) {
     *hasEmptyFilterValue = true;
   }
   if (parseDoubleRange(s, &nf->inclusiveMin, &nf->min, 1, 1, status) != REDISMODULE_OK) {
@@ -83,7 +83,7 @@ NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterVal
   }
 
   s = AC_GetStringNC(ac, NULL);
-  if (!s || !*s) {
+  if (!*s) {
     *hasEmptyFilterValue = true;
   }
   if (parseDoubleRange(s, &nf->inclusiveMax, &nf->max, 0, 1, status) != REDISMODULE_OK) {
