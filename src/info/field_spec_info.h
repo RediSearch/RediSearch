@@ -61,5 +61,3 @@ FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply);
 
 size_t IndexSpec_VectorIndexSize(IndexSpec *sp);
 VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp);
-VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *fs);
-FieldSpecStats IndexSpec_GetFieldStats(const FieldSpec *fs, IndexSpec *sp);

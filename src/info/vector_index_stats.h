@@ -43,18 +43,6 @@ static char* const VectorIndexStats_Metrics[] = {
     NULL
 };
 
-static VectorIndexStats_SetterMapping VectorIndexStats_SetterMappingsContainer[] = {
-    {"memory", VectorIndexStats_SetMemory},
-    {"marked_deleted", VectorIndexStats_SetMarkedDeleted},
-    {NULL, NULL} // Sentinel value to mark the end of the array
-};
-
-static VectorIndexStats_GetterMapping VectorIndexStats_GetterMappingContainer[] = {
-    {"memory", VectorIndexStats_GetMemory},
-    {"marked_deleted", VectorIndexStats_GetMarkedDeleted},
-    {NULL, NULL} // Sentinel value to mark the end of the array
-};
-
 #ifdef __cplusplus
     }
 #endif

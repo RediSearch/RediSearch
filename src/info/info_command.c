@@ -17,7 +17,6 @@
 #include "util/units.h"
 #include "field_spec_info.h"
 
-
 static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 
 #define ADD_NEGATIVE_OPTION(flag, str)               \

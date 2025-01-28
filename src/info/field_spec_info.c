@@ -106,7 +106,6 @@ void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bo
     RedisModule_Reply_MapEnd(reply);
 }
 
-
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
 void FieldSpecInfo_Combine(FieldSpecInfo *info, const FieldSpecInfo *other) {
     RedisModule_Assert(info);
@@ -151,44 +150,10 @@ FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
     return info;
 }
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, IndexSpec *sp) {
-  FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, fs->path);
-  FieldSpecInfo_SetAttribute(&info, fs->name);
-  FieldSpecInfo_SetIndexError(&info, fs->indexError);
-  FieldSpecInfo_SetStats(&info, IndexSpec_GetFieldStats(fs, sp));
-  return info;
-}
-
-FieldSpecStats IndexSpec_GetFieldStats(const FieldSpec *fs, IndexSpec *sp){
-  FieldSpecStats stats = {0};
-  stats.type = fs->types;
-  switch (stats.type) {
-    case INDEXFLD_T_VECTOR:
-      stats.vecStats = IndexSpec_GetVectorIndexStats(sp, fs);
-      return stats;
-    default:
-      return (FieldSpecStats){0};
-  }
-}
-
 // Assuming the spec is properly locked before calling this function.
 size_t IndexSpec_VectorIndexSize(IndexSpec *sp) {
   VectorIndexStats stats = IndexSpec_GetVectorIndexesStats(sp);
   return stats.memory;
-}
-
-VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
-  VectorIndexStats stats = {0};
-  for (size_t i = 0; i < sp->numFields; ++i) {
-    const FieldSpec *fs = sp->fields + i;
-    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      VectorIndexStats field_stats = IndexSpec_GetVectorIndexStats(sp, fs);
-      stats.memory += field_stats.memory;
-      stats.marked_deleted += field_stats.marked_deleted;
-    }
-  }
-  return stats;
 }
 
 VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *fs){
@@ -207,4 +172,38 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *f
     stats.marked_deleted += info.tieredInfo.backendInfo.hnswInfo.numberOfMarkedDeletedNodes;
   }
   return stats;
+}
+
+VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
+  VectorIndexStats stats = {0};
+  for (size_t i = 0; i < sp->numFields; ++i) {
+    const FieldSpec *fs = sp->fields + i;
+    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+      VectorIndexStats field_stats = IndexSpec_GetVectorIndexStats(sp, fs);
+      stats.memory += field_stats.memory;
+      stats.marked_deleted += field_stats.marked_deleted;
+    }
+  }
+  return stats;
+}
+
+FieldSpecStats IndexSpec_GetFieldStats(const FieldSpec *fs, IndexSpec *sp){
+  FieldSpecStats stats = {0};
+  stats.type = fs->types;
+  switch (stats.type) {
+    case INDEXFLD_T_VECTOR:
+      stats.vecStats = IndexSpec_GetVectorIndexStats(sp, fs);
+      return stats;
+    default:
+      return (FieldSpecStats){0};
+  }
+}
+
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, IndexSpec *sp) {
+  FieldSpecInfo info = {0};
+  FieldSpecInfo_SetIdentifier(&info, fs->path);
+  FieldSpecInfo_SetAttribute(&info, fs->name);
+  FieldSpecInfo_SetIndexError(&info, fs->indexError);
+  FieldSpecInfo_SetStats(&info, IndexSpec_GetFieldStats(fs, sp));
+  return info;
 }
