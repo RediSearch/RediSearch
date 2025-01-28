@@ -1492,7 +1492,7 @@ def test_error_with_partial_results():
 
   env = Env(protocol=3)
   conn = getConnectionByEnv(env)
-
+  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
   # Create an index
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 

@@ -4278,6 +4278,7 @@ def test_timeout_non_strict_policy(env):
     """
 
     conn = getConnectionByEnv(env)
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
 
     # Create an index, and populate it
     n = 25000
