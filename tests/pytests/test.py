@@ -2443,7 +2443,6 @@ def testTimeout(env):
 
     num_range = 20000
     env.cmd(config_cmd(), 'set', 'timeout', '1')
-    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
     env.cmd(config_cmd(), 'set', 'maxprefixexpansions', num_range)
 
     env.cmd('ft.create', 'myIdx', 'schema', 't', 'TEXT', 'geo', 'GEO')
@@ -3498,6 +3497,7 @@ def testFieldsCaseSensetive(env):
     # will not reflect the errors
     conn = getConnectionByEnv(env)
     dialect = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1]
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC f TEXT t TAG g GEO')
 
     # make sure text fields are case sesitive
@@ -3575,6 +3575,7 @@ def testSortedFieldsCaseSensetive(env):
     # will not reflect the errors
     conn = getConnectionByEnv(env)
     dialect = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1]
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE f TEXT SORTABLE t TAG SORTABLE g GEO SORTABLE')
 
     # make sure text fields are case sesitive

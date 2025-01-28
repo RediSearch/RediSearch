@@ -364,9 +364,10 @@ def CursorOnCoordinator(env: Env):
 
 def testCursorDepletionNonStrictTimeoutPolicy(env):
     """Tests that the cursor id is returned in case the timeout policy is
-    non-strict (i.e., the default `RETURN`), even when a timeout is experienced"""
+    non-strict (i.e., the `RETURN` timeout policy), even when a timeout is experienced"""
 
     conn = getConnectionByEnv(env)
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
 
     # Create the index
     env.expect('FT.CREATE idx SCHEMA t text').ok()

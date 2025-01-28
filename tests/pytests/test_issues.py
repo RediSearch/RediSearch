@@ -784,8 +784,10 @@ def test_mod4296_badexpr(env):
 
 @skip(cluster=True)
 def test_mod5062(env):
+  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
   env.expect(config_cmd(), 'SET', 'MAXSEARCHRESULTS', '0').ok()
   env.expect(config_cmd(), 'SET', 'MAXAGGREGATERESULTS', '0').ok()
+
   n = 100
 
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
@@ -1065,7 +1067,6 @@ def test_mod6510_vecsim_hybrid_adhoc_timeout(env):
     dim = 1000
     n_vectors = 50000
 
-    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
     # Create HNSW index which is large enough, so we'll get timeout later on.
     env.expect(f'FT.CREATE idx SCHEMA v VECTOR HNSW 10 DIM {dim} DISTANCE_METRIC L2 TYPE FLOAT32 M 2 EF_CONSTRUCTION 5'
                f' t text').equal('OK')
