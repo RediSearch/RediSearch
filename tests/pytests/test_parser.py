@@ -627,3 +627,11 @@ TAG:@t2 {
   }
 }
 '''[1:])
+    env.expect('FT.EXPLAIN', 'idx', '@t2:{cat with dog}').equal(r'''
+TAG:@t2 {
+  INTERSECT {
+    cat
+    dog
+  }
+}
+'''[1:])
