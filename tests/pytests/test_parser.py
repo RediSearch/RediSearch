@@ -635,3 +635,8 @@ TAG:@t2 {
   }
 }
 '''[1:])
+    # this test is commented out, TODO: enable after fixing issue MOD-8665
+    # conn = env.getClusterConnectionIfNeeded()
+    # conn.execute_command('HSET', 'doc1', 't2', 'with')
+    # conn.execute_command('HSET', 'doc2', 't2', 'dog')
+    # env.expect('FT.SEARCH', 'idx', '@t2:{cat with dog}', 'NOCONTENT').equal([1, 'doc2', ['t2', 'dog']])
