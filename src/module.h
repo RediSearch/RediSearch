@@ -58,7 +58,7 @@ do {                                            \
 
 #define NOPERM_ERR "-NOPERM User does not have the required permissions to query the index"
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
-#define NODEBUG_ERR "Debug commands are disabled"
+#define NODEBUG_ERR "Debug commands are disabled, please follow the redis configuration guide to enable them"
 
 #define RM_TRY(expr)                                                  \
   if (expr == REDISMODULE_ERR) {                                      \
@@ -119,6 +119,8 @@ typedef struct {
   clock_t profileClock;
   void *reducer;
 } searchRequestCtx;
+
+bool debugCommandsEnabled(RedisModuleCtx *ctx);
 
 specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc,
                              QueryError *status);

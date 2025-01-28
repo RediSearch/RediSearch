@@ -81,6 +81,9 @@ typedef struct {
 } InvertedIndexStats;
 
 DEBUG_COMMAND(DumpTerms) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -124,6 +127,9 @@ static size_t InvertedIndexSummaryHeader(RedisModuleCtx *ctx, InvertedIndex *inv
 }
 
 DEBUG_COMMAND(InvertedIndexSummary) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -163,6 +169,9 @@ end:
 }
 
 DEBUG_COMMAND(DumpInvertedIndex) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -184,6 +193,9 @@ end:
 
 // FT.DEBUG NUMIDX_SUMMARY INDEX_NAME NUMERIC_FIELD_NAME
 DEBUG_COMMAND(NumericIndexSummary) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -222,6 +234,9 @@ end:
 
 // FT.DEBUG DUMP_NUMIDX <INDEX_NAME> <NUMERIC_FIELD_NAME> [WITH_HEADERS]
 DEBUG_COMMAND(DumpNumericIndex) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -271,6 +286,9 @@ end:
 }
 
 DEBUG_COMMAND(DumpGeometryIndex) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -300,6 +318,9 @@ end:
 // TODO: Elaborate prefixes dictionary information
 // FT.DEBUG DUMP_PREFIX_TRIE
 DEBUG_COMMAND(DumpPrefixTrie) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
 
   TrieMap *prefixes_map = SchemaPrefixes_g;
 
@@ -358,7 +379,7 @@ InvertedIndexStats NumericRange_DebugReply(RedisModuleCtx *ctx, NumericRange *r)
 /**
  * It is safe to use @param n equals to NULL.
  */
-InvertedIndexStats NumericRangeNode_DebugReply(RedisModuleCtx *ctx, NumericRangeNode *n, bool minimal) {
+static InvertedIndexStats NumericRangeNode_DebugReply(RedisModuleCtx *ctx, NumericRangeNode *n, bool minimal) {
   InvertedIndexStats invIdxStats = {0};
   if (!n) {
     RedisModule_ReplyWithMap(ctx, 0);
@@ -435,6 +456,9 @@ void NumericRangeTree_DebugReply(RedisModuleCtx *ctx, NumericRangeTree *rt, bool
 
 // FT.DEBUG DUMP_NUMIDXTREE INDEX_NAME NUMERIC_FIELD_NAME [MINIMAL]
 DEBUG_COMMAND(DumpNumericIndexTree) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc < 4 || argc > 5) {
     return RedisModule_WrongArity(ctx);
   }
@@ -462,6 +486,9 @@ DEBUG_COMMAND(DumpNumericIndexTree) {
 
 // FT.DEBUG SPEC_INVIDXES_INFO INDEX_NAME
 DEBUG_COMMAND(SpecInvertedIndexesInfo) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -476,6 +503,9 @@ DEBUG_COMMAND(SpecInvertedIndexesInfo) {
 }
 
 DEBUG_COMMAND(DumpTagIndex) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -517,6 +547,9 @@ end:
 }
 
 DEBUG_COMMAND(DumpSuffix) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 3 && argc != 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -590,6 +623,9 @@ end:
 }
 
 DEBUG_COMMAND(IdToDocId) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -612,6 +648,9 @@ end:
 }
 
 DEBUG_COMMAND(DocIdToId) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -625,6 +664,9 @@ DEBUG_COMMAND(DocIdToId) {
 }
 
 DEBUG_COMMAND(DumpPhoneticHash) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -646,15 +688,24 @@ DEBUG_COMMAND(DumpPhoneticHash) {
 }
 
 static int GCForceInvokeReply(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   return RedisModule_ReplyWithSimpleString(ctx, "DONE");
 }
 
 static int GCForceInvokeReplyTimeout(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   return RedisModule_ReplyWithError(ctx, "INVOCATION FAILED");
 }
 
 // FT.DEBUG GC_FORCEINVOKE [TIMEOUT]
 DEBUG_COMMAND(GCForceInvoke) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc < 3 || argc > 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -676,6 +727,9 @@ DEBUG_COMMAND(GCForceInvoke) {
 }
 
 DEBUG_COMMAND(GCForceBGInvoke) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -690,6 +744,9 @@ DEBUG_COMMAND(GCForceBGInvoke) {
 }
 
 DEBUG_COMMAND(GCStopFutureRuns) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -707,6 +764,9 @@ DEBUG_COMMAND(GCStopFutureRuns) {
 }
 
 DEBUG_COMMAND(GCContinueFutureRuns) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -725,6 +785,9 @@ DEBUG_COMMAND(GCContinueFutureRuns) {
 // Wait for all GC jobs **THAT CURRENTLY IN THE QUEUE** to finish.
 // This command blocks the client and adds a job to the end of the GC queue, that will later unblock it.
 DEBUG_COMMAND(GCWaitForAllJobs) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, GCForceInvokeReply, NULL, NULL, 0);
   RedisModule_BlockedClientMeasureTimeStart(bc);
   GCContext_WaitForAllOperations(bc);
@@ -733,6 +796,9 @@ DEBUG_COMMAND(GCWaitForAllJobs) {
 
 // GC_CLEAN_NUMERIC INDEX_NAME NUMERIC_FIELD_NAME
 DEBUG_COMMAND(GCCleanNumeric) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
 
   if (argc != 4) {
     return RedisModule_WrongArity(ctx);
@@ -757,6 +823,9 @@ end:
 }
 
 DEBUG_COMMAND(ttl) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -784,6 +853,9 @@ DEBUG_COMMAND(ttl) {
 }
 
 DEBUG_COMMAND(ttlPause) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -816,6 +888,9 @@ DEBUG_COMMAND(ttlPause) {
 }
 
 DEBUG_COMMAND(ttlExpire) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -851,6 +926,9 @@ typedef struct {
 } MonitorExpirationOptions;
 
 DEBUG_COMMAND(setMonitorExpiration) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -897,6 +975,9 @@ DEBUG_COMMAND(setMonitorExpiration) {
 }
 
 DEBUG_COMMAND(GitSha) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
 #ifdef GIT_SHA
   RedisModule_ReplyWithStringBuffer(ctx, GIT_SHA, strlen(GIT_SHA));
 #else
@@ -935,6 +1016,9 @@ static void seekTagIterator(TrieMapIterator *it, size_t offset) {
  * INFO_TAGIDX <index> <field> [OPTIONS...]
  */
 DEBUG_COMMAND(InfoTagIndex) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1078,6 +1162,9 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
  * FT.DEBUG DOC_INFO <index> <doc>
  */
 DEBUG_COMMAND(DocInfo) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc < 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1139,6 +1226,9 @@ static void VecSim_Reply_Info_Iterator(RedisModuleCtx *ctx, VecSimInfoIterator *
  * FT.DEBUG VECSIM_INFO <index> <field>
  */
 DEBUG_COMMAND(VecsimInfo) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 4) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1172,6 +1262,9 @@ DEBUG_COMMAND(VecsimInfo) {
  * Deletes the local cursors of the shard.
 */
 DEBUG_COMMAND(DeleteCursors) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1209,6 +1302,9 @@ void replyDumpHNSW(RedisModuleCtx *ctx, VecSimIndex *index, t_docId doc_id) {
 }
 
 DEBUG_COMMAND(dumpHNSWData) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc < 4 || argc > 5) { // it should be 4 or 5 (allowing specifying a certain doc)
     return RedisModule_WrongArity(ctx);
   }
@@ -1263,6 +1359,9 @@ DEBUG_COMMAND(dumpHNSWData) {
  * FT.DEBUG WORKERS [PAUSE / RESUME / DRAIN / STATS / N_THREADS]
  */
 DEBUG_COMMAND(WorkerThreadsSwitch) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1334,6 +1433,11 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_HNSW", dumpHNSWData},
                                {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
                                {"WORKERS", WorkerThreadsSwitch},
+                               /* IMPORTANT NOTE: Every debug command starts with
+                                * checking if redis allows this context to execute
+                                * debug commands by calling `debugCommandsEnabled(ctx)`.
+                                * If you add a new debug command, make sure to add it.
+                               */
                                {NULL, NULL}};
 
 int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

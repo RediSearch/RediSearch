@@ -123,6 +123,16 @@ bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
   return ret;
 }
 
+// Returns true if the current context has permission to execute debug commands
+// See redis docs regarding `enable-debug-command` for more information
+// Falls back to true when the redis version is below the one we started
+// supporting this feature
+bool debugCommandsEnabled(RedisModuleCtx *ctx) {
+  int flags = RedisModule_GetContextFlags(ctx);
+  int allFlags = RedisModule_GetContextFlagsAll();
+  return (!(allFlags & REDISMODULE_CTX_FLAGS_DEBUG_ENABLED)) || (flags & REDISMODULE_CTX_FLAGS_DEBUG_ENABLED);
+}
+
 /* FT.MGET {index} {key} ...
  * Get document(s) by their id.
  * Currentlt it just performs HGETALL, but it's a future proof alternative allowing us to later on
