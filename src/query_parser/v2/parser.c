@@ -1914,8 +1914,12 @@ static YYACTIONTYPE yy_reduce(
       case 32: /* termlist ::= param_term param_term */
 {
   yylhsminor.yy47 = NewPhraseNode(0);
-  QueryNode_AddChild(yylhsminor.yy47, NewTokenNode_WithParams(ctx, &yymsp[-1].minor.yy0));
-  QueryNode_AddChild(yylhsminor.yy47, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  if (!(yymsp[-1].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len))) {
+    QueryNode_AddChild(yylhsminor.yy47, NewTokenNode_WithParams(ctx, &yymsp[-1].minor.yy0));
+  }
+  if (!(yymsp[0].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len))) {
+    QueryNode_AddChild(yylhsminor.yy47, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  }
 }
   yymsp[-1].minor.yy47 = yylhsminor.yy47;
         break;
