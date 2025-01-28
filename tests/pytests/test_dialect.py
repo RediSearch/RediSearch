@@ -101,6 +101,15 @@ def test_v1_vs_v2(env):
     env.expect('FT.EXPLAIN', 'idx', '@num:[1e1.1 0]', 'DIALECT', 1).error().contains('Syntax error')
     env.expect('FT.EXPLAIN', 'idx', '@num:[1e1.1 0]', 'DIALECT', 2).error().contains('Syntax error')
 
+    env.expect('FT.EXPLAIN', 'idx', '@num:[1.e1 1.e2]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[1.e1 1.e2]', 'DIALECT', 2).contains('NUMERIC {10.000000 <= @num <= 100.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1.e-1 +1.e+2]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1.e-1 +1.e+2]', 'DIALECT', 2).contains('NUMERIC {-0.100000 <= @num <= 100.000000}\n')
+
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1.e+1 +1.e-1]', 'DIALECT', 1).error().contains('Syntax error')
+    env.expect('FT.EXPLAIN', 'idx', '@num:[-1.e+1 +1.e-1]', 'DIALECT', 2).contains('NUMERIC {-10.000000 <= @num <= 0.100000}\n')
+
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 . 1]', 'DIALECT', 1).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
     # This does not return error because the '.' is consumed by the lexer, should be fixed by MOD-6933
     env.expect('FT.EXPLAIN', 'idx', '@num:[0 . 1]', 'DIALECT', 2).contains('NUMERIC {0.000000 <= @num <= 1.000000}\n')
@@ -195,19 +204,7 @@ def test_v1_vs_v2(env):
     ]
     env.assertEqual(res, expected)
     res = env.cmd('FT.EXPLAINCLI', 'idx', "1.e+3", 'DIALECT', 2)
-    expected = [
-      'INTERSECT {',
-      '  1',
-      '  INTERSECT {',
-      '    UNION {',
-      '      e',
-      '      +e(expanded)',
-      '    }',
-      '    +3',
-      '  }',
-      '}',
-      ''
-    ]
+    expected = ['1.e+3', '']
     env.assertEqual(res, expected)
 
     # DIALECT 2 does not expand numbers

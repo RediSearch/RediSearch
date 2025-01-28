@@ -98,7 +98,7 @@ machine query;
 
 inf = [+\-]? 'inf'i $ 4;
 size = digit+ $ 2;
-number = [+\-]? (digit+('.' digit+)? | ('.' digit+)) (('E'|'e') ['+\-]? digit+)? $ 3;
+number = [+\-]? (digit+('.' digit+)? | ('.' digit+) | (digit+('.'))) (('E'|'e') ['+\-]? digit+)? $ 3;
 
 quote = '"';
 or = '|';
