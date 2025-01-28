@@ -8,11 +8,11 @@ def search(env, r, *args):
     return r.expect('ft.search', *args)
 
 def setup_index(env):
-    env.expect("FT.CREATE idx SCHEMA t1 TEXT t2 TAG").ok()
+    env.expect("FT.CREATE idx SCHEMA t1 TEXT NOSTEM t2 TAG").ok()
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'h1', 't1', 'James Brown', 't2', 'NYC')
     conn.execute_command('HSET', 'h2', 't1', 'James Lore', 't2', 'MIA')
-    conn.execute_command('HSET', 'h3', 't1', r'James\!\* Exclaim', 't2', 'PHX')
+    conn.execute_command('HSET', 'h3', 't1', 'James\\!\\* Exclaim', 't2', 'PHX')
 
 def test_wildcard(env):
     setup_index(env)
@@ -39,5 +39,15 @@ def test_tags(env):
 def test_verbatim_escaping(env):
     setup_index(env)
     expected = [1, 'h3']
-    search(env, env, 'idx', r'@t1:("James\!\*")', 'NOCONTENT', 'DIALECT', 2).equal(expected)
-    search(env, env, 'idx', r'@t1:(\'James\!\*\')', 'NOCONTENT', 'DIALECT', 2).equal(expected)
+    expected_explain = '@t1:EXACT {\n  @t1:james!*\n}\n'
+    dquote = '@t1:("James\\!\\*")'
+    # Need to extra escape due to redis bug with single quote escaping:
+    # https://github.com/redis/redis/issues/6928
+    # https://github.com/redis/redis/issues/8672
+    squote = "@t1:('James\\!\\*')"
+    terms =  ['brown', 'exclaim', 'james', 'james!*', 'lore']
+    env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').equal(terms)
+    env.expect('FT.EXPLAIN', 'idx', dquote, 'DIALECT', 2).equal(expected_explain)
+    search(env, env, 'idx', dquote, 'NOCONTENT', 'DIALECT', 2).equal(expected)
+    env.expect('FT.EXPLAIN', 'idx', squote, 'DIALECT', 2).equal(expected_explain)
+    search(env, env, 'idx', squote, 'NOCONTENT', 'DIALECT', 2).equal(expected)
