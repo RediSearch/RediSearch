@@ -589,8 +589,12 @@ text_expr(A) ::= verbatim(B) . [VERBATIM]  {
 
 termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
   A = NewPhraseNode(0);
-  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
-  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+  if (!(B.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, B.s, B.len))) {
+    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
+  }
+  if (!(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len))) {
+    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+  }
 }
 
 termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
