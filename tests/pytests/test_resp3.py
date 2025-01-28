@@ -187,6 +187,7 @@ def test_profile(env):
 @skip(cluster=False, redis_less_than="7.0.0")
 def test_coord_profile():
     env = Env(protocol=3)
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
 
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')

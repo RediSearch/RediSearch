@@ -44,6 +44,7 @@ def testCommandStatsOnRedis(env):
     # on a single shard
 
     conn = getConnectionByEnv(env)
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
     # _FT.CREATE is not called. No option to test
 
@@ -168,6 +169,7 @@ def test_mod_6287(env):
     such a scenario depicted in PR #4324 results in a crash since the `depleted`
     and `pending` flags/counter were not aligned."""
 
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
     conn = getConnectionByEnv(env)
     con2 = env.getConnection(2)
 

@@ -670,6 +670,7 @@ def testOptimizeArgs(env):
     ''' Test enabling/disabling optimization according to args and dialect '''
 
     conn = getConnectionByEnv(env)
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     for i in range(0, 20):
         conn.execute_command('HSET', i, 'n', i)
@@ -692,6 +693,7 @@ def testOptimizeArgsDefault():
     ''' Test enabling/disabling optimization according to args and default dialect '''
 
     env = Env(moduleArgs='DEFAULT_DIALECT 4')
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     for i in range(0, 20):
