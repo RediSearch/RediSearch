@@ -617,3 +617,18 @@ def testModifierList(env):
   }
 }
 '''[1:])
+
+def testTagQueryWithStopwords_V2(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TAG').ok()
+    env.expect('FT.EXPLAIN', 'idx', '@t2:{as is the with by}').equal(r'''
+TAG:@t2 {
+  INTERSECT {
+    as
+    is
+    the
+    with
+    by
+  }
+}
+'''[1:])
