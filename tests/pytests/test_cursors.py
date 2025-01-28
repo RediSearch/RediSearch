@@ -62,6 +62,7 @@ def testCursorsBG():
 @skip(cluster=True)
 def testCursorsBGEdgeCasesSanity():
     env = Env(moduleArgs='WORKERS 1')
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
     count = 100
     loadDocs(env, count=count)
     # Add an extra field to every other document
