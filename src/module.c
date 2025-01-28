@@ -855,6 +855,11 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return RedisModule_ReplyWithError(ctx, "Alias does not exist");
   }
 
+  // On Enterprise, we validate ACL permission to the index
+  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
   QueryError status = {0};
   if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), ref, 0, &status) != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &status);
@@ -888,6 +893,11 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   StrongRef Orig_ref = IndexSpec_LoadUnsafeEx(&lOpts);
   IndexSpec *spOrig = StrongRef_Get(Orig_ref);
   if (spOrig) {
+    // On Enterprise, we validate ACL permission to the index
+    if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, spOrig)) {
+      return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+    }
+
     if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), Orig_ref, 0, &status) != REDISMODULE_OK) {
       return QueryError_ReplyAndClear(ctx, &status);
     }
@@ -2973,17 +2983,17 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx,
 
 static int FanoutCommandHandlerWithIndexAtFirstArg(RedisModuleCtx *ctx,
   RedisModuleString **argv, int argc) {
-  MastersFanoutCommandHandler(ctx, argv, argc, 1);
+  return MastersFanoutCommandHandler(ctx, argv, argc, 1);
 }
 
 static int FanoutCommandHandlerWithIndexAtSecondArg(RedisModuleCtx *ctx,
   RedisModuleString **argv, int argc) {
-  MastersFanoutCommandHandler(ctx, argv, argc, 2);
+  return MastersFanoutCommandHandler(ctx, argv, argc, 2);
 }
 
 static int FanoutCommandHandlerIndexless(RedisModuleCtx *ctx,
   RedisModuleString **argv, int argc) {
-  MastersFanoutCommandHandler(ctx, argv, argc, -1);
+  return MastersFanoutCommandHandler(ctx, argv, argc, -1);
 }
 
 // Supports FT.ADD, FT.DEL, FT.GET, FT.SUGADD, FT.SUGGET, FT.SUGDEL, FT.SUGLEN.
@@ -3025,7 +3035,7 @@ static int SingleShardCommandHandler(RedisModuleCtx *ctx,
 
 static int SingleShardCommandHandlerWithIndexAtFirstArg(RedisModuleCtx *ctx,
   RedisModuleString **argv, int argc) {
-  SingleShardCommandHandler(ctx, argv, argc, 1);
+  return SingleShardCommandHandler(ctx, argv, argc, 1);
 }
 
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
