@@ -850,6 +850,7 @@ def testGroupbyNoReduce(env):
 
 def testStartsWith(env):
     conn = getConnectionByEnv(env)
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
     conn.execute_command('hset', 'doc1', 't', 'aa')
     conn.execute_command('hset', 'doc2', 't', 'aaa')
@@ -862,6 +863,7 @@ def testStartsWith(env):
 
 def testContains(env):
     conn = getConnectionByEnv(env)
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
     conn.execute_command('hset', 'doc1', 't', 'aa')
     conn.execute_command('hset', 'doc2', 't', 'bba')
