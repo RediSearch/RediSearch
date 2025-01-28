@@ -136,7 +136,7 @@ prefix_exact = (exact.star) $1;
 suffix = (star.term | star.number | star.attr) $1;
 suffix_exact = (star.exact) $1;
 as = 'as'i;
-verbatim = (quote . ((any - quote - escape) | escape.any)+ . quote $4) | (squote . ((any - squote - escape) | escape.any)+ . squote $4);
+verbatim = ((quote . ((any - quote - escape) | escape.any)+ . quote) | (squote . ((any - squote - escape) | escape.any)+ . squote)) $4;
 wildcard = 'w' . verbatim $4;
 ismissing = 'ismissing'i $1;
 
