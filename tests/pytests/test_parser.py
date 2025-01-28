@@ -632,3 +632,17 @@ TAG:@t2 {
   }
 }
 '''[1:])
+    env.expect('FT.EXPLAIN', 'idx', '@t2:{cat with dog}').equal(r'''
+TAG:@t2 {
+  INTERSECT {
+    cat
+    with
+    dog
+  }
+}
+'''[1:])
+    # this test is commented out, TODO: enable after fixing issue MOD-8665
+    # conn = env.getClusterConnectionIfNeeded()
+    # conn.execute_command('HSET', 'doc1', 't2', 'with')
+    # conn.execute_command('HSET', 'doc2', 't2', 'dog')
+    # env.expect('FT.SEARCH', 'idx', '@t2:{cat with dog}', 'NOCONTENT').equal([2, 'doc1', 'doc2'])
