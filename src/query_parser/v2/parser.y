@@ -572,7 +572,11 @@ text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
 }
 
 text_expr(A) ::= param_term(B) . [LOWEST]  {
-  A = NewTokenNode_WithParams(ctx, &B);
+  if (B.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, B.s, B.len)) {
+    A = NULL;
+  } else {
+    A = NewTokenNode_WithParams(ctx, &B);
+  }
 }
 
 text_expr(A) ::= affix(B) . [PREFIX]  {
