@@ -1141,6 +1141,12 @@ cleanup:
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *err;
 
+  // On OSS, we use the internal secret to authenticate as an internal connection
+  // We should be running against a redis version that has this API
+  RedisModule_Assert(RedisModule_GetInternalSecret && "Redis version does not \
+  support internal authentication, please upgrade in order to use this version \
+  of RediSearch");
+
   legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
 
   // Read module configuration from module ARGS

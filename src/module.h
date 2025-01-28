@@ -22,7 +22,13 @@
 extern "C" {
 #endif
 
+// Filter from proxy listing and statistics (e.g., command-stats, latency report etc.)
 #define CMD_PROXY_FILTERED "_proxy-filtered"
+// Internal command - for internal use, i.e., should NOT be executed by the user
+// as it may bypass ACL validations (e.g., '_FT.SEARCH`), or result in an
+// unwanted situation such as an unsynchronized cluster (e.g., '_FT.CREATE').
+// Thus, these commands are not exposed to the user. For more info, see redis
+// docs and code.
 #define CMD_INTERNAL "internal"
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -56,7 +62,7 @@ do {                                            \
 #define SEARCH_ACL_CATEGORY "search"
 #define SEARCH_ACL_INTERNAL_CATEGORY "_search_internal"
 
-#define NOPERM_ERR "-NOPERM User does not have the required permissions to query the index"
+#define NOPERM_ERR "NOPERM User does not have the required permissions to query the index"
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 #define NODEBUG_ERR "Debug commands are disabled, please follow the redis configuration guide to enable them"
 

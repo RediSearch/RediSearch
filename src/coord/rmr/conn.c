@@ -428,9 +428,6 @@ static int MRConn_SendAuth(MRConn *conn) {
   size_t len = 0;
 
   if (!IsEnterprise()) {
-    // On OSS, we use the internal secret to authenticate as an internal connection
-    // We should be running against a redis version that has this API
-    RedisModule_Assert(RedisModule_GetInternalSecret && "Redis version does not support internal authentication, please upgrade in order to use this version of RediSearch");
     // Take the GIL before calling the internal function getter
     RedisModule_ThreadSafeContextLock(RSDummyContext);
     const char *internal_secret = RedisModule_GetInternalSecret(RSDummyContext, &len);
