@@ -1224,7 +1224,7 @@ void UpgradeDeprecatedMTConfigs() {
   }
 }
 
-char *getConfigValue(RedisModuleCtx *ctx, const char* confName) {
+char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName) {
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "config", "cc", "get", confName);
   RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
   if (RedisModule_CallReplyLength(rep) == 0){

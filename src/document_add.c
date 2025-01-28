@@ -9,6 +9,7 @@
 #include "util/logging.h"
 #include "rmutil/rm_assert.h"
 
+// Forward declaration.
 bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp);
 
 /*

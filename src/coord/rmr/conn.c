@@ -8,7 +8,6 @@
 #include "reply.h"
 #include "src/coord/config.h"
 #include "module.h"
-#include "src/config.h"
 #include "hiredis/adapters/libuv.h"
 
 #include <uv.h>
@@ -530,19 +529,19 @@ static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char*
   char* clusterTls = NULL;
   char* tlsPort = NULL;
 
-  clusterTls = getConfigValue(ctx, "tls-cluster");
+  clusterTls = getRedisConfigValue(ctx, "tls-cluster");
   if (!clusterTls || strcmp(clusterTls, "yes")) {
-    tlsPort = getConfigValue(ctx, "tls-port");
+    tlsPort = getRedisConfigValue(ctx, "tls-port");
     if (!tlsPort || !strcmp(tlsPort, "0")) {
       ret = 0;
       goto done;
     }
   }
 
-  *client_key = getConfigValue(ctx, "tls-key-file");
-  *client_cert = getConfigValue(ctx, "tls-cert-file");
-  *ca_cert = getConfigValue(ctx, "tls-ca-cert-file");
-  *key_pass = getConfigValue(ctx, "tls-key-file-pass");
+  *client_key = getRedisConfigValue(ctx, "tls-key-file");
+  *client_cert = getRedisConfigValue(ctx, "tls-cert-file");
+  *ca_cert = getRedisConfigValue(ctx, "tls-ca-cert-file");
+  *key_pass = getRedisConfigValue(ctx, "tls-key-file-pass");
 
   if (!*client_key || !*client_cert || !*ca_cert){
     ret = 0;

@@ -814,7 +814,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
 
   if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
-    QueryError_SetCode(error, QUERY_NOPERM);
+    QueryError_SetError(error, QUERY_EGENERIC, NOPERM_ERR);
   }
 
   const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
@@ -1105,6 +1105,7 @@ static int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
         rm_asprintf(&internalFlags, "%s %s", flags, CMD_INTERNAL);
     }
   } else {
+    // Flags are not enhanced.
     internalFlags = (char *)flags;
     // Register non-internal commands to the `search` ACL category.
     rm_asprintf(&categories, strcmp(aclCategories, "") != 0 ? "%s %s" : "%.0s%s", aclCategories, SEARCH_ACL_CATEGORY);

@@ -67,7 +67,6 @@ extern "C" {
   X(QUERY_EUNKNOWNINDEX, "Unknown index name")                                                  \
   X(QUERY_EDROPPEDBACKGROUND, "The index was dropped before the query could be executed")       \
   X(QUERY_EALIASCONFLICT, "Alias conflicts with an existing index name")                        \
-  X(QUERY_NOPERM, "-NOPERM User does not have the required permissions to query the index")     \
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 

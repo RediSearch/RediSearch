@@ -229,7 +229,7 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 
 void UpgradeDeprecatedMTConfigs();
 
-char *getConfigValue(RedisModuleCtx *ctx, const char* confName);
+char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 
 #define DEFAULT_BG_INDEX_SLEEP_GAP 100
 #define DEFAULT_DIALECT_VERSION 1
