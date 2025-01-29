@@ -15,6 +15,8 @@
 #define VECSIM_TYPE_FLOAT16 "FLOAT16"
 #define VECSIM_TYPE_FLOAT32 "FLOAT32"
 #define VECSIM_TYPE_FLOAT64 "FLOAT64"
+#define VECSIM_TYPE_UINT8 "UINT8"
+#define VECSIM_TYPE_INT8 "INT8"
 #define VECSIM_TYPE_INT32 "INT32"
 #define VECSIM_TYPE_INT64 "INT64"
 
@@ -40,6 +42,8 @@
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
   QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create %s index without specifying %s argument", algorithm, arg)
+
+#define VECSIM_KNN_K_TOO_LARGE_ERR_MSG "KNN K parameter is too large"
 
 typedef enum {
   VECSIM_QT_KNN,

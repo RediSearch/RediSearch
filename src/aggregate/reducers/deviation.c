@@ -9,7 +9,7 @@
 
 typedef struct {
   size_t n;
-  double oldM, newM, oldS, newS;
+  double M, S;
 } devCtx;
 
 #define BLOCK_SIZE 1024 * sizeof(devCtx)
@@ -24,15 +24,15 @@ static void stddevAddInternal(devCtx *dctx, double d) {
   // https://www.johndcook.com/blog/standard_deviation/
   dctx->n++;
   if (dctx->n == 1) {
-    dctx->oldM = dctx->newM = d;
-    dctx->oldS = 0.0;
+    dctx->M = d;
+    dctx->S = 0.0;
   } else {
-    dctx->newM = dctx->oldM + (d - dctx->oldM) / dctx->n;
-    dctx->newS = dctx->oldS + (d - dctx->oldM) * (d - dctx->newM);
+    double newM = dctx->M + (d - dctx->M) / dctx->n;
+    double newS = dctx->S + (d - dctx->M) * (d - newM);
 
     // set up for next iteration
-    dctx->oldM = dctx->newM;
-    dctx->oldS = dctx->newS;
+    dctx->M = newM;
+    dctx->S = newS;
   }
 }
 
@@ -59,7 +59,7 @@ static int stddevAdd(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *stddevFinalize(Reducer *parent, void *instance) {
   devCtx *dctx = instance;
-  double variance = ((dctx->n > 1) ? dctx->newS / (dctx->n - 1) : 0.0);
+  double variance = ((dctx->n > 1) ? dctx->S / (dctx->n - 1) : 0.0);
   double stddev = sqrt(variance);
   return RS_NumVal(stddev);
 }

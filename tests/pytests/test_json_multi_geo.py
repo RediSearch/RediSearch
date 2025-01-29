@@ -1,10 +1,6 @@
-from itertools import chain
 import json
-import random
-
 from common import *
 from includes import *
-from numpy import linspace
 
 doc1_content = [
     {
@@ -94,15 +90,11 @@ doc_non_geo_content = r'''{
 '''
 
 
-def checkInfo(env, idx, num_docs, inverted_sz_mb):
+def checkInfo(env: Env, idx, num_docs, inverted_sz_mb):
     """ Helper function for testInfoAndGC """
-    conn = getConnectionByEnv(env)
-
-    # Start empty
-    env.assertEqual(True, True, message = 'check {}'.format(idx))
     info = index_info(env, idx)
-    env.assertEqual(int(info['num_docs']), num_docs)
-    env.assertEqual(float(info['inverted_sz_mb']), inverted_sz_mb)
+    env.assertEqual(int(info['num_docs']), num_docs, depth=1)
+    env.assertEqual(float(info['inverted_sz_mb']), inverted_sz_mb, depth=1)
 
 @skip(cluster=True, no_json=True)
 def testBasic(env):
@@ -133,39 +125,39 @@ def testBasic(env):
 
     # check stats after insert
 
-    # idx1 contains 24 entries, expected size of inverted index = 407
+    # idx1 contains 24 entries, expected size of inverted index = 394
     # the size is distributed in the left and right children ranges as follows:
 
-    # left range size = 303
-    #     Size of NewInvertedIndex() structure = 96
-    #         sizeof_InvertedIndex(Index_StoreNumeric) = 48
+    # left range size = 187:
+    #     Size of NewInvertedIndex() structure = 88
+    #         sizeof_InvertedIndex(Index_StoreNumeric) = 40
     #         sizeof(IndexBlock) = 48
-    #     Buffer grows up to 207 bytes trying to store 23 entries 8 bytes each.
+    #     Buffer grows up to 99 bytes trying to store 11 entries 8 bytes each.
     #     See Buffer_Grow() in inverted_index.c
 
-    # right range size = 104:
-    #     Size of NewInvertedIndex() structure = 96
-    #         sizeof_InvertedIndex(Index_StoreNumeric) = 48
+    # right range size = 207:
+    #     Size of NewInvertedIndex() structure = 88
+    #         sizeof_InvertedIndex(Index_StoreNumeric) = 40
     #         sizeof(IndexBlock) = 48
-    #     Buffer grows up to 8 bytes trying to store 1 entry 8 bytes each = 8
-    expected_info['inverted_sz_mb'] = 407 / (1024 * 1024)
+    #     Buffer grows up to 119 bytes trying to store 13 entries 8 bytes each.
+    expected_info['inverted_sz_mb'] = 394 / (1024 * 1024)
     compare_index_info_dict(env, 'idx1', expected_info, "idx1 after insert")
 
-    # Expected size of inverted index for idx2 = 96 + 25 = 121
-    #     Size of NewInvertedIndex() structure = 96
+    # Expected size of inverted index for idx2 = 88 + 25 = 113
+    #     Size of NewInvertedIndex() structure = 88
     #     Buffer grows up to 25 bytes trying to store 3 entries 8 bytes each = 25
-    expected_info['inverted_sz_mb'] = 121 / (1024 * 1024)
+    expected_info['inverted_sz_mb'] = 113 / (1024 * 1024)
     compare_index_info_dict(env, 'idx2', expected_info, "idx2 after insert")
 
-    # Expected size of inverted index for idx2 = 96 + 46 = 142
-    #     Size of NewInvertedIndex() structure = 96
+    # Expected size of inverted index for idx2 = 88 + 46 = 134
+    #     Size of NewInvertedIndex() structure = 88
     #     Buffer grows up to 46 bytes trying to store 5 entries, 8 bytes each = 46
-    expected_info['inverted_sz_mb'] = 142 / (1024 * 1024)
+    expected_info['inverted_sz_mb'] = 134 / (1024 * 1024)
     compare_index_info_dict(env, 'idx3', expected_info, "idx3 after insert")
 
     # idx4 contains two GEO fields, the expected size of inverted index is
-    # equivalent to the sum of the size of idx2 and idx3 = 121 + 142 = 263
-    expected_info['inverted_sz_mb'] = 263 / (1024 * 1024)
+    # equivalent to the sum of the size of idx2 and idx3 = 113 + 134 = 247
+    expected_info['inverted_sz_mb'] = 247 / (1024 * 1024)
     compare_index_info_dict(env, 'idx4', expected_info, "idx4 after insert")
 
     # Geo range and Not
@@ -209,8 +201,8 @@ def testMultiNonGeo(env):
     #
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_geo_dict.values()):
-        doc = 'doc:{}:'.format(i+1)
-        idx = 'idx{}'.format(i+1)
+        doc = f'doc:{i + 1}:'
+        idx = f'idx{i + 1}'
         conn.execute_command('FT.CREATE', idx, 'ON', 'JSON', 'PREFIX', '1', doc, 'SCHEMA', '$', 'AS', 'root', 'GEO')
         waitForIndex(env, idx)
         conn.execute_command('JSON.SET', doc, '$', json.dumps(v))
@@ -237,13 +229,13 @@ def testMultiNonGeoNested(env):
     # Create indices, e.g.,
     #   FT.CREATE idx1 ON JSON SCHEMA $.attr1 AS attr GEO
     for (i,v) in enumerate(non_geo_dict.values()):
-        conn.execute_command('FT.CREATE', 'idx{}'.format(i+1), 'ON', 'JSON', 'SCHEMA', '$.attr{}'.format(i+1), 'AS', 'attr', 'GEO')
+        conn.execute_command('FT.CREATE', f'idx{i + 1}', 'ON', 'JSON', 'SCHEMA', f'$.attr{i + 1}', 'AS', 'attr', 'GEO')
     conn.execute_command('JSON.SET', 'doc:1', '$', doc_non_geo_content)
 
     # First 5 indices are OK (nulls are skipped)
     for (i,v) in enumerate(non_geo_dict.values()):
         res_failures = 0 if i+1 <= 5 else 1
-        env.assertEqual(int(index_info(env, 'idx{}'.format(i+1))['hash_indexing_failures']), res_failures)
+        env.assertEqual(int(index_info(env, f'idx{i + 1}')['hash_indexing_failures']), res_failures)
 
     # Search good indices with content
     env.expect('FT.SEARCH', 'idx1', '@attr:[29.72 34.96 1 km]', 'NOCONTENT').equal([1, 'doc:1'])
@@ -259,9 +251,10 @@ def testDebugDump(env):
     env.expect('JSON.SET', 'doc:2', '$', json.dumps(["1.2,1.3", "1.4,1.5", "2,2"])).ok()
 
     env.expect(debug_cmd(), 'DUMP_NUMIDX' ,'idx:top', 'val').equal([[1, 2]])
-    env.expect(debug_cmd(), 'NUMIDX_SUMMARY', 'idx:top', 'val').equal(['numRanges', 1, 'numEntries', 6,
-                                                                      'lastDocId', 2, 'revisionId', 0,
-                                                                      'emptyLeaves', 0, 'RootMaxDepth', 0])
+    env.expect(debug_cmd(), 'NUMIDX_SUMMARY', 'idx:top', 'val').equal([
+        'numRanges', 1, 'numLeaves', 1, 'numEntries', 6, 'lastDocId', 2, 'revisionId', 0,
+        'emptyLeaves', 0, 'RootMaxDepth', 0, 'MemoryUsage', ANY
+    ])
 
 def checkMultiGeoReturn(env, expected, default_dialect, is_sortable):
     """ Helper function for RETURN with multiple GEO values """
@@ -270,7 +263,7 @@ def checkMultiGeoReturn(env, expected, default_dialect, is_sortable):
 
     dialect_param = ['DIALECT', 3] if not default_dialect else []
     sortable_param = ['SORTABLE'] if is_sortable else []
-    env.assertEqual(len(expected), 3, message='dialect {}, sortable {}'.format(dialect_param, is_sortable))
+    env.assertEqual(len(expected), 3, message=f'dialect {dialect_param}, sortable {is_sortable}')
 
     env.expect('FT.CREATE', 'idx_flat', 'ON', 'JSON', 'SCHEMA', '$.arr[*]', 'AS', 'val', 'GEO', *sortable_param).ok()
     env.expect('FT.CREATE', 'idx_arr', 'ON', 'JSON', 'SCHEMA', '$.arr', 'AS', 'val', 'GEO', *sortable_param).ok()

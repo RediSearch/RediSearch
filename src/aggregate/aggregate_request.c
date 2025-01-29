@@ -454,6 +454,26 @@ err:
   return REDISMODULE_ERR;
 }
 
+static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryError *status) {
+  if (AC_AdvanceIfMatch(ac, "FILTER")) {
+    // Numeric filter
+    NumericFilter **curpp = array_ensure_tail(&options->legacy.filters, NumericFilter *);
+    *curpp = NumericFilter_LegacyParse(ac, status);
+    if (!*curpp) {
+      return ARG_ERROR;
+    }
+  } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
+    GeoFilter *cur_gf = rm_new(*cur_gf);
+    array_ensure_append_1(options->legacy.geo_filters, cur_gf);
+    if (GeoFilter_LegacyParse(cur_gf, ac, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
+  } else {
+    return ARG_UNKNOWN;
+  }
+  return ARG_HANDLED;
+}
+
 static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts,
                           AggregatePlan *plan, QueryError *status) {
   // Parse query-specific arguments..
@@ -525,6 +545,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
       req->reqflags |= QEXEC_F_SEND_HIGHLIGHT;
 
+    } else if ((req->reqflags & QEXEC_F_IS_SEARCH) &&
+               ((rv = parseQueryLegacyArgs(ac, searchOpts, status)) != ARG_UNKNOWN)) {
+      if (rv == ARG_ERROR) {
+        return REDISMODULE_ERR;
+      }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
       req->reqflags &= ~QEXEC_OPTIMIZE;
       optimization_specified = true;
@@ -818,14 +843,22 @@ static void loadDtor(PLN_BaseStep *bstp) {
 static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
   int rc = AC_GetVarArgs(ac, &loadfields);
-  if (rc != AC_OK) {
+  if (rc == AC_ERR_PARSE) {
+    // Didn't get a number, but we might have gotten a '*'
     const char *s = NULL;
     rc = AC_GetString(ac, &s, NULL, 0);
-    if (rc != AC_OK || strcmp(s, "*")) {
+    if (rc != AC_OK) {
       QERR_MKBADARGS_AC(status, "LOAD", rc);
       return REDISMODULE_ERR;
+    } else if (strcmp(s, "*")) {
+      QERR_MKBADARGS_FMT(status, "Bad arguments for LOAD: Expected number of fields or `*`");
+      return REDISMODULE_ERR;
     }
+    // Successfuly got a '*', load all fields
     req->reqflags |= QEXEC_AGG_LOAD_ALL;
+  } else if (rc != AC_OK) {
+    QERR_MKBADARGS_AC(status, "LOAD", rc);
+    return REDISMODULE_ERR;
   }
 
   PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
@@ -934,8 +967,61 @@ error:
   return REDISMODULE_ERR;
 }
 
-static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisSearchCtx *sctx) {
+static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisSearchCtx *sctx, unsigned dialect, QueryError *status) {
   /** The following blocks will set filter options on the entire query */
+  if (opts->legacy.filters) {
+    for (size_t ii = 0; ii < array_len(opts->legacy.filters); ++ii) {
+      NumericFilter *filter = opts->legacy.filters[ii];
+      const char *fieldName = (const char *)filter->field;
+      filter->field = IndexSpec_GetField(sctx->spec, fieldName);
+      if (!filter->field || !FIELD_IS(filter->field, INDEXFLD_T_NUMERIC)) {
+        if (dialect != 1) {
+          if (!filter->field) {
+            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
+          } else {
+            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field '%s' is not a numeric field", fieldName);
+          }
+          return REDISMODULE_ERR;
+        } else {
+          // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
+          QAST_GlobalFilterOptions legacyFilterOpts = {.empty = true};
+          QAST_SetGlobalFilters(ast, &legacyFilterOpts);
+          continue; // Keep the filter entry in the legacy filters array for AREQ_Free()
+        }
+      }
+      QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = filter};
+      QAST_SetGlobalFilters(ast, &legacyFilterOpts);
+      opts->legacy.filters[ii] = NULL;  // so AREQ_Free() doesn't free the filters themselves, which
+                                        // are now owned by the query object
+    }
+  }
+  if (opts->legacy.geo_filters) {
+    for (size_t ii = 0; ii < array_len(opts->legacy.geo_filters); ++ii) {
+      GeoFilter *gf = opts->legacy.geo_filters[ii];
+      const char *fieldName = (const char *)gf->field;
+      gf->field = IndexSpec_GetField(sctx->spec, fieldName);
+      if (!gf->field || !FIELD_IS(gf->field, INDEXFLD_T_GEO)) {
+        if (dialect != 1) {
+          if (!gf->field) {
+            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
+          } else {
+            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field '%s' is not a geo field", fieldName);
+          }
+          return REDISMODULE_ERR;
+        } else {
+          // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
+          QAST_GlobalFilterOptions legacyOpts = {.empty = true};
+          QAST_SetGlobalFilters(ast, &legacyOpts);
+        }
+      } else {
+        QAST_GlobalFilterOptions legacyOpts = {.geo = gf};
+        QAST_SetGlobalFilters(ast, &legacyOpts);
+        opts->legacy.geo_filters[ii] = NULL;  // so AREQ_Free() doesn't free the filter itself, which is now owned
+                                              // by the query object
+      }
+    }
+  }
+
   if (opts->inkeys) {
     opts->inids = rm_malloc(sizeof(*opts->inids) * opts->ninkeys);
     for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
@@ -947,6 +1033,7 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
     QAST_GlobalFilterOptions filterOpts = {.ids = opts->inids, .nids = opts->nids};
     QAST_SetGlobalFilters(ast, &filterOpts);
   }
+  return REDISMODULE_OK;
 }
 
 static bool IsIndexCoherent(AREQ *req) {
@@ -1044,8 +1131,12 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  QAST_EvalParams(ast, opts, status);
-  applyGlobalFilters(opts, ast, sctx);
+  if (QAST_EvalParams(ast, opts, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  if (applyGlobalFilters(opts, ast, sctx, req->reqConfig.dialectVersion, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
 
   if (QAST_CheckIsValid(ast, req->sctx->spec, opts, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -1211,22 +1302,16 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     astp = &astp_s;
   }
 
-  size_t limit = astp->offset + astp->limit;
-  if (!limit) {
-    limit = DEFAULT_LIMIT;
+  size_t maxResults = astp->offset + astp->limit;
+  if (!maxResults) {
+    maxResults = DEFAULT_LIMIT;
   }
 
   // TODO: unify if when req holds only maxResults according to the query type.
   //(SEARCH / AGGREGATE)
-  if (IsSearch(req) && req->maxSearchResults != UINT64_MAX) {
-    limit = MIN(limit, req->maxSearchResults);
-  }
+  maxResults = MIN(maxResults, IsSearch(req) ? req->maxSearchResults : req->maxAggregateResults);
 
-  if (!IsSearch(req) && req->maxAggregateResults != UINT64_MAX) {
-    limit = MIN(limit, req->maxAggregateResults);
-  }
-
-  if (IsCount(req) || !limit) {
+  if (IsCount(req) || !maxResults) {
     rp = RPCounter_New();
     up = pushRP(req, rp, up);
     return up;
@@ -1264,12 +1349,12 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
         ResultProcessor *rpLoader = RPLoader_New(req, lk, loadKeys, array_len(loadKeys), forceLoad);
         up = pushRP(req, rpLoader, up);
       }
-      rp = RPSorter_NewByFields(limit, sortkeys, nkeys, astp->sortAscMap);
+      rp = RPSorter_NewByFields(maxResults, sortkeys, nkeys, astp->sortAscMap);
       up = pushRP(req, rp, up);
     } else if (IsSearch(req) && (!IsOptimized(req) || HasScorer(req))) {
       // No sort? then it must be sort by score, which is the default.
       // In optimize mode, add sorter for queries with a scorer.
-      rp = RPSorter_NewByScore(limit);
+      rp = RPSorter_NewByScore(maxResults);
       up = pushRP(req, rp, up);
     }
   }
@@ -1278,7 +1363,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
     rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(req, rp, up);
   } else if (IsSearch(req) && IsOptimized(req) && !rp) {
-    rp = RPPager_New(0, limit);
+    rp = RPPager_New(0, maxResults);
     up = pushRP(req, rp, up);
   }
 
@@ -1625,6 +1710,19 @@ void AREQ_Free(AREQ *req) {
   }
   for (size_t ii = 0; ii < req->nargs; ++ii) {
     sdsfree(req->args[ii]);
+  }
+  if (req->searchopts.legacy.filters) {
+    for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {
+      NumericFilter *nf = req->searchopts.legacy.filters[ii];
+      if (nf) {
+        NumericFilter_Free(req->searchopts.legacy.filters[ii]);
+      }
+    }
+    array_free(req->searchopts.legacy.filters);
+  }
+  if (req->searchopts.legacy.geo_filters) {
+    array_foreach(req->searchopts.legacy.geo_filters, gf, if (gf) GeoFilter_Free(gf));
+    array_free(req->searchopts.legacy.geo_filters);
   }
   rm_free(req->searchopts.inids);
   if (req->searchopts.params) {

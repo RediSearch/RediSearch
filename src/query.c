@@ -425,6 +425,19 @@ static void setFilterNode(QueryAST *q, QueryNode *n) {
 }
 
 void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *options) {
+  if (options->empty) {
+    setFilterNode(ast, NewQueryNode(QN_NULL));
+  }
+  if (options->numeric) {
+    QueryNode *n = NewQueryNode(QN_NUMERIC);
+    n->nn.nf = options->numeric;
+    setFilterNode(ast, n);
+  }
+  if (options->geo) {
+    QueryNode *n = NewQueryNode(QN_GEO);
+    n->gn.gf = options->geo;
+    setFilterNode(ast, n);
+  }
   if (options->ids) {
     QueryNode *n = NewQueryNode(QN_IDS);
     n->fn.ids = options->ids;
@@ -910,7 +923,7 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
 
   RS_LOG_ASSERT(QueryNode_NumChildren(qn) == 1, "Optional node must have a single child");
   return NewOptionalIterator(Query_EvalNode(q, qn->children[0]),
-                             q->docTable->maxDocId, qn->opts.weight);
+                             q, qn->opts.weight);
 }
 
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {

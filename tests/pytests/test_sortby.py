@@ -38,7 +38,7 @@ def check_sortby(env, query, params, msg=None):
 
         # put all `n` values into a list
         res_list = [to_dict(n)['n'] for n in res[idx::idx]]
-        err_msg = msg + ' : ' + sort_order[sort] + ' : len=%d' % len(res_list)
+        err_msg = msg + ' : ' + sort_order[sort] + f' : len={len(res_list)}'
 
         for i in range(len(res_list) - 1):
             if not check_order(env, res_list[i], res_list[i+1], sort_order[sort] == sort_order[0]):
@@ -105,7 +105,7 @@ def testSortby(env):
             params[1] = limits[i][0]
             params[2] = limits[i][1]
             for j in range(len(ranges)):
-                numRange = str('@n:[%s %s]' % (ranges[j][0],ranges[j][1]))
+                numRange = str(f'@n:[{ranges[j][0]} {ranges[j][1]}]')
 
                 ### (1) TEXT and range with sort ###
                 check_sortby(env, ['ft.search', 'idx', 'foo ' + numRange, 'SORTBY', 'n'], params, 'case 1 ' + numRange)
@@ -138,7 +138,7 @@ def testSortby(env):
             params[2] = limits[i][1]
 
             for j in range(len(ranges)):
-                numRange = '@n:[%s %s]' % (ranges[j][0],ranges[j][1])
+                numRange = f'@n:[{ranges[j][0]} {ranges[j][1]}]'
 
                 ### (1) TEXT and range with sort ###
                 check_sortby(env, ['ft.aggregate', 'idx', 'foo ' + numRange, 'SORTBY', 2, '@n'], params, 'case 1 ' + numRange)

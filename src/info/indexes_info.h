@@ -40,7 +40,8 @@ typedef struct {
   size_t num_active_indexes;           // Number of active indexes
   size_t num_active_indexes_querying;  // Number of active read indexes
   size_t num_active_indexes_indexing;  // Number of active write indexes
-  size_t total_active_writes;          // Total number of active writes
+  size_t total_active_write_threads;   // Total number of active writes (proportional to the number
+                                       // of threads)
   size_t total_active_queries;         // Total number of active queries (reads)
 } TotalIndexesInfo;
 

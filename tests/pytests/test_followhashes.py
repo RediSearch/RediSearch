@@ -368,9 +368,9 @@ def testScoreDecimal(env):
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx1')
         waitForIndex(env, 'idx2')
-        res = env.cmd('ft.search', 'idx1', 'hello', 'withscores', 'nocontent')
+        res = env.cmd('ft.search', 'idx1', 'hello', 'scorer', 'TFIDF', 'withscores', 'nocontent')
         env.assertEqual(float(res[2]), 0.5)
-        res = env.cmd('ft.search', 'idx2', 'hello', 'withscores', 'nocontent')
+        res = env.cmd('ft.search', 'idx2', 'hello', 'scorer', 'TFIDF', 'withscores', 'nocontent')
         env.assertEqual(float(res[2]), 0.25)
 
 def testMultiFilters1(env):
@@ -564,7 +564,7 @@ def testEvicted(env):
     conn.execute_command('CONFIG', 'SET', 'MAXMEMORY-POLICY', 'ALLKEYS-RANDOM')
     conn.execute_command('CONFIG', 'SET', 'MAXMEMORY', memory + 150000)
     for i in range(1000):
-        env.expect('HSET', 'doc{}'.format(i), 'test', 'foo').equal(1)
+        env.expect('HSET', f'doc{i}', 'test', 'foo').equal(1)
     res = env.cmd('FT.SEARCH idx foo limit 0 0')
     env.assertLess(res[0], 1000)
     env.assertGreater(res[0], 0)

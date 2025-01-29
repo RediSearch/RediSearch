@@ -529,6 +529,11 @@ int RMCK_CreateSubcommand(RedisModuleCommand *parent, const char *s, RedisModule
   return REDISMODULE_OK;
 }
 
+// Internal assertion handler. We still expect to use the `RedisModule_Assert` macro.
+static void RMCK__Assert(const char *estr, const char *file, int line) {
+  throw std::runtime_error(std::string(estr) + " at " + file + ":" + std::to_string(line));
+}
+
 /** Allocators */
 void *RMCK_Alloc(size_t n) {
   return malloc(n);
@@ -832,6 +837,9 @@ static int RMCK_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
   return fork();
 }
 
+static void RMCK_SendChildHeartbeat(double progress) {
+}
+
 static int RMCK_ExitFromChild(int retcode) {
   _exit(retcode);
 }
@@ -924,6 +932,8 @@ static void registerApis() {
   REGISTER_API(HashGet);
   REGISTER_API(HashGetAll);
 
+  REGISTER_API(_Assert);
+
   REGISTER_API(CreateString);
   REGISTER_API(CreateStringPrintf);
   REGISTER_API(CreateStringFromString);
@@ -972,6 +982,7 @@ static void registerApis() {
   REGISTER_API(SetModuleOptions);
 
   REGISTER_API(KillForkChild);
+  REGISTER_API(SendChildHeartbeat);
   REGISTER_API(ExitFromChild);
   REGISTER_API(Fork);
   REGISTER_API(AddACLCategory);

@@ -193,13 +193,15 @@ class TestDebugCommands(object):
         self.env.expect(debug_cmd(), 'invidx_summary', 'idx1').error()
 
     def testNumericIdxIndexSummary(self):
-        self.env.expect(debug_cmd(), 'numidx_summary', 'idx', 'age').equal(['numRanges', 1, 'numEntries', 1,
-                                                                           'lastDocId', 1, 'revisionId', 0,
-                                                                           'emptyLeaves', 0, 'RootMaxDepth', 0])
+        self.env.expect(debug_cmd(), 'numidx_summary', 'idx', 'age').equal([
+            'numRanges', 1, 'numLeaves', 1, 'numEntries', 1, 'lastDocId', 1, 'revisionId', 0,
+            'emptyLeaves', 0, 'RootMaxDepth', 0, 'MemoryUsage', ANY,
+        ])
 
-        self.env.expect(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'age').equal(['numRanges', 1, 'numEntries', 1,
-                                                                           'lastDocId', 1, 'revisionId', 0,
-                                                                           'emptyLeaves', 0, 'RootMaxDepth', 0])
+        self.env.expect(debug_cmd(), 'NUMIDX_SUMMARY', 'idx', 'age').equal([
+            'numRanges', 1, 'numLeaves', 1, 'numEntries', 1, 'lastDocId', 1, 'revisionId', 0,
+            'emptyLeaves', 0, 'RootMaxDepth', 0, 'MemoryUsage', ANY
+        ])
 
     def testUnexistsNumericIndexSummary(self):
         self.env.expect(debug_cmd(), 'numidx_summary', 'idx', 'age1').error()
@@ -357,3 +359,32 @@ def testSpecIndexesInfo(env: Env):
     expected_reply["inverted_indexes_memory"] = getInvertedIndexInitialSize(env, ['NUMERIC'])
     debug_output = env.cmd(debug_cmd(), 'SPEC_INVIDXES_INFO', 'idx')
     env.assertEqual(to_dict(debug_output), expected_reply)
+
+def testVecsimInfo_badParams(env: Env):
+
+    # Scenerio1: Vecsim Index scheme with vector type with invalid parameter 
+
+    # HNSW parameters the causes an execution throw (M > UINT16_MAX)
+    UINT16_MAX = 2**16
+    M = UINT16_MAX + 1
+    dim = 2
+    env.expect('FT.CREATE', 'idx','SCHEMA','v', 'VECTOR', 'HNSW', '8',
+                'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()   
+    env.expect(debug_cmd(), 'VECSIM_INFO', 'idx','v').error() \
+        .contains("Can't open vector index")
+
+def testHNSWdump_badParams(env: Env):
+    # Scenerio1: Vecsim Index scheme with vector type with invalid parameter 
+
+    # HNSW parameters the causes an execution throw (M > UINT16_MAX)
+    UINT16_MAX = 2**16
+    M = UINT16_MAX + 1
+    dim = 2
+    env.expect('FT.CREATE', 'idx','SCHEMA','v', 'VECTOR', 'HNSW', '8',
+                'TYPE', 'FLOAT16', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()   
+    
+    # Test dump HNSW with invalid index name
+    # If index error is "Can't open vector index" then function tries to accsses null pointer
+    env.expect(debug_cmd(), 'DUMP_HNSW', 'idx','v').error() \
+        .contains("Can't open vector index")
+    

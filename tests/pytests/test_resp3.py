@@ -32,7 +32,7 @@ def test_search():
         {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]}
-    env.expect('FT.search', 'idx1', "*").equal(exp)
+    env.expect('FT.search', 'idx1', "*", 'SCORER', 'TFIDF').equal(exp)
 
     # test withscores
     exp = {
@@ -69,7 +69,7 @@ def test_search():
       del exp['results'][0]['sortkey']
       del exp['results'][1]['sortkey']
 
-    env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "EXPLAINSCORE", "WITHPAYLOADS",
+    env.expect('FT.search', 'idx1', "*", "VERBATIM", 'SCORER', 'TFIDF', "WITHSCORES", "EXPLAINSCORE", "WITHPAYLOADS",
                "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "FORMAT", "STRING").equal(exp)
 
     # test with sortby
@@ -92,7 +92,7 @@ def test_search():
         }
       ]
     }
-    env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "WITHPAYLOADS", "WITHSORTKEYS",
+    env.expect('FT.search', 'idx1', "*", "VERBATIM", 'SCORER', 'TFIDF', "WITHSCORES", "WITHPAYLOADS", "WITHSORTKEYS",
                "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC", "FORMAT", "STRING").equal(exp)
 
     # test with limit 0 0
@@ -111,7 +111,7 @@ def test_search():
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]
     }
-    env.expect('FT.search', 'idx1', "*").equal(exp)
+    env.expect('FT.search', 'idx1', "*", 'SCORER', 'TFIDF').equal(exp)
 
 @skip(redis_less_than="7.0.0")
 def test_search_timeout():
@@ -168,6 +168,7 @@ def test_profile(env):
           'Total profile time': ANY,
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
+          'Total GIL time': ANY,
           'Warning': 'None',
           'Iterators profile':
             {'Type': 'WILDCARD', 'Time': ANY, 'Counter': 2},
@@ -181,7 +182,7 @@ def test_profile(env):
         'Coordinator': {}
       }
     }
-    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING").equal(exp)
+    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING", 'SCORER', 'TFIDF').equal(exp)
 
 @skip(cluster=False, redis_less_than="7.0.0")
 def test_coord_profile():
@@ -209,7 +210,7 @@ def test_coord_profile():
       },
       'Profile': {
         'Shards': env.shardsCount * [
-                      {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Warning': 'None',
+                      {'Total profile time': ANY, 'Parsing time': ANY, 'Pipeline creation time': ANY, 'Total GIL time': ANY, 'Warning': 'None',
                         'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY},
                         'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},
                                                       {'Type': 'Scorer', 'Time': ANY, 'Counter': ANY},
@@ -218,8 +219,8 @@ def test_coord_profile():
         'Coordinator': {'Total Coordinator time': ANY, 'Post Processing time': ANY},
       },
     }
-    res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', 'FORMAT', 'STRING')
-    res['Results']['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f1') == None else x['extra_attributes']['f1'])
+    res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', 'FORMAT', 'STRING', 'SCORER', 'TFIDF')
+    res['Results']['results'].sort(key=lambda x: x['extra_attributes'].get('f1', ''))
     env.assertEqual(res, exp)
 
     exp = {
@@ -239,6 +240,7 @@ def test_coord_profile():
           'Total profile time': ANY,
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
+          'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [{'Type': 'Network', 'Time': ANY, 'Counter': 2}]
         }
@@ -248,6 +250,7 @@ def test_coord_profile():
       'Total profile time': ANY,
       'Parsing time': ANY,
       'Pipeline creation time': ANY,
+      'Total GIL time': ANY,
       'Warning': 'None',
       'Iterators profile': {'Type': 'WILDCARD', 'Time': ANY, 'Counter': ANY},
       'Result processors profile': [{'Type': 'Index', 'Time': ANY, 'Counter': ANY},]
@@ -662,6 +665,7 @@ def test_profile_crash_mod5323():
             },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
+          'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [
             { 'Counter': 3, 'Time': ANY, 'Type': 'Index' },
@@ -710,6 +714,7 @@ def test_profile_child_itrerators_array():
             },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
+          'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [
             {'Counter': 2, 'Time': ANY, 'Type': 'Index'},
@@ -747,6 +752,7 @@ def test_profile_child_itrerators_array():
             },
           'Parsing time': ANY,
           'Pipeline creation time': ANY,
+          'Total GIL time': ANY,
           'Warning': 'None',
           'Result processors profile': [
             { 'Counter': 0, 'Time': ANY, 'Type': 'Index'},

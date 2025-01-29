@@ -17,16 +17,13 @@
 extern "C" {
 #endif
 
-#define NF_INFINITY (1.0 / 0.0)
-#define NF_NEGATIVE_INFINITY (-1.0 / 0.0)
-
 typedef struct NumericFilter {
   const FieldSpec *field;   // the numeric field
   double min;               // beginning of range
   double max;               // end of range
-  int inclusiveMin;         // range includes min value
-  int inclusiveMax;         // range includes max val
   const void *geoFilter;    // geo filter
+  bool inclusiveMin;        // range includes min value
+  bool inclusiveMax;        // range includes max val
 
   // used by optimizer
   bool asc;                 // order of SORTBY asc/desc
@@ -38,10 +35,11 @@ typedef struct NumericFilter {
 
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax,
                                 bool asc);
+NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, QueryError *status);
 int NumericFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
 void NumericFilter_Free(NumericFilter *nf);
 
-int parseDoubleRange(const char *s, double *target, int isMin,
+int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
                      int sign, QueryError *status);
 
 /*

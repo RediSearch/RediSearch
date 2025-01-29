@@ -166,7 +166,7 @@ class TestAggregate():
             res = self.env.cmd(*cmd)
 
             self.env.assertEqual(expected, res[1])
-        
+
         # Test longer date-time format '%Y-%m-%dT%H:%M:%SZ' equivalent to the
         # short format '%FT%TZ' which is not supported on Alpine Linux
         cmd = ['FT.AGGREGATE', 'games', '*',
@@ -252,8 +252,7 @@ class TestAggregate():
         res = self.env.cmd(*cmd)
         for row in res[1:]:
             row = to_dict(row)
-            expected = '%s|%s|%s|%g' % (
-                row['title'], row['brand'], 'Mark', float(row['price']))
+            expected = f"{row['title']}|{row['brand']}|Mark|{float(row['price']):g}"
             self.env.assertEqual(expected, row['titleBrand'])
 
     def testSum(self):
@@ -397,7 +396,7 @@ class TestAggregate():
         # Test Sorting by multiple properties
         res = self.env.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
                            'REDUCE', 'sum', 1, '@price', 'as', 'price',
-                           'APPLY', '(@price % 10)', 'AS', 'price',
+                           'APPLY', '(floor(@price) % 10)', 'AS', 'price',
                            'SORTBY', 4, '@price', 'asc', '@brand', 'desc', 'MAX', 10,
                            )
         self.env.assertEqual([292, ['brand', 'zps', 'price', '0'], ['brand', 'zalman', 'price', '0'], ['brand', 'yoozoo', 'price', '0'], ['brand', 'white label', 'price', '0'], ['brand', 'stinky', 'price', '0'], [
@@ -660,7 +659,7 @@ class TestAggregate():
         # With Floats
         res = self.env.cmd('ft.aggregate', 'games', '*',
                                        'APPLY', '547758.3 % 5.1')
-        self.env.assertEqual(res[1][1], '3')
+        self.env.assertEqual(res[1][1], '3.00000000008')
 
 
     # def testLoadAfterSortBy(self):
@@ -701,6 +700,54 @@ class TestAggregateSecondUseCases():
     def testSimpleAggregateWithCursor(self):
         _, cursor = self.env.cmd('ft.aggregate', 'games', '*', 'WITHCURSOR', 'COUNT', 1000)
         self.env.assertNotEqual(cursor, 0)
+
+def testDefaultValues(env: Env):
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'missing', 'NUMERIC', 'n', 'NUMERIC').ok()
+    with env.getClusterConnectionIfNeeded() as con:
+        con.execute_command('HSET', 'doc', 'n', '46')
+
+    def query(*reduce_args):
+        return ['FT.AGGREGATE', 'idx', '*',
+                'LOAD', '2', '@missing', '@n',
+                'GROUPBY', '0',
+                'REDUCE'] + list(reduce_args) + ['AS', 'res']
+
+    # Test Count - Not relevant as it does not relay on a specific field
+
+    # Test Sum
+    env.expect(*query('SUM', 1, '@missing')).equal([1, ['res', 'nan']])
+
+    # Test Min
+    env.expect(*query('MIN', 1, '@missing')).equal([1, ['res', 'inf']])
+
+    # Test Max
+    env.expect(*query('MAX', 1, '@missing')).equal([1, ['res', '-inf']])
+
+    # Test Avg
+    env.expect(*query('AVG', 1, '@missing')).equal([1, ['res', 'nan']])
+
+    # Test Quantile
+    env.expect(*query('QUANTILE', 2, '@missing', 0.5)).equal([1, ['res', 'nan']])
+
+    # Test Stddev
+    env.expect(*query('STDDEV', 1, '@missing')).equal([1, ['res', '0']])
+
+    # Test Count Distinct
+    env.expect(*query('COUNT_DISTINCT', 1, '@missing')).equal([1, ['res', '0']])
+
+    # Test Count Distinctish
+    env.expect(*query('COUNT_DISTINCTISH', 1, '@missing')).equal([1, ['res', '0']])
+
+    # Test Random Sample
+    env.expect(*query('RANDOM_SAMPLE', 2, '@missing', 1)).equal([1, ['res', []]])
+
+    # Test First Value
+    env.expect(*query('FIRST_VALUE', 3, '@missing', 'BY', '@n')).equal([1, ['res', None]])
+    env.expect(*query('FIRST_VALUE', 3, '@missing', 'BY', '@missing')).equal([1, ['res', None]])
+    env.expect(*query('FIRST_VALUE', 1, '@missing')).equal([1, ['res', None]])
+
+    # Test To List
+    env.expect(*query('TOLIST', 1, '@missing')).equal([1, ['res', []]])
 
 
 def grouper(iterable, n, fillvalue=None):
@@ -792,8 +839,8 @@ def testGroupbyNoReduce(env):
             'birthYear', 'NUMERIC', 'SORTABLE')
 
     for x in range(10):
-        env.cmd('ft.add', 'idx', 'doc{}'.format(x), 1, 'fields',
-            'primaryName', 'sarah number{}'.format(x))
+        env.cmd('ft.add', 'idx', f'doc{x}', 1, 'fields',
+            'primaryName', f'sarah number{x}')
 
     rv = env.cmd('ft.aggregate', 'idx', 'sarah', 'groupby', 1, '@primaryName')
     env.assertEqual(11, len(rv))
@@ -982,7 +1029,7 @@ def testAggregateGroup0Field(env):
     conn = getConnectionByEnv(env)
     env.cmd('ft.create', 'idx', 'ON', 'HASH', 'SCHEMA', 'num', 'NUMERIC', 'SORTABLE')
     for i in range(101):
-        conn.execute_command('HSET', 'doc%s' % i, 't', 'text', 'num', i)
+        conn.execute_command('HSET', f'doc{i}', 't', 'text', 'num', i)
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
                                     'REDUCE', 'QUANTILE', '2', 'num', '0.95', 'AS', 'q95')
@@ -1003,7 +1050,7 @@ def testAggregateGroup0Field(env):
               530000.0, 500000.0, 540000.0, 2500000.0, 330000.0, 525000.0,
               2500000.0, 350000.0, 590000.0, 1250000.0, 799000.0, 1380000.0]
     for i in range(len(values)):
-        conn.execute_command('HSET', 'doc%s' % i, 't', 'text', 'num', values[i])
+        conn.execute_command('HSET', f'doc{i}', 't', 'text', 'num', values[i])
 
 
     res = env.cmd('ft.aggregate', 'idx', '*', 'GROUPBY', 0,
@@ -1302,3 +1349,72 @@ def test_aggregate_apply_on_missing_indexed_values():
     env.expect('FT.AGGREGATE', 'idx', 'ismissing(@tag) | @tag:{val}', 'LOAD', '1', 'tag', 'APPLY',
                'upper(@tag)', 'AS', 'T').error().contains("tag: has no value, consider using EXISTS if applicable")
     env.flush()
+
+def testSortByTextField(env):
+    conn = getConnectionByEnv(env)
+    env.expect('ft.create', 'idx', 'schema', 't', 'text').ok()
+    conn.execute_command('HSET', 'doc1', 't', '678.')
+    conn.execute_command('HSET', 'doc2', 't', '123.')
+    conn.execute_command('HSET', 'doc3', 't', '1023.')
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@t', 'asc')
+    # Text field values are sorted as strings
+    env.assertEqual(res, [3, ['t', '1023.'], ['t', '123.'], ['t', '678.']])
+
+def testSortByNumericField(env):
+    conn = getConnectionByEnv(env)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'doc1', 'n', '678.')
+    conn.execute_command('HSET', 'doc2', 'n', '123.')
+    conn.execute_command('HSET', 'doc3', 'n', '1023.')
+    # Numeric field values are sorted as numbers
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*', 'SORTBY', '2', '@n', 'ASC')
+    env.assertEqual(res, [3, ['n', '123'], ['n', '678'], ['n', '1023']])
+
+@skip(cluster=False)
+def testErrorStatsResp2():
+    '''Test that using RESP2 double results are affecting errorstats,
+    because double are returned as ERRORS. See MOD-8058'''
+
+    env = Env(protocol=2)
+    conn = getConnectionByEnv(env)
+    res = conn.execute_command('info', 'errorstats')
+    env.assertEqual(res, {'errorstat_ERR': {'count': 1 }})
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'key1', 'n', 1.23)
+    conn.execute_command('HSET', 'key2', 'n', 4.56)
+
+    for i in range(1, 5):
+        conn.execute_command(
+            'FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@n',
+            'REDUCE', 'count', '0', 'AS', 'count', 'SORTBY', '2', '@n', 'DESC')
+        res = conn.execute_command('info', 'errorstats')
+        env.assertEqual(res, {'errorstat_ERR': {'count': 1 + (i * 2)}})
+
+@skip(cluster=False)
+def testErrorStatsResp3():
+    '''Test that using RESP3 double results do not affect errorstats'''
+    env = Env(protocol=3)
+    conn = getConnectionByEnv(env)
+    expected_errorstats = conn.execute_command('info', 'errorstats')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    conn.execute_command('HSET', 'key1', 'n', 1.23)
+    conn.execute_command('HSET', 'key2', 'n', 4.56)
+
+    for i in range(1, 5):
+        conn.execute_command(
+            'FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@n',
+            'REDUCE', 'count', '0', 'AS', 'count', 'SORTBY', '2', '@n', 'DESC')
+        res = conn.execute_command('info', 'errorstats')
+        env.assertEqual(res, expected_errorstats)
+
+def testAggregateBadLoadArgs(env):
+    """Tests that we get a proper error message when passing bad arguments to LOAD"""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'title').error() \
+        .contains('Bad arguments for LOAD: Expected an argument')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 'lali').error() \
+        .contains("Bad arguments for LOAD: Expected number of fields or `*`")
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD').error() \
+        .contains("Bad arguments for LOAD: Expected an argument, but none provided")

@@ -87,12 +87,19 @@ static int DIST_AGG_THREADPOOL = -1;
 // Number of shards in the cluster. Hint we can read and modify from the main thread
 size_t NumShards = 0;
 
+// Strings returned by CONFIG GET functions
+RedisModuleString *config_ext_load = NULL;
+RedisModuleString *config_friso_ini = NULL;
+RedisModuleString *config_oss_acl_username = NULL;
+RedisModuleString *config_dummy_password = NULL;
+
 static inline bool SearchCluster_Ready() {
   return NumShards != 0;
 }
 
 static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
   if (RedisModule_ACLCheckKeyPrefixPermissions == NULL) {
+    // API not supported -> allow access (ACL will not be enforced).
     return true;
   }
   RedisModuleString *user_name = RedisModule_GetCurrentUserName(ctx);
@@ -100,23 +107,26 @@ static bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
 
   if (!user) {
     RedisModule_Log(ctx, "verbose", "No user found");
+    RedisModule_FreeString(ctx, user_name);
     return false;
   }
 
+  bool ret = true;
   sds *prefixes = sp->rule->prefixes;
   RedisModuleString *prefix;
   for (uint i = 0; i < array_len(prefixes); i++) {
     prefix = RedisModule_CreateString(ctx, (const char *)prefixes[i], strlen(prefixes[i]));
     if (RedisModule_ACLCheckKeyPrefixPermissions(user, prefix, REDISMODULE_CMD_KEY_ACCESS) != REDISMODULE_OK) {
+      ret = false;
       RedisModule_FreeString(ctx, prefix);
-      RedisModule_FreeModuleUser(user);
-      return false;
+      break;
     }
     RedisModule_FreeString(ctx, prefix);
   }
 
   RedisModule_FreeModuleUser(user);
-  return true;
+  RedisModule_FreeString(ctx, user_name);
+  return ret;
 }
 
 /* FT.MGET {index} {key} ...
@@ -506,26 +516,23 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  int delDocs;
-  if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
-      RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP")) {
-    delDocs = 1;
-    if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
-      delDocs = 0;
-    }
-  } else {  // FT.DROPINDEX
-    delDocs = 0;
-    if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
-      delDocs = 1;
+  bool dropCommand = RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
+               RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP");
+  bool delDocs = dropCommand;
+  if (argc == 3){
+    if (RMUtil_StringEqualsCaseC(argv[2], "_FORCEKEEPDOCS")) {
+      delDocs = false;
+    } else if (dropCommand && RMUtil_StringEqualsCaseC(argv[2], "KEEPDOCS")) {
+      delDocs = false;
+    } else if (!dropCommand && RMUtil_StringEqualsCaseC(argv[2], "DD")) {
+      delDocs = true;
+    } else {
+      return RedisModule_ReplyWithError(ctx, "Unknown argument");
     }
   }
 
-  int keepDocs = 0;
-  if (argc == 3 && RMUtil_StringEqualsCaseC(argv[2], "_FORCEKEEPDOCS")) {
-    keepDocs = 1;
-  }
 
-  if((delDocs || sp->flags & Index_Temporary) && !keepDocs) {
+  if((delDocs || sp->flags & Index_Temporary)) {
     // We take a strong reference to the index, so it will not be freed
     // and we can still use it's doc table to delete the keys.
     StrongRef own_ref = StrongRef_Clone(global_ref);
@@ -775,6 +782,11 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
 
   const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
+  if (dictFetchValue(specDict_g, alias)) {
+    QueryError_SetCode(error, QUERY_EALIASCONFLICT);
+    return REDISMODULE_ERR;
+  }
+
   StrongRef alias_ref = IndexAlias_Get(alias);
   if (!skipIfExists || !StrongRef_Equals(alias_ref, ref)) {
     return IndexAlias_Add(alias, ref, 0, error);
@@ -877,6 +889,8 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
+
+  RedisModule_Log(ctx, "warning", "FT.CONFIG is deprecated, please use CONFIG instead");
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
@@ -1019,7 +1033,7 @@ int IsEnterprise() {
 }
 
 int CheckSupportedVestion() {
-  if (CompareVestions(redisVersion, supportedVersion) < 0) {
+  if (CompareVersions(redisVersion, supportedVersion) < 0) {
     return REDISMODULE_ERR;
   }
   return REDISMODULE_OK;
@@ -1069,6 +1083,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
 
+  // Read module configuration from module ARGS
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
     rm_free(err);
@@ -1215,19 +1230,19 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
          IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", 0, 0, 0, "read"));
 
   // todo: what to do with this?
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SYNADD_CMD, SynAddCommand, "write",
+  RM_TRY(RMCreateSearchCommand(ctx, RS_SYNADD_CMD, SynAddCommand, "write deny-oom",
          INDEX_ONLY_CMD_ARGS, "admin"))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write",
+  RM_TRY(RMCreateSearchCommand(ctx, RS_SYNUPDATE_CMD, SynUpdateCommand, "write deny-oom",
          INDEX_ONLY_CMD_ARGS, ""))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_SYNDUMP_CMD, SynDumpCommand, "readonly",
          INDEX_ONLY_CMD_ARGS, ""))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_CMD, AlterIndexCommand, "write",
+  RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_CMD, AlterIndexCommand, "write deny-oom",
          INDEX_ONLY_CMD_ARGS, ""))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write",
+  RM_TRY(RMCreateSearchCommand(ctx, RS_ALTER_IF_NX_CMD, AlterIndexIfNXCommand, "write deny-oom",
          INDEX_ONLY_CMD_ARGS, ""))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DEBUG, NULL,
@@ -1237,9 +1252,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   RM_TRY(RMCreateSearchCommand(ctx, RS_SPELL_CHECK, SpellCheckCommand,
          IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", INDEX_ONLY_CMD_ARGS, ""))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_ADD, DictAddCommand, "readonly", 0, 0, 0, ""))
+  RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_ADD, DictAddCommand, "write deny-oom", 0, 0, 0, ""))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_DEL, DictDelCommand, "readonly", 0, 0, 0, ""))
+  RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_DEL, DictDelCommand, "write", 0, 0, 0, ""))
 
   RM_TRY(RMCreateSearchCommand(ctx, RS_DICT_DUMP, DictDumpCommand, "readonly", 0, 0, 0, ""))
 
@@ -1248,13 +1263,13 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 
   // Alias is a special case, we can not use the INDEX_ONLY_CMD_ARGS/INDEX_DOC_CMD_ARGS macros
   // Cluster is managed outside of module lets trust it and not raise cross slot error.
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD, AliasAddCommand, "readonly", 0, 0, 0, ""))
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "readonly", 0, 0,
+  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD, AliasAddCommand, "write deny-oom", 0, 0, 0, ""))
+  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASADD_IF_NX, AliasAddCommandIfNX, "write deny-oom", 0, 0,
          0, ""))
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASUPDATE, AliasUpdateCommand, "readonly", 0, 0, 0, ""))
+  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASUPDATE, AliasUpdateCommand, "write deny-oom", 0, 0, 0, ""))
 
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL, AliasDelCommand, "readonly", 0, 0, 0, ""))
-  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "readonly", 0, 0,
+  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL, AliasDelCommand, "write", 0, 0, 0, ""))
+  RM_TRY(RMCreateSearchCommand(ctx, RS_ALIASDEL_IF_EX, AliasDelIfExCommand, "write", 0, 0,
          0, ""))
   return REDISMODULE_OK;
 }
@@ -1668,11 +1683,16 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
         goto cleanup;
       }
       Param_DictFree(params);
+      params = NULL;
   }
 
   if (queryNode->type == QN_VECTOR) {
     QueryVectorNode queryVectorNode = queryNode->vn;
     size_t k = queryVectorNode.vq->knn.k;
+    if (k > MAX_KNN_K) {
+      QueryError_SetErrorFmt(status, QUERY_ELIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
+      goto cleanup;
+    }
     specialCaseCtx *ctx = SpecialCaseCtx_New();
     ctx->knn.k = k;
     ctx->knn.fieldName = queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField;
@@ -3483,14 +3503,38 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RSConfigOptions_AddConfigs(&RSGlobalConfigOptions, GetClusterConfigOptions());
   ClusterConfig_RegisterTriggers();
 
+  // Register the module configuration parameters
+  GetRedisVersion(ctx);
+  const Version unstableRedis = {7, 9, 226};
+  const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
+  if (unprefixedConfigSupported) {
+    if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
+      RedisModule_Log(ctx, "warning", "Error registering module configuration");
+      return REDISMODULE_ERR;
+    }
+  }
+
+  // Check if we are actually in cluster mode
+  const bool isClusterEnabled = checkClusterEnabled(ctx);
+
+  // Apply configuration
+  if (unprefixedConfigSupported) {
+    if (isClusterEnabled) {
+      // Register module configuration parameters for cluster
+      RM_TRY_F(RegisterClusterModuleConfig, ctx);
+    }
+    RM_TRY_F(RedisModule_LoadConfigs, ctx);
+  } else {
+    // For backward compatibility, if the new API is not available, set the
+    // default username
+    clusterConfig.aclUsername = rm_strdup(DEFAULT_ACL_USERNAME);
+  }
+
   // Init RediSearch internal search
   if (RediSearch_InitModuleInternal(ctx, argv, argc) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not init search library...");
     return REDISMODULE_ERR;
   }
-
-  // Check if we are actually in cluster mode
-  bool isClusterEnabled = checkClusterEnabled(ctx);
 
   // Init the global cluster structs
   if (initSearchCluster(ctx, argv, argc, isClusterEnabled) == REDISMODULE_ERR) {
@@ -3534,28 +3578,28 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
     RedisModule_Log(ctx, "notice", "Register write commands");
     // write commands (on enterprise we do not define them, the dmc take care of them)
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.CREATE", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._CREATEIFNX", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALTER", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALTERIFNX", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROPINDEX", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "readonly",0, 0, -1, "write slow dangerous"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(FanoutCommandHandlerIndexless), "readonly",0, 0, -1, "write slow dangerous"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.CREATE", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._CREATEIFNX", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALTER", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALTERIFNX", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROPINDEX", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write",0, 0, -1, "write slow dangerous"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPINDEXIFX", SafeCmd(FanoutCommandHandlerIndexless), "write",0, 0, -1, "write slow dangerous"))
     // search write slow dangerous
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTADD", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTDEL", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASADD", SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASADDIFNX", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASDEL", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASDELIFX", SafeCmd(FanoutCommandHandlerIndexless), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg), "readonly", 0, 0, -1, ""))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.SYNUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),"readonly", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTADD", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DICTDEL", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASADD", SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg), "write deny-oom", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASADDIFNX", SafeCmd(FanoutCommandHandlerIndexless), "write deny-oom", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASDEL", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._ALIASDELIFX", SafeCmd(FanoutCommandHandlerIndexless), "write", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ALIASUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtSecondArg), "write deny-oom", 0, 0, -1, ""))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.SYNUPDATE", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg),"write deny-oom", 0, 0, -1, ""))
 
     // Deprecated OSS commands
     RM_TRY(RMCreateSearchCommand(ctx, "FT.GET", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, -1, "read admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, -1, "write admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "readonly", 0, 0, -1, "write admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "readonly",0, 0, -1, "write admin"))
-    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPIFX", SafeCmd(FanoutCommandHandlerIndexless), "readonly",0, 0, -1, "write admin"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.ADD", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write deny-oom", 0, 0, -1, "write admin"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DEL", SafeCmd(SingleShardCommandHandlerWithIndexAtFirstArg), "write", 0, 0, -1, "write admin"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT.DROP", SafeCmd(FanoutCommandHandlerWithIndexAtFirstArg), "write",0, 0, -1, "write admin"))
+    RM_TRY(RMCreateSearchCommand(ctx, "FT._DROPIFX", SafeCmd(FanoutCommandHandlerIndexless), "write",0, 0, -1, "write admin"))
 #endif
 
   // cluster set commands
@@ -3566,6 +3610,43 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Deprecated commands. Grouped here for easy tracking
   RM_TRY(RMCreateSearchCommand(ctx, "FT.MGET", SafeCmd(MGetCommandHandler), "readonly", 0, 0, -1, "read admin"))
   RM_TRY(RMCreateSearchCommand(ctx, "FT.TAGVALS", SafeCmd(TagValsCommandHandler), "readonly", 0, 0, -1, "read admin dangerous"))
+
+  return REDISMODULE_OK;
+}
+
+int RedisModule_OnUnload(RedisModuleCtx *ctx) {
+  if (config_ext_load) {
+    RedisModule_FreeString(ctx, config_ext_load);
+    config_ext_load = NULL;
+  }
+  if (config_friso_ini) {
+    RedisModule_FreeString(ctx, config_friso_ini);
+    config_friso_ini = NULL;
+  }
+  if (config_oss_acl_username) {
+    RedisModule_FreeString(ctx, config_oss_acl_username);
+    config_oss_acl_username = NULL;
+  }
+  if (config_dummy_password) {
+    RedisModule_FreeString(ctx, config_dummy_password);
+    config_dummy_password = NULL;
+  }
+  if (RSGlobalConfig.extLoad) {
+    rm_free((void *)RSGlobalConfig.extLoad);
+    RSGlobalConfig.extLoad = NULL;
+  }
+  if (RSGlobalConfig.frisoIni) {
+    rm_free((void *)RSGlobalConfig.frisoIni);
+    RSGlobalConfig.frisoIni = NULL;
+  }
+  if (clusterConfig.aclUsername) {
+    rm_free((void *)clusterConfig.aclUsername);
+    clusterConfig.aclUsername = NULL;
+  }
+  if (clusterConfig.globalPass) {
+    rm_free((void *)clusterConfig.globalPass);
+    clusterConfig.globalPass = NULL;
+  }
 
   return REDISMODULE_OK;
 }

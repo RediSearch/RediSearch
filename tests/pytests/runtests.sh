@@ -12,8 +12,8 @@ export PYTHONUNBUFFERED=1
 
 VG_REDIS_VER=7.4
 VG_REDIS_SUFFIX=7.4
-SAN_REDIS_VER=8.0
-SAN_REDIS_SUFFIX=8.0
+SAN_REDIS_VER=7.4
+SAN_REDIS_SUFFIX=7.4
 
 cd $HERE
 
@@ -215,13 +215,6 @@ setup_clang_sanitizer() {
 	fi
 
 	if [[ $SAN == addr || $SAN == address ]]; then
-		REDIS_SERVER=${REDIS_SERVER:-redis-server-asan-$SAN_REDIS_SUFFIX}
-		if ! command -v $REDIS_SERVER > /dev/null; then
-			echo Building Redis for clang-asan ...
-			V="$VERBOSE" runn $READIES/bin/getredis --force -b $SAN_REDIS_VER --own-openssl --no-run \
-				--suffix asan-${SAN_REDIS_SUFFIX} --clang-asan --clang-san-blacklist $ignorelist
-		fi
-
 		# RLTest places log file details in ASAN_OPTIONS
 		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=1:log_thread=1"
 		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=1:log_thread=1"
@@ -686,10 +679,8 @@ if [[ $REDIS_STANDALONE == 1 ]]; then
 	if [[ $QUICK != 1 ]]; then
 
 		if [[ -z $CONFIG || $CONFIG == raw_docid ]]; then
-			if [[ $COV != 1 ]]; then
-				{ (MODARGS="${MODARGS}; RAW_DOCID_ENCODING true;" \
-					run_tests "with raw DocID encoding"); (( E |= $? )); } || true
-			fi
+			{ (MODARGS="${MODARGS}; RAW_DOCID_ENCODING true;" \
+				run_tests "with raw DocID encoding"); (( E |= $? )); } || true
 		fi
 
 		if [[ -z $CONFIG || $CONFIG == dialect_2 ]]; then

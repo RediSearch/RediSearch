@@ -236,7 +236,7 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, Itera
   const FieldSpec *field = IndexSpec_GetField(qOpt->sctx->spec, qOpt->fieldName);
   // if there is no numeric range query but sortby, create a Numeric Filter
   if (!qOpt->nf) {
-    qOpt->nf = NewNumericFilter(NF_NEGATIVE_INFINITY, NF_INFINITY, 1, 1, qOpt->asc);
+    qOpt->nf = NewNumericFilter(-INFINITY, INFINITY, 1, 1, qOpt->asc);
     qOpt->nf->field = field;
     oi->flags |= OPTIM_OWN_NF;
   }

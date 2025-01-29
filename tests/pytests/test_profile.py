@@ -149,6 +149,14 @@ def testProfileAggregate(env):
 
   expected_res = [['Type', 'Index', 'Counter', 2],
                   ['Type', 'Loader', 'Counter', 2],
+                  ['Type', 'Projector - Literal banana', 'Counter', 2]]
+  actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
+                'load', 1, 't',
+                'apply', '"banana"', 'as', 'prefix')
+  env.assertEqual(actual_res[1][1][0][5], expected_res)
+
+  expected_res = [['Type', 'Index', 'Counter', 2],
+                  ['Type', 'Loader', 'Counter', 2],
                   ['Type', 'Sorter', 'Counter', 2],
                   ['Type', 'Loader', 'Counter', 2]]
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*', 'sortby', 2, '@t', 'asc', 'limit', 0, 10, 'LOAD', 2, '@__key', '@t')
@@ -183,13 +191,10 @@ def testProfileNumeric(env):
     conn.execute_command('hset', i, 'n', 50 - float(i % 1000) / 10)
 
   expected_res = ['Iterators profile', ['Type', 'UNION', 'Query type', 'NUMERIC', 'Counter', 5010, 'Child iterators', [
-                    ['Type', 'NUMERIC', 'Term', '-2.9 - 14.4', 'Counter', 1450, 'Size', 1740],
-                    ['Type', 'NUMERIC', 'Term', '14.5 - 30.7', 'Counter', 1630, 'Size', 1630],
-                    ['Type', 'NUMERIC', 'Term', '30.8 - 38', 'Counter', 730, 'Size', 730],
-                    ['Type', 'NUMERIC', 'Term', '38.1 - 44.6', 'Counter', 660, 'Size', 660],
-                    ['Type', 'NUMERIC', 'Term', '44.7 - 46.7', 'Counter', 210, 'Size', 210],
-                    ['Type', 'NUMERIC', 'Term', '46.8 - 48.5', 'Counter', 180, 'Size', 180],
-                    ['Type', 'NUMERIC', 'Term', '48.6 - 50', 'Counter', 150, 'Size', 150]]]]
+                    ['Type', 'NUMERIC', 'Term', '-49.9 - 34.5', 'Counter', 3460, 'Size', 8450],
+                    ['Type', 'NUMERIC', 'Term', '34.6 - 46.1', 'Counter', 1160, 'Size', 1160],
+                    ['Type', 'NUMERIC', 'Term', '46.2 - 49', 'Counter', 290, 'Size', 290],
+                    ['Type', 'NUMERIC', 'Term', '49.1 - 50', 'Counter', 100, 'Size', 100]]]]
   # [1] (Profile data) -> [1] (`Shards` value) -> [0] (single shard/standalone) -> [2:4] (Iterators profile - key+value)
   env.expect('ft.profile', 'idx', 'search', 'query', '@n:[0,100]', 'nocontent').apply(
     lambda x: x[1][1][0][2:4]).equal(expected_res)
@@ -449,6 +454,7 @@ def TimeoutWarningInProfile(env):
      [['Total profile time', ANY,
        'Parsing time', ANY,
        'Pipeline creation time', ANY,
+       'Total GIL time', ANY,
        'Warning', 'Timeout limit was reached',
        'Iterators profile',
          ['Type', 'WILDCARD', 'Time', ANY, 'Counter', ANY],
@@ -469,6 +475,7 @@ def TimeoutWarningInProfile(env):
      [['Total profile time', ANY,
        'Parsing time', ANY,
        'Pipeline creation time', ANY,
+       'Total GIL time', ANY,
        'Warning', 'Timeout limit was reached',
        'Iterators profile',
         ['Type', 'WILDCARD', 'Time', ANY, 'Counter', ANY],
@@ -626,3 +633,42 @@ def testNonZeroTimers(env):
     test_cluster_timer(env)
   else:
     test_shard_timers(env)
+
+def testPofileGILTime():
+  env = Env(moduleArgs='WORKERS 1')
+  conn = getConnectionByEnv(env)
+
+  # Populate db
+  with env.getClusterConnectionIfNeeded() as conn:
+    for i in range(100):
+      res = conn.execute_command('hset', f'doc{i}',
+                      'f', 'hello world',
+                      'g', 'foo bar',
+                      'h', 'baz qux')
+
+  env.cmd('ft.create', 'idx', 'SCHEMA', 'f', 'TEXT', 'g', 'TEXT', 'h', 'TEXT')
+  res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello' ,'SORTBY', '1', '@f')
+
+  # Record structure:
+  # ['Type', 'Threadsafe-Loader', 'GIL-Time', ANY , 'Time', ANY, 'Counter', 100]
+  # ['Total GIL time', ANY]
+
+  try:
+    # env.assertTrue(recursive_contains(res, 'Threadsafe-Loader'), message=f"res: {res}")
+    # env.assertTrue(recursive_contains(res, 'Total GIL time'), message=f"res: {res}")
+
+    # extract the GIL time of the threadsafe loader result processor
+    rp_index = recursive_index(res, 'Threadsafe-Loader')[:-1]
+    rp_record = access_nested_list(res, rp_index)
+    rp_GIL_time = rp_record[rp_record.index('GIL-Time') + 1]
+
+    # extract the total GIL time
+    total_GIL_index = recursive_index(res, 'Total GIL time')
+    total_GIL_index[-1] += 1
+    total_GIL_time = access_nested_list(res, total_GIL_index)
+
+    env.assertGreaterEqual(float(total_GIL_time), 0)
+    env.assertGreaterEqual(float(rp_GIL_time), 0)
+    env.assertGreaterEqual(float(total_GIL_time), float(rp_GIL_time))
+  except Exception:
+    print(f"::error title=GIL report test failure:: res: {res}")
