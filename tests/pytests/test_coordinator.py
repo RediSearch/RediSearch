@@ -171,7 +171,7 @@ def test_mod_6287(env):
     such a scenario depicted in PR #4324 results in a crash since the `depleted`
     and `pending` flags/counter were not aligned."""
 
-    run_command_on_all_shards(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     conn = getConnectionByEnv(env)
     con2 = env.getConnection(2)
 

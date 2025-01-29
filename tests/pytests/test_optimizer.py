@@ -670,7 +670,7 @@ def testOptimizeArgs(env):
     ''' Test enabling/disabling optimization according to args and dialect '''
 
     conn = getConnectionByEnv(env)
-    run_command_on_all_shards(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     for i in range(0, 20):
         conn.execute_command('HSET', i, 'n', i)
@@ -693,7 +693,7 @@ def testOptimizeArgsDefault():
     ''' Test enabling/disabling optimization according to args and default dialect '''
 
     env = Env(moduleArgs='DEFAULT_DIALECT 4')
-    run_command_on_all_shards(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     for i in range(0, 20):

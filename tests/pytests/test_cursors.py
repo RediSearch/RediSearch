@@ -62,7 +62,7 @@ def testCursorsBG():
 @skip(cluster=True)
 def testCursorsBGEdgeCasesSanity():
     env = Env(moduleArgs='WORKERS 1')
-    run_command_on_all_shards(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     count = 100
     loadDocs(env, count=count)
     # Add an extra field to every other document
@@ -368,7 +368,7 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
     non-strict (i.e., the `RETURN` timeout policy), even when a timeout is experienced"""
 
     conn = getConnectionByEnv(env)
-    run_command_on_all_shards(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
 
     # Create the index
     env.expect('FT.CREATE idx SCHEMA t text').ok()

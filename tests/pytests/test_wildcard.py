@@ -73,7 +73,7 @@ def dotestSanity(env, dialect):
       pl.execute()
 
   env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
-  run_command_on_all_shards(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
   env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
   #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
@@ -160,7 +160,7 @@ def dotestSanityTag(env, dialect):
       pl.execute()
 
   run_command_on_all_shards(config_cmd(), 'SET', 'TIMEOUT', 1)
-  run_command_on_all_shards(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
   env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
   env.expect('ft.search', index_list[1], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
