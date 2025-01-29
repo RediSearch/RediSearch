@@ -1325,7 +1325,7 @@ def testEmptyLegacyFilters():
     MAX_DIALECT = set_max_dialect(env)
     for dialect in range(2, MAX_DIALECT + 1):
         env.set_dialect(dialect)
-        env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '', '').error().contains('Invalid numeric')
+        env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '', '').error().contains('Numeric/Geo filter value/s cannot be empty')
 
 def testEmptyLegacyGeoFilters():
     """Tests empty values in legacy geo filters"""
@@ -1357,9 +1357,9 @@ def testEmptyLegacyGeoFilters():
         res = conn.execute_command('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '2.2945', '48.8584', '10', 'km')
         env.assertEqual(res, [1, 'Tel Aviv', ['location', '2.2945,48.8584']])
     
-        env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '', '51.47',  '1', 'km').error().contains('Invalid numeric/geo')
+        env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '', '51.47',  '1', 'km').error().contains('Numeric/Geo filter')
 
-        env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '', '1', 'km').contains('Invalid numeric/geo')
+        env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '', '1', 'km').contains('Numeric/Geo filter value/s')
         
         env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'location', '51.47', '0', '', 'km', 'DIALECT', 1).error().contains('Invalid GeoFilter radius')
         
