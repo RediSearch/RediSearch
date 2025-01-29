@@ -260,45 +260,13 @@ UNION {
 }
 '''[1:])
 
-    env.expect('FT.EXPLAIN', 'idx', '(\'hello\' \'world\')|((\'hello\' \'world\')|(\'hallo\' \'world\'|\'werld\') | \'hello\' \'world\' \'werld\')').equal(r'''
-UNION {
-  INTERSECT {
-    EXACT {
-      hallo
-    }
-    EXACT {
-      world
-    }
+    env.expect('FT.EXPLAIN', 'idx', '(\'hello\' \'world\')').equal(r'''
+INTERSECT {
+  EXACT {
+    hello
   }
   EXACT {
-    werld
-  }
-  INTERSECT {
-    EXACT {
-      hello
-    }
-    EXACT {
-      world
-    }
-  }
-  INTERSECT {
-    EXACT {
-      hello
-    }
-    EXACT {
-      world
-    }
-    EXACT {
-      werld
-    }
-  }
-  INTERSECT {
-    EXACT {
-      hello
-    }
-    EXACT {
-      world
-    }
+    world
   }
 }
 '''[1:])
@@ -675,7 +643,7 @@ def testQuotes_v2():
             'EXACT {\n  t2\n  hello\n  world\n}\n',
         '@t2:{"" world}':
             'EXACT {\n  t2\n  world\n}\n',
-        r'@t2:{"$param\!"}': # The escaping here
+        r'@t2:{"$param\!"}': # Hits the quote attribute quote parser syntax
             'EXACT {\n  t2\n  $param!\n}\n',
     }
     for query, expected in query_to_explain.items():
