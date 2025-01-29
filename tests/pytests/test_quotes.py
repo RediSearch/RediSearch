@@ -4,12 +4,8 @@ from RLTest import Env
 from includes import *
 from common import *
 
-def search(env, r, *args):
-    return r.expect('ft.search', *args)
-
-def sort_list(lst):
-    lst.sort()
-    return lst
+def search(env, *args):
+    return env.expect('ft.search', *args)
 
 def sort_document_names(document_list):
     if len(document_list) == 0:
@@ -31,23 +27,24 @@ def test_wildcard(env):
     setup_index(env)
     expected = [2, 'h1', 'h2']
     all = [3, 'h1', 'h2', 'h3']
-    search(env, env, 'idx', '@t1:\'James*\'', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
-    search(env, env, 'idx', '@t1:"James*"', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
-    search(env, env, 'idx', '@t1:(James*)', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(all)
+    search(env, 'idx', '@t1:\'James*\'', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
+    search(env, 'idx', '@t1:"James*"', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
+    search(env, 'idx', '@t1:(James*)', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(all)
 
 def test_no_wildcard(env):
     setup_index(env)
     expected = [2, 'h1', 'h2']
-    search(env, env, 'idx', '@t1:\'James\'', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
-    search(env, env, 'idx', '@t1:"James"', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
-    search(env, env, 'idx', '@t1:(James)', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
+    search(env, 'idx', '@t1:\'James\'', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
+    search(env, 'idx', '@t1:"James"', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
+    search(env, 'idx', '@t1:(James)', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
 
 def test_tags(env):
     setup_index(env)
     expected = [1, 'h1']
-    search(env, env, 'idx', '@t2:{NYC}', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
-    search(env, env, 'idx', '@t2:{"NYC"}', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
-    search(env, env, 'idx', '@t2:{\'NYC\'}', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
+    search(env, 'idx', '@t2:{NYC}', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
+    search(env, 'idx', '@t2:{"NYC"}', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
+    search(env, 'idx', '@t2:{\'NYC\'}', 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
+    search(env, 'idx', "@t2:{\"NYC\"}", 'NOCONTENT', 'DIALECT', 2).apply(sort_document_names).equal(expected)
 
 def test_verbatim_escaping(env):
     setup_index(env)
@@ -60,6 +57,6 @@ def test_verbatim_escaping(env):
     squote = "@t1:('James\\!\\*')"
     env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').contains('james!*')
     env.expect('FT.EXPLAIN', 'idx', dquote, 'DIALECT', 2).equal(expected_explain)
-    search(env, env, 'idx', dquote, 'NOCONTENT', 'DIALECT', 2).equal(expected)
+    search(env, 'idx', dquote, 'NOCONTENT', 'DIALECT', 2).equal(expected)
     env.expect('FT.EXPLAIN', 'idx', squote, 'DIALECT', 2).equal(expected_explain)
-    search(env, env, 'idx', squote, 'NOCONTENT', 'DIALECT', 2).equal(expected)
+    search(env, 'idx', squote, 'NOCONTENT', 'DIALECT', 2).equal(expected)
