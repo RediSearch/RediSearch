@@ -1,5 +1,5 @@
 #include "inverted_index.hpp"
-#include "../rocksdb/merge_operator.h"
+#include "rocksdb/merge_operator.h"
 #include <unordered_map>
 
 using Logger = rocksdb::Logger;
