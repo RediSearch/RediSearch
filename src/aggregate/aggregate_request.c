@@ -571,9 +571,9 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   // In dialect 2, we require a non empty numeric filter
   if (req->reqConfig.dialectVersion >= 2 && hasEmptyFilterValue){
-      QERR_MKBADARGS_FMT(status, "Invalid numeric/geo filter value/s");
+      QERR_MKBADARGS_FMT(status, "Numeric/Geo filter value/s cannot be empty");
       return REDISMODULE_ERR;
-    }
+  }
 
   if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
     // If optimize was not enabled/disabled explicitly, enable it by default starting with dialect 4
