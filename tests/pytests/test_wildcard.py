@@ -159,7 +159,7 @@ def dotestSanityTag(env, dialect):
       pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
       pl.execute()
 
-  run_command_on_all_shards(config_cmd(), 'SET', 'TIMEOUT', 1)
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'TIMEOUT', 1)
   run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
   env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
