@@ -512,7 +512,7 @@ def testSeekToExpirationChecks(env):
     # doc:3 should not be returned, due to the nature of intersection iterator we expect SkipTo to be called at least once
     # since text fields have a seeker we expect IndexReader_ReadWithSeeker to be called
     # that should provide coverage for IndexReader_ReadWithSeeker.
-    env.expect('FT.SEARCH', 'idx', '"@x:(hello) @y:(57)"', 'NOCONTENT').apply(sort_document_names).equal([1, 'doc:4'])
+    env.expect('FT.SEARCH', 'idx', '@x:(hello) @y:(57)', 'NOCONTENT').equal([1, 'doc:4'])
 
 
 # Verify that background indexing does not cause lazy expiration of expired documents.
