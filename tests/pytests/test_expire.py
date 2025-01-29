@@ -498,6 +498,22 @@ def testDocWithLongExpiration(env):
     conn.execute_command('EXPIRE', 'doc:1', '30000')
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
 
+def testSeekToExpirationChecks(env):
+    # We want to cover the IndexReader_ReadWithSeeker function
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'x', 'TEXT', 'y', 'TEXT')
+    conn.execute_command('HSET', 'doc:1', 'x', 'world', 'y', 'hello')
+    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', '47')
+    conn.execute_command('HSET', 'doc:3', 'x', 'hello', 'y', '57')
+    conn.execute_command('HSET', 'doc:4', 'x', 'hello', 'y', '57')
+    conn.execute_command('HPEXPIRE', 'doc:3', '1', 'FIELDS', '1', 'y')
+    time.sleep(0.1)
+    # doc:3 should not be returned, due to the nature of intersection iterator we expect SkipTo to be called at least once
+    # since text fields have a seeker we expect IndexReader_ReadWithSeeker to be called
+    # that should provide coverage for IndexReader_ReadWithSeeker.
+    env.expect('FT.SEARCH', 'idx', '"@x:(hello) @y:(57)"', 'NOCONTENT').apply(sort_document_names).equal([1, 'doc:4'])
+
 
 # Verify that background indexing does not cause lazy expiration of expired documents.
 @skip(cluster=True)
