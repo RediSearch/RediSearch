@@ -1176,7 +1176,7 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     // the seeker will return 1 only when it found a docid which is greater or equals the
     // searched docid and the field mask matches the searched fields mask. We need to continue
     // scanning only when we found such an id or we reached the end of the inverted index.
-    if (!IndexReader_ReadWithSeeker(ir, &docId)) {
+    if (!IndexReader_ReadWithSeeker(ir, docId)) {
       goto eof;
     }
     // Found a document that match the field mask and greater or equal the searched docid
