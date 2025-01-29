@@ -70,7 +70,7 @@ def compare_optimized_to_not(env, query, params, msg=None):
 @skip(cluster=True)
 def testOptimizer(env):
     env.cmd(config_cmd(), 'SET', 'TIMEOUT', '0')
-    env.cmd(config_cmd(), 'SET', 'ON_TIMEOUT', 'return')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     env.cmd(config_cmd(), 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true')
     repeat = 20000
@@ -350,7 +350,7 @@ def testOptimizer(env):
 @skip(cluster=True)
 def testWOLimit(env):
     env.cmd(config_cmd(), 'set', 'timeout', '0')
-    env.cmd(config_cmd(), 'SET', 'ON_TIMEOUT', 'return')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     repeat = 100
     conn = getConnectionByEnv(env)

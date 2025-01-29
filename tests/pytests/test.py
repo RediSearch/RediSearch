@@ -2504,7 +2504,7 @@ def testTimeout(env):
 @skip(cluster=True)
 def testTimeoutOnSorter(env):
     conn = getConnectionByEnv(env)
-    env.cmd(config_cmd(), 'SET', 'ON_TIMEOUT', 'return')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd(config_cmd(), 'set', 'timeout', '1')
     pl = conn.pipeline()
 
