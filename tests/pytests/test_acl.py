@@ -10,7 +10,7 @@ def test_acl_category(env):
     res = env.cmd('ACL', 'CAT')
     env.assertContains('search', res)
 
-@skip(redis_less_than="8.0")
+@skip(redis_less_than="7.9.22")
 def test_acl_search_commands(env):
     """Tests that the RediSearch commands are registered to the `search`
     ACL category"""
@@ -175,7 +175,7 @@ def test_internal_commands(env):
     env.expect('DEBUG', 'PROMOTE-CONN-INTERNAL').ok()
     env.expect('_FT.SEARCH', 'idx', '*').equal([0])
 
-@skip(redis_less_than="8.0")
+@skip(redis_less_than="7.9.22")
 def test_acl_key_permissions_validation(env):
     """Tests that the key permission validation works properly"""
 
@@ -218,7 +218,7 @@ def test_acl_key_permissions_validation(env):
         ['FT.DROPINDEX', 'index_to_drop'],
     ]
     for command in index_commands:
-        env.expect(*command).error().contains("-NOPERM User does not have the required permissions to query the index")
+        env.expect(*command).error().contains("User does not have the required permissions to query the index")
 
     # the `test` user should be able to execute all commands that do not refer to a
     # specific index

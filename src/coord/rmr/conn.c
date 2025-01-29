@@ -31,6 +31,7 @@ static int MRConn_SendAuth(MRConn *conn);
 
 #define RSCONN_RECONNECT_TIMEOUT 250
 #define RSCONN_REAUTH_TIMEOUT 1000
+#define INTERNALAUTH_USERNAME "internal connection"
 #define UNUSED(x) (void)(x)
 
 #define CONN_LOG(conn, fmt, ...)                                                \
@@ -436,7 +437,7 @@ static int MRConn_SendAuth(MRConn *conn) {
     sds secret = sdsnewlen(internal_secret, len);
 
     if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn,
-        "INTERNALAUTH %s", secret) == REDIS_ERR) {
+        "AUTH %s %s", INTERNALAUTH_USERNAME, secret) == REDIS_ERR) {
       sdsfree(secret);
       MRConn_SwitchState(conn, MRConn_ReAuth);
       return REDIS_ERR;
