@@ -21,8 +21,7 @@
 
 %left EXACT.
 %left TERM.
-%left QUOTE.
-%left SQUOTE.
+%left QUOTE SQUOTE.
 %left LP LB LSQB.
 
 %left TILDE MINUS.
