@@ -160,10 +160,10 @@ void QueryParam_InitParams(QueryParam *p, size_t num) {
 }
 
 /**
- * Checks if the given numeric value is not empty.
+ * Checks if the given numeric and geo value is not empty.
  * If the dialect version is 2 or higher, the value must not be empty, otherwise it can be 0 for backward compatibility.
  */
-static inline bool checkNumericValueValid(const char *val, unsigned int dialectVersion) {
+static inline bool checkNumericAndGeoValueValid(const char *val, unsigned int dialectVersion) {
   return (dialectVersion < 2 || *val);
 }
 
@@ -205,7 +205,7 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
 
     case PARAM_NUMERIC:
     case PARAM_GEO_COORD:
-      if (!checkNumericValueValid(val, dialectVersion) || !ParseDouble(val, (double*)param->target, param->sign)) {
+      if (!checkNumericAndGeoValueValid(val, dialectVersion) || !ParseDouble(val, (double*)param->target, param->sign)) {
         QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
         val, param->name);
         return -1;
@@ -213,7 +213,7 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
       return 1;
 
     case PARAM_SIZE:
-      if (!checkNumericValueValid(val, dialectVersion) || !ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
+      if (!checkNumericAndGeoValueValid(val, dialectVersion) || !ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
         QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
         val, param->name);
         return -1;
@@ -225,7 +225,7 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
     {
       bool inclusive = true; // TODO: use?
       int isMin = param->type == PARAM_NUMERIC_MIN_RANGE ? 1 : 0;
-      if (!checkNumericValueValid(val, dialectVersion) || parseDoubleRange(val, &inclusive, (double*)param->target, isMin, param->sign, status) == REDISMODULE_OK)
+      if (!checkNumericAndGeoValueValid(val, dialectVersion) || parseDoubleRange(val, &inclusive, (double*)param->target, isMin, param->sign, status) == REDISMODULE_OK)
         return 1;
       else
         return -1;
