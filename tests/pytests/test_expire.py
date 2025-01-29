@@ -506,21 +506,22 @@ def testSeekToExpirationChecks(env):
     conn.execute_command('HSET', 'doc:1', 'x', 'world', 'y', 'hello')
     conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', '47')
     conn.execute_command('HSET', 'doc:3', 'x', 'hello', 'y', 'skip')
-    conn.execute_command('HSET', 'doc:4', 'x', 'hello', 'y', '57')
-    conn.execute_command('HSET', 'doc:5', 'x', 'hello', 'y', '57')
-    conn.execute_command('HPEXPIRE', 'doc:4', '1', 'FIELDS', '1', 'y')
+    conn.execute_command('HSET', 'doc:expire', 'x', 'hello', 'y', '57') # doc:expire internal id is 4
+    # important we expire now since that assigns a new doc id for doc:expire
+    conn.execute_command('HPEXPIRE', 'doc:expire', '1', 'FIELDS', '1', 'y') # doc:expire internal id is 5
+    conn.execute_command('HSET', 'doc:6', 'x', 'hello', 'y', '57')
     # expected flow
     # - hello reader gets doc:2
-    # - 57 reader gets doc:4
-    # - we skip in hello reader to doc:4 - should call IndexReader_ReadWithSeeker
-    #   - IndexReader_ReadWithSeeker should return doc:5 since doc:4 is expired
-    # - 57 reader skips to doc:5
-    # - doc:5 is returned
+    # - 57 reader gets doc:expire - 5
+    # - we skip in hello reader to doc:expire - should call IndexReader_ReadWithSeeker
+    #   - IndexReader_ReadWithSeeker should return doc:6 since doc:expire field is expired
+    # - 57 reader skips to doc:6
+    # - doc:6 is returned
     time.sleep(0.1)
     # doc:3 should not be returned, due to the nature of intersection iterator we expect SkipTo to be called at least once
     # since text fields have a seeker we expect IndexReader_ReadWithSeeker to be called
     # that should provide coverage for IndexReader_ReadWithSeeker.
-    env.expect('FT.SEARCH', 'idx', '@x:(hello) @y:(57)', 'NOCONTENT').equal([1, 'doc:5'])
+    env.expect('FT.SEARCH', 'idx', '@x:(hello) @y:(57)', 'NOCONTENT').equal([1, 'doc:6'])
 
 
 # Verify that background indexing does not cause lazy expiration of expired documents.
