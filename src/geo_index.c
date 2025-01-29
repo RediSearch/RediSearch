@@ -46,8 +46,7 @@ int GeoFilter_LegacyParse(GeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterVal
     QERR_MKBADARGS_AC(status, "<lon>", rv);
     return REDISMODULE_ERR;
   }
-  if (gf->lon == 0)
-  {
+  if (gf->lon == 0) {
     CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
   }
   AC_Advance(ac);
@@ -56,8 +55,7 @@ int GeoFilter_LegacyParse(GeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterVal
     QERR_MKBADARGS_AC(status, "<lat>", rv);
     return REDISMODULE_ERR;
   }
-  if (gf->lat == 0)
-  {
+  if (gf->lat == 0) {
     CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
   }
   AC_Advance(ac);
@@ -66,8 +64,7 @@ int GeoFilter_LegacyParse(GeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterVal
     QERR_MKBADARGS_AC(status, "<radius>", rv);
     return REDISMODULE_ERR;
   }
-  if (gf->radius == 0)
-  {
+  if (gf->radius == 0) {
     CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
   }
   AC_Advance(ac);
