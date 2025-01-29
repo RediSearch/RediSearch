@@ -81,7 +81,6 @@ def testDocscoreScorerExplanation(env):
     env.assertEqual(res[8][1], "Document's score is 0.10")
 
 def testTFIDFScorerExplanation(env):
-    conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
@@ -90,7 +89,7 @@ def testTFIDFScorerExplanation(env):
     env.cmd('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem')
     env.cmd('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem')
 
-    res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE')
+    res = env.cmd('ft.search', 'idx', 'hello world', 'SCORER', 'TFIDF', 'WITHSCORES', 'EXPLAINSCORE')
     env.assertEqual(res[0], 3)
     env.assertEqual(res[2][1], ['Final TFIDF : words TFIDF 20.00 * document score 0.50 / norm 10 / slop 1',
                                 [['(Weight 1.00 * total children TFIDF 20.00)',
@@ -107,7 +106,7 @@ def testTFIDFScorerExplanation(env):
 
     # test depth limit
 
-    res = env.cmd('ft.search', 'idx', 'hello(world(world))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
+    res = env.cmd('ft.search', 'idx', 'hello(world(world))', 'SCORER', 'TFIDF', 'WITHSCORES', 'EXPLAINSCORE', 'LIMIT', 0, 1)
     env.assertEqual(res[2][1], ['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1',
                                 [['(Weight 1.00 * total children TFIDF 30.00)',
                                   [['(Weight 1.00 * total children TFIDF 20.00)',
@@ -130,7 +129,7 @@ def testTFIDFScorerExplanation(env):
                  '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']],
                '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
 
-    actual_res = env.cmd('ft.search', 'idx', 'hello(world(world(hello)))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
+    actual_res = env.cmd('ft.search', 'idx', 'hello(world(world(hello)))', 'SCORER', 'TFIDF', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
     # on older versions we trim the reply to remain under the 7-layer limitation.
     res = res1 if server_version_at_least(env, "6.2.0") else res2
     env.assertEqual(actual_res[2][1], res)
@@ -277,13 +276,13 @@ def testScoreReplace(env):
     waitForIndex(env, 'idx')
     conn.execute_command('HSET', 'doc1', 'f', 'redisearch')
     conn.execute_command('HSET', 'doc1', 'f', 'redisearch')
-    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '1'])
+    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '50.30488616741156'])
     conn.execute_command('HSET', 'doc1', 'f', 'redisearch')
-    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '0'])
+    env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '52.688358317311824'])
     if not env.isCluster():
         env.expect('ft.config set FORK_GC_CLEAN_THRESHOLD 0').ok()
         env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
-        env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '1'])
+        env.expect('FT.SEARCH idx redisearch withscores nocontent').equal([1, 'doc1', '0.3516114597218614'])
 
 def testScoreDecimal(env):
     env.expect('ft.create idx ON HASH schema title text').ok()
@@ -304,18 +303,18 @@ def _test_expose_score(env, idx):
     conn.execute_command('HSET', 'doc1', 'title', 'hello')
 
     # MOD-8060 - `SCORER` should propagate to the shards on `FT.AGGREGATE` (cluster mode)
-    # Test with default scorer (TFIDF)
-    expected = [1, ['__score', '1']]
+    # Test with default scorer (BM25STD)
+    expected = [1, ['__score', '0.287682102254']]
     env.expect('FT.AGGREGATE', idx, '~hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
+    # Test with explicit BM25STD scorer
+    env.expect('FT.AGGREGATE', idx, '~hello', 'SCORER', 'BM25STD', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
     # Test with explicit TFIDF scorer
+    expected = [1, ['__score', str(1)]] # TFIDF score (different from BM25STD)
     env.expect('FT.AGGREGATE', idx, '~hello', 'SCORER', 'TFIDF', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
-    # Test with explicit BM25 scorer
-    expected = [1, ['__score', str(0.454545444693)]] # BM25 score (different from TFIDF)
-    env.expect('FT.AGGREGATE', idx, '~hello', 'SCORER', 'BM25', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
 
     conn.execute_command('HSET', 'doc2', 'title', 'world')
 
-    doc1_score = 1 if env.isCluster() else 2 # TODO: why?
+    doc1_score = 0.287682102254 if env.isCluster() else 0.69314718056
 
     expected = [2, ['__score', str(doc1_score)], ['__score', '0']]
     env.expect('FT.AGGREGATE', idx, '~hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
