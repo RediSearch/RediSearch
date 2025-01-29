@@ -9,7 +9,7 @@
 #include "coord/rmr/reply.h"
 
 static FieldType getFieldType(const char *type){
-    if(strcmp(type, "vector") == 0){
+    if (strcmp(type, "vector") == 0) {
         return INDEXFLD_T_VECTOR;
     }
     return 0;
