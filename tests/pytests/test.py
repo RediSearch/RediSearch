@@ -3497,7 +3497,7 @@ def testFieldsCaseSensetive(env):
     # will not reflect the errors
     conn = getConnectionByEnv(env)
     dialect = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1]
-    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
+    run_command_on_all_shards(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC f TEXT t TAG g GEO')
 
     # make sure text fields are case sesitive
@@ -3575,7 +3575,7 @@ def testSortedFieldsCaseSensetive(env):
     # will not reflect the errors
     conn = getConnectionByEnv(env)
     dialect = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1]
-    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
+    run_command_on_all_shards(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE f TEXT SORTABLE t TAG SORTABLE g GEO SORTABLE')
 
     # make sure text fields are case sesitive
@@ -4278,7 +4278,7 @@ def test_timeout_non_strict_policy(env):
     """
 
     conn = getConnectionByEnv(env)
-    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
+    run_command_on_all_shards(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
 
     # Create an index, and populate it
     n = 25000

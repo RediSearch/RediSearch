@@ -351,7 +351,7 @@ def test_multiple_loaders():
 def test_switch_loader_modes():
     # Create an environment with workers (0)
     env = initEnv('WORKERS 1')
-    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
+    run_command_on_all_shards(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     n_docs = 10
     cursor_count = 2
     # Having two loaders to test when the loader is last and when it is not

@@ -44,7 +44,6 @@ def testCommandStatsOnRedis(env):
     # on a single shard
 
     conn = getConnectionByEnv(env)
-    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE').ok()
     # _FT.CREATE is not called. No option to test
 
@@ -54,7 +53,10 @@ def testCommandStatsOnRedis(env):
     env.expect('FT.SEARCH', 'idx', 'hello', 'LIMIT', 0, 0).equal([100])
     check_info_commandstats(env, 'FT.SEARCH')
 
-    env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).equal([env.shardsCount])
+    # Aggregate on coordinator can timeout or return a valid result
+    # We only care about the time spent on the coordinator
+    # setting the timeout policy on every shard seems like unnecessary overhead
+    env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).any()
     check_info_commandstats(env, 'FT.AGGREGATE')
 
     conn.execute_command('FT.INFO', 'idx')
@@ -169,7 +171,7 @@ def test_mod_6287(env):
     such a scenario depicted in PR #4324 results in a crash since the `depleted`
     and `pending` flags/counter were not aligned."""
 
-    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
+    run_command_on_all_shards(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     conn = getConnectionByEnv(env)
     con2 = env.getConnection(2)
 

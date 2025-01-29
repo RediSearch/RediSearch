@@ -500,7 +500,7 @@ def TimedoutTest_resp3(env):
   """Tests that the `Timedout` value of the profile response is correct"""
 
   conn = getConnectionByEnv(env)
-  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
+  run_command_on_all_shards(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
   # Create an index
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
