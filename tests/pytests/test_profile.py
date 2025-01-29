@@ -530,6 +530,8 @@ def TimedOutWarningtestCoord(env):
 
   conn = getConnectionByEnv(env)
 
+  # we want to get the warning message in the profile output and not get a failure
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
   # Create an index
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 

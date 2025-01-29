@@ -273,6 +273,8 @@ def CursorOnCoordinator(env: Env):
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     conn = getConnectionByEnv(env)
 
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+
     # Verify that empty reply from some shard doesn't break the cursor
     conn.execute_command('HSET', 0 ,'n', 0)
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)

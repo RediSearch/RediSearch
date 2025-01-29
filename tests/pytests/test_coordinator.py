@@ -56,7 +56,11 @@ def testCommandStatsOnRedis(env):
     # Aggregate on coordinator can timeout or return a valid result
     # We only care about the time spent on the coordinator
     # setting the timeout policy on every shard seems like unnecessary overhead
-    env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).any()
+    # Just try catch around the cmd
+    try:
+        env.cmd('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0)
+    except:
+        pass
     check_info_commandstats(env, 'FT.AGGREGATE')
 
     conn.execute_command('FT.INFO', 'idx')
