@@ -295,7 +295,7 @@ void ClusterConfig_RegisterTriggers(void) {
 int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-threads", COORDINATOR_POOL_DEFAULT_SIZE,
+      ctx, "search-threads", getOrCreateRealConfig(&RSGlobalConfig)->coordinatorPoolSize,
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_search_threads, set_search_threads, NULL,
       (void*)&RSGlobalConfig
@@ -304,7 +304,7 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig (
-      ctx, "search-topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
+      ctx, "search-topology-validation-timeout", getOrCreateRealConfig(&RSGlobalConfig)->topologyValidationTimeoutMS,
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
       get_topology_validation_timeout, set_topology_validation_timeout, NULL,
       (void*)&RSGlobalConfig
@@ -313,7 +313,7 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
 
   if (clusterConfig.type == ClusterType_RedisOSS) {
     if (RedisModule_RegisterStringConfig (
-          ctx, "search-oss-global-password", "",
+          ctx, "search-oss-global-password", clusterConfig.globalPass,
           REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED | REDISMODULE_CONFIG_SENSITIVE,
           get_oss_global_password, set_immutable_cluster_string_config, NULL,
           (void*)&clusterConfig.globalPass) == REDISMODULE_ERR) {
@@ -323,7 +323,7 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
 
   if (clusterConfig.type == ClusterType_RedisOSS) {
     if (RedisModule_RegisterStringConfig (
-          ctx, "search-oss-acl-username", DEFAULT_ACL_USERNAME,
+          ctx, "search-oss-acl-username|OSS_ACL_USERNAME", clusterConfig.aclUsername,
           REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
           get_oss_acl_username, set_immutable_cluster_string_config, NULL,
           (void*)&clusterConfig.aclUsername) == REDISMODULE_ERR) {
