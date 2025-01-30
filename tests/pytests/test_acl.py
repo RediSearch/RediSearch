@@ -10,7 +10,7 @@ def test_acl_category(env):
     res = env.cmd('ACL', 'CAT')
     env.assertContains('search', res)
 
-@skip(redis_less_than="7.9.22")
+@skip(redis_less_than="7.9.227")
 def test_acl_search_commands(env):
     """Tests that the RediSearch commands are registered to the `search`
     ACL category"""
@@ -172,10 +172,10 @@ def test_internal_commands(env):
     env.expect('_FT.SEARCH', 'idx', '*').error().contains("unknown command")
 
     # Promote the connection to internal
-    env.expect('DEBUG', 'PROMOTE-CONN-INTERNAL').ok()
+    env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
     env.expect('_FT.SEARCH', 'idx', '*').equal([0])
 
-@skip(redis_less_than="7.9.22")
+@skip(redis_less_than="7.9.227")
 def test_acl_key_permissions_validation(env):
     """Tests that the key permission validation works properly"""
 
