@@ -153,7 +153,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['PRIVILEGED_THREADS_NUM'][0], '1')
     env.assertEqual(res_dict['WORKERS_PRIORITY_BIAS_THRESHOLD'][0], '1')
     env.assertEqual(res_dict['FRISOINI'][0], None)
-    env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')
+    env.assertEqual(res_dict['ON_TIMEOUT'][0], 'fail')
     env.assertEqual(res_dict['GCSCANSIZE'][0], '100')
     env.assertEqual(res_dict['MIN_PHONETIC_TERM_LEN'][0], '3')
     env.assertEqual(res_dict['FORK_GC_RUN_INTERVAL'][0], '30')
@@ -205,7 +205,7 @@ def testInitConfig():
 
     _test_config_str('GC_POLICY', 'fork')
     _test_config_str('GC_POLICY', 'default', 'fork')
-    _test_config_str('ON_TIMEOUT', 'fail')
+    _test_config_str('ON_TIMEOUT', 'return')
     _test_config_str('TIMEOUT', '0', '0')
     _test_config_str('PARTIAL_INDEXED_DOCS', '0', 'false')
     _test_config_str('PARTIAL_INDEXED_DOCS', '1', 'true')
@@ -820,16 +820,16 @@ def testConfigAPIRunTimeEnumParams():
 
     # Test default value
     env.expect('CONFIG', 'GET', 'search-on-timeout')\
-        .equal(['search-on-timeout', 'return'])
-
-    # Test search-on-timeout - valid values
-    env.expect('CONFIG', 'SET', 'search-on-timeout', 'fail').equal('OK')
-    env.expect('CONFIG', 'GET', 'search-on-timeout')\
         .equal(['search-on-timeout', 'fail'])
 
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'return').equal('OK')
     env.expect('CONFIG', 'GET', 'search-on-timeout')\
         .equal(['search-on-timeout', 'return'])
+
+    # Test search-on-timeout - valid values
+    env.expect('CONFIG', 'SET', 'search-on-timeout', 'fail').equal('OK')
+    env.expect('CONFIG', 'GET', 'search-on-timeout') \
+        .equal(['search-on-timeout', 'fail'])
 
     # Test search-on-timeout - invalid values
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'invalid_value').error()\
