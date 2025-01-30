@@ -236,15 +236,11 @@ struct KVDB {
     }
   }
 
-  bool erase(const std::string &key) {
+  void erase(const std::string &key) {
     auto e = db.find(key);
-    if (e == db.end()) {
-      return false;
-    }
     Value *v = e->second;
     db.erase(e);
     v->decref();
-    return true;
   }
 
   void clear() {

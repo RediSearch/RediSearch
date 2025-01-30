@@ -109,9 +109,9 @@ void Document_MakeRefOwner(Document *doc) {
 }
 
 int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError *status) {
-  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
+  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ);
   int rv = REDISMODULE_ERR;
-  // This is possible if the key has expired for example in previous redis API calls in this notification flow.
+  // DvirDu: Is this even possible?
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
     QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key %s does not exist or is not a hash", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
@@ -175,7 +175,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   size_t nitems = sctx->spec->numFields;
   JSONResultsIterator jsonIter = NULL;
 
-  RedisJSON jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, REDISMODULE_OPEN_KEY_NOEFFECTS);
+  RedisJSON jsonRoot = japi->openKey(ctx, doc->docKey);
   if (!jsonRoot) {
     goto done;
   }
@@ -212,7 +212,6 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
     if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx, status) != REDISMODULE_OK) {
-      FieldSpec_AddError(field, QueryError_GetError(status), doc->docKey);
       RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
       goto done;
     }

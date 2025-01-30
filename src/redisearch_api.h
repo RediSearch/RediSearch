@@ -9,8 +9,6 @@
 
 #include "redismodule.h"
 #include <limits.h>
-#include "fork_gc.h"
-#include "info/indexes_info.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -208,7 +206,7 @@ MODULE_API_FUNC(RSFieldID, RediSearch_CreateField)
   RediSearch_CreateField(idx, name, RSFLDTYPE_GEO, RSFLDOPT_NONE)
 #define RediSearch_CreateVectorField(idx, name) \
   RediSearch_CreateField(idx, name, RSFLDTYPE_VECTOR, RSFLDOPT_NONE)
-// TODO: GEOMETRY
+// TODO: GEOMETRY 
 // #define RediSearch_CreateGeometryField(idx, name) \
 //   RediSearch_CreateField(idx, name, RSFLDTYPE_GEOMETRY, RSFLDOPT_NONE)
 
@@ -357,12 +355,6 @@ MODULE_API_FUNC(double, RediSearch_ResultsIteratorGetScore)(const RSResultsItera
 MODULE_API_FUNC(void, RediSearch_IndexOptionsSetGCPolicy)(RSIndexOptions* options, int policy);
 
 MODULE_API_FUNC(size_t, RediSearch_MemUsage)(RSIndex* sp);
-
-MODULE_API_FUNC(size_t, RediSearch_TotalMemUsage)(void);
-
-MODULE_API_FUNC(TotalIndexesInfo, RediSearch_TotalInfo)(void);
-
-MODULE_API_FUNC(InfoGCStats, RediSearch_GC_total)(void);
 
 /**
  * Return an info struct

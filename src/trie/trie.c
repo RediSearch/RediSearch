@@ -14,7 +14,6 @@
 #include "config.h"
 #include "util/timeout.h"
 #include "wildcard.h"
-#include "trie/levenshtein.h"
 
 typedef struct {
   rune * buf;
@@ -46,7 +45,7 @@ typedef struct {
 
   // timeout
   struct timespec timeout;  // milliseconds until timeout
-  size_t timeoutCounter;    // counter to limit number of calls to TimedOut()
+  size_t timeoutCounter;    // counter to limit number of calls to TimedOut()  
 } RangeCtx;
 
 static void __trieNode_sortChildren(TrieNode *n);
@@ -163,7 +162,7 @@ TrieNode *__trieNode_MergeWithSingleChild(TrieNode *n, TrieFreeCallback freecb) 
   memcpy(nstr, n->str, sizeof(rune) * n->len);
   memcpy(&nstr[n->len], ch->str, sizeof(rune) * ch->len);
   TrieNode *merged = __newTrieNode(
-      nstr, 0, n->len + ch->len, NULL, 0, ch->numChildren,
+      nstr, 0, n->len + ch->len, NULL, 0, ch->numChildren, 
       ch->score, __trieNode_isTerminal(ch), n->sortMode);
   merged->maxChildScore = ch->maxChildScore;
   merged->numChildren = ch->numChildren;
@@ -291,12 +290,12 @@ int TrieNode_Add(TrieNode **np, const rune *str, t_len len, RSPayload *payload, 
       if (n->sortMode == Trie_Sort_Score && n->numChildren > 1) {
         if ((idx > 0 && child->maxChildScore > __trieNode_children(n)[idx - 1]->maxChildScore) ||
             (idx < n->numChildren - 2 && child->maxChildScore < __trieNode_children(n)[idx + 1]->maxChildScore)) {
-          __trieNode_sortChildren(n);
+          __trieNode_sortChildren(n); 
         }
       }
       return rc;
     }
-    // break if new node has lex value higher than current child
+    // break if new node has lex value higher than current child  
     if (n->sortMode == Trie_Sort_Lex && str[offset] < *childKey) {
       break;
     }
@@ -1102,7 +1101,7 @@ static void containsIterate(TrieNode *n, t_len localOffset, t_len globalOffset, 
     }
     /* partial match found */
     containsNext(n, localOffset + 1, globalOffset + 1, r);
-  }
+  } 
   //try on next character
   if (!globalOffset) {
     containsNext(n, localOffset + 1, 0, r);
@@ -1148,7 +1147,7 @@ static void wildcardIterate(TrieNode *n, RangeCtx *r) {
       TrieNode **children = __trieNode_children(n);
       for (t_len i = 0; i < n->numChildren && r->stop == 0; ++i) {
         wildcardIterate(children[i], r);
-      }
+      } 
       break;
     }
   }

@@ -30,9 +30,6 @@ typedef struct {
   } u;
 } runeBuf;
 
-// The maximum size we allow converting to at once
-#define MAX_RUNESTR_LEN 1024
-
 /* fold rune: assumes rune is of the correct size */
 rune runeFold(rune r);
 

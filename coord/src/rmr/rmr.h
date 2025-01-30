@@ -71,11 +71,14 @@ void MRCtx_Free(struct MRCtx *ctx);
  * this should be the RedisModuleCtx */
 struct MRCtx *MR_CreateCtx(struct RedisModuleCtx *ctx, struct RedisModuleBlockedClient *bc, void *privdata);
 
+extern void *MRITERATOR_DONE;
+
+#ifndef RMR_C__
 typedef struct MRIteratorCallbackCtx MRIteratorCallbackCtx;
 typedef struct MRIteratorCtx MRIteratorCtx;
 typedef struct MRIterator MRIterator;
 
-typedef void (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
+typedef int (*MRIteratorCallback)(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 // Trigger all the commands in the iterator to be sent.
 // Returns true if there may be more replies to come, false if we are done.
@@ -89,7 +92,7 @@ MRCommand *MRIteratorCallback_GetCommand(MRIteratorCallbackCtx *ctx);
 
 MRIteratorCtx *MRIteratorCallback_GetCtx(MRIteratorCallbackCtx *ctx);
 
-void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
+int MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep);
 
 bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx);
 
@@ -97,7 +100,7 @@ void MRIteratorCallback_SetTimedOut(MRIteratorCtx *ctx);
 
 void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx);
 
-void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
+int MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error);
 
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx);
 
@@ -105,4 +108,11 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx, MRCommand *cmd)
 
 MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
 
-void MRIterator_Release(MRIterator *it);
+void MRIterator_Free(MRIterator *it);
+
+/* Wait until the iterators producers are all  done */
+void MRIterator_WaitDone(MRIterator *it, bool mayBeIdle);
+
+#endif // RMR_C__
+
+size_t MR_NumHosts();

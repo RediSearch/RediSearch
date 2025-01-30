@@ -27,7 +27,7 @@ typedef struct MRWorkQueue {
   size_t sz;
   struct {
     struct queueItem *head;
-    size_t warnSize;
+    size_t hitCount;
   } pendingInfo;
   uv_mutex_t lock;
   uv_async_t async;
@@ -69,19 +69,21 @@ static struct queueItem *rqPop(MRWorkQueue *q) {
 
     // Handle pending info logging. Access only to a non-NULL head and pendingInfo,
     // So it's safe to do without the lock.
-    if (q->head == q->pendingInfo.head && q->sz > q->pendingInfo.warnSize) {
-      // If we hit the same head multiple times, we may have a problem. Log it once.
-      RedisModule_Log(RSDummyContext, "warning", "Work queue at max pending with the same head. Size: %zu", q->sz);
-      q->pendingInfo.warnSize = q->sz + (1 << 10);
+    const char *logLevel = "verbose";
+    if (q->head == q->pendingInfo.head) {
+      // If we hit the same head multiple times, we may have a problem. Increase log level.
+      if (++q->pendingInfo.hitCount > 100) logLevel = "notice";
     } else {
       q->pendingInfo.head = q->head;
-      q->pendingInfo.warnSize = q->sz + (1 << 10);
+      q->pendingInfo.hitCount = 1;
     }
+    RedisModule_Log(RSDummyContext, logLevel, "MRWorkQueue: Max pending requests reached");
+    RedisModule_Log(RSDummyContext, "debug", "MRWorkQueue: Head at %p", q->head);
 
     return NULL;
   } else {
     q->pendingInfo.head = NULL;
-    q->pendingInfo.warnSize = 0;
+    q->pendingInfo.hitCount = 0;
   }
 
   struct queueItem *r = q->head;
@@ -97,6 +99,7 @@ static struct queueItem *rqPop(MRWorkQueue *q) {
 void RQ_Done(MRWorkQueue *q) {
   uv_mutex_lock(&q->lock);
   --q->pending;
+  // fprintf(stderr, "Concurrent requests: %d/%d\n", q->pending, q->maxPending);
   uv_mutex_unlock(&q->lock);
 }
 
@@ -118,7 +121,7 @@ MRWorkQueue *RQ_New(int maxPending) {
   q->pending = 0;
   q->maxPending = maxPending;
   q->pendingInfo.head = NULL;
-  q->pendingInfo.warnSize = 0;
+  q->pendingInfo.hitCount = 0;
   uv_mutex_init(&q->lock);
   uv_async_init(uv_default_loop(), &q->async, rqAsyncCb);
   q->async.data = q;

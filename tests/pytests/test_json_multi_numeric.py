@@ -310,13 +310,10 @@ def checkInfoAndGC(env, idx, doc_num, create, delete):
     forceInvokeGC(env, idx)
 
     # Cleaned up
-    expected_info = { 'num_docs': 0,
-                     'total_inverted_index_blocks': 1, # 1 block might be left
-                     # an initialized numeric tree alawys contains a range in its root
-                     'inverted_sz_mb': getInvertedIndexInitialSize_MB(env, ['NUMERIC'])
-                    }
     info = index_info(env, idx)
-    compare_index_info_dict(env, idx, expected_info)
+    env.assertEqual(int(info['num_docs']), 0)
+    env.assertLessEqual(int(info['total_inverted_index_blocks']), 1) # 1 block might be left
+    env.assertEqual(float(info['inverted_sz_mb']), 0)
 
 def printSeed(env):
     # Print the random seed for reproducibility
@@ -610,7 +607,7 @@ def testDebugRangeTree(env):
     conn.execute_command('JSON.SET', 'doc:3', '$', json.dumps({'val': [3, 4, 5]}))
 
     env.expect('FT.DEBUG', 'DUMP_NUMIDXTREE', 'idx', 'val').equal(['numRanges', 1, 'numEntries', 9, 'lastDocId', 3, 'revisionId', 0, 'uniqueId', 0, 'emptyLeaves', 0,
-        'root', ['range', ['minVal', str(1), 'maxVal', str(5), 'unique_sum', str(0), 'invertedIndexSize [bytes]', str(101), 'card', 0, 'cardCheck', 1, 'splitCard', 16,
+        'root', ['range', ['minVal', str(1), 'maxVal', str(5), 'unique_sum', str(0), 'invertedIndexSize [bytes]', str(109), 'card', 0, 'cardCheck', 1, 'splitCard', 16,
                 'entries', ['numDocs', 3, 'numEntries', 9, 'lastId', 3, 'size', 1, 'blocks_efficiency (numEntries/size)', str(9), 'values',
                     ['value', str(1), 'docId', 1, 'value', str(2), 'docId', 1, 'value', str(3), 'docId', 1, 'value', str(1), 'docId', 2, 'value', str(2), 'docId', 2, 'value', str(3), 'docId', 2, 'value', str(3), 'docId', 3, 'value', str(4), 'docId', 3, 'value', str(5), 'docId', 3]]]],
             'Tree stats:', ['Average memory efficiency (numEntries/size)/numRanges', str(9)]])

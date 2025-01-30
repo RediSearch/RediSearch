@@ -23,8 +23,6 @@
 #include "rwlock.h"
 #include "fork_gc.h"
 #include "module.h"
-#include "cursor.h"
-#include "info/indexes_info.h"
 
 /**
  * Most of the spec interaction is done through the RefManager, which is wrapped by a strong or weak reference struct.
@@ -168,7 +166,7 @@ RSFieldID RediSearch_CreateField(RefManager* rm, const char* name, unsigned type
   }
   if (options & RSFLDOPT_SORTABLE) {
     fs->options |= FieldSpec_Sortable;
-    fs->sortIdx = sp->numSortableFields++;
+    fs->sortIdx = RSSortingTable_Add(&sp->sortables, fs->name, fieldTypeToValueType(fs->types));
   }
   if (options & RSFLDOPT_TXTNOSTEM) {
     fs->options |= FieldSpec_NoStemming;
@@ -868,9 +866,9 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
   info->numTerms = sp->stats.numTerms;
   info->numRecords = sp->stats.numRecords;
   info->invertedSize = sp->stats.invertedSize;
-  info->invertedCap = 0;
-  info->skipIndexesSize = 0;
-  info->scoreIndexesSize = 0;
+  info->invertedCap = sp->stats.invertedCap;
+  info->skipIndexesSize = sp->stats.skipIndexesSize;
+  info->scoreIndexesSize = sp->stats.scoreIndexesSize;
   info->offsetVecsSize = sp->stats.offsetVecsSize;
   info->offsetVecRecords = sp->stats.offsetVecRecords;
   info->termsSize = sp->stats.termsSize;
@@ -894,12 +892,18 @@ int RediSearch_IndexInfo(RSIndex* rm, RSIdxInfo *info) {
 
 size_t RediSearch_MemUsage(RSIndex* rm) {
   IndexSpec *sp = __RefManager_Get_Object(rm);
-  return IndexSpec_TotalMemUsage(sp, 0, 0, 0);
-}
-
-// Collect statistics of all the currently existing indexes
-TotalIndexesInfo RediSearch_TotalInfo(void) {
-  return IndexesInfo_TotalInfo();
+  size_t res = 0;
+  res += sp->docs.memsize;
+  res += sp->docs.sortablesSize;
+  res += TrieMap_MemUsage(sp->docs.dim.tm);
+  res += IndexSpec_collect_text_overhead(sp);
+  res += IndexSpec_collect_tags_overhead(sp);
+  res += sp->stats.invertedSize;
+  res += sp->stats.skipIndexesSize;
+  res += sp->stats.scoreIndexesSize;
+  res += sp->stats.offsetVecsSize;
+  res += sp->stats.termsSize;
+  return res;
 }
 
 void RediSearch_IndexInfoFree(RSIdxInfo *info) {

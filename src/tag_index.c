@@ -129,11 +129,11 @@ int TagIndex_Preprocess(char sep, TagFieldFlags flags, const DocumentField *data
 }
 
 struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
-                                          size_t len, int create_if_missing, size_t *sz) {
+                                          size_t len, int create, size_t *sz) {
   *sz = 0;
   InvertedIndex *iv = TrieMap_Find(idx->values, value, len);
   if (iv == TRIEMAP_NOTFOUND) {
-    if (create_if_missing) {
+    if (create) {
       iv = NewInvertedIndex(Index_DocIdsOnly, 1, sz);
       TrieMap_Add(idx->values, value, len, iv, NULL);
     }
@@ -148,7 +148,7 @@ static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, 
   size_t sz;
   IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
-  InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
+  InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, 1, &sz);
   return InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec) + sz;
 }
 
@@ -187,14 +187,14 @@ static void TagReader_OnReopen(void *privdata) {
       // we need to reopen the inverted index to make sure its still valid.
       // the GC might have deleted it by now.
       InvertedIndex *idx = TagIndex_OpenIndex(ctx->idx, ir->record->term.term->str,
-                                              ir->record->term.term->len, DONT_CREATE_INDEX, &sz);
+                                              ir->record->term.term->len, 0, &sz);
       if (idx == TRIEMAP_NOTFOUND || ir->idx != idx) {
-        // The inverted index was collected entirely by GC.
-        // All the documents that were inside were deleted and new ones were added.
-        // We will not continue reading those new results and instead abort reading
-        // for this specific inverted index.
+        // the inverted index was collected entirely by GC, lets stop searching.
+        // notice, it might be that a new inverted index was created, we will not
+        // continue read those results and we are not promise that documents
+        // that was added during cursor life will be returned by the cursor.
         IR_Abort(ir);
-        continue; // Deal with the next IndexReader
+        return;
       }
     }
     // Use generic `OnReopen` callback for all readers
@@ -246,13 +246,12 @@ RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) 
   return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field);
 }
 
-/* Open the tag index */
-TagIndex *TagIndex_Open(const RedisSearchCtx *ctx, RedisModuleString *key, bool create_if_missing) {
+static TagIndex *openTagKeyDict(RedisSearchCtx *ctx, RedisModuleString *key, int openWrite) {
   KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, key);
   if (kdv) {
     return kdv->p;
   }
-  if (!create_if_missing) {
+  if (!openWrite) {
     return NULL;
   }
   kdv = rm_calloc(1, sizeof(*kdv));
@@ -260,6 +259,40 @@ TagIndex *TagIndex_Open(const RedisSearchCtx *ctx, RedisModuleString *key, bool 
   kdv->dtor = TagIndex_Free;
   dictAdd(ctx->spec->keysDict, key, kdv);
   return kdv->p;
+}
+
+/* Open the tag index */
+TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
+                        RedisModuleKey **keyp) {
+  TagIndex *ret = NULL;
+  if (!sctx->spec->keysDict) {
+    RedisModuleKey *key_s = NULL;
+    if (!keyp) {
+      keyp = &key_s;
+    }
+
+    *keyp = RedisModule_OpenKey(sctx->redisCtx, formattedKey,
+                                REDISMODULE_READ | (openWrite ? REDISMODULE_WRITE : 0));
+
+    int type = RedisModule_KeyType(*keyp);
+    if (type != REDISMODULE_KEYTYPE_EMPTY && RedisModule_ModuleTypeGetType(*keyp) != TagIndexType) {
+      return NULL;
+    }
+
+    /* Create an empty value object if the key is currently empty. */
+    if (type == REDISMODULE_KEYTYPE_EMPTY) {
+      if (openWrite) {
+        ret = NewTagIndex();
+        RedisModule_ModuleTypeSetValue((*keyp), TagIndexType, ret);
+      }
+    } else {
+      ret = RedisModule_ModuleTypeGetValue(*keyp);
+    }
+  } else {
+    ret = openTagKeyDict(sctx, formattedKey, openWrite);
+  }
+
+  return ret;
 }
 
 /* Serialize all the tags in the index to the redis client */
@@ -361,7 +394,7 @@ size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
   TagIndex *idx = NULL;
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
   RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->name);
-  idx = TagIndex_Open(&sctx, keyName, DONT_CREATE_INDEX);
+  idx = TagIndex_Open(&sctx, keyName, 0, NULL);
   RedisModule_FreeString(RSDummyContext, keyName);
   if (idx) {
     overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize

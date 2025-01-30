@@ -103,7 +103,10 @@ TEST_F(ExtTest, testRegistration) {
 TEST_F(ExtTest, testDynamicLoading) {
   char *errMsg = NULL;
   int rc = Extension_LoadDynamic(getExtensionPath(), &errMsg);
-  ASSERT_EQ(rc, REDISMODULE_OK) << "Error loading extension: " << errMsg;
+  ASSERT_EQ(rc, REDISMODULE_OK);
+  if (errMsg != NULL) {
+    FAIL() << "Error loading extension: " << errMsg;
+  }
 
   ScoringFunctionArgs scxp;
   ExtScoringFunctionCtx *sx = Extensions_GetScoringFunction(&scxp, "example_scorer");

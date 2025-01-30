@@ -4,16 +4,15 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#ifndef RS_MISC_H
-#define RS_MISC_H
-
 #include "redismodule.h"
+#ifndef INFO_COMMAND_H
+#define INFO_COMMAND_H
 
-/**
- * This handler crashes
- */
-void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *key, void *value);
-
-char *strtolower(char *str);
-
+#ifdef __cplusplus
+extern "C" {
+#endif
+int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+#ifdef __cplusplus
+}
+#endif
 #endif

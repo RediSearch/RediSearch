@@ -2,9 +2,6 @@
 #include "src/redisearch_api.h"
 #include "gtest/gtest.h"
 #include "common.h"
-#include "src/redis_index.h"
-#include "src/numeric_index.h"
-#include "src/info/indexes_info.h"
 
 #include <set>
 #include <string>
@@ -1156,30 +1153,6 @@ TEST_F(LLApiTest, testInfo) {
   RediSearch_DropIndex(index);
 }
 
-TEST_F(LLApiTest, testIndexesInfo) {
-
-  // Create index and add some data
-  RSIndex* index = RediSearch_CreateIndex("index", NULL);
-
-  // adding field to the index
-  RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
-  RediSearch_CreateTextField(index, FIELD_NAME_1);
-
-  // adding document to the index
-  RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
-  RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 20, RSFLDTYPE_DEFAULT);
-  RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TEXT", RSFLDTYPE_DEFAULT);
-  RediSearch_SpecAddDocument(index, d);
-
-  TotalIndexesInfo api_indexes_info = RediSearch_TotalInfo();
-  TotalIndexesInfo expected_indexes_info = IndexesInfo_TotalInfo();
-  bool is_equal = !memcmp(&api_indexes_info, &expected_indexes_info, sizeof(TotalIndexesInfo));
-
-  ASSERT_TRUE(is_equal);
-
-  RediSearch_DropIndex(index);
-}
-
 TEST_F(LLApiTest, testLanguage) {
   ASSERT_EQ(REDISEARCH_OK, RediSearch_ValidateLanguage("Hindi"));
   ASSERT_EQ(REDISEARCH_ERR, RediSearch_ValidateLanguage("Hebrew"));
@@ -1218,7 +1191,7 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
   RediSearch_CreateTextField(index, FIELD_NAME_1);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 0);
+  ASSERT_EQ(RediSearch_MemUsage(index), 0);
 
   // adding document to the index
   RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
@@ -1226,38 +1199,30 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TEXT", RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  // The numeric range tree overhead was added to RediSearch_MemUsage when this test was already exist.
-  // I'm not sure how the hardcoded memory value was calculated, so I preferred to better define the
-  // additional memory so from now on it will be easier to track the expected memory.
-  size_t additional_overhead = sizeof(NumericRangeTree);
-
-  EXPECT_EQ(RediSearch_MemUsage(index), 335 + additional_overhead);
+  ASSERT_EQ(RediSearch_MemUsage(index), 343);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 604 + additional_overhead);
+  ASSERT_EQ(RediSearch_MemUsage(index), 612);
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 476 + additional_overhead);
+  ASSERT_EQ(RediSearch_MemUsage(index), 484);
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
-  EXPECT_EQ(RediSearch_MemUsage(index), 332 + additional_overhead);
+  gc->callbacks.periodicCallback(RSDummyContext, gc->gcCtx);
+  ASSERT_EQ(RediSearch_MemUsage(index), 340);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 233 + additional_overhead);
+  ASSERT_EQ(RediSearch_MemUsage(index), 241);
   gc = get_spec(index)->gc;
-  gc->callbacks.periodicCallback(gc->gcCtx);
-  // we always keep the numeric index root. Also, an inverted index has at least one block with initial capacity.
-  // TODO: replace this with a generic function that counts the accumulated size of all inverted indexes in the spec.
-  additional_overhead += sizeof_InvertedIndex(Index_StoreNumeric) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
-  EXPECT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
+  gc->callbacks.periodicCallback(RSDummyContext, gc->gcCtx);
+  ASSERT_EQ(RediSearch_MemUsage(index), 2);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained.
 

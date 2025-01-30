@@ -130,6 +130,12 @@ void CursorList_Destroy(CursorList *cl);
  */
 void CursorList_Empty(CursorList *cl);
 
+/**
+ * Mark all existing cursors as expired, so that they will be removed on the next GC sweep
+ */
+void CursorList_Expire(CursorList *cl);
+
+#define RSCURSORS_DEFAULT_CAPACITY 128
 #define RSCURSORS_SWEEP_INTERVAL 500                /* GC Every 500 requests */
 #define RSCURSORS_SWEEP_THROTTLE (1 * (1000000000)) /* Throttle, in NS */
 
@@ -174,16 +180,6 @@ int Cursor_Free(Cursor *cl);
 int Cursors_Purge(CursorList *cl, uint64_t cid);
 
 int Cursors_CollectIdle(CursorList *cl);
-
-typedef struct CursorsInfoStats {
-  size_t total;
-  size_t total_idle;
-} CursorsInfoStats;
-
-/**
- * Return the stats for the `INFO` command
-*/
-CursorsInfoStats Cursors_GetInfoStats(void);
 
 /**
  * Assumed to be called by the main thread with a valid locked spec, under the cursors lock.

@@ -6,7 +6,6 @@ from redis import Redis, RedisCluster, cluster, exceptions
 from common import *
 from RLTest import Env
 from random import randint
-import random
 
 def test_1282(env):
   conn = getConnectionByEnv(env)
@@ -841,8 +840,8 @@ def test_mod_6276(env):
   env.expect('FT.DEBUG', 'GC_STOP_SCHEDULE', 'idx').ok()   # Stop the gc from running uncontrollably
   env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE') # Make sure there are no running gc jobs
   env.expect('MULTI').ok()                                 # Start an atomic transaction:
-  env.cmd('FT.DEBUG', 'GC_CONTINUE_SCHEDULE', 'idx')       # 1. Reschedule the gc - add a job to the queue
-  env.cmd('FT.DROPINDEX', 'idx')                           # 2. Drop the index while the gc is running/queued
+  env.cmd('FT.DEBUG', 'GC_FORCEBGINVOKE', 'idx')           # 1. Force the gc to run
+  env.cmd('FT.DROPINDEX', 'idx')                           # 2. Drop the index while the gc is running
   env.expect('EXEC').equal(['OK', 'OK'])                   # Execute the transaction
   env.expect('FT.DEBUG', 'GC_WAIT_FOR_JOBS').equal('DONE') # Wait for the gc to finish
 
@@ -1217,103 +1216,3 @@ def test_mod_7495(env: Env):
   # First non-stopword is not found
   env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|foo)', 'DIALECT', '2').equal([0]).noError()
   env.expect('FT.SEARCH', 'idx', '(is|the|a|of|in|foo|world)', 'DIALECT', '2').equal(expected).noError()
-
-
-@skip(cluster=True)
-def test_mod_8142(env:Env):
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-  env.cmd('HSET', 'doc1', 't', 'city')
-  env.cmd('HSET', 'doc2', 't', 'cities')
-  score_opt = ['WITHSCORES', 'SCORER', 'TFIDF']
-
-  # Test with a term search
-  env.expect('FT.SEARCH', 'idx', 'city', *score_opt).equal([2, 'doc1', '3', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
-  env.expect('FT.SEARCH', 'idx', 'cities', *score_opt).equal([2, 'doc2', '3', ['t', 'cities'], 'doc1', '1', ['t', 'city']])
-  # Test with an exact term search
-  env.expect('FT.SEARCH', 'idx', '"city"', *score_opt).equal([1, 'doc1', '2', ['t', 'city']])
-  env.expect('FT.SEARCH', 'idx', '"cities"', *score_opt).equal([1, 'doc2', '2', ['t', 'cities']])
-  # Test with an optional term search
-  env.expect('FT.SEARCH', 'idx', '~city', *score_opt).equal([2, 'doc1', '3', ['t', 'city'], 'doc2', '1', ['t', 'cities']])
-  env.expect('FT.SEARCH', 'idx', '~cities', *score_opt).equal([2, 'doc2', '3', ['t', 'cities'], 'doc1', '1', ['t', 'city']])
-  # Test with an optional exact term search
-  env.expect('FT.SEARCH', 'idx', '~"city"', *score_opt).equal([2, 'doc1', '2', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
-  env.expect('FT.SEARCH', 'idx', '~"cities"', *score_opt).equal([2, 'doc2', '2', ['t', 'cities'], 'doc1', '0', ['t', 'city']])
-  # Test without a term search
-  env.expect('FT.SEARCH', 'idx', '-city', *score_opt).equal([0])
-  env.expect('FT.SEARCH', 'idx', '-cities', *score_opt).equal([0])
-  # Test without an exact term search
-  env.expect('FT.SEARCH', 'idx', '-"city"', *score_opt).equal([1, 'doc2', '0', ['t', 'cities']])
-  env.expect('FT.SEARCH', 'idx', '-"cities"', *score_opt).equal([1, 'doc1', '0', ['t', 'city']])
-  # Test with an optional negated term search
-  env.expect('FT.SEARCH', 'idx', '~-city', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
-  env.expect('FT.SEARCH', 'idx', '~-cities', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
-  # Test with an optional negated exact term search
-  env.expect('FT.SEARCH', 'idx', '~-"city"', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
-  env.expect('FT.SEARCH', 'idx', '~-"cities"', *score_opt).equal([2, 'doc1', '0', ['t', 'city'], 'doc2', '0', ['t', 'cities']])
-
-  # Verify that the vector search doesn't affect the scoring or result set
-  env.expect('FT.ALTER', 'idx', 'SKIPINITIALSCAN', 'SCHEMA', 'ADD', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
-  env.cmd('HSET', 'doc1', 'v', np.array([1, 1], dtype=np.float32).tobytes())
-  env.cmd('HSET', 'doc2', 'v', np.array([1, 2], dtype=np.float32).tobytes())
-  res1 = env.cmd('FT.SEARCH', 'idx', 'city', 'WITHSCORES', 'RETURN', '1', 't')
-  res2 = env.cmd('FT.SEARCH', 'idx', 'city=>[KNN 10 @v $BLOB]', 'WITHSCORES', 'RETURN', '1', 't', 'DIALECT', '2',
-                                                                'PARAMS', 2, 'BLOB', np.array([1, 0], dtype=np.float32).tobytes())
-  env.assertEqual(res1, res2)
-
-@skip(cluster=True)
-def test_mod_7882(env:Env):
-  """
-  We currently don't support searching for strings that are longer than 1024 characters in the Trie.
-  """
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-  long_text = 'a'*1025
-
-  # All the queries below should return an error without crashing.
-  env.expect('FT.SEARCH', 'idx', '*' + long_text).error().contains('SUFFIX query string is too long')
-  env.expect('FT.SEARCH', 'idx', long_text + '*').error().contains('PREFIX query string is too long')
-  env.expect('FT.SEARCH', 'idx', '*' + long_text + '*').error().contains('INFIX query string is too long')
-
-  env.expect('FT.SEARCH', 'idx', "w'" + long_text + "'", 'DIALECT', '2').error().contains('Wildcard query string is too long')
-
-@skip(cluster=True)
-def test_mod_6783(env:Env):
-  n_max_sortable = 1024
-  n_docs = 10
-  step = 71 # Testing every possible number of sortables is too slow
-
-  # Add documents with a unique values for each sortable field, in unique random orders
-  orders = random.choices(list(itertools.permutations(range(n_docs))), k=n_max_sortable)
-  for field_id, vals in enumerate(orders):
-    for doc_id, val in enumerate(vals):
-      env.cmd('HSET', f'doc{doc_id}', f'f{field_id}', val)
-
-  expected = [sorted(range(n_docs), key=lambda x: order[x]) for order in orders]
-  expected = [[n_docs] + [f'doc{doc_id}' for doc_id in exp] for exp in expected]
-
-  for n_sortables in range(1, n_max_sortable + 1, step):
-    env.expect('FT._DROPINDEXIFX', 'idx').ok()
-    schema = sum([['f'+str(i), 'NUMERIC', 'SORTABLE'] for i in range(n_sortables)], [])
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', *schema).ok()
-    waitForIndex(env)
-
-    for i in range(n_sortables):
-      res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', f'f{i}', 'NOCONTENT')
-      env.assertEqual(res, expected[i], message=f'Failed on field f{i} with {n_sortables} sortables')
-
-@skip(cluster=True)
-def test_mod_8589(env:Env):
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
-  env.cmd('HSET', 'doc1', 'v', '????????', 't', 'foo bar foo') # Max frequency is 2 (foo)
-  docinfo = to_dict(env.cmd(debug_cmd(), 'DOCINFO', 'idx', 'doc1'))
-  env.assertEqual(docinfo['max_freq'], 2)
-
-@skip(cluster=True)
-def test_mod_8568(env:Env):
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'g', 'GEO').ok()
-  env.expect('HSET', 'doc1', 'g', '1.1,1.1').equal(1)
-  env.expect('HSET', 'doc2', 'g', '1.2,1.2').equal(1)
-  expected = [1, 'doc1', ['g', '1.1,1.1']]
-
-  env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km').equal(expected)
-  env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km',
-                                      'GEOFILTER', 'g', '1.1', '1.1', '1000', 'km').equal(expected)

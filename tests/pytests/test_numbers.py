@@ -176,85 +176,85 @@ def testOverrides(env):
         env.assertEqual(expected_root_max_depth, numeric_tree['RootMaxDepth'], message = "expected RootMaxDepth")
 
 def testCompression(env):
-    accuracy = 0.000001
-    repeat = int(math.sqrt(1 / accuracy))
+	accuracy = 0.000001
+	repeat = int(math.sqrt(1 / accuracy))
 
-    conn = getConnectionByEnv(env)
-    pl = conn.pipeline()
-    env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
-    for i in range(repeat):
-        value = accuracy * i
-        pl.execute_command('hset', i, 'n', str(value))
-        if (i % 999) == 0:
-            pl.execute()
-    pl.execute()
+	conn = getConnectionByEnv(env)
+	pl = conn.pipeline()
+	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
+	for i in range(repeat):
+		value = accuracy * i
+		pl.execute_command('hset', i, 'n', str(value))
+		if (i % 999) == 0:
+			pl.execute()
+	pl.execute()
 
-    for i in range(repeat):
-        value = accuracy * i
-        env.expect('ft.search', 'idx', ('@n:[%s %s]' % (value, value))).equal([1, str(i), ['n', str(value)]])
+	for i in range(repeat):
+		value = accuracy * i
+		env.expect('ft.search', 'idx', ('@n:[%s %s]' % (value, value))).equal([1, str(i), ['n', str(value)]])
 
 @skip(cluster=True)
 def testSanity(env):
-    skipOnExistingEnv(env)
-    repeat = 100000
-    conn = getConnectionByEnv(env)
-    env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
-    for i in range(repeat):
-        conn.execute_command('hset', i, 'n', i % 100)
-    env.expect('ft.search', 'idx', ('@n:[0 %d]' % (repeat)), 'limit', 0 ,0).equal([repeat])
-    env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'n') \
-                .equal(['numRanges', 15, 'numEntries', 100000, 'lastDocId', 100000, 'revisionId', 14, 'emptyLeaves', 0, 'RootMaxDepth', 5])
+	skipOnExistingEnv(env)
+	repeat = 100000
+	conn = getConnectionByEnv(env)
+	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
+	for i in range(repeat):
+		conn.execute_command('hset', i, 'n', i % 100)
+	env.expect('ft.search', 'idx', ('@n:[0 %d]' % (repeat)), 'limit', 0 ,0).equal([repeat])
+	env.expect('FT.DEBUG', 'numidx_summary', 'idx', 'n') \
+				.equal(['numRanges', 15, 'numEntries', 100000, 'lastDocId', 100000, 'revisionId', 14, 'emptyLeaves', 0, 'RootMaxDepth', 5])
 
 @skip(cluster=True)
 def testCompressionConfig(env):
-    env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
+	env.cmd('ft.create', 'idx', 'SCHEMA', 'n', 'numeric')
 
-    # w/o compression. exact number match.
-    env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'false').equal('OK')
-    for i in range(100):
-        env.execute_command('hset', i, 'n', str(1 + i / 100.0))
-    for i in range(100):
-        num = str(1 + i / 100.0)
-        env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([1, str(i), ['n', num]])
+	# w/o compression. exact number match.
+	env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'false').equal('OK')
+	for i in range(100):
+	  	env.execute_command('hset', i, 'n', str(1 + i / 100.0))
+	for i in range(100):
+		num = str(1 + i / 100.0)
+		env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([1, str(i), ['n', num]])
 
-    # with compression. no exact number match.
-    env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'true').equal('OK')
-    for i in range(100):
-        env.execute_command('hset', i, 'n', str(1 + i / 100.0))
+	# with compression. no exact number match.
+	env.expect('ft.config', 'set', '_NUMERIC_COMPRESS', 'true').equal('OK')
+	for i in range(100):
+	  env.execute_command('hset', i, 'n', str(1 + i / 100.0))
 
-    # delete keys where compression does not change value
-    env.execute_command('del', '0')
-    env.execute_command('del', '25')
-    env.execute_command('del', '50')
-    env.execute_command('del', '75')
+	# delete keys where compression does not change value
+	env.execute_command('del', '0')
+	env.execute_command('del', '25')
+	env.execute_command('del', '50')
+	env.execute_command('del', '75')
 
-    for i in range(100):
-        num = str(1 + i / 100.0)
-        env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([0])
+	for i in range(100):
+		num = str(1 + i / 100.0)
+		env.expect('ft.search', 'idx', '@n:[%s %s]' % (num, num)).equal([0])
 
 @skip(cluster=True)
 def testRangeParentsConfig(env):
-    elements = 1000
+	elements = 1000
 
-    concurrent = env.cmd('ft.config', 'get', 'CONCURRENT_WRITE_MODE')
-    if str(concurrent[0][1]) == 'true':
-        env.skip()
+	concurrent = env.cmd('ft.config', 'get', 'CONCURRENT_WRITE_MODE')
+	if str(concurrent[0][1]) == 'true':
+		env.skip()
 
-    result = [['numRanges', 4], ['numRanges', 6]]
-    for test in range(2):
-        # check number of ranges
-        env.cmd('ft.create', 'idx0', 'SCHEMA', 'n', 'numeric')
-        for i in range(elements):
-            env.execute_command('hset', i, 'n', i)
-        actual_res = env.cmd('FT.DEBUG', 'numidx_summary', 'idx0', 'n')
-        env.assertEqual(actual_res[0:2], result[test])
+	result = [['numRanges', 4], ['numRanges', 6]]
+	for test in range(2):
+		# check number of ranges
+		env.cmd('ft.create', 'idx0', 'SCHEMA', 'n', 'numeric')
+		for i in range(elements):
+			env.execute_command('hset', i, 'n', i)
+		actual_res = env.cmd('FT.DEBUG', 'numidx_summary', 'idx0', 'n')
+		env.assertEqual(actual_res[0:2], result[test])
 
-        # reset with old ranges parents param
-        env.cmd('ft.drop', 'idx0')
-        env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', '2').equal('OK')
+		# reset with old ranges parents param
+		env.cmd('ft.drop', 'idx0')
+		env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', '2').equal('OK')
 
-    # reset back
-    env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', '0').equal('OK')
+	# reset back
+	env.expect('ft.config', 'set', '_NUMERIC_RANGES_PARENTS', '0').equal('OK')
 
 @skip(cluster=True)
 def testEmptyNumericLeakIncrease(env):
@@ -290,7 +290,7 @@ def testEmptyNumericLeakCenter(env):
     # the value increases and reach `repeat * docs`
     # check that no empty node are left
 
-    # Make sure GC is not triggered sporadically (only manually)
+	# Make sure GC is not triggered sporadically (only manually)
     env.expect('FT.CONFIG', 'SET', 'FORK_GC_RUN_INTERVAL', 3600).equal('OK')
     env.expect('FT.CONFIG', 'SET', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
 
@@ -394,72 +394,3 @@ def testNegativeValues(env):
     # Query the index. if the split value of the root is nan, the query won't return any results.
     res = env.cmd('FT.SEARCH', 'idx', '@num:[-inf +inf]', 'NOCONTENT')
     env.assertEqual(res[0], doc_id)
-
-@skip(cluster=True)
-def testNumericTree(env:Env):
-    idx = 'idx'
-    field = 'n'
-    cardCheck = 10 # currently we check the cardinality every 10 docs
-
-    cur_id = 0
-    def add_val(val):
-        # Adds `cardCheck` docs with value `val` for field `n`, so the
-        # range-node cardinality is updated with this value
-        nonlocal cur_id
-        for i in range(cardCheck):
-            env.cmd('HSET', 'doc%d' % (i + cur_id), 'n', val)
-        cur_id += cardCheck
-
-    def equal_structure(tree1, tree2):
-        def equal_subtree_structure(st1, st2):
-            st1 = to_dict(st1)
-            st2 = to_dict(st2)
-            if 'left' not in st1 or 'right' not in st1:
-                return 'left' not in st2 or 'right' not in st2
-            return equal_subtree_structure(st1['left'], st2['left']) and equal_subtree_structure(st1['right'], st2['right'])
-        return equal_subtree_structure(to_dict(tree1)['root'], to_dict(tree2)['root'])
-
-    def cause_split(val):
-        # Add close-but-not-equal values to the tree, until the tree is split
-        start_tree = env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field)
-        epsilon = 0.
-        while equal_structure(start_tree, env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field)):
-            add_val(val + epsilon)
-            epsilon += 0.0001
-
-    # Recursively validate the maxDepth field in the tree
-    def validate_tree(tree):
-        maxDepthRange = int(env.cmd(config_cmd(), 'GET', '_NUMERIC_RANGES_PARENTS')[0][1])
-        def validate_subtree(subtree):
-            subtree = to_dict(subtree)
-            if 'left' not in subtree or 'right' not in subtree:
-                env.assertContains('range', subtree)
-                return 0 # a leaf
-            left_max_depth = validate_subtree(subtree['left'])
-            right_max_depth = validate_subtree(subtree['right'])
-            expected_max_depth = max(left_max_depth, right_max_depth) + 1
-            env.assertEqual(subtree['maxDepth'], expected_max_depth)
-            # Some balancing rotation might cause a node with no range to get a maxDepth below the maxDepthRange,
-            # so we can't validate all nodes to be below the maxDepthRange have a range.
-            # We validate that if the maxDepth is above the maxDepthRange, there is no range
-            env.assertTrue(subtree['maxDepth'] <= maxDepthRange or 'range' not in subtree)
-            return expected_max_depth
-        validate_subtree(to_dict(tree)['root'])
-
-    env.expect('FT.CREATE', idx, 'SCHEMA', field, 'NUMERIC').ok()
-    # Split to the right 5 times
-    for i in range(5):
-        cause_split(i)
-
-    validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field))
-
-    env.flush()
-    env.expect(config_cmd(), 'SET', '_NUMERIC_RANGES_PARENTS', '2').ok()
-    env.expect('FT.CREATE', idx, 'SCHEMA', field, 'NUMERIC').ok()
-
-    # Split to the right and then to the left
-    cause_split(0)
-    cause_split(2) # to the right
-    cause_split(1) # to the left (of 2, right of 0)
-
-    validate_tree(env.cmd(debug_cmd(), 'DUMP_NUMIDXTREE', idx, field))

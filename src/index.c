@@ -20,7 +20,6 @@
 #include "hybrid_reader.h"
 #include "metric_iterator.h"
 #include "optimizer_reader.h"
-#include "util/units.h"
 
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit);

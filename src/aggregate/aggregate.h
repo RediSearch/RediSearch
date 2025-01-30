@@ -27,7 +27,7 @@ typedef struct Grouper Grouper;
 struct QOptimizer;
 
 typedef enum {
-  QEXEC_F_IS_AGGREGATE = 0x01,    // Is an aggregate command
+  QEXEC_F_IS_EXTENDED = 0x01,     // Contains aggregations or projections
   QEXEC_F_SEND_SCORES = 0x02,     // Output: Send scores with each result
   QEXEC_F_SEND_SORTKEYS = 0x04,   // Sent the key used for sorting, for each result
   QEXEC_F_SEND_NOFIELDS = 0x08,   // Don't send the contents of the fields
@@ -48,7 +48,7 @@ typedef enum {
    */
   QEXEC_F_RUN_IN_BACKGROUND = 0x100,
 
-  /* The inverse of IS_AGGREGATE. The two cannot coexist together */
+  /* The inverse of IS_EXTENDED. The two cannot coexist together */
   QEXEC_F_IS_SEARCH = 0x200,
 
   /* Highlight/summarize options are active */
@@ -82,12 +82,6 @@ typedef enum {
   // Compound values are returned serialized (RESP2 or HASH) or expanded (RESP3 w/JSON)
   QEXEC_FORMAT_DEFAULT = 0x100000,
 
-  // Set the score of the doc to an RLookupKey in the result
-  QEXEC_F_SEND_SCORES_AS_FIELD = 0x200000,
-
-  // The query is internal (responding to a command from the coordinator)
-  QEXEC_F_INTERNAL = 0x400000,
-
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
@@ -97,10 +91,6 @@ typedef enum {
 #define IsFormatExpand(r) ((r)->reqflags & QEXEC_FORMAT_EXPAND)
 #define IsWildcard(r) ((r)->ast.root->type == QN_WILDCARD)
 #define HasScorer(r) ((r)->optimizer->scorerType != SCORER_TYPE_NONE)
-#define HasLoader(r) ((r)->stateflags & QEXEC_S_HAS_LOAD)
-#define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
-#define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
-#define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
 // Get the index search context from the result processor
 #define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 

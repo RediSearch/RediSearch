@@ -38,13 +38,11 @@
 #include "alias.h"
 #include "module.h"
 #include "rwlock.h"
-#include "info/info_command.h"
+#include "info_command.h"
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
 #include "reply.h"
 #include "resp3.h"
-#include "info/global_stats.h"
-#include "util/units.h"
 
 
 /* FT.MGET {index} {key} ...
@@ -191,7 +189,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   SET_DIALECT(sctx->spec->used_dialects, dialect);
-  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, dialect);
+  SET_DIALECT(RSGlobalConfig.used_dialects, dialect);
 
   bool fullScoreInfo = false;
   if (RMUtil_ArgExists("FULLSCOREINFO", argv, argc, 0)) {
@@ -325,7 +323,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModuleString *rstr = TagIndex_FormatName(sctx, field);
-  TagIndex *idx = TagIndex_Open(sctx, rstr, DONT_CREATE_INDEX);
+  TagIndex *idx = TagIndex_Open(sctx, rstr, 0, NULL);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
     RedisModule_ReplyWithSetOrArray(ctx, 0);
