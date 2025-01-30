@@ -130,14 +130,13 @@ public:
 
     std::vector<std::string> Search(const std::string &term) override {
         RSQNode *q = RediSearch_CreateTokenNode(index, "text", term.c_str());
-        RSResultsIterator *iter = RediSearch_GetResultsIterator(q, index);
+        RSResultsIterator *iter = RediSearch_GetResultsIterator(q, index); // consumes the query node
         std::vector<std::string> results;
         const char *cur;
         while ((cur = (const char *)RediSearch_ResultsIteratorNext(iter, index, NULL)) != NULL) {
             results.emplace_back(cur);
         }
         RediSearch_ResultsIteratorFree(iter);
-        RediSearch_QueryNodeFree(q);
         return results;
     }
 

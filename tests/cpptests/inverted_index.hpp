@@ -26,10 +26,11 @@ public:
     // Get the singleton instance of the class
     template <typename... Args>
     static InvertedIndices *getInvertedIndices(Args... args) {
-        if (instance == nullptr) {
-            instance = new InvertedIndices(args...);
-        }
-        return instance;
+        // if (instance == nullptr) {
+        //     instance = new InvertedIndices(args...);
+        // }
+        // return instance;
+        return new InvertedIndices(args...);
     }
 
     Status Add(Slice &term, uint64_t doc_id);
