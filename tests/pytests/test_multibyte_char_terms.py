@@ -94,6 +94,23 @@ def testMultibyteText(env):
             'FT.SEARCH', 'idx', '@t:(grüßen)', 'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, expected)
 
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:(grüß*)', 'NOCONTENT', 'SORTBY', 't')
+        env.assertEqual(res, expected)
+
+        # res = conn.execute_command(
+        #     'FT.SEARCH', 'idx', '@t:(GRÜß*)', 'NOCONTENT', 'SORTBY', 't')
+        # env.assertEqual(res, expected)
+
+        # res = conn.execute_command(
+        #     'FT.SEARCH', 'idx', '@t:(*üßen)', 'NOCONTENT', 'SORTBY', 't')
+        # env.assertEqual(res, expected)
+
+        # res = conn.execute_command(
+        #     'FT.SEARCH', 'idx', '@t:(*ÜßEN)', 'NOCONTENT', 'SORTBY', 't')
+        # env.assertEqual(res, expected)
+
+
 def testJsonMultibyteText(env):
     '''Test that multibyte characters are correctly converted to lowercase and
     that queries are case-insensitive using TEXT fields on JSON index'''
@@ -497,12 +514,13 @@ def testMultibyteTag(env):
     conn.execute_command('HSET', 'doc:mixed', 't', 'БЪлга123', 'id', 5)
     conn.execute_command('HSET', 'doc:eszett_1', 't', 'GRÜẞEN', 'id', 6)
     conn.execute_command('HSET', 'doc:eszett_2', 't', 'grüßen', 'id', 7)
+    conn.execute_command('HSET', 'doc:eszeet_3', 't', 'FUẞBALL STRAẞE', 'id', 8)
 
     if not env.isCluster():
         # only 3 terms are indexed, the lowercase representation of the terms
         res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
-        env.assertEqual(res, [['abcabc', [1, 2]], ['grüßen', [6, 7]],
-                              ['бълга123', [3, 4, 5]]])
+        env.assertEqual(res, [['abcabc', [1, 2]], ['fußball straße', [8]],
+                              ['grüßen', [6, 7]], ['бълга123', [3, 4, 5]]])
 
     for dialect in range(1, 5):
         env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
@@ -542,7 +560,7 @@ def testMultibyteTag(env):
         # Search with uppercase prefix
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:{БЪЛГА*}', 'NOCONTENT', 'SORTBY', 'id')
-        env.assertEqual(res, expected)
+        env.assertEqual(res, expected, message=f'Dialect: {dialect}')
 
         # Search with lowercase suffix
         res = conn.execute_command(
@@ -564,7 +582,9 @@ def testMultibyteTag(env):
             'FT.SEARCH', 'idx', '@t:{*ЪЛГА*}', 'NOCONTENT', 'SORTBY', 'id')
         env.assertEqual(res, expected)
 
-        # Search for term with eszett
+        # Search for term with Eszett (ẞ).
+        # The Eszett is a special case, because the uppercase unicode character
+        # occupies 3 bytes, and the lowercase unicode character occupies 2 bytes
         expected = [2, 'doc:eszett_1', 'doc:eszett_2']
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:{GRÜẞEN}', 'NOCONTENT', 'SORTBY', 'id')
@@ -573,6 +593,55 @@ def testMultibyteTag(env):
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:{grüßen}', 'NOCONTENT', 'SORTBY', 'id')
         env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{grüß*}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{GRÜß*}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{*üßen}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{*ÜßEN}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{*üß*}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{*Üß*}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        # Test wildcard search
+        # Tag + wildcard search is not supported by dialect 1
+        if dialect > 1:
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', "@t:{w'*ÜßEN'}", 'NOCONTENT', 'SORTBY', 'id')
+            env.assertEqual(res, expected, message=f'Dialect: {dialect}')
+
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', "@t:{w'GRÜ*'}", 'NOCONTENT', 'SORTBY', 'id')
+            env.assertEqual(res, expected, message=f'Dialect: {dialect}')
+
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', "@t:{w'GRÜßEN'}", 'NOCONTENT', 'SORTBY', 'id')
+            env.assertEqual(res, expected, message=f'Dialect: {dialect}')
+
+        # Test phrase search
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', "@t:{FUẞBALL STRAẞE}", 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, [1, 'doc:eszeet_3'], message=f'Dialect: {dialect}')
+
+        # Tag + fuzzy search is not supported
+        env.expect(
+            'FT.SEARCH', 'idx', "@t:{%GRÜßET%}", 'NOCONTENT', 'SORTBY', 'id')\
+                .error().contains('Syntax error')
 
 def testJsonMultibyteTag(env):
     '''Test that multibyte characters are correctly converted to lowercase and
@@ -589,12 +658,13 @@ def testJsonMultibyteTag(env):
     conn.execute_command('JSON.SET', 'doc:mixed', '$', r'{"t": "БЪлга123", "id": 5}')
     conn.execute_command('JSON.SET', 'doc:eszett_1', '$', r'{"t": "GRÜẞEN", "id": 6}')
     conn.execute_command('JSON.SET', 'doc:eszett_2', '$', r'{"t": "grüßen", "id": 7}')
+    conn.execute_command('JSON.SET', 'doc:eszeet_3', '$', r'{"t": "FUẞBALL STRAẞE", "id": 8}')
 
     if not env.isCluster():
         # only 3 terms are indexed, the lowercase representation of the terms
         res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
-        env.assertEqual(res, [['abcabc', [1, 2]], ['grüßen', [6, 7]],
-                              ['бълга123', [3, 4, 5]]])
+        env.assertEqual(res, [['abcabc', [1, 2]], ['fußball straße', [8]],
+                              ['grüßen', [6, 7]], ['бълга123', [3, 4, 5]]])
 
     for dialect in range(1, 5):
         env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
@@ -657,6 +727,8 @@ def testJsonMultibyteTag(env):
         env.assertEqual(res, expected)
 
         # Search for term with eszett
+        # The Eszett is a special case, because the uppercase unicode character
+        # occupies 3 bytes, and the lowercase unicode character occupies 2 bytes
         expected = [2, 'doc:eszett_1', 'doc:eszett_2']
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:{GRÜẞEN}', 'NOCONTENT', 'SORTBY', 'id')
@@ -665,6 +737,55 @@ def testJsonMultibyteTag(env):
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:{grüßen}', 'NOCONTENT', 'SORTBY', 'id')
         env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{grüß*}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{GRÜß*}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{*üßen}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{*ÜßEN}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{*üß*}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', '@t:{*Üß*}', 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, expected)
+
+        # Test wildcard search
+        # Tag + wildcard search is not supported by dialect 1
+        if dialect > 1:
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', "@t:{w'*ÜßEN'}", 'NOCONTENT', 'SORTBY', 'id')
+            env.assertEqual(res, expected, message=f'Dialect: {dialect}')
+
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', "@t:{w'GRÜ*'}", 'NOCONTENT', 'SORTBY', 'id')
+            env.assertEqual(res, expected, message=f'Dialect: {dialect}')
+
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', "@t:{w'GRÜßEN'}", 'NOCONTENT', 'SORTBY', 'id')
+            env.assertEqual(res, expected, message=f'Dialect: {dialect}')
+
+        # Test phrase search
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', "@t:{FUẞBALL STRAẞE}", 'NOCONTENT', 'SORTBY', 'id')
+        env.assertEqual(res, [1, 'doc:eszeet_3'], message=f'Dialect: {dialect}')
+
+        # Tag + fuzzy search is not supported
+        env.expect(
+            'FT.SEARCH', 'idx', "@t:{%GRÜßET%}", 'NOCONTENT', 'SORTBY', 'id')\
+                .error().contains('Syntax error')
 
 def testMultibyteTagCaseSensitive(env):
     '''Test multibyte characters with TAG fields with CASESENSITIVE option.

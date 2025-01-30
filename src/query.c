@@ -1304,29 +1304,41 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
                                               IndexIteratorArray *iterout, double weight,
                                               const FieldSpec *fs) {
   IndexIterator *ret = NULL;
-  if (n->tn.str) {
-    tag_strtolower(n->tn.str, &n->tn.len, fs->tagOpts.tagFlags & TagField_CaseSensitive);
-  }
+  int caseSensitive = fs->tagOpts.tagFlags & TagField_CaseSensitive;
 
   switch (n->type) {
     case QN_TOKEN: {
+      tag_strtolower(n->tn.str, &n->tn.len, caseSensitive);
       n->tn.len = strlen(n->tn.str);
       ret = TagIndex_OpenReader(idx, q->sctx, n->tn.str, n->tn.len, weight, fs->index);
       break;
     }
     case QN_PREFIX:
+      tag_strtolower(n->pfx.tok.str, &n->pfx.tok.len, caseSensitive);
+      n->pfx.tok.len = strlen(n->pfx.tok.str);
       return Query_EvalTagPrefixNode(q, idx, n, iterout, weight, FieldSpec_HasSuffixTrie(fs), fs->index);
 
     case QN_WILDCARD_QUERY:
+      tag_strtolower(n->verb.tok.str, &n->verb.tok.len, caseSensitive);
+      n->verb.tok.len = strlen(n->verb.tok.str);
       return Query_EvalTagWildcardNode(q, idx, n, iterout, weight, fs->index);
 
     case QN_LEXRANGE:
+      if(n->lxrng.begin) {
+        size_t beginLen = strlen(n->lxrng.begin);
+        tag_strtolower(n->lxrng.begin, &beginLen, caseSensitive);
+      }
+      if(n->lxrng.end) {
+        size_t endLen = strlen(n->lxrng.end);
+        tag_strtolower(n->lxrng.end, &endLen, caseSensitive);
+      }
       return Query_EvalTagLexRangeNode(q, idx, n, iterout, weight);
 
     case QN_PHRASE: {
       char *terms[QueryNode_NumChildren(n)];
       for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
         if (n->children[i]->type == QN_TOKEN) {
+          tag_strtolower(n->children[i]->tn.str, &n->children[i]->tn.len, caseSensitive);
           terms[i] = n->children[i]->tn.str;
         } else {
           terms[i] = "";
