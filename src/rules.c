@@ -221,7 +221,7 @@ RSLanguage SchemaRule_HashLang(RedisModuleCtx *rctx, const SchemaRule *rule, Red
   const char *lang_s = RedisModule_StringPtrLen(lang_rms, &len);
   lang = RSLanguage_Find(lang_s, len);
   if (lang == RS_LANG_UNSUPPORTED) {
-    RedisModule_Log(rctx, "warning", "invalid language for key %s", kname);
+    RedisModule_Log(NULL, "warning", "invalid language for key %s", kname);
     lang = rule->lang_default;
   }
 done:
@@ -254,13 +254,13 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
   size_t len;
   RedisJSON langJson = japi->next(jsonIter);
   if (!langJson || japi->getString(langJson, &langStr, &len) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "invalid field %s for key %s: not a string", rule->lang_field, kname);
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s: not a string", rule->lang_field, kname);
     goto done;
   }
 
   lang = RSLanguage_Find(langStr, len);
   if (lang == RS_LANG_UNSUPPORTED) {
-    RedisModule_Log(ctx, "warning", "invalid language for key %s", kname);
+    RedisModule_Log(NULL, "warning", "invalid language for key %s", kname);
     lang = rule->lang_default;
     goto done;
   }
@@ -290,7 +290,7 @@ double SchemaRule_HashScore(RedisModuleCtx *rctx, const SchemaRule *rule, RedisM
 
   rv = RedisModule_StringToDouble(score_rms, &score);
   if (rv != REDISMODULE_OK) {
-    RedisModule_Log(rctx, "warning", "invalid score for key %s", kname);
+    RedisModule_Log(NULL, "warning", "invalid score for key %s", kname);
     score = rule->score_default;
   }
 done:
@@ -320,7 +320,7 @@ double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
 
   RedisJSON scoreJson = japi->next(jsonIter);
   if (!scoreJson || japi->getDouble(scoreJson, &score) != REDISMODULE_OK) {
-    RedisModule_Log(ctx, "warning", "invalid field %s for key %s", rule->score_field, kname);
+    RedisModule_Log(NULL, "warning", "invalid field %s for key %s", rule->score_field, kname);
   }
 
 done:

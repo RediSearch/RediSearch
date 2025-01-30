@@ -5,7 +5,6 @@
  */
 
 #include "coord/src/rmr/rmr.h"
-#include "coord/src/rmr/rq.h"
 #include "debug_commands.h"
 #include "debug_command_names.h"
 #include "coord/src/rmr/redis_cluster.h"
@@ -35,17 +34,10 @@ DEBUG_COMMAND(resumeTopologyUpdater) {
   }
 }
 
-DEBUG_COMMAND(clearTopology) {
-  if (argc != 2) return RedisModule_WrongArity(ctx);
-  RQ_Debug_ClearPendingTopo();
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
-}
-
 DebugCommandType coordCommands[] = {
   {"SHARD_CONNECTION_STATES", shardConnectionStates},
   {"PAUSE_TOPOLOGY_UPDATER", pauseTopologyUpdater},
   {"RESUME_TOPOLOGY_UPDATER", resumeTopologyUpdater},
-  {"CLEAR_PENDING_TOPOLOGY", clearTopology},
   {NULL, NULL}
 };
 // Make sure the two arrays are of the same size (don't forget to update `debug_command_names.h`)

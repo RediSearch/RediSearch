@@ -105,7 +105,7 @@ void VVW_Init(VarintVectorWriter *w, size_t cap) {
 Write an integer to the vector.
 @param w a vector writer
 @param i the integer we want to write
-@return 0 if we're out of capacity, the varint's actual size otherwise
+@retur 0 if we're out of capacity, the varint's actual size otherwise
 */
 size_t VVW_Write(VarintVectorWriter *w, uint32_t i) {
   Buffer_Reserve(&w->buf, 16);

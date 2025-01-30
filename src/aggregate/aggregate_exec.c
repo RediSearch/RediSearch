@@ -18,7 +18,6 @@
 #include "query_optimizer.h"
 #include "resp3.h"
 #include "query_error.h"
-#include "info/global_stats.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -388,10 +387,6 @@ long calc_results_len(AREQ *req, size_t limit) {
   return 1 + MIN(limit, MIN(reqLimit, reqResults)) * resultFactor;
 }
 
-static bool hasTimeoutError(QueryError *err) {
-  return QueryError_GetCode(err) == QUERY_ETIMEDOUT;
-}
-
 void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cursor_done) {
   if (results) {
     destroyResults(results);
@@ -403,14 +398,14 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
     req->stateflags |= QEXEC_S_ITERDONE;
   }
 
-  if (QueryError_GetCode(req->qiter.err) == QUERY_OK || hasTimeoutError(req->qiter.err)) {
-    TotalGlobalStats_CountQuery(req->reqflags, clock() - req->initClock);
-  }
-
   // Reset the total results length:
   req->qiter.totalResults = 0;
 
   QueryError_ClearError(req->qiter.err);
+}
+
+static bool hasTimeoutError(QueryError *err) {
+  return QueryError_GetCode(err) == QUERY_ETIMEDOUT;
 }
 
 /**
@@ -660,9 +655,6 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
   if (!(req->reqflags & QEXEC_F_IS_CURSOR) && !(req->reqflags & QEXEC_F_IS_SEARCH)) {
     limit = req->maxAggregateResults;
   }
-  if (req->sctx->spec) {
-    IndexSpec_IncrActiveQueries(req->sctx->spec);
-  }
 
   cachedVars cv = {
     .lastLk = AGPLN_GetLookup(&req->ap, NULL, AGPLN_GETLOOKUP_LAST),
@@ -676,10 +668,6 @@ void sendChunk(AREQ *req, RedisModule_Reply *reply, size_t limit) {
     sendChunk_Resp3(req, reply, limit, cv);
   } else {
     sendChunk_Resp2(req, reply, limit, cv);
-  }
-
-  if (req->sctx->spec) {
-    IndexSpec_DecrActiveQueries(req->sctx->spec);
   }
 }
 
@@ -830,7 +818,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     (*r)->reqflags |= QEXEC_F_IS_SEARCH;
   }
   else if (type == COMMAND_AGGREGATE) {
-    (*r)->reqflags |= QEXEC_F_IS_AGGREGATE;
+    (*r)->reqflags |= QEXEC_F_IS_EXTENDED;
   }
 
   (*r)->reqflags |= QEXEC_FORMAT_DEFAULT;
@@ -892,6 +880,7 @@ static int parseProfile(AREQ *r, int withProfile, RedisModuleString **argv, int 
     if (withProfile == PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
     }
+    r->initClock = clock();
   }
   return REDISMODULE_OK;
 }
@@ -905,22 +894,8 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
   AREQ *r = AREQ_New();
   QueryError status = {0};
-
-#ifdef RS_COORDINATOR
-  // If we got here, we know `argv[0]` is a valid registered command name.
-  // If it starts with an underscore, it is an internal command.
-  if (RedisModule_StringPtrLen(argv[0], NULL)[0] == '_') {
-    r->reqflags |= QEXEC_F_INTERNAL;
-  }
-#endif
-
   if (parseProfile(r, withProfile, argv, argc, &status) != REDISMODULE_OK) {
     goto error;
-  }
-
-  if (!IsInternal(r) || IsProfile(r)) {
-    // We currently don't need to measure the time for internal and non-profile commands
-    r->initClock = clock();
   }
 
   // This function also builds the RedisSearchCtx.
@@ -931,7 +906,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
 
   SET_DIALECT(r->sctx->spec->used_dialects, r->reqConfig.dialectVersion);
-  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, r->reqConfig.dialectVersion);
+  SET_DIALECT(RSGlobalConfig.used_dialects, r->reqConfig.dialectVersion);
 
 #ifdef MT_BUILD
   if (RunInThread()) {
@@ -1073,6 +1048,11 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   AREQ *req = cursor->execState;
   bool has_map = RedisModule_HasMap(reply);
 
+  // reset profile clock for cursor reads except for 1st
+  if (IsProfile(req) && req->totalTime != 0) {
+    req->initClock = clock();
+  }
+
   // update timeout for current cursor read
   updateTimeout(&req->timeoutTime, req->reqConfig.queryTimeoutMS);
   SearchCtx_UpdateTimeout(req->sctx, req->timeoutTime);
@@ -1106,7 +1086,6 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
   QueryError status = {0};
   AREQ *req = cursor->execState;
   req->qiter.err = &status;
-  req->reqflags &= ~QEXEC_F_IS_AGGREGATE; // Second read was not triggered by FT.AGGREGATE
 
   StrongRef execution_ref;
   bool has_spec = cursor_HasSpecWeakRef(cursor);
@@ -1133,10 +1112,6 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
         req->reqflags &= ~QEXEC_F_RUN_IN_BACKGROUND;
       }
     }
-  }
-
-  if (IsProfile(req) || !IsInternal(req)) {
-    req->initClock = clock(); // Reset the clock for the current cursor read
   }
 
   runCursor(reply, cursor, count);

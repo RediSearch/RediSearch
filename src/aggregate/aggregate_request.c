@@ -31,7 +31,7 @@ extern RSConfig RSGlobalConfig;
  * @param status the error object
  */
 static bool ensureSimpleMode(AREQ *areq) {
-  if(areq->reqflags & QEXEC_F_IS_AGGREGATE) {
+  if(areq->reqflags & QEXEC_F_IS_EXTENDED) {
     return false;
   }
   areq->reqflags |= QEXEC_F_IS_SEARCH;
@@ -50,7 +50,7 @@ static int ensureExtendedMode(AREQ *areq, const char *name, QueryError *status) 
                            name);
     return 0;
   }
-  areq->reqflags |= QEXEC_F_IS_AGGREGATE;
+  areq->reqflags |= QEXEC_F_IS_EXTENDED;
   return 1;
 }
 
@@ -450,12 +450,11 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
-    GeoFilter *cur_gf = rm_calloc(1, sizeof(GeoFilter));
-    if (GeoFilter_Parse(cur_gf, ac, status) != REDISMODULE_OK) {
-      GeoFilter_Free(cur_gf);
+    options->legacy.gf = rm_calloc(1, sizeof(*options->legacy.gf));
+    if (GeoFilter_Parse(options->legacy.gf, ac, status) != REDISMODULE_OK) {
+      GeoFilter_Free(options->legacy.gf);
       return ARG_ERROR;
     }
-    array_ensure_append_1(options->legacy.geo_filters, cur_gf);
   } else {
     return ARG_UNKNOWN;
   }
@@ -831,22 +830,14 @@ static void loadDtor(PLN_BaseStep *bstp) {
 static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
   int rc = AC_GetVarArgs(ac, &loadfields);
-  if (rc == AC_ERR_PARSE) {
-    // Didn't get a number, but we might have gotten a '*'
+  if (rc != AC_OK) {
     const char *s = NULL;
     rc = AC_GetString(ac, &s, NULL, 0);
-    if (rc != AC_OK) {
+    if (rc != AC_OK || strcmp(s, "*")) {
       QERR_MKBADARGS_AC(status, "LOAD", rc);
       return REDISMODULE_ERR;
-    } else if (strcmp(s, "*")) {
-      QERR_MKBADARGS_FMT(status, "Bad arguments for LOAD: Expected number of fields or `*`");
-      return REDISMODULE_ERR;
     }
-    // Successfuly got a '*', load all fields
     req->reqflags |= QEXEC_AGG_LOAD_ALL;
-  } else if (rc != AC_OK) {
-    QERR_MKBADARGS_AC(status, "LOAD", rc);
-    return REDISMODULE_ERR;
   }
 
   PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
@@ -965,13 +956,9 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
     array_clear(opts->legacy.filters);  // so AREQ_Free() doesn't free the filters themselves, which
                                         // are now owned by the query object
   }
-  if (opts->legacy.geo_filters) {
-    for (size_t ii = 0; ii < array_len(opts->legacy.geo_filters); ++ii) {
-      QAST_GlobalFilterOptions legacyFilterOpts = {.geo = opts->legacy.geo_filters[ii]};
-      QAST_SetGlobalFilters(ast, &legacyFilterOpts);
-    }
-    array_clear(opts->legacy.geo_filters);  // so AREQ_Free() doesn't free the filters themselves, which
-                                            // are now owned by the query object
+  if (opts->legacy.gf) {
+    QAST_GlobalFilterOptions legacyOpts = {.geo = opts->legacy.gf};
+    QAST_SetGlobalFilters(ast, &legacyOpts);
   }
 
   if (opts->inkeys) {
@@ -1625,10 +1612,6 @@ void AREQ_Free(AREQ *req) {
       }
     }
     array_free(req->searchopts.legacy.filters);
-  }
-  if (req->searchopts.legacy.geo_filters) {
-    array_foreach(req->searchopts.legacy.geo_filters, gf, if (gf) GeoFilter_Free(gf));
-    array_free(req->searchopts.legacy.geo_filters);
   }
   rm_free(req->searchopts.inids);
   if (req->searchopts.params) {

@@ -526,7 +526,7 @@ def testExplain(env: Env):
     expected = ['INTERSECT {', '  UNION {', '    hello', '    +hello(expanded)', '  }', '  UNION {', '    world', '    +world(expanded)', '  }', '  EXACT {', '    what', '    what', '  }', '  UNION {', '    UNION {', '      hello', '      +hello(expanded)', '    }', '    UNION {', '      world', '      +world(expanded)', '    }', '  }', '  UNION {', '    NUMERIC {10.000000 <= @bar <= 100.000000}', '    NUMERIC {200.000000 <= @bar <= 300.000000}', '  }', '}', '']
     env.assertEqual(res, expected)
 
-
+    
     res = env.cmd('ft.explain', 'idx', q, 'DIALECT', 2)
     expected = """UNION {\n  INTERSECT {\n    UNION {\n      hello\n      +hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n    EXACT {\n      what\n      what\n    }\n    UNION {\n      hello\n      +hello(expanded)\n    }\n  }\n  INTERSECT {\n    UNION {\n      world\n      +world(expanded)\n    }\n    NUMERIC {10.000000 <= @bar <= 100.000000}\n  }\n  NUMERIC {200.000000 <= @bar <= 300.000000}\n}\n"""
     env.assertEqual(res, expected)
@@ -549,7 +549,7 @@ def testExplain(env: Env):
     # test with hybrid query
     q = ['(@t:hello world) => [KNN $k @v $B EF_RUNTIME 100]', 'DIALECT', 2, 'PARAMS', '4', 'k', '10', 'B', b'\xa4\x21\xf5\x42\x18\x07\x00\xc7']
     res = env.cmd('ft.explain', 'idx', *q)
-    expected = """VECTOR {\n  INTERSECT {\n    @t:UNION {\n      @t:hello\n      @t:+hello(expanded)\n    }\n    UNION {\n      world\n      +world(expanded)\n    }\n  }\n} => {K=10 nearest vectors to `$B` in vector index associated with field @v, EF_RUNTIME = 100, yields distance as `__v_score`}\n"""
+    expected = """VECTOR {\n  INTERSECT {\n    @t:hello\n    world\n  }\n} => {K=10 nearest vectors to `$B` in vector index associated with field @v, EF_RUNTIME = 100, yields distance as `__v_score`}\n"""
     env.assertEqual(expected, res)
 
     # retest when index is not empty
@@ -634,10 +634,10 @@ def testExplain(env: Env):
 
     _testExplain(env, 'idx', ['@bar:[(-$n $n]','PARAMS', '2', 'n', '20'],
                     "NUMERIC {-20.000000 < @bar <= 20.000000}\n")
-
+    
     _testExplain(env, 'idx', ['@bar:[(-1 -$n]','PARAMS', '2', 'n', '-10'],
                     "NUMERIC {-1.000000 < @bar <= 10.000000}\n")
-
+    
     _testExplain(env, 'idx', ['@bar:[(-22 (+$n]','PARAMS', '2', 'n', '50'],
                     "NUMERIC {-22.000000 < @bar < 50.000000}\n")
 
@@ -665,10 +665,10 @@ def testExplain(env: Env):
 
     _testExplain(env, 'idx', ['@bar==+$n', 'PARAMS', 2, 'n', 10],
                  'NUMERIC {10.000000 <= @bar <= 10.000000}\n')
-
+    
     _testExplain(env, 'idx', ['@bar==-$n', 'PARAMS', 2, 'n', 7],
                  'NUMERIC {-7.000000 <= @bar <= -7.000000}\n')
-
+    
     _testExplain(env, 'idx', ['@bar==-$n', 'PARAMS', 2, 'n', -5],
                  'NUMERIC {5.000000 <= @bar <= 5.000000}\n')
 
@@ -1993,139 +1993,29 @@ def testInfoCommandImplied(env):
     env.assertNotEqual(-1, d['index_options'].index('NOHL'))
 
 def testNoStem(env):
-    conn = getConnectionByEnv(env)
-
-    env.expect('ft.create', 'idx', 'ON', 'HASH',
-            'schema', 'body', 'text', 'name', 'text', 'nostem',
-            'body2', 'text', 'name2', 'text', 'nostem').ok()
-    d = index_info(env, 'idx')
-    env.assertEqual(d['attributes'][1][8],'NOSTEM')
-    env.assertEqual(d['attributes'][3][8],'NOSTEM')
+    env.cmd('ft.create', 'idx', 'ON', 'HASH',
+            'schema', 'body', 'text', 'name', 'text', 'nostem')
+    if not env.isCluster():
+        # todo: change it to be more generic to pass on isCluster
+        res = env.cmd('ft.info', 'idx')
+        env.assertEqual(res[7][1][8], 'NOSTEM')
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         try:
-            conn.execute_command('ft.del', 'idx', 'doc')
+            env.cmd('ft.del', 'idx', 'doc')
         except redis.ResponseError:
             pass
 
-        # Insert documents
-        conn.execute_command('HSET', 'doc1', 'body', "located", 'name', "located")
-        conn.execute_command('HSET', 'doc2', 'body', "smith", 'name', "smith")
-        conn.execute_command('HSET', 'doc3', 'body', "smiths", 'name', "smiths")
-        conn.execute_command('HSET', 'doc4', 'body', "cherry")
-        conn.execute_command('HSET', 'doc5', 'body', "cherries")
-        conn.execute_command('HSET', 'doc6', 'name', "candy")
-        conn.execute_command('HSET', 'doc7', 'name', "candies")
-        conn.execute_command('HSET', 'doc8', 'body2', "cherries")
-        conn.execute_command('HSET', 'doc9', 'name2', "candies")
+        # Insert a document
+        env.assertCmdOk('ft.add', 'idx', 'doc', 1.0, 'fields',
+                         'body', "located",
+                         'name', "located")
 
         # Now search for the fields
-        res_body = conn.execute_command('ft.search', 'idx', '@body:location')
-        env.assertEqual(1, res_body[0])
-        res_name = conn.execute_command('ft.search', 'idx', '@name:location')
+        res_body = env.cmd('ft.search', 'idx', '@body:location')
+        res_name = env.cmd('ft.search', 'idx', '@name:location')
         env.assertEqual(0, res_name[0])
-
-        res_body = conn.execute_command('ft.search', 'idx', '@body:smith')
-        env.assertEqual(2, res_body[0])
-        res_name = conn.execute_command('ft.search', 'idx', '@name:smith')
-        env.assertEqual(1, res_name[0])
-
-        res_body = conn.execute_command('ft.search', 'idx', '@body:smiths')
-        env.assertEqual(2, res_body[0])
-        res_name = conn.execute_command('ft.search', 'idx', '@name:smiths')
-        env.assertEqual(1, res_name[0])
-
-        # Test modifier list
-        # 2 results are returned because 'body' field is stemming 'cherry'
-        res = conn.execute_command('ft.search', 'idx', '@body|name:cherry')
-        env.assertEqual(2, res[0])
-        res = conn.execute_command('ft.search', 'idx', '@body|name:cherries')
-        env.assertEqual(2, res[0])
-
-        # only 1 result is returned because 'name' field is not stemming
-        res = conn.execute_command('ft.search', 'idx', '@body|name:candy')
-        env.assertEqual(1, res[0])
-        res = conn.execute_command('ft.search', 'idx', '@body|name:candies')
-        env.assertEqual(1, res[0])
-
-        # 3 results are returned because 'body' field is stemming 'candy' 
-        # but 'name' field is not stemming  
-        res = conn.execute_command(
-            'ft.search', 'idx','@body|name:(candy|cherry)', 'dialect', 2)
-        env.assertEqual(3, res[0])
-        res2 = conn.execute_command(
-            'ft.search', 'idx','@body:(candy|cherry) | @name:(candy|cherry)',
-            'dialect', 2)
-        env.assertEqual(res, res2)
-
-        res = conn.execute_command(
-            'ft.search', 'idx', '@body|name:(candies|cherries)', 'dialect', 2)
-        env.assertEqual(3, res[0])
-        res2 = conn.execute_command(
-            'ft.search', 'idx', '@body:(candies|cherries) | @name:(candies|cherries)',
-            'dialect', 2)
-        env.assertEqual(res, res2)
-
-        # Test explaincli single field stemming
-        env.expect('ft.explain', 'idx', '@body:candy').equal(r'''
-@body:UNION {
-  @body:candy
-  @body:+candi(expanded)
-  @body:candi(expanded)
-}
-'''[1:])
-        
-        # Test explaincli with modifier list fields, all fields expanded
-        env.expect('ft.explain', 'idx', '@body|body2:candy').equal(r'''
-@body|body2:UNION {
-  @body|body2:candy
-  @body|body2:+candi(expanded)
-  @body|body2:candi(expanded)
-}
-'''[1:])
-        
-        # Test explaincli single field with NOSTEM
-        env.expect('ft.explain', 'idx', '@name:candy').equal(r'''
-@name:candy
-'''[1:])
-        
-        # Test explaincli with modifier list NOSTEM fields
-        env.expect('ft.explain', 'idx', '@name|name2:candy').equal(r'''
-@name|name2:candy
-'''[1:])
-
-        # Mixing NOSTEM and stemming fields in the same modifier list
-        env.expect('ft.explain', 'idx', '@body|name:candy').equal(r'''
-@body|name:UNION {
-  @body|name:candy
-  @body:+candi(expanded)
-  @body:candi(expanded)
-}
-'''[1:])
-        
-        env.expect('ft.explain', 'idx', '@name2|body|name:candy').equal(r'''
-@body|name|name2:UNION {
-  @body|name|name2:candy
-  @body:+candi(expanded)
-  @body:candi(expanded)
-}
-'''[1:])
-        
-        env.expect('ft.explain', 'idx', '@body2|body|name:candy').equal(r'''
-@body|name|body2:UNION {
-  @body|name|body2:candy
-  @body|body2:+candi(expanded)
-  @body|body2:candi(expanded)
-}
-'''[1:])
-        
-        env.expect('ft.explain', 'idx', '@body2|body|name|name2:candy').equal(r'''
-@body|name|body2|name2:UNION {
-  @body|name|body2|name2:candy
-  @body|body2:+candi(expanded)
-  @body|body2:candi(expanded)
-}
-'''[1:])
+        env.assertEqual(1, res_body[0])
 
 def testSortbyMissingField(env):
     # GH Issue 131
@@ -3468,8 +3358,8 @@ def testIssue1184(env):
         env.expect('FT.CREATE idx ON HASH SCHEMA field ' + ft).ok()
 
         d = index_info(env, 'idx')
-        env.assertEqual(d['inverted_sz_mb'], '0', message=f"failed at field type {ft}")
-        env.assertEqual(d['num_records'], 0, message=f"failed at field type {ft}")
+        env.assertEqual(d['inverted_sz_mb'], '0')
+        env.assertEqual(d['num_records'], 0)
 
         if ft == 'NUMERIC':
             value = '3.14'
@@ -3482,11 +3372,11 @@ def testIssue1184(env):
             env.expect('HSET doc%d field %s' % (i, value)).equal(1)
 
         res = env.cmd('FT.SEARCH idx * LIMIT 0 0')
-        env.assertEqual(res[0], num_docs, message=f"failed at field type {ft}")
+        env.assertEqual(res[0], num_docs)
 
         d = index_info(env, 'idx')
         env.assertGreater(d['inverted_sz_mb'], '0')
-        env.assertEqual(d['num_records'], num_docs, message=f"failed at field type {ft}")
+        env.assertEqual(d['num_records'], num_docs)
 
         for i in range(num_docs):
             env.expect('FT.DEL idx doc%d' % i).equal(1)
@@ -3494,10 +3384,9 @@ def testIssue1184(env):
         forceInvokeGC(env, 'idx')
 
         d = index_info(env, 'idx')
-        expected = getInvertedIndexInitialSize_MB(env, [ft])
-        env.assertEqual(float(d['inverted_sz_mb']), expected, message=f"failed at field type {ft}")
-        env.assertEqual(int(d['num_records']), 0, message=f"failed at field type {ft}")
-        env.assertEqual(int(d['num_docs']), 0, message=f"failed at field type {ft}")
+        env.assertEqual(float(d['inverted_sz_mb']), 0)
+        env.assertEqual(int(d['num_records']), 0)
+        env.assertEqual(int(d['num_docs']), 0)
 
         env.cmd('FT.DROP idx')
 
@@ -4131,28 +4020,6 @@ def cluster_set_test(env: Env):
         shards += ['SHARD', str(i), 'SLOTRANGE', '0', '16383',
                    'ADDR', f'{password}localhost:{env.envRunner.shards[i].port}', 'MASTER']
     env.expect('SEARCH.CLUSTERSET', 'MYID', '0', 'RANGES', str(env.shardsCount), *shards).ok()
-
-@skip(cluster=False, noWorkers=True)
-def test_rq_job_without_topology(env:Env):
-    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
-    env.expect(debug_cmd(), 'CLEAR_PENDING_TOPOLOGY').ok()
-    workers = 5
-    env.expect(config_cmd(), 'SET', 'WORKERS', workers).ok()
-
-    # Verify that the `SHARD_CONNECTION_STATES` debug command is blocked when the topology is not set.
-    try:
-        con = env.getConnection()
-        with TimeLimit(2, 'Failed waiting (SUCCESS!)'):
-            con.execute_command(debug_cmd(), 'SHARD_CONNECTION_STATES')
-            env.assertTrue(False, message='Expected to fail')
-    except Exception as e:
-        env.assertContains('Failed waiting (SUCCESS!)', str(e))
-
-    # Now re-set the topology and call the debug command again
-    env.expect('SEARCH.CLUSTERREFRESH').ok()
-    # We should also see the effect of setting the number of workers
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal([ANY, [ANY] * (workers + 1)] * env.shardsCount)
-
 
 @skip(cluster=False) # this test is only relevant on cluster
 def test_cluster_set_errors(env: Env):

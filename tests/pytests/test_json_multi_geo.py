@@ -123,50 +123,42 @@ def testBasic(env):
         '$[1].nested2[2].loc', 'AS', 'loc2', 'GEO').ok()    # ["42,64", "-50,-72", "-100,-20", "43.422649,11.126973", "29.497825,-82.141870"]
 
     # check stats for an empty index
-    expected_info = { 'num_docs': 0,
-                    'inverted_sz_mb': 0.0
-                }
-    compare_index_info_dict(env, 'idx1', expected_info, "idx1 initial")
+    checkInfo(env, 'idx1', 0, 0)
 
     conn.execute_command('JSON.SET', 'doc:1', '$', json.dumps(doc1_content))
-    expected_info['num_docs'] = 1
 
     # check stats after insert
 
-    # idx1 contains 24 entries, expected size of inverted index = 391
+    # idx1 contains 24 entries, expected size of inverted index = 407
     # the size is distributed in the left and right children ranges as follows:
 
-    # left range size = 295:
-    #     Size of NewInvertedIndex() structure = 88
-    #         sizeof_InvertedIndex(Index_StoreNumeric) = 40
+    # left range size = 303
+    #     Size of NewInvertedIndex() structure = 96
+    #         sizeof_InvertedIndex(Index_StoreNumeric) = 48
     #         sizeof(IndexBlock) = 48
     #     Buffer grows up to 207 bytes trying to store 23 entries 8 bytes each.
     #     See Buffer_Grow() in inverted_index.c
 
-    # right range size = 96:
-    #     Size of NewInvertedIndex() structure = 88
-    #         sizeof_InvertedIndex(Index_StoreNumeric) = 40
+    # right range size = 104:
+    #     Size of NewInvertedIndex() structure = 96
+    #         sizeof_InvertedIndex(Index_StoreNumeric) = 48
     #         sizeof(IndexBlock) = 48
     #     Buffer grows up to 8 bytes trying to store 1 entry 8 bytes each = 8
-    expected_info['inverted_sz_mb'] = 391 / (1024 * 1024)
-    compare_index_info_dict(env, 'idx1', expected_info, "idx1 after insert")
+    checkInfo(env, 'idx1', 1, 407 / (1024 * 1024))
 
-    # Expected size of inverted index for idx2 = 88 + 25 = 113
-    #     Size of NewInvertedIndex() structure = 88
+    # Expected size of inverted index for idx2 = 96 + 25 = 121
+    #     Size of NewInvertedIndex() structure = 96
     #     Buffer grows up to 25 bytes trying to store 3 entries 8 bytes each = 25
-    expected_info['inverted_sz_mb'] = 113 / (1024 * 1024)
-    compare_index_info_dict(env, 'idx2', expected_info, "idx2 after insert")
+    checkInfo(env, 'idx2', 1, 121 / (1024 * 1024))
 
-    # Expected size of inverted index for idx2 = 88 + 46 = 134
-    #     Size of NewInvertedIndex() structure = 88
+    # Expected size of inverted index for idx2 = 96 + 46 = 142
+    #     Size of NewInvertedIndex() structure = 96
     #     Buffer grows up to 46 bytes trying to store 5 entries, 8 bytes each = 46
-    expected_info['inverted_sz_mb'] = 134 / (1024 * 1024)
-    compare_index_info_dict(env, 'idx3', expected_info, "idx3 after insert")
+    checkInfo(env, 'idx3', 1, 142 / (1024 * 1024))
 
-    # idx4 contains two GEO fields, the expected size of inverted index is
-    # equivalent to the sum of the size of idx2 and idx3 = 113 + 134 = 247
-    expected_info['inverted_sz_mb'] = 247 / (1024 * 1024)
-    compare_index_info_dict(env, 'idx4', expected_info, "idx4 after insert")
+    # idx4 contains two GEO fields, the expected size of inverted index is 
+    # equivalent to the sum of the size of idx2 and idx3 = 121 + 142 = 263
+    checkInfo(env, 'idx4', 1, 263 / (1024 * 1024))
 
     # Geo range and Not
     env.expect('FT.SEARCH', 'idx1', '@loc:[1.2 1.1 40 km]', 'NOCONTENT').equal([1, 'doc:1'])
@@ -190,7 +182,7 @@ def testBasic(env):
     # check stats after deletion
     conn.execute_command('DEL', 'doc:1')
     forceInvokeGC(env, 'idx1')
-    check_index_info_empty(env, 'idx1', ['GEO'])
+    checkInfo(env, 'idx1', 0, 0)
 
 
 def testMultiNonGeo(env):

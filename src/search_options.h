@@ -107,7 +107,7 @@ typedef struct {
   /** Legacy options */
   struct {
     NumericFilter **filters;
-    GeoFilter **geo_filters;
+    GeoFilter *gf;
     const char **infields;
     size_t ninfields;
   } legacy;

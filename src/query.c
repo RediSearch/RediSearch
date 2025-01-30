@@ -35,11 +35,6 @@
 #include "wildcard.h"
 #include "geometry/geometry_api.h"
 
-#ifndef STRINGIFY
-#define __STRINGIFY(x) #x
-#define STRINGIFY(x) __STRINGIFY(x)
-#endif
-
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
@@ -462,40 +457,21 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
                              QueryNode **pqn) {
 
   QueryNode *qn = *pqn;
-  if ((qn->opts.flags & QueryNode_Verbatim) ||    // Do not expand verbatim nodes
-      (qn->type == QN_PHRASE && qn->pn.exact) ||  // Do not expand exact phrases
-      (qn->type == QN_TAG)) {                     // Tag nodes are handles by their node evaluator
+  // Do not expand verbatim nodes
+  if (qn->opts.flags & QueryNode_Verbatim) {
     return;
   }
 
-  // Check that there is at least one stemmable field in the query
-  if (expCtx->handle && expCtx->handle->spec) {
-    const IndexSpec *spec = expCtx->handle->spec;
-    t_fieldMask fm = qn->opts.fieldMask;
-    if ( fm != RS_FIELDMASK_ALL) {
-      int expand = 0;
-      t_fieldMask bit_mask = 1;
-      while (fm) {
-        if (fm & bit_mask) {
-          const FieldSpec *fs = IndexSpec_GetFieldByBit(spec, bit_mask);
-          if (fs && !FieldSpec_IsNoStem(fs)) {
-            expand = 1;
-            break;
-          }
-        }
-        fm &= ~bit_mask;
-        bit_mask <<= 1;
-      }
-      if (!expand) {
-        return;
-      }
-    }
-  }
+  int expandChildren = 0;
 
   if (qn->type == QN_TOKEN && qn->tn.len > 0) {
     expCtx->currentNode = pqn;
     expander(expCtx, &qn->tn);
-  } else {
+  } else if (qn->type == QN_UNION ||
+             (qn->type == QN_PHRASE && !qn->pn.exact)) {  // do not expand exact phrases
+    expandChildren = 1;
+  }
+  if (expandChildren) {
     for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
       QueryNode_Expand(expander, expCtx, &qn->children[ii]);
     }
@@ -612,18 +588,6 @@ typedef struct {
 static int runeIterCb(const rune *r, size_t n, void *p, void *payload);
 static int charIterCb(const char *s, size_t n, void *p, void *payload);
 
-static const char *PrefixNode_GetTypeString(const QueryPrefixNode *pfx) {
-  if (pfx->prefix && pfx->suffix) {
-    return "INFIX";
-  } else if (pfx->prefix) {
-    return "PREFIX";
-  } else {
-    return "SUFFIX";
-  }
-}
-
-#define TRIE_STR_TOO_LONG_MSG "query string is too long. Maximum allowed length is " STRINGIFY(MAX_RUNESTR_LEN)
-
 /* Evaluate a prefix node by expanding all its possible matches and creating one big UNION on all
  * of them.
  * Used for Prefix, Contains and suffix nodes.
@@ -644,11 +608,10 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
 
+  rune *str = NULL;
   size_t nstr;
-  rune *str = qn->pfx.tok.str ? strToFoldedRunes(qn->pfx.tok.str, &nstr) : NULL;
-  if (!str) {
-    QueryError_SetErrorFmt(q->status, QUERY_ELIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
-    return NULL;
+  if (qn->pfx.tok.str) {
+    str = strToFoldedRunes(qn->pfx.tok.str, &nstr);
   }
 
   ctx.cap = 8;
@@ -711,10 +674,6 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   token->len = Wildcard_RemoveEscape(token->str, token->len);
   size_t nstr;
   rune *str = strToFoldedRunes(token->str, &nstr);
-  if (!str) {
-    QueryError_SetError(q->status, QUERY_ELIMIT, "Wildcard " TRIE_STR_TOO_LONG_MSG);
-    return NULL;
-  }
 
   ctx.cap = 8;
   ctx.its = rm_malloc(sizeof(*ctx.its) * ctx.cap);
@@ -976,11 +935,7 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
     return NULL;
   }
-
-  // TODO: open with DONT_CREATE_INDEX once the query string is validated before we get here.
-  // Currently, if  we use DONT_CREATE_INDEX, and the index was not initalized yet, and the query is invalid,
-  // we return results as if the index was empty, instead of raising an error.
-  const GeometryIndex *index = OpenGeometryIndex(q->sctx->spec, fs, CREATE_INDEX);
+  const GeometryIndex *index = OpenGeometryIndex(q->sctx->spec, fs);
   if (!index) {
     return NULL;
   }
@@ -998,7 +953,14 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
 
 
 static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
-  RS_LOG_ASSERT(qn->type == QN_VECTOR, "query node type should be vector");
+  if (qn->type != QN_VECTOR) {
+    return NULL;
+  }
+  const FieldSpec *fs =
+      IndexSpec_GetField(q->sctx->spec, qn->vn.vq->property, strlen(qn->vn.vq->property));
+  if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
+    return NULL;
+  }
 
   if (qn->opts.distField) {
     if (qn->vn.vq->scoreField) {
@@ -1025,15 +987,6 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   if (qn->vn.vq->scoreField) {
     idx = addMetricRequest(q, qn->vn.vq->scoreField, NULL);
   }
-
-  // If the field is not found or not a vector field, return NULL
-  // We check this after registering the metric request, so we won't reply with a misleading syntax error.
-  const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, qn->vn.vq->property, strlen(qn->vn.vq->property));
-  if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-    return NULL;
-  }
-
   IndexIterator *child_it = NULL;
   if (QueryNode_NumChildren(qn) > 0) {
     RedisModule_Assert(QueryNode_NumChildren(qn) == 1);
@@ -1397,11 +1350,11 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
   RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, fs, INDEXFLD_T_TAG);
-  TagIndex *idx = TagIndex_Open(q->sctx, kstr, DONT_CREATE_INDEX);
+  TagIndex *idx = TagIndex_Open(q->sctx, kstr, 0);
 
   IndexIterator **total_its = NULL;
   IndexIterator *ret = NULL;
-
+ 
   if (!idx) {
     // There are no documents to traverse.
     goto done;
@@ -1910,10 +1863,13 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       return s;
 
     case QN_PREFIX:
-      s = sdscatprintf(s, "%s{%s%s%s}", PrefixNode_GetTypeString(&qs->pfx),
-                                        qs->pfx.suffix ? "*" : "",
-                                        qs->pfx.tok.str,
-                                        qs->pfx.prefix ? "*" : "");
+      if(qs->pfx.prefix && qs->pfx.suffix) {
+        s = sdscatprintf(s, "INFIX{*%s*}", (char *)qs->pfx.tok.str);
+      } else if (qs->pfx.suffix) {
+        s = sdscatprintf(s, "SUFFIX{*%s}", (char *)qs->pfx.tok.str);
+      } else {
+        s = sdscatprintf(s, "PREFIX{%s*}", (char *)qs->pfx.tok.str);
+      }
       break;
 
     case QN_LEXRANGE:

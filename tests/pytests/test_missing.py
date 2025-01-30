@@ -193,7 +193,7 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
     dialect = int(env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1])
     if dialect in [2, 3]:
         res = conn.execute_command(
-            'FT.AGGREGATE', idx, '*', 'GROUPBY', '1', f'@{field1}',
+            'FT.AGGREGATE', idx, '*', 'GROUPBY', '1', f'@{field1}', 
             'REDUCE', 'COUNT', '0', 'AS', 'count',
             'SORTBY', 2, '@count', 'DESC'
         )
@@ -203,7 +203,7 @@ def MissingTestIndex(env, conn, idx, ftype, field1, field2, val1, val2, field1Op
                     # Decode the string
                     s = f'{val1}'
                     s = s[2:-1]
-                    val1 = bytes(s, 'utf-8').decode('unicode_escape')
+                    val1 = bytes(s, 'utf-8').decode('unicode_escape')            
             expected = [2, [field1, f'{val1}', 'count', '3'], [field1, None, 'count', '2']]
         else: # JSON
             if dialect == 2:
@@ -424,9 +424,9 @@ def HashMissingTest(env, conn):
                                  field2, val2, 'id', 3)
             conn.execute_command('HSET', DOC_WITH_NONE, 'text', 'dummy',
                                  'id', 4)
-            conn.execute_command('HSET', DOC_WITH_BOTH_AND_TEXT, field1, val1,
+            conn.execute_command('HSET', DOC_WITH_BOTH_AND_TEXT, field1, val1, 
                                 field2, val2, 'text', 'dummy', 'id', 5)
-
+    
     # Create an index with multiple fields types that index missing values, i.e.,
     # index documents that do not have these fields.
     for field, ftype, opt, val1, val2, field1Opt in fields_and_values:

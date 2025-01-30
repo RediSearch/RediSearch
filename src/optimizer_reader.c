@@ -25,11 +25,6 @@ int cmpDesc(const void *v1, const void *v2, const void *udata) {
   return res1->docId < res2->docId ? -1 : 1;
 }
 
-static inline double getSuccessRatio(const OptimizerIterator *optIt) {
-  double resultsCollectedSinceLast = heap_count(optIt->heap) - optIt->heapOldSize;
-  return resultsCollectedSinceLast / optIt->lastLimitEstimate;
-}
-
 
 static size_t OPT_NumEstimated(void *ctx) {
   OptimizerIterator *opt = ctx;
@@ -68,7 +63,9 @@ static void OPT_Rewind(void *ctx) {
   numeric->Free(numeric);
   optIt->numericIter = NULL;
 
-  double successRatio = getSuccessRatio(optIt);
+  int resultsCollectedSinceLast = heap_count(heap) - optIt->heapOldSize;
+  double successRatio = resultsCollectedSinceLast / optIt->lastLimitEstimate;
+  RS_LOG_ASSERT(successRatio < 1, "successRatio == 1 means heap is full");
 
   // very low success, lets get all remaining results
   if (successRatio < 0.01 || optIt->numIterations == 3) {
@@ -195,20 +192,14 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
 
     // Not enough result, try to rewind
     if (heap_size(it->heap) > heap_count(it->heap) && it->offset < it->childEstimate) {
-      if (getSuccessRatio(it) < 1) {
-        OPT_Rewind(it->base.ctx);
-        childRes = numericRes = NULL;
-        // rewind was successful, continue iteration
-        if (it->numericIter != NULL) {
-          numeric = it->numericIter;
-          it->hitCounter = 0;
-          it->numIterations++;
-          continue;
-        }
-      } else {
-        RedisModule_Log(RSDummyContext, "verbose", "Not enough results collected, but success ratio is %f", getSuccessRatio(it));
-        RedisModule_Log(RSDummyContext, "debug", "Heap size: %d, heap count: %d, offset: %ld, childEstimate: %ld",
-                                        heap_size(it->heap), heap_count(it->heap), it->offset, it->childEstimate);
+      OPT_Rewind(it->base.ctx);
+      childRes = numericRes = NULL;
+      // rewind was successful, continue iteration
+      if (it->numericIter != NULL) {
+        numeric = it->numericIter;
+        it->hitCounter = 0;
+        it->numIterations++;
+        continue;;
       }
     }
 

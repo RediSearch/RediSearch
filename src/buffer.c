@@ -22,7 +22,7 @@ size_t Buffer_Grow(Buffer *buf, size_t extraLen) {
 }
 
 /**
-Truncate the buffer to newlen. If newlen is 0 - truncate capacity
+Truncate the buffer to newlen. If newlen is 0 - trunacte capacity
 */
 size_t Buffer_Truncate(Buffer *b, size_t newlen) {
   if (newlen == 0) {

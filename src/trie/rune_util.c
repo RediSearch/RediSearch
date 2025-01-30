@@ -12,6 +12,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+// The maximum size we allow converting to at once
+#define MAX_RUNESTR_LEN 1024
+
 static uint32_t __fold(uint32_t runelike) {
   uint32_t lowered = 0;
   const char *map = 0;

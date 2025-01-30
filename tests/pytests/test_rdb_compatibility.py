@@ -69,7 +69,7 @@ def testRDBCompatibility(env):
         env.cmd('flushall')
         env.assertTrue(env.checkExitCode())
 
-@skip(cluster=True, noWorkers=True)
+@skip(cluster=True)
 def testRDBCompatibility_vecsim():
     env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
     skipOnExistingEnv(env)

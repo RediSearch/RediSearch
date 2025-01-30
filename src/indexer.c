@@ -138,9 +138,7 @@ static RSDocumentMetadata *makeDocumentId(RedisModuleCtx *ctx, RSAddDocumentCtx 
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
             RedisModuleString *rmstr = IndexSpec_GetFormattedKey(spec, &spec->fields[i], INDEXFLD_T_VECTOR);
-            VecSimIndex *vecsim = openVectorIndex(spec, rmstr, DONT_CREATE_INDEX);
-            if(!vecsim)
-              continue;
+            VecSimIndex *vecsim = OpenVectorIndex(spec, rmstr);
             VecSimIndex_DeleteVector(vecsim, dmd->id);
             // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
           }
@@ -220,7 +218,7 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
 
       if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         IndexError_AddError(&cur->spec->stats.indexError, cur->status.detail, doc->docKey);
-        FieldSpec_AddError(&cur->spec->fields[fs->index], cur->status.detail, doc->docKey);
+        IndexError_AddError(&cur->spec->fields[fs->index].indexError, cur->status.detail, doc->docKey);
         QueryError_ClearError(&cur->status);
         cur->stateFlags |= ACTX_F_ERRORED;
       }
@@ -371,7 +369,7 @@ int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx) {
 DocumentIndexer *NewIndexer(IndexSpec *spec) {
   DocumentIndexer *indexer = rm_calloc(1, sizeof(*indexer));
 
-  indexer->redisCtx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
+  indexer->redisCtx = RedisModule_GetThreadSafeContext(NULL);
   indexer->specId = spec->uniqueId;
   indexer->specKeyName =
       RedisModule_CreateStringPrintf(indexer->redisCtx, INDEX_SPEC_KEY_FMT, spec->name);

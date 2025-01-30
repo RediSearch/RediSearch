@@ -16,18 +16,17 @@
 
 typedef struct {
   RSTokenizer base;
-  char *pos;
+  char **pos;
   Stemmer *stemmer;
 } simpleTokenizer;
 
-static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint16_t options) {
+static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uint32_t options) {
   simpleTokenizer *self = (simpleTokenizer *)base;
   TokenizerCtx *ctx = &base->ctx;
   ctx->text = text;
   ctx->options = options;
   ctx->len = len;
-  ctx->empty_input = len == 0;
-  self->pos = ctx->text;
+  self->pos = &ctx->text;
 }
 
 // Normalization buffer
@@ -76,10 +75,11 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
 uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
   TokenizerCtx *ctx = &base->ctx;
   simpleTokenizer *self = (simpleTokenizer *)base;
-  while (self->pos != NULL) {
+  bool empty_input = ctx->text && (strlen(ctx->text) == 0);
+  while (*self->pos != NULL) {
     // get the next token
     size_t origLen;
-    char *tok = toksep(&self->pos, &origLen);
+    char *tok = toksep(self->pos, &origLen);
     // normalize the token
     size_t normLen = origLen;
     if (normLen > MAX_NORMALIZE_SIZE) {
@@ -96,12 +96,12 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
     char *normalized = DefaultNormalize(tok, normBuf, &normLen);
 
     // ignore tokens that turn into nothing, unless the whole string is empty.
-    if ((normalized == NULL || normLen == 0) && !ctx->empty_input) {
+    if ((normalized == NULL || normLen == 0) && !empty_input) {
       continue;
     }
 
     // skip stopwords
-    if (!ctx->empty_input && StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
+    if (!empty_input && StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
       continue;
     }
 
@@ -114,7 +114,7 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
                  .phoneticsPrimary = t->phoneticsPrimary};
 
     // if we support stemming - try to stem the word
-    if (!(ctx->options & TOKENIZE_NOSTEM) && self->stemmer &&
+    if (!(ctx->options & TOKENIZE_NOSTEM) && self->stemmer && 
           normLen >= RSGlobalConfig.iteratorsConfigParams.minStemLength) {
       size_t sl;
       const char *stem = self->stemmer->Stem(self->stemmer->ctx, tok, normLen, &sl);
@@ -144,7 +144,7 @@ void simpleTokenizer_Free(RSTokenizer *self) {
 }
 
 static void doReset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwords,
-                    uint16_t opts) {
+                    uint32_t opts) {
   simpleTokenizer *t = (simpleTokenizer *)tokbase;
   t->stemmer = stemmer;
   t->base.ctx.stopwords = stopwords;
@@ -157,7 +157,7 @@ static void doReset(RSTokenizer *tokbase, Stemmer *stemmer, StopWordList *stopwo
   }
 }
 
-RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint16_t opts) {
+RSTokenizer *NewSimpleTokenizer(Stemmer *stemmer, StopWordList *stopwords, uint32_t opts) {
   simpleTokenizer *t = rm_calloc(1, sizeof(*t));
   t->base.Free = simpleTokenizer_Free;
   t->base.Next = simpleTokenizer_Next;

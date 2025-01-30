@@ -38,13 +38,11 @@
 #include "alias.h"
 #include "module.h"
 #include "rwlock.h"
-#include "info/info_command.h"
+#include "info_command.h"
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
 #include "reply.h"
 #include "resp3.h"
-#include "info/global_stats.h"
-#include "util/units.h"
 
 
 /* FT.MGET {index} {key} ...
@@ -191,7 +189,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   SET_DIALECT(sctx->spec->used_dialects, dialect);
-  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, dialect);
+  SET_DIALECT(RSGlobalConfig.used_dialects, dialect);
 
   bool fullScoreInfo = false;
   if (RMUtil_ArgExists("FULLSCOREINFO", argv, argc, 0)) {
@@ -325,7 +323,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModuleString *rstr = TagIndex_FormatName(sctx, field);
-  TagIndex *idx = TagIndex_Open(sctx, rstr, DONT_CREATE_INDEX);
+  TagIndex *idx = TagIndex_Open(sctx, rstr, 0);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
     RedisModule_ReplyWithSetOrArray(ctx, 0);
@@ -870,12 +868,14 @@ Version supportedVersion = {
     .patchVersion = 0,
 };
 
-static void GetRedisVersion(RedisModuleCtx *ctx) {
+static void GetRedisVersion() {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
   RedisModuleCallReply *reply = RedisModule_Call(ctx, "info", "c", "server");
   if (!reply) {
     // could not get version, it can only happened when running the tests.
     // set redis version to supported version.
     redisVersion = supportedVersion;
+    RedisModule_FreeThreadSafeContext(ctx);
     return;
   }
   RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
@@ -896,7 +896,7 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
     n = sscanf(enterpriseStr, "rlec_version:%d.%d.%d-%d", &rlecVersion.majorVersion,
                &rlecVersion.minorVersion, &rlecVersion.buildVersion, &rlecVersion.patchVersion);
     if (n != 4) {
-      RedisModule_Log(ctx, "warning", "Could not extract enterprise version");
+      RedisModule_Log(NULL, "warning", "Could not extract enterprise version");
     }
   }
 
@@ -912,6 +912,7 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
     RedisModule_FreeCallReply(reply);
   }
 
+  RedisModule_FreeThreadSafeContext(ctx);
 }
 
 void GetFormattedRedisVersion(char *buf, size_t len) {
@@ -956,7 +957,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
     return REDISMODULE_ERR;
   }
 
-  GetRedisVersion(ctx);
+  GetRedisVersion();
 
   char ver[64];
   GetFormattedRedisVersion(ver, sizeof(ver));

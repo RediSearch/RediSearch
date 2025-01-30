@@ -162,30 +162,6 @@ def testIssue1305(env):
     res = {res[i]:res[i + 1: i + 3] for i in range(0, len(res), 3)}
     env.assertEqual(res, expectedRes)
 
-@skip(cluster=True)
-def testTagIndex_OnReopen(env:Env): # issue MOD-8011
-    n_docs_per_tag_block = 1000
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
-    # Add a first tag
-    env.cmd('HSET', 'first', 't', 'bar')
-    # Add 2 blocks of documents with the same tag
-    for i in range(n_docs_per_tag_block * 2):
-        env.cmd('HSET', f'doc{i}', 't', 'foo')
-
-    # Search for both tags, read first + more than 1 block of the second
-    res, cursor = env.cmd('FT.AGGREGATE', 'idx', '@t:{bar|foo}', 'LOAD', '*', 'WITHCURSOR', 'COUNT', int(1 + n_docs_per_tag_block * 1.5))
-    env.assertEqual(res[1], ['t', 'bar']) # First tag
-    env.assertNotEqual(cursor, 0) # Not done, we have more results to read from the second block of the second tag
-
-    # Delete the first tag + first block of the second tag
-    env.expect('DEL', 'first').equal(1)
-    for i in range(n_docs_per_tag_block):
-        env.expect('DEL', f'doc{i}').equal(1)
-    forceInvokeGC(env) # Trigger GC to remove the inverted index of `bar` and the first block of `foo`
-
-    # Read from the cursor, should not crash
-    env.expect('FT.CURSOR', 'READ', 'idx', cursor).noError().equal([ANY, 0]) # cursor is done
-
 def testTagCaseSensitive(env):
     conn = getConnectionByEnv(env)
 

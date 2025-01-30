@@ -618,17 +618,8 @@ def test_JSON_RDB_load_fail_without_JSON_module(env: Env):
     env.envRunner.modulePath.pop() # Assumes Search module is the first and JSON module is the second
     env.envRunner.moduleArgs.pop()
     env.envRunner.masterCmdArgs = env.envRunner.createCmdArgs('master')
-    # Restart without JSON module. Attempt to load RDB - should fail.
-    # RLTest may or may not fail to start the server with an exception
-    try:
-        env.start()
-    except Exception as e:
-        expected_msg = 'Redis server is dead'
-        env.assertContains(expected_msg, str(e))
-        if expected_msg not in str(e):
-            raise e
-    finally:
-        env.assertFalse(env.isUp()) # Server is down with no assertion error (MOD-7587)
+    env.start() # Restart without JSON module. Attempt to load RDB
+    env.assertFalse(env.isUp()) # Server is down with no assertion error (MOD-7587)
 
 @no_msan
 def testIndexSeparation(env):
