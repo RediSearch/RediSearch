@@ -56,6 +56,7 @@ jobs:
         # We use gh api to add the reviewer as a workaround to avoid permission issue mentioned in: https://github.com/cli/cli/issues/4844
         run: |
           for pr in ${{ steps.backport.outputs.created_pull_numbers }}; do
+            gh pr merge $pr --auto
             gh api \
               --method POST \
               -H "Accept: application/vnd.github+json" \

@@ -38,8 +38,9 @@ jobs:
     - name: Build and test
       run: make coverage QUICK=1 SHOW=1
     - name: Upload coverage
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v5
       with:
-        file: bin/linux-x64-debug-cov/cov.info
+        files: bin/linux-x64-debug-cov/cov.info
+        disable_search: true
         fail_ci_if_error: true # Fail on upload errors
         token: ${{ secrets.CODECOV_TOKEN }}
