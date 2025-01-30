@@ -1587,7 +1587,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   // String parameters
   RM_TRY(
     RedisModule_RegisterStringConfig(
-      ctx, "search-ext-load", RSGlobalConfig.extLoad,
+      ctx, "search-ext-load", RSGlobalConfig.extLoad ? RSGlobalConfig.extLoad : "",
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       get_ext_load, set_immutable_string_config, NULL,
       (void *)&(RSGlobalConfig.extLoad)
@@ -1596,7 +1596,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterStringConfig(
-      ctx, "search-friso-ini", RSGlobalConfig.frisoIni,
+      ctx, "search-friso-ini", RSGlobalConfig.frisoIni ? RSGlobalConfig.frisoIni : "",
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       get_friso_ini, set_immutable_string_config, NULL,
       (void *)&(RSGlobalConfig.frisoIni)
