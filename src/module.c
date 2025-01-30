@@ -3473,7 +3473,7 @@ static bool checkClusterEnabled(RedisModuleCtx *ctx) {
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int unprefixedConfigSupported, int isClusterEnabled) {
+int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfiguration, int isClusterEnabled) {
   char *err = NULL;
   // Read module configuration from module ARGS
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
@@ -3482,7 +3482,7 @@ int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, i
     return REDISMODULE_ERR;
   }
   // register the module configuration with redis, use loaded values from command line as defaults
-  if (!unprefixedConfigSupported) {
+  if (!registerConfiguration) {
     // For backward compatibility, if the new API is not available, set the
     // default username
     clusterConfig.aclUsername = rm_strdup(DEFAULT_ACL_USERNAME);

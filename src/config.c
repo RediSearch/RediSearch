@@ -1672,7 +1672,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(
-      ctx, "search-no-gc", RSGlobalConfig.gcConfigParams.enableGC,
+      ctx, "search-no-gc", !RSGlobalConfig.gcConfigParams.enableGC,
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       get_inverted_bool_config, set_inverted_bool_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.enableGC)
