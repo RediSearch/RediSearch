@@ -763,9 +763,9 @@ def testModuleLoadexNumericParamsLastWins():
                     'CONFIG', configName, str(minValue),
                     'ARGS', argName, str(default), argName, str(maxValue)).ok()
         res = env.cmd('CONFIG', 'GET', configName)
-        env.assertEqual(res, [configName, str(maxValue)])
+        env.assertEqual(res, [configName, str(minValue)])
         res = env.cmd(config_cmd(), 'GET', argName)
-        env.assertEqual(res, [[argName, ftMaxValue]])
+        env.assertEqual(res, [[argName, str(minValue)]])
         env.assertTrue(env.isUp())
         env.stop()
 
@@ -882,8 +882,8 @@ def testModuleLoadexEnumParams():
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, [])
     res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                'CONFIG', configName, defaultValue,
-                'ARGS', argName, testValue
+                'CONFIG', configName, testValue,
+                'ARGS', argName, defaultValue
     )
     env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
     env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
@@ -921,8 +921,8 @@ def testConfigFileAndArgsEnumParams():
     # Test search-on-timeout
     configName = 'search-on-timeout'
     argName = 'ON_TIMEOUT'
-    testValue = 'fail'
-    moduleArgs = 'ON_TIMEOUT return'
+    testValue = 'return'
+    moduleArgs = 'ON_TIMEOUT fail'
 
     # create redis.conf file in /tmp
     if os.path.isfile(redisConfigFile):
@@ -1144,7 +1144,8 @@ def testConfigFileAndArgsStringParams():
     # stop the server and remove the rdb file
     rdbFilePath = _getRDBFilePath(env)
     env.stop()
-    os.unlink(rdbFilePath)
+    if (os.path.exists(rdbFilePath)):
+        os.unlink(rdbFilePath)
 
     # get module path
     env.assertEqual(len(env.envRunner.modulePath), 2)
@@ -1158,11 +1159,11 @@ def testConfigFileAndArgsStringParams():
     moduleArgs = ''
     with open(redisConfigFile, 'w') as f:
         for configName, argName, ftDefault, testValue in stringConfigs:
-            f.write(f'{configName} unusedValue\n')
             testValue = os.path.abspath(os.path.join(basedir, testValue))
+            f.write(f'{configName} {testValue}\n')
             if (moduleArgs != ''):
                 moduleArgs += ' '
-            moduleArgs += f'{argName} {testValue}'
+            moduleArgs += f'{argName} unusedValue'
 
     # create module arguments
     env.envRunner.moduleArgs.pop()
@@ -1309,7 +1310,7 @@ def testModuleLoadexBooleanParams():
         # use non-default value as argument value
         argValue = 'false' if defaultValue == 'yes' else 'true'
         # expected value should be equivalent to the argValue
-        expectedConfigValue = 'yes' if argValue == 'true' else 'no'
+        expectedArgValue = 'true' if argValue == 'false' else 'false'
         if not isFlag:
             res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                         'CONFIG', configName, configValue,
@@ -1320,8 +1321,8 @@ def testModuleLoadexBooleanParams():
                         'CONFIG', configName, configValue,
                         'ARGS', argName
             )
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
-        env.expect('CONFIG', 'GET', configName).equal([configName, expectedConfigValue])
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, expectedArgValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
         env.stop()
         os.unlink(rdbFilePath)
 
@@ -1377,9 +1378,9 @@ def testModuleLoadexSearchPartialIndexedDocs():
                'CONFIG', 'search-partial-indexed-docs', 'no',
                'ARGS', 'PARTIAL_INDEXED_DOCS', 11).ok()
     env.expect(config_cmd(), 'GET', 'PARTIAL_INDEXED_DOCS')\
-        .equal([['PARTIAL_INDEXED_DOCS', 'true']])
+        .equal([['PARTIAL_INDEXED_DOCS', 'false']])
     env.expect('CONFIG', 'GET', 'search-partial-indexed-docs')\
-        .equal(['search-partial-indexed-docs', 'yes'])
+        .equal(['search-partial-indexed-docs', 'no'])
     env.stop()
     os.unlink(rdbFilePath)
 
@@ -1437,8 +1438,8 @@ def testConfigFileAndArgsBooleanParams():
         if configName == 'search-partial-indexed-docs':
             continue
         # the expected value is the opposite of the default value
-        configValue = 'yes' if defaultValue == 'no' else 'no'
-        ftExpectedValue = 'true' if defaultValue == 'no' else 'false'
+        configValue = 'yes' if defaultValue == 'yes' else 'no'
+        ftExpectedValue = 'true' if defaultValue == 'yes' else 'false'
         res = env.cmd('CONFIG', 'GET', configName)
         env.assertEqual(res, [configName, configValue],
                         message=f'configName: {configName}')
