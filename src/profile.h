@@ -10,6 +10,7 @@
 #include "value.h"
 #include "aggregate/aggregate.h"
 
+#define CLOCKS_PER_MILLISEC  (CLOCKS_PER_SEC / 1000)
 #define PROFILE_VERBOSE RSGlobalConfig.printProfileClock
 
 #define printProfileType(vtype)                       \

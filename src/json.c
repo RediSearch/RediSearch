@@ -91,34 +91,26 @@ int pathHasDefinedOrder(JSONPath jsonpath) {
   return false;
 }
 
-int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *status) {
+int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type) {
   int rv = REDISMODULE_ERR;
   switch (type) {
   // TEXT, TAG and GEO fields are represented as string
-  case JSONType_String: {
-
-    if (fieldType & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG | INDEXFLD_T_GEO)) {
+  case JSONType_String:
+    if (fieldType == INDEXFLD_T_FULLTEXT || fieldType == INDEXFLD_T_TAG || fieldType == INDEXFLD_T_GEO) {
       rv = REDISMODULE_OK;
-    } else {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field");
     }
     break;
-  }
   // NUMERIC field is represented as either integer or double
   case JSONType_Int:
   case JSONType_Double:
     if (fieldType == INDEXFLD_T_NUMERIC) {
       rv = REDISMODULE_OK;
-    } else {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid JSON type: Numeric type can represent only NUMERIC field");
     }
     break;
   // Boolean values can be represented only as TAG
   case JSONType_Bool:
     if (fieldType == INDEXFLD_T_TAG) {
       rv = REDISMODULE_OK;
-    } else {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid JSON type: Boolean type can be represent only TAG field");
     }
     break;
   case JSONType_Null:
@@ -127,16 +119,12 @@ int FieldSpec_CheckJsonType(FieldType fieldType, JSONType type, QueryError *stat
   case JSONType_Array:
     if (fieldType == INDEXFLD_T_FULLTEXT  || fieldType == INDEXFLD_T_VECTOR || fieldType == INDEXFLD_T_NUMERIC || fieldType == INDEXFLD_T_TAG || fieldType == INDEXFLD_T_GEO) {
       rv = REDISMODULE_OK;
-    } else {
-      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid JSON type: Array type cannot represent GEOMETRY field");
     }
     break;
   // An object or null type are not supported
   case JSONType_Object:
-  case JSONType__EOF: {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid JSON type: Null type is not supported");
+  case JSONType__EOF:
     break;
-  }
   }
 
   return rv;
@@ -179,11 +167,10 @@ static int JSON_getFloat64(RedisJSON json, double *val) {
 }
 
 typedef int (*getJSONElementFunc)(RedisJSON, void *);
-int JSON_StoreVectorAt(RedisJSON arr, size_t len, getJSONElementFunc getElement, char *target, unsigned char step, QueryError* status) {
+int JSON_StoreVectorAt(RedisJSON arr, size_t len, getJSONElementFunc getElement, char *target, unsigned char step) {
   for (int i = 0; i < len; ++i) {
     RedisJSON json = japi->getAt(arr, i);
     if (getElement(json, target) != REDISMODULE_OK) {
-      QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Invalid vector element at index %d", i);
       return REDISMODULE_ERR;
     }
     target += step;
@@ -207,7 +194,7 @@ getJSONElementFunc VecSimGetJSONCallback(VecSimType type) {
   }
 }
 
-int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentField *df, QueryError *status) {
+int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentField *df) {
   VecSimType type;
   size_t dim;
   getJSONElementFunc getElement;
@@ -221,28 +208,23 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
       type = fs->vectorOpts.vecSimParams.bfParams.type;
       dim = fs->vectorOpts.vecSimParams.bfParams.dim;
       break;
-    default: {
-      QueryError_SetError(status, QUERY_EGENERIC, "Invalid vector similarity algorithm");
-      return REDISMODULE_ERR;
-    }
+    default: return REDISMODULE_ERR;
   }
   size_t arrLen;
   japi->getLen(arr, &arrLen);
   if (arrLen != dim) {
-    QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Invalid vector length. Expected %lu, got %lu", dim, arrLen);
     return REDISMODULE_ERR;
   }
 
   getElement = VecSimGetJSONCallback(type);
 
   if (!(df->strval = rm_malloc(fs->vectorOpts.expBlobSize))) {
-    QueryError_SetError(status, QUERY_EGENERIC, "Failed to allocate memory for vector");
     return REDISMODULE_ERR;
   }
   df->strlen = fs->vectorOpts.expBlobSize;
 
   // At this point array length matches blob length
-  if (JSON_StoreVectorAt(arr, arrLen, getElement, df->strval, VecSimType_sizeof(type), status) != REDISMODULE_OK) {
+  if (JSON_StoreVectorAt(arr, arrLen, getElement, df->strval, VecSimType_sizeof(type)) != REDISMODULE_OK) {
     rm_free(df->strval);
     return REDISMODULE_ERR;
   }
@@ -250,7 +232,7 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
   return REDISMODULE_OK;
 }
 
-int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len, struct DocumentField *df, QueryError *status) {
+int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len, struct DocumentField *df) {
   VecSimType type;
   size_t dim;
   bool multi;
@@ -294,7 +276,7 @@ int JSON_StoreMultiVectorInDocField(FieldSpec *fs, JSONIterable *itr, size_t len
     if ((REDISMODULE_OK != japi->getLen(element, &cur_dim)) || (cur_dim != dim)) {
       goto cleanup;
     }
-    if (REDISMODULE_OK != JSON_StoreVectorAt(element, cur_dim, getElement, df->blobArr + df->blobSize * count, step, status)) {
+    if (REDISMODULE_OK != JSON_StoreVectorAt(element, cur_dim, getElement, df->blobArr + df->blobSize * count, step)) {
       goto cleanup;
     }
     count++; // counts only the valid non-null vectors, so we store only valid vectors continuously.
@@ -309,34 +291,32 @@ fail:
   return REDISMODULE_ERR;
 }
 
-int JSON_StoreMultiVectorInDocFieldFromIter(FieldSpec *fs, JSONResultsIterator jsonIter, size_t len, struct DocumentField *df, QueryError *status) {
+int JSON_StoreMultiVectorInDocFieldFromIter(FieldSpec *fs, JSONResultsIterator jsonIter, size_t len, struct DocumentField *df) {
   JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
                                       .iter = jsonIter};
-  return JSON_StoreMultiVectorInDocField(fs, &iter, len, df, status);
+  return JSON_StoreMultiVectorInDocField(fs, &iter, len, df);
 }
 
-int JSON_StoreMultiVectorInDocFieldFromArr(FieldSpec *fs, RedisJSON arr, size_t len, struct DocumentField *df, QueryError *status) {
+int JSON_StoreMultiVectorInDocFieldFromArr(FieldSpec *fs, RedisJSON arr, size_t len, struct DocumentField *df) {
   JSONIterable iter = (JSONIterable) {.type = ITERABLE_ARRAY,
                                       .array.arr = arr,
                                       .array.index = 0};
-  return JSON_StoreMultiVectorInDocField(fs, &iter, len, df, status);
+  return JSON_StoreMultiVectorInDocField(fs, &iter, len, df);
 }
 
-int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentField *df, QueryError *status) {
+int JSON_StoreVectorInDocField(FieldSpec *fs, RedisJSON arr, struct DocumentField *df) {
   size_t len;
   japi->getLen(arr, &len);
-  if (len == 0) {
-    QueryError_SetError(status, QUERY_EBADVAL, "Empty array for vector field on JSON document");
+  if (len == 0)
     return REDISMODULE_ERR;
-  }
 
   RedisJSON el = japi->getAt(arr, 0); // We know there is at least one element in the array.
   switch (japi->getType(el)) {
     case JSONType_Int:
     case JSONType_Double:
-      return JSON_StoreSingleVectorInDocField(fs, arr, df, status);
+      return JSON_StoreSingleVectorInDocField(fs, arr, df);
     case JSONType_Array:
-      return JSON_StoreMultiVectorInDocFieldFromArr(fs, arr, len, df, status);
+      return JSON_StoreMultiVectorInDocFieldFromArr(fs, arr, len, df);
     default: return REDISMODULE_ERR;
   }
 }
@@ -354,7 +334,7 @@ RedisJSON JSONIterable_Next(JSONIterable *iterable) {
   }
 }
 
-int JSON_StoreTextInDocField(size_t len, JSONIterable *iterable, struct DocumentField *df, QueryError *status) {
+int JSON_StoreTextInDocField(size_t len, JSONIterable *iterable, struct DocumentField *df) {
   df->multiVal = rm_calloc(len , sizeof(*df->multiVal));
   int i = 0, nulls = 0;
   size_t strlen;
@@ -369,7 +349,6 @@ int JSON_StoreTextInDocField(size_t len, JSONIterable *iterable, struct Document
       nulls++; // Skip Nulls
     } else {
       // Text/Tag fields can handle only strings or Nulls
-      QueryError_SetError(status, QUERY_EBADVAL, "TEXT/TAG fields can only contain strings or nulls");
       goto error;
     }
   }
@@ -388,22 +367,22 @@ error:
   return REDISMODULE_ERR;
 }
 
-int JSON_StoreTextInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df, QueryError *status) {
+int JSON_StoreTextInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df) {
   JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
                                       .iter = jsonIter};
-  return JSON_StoreTextInDocField(len, &iter, df, status);
+  return JSON_StoreTextInDocField(len, &iter, df);
 }
 
-int JSON_StoreTextInDocFieldFromArr(RedisJSON arr, struct DocumentField *df, QueryError *status) {
+int JSON_StoreTextInDocFieldFromArr(RedisJSON arr, struct DocumentField *df) {
   size_t len;
   japi->getLen(arr, &len);
   JSONIterable iter = (JSONIterable) {.type = ITERABLE_ARRAY,
                                       .array.arr = arr,
                                       .array.index = 0};
-  return JSON_StoreTextInDocField(len, &iter, df, status);
+  return JSON_StoreTextInDocField(len, &iter, df);
 }
 
-int JSON_StoreNumericInDocField(size_t len, JSONIterable *iterable, struct DocumentField *df, QueryError *status) {
+int JSON_StoreNumericInDocField(size_t len, JSONIterable *iterable, struct DocumentField *df) {
   arrayof(double) arr = array_new(double, len);
   int nulls = 0;
   RedisJSON json;
@@ -417,7 +396,6 @@ int JSON_StoreNumericInDocField(size_t len, JSONIterable *iterable, struct Docum
       ++nulls; // Skip Nulls (TODO: consider also failing or converting to a specific value, e.g., zero)
     } else {
       // Numeric fields can handle only numeric or Nulls
-      QueryError_SetError(status, QUERY_EBADVAL, "NUMERIC fields can only contain numeric or nulls");
       goto error;
     }
   }
@@ -431,23 +409,23 @@ error:
   return REDISMODULE_ERR;
 }
 
-int JSON_StoreNumericInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df, QueryError *status) {
+int JSON_StoreNumericInDocFieldFromIter(size_t len, JSONResultsIterator jsonIter, struct DocumentField *df) {
   JSONIterable iter = (JSONIterable) {.type = ITERABLE_ITER,
                                       .iter = jsonIter};
-  return JSON_StoreNumericInDocField(len, &iter, df, status);
+  return JSON_StoreNumericInDocField(len, &iter, df);
 }
 
-int JSON_StoreNumericInDocFieldFromArr(RedisJSON arr, struct DocumentField *df, QueryError *status) {
+int JSON_StoreNumericInDocFieldFromArr(RedisJSON arr, struct DocumentField *df) {
   size_t len;
   japi->getLen(arr, &len);
   JSONIterable iter = (JSONIterable) {.type = ITERABLE_ARRAY,
                                       .array.arr = arr,
                                       .array.index = 0};
-  return JSON_StoreNumericInDocField(len, &iter, df, status);
+  return JSON_StoreNumericInDocField(len, &iter, df);
 }
 
 
-int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struct DocumentField *df, QueryError *status) {
+int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struct DocumentField *df) {
   int rv = REDISMODULE_OK;
 
   int boolval;
@@ -489,13 +467,13 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
         case INDEXFLD_T_TAG:
         case INDEXFLD_T_GEO:
           // (initially GEO is stored as TEXT)
-          rv = JSON_StoreTextInDocFieldFromArr(json, df, status);
+          rv = JSON_StoreTextInDocFieldFromArr(json, df);
           break;
         case INDEXFLD_T_VECTOR:
-          rv = JSON_StoreVectorInDocField(fs, json, df, status);
+          rv = JSON_StoreVectorInDocField(fs, json, df);
           break;
         case INDEXFLD_T_NUMERIC:
-          rv = JSON_StoreNumericInDocFieldFromArr(json, df, status);
+          rv = JSON_StoreNumericInDocFieldFromArr(json, df);
           break;
         default:
           rv = REDISMODULE_ERR;
@@ -513,18 +491,18 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
 }
 
 int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
-                              FieldSpec *fs, struct DocumentField *df, RedisModuleCtx *ctx, QueryError *status) {
+                              FieldSpec *fs, struct DocumentField *df, RedisModuleCtx *ctx) {
   int rv = REDISMODULE_OK;
 
   if (len == 1) {
     RedisJSON json = japi->next(jsonIter);
 
     JSONType jsonType = japi->getType(json);
-    if (FieldSpec_CheckJsonType(fs->types, jsonType, status) != REDISMODULE_OK) {
+    if (FieldSpec_CheckJsonType(fs->types, jsonType) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
 
-    if (JSON_StoreInDocField(json, jsonType, fs, df, status) != REDISMODULE_OK) {
+    if (JSON_StoreInDocField(json, jsonType, fs, df) != REDISMODULE_OK) {
       return REDISMODULE_ERR;
     }
   } else {
@@ -534,15 +512,15 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
       case INDEXFLD_T_GEO:
         // Handling multiple values as Text
         // (initially GEO is stored as TEXT)
-        rv = JSON_StoreTextInDocFieldFromIter(len, jsonIter, df, status);
+        rv = JSON_StoreTextInDocFieldFromIter(len, jsonIter, df);
         break;
       case INDEXFLD_T_NUMERIC:
         // Handling multiple values as Numeric
-        rv = JSON_StoreNumericInDocFieldFromIter(len, jsonIter, df, status);
+        rv = JSON_StoreNumericInDocFieldFromIter(len, jsonIter, df);
         break;
       case INDEXFLD_T_VECTOR:;
         // Handling multiple values as Vector
-        rv = JSON_StoreMultiVectorInDocFieldFromIter(fs, jsonIter, len, df, status);
+        rv = JSON_StoreMultiVectorInDocFieldFromIter(fs, jsonIter, len, df);
         break;
       default:
         rv = REDISMODULE_ERR;

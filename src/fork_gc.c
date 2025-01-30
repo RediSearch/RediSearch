@@ -24,7 +24,10 @@
 #include "module.h"
 #include "rmutil/rm_assert.h"
 #include "suffix.h"
-#include "info/global_stats.h"
+
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -155,6 +158,11 @@ FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len) {
   return REDISMODULE_OK;
 }
 
+#define TRY_RECV_BUFFER(gc, buf, len)                   \
+  if (FGC_recvBuffer(gc, buf, len) != REDISMODULE_OK) { \
+    return REDISMODULE_ERR;                             \
+  }
+
 typedef struct {
   // Number of blocks prior to repair
   uint32_t nblocksOrig;
@@ -231,8 +239,11 @@ static bool FGC_childRepairInvidx(ForkGC *gc, RedisSearchCtx *sctx, InvertedInde
     // Capture the pointer address before the block is cleared; otherwise
     // the pointer might be freed! (IndexBlock_Repair rewrites blk->buf if there were repairs)
     void *bufptr = blk->buf.data;
-    size_t nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, idx->flags, params);
-    if (nrepaired == 0) {
+    int nrepaired = IndexBlock_Repair(blk, &sctx->spec->docs, idx->flags, params);
+    // We couldn't repair the block - return 0
+    if (nrepaired == -1) {
+      goto done;
+    } else if (nrepaired == 0) {
       // unmodified block
       blocklist = array_append(blocklist, *blk);
       continue;
@@ -317,10 +328,14 @@ static void FGC_childCollectTerms(ForkGC *gc, RedisSearchCtx *sctx) {
   while (TrieIterator_Next(iter, &rstr, &slen, NULL, &score, &dist)) {
     size_t termLen;
     char *term = runesToStr(rstr, slen, &termLen);
-    InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, strlen(term), 1, NULL);
+    RedisModuleKey *idxKey = NULL;
+    InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, strlen(term), 1, NULL, &idxKey);
     if (idx) {
       struct iovec iov = {.iov_base = (void *)term, termLen};
       FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
+    }
+    if (idxKey) {
+      RedisModule_CloseKey(idxKey);
     }
     rm_free(term);
   }
@@ -443,11 +458,12 @@ static void sendKht(ForkGC *gc, const khash_t(cardvals) * kh) {
 }
 
 static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
+  RedisModuleKey *idxKey = NULL;
   arrayof(FieldSpec*) numericFields = getFieldsByType(sctx->spec, INDEXFLD_T_NUMERIC | INDEXFLD_T_GEO);
 
   for (int i = 0; i < array_len(numericFields); ++i) {
     RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, numericFields[i], INDEXFLD_T_NUMERIC);
-    NumericRangeTree *rt = OpenNumericIndex(sctx, keyName);
+    NumericRangeTree *rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     NumericRangeTreeIterator *gcIterator = NumericRangeTreeIterator_New(rt);
 
@@ -482,6 +498,10 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
       FGC_SEND_VAR(gc, pdummy);
     }
 
+    if (idxKey) {
+      RedisModule_CloseKey(idxKey);
+    }
+
     NumericRangeTreeIterator_Free(gcIterator);
   }
 
@@ -491,11 +511,12 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 }
 
 static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
+  RedisModuleKey *idxKey = NULL;
   arrayof(FieldSpec*) tagFields = getFieldsByType(sctx->spec, INDEXFLD_T_TAG);
   if (array_len(tagFields) != 0) {
     for (int i = 0; i < array_len(tagFields); ++i) {
       RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, tagFields[i], INDEXFLD_T_TAG);
-      TagIndex *tagIdx = TagIndex_Open(sctx, keyName, false);
+      TagIndex *tagIdx = TagIndex_Open(sctx, keyName, false, &idxKey);
       if (!tagIdx) {
         continue;
       }
@@ -520,6 +541,10 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       if (header.sentFieldName) {
         void *pdummy = NULL;
         FGC_SEND_VAR(gc, pdummy);
+      }
+
+      if (idxKey) {
+        RedisModule_CloseKey(idxKey);
       }
     }
   }
@@ -752,6 +777,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
   if (FGC_recvBuffer(gc, (void **)&term, &len) != REDISMODULE_OK) {
     return FGC_CHILD_ERROR;
   }
+  RedisModuleKey *idxKey = NULL;
   RedisSearchCtx *sctx = NULL;
 
   if (term == RECV_BUFFER_EMPTY) {
@@ -777,7 +803,7 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
     goto cleanup;
   }
 
-  InvertedIndex *idx = Redis_OpenInvertedIndex(sctx, term, len, 1, NULL);
+  InvertedIndex *idx = Redis_OpenInvertedIndexEx(sctx, term, len, 1, NULL, &idxKey);
 
   if (idx == NULL) {
     status = FGC_PARENT_ERROR;
@@ -808,6 +834,10 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
   }
 
 cleanup:
+
+  if (idxKey) {
+    RedisModule_CloseKey(idxKey);
+  }
   if (sctx) {
     SearchCtx_Free(sctx);
   }
@@ -931,6 +961,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
   while (status == FGC_COLLECTED) {
     NumGcInfo ninfo = {0};
     RedisSearchCtx *sctx = NULL;
+    RedisModuleKey *idxKey = NULL;
     // Read from GC process
     FGCError status2 = recvNumIdx(gc, &ninfo);
     if (status2 == FGC_DONE) {
@@ -952,7 +983,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
       goto loop_cleanup;
     }
     RedisModuleString *keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_NUMERIC);
-    rt = OpenNumericIndex(sctx, keyName);
+    rt = OpenNumericIndex(sctx, keyName, &idxKey);
 
     if (rt->uniqueId != rtUniqueId) {
       status = FGC_PARENT_ERROR;
@@ -979,6 +1010,9 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc, RedisModuleCtx *rctx) {
       freeInvIdx(&ninfo.idxbufs, &ninfo.info);
     } else {
       rm_free(ninfo.idxbufs.changedBlocks);
+    }
+    if (idxKey) {
+      RedisModule_CloseKey(idxKey);
     }
     if (hasLock) {
       FGC_unlock(gc, rctx);
@@ -1015,6 +1049,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
 
   while (status == FGC_COLLECTED) {
     RedisModuleString *keyName = NULL;
+    RedisModuleKey *idxKey = NULL;
     RedisSearchCtx *sctx = NULL;
     MSG_IndexInfo info = {0};
     InvIdxBuffers idxbufs = {0};
@@ -1055,7 +1090,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
       goto loop_cleanup;
     }
     keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_TAG);
-    tagIdx = TagIndex_Open(sctx, keyName, false);
+    tagIdx = TagIndex_Open(sctx, keyName, false, &idxKey);
 
     if (tagIdx->uniqueId != tagUniqueId) {
       status = FGC_CHILD_ERROR;
@@ -1083,6 +1118,9 @@ static FGCError FGC_parentHandleTags(ForkGC *gc, RedisModuleCtx *rctx) {
   loop_cleanup:
     if (sctx) {
       SearchCtx_Free(sctx);
+    }
+    if (idxKey) {
+      RedisModule_CloseKey(idxKey);
     }
     if (hasLock) {
       FGC_unlock(gc, rctx);
@@ -1118,6 +1156,23 @@ int FGC_parentHandleFromChild(ForkGC *gc) {
   return REDISMODULE_OK;
 }
 
+/**
+ * In future versions of Redis, Redis will have its own fork() call.
+ * The following two functions wrap this functionality.
+ */
+static int FGC_haveRedisFork() {
+  return RedisModule_Fork != NULL;
+}
+
+static int FGC_fork(ForkGC *gc, RedisModuleCtx *ctx) {
+  if (FGC_haveRedisFork()) {
+    int ret = RedisModule_Fork(NULL, NULL);
+    return ret;
+  } else {
+    return fork();
+  }
+}
+
 static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   ForkGC *gc = privdata;
   if (gc->deleting) {
@@ -1126,6 +1181,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   if (gc->deletedDocsFromLastRun < RSGlobalConfig.forkGcCleanThreshold) {
     return 1;
   }
+
   int gcrv = 1;
 
   // Check if RDB is loading - not needed after the first time we find out that rdb is not
@@ -1180,7 +1236,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
   gc->execState = FGC_STATE_SCANNING;
 
-  cpid = RedisModule_Fork(NULL, NULL);  // duplicate the current process
+  cpid = FGC_fork(gc, ctx);  // duplicate the current process
 
   if (cpid == -1) {
     RedisModule_Log(ctx, "warning", "fork failed - got errno %d, aborting fork GC", errno);
@@ -1198,9 +1254,6 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     return 1;
   }
 
-  // Now that we hold the GIL, we can cache this value knowing it won't change by the main thread
-  // upon deleting a docuemnt (this is the actual number of documents to be cleaned by the fork).
-  size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
   gc->deletedDocsFromLastRun = 0;
 
   if (gc->type == FGC_TYPE_NOKEYSPACE) {
@@ -1212,13 +1265,25 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   gc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
 
   if (cpid == 0) {
-    // fork process
     setpriority(PRIO_PROCESS, getpid(), 19);
+    // fork process
     close(gc->pipefd[GC_READERFD]);
+#ifdef __linux__
+    if (!FGC_haveRedisFork()) {
+      // set the parrent death signal to SIGTERM
+      int r = prctl(PR_SET_PDEATHSIG, SIGKILL);
+      if (r == -1) {
+        exit(1);
+      }
+      // test in case the original parent exited just
+      // before the prctl() call
+      if (getppid() != ppid_before_fork) exit(1);
+    }
+#endif
     FGC_childScanIndexes(gc);
     close(gc->pipefd[GC_WRITERFD]);
     sleep(RSGlobalConfig.forkGcSleepBeforeExit);
-    RedisModule_ExitFromChild(EXIT_SUCCESS);
+    _exit(EXIT_SUCCESS);
   } else {
     // main process
     close(gc->pipefd[GC_WRITERFD]);
@@ -1233,34 +1298,43 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
       gcrv = 1;
     }
     close(gc->pipefd[GC_READERFD]);
+    if (FGC_haveRedisFork()) {
 
-    if (gc->type == FGC_TYPE_NOKEYSPACE) {
-      // If we are not in key space we still need to acquire the GIL to use the fork api
-      RedisModule_ThreadSafeContextLock(ctx);
-    }
+      if (gc->type == FGC_TYPE_NOKEYSPACE) {
+        // If we are not in key space we still need to acquire the GIL to use the fork api
+        RedisModule_ThreadSafeContextLock(ctx);
+      }
 
-    if (!FGC_lock(gc, ctx)) {
+      if (!FGC_lock(gc, ctx)) {
+        if (gc->type == FGC_TYPE_NOKEYSPACE) {
+          RedisModule_ThreadSafeContextUnlock(ctx);
+        }
+
+        return 0;
+      }
+
+      // KillForkChild must be called when holding the GIL
+      // otherwise it might cause a pipe leak and eventually run
+      // out of file descriptor
+      RedisModule_KillForkChild(cpid);
+
       if (gc->type == FGC_TYPE_NOKEYSPACE) {
         RedisModule_ThreadSafeContextUnlock(ctx);
       }
 
-      return 0;
+      FGC_unlock(gc, ctx);
+
+    } else {
+      pid_t id = wait4(cpid, NULL, 0, NULL);
+      if (id == -1) {
+        RedisModule_Log(ctx, "warning", "an error occurred when waiting for fork GC to terminate,"
+                        " pid:%d", cpid);
+      }
     }
-
-    // KillForkChild must be called when holding the GIL
-    // otherwise it might cause a pipe leak and eventually run
-    // out of file descriptor
-    RedisModule_KillForkChild(cpid);
-
-    if (gc->type == FGC_TYPE_NOKEYSPACE) {
-      RedisModule_ThreadSafeContextUnlock(ctx);
-    }
-
-    FGC_unlock(gc, ctx);
   }
-  IndexsGlobalStats_UpdateLogicallyDeleted(-num_docs_to_clean);
   gc->execState = FGC_STATE_IDLE;
   TimeSampler_End(&ts);
+
   long long msRun = TimeSampler_DurationMS(&ts);
 
   gc->stats.numCycles++;
@@ -1308,7 +1382,6 @@ void FGC_Apply(ForkGC *gc) NO_TSAN_CHECK {
 
 static void onTerminateCb(void *privdata) {
   ForkGC *gc = privdata;
-  IndexsGlobalStats_UpdateLogicallyDeleted(-gc->deletedDocsFromLastRun);
   if (gc->keyName && gc->type == FGC_TYPE_INKEYSPACE) {
     RedisModule_FreeString(gc->ctx, (RedisModuleString *)gc->keyName);
   }
@@ -1361,7 +1434,6 @@ static void killCb(void *ctx) {
 static void deleteCb(void *ctx) {
   ForkGC *gc = ctx;
   ++gc->deletedDocsFromLastRun;
-  IndexsGlobalStats_UpdateLogicallyDeleted(1);
 }
 
 static struct timespec getIntervalCb(void *ctx) {

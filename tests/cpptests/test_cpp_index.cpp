@@ -150,6 +150,10 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_TRUE(docIdEnc != NULL);
 
   for (size_t i = 0; i < 200; i++) {
+    // if (i % 10000 == 1) {
+    //     printf("iw cap: %ld, iw size: %d, numdocs: %d\n", w->cap, IW_Len(w),
+    //     w->ndocs);
+    // }
 
     ForwardIndexEntry h;
     h.docId = i;
@@ -176,8 +180,17 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   }
   ASSERT_EQ(199, idx->lastId);
 
+  // IW_MakeSkipIndex(w, NewMemoryBuffer(8, BUFFER_WRITE));
+
+  //   for (int x = 0; x < w->skipIdx.len; x++) {
+  //     printf("Skip entry %d: %d, %d\n", x, w->skipIdx.entries[x].docId,
+  //     w->skipIdx.entries[x].offset);
+  //   }
+  // printf("iw cap: %ld, iw size: %ld, numdocs: %d\n", w->bw.buf->cap, IW_Len(w), w->ndocs);
+
   for (int xx = 0; xx < 1; xx++) {
-    IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
+    // printf("si: %d\n", si->len);
+    IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);  //
     RSIndexResult *h = NULL;
 
     int n = 0;
@@ -190,71 +203,31 @@ TEST_P(IndexFlagsTest, testRWFlags) {
       ASSERT_EQ(h->docId, n);
       n++;
     }
+    // for (int z= 0; z < 10; z++) {
+    // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start_time);
+
+    // IR_SkipTo(ir, 900001, &h);
+
+    // clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end_time);
+    // long diffInNanos = end_time.tv_nsec - start_time.tv_nsec;
+
+    // printf("Time elapsed: %ldnano\n", diffInNanos);
+    // //IR_Free(ir);
+    // }
+    // IndexResult_Free(&h);
     IR_Free(ir);
   }
 
+  // IW_Free(w);
+  // // overriding the regular IW_Free because we already deleted the buffer
   InvertedIndex_Free(idx);
 }
 
-INSTANTIATE_TEST_SUITE_P(IndexFlagsP, IndexFlagsTest, ::testing::Values(
-    // 1. Full encoding - docId, freq, flags, offset
-    int(Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags),
-    int(Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_WideSchema),
-    // 2. (Frequency, Field)
-    int(Index_StoreFreqs | Index_StoreFieldFlags),
-    int(Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema),
-    // 3. Frequencies only
-    int(Index_StoreFreqs),
-    // 4. Field only
-    int(Index_StoreFieldFlags),
-    int(Index_StoreFieldFlags | Index_WideSchema),
-    // 5. (field, offset)
-    int(Index_StoreFieldFlags | Index_StoreTermOffsets),
-    int(Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema),
-    // 6. (offset)
-    int(Index_StoreTermOffsets),
-    // 7. (freq, offset) Store term offsets but not field flags
-    int(Index_StoreFreqs | Index_StoreTermOffsets),
-    // 0. docid only
-    int(Index_DocIdsOnly)
-));
+INSTANTIATE_TEST_SUITE_P(IndexFlagsP, IndexFlagsTest, ::testing::Range(1, 32));
 
-// Test we only get the right encoder and decoder for the right flags
-TEST_F(IndexTest, testGetEncoderAndDecoders) {
-  for (int curFlags = 0; curFlags <= INDEX_STORAGE_MASK; curFlags++) {
-    switch (curFlags & INDEX_STORAGE_MASK) {
-    // 1. Full encoding - docId, freq, flags, offset
-    case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags:
-    case Index_StoreFreqs | Index_StoreTermOffsets | Index_StoreFieldFlags | Index_WideSchema:
-    // 2. (Frequency, Field)
-    case Index_StoreFreqs | Index_StoreFieldFlags:
-    case Index_StoreFreqs | Index_StoreFieldFlags | Index_WideSchema:
-    // 3. Frequencies only
-    case Index_StoreFreqs:
-    // 4. Field only
-    case Index_StoreFieldFlags:
-    case Index_StoreFieldFlags | Index_WideSchema:
-    // 5. (field, offset)
-    case Index_StoreFieldFlags | Index_StoreTermOffsets:
-    case Index_StoreFieldFlags | Index_StoreTermOffsets | Index_WideSchema:
-    // 6. (offset)
-    case Index_StoreTermOffsets:
-    // 7. (freq, offset) Store term offsets but not field flags
-    case Index_StoreFreqs | Index_StoreTermOffsets:
-    // 0. docid only
-    case Index_DocIdsOnly:
-    // 9. Numeric
-    case Index_StoreNumeric:
-      ASSERT_TRUE(InvertedIndex_GetDecoder(IndexFlags(curFlags)).decoder);
-      ASSERT_TRUE(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
-      break;
-
-    // invalid flags combination
-    default:
-      ASSERT_ANY_THROW(InvertedIndex_GetDecoder(IndexFlags(curFlags)));
-      ASSERT_ANY_THROW(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
-    }
-  }
+int printIntersect(void *ctx, RSIndexResult *hits, int argc) {
+  printf("intersect: %llu\n", (unsigned long long)hits[0].docId);
+  return 0;
 }
 
 TEST_F(IndexTest, testReadIterator) {
@@ -884,7 +857,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .vectorScoreField = (char *)"__v_score",
                                   .ignoreDocScore = true,
                                   .childIt = ii};
-  QueryError err = {QUERY_OK};
+  QueryError err = {QUERY_OK};                              
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
   ASSERT_FALSE(hybridIt);
@@ -1087,6 +1060,46 @@ TEST_F(IndexTest, testBuffer) {
   Buffer_Free(w.buf);
 }
 
+typedef struct {
+  int num;
+  char **expected;
+
+} tokenContext;
+
+int tokenFunc(void *ctx, const Token *t) {
+  tokenContext *tx = (tokenContext *)ctx;
+  int ret = strncmp(t->tok, tx->expected[tx->num++], t->tokLen);
+  EXPECT_TRUE(ret == 0);
+  EXPECT_TRUE(t->pos > 0);
+  return 0;
+}
+
+// int testTokenize() {
+//   char *txt = strdup("Hello? world...   ? -WAZZ@UP? שלום");
+//   tokenContext ctx = {0};
+//   const char *expected[] = {"hello", "world", "wazz", "up", "שלום"};
+//   ctx.expected = (char **)expected;
+
+//   tokenize(txt, &ctx, tokenFunc, NULL, 0, DefaultStopWordList(), 0);
+//   ASSERT_TRUE(ctx.num == 5);
+
+//   free(txt);
+
+//   return 0;
+// }
+
+// int testForwardIndex() {
+
+//   Document doc = NewDocument(NULL, 1, 1, "english");
+//   doc.docId = 1;
+//   doc.fields[0] = N
+//   ForwardIndex *idx = NewForwardIndex(doc);
+//   char *txt = strdup("Hello? world...  hello hello ? __WAZZ@UP? שלום");
+//   tokenize(txt, 1, 1, idx, forwardIndexTokenFunc);
+
+//   return 0;
+// }
+
 TEST_F(IndexTest, testIndexSpec) {
   const char *title = "title", *body = "body", *foo = "foo", *bar = "bar", *name = "name";
   const char *args[] = {"STOPWORDS", "2",      "hello", "world",    "SCHEMA", title,
@@ -1153,7 +1166,14 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->options == FieldSpec_NoStemming);
   ASSERT_TRUE(f->sortIdx == -1);
 
-  ASSERT_EQ(s->numSortableFields, 2);
+  ASSERT_TRUE(s->sortables != NULL);
+  ASSERT_TRUE(s->sortables->len == 2);
+  int rc = IndexSpec_GetFieldSortingIndex(s, foo, strlen(foo));
+  ASSERT_EQ(0, rc);
+  rc = IndexSpec_GetFieldSortingIndex(s, bar, strlen(bar));
+  ASSERT_EQ(1, rc);
+  rc = IndexSpec_GetFieldSortingIndex(s, title, strlen(title));
+  ASSERT_EQ(-1, rc);
 
   IndexSpec_Free(s);
 
@@ -1243,6 +1263,12 @@ TEST_F(IndexTest, testHugeSpec) {
   freeSchemaArgs(args);
   QueryError_ClearError(&err);
 }
+
+typedef union {
+
+  int i;
+  float f;
+} u;
 
 TEST_F(IndexTest, testIndexFlags) {
 
@@ -1385,6 +1411,78 @@ TEST_F(IndexTest, testDocTable) {
   DocTable_Free(&dt);
 }
 
+TEST_F(IndexTest, testSortable) {
+  RSSortingTable *tbl = NewSortingTable();
+  RSSortingTable_Add(&tbl, "foo", RSValue_String);
+  RSSortingTable_Add(&tbl, "bar", RSValue_String);
+  RSSortingTable_Add(&tbl, "baz", RSValue_String);
+  ASSERT_EQ(3, tbl->len);
+
+  ASSERT_STREQ("foo", tbl->fields[0].name);
+  ASSERT_EQ(RSValue_String, tbl->fields[0].type);
+  ASSERT_STREQ("bar", tbl->fields[1].name);
+  ASSERT_STREQ("baz", tbl->fields[2].name);
+  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "foo"));
+  ASSERT_EQ(0, RSSortingTable_GetFieldIdx(tbl, "FoO"));
+  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(NULL, "FoO"));
+
+  ASSERT_EQ(1, RSSortingTable_GetFieldIdx(tbl, "bar"));
+  ASSERT_EQ(-1, RSSortingTable_GetFieldIdx(tbl, "barbar"));
+
+  RSSortingVector *v = NewSortingVector(tbl->len);
+  ASSERT_EQ(v->len, tbl->len);
+
+  const char *str = "hello";
+  const char *masse = "Maße";
+  double num = 3.141;
+  ASSERT_TRUE(RSValue_IsNull(v->values[0]));
+  RSSortingVector_Put(v, 0, str, RS_SORTABLE_STR, 0);
+  ASSERT_EQ(v->values[0]->t, RSValue_String);
+  ASSERT_EQ(v->values[0]->strval.stype, RSString_RMAlloc);
+
+  ASSERT_TRUE(RSValue_IsNull(v->values[1]));
+  ASSERT_TRUE(RSValue_IsNull(v->values[2]));
+  RSSortingVector_Put(v, 1, &num, RSValue_Number, 0);
+  ASSERT_EQ(v->values[1]->t, RS_SORTABLE_NUM);
+
+  RSSortingVector *v2 = NewSortingVector(tbl->len);
+  RSSortingVector_Put(v2, 0, masse, RS_SORTABLE_STR, 0);
+
+  /// test string unicode lowercase normalization
+  ASSERT_STREQ("masse", v2->values[0]->strval.str);
+
+  double s2 = 4.444;
+  RSSortingVector_Put(v2, 1, &s2, RS_SORTABLE_NUM, 0);
+
+  RSSortingKey sk = {.index = 0, .ascending = 0};
+
+  QueryError qerr;
+  QueryError_Init(&qerr);
+
+  int rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
+  ASSERT_LT(0, rc);
+  ASSERT_EQ(QUERY_OK, qerr.code);
+  sk.ascending = 1;
+  rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
+  ASSERT_GT(0, rc);
+  ASSERT_EQ(QUERY_OK, qerr.code);
+  rc = RSSortingVector_Cmp(v, v, &sk, &qerr);
+  ASSERT_EQ(0, rc);
+  ASSERT_EQ(QUERY_OK, qerr.code);
+
+  sk.index = 1;
+
+  rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
+  ASSERT_TRUE(-1 == rc && qerr.code == QUERY_OK);
+  sk.ascending = 0;
+  rc = RSSortingVector_Cmp(v, v2, &sk, &qerr);
+  ASSERT_TRUE(1 == rc && qerr.code == QUERY_OK);
+
+  SortingTable_Free(tbl);
+  SortingVector_Free(v);
+  SortingVector_Free(v2);
+}
+
 TEST_F(IndexTest, testVarintFieldMask) {
   t_fieldMask x = 127;
   size_t expected[] = {1, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 17, 19};
@@ -1443,44 +1541,4 @@ TEST_F(IndexTest, testDeltaSplits) {
 
   IR_Free(ir);
   InvertedIndex_Free(idx);
-}
-
-TEST_F(IndexTest, testRawDocId) {
-  const int previousConfig = RSGlobalConfig.invertedIndexRawDocidEncoding;
-  RSGlobalConfig.invertedIndexRawDocidEncoding = true;
-  const size_t INDEX_BLOCK_SIZE = 100;
-  InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, 1);
-  IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
-
-  // Add a few entries, all with an odd docId
-  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
-    InvertedIndex_WriteEntryGeneric(idx, enc, id, NULL);
-  }
-
-  // Test that we can read them back
-  IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
-  RSIndexResult *cur;
-  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
-    ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &cur));
-    ASSERT_EQ(id, cur->docId);
-  }
-  ASSERT_EQ(INDEXREAD_EOF, IR_Read(ir, &cur));
-
-  // Test that we can skip to all the ids
-  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id++) {
-    IR_Rewind(ir);
-    int rc = IR_SkipTo(ir, id, &cur);
-    if (id % 2 == 0) {
-      ASSERT_EQ(INDEXREAD_NOTFOUND, rc);
-      ASSERT_EQ(id + 1, cur->docId) << "Expected to skip to " << id + 1 << " but got " << cur->docId;
-    } else {
-      ASSERT_EQ(INDEXREAD_OK, rc);
-      ASSERT_EQ(id, cur->docId);
-    }
-  }
-
-  // Clean up
-  IR_Free(ir);
-  InvertedIndex_Free(idx);
-  RSGlobalConfig.invertedIndexRawDocidEncoding = previousConfig;
 }

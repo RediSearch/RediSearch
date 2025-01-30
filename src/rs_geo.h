@@ -39,9 +39,4 @@ bool isWithinRadiusLonLat(double lon1, double lat1,
                          double lon2, double lat2,
                          double radius, double *distance);
 
-/*
- * Parse a string representing a lon/lat pair into two double values.
- * The string is expected to be in the format "lon lat".
- * Returns 1 if the string was parsed successfully, 0 otherwise.
-*/
-int parseGeo(const char *c, size_t len, double *lon, double *lat, QueryError *status);
+int parseGeo(const char *c, size_t len, double *lon, double *lat);

@@ -11,7 +11,6 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <rmutil/args.h>
-#include <stdbool.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -147,11 +146,6 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
  * object.
  */
 const char *QueryError_GetError(const QueryError *status);
-
-/**
- * Retrieve the error code.
- */
-QueryErrorCode QueryError_GetCode(const QueryError *status);
 
 /**
  * Clear the error state, potentially releasing the embedded string

@@ -236,8 +236,14 @@ def test_modifier_v1():
     env.expect('FT.EXPLAIN', 'idx', '@t1:hello world @t2:howdy').equal(r'''
 INTERSECT {
   @t1:INTERSECT {
-    @t1:hello
-    @t1:world
+    @t1:UNION {
+      @t1:hello
+      @t1:+hello(expanded)
+    }
+    @t1:UNION {
+      @t1:world
+      @t1:+world(expanded)
+    }
   }
   @t2:UNION {
     @t2:howdy
@@ -249,9 +255,19 @@ INTERSECT {
 
     env.expect('FT.EXPLAIN', 'idx', '@t1:(hello|world|mars)').equal(r'''
 @t1:UNION {
-  @t1:hello
-  @t1:world
-  @t1:mars
+  @t1:UNION {
+    @t1:hello
+    @t1:+hello(expanded)
+  }
+  @t1:UNION {
+    @t1:world
+    @t1:+world(expanded)
+  }
+  @t1:UNION {
+    @t1:mars
+    @t1:+mar(expanded)
+    @t1:mar(expanded)
+  }
 }
 '''[1:])
 
@@ -269,7 +285,10 @@ def test_modifier_v2(env):
 
     env.expect('FT.EXPLAIN', 'idx', '@t1:hello world @t2:howdy').equal(r'''
 INTERSECT {
-  @t1:hello
+  @t1:UNION {
+    @t1:hello
+    @t1:+hello(expanded)
+  }
   UNION {
     world
     +world(expanded)
@@ -284,9 +303,19 @@ INTERSECT {
 
     env.expect('FT.EXPLAIN', 'idx', '@t1:(hello|world|mars)').equal('''
 @t1:UNION {
-  @t1:hello
-  @t1:world
-  @t1:mars
+  @t1:UNION {
+    @t1:hello
+    @t1:+hello(expanded)
+  }
+  @t1:UNION {
+    @t1:world
+    @t1:+world(expanded)
+  }
+  @t1:UNION {
+    @t1:mars
+    @t1:+mar(expanded)
+    @t1:mar(expanded)
+  }
 }
 '''[1:])
 
@@ -415,10 +444,7 @@ UNION {
   NOT{
     INTERSECT {
       world
-      UNION {
-        again
-        +again(expanded)
-      }
+      again
     }
   }
 }
@@ -436,10 +462,7 @@ INTERSECT {
     }
   }
   OPTIONAL{
-    UNION {
-      again
-      +again(expanded)
-    }
+    again
   }
 }
 '''[1:])
@@ -495,10 +518,7 @@ INTERSECT {
     }
   }
   OPTIONAL{
-    UNION {
-      again
-      +again(expanded)
-    }
+    again
   }
 }
 '''[1:])

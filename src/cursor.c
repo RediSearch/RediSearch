@@ -144,7 +144,7 @@ int Cursors_CollectIdle(CursorList *cl) {
   return rc;
 }
 
-void CursorList_AddSpec(CursorList *cl, const char *k) {
+void CursorList_AddSpec(CursorList *cl, const char *k, size_t capacity) {
   CursorSpecInfo *info = findInfo(cl, k);
   if (!info) {
     info = rm_malloc(sizeof(*info));
@@ -152,6 +152,7 @@ void CursorList_AddSpec(CursorList *cl, const char *k) {
     info->used = 0;
     dictAdd(cl->specsDict, (void *)k, info);
   }
+  info->cap = capacity;
 }
 
 void CursorList_RemoveSpec(CursorList *cl, const char *k) {
@@ -161,18 +162,6 @@ void CursorList_RemoveSpec(CursorList *cl, const char *k) {
     rm_free(info->keyName);
     rm_free(info);
   }
-}
-
-CursorsInfoStats Cursors_GetInfoStats(void) {
-  CursorsInfoStats stats = {0};
-  CursorList_Lock(&RSCursors);
-  CursorList_Lock(&RSCursorsCoord);
-  stats.total = kh_size(RSCursors.lookup) + kh_size(RSCursorsCoord.lookup);
-  stats.total_idle = ARRAY_GETSIZE_AS(&RSCursors.idle, Cursor **) +
-                     ARRAY_GETSIZE_AS(&RSCursorsCoord.idle, Cursor **);
-  CursorList_Unlock(&RSCursorsCoord);
-  CursorList_Unlock(&RSCursors);
-  return stats;
 }
 
 static void CursorList_IncrCounter(CursorList *cl) {
@@ -215,10 +204,10 @@ Cursor *Cursors_Reserve(CursorList *cl, const char *lookupName, unsigned interva
     goto done;
   }
 
-  if (spec->used >= RSGlobalConfig.indexCursorLimit) {
+  if (spec->used >= spec->cap) {
     /** Collect idle cursors now */
     Cursors_GCInternal(cl, 0);
-    if (spec->used >= RSGlobalConfig.indexCursorLimit) {
+    if (spec->used >= spec->cap) {
       QueryError_SetError(status, QUERY_ELIMIT, "Too many cursors allocated for index");
       goto done;
     }
@@ -325,7 +314,7 @@ void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const char *name,
   RedisModule_ReplyWithLongLong(ctx, kh_size(cl->lookup));
 
   RedisModule_ReplyWithSimpleString(ctx, "index_capacity");
-  RedisModule_ReplyWithLongLong(ctx, RSGlobalConfig.indexCursorLimit);
+  RedisModule_ReplyWithLongLong(ctx, info->cap + (info_coord ? info_coord->cap : 0));
 
   RedisModule_ReplyWithSimpleString(ctx, "index_total");
   RedisModule_ReplyWithLongLong(ctx, info->used + (info_coord ? info_coord->used : 0));
@@ -344,7 +333,7 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const char
   RedisModule_InfoBeginDictField(ctx, "cursor_stats");
   RedisModule_InfoAddFieldLongLong(ctx, "global_idle", ARRAY_GETSIZE_AS(&cl->idle, Cursor **) + ARRAY_GETSIZE_AS(&cl_coord->idle, Cursor **));
   RedisModule_InfoAddFieldLongLong(ctx, "global_total", kh_size(cl->lookup) + kh_size(cl_coord->lookup));
-  RedisModule_InfoAddFieldLongLong(ctx, "index_capacity", RSGlobalConfig.indexCursorLimit);
+  RedisModule_InfoAddFieldLongLong(ctx, "index_capacity", info->cap +  + (info_coord ? info_coord->cap : 0));
   RedisModule_InfoAddFieldLongLong(ctx, "index_total", info->used + (info_coord ? info_coord->used : 0));
   RedisModule_InfoEndDictField(ctx);
 
@@ -401,4 +390,19 @@ void CursorList_Destroy(CursorList *cl) {
   dictRelease(cl->specsDict);
 
   pthread_mutex_destroy(&cl->lock);
+}
+
+void CursorList_Expire(CursorList *cl) {
+  CursorList_Lock(cl);
+  // Not calling `CursorList_IncrCounter` as we don't want to trigger GC
+
+  uint64_t now = curTimeNs(); // Taking `now` as a signature
+  Cursor *cursor;
+  kh_foreach_value(cl->lookup, cursor, cursor->nextTimeoutNs = MIN(cursor->nextTimeoutNs, now));
+
+  if (now < cl->nextIdleTimeoutNs || cl->nextIdleTimeoutNs == 0) {
+    cl->nextIdleTimeoutNs = now;
+  }
+
+  CursorList_Unlock(cl);
 }

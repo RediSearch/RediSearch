@@ -137,7 +137,8 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *val
 
 void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc, array_t *iters);
 /* Open the tag index key in redis */
-TagIndex *TagIndex_Open(const RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite);
+TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
+                        RedisModuleKey **keyp);
 
 struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value, size_t len, int create);
 

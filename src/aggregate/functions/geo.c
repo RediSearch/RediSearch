@@ -12,14 +12,14 @@
 #include <err.h>
 
 // parse "x,y"
-static int parseField(RSValue *argv, double *geo, QueryError *status) {
+static int parseField(RSValue *argv, double *geo) {
   int rv = REDISMODULE_OK;
   RSValue *val = RSValue_Dereference(argv);
 
   if (RSValue_IsString(val)) {
     size_t len;
     char *p = (char *)RSValue_StringPtrLen(val, &len); 
-    rv = parseGeo(p, len, &geo[0], &geo[1], status);
+    rv = parseGeo(p, len, &geo[0], &geo[1]);
   } else if (val && val->t == RSValue_Number) {
     double dbl;
     RSValue_ToNumber(val, &dbl);
@@ -54,7 +54,7 @@ static int geofunc_distance(ExprEval *ctx, RSValue *result,
       rv = parseLonLat(argv[j], argv[j + 1], geo[i]);
       j += 2;
     } else {
-      rv = parseField(argv[j], geo[i], err);
+      rv = parseField(argv[j], geo[i]);
       j += 1;
     }
     if (rv != REDISMODULE_OK) goto error;

@@ -97,16 +97,14 @@ typedef enum {
   VECSIM_HYBRID_BATCHES_TO_ADHOC_BF, // Start with batches and dynamically switched to ad-hoc BF.
   VECSIM_RANGE_QUERY,                // Run range query, to return all vectors that are within a given range from the
                                       // query vector.
-  VECSIM_LAST_SEARCHMODE,           // Last value of this enum. Can be used to check if a given value resides within
-                                    //this enum values range.
+  VECSIM_LAST_SEARCHMODE,           // Last value of this enum. Can be used to check if a given value resides within 
+                                    //this enum values range.                                    
 
 } VecSimSearchMode;
 
 // TODO: remove idxKey from all OpenFooIndex functions
 VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
   RedisModuleString *keyName/*, RedisModuleKey **idxKey*/);
-VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName,
-                                             int write);
 
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it);
 

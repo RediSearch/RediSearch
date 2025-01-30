@@ -14,13 +14,16 @@
 #include "profile.h"
 #include "util/timeout.h"
 #include "coord/src/config.h"
-#include "util/misc.h"
-#include "util/units.h"
 
 #include <err.h>
 
 /* Get cursor command using a cursor id and an existing aggregate command */
-static int getCursorCommand(long long cursorId, MRCommand *cmd) {
+static int getCursorCommand(MRReply *prev, MRCommand *cmd) {
+  long long cursorId;
+  if (!MRReply_ToInteger(MRReply_ArrayElement(prev, 1), &cursorId)) {
+    // Invalid format?!
+    return 0;
+  }
   if (cursorId == 0) {
     // Cursor was set to 0, end of reply chain.
     cmd->depleted = true;
@@ -43,7 +46,7 @@ static int getCursorCommand(long long cursorId, MRCommand *cmd) {
   return 1;
 }
 
-static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd) {
+static int netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRCommand *cmd) {
   // Should we assert this??
   if (!rep || MRReply_Type(rep) != MR_REPLY_ARRAY ||
              (MRReply_Length(rep) != 2 && MRReply_Length(rep) != 3)) {
@@ -53,23 +56,24 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRComman
     MRReply_Free(rep);
     MRIteratorCallback_Done(ctx, 1);
     RedisModule_Log(NULL, "warning", "An empty reply was received from a shard");
-    return;
+    return REDIS_ERR;
   }
 
-  long long cursorId;
-  MRReply* cursor = MRReply_ArrayElement(rep, 1);
-  if (!MRReply_ToInteger(cursor, &cursorId)) {
-    cursorId = 0;
-  }
+  // rewrite and resend the cursor command if needed
+  int rc = REDIS_OK;
+  int isDone = !getCursorCommand(rep, cmd);
+
   // Push the reply down the chain
   MRReply *arr = MRReply_ArrayElement(rep, 0);
   if (arr && MRReply_Type(arr) == MR_REPLY_ARRAY && MRReply_Length(arr) > 1) {
     MRIteratorCallback_AddReply(ctx, rep);
     // User code now owns the reply, so we can't free it here ourselves!
     rep = NULL;
+  } else {
+    isDone = 1;
   }
 
-  if (!getCursorCommand(cursorId, cmd)) {
+  if (isDone) {
     MRIteratorCallback_Done(ctx, 0);
   } else if (cmd->forCursor) {
     MRIteratorCallback_ProcessDone(ctx);
@@ -77,6 +81,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRComman
     // resend command
     if (REDIS_ERR == MRIteratorCallback_ResendCommand(ctx, cmd)) {
       MRIteratorCallback_Done(ctx, 1);
+      rc = REDIS_ERR;
     }
   }
 
@@ -84,6 +89,7 @@ static void netCursorCallback(MRIteratorCallbackCtx *ctx, MRReply *rep, MRComman
     // If rep has been set to NULL, it means the callback has been invoked
     MRReply_Free(rep);
   }
+  return rc;
 }
 
 RSValue *MRReply_ToValue(MRReply *r) {
@@ -93,7 +99,7 @@ RSValue *MRReply_ToValue(MRReply *r) {
     case MR_REPLY_STATUS:
     case MR_REPLY_STRING: {
       size_t l;
-      const char *s = MRReply_String(r, &l);
+      char *s = MRReply_String(r, &l);
       v = RS_NewCopiedString(s, l);
       // v = RS_StringValT(s, l, RSString_Volatile);
       break;
@@ -155,7 +161,7 @@ static int getNextReply(RPNet *nc) {
   }
 
   MRReply *root = MRIterator_Next(nc->it);
-  if (root == NULL) {
+  if (root == MRITERATOR_DONE) {
     // No more replies
     nc->current.root = NULL;
     nc->current.rows = NULL;
@@ -233,8 +239,10 @@ static int rpnetNext_Start(ResultProcessor *rp, SearchResult *r) {
 static void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
 
+  // the iterator might not be done - some producers might still be sending data, let's wait for
+  // them...
   if (nc->it) {
-    MRIterator_Release(nc->it);
+    MRIterator_WaitDone(nc->it, nc->cmd.forCursor);
   }
 
   nc->cg.Free(nc->cg.ctx);
@@ -250,6 +258,7 @@ static void rpnetFree(ResultProcessor *rp) {
 
   MRReply_Free(nc->current.root);
 
+  if (nc->it) MRIterator_Free(nc->it);
   rm_free(rp);
 }
 
@@ -402,6 +411,7 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
   int profileArgs = 0;
   if (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1) {
     profileArgs += 2;     // SEARCH/AGGREGATE + QUERY
+    r->initClock = clock();
     r->reqflags |= QEXEC_F_PROFILE;
     if (RMUtil_ArgIndex("LIMITED", argv + 3, 1) != -1) {
       profileArgs++;
@@ -421,8 +431,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   AREQ *r = AREQ_New();
   QueryError status = {0};
   r->qiter.err = &status;
-  r->reqflags |= QEXEC_F_IS_AGGREGATE;
-  r->initClock = clock();
+  r->reqflags |= QEXEC_F_IS_EXTENDED;
 
   int profileArgs = parseProfile(argv, argc, r);
   if (profileArgs == -1) goto err;

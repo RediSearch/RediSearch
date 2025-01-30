@@ -49,24 +49,6 @@ TEST_F(TagIndexTest, testCreate) {
   TagIndex_Free(idx);
 }
 
-TEST_F(TagIndexTest, testSkipToLastId) {
-  TagIndex *idx = NewTagIndex();
-  ASSERT_FALSE(idx == NULL);
-  std::vector<const char *> v{"hello"};
-  t_docId docId = 1;
-  TagIndex_Index(idx, &v[0], v.size(), docId);
-  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1);
-  RSIndexResult *r;
-  int rc = it->Read(it->ctx, &r);
-  ASSERT_EQ(rc, INDEXREAD_OK);
-  rc = it->SkipTo(it->ctx, docId, &r);
-  ASSERT_EQ(rc, INDEXREAD_EOF);
-  ASSERT_GE(r->docId, docId);
-  ASSERT_GE(it->LastDocId(it->ctx), docId);
-  it->Free(it);
-  TagIndex_Free(idx);
-}
-
 #define TEST_MY_SEP(sep, str)                     \
   orig = s = strdup(str);                         \
   token = TagIndex_SepString(sep, &s, &tokenLen); \

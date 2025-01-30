@@ -8,9 +8,6 @@
 #include "query_error.h"
 #include "inverted_index.h"
 #include "rwlock.h"
-#include "info/global_stats.h"
-#include "redis_index.h"
-#include "index_utils.h"
 extern "C" {
 #include "util/dict.h"
 }
@@ -46,25 +43,22 @@ typedef struct {
   RedisModuleCtx *ctx;
   void *fgc;
   IndexSpec *sp;
-  volatile bool runGc;
 } args_t;
+
+static pthread_t thread;
 
 void *cbWrapper(void *args) {
   args_t *fgcArgs = (args_t *)args;
   ForkGC *fgc = reinterpret_cast<ForkGC *>(fgcArgs->sp->gc->gcCtx);
 
-  while (true) {
-    // sync thread
-    while (fgcArgs->runGc && fgc->pauseState != FGC_PAUSED_CHILD) {
-      usleep(500);
-    }
-    if (!fgcArgs->runGc) {
-      break;
-    }
-
-    // run ForkGC
-    fgcArgs->sp->gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
+  // sync thread
+  while (fgc->pauseState != FGC_PAUSED_CHILD) {
+    usleep(500);
   }
+
+  // run ForkGC
+  fgcArgs->sp->gc->callbacks.periodicCallback(fgcArgs->ctx, fgcArgs->fgc);
+  rm_free(args);
   return NULL;
 }
 
@@ -75,13 +69,10 @@ class FGCTest : public ::testing::Test {
   RMCK::Context ctx;
   IndexSpec *sp;
   ForkGC *fgc;
-  args_t args;
-  pthread_t thread;
 
   void SetUp() override {
     sp = createIndex(ctx);
     RSGlobalConfig.forkGcCleanThreshold = 0;
-    RSGlobalStats.totalStats.logically_deleted = 0;
     runGcThread();
   }
 
@@ -89,15 +80,16 @@ class FGCTest : public ::testing::Test {
     Spec_AddToDict(sp);
     fgc = reinterpret_cast<ForkGC *>(sp->gc->gcCtx);
     thread = {0};
-    args = {.ctx = ctx, .fgc = fgc, .sp = sp, .runGc = true};
+    args_t *args = (args_t *)rm_calloc(1, sizeof(*args));
+    *args = {.ctx = ctx, .fgc = fgc, .sp = sp};
 
-    pthread_create(&thread, NULL, cbWrapper, &args);
+    pthread_create(&thread, NULL, cbWrapper, args);
   }
   void TearDown() override {
-    args.runGc = false;
-    // wait for the gc thread to finish current loop and exit the thread
-    pthread_join(thread, NULL);
     RediSearch_DropIndex(sp);
+    // Detach from the gc to make sure we are not stuck on waiting
+    // for the pauseState to be changed.
+    pthread_detach(thread);
   }
 
   IndexSpec *createIndex(RedisModuleCtx *ctx) {
@@ -134,8 +126,9 @@ class FGCTest : public ::testing::Test {
 static InvertedIndex *getTagInvidx(RedisModuleCtx *ctx, IndexSpec *sp, const char *field,
                                    const char *value) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisModuleKey *keyp = NULL;
   RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(sp, "f1", INDEXFLD_T_TAG);
-  auto tix = TagIndex_Open(&sctx, fmtkey, 1);
+  auto tix = TagIndex_Open(&sctx, fmtkey, 1, &keyp);
   auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), 1);
   return iv;
 }
@@ -557,29 +550,4 @@ TEST_F(FGCTest, testRemoveMiddleBlock) {
   ASSERT_NE(ss.end(), ss.find(numToDocid(newLastBlockId)));
   ASSERT_NE(ss.end(), ss.find(numToDocid(newLastBlockId - 1)));
   ASSERT_NE(ss.end(), ss.find(numToDocid(lastLastBlockId)));
-}
-
-TEST_F(FGCTest, testDeleteDuringGCCleanup) {
-  // Setup.
-  unsigned curId = 0;
-  InvertedIndex *iv = getTagInvidx(ctx, sp, "f1", "hello");
-
-  while (iv->size < 2) {
-    RS::addDocument(ctx, sp, numToDocid(++curId).c_str(), "f1", "hello");
-  }
-  // Delete one document.
-  RS::deleteDocument(ctx, sp, numToDocid(1).c_str());
-  ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 1);
-
-  FGC_WaitBeforeFork(fgc);
-
-  // Delete the second document while fGC is waiting before the fork. If we were storing the number
-  // of document to delete at this point, we wouldn't have accounted for this deletion later on
-  // after the GC is done.
-  RS::deleteDocument(ctx, sp, numToDocid(2).c_str());
-  ASSERT_EQ(fgc->deletedDocsFromLastRun, 2);
-
-  FGC_Apply(fgc);
-
-  ASSERT_EQ(RSGlobalStats.totalStats.logically_deleted, 0);
 }

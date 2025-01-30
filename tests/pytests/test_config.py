@@ -50,7 +50,6 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', '_FREE_RESOURCE_ON_THREAD').res[0][0] =='_FREE_RESOURCE_ON_THREAD'
     assert env.expect('ft.config', 'get', 'BG_INDEX_SLEEP_GAP').res[0][0] == 'BG_INDEX_SLEEP_GAP'
     assert env.expect('ft.config', 'get', '_PRIORITIZE_INTERSECT_UNION_CHILDREN').res[0][0] == '_PRIORITIZE_INTERSECT_UNION_CHILDREN'
-    assert env.expect('ft.config', 'get', 'INDEX_CURSOR_LIMIT').res[0][0] == 'INDEX_CURSOR_LIMIT'
 
 '''
 
@@ -78,7 +77,6 @@ def testSetConfigOptions(env):
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect('ft.config', 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
     env.expect('ft.config', 'set', '_MAX_RESULTS_TO_UNSORTED_MODE', 1).equal('OK')
-    env.expect('ft.config', 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
 
 def testSetConfigOptionsErrors(env):
     env.expect('ft.config', 'set', 'MAXDOCTABLESIZE', 'str').equal('Not modifiable at runtime')
@@ -86,7 +84,6 @@ def testSetConfigOptionsErrors(env):
     env.expect('ft.config', 'set', 'TIMEOUT', 'str').equal('Success (not an error)')
     env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Success (not an error)')
     env.expect('ft.config', 'set', 'FORKGC_SLEEP_BEFORE_EXIT', 'str').equal('Success (not an error)')
-    env.expect('ft.config', 'set', 'INDEX_CURSOR_LIMIT', -1).contains('Value is outside acceptable bounds')
 '''
 
 @skip(cluster=True)
@@ -132,7 +129,6 @@ def testAllConfig(env):
     #env.assertEqual(res_dict['_MAX_RESULTS_TO_UNSORTED_MODE'][0], '1000')
     #env.assertEqual(res_dict['SAFEMODE'][0], 'true')
     #env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
-    env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
 
 @skip(cluster=True)
 def testInitConfig(env):
@@ -162,7 +158,6 @@ def testInitConfig(env):
     test_arg_num('UNION_ITERATOR_HEAP', 20)
     test_arg_num('_NUMERIC_RANGES_PARENTS', 1)
     test_arg_num('BG_INDEX_SLEEP_GAP', 15)
-    test_arg_num('INDEX_CURSOR_LIMIT', 128)
 
 # True/False arguments
     def test_arg_true_false(arg_name, res):

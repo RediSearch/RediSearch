@@ -106,17 +106,16 @@ bool isWithinRadiusLonLat(double lon1, double lat1, double lon2, double lat2, do
 
 extern RedisModuleCtx *RSDummyContext;
 
-int parseGeo(const char *c, size_t len, double *lon, double *lat, QueryError *status) {
+int parseGeo(const char *c, size_t len, double *lon, double *lat) {
   // pretect the heap from a large string. 128 is sufficient
   if (len > 128) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Geo string cannot be longer than 128 bytes");
+    RedisModule_Log(RSDummyContext, "warning", "Geo string cannot be longer than 128 bytes");
     return REDISMODULE_ERR;
   }
   char str[len + 1];
   memcpy(str, c, len + 1);
   char *pos = strpbrk(str, " ,");
   if (!pos) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid geo string");
     return REDISMODULE_ERR;
   }
   *pos = '\0';
@@ -126,7 +125,6 @@ int parseGeo(const char *c, size_t len, double *lon, double *lat, QueryError *st
   *lon = strtod(str, &end1);
   *lat = strtod(pos, &end2);
   if (*end1 || *end2) {
-    QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid geo string");
     return REDISMODULE_ERR;
   }
 

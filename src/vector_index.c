@@ -10,8 +10,9 @@
 #include "query_param.h"
 #include "rdb.h"
 
-VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName,
+static VecSimIndex *openVectorKeysDict(RedisSearchCtx *ctx, RedisModuleString *keyName,
                                              int write) {
+  IndexSpec *spec = ctx->spec;
   KeysDictValue *kdv = dictFetchValue(spec->keysDict, keyName);
   if (kdv) {
     return kdv->p;
@@ -34,12 +35,8 @@ VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName,
   }
 
   // create new vector data structure
-  VecSimIndex* temp = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
-  if (!temp) {
-    return NULL;
-  }
   kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->p = temp;
+  kdv->p = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
   VecSimIndexInfo indexInfo = VecSimIndex_Info(kdv->p);
   switch (indexInfo.algo)
   {
@@ -59,7 +56,7 @@ VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName,
 
 VecSimIndex *OpenVectorIndex(RedisSearchCtx *ctx,
                             RedisModuleString *keyName) {
-  return openVectorKeysDict(ctx->spec, keyName, 1);
+  return openVectorKeysDict(ctx, keyName, 1);
 }
 
 IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List results,
@@ -89,7 +86,7 @@ IndexIterator *createMetricIteratorFromVectorQueryResults(VecSimQueryResult_List
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it) {
   RedisSearchCtx *ctx = q->sctx;
   RedisModuleString *key = RedisModule_CreateStringPrintf(ctx->redisCtx, "%s", vq->property);
-  VecSimIndex *vecsim = openVectorKeysDict(ctx->spec, key, 0);
+  VecSimIndex *vecsim = openVectorKeysDict(ctx, key, 0);
   RedisModule_FreeString(ctx->redisCtx, key);
   if (!vecsim) {
     return NULL;

@@ -165,8 +165,10 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
       // Open the inverted index:
       ForwardIndexEntry *fwent = merged->head;
 
+
+      RedisModuleKey *idxKey = NULL;
       bool isNew;
-      InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, fwent->term, fwent->len, 1, &isNew);
+      InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, fwent->term, fwent->len, 1, &isNew, &idxKey);
 
       if (isNew) {
         // Add the term to the prefix trie. This only needs to be done once per term
@@ -196,6 +198,10 @@ static int writeMergedEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, 
         writeIndexEntry(ctx->spec, invidx, encoder, fwent);
       }
 
+      if (idxKey) {
+        RedisModule_CloseKey(idxKey);
+      }
+
       if (isBlocked && CONCURRENT_CTX_TICK(&indexer->concCtx) && ctx->spec == NULL) {
         QueryError_SetError(&aCtx->status, QUERY_ENOINDEX, NULL);
         return -1;
@@ -221,8 +227,9 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
   const int isBlocked = AddDocumentCtx_IsBlockable(aCtx);
 
   while (entry != NULL) {
+    RedisModuleKey *idxKey = NULL;
     bool isNew;
-    InvertedIndex *invidx = Redis_OpenInvertedIndex(ctx, entry->term, entry->len, 1, &isNew);
+    InvertedIndex *invidx = Redis_OpenInvertedIndexEx(ctx, entry->term, entry->len, 1, &isNew, &idxKey);
     if (isNew) {
       IndexSpec_AddTerm(spec, entry->term, entry->len);
     }
@@ -234,11 +241,15 @@ static void writeCurEntries(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx, Re
         invidx->fieldMask |= entry->fieldMask;
       }
     }
-
+    
     if (spec->suffixMask & entry->fieldMask && entry->term[0] != STEM_PREFIX
                                             && entry->term[0] != PHONETIC_PREFIX
                                             && entry->term[0] != SYNONYM_PREFIX_CHAR) {
       addSuffixTrie(spec->suffix, entry->term, entry->len);
+    }
+
+    if (idxKey) {
+      RedisModule_CloseKey(idxKey);
     }
 
     entry = ForwardIndexIterator_Next(&it);
@@ -267,11 +278,10 @@ static RSDocumentMetadata *makeDocumentId(RSAddDocumentCtx *aCtx, RedisSearchCtx
       if (spec->flags & Index_HasVecSim) {
         for (int i = 0; i < spec->numFields; ++i) {
           if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
-            RedisModuleString *rmstr = IndexSpec_GetFormattedKey(spec, &spec->fields[i], INDEXFLD_T_VECTOR);
-            VecSimIndex *vecsim = openVectorKeysDict(spec, rmstr, false);
-            if(!vecsim)
-              continue;
+            RedisModuleString * rmstr = RedisModule_CreateString(RSDummyContext, spec->fields[i].name, strlen(spec->fields[i].name));
+            VecSimIndex *vecsim = OpenVectorIndex(sctx, rmstr);
             spec->stats.vectorIndexSize += VecSimIndex_DeleteVector(vecsim, dmd->id);
+            RedisModule_FreeString(RSDummyContext, rmstr);
             // TODO: use VecSimReplace instead and if successful, do not insert and remove from doc
           }
         }
@@ -330,6 +340,10 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
 
 static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Traverse all fields, seeing if there may be something which can be written!
+  IndexBulkData bData[SPEC_MAX_FIELDS] = {{{NULL}}};
+  IndexBulkData *activeBulks[SPEC_MAX_FIELDS];
+  size_t numActiveBulks = 0;
+
   for (RSAddDocumentCtx *cur = aCtx; cur && cur->doc->docId; cur = cur->next) {
     if (cur->stateFlags & ACTX_F_ERRORED) {
       continue;
@@ -342,15 +356,23 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
       if (fs->types == INDEXFLD_T_FULLTEXT || !FieldSpec_IsIndexable(fs) || fdata->isNull) {
         continue;
       }
+      IndexBulkData *bulk = &bData[fs->index];
+      if (!bulk->found) {
+        bulk->found = 1;
+        activeBulks[numActiveBulks++] = bulk;
+      }
 
-      if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
-        IndexError_AddError(&cur->spec->stats.indexError, cur->status.detail, doc->docKey);
-        FieldSpec_AddError(&cur->spec->fields[fs->index], cur->status.detail, doc->docKey);
-        QueryError_ClearError(&cur->status);
+      if (IndexerBulkAdd(bulk, cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         cur->stateFlags |= ACTX_F_ERRORED;
       }
       cur->stateFlags |= ACTX_F_OTHERINDEXED;
     }
+  }
+
+  // Flush it!
+  for (size_t ii = 0; ii < numActiveBulks; ++ii) {
+    IndexBulkData *cur = activeBulks[ii];
+    IndexerBulkCleanup(cur, sctx);
   }
 }
 

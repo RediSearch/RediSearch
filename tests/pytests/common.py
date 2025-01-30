@@ -54,7 +54,7 @@ def getConnectionByEnv(env):
         conn = env.getConnection()
     return conn
 
-def waitForIndex(env, idx = 'idx'):
+def waitForIndex(env, idx):
     waitForRdbSaveToFinish(env)
     while True:
         res = env.execute_command('ft.info', idx)
@@ -464,8 +464,3 @@ def get_TLS_args():
     passphrase = get_passphrase() if with_pass else None
 
     return cert_file, key_file, ca_cert_file, passphrase
-
-def index_errors(env, idx = 'idx'):
-    return to_dict(index_info(env, idx)['Index Errors'])
-def field_errors(env, idx = 'idx', fld_index = 0):
-    return to_dict(to_dict(to_dict(index_info(env, idx)['field statistics'][fld_index]))['Index Errors'])

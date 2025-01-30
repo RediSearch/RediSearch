@@ -30,8 +30,7 @@
 #include "value.h"
 #include "cluster_spell_check.h"
 #include "profile.h"
-#include "info/global_stats.h"
-#include "util/units.h"
+
 #include "libuv/include/uv.h"
 
 #include <stdlib.h>
@@ -85,9 +84,9 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
       nArrs++;
       for (size_t j = 0; j < MRReply_Length(replies[i]); j++) {
         size_t sl = 0;
-        const char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
+        char *s = MRReply_String(MRReply_ArrayElement(replies[i], j), &sl);
         if (s && sl) {
-          TrieMap_Add(dict, (char*)s, sl, NULL, NULL);
+          TrieMap_Add(dict, s, sl, NULL, NULL);
         }
       }
     } else if (MRReply_Type(replies[i]) == MR_REPLY_ERROR && err == NULL) {
@@ -371,7 +370,6 @@ typedef struct {
   char *queryString;
   long long offset;
   long long limit;
-  long long initClock;
   long long requestedResultsCount;
   int withScores;
   int withExplainScores;
@@ -574,8 +572,6 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
 
   searchRequestCtx *req = searchRequestCtx_New();
 
-  req->initClock = clock();
-
   if (rscParseProfile(req, argv) != REDISMODULE_OK) {
     searchRequestCtx_Free(req);
     return NULL;
@@ -746,7 +742,7 @@ searchResult *newResult(searchResult *cached, MRReply *arr, int j, searchReplyOf
     res->id = NULL;
     return res;
   }
-  res->id = (char*)MRReply_String(MRReply_ArrayElement(arr, j), &res->idLen);
+  res->id = MRReply_String(MRReply_ArrayElement(arr, j), &res->idLen);
   if (!res->id) {
     return res;
   }
@@ -1263,8 +1259,6 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
     postProccesTime = clock();
     profileSearchReply(ctx, &rCtx, count, replies, req->profileClock, postProccesTime);
   }
-
-  TotalGlobalStats_CountQuery(QEXEC_F_IS_SEARCH, clock() - req->initClock);
 
 cleanup:
   if (rCtx.pq) {
@@ -2000,7 +1994,7 @@ static void addIndexCursor(const IndexSpec *sp) {
   char *end = strchr(s, '{');
   if (end) {
     *end = '\0';
-    CursorList_AddSpec(&RSCursorsCoord, s);
+    CursorList_AddSpec(&RSCursorsCoord, s, RSCURSORS_DEFAULT_CAPACITY);
   }
   rm_free(s);
 }

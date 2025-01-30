@@ -13,8 +13,6 @@
 #include <cerrno>
 #include <cmath>
 #include <cstdlib>
-#include <unistd.h>
-#include <sys/wait.h>
 #include <climits>
 #include <cassert>
 #include <mutex>
@@ -184,15 +182,6 @@ void RMCK_FreeString(RedisModuleCtx *ctx, RedisModuleString *s) {
 
 void RMCK_RetainString(RedisModuleCtx *ctx, RedisModuleString *s) {
   s->incref();
-}
-
-RedisModuleString *RMCK_HoldString(RedisModuleCtx *ctx, RedisModuleString *s) {
-  RMCK_RetainString(ctx, s);
-  return s;
-}
-
-void RMCK_TrimStringAllocation(RedisModuleString *s) {
-  s->trim();
 }
 
 void RMCK_SetModuleOptions(RedisModuleCtx *ctx, int options) {
@@ -509,11 +498,6 @@ int RMCK_CreateCommand(RedisModuleCtx *ctx, const char *s, RedisModuleCmdFunc ha
   return REDISMODULE_OK;
 }
 
-// Internal assertion handler. We still expect to use the `RedisModule_Assert` macro.
-static void RMCK__Assert(const char *estr, const char *file, int line) {
-  throw std::runtime_error(std::string(estr) + " at " + file + ":" + std::to_string(line));
-}
-
 /** Allocators */
 void *RMCK_Alloc(size_t n) {
   return malloc(n);
@@ -744,19 +728,6 @@ static int RMCK_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent eve
   return REDISMODULE_OK;
 }
 
-/** Fork */
-static int RMCK_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
-  return fork();
-}
-
-static int RMCK_ExitFromChild(int retcode) {
-  _exit(retcode);
-}
-
-static int RMCK_KillForkChild(int child_pid) {
-  return waitpid(child_pid, NULL, 0);
-}
-
 /** Misc */
 RedisModuleCtx::~RedisModuleCtx() {
   if (automemory) {
@@ -826,14 +797,11 @@ static void registerApis() {
   REGISTER_API(HashGet);
   REGISTER_API(HashGetAll);
 
-  REGISTER_API(_Assert);
-
   REGISTER_API(CreateString);
   REGISTER_API(CreateStringPrintf);
   REGISTER_API(CreateStringFromString);
   REGISTER_API(FreeString);
   REGISTER_API(RetainString);
-  REGISTER_API(HoldString);
   REGISTER_API(StringPtrLen);
   REGISTER_API(StringToDouble);
   REGISTER_API(StringToLongLong);
@@ -870,10 +838,6 @@ static void registerApis() {
   REGISTER_API(RegisterCommandFilter);
 
   REGISTER_API(SetModuleOptions);
-
-  REGISTER_API(KillForkChild);
-  REGISTER_API(ExitFromChild);
-  REGISTER_API(Fork);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {

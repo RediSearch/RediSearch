@@ -1026,13 +1026,3 @@ def test_aggregate_apply_on_missing_values():
          .apply(extract_error).apply(extract_error_text)
          .contains('num1: has no value, consider using EXISTS if applicable'))
     env.flush()
-
-def testAggregateBadLoadArgs(env):
-    """Tests that we get a proper error message when passing bad arguments to LOAD"""
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'title').error() \
-        .contains('Bad arguments for LOAD: Expected an argument')
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 'lali').error() \
-        .contains("Bad arguments for LOAD: Expected number of fields or `*`")
-    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD').error() \
-        .contains("Bad arguments for LOAD: Expected an argument, but none provided")

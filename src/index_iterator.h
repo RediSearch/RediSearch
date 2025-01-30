@@ -46,7 +46,7 @@ Basically query execution creates a tree of iterators that activate each other
 recursively */
 typedef struct indexIterator {
   // Cached value - used if HasNext() is not set.
-  bool isValid;
+  uint8_t isValid;
 
   void *ctx;
 
