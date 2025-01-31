@@ -83,9 +83,9 @@ jobs:
           platforms = []
 
           if '${{ inputs.architecture }}' in ['all', 'x86_64']:
-            platforms.append('macos-12')
+            platforms.append('macos-13')
           if '${{ inputs.architecture }}' in ['all', 'aarch64']:
-            platforms.append('macos-13-xlarge')
+            platforms.append('macos-latest-xlarge')
 
           with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
             print(f'platforms={platforms}', file=f)
@@ -114,14 +114,14 @@ jobs:
       matrix:
         OS: ${{ fromJson(needs.decide-linux.outputs.platforms_arm) }}
         include: ${{ fromJson(needs.decide-linux.outputs.include_arm) }}
-    uses: ./.github/workflows/flow-self-hosted-arm.yml
+    uses: ./.github/workflows/task-build-artifacts.yml
     secrets: inherit
     with:
-      build: true
+      env: ${{ vars.RUNS_ON_ARM }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       sha: ${{ needs.setup.outputs.sha }}
-      get-redis: ${{ needs.setup.outputs.redis-ref }}
+      redis-ref: ${{ needs.setup.outputs.redis-ref }}
 
   build-macos:
     needs: [decide-macos, setup]
