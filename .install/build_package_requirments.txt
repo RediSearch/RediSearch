@@ -1,4 +1,4 @@
 addict
 toml
 jinja2
-ramp-packer==2.5.8
+ramp-packer==2.5.10
