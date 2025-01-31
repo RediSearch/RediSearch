@@ -97,10 +97,10 @@ jobs:
               esac
 
               # Configure the safe directory
-              git config --global --add safe.directory /__w/${{ github.repository }}
+              git config --global --add safe.directory /__w/redislabsdev/RediSearch
 
               # Checkout
-              REPO_URL="https://github.com/${{ github.repository }}.git"
+              REPO_URL="https://github.com/redislabsdev/RediSearch.git"
 
               # Initialize a Git repository
               git init
