@@ -194,7 +194,7 @@ static void TagReader_OnReopen(void *privdata) {
         // We will not continue reading those new results and instead abort reading
         // for this specific inverted index.
         IR_Abort(ir);
-        continue; // Deal with the next IndexReader
+        return;
       }
     }
     // Use generic `OnReopen` callback for all readers

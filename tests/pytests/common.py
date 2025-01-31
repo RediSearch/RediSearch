@@ -646,7 +646,7 @@ def getInvertedIndexInitialSize(env, fields, depth=0):
         if field in ['GEO', 'NUMERIC']:
             block_size = 48
             initial_block_cap = 6
-            inverted_index_meta_data = 40
+            inverted_index_meta_data = 48
             total_size += (block_size + initial_block_cap + inverted_index_meta_data)
             continue
         env.assertTrue(field in ['TEXT', 'TAG', 'GEOMETRY', 'VECTOR'], message=f"type {field} is not supported", depth=depth+1)

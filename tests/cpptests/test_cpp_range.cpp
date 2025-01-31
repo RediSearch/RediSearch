@@ -224,7 +224,7 @@ TEST_F(RangeTest, EmptyTreeSanity) {
   NumericRangeNode *failed_range = NULL;
 
   NumericRangeTree *rt = NewNumericRangeTree();
-  size_t empty_numeric_mem_size = sizeof_InvertedIndex(Index_StoreNumeric) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
+  size_t empty_numeric_mem_size = sizeof(InvertedIndex) + sizeof(IndexBlock) + INDEX_BLOCK_INITIAL_CAP;
   size_t numeric_tree_mem = CalculateNumericInvertedIndexMemory(rt, &failed_range);
   if (failed_range) {
     FAIL();
