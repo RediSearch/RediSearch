@@ -34,19 +34,19 @@ def runTestWithSeed(env, s=None):
     # 2 bytes for the actual number (4096-4099)
 
     for i in range(count):
-        # write only 4 different values to get a range tree with a root node
+        # write only 4 different values to get a range tree with a root node 
         # with a left child and a right child. Each child has an inverted index.
         conn.execute_command('HSET', 'doc%d' % i, 'n', (i % num_values) + value_offset)
-
-    # Expected inverted index size total: 590 bytes
+    
+    # Expected inverted index size total: 606 bytes
     # 2 * (buffer size + inverted index structure size)
-    # 2 * (207 + 88) = 590
+    # 2 * (207 + 96) = 606
 
     # 207 is the buffer size after writing 4 bytes 50 times.
     # The buffer grows according to Buffer_Grow() in buffer.c
-    # 80 is the size of the inverted index structure without counting the
+    # 96 is the size of the inverted index structure without counting the
     # buffer capacity.
-    expected_inv_idx_size = 590 / (1024 * 1024)
+    expected_inv_idx_size = 606 / (1024 * 1024)
     check_index_info(env, idx, count, expected_inv_idx_size, "after insert")
 
     env.expect('FT.SEARCH idx * LIMIT 0 0').equal([count])
@@ -76,7 +76,7 @@ def runTestWithSeed(env, s=None):
         temp = int(random() * count / 10)
         conn.execute_command('HSET', 'doc%d' % i, 'n', temp)
 
-    # Test only the number of records, because the memory size depends on
+    # Test only the number of records, because the memory size depends on 
     # the random values.
     check_index_info(env, idx, count, None, "after flush and insert")
 
