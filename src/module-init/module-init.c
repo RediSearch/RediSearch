@@ -121,6 +121,8 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
   // Fields statistics
   FieldsGlobalStats_AddToInfo(ctx);
 
+  TotalSpecsInfo total_info = RediSearch_TotalInfo();
+
   // Memory
   RedisModule_InfoAddSection(ctx, "memory");
   TotalSpecsInfo total_info = RediSearch_TotalInfo();

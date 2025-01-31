@@ -99,8 +99,8 @@ void TermReader_OnReopen(void *privdata) {
     // we need to reopen the inverted index to make sure its still valid.
     // the GC might have deleted it by now.
     RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, (IndexSpec *)ir->sp);
-    InvertedIndex *idx = Redis_OpenInvertedIndex(&sctx, ir->record->term.term->str,
-                                                 ir->record->term.term->len, 0, NULL);
+    InvertedIndex *idx = Redis_OpenInvertedIndexEx(&sctx, ir->record->term.term->str,
+                                                   ir->record->term.term->len, 0, NULL, NULL);
     if (!idx || ir->idx != idx) {
       // The inverted index was collected entirely by GC.
       // All the documents that were inside were deleted and new ones were added.
@@ -1199,10 +1199,10 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx, IndexSpec *sp, t_fieldMask f
 
 IndexReader *NewMissingIndexReader(InvertedIndex *idx, IndexSpec *sp) {
   IndexDecoderCtx dctx = {.num = RS_FIELDMASK_ALL};
-  IndexDecoderProcs decoder = InvertedIndex_GetDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK);
-  if (!decoder.decoder) {
-    return NULL;
-  }
+  IndexDecoderProcs decoder = InvertedIndex_GetDecoder((uint32_t)idx->flags & INDEX_STORAGE_MASK);  
+  if (!decoder.decoder) {  
+    return NULL;  
+  } 
   RSIndexResult *record = NewVirtualResult(0, RS_FIELDMASK_ALL);
   return NewIndexReaderGeneric(sp, idx, decoder, dctx, false, record);
 }

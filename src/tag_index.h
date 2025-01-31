@@ -137,7 +137,8 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, IndexSpec *sp, const char *val
 
 void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc, array_t *iters);
 /* Open the tag index key in redis */
-TagIndex *TagIndex_Open(const RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite);
+TagIndex *TagIndex_Open(RedisSearchCtx *sctx, RedisModuleString *formattedKey, int openWrite,
+                        RedisModuleKey **keyp);
 
 /* Find and index containing value, if the index is not found and create == 1,
  * a new index is created.

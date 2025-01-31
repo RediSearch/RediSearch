@@ -371,8 +371,9 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx) {
                   FieldIndexerData *fdata, QueryError *status)
 
 #define FIELD_BULK_INDEXER(name)                                                            \
-  static int name(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const DocumentField *field,  \
-                  const FieldSpec *fs, FieldIndexerData *fdata, QueryError *status)
+  static int name(IndexBulkData *bulk, RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx,         \
+                  const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata, \
+                  QueryError *status)
 
 #define FIELD_BULK_CTOR(name) \
   static void name(IndexBulkData *bulk, const FieldSpec *fs, RedisSearchCtx *ctx)
@@ -551,10 +552,14 @@ FIELD_PREPROCESSOR(geometryPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(geometryIndexer) {
-  GeometryIndex *rt = OpenGeometryIndex(ctx->spec, fs);
+  GeometryIndex *rt = bulk->indexDatas[IXFLDPOS_GEOMETRY];
   if (!rt) {
-    QueryError_SetError(status, QUERY_EGENERIC, "Could not open geoshape index for indexing");
-    return -1;
+    rt = bulk->indexDatas[IXFLDPOS_GEOMETRY] =
+        OpenGeometryIndex(ctx->redisCtx, ctx->spec, &bulk->indexKeys[IXFLDPOS_GEOMETRY], fs);
+    if (!rt) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Could not open geoshape index for indexing");
+      return -1;
+    }
   }
 
   const GeometryApi *api = GeometryApi_Get(rt);
@@ -577,11 +582,15 @@ FIELD_BULK_INDEXER(geometryIndexer) {
 
 
 FIELD_BULK_INDEXER(numericIndexer) {
-  RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
-  NumericRangeTree *rt = OpenNumericIndex(ctx, keyName);
+  NumericRangeTree *rt = bulk->indexDatas[IXFLDPOS_NUMERIC];
   if (!rt) {
-    QueryError_SetError(status, QUERY_EGENERIC, "Could not open numeric index for indexing");
-    return -1;
+    RedisModuleString *keyName = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_NUMERIC);
+    rt = bulk->indexDatas[IXFLDPOS_NUMERIC] =
+        OpenNumericIndex(ctx, keyName, &bulk->indexKeys[IXFLDPOS_NUMERIC]);
+    if (!rt) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Could not open numeric index for indexing");
+      return -1;
+    }
   }
 
   if (!fdata->isMulti) {
@@ -629,11 +638,15 @@ FIELD_PREPROCESSOR(vectorPreprocessor) {
 
 FIELD_BULK_INDEXER(vectorIndexer) {
   IndexSpec *sp = ctx->spec;
-  RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-  VecSimIndex *rt = OpenVectorIndex(sp, keyName);
+  VecSimIndex *rt = bulk->indexDatas[IXFLDPOS_VECTOR];
   if (!rt) {
-    QueryError_SetError(status, QUERY_EGENERIC, "Could not open vector for indexing");
-    return -1;
+    RedisModuleString *keyName = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
+    rt = bulk->indexDatas[IXFLDPOS_VECTOR] =
+        OpenVectorIndex(sp, keyName/*, &bulk->indexKeys[IXFLDPOS_VECTOR]*/);
+    if (!rt) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Could not open vector for indexing");
+      return -1;
+    }
   }
   char *curr_vec = (char *)fdata->vector;
   for (size_t i = 0; i < fdata->numVec; i++) {
@@ -746,14 +759,18 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 }
 
 FIELD_BULK_INDEXER(tagIndexer) {
-  RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
-  TagIndex *tidx = TagIndex_Open(ctx, kname, 1);
+  TagIndex *tidx = bulk->indexDatas[IXFLDPOS_TAG];
   if (!tidx) {
-    QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
-    return -1;
-  }
-  if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
-    tidx->suffix = NewTrieMap();
+    RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
+    tidx = bulk->indexDatas[IXFLDPOS_TAG] =
+        TagIndex_Open(ctx, kname, 1, &bulk->indexKeys[IXFLDPOS_TAG]);
+    if (!tidx) {
+      QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
+      return -1;
+    }
+    if (FieldSpec_HasSuffixTrie(fs) && !tidx->suffix) {
+      tidx->suffix = NewTrieMap();
+    }
   }
 
   ctx->spec->stats.invertedSize +=
@@ -772,7 +789,7 @@ static PreprocessorFunc preprocessorMap[] = {
     [IXFLDPOS_GEOMETRY] = geometryPreprocessor,
     };
 
-int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
+int IndexerBulkAdd(IndexBulkData *bulk, RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
                    QueryError *status) {
   int rc = 0;
@@ -781,17 +798,17 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
     if (field->indexAs & INDEXTYPE_FROM_POS(ii)) {
       switch (ii) {
         case IXFLDPOS_TAG:
-          rc = tagIndexer(cur, sctx, field, fs, fdata, status);
+          rc = tagIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_NUMERIC:
         case IXFLDPOS_GEO:
-          rc = numericIndexer(cur, sctx, field, fs, fdata, status);
+          rc = numericIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_VECTOR:
-          rc = vectorIndexer(cur, sctx, field, fs, fdata, status);
+          rc = vectorIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_GEOMETRY:
-          rc = geometryIndexer(cur, sctx, field, fs, fdata, status);
+          rc = geometryIndexer(bulk, cur, sctx, field, fs, fdata, status);
           break;
         case IXFLDPOS_FULLTEXT:
           break;
@@ -803,6 +820,14 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
     }
   }
   return rc;
+}
+
+void IndexerBulkCleanup(IndexBulkData *cur, RedisSearchCtx *sctx) {
+  for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES; ++ii) {
+    if (cur->indexKeys[ii]) {
+      RedisModule_CloseKey(cur->indexKeys[ii]);
+    }
+  }
 }
 
 int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {

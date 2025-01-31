@@ -143,7 +143,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
       REPLY_KVSTR("coord_system", GeometryCoordsToName(fs->geometryOpts.geometryCoords));
-      const GeometryIndex *idx = OpenGeometryIndex(sp, fs);
+      const GeometryIndex *idx = OpenGeometryIndex(ctx, sp, NULL, fs);
       const GeometryApi *api = GeometryApi_Get(idx);
       geom_idx_sz += api->report(idx);
     }

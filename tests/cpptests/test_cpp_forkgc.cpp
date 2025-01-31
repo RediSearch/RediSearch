@@ -126,8 +126,9 @@ class FGCTest : public ::testing::Test {
 
 static InvertedIndex *getTagInvidx(RedisSearchCtx* sctx, const char *field,
                                    const char *value) {
+  RedisModuleKey *keyp = NULL;
   RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(sctx->spec, "f1", INDEXFLD_T_TAG);
-  auto tix = TagIndex_Open(sctx, fmtkey, 1);
+  auto tix = TagIndex_Open(sctx, fmtkey, 1, &keyp);
   size_t sz;
   auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), 1, &sz);
   sctx->spec->stats.invertedSize += sz;
@@ -170,8 +171,8 @@ TEST_F(FGCTest, testRemoveEntryFromLastBlock) {
 
   // gc stats
   ASSERT_EQ(0, fgc->stats.gcBlocksDenied);
-  // The buffer's initial capacity is INDEX_BLOCK_INITIAL_CAP, the function
-  // IndexBlock_Repair() shrinks the buffer to the number of valid entries in
+  // The buffer's initial capacity is INDEX_BLOCK_INITIAL_CAP, the function 
+  // IndexBlock_Repair() shrinks the buffer to the number of valid entries in 
   // the block, collecting the remaining memory.
   ASSERT_EQ(INDEX_BLOCK_INITIAL_CAP - 1, fgc->stats.totalCollected);
 
@@ -286,7 +287,7 @@ TEST_F(FGCTest, testRemoveAllBlocksWhileUpdateLast) {
   unsigned curId = 1;
   char buf[1024];
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, get_spec(ism));
-
+  
   // Add documents to the index until it has 2 blocks (1 full block + 1 block with one entry)
   auto iv = getTagInvidx(&sctx,  "f1", "hello");
   // Measure the memory added by the last block.

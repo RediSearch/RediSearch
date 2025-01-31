@@ -13,16 +13,21 @@
 extern "C" {
 #endif
 
-typedef struct TotalSpecsFieldInfo {
-  // Vector Indexing
-  size_t total_vector_idx_mem;        // Total memory used by the vector index
-  size_t total_mark_deleted_vectors;  // Number of vectors marked as deleted
-} TotalSpecsFieldInfo;
-
 typedef struct TotalSpecsInfo {
-    size_t total_mem;       // Total memory used by the index
-    size_t indexing_time;   // Time spent on indexing
-    InfoGCStats gc_stats;   // Garbage collection statistics
+  // Memory
+  size_t total_mem;  // Total memory used by the indexes
+  size_t min_mem;    // Memory used by the smallest (local) index
+  size_t max_mem;    // Memory used by the largest (local) index
+
+  // Indexing
+  size_t indexing_time;  // Time spent on indexing
+
+  // GC
+  InfoGCStats gc_stats;  // Garbage collection statistics
+
+  // Indexing Errors
+  size_t indexing_failures;      // Total count of indexing errors
+  size_t max_indexing_failures;  // Maximum number of indexing errors among all specs
 } TotalSpecsInfo;
 
 int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
