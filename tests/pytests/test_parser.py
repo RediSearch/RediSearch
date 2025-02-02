@@ -672,3 +672,4 @@ TAG:@t {
     conn.execute_command('HSET', 'doc1', 't', 'with')
     conn.execute_command('HSET', 'doc2', 't', 'cat dog')
     env.expect('FT.SEARCH', 'idx', '@t:{cat with dog}').equal([1, 'doc2', ['t', 'cat dog']])
+    env.expect('FT.SEARCH', 'idx', '@t:{as is the with by}').equal([0])
