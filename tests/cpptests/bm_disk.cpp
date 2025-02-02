@@ -230,7 +230,8 @@ BENCHMARK_DEFINE_F(BMDisk, Search_RediSearch)(benchmark::State &state) {
         if (terms_it == terms.end()) {
             terms_it = terms.begin();
         }
-        index.Search(*terms_it);
+        auto res = index.Search(*terms_it);
+        benchmark::DoNotOptimize(res);
         ++terms_it;
     }
 }
@@ -243,14 +244,15 @@ BENCHMARK_DEFINE_F(BMDisk, Search_Disk)(benchmark::State &state) {
         if (terms_it == terms.end()) {
             terms_it = terms.begin();
         }
-        index.Search(*terms_it);
+        auto res = index.Search(*terms_it);
+        benchmark::DoNotOptimize(res);
         ++terms_it;
     }
 }
 
 BENCHMARK_REGISTER_F(BMDisk, Load_RediSearch)->Unit(benchmark::kSecond);
-BENCHMARK_REGISTER_F(BMDisk, Load_Disk)->Unit(benchmark::kSecond);;
-BENCHMARK_REGISTER_F(BMDisk, Search_RediSearch)->Unit(benchmark::kMillisecond);;
-BENCHMARK_REGISTER_F(BMDisk, Search_Disk)->Unit(benchmark::kMillisecond);;
+BENCHMARK_REGISTER_F(BMDisk, Load_Disk)->Unit(benchmark::kSecond);
+BENCHMARK_REGISTER_F(BMDisk, Search_RediSearch)->Unit(benchmark::kMicrosecond);
+BENCHMARK_REGISTER_F(BMDisk, Search_Disk)->Unit(benchmark::kMicrosecond);
 
 BENCHMARK_MAIN();
