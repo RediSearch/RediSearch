@@ -28,7 +28,8 @@ def testMultibyteText(env):
                               'бълга123'])
 
     for dialect in range(1, 5):
-        env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
+        run_command_on_all_shards(env, config_cmd(),
+                                  'SET', 'DEFAULT_DIALECT', dialect)
 
         # Search term without multibyte chars
         expected = [2, 'test:2', 'test:1']
@@ -192,7 +193,8 @@ def testJsonMultibyteText(env):
         env.assertEqual(res, ['abcabc', 'grüssen', 'бълга123'])
 
     for dialect in range(1, 5):
-        env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
+        run_command_on_all_shards(env, config_cmd(),
+                                  'SET', 'DEFAULT_DIALECT', dialect)
 
         # Search term without multibyte chars
         expected = [2, 'test:2', 'test:1']
@@ -282,7 +284,8 @@ def testRussianAlphabet(env):
         env.assertEqual(len(res), 5)
 
     for dialect in range(1, 5):
-        env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
+        run_command_on_all_shards(env, config_cmd(),
+                                  'SET', 'DEFAULT_DIALECT', dialect)
 
         # Search consonants
         expected = [2, 'test:consonantsU', 'test:consonantsL']
@@ -369,7 +372,8 @@ def testDiacriticLimitation(env):
         env.assertEqual(res, expected)
 
     for dialect in range(1, 5):
-        env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
+        run_command_on_all_shards(env, config_cmd(),
+                                  'SET', 'DEFAULT_DIALECT', dialect)
 
         # search term without diacritics
         # the diacritics are not removed, so the terms WITH diacritics are
@@ -420,7 +424,9 @@ def testStopWords(env):
     env.assertEqual(res, ['и', 'не', 'от'])
 
     for dialect in range(1, 5):
-        env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
+        run_command_on_all_shards(env, config_cmd(),
+                                  'SET', 'DEFAULT_DIALECT', dialect)
+
         # search for a stopword term should return 0 results
         res = conn.execute_command('FT.SEARCH', 'idx1', '@t:(не | от | и)')
         env.assertEqual(res, [0])
@@ -446,7 +452,9 @@ def testStopWords(env):
     env.assertEqual(res, ['И', 'НЕ', 'ОТ'])
 
     for dialect in range(1, 5):
-        env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
+        run_command_on_all_shards(env, config_cmd(),
+                                  'SET', 'DEFAULT_DIALECT', dialect)
+
         # In idx2, the stopwords were created with uppercase, and currently they
         # are not converted to lowercase.
         # So the search for the stopwords in lowercase returns all the docs.
@@ -516,19 +524,24 @@ def testGermanEszett(env):
 
     # 'ẞ' is normalized to 'ss', so the search for 'ẞ' should return the same
     # results as the search for 'ss'
-    expected = [4, 'test:1', 'test:2', 'test:3', 'test:4']
+    expected = [4, 'test:3', 'test:1', 'test:4', 'test:2']
     # Query for terms with 'ẞ'
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:GRÜẞEN', 'NOCONTENT')
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '@t:GRÜẞEN', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, expected)
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:grüßen', 'NOCONTENT')
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '@t:grüßen', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, expected)
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:GrüßeN', 'NOCONTENT')
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '@t:GrüßeN', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, expected)
 
     # Query for terms with 'ss'
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:GRÜSSEN', 'NOCONTENT')
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '@t:GRÜSSEN', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, expected)
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:grüssen', 'NOCONTENT')
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '@t:grüssen', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, expected)
 
 def testGreekSigma(env):
@@ -557,32 +570,39 @@ def testGreekSigma(env):
     # The Sigma is folded to "σ", check that the search is case-insensitive
     # Test with sigma at the beginning of the word
     expected = [3, 's1:upper', 's1:mixed', 's1:lower']
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:ΣΊΓΜΑ', 'NOCONTENT')
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '@t:ΣΊΓΜΑ', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, expected)
 
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:Σίγμα', 'NOCONTENT')
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '@t:Σίγμα', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, expected)
 
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:σίγμα', 'NOCONTENT')
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '@t:σίγμα', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, expected)
 
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:σίγ*', 'NOCONTENT')
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '@t:σίγ*', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, expected)
 
     # Test with sigma at the end of the word
     expected = [3, 's2:upper', 's2:mixed', 's2:lower']
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:ΝΕΑΝΊΑΣ', 'NOCONTENT')
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '@t:ΝΕΑΝΊΑΣ', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, expected)
 
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:Νεανίας', 'NOCONTENT')
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '@t:Νεανίας', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, expected)
 
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:νεανίας', 'NOCONTENT')
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '@t:νεανίας', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, expected)
 
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:*νίας', 'NOCONTENT')
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '@t:*νίας', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, expected)
-
 
 
 def testLongTerms(env):
@@ -637,7 +657,8 @@ def testMultibyteTag(env):
                               ['grüssen', [6, 7]], ['бълга123', [3, 4, 5]]])
 
     for dialect in range(1, 5):
-        env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
+        run_command_on_all_shards(env, config_cmd(),
+                                  'SET', 'DEFAULT_DIALECT', dialect)
 
         # Search term without multibyte chars
         # ANY because for dialect 4 the count can be different
@@ -760,8 +781,12 @@ def testMultibyteTag(env):
         # Search using parameters
         if dialect > 1:
             expected = [3, 'doc:upper', 'doc:mixed', 'doc:lower']
+            # For dialect 4 the data are not sorted
             if dialect == 4:
-                expected = [3, 'doc:upper', 'doc:lower', 'doc:mixed']
+                if env.isCluster():
+                    expected = [3, 'doc:lower', 'doc:mixed', 'doc:upper']
+                else:
+                    expected = [3, 'doc:upper', 'doc:lower', 'doc:mixed']
 
             res = conn.execute_command(
                 'FT.SEARCH', 'idx', '@t:{$p}', 'NOCONTENT', 'PARAMS', 2, 'p',
@@ -803,7 +828,8 @@ def testJsonMultibyteTag(env):
                               ['grüssen', [6, 7]], ['бълга123', [3, 4, 5]]])
 
     for dialect in range(1, 5):
-        env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
+        run_command_on_all_shards(env, config_cmd(),
+                                  'SET', 'DEFAULT_DIALECT', dialect)
 
         # Search term without multibyte chars
         # ANY because for dialect 4 the count can be different
@@ -949,7 +975,8 @@ def testMultibyteTagCaseSensitive(env):
                               ['БЪлга123', [5]], ['бълга123', [4]]])
 
     for dialect in range(1, 5):
-        env.cmd(config_cmd(), 'SET', 'DEFAULT_DIALECT', dialect)
+        run_command_on_all_shards(env, config_cmd(),
+                                  'SET', 'DEFAULT_DIALECT', dialect)
 
         # Search lowercase term without multibyte chars
         res = conn.execute_command(
