@@ -1277,7 +1277,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   return NewUnionIterator(its, itsSz, 1, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);
 }
 
-static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
+static void tag_strtofold(char *str, size_t *len, int caseSensitive) {
   size_t origLen = *len;
   char *origStr = str;
   char *p = str;
@@ -1292,8 +1292,7 @@ static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
   *str = '\0';
 
   if (!caseSensitive) {
-    // convert to lowercase
-    size_t newLen = unicode_tolower(origStr, origLen);
+    size_t newLen = unicode_tofold(origStr, origLen);
     if (newLen && newLen < origLen) {
       origStr[newLen] = '\0';
     }
@@ -1308,29 +1307,29 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   switch (n->type) {
     case QN_TOKEN: {
-      tag_strtolower(n->tn.str, &n->tn.len, caseSensitive);
+      tag_strtofold(n->tn.str, &n->tn.len, caseSensitive);
       n->tn.len = strlen(n->tn.str);
       ret = TagIndex_OpenReader(idx, q->sctx, n->tn.str, n->tn.len, weight, fs->index);
       break;
     }
     case QN_PREFIX:
-      tag_strtolower(n->pfx.tok.str, &n->pfx.tok.len, caseSensitive);
+      tag_strtofold(n->pfx.tok.str, &n->pfx.tok.len, caseSensitive);
       n->pfx.tok.len = strlen(n->pfx.tok.str);
       return Query_EvalTagPrefixNode(q, idx, n, iterout, weight, FieldSpec_HasSuffixTrie(fs), fs->index);
 
     case QN_WILDCARD_QUERY:
-      tag_strtolower(n->verb.tok.str, &n->verb.tok.len, caseSensitive);
+      tag_strtofold(n->verb.tok.str, &n->verb.tok.len, caseSensitive);
       n->verb.tok.len = strlen(n->verb.tok.str);
       return Query_EvalTagWildcardNode(q, idx, n, iterout, weight, fs->index);
 
     case QN_LEXRANGE:
       if(n->lxrng.begin) {
         size_t beginLen = strlen(n->lxrng.begin);
-        tag_strtolower(n->lxrng.begin, &beginLen, caseSensitive);
+        tag_strtofold(n->lxrng.begin, &beginLen, caseSensitive);
       }
       if(n->lxrng.end) {
         size_t endLen = strlen(n->lxrng.end);
-        tag_strtolower(n->lxrng.end, &endLen, caseSensitive);
+        tag_strtofold(n->lxrng.end, &endLen, caseSensitive);
       }
       return Query_EvalTagLexRangeNode(q, idx, n, iterout, weight);
 
@@ -1338,7 +1337,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       char *terms[QueryNode_NumChildren(n)];
       for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
         if (n->children[i]->type == QN_TOKEN) {
-          tag_strtolower(n->children[i]->tn.str, &n->children[i]->tn.len, caseSensitive);
+          tag_strtofold(n->children[i]->tn.str, &n->children[i]->tn.len, caseSensitive);
           terms[i] = n->children[i]->tn.str;
         } else {
           terms[i] = "";

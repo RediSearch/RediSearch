@@ -110,13 +110,13 @@ static char *rm_strndup_unescape(const char *s, size_t len) {
   return ret;
 }
 
-// transform utf8 string to lowercase using nunicode library
+// transform utf8 string to fold case using nunicode library
 // encoded: the utf8 string to transform, if the transformation is successful
 //          the transformed string will be written back to this buffer
 // in_len: the length of the utf8 string
 // returns the bytes written to encoded, or 0 if the length of the transformed
 // string is greater than in_len and no transformation was done
-static size_t unicode_tolower(char *encoded, size_t in_len) {
+static size_t unicode_tofold(char *encoded, size_t in_len) {
   uint32_t u_stack_buffer[SSO_MAX_LENGTH];
   uint32_t *u_buffer = u_stack_buffer;
 
@@ -126,20 +126,20 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
 
   const char *encoded_char = encoded;
   ssize_t u_len = nu_strtransformnlen(encoded, in_len, nu_utf8_read,
-                                              nu_tolower, nu_casemap_read);
+                                              nu_tofold, nu_casemap_read);
 
   if (u_len >= (SSO_MAX_LENGTH - 1)) {
     u_buffer = (uint32_t *)rm_malloc(sizeof(*u_buffer) * (u_len + 1));
   }
 
-  // Decode utf8 string into Unicode codepoints and convert to lowercase
+  // Decode utf8 string into Unicode codepoints and transform to fold
   uint32_t codepoint;
   unsigned i = 0;
   for (ssize_t j = 0; j < u_len; j++) {
     // Read unicode codepoint from utf8 string
     encoded_char = nu_utf8_read(encoded_char, &codepoint);
-    // Transform unicode codepoint to lowercase
-    const char *map = nu_tolower(codepoint);
+    // Transform unicode codepoint to case fold
+    const char *map = nu_tofold(codepoint);
 
     // Read the transformed codepoint and store it in the unicode buffer
     if (map != 0) {
@@ -177,7 +177,7 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
 }
 
 
-// strndup + lowercase in one pass!
+// strndup + fold in one pass!
 static char *rm_strdupcase(const char *s, size_t len) {
   char *ret = rm_strndup(s, len);
   char *dst = ret;
@@ -195,8 +195,8 @@ static char *rm_strdupcase(const char *s, size_t len) {
   }
   *dst = '\0';
 
-  // convert to lowercase
-  size_t newLen = unicode_tolower(ret, len);
+  // convert to fold
+  size_t newLen = unicode_tofold(ret, len);
   if (newLen && newLen <= len) {
     ret[newLen] = '\0';
   }

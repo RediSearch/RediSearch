@@ -67,8 +67,7 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
 
   *len = dstLen;
 
-  // convert to lowercase
-  size_t newLen = unicode_tolower(dst, dstLen);
+  size_t newLen = unicode_tofold(dst, dstLen);
   if (newLen) {
     *len = newLen;
   }
