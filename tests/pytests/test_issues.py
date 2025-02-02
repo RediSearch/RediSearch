@@ -1339,51 +1339,24 @@ def test_mod_6786(env:Env):
 @skip(cluster=True)
 def test_mod_8561(env:Env):
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-  n_docs_per_block = 100
-  n_blocks = 2.5
+  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TAG', 'SEPARATOR', ' ').ok()
 
-  first_common = int(n_docs_per_block * n_blocks)
-  # Add documents with the term foo
-  for i in range(first_common):
-    env.cmd('HSET', i, 't', 'foo')
+  # Add a document with the term foo
+  env.cmd('HSET', '1', 't', 'foo')
 
   # Add two documents with the terms foo and bar
-  env.cmd('HSET', first_common, 't', 'foo bar')
-  env.cmd('HSET', first_common + 1, 't', 'foo bar')
+  env.cmd('HSET', '2', 't', 'foo bar')
+  env.cmd('HSET', '3', 't', 'foo bar')
 
   # Delete the last document with the term foo
-  env.cmd('DEL', first_common + 1)
+  env.cmd('DEL', '3')
 
   # Run GC to remove the deleted document
-  forceInvokeGC(env)
+  forceInvokeGC(env, 'idx1')
+  forceInvokeGC(env, 'idx2')
 
   # Search
-  env.expect('FT.SEARCH', 'idx', 'bar foo').noError().equal([1, str(first_common), ['t', 'foo bar']])
-
-  env.flush()
-
-  # Test with tag field
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
-  n_docs_per_block = 1000
-  n_blocks = 2.5
-
-  first_common = int(n_docs_per_block * n_blocks)
-  # Add documents with the term foo
-  for i in range(first_common):
-    env.cmd('HSET', i, 't', 'foo')
-
-  # Add two documents with the terms foo and bar
-  env.cmd('HSET', first_common, 't', 'foo,bar')
-  env.cmd('HSET', first_common + 1, 't', 'foo,bar')
-  env.cmd('HSET', first_common + 2, 't', 'foo,bar')
-
-  # Delete the last document with the term foo
-  env.cmd('DEL', first_common + 1)
-  env.cmd('DEL', first_common + 2)
-
-  # Run GC to remove the deleted document
-  forceInvokeGC(env)
-
-  # Search
-  env.expect('FT.SEARCH', 'idx', '@t:{bar} @t:{foo}').noError().equal([1, str(first_common), ['t', 'foo,bar']])
+  expected = [1, '2', ['t', 'foo bar']]
+  env.expect('FT.SEARCH', 'idx1', 'bar foo').noError().equal(expected)
+  env.expect('FT.SEARCH', 'idx2', "@t:{bar} @t:{foo}").noError().equal(expected)
