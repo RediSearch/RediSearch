@@ -1248,12 +1248,12 @@ def testInvalidUseOfEmptyString():
             contains(expected_error)
 
         expected_error_format = 'Invalid numeric value () for parameter `{}`'
-        env.expect('FT.SEARCH', 'idx', '@location:[$long 4.56 10 km]', 'PARAMS', 2, long:='long', '').error().\
-            contains(expected_error_format.format(long))
-        env.expect('FT.SEARCH', 'idx', '@location:[1.23 $lat 10 km]', 'PARAMS', 2, lat:='lat', '').error().\
-            contains(expected_error_format.format(lat))
-        env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 $radius km]', 'PARAMS', 2, radius:='radius', '').error().\
-            contains(expected_error_format.format(radius))
+        env.expect('FT.SEARCH', 'idx', '@location:[$long 4.56 10 km]', 'PARAMS', 2, 'long', '').error().\
+            contains(expected_error_format.format('long'))
+        env.expect('FT.SEARCH', 'idx', '@location:[1.23 $lat 10 km]', 'PARAMS', 2, 'lat', '').error().\
+            contains(expected_error_format.format('lat'))
+        env.expect('FT.SEARCH', 'idx', '@location:[1.23 4.56 $radius km]', 'PARAMS', 2, 'radius', '').error().\
+            contains(expected_error_format.format('radius'))
 
         # Invalid use of empty string as $weight value
         expected_error = 'Invalid value () for `weight`'
