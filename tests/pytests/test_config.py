@@ -598,8 +598,8 @@ def testModuleLoadexNumericParams():
                       'CONFIG', configName, minValue,
                       'ARGS', argName, argValue
         )
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
-        env.expect('CONFIG', 'GET', configName).equal([configName, argValue])
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, configValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
         env.stop()
         os.unlink(rdbFilePath)
 
@@ -778,9 +778,9 @@ def testModuleLoadexNumericParamsLastWins():
                     'CONFIG', configName, str(maxValue),
                     'ARGS', argName, str(minValue)).ok()
         res = env.cmd('CONFIG', 'GET', configName)
-        env.assertEqual(res, [configName, str(minValue)])
+        env.assertEqual(res, [configName, str(maxValue)])
         res = env.cmd(config_cmd(), 'GET', argName)
-        env.assertEqual(res, [[argName, str(minValue)]])
+        env.assertEqual(res, [[argName, ftMaxValue]])
         env.assertTrue(env.isUp())
         env.stop()
 
@@ -1050,7 +1050,8 @@ def testModuleLoadexStringParams():
     # stop the server and remove the rdb file
     rdbFilePath = _getRDBFilePath(env)
     env.stop()
-    os.unlink(rdbFilePath)
+    if (os.path.exists(rdbFilePath)):
+        os.unlink(rdbFilePath)
 
     redisearch_module_path = env.envRunner.modulePath[0]
     basedir = os.path.dirname(redisearch_module_path)
@@ -1069,7 +1070,8 @@ def testModuleLoadexStringParams():
         env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
         env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
         env.stop()
-        os.unlink(rdbFilePath)
+        if (os.path.exists(rdbFilePath)):
+            os.unlink(rdbFilePath)
 
         # Test setting the parameter using ARGS
         env.start()
@@ -1081,7 +1083,8 @@ def testModuleLoadexStringParams():
         env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
         env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
         env.stop()
-        os.unlink(rdbFilePath)
+        if (os.path.exists(rdbFilePath)):
+            os.unlink(rdbFilePath)
 
         # Load module using CONFIG and module arguments, the ARGS values should
         # take precedence
@@ -1089,13 +1092,14 @@ def testModuleLoadexStringParams():
         res = env.cmd('MODULE', 'LIST')
         env.assertEqual(res, [])
         res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                    'CONFIG', configName, 'invalid_value',
-                    'ARGS', argName, testValue
+                    'CONFIG', configName, testValue,
+                    'ARGS', argName, 'invalid_value'
         )
         env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
         env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
         env.stop()
-        os.unlink(rdbFilePath)
+        if (os.path.exists(rdbFilePath)):
+            os.unlink(rdbFilePath)
 
 @skip(redis_less_than='7.9.226')
 def testConfigFileStringParams():
