@@ -117,9 +117,6 @@ void QueryNode_Free(QueryNode *n) {
     case QN_GEOMETRY:
       QueryGeometryNode_Free(&n->gmn);
       break;
-    case QN_NULL:
-      rm_free(n);
-      break;
     case QN_MISSING:
     case QN_WILDCARD:
     case QN_IDS:
@@ -127,6 +124,7 @@ void QueryNode_Free(QueryNode *n) {
     case QN_UNION:
     case QN_NOT:
     case QN_OPTIONAL:
+    case QN_NULL:
     case QN_PHRASE:
       break;
   }
@@ -291,10 +289,6 @@ QueryNode *NewPhraseNode(int exact) {
   QueryNode *ret = NewQueryNode(QN_PHRASE);
   ret->pn.exact = exact;
   return ret;
-}
-
-QueryNode *NewNullNode() {
-  return NewQueryNode(QN_NULL);
 }
 
 QueryNode *NewTagNode(const FieldSpec *field) {

@@ -59,7 +59,6 @@ QueryNode *NewQueryNodeChildren(QueryNodeType type, QueryNode **children, size_t
 QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len);
 QueryNode *NewTokenNodeExpanded(struct QueryAST *q, const char *s, size_t len, RSTokenFlags flags);
 QueryNode *NewPhraseNode(int exact);
-QueryNode *NewNullNode();
 
 #define NewUnionNode() NewQueryNode(QN_UNION)
 #define NewWildcardNode() NewQueryNode(QN_WILDCARD)
