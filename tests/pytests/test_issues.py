@@ -1321,7 +1321,7 @@ def test_mod_8568(env:Env):
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km').equal(expected)
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km',
                                       'GEOFILTER', 'g', '1.1', '1.1', '1000', 'km').equal(expected)
- 
+
 @skip(cluster=True)
 def test_mod_6786(env:Env):
   # Test search of long term (>128) inside text field
@@ -1335,3 +1335,28 @@ def test_mod_6786(env:Env):
   # Searching for the long term should return the document
   # Before fix, the long term was partialy normalized and the document was not found
   env.expect('FT.SEARCH', 'idx', long_term).equal([1, 'doc1', ['t', text_with_long_term]])
+
+@skip(cluster=True)
+def test_mod_xxxx(env:Env):
+  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  n_docs_per_block = 100
+  n_blocks = 2.5
+
+  first_common = int(n_docs_per_block * n_blocks)
+  # Add documents with the term foo
+  for i in range(first_common):
+    env.cmd('HSET', f'doc{i}', 't', 'foo')
+
+  # Add two documents with the terms foo and bar
+  env.cmd('HSET', f'doc{first_common}', 't', 'foo bar')
+  env.cmd('HSET', f'doc{first_common + 1}', 't', 'foo bar')
+
+  # Delete the last document with the term foo
+  env.cmd('DEL', f'doc{first_common + 1}')
+
+  # Run GC to remove the deleted document
+  forceInvokeGC(env)
+
+  # Search (CRASH)
+  env.expect('FT.SEARCH', 'idx', 'bar foo').noError().equal([1, f'doc{first_common}', ['t', 'foo bar']])
