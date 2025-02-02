@@ -595,7 +595,7 @@ def testModuleLoadexNumericParams():
         res = env.cmd('MODULE', 'LIST')
         env.assertEqual(res, [])
         res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                      'CONFIG', configName, minValue,
+                      'CONFIG', configName, configValue,
                       'ARGS', argName, argValue
         )
         env.expect(config_cmd(), 'GET', argName).equal([[argName, configValue]])
