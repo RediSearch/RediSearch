@@ -1321,7 +1321,7 @@ def test_mod_8568(env:Env):
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km').equal(expected)
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km',
                                       'GEOFILTER', 'g', '1.1', '1.1', '1000', 'km').equal(expected)
-
+ 
 @skip(cluster=True)
 def test_mod_6786(env:Env):
   # Test search of long term (>128) inside text field
@@ -1340,14 +1340,14 @@ def test_mod_6786(env:Env):
 def test_mod_8561(env:Env):
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
   env.expect('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT').ok()
-  env.expect('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TAG', 'SEPARATOR', ' ').ok()
+  env.expect('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TAG').ok()
 
   # Add a document with the term foo
   env.cmd('HSET', '1', 't', 'foo')
 
   # Add two documents with the terms foo and bar
-  env.cmd('HSET', '2', 't', 'foo bar')
-  env.cmd('HSET', '3', 't', 'foo bar')
+  env.cmd('HSET', '2', 't', 'foo,bar')
+  env.cmd('HSET', '3', 't', 'foo,bar')
 
   # Delete the last document with the term foo
   env.cmd('DEL', '3')
@@ -1357,6 +1357,6 @@ def test_mod_8561(env:Env):
   forceInvokeGC(env, 'idx2')
 
   # Search
-  expected = [1, '2', ['t', 'foo bar']]
+  expected = [1, '2', ['t', 'foo,bar']]
   env.expect('FT.SEARCH', 'idx1', 'bar foo').noError().equal(expected)
   env.expect('FT.SEARCH', 'idx2', "@t:{bar} @t:{foo}").noError().equal(expected)
