@@ -313,7 +313,7 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
 
   if (clusterConfig.type == ClusterType_RedisOSS) {
     if (RedisModule_RegisterStringConfig (
-          ctx, "search-oss-global-password", clusterConfig.globalPass,
+          ctx, "search-oss-global-password", clusterConfig.globalPass ? clusterConfig.globalPass : "",
           REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED | REDISMODULE_CONFIG_SENSITIVE,
           get_oss_global_password, set_immutable_cluster_string_config, NULL,
           (void*)&clusterConfig.globalPass) == REDISMODULE_ERR) {
@@ -323,7 +323,7 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
 
   if (clusterConfig.type == ClusterType_RedisOSS) {
     if (RedisModule_RegisterStringConfig (
-          ctx, "search-oss-acl-username|OSS_ACL_USERNAME", clusterConfig.aclUsername,
+          ctx, "search-oss-acl-username|OSS_ACL_USERNAME", clusterConfig.aclUsername ? clusterConfig.aclUsername : DEFAULT_ACL_USERNAME,
           REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
           get_oss_acl_username, set_immutable_cluster_string_config, NULL,
           (void*)&clusterConfig.aclUsername) == REDISMODULE_ERR) {
