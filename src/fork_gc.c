@@ -737,6 +737,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
 
   idx->numDocs -= info->ndocsCollected;
   idx->gcMarker++;
+  idx->lastId = idx->blocks[idx->size - 1].lastId; // Update lastId
 }
 
 typedef struct {
