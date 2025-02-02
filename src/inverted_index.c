@@ -967,7 +967,6 @@ static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   InvertedIndex *idx = ir->idx;
   uint32_t top = idx->size - 1;
   uint32_t bottom = ir->currentBlock + 1;
-  RS_LOG_ASSERT_FMT(bottom <= top, "bottom=%d top=%d", bottom, top);
 
   if (docId <= idx->blocks[bottom].lastId) {
     // the next block is the one we're looking for, although it might not contain the docId
