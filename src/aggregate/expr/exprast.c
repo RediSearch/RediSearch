@@ -29,7 +29,7 @@ static RSExpr *newExpr(RSExprType t) {
 }
 
 // unquote and unescape a stirng literal, and return a cleaned copy of it
-char *unescapeStringDup(const char *s, size_t sz) {
+char *unescapeStringDup(const char *s, size_t sz, uint32_t *newSz) {
 
   char *dst = rm_malloc(sz);
   char *dstStart = dst;
@@ -44,13 +44,16 @@ char *unescapeStringDup(const char *s, size_t sz) {
     *dst++ = *src++;
   }
   *dst = '\0';
+  *newSz = dst - dstStart;
   return dstStart;
 }
+
 RSExpr *RS_NewStringLiteral(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Literal);
   e->literal = RS_StaticValue(RSValue_String);
-  e->literal.strval.str = unescapeStringDup(str, len);
-  e->literal.strval.len = strlen(e->literal.strval.str);
+  uint32_t newLen;
+  e->literal.strval.str = unescapeStringDup(str, len, &newLen);
+  e->literal.strval.len = newLen;
   e->literal.strval.stype = RSString_Malloc;
   return e;
 }
@@ -90,11 +93,11 @@ RSExpr *RS_NewPredicate(RSCondition cond, RSExpr *left, RSExpr *right) {
   return e;
 }
 
-RSExpr *RS_NewFunc(const char *str, size_t len, RSArgList *args, RSFunction cb) {
+RSExpr *RS_NewFunc(RSFunctionInfo *cb, RSArgList *args) {
   RSExpr *e = newExpr(RSExpr_Function);
   e->func.args = args;
-  e->func.name = rm_strndup(str, len);
-  e->func.Call = cb;
+  e->func.name = cb->name;
+  e->func.Call = cb->f;
   return e;
 }
 
@@ -126,7 +129,6 @@ void RSExpr_Free(RSExpr *e) {
       RSValue_Clear(&e->literal);
       break;
     case RSExpr_Function:
-      rm_free((char *)e->func.name);
       RSArgList_Free(e->func.args);
       break;
     case RSExpr_Op:

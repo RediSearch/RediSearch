@@ -159,7 +159,15 @@ void QueryParam_InitParams(QueryParam *p, size_t num) {
   memset(p->params, 0, sizeof(*p->params) * num);
 }
 
-int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
+/**
+ * Checks if the given numeric and geo value is not empty.
+ * If the dialect version is 2 or higher, the value must not be empty, otherwise it can be 0 for backward compatibility.
+ */
+static inline bool checkNumericAndGeoValueValid(const char *val, unsigned int dialectVersion) {
+  return (dialectVersion < 2 || *val);
+}
+
+int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, QueryError *status) {
   if (param->type == PARAM_NONE)
     return 0;
   size_t val_len;
@@ -168,6 +176,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     return -1;
 
   int val_is_numeric = 0;
+
   switch(param->type) {
 
     case PARAM_NONE:
@@ -196,7 +205,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
 
     case PARAM_NUMERIC:
     case PARAM_GEO_COORD:
-      if (!ParseDouble(val, (double*)param->target, param->sign)) {
+      if (!checkNumericAndGeoValueValid(val, dialectVersion) || !ParseDouble(val, (double*)param->target, param->sign)) {
         QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
         val, param->name);
         return -1;
@@ -204,7 +213,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
       return 1;
 
     case PARAM_SIZE:
-      if (!ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
+      if (!checkNumericAndGeoValueValid(val, dialectVersion) || !ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
         QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
         val, param->name);
         return -1;
@@ -214,8 +223,9 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     case PARAM_NUMERIC_MIN_RANGE:
     case PARAM_NUMERIC_MAX_RANGE:
     {
+      bool inclusive = true; // TODO: use?
       int isMin = param->type == PARAM_NUMERIC_MIN_RANGE ? 1 : 0;
-      if (parseDoubleRange(val, (double*)param->target, isMin, param->sign, status) == REDISMODULE_OK)
+      if (!checkNumericAndGeoValueValid(val, dialectVersion) || parseDoubleRange(val, &inclusive, (double*)param->target, isMin, param->sign, status) == REDISMODULE_OK)
         return 1;
       else
         return -1;

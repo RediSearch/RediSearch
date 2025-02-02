@@ -977,7 +977,7 @@ TEST_F(LLApiTest, testScorer) {
   Document* d1 = RediSearch_CreateDocumentSimple("doc1");
   Document* d2 = RediSearch_CreateDocumentSimple("doc2");
 
-  // adding document with a different TFIDF score
+  // adding document with a different score
   RediSearch_DocumentAddFieldCString(d1, FIELD_NAME_1, "hello world hello world", RSFLDTYPE_DEFAULT);
   ASSERT_EQ(RediSearch_SpecAddDocument(index, d1), REDISMODULE_OK);
   RediSearch_DocumentAddFieldCString(d2, FIELD_NAME_1, "hello world hello", RSFLDTYPE_DEFAULT);
@@ -986,9 +986,9 @@ TEST_F(LLApiTest, testScorer) {
   const char *s = "hello world";
   RSResultsIterator *it = RediSearch_IterateQuery(index, s, strlen(s), NULL);
   RediSearch_ResultsIteratorNext(it, index, NULL);
-  ASSERT_EQ(RediSearch_ResultsIteratorGetScore(it), 2);
+  EXPECT_NEAR(RediSearch_ResultsIteratorGetScore(it), 0.488305, 1e-6);
   RediSearch_ResultsIteratorNext(it, index, NULL);
-  ASSERT_EQ(RediSearch_ResultsIteratorGetScore(it), 1.5);
+  EXPECT_NEAR(RediSearch_ResultsIteratorGetScore(it), 0.447305, 1e-6);
 
   RediSearch_ResultsIteratorFree(it);
   RediSearch_DropIndex(index);

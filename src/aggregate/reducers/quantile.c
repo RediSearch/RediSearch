@@ -15,7 +15,7 @@ typedef struct {
 
 static void *quantileNewInstance(Reducer *parent) {
   QTLReducer *qt = (QTLReducer *)parent;
-  return NewQuantileStream(&qt->pct, 0, qt->resolution);
+  return NewQuantileStream(NULL, 0, qt->resolution);
 }
 
 static int quantileAdd(Reducer *rbase, void *ctx, const RLookupRow *row) {
@@ -71,6 +71,7 @@ Reducer *RDCRQuantile_New(const ReducerOptions *options) {
   }
 
   if (!AC_IsAtEnd(options->args)) {
+    // TODO: why do we need this hidden option? why isn't it available in cluster mode?
     if ((rv = AC_GetUnsigned(options->args, &r->resolution, 0)) != AC_OK) {
       QERR_MKBADARGS_AC(options->status, "<resolution>", rv);
       goto error;

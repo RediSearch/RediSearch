@@ -1083,9 +1083,8 @@ int NI_SkipTo_O(void *ctx, t_docId docId, RSIndexResult **hit) {
 ok:
   // NOT FOUND or end at child means OK. We need to set the docId to the hit we
   // will bubble up
-  wcii_rc = nc->wcii->SkipTo(nc->wcii->ctx, docId, NULL);
+  wcii_rc = nc->wcii->SkipTo(nc->wcii->ctx, docId, hit);
   nc->base.current->docId = nc->lastDocId = nc->wcii->LastDocId(nc->wcii->ctx);
-  *hit = nc->base.current;
   if (wcii_rc == INDEXREAD_EOF) {
     IITER_SET_EOF(&nc->base);
     return INDEXREAD_EOF;

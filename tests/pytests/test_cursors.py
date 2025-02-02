@@ -55,13 +55,14 @@ def testCursors(env):
     env.assertEqual(11, len(res))
 
 def testCursorsBG():
-    env = Env(moduleArgs='WORKERS 1 _PRINT_PROFILE_CLOCK FALSE')
+    env = Env(moduleArgs='WORKERS 1 _PRINT_PROFILE_CLOCK FALSE ON_TIMEOUT RETURN')
     testCursors(env)
 
 
 @skip(cluster=True)
 def testCursorsBGEdgeCasesSanity():
     env = Env(moduleArgs='WORKERS 1')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     count = 100
     loadDocs(env, count=count)
     # Add an extra field to every other document
@@ -272,6 +273,8 @@ def CursorOnCoordinator(env: Env):
     env.expect('FT.CREATE idx SCHEMA n NUMERIC').ok()
     conn = getConnectionByEnv(env)
 
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+
     # Verify that empty reply from some shard doesn't break the cursor
     conn.execute_command('HSET', 0 ,'n', 0)
     res, cursor = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1)
@@ -364,9 +367,10 @@ def CursorOnCoordinator(env: Env):
 
 def testCursorDepletionNonStrictTimeoutPolicy(env):
     """Tests that the cursor id is returned in case the timeout policy is
-    non-strict (i.e., the default `RETURN`), even when a timeout is experienced"""
+    non-strict (i.e., the `RETURN` timeout policy), even when a timeout is experienced"""
 
     conn = getConnectionByEnv(env)
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
 
     # Create the index
     env.expect('FT.CREATE idx SCHEMA t text').ok()

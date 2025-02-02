@@ -837,6 +837,9 @@ static int RMCK_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
   return fork();
 }
 
+static void RMCK_SendChildHeartbeat(double progress) {
+}
+
 static int RMCK_ExitFromChild(int retcode) {
   _exit(retcode);
 }
@@ -979,6 +982,7 @@ static void registerApis() {
   REGISTER_API(SetModuleOptions);
 
   REGISTER_API(KillForkChild);
+  REGISTER_API(SendChildHeartbeat);
   REGISTER_API(ExitFromChild);
   REGISTER_API(Fork);
   REGISTER_API(AddACLCategory);
