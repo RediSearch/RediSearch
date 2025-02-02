@@ -291,6 +291,10 @@ QueryNode *NewPhraseNode(int exact) {
   return ret;
 }
 
+QueryNode *NewNullNode() {
+  return NewQueryNode(QN_NULL);
+}
+
 QueryNode *NewTagNode(const FieldSpec *field) {
   QueryNode *ret = NewQueryNode(QN_TAG);
   ret->tag.fs = field;

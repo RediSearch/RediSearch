@@ -1931,12 +1931,19 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 33: /* termlist ::= param_term param_term */
 {
-  yylhsminor.yy3 = NewPhraseNode(0);
-  if (!(yymsp[-1].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len))) {
-    QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[-1].minor.yy0));
-  }
-  if (!(yymsp[0].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len))) {
-    QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  bool addB = !(yymsp[-1].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len));
+  bool addC = !(yymsp[0].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len));
+
+  if (addB || addC) {
+      yylhsminor.yy3 = NewPhraseNode(0);
+      if (addB) {
+          QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[-1].minor.yy0));
+      }
+      if (addC) {
+          QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+      }
+  } else {
+      yylhsminor.yy3 = NewNullNode();
   }
 }
   yymsp[-1].minor.yy3 = yylhsminor.yy3;

@@ -599,12 +599,19 @@ text_expr(A) ::= verbatim(B) . [VERBATIM]  {
 }
 
 termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
-  A = NewPhraseNode(0);
-  if (!(B.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, B.s, B.len))) {
-    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
-  }
-  if (!(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len))) {
-    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+  bool addB = !(B.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, B.s, B.len));
+  bool addC = !(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len));
+
+  if (addB || addC) {
+      A = NewPhraseNode(0);
+      if (addB) {
+          QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
+      }
+      if (addC) {
+          QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+      }
+  } else {
+      A = NewNullNode();
   }
 }
 
