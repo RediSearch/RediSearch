@@ -58,7 +58,7 @@ int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
  */
 NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status) {
   if (AC_NumRemaining(ac) < 3) {
-    QERR_MKBADARGS_FMT(status, "FILTER requires 3 arguments");
+    QERR_MKBADARGS(status, "FILTER requires 3 arguments");
     return NULL;
   }
 

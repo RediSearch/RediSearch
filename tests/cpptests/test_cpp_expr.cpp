@@ -178,7 +178,7 @@ TEST_F(ExprTest, testParser) {
   HiddenString *hidden = NewHiddenString(e, strlen(e), false);
   RSExpr *root = ExprAST_Parse(hidden, &status);
   HiddenString_Free(hidden, false);
-  ASSERT_TRUE(root) << "Could not parse expression " << e << " " << QueryError_GetError(&status);
+  ASSERT_TRUE(root) << "Could not parse expression " << e << " " << QueryError_GetUserError(&status);
   // ExprAST_Print(root);
   // printf("\n");
 

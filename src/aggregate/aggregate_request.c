@@ -571,7 +571,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   // In dialect 2, we require a non empty numeric filter
   if (req->reqConfig.dialectVersion >= 2 && hasEmptyFilterValue){
-      QERR_MKBADARGS_FMT(status, "Numeric/Geo filter value/s cannot be empty");
+      QERR_MKBADARGS(status, "Numeric/Geo filter value/s cannot be empty");
       return REDISMODULE_ERR;
   }
 
@@ -858,7 +858,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
       QERR_MKBADARGS_AC(status, "LOAD", rc);
       return REDISMODULE_ERR;
     } else if (strcmp(s, "*")) {
-      QERR_MKBADARGS_FMT(status, "Bad arguments for LOAD: Expected number of fields or `*`");
+      QERR_MKBADARGS(status, "Bad arguments for LOAD: Expected number of fields or `*`");
       return REDISMODULE_ERR;
     }
     // Successfuly got a '*', load all fields
@@ -979,15 +979,9 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   if (opts->legacy.filters) {
     for (size_t ii = 0; ii < array_len(opts->legacy.filters); ++ii) {
       NumericFilter *filter = opts->legacy.filters[ii];
-      const char *fieldName = (const char *)filter->field;
-      filter->field = IndexSpec_GetField(sctx->spec, fieldName);
-      if (!filter->field || !FIELD_IS(filter->field, INDEXFLD_T_NUMERIC)) {
+      if (!FIELD_IS(filter->field, INDEXFLD_T_NUMERIC)) {
         if (dialect != 1) {
-          if (!filter->field) {
-            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
-          } else {
-            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field '%s' is not a numeric field", fieldName);
-          }
+          QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field is Not a numeric field", ", field: %s", HiddenString_GetUnsafe(filter->field->fieldName, NULL));
           return REDISMODULE_ERR;
         } else {
           // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
@@ -1005,15 +999,9 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   if (opts->legacy.geo_filters) {
     for (size_t ii = 0; ii < array_len(opts->legacy.geo_filters); ++ii) {
       GeoFilter *gf = opts->legacy.geo_filters[ii];
-      const char *fieldName = (const char *)gf->field;
-      gf->field = IndexSpec_GetField(sctx->spec, fieldName);
-      if (!gf->field || !FIELD_IS(gf->field, INDEXFLD_T_GEO)) {
+      if (!FIELD_IS(gf->field, INDEXFLD_T_GEO)) {
         if (dialect != 1) {
-          if (!gf->field) {
-            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
-          } else {
-            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field '%s' is not a geo field", fieldName);
-          }
+          QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field is not a geo field", ", field: %s", HiddenString_GetUnsafe(gf->field->fieldName, NULL));
           return REDISMODULE_ERR;
         } else {
           // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
