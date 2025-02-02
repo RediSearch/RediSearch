@@ -653,15 +653,15 @@ def testQuotes_v2():
 
 def testTagQueryWithStopwords_V2(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TAG').ok()
-    env.expect('FT.EXPLAIN', 'idx', '@t2:{as is the with by}').equal(r'''
-TAG:@t2 {
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+    env.expect('FT.EXPLAIN', 'idx', '@t:{as is the with by}').equal(r'''
+TAG:@t {
   INTERSECT {
   }
 }
 '''[1:])
-    env.expect('FT.EXPLAIN', 'idx', '@t2:{cat with dog}').equal(r'''
-TAG:@t2 {
+    env.expect('FT.EXPLAIN', 'idx', '@t:{cat with dog}').equal(r'''
+TAG:@t {
   INTERSECT {
     cat
     dog
@@ -670,6 +670,6 @@ TAG:@t2 {
 '''[1:])
     # this test is commented out, TODO: enable after fixing issue MOD-8665
     # conn = env.getClusterConnectionIfNeeded()
-    # conn.execute_command('HSET', 'doc1', 't2', 'with')
-    # conn.execute_command('HSET', 'doc2', 't2', 'dog')
-    # env.expect('FT.SEARCH', 'idx', '@t2:{cat with dog}', 'NOCONTENT').equal([1, 'doc2', ['t2', 'dog']])
+    # conn.execute_command('HSET', 'doc1', 't', 'with')
+    # conn.execute_command('HSET', 'doc2', 't', 'dog')
+    # env.expect('FT.SEARCH', 'idx', '@t:{cat with dog}', 'NOCONTENT').equal([1, 'doc2', ['t', 'dog']])
