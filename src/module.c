@@ -1079,7 +1079,6 @@ int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
 }
 
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
-  legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
   GetRedisVersion(ctx);
 
   char ver[64];
@@ -3474,6 +3473,9 @@ static bool checkClusterEnabled(RedisModuleCtx *ctx) {
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfiguration, int isClusterEnabled) {
+  // needed for setUpgradeIndex which can get called during this function
+  legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
+
   char *err = NULL;
   // Read module configuration from module ARGS
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
