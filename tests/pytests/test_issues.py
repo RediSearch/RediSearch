@@ -1337,7 +1337,7 @@ def test_mod_6786(env:Env):
   env.expect('FT.SEARCH', 'idx', long_term).equal([1, 'doc1', ['t', text_with_long_term]])
 
 @skip(cluster=True)
-def test_mod_xxxx(env:Env):
+def test_mod_8561(env:Env):
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
   n_docs_per_block = 100
@@ -1346,20 +1346,20 @@ def test_mod_xxxx(env:Env):
   first_common = int(n_docs_per_block * n_blocks)
   # Add documents with the term foo
   for i in range(first_common):
-    env.cmd('HSET', f'doc{i}', 't', 'foo')
+    env.cmd('HSET', i, 't', 'foo')
 
   # Add two documents with the terms foo and bar
-  env.cmd('HSET', f'doc{first_common}', 't', 'foo bar')
-  env.cmd('HSET', f'doc{first_common + 1}', 't', 'foo bar')
+  env.cmd('HSET', first_common, 't', 'foo bar')
+  env.cmd('HSET', first_common + 1, 't', 'foo bar')
 
   # Delete the last document with the term foo
-  env.cmd('DEL', f'doc{first_common + 1}')
+  env.cmd('DEL', first_common + 1)
 
   # Run GC to remove the deleted document
   forceInvokeGC(env)
 
   # Search
-  env.expect('FT.SEARCH', 'idx', 'bar foo').noError().equal([1, f'doc{first_common}', ['t', 'foo bar']])
+  env.expect('FT.SEARCH', 'idx', 'bar foo').noError().equal([1, str(first_common), ['t', 'foo bar']])
 
   env.flush()
 
@@ -1371,19 +1371,19 @@ def test_mod_xxxx(env:Env):
   first_common = int(n_docs_per_block * n_blocks)
   # Add documents with the term foo
   for i in range(first_common):
-    env.cmd('HSET', f'doc{i}', 't', 'foo')
+    env.cmd('HSET', i, 't', 'foo')
 
   # Add two documents with the terms foo and bar
-  env.cmd('HSET', f'doc{first_common}', 't', 'foo,bar')
-  env.cmd('HSET', f'doc{first_common + 1}', 't', 'foo,bar')
-  env.cmd('HSET', f'doc{first_common + 2}', 't', 'foo,bar')
+  env.cmd('HSET', first_common, 't', 'foo,bar')
+  env.cmd('HSET', first_common + 1, 't', 'foo,bar')
+  env.cmd('HSET', first_common + 2, 't', 'foo,bar')
 
   # Delete the last document with the term foo
-  env.cmd('DEL', f'doc{first_common + 1}')
-  env.cmd('DEL', f'doc{first_common + 2}')
+  env.cmd('DEL', first_common + 1)
+  env.cmd('DEL', first_common + 2)
 
   # Run GC to remove the deleted document
   forceInvokeGC(env)
 
   # Search
-  env.expect('FT.SEARCH', 'idx', '@t:{bar} @t:{foo}').noError().equal([1, f'doc{first_common}', ['t', 'foo,bar']])
+  env.expect('FT.SEARCH', 'idx', '@t:{bar} @t:{foo}').noError().equal([1, str(first_common), ['t', 'foo,bar']])
