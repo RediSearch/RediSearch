@@ -633,6 +633,8 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
       detachFromConn(conn, 1);
       MRConn_SwitchState(conn, MRConn_Connecting);
     }
+  } else {
+    MRConn_SwitchState(conn, MRConn_Connected);
   }
 }
 
