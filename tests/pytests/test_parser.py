@@ -656,8 +656,6 @@ def testTagQueryWithStopwords_V2(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
     env.expect('FT.EXPLAIN', 'idx', '@t:{as is the with by}').equal(r'''
 TAG:@t {
-  INTERSECT {
-  }
 }
 '''[1:])
     env.expect('FT.EXPLAIN', 'idx', '@t:{cat with dog}').equal(r'''

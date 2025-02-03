@@ -2111,10 +2111,20 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 52: /* tag_list ::= affix */
       case 53: /* tag_list ::= verbatim */ yytestcase(yyruleno==53);
-      case 54: /* tag_list ::= termlist */ yytestcase(yyruleno==54);
 {
   yylhsminor.yy3 = NewPhraseNode(0);
   QueryNode_AddChild(yylhsminor.yy3, yymsp[0].minor.yy3);
+}
+  yymsp[0].minor.yy3 = yylhsminor.yy3;
+        break;
+      case 54: /* tag_list ::= termlist */
+{
+  if (QueryNode_NumChildren(yymsp[0].minor.yy3) == 0 ){
+    yylhsminor.yy3 = NewNullNode();
+  } else {
+    yylhsminor.yy3 = NewPhraseNode(0);
+    QueryNode_AddChild(yylhsminor.yy3, yymsp[0].minor.yy3);
+  }
 }
   yymsp[0].minor.yy3 = yylhsminor.yy3;
         break;
