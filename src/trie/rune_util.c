@@ -93,6 +93,32 @@ rune *strToFoldedRunes(const char *str, size_t *len) {
   return ret;
 }
 
+/* implementation is identical to that of strToRunes except for line where
+ * __fold is called.
+ * If the folded rune occupies more than 1 codepoint, only the first
+ * is used, the rest are ignored. */
+rune *strToSingleCodepointFoldedRunes(const char *str, size_t *len) {
+
+  ssize_t rlen = nu_strlen(str, nu_utf8_read);
+  if (rlen > MAX_RUNESTR_LEN) {
+    if (len) *len = 0;
+    return NULL;
+  }
+
+  uint32_t decoded[rlen + 1];
+  decoded[rlen] = 0;
+  nu_readstr(str, decoded, nu_utf8_read);
+
+  rune *ret = rm_calloc(rlen + 1, sizeof(rune));
+  for (int i = 0; i < rlen; i++) {
+    uint32_t runelike = decoded[i];
+    ret[i] = (rune)__fold(runelike);
+  }
+  if (len) *len = rlen;
+
+  return ret;
+}
+
 rune *strToRunes(const char *str, size_t *len) {
   // Determine the length
   ssize_t rlen = nu_strlen(str, nu_utf8_read);

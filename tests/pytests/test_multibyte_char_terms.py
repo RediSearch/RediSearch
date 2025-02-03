@@ -1052,3 +1052,120 @@ def testMultibyteBasicSynonymsUseCase(env):
     res = conn.execute_command(
         'FT.SEARCH', 'idx', 'fußball', 'EXPANDER', 'SYNONYM')
     env.assertEqual(res, [1, 'doc1', ['title', 'Football ist gut']])
+
+def testSuggestions(env):
+    '''Test suggestion dictionary with multi-byte characters.'''
+    conn = getConnectionByEnv(env)
+    conn.execute_command('FT.SUGADD', 'sug', 'синий', 1)
+    conn.execute_command('FT.SUGADD', 'sug', 'СИНИЙ красный', 1)
+    conn.execute_command('FT.SUGADD', 'sug', 'heiß', 1)
+    conn.execute_command('FT.SUGADD', 'sug', 'HEIẞ', 1)
+    conn.execute_command('FT.SUGADD', 'sug', 'heiss', 1)
+    conn.execute_command('FT.SUGADD', 'sug', 'HEISS', 1)
+    conn.execute_command('FT.SUGADD', 'sug', 'Dreißig', 1)
+    conn.execute_command('FT.SUGADD', 'sug', 'Dreissig', 1)
+    conn.execute_command('FT.SUGADD', 'sug', 'abcde', 1)
+    conn.execute_command('FT.SUGADD', 'sug', 'abcdef', 1)
+    # Suggestions with greek sigma at the beginning of the word
+    conn.execute_command('FT.SUGADD', 'sug', 'ΣΊΓΜΑ', 1)
+    conn.execute_command('FT.SUGADD', 'sug', 'Σίγμα', 1)
+    conn.execute_command('FT.SUGADD', 'sug', 'σίγμα', 1)
+    # Suggestions with greek sigma at the end of the word
+    conn.execute_command('FT.SUGADD', 'sug', 'ΝΕΑΝΊΑΣ', 1)
+    conn.execute_command('FT.SUGADD', 'sug', 'Νεανίας', 1)
+    conn.execute_command('FT.SUGADD', 'sug', 'νεανίας', 1)
+    # Suggestion with character İ which has a multi-codepoint folded rune
+    conn.execute_command('FT.SUGADD', 'sug', 'İ = Letter I with dot above', 1)
+
+    # Test suggestions with multi-byte characters
+    expected = ['синий', 'СИНИЙ красный']
+    res = conn.execute_command('FT.SUGGET', 'sug', 'синий')
+    env.assertEqual(res, expected, message='синий')
+
+    res = conn.execute_command('FT.SUGGET', 'sug', 'СИНИЙ')
+    env.assertEqual(res, expected, message='СИНИЙ')
+
+    # Test suggestions with ß
+    expected = ['heiß', 'heiss', 'HEISS', 'HEIẞ']
+    res = conn.execute_command('FT.SUGGET', 'sug', 'heiß')
+    env.assertEqual(res, expected, message='heiß')
+
+    res = conn.execute_command('FT.SUGGET', 'sug', 'HEIẞ')
+    env.assertEqual(res, expected, message='HEIẞ')
+
+
+    # For this case, the 4 results are returned, because the folded version of
+    # heiß = heiss, and it matches as suggestion for `heis`
+    res = conn.execute_command('FT.SUGGET', 'sug', 'heis')
+    env.assertEqual(res, ['heiß', 'HEIẞ', 'heiss', 'HEISS'], message='heis')
+
+    # For this case, only full match is returned
+    expected = ['heiss', 'HEISS']
+    res = conn.execute_command('FT.SUGGET', 'sug', 'heiss')
+    env.assertEqual(res, expected, message='heiss')
+
+    res = conn.execute_command('FT.SUGGET', 'sug', 'HEISS')
+    env.assertEqual(res, expected, message='HEISS')
+
+    # Test suggestions with ß in the middle of the word
+    res = conn.execute_command('FT.SUGGET', 'sug', 'dreiẞ')
+    env.assertEqual(res, ['Dreißig', 'Dreissig'], message='dreiẞ')
+
+    res = conn.execute_command('FT.SUGGET', 'sug', 'dreis')
+    env.assertEqual(res, ['Dreißig', 'Dreissig'], message='dreis')
+
+    res = conn.execute_command('FT.SUGGET', 'sug', 'dreißig')
+    env.assertEqual(res, ['Dreißig'], message = 'dreißig')
+
+    res = conn.execute_command('FT.SUGGET', 'sug', 'dreissig')
+    env.assertEqual(res, ['Dreissig'], message = 'dreissig')
+
+    # Tests with single byte characters
+    res = conn.execute_command('FT.SUGGET', 'sug', 'abcde')
+    env.assertEqual(res, ['abcde', 'abcdef'], message='abcde')
+
+    res = conn.execute_command('FT.SUGGET', 'sug', 'abcdef')
+    env.assertEqual(res, ['abcdef'], message='abcdef')
+
+    res = conn.execute_command('FT.SUGGET', 'sug', 'abcdefg')
+    env.assertEqual(res, [], message='abcdefg')
+
+    # Test suggestions with greek sigma at the beginning of the word
+    expected = ['σίγμα', 'ΣΊΓΜΑ', 'Σίγμα']
+    res = conn.execute_command('FT.SUGGET', 'sug', 'ΣΊΓΜΑ')
+    env.assertEqual(res, expected, message = 'ΣΊΓΜΑ')
+
+    res = conn.execute_command('FT.SUGGET', 'sug', 'Σίγμα')
+    env.assertEqual(res, expected, message = 'Σίγμα')
+
+    res = conn.execute_command('FT.SUGGET', 'sug', 'σίγμα')
+    env.assertEqual(res, expected, message = 'σίγμα')
+
+    # Test suggestions with greek sigma at the end of the word
+    expected = ['νεανίας', 'ΝΕΑΝΊΑΣ', 'Νεανίας']
+    res = conn.execute_command('FT.SUGGET', 'sug', 'ΝΕΑΝΊΑΣ')
+    env.assertEqual(res, expected, message = 'ΝΕΑΝΊΑΣ')
+
+    res = conn.execute_command('FT.SUGGET', 'sug', 'Νεανίας')
+    env.assertEqual(res, expected, message = 'Νεανίας')
+
+    res = conn.execute_command('FT.SUGGET', 'sug', 'νεανίας')
+    env.assertEqual(res, expected, message = 'νεανίας')
+
+    # This is a known limitation, when folding the suggestion, we are comparing
+    # only the first byte of the folded character, and for that reason
+    # 'dreisig' matches 'dreißig' but not 'dreissig'
+    res = conn.execute_command('FT.SUGGET', 'sug', 'dreisig')
+    env.assertEqual(res, ['Dreißig'], message = 'dreisig')
+    res = conn.execute_command('FT.SUGGET', 'sug', 'dreisi')
+    env.assertEqual(res, ['Dreißig'], message = 'dreisi')
+
+    # same case for suggestion with İ characterss which is folded as two
+    # codepoints: (U+0069)(U+0307) : (i)(combining dot above)
+    test_value = 'İ = Letter I with dot above'
+    expected = [test_value]
+    res = conn.execute_command('FT.SUGGET', 'sug', test_value)
+    env.assertEqual(res, expected)
+    # Search with a lowercase i also returns the same suggestion
+    res = conn.execute_command('FT.SUGGET', 'sug', 'i = Letter I with dot above')
+    env.assertEqual(res, expected)

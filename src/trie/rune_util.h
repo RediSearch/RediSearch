@@ -39,7 +39,14 @@ rune runeFold(rune r);
 /* Convert a rune string to utf-8 characters */
 char *runesToStr(const rune *in, size_t len, size_t *utflen);
 
+/* Convert a string to runes, fold them and return the folded runes.
+ * This function supports folding of multi-codepoint runes. */
 rune *strToFoldedRunes(const char *str, size_t *len);
+
+/* Convert a string to runes, fold them and return the folded runes.
+ * If a folded runes contains more than one codepoint, only the first
+ * codepoint is taken, the rest are ignored. */
+rune *strToSingleCodepointFoldedRunes(const char *str, size_t *len);
 
 /* Convert a utf-8 string to constant width runes */
 rune *strToRunes(const char *str, size_t *len);
