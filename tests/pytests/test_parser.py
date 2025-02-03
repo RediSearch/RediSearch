@@ -655,8 +655,7 @@ def testTagQueryWithStopwords_V2(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
     env.expect('FT.EXPLAIN', 'idx', '@t:{as is the with by}').equal(r'''
-TAG:@t {
-}
+<empty>
 '''[1:])
     env.expect('FT.EXPLAIN', 'idx', '@t:{cat with dog}').equal(r'''
 TAG:@t {

@@ -806,7 +806,7 @@ tag_list(A) ::= verbatim(B) . [TAGLIST] {
 tag_list(A) ::= termlist(B) . [TAGLIST] {
   if (QueryNode_NumChildren(B) == 0 ){
     QueryNode_Free(B);
-    A = NewNullNode();
+    A = NULL;
   } else {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);

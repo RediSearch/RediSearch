@@ -2121,7 +2121,7 @@ static YYACTIONTYPE yy_reduce(
 {
   if (QueryNode_NumChildren(yymsp[0].minor.yy3) == 0 ){
     QueryNode_Free(yymsp[0].minor.yy3);
-    yylhsminor.yy3 = NewNullNode();
+    yylhsminor.yy3 = NULL;
   } else {
     yylhsminor.yy3 = NewPhraseNode(0);
     QueryNode_AddChild(yylhsminor.yy3, yymsp[0].minor.yy3);
