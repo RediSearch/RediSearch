@@ -804,8 +804,13 @@ tag_list(A) ::= verbatim(B) . [TAGLIST] {
 }
 
 tag_list(A) ::= termlist(B) . [TAGLIST] {
-  A = NewPhraseNode(0);
-  QueryNode_AddChild(A, B);
+  if (QueryNode_NumChildren(B) == 0 ){
+    QueryNode_Free(B);
+    A = NewNullNode();
+  } else {
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, B);
+  }
 }
 
 tag_list(A) ::= tag_list(B) OR param_term_case(C) . [TAGLIST] {

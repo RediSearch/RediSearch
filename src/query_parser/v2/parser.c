@@ -2120,6 +2120,7 @@ static YYACTIONTYPE yy_reduce(
       case 54: /* tag_list ::= termlist */
 {
   if (QueryNode_NumChildren(yymsp[0].minor.yy3) == 0 ){
+    QueryNode_Free(yymsp[0].minor.yy3);
     yylhsminor.yy3 = NewNullNode();
   } else {
     yylhsminor.yy3 = NewPhraseNode(0);
