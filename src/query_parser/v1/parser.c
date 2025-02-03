@@ -1369,14 +1369,14 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 17: /* expr ::= QUOTE term QUOTE */
 {
-    yymsp[-2].minor.yy75 = NewTokenNode(ctx, rm_strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
+    yymsp[-2].minor.yy75 = NewTokenNode(ctx, rm_normalize(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
     yymsp[-2].minor.yy75->opts.flags |= QueryNode_Verbatim;
 
 }
         break;
       case 18: /* expr ::= term */
 {
-   yylhsminor.yy75 = NewTokenNode(ctx, rm_strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1);
+   yylhsminor.yy75 = NewTokenNode(ctx, rm_normalize(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1);
 }
   yymsp[0].minor.yy75 = yylhsminor.yy75;
         break;
@@ -1400,15 +1400,15 @@ static YYACTIONTYPE yy_reduce(
       case 22: /* termlist ::= term term */
 {
     yylhsminor.yy75 = NewPhraseNode(0);
-    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, rm_strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1));
-    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, rm_strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, rm_normalize(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1));
+    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, rm_normalize(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
   yymsp[-1].minor.yy75 = yylhsminor.yy75;
         break;
       case 23: /* termlist ::= termlist term */
 {
     yylhsminor.yy75 = yymsp[-1].minor.yy75;
-    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, rm_strdupcase(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
+    QueryNode_AddChild(yylhsminor.yy75, NewTokenNode(ctx, rm_normalize(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len), -1));
 }
   yymsp[-1].minor.yy75 = yylhsminor.yy75;
         break;

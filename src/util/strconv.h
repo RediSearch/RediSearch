@@ -177,8 +177,8 @@ static size_t unicode_tofold(char *encoded, size_t in_len) {
 }
 
 
-// strndup + fold in one pass!
-static char *rm_strdupcase(const char *s, size_t len) {
+// strndup + unescape + fold
+static char *rm_normalize(const char *s, size_t len) {
   char *ret = rm_strndup(s, len);
   char *dst = ret;
   char *src = ret;

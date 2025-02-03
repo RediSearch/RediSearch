@@ -195,7 +195,7 @@ QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
     char *s;
     size_t len;
     if (qt->type == QT_TERM) {
-      s = rm_strdupcase(qt->s, qt->len);
+      s = rm_normalize(qt->s, qt->len);
       len = strlen(s);
     } else {
       s = rm_strndup(qt->s, qt->len);
@@ -265,7 +265,7 @@ QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist
   q->numTokens++;
 
   if (qt->type == QT_TERM || qt->type == QT_NUMERIC || qt->type == QT_SIZE) {
-    char *s = rm_strdupcase(qt->s, qt->len);
+    char *s = rm_normalize(qt->s, qt->len);
     ret->fz = (QueryFuzzyNode){
       .tok =
           (RSToken){
