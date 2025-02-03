@@ -56,7 +56,7 @@ int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
  *  Returns a numeric filter on success, NULL if there was a problem with the
  * arguments
  */
-NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, QueryError *status) {
+NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status) {
   if (AC_NumRemaining(ac) < 3) {
     QERR_MKBADARGS_FMT(status, "FILTER requires 3 arguments");
     return NULL;
@@ -74,11 +74,18 @@ NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, QueryError *status) {
 
   // Parse the min range
   const char *s = AC_GetStringNC(ac, NULL);
+  if (!*s) {
+    *hasEmptyFilterValue = true;
+  }
   if (parseDoubleRange(s, &nf->inclusiveMin, &nf->min, 1, 1, status) != REDISMODULE_OK) {
     NumericFilter_Free(nf);
     return NULL;
   }
+
   s = AC_GetStringNC(ac, NULL);
+  if (!*s) {
+    *hasEmptyFilterValue = true;
+  }
   if (parseDoubleRange(s, &nf->inclusiveMax, &nf->max, 0, 1, status) != REDISMODULE_OK) {
     NumericFilter_Free(nf);
     return NULL;

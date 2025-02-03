@@ -779,13 +779,15 @@ def test_as_startswith_as(env):
 def test_mod4296_badexpr(env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').equal('OK')
   env.expect('HSET', 'doc', 't', 'foo').equal(1)
-  env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1%0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
-  env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1/0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'nan']])
+  env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1%0', 'as', 'foo').apply(lambda x: str(float(x[-1][-1]))).equal('nan')
+  env.expect('FT.AGGREGATE', 'idx', 'foo', 'LOAD', 1, '@t', 'APPLY', '1/0', 'as', 'foo').equal([1, ['t', 'foo', 'foo', 'inf']])
 
 @skip(cluster=True)
 def test_mod5062(env):
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
   env.expect(config_cmd(), 'SET', 'MAXSEARCHRESULTS', '0').ok()
   env.expect(config_cmd(), 'SET', 'MAXAGGREGATERESULTS', '0').ok()
+
   n = 100
 
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
@@ -1064,7 +1066,6 @@ def test_mod6186(env):
 def test_mod6510_vecsim_hybrid_adhoc_timeout(env):
     dim = 1000
     n_vectors = 50000
-    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
 
     # Create HNSW index which is large enough, so we'll get timeout later on.
     env.expect(f'FT.CREATE idx SCHEMA v VECTOR HNSW 10 DIM {dim} DISTANCE_METRIC L2 TYPE FLOAT32 M 2 EF_CONSTRUCTION 5'
@@ -1302,6 +1303,13 @@ def test_mod_6783(env:Env):
     for i in range(n_sortables):
       res = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', f'f{i}', 'NOCONTENT')
       env.assertEqual(res, expected[i], message=f'Failed on field f{i} with {n_sortables} sortables')
+
+@skip(cluster=True)
+def test_mod_8589(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+  env.cmd('HSET', 'doc1', 'v', '????????', 't', 'foo bar foo') # Max frequency is 2 (foo)
+  docinfo = to_dict(env.cmd(debug_cmd(), 'DOCINFO', 'idx', 'doc1'))
+  env.assertEqual(docinfo['max_freq'], 2)
 
 @skip(cluster=True)
 def test_mod_8568(env:Env):
