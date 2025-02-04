@@ -160,8 +160,7 @@ def test_vecsim_info_stats_memory(env):
   conn = env.getClusterConnectionIfNeeded()
   vec_size = 6
   data_type = 'FLOAT16'
-  for i in range(1, 1001):
-    conn.execute_command('HSET', f'doc{i}', 'vector', create_np_array_typed(np.random.rand(vec_size), data_type).tobytes())
+  load_vectors_to_redis(env, 1000, 0, vec_size, data_type)
   conn.execute_command('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', 6, 'DIM', 6, 'TYPE', 'float16', 'DISTANCE_METRIC', 'L2')
   info = env.executeCommand('ft.info', 'idx')
   env.assertTrue("field statistics" in info)
@@ -172,8 +171,7 @@ def test_vecsim_info_stats_marked_deleted(env):
   conn = env.getClusterConnectionIfNeeded()
   vec_size = 6
   data_type = 'FLOAT16'
-  for i in range(1, 1001):
-    conn.execute_command('HSET', f'doc{i}', 'vector', create_np_array_typed(np.random.rand(vec_size), data_type).tobytes())
+  load_vectors_to_redis(env, 1000, 0, vec_size, data_type)
   conn.execute_command('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', 6, 'DIM', 6, 'TYPE', 'float16', 'DISTANCE_METRIC', 'L2')
   for i in range(1, 101):
     conn.execute_command('DEL', f'doc{i}')
