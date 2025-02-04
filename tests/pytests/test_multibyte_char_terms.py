@@ -422,7 +422,7 @@ def testStopWords(env):
     env.assertEqual(res, expected_terms)
 
     # check the stopwords list - lowercase
-    expected_stopwords = ['и', 'не', 'от', 'fußball']
+    expected_stopwords = ['fussball', 'и', 'не', 'от']
     res = index_info(env, 'idx1')['stopwords_list']
     env.assertEqual(res, expected_stopwords)
 
