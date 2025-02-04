@@ -771,6 +771,10 @@ SKIPPER(seekRawDocIdsOnly) {
   // than delta. If it is the last value smaller than delta, we need to skip to the next value.
   if (curVal < delta) {
     cur++;
+    if (cur >= br->buf->offset / 4) {
+      // We are not at the right block
+      return 0;
+    }
     curVal = buf[cur];
   }
 
