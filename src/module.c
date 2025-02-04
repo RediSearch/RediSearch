@@ -3476,13 +3476,6 @@ int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, i
   // needed for setUpgradeIndex which can get called during this function
   legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
 
-  char *err = NULL;
-  // Read module configuration from module ARGS
-  if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
-    RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
-    rm_free(err);
-    return REDISMODULE_ERR;
-  }
   // register the module configuration with redis, use loaded values from command line as defaults
   if (!registerConfiguration) {
     // For backward compatibility, if the new API is not available, set the
@@ -3497,9 +3490,20 @@ int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, i
       // Register module configuration parameters for cluster
       RM_TRY_F(RegisterClusterModuleConfig, ctx);
     }
-    // Apply configuration redis has loaded from the configuration file
-  	RM_TRY_F(RedisModule_LoadConfigs, ctx);
   }
+
+  // Load default values
+  RM_TRY_F(RedisModule_LoadDefaultConfigs, ctx);
+
+  char *err = NULL;
+  // Read module configuration from module ARGS
+  if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
+    rm_free(err);
+    return REDISMODULE_ERR;
+  }
+  // Apply configuration redis has loaded from the configuration file
+  RM_TRY_F(RedisModule_LoadConfigs, ctx);
   return REDISMODULE_OK;
 }
 
