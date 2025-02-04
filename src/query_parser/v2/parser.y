@@ -825,30 +825,28 @@ tag_list(A) ::= tag_list(B) OR param_term_case(C) . [TAGLIST] {
 
 tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
   if (!B){
-    QueryNode_AddChild(B, C);
-    A = B;
-  } else {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, C);
+  } else {
+    QueryNode_AddChild(B, C);
+    A = B;
   }
 }
 
 tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
   if (!B){
-    QueryNode_AddChild(B, C);
-    A = B;
-  } else {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, C);
+  } else {
+    QueryNode_AddChild(B, C);
+    A = B;
   }
 }
 
 tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-    A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-    // Nothing - `A` is already assigned
+  if (!B){
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, C);
   } else {
     QueryNode_AddChild(B, C);
     A = B;
