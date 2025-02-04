@@ -73,7 +73,7 @@
 #include <assert.h>
 
 #include "../parse.h"
-
+#include "src/util/likely.h"
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
 
@@ -804,7 +804,7 @@ tag_list(A) ::= verbatim(B) . [TAGLIST] {
 }
 
 tag_list(A) ::= termlist(B) . [TAGLIST] {
-  if (QueryNode_NumChildren(B) == 0 ){
+  if (unlikely(QueryNode_NumChildren(B) == 0)){
     QueryNode_Free(B);
     A = NULL;
   } else {
