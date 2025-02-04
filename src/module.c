@@ -123,6 +123,16 @@ bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
   return ret;
 }
 
+// Validates ACL key-space permissions w.r.t the given index spec for Redis
+// Enterprise environments only.
+static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
+  if (!IsEnterprise() || ACLUserMayAccessIndex(ctx, sp)) {
+    // Either OSS, or ACL check passed.
+    return true;
+  }
+  return false;
+}
+
 // Returns true if the current context has permission to execute debug commands
 // See redis docs regarding `enable-debug-command` for more information
 // Falls back to true when the redis version is below the one we started
@@ -185,7 +195,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sctx->spec)) {
+  if (!checkEnterpriseACL(ctx, sctx->spec)) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
@@ -375,7 +385,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   // On Enterprise, we validate ACL permission to the index
-  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+  if (!checkEnterpriseACL(ctx, sp)) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
@@ -530,7 +540,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+  if (!checkEnterpriseACL(ctx, sp)) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
@@ -585,7 +595,7 @@ int DropIfExistsIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
-  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+  if (!checkEnterpriseACL(ctx, sp)) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
@@ -631,7 +641,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+  if (!checkEnterpriseACL(ctx, sp)) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
@@ -737,7 +747,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+  if (!checkEnterpriseACL(ctx, sp)) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
@@ -813,7 +823,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return REDISMODULE_ERR;
   }
 
-  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+  if (!checkEnterpriseACL(ctx, sp)) {
     QueryError_SetError(error, QUERY_EGENERIC, NOPERM_ERR);
   }
 
@@ -866,7 +876,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   }
 
   // On Enterprise, we validate ACL permission to the index
-  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+  if (!checkEnterpriseACL(ctx, sp)) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
@@ -904,7 +914,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   IndexSpec *spOrig = StrongRef_Get(Orig_ref);
   if (spOrig) {
     // On Enterprise, we validate ACL permission to the index
-    if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, spOrig)) {
+    if (!checkEnterpriseACL(ctx, spOrig)) {
       return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
     }
 

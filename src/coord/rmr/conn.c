@@ -432,20 +432,17 @@ static int MRConn_SendAuth(MRConn *conn) {
     // Take the GIL before calling the internal function getter
     RedisModule_ThreadSafeContextLock(RSDummyContext);
     const char *internal_secret = RedisModule_GetInternalSecret(RSDummyContext, &len);
-    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
-
-    sds secret = sdsnewlen(internal_secret, len);
-
-    if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn,
-        "AUTH %s %s", INTERNALAUTH_USERNAME, secret) == REDIS_ERR) {
-      sdsfree(secret);
+    // Create a local copy of the secret so we can release the GIL.
+    int status = redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn,
+        "AUTH %s %b", INTERNALAUTH_USERNAME, internal_secret, len);
+    if (status == REDIS_ERR) {
       MRConn_SwitchState(conn, MRConn_ReAuth);
-      return REDIS_ERR;
     }
-    sdsfree(secret);
-    return REDIS_OK;
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    return status;
   } else {
-    // On Enterprise, we use the password we got from `CLUSTERSET`
+    // On Enterprise, we use the password we got from `CLUSTERSET`.
+    // If we got here, we know we have a password.
     if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn, "AUTH %s",
           conn->ep.password) == REDIS_ERR) {
       MRConn_SwitchState(conn, MRConn_ReAuth);
