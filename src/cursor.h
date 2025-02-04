@@ -177,8 +177,10 @@ int Cursors_Purge(CursorList *cl, uint64_t cid);
 int Cursors_CollectIdle(CursorList *cl);
 
 typedef struct CursorsInfoStats {
-  size_t total;
-  size_t total_idle;
+  size_t total_user;
+  size_t total_idle_user;
+  size_t total_internal;
+  size_t total_idle_internal;
 } CursorsInfoStats;
 
 /**
