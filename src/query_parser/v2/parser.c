@@ -91,13 +91,10 @@ static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode*
         } else {
             A = NewUnionNode();
             QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
             child = C;
         }
         // Handle child
         QueryNode_AddChild(A, child);
-        A->opts.fieldMask |= child->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
     return A;
 }
