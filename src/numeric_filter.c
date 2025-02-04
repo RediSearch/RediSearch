@@ -70,7 +70,9 @@ NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterVal
   nf->min = 0;
   nf->max = 0;
   // Store the field name at the field spec pointer, to validate later
-  nf->field = (const FieldSpec*)AC_GetStringNC(ac, NULL);
+  const char *fieldName = AC_GetStringNC(ac, NULL);
+  nf->field.resolved = false;
+  nf->field.u.name = NewHiddenString(fieldName, strlen(fieldName), false);
 
   // Parse the min range
   const char *s = AC_GetStringNC(ac, NULL);
@@ -103,7 +105,8 @@ NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int in
 
   f->min = min;
   f->max = max;
-  f->field = NULL;
+  f->field.u.name = NULL;
+  f->field.resolved = false;
   f->inclusiveMax = inclusiveMax;
   f->inclusiveMin = inclusiveMin;
   f->geoFilter = NULL;

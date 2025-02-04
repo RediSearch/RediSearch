@@ -546,7 +546,7 @@ NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyNam
 struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config,
                                                const FieldFilterContext* filterCtx) {
-  RedisModuleString *s = IndexSpec_GetFormattedKey(ctx->spec, flt->field, forType);
+  RedisModuleString *s = IndexSpec_GetFormattedKey(ctx->spec, FIELD_SPEC(flt->field), forType);
   if (!s) {
     return NULL;
   }
@@ -577,7 +577,7 @@ struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const 
     uc->lastRevId = t->revisionId;
     uc->it = it;
     uc->sp = ctx->spec;
-    uc->field = flt->field;
+    uc->field = FIELD_SPEC(flt->field);
     ConcurrentSearch_AddKey(csx, NumericRangeIterator_OnReopen, uc, rm_free);
   }
   return it;

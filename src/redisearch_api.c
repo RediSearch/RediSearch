@@ -400,7 +400,8 @@ QueryNode* RediSearch_CreateNumericNode(RefManager* rm, const char* field, doubl
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
   const size_t len = strlen(field);
   ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax, true);
-  ret->nn.nf->field = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), field, len);
+  ret->nn.nf->field.u.spec = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), field, len);
+  ret->nn.nf->field.resolved = true;
   ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, len);
   return ret;
 }
@@ -415,7 +416,8 @@ QueryNode* RediSearch_CreateGeoNode(RefManager* rm, const char* field, double la
   flt->lon = lon;
   flt->radius = radius;
   flt->numericFilters = NULL;
-  flt->field = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), field, strlen(field));
+  flt->field.u.spec = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), field, strlen(field));
+  flt->field.resolved = true;
   flt->unitType = (GeoDistance)unitType;
 
   ret->gn.gf = flt;

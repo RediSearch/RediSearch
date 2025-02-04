@@ -237,7 +237,8 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, Itera
   // if there is no numeric range query but sortby, create a Numeric Filter
   if (!qOpt->nf) {
     qOpt->nf = NewNumericFilter(-INFINITY, INFINITY, 1, 1, qOpt->asc);
-    qOpt->nf->field = field;
+    qOpt->nf->field.u.spec = field;
+    qOpt->nf->field.resolved = true;
     oi->flags |= OPTIM_OWN_NF;
   }
   oi->lastLimitEstimate = qOpt->nf->limit =

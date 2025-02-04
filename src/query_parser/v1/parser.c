@@ -1577,13 +1577,10 @@ static YYACTIONTYPE yy_reduce(
       case 49: /* expr ::= modifier COLON numeric_range */
 {
     // we keep the capitalization as is
-    yylhsminor.yy75 = NewNumericNode(yymsp[0].minor.yy62);
-    if (ctx->sctx->spec) {
-        yylhsminor.yy75->nn.nf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-        if (!yylhsminor.yy75->nn.nf->field) {
-            QueryNode_Free(yylhsminor.yy75);
-            yylhsminor.yy75 = NULL;
-        }
+    yylhsminor.yy75 = NULL;
+    const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len) : NULL;
+    if (fs) {
+        yylhsminor.yy75 = NewNumericNode(yymsp[0].minor.yy62, fs);
     }
 }
   yymsp[-2].minor.yy75 = yylhsminor.yy75;
@@ -1599,8 +1596,9 @@ static YYACTIONTYPE yy_reduce(
     // we keep the capitalization as is
     yylhsminor.yy75 = NewGeofilterNode(yymsp[0].minor.yy62);
     if (ctx->sctx->spec) {
-        yylhsminor.yy75->gn.gf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-        if (!yylhsminor.yy75->gn.gf->field) {
+        yylhsminor.yy75->gn.gf->field.u.spec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+        yylhsminor.yy75->gn.gf->field.resolved = true;
+        if (!yylhsminor.yy75->gn.gf->field.u.spec) {
             QueryNode_Free(yylhsminor.yy75);
             yylhsminor.yy75 = NULL;
         }

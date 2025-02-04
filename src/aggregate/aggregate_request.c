@@ -979,9 +979,25 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   if (opts->legacy.filters) {
     for (size_t ii = 0; ii < array_len(opts->legacy.filters); ++ii) {
       NumericFilter *filter = opts->legacy.filters[ii];
-      if (!FIELD_IS(filter->field, INDEXFLD_T_NUMERIC)) {
+
+      const HiddenString* fieldName = NULL;
+      const FieldSpec *fs = NULL;
+      if (filter->field.resolved) {
+        fieldName = filter->field.u.spec->fieldName;
+        fs = filter->field.u.spec;
+      } else {
+        fieldName = filter->field.u.name;
+        fs = IndexSpec_GetField(sctx->spec, fieldName);
+        filter->field.u.spec = fs;
+        filter->field.resolved = true;
+      }
+      if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         if (dialect != 1) {
-          QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field is Not a numeric field", ", field: %s", HiddenString_GetUnsafe(filter->field->fieldName, NULL));
+          if (fs) {
+            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field is Not a numeric field", ", field: %s", HiddenString_GetUnsafe(fs->fieldName, NULL));
+          } else {
+            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Unknown Field", " '%s'", HiddenString_GetUnsafe(fieldName, NULL));
+          }
           return REDISMODULE_ERR;
         } else {
           // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
@@ -999,9 +1015,13 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   if (opts->legacy.geo_filters) {
     for (size_t ii = 0; ii < array_len(opts->legacy.geo_filters); ++ii) {
       GeoFilter *gf = opts->legacy.geo_filters[ii];
-      if (!FIELD_IS(gf->field, INDEXFLD_T_GEO)) {
+      const HiddenString *fieldName = gf->field.u.name;
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, fieldName);
+      gf->field.u.spec = fs;
+      gf->field.resolved = true;
+      if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         if (dialect != 1) {
-          QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field is not a geo field", ", field: %s", HiddenString_GetUnsafe(gf->field->fieldName, NULL));
+          QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field is not a geo field", ", field: %s", HiddenString_GetUnsafe(fieldName, NULL));
           return REDISMODULE_ERR;
         } else {
           // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
