@@ -665,8 +665,53 @@ TAG:@t {
   }
 }
 '''[1:])
+
     conn = env.getClusterConnectionIfNeeded()
     conn.execute_command('HSET', 'doc1', 't', 'with')
     conn.execute_command('HSET', 'doc2', 't', 'cat dog')
     env.expect('FT.SEARCH', 'idx', '@t:{cat with dog}').equal([1, 'doc2', ['t', 'cat dog']])
     env.expect('FT.SEARCH', 'idx', '@t:{as is the with by}').equal([0])
+
+def testTagQueryWithSuffixPrefixContains_V2(env):
+  env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
+  conn = env.getClusterConnectionIfNeeded()
+  conn.execute_command('HSET', 'doc1', 'tag', 'x y')
+  conn.execute_command('HSET', 'doc2', 'tag', 'apple')
+  conn.execute_command('HSET', 'doc3', 'tag', 'banana')
+
+  # taglist OR suffix
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | *a }').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    x
+    y
+  }
+  SUFFIX{*a}
+}
+'''[1:])
+  env.expect('FT.SEARCH', 'idx', '@tag:{x y | *ple }').equal([2, 'doc1', ['tag', 'x y'], 'doc2', ['tag', 'apple']])
+
+  # taglist OR prefix
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | b* }').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    x
+    y
+  }
+  PREFIX{b*}
+}
+'''[1:])
+  env.expect('FT.SEARCH', 'idx', '@tag:{x y | ba* }').equal([2, 'doc1', ['tag', 'x y'], 'doc3', ['tag', 'banana']])
+
+# taglist OR contains
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | *n* }').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    x
+    y
+  }
+  INFIX{*n*}
+}
+'''[1:])
+  env.expect('FT.SEARCH', 'idx', '@tag:{x y | *pl* }').equal([2, 'doc1', ['tag', 'x y'], 'doc2', ['tag', 'apple']])
