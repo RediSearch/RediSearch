@@ -814,23 +814,45 @@ tag_list(A) ::= termlist(B) . [TAGLIST] {
 }
 
 tag_list(A) ::= tag_list(B) OR param_term_case(C) . [TAGLIST] {
-  QueryNode_AddChild(B, NewTokenNode_WithParams(ctx, &C));
-  A = B;
+  if (!B){
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+  } else {
+    QueryNode_AddChild(B, NewTokenNode_WithParams(ctx, &C));
+    A = B;
+  }
 }
 
 tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
-  QueryNode_AddChild(B, C);
-  A = B;
+  if (!B){
+    QueryNode_AddChild(B, C);
+    A = B;
+  } else {
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, C);
+  }
 }
 
 tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
-  QueryNode_AddChild(B, C);
-  A = B;
+  if (!B){
+    QueryNode_AddChild(B, C);
+    A = B;
+  } else {
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, C);
+  }
 }
 
 tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
-  QueryNode_AddChild(B, C);
-  A = B;
+  int rv = one_not_null(B, C, (void**)&A);
+  if (rv == NODENN_BOTH_INVALID) {
+    A = NULL;
+  } else if (rv == NODENN_ONE_NULL) {
+    // Nothing - `A` is already assigned
+  } else {
+    QueryNode_AddChild(B, C);
+    A = B;
+  }
 }
 
 /////////////////////////////////////////////////////////////////

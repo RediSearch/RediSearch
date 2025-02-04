@@ -2131,17 +2131,40 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 55: /* tag_list ::= tag_list OR param_term_case */
 {
-  QueryNode_AddChild(yymsp[-2].minor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
-  yylhsminor.yy3 = yymsp[-2].minor.yy3;
+  if (!yymsp[-2].minor.yy3){
+    yylhsminor.yy3 = NewPhraseNode(0);
+    QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  } else {
+    QueryNode_AddChild(yymsp[-2].minor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+    yylhsminor.yy3 = yymsp[-2].minor.yy3;
+  }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
         break;
       case 56: /* tag_list ::= tag_list OR affix */
       case 57: /* tag_list ::= tag_list OR verbatim */ yytestcase(yyruleno==57);
-      case 58: /* tag_list ::= tag_list OR termlist */ yytestcase(yyruleno==58);
 {
-  QueryNode_AddChild(yymsp[-2].minor.yy3, yymsp[0].minor.yy3);
-  yylhsminor.yy3 = yymsp[-2].minor.yy3;
+  if (!yymsp[-2].minor.yy3){
+    QueryNode_AddChild(yymsp[-2].minor.yy3, yymsp[0].minor.yy3);
+    yylhsminor.yy3 = yymsp[-2].minor.yy3;
+  } else {
+    yylhsminor.yy3 = NewPhraseNode(0);
+    QueryNode_AddChild(yylhsminor.yy3, yymsp[0].minor.yy3);
+  }
+}
+  yymsp[-2].minor.yy3 = yylhsminor.yy3;
+        break;
+      case 58: /* tag_list ::= tag_list OR termlist */
+{
+  int rv = one_not_null(yymsp[-2].minor.yy3, yymsp[0].minor.yy3, (void**)&yylhsminor.yy3);
+  if (rv == NODENN_BOTH_INVALID) {
+    yylhsminor.yy3 = NULL;
+  } else if (rv == NODENN_ONE_NULL) {
+    // Nothing - `yylhsminor.yy3` is already assigned
+  } else {
+    QueryNode_AddChild(yymsp[-2].minor.yy3, yymsp[0].minor.yy3);
+    yylhsminor.yy3 = yymsp[-2].minor.yy3;
+  }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
         break;
