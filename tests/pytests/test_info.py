@@ -157,14 +157,17 @@ def test_info_text_tag_overhead(env):
 
 def test_vecsim_info_stats_memory(env):
   env = Env(protocol=3)
-  conn = env.getClusterConnectionIfNeeded()
   vec_size = 6
   data_type = 'FLOAT16'
+  env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', 6, 'DIM', 6, 'TYPE', 'float16', 'DISTANCE_METRIC', 'L2').ok()
   load_vectors_to_redis(env, 1000, 0, vec_size, data_type)
-  conn.execute_command('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', 6, 'DIM', 6, 'TYPE', 'float16', 'DISTANCE_METRIC', 'L2')
-  info = env.executeCommand('ft.info', 'idx')
+  def get_memory(info): return info[info.index('MEMORY') + 1]
+  total_memory = 0
+  for shard_conn in shardsConnections(env):
+    total_memory += get_memory(shard_conn.execute_command(debug_cmd(), 'VECSIM_INFO', 'idx', 'vector'))
+  info = shard_conn.execute_command('ft.info', 'idx')
   env.assertTrue("field statistics" in info)
-  env.assertGreater(info["field statistics"][0]["memory"], 0)
+  env.assertAlmostEqual(total_memory, info["field statistics"][0]["memory"], delta=env.shardsCount)
 
 def test_vecsim_info_stats_marked_deleted(env):
   env = Env(protocol=3, moduleArgs='WORKERS 1')
@@ -178,9 +181,9 @@ def test_vecsim_info_stats_marked_deleted(env):
   env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
   info = conn.execute_command('ft.info', 'idx')
   env.assertTrue("field statistics" in info)
-  vecsim_info_marked_deleted = 0
   # get marked deleted from 'FT.DEBUG VECSIM_INFO idx vector' output
   def get_marked_deleted(data): return data[data.index('BACKEND_INDEX') + 1][data[data.index('BACKEND_INDEX') + 1].index('NUMBER_OF_MARKED_DELETED') + 1]
+  vecsim_info_marked_deleted = 0
   for shard_conn in shardsConnections(env):
     vecsim_info_marked_deleted += int(get_marked_deleted(shard_conn.execute_command(debug_cmd(), 'VECSIM_INFO', 'idx', 'vector')))
   # compare results to FT.DEBUG VECSIM_INFO idx vector
