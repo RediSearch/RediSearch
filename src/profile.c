@@ -18,18 +18,18 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
       REPLY_KVSTR_SAFE("Term", ir->record->term.term->str);
     }
   } else if (ir->idx->flags & Index_StoreNumeric) {
-    const NumericFilter *flt = ir->decoderCtx.filter;
+    NumericFilter *flt = ir->decoderCtx.ptr;
     if (!flt || flt->geoFilter == NULL) {
       printProfileType("NUMERIC");
       RedisModule_Reply_SimpleString(reply, "Term");
-      RedisModule_Reply_SimpleStringf(reply, "%g - %g", ir->profileCtx.numeric.rangeMin, ir->profileCtx.numeric.rangeMax);
+      RedisModule_Reply_SimpleStringf(reply, "%g - %g", ir->decoderCtx.rangeMin, ir->decoderCtx.rangeMax);
     } else {
       printProfileType("GEO");
       RedisModule_Reply_SimpleString(reply, "Term");
       double se[2];
       double nw[2];
-      decodeGeo(ir->profileCtx.numeric.rangeMin, se);
-      decodeGeo(ir->profileCtx.numeric.rangeMax, nw);
+      decodeGeo(ir->decoderCtx.rangeMin, se);
+      decodeGeo(ir->decoderCtx.rangeMax, nw);
       RedisModule_Reply_SimpleStringf(reply, "%g,%g - %g,%g", se[0], se[1], nw[0], nw[1]);
     }
   } else {
