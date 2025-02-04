@@ -41,6 +41,9 @@ if (SAN)
     endif()
 endif()
 
+# Needed to handle multi-byte characters architectural independently
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -funsigned-char")
+
 
 add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""

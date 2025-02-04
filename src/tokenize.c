@@ -53,10 +53,7 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
   // set to 1 if the previous character was a backslash escape
   int escaped = 0;
   for (size_t ii = 0; ii < origLen; ++ii) {
-    if (isupper(s[ii])) {
-      SWITCH_DEST();
-      realDest[dstLen++] = tolower(s[ii]);
-    } else if ((isblank(s[ii]) && !escaped) || iscntrl(s[ii])) {
+    if ((isblank(s[ii]) && !escaped) || iscntrl(s[ii])) {
       SWITCH_DEST();
     } else if (s[ii] == '\\' && !escaped) {
       SWITCH_DEST();
@@ -70,8 +67,7 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
 
   *len = dstLen;
 
-  // convert multi-byte characters to lowercase
-  size_t newLen = nunicode_tolower(dst, dstLen, dst);
+  size_t newLen = unicode_tofold(dst, dstLen);
   if (newLen) {
     *len = newLen;
   }
@@ -89,12 +85,14 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
     char *tok = toksep(&self->pos, &origLen);
     // normalize the token
     size_t normLen = origLen;
-    if (normLen > MAX_NORMALIZE_SIZE) {
-      normLen = MAX_NORMALIZE_SIZE;
-    }
     char normalized_s[MAX_NORMALIZE_SIZE];
     char *normBuf;
-    if (ctx->options & TOKENIZE_NOMODIFY) {
+
+    if (ctx->options & TOKENIZE_NOMODIFY) { // This is a dead code
+      // The stack MAX_NORMALIZE_SIZE buffer is used only if we don't modify the token, for stack allocation safety
+      if (normLen > MAX_NORMALIZE_SIZE) {
+        normLen = MAX_NORMALIZE_SIZE;
+      }
       normBuf = normalized_s;
     } else {
       normBuf = tok;

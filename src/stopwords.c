@@ -49,7 +49,7 @@ int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) 
   }
 
   // convert multi-byte characters to lowercase
-  size_t newLen = nunicode_tolower(lowStr, len, lowStr);
+  size_t newLen = unicode_tofold(lowStr, len);
   if (newLen) {
     len = newLen;
   }
@@ -82,7 +82,7 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
     size_t tlen = strlen(t);
 
     // convert multi-byte characters to lowercase
-    size_t newLen = nunicode_tolower(t, tlen, t);
+    size_t newLen = unicode_tofold(t, tlen);
     if (newLen) {
       tlen = newLen;
     }

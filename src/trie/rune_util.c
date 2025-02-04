@@ -45,9 +45,59 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   return ret;
 }
 
-/* implementation is identical to that of
- * strToRunes except for line where __fold is called */
+/* convert string to runes, fold them and return the folded runes */
 rune *strToFoldedRunes(const char *str, size_t *len) {
+
+  // determine the length of the folded string
+  ssize_t rlen = nu_strtransformlen(str, nu_utf8_read,
+                                     nu_tofold, nu_casemap_read);
+  if (rlen > MAX_RUNESTR_LEN) {
+    if (len) *len = 0;
+    return NULL;
+  }
+
+  uint32_t decoded[rlen + 1];
+  decoded[rlen] = 0;
+  nu_readstr(str, decoded, nu_utf8_read);
+
+  rune *ret = rm_calloc(rlen + 1, sizeof(rune));
+  const char *encoded_char = str;
+  uint32_t codepoint;
+  unsigned i = 0;
+  for (ssize_t j = 0; j < rlen; j++) {
+    // Read unicode codepoint from utf8 string
+    encoded_char = nu_utf8_read(encoded_char, &codepoint);
+    // Transform unicode codepoint to fold
+    const char *map = nu_tofold(codepoint);
+
+    // Read the transformed codepoint and store it in the unicode buffer
+    if (map != 0) {
+      uint32_t mu;
+      while (1) {
+        map = nu_casemap_read(map, &mu);
+        if (mu == 0) {
+          break;
+        }
+        ret[i] = mu;
+        ++i;
+      }
+    }
+    else {
+      // If no transformation is needed, just copy the unicode codepoint
+      ret[i] = codepoint;
+      ++i;
+    }
+  }
+  if (len) *len = rlen;
+
+  return ret;
+}
+
+/* implementation is identical to that of strToRunes except for line where
+ * __fold is called.
+ * If the folded rune occupies more than 1 codepoint, only the first
+ * is used, the rest are ignored. */
+rune *strToSingleCodepointFoldedRunes(const char *str, size_t *len) {
 
   ssize_t rlen = nu_strlen(str, nu_utf8_read);
   if (rlen > MAX_RUNESTR_LEN) {

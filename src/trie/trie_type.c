@@ -53,7 +53,7 @@ int Trie_InsertStringBuffer(Trie *t, const char *s, size_t len, double score, in
 
 int Trie_InsertRune(Trie *t, const rune *runes, size_t len, double score, int incr,
                     RSPayload *payload) {
-  int rc = 0;                              
+  int rc = 0;
   if (runes && len && len < TRIE_INITIAL_STRING_LEN) {
     rc = TrieNode_Add(&t->root, runes, len, payload, (float)score, incr ? ADD_INCR : ADD_REPLACE, t->freecb);
     t->size += rc;
@@ -138,7 +138,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
     return NULL;
   }
   size_t rlen;
-  rune *runes = strToFoldedRunes(s, &rlen);
+  rune *runes = strToSingleCodepointFoldedRunes(s, &rlen);
   // make sure query length does not overflow
   if (!runes || rlen >= TRIE_MAX_PREFIX) {
     rm_free(runes);
