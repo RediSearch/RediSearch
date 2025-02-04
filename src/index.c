@@ -1112,20 +1112,24 @@ static int NI_SkipTo_NO(void *ctx, t_docId docId, RSIndexResult **hit) {
     goto ok;
   }
 
+  if (childId < docId) {
+    // read the next entry from the child
+    int rc = nc->child->SkipTo(nc->child->ctx, docId, hit);
+    if (rc != INDEXREAD_OK) {
+      goto ok; // EOF or NOTFOUND - we have a match
+    }
+  }
   // If the child docId is the one we are looking for, it's an anti match!
-  if (childId == docId) {
-    nc->base.current->docId = nc->lastDocId = docId;
-    *hit = nc->base.current;
-    return INDEXREAD_NOTFOUND;
-  }
-
-  // read the next entry from the child
-  int rc = nc->child->SkipTo(nc->child->ctx, docId, hit);
-
-  // OK means not found
-  if (rc == INDEXREAD_OK) {
-    return INDEXREAD_NOTFOUND;
-  }
+  // We need to return NOTFOUND and set hit to the next valid docId
+  RSIndexResult *child_res;
+  int rc;
+  do {
+    docId++;
+    rc = nc->child->Read(nc->child->ctx, &child_res);
+  } while (child_res->docId == docId && rc == INDEXREAD_OK);
+  nc->base.current->docId = nc->lastDocId = docId;
+  *hit = nc->base.current;
+  return INDEXREAD_NOTFOUND;
 
 ok:
   // NOT FOUND or end means OK. We need to set the docId to the hit we will bubble up
@@ -1215,9 +1219,8 @@ static int NI_ReadSorted_NO(void *ctx, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
-  RSIndexResult *cr = NULL;
   // if we have a child, get the latest result from the child
-  cr = IITER_CURRENT_RECORD(nc->child);
+  RSIndexResult *cr = IITER_CURRENT_RECORD(nc->child);
 
   if (cr == NULL || cr->docId == 0) {
     nc->child->Read(nc->child->ctx, &cr);
