@@ -74,7 +74,7 @@ def testAttributes(env):
     env.assertEqual([2, 'doc1', 'doc2'], res)
 
     res = env.cmd(
-        'ft.search', 'idx', '(t3 t5) => {$slop: 4}', 'nocontent')
+        'ft.search', 'idx', '(t3 t5) => {$slop: 4}', 'nocontent', 'scorer', 'TFIDF')
     env.assertEqual([2, 'doc2', 'doc1'], res)
     res = env.cmd(
         'ft.search', 'idx', '(t5 t3) => {$slop: 0}', 'nocontent')
@@ -321,7 +321,7 @@ def testReplace(env):
 def testDrop(env):
     conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
-    
+
     docs_count = 100
     for i in range(docs_count):
         env.assertEqual(1, conn.execute_command('hset', f"doc{i}", 't1', 'foo bar'))
@@ -360,7 +360,7 @@ def testDropIndex(env):
     env.assertEqual(docs_count, countKeys(env))
     env.expect('FT.DROPINDEX', 'idx', 'dd').ok()
     env.assertEqual(0, countKeys(env))
- 
+
     # test default behavior - FT.DROPINDEX
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 't1', 'tag').ok()
 
@@ -841,20 +841,17 @@ def testPartial(env):
         'ft.search', 'idx', 'hello', 'nocontent', 'withscores')
     # Updating only indexed field affects search results
     env.expect('ft.add', 'idx', 'doc1', '0.1', 'replace', 'partial', 'fields', 'foo', 'wat wet').ok()
-    res = env.cmd(
-        'ft.search', 'idx', 'hello world', 'nocontent')
+    res = env.cmd('ft.search', 'idx', 'hello world', 'nocontent')
     env.assertEqual([1, 'doc2'], res)
     res = env.cmd('ft.search', 'idx', 'wat', 'nocontent')
     env.assertEqual([1, 'doc1'], res)
 
     # Test updating of score and no fields
-    res = env.cmd(
-        'ft.search', 'idx', 'wat', 'nocontent', 'withscores')
+    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'TFIDF')
     env.assertLess(float(res[2]), 1)
     # env.assertEqual([1, 'doc1'], res)
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'replace', 'partial', 'fields').ok()
-    res = env.cmd(
-        'ft.search', 'idx', 'wat', 'nocontent', 'withscores')
+    res = env.cmd('ft.search', 'idx', 'wat', 'nocontent', 'withscores', 'scorer', 'TFIDF')
     # We reindex though no new fields, just score is updated. this effects score
     env.assertEqual(float(res[2]), 1)
 
@@ -1037,7 +1034,7 @@ def testSortBy(env):
                           'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
 
         res = env.cmd('ft.search', 'idx', 'world', 'nocontent',
-                                'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
+                                'sortby', 'bar', 'desc', 'withscores', 'scorer', 'TFIDF', 'limit', '2', '5')
         env.assertEqual(
             [100, 'doc2', '1', 'doc3', '1', 'doc4', '1', 'doc5', '1', 'doc6', '1'], res)
 
@@ -1084,7 +1081,7 @@ def testSortByWithoutSortable(env):
                           'doc95', 'doc94', 'doc93', 'doc92', 'doc91', 'doc90'], res)
 
         res = env.cmd('ft.search', 'idx', 'world', 'nocontent',
-                                'sortby', 'bar', 'desc', 'withscores', 'limit', '2', '5')
+                                'sortby', 'bar', 'desc', 'withscores', 'scorer', 'TFIDF', 'limit', '2', '5')
         env.assertEqual(
             [100, 'doc2', '1', 'doc3', '1', 'doc4', '1', 'doc5', '1', 'doc6', '1'], res)
 
@@ -1101,8 +1098,8 @@ def testSortByWithTie(env):
         conn.execute_command('hset', i, 't', 'hello')
 
     # Assert that the order of results is the same in both configurations (by ascending id).
-    res1 = env.cmd('ft.search', 'idx', 'hello', 'nocontent')
-    res2 = env.cmd('ft.search', 'idx', 'hello', 'nocontent', 'sortby', 't')
+    res1 = env.cmd('ft.search', 'idx', 'hello', 'nocontent', 'SCORER', 'TFIDF')
+    res2 = env.cmd('ft.search', 'idx', 'hello', 'nocontent', 'SCORER', 'TFIDF', 'sortby', 't')
     env.assertEqual(res1, res2)
 
 
@@ -1825,8 +1822,7 @@ def testReturning(env):
     with env.assertResponseError():
         res = env.cmd('ft.search', 'idx', 'val*', 'return', 700, 'nonexist')
 
-def _test_create_options_real(env, *options):
-    options = [x for x in options if x]
+def _test_create_options_real(env, options: list):
     has_offsets = 'NOOFFSETS' not in options
     has_fields = 'NOFIELDS' not in options
     has_freqs = 'NOFREQS' not in options
@@ -1856,7 +1852,7 @@ def _test_create_options_real(env, *options):
                      1.0, 'fields', 'f1', 'foo bar')
     env.assertCmdOk('ft.add', 'idx', 'doc200', 1.0,
                      'fields', 'f1', ('foo ' * 10) + ' bar')
-    res = env.cmd('ft.search', 'idx', 'foo')
+    res = env.cmd('ft.search', 'idx', 'foo', 'scorer', 'TFIDF')
     env.assertEqual(2, res[0])
     if has_offsets:
         docname = res[1]
@@ -1876,9 +1872,10 @@ def _test_create_options_real(env, *options):
 
 def testCreationOptions(env):
     from itertools import combinations
-    for x in range(1, 5):
-        for combo in combinations(('NOOFFSETS', 'NOFREQS', 'NOFIELDS', ''), x):
-            _test_create_options_real(env, *combo)
+    options = ('NOOFFSETS', 'NOFREQS', 'NOFIELDS')
+    for x in range(len(options) + 1):
+        for combo in combinations(options, x):
+            _test_create_options_real(env, list(combo))
 
     env.expect('ft.create', 'idx').error()
 
@@ -2454,7 +2451,6 @@ def testTimeout(env):
 
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0').noEqual([num_range])
 
-    env.expect(config_cmd(), 'set', 'on_timeout', 'fail').ok()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \
        .contains('Timeout limit was reached')
 
@@ -2508,6 +2504,7 @@ def testTimeout(env):
 @skip(cluster=True)
 def testTimeoutOnSorter(env):
     conn = getConnectionByEnv(env)
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd(config_cmd(), 'set', 'timeout', '1')
     pl = conn.pipeline()
 
@@ -2904,7 +2901,7 @@ def testErrorWithApply(env):
     env.expect('FT.ADD', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo bar').equal('OK')
     env.expect(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'split()'
-    ).error().contains('Invalid number of arguments for split')
+    ).error().contains("Function 'split' expects between 1 and 3 arguments, but got 0")
 
 def testSummerizeWithAggregateRaiseError(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT', 'SORTABLE').equal('OK')
@@ -3106,7 +3103,7 @@ def testGroupByWithApplyError(env):
     env.expect('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'foo').ok()
     env.expect(
         'FT.AGGREGATE', 'idx', '*', 'APPLY', 'split()', 'GROUPBY', '1', '@test', 'REDUCE', 'COUNT', '0', 'AS', 'count'
-    ).error().contains('Invalid number of arguments for split')
+    ).error().contains("Function 'split' expects between 1 and 3 arguments, but got 0")
 
 def testSubStrErrors(env):
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'test', 'TEXT').equal('OK')
@@ -3119,9 +3116,9 @@ def testSubStrErrors(env):
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",3,-2)', 'as', 'a')
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",3,1000)', 'as', 'a')
     env.cmd('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test",-1,2)', 'as', 'a')
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test")', 'as', 'a').error().contains("Invalid arguments for function 'substr'")
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr(1)', 'as', 'a').error().contains("Invalid arguments for function 'substr'")
-    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "test")', 'as', 'a').error().contains("Invalid arguments for function 'substr'")
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test")', 'as', 'a').error().contains("Function 'substr' expects 3 arguments, but got 1")
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr(1)', 'as', 'a').error().contains("Function 'substr' expects 3 arguments, but got 1")
+    env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "test")', 'as', 'a').error().contains("Function 'substr' expects 3 arguments, but got 2")
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "test", "test")', 'as', 'a').error().contains("Invalid type (3) for argument 1 in function 'substr'")
     env.expect('ft.aggregate', 'idx', '*', 'LOAD', '1', '@test2', 'APPLY', 'substr("test", "-1", "-1")', 'as', 'a').error().contains("Invalid type (3) for argument 1 in function 'substr'")
     env.assertTrue(env.isUp())
@@ -3248,11 +3245,11 @@ def testParseTime(env):
     # check for errors
     env.expect(
         'ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime()', 'as', 'a'
-    ).error().contains("Invalid arguments for function 'parsetime'")
+    ).error().contains("Function 'parsetime' expects 2 arguments, but got 0")
 
     env.expect(
         'ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11)', 'as', 'a'
-    ).error().contains("Invalid arguments for function 'parsetime'")
+    ).error().contains("Function 'parsetime' expects 2 arguments, but got 1")
 
     env.expect(
         'ft.aggregate', 'idx', '*', 'LOAD', '1', '@test', 'APPLY', 'parsetime(11,22)', 'as', 'a'
@@ -3500,6 +3497,7 @@ def testFieldsCaseSensetive(env):
     # will not reflect the errors
     conn = getConnectionByEnv(env)
     dialect = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1]
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC f TEXT t TAG g GEO')
 
     # make sure text fields are case sesitive
@@ -3577,6 +3575,7 @@ def testSortedFieldsCaseSensetive(env):
     # will not reflect the errors
     conn = getConnectionByEnv(env)
     dialect = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1]
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE f TEXT SORTABLE t TAG SORTABLE g GEO SORTABLE')
 
     # make sure text fields are case sesitive
@@ -4279,6 +4278,7 @@ def test_timeout_non_strict_policy(env):
     """
 
     conn = getConnectionByEnv(env)
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
 
     # Create an index, and populate it
     n = 25000
@@ -4487,3 +4487,58 @@ def test_incompatibleIndex(env):
             env.assertTrue(False)
         except Exception as e:
             env.assertContains("Index mismatch: Shard index is different than queried index", str(e))
+
+def testLegacyFilters(env: Env):
+    n_docs = 100
+    km_in_a_degree = 1.852 * 60 # 1 degree on the equator is 60 nautical miles
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC', 'g', 'GEO').ok()
+    with env.getClusterConnectionIfNeeded() as con:
+        for i in range(n_docs):
+            con.execute_command('HSET', f'doc{i}', 'n', i, 'g', f'{i/km_in_a_degree},0.0')
+
+    ## Test filters (valid queries)
+    expected = [10] + [f'doc{i}' for i in range(10, 20)]
+    geo_pivot = (20+10-1)/2/km_in_a_degree
+
+    # Test a single numeric filter
+    env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '10', '(20', 'NOCONTENT').equal(expected)
+    # Test multiple numeric filters (intersection)
+    env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '-10', '(20', 'FILTER', 'n', '10', '(40', 'NOCONTENT').equal(expected)
+
+    # Test a single geo filter
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', geo_pivot, 0, 5, 'km', 'NOCONTENT').equal(expected)
+
+    ## Test values syntax errors
+
+    env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', 'NOCONTENT').error().contains('FILTER requires 3 arguments')
+    env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', 'banana', 'NOCONTENT').error().contains('Bad lower range: banana')
+    env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '10', 'banana', 'NOCONTENT').error().contains('Bad upper range: banana')
+
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 'NOCONTENT').error().contains('GEOFILTER requires 5 arguments')
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 'banana', 0, 5, 'km', 'NOCONTENT').error().contains('Bad arguments for <lon>')
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 0, 'banana', 5, 'km', 'NOCONTENT').error().contains('Bad arguments for <lat>')
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 0, 0, 'banana', 'km', 'NOCONTENT').error().contains('Bad arguments for <radius>')
+    env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', 0, 0, 5, 'banana', 'NOCONTENT').error().contains('Unknown distance unit')
+
+    ## Test bad filters fields
+    dialect_1 = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1] == '1'
+    def expected_error(res:Query, err='Unknown Field'):
+        return res.noError().equal([0]) if dialect_1 else res.error().contains(err)
+
+    # Test bad numeric filter
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'not_in_schema', '10', '20', 'NOCONTENT'))
+    # Test bad geo filter
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'not_in_schema', geo_pivot, 0, 5, 'km', 'NOCONTENT'))
+
+    # Test field mismatch in numeric filter
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'g', '10', '20', 'NOCONTENT'), "Field 'g' is not a numeric field")
+    # Test field mismatch in geo filter
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'n', geo_pivot, 0, 5, 'km', 'NOCONTENT'), "Field 'n' is not a geo field")
+
+    # Test bad numeric filter with multiple filters
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'not_in_schema', '10', '20', 'FILTER', 'n', '10', '20', 'NOCONTENT'))
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'n', '10', '20', 'FILTER', 'not_in_schema', '10', '20', 'NOCONTENT'))
+    # Test bad geo filter with multiple filters
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'not_in_schema', geo_pivot, 0, 5, 'km', 'FILTER', 'n', '10', '20', 'NOCONTENT'))
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', geo_pivot, 0, 5, 'km', 'FILTER', 'not_in_schema', '10', '20', 'NOCONTENT'))
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'not_in_schema', '10', '20', 'GEOFILTER', 'g', geo_pivot, 0, 5, 'km', 'NOCONTENT'))
