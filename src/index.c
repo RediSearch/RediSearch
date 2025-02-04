@@ -24,8 +24,12 @@
 
 static int UI_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 static int UI_SkipToHigh(void *ctx, t_docId docId, RSIndexResult **hit);
+static int UI_SkipToQuick(void *ctx, t_docId docId, RSIndexResult **hit);
+static int UI_SkipToFull(void *ctx, t_docId docId, RSIndexResult **hit);
 static inline int UI_ReadUnsorted(void *ctx, RSIndexResult **hit);
 static int UI_ReadSorted(void *ctx, RSIndexResult **hit);
+static int UI_ReadFull(void *ctx, RSIndexResult **hit);
+static int UI_ReadQuick(void *ctx, RSIndexResult **hit);
 static int UI_ReadSortedHigh(void *ctx, RSIndexResult **hit);
 static size_t UI_NumEstimated(void *ctx);
 static size_t UI_Len(void *ctx);
@@ -184,8 +188,8 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, int quickExit,
   it->type = UNION_ITERATOR;
   it->NumEstimated = UI_NumEstimated;
   it->LastDocId = UI_LastDocId;
-  it->Read = UI_ReadSorted;
-  it->SkipTo = UI_SkipTo;
+  it->Read = quickExit ? UI_ReadQuick : UI_ReadFull;
+  it->SkipTo = quickExit ? UI_SkipToQuick : UI_SkipToFull;
   it->HasNext = NULL;
   it->Free = UnionIterator_Free;
   it->Len = UI_Len;
@@ -197,7 +201,7 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, int quickExit,
     ctx->nexpected += IITER_NUM_ESTIMATED(its[i]);
   }
 
-  if (ctx->norig > config->minUnionIterHeap) {
+  if (ctx->norig > config->minUnionIterHeap && 0) {
     it->Read = UI_ReadSortedHigh;
     it->SkipTo = UI_SkipToHigh;
     ctx->heapMinId = rm_malloc(heap_sizeof(num));
@@ -239,6 +243,162 @@ static inline int UI_ReadUnsorted(void *ctx, RSIndexResult **hit) {
     ++ui->currIt;
   }
   return INDEXREAD_EOF;
+}
+
+static inline void UI_SkipAdvanceLagging(UnionIterator *ui) {
+  RSIndexResult *h;
+  const t_docId prevId = ui->minDocId;
+  ui->minDocId = UINT64_MAX;
+  for (int i = 0; i < ui->num; i++) {
+    IndexIterator *cur = ui->its[i];
+    if (cur->minId <= prevId) {
+      int rc = cur->SkipTo(cur->ctx, prevId + 1, &h);
+      if (rc == INDEXREAD_EOF) {
+        i = UI_RemoveExhausted(ui, i);
+      } else {
+        cur->minId = h->docId;
+        if (ui->minDocId > cur->minId) ui->minDocId = cur->minId;
+      }
+    } else {
+      if (ui->minDocId > cur->minId) ui->minDocId = cur->minId;
+    }
+  }
+}
+
+static inline void UI_ReadAdvanceLagging(UnionIterator *ui) {
+  RSIndexResult *h;
+  const t_docId prevId = ui->minDocId;
+  ui->minDocId = UINT64_MAX;
+  for (int i = 0; i < ui->num; i++) {
+    IndexIterator *cur = ui->its[i];
+    if (cur->minId <= prevId) {
+      int rc = cur->Read(cur->ctx, &h);
+      if (rc == INDEXREAD_EOF) {
+        i = UI_RemoveExhausted(ui, i);
+      } else {
+        cur->minId = h->docId;
+        if (ui->minDocId > cur->minId) ui->minDocId = cur->minId;
+      }
+    } else {
+      if (ui->minDocId > cur->minId) ui->minDocId = cur->minId;
+    }
+  }
+}
+
+static inline void UI_SetFull(UnionIterator *ui) {
+  AggregateResult_Reset(CURRENT_RECORD(ui));
+  for (int i = 0; i < ui->num; i++) {
+    IndexIterator *cur = ui->its[i];
+    if (cur->minId == ui->minDocId) {
+      AggregateResult_AddChild(CURRENT_RECORD(ui), cur->current);
+    }
+  }
+}
+
+static inline void UI_SetFirst(UnionIterator *ui) {
+  AggregateResult_Reset(CURRENT_RECORD(ui));
+  for (int i = 0; i < ui->num; i++) {
+    IndexIterator *cur = ui->its[i];
+    if (cur->minId == ui->minDocId) {
+      AggregateResult_AddChild(CURRENT_RECORD(ui), cur->current);
+      return;
+    }
+  }
+}
+
+static int UI_ReadFull(void *ctx, RSIndexResult **hit) {
+  UnionIterator *ui = ctx;
+
+  if (ui->num == 0 || !IITER_HAS_NEXT(&ui->base)) {
+    IITER_SET_EOF(&ui->base);
+    return INDEXREAD_EOF;
+  }
+
+  UI_ReadAdvanceLagging(ui);
+
+  if (ui->num == 0) {
+    IITER_SET_EOF(&ui->base);
+    return INDEXREAD_EOF;
+  }
+
+  // Not depleted yet
+  UI_SetFull(ui);
+  if (hit) *hit = CURRENT_RECORD(ui);
+  return INDEXREAD_OK;
+}
+
+static int UI_ReadQuick(void *ctx, RSIndexResult **hit) {
+  UnionIterator *ui = ctx;
+
+  if (ui->num == 0 || !IITER_HAS_NEXT(&ui->base)) {
+    IITER_SET_EOF(&ui->base);
+    return INDEXREAD_EOF;
+  }
+
+  // UI_SkipAdvanceLagging(ui); // TODO: use skip with a quick abort if we have a candidate for ui->minID + 1
+  UI_ReadAdvanceLagging(ui);
+
+  if (ui->num == 0) {
+    IITER_SET_EOF(&ui->base);
+    return INDEXREAD_EOF;
+  }
+
+  // Not depleted yet
+  UI_SetFirst(ui);
+  if (hit) *hit = CURRENT_RECORD(ui);
+  return INDEXREAD_OK;
+}
+
+static int UI_SkipToFull(void *ctx, t_docId docId, RSIndexResult **hit) {
+  UnionIterator *ui = ctx;
+
+  if (ui->num == 0 || !IITER_HAS_NEXT(&ui->base)) {
+    IITER_SET_EOF(&ui->base);
+    return INDEXREAD_EOF;
+  }
+
+  if (docId == 0) {
+    return UI_ReadFull(ui, hit);
+  }
+
+  ui->minDocId = docId - 1;
+  UI_SkipAdvanceLagging(ui); // advance lagging iterators to `docId` or above
+
+  if (ui->num == 0) {
+    IITER_SET_EOF(&ui->base);
+    return INDEXREAD_EOF;
+  }
+
+  // Not depleted yet
+  UI_SetFull(ui);
+  if (hit) *hit = CURRENT_RECORD(ui);
+  return ui->minDocId == docId ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
+}
+
+static int UI_SkipToQuick(void *ctx, t_docId docId, RSIndexResult **hit) {
+  UnionIterator *ui = ctx;
+
+  if (ui->num == 0 || !IITER_HAS_NEXT(&ui->base)) {
+    IITER_SET_EOF(&ui->base);
+    return INDEXREAD_EOF;
+  }
+
+  if (docId == 0) {
+    return UI_ReadQuick(ui, hit);
+  }
+
+  ui->minDocId = docId - 1;
+  UI_SkipAdvanceLagging(ui); // advance lagging iterators to `docId` or above
+
+  if (ui->num == 0) {
+    IITER_SET_EOF(&ui->base);
+    return INDEXREAD_EOF;
+  }
+
+  // Not depleted yet
+  UI_SetFirst(ui);
+  if (hit) *hit = CURRENT_RECORD(ui);
+  return ui->minDocId == docId ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
 }
 
 static inline int UI_ReadSorted(void *ctx, RSIndexResult **hit) {
