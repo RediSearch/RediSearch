@@ -645,6 +645,7 @@ static void II_Rewind(void *ctx) {
   IntersectIterator *ii = ctx;
   ii->base.isValid = 1;
   ii->lastDocId = 0;
+  ii->lastFoundId = 0;
 
   // rewind all child iterators
   for (int i = 0; i < ii->num; i++) {
@@ -657,9 +658,6 @@ static void II_Rewind(void *ctx) {
 
 typedef int (*CompareFunc)(const void *a, const void *b);
 static int cmpIter(IndexIterator **it1, IndexIterator **it2) {
-  if (!*it1 && !*it2) return 0;
-  if (!*it1) return -1;
-  if (!*it2) return 1;
 
   double factor1 = 1;
   double factor2 = 1;
@@ -683,37 +681,29 @@ static int cmpIter(IndexIterator **it1, IndexIterator **it2) {
   return (int)((*it1)->NumEstimated((*it1)->ctx) * factor1 - (*it2)->NumEstimated((*it2)->ctx) * factor2);
 }
 
-static void II_SortChildren(IntersectIterator *ctx) {
+// Set estimation for number of results. Returns false if the query is empty (some of the iterators are NULL)
+static bool II_SetEstimation(IntersectIterator *ctx) {
   /**
    * 1. Go through all the iterators, ensuring none of them is NULL
    *    (replace with empty if indeed NULL)
    */
-  IndexIterator **its = rm_malloc(sizeof(IndexIterator *) * ctx->num);
-  size_t itsSize = 0;
+  ctx->nexpected = SIZE_MAX;
   for (size_t i = 0; i < ctx->num; ++i) {
     IndexIterator *curit = ctx->its[i];
 
     if (!curit) {
       // If the current iterator is empty, then the entire
-      // query will fail; just free all the iterators and call it good
-      if (its) {
-        rm_free(its);
-      }
-      ctx->nexpected = IITER_INVALID_NUM_ESTIMATED_RESULTS;
-      return;
+      // query will fail;
+      ctx->nexpected = 0;
+      return false;
     }
 
     size_t amount = IITER_NUM_ESTIMATED(curit);
     if (amount < ctx->nexpected) {
       ctx->nexpected = amount;
     }
-
-    its[itsSize++] = curit;
   }
-
-  rm_free(ctx->its);
-  ctx->its = its;
-  ctx->num = itsSize;
+  return true;
 }
 
 void AddIntersectIterator(IndexIterator *parentIter, IndexIterator *childIter) {
@@ -737,15 +727,16 @@ IndexIterator *NewIntersectIterator(IndexIterator **its_, size_t num, DocTable *
   ctx->weight = weight;
   ctx->docIds = rm_calloc(num, sizeof(t_docId));
   ctx->docTable = dt;
-  ctx->nexpected = IITER_INVALID_NUM_ESTIMATED_RESULTS;
 
-  ctx->base.isValid = 1;
   ctx->base.current = NewIntersectResult(num, weight);
   ctx->its = its_;
   ctx->num = num;
 
+  bool allValid = II_SetEstimation(ctx);
+  ctx->base.isValid = allValid;
+
   // Sort children iterators from low count to high count which reduces the number of iterations.
-  if (!ctx->inOrder) {
+  if (!ctx->inOrder && allValid) {
     qsort(ctx->its, ctx->num, sizeof(*ctx->its), (CompareFunc)cmpIter);
   }
 
@@ -762,8 +753,48 @@ IndexIterator *NewIntersectIterator(IndexIterator **its_, size_t num, DocTable *
   it->Abort = II_Abort;
   it->Rewind = II_Rewind;
   it->HasNext = NULL;
-  II_SortChildren(ctx);
   return it;
+}
+
+static bool II_AgreeOnDocId(IntersectIterator *ic) {
+  t_docId docId = ic->lastDocId;
+  assert(docId);
+  for (int i = 0; i < ic->num; i++) {
+    RS_LOG_ASSERT_FMT(ic->docIds[i] <= docId, "docId %d, docIds[%d] %d", docId, i, ic->docIds[i]);
+    if (ic->docIds[i] < docId) {
+      int rc = ic->its[i]->SkipTo(ic->its[i]->ctx, docId, &ic->its[i]->current);
+      if (rc == INDEXREAD_EOF) {
+        ic->base.isValid = 0;
+        return false; // TODO: more info?
+      }
+      ic->docIds[i] = ic->its[i]->current->docId;
+      if (ic->docIds[i] != docId) {
+        RS_LOG_ASSERT(rc == INDEXREAD_NOTFOUND, "Expected NOTFOUND");
+        ic->lastDocId = ic->docIds[i];
+        return false; // TODO: more info?
+      }
+    }
+  }
+  return true;
+}
+
+static inline void II_setResult(IntersectIterator *ic) {
+  AggregateResult_Reset(ic->base.current);
+  for (int i = 0; i < ic->num; i++) {
+    AggregateResult_AddChild(ic->base.current, ic->its[i]->current);
+  }
+}
+
+static inline bool II_currentIsRelevant(IntersectIterator *ic) {
+  // make sure the flags are matching.
+  if ((ic->base.current->fieldMask & ic->fieldMask) == 0) {
+    return false;
+  }
+  // If we need to match slop and order, we do it now, and possibly skip the result
+  if (ic->maxSlop >= 0 && !IndexResult_IsWithinRange(ic->base.current, ic->maxSlop, ic->inOrder)) {
+    return false;
+  }
+  return true;
 }
 
 static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
@@ -772,64 +803,26 @@ static int II_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     return II_ReadSorted(ctx, hit);
   }
   IntersectIterator *ic = ctx;
-  AggregateResult_Reset(ic->base.current);
-  int nfound = 0;
-
-  int rc = INDEXREAD_EOF;
-  // skip all iterators to docId
-  for (int i = 0; i < ic->num; i++) {
-    IndexIterator *it = ic->its[i];
-
-    if (!it || !IITER_HAS_NEXT(it)) return INDEXREAD_EOF;
-
-    RSIndexResult *res = IITER_CURRENT_RECORD(it);
-    rc = INDEXREAD_OK;
-
-    // only read if we are not already at the seek to position
-    if (ic->docIds[i] != docId) {
-      rc = it->SkipTo(it->ctx, docId, &res);
-      if (rc != INDEXREAD_EOF) {
-        if (res) docId = ic->docIds[i] = res->docId;
-      }
-    }
-
-    if (rc == INDEXREAD_EOF) {
-      // we are at the end!
-      ic->base.isValid = 0;
-      return rc;
-    } else if (rc == INDEXREAD_OK) {
-      // YAY! found!
-      if (res && res->docId == docId) {
-        AggregateResult_AddChild(ic->base.current, res);
-      }
-      ic->lastDocId = docId;
-
-      ++nfound;
-    } else if (ic->docIds[i] > ic->lastDocId) {
-      ic->lastDocId = ic->docIds[i];
-      break;
-    }
+  if (!ic->base.isValid) {
+    return INDEXREAD_EOF;
   }
 
-  // unless we got an EOF - we put the current record into hit
+  RS_LOG_ASSERT_FMT(ic->lastDocId < docId, "lastDocId %d, docId %d", ic->lastDocId, docId);
+  ic->lastDocId = docId;
 
-  // if the requested id was found on all children - we return OK
-  if (nfound == ic->num) {
-    // printf("Skipto %d hit @%d\n", docId, ic->current->docId);
+  if (II_AgreeOnDocId(ic)) {
+    II_setResult(ic);
 
     // Update the last found id
-    // if maxSlop == -1 there is no need to verify maxSlop and inorder, otherwise lets verify
-    if (ic->maxSlop == -1 ||
-        IndexResult_IsWithinRange(ic->base.current, ic->maxSlop, ic->inOrder)) {
-      ic->lastFoundId = ic->base.current->docId;
-      ic->lastDocId++;
+    if (II_currentIsRelevant(ic)) {
+      ic->lastFoundId = docId;
       if (hit) *hit = ic->base.current;
       return INDEXREAD_OK;
     }
   }
 
   // Not found - but we need to read the next valid result into hit
-  rc = II_ReadSorted(ic, hit);
+  int rc = II_ReadSorted(ic, hit);
   // this might have brought us to our end, in which case we just terminate
   if (rc == INDEXREAD_EOF) return INDEXREAD_EOF;
 
@@ -844,89 +837,40 @@ static size_t II_NumEstimated(void *ctx) {
 
 static int II_ReadSorted(void *ctx, RSIndexResult **hit) {
   IntersectIterator *ic = ctx;
-  if (ic->num == 0) return INDEXREAD_EOF;
 
-  int nh = 0;
-  int i = 0;
+  if (!ic->base.isValid) {
+    return INDEXREAD_EOF;
+  }
 
-  do {
-    nh = 0;
-    AggregateResult_Reset(ic->base.current);
+  if (ic->lastDocId == ic->lastFoundId) {
+    RSIndexResult *h;
+    int rc = ic->its[0]->Read(ic->its[0]->ctx, &h);
+    if (rc == INDEXREAD_EOF) {
+      ic->base.isValid = 0;
+      return INDEXREAD_EOF;
+    }
+    ic->lastDocId = ic->docIds[0] = h->docId;
+    assert(ic->lastDocId);
+  }
 
-    for (i = 0; i < ic->num; i++) {
-      IndexIterator *it = ic->its[i];
-
-      if (!it) goto eof;
-
-      RSIndexResult *h = IITER_CURRENT_RECORD(it);
-      // skip to the next
-      int rc = INDEXREAD_OK;
-      if (ic->docIds[i] != ic->lastDocId || ic->lastDocId == 0) {
-
-        if (i == 0 && ic->docIds[i] >= ic->lastDocId) {
-          rc = it->Read(it->ctx, &h);
-        } else {
-          rc = it->SkipTo(it->ctx, ic->lastDocId, &h);
-        }
-        // printf("II %p last docId %d, it %d read docId %d(%d), rc %d\n", ic, ic->lastDocId, i,
-        //        h->docId, it->LastDocId(it->ctx), rc);
-
-        if (rc == INDEXREAD_EOF) goto eof;
-        ic->docIds[i] = h->docId;
-      }
-
-      if (ic->docIds[i] > ic->lastDocId) {
-        ic->lastDocId = ic->docIds[i];
-        break;
-      }
-      if (rc == INDEXREAD_OK) {
-        ++nh;
-        AggregateResult_AddChild(ic->base.current, h);
-      } else {
-        ic->lastDocId++;
-      }
+  while (ic->base.isValid) {
+    // retry until we agree on the docId
+    if (!II_AgreeOnDocId(ic)) {
+      continue;
     }
 
-    if (nh == ic->num) {
-      // printf("II %p HIT @ %d\n", ic, ic->current->docId);
-      // sum up all hits
-      if (hit != NULL) {
-        *hit = ic->base.current;
-      }
-      // Update the last valid found id
-      ic->lastFoundId = ic->base.current->docId;
+    II_setResult(ic);
 
-      // advance the doc id so next time we'll read a new record
-      ic->lastDocId++;
-
-      // // make sure the flags are matching.
-      if ((ic->base.current->fieldMask & ic->fieldMask) == 0) {
-        // printf("Field masks don't match!\n");
-        continue;
-      }
-
-      // If we need to match slop and order, we do it now, and possibly skip the result
-      if (ic->maxSlop >= 0) {
-        // printf("Checking SLOP... (%d)\n", ic->maxSlop);
-        if (!IndexResult_IsWithinRange(ic->base.current, ic->maxSlop, ic->inOrder)) {
-          // printf("Not within range!\n");
-          continue;
-        }
-      }
-
-      //      for(size_t i = 0 ; i < array_len(ic->testers) ; ++i){
-      //        if(!ic->testers[i]->TextCriteria(ic->testers[i]->ctx, ic->lastFoundId)){
-      //          continue;
-      //        }
-      //      }
-
-      ic->len++;
-      // printf("Returning OK\n");
-      return INDEXREAD_OK;
+    if (!II_currentIsRelevant(ic)) {
+      continue;
     }
-  } while (1);
-eof:
-  ic->base.isValid = 0;
+
+    // Hit!
+    ic->len++; // TODO: why? is this needed?
+    if (hit) *hit = ic->base.current;
+    ic->lastFoundId = ic->base.current->docId;
+    return INDEXREAD_OK;
+  }
   return INDEXREAD_EOF;
 }
 
