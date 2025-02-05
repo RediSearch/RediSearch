@@ -188,3 +188,4 @@ def test_vecsim_info_stats_marked_deleted(env):
     vecsim_info_marked_deleted += int(get_marked_deleted(shard_conn.execute_command(debug_cmd(), 'VECSIM_INFO', 'idx', 'vector')))
   # compare results to FT.DEBUG VECSIM_INFO idx vector
   env.assertEqual(info["field statistics"][0]["marked_deleted"], vecsim_info_marked_deleted)
+  env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
