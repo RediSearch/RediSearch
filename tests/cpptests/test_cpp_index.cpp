@@ -1617,7 +1617,7 @@ TEST_F(IndexTest, testRawDocId) {
   ASSERT_EQ(INDEXREAD_EOF, IR_Read(ir, &cur));
 
   // Test that we can skip to all the ids
-  for (t_docId id = 2000; id < n_ids; id++) {
+  for (t_docId id = 1; id < n_ids; id++) {
     IR_Rewind(ir);
     int rc = IR_SkipTo(ir, id, &cur);
     if (id % 2 == 0) {
