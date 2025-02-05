@@ -32,7 +32,7 @@
 #include <assert.h>
 
 #include "../parse.h"
-
+#include "src/util/likely.h"
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
 
@@ -1932,8 +1932,12 @@ static YYACTIONTYPE yy_reduce(
       case 33: /* termlist ::= param_term param_term */
 {
   yylhsminor.yy3 = NewPhraseNode(0);
-  QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[-1].minor.yy0));
-  QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  if (!(yymsp[-1].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len))) {
+    QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[-1].minor.yy0));
+  }
+  if (!(yymsp[0].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len))) {
+    QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  }
 }
   yymsp[-1].minor.yy3 = yylhsminor.yy3;
         break;
@@ -2107,17 +2111,33 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 52: /* tag_list ::= affix */
       case 53: /* tag_list ::= verbatim */ yytestcase(yyruleno==53);
-      case 54: /* tag_list ::= termlist */ yytestcase(yyruleno==54);
 {
   yylhsminor.yy3 = NewPhraseNode(0);
   QueryNode_AddChild(yylhsminor.yy3, yymsp[0].minor.yy3);
 }
   yymsp[0].minor.yy3 = yylhsminor.yy3;
         break;
+      case 54: /* tag_list ::= termlist */
+{
+  if (unlikely(QueryNode_NumChildren(yymsp[0].minor.yy3) == 0)){
+    QueryNode_Free(yymsp[0].minor.yy3);
+    yylhsminor.yy3 = NULL;
+  } else {
+    yylhsminor.yy3 = NewPhraseNode(0);
+    QueryNode_AddChild(yylhsminor.yy3, yymsp[0].minor.yy3);
+  }
+}
+  yymsp[0].minor.yy3 = yylhsminor.yy3;
+        break;
       case 55: /* tag_list ::= tag_list OR param_term_case */
 {
-  QueryNode_AddChild(yymsp[-2].minor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
-  yylhsminor.yy3 = yymsp[-2].minor.yy3;
+  if (unlikely(!yymsp[-2].minor.yy3)){
+    yylhsminor.yy3 = NewPhraseNode(0);
+    QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  } else {
+    QueryNode_AddChild(yymsp[-2].minor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+    yylhsminor.yy3 = yymsp[-2].minor.yy3;
+  }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
         break;
@@ -2125,8 +2145,13 @@ static YYACTIONTYPE yy_reduce(
       case 57: /* tag_list ::= tag_list OR verbatim */ yytestcase(yyruleno==57);
       case 58: /* tag_list ::= tag_list OR termlist */ yytestcase(yyruleno==58);
 {
-  QueryNode_AddChild(yymsp[-2].minor.yy3, yymsp[0].minor.yy3);
-  yylhsminor.yy3 = yymsp[-2].minor.yy3;
+  if (unlikely(!yymsp[-2].minor.yy3)){
+    yylhsminor.yy3 = NewPhraseNode(0);
+    QueryNode_AddChild(yylhsminor.yy3, yymsp[0].minor.yy3);
+  } else {
+    QueryNode_AddChild(yymsp[-2].minor.yy3, yymsp[0].minor.yy3);
+    yylhsminor.yy3 = yymsp[-2].minor.yy3;
+  }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;
         break;
