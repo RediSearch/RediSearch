@@ -32,7 +32,7 @@
 #include <assert.h>
 
 #include "../parse.h"
-
+#include "src/util/likely.h"
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
 
@@ -224,7 +224,7 @@ static inline char *toksep2(char **s, size_t *tokLen) {
 **                       the minor type might be the name of the identifier.
 **                       Each non-terminal can have a different minor type.
 **                       Terminal symbols all have the same minor type, though.
-**                       This macros defines the minor type for terminal 
+**                       This macros defines the minor type for terminal
 **                       symbols.
 **    YYMINORTYPE        is the data type used for all minor types.
 **                       This is typically a union of many types, one of
@@ -276,8 +276,8 @@ typedef union {
 #define YYSTACKDEPTH 256
 #endif
 #define RSQueryParser_v2_ARG_SDECL  QueryParseCtx *ctx ;
-#define RSQueryParser_v2_ARG_PDECL , QueryParseCtx *ctx 
-#define RSQueryParser_v2_ARG_PARAM ,ctx 
+#define RSQueryParser_v2_ARG_PDECL , QueryParseCtx *ctx
+#define RSQueryParser_v2_ARG_PARAM ,ctx
 #define RSQueryParser_v2_ARG_FETCH  QueryParseCtx *ctx =yypParser->ctx ;
 #define RSQueryParser_v2_ARG_STORE yypParser->ctx =ctx ;
 #define RSQueryParser_v2_CTX_SDECL
@@ -317,7 +317,7 @@ typedef union {
 /* Next are the tables used to determine what action to take based on the
 ** current state and lookahead token.  These tables are used to implement
 ** functions that take a state number and lookahead value and return an
-** action integer.  
+** action integer.
 **
 ** Suppose the action integer is N.  Then the action is determined as
 ** follows
@@ -580,9 +580,9 @@ static const YYACTIONTYPE yy_default[] = {
 };
 /********** End of lemon-generated parsing tables *****************************/
 
-/* The next table maps tokens (terminal symbols) into fallback tokens.  
+/* The next table maps tokens (terminal symbols) into fallback tokens.
 ** If a construct like the following:
-** 
+**
 **      %fallback ID X Y Z.
 **
 ** appears in the grammar, then ID becomes a fallback token for X, Y,
@@ -696,10 +696,10 @@ static char *yyTracePrompt = 0;
 #endif /* NDEBUG */
 
 #ifndef NDEBUG
-/* 
+/*
 ** Turn parser tracing on by giving a stream to which to write the trace
 ** and a prompt to preface each trace message.  Tracing is turned off
-** by making either argument NULL 
+** by making either argument NULL
 **
 ** Inputs:
 ** <ul>
@@ -724,7 +724,7 @@ void RSQueryParser_v2_Trace(FILE *TraceFILE, char *zTracePrompt){
 #if defined(YYCOVERAGE) || !defined(NDEBUG)
 /* For tracing shifts, the names of all terminals and nonterminals
 ** are required.  The following table supplies these names */
-static const char *const yyTokenName[] = { 
+static const char *const yyTokenName[] = {
   /*    0 */ "$",
   /*    1 */ "LOWEST",
   /*    2 */ "TEXTEXPR",
@@ -952,7 +952,7 @@ static int yyGrowStack(yyParser *p){
 #endif
     p->yystksz = newSize;
   }
-  return pNew==0; 
+  return pNew==0;
 }
 #endif
 
@@ -994,7 +994,7 @@ void RSQueryParser_v2_Init(void *yypRawParser RSQueryParser_v2_CTX_PDECL){
 }
 
 #ifndef RSQueryParser_v2__ENGINEALWAYSONSTACK
-/* 
+/*
 ** This function allocates a new parser.
 ** The only argument is a pointer to a function which works like
 ** malloc.
@@ -1021,7 +1021,7 @@ void *RSQueryParser_v2_Alloc(void *(*mallocProc)(YYMALLOCARGTYPE) RSQueryParser_
 /* The following function deletes the "minor type" or semantic value
 ** associated with a symbol.  The symbol can be either a terminal
 ** or nonterminal. "yymajor" is the symbol code, and "yypminor" is
-** a pointer to the value to be deleted.  The code used to do the 
+** a pointer to the value to be deleted.  The code used to do the
 ** deletions is derived from the %destructor and/or %token_destructor
 ** directives of the input grammar.
 */
@@ -1036,7 +1036,7 @@ static void yy_destructor(
     /* Here is inserted the actions which take place when a
     ** terminal or non-terminal is destroyed.  This can happen
     ** when the symbol is popped from the stack during a
-    ** reduce or during error processing or when a parser is 
+    ** reduce or during error processing or when a parser is
     ** being destroyed before it is finished parsing.
     **
     ** Note: during a reduce, the only symbols destroyed are those
@@ -1059,7 +1059,7 @@ static void yy_destructor(
     case 73: /* as */
     case 74: /* param_size */
 {
- 
+
 }
       break;
     case 41: /* expr */
@@ -1078,22 +1078,22 @@ static void yy_destructor(
     case 57: /* vector_command */
     case 58: /* vector_range_command */
 {
- QueryNode_Free((yypminor->yy47)); 
+ QueryNode_Free((yypminor->yy47));
 }
       break;
     case 42: /* attribute */
 {
- rm_free((char*)(yypminor->yy55).value); 
+ rm_free((char*)(yypminor->yy55).value);
 }
       break;
     case 43: /* attribute_list */
 {
- array_free_ex((yypminor->yy63), rm_free((char*)((QueryAttribute*)ptr )->value)); 
+ array_free_ex((yypminor->yy63), rm_free((char*)((QueryAttribute*)ptr )->value));
 }
       break;
     case 54: /* geo_filter */
 {
- QueryParam_Free((yypminor->yy56)); 
+ QueryParam_Free((yypminor->yy56));
 }
       break;
     case 60: /* vector_attribute_list */
@@ -1166,7 +1166,7 @@ void RSQueryParser_v2_Finalize(void *p){
 }
 
 #ifndef RSQueryParser_v2__ENGINEALWAYSONSTACK
-/* 
+/*
 ** Deallocate and destroy a parser.  Destructors are called for
 ** all stack elements before shutting the parser down.
 **
@@ -1389,7 +1389,7 @@ static void yy_shift(
     assert( yypParser->yyhwm == (int)(yypParser->yytos - yypParser->yystack) );
   }
 #endif
-#if YYSTACKDEPTH>0 
+#if YYSTACKDEPTH>0
   if( yypParser->yytos>yypParser->yystackEnd ){
     yypParser->yytos--;
     yyStackOverflow(yypParser);
@@ -1948,7 +1948,13 @@ static YYACTIONTYPE yy_reduce(
       case 36: /* text_expr ::= affix */
       case 37: /* text_expr ::= verbatim */ yytestcase(yyruleno==37);
 {
-yylhsminor.yy47 = yymsp[0].minor.yy47;
+  yylhsminor.yy3 = NewPhraseNode(0);
+  if (!(yymsp[-1].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len))) {
+    QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[-1].minor.yy0));
+  }
+  if (!(yymsp[0].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len))) {
+    QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  }
 }
   yymsp[0].minor.yy47 = yylhsminor.yy47;
         break;
@@ -2113,25 +2119,48 @@ yylhsminor.yy47 = yymsp[0].minor.yy47;
 }
   yymsp[0].minor.yy47 = yylhsminor.yy47;
         break;
-      case 60: /* tag_list ::= tag_list OR param_term_case */
+      case 52: /* tag_list ::= affix */
+      case 53: /* tag_list ::= verbatim */ yytestcase(yyruleno==53);
 {
-  QueryNode_AddChild(yymsp[-2].minor.yy47, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
-  yylhsminor.yy47 = yymsp[-2].minor.yy47;
+  yylhsminor.yy3 = NewPhraseNode(0);
+  QueryNode_AddChild(yylhsminor.yy3, yymsp[0].minor.yy3);
+}
+  yymsp[0].minor.yy3 = yylhsminor.yy3;
+        break;
+      case 54: /* tag_list ::= termlist */
+{
+  if (unlikely(QueryNode_NumChildren(yymsp[0].minor.yy3) == 0)){
+    QueryNode_Free(yymsp[0].minor.yy3);
+    yylhsminor.yy3 = NULL;
+  } else {
+    yylhsminor.yy3 = NewPhraseNode(0);
+    QueryNode_AddChild(yylhsminor.yy3, yymsp[0].minor.yy3);
+  }
 }
   yymsp[-2].minor.yy47 = yylhsminor.yy47;
         break;
       case 61: /* tag_list ::= tag_list OR affix */
       case 62: /* tag_list ::= tag_list OR verbatim */ yytestcase(yyruleno==62);
 {
-    QueryNode_AddChild(yymsp[-2].minor.yy47, yymsp[0].minor.yy47);
-    yylhsminor.yy47 = yymsp[-2].minor.yy47;
+  if (unlikely(!yymsp[-2].minor.yy3)){
+    yylhsminor.yy3 = NewPhraseNode(0);
+    QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  } else {
+    QueryNode_AddChild(yymsp[-2].minor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+    yylhsminor.yy3 = yymsp[-2].minor.yy3;
+  }
 }
   yymsp[-2].minor.yy47 = yylhsminor.yy47;
         break;
       case 63: /* tag_list ::= tag_list OR termlist */
 {
-  QueryNode_AddChild(yymsp[-2].minor.yy47, yymsp[0].minor.yy47);
-  yylhsminor.yy47 = yymsp[-2].minor.yy47;
+  if (unlikely(!yymsp[-2].minor.yy3)){
+    yylhsminor.yy3 = NewPhraseNode(0);
+    QueryNode_AddChild(yylhsminor.yy3, yymsp[0].minor.yy3);
+  } else {
+    QueryNode_AddChild(yymsp[-2].minor.yy3, yymsp[0].minor.yy3);
+    yylhsminor.yy3 = yymsp[-2].minor.yy3;
+  }
 }
   yymsp[-2].minor.yy47 = yylhsminor.yy47;
         break;
@@ -2724,7 +2753,7 @@ void RSQueryParser_v2_(
                   (int)(yypParser->yytos - yypParser->yystack));
         }
 #endif
-#if YYSTACKDEPTH>0 
+#if YYSTACKDEPTH>0
         if( yypParser->yytos>=yypParser->yystackEnd ){
           yyStackOverflow(yypParser);
           break;
@@ -2763,7 +2792,7 @@ void RSQueryParser_v2_(
 #ifdef YYERRORSYMBOL
       /* A syntax error has occurred.
       ** The response to an error depends upon whether or not the
-      ** grammar defines an error token "ERROR".  
+      ** grammar defines an error token "ERROR".
       **
       ** This is what we do if the grammar does define ERROR:
       **
