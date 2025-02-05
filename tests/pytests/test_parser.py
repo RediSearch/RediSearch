@@ -575,3 +575,113 @@ def testModifierList(env):
   }
 }
 '''[1:])
+
+def testQuotes_v2():
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TAG', 'INDEXEMPTY').ok()
+    query_to_explain = {
+        '@t1:("hello")':
+            'EXACT {\n  t1\n  hello\n}\n',
+        '@t1:("hello world")':
+            'EXACT {\n  t1\n  hello\n  world\n}\n',
+        '@t1:("$param")':
+            'EXACT {\n  t1\n  $param\n}\n',
+        '@t2:{"hello world"}':
+            'EXACT {\n  t2\n  hello\n  world\n}\n',
+        '@t2:{"" world}':
+            'EXACT {\n  t2\n  world\n}\n',
+        r'@t2:{"$param\!"}': # Hits the quote attribute quote parser syntax
+            'EXACT {\n  t2\n  $param!\n}\n',
+    }
+    for query, expected in query_to_explain.items():
+        env.expect('FT.EXPLAIN', 'idx', f'\'{query}\'').equal(expected)
+        squote_query = query.replace('"', '\'')
+        env.expect('FT.EXPLAIN', 'idx', f'"{squote_query}"').equal(expected)
+
+def testTagQueryWithStopwords_V2(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
+    env.expect('FT.EXPLAIN', 'idx', '@t:{as is the with by}').equal(r'''
+<empty>
+'''[1:])
+    env.expect('FT.EXPLAIN', 'idx', '@t:{cat with dog}').equal(r'''
+TAG:@t {
+  INTERSECT {
+    cat
+    dog
+  }
+}
+'''[1:])
+
+    conn = env.getClusterConnectionIfNeeded()
+    conn.execute_command('HSET', 'doc1', 't', 'with')
+    conn.execute_command('HSET', 'doc2', 't', 'cat dog')
+    env.expect('FT.SEARCH', 'idx', '@t:{cat with dog}').equal([1, 'doc2', ['t', 'cat dog']])
+    env.expect('FT.SEARCH', 'idx', '@t:{as is the with by}').equal([0])
+
+def testTagQueryWithOR_V2(env):
+  env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
+  conn = env.getClusterConnectionIfNeeded()
+  conn.execute_command('HSET', 'doc1', 'tag', 'x y')
+  conn.execute_command('HSET', 'doc2', 'tag', 'apple')
+  conn.execute_command('HSET', 'doc3', 'tag', 'banana')
+
+ # tag_list ::= taglist OR affix (affix is suffix)
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | *ple }').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    x
+    y
+  }
+  SUFFIX{*ple}
+}
+'''[1:])
+  env.expect('FT.SEARCH', 'idx', '@tag:{x y | *ple }').equal([2, 'doc1', ['tag', 'x y'], 'doc2', ['tag', 'apple']])
+
+  # test tag_list ::= tag_list OR affix with an empty taglist on the RHS
+  env.expect('FT.SEARCH', 'idx', '@tag:{as with | *ple }').equal([1,  'doc2', ['tag', 'apple']])
+
+  # tag_list ::= taglist OR affix (affix is prefix)
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | ba* }').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    x
+    y
+  }
+  PREFIX{ba*}
+}
+'''[1:])
+  env.expect('FT.SEARCH', 'idx', '@tag:{x y | ba* }').equal([2, 'doc1', ['tag', 'x y'], 'doc3', ['tag', 'banana']])
+
+ # tag_list ::= taglist OR affix (affix is contains)
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | *pl* }').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    x
+    y
+  }
+  INFIX{*pl*}
+}
+'''[1:])
+  env.expect('FT.SEARCH', 'idx', '@tag:{x y | *pl* }').equal([2, 'doc1', ['tag', 'x y'], 'doc2', ['tag', 'apple']])
+
+# taglist OR param_term_case
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | banana }').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    x
+    y
+  }
+  banana
+}
+'''[1:])
+  env.expect('FT.SEARCH', 'idx', '@tag:{x y | banana }').equal([2, 'doc1', ['tag', 'x y'], 'doc3', ['tag', 'banana']])
+
+# test tag_list ::= taglist OR param_term_case with an empty taglist on the RHS
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{as with | banana }').equal(r'''
+TAG:@tag {
+  banana
+}
+'''[1:])
+  env.expect('FT.SEARCH', 'idx', '@tag:{as with | banana }').equal([1, 'doc3', ['tag', 'banana']])

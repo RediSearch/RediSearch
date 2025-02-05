@@ -69,7 +69,7 @@
 #include <assert.h>
 
 #include "../parse.h"
-
+#include "src/util/likely.h"
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
 
@@ -551,8 +551,12 @@ A = B;
 
 termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
   A = NewPhraseNode(0);
-  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
-  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+  if (!(B.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, B.s, B.len))) {
+    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
+  }
+  if (!(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len))) {
+    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+  }
 }
 
 termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
@@ -704,28 +708,53 @@ tag_list(A) ::= verbatim(B) . [TAGLIST] {
 }
 
 tag_list(A) ::= termlist(B) . [TAGLIST] {
+  if (unlikely(QueryNode_NumChildren(B) == 0)){
+    QueryNode_Free(B);
+    A = NULL;
+  } else {
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, B);
+  }
 }
 
 tag_list(A) ::= tag_list(B) OR param_term_case(C) . [TAGLIST] {
-  QueryNode_AddChild(B, NewTokenNode_WithParams(ctx, &C));
-  A = B;
+  if (unlikely(!B)){
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+  } else {
+    QueryNode_AddChild(B, NewTokenNode_WithParams(ctx, &C));
+    A = B;
+  }
 }
 
 tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
+  if (unlikely(!B)){
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, C);
+  } else {
     QueryNode_AddChild(B, C);
     A = B;
+  }
 }
 
 tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
+  if (unlikely(!B)){
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, C);
+  } else {
     QueryNode_AddChild(B, C);
     A = B;
+  }
 }
 
 tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
+  if (unlikely(!B)){
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, C);
+  } else {
     QueryNode_AddChild(B, C);
     A = B;
+  }
 }
 
 /////////////////////////////////////////////////////////////////
