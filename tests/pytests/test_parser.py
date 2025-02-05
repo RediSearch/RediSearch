@@ -681,45 +681,60 @@ def testTagQueryWithOR_V2(env):
   conn.execute_command('HSET', 'doc3', 'tag', 'banana')
 
  # tag_list ::= taglist OR affix (affix is suffix)
-  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | *a }').equal(r'''
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | *ple }').equal(r'''
 TAG:@tag {
   INTERSECT {
     x
     y
   }
-  SUFFIX{*a}
+  SUFFIX{*ple}
 }
 '''[1:])
   env.expect('FT.SEARCH', 'idx', '@tag:{x y | *ple }').equal([2, 'doc1', ['tag', 'x y'], 'doc2', ['tag', 'apple']])
+
   # test tag_list ::= tag_list OR affix with an empty taglist on the RHS
-  env.expect('FT.SEARCH', 'idx', '@tag:{as with | *na }').equal([1, 'doc3', ['tag', 'banana']])
+  env.expect('FT.SEARCH', 'idx', '@tag:{as with | *ple }').equal([1,  'doc2', ['tag', 'apple']])
 
   # tag_list ::= taglist OR affix (affix is prefix)
-  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | b* }').equal(r'''
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | ba* }').equal(r'''
 TAG:@tag {
   INTERSECT {
     x
     y
   }
-  PREFIX{b*}
+  PREFIX{ba*}
 }
 '''[1:])
   env.expect('FT.SEARCH', 'idx', '@tag:{x y | ba* }').equal([2, 'doc1', ['tag', 'x y'], 'doc3', ['tag', 'banana']])
 
  # tag_list ::= taglist OR affix (affix is contains)
-  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | *n* }').equal(r'''
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | *pl* }').equal(r'''
 TAG:@tag {
   INTERSECT {
     x
     y
   }
-  INFIX{*n*}
+  INFIX{*pl*}
 }
 '''[1:])
   env.expect('FT.SEARCH', 'idx', '@tag:{x y | *pl* }').equal([2, 'doc1', ['tag', 'x y'], 'doc2', ['tag', 'apple']])
 
 # taglist OR param_term_case
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | banana }').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    x
+    y
+  }
+  banana
+}
+'''[1:])
   env.expect('FT.SEARCH', 'idx', '@tag:{x y | banana }').equal([2, 'doc1', ['tag', 'x y'], 'doc3', ['tag', 'banana']])
-# test tag_list ::= taglist OR param_term_case with an empty taglist on the RHS
-  env.expect('FT.SEARCH', 'idx', '@tag:{as with | banana }').equal([1, 'doc3', ['tag', 'banana']])
 
+# test tag_list ::= taglist OR param_term_case with an empty taglist on the RHS
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{as with | banana }').equal(r'''
+TAG:@tag {
+  banana
+}
+'''[1:])
+  env.expect('FT.SEARCH', 'idx', '@tag:{as with | banana }').equal([1, 'doc3', ['tag', 'banana']])
