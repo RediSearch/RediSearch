@@ -38,7 +38,7 @@
 #include <assert.h>
 
 #include "../parse.h"
-
+#include "src/util/likely.h"
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
 
