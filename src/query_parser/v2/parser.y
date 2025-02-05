@@ -814,7 +814,7 @@ tag_list(A) ::= termlist(B) . [TAGLIST] {
 }
 
 tag_list(A) ::= tag_list(B) OR param_term_case(C) . [TAGLIST] {
-  if (!B){
+  if (unlikely(!B)){
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
   } else {
@@ -824,7 +824,7 @@ tag_list(A) ::= tag_list(B) OR param_term_case(C) . [TAGLIST] {
 }
 
 tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
-  if (!B){
+  if (unlikely(!B)){
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, C);
   } else {
@@ -834,7 +834,7 @@ tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
 }
 
 tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
-  if (!B){
+  if (unlikely(!B)){
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, C);
   } else {
@@ -844,7 +844,7 @@ tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
 }
 
 tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
-  if (!B){
+  if (unlikely(!B)){
     A = NewPhraseNode(0);
     QueryNode_AddChild(A, C);
   } else {
