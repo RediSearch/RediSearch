@@ -772,7 +772,8 @@ SKIPPER(seekRawDocIdsOnly) {
   if (curVal < delta) {
     cur++;
     if (cur >= br->buf->offset / 4) {
-      // We are not at the right block
+      // We are not at the right block. This may happen if `IndexReader_SkipToBlock` did not find the right block.
+      // We return 0 to indicate the id we are looking for is not in the current block, and we need to advance to the next block.
       return 0;
     }
     curVal = buf[cur];
@@ -1022,7 +1023,7 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
    */
 
   if (ir->decoders.seeker) {
-    // // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
+    // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
     while (BufferReader_AtEnd(&ir->br)) {
       // We're at the end of the last block...
       if (ir->currentBlock + 1 == ir->idx->size) {
