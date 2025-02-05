@@ -17,7 +17,7 @@ static void setReferenceValue(RSValue *dst, RSValue *src) {
   RSValue_MakeReference(dst, src);
 }
 
-extern int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err);
+extern int func_exists(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result);
 
 static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   int rc = EXPR_EVAL_ERR;
@@ -25,23 +25,19 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   /** First, evaluate every argument */
   size_t nusedargs = 0;
   size_t nargs = f->args->len;
-  RSValue *argspp[nargs];
   RSValue args[nargs];
 
   for (size_t ii = 0; ii < nargs; ii++) {
     args[ii] = (RSValue)RSVALUE_STATIC;
-    argspp[ii] = &args[ii];
     int internalRes = evalInternal(eval, f->args->args[ii], &args[ii]);
     if (internalRes == EXPR_EVAL_ERR ||
         (internalRes == EXPR_EVAL_NULL && f->Call != func_exists)) {
-      // TODO: Free other results
       goto cleanup;
     }
     nusedargs++;
   }
 
-  /** We pass an RSValue**, not an RSValue*, as the arguments */
-  rc = f->Call(eval, result, argspp, nargs, eval->err);
+  rc = f->Call(eval, args, nargs, result);
 
 cleanup:
   for (size_t ii = 0; ii < nusedargs; ii++) {
@@ -75,11 +71,7 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
       res = n1 + n2;
       break;
     case '/':
-      if (n2 != 0) {
-        res = n1 / n2;
-      } else {
-        res = NAN;
-      }
+      res = n1 / n2;
       break;
     case '-':
       res = n1 - n2;
@@ -88,20 +80,12 @@ static int evalOp(ExprEval *eval, const RSExprOp *op, RSValue *result) {
       res = n1 * n2;
       break;
     case '%':
-        // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=30484
-        if (n2 == -1){
-          res = 0;
-        } else if (n2 != 0) {
-          res = (long long)n1 % (long long)n2;
-        } else {
-          res = NAN;
-        }
+      res = fmod(n1, n2);
       break;
     case '^':
       res = pow(n1, n2);
       break;
-    default:
-      res = NAN;  // todo : we can not really reach here
+    default: RS_LOG_ASSERT_FMT(0, "Invalid operator %c", op->op);
   }
 
   result->numval = res;
@@ -507,12 +491,13 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
   RS_LOG_ASSERT (type == RP_PROJECTOR || type == RP_FILTER, "Error");
 
   char buf[32];
+  size_t len;
   const char *literal;
   RPEvaluator *rpEval = (RPEvaluator *)rp;
   const RSExpr *expr = rpEval->eval.root;
   switch (expr->t) {
     case RSExpr_Literal:
-      literal = RSValue_ConvertStringPtrLen(&expr->literal, NULL, buf, sizeof(buf));
+      literal = RSValue_ConvertStringPtrLen(&expr->literal, &len, buf, sizeof(buf));
       RedisModule_Reply_SimpleStringf(reply, "%s - Literal %s", typeStr, literal);
       break;
     case RSExpr_Property:

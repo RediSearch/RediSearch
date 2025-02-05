@@ -170,25 +170,19 @@ def testLoadRdbWithoutSuggestionData(env: Env):
     res = env.cmd('FT.SUGGET', 'sug', 'hakuna')
     env.assertEqual(res, ['hakuna', 'hakuna matata'])
     env.expect('FT.SUGDEL', 'sug', 'hakuna matata').equal(1)
+    env.expect('FT.SUGLEN', 'sug').equal(1)
     env.expect('FT.SUGDEL', 'sug', 'hakuna').equal(1)
     env.expect('FT.SUGLEN', 'sug').equal(0)
-    # sug should exist, the key is not deleted when the last item is removed
-    env.expect('EXISTS', 'sug').equal(1)
+    # sug should not exist, the key is deleted when the last item is removed
+    env.expect('EXISTS', 'sug').equal(0)
     # Save state to RDB
     env.stop()
     # Restart without modules
     _removeModuleArgs(env)
-    # Attempt to load RDB fails because the RDB contains an empty
-    # suggestion dictionary key
-    try:
-        env.start()
-    except Exception as e:
-        expected_msg = 'Redis server is dead'
-        env.assertContains(expected_msg, str(e))
-        if expected_msg not in str(e):
-            raise e
-    finally:
-        env.assertFalse(env.isUp())
+    # Attempt to load RDB should work because the RDB does not contain
+    # empty suggestion data
+    env.start()
+    env.expect('HGET', 'doc1', 't').equal('lion')
 
 @skip(cluster=True, no_json=True, asan=True)
 def testLoadRdbWithSuggestionData(env: Env):
@@ -224,11 +218,12 @@ def testLoadRdbWithSuggestionDataUsingModules(env: Env):
     env.expect('FT.SUGADD', 'sug2', 'hello world', '1').equal(1)
     res = env.cmd('FT.SUGGET', 'sug2', 'hello')
     env.assertEqual(res, ['hello world'])
+    env.expect('FT.SUGLEN', 'sug2').equal(1)
     env.expect('FT.SUGDEL', 'sug2', 'hello world').equal(1)
     env.expect('FT.SUGGET', 'sug2', 'hello').equal([])
     env.expect('FT.SUGLEN', 'sug2').equal(0)
-    # sug2 should exist, the key is not deleted when the last item is removed
-    env.expect('EXISTS', 'sug2').equal(1)
+    # sug2 should not exist, the key is deleted when the last item is removed
+    env.expect('EXISTS', 'sug2').equal(0)
     # Save state to RDB
     env.stop()
     # Restart with modules
@@ -238,7 +233,7 @@ def testLoadRdbWithSuggestionDataUsingModules(env: Env):
     # dict1 should exist
     res = env.cmd('FT.SUGGET', 'sug1', 'hakuna')
     env.assertEqual(res, ['hakuna', 'hakuna matata'])
-    # dict2 exists, FT.SUGGET returns an empty list
-    env.expect('EXISTS', 'sug2').equal(1)
+    # dict2 does not exist, FT.SUGGET returns an empty list
+    env.expect('EXISTS', 'sug2').equal(0)
     env.expect('FT.SUGGET', 'sug2', 'hello').equal([])
     env.expect('FT.SUGLEN', 'sug2').equal(0)

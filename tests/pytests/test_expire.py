@@ -77,27 +77,19 @@ def buildExpireDocsResults(isJson):
 # Refer to expireDocs for details on why this test is skipped for Redis versions below 7.2
 @skip(cluster=True, redis_less_than="7.2")
 def testExpireDocsHash(env):
-
-    expected_results = buildExpireDocsResults(False)
     # Without SORTABLE - since the fields are not SORTABLE, we need to load the results from Redis Keyspace
-    expireDocs(env, False, expected_results, False)
-        
+    expireDocs(env, False, False)
+
 # Refer to expireDocs for details on why this test is skipped for Redis versions below 7.2
 @skip(cluster=True, redis_less_than="7.2", no_json=True)
 def testExpireDocsJson(env):
-    expected_results = buildExpireDocsResults( True)
     # Without SORTABLE - since the fields are not SORTABLE, we need to load the results from Redis Keyspace
-    expireDocs(env, False, expected_results, True)
+    expireDocs(env, False, True)
 
 # Refer to expireDocs for details on why this test is skipped for Redis versions below 7.2
 @skip(cluster=True, redis_less_than="7.2")
 def testExpireDocsSortableHash(env):
-    '''
-    Same as test `testExpireDocs` only with SORTABLE
-    '''
-
-    expected_results = buildExpireDocsResults(False)
-    expireDocs(env, True, expected_results, False)
+    expireDocs(env, True, False)
             # With SORTABLE -
             # The documents data exists in the index.
             # Since we are not trying to load the document in the sorter, it is not discarded from the results,
@@ -106,12 +98,7 @@ def testExpireDocsSortableHash(env):
 # Refer to expireDocs for details on why this test is skipped for Redis versions below 7.2
 @skip(cluster=True, redis_less_than="7.2", no_json=True)
 def testExpireDocsSortableJSON(env):
-    '''
-    Same as test `testExpireDocs` only with SORTABLE
-    '''
-
-    expected_results = buildExpireDocsResults(True)
-    expireDocs(env, True, expected_results, True)
+    expireDocs(env, True, True)
             # With SORTABLE -
             # The documents data exists in the index.
             # Since we are not trying to load the document in the sorter, it is not discarded from the results,
@@ -126,7 +113,7 @@ def testExpireDocsSortableJSON(env):
 # This impacts the test as the key should be included in the search results but return NULL upon access
 # (i.e lazy expiration).
 # The bug was resolved in Redis 7.2, ensuring the test's stability.
-def expireDocs(env, isSortable, expected_results, isJson):
+def expireDocs(env, isSortable, isJson):
     '''
     This test creates an index and two documents
     We disable active expiration
@@ -148,6 +135,7 @@ def expireDocs(env, isSortable, expected_results, isJson):
     |               | doc2, arr, ['$']  | doc2, arr |
     '''
     conn = env.getConnection()
+    expected_results = buildExpireDocsResults(isJson)
 
     # i = 2 -> without sortby, i = 1 -> with sortby
     for sortby in [False, True]:
@@ -212,7 +200,7 @@ def expireDocs(env, isSortable, expected_results, isJson):
         # both docs exist
         expected_res = add_explain_to_results(expected_results[both_docs_no_sortby])
 
-        res = conn.execute_command('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE')
+        res = conn.execute_command('FT.SEARCH', 'idx', '*', 'SCORER', 'TFIDF', 'WITHSCORES', 'EXPLAINSCORE')
         env.assertEqual(res, expected_res)
 
         # Activate lazy expire again to ensure the key is not expired before we run the query
@@ -223,7 +211,7 @@ def expireDocs(env, isSortable, expected_results, isJson):
         # ensure expiration before search
         time.sleep(0.01)
 
-        res = conn.execute_command('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE', *sortby_cmd)
+        res = conn.execute_command('FT.SEARCH', 'idx', '*', 'SCORER', 'TFIDF', 'WITHSCORES', 'EXPLAINSCORE', *sortby_cmd)
 
         if isSortable:
             env.assertEqual(res, add_explain_to_results(expected_results[doc2_is_lazy_expired_sortby_sorted if sortby else doc2_is_lazy_expired]), message=(msg + ' WITHSCORES, EXPLAINSCORE'))
@@ -237,7 +225,7 @@ def expireDocs(env, isSortable, expected_results, isJson):
 
         # only 1 doc is left
         res = add_explain_to_results(expected_results[only_doc1_no_sortby])
-        env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'EXPLAINSCORE').equal(res)
+        env.expect('FT.SEARCH', 'idx', '*', 'SCORER', 'TFIDF', 'WITHSCORES', 'EXPLAINSCORE').equal(res)
 
         conn.execute_command('FLUSHALL')
 
@@ -248,6 +236,7 @@ def test_expire_aggregate(env):
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     conn.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'not-documents')
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
 
     conn.execute_command('HSET', 'doc1', 't', 'bar')
     conn.execute_command('HSET', 'doc2', 't', 'arr')

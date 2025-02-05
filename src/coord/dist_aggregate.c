@@ -706,7 +706,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     // Check if we have KNN in the query string, and if so, parse the query string to see if it is
     // a KNN section in the query. IN that case, we treat this as a SORTBY+LIMIT step.
     if(strcasestr(r->query, "KNN")) {
-      knnCtx = prepareOptionalTopKCase(r->query, argv, argc, &status);
+      knnCtx = prepareOptionalTopKCase(r->query, argv, argc, dialect, &status);
       if (QueryError_HasError(&status)) {
         goto err;
       }
@@ -758,7 +758,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
       goto err;
     }
   } else {
-    sendChunk(r, reply, -1);
+    sendChunk(r, reply, UINT64_MAX);
     AREQ_Free(r);
   }
   SpecialCaseCtx_Free(knnCtx);
