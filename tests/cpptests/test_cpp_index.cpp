@@ -1448,7 +1448,7 @@ TEST_F(IndexTest, testDeltaSplits) {
 TEST_F(IndexTest, testRawDocId) {
   const int previousConfig = RSGlobalConfig.invertedIndexRawDocidEncoding;
   RSGlobalConfig.invertedIndexRawDocidEncoding = true;
-  const size_t INDEX_BLOCK_SIZE = 100;
+  constexpr size_t INDEX_BLOCK_SIZE_DOCID_ONLY = 1000;
   InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, 1);
   IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
   constexpr size_t n_ids = INDEX_BLOCK_SIZE_DOCID_ONLY * 3;
