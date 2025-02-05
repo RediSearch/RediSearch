@@ -1067,6 +1067,7 @@ static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   }
 
 new_block:
+  RS_LOG_ASSERT(ir->currentBlock < idx->size, "Invalid block index");
   ir->lastId = IR_CURRENT_BLOCK(ir).firstId;
   ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
 }
