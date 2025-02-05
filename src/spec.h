@@ -296,7 +296,7 @@ typedef struct IndexSpec {
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
   bool scan_in_progress;
-  bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
+  bool scan_failed_OOM; // background indexing failed due to Out Of Memory
   bool monitorDocumentExpiration;
   bool monitorFieldExpiration;
 
@@ -665,7 +665,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
 
 /**
  * @brief Sets an error message in the index spec
- * 
+ *
  * @param sp spec
  * @param error error message
  * @param key the key that caused the error

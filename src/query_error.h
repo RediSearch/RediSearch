@@ -14,8 +14,8 @@
 #include <stdbool.h>
 
 #ifdef __cplusplus
-extern "C" {      
-#endif      
+extern "C" {
+#endif
 
 #define QUERY_XERRS(X)                                                                          \
   X(QUERY_EGENERIC, "Generic error evaluating the query")                                       \
@@ -69,7 +69,7 @@ extern "C" {
   X(QUERY_EALIASCONFLICT, "Alias conflicts with an existing index name")                                      \
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
-
+#define QUERY_WINDEXING_FAILURE "Index contains partial data due to OOM indexing failure"
 typedef enum {
   QUERY_OK = 0,
 

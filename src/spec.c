@@ -2186,17 +2186,32 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (scanner->cancelled) {
     return;
   }
-
-  const char* error;
+  char* error;
   // Get the memory limit and memory usage
   setMemoryInfo(ctx);
-  if (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit/100) * memoryLimit) {
-      error = "Used memory is more than 80%% of max memory, cancelling the scan";
+  // Check if we need to cancel the scan due to memory limit, if memory limit is set to 0, we don't check it
+  if (RSGlobalConfig.indexingMemoryLimit && (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit)) {
+      rm_asprintf(&error, "Used memory is more than %u%% of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit);
       RedisModule_Log(ctx, "warning", error);
       scanner->cancelled = true;
   }
 
-  if (scanner->cancelled) {
+ if(scanner->cancelled) {
+    // We need to report the error message besides the log, so we can show it in FT.INFO
+    if(!scanner->global) {
+      StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
+      IndexSpec *sp = StrongRef_Get(curr_run_ref);
+      if (sp) {
+        sp->scan_failed_OOM = true;
+        IndexSpec_SetIndexErrorMessage(sp, error, keyname);
+        StrongRef_Release(curr_run_ref);
+      } else {
+        // spec was deleted
+        RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (index deleted)",
+                      scanner->spec_name);
+      }
+    }
+    rm_free(error);
     return;
   }
   // RMKey it is provided as best effort but in some cases it might be NULL
@@ -2271,9 +2286,14 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_ThreadSafeContextLock(ctx);
 
     if (scanner->cancelled) {
-      RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%ld)",
-                  scanner->scannedKeys);
-      goto end;
+      if (scanner->global) {
+        RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%ld)",
+                        scanner->scannedKeys);
+      } else {
+        RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (scanned=%ld)",
+                    scanner->spec_name, scanner->scannedKeys);
+        goto end;
+      }
     }
   }
 
