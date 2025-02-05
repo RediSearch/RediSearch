@@ -126,11 +126,7 @@ bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp) {
 // Validates ACL key-space permissions w.r.t the given index spec for Redis
 // Enterprise environments only.
 static inline bool checkEnterpriseACL(RedisModuleCtx *ctx, IndexSpec *sp) {
-  if (!IsEnterprise() || ACLUserMayAccessIndex(ctx, sp)) {
-    // Either OSS, or ACL check passed.
-    return true;
-  }
-  return false;
+  return !IsEnterprise() || ACLUserMayAccessIndex(ctx, sp);
 }
 
 // Returns true if the current context has permission to execute debug commands
