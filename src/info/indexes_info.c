@@ -62,6 +62,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     if (info.max_indexing_failures < index_error_count) {
       info.max_indexing_failures = index_error_count;
     }
+    info.background_indexing_failures_OOM += sp->scan_failed_OOM;
 
     pthread_rwlock_unlock(&sp->rwlock);
   }
