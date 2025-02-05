@@ -30,16 +30,16 @@ jobs:
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
-    with:
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+    # with:
+    #   redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
 
   test-macos:
     needs: [docs-only, get-latest-redis-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
-    with:
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+    # with:
+    #   redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
 
   coverage:
     needs: docs-only
@@ -53,7 +53,7 @@ jobs:
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      # get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: '' # run all tests
       san: address
       env: ubuntu-latest
