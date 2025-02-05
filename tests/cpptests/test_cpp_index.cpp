@@ -1600,7 +1600,7 @@ TEST_F(IndexTest, testRawDocId) {
   size_t index_memsize = 0;
   InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, 1, &index_memsize);
   IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
-  constexpr size_t n_ids = INDEX_BLOCK_SIZE * 2;
+  constexpr size_t n_ids = INDEX_BLOCK_SIZE_DOCID_ONLY * 2;
 
   // Add a few entries, all with an odd docId
   for (t_docId id = 1; id < n_ids; id += 2) {
