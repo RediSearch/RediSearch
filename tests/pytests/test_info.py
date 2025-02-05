@@ -189,3 +189,6 @@ def test_vecsim_info_stats_marked_deleted(env):
   # compare results to FT.DEBUG VECSIM_INFO idx vector
   env.assertEqual(info["field statistics"][0]["marked_deleted"], vecsim_info_marked_deleted)
   env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
+  # Wait for all repair jobs to be finish, then run GC to remove the deleted vectors.
+  env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
+  env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
