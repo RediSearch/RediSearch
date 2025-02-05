@@ -1036,12 +1036,10 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     // searched docid and the field mask matches the searched fields mask. We need to continue
     // scanning only when we found such an id or we reached the end of the inverted index.
     while (!ir->decoders.seeker(&ir->br, &ir->decoderCtx, ir, docId, ir->record)) {
-      if (BufferReader_AtEnd(&ir->br)) {
-        if (ir->currentBlock < ir->idx->size - 1) {
-          IndexReader_AdvanceBlock(ir);
-        } else {
-          return INDEXREAD_EOF;
-        }
+      if (ir->currentBlock < ir->idx->size - 1) {
+        IndexReader_AdvanceBlock(ir);
+      } else {
+        return INDEXREAD_EOF;
       }
     }
     // Found a document that match the field mask and greater or equal the searched docid

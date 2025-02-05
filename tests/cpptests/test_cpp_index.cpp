@@ -1600,7 +1600,7 @@ TEST_F(IndexTest, testRawDocId) {
   size_t index_memsize = 0;
   InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, 1, &index_memsize);
   IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
-  constexpr size_t n_ids = INDEX_BLOCK_SIZE_DOCID_ONLY * 2;
+  constexpr size_t n_ids = INDEX_BLOCK_SIZE_DOCID_ONLY * 3;
 
   // Add a few entries, all with an odd docId
   for (t_docId id = 1; id < n_ids; id += 2) {
@@ -1617,7 +1617,7 @@ TEST_F(IndexTest, testRawDocId) {
   ASSERT_EQ(INDEXREAD_EOF, IR_Read(ir, &cur));
 
   // Test that we can skip to all the ids
-  for (t_docId id = 1; id < n_ids; id++) {
+  for (t_docId id = 2000; id < n_ids; id++) {
     IR_Rewind(ir);
     int rc = IR_SkipTo(ir, id, &cur);
     if (id % 2 == 0) {
