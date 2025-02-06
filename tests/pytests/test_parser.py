@@ -754,6 +754,7 @@ TAG:@tag {
 }
 '''[1:])
     env.expect('FT.SEARCH', 'idx', '@tag:{cat dog}', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '@tag:{cat}', 'NOCONTENT').equal([1, 'doc1'])
 
     # error when contain stopwords
     env.expect('FT.SEARCH', 'idx', '@tag:{with dog}').error().contains('Syntax error')
