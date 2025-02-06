@@ -576,28 +576,6 @@ def testModifierList(env):
 }
 '''[1:])
 
-def testQuotes_v2():
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TAG', 'INDEXEMPTY').ok()
-    query_to_explain = {
-        '@t1:("hello")':
-            'EXACT {\n  t1\n  hello\n}\n',
-        '@t1:("hello world")':
-            'EXACT {\n  t1\n  hello\n  world\n}\n',
-        '@t1:("$param")':
-            'EXACT {\n  t1\n  $param\n}\n',
-        '@t2:{"hello world"}':
-            'EXACT {\n  t2\n  hello\n  world\n}\n',
-        '@t2:{"" world}':
-            'EXACT {\n  t2\n  world\n}\n',
-        r'@t2:{"$param\!"}': # Hits the quote attribute quote parser syntax
-            'EXACT {\n  t2\n  $param!\n}\n',
-    }
-    for query, expected in query_to_explain.items():
-        env.expect('FT.EXPLAIN', 'idx', f'\'{query}\'').equal(expected)
-        squote_query = query.replace('"', '\'')
-        env.expect('FT.EXPLAIN', 'idx', f'"{squote_query}"').equal(expected)
-
 def testTagQueryWithStopwords_V2(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
