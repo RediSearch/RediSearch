@@ -226,7 +226,8 @@ void DFAFilter_Free(DFAFilter *fc) {
   Vector_Free(fc->distStack);
 }
 
-FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
+// This function is used by FT.SUGGET flow
+FilterCode FoldingFilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
   DFAFilter *fc = ctx;
   dfaNode *dn;
   int minDist;
@@ -253,6 +254,62 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
   }
 
   rune foldedRune = runeFold(b);
+
+  // get the next state change
+  dfaNode *next = __dfn_getEdge(dn, foldedRune);
+  if (!next) next = dn->fallback;
+
+  // we can continue - push the state on the stack
+  if (next) {
+    if (next->match) {
+      // printf("MATCH NEXT %c, dist %d\n", b, next->distance);
+      *matched = 1;
+      int *pdist = matchCtx;
+      if (pdist) {
+        *pdist = MIN(next->distance, minDist);
+      }
+      //    if (fc->prefixMode) next = NULL;
+    }
+    Vector_Push(fc->stack, next);
+    Vector_Push(fc->distStack, MIN(next->distance, minDist));
+    return F_CONTINUE;
+  } else if (fc->prefixMode && *matched) {
+    Vector_Push(fc->stack, NULL);
+    Vector_Push(fc->distStack, minDist);
+    return F_CONTINUE;
+  }
+
+  return F_STOP;
+}
+
+// This function is used by TEXT fuzzy search flow
+FilterCode LoweringFilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
+  DFAFilter *fc = ctx;
+  dfaNode *dn;
+  int minDist;
+
+  Vector_Get(fc->stack, Vector_Size(fc->stack) - 1, &dn);
+  Vector_Get(fc->distStack, Vector_Size(fc->distStack) - 1, &minDist);
+
+  // a null node means we're in prefix mode, and we're done matching our prefix
+  if (dn == NULL) {
+    *matched = 1;
+    Vector_Push(fc->stack, NULL);
+    Vector_Push(fc->distStack, minDist);
+    return F_CONTINUE;
+  }
+
+  *matched = dn->match;
+
+  if (*matched) {
+    // printf("MATCH %c, dist %d\n", b, dn->distance);
+    int *pdist = matchCtx;
+    if (pdist) {
+      *pdist = MIN(dn->distance, minDist);
+    }
+  }
+
+  rune foldedRune = runeLower(b);
 
   // get the next state change
   dfaNode *next = __dfn_getEdge(dn, foldedRune);

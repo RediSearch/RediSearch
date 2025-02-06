@@ -36,6 +36,8 @@ typedef struct {
 /* fold rune: assumes rune is of the correct size */
 rune runeFold(rune r);
 
+rune runeLower(rune r);
+
 /* Convert a rune string to utf-8 characters */
 char *runesToStr(const rune *in, size_t len, size_t *utflen);
 
@@ -43,10 +45,14 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen);
  * This function supports folding of multi-codepoint runes. */
 rune *strToFoldedRunes(const char *str, size_t *len);
 
+rune *strToLowerRunes(const char *str, size_t *len);
+
 /* Convert a string to runes, fold them and return the folded runes.
  * If a folded runes contains more than one codepoint, only the first
  * codepoint is taken, the rest are ignored. */
 rune *strToSingleCodepointFoldedRunes(const char *str, size_t *len);
+
+rune *strToSingleCodepointLowerRunes(const char *str, size_t *len);
 
 /* Convert a utf-8 string to constant width runes */
 rune *strToRunes(const char *str, size_t *len);

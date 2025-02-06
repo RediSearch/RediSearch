@@ -128,7 +128,7 @@ int testPayload() {
   size_t rlen;
   rune *runes = strToRunes("hel", &rlen);
   DFAFilter *fc = NewDFAFilter(runes, rlen, 1, 1);
-  TrieIterator *it = TrieNode_Iterate(root, FilterFunc, StackPop, fc);
+  TrieIterator *it = TrieNode_Iterate(root, FoldingFilterFunc, StackPop, fc);
   rune *s;
   t_len len;
   float score;
@@ -271,7 +271,7 @@ int testDFAFilter() {
     runes = strToFoldedRunes(terms[i], &rlen);
     DFAFilter *fc = NewDFAFilter(runes, rlen, 2, 0);
 
-    TrieIterator *it = TrieNode_Iterate(root, FilterFunc, StackPop, fc);
+    TrieIterator *it = TrieNode_Iterate(root, FoldingFilterFunc, StackPop, fc);
     rune *s;
     t_len len;
     float score;
@@ -303,7 +303,7 @@ int testDFAFilter() {
 
     DFAFilter *fc = NewDFAFilter(runes, rlen, 1, 1);
 
-    TrieIterator *it = TrieNode_Iterate(root, FilterFunc, StackPop, fc);
+    TrieIterator *it = TrieNode_Iterate(root, FoldingFilterFunc, StackPop, fc);
     rune *s;
     t_len len;
     float score;

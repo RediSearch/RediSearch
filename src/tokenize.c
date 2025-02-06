@@ -67,7 +67,7 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
 
   *len = dstLen;
 
-  size_t newLen = unicode_tofold(dst, dstLen);
+  size_t newLen = unicode_tolower(dst, dstLen);
   if (newLen) {
     *len = newLen;
   }
