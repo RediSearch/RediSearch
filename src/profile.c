@@ -11,7 +11,7 @@
 #include "util/units.h"
 
 void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime, PrintProfileConfig *config) {
-  IndexReader *ir = root->ctx;
+  IndexReader *ir = (IndexReader *)root;
 
   RedisModule_Reply_Map(reply);
   if (ir->idx->flags == Index_DocIdsOnly) {
@@ -46,7 +46,7 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
 
   printProfileCounter(counter);
 
-  RedisModule_ReplyKV_LongLong(reply, "Size", root->NumEstimated(ir));
+  RedisModule_ReplyKV_LongLong(reply, "Size", root->NumEstimated(root));
 
   RedisModule_Reply_MapEnd(reply);
 }

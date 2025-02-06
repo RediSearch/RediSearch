@@ -117,7 +117,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     if (TimedOut_WithCounter(&RP_SCTX(base)->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
       return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
     }
-    rc = it->Read(it->ctx, &r);
+    rc = it->Read(it, &r);
     switch (rc) {
     case INDEXREAD_EOF:
       // This means we are done!

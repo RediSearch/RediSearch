@@ -160,7 +160,7 @@ IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *g
               NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, true, NULL);
       filt->fieldSpec = gf->fieldSpec;
       filt->geoFilter = gf;
-      struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, csx, INDEXFLD_T_GEO, config, &filterCtx);
+      IndexIterator *numIter = NewNumericFilterIterator(ctx, filt, csx, INDEXFLD_T_GEO, config, &filterCtx);
       if (numIter != NULL) {
         iters[itersCount++] = numIter;
       }

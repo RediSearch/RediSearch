@@ -85,8 +85,8 @@ static size_t NumericRange_Add(NumericRange *n, t_docId docId, double value) {
  * but if we see performance issues in the future, we can consider using another algorithm
  * like QuickSelect or an approximation algorithm for the median.
  */
-static double NumericRange_GetMedian(IndexReader *ir) {
-  size_t median_idx = ir->idx->numEntries / 2;
+static double NumericRange_GetMedian(IndexIterator *ir) {
+  size_t median_idx = ((IndexReader *)ir)->idx->numEntries / 2;
   double_heap_t *low_half = double_heap_new(median_idx);
   RSIndexResult *cur;
 
@@ -142,7 +142,7 @@ static void NumericRangeNode_Split(NumericRangeNode *n, NRN_AddRv *rv) {
   rv->sz += lr->invertedIndexSize + rr->invertedIndexSize;
 
   RSIndexResult *res = NULL;
-  IndexReader *ir = NewMinimalNumericReader(r->entries, false);
+  IndexIterator *ir = NewReadIterator(NewMinimalNumericReader(r->entries, false));
   double split = NumericRange_GetMedian(ir);
   if (split == r->minVal) {
     // make sure the split is not the same as the min value
@@ -154,7 +154,7 @@ static void NumericRangeNode_Split(NumericRangeNode *n, NRN_AddRv *rv) {
     rv->sz += NumericRange_Add(cur, res->docId, res->num.value);
     ++rv->numRecords;
   }
-  IR_Free(ir);
+  ReadIterator_Free(ir);
 
   n->maxDepth = 1;
   n->value = split;
@@ -545,9 +545,9 @@ NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyNam
   return kdv->p;
 }
 
-struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config,
-                                               const FieldFilterContext* filterCtx) {
+IndexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
+                                        ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config,
+                                        const FieldFilterContext* filterCtx) {
   const FieldSpec *fs = flt->fieldSpec;
   RedisModuleString *s = IndexSpec_GetFormattedKey(ctx->spec, fs, forType);
   if (!s) {
@@ -709,13 +709,13 @@ static void numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
   if (NumericRangeNode_IsLeaf(n) && n->range) {
     NumericRange *rng = n->range;
     RSIndexResult *res = NULL;
-    IndexReader *ir = NewMinimalNumericReader(rng->entries, false);
+    IndexIterator *ir = NewReadIterator(NewMinimalNumericReader(rng->entries, false));
 
     while (INDEXREAD_OK == IR_Read(ir, &res)) {
       RedisModule_SaveUnsigned(rctx->rdb, res->docId);
       RedisModule_SaveDouble(rctx->rdb, res->num.value);
     }
-    IR_Free(ir);
+    ReadIterator_Free(ir);
   }
 }
 void NumericIndexType_RdbSave(RedisModuleIO *rdb, void *value) {
@@ -776,12 +776,12 @@ void NumericRangeIterator_OnReopen(void *privdata) {
   if (!rt || rt->revisionId != nu->lastRevId) {
     // The numeric tree was either completely deleted or a node was split or removed.
     // The cursor is invalidated.
-    it->Abort(it->ctx);
+    it->Abort(it);
     return;
   }
 
   if (it->type == READ_ITERATOR) {
-    IndexReader_OnReopen(it->ctx);
+    IndexReader_OnReopen((IndexReader *)it);
   } else if (it->type == UNION_ITERATOR) {
     UI_Foreach(it, IndexReader_OnReopen);
   } else {
