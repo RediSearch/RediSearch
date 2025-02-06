@@ -13,12 +13,14 @@
 extern RedisModuleCtx *RSDummyContext;
 
 char* const NA = "N/A";
+char* const OK = "OK";
 char* const IndexError_ObjectName = "Index Errors";
 char* const IndexingFailure_String = "indexing failures";
 char* const IndexingError_String = "last indexing error";
 char* const IndexingErrorKey_String = "last indexing error key";
 char* const IndexingErrorTime_String = "last indexing error time";
 char* const BackgroundIndexingOOMfailure_String = "background indexing status";
+char* const outOfMemoryFailure = "OOM failure";
 
 RedisModuleString* NA_rstr = NULL;
 
@@ -85,7 +87,7 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
         REPLY_ARRAY_END;
     }
     if (withBgIndexingStatus)
-        REPLY_KVSTR_SAFE(BackgroundIndexingOOMfailure_String, IndexError_HasBackgroundIndexingOOMFailure(error) ? "OOM failure" : "OK");
+        REPLY_KVSTR_SAFE(BackgroundIndexingOOMfailure_String, IndexError_HasBackgroundIndexingOOMFailure(error) ? outOfMemoryFailure  : OK);
 
     RedisModule_Reply_MapEnd(reply);
 }
@@ -177,7 +179,6 @@ IndexError IndexError_Deserialize(MRReply *reply) {
     RedisModule_Assert(MRReply_Type(key) == MR_REPLY_STRING || MRReply_Type(key) == MR_REPLY_STATUS);
     size_t key_len;
     const char *key_str = MRReply_String(key, &key_len);
-
     MRReply *last_error_time = MRReply_MapElement(reply, IndexingErrorTime_String);
     RedisModule_Assert(last_error_time);
     RedisModule_Assert(MRReply_Type(last_error_time) == MR_REPLY_ARRAY && MRReply_Length(last_error_time) == 2);
@@ -194,6 +195,14 @@ IndexError IndexError_Deserialize(MRReply *reply) {
         IndexError_SetLastError(&error, NA);
         IndexError_SetKey(&error, RedisModule_HoldString(RSDummyContext, NA_rstr));
     }
+
+    MRReply *oomFailure = MRReply_MapElement(reply, BackgroundIndexingOOMfailure_String);
+    RedisModule_Assert(oomFailure);
+    RedisModule_Assert(MRReply_Type(oomFailure) == MR_REPLY_STATUS);
+    if (MRReply_StringEquals(oomFailure, outOfMemoryFailure, 1)) {
+        IndexError_RaiseBackgroundIndexFailureFlag(&error);
+    }
+
 
     return error;
 }
