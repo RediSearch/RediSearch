@@ -128,7 +128,7 @@ void IndexReader_OnReopen(IndexReader *ir) {
     IR_Rewind(&ir->base);
     // seek to the previous last id
     RSIndexResult *dummy = NULL;
-    IR_SkipTo(&ir->base, lastId, &dummy);
+    if (lastId) IR_SkipTo(&ir->base, lastId, &dummy);
   }
 }
 
@@ -1051,9 +1051,6 @@ new_block:
 
 int IR_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
   IndexReader *ir = (IndexReader *)base;
-  if (!docId) {
-    return IR_Read(base, hit);
-  }
 
   if (IR_IS_AT_END(ir)) {
     return INDEXREAD_EOF;
@@ -1218,6 +1215,7 @@ void ReadIterator_Free(IndexIterator *it) {
 void IR_Rewind(IndexIterator *base) {
   IndexReader *ir = (IndexReader *)base;
   IITER_CLEAR_EOF(base);
+  base->LastDocId = 0;
   ir->currentBlock = 0;
   ir->gcMarker = ir->idx->gcMarker;
   ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
