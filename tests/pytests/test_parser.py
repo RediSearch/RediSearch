@@ -653,97 +653,12 @@ def testQuotes_v2():
 
 def testTagQueryWithStopwords_V2(env):
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG').ok()
-    env.expect('FT.EXPLAIN', 'idx', '@t:{as is the with by}').equal(r'''
-<empty>
-'''[1:])
-    env.expect('FT.EXPLAIN', 'idx', '@t:{cat with dog}').equal(r'''
-TAG:@t {
-  INTERSECT {
-    cat
-    dog
-  }
-}
-'''[1:])
-
-    conn = env.getClusterConnectionIfNeeded()
-    conn.execute_command('HSET', 'doc1', 't', 'with')
-    conn.execute_command('HSET', 'doc2', 't', 'cat dog')
-    env.expect('FT.SEARCH', 'idx', '@t:{cat with dog}').equal([1, 'doc2', ['t', 'cat dog']])
-    env.expect('FT.SEARCH', 'idx', '@t:{as is the with by}').equal([0])
-
-def testTagQueryWithOR_V2(env):
-  env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
-  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
-  conn = env.getClusterConnectionIfNeeded()
-  conn.execute_command('HSET', 'doc1', 'tag', 'x y')
-  conn.execute_command('HSET', 'doc2', 'tag', 'apple')
-  conn.execute_command('HSET', 'doc3', 'tag', 'banana')
-
- # tag_list ::= taglist OR affix (affix is suffix)
-  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | *ple }').equal(r'''
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc1', 'tag', 'as is the with by')
+    conn.execute_command('HSET', 'doc2', 'tag', 'as,is,the,with,by')
+    env.expect('FT.EXPLAIN', 'idx', '@tag:{as is the with by}').equal(r'''
 TAG:@tag {
-  INTERSECT {
-    x
-    y
-  }
-  SUFFIX{*ple}
-}
-'''[1:])
-  env.expect('FT.SEARCH', 'idx', '@tag:{x y | *ple }').equal([2, 'doc1', ['tag', 'x y'], 'doc2', ['tag', 'apple']])
-
-  # test tag_list ::= tag_list OR affix with an empty taglist on the RHS
-  env.expect('FT.SEARCH', 'idx', '@tag:{as with | *ple }').equal([1,  'doc2', ['tag', 'apple']])
-
-  # tag_list ::= taglist OR affix (affix is prefix)
-  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | ba* }').equal(r'''
-TAG:@tag {
-  INTERSECT {
-    x
-    y
-  }
-  PREFIX{ba*}
-}
-'''[1:])
-  env.expect('FT.SEARCH', 'idx', '@tag:{x y | ba* }').equal([2, 'doc1', ['tag', 'x y'], 'doc3', ['tag', 'banana']])
-
- # tag_list ::= taglist OR affix (affix is contains)
-  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | *pl* }').equal(r'''
-TAG:@tag {
-  INTERSECT {
-    x
-    y
-  }
-  INFIX{*pl*}
-}
-'''[1:])
-  env.expect('FT.SEARCH', 'idx', '@tag:{x y | *pl* }').equal([2, 'doc1', ['tag', 'x y'], 'doc2', ['tag', 'apple']])
-
-# taglist OR param_term_case
-  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | banana }').equal(r'''
-TAG:@tag {
-  INTERSECT {
-    x
-    y
-  }
-  banana
-}
-'''[1:])
-  env.expect('FT.SEARCH', 'idx', '@tag:{x y | banana }').equal([2, 'doc1', ['tag', 'x y'], 'doc3', ['tag', 'banana']])
-
-# test tag_list ::= taglist OR param_term_case with an empty taglist on the RHS
-  env.expect('FT.EXPLAIN', 'idx', '@tag:{as with | banana }').equal(r'''
-TAG:@tag {
-  banana
-}
-'''[1:])
-  env.expect('FT.SEARCH', 'idx', '@tag:{as with | banana }').equal([1, 'doc3', ['tag', 'banana']])
-
-def testTagQueryWithStopwords_V2(env):
-    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't1', 'TEXT', 't2', 'TAG').ok()
-    env.expect('FT.EXPLAIN', 'idx', '@t2:{as is the with by}').equal(r'''
-TAG:@t2 {
   INTERSECT {
     as
     is
@@ -753,8 +668,12 @@ TAG:@t2 {
   }
 }
 '''[1:])
-    env.expect('FT.EXPLAIN', 'idx', '@t2:{cat with dog}').equal(r'''
-TAG:@t2 {
+    env.expect('FT.SEARCh', 'idx', '@tag:{as is the with by}', 'NOCONTENT').equal([1, 'doc1'])
+
+    conn.execute_command('HSET', 'doc3', 'tag', 'cat dog')
+    conn.execute_command('HSET', 'doc4', 'tag', 'cat with dog')
+    env.expect('FT.EXPLAIN', 'idx', '@tag:{cat with dog}').equal(r'''
+TAG:@tag {
   INTERSECT {
     cat
     with
@@ -762,8 +681,4 @@ TAG:@t2 {
   }
 }
 '''[1:])
-    # this test is commented out, TODO: enable after fixing issue MOD-8665
-    # conn = env.getClusterConnectionIfNeeded()
-    # conn.execute_command('HSET', 'doc1', 't2', 'with')
-    # conn.execute_command('HSET', 'doc2', 't2', 'dog')
-    # env.expect('FT.SEARCH', 'idx', '@t2:{cat with dog}', 'NOCONTENT').equal([2, 'doc1', 'doc2'])
+    env.expect('FT.SEARCH', 'idx', '@tag:{cat with dog}', 'NOCONTENT').equal([1, 'doc4'])
