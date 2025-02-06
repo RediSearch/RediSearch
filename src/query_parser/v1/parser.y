@@ -217,13 +217,10 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
         } else {
             A = NewUnionNode();
             QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
         }
 
         // Handle C
         QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
 }
 
@@ -239,13 +236,10 @@ union(A) ::= union(B) OR expr(C). [ORX] {
         } else {
             A = NewUnionNode();
             QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
         }
 
         // Handle C
         QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
 }
 
