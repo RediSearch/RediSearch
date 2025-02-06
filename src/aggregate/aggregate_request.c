@@ -454,18 +454,18 @@ err:
   return REDISMODULE_ERR;
 }
 
-static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryError *status) {
+static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *hasEmptyFilterValue, QueryError *status) {
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
     // Numeric filter
     NumericFilter **curpp = array_ensure_tail(&options->legacy.filters, NumericFilter *);
-    *curpp = NumericFilter_LegacyParse(ac, status);
+    *curpp = NumericFilter_LegacyParse(ac, hasEmptyFilterValue, status);
     if (!*curpp) {
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
     GeoFilter *cur_gf = rm_new(*cur_gf);
     array_ensure_append_1(options->legacy.geo_filters, cur_gf);
-    if (GeoFilter_LegacyParse(cur_gf, ac, status) != REDISMODULE_OK) {
+    if (GeoFilter_LegacyParse(cur_gf, ac, hasEmptyFilterValue, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
   } else {
@@ -509,6 +509,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   req->reqflags |= QEXEC_FORMAT_DEFAULT;
   bool optimization_specified = false;
+  bool hasEmptyFilterValue = false;
   while (!AC_IsAtEnd(ac)) {
     ACArgSpec *errSpec = NULL;
     int rv = AC_ParseArgSpec(ac, querySpecs, &errSpec);
@@ -546,7 +547,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       req->reqflags |= QEXEC_F_SEND_HIGHLIGHT;
 
     } else if ((req->reqflags & QEXEC_F_IS_SEARCH) &&
-               ((rv = parseQueryLegacyArgs(ac, searchOpts, status)) != ARG_UNKNOWN)) {
+               ((rv = parseQueryLegacyArgs(ac, searchOpts, &hasEmptyFilterValue, status)) != ARG_UNKNOWN)) {
       if (rv == ARG_ERROR) {
         return REDISMODULE_ERR;
       }
@@ -566,6 +567,12 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         break;
       }
     }
+  }
+
+  // In dialect 2, we require a non empty numeric filter
+  if (req->reqConfig.dialectVersion >= 2 && hasEmptyFilterValue){
+      QERR_MKBADARGS_FMT(status, "Numeric/Geo filter value/s cannot be empty");
+      return REDISMODULE_ERR;
   }
 
   if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
@@ -1126,15 +1133,17 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   SetSearchCtx(sctx, req);
   QueryAST *ast = &req->ast;
 
-  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->reqConfig.dialectVersion, status);
+  unsigned long dialectVersion = req->reqConfig.dialectVersion;
+
+  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
-  if (QAST_EvalParams(ast, opts, status) != REDISMODULE_OK) {
+  if (QAST_EvalParams(ast, opts, dialectVersion, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
-  if (applyGlobalFilters(opts, ast, sctx, req->reqConfig.dialectVersion, status) != REDISMODULE_OK) {
+  if (applyGlobalFilters(opts, ast, sctx, dialectVersion, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 

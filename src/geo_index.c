@@ -14,11 +14,20 @@
 
 static double extractUnitFactor(GeoDistance unit);
 
+static void CheckAndSetEmptyFilterValue(ArgsCursor *ac, bool *hasEmptyFilterValue) {
+  const char *val;
+
+  int rv = AC_GetString(ac, &val, NULL, AC_F_NOADVANCE);
+  if (rv == AC_OK && !(*val)) {
+    *hasEmptyFilterValue = true;
+  }
+}
+
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], and FILTER
  * is not passed to us.
  * The GEO filter syntax is (FILTER) <property> LONG LAT DIST m|km|ft|mi
  * Returns REDISMODUEL_OK or ERR  */
-int GeoFilter_LegacyParse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
+int GeoFilter_LegacyParse(GeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status) {
   *gf = (GeoFilter){0};
 
   if (AC_NumRemaining(ac) < 5) {
@@ -32,20 +41,33 @@ int GeoFilter_LegacyParse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
     QERR_MKBADARGS_AC(status, "<geo property>", rv);
     return REDISMODULE_ERR;
   }
-  if ((rv = AC_GetDouble(ac, &gf->lon, 0) != AC_OK)) {
+
+  if ((rv = AC_GetDouble(ac, &gf->lon, AC_F_NOADVANCE) != AC_OK)) {
     QERR_MKBADARGS_AC(status, "<lon>", rv);
     return REDISMODULE_ERR;
   }
+  if (gf->lon == 0) {
+    CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
+  }
+  AC_Advance(ac);
 
-  if ((rv = AC_GetDouble(ac, &gf->lat, 0)) != AC_OK) {
+  if ((rv = AC_GetDouble(ac, &gf->lat, AC_F_NOADVANCE)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<lat>", rv);
     return REDISMODULE_ERR;
   }
+  if (gf->lat == 0) {
+    CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
+  }
+  AC_Advance(ac);
 
-  if ((rv = AC_GetDouble(ac, &gf->radius, 0)) != AC_OK) {
+  if ((rv = AC_GetDouble(ac, &gf->radius, AC_F_NOADVANCE)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<radius>", rv);
     return REDISMODULE_ERR;
   }
+  if (gf->radius == 0) {
+    CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
+  }
+  AC_Advance(ac);
 
   const char *unitstr = AC_GetStringNC(ac, NULL);
   if ((gf->unitType = GeoDistance_Parse(unitstr)) == GEO_DISTANCE_INVALID) {
