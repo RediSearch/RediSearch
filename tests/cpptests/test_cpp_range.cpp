@@ -122,7 +122,7 @@ void testRangeIteratorHelper(bool isMulti) {
 
     while (IITER_HAS_NEXT(it)) {
 
-      int rc = it->Read(it->ctx, &res);
+      int rc = it->Read(it, &res);
       if (rc == INDEXREAD_EOF) {
         break;
       }
@@ -197,11 +197,11 @@ void testRangeIteratorHelper(bool isMulti) {
       // j==1 for ascending order, j==0 for descending order
       NumericFilter *flt = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j);
       IndexIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
-      size_t numEstimated = it->NumEstimated(it->ctx);
+      size_t numEstimated = it->NumEstimated(it);
       NumericFilter *fltLimited = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j);
       fltLimited->limit = 50;
       IndexIterator *itLimited = createNumericIterator(NULL, t, fltLimited, &config, &filterCtx);
-      size_t numEstimatedLimited = itLimited->NumEstimated(itLimited->ctx);
+      size_t numEstimatedLimited = itLimited->NumEstimated(itLimited);
       // printf("%f %f %ld %ld\n", rangeArray[i][0], rangeArray[i][1], numEstimated, numEstimatedLimited);
       ASSERT_TRUE(numEstimated >= numEstimatedLimited );
       it->Free(it);
@@ -392,7 +392,7 @@ TEST_F(RangeIndexTest, testNumericTreeOverhead) {
 
 //   NumericFilter *flt = NewNumericFilter(1000, 50000, 0, 0);
 //   IndexIterator *it = createNumericIterator(t, flt);
-//   ASSERT(it->HasNext(it->ctx));
+//   ASSERT(it->HasNext(it));
 
 //   count = 0;
 

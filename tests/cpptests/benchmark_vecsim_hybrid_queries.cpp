@@ -67,7 +67,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       IteratorsConfig config{};
       iteratorsConfig_init(&config);
       IndexIterator *ui = NewUnionIterator(irs, percent, 0, 1, QN_UNION, NULL, &config);
-      std::cout << "Expected child res: " << ui->NumEstimated(ui->ctx) << std::endl;
+      std::cout << "Expected child res: " << ui->NumEstimated(ui) << std::endl;
 
       float query[NUM_ITERATIONS][d];
       KNNVectorQuery top_k_query = {.vector = NULL, .vecLen = d, .k = k, .order = BY_SCORE};
@@ -91,7 +91,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       assert(!QueryError_HasError(&err));
 
       // Run in batches mode.
-      HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
+      HybridIterator *hr = (HybridIterator *)hybridIt;
       RSIndexResult *h = NULL;
       hr->searchMode = VECSIM_HYBRID_BATCHES;
 
@@ -109,7 +109,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
         hr->query.vector = query[i];
 
         // Run the iterator until it is depleted and save the results.
-        while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+        while (hybridIt->Read(hybridIt, &h) != INDEXREAD_EOF) {
           hnsw_ids[i][count++] = h->docId;
         }
         num_batches_count += hr->numIterations;
@@ -118,7 +118,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
         //        std::cout << hnsw_ids[i][j] << " - ";
         //      }
         //      std::cout << std::endl;
-        if (i != NUM_ITERATIONS - 1) hybridIt->Rewind(hybridIt->ctx);
+        if (i != NUM_ITERATIONS - 1) hybridIt->Rewind(hybridIt);
       }
       auto elapsed = std::chrono::high_resolution_clock::now() - start;
       auto search_time = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();
@@ -133,8 +133,8 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       //    std::cout << std::endl;
 
       // Rerun in AD_HOC BF mode with the same queries.
-      hybridIt->Rewind(hybridIt->ctx);
-      assert(hybridIt->HasNext(hybridIt->ctx));
+      hybridIt->Rewind(hybridIt);
+      assert(IITER_HAS_NEXT(hybridIt));
       hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
       start = std::chrono::high_resolution_clock::now();
 
@@ -142,7 +142,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
       for (size_t i = 0; i < NUM_ITERATIONS; i++) {
         count = 0;
         hr->query.vector = query[i];
-        while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+        while (hybridIt->Read(hybridIt, &h) != INDEXREAD_EOF) {
           bf_ids[i][count++] = h->docId;
         }
         //      std::cout << "results: ";
@@ -150,7 +150,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
         //        std::cout << bf_ids[i][j] << " - ";
         //      }
         //      std::cout << std::endl;
-        hybridIt->Rewind(hybridIt->ctx);
+        hybridIt->Rewind(hybridIt);
       }
       elapsed = std::chrono::high_resolution_clock::now() - start;
       search_time = std::chrono::duration_cast<std::chrono::microseconds>(elapsed).count();

@@ -220,12 +220,12 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   ASSERT_EQ(199, idx->lastId);
 
   for (int xx = 0; xx < 1; xx++) {
-    IndexReader *ir = NewTermIndexReader(idx);
+    IndexIterator *ir = NewReadIterator(NewTermIndexReader(idx));
     RSIndexResult *h = NULL;
 
     int n = 0;
     int rc;
-    while (!ir->atEnd_) {
+    while (IITER_HAS_NEXT(ir)) {
       if ((rc = IR_Read(ir, &h)) == INDEXREAD_EOF) {
         break;
       }
@@ -233,7 +233,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
       ASSERT_EQ(h->docId, n);
       n++;
     }
-    IR_Free(ir);
+    ReadIterator_Free(ir);
   }
 
   InvertedIndex_Free(idx);
@@ -310,7 +310,7 @@ TEST_F(IndexTest, testReadIterator) {
   IndexIterator *it = NewReadIterator(r1);
   int i = 1;
   while (IITER_HAS_NEXT(it)) {
-    if (it->Read(it->ctx, &h) == INDEXREAD_EOF) {
+    if (it->Read(it, &h) == INDEXREAD_EOF) {
       break;
     }
 
@@ -344,7 +344,7 @@ TEST_F(IndexTest, testUnion) {
     RSIndexResult *h = NULL;
     int expected[] = {2, 3, 4, 6, 8, 9, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30};
     int i = 0;
-    while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
+    while (ui->Read(ui, &h) != INDEXREAD_EOF) {
       // printf("%d <=> %d\n", h.docId, expected[i]);
       ASSERT_EQ(expected[i], h->docId);
       i++;
@@ -364,15 +364,15 @@ TEST_F(IndexTest, testUnion) {
 
 
     // test read after skip goes to next id
-    ui->Rewind(ui->ctx);
-    ASSERT_EQ(ui->SkipTo(ui->ctx, 6, &h), INDEXREAD_OK);
+    ui->Rewind(ui);
+    ASSERT_EQ(ui->SkipTo(ui, 6, &h), INDEXREAD_OK);
     ASSERT_EQ(h->docId, 6);
-    ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_OK);
+    ASSERT_EQ(ui->Read(ui, &h), INDEXREAD_OK);
     ASSERT_EQ(h->docId, 8);
     // test for last id
-    ASSERT_EQ(ui->SkipTo(ui->ctx, 30, &h), INDEXREAD_OK);
+    ASSERT_EQ(ui->SkipTo(ui, 30, &h), INDEXREAD_OK);
     ASSERT_EQ(h->docId, 30);
-    ASSERT_EQ(ui->Read(ui->ctx, &h), INDEXREAD_EOF);
+    ASSERT_EQ(ui->Read(ui, &h), INDEXREAD_EOF);
 
     ui->Free(ui);
     // IndexResult_Free(&h);
@@ -402,7 +402,7 @@ TEST_F(IndexTest, testWeight) {
   RSIndexResult *h = NULL;
   int expected[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20};
   int i = 0;
-  while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
+  while (ui->Read(ui, &h) != INDEXREAD_EOF) {
     // printf("%d <=> %d\n", h.docId, expected[i]);
     ASSERT_EQ(h->docId, expected[i++]);
     ASSERT_EQ(h->weight, 0.8);
@@ -440,7 +440,7 @@ TEST_F(IndexTest, testNot) {
   RSIndexResult *h = NULL;
   int expected[] = {1, 2, 4, 5, 7, 8, 10, 11, 13, 14, 16};
   int i = 0;
-  while (ui->Read(ui->ctx, &h) != INDEXREAD_EOF) {
+  while (ui->Read(ui, &h) != INDEXREAD_EOF) {
     // printf("%d <=> %d\n", h->docId, expected[i]);
     ASSERT_EQ(expected[i++], h->docId);
     // printf("%d, ", h.docId);
@@ -464,7 +464,7 @@ TEST_F(IndexTest, testPureNot) {
   int expected[] = {1,  2,  4,  5,  7,  8,  10, 11, 13, 14, 16, 17, 19,
                     20, 22, 23, 25, 26, 28, 29, 31, 32, 33, 34, 35};
   int i = 0;
-  while (ir->Read(ir->ctx, &h) != INDEXREAD_EOF) {
+  while (ir->Read(ir, &h) != INDEXREAD_EOF) {
 
     // printf("%d <=> %d\n", h->docId, expected[i]);
     ASSERT_EQ(expected[i++], h->docId);
@@ -540,7 +540,7 @@ TEST_F(IndexTest, testNumericInverted) {
   IndexIterator *it = NewReadIterator(ir);
   RSIndexResult *res;
   t_docId i = 1;
-  while (INDEXREAD_EOF != it->Read(it->ctx, &res)) {
+  while (INDEXREAD_EOF != it->Read(it, &res)) {
     // printf("%d %f\n", res->docId, res->num.value);
 
     ASSERT_EQ(i++, res->docId);
@@ -592,12 +592,12 @@ TEST_F(IndexTest, testNumericVaried) {
 
   for (size_t i = 0; i < numCount; i++) {
     // printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
-    int rv = it->Read(it->ctx, &res);
+    int rv = it->Read(it, &res);
     ASSERT_NE(INDEXREAD_EOF, rv);
     ASSERT_LT(fabs(nums[i] - res->num.value), 0.01);
   }
 
-  ASSERT_EQ(INDEXREAD_EOF, it->Read(it->ctx, &res));
+  ASSERT_EQ(INDEXREAD_EOF, it->Read(it, &res));
   InvertedIndex_Free(idx);
   it->Free(it);
 }
@@ -677,7 +677,7 @@ void testNumericEncodingHelper(bool isMulti) {
   for (size_t ii = 0; ii < numInfos; ii++) {
     // printf("\nReading [%lu]\n", ii);
 
-    int rc = it->Read(it->ctx, &res);
+    int rc = it->Read(it, &res);
     ASSERT_NE(rc, INDEXREAD_EOF);
     // printf("%lf <-> %lf\n", infos[ii].value, res->num.value);
     if (fabs(infos[ii].value) == INFINITY) {
@@ -707,9 +707,9 @@ TEST_F(IndexTest, testAbort) {
   IndexIterator *it = NewReadIterator(r);
   int n = 0;
   RSIndexResult *res;
-  while (INDEXREAD_EOF != it->Read(it->ctx, &res)) {
+  while (INDEXREAD_EOF != it->Read(it, &res)) {
     if (n == 50) {
-      it->Abort(it->ctx);
+      it->Abort(it);
     }
     n++;
   }
@@ -735,7 +735,7 @@ TEST_F(IndexTest, testIntersection) {
   RSIndexResult *h = NULL;
 
   uint32_t topFreq = 0;
-  while (ii->Read(ii->ctx, &h) != INDEXREAD_EOF) {
+  while (ii->Read(ii, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_Intersection);
     ASSERT_TRUE(RSIndexResult_IsAggregate(h));
     ASSERT_TRUE(RSIndexResult_HasOffsets(h));
@@ -764,15 +764,15 @@ TEST_F(IndexTest, testIntersection) {
   ASSERT_EQ(topFreq, 100000.0);
 
   // test read after skip goes to next id
-  ii->Rewind(ii->ctx);
-  ASSERT_EQ(ii->SkipTo(ii->ctx, 8, &h), INDEXREAD_OK);
+  ii->Rewind(ii);
+  ASSERT_EQ(ii->SkipTo(ii, 8, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, 8);
-  ASSERT_EQ(ii->Read(ii->ctx, &h), INDEXREAD_OK);
+  ASSERT_EQ(ii->Read(ii, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, 12);
   // test for last id
-  ASSERT_EQ(ii->SkipTo(ii->ctx, 200000, &h), INDEXREAD_OK);
+  ASSERT_EQ(ii->SkipTo(ii, 200000, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, 200000);
-  ASSERT_EQ(ii->Read(ii->ctx, &h), INDEXREAD_EOF);
+  ASSERT_EQ(ii->Read(ii, &h), INDEXREAD_EOF);
 
   ii->Free(ii);
   // IndexResult_Free(&h);
@@ -839,19 +839,19 @@ TEST_F(IndexTest, testHybridVector) {
   size_t count = 0;
 
   // Expect to get top 10 results in reverse order of the distance that passes the filter: 364, 368, ..., 400.
-  while (vecIt->Read(vecIt->ctx, &h) != INDEXREAD_EOF) {
+  while (vecIt->Read(vecIt, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_Metric);
     ASSERT_EQ(h->docId, max_id - count);
     count++;
   }
   ASSERT_EQ(count, k);
-  ASSERT_FALSE(vecIt->HasNext(vecIt->ctx));
+  ASSERT_FALSE(IITER_HAS_NEXT(vecIt));
 
-  vecIt->Rewind(vecIt->ctx);
-  ASSERT_TRUE(vecIt->HasNext(vecIt->ctx));
-  ASSERT_EQ(vecIt->NumEstimated(vecIt->ctx), k);
+  vecIt->Rewind(vecIt);
+  ASSERT_TRUE(IITER_HAS_NEXT(vecIt));
+  ASSERT_EQ(vecIt->NumEstimated(vecIt), k);
   // Read one result to verify that we get the one with best score after rewind.
-  ASSERT_EQ(vecIt->Read(vecIt->ctx, &h), INDEXREAD_OK);
+  ASSERT_EQ(vecIt->Read(vecIt, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, max_id);
   vecIt->Free(vecIt);
 
@@ -861,41 +861,41 @@ TEST_F(IndexTest, testHybridVector) {
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
 
-  HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
+  HybridIterator *hr = (HybridIterator *)hybridIt;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
   // Expect to get top 10 results in the right order of the distance that passes the filter: 400, 396, ..., 364.
   count = 0;
-  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+  while (hybridIt->Read(hybridIt, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get lower id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
   }
   ASSERT_EQ(count, k);
-  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
+  ASSERT_FALSE(IITER_HAS_NEXT(hybridIt));
 
-  hybridIt->Rewind(hybridIt->ctx);
-  ASSERT_TRUE(hybridIt->HasNext(hybridIt->ctx));
-  ASSERT_EQ(hybridIt->NumEstimated(hybridIt->ctx), k);
+  hybridIt->Rewind(hybridIt);
+  ASSERT_TRUE(IITER_HAS_NEXT(hybridIt));
+  ASSERT_EQ(hybridIt->NumEstimated(hybridIt), k);
 
   // check rerun and abort (go over only half of the results)
   count = 0;
   for (size_t i = 0; i < k/2; i++) {
-    ASSERT_EQ(hybridIt->Read(hybridIt->ctx, &h), INDEXREAD_OK);
+    ASSERT_EQ(hybridIt->Read(hybridIt, &h), INDEXREAD_OK);
     ASSERT_EQ(h->type, RSResultType_Metric);
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
   }
-  ASSERT_EQ(hybridIt->LastDocId(hybridIt->ctx), max_id - step*((k/2)-1));
-  hybridIt->Abort(hybridIt->ctx);
-  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
+  ASSERT_EQ(hybridIt->LastDocId, max_id - step*((k/2)-1));
+  hybridIt->Abort(hybridIt);
+  ASSERT_FALSE(IITER_HAS_NEXT(hybridIt));
 
   // Rerun in AD_HOC BF mode.
-  hybridIt->Rewind(hybridIt->ctx);
+  hybridIt->Rewind(hybridIt);
   hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
   count = 0;
-  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+  while (hybridIt->Read(hybridIt, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
@@ -910,12 +910,12 @@ TEST_F(IndexTest, testHybridVector) {
   hParams.childIt = ir;
   hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
-  hr = (HybridIterator *)hybridIt->ctx;
+  hr = (HybridIterator *)hybridIt;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
   // This time, result is a tree with 2 children: vector score and subtree of terms (for scoring).
   count = 0;
-  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+  while (hybridIt->Read(hybridIt, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(RSIndexResult_IsAggregate(h));
     ASSERT_EQ(h->agg.numChildren, 2);
@@ -925,13 +925,13 @@ TEST_F(IndexTest, testHybridVector) {
     ASSERT_EQ(h->docId, expected_id);
   }
   ASSERT_EQ(count, k);
-  ASSERT_FALSE(hybridIt->HasNext(hybridIt->ctx));
+  ASSERT_FALSE(IITER_HAS_NEXT(hybridIt));
 
   // Rerun in AD_HOC BF mode.
-  hybridIt->Rewind(hybridIt->ctx);
+  hybridIt->Rewind(hybridIt);
   hr->searchMode = VECSIM_HYBRID_ADHOC_BF;
   count = 0;
-  while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
+  while (hybridIt->Read(hybridIt, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(RSIndexResult_IsAggregate(h));
     ASSERT_EQ(h->agg.numChildren, 2);
@@ -1043,7 +1043,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
 
   // Expect to get top 76 results that are within the range, with ids: 25, 26, ... , 100
   VecSim_Normalize(query, d, t);
-  while (vecIt->Read(vecIt->ctx, &h) != INDEXREAD_EOF) {
+  while (vecIt->Read(vecIt, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_Metric);
     ASSERT_EQ(h->docId, lowest_id + count);
     double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
@@ -1052,55 +1052,55 @@ TEST_F(IndexTest, testMetric_VectorRange) {
     count++;
   }
   ASSERT_EQ(count, n_expected_res);
-  ASSERT_FALSE(vecIt->HasNext(vecIt->ctx));
+  ASSERT_FALSE(IITER_HAS_NEXT(vecIt));
 
-  vecIt->Rewind(vecIt->ctx);
-  ASSERT_TRUE(vecIt->HasNext(vecIt->ctx));
-  ASSERT_EQ(vecIt->NumEstimated(vecIt->ctx), n_expected_res);
+  vecIt->Rewind(vecIt);
+  ASSERT_TRUE(IITER_HAS_NEXT(vecIt));
+  ASSERT_EQ(vecIt->NumEstimated(vecIt), n_expected_res);
 
   // Read one result to verify that we get the minimum id after rewind.
-  ASSERT_EQ(vecIt->Read(vecIt->ctx, &h), INDEXREAD_OK);
+  ASSERT_EQ(vecIt->Read(vecIt, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, lowest_id);
 
   // Test valid combinations of SkipTo
-  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, lowest_id + 10, &h), INDEXREAD_OK);
+  ASSERT_EQ(vecIt->SkipTo(vecIt, lowest_id + 10, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, lowest_id + 10);
   double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
   ASSERT_EQ(h->num.value, exp_dist);
   ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
-  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id + 10);
+  ASSERT_EQ(vecIt->LastDocId, lowest_id + 10);
 
-  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n-1, &h), INDEXREAD_OK);
+  ASSERT_EQ(vecIt->SkipTo(vecIt, n-1, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, n-1);
   exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
   ASSERT_EQ(h->num.value, exp_dist);
   ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
-  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), n-1);
+  ASSERT_EQ(vecIt->LastDocId, n-1);
 
   // Invalid SkipTo
-  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n+1, &h), INDEXREAD_EOF);
-  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), n);
-  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n, &h), INDEXREAD_EOF);
-  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, lowest_id + 10, &h), INDEXREAD_EOF);
+  ASSERT_EQ(vecIt->SkipTo(vecIt, n+1, &h), INDEXREAD_EOF);
+  ASSERT_EQ(vecIt->LastDocId, n);
+  ASSERT_EQ(vecIt->SkipTo(vecIt, n, &h), INDEXREAD_EOF);
+  ASSERT_EQ(vecIt->SkipTo(vecIt, lowest_id + 10, &h), INDEXREAD_EOF);
 
   // Rewind and test skipping to the first id.
-  vecIt->Rewind(vecIt->ctx);
-  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), 0);
-  ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, lowest_id, &h), INDEXREAD_OK);
-  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id);
+  vecIt->Rewind(vecIt);
+  ASSERT_EQ(vecIt->LastDocId, 0);
+  ASSERT_EQ(vecIt->SkipTo(vecIt, lowest_id, &h), INDEXREAD_OK);
+  ASSERT_EQ(vecIt->LastDocId, lowest_id);
 
   // check rerun and abort (go over only half of the results)
   count = 1;
   for (size_t i = 0; i < n_expected_res/2; i++) {
-    ASSERT_EQ(vecIt->Read(vecIt->ctx, &h), INDEXREAD_OK);
+    ASSERT_EQ(vecIt->Read(vecIt, &h), INDEXREAD_OK);
     ASSERT_EQ(h->type, RSResultType_Metric);
     ASSERT_EQ(h->docId, lowest_id + count);
     count++;
   }
-  ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id + count - 1);
-  ASSERT_TRUE(vecIt->HasNext(vecIt->ctx));
-  vecIt->Abort(vecIt->ctx);
-  ASSERT_FALSE(vecIt->HasNext(vecIt->ctx));
+  ASSERT_EQ(vecIt->LastDocId, lowest_id + count - 1);
+  ASSERT_TRUE(IITER_HAS_NEXT(vecIt));
+  vecIt->Abort(vecIt);
+  ASSERT_FALSE(IITER_HAS_NEXT(vecIt));
 
   vecIt->Free(vecIt);
   VecSimIndex_Free(index);
@@ -1123,26 +1123,26 @@ TEST_F(IndexTest, testMetric_SkipTo) {
   // Copy the behaviour of READ_ITERATOR in terms of SkipTo. That is, the iterator will return the
   // next docId whose id is equal or greater than the given id, as if we call Read and returned
   // that id (hence the iterator will advance its pointer).
-  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 1, &h), INDEXREAD_NOTFOUND);
+  ASSERT_EQ(metric_it->SkipTo(metric_it, 1, &h), INDEXREAD_NOTFOUND);
   ASSERT_EQ(h->docId, 2);
 
   // This situation should not occur in practice, but this is READ_ITERATOR's behavior.
-  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 2, &h), INDEXREAD_NOTFOUND);
+  ASSERT_EQ(metric_it->SkipTo(metric_it, 2, &h), INDEXREAD_NOTFOUND);
   ASSERT_EQ(h->docId, 4);
 
-  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 8, &h), INDEXREAD_OK);
+  ASSERT_EQ(metric_it->SkipTo(metric_it, 8, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, 8);
 
-  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 9, &h), INDEXREAD_NOTFOUND);
+  ASSERT_EQ(metric_it->SkipTo(metric_it, 9, &h), INDEXREAD_NOTFOUND);
   ASSERT_EQ(h->docId, 10);
 
-  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 12, &h), INDEXREAD_NOTFOUND);
+  ASSERT_EQ(metric_it->SkipTo(metric_it, 12, &h), INDEXREAD_NOTFOUND);
   ASSERT_EQ(h->docId, 15);
 
-  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 20, &h), INDEXREAD_OK);
+  ASSERT_EQ(metric_it->SkipTo(metric_it, 20, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, 20);
 
-  ASSERT_EQ(metric_it->SkipTo(metric_it->ctx, 21, &h), INDEXREAD_EOF);
+  ASSERT_EQ(metric_it->SkipTo(metric_it, 21, &h), INDEXREAD_EOF);
   ASSERT_EQ(h->docId, 20);
 
   metric_it->Free(metric_it);
@@ -1555,7 +1555,7 @@ TEST_F(IndexTest, testDeltaSplits) {
   InvertedIndex_WriteForwardIndexEntry(idx, enc, &ent);
   ASSERT_EQ(idx->size, 2);
 
-  IndexReader *ir = NewTermIndexReader(idx);
+  IndexIterator *ir = NewReadIterator(NewTermIndexReader(idx));
   RSIndexResult *h = NULL;
   ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &h));
   ASSERT_EQ(1, h->docId);
@@ -1571,7 +1571,7 @@ TEST_F(IndexTest, testDeltaSplits) {
 
   ASSERT_EQ(INDEXREAD_EOF, IR_Read(ir, &h));
 
-  IR_Free(ir);
+  ReadIterator_Free(ir);
   InvertedIndex_Free(idx);
 }
 
@@ -1588,7 +1588,7 @@ TEST_F(IndexTest, testRawDocId) {
   }
 
   // Test that we can read them back
-  IndexReader *ir = NewTermIndexReader(idx);
+  IndexIterator *ir = NewReadIterator(NewTermIndexReader(idx));
   RSIndexResult *cur;
   for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
     ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &cur));
@@ -1597,22 +1597,25 @@ TEST_F(IndexTest, testRawDocId) {
   ASSERT_EQ(INDEXREAD_EOF, IR_Read(ir, &cur));
 
   // Test that we can skip to all the ids
+  IndexReader *r = (IndexReader *)ir;
   for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id++) {
     IR_Rewind(ir);
     int rc = IR_SkipTo(ir, id, &cur);
     if (id % 2 == 0) {
       ASSERT_EQ(INDEXREAD_NOTFOUND, rc);
-      ASSERT_EQ(id + 1, ir->lastId);
+      ASSERT_EQ(id + 1, r->lastId);
+      ASSERT_EQ(id + 1, ir->LastDocId);
       ASSERT_EQ(id + 1, cur->docId) << "Expected to skip to " << id + 1 << " but got " << cur->docId;
     } else {
       ASSERT_EQ(INDEXREAD_OK, rc);
-      ASSERT_EQ(id, ir->lastId);
+      ASSERT_EQ(id, r->lastId);
+      ASSERT_EQ(id, ir->LastDocId);
       ASSERT_EQ(id, cur->docId);
     }
   }
 
   // Clean up
-  IR_Free(ir);
+  ReadIterator_Free(ir);
   InvertedIndex_Free(idx);
   RSGlobalConfig.invertedIndexRawDocidEncoding = previousConfig;
 }
