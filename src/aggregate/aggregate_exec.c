@@ -1312,6 +1312,15 @@ int DEBUG_RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   return DEBUG_execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, EXEC_DEBUG);
 }
 
+// Return True if we are in a cluster environment running the coordinator
+static bool isClusterCoord(AREQ_Debug *debug_req) {
+  if ((GetNumShards_UnSafe() > 1) && !(debug_req->r.reqflags & QEXEC_F_INTERNAL)) {
+    return true;
+  }
+
+  return false;
+}
+
 int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   RedisModuleString **debug_argv = debug_req->debug_params.debug_argv;
   unsigned long long debug_params_count = debug_req->debug_params.debug_params_count;
@@ -1324,7 +1333,10 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
     const char *cmd = RedisModule_StringPtrLen(debug_argv[debug_argv_iter++], &n);
     // Currently returns an error, regardless the timeout policy to align with the query command behaviour.
     if (strncasecmp(cmd, "TIMEOUT_QUERY_BUILD", n) == 0) {
-      // Simulate a timeout error
+      if (isClusterCoord(debug_req)) {
+        break; // nothing to do for cluster coordinator. replys from the shards will return an error.
+      }
+      // Simulate a timeout error returned from the shards
       QueryError_SetCode(status, QUERY_ETIMEDOUT);
       return REDISMODULE_ERR;
     } else if (strncasecmp(cmd, "TIMEOUT_AFTER_N", n) == 0) {
@@ -1337,7 +1349,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       if (debug_argv_iter != debug_params_count) {
         // timeout should be applied only for shard commands
         cmd = RedisModule_StringPtrLen(debug_argv[debug_argv_iter++], &n);
-        if ((GetNumShards_UnSafe() > 1) && (strncasecmp(cmd, "INTERNAL_ONLY", n) == 0) && !(debug_req->r.reqflags & QEXEC_F_INTERNAL)) {
+        if (isClusterCoord(debug_req) && (strncasecmp(cmd, "INTERNAL_ONLY", n) == 0)) {
           break;
         }
       }

@@ -394,10 +394,8 @@ def testHNSWdump_badParams(env: Env):
 
 class TestQueryDebugCommands(object):
     def __init__(self):
-        # self.workers_count = 2
-        # self.env = Env(testName="testing query debug commands", moduleArgs=f'WORKERS {self.workers_count}')
-        # self.env = Env(testName="testing query debug commands", protocol=protocol, moduleArgs=f'WORKERS {workers_count}')
-        self.env = Env(testName="testing query debug commands", protocol=3)
+        # Set the module default behaviour to non strict timeout policy, as this is the main focus of this test suite
+        self.env = Env(testName="testing query debug commands", protocol=3, moduleArgs='ON_TIMEOUT RETURN')
 
         conn = getConnectionByEnv(self.env)
 
@@ -442,7 +440,6 @@ class TestQueryDebugCommands(object):
         basic_debug_query = self.basic_debug_query
 
         # Test invalid params
-        # expected_cmd = [debug_cmd(), 'FT.' + cmd, 'idx', '*', 'TIMEOUT_AFTER_N', 3, 'DEBUG_PARAMS_COUNT', 2]
         env.expect(*basic_debug_query).error().contains('wrong number of arguments for')
 
         basic_debug_query_with_args = [*basic_debug_query, 'limit', 0, 0, 'timeout', 10000] # add random params to reach the minimum required to run the debug command
@@ -484,8 +481,21 @@ class TestQueryDebugCommands(object):
 
     def TimeoutQueryBuild(self):
         env = self.env
-        with env.assertResponseError(contained="Timeout limit was reached"):
-            runDebugQueryCommandTimeoutBuild(env, self.basic_query)
+        if env.isCluster():
+            res = runDebugQueryCommandTimeoutBuild(env, self.basic_query)
+            # expect empty results
+            env.assertEqual(len(res["results"]), 0)
+        else:
+            with env.assertResponseError(contained="Timeout limit was reached"):
+                runDebugQueryCommandTimeoutBuild(env, self.basic_query)
+
+    def testTimeoutQueryBuildSearch(self):
+        self.setBasicDebugQuery("SEARCH")
+        self.TimeoutQueryBuild()
+
+    def testTimeoutQueryBuildAggregate(self):
+        self.setBasicDebugQuery("AGGREGATE")
+        self.TimeoutQueryBuild()
 
     def SearchDebug(self):
         self.setBasicDebugQuery("SEARCH")

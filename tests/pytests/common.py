@@ -833,5 +833,4 @@ def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, interna
 
 def runDebugQueryCommandTimeoutBuild(env, query_cmd):
     debug_params = ['TIMEOUT_QUERY_BUILD']
-    debug_params_count = 1
     return runDebugQueryCommand(env, query_cmd, debug_params)
