@@ -698,7 +698,7 @@ IndexIterator *NewIntersectIterator(IndexIterator **its_, size_t num, DocTable *
 static bool II_AgreeOnDocId(IntersectIterator *ic) {
   t_docId docId = ic->base.LastDocId;
   for (int i = 0; i < ic->num; i++) {
-    RS_LOG_ASSERT_FMT(ic->its[i]->LastDocId <= docId, "docId %d, docIds[%d] %d", docId, i, ic->its[i]->LastDocId);
+    RS_LOG_ASSERT_FMT(ic->its[i]->LastDocId <= docId, "docId %zu, docIds[%d] %zu", docId, i, ic->its[i]->LastDocId);
     if (ic->its[i]->LastDocId < docId) {
       int rc = ic->its[i]->SkipTo(ic->its[i], docId, &ic->its[i]->current);
       if (rc == INDEXREAD_EOF) {
