@@ -21,7 +21,6 @@ jobs:
     with:
       env: ${{ vars.RUNS_ON }}
       test-config: QUICK=1
-      # get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       get-redis: unstable
     secrets: inherit
 
