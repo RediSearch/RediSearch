@@ -268,7 +268,7 @@ int testDFAFilter() {
   clock_gettime(CLOCK_REALTIME, &start_time);
 
   for (i = 0; terms[i] != NULL; i++) {
-    runes = strToFoldedRunes(terms[i], &rlen);
+    runes = strToSingleCodepointFoldedRunes(terms[i], &rlen);
     DFAFilter *fc = NewDFAFilter(runes, rlen, 2, 0);
 
     TrieIterator *it = TrieNode_Iterate(root, FoldingFilterFunc, StackPop, fc);
