@@ -437,7 +437,7 @@ class TestQueryDebugCommands(object):
 
         return res
 
-    def QueryDebug(self, depth=0):
+    def QueryDebug(self):
         env = self.env
         basic_debug_query = self.basic_debug_query
 
@@ -445,7 +445,7 @@ class TestQueryDebugCommands(object):
         # expected_cmd = [debug_cmd(), 'FT.' + cmd, 'idx', '*', 'TIMEOUT_AFTER_N', 3, 'DEBUG_PARAMS_COUNT', 2]
         env.expect(*basic_debug_query).error().contains('wrong number of arguments for')
 
-        basic_debug_query_with_args = [*basic_debug_query, 'limit', 0, 0, 'timeout', 10000] # add random params to reach the minimum required
+        basic_debug_query_with_args = [*basic_debug_query, 'limit', 0, 0, 'timeout', 10000] # add random params to reach the minimum required to run the debug command
         env.expect(*basic_debug_query_with_args).error().contains('DEBUG_PARAMS_COUNT arg is missing')
         test_cmd = [*basic_debug_query_with_args, 'DEBUG_PARAMS_COUNT', 'meow'] # expect a number
         env.expect(*test_cmd).error().contains('Invalid DEBUG_PARAMS_COUNT count')
@@ -457,7 +457,7 @@ class TestQueryDebugCommands(object):
         # ft.<cmd> idx * TIMEOUT_AFTER_N 0 -> expect empty result
         debug_params = ['TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2]
         res = env.cmd(*basic_debug_query, *debug_params)
-        self.verifyResultsResp3(res, 0, "QueryDebug:", depth=depth+1)
+        self.verifyResultsResp3(res, 0, "QueryDebug:")
 
     def QueryWithSorter(self, limit=2, sortby_params=[], depth=0):
         # For queries with sorter, the LIMIT determines the heap size.
@@ -477,10 +477,15 @@ class TestQueryDebugCommands(object):
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'FAIL').ok()
 
         with env.assertResponseError(contained="Timeout limit was reached"):
-            runDebugQueryCommand(env, self.basic_query, 2, depth=1)
+            runDebugQueryCommandTimeoutAfterN(env, self.basic_query, 2)
 
         # restore the default policy
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
+
+    def TimeoutQueryBuild(self):
+        env = self.env
+        with env.assertResponseError(contained="Timeout limit was reached"):
+            runDebugQueryCommandTimeoutBuild(env, self.basic_query)
 
     def SearchDebug(self):
         self.setBasicDebugQuery("SEARCH")
@@ -502,6 +507,8 @@ class TestQueryDebugCommands(object):
         self.QueryWithLimit(basic_debug_query, timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
 
         self.StrictPolicy()
+
+        self.TimeoutQueryBuild()
 
     def testSearchDebug(self):
         self.SearchDebug()
@@ -576,6 +583,8 @@ class TestQueryDebugCommands(object):
         self.verifyResultsResp3(res, cursor_count, should_timeout=should_timeout, message="AggregateDebug with cursor count lower than timeout_res_count:")
 
         self.StrictPolicy()
+
+        self.TimeoutQueryBuild()
 
     def testAggregateDebug(self):
         self.AggregateDebug()

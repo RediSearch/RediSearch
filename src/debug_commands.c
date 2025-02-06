@@ -1316,7 +1316,7 @@ DEBUG_COMMAND(DistSearchCommand_DebugWrapper) {
     return DEBUG_RSSearchCommand(ctx, ++argv, --argc);
   }
 
-  DistSearchCommand(ctx, argv, argc);
+  return DistSearchCommand(ctx, argv, argc);
 }
 
 DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
@@ -1331,15 +1331,15 @@ DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
     return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
   }
 
-  DistAggregateCommand(ctx, argv, argc);
+  return DistAggregateCommand(ctx, argv, argc);
 }
 
 DEBUG_COMMAND(RSSearchCommandShard) {
-  DEBUG_RSSearchCommand(ctx, ++argv, --argc);
+  return DEBUG_RSSearchCommand(ctx, ++argv, --argc);
 }
 
 DEBUG_COMMAND(RSAggregateCommandShard) {
-  DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
+  return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
 }
 
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.

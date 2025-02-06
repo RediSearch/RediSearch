@@ -822,10 +822,16 @@ def VerifyTimeoutWarningResp3(env, res, message="", depth=0):
     if (res['warning']):
         env.assertContains("Timeout", res["warning"][0], message=message + " expected timeout warning", depth=depth+1)
 
-def runDebugQueryCommand(env, query_cmd, timeout_res_count, internal_only=False, message='', depth=0):
+def runDebugQueryCommand(env, query_cmd, debug_params):
+    return env.cmd(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params))
+
+def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, internal_only=False):
     debug_params = ['TIMEOUT_AFTER_N', timeout_res_count]
-    debug_params_count = 2
     if internal_only:
         debug_params.append("INTERNAL_ONLY")
-        debug_params_count += 1
-    return env.cmd(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', debug_params_count)
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def runDebugQueryCommandTimeoutBuild(env, query_cmd):
+    debug_params = ['TIMEOUT_QUERY_BUILD']
+    debug_params_count = 1
+    return runDebugQueryCommand(env, query_cmd, debug_params)
