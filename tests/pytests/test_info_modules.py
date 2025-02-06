@@ -307,15 +307,17 @@ def test_redis_info():
   # env.assertGreater(res['search_total_indexing_time'], 0)   # Introduces flakiness
 
   # ========== Cursors statistics ==========
-  env.assertEqual(res['search_global_idle'], 0)
-  env.assertEqual(res['search_global_total'], 0)
+  env.assertEqual(res['search_global_idle_user'], 0)
+  env.assertEqual(res['search_global_idle_internal'], 0)
+  env.assertEqual(res['search_global_total_user'], 0)
+  env.assertEqual(res['search_global_total_internal'], 0)
 
   # ========== GC statistics ==========
-  env.assertEqual(res['search_bytes_collected'], 0)
-  env.assertEqual(res['search_total_cycles'], 0)
-  env.assertEqual(res['search_total_ms_run'], 0)
-  env.assertEqual(res['search_total_docs_not_collected_by_gc'], 0)
-  env.assertEqual(res['search_marked_deleted_vectors'], 0)
+  env.assertEqual(res['search_gc_bytes_collected'], 0)
+  env.assertEqual(res['search_gc_total_cycles'], 0)
+  env.assertEqual(res['search_gc_total_ms_run'], 0)
+  env.assertEqual(res['search_gc_total_docs_not_collected'], 0)
+  env.assertEqual(res['search_gc_marked_deleted_vectors'], 0)
 
   # ========== Dialect statistics ==========
   env.assertEqual(res['search_dialect_1'], 0)
@@ -338,8 +340,11 @@ def test_redis_info():
   # On cluster mode, we have shard cursor on each master shard for the
   # aggregation command, yet the `INFO` command is per-shard, so the master shard
   # we enquery has 2 cursors (coord & shard).
-  env.assertEqual(res['search_global_idle'], 1 if not env.isCluster() else 2)
-  env.assertEqual(res['search_global_total'], 1 if not env.isCluster() else 2)
+  env.assertEqual(res['search_global_idle_user'], 1)
+  env.assertEqual(res['search_global_total_user'], 1)
+  env.assertEqual(res['search_global_idle_internal'], 1 if env.isCluster() else 0)
+  env.assertEqual(res['search_global_total_internal'], 1 if env.isCluster() else 0)
+
   env.assertEqual(res['search_dialect_2'], 1)
 
   # Delete all docs
@@ -351,9 +356,9 @@ def test_redis_info():
 
   # Call `INFO` and check that the data is updated accordingly
   res = env.cmd('INFO', 'MODULES')
-  env.assertGreater(res['search_bytes_collected'], 0)
-  env.assertGreater(res['search_total_cycles'], 0)
-  env.assertGreater(res['search_total_ms_run'], 0)
+  env.assertGreater(res['search_gc_bytes_collected'], 0)
+  env.assertGreater(res['search_gc_total_cycles'], 0)
+  env.assertGreater(res['search_gc_total_ms_run'], 0)
 
 
 def test_counting_queries(env: Env):
@@ -492,7 +497,7 @@ def test_redis_info_modules_vecsim():
   info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
   env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
-  env.assertEqual(info['search_marked_deleted_vectors'], 0)
+  env.assertEqual(info['search_gc_marked_deleted_vectors'], 0)
 
   env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
   set_doc().equal(0) # Add (override) the document for the second time
@@ -500,7 +505,7 @@ def test_redis_info_modules_vecsim():
   info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
   env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
-  env.assertEqual(info['search_marked_deleted_vectors'], 2) # 2 vectors were marked as deleted (1 for each index)
+  env.assertEqual(info['search_gc_marked_deleted_vectors'], 2) # 2 vectors were marked as deleted (1 for each index)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
   env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
 
@@ -510,7 +515,7 @@ def test_redis_info_modules_vecsim():
   info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
   env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
-  env.assertEqual(info['search_marked_deleted_vectors'], 0)
+  env.assertEqual(info['search_gc_marked_deleted_vectors'], 0)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
   env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
 
@@ -521,7 +526,7 @@ def test_indexes_logically_deleted_docs(env):
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
   env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
   set_doc = lambda doc_id: env.expect('HSET', doc_id, 'text', 'some text', 'tag', 'tag1', 'num', 1)
-  get_logically_deleted_docs = lambda: env.cmd('INFO', 'MODULES')['search_total_docs_not_collected_by_gc']
+  get_logically_deleted_docs = lambda: env.cmd('INFO', 'MODULES')['search_gc_total_docs_not_collected']
 
   # Init state
   env.assertEqual(get_logically_deleted_docs(), 0)

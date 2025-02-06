@@ -208,7 +208,7 @@ void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldDouble(ctx, "gc_bytes_collected", stats.totalCollectedBytes);
   RedisModule_InfoAddFieldDouble(ctx, "gc_total_cycles", stats.totalCycles);
   RedisModule_InfoAddFieldDouble(ctx, "gc_total_ms_run", stats.totalTime);
-  RedisModule_InfoAddFieldULongLong(ctx, "gc_total_docs_not_collected_by_gc", IndexesGlobalStats_GetLogicallyDeletedDocs());
+  RedisModule_InfoAddFieldULongLong(ctx, "gc_total_docs_not_collected", IndexesGlobalStats_GetLogicallyDeletedDocs());
   RedisModule_InfoAddFieldULongLong(ctx, "gc_marked_deleted_vectors", total_info->fields_stats.total_mark_deleted_vectors);
 }
 
