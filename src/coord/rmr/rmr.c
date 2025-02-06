@@ -473,13 +473,15 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx) {
 
 // Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible to other threads
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
-  short inProcess = __atomic_sub_fetch(&ctx->it->ctx.inProcess, 1, __ATOMIC_RELEASE);
-  if (!inProcess) {
-    // Unblock the channel before calling `ProcessDone`, as it may trigger the freeing of the iterator
+  // Assuming no race condition with other shards, reading and testing inProcess not necessarily need to be atomic.
+  short isLast = __atomic_load_n(&ctx->it->ctx.inProcess, __ATOMIC_RELAXED);
+  // This is the last shards results, we can release the iterator
+  if (isLast == 1) {
     MRChannel_Unblock(ctx->it->ctx.chan);
     MRIterator_Release(ctx->it);
     RQ_Done(rq_g);
   }
+  __atomic_sub_fetch(&ctx->it->ctx.inProcess, 1, __ATOMIC_RELEASE);
 }
 
 // Use before obtaining `pending` (or any other variable of the iterator) to make sure it's synchronized with other threads
