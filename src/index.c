@@ -22,12 +22,10 @@
 #include "optimizer_reader.h"
 #include "util/units.h"
 
-static int UI_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit);
 static int UI_SkipToHigh(IndexIterator *base, t_docId docId, RSIndexResult **hit);
 static int UI_SkipToQuick(IndexIterator *base, t_docId docId, RSIndexResult **hit);
 static int UI_SkipToFull(IndexIterator *base, t_docId docId, RSIndexResult **hit);
 static inline int UI_ReadUnsorted(IndexIterator *base, RSIndexResult **hit);
-static int UI_ReadSorted(IndexIterator *base, RSIndexResult **hit);
 static int UI_ReadFull(IndexIterator *base, RSIndexResult **hit);
 static int UI_ReadQuick(IndexIterator *base, RSIndexResult **hit);
 static int UI_ReadSortedHigh(IndexIterator *base, RSIndexResult **hit);
@@ -438,7 +436,7 @@ static inline int UI_ReadSortedHigh(IndexIterator *base, RSIndexResult **hit) {
 static int UI_SkipToHigh(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
 
   if (docId == 0) {
-    return UI_ReadSorted(base, hit);
+    // return UI_ReadSorted(base, hit);
   }
 
   if (!IITER_HAS_NEXT(base)) {
@@ -939,7 +937,7 @@ ok:
     // This doc-id was deleted
     return INDEXREAD_NOTFOUND;
   }
-  RS_LOG_ASSERT_FMT(base->LastDocId == docId, "Expected docId to be %llu, got %llu", docId, base->LastDocId);
+  RS_LOG_ASSERT_FMT(base->LastDocId == docId, "Expected docId to be %zu, got %zu", docId, base->LastDocId);
   return INDEXREAD_OK;
 }
 
