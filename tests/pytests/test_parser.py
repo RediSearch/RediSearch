@@ -668,7 +668,7 @@ TAG:@tag {
   }
 }
 '''[1:])
-    env.expect('FT.SEARCh', 'idx', '@tag:{as is the with by}', 'NOCONTENT').equal([1, 'doc1'])
+    env.expect('FT.SEARCH', 'idx', '@tag:{as is the with by}', 'NOCONTENT').equal([1, 'doc1'])
 
     conn.execute_command('HSET', 'doc3', 'tag', 'cat dog')
     conn.execute_command('HSET', 'doc4', 'tag', 'cat with dog')
@@ -682,6 +682,20 @@ TAG:@tag {
 }
 '''[1:])
     env.expect('FT.SEARCH', 'idx', '@tag:{cat with dog}', 'NOCONTENT').equal([1, 'doc4'])
+
+    env.expect('FT.CREATE', 'custom_idx', 'STOPWORDS', 2, 'foo', 'bar', 'SCHEMA', 'tag', 'TAG').ok()
+    conn.execute_command('HSET', 'doc5', 'tag', 'foo bar')
+    conn.execute_command('HSET', 'doc7', 'tag', 'cat foo dog')
+    env.expect('FT.EXPLAIN', 'custom_idx', '@tag:{foo bar}').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    foo
+    bar
+  }
+}
+'''[1:])
+    env.expect('FT.SEARCH', 'custom_idx', '@tag:{foo bar}', 'NOCONTENT').equal([1, 'doc5'])
+    env.expect('FT.SEARCH', 'idx', '@tag:{cat foo dog}', 'NOCONTENT').equal([1, 'doc7'])
 
 def testTagQueryWithOR_V2(env):
   env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
