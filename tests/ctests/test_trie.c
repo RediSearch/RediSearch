@@ -93,7 +93,7 @@ int testRuneUtil() {
   free(backUnicodeStr);
 
   size_t foldedLen;
-  rune *foldedRunes = strToFoldedRunes("yY", &foldedLen);
+  rune *foldedRunes = strToSingleCodepointFoldedRunes("yY", &foldedLen);
   ASSERT_EQUAL(foldedLen, 2);
   ASSERT_EQUAL(foldedRunes[0], 121);
   ASSERT_EQUAL(foldedRunes[1], 121);
@@ -101,7 +101,7 @@ int testRuneUtil() {
 
   // TESTING ∏ and Å because ∏ doesn't have a lowercase form, but Å does
   size_t foldedUnicodeLen;
-  rune *foldedUnicodeRunes = strToFoldedRunes("Ø∏πåÅ", &foldedUnicodeLen);
+  rune *foldedUnicodeRunes = strToSingleCodepointFoldedRunes("Ø∏πåÅ", &foldedUnicodeLen);
   ASSERT_EQUAL(runeFold(foldedUnicodeRunes[1]), foldedUnicodeRunes[1]);
   ASSERT_EQUAL(foldedUnicodeLen, 5);
   ASSERT_EQUAL(foldedUnicodeRunes[0], 248);

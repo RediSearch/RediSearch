@@ -171,6 +171,7 @@ def testMultibyteText(env):
 
         # Test fuzzy search
         expected = [2, 'doc:eszett_1', 'doc:eszett_2']
+        # Distance 1
         res = conn.execute_command(
             'FT.SEARCH', 'idx', "@t:(%GRÜßET%)", 'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, expected, message = f'Dialect: {dialect}')
@@ -180,10 +181,12 @@ def testMultibyteText(env):
             'FT.SEARCH', 'idx', "@t:(%GRÜSSET%)", 'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, [0])
 
+        # Distance 0
         res = conn.execute_command(
             'FT.SEARCH', 'idx', "@t:(%grüßen%)", 'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, expected)
 
+        # Distance 2, G was replaced by C, N was replaced by T
         res = conn.execute_command(
             'FT.SEARCH', 'idx', "@t:(%%CRÜßET%%)", 'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, expected)
