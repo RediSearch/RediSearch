@@ -177,10 +177,10 @@ int Cursors_Purge(CursorList *cl, uint64_t cid);
 int Cursors_CollectIdle(CursorList *cl);
 
 typedef struct CursorsInfoStats {
-  size_t total_user;
-  size_t total_idle_user;
-  size_t total_internal;
-  size_t total_idle_internal;
+  size_t total_user;                // total number of cursors created explicitly by user commands
+  size_t total_idle_user;           // number of cursors created by user commands that are currently idle
+  size_t total_internal;            // total number of internal cursors created by the coordinator
+  size_t total_idle_internal;       // number of internal cursors created by the coordinator that are currently idle
 } CursorsInfoStats;
 
 /**
