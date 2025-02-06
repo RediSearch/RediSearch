@@ -394,7 +394,6 @@ TEST_F(RangeIndexTest, testNumericTreeOverhead) {
 //   IndexIterator *it = createNumericIterator(t, flt);
 //   ASSERT(it->HasNext(it->ctx));
 
-//   // ASSERT_EQUAL(it->Len(it->ctx), N);
 //   count = 0;
 
 //   RSIndexResult *res = NULL;

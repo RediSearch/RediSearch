@@ -850,7 +850,6 @@ TEST_F(IndexTest, testHybridVector) {
   vecIt->Rewind(vecIt->ctx);
   ASSERT_TRUE(vecIt->HasNext(vecIt->ctx));
   ASSERT_EQ(vecIt->NumEstimated(vecIt->ctx), k);
-  ASSERT_EQ(vecIt->Len(vecIt->ctx), k);
   // Read one result to verify that we get the one with best score after rewind.
   ASSERT_EQ(vecIt->Read(vecIt->ctx, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, max_id);
@@ -879,7 +878,6 @@ TEST_F(IndexTest, testHybridVector) {
   hybridIt->Rewind(hybridIt->ctx);
   ASSERT_TRUE(hybridIt->HasNext(hybridIt->ctx));
   ASSERT_EQ(hybridIt->NumEstimated(hybridIt->ctx), k);
-  ASSERT_EQ(hybridIt->Len(hybridIt->ctx), k);
 
   // check rerun and abort (go over only half of the results)
   count = 0;
@@ -1059,7 +1057,6 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   vecIt->Rewind(vecIt->ctx);
   ASSERT_TRUE(vecIt->HasNext(vecIt->ctx));
   ASSERT_EQ(vecIt->NumEstimated(vecIt->ctx), n_expected_res);
-  ASSERT_EQ(vecIt->Len(vecIt->ctx), n_expected_res);
 
   // Read one result to verify that we get the minimum id after rewind.
   ASSERT_EQ(vecIt->Read(vecIt->ctx, &h), INDEXREAD_OK);

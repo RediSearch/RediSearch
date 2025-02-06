@@ -148,6 +148,8 @@ IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags);
 
 /* An IndexReader wraps an inverted index record for reading and iteration */
 typedef struct IndexReader {
+  IndexIterator base;
+
   const RedisSearchCtx *sctx;
 
   // the underlying data buffer
@@ -172,17 +174,9 @@ typedef struct IndexReader {
   /* The decoding function for reading the index */
   IndexDecoderProcs decoders;
 
-  /* The number of records read */
-  size_t len;
-
   /* The record we are decoding into */
   RSIndexResult *record;
 
-  // If present, this pointer is updated when the end has been reached. This is
-  // an optimization to avoid calling IR_HasNext() each time
-  bool *isValidP;
-
-  bool atEnd_;
   // Whether to skip multi values from the same doc
   bool skipMulti;
   uint32_t currentBlock;
@@ -243,20 +237,10 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx);
 IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, double weight, uint32_t freq,
                                    t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate);
 
-void IR_Abort(void *ctx);
-
-/* free an index reader */
-void IR_Free(IndexReader *ir);
-
-/* Read an entry from an inverted index */
-int IR_GenericRead(IndexReader *ir, RSIndexResult *res);
+void IR_Abort(IndexIterator *base);
 
 /* Read an entry from an inverted index into RSIndexResult */
-int IR_Read(void *ctx, RSIndexResult **e);
-
-/* Move to the next entry in an inverted index, without reading the whole entry
- */
-int IR_Next(void *ctx);
+int IR_Read(IndexIterator *base, RSIndexResult **e);
 
 /**
  * Skip to a specific document ID in the index, or one position after it
@@ -269,17 +253,9 @@ int IR_Next(void *ctx);
  *  - INDEXREAD_NOTFOUND if the reader is at the next position
  *  - INDEXREAD_EOF if the ID is out of the upper range
  */
-int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
+int IR_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit);
 
-void IR_Rewind(void *ctx);
-
-RSIndexResult *IR_Current(void *ctx);
-
-/* The number of docs in an inverted index entry */
-size_t IR_NumDocs(void *ctx);
-
-/* LastDocId of an inverted index stateful reader */
-t_docId IR_LastDocId(void *ctx);
+void IR_Rewind(IndexIterator *base);
 
 /* Create a reader iterator that iterates an inverted index record */
 IndexIterator *NewReadIterator(IndexReader *ir);

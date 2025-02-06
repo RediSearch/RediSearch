@@ -277,8 +277,8 @@ static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
   if (!it) {
     return NULL;
   }
-  it->Rewind(it->ctx);
-  if (INDEXREAD_OK != it->SkipTo(it->ctx, docId, &ir)) {
+  it->Rewind(it);
+  if (INDEXREAD_OK != it->SkipTo(it, docId, &ir)) {
     return NULL;
   }
   return ir;

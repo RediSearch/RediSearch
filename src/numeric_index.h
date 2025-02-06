@@ -86,13 +86,13 @@ typedef struct {
 
 #define NumericRangeNode_IsLeaf(n) (n->left == NULL && n->right == NULL)
 
-struct indexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange *nr,
-                                              const NumericFilter *f, int skipMulti,
-                                              const FieldFilterContext* filterCtx);
+IndexIterator *NewNumericRangeIterator(const RedisSearchCtx *sctx, NumericRange *nr,
+                                       const NumericFilter *f, int skipMulti,
+                                       const FieldFilterContext* filterCtx);
 
-struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
-                                               ConcurrentSearchCtx *csx, FieldType forType,
-                                               IteratorsConfig *config, const FieldFilterContext* filterCtx);
+IndexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
+                                        ConcurrentSearchCtx *csx, FieldType forType,
+                                        IteratorsConfig *config, const FieldFilterContext* filterCtx);
 
 /* Recursively find all the leaves under a node that correspond to a given min-max range. Returns a
  * vector with range node pointers.  */

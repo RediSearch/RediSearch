@@ -15,15 +15,14 @@ typedef int (*OptimizerCompareFunc)(const void *e1, const void *e2, const void *
 typedef struct {
   IndexIterator base;
   QOptimizer *optim;
-  t_docId lastDocId;
   int flags;
-  
+
   size_t numDocs;               // total number of documents in index
   int heapOldSize;              // size of heap before last rewind
   size_t hitCounter;            // number of Read/SkipTo calls during latest iteration
   size_t numIterations;         // number iterations
-  size_t childEstimate;         // results estimate on child 
-  int lastLimitEstimate;        // last estimation for filter        
+  size_t childEstimate;         // results estimate on child
+  int lastLimitEstimate;        // last estimation for filter
 
   size_t offset;
 
@@ -38,7 +37,7 @@ typedef struct {
   RSIndexResult *resArr;        // keeps RSIndexResult
   OptimizerCompareFunc cmp;     // compare function
   RSIndexResult *pooledResult;  // memory pool
-  
+
   TimeoutCtx timeoutCtx;        // Timeout parameters
 
   IteratorsConfig *config;       // Copy of current RSglobalconfig.IteratorsConfig

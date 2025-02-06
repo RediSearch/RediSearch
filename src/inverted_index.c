@@ -83,13 +83,7 @@ void InvertedIndex_Free(void *ctx) {
   rm_free(idx);
 }
 
-static void IR_SetAtEnd(IndexReader *r, bool value) {
-  if (r->isValidP) {
-    *r->isValidP = !value;
-  }
-  r->atEnd_ = value;
-}
-#define IR_IS_AT_END(ir) (ir)->atEnd_
+#define IR_IS_AT_END(ir) ((ir)->base.isValid)
 
 /* A callback called from the ConcurrentSearchCtx after regaining execution and reopening the
  * underlying term key. We check for changes in the underlying key, or possible deletion of it */
@@ -105,7 +99,7 @@ void TermReader_OnReopen(void *privdata) {
       // All the documents that were inside were deleted and new ones were added.
       // We will not continue reading those new results and instead abort reading
       // for this specific inverted index.
-      IR_Abort(ir);
+      ir->base.Abort(&ir->base);
       return;
     }
   }
@@ -131,10 +125,10 @@ void IndexReader_OnReopen(IndexReader *ir) {
     // keep the last docId we were at
     t_docId lastId = ir->lastId;
     // reset the state of the reader
-    IR_Rewind(ir);
+    IR_Rewind(&ir->base);
     // seek to the previous last id
     RSIndexResult *dummy = NULL;
-    IR_SkipTo(ir, lastId, &dummy);
+    IR_SkipTo(&ir->base, lastId, &dummy);
   }
 }
 
@@ -886,18 +880,18 @@ IndexReader *NewMinimalNumericReader(InvertedIndex *idx, bool skipMulti) {
   return NewNumericReader(NULL, idx, NULL, 0, 0, skipMulti, &fieldCtx);
 }
 
-size_t IR_NumEstimated(void *ctx) {
-  IndexReader *ir = ctx;
+size_t IR_NumEstimated(IndexIterator *base) {
+  IndexReader *ir = (IndexReader *)base;
   return ir->idx->numDocs;
 }
 
 #define FIELD_MASK_BIT_COUNT (sizeof(t_fieldMask) * 8)
 
-int IR_Read(void *ctx, RSIndexResult **e) {
+int IR_Read(IndexIterator *base, RSIndexResult **e) {
 
-  IndexReader *ir = ctx;
+  IndexReader *ir = (IndexReader *)base;
   if (IR_IS_AT_END(ir)) {
-    goto eof;
+    return INDEXREAD_EOF;
   }
   do {
 
@@ -950,13 +944,12 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       }
     }
 
-    ++ir->len;
     *e = record;
     return INDEXREAD_OK;
 
   } while (1);
 eof:
-  IR_SetAtEnd(ir, 1);
+  IITER_SET_EOF(base);
   return INDEXREAD_EOF;
 }
 
@@ -1003,14 +996,14 @@ new_block:
   ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
 }
 
-int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
-  IndexReader *ir = ctx;
+int IR_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
+  IndexReader *ir = (IndexReader *)base;
   if (!docId) {
-    return IR_Read(ctx, hit);
+    return IR_Read(base, hit);
   }
 
   if (IR_IS_AT_END(ir)) {
-    goto eof;
+    return INDEXREAD_EOF;
   }
 
   if (docId > ir->idx->lastId || ir->idx->size == 0) {
@@ -1023,7 +1016,7 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     IndexReader_SkipToBlock(ir, docId);
   } else if (BufferReader_AtEnd(&ir->br)) {
     // Current block, but there's nothing here
-    if (IR_Read(ir, hit) == INDEXREAD_EOF) {
+    if (IR_Read(base, hit) == INDEXREAD_EOF) {
       goto eof;
     } else {
       return INDEXREAD_NOTFOUND;
@@ -1068,7 +1061,7 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   } else {
     int rc;
     t_docId rid;
-    while (INDEXREAD_EOF != (rc = IR_Read(ir, hit))) {
+    while (INDEXREAD_EOF != (rc = IR_Read(base, hit))) {
       rid = ir->lastId;
       if (rid < docId) continue;
       if (rid == docId) return INDEXREAD_OK;
@@ -1076,13 +1069,8 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     }
   }
 eof:
-  IR_SetAtEnd(ir, 1);
+  IITER_SET_EOF(base);
   return INDEXREAD_EOF;
-}
-
-size_t IR_NumDocs(void *ctx) {
-  IndexReader *ir = ctx;
-  return ir->len;
 }
 
 static void IndexReader_Init(const RedisSearchCtx *sctx, IndexReader *ret, InvertedIndex *idx,
@@ -1093,7 +1081,6 @@ static void IndexReader_Init(const RedisSearchCtx *sctx, IndexReader *ret, Inver
   ret->idx = idx;
   ret->gcMarker = idx->gcMarker;
   ret->record = record;
-  ret->len = 0;
   ret->lastId = IR_CURRENT_BLOCK(ret).firstId;
   ret->sameId = 0;
   ret->skipMulti = skipMulti;
@@ -1101,9 +1088,8 @@ static void IndexReader_Init(const RedisSearchCtx *sctx, IndexReader *ret, Inver
   ret->decoders = decoder;
   ret->decoderCtx = decoderCtx;
   ret->filterCtx = *filterCtx;
-  ret->isValidP = NULL;
   ret->sctx = sctx;
-  IR_SetAtEnd(ret, 0);
+  IITER_CLEAR_EOF(&ret->base);
 }
 
 static IndexReader *NewIndexReaderGeneric(const RedisSearchCtx *sctx, InvertedIndex *idx,
@@ -1157,33 +1143,22 @@ IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sct
   return NewIndexReaderGeneric(sctx, idx, decoder, dctx, false, record, &fieldFilterCtx);
 }
 
-void IR_Free(IndexReader *ir) {
-
-  IndexResult_Free(ir->record);
-  rm_free(ir);
-}
-
-void IR_Abort(void *ctx) {
-  IndexReader *it = ctx;
-  IR_SetAtEnd(it, 1);
+void IR_Abort(IndexIterator *base) {
+  IITER_SET_EOF(base);
 }
 
 void ReadIterator_Free(IndexIterator *it) {
   if (it == NULL) {
     return;
   }
-
-  IR_Free(it->ctx);
-  rm_free(it);
+  IndexReader *ir = (IndexReader *)it;
+  IndexResult_Free(ir->record);
+  rm_free(ir);
 }
 
-inline t_docId IR_LastDocId(void *ctx) {
-  return ((IndexReader *)ctx)->lastId;
-}
-
-void IR_Rewind(void *ctx) {
-  IndexReader *ir = ctx;
-  IR_SetAtEnd(ir, 0);
+void IR_Rewind(IndexIterator *base) {
+  IndexReader *ir = (IndexReader *)base;
+  IITER_CLEAR_EOF(base);
   ir->currentBlock = 0;
   ir->gcMarker = ir->idx->gcMarker;
   ir->br = NewBufferReader(&IR_CURRENT_BLOCK(ir).buf);
@@ -1192,23 +1167,19 @@ void IR_Rewind(void *ctx) {
 }
 
 IndexIterator *NewReadIterator(IndexReader *ir) {
-  IndexIterator *ri = rm_malloc(sizeof(IndexIterator));
-  ri->ctx = ir;
-  ri->type = READ_ITERATOR;
-  ri->NumEstimated = IR_NumEstimated;
-  ri->Read = IR_Read;
-  ri->SkipTo = IR_SkipTo;
-  ri->LastDocId = IR_LastDocId;
-  ri->Free = ReadIterator_Free;
-  ri->Len = IR_NumDocs;
-  ri->Abort = IR_Abort;
-  ri->Rewind = IR_Rewind;
-  ri->HasNext = NULL;
-  ri->isValid = !ir->atEnd_;
-  ri->current = ir->record;
+  ir->base.type = READ_ITERATOR;
+  ir->base.NumEstimated = IR_NumEstimated;
+  ir->base.Read = IR_Read;
+  ir->base.SkipTo = IR_SkipTo;
+  ir->base.LastDocId = 0;
+  ir->base.Free = ReadIterator_Free;
+  ir->base.Abort = IR_Abort;
+  ir->base.Rewind = IR_Rewind;
+  ir->base.HasNext = NULL;
+  ir->base.isValid = true;
+  ir->base.current = ir->record;
 
-  ir->isValidP = &ri->isValid;
-  return ri;
+  return &ir->base;
 }
 
 /* Repair an index block by removing garbage - records pointing at deleted documents,

@@ -218,7 +218,7 @@ static void TagReader_OnReopen(void *privdata) {
 
   // If the key is valid, we just reset the reader's buffer reader to the current block pointer
   for (size_t ii = 0; ii < nits; ++ii) {
-    IndexReader *ir = its[ii]->ctx;
+    IndexReader *ir = (IndexReader *)its[ii];
     if (ir->record->type == RSResultType_Term) {
       size_t sz;
       // we need to reopen the inverted index to make sure its still valid.
@@ -230,7 +230,7 @@ static void TagReader_OnReopen(void *privdata) {
         // All the documents that were inside were deleted and new ones were added.
         // We will not continue reading those new results and instead abort reading
         // for this specific inverted index.
-        IR_Abort(ir);
+        IR_Abort(&ir->base);
         continue; // Deal with the next IndexReader
       }
     }

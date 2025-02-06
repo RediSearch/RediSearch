@@ -56,7 +56,7 @@ static void ReplyReaderResults(IndexReader *reader, RedisModuleCtx *ctx) {
   RSIndexResult *r;
   size_t resultSize = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-  while (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
+  while (iter->Read(iter, &r) != INDEXREAD_EOF) {
     RedisModule_ReplyWithLongLong(ctx, r->docId);
     ++resultSize;
   }
@@ -324,12 +324,12 @@ InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *
   REPLY_WITH_STR("values", ARRAY_LEN_VAR(invertedIndexDump));
   START_POSTPONED_LEN_ARRAY(invertedIndexValues);
   RSIndexResult *res = NULL;
-  IndexReader *ir = NewMinimalNumericReader(idx, false);
-  while (INDEXREAD_OK == IR_Read(ir, &res)) {
+  IndexIterator *ir = NewReadIterator(NewMinimalNumericReader(idx, false));
+  while (INDEXREAD_OK == ir->Read(ir, &res)) {
     REPLY_WITH_DOUBLE("value", res->num.value, ARRAY_LEN_VAR(invertedIndexValues));
     REPLY_WITH_LONG_LONG("docId", res->docId, ARRAY_LEN_VAR(invertedIndexValues));
   }
-  IR_Free(ir);
+  ir->Free(ir);
   END_POSTPONED_LEN_ARRAY(invertedIndexValues);
   ARRAY_LEN_VAR(invertedIndexDump)++;
 

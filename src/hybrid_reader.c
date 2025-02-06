@@ -24,21 +24,9 @@ static int cmpVecSimResByScore(const void *p1, const void *p2, const void *udata
   return e1->docId < e2->docId;
 }
 
-// To use in the future, if we will need to sort results by id.
-// static int cmpVecSimResById(const void *p1, const void *p2, const void *udata) {
-//   const RSIndexResult *e1 = p1, *e2 = p2;
-
-//   if (e1->docId > e2->docId) {
-//     return 1;
-//   } else if (e1->docId < e2->docId) {
-//     return -1;
-//   }
-//   return 0;
-// }
-
 // Simulate the logic of "SkipTo", but it is limited to the results in a specific batch.
-static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
-  HybridIterator *hr = ctx;
+static int HR_SkipToInBatch(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
+  HybridIterator *hr = (HybridIterator *)base;
   while(VecSimQueryReply_IteratorHasNext(hr->iter)) {
     VecSimQueryResult *res = VecSimQueryReply_IteratorNext(hr->iter);
     t_docId id = VecSimQueryResult_GetId(res);
@@ -55,8 +43,8 @@ static int HR_SkipToInBatch(void *ctx, t_docId docId, RSIndexResult **hit) {
 }
 
 // Simulate the logic of "Read", but it is limited to the results in a specific batch.
-static int HR_ReadInBatch(void *ctx, RSIndexResult **hit) {
-  HybridIterator *hr = ctx;
+static int HR_ReadInBatch(IndexIterator *base, RSIndexResult **hit) {
+  HybridIterator *hr = (HybridIterator *)base;
   if (!VecSimQueryReply_IteratorHasNext(hr->iter)) {
     return INDEXREAD_EOF;
   }
@@ -123,8 +111,8 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryReply_Iterator *ve
   RSIndexResult *cur_child_res;  // This will use the memory of hr->child->current.
   RSIndexResult *cur_res = hr->base.current;
 
-  hr->child->Read(hr->child->ctx, &cur_child_res);
-  HR_ReadInBatch(hr, &cur_vec_res);
+  hr->child->Read(hr->child, &cur_child_res);
+  HR_ReadInBatch(&hr->base, &cur_vec_res);
   while (IITER_HAS_NEXT(hr->child)) {
     if (cur_vec_res->docId == cur_child_res->docId) {
       // Found a match - check if it should be added to the results heap.
@@ -133,23 +121,23 @@ static void alternatingIterate(HybridIterator *hr, VecSimQueryReply_Iterator *ve
         // and insert result to the heap.
         insertResultToHeap(hr, cur_res, cur_child_res, &cur_vec_res, upper_bound);
       }
-      int ret_child = hr->child->Read(hr->child->ctx, &cur_child_res);
-      int ret_vec = HR_ReadInBatch(hr, &cur_vec_res);
+      int ret_child = hr->child->Read(hr->child, &cur_child_res);
+      int ret_vec = HR_ReadInBatch(&hr->base, &cur_vec_res);
       if (ret_child != INDEXREAD_OK || ret_vec != INDEXREAD_OK) break;
     }
     // Otherwise, advance the iterator pointing to the lower id.
     else if (cur_vec_res->docId > cur_child_res->docId && IITER_HAS_NEXT(hr->child)) {
-      int rc = hr->child->SkipTo(hr->child->ctx, cur_vec_res->docId, &cur_child_res);
+      int rc = hr->child->SkipTo(hr->child, cur_vec_res->docId, &cur_child_res);
       if (rc == INDEXREAD_EOF) break; // no more results left.
       // It may be the case where we skipped to an invalid result (in NOT iterator for example),
       // so we read to get the next valid result.
       // If we passed cur_vec_res->docId, we found the next valid id of the child.
       if (rc == INDEXREAD_NOTFOUND && cur_child_res->docId <= cur_vec_res->docId) {
-        rc = HR_ReadInBatch(hr, &cur_vec_res);
+        rc = HR_ReadInBatch(&hr->base, &cur_vec_res);
         if (rc == INDEXREAD_EOF) break;
       }
     } else if (VecSimQueryReply_IteratorHasNext(vecsim_iter)){
-      int rc = HR_SkipToInBatch(hr, cur_child_res->docId, &cur_vec_res);
+      int rc = HR_SkipToInBatch(&hr->base, cur_child_res->docId, &cur_vec_res);
       if (rc == INDEXREAD_EOF) break;
     } else {
       break; // both iterators are depleted.
@@ -173,7 +161,7 @@ static VecSimQueryReply_Code computeDistances(HybridIterator *hr) {
   }
 
   VecSimTieredIndex_AcquireSharedLocks(hr->index);
-  while (hr->child->Read(hr->child->ctx, &cur_child_res) != INDEXREAD_EOF) {
+  while (hr->child->Read(hr->child, &cur_child_res) != INDEXREAD_EOF) {
     if (TimedOut_WithCtx(&hr->timeoutCtx)) {
       rc = VecSim_QueryReply_TimedOut;
       break;
@@ -237,13 +225,13 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
     return computeDistances(hr);
   }
   // Batches mode.
-  if (hr->child->NumEstimated(hr->child->ctx) == 0) {
+  if (hr->child->NumEstimated(hr->child) == 0) {
     return VecSim_QueryReply_OK;
   }
   VecSimBatchIterator *batch_it = VecSimBatchIterator_New(hr->index, hr->query.vector, &hr->runtimeParams);
   double upper_bound = INFINITY;
   VecSimQueryReply_Code code = VecSim_QueryReply_OK;
-  size_t child_num_estimated = hr->child->NumEstimated(hr->child->ctx);
+  size_t child_num_estimated = hr->child->NumEstimated(hr->child);
   // Since NumEstimated(child) is an upper bound, it can be higher than index size.
   if (child_num_estimated > VecSimIndex_IndexSize(hr->index)) {
     child_num_estimated = VecSimIndex_IndexSize(hr->index);
@@ -269,7 +257,7 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
       break;
     }
     hr->iter = VecSimQueryReply_GetIterator(hr->reply);
-    hr->child->Rewind(hr->child->ctx);
+    hr->child->Rewind(hr->child);
 
     // Go over both iterators and save mutual results in the heap.
     alternatingIterate(hr, hr->iter, &upper_bound);
@@ -283,7 +271,7 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
       hr->searchMode = VECSIM_HYBRID_BATCHES_TO_ADHOC_BF;
       // Clean the saved results, and restart the hybrid search in ad-hoc BF mode.
       mmh_clear(hr->topResults);
-      hr->child->Rewind(hr->child->ctx);
+      hr->child->Rewind(hr->child);
       return computeDistances(hr);
     }
   }
@@ -291,8 +279,7 @@ static VecSimQueryReply_Code prepareResults(HybridIterator *hr) {
   return code;
 }
 
-static int HR_HasNext(void *ctx) {
-  HybridIterator *hr = ctx;
+static inline bool HR_HasNext(HybridIterator *hr) {
   return hr->base.isValid;
 }
 
@@ -314,12 +301,12 @@ static int HR_ReadHybridUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) 
     return INDEXREAD_NOTFOUND;
   }
   array_append(hr->returnedResults, *hit);
-  hr->lastDocId = (*hit)->docId;
+  hr->base.LastDocId = (*hit)->docId;
   return INDEXREAD_OK;
 }
 
-static int HR_ReadHybridUnsorted(void *ctx, RSIndexResult **hit) {
-  HybridIterator *hr = ctx;
+static int HR_ReadHybridUnsorted(IndexIterator *base, RSIndexResult **hit) {
+  HybridIterator *hr = (HybridIterator *)base;
   if (!hr->resultsPrepared) {
     hr->resultsPrepared = true;
     if (prepareResults(hr) == VecSim_QueryReply_TimedOut) {
@@ -342,7 +329,7 @@ static int HR_ReadKnnUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
   *hit = hr->base.current;
-  if (HR_ReadInBatch(hr, hit) == INDEXREAD_EOF) {
+  if (HR_ReadInBatch(&hr->base, hit) == INDEXREAD_EOF) {
     hr->base.isValid = false;
     return INDEXREAD_EOF;
   }
@@ -353,14 +340,14 @@ static int HR_ReadKnnUnsortedSingle(HybridIterator *hr, RSIndexResult **hit) {
     return INDEXREAD_NOTFOUND;
   }
 
-  hr->lastDocId = (*hit)->docId;
+  hr->base.LastDocId = (*hit)->docId;
   ResultMetrics_Reset(*hit);
   ResultMetrics_Add(*hit, hr->base.ownKey, RS_NumVal((*hit)->num.value));
   return INDEXREAD_OK;
 }
 
-static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
-  HybridIterator *hr = ctx;
+static int HR_ReadKnnUnsorted(IndexIterator *base, RSIndexResult **hit) {
+  HybridIterator *hr = (HybridIterator *)base;
   if (!hr->resultsPrepared) {
     hr->resultsPrepared = true;
     if (prepareResults(hr) == VecSim_QueryReply_TimedOut) {
@@ -370,7 +357,7 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
 
   int rc;
   do {
-    rc = HR_ReadKnnUnsortedSingle(ctx, hit);
+    rc = HR_ReadKnnUnsortedSingle(hr, hit);
     if (TimedOut_WithCtx(&hr->timeoutCtx)) {
       return INDEXREAD_TIMEOUT;
     }
@@ -378,37 +365,28 @@ static int HR_ReadKnnUnsorted(void *ctx, RSIndexResult **hit) {
   return rc;
 }
 
-static size_t HR_NumEstimated(void *ctx) {
-  HybridIterator *hr = ctx;
+static size_t HR_NumEstimated(IndexIterator *base) {
+  HybridIterator *hr = (HybridIterator *)base;
   size_t vec_res_num = MIN(hr->query.k, VecSimIndex_IndexSize(hr->index));
   if (hr->child == NULL) return vec_res_num;
-  return MIN(vec_res_num, hr->child->NumEstimated(hr->child->ctx));
+  return MIN(vec_res_num, hr->child->NumEstimated(hr->child));
 }
 
-static size_t HR_Len(void *ctx) {
-  return HR_NumEstimated(ctx);
+static void HR_Abort(IndexIterator *base) {
+  IITER_SET_EOF(base);
 }
 
-static void HR_Abort(void *ctx) {
-  HybridIterator *hr = ctx;
-  hr->base.isValid = 0;
-}
-
-static t_docId HR_LastDocId(void *ctx) {
-  HybridIterator *hr = ctx;
-  return hr->lastDocId;
-}
-
-static void HR_Rewind(void *ctx) {
-  HybridIterator *hr = ctx;
+static void HR_Rewind(IndexIterator *base) {
+  HybridIterator *hr = (HybridIterator *)base;
   hr->resultsPrepared = false;
   hr->numIterations = 0;
   VecSimQueryReply_Free(hr->reply);
   VecSimQueryReply_IteratorFree(hr->iter);
   hr->reply = NULL;
   hr->iter = NULL;
-  hr->lastDocId = 0;
-  hr->base.isValid = 1;
+
+  base->LastDocId = 0;
+  IITER_CLEAR_EOF(base);
 
   if (hr->searchMode == VECSIM_HYBRID_ADHOC_BF || hr->searchMode == VECSIM_HYBRID_BATCHES) {
     // Clean the saved and returned results (in case of HYBRID mode).
@@ -417,12 +395,12 @@ static void HR_Rewind(void *ctx) {
       IndexResult_Free(hr->returnedResults[i]);
     }
     array_clear(hr->returnedResults);
-    hr->child->Rewind(hr->child->ctx);
+    hr->child->Rewind(hr->child);
   }
 }
 
-void HybridIterator_Free(struct indexIterator *self) {
-  HybridIterator *it = self->ctx;
+void HybridIterator_Free(IndexIterator *self) {
+  HybridIterator *it = (HybridIterator *)self;
   if (it == NULL) {
     return;
   }
@@ -448,7 +426,6 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   }
 
   HybridIterator *hi = rm_new(HybridIterator);
-  hi->lastDocId = 0;
   hi->child = hParams.childIt;
   hi->resultsPrepared = false;
   hi->index = hParams.index;
@@ -477,7 +454,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
     // hi->searchMode is VECSIM_HYBRID_ADHOC_BF || VECSIM_HYBRID_BATCHES
     // Get the estimated number of results that pass the child "sub-query filter". Note that
     // this is an upper bound, and might even be larger than the total vector index size.
-    size_t subset_size = hParams.childIt->NumEstimated(hParams.childIt->ctx);
+    size_t subset_size = hParams.childIt->NumEstimated(hParams.childIt);
     if (subset_size == 0) { // TODO: handle differently?
       rm_free(hi);
       return NULL;
@@ -501,18 +478,16 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   }
 
   IndexIterator *ri = &hi->base;
-  ri->ctx = hi;
   // This will be changed later to a valid RLookupKey if there is no syntax error in the query,
   // by the creation of the metrics loader results processor.
   ri->ownKey = NULL;
   ri->type = HYBRID_ITERATOR;
+  ri->LastDocId = 0;
   ri->NumEstimated = HR_NumEstimated;
-  ri->LastDocId = HR_LastDocId;
   ri->Free = HybridIterator_Free;
-  ri->Len = HR_Len;            // Not clear what is the definition of this, currently returns
   ri->Abort = HR_Abort;
   ri->Rewind = HR_Rewind;
-  ri->HasNext = HR_HasNext;
+  ri->HasNext = NULL;
   ri->SkipTo = NULL; // As long as we return results by score (unsorted by id), this has no meaning.
   if (hi->searchMode == VECSIM_STANDARD_KNN) {
     ri->Read = HR_ReadKnnUnsorted;

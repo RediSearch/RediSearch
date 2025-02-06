@@ -37,53 +37,44 @@ enum iteratorType {
 /* An abstract interface used by readers / intersectors / unioners etc.
 Basically query execution creates a tree of iterators that activate each other
 recursively */
-typedef struct indexIterator {
+typedef struct IndexIterator {
+  enum iteratorType type;
+
   // Cached value - used if HasNext() is not set.
   bool isValid;
 
-  void *ctx;
-
-  // Used by union iterator. Cached here for performance
-  t_docId minId;
+  /* the last docId read */
+  t_docId LastDocId;
 
   // Cached value - used if Current() is not set
   RSIndexResult *current;
-
-  enum iteratorType type;
 
   // Used if the iterator yields some value.
   // Consider placing in a union with an array of keys, if a field want to yield multiple metrics
   struct RLookupKey *ownKey;
 
-  size_t (*NumEstimated)(void *ctx);
+  size_t (*NumEstimated)(struct IndexIterator *self);
 
   /* Read the next entry from the iterator, into hit *e.
    *  Returns INDEXREAD_EOF if at the end */
-  int (*Read)(void *ctx, RSIndexResult **e);
+  int (*Read)(struct IndexIterator *self, RSIndexResult **e);
 
   /* Skip to a docid, potentially reading the entry into hit, if the docId
    * matches */
-  int (*SkipTo)(void *ctx, t_docId docId, RSIndexResult **hit);
-
-  /* the last docId read */
-  t_docId (*LastDocId)(void *ctx);
+  int (*SkipTo)(struct IndexIterator *self, t_docId docId, RSIndexResult **hit);
 
   /* can we continue iteration? */
-  int (*HasNext)(void *ctx);
+  int (*HasNext)(struct IndexIterator *self);
 
   /* release the iterator's context and free everything needed */
-  void (*Free)(struct indexIterator *self);
-
-  /* Return the number of results in this iterator. Used by the query execution
-   * on the top iterator */
-  size_t (*Len)(void *ctx);
+  void (*Free)(struct IndexIterator *self);
 
   /* Abort the execution of the iterator and mark it as EOF. This is used for early aborting in case
    * of data consistency issues due to multi threading */
-  void (*Abort)(void *ctx);
+  void (*Abort)(struct IndexIterator *self);
 
   /* Rewind the iterator to the beginning and reset its state */
-  void (*Rewind)(void *ctx);
+  void (*Rewind)(struct IndexIterator *self);
 } IndexIterator;
 
 // static inline int IITER_HAS_NEXT(IndexIterator *ii) {
@@ -101,9 +92,9 @@ typedef struct indexIterator {
 //     return 0;
 //   }
 // }
-#define IITER_HAS_NEXT(ii) ((ii)->isValid ? 1 : (ii)->HasNext ? (ii)->HasNext((ii)->ctx) : 0)
+#define IITER_HAS_NEXT(ii) ((ii)->isValid ? 1 : (ii)->HasNext ? (ii)->HasNext((ii)) : 0)
 #define IITER_CURRENT_RECORD(ii) ((ii)->current ? (ii)->current : 0)
-#define IITER_NUM_ESTIMATED(ii) ((ii)->NumEstimated ? (ii)->NumEstimated((ii)->ctx) : 0)
+#define IITER_NUM_ESTIMATED(ii) ((ii)->NumEstimated ? (ii)->NumEstimated((ii)) : 0)
 
 #define IITER_SET_EOF(ii) (ii)->isValid = 0
 #define IITER_CLEAR_EOF(ii) (ii)->isValid = 1

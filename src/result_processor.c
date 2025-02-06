@@ -108,7 +108,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
 
   // Read from the root filter until we have a valid result
   while (1) {
-    rc = it->Read(it->ctx, &r);
+    rc = it->Read(it, &r);
     switch (rc) {
     case INDEXREAD_EOF:
       // This means we are done!

@@ -88,51 +88,46 @@ void QueryIterator::rewind() noexcept {
 }
 
 namespace {
-int QIter_Read(void *ctx, RSIndexResult **hit) {
-  return static_cast<QueryIterator *>(ctx)->read(*hit);
+int QIter_Read(IndexIterator *base, RSIndexResult **hit) {
+  return reinterpret_cast<QueryIterator *>(base)->read(*hit);
 }
-int QIter_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
-  return static_cast<QueryIterator *>(ctx)->skip_to(docId, *hit);
+int QIter_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
+  return reinterpret_cast<QueryIterator *>(base)->skip_to(docId, *hit);
 }
-t_docId QIter_LastDocId(void *ctx) {
-  return static_cast<QueryIterator const *>(ctx)->current();
-}
-int QIter_HasNext(void *ctx) {
-  return static_cast<QueryIterator const *>(ctx)->has_next();
+int QIter_HasNext(IndexIterator *base) {
+  return reinterpret_cast<QueryIterator const *>(base)->has_next();
 }
 void QIter_Free(IndexIterator *self) {
   using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
-  const auto qi = static_cast<QueryIterator *const>(self->ctx);
+  const auto qi = reinterpret_cast<QueryIterator *const>(self);
   auto alloc = alloc_type{qi->iter_.get_allocator()};
   IndexResult_Free(self->current);
   std::allocator_traits<alloc_type>::destroy(alloc, qi);
   std::allocator_traits<alloc_type>::deallocate(alloc, qi, 1);
 }
-std::size_t QIter_Len(void *ctx) {
-  return static_cast<QueryIterator const *>(ctx)->len();
+std::size_t QIter_Len(IndexIterator *base) {
+  return reinterpret_cast<QueryIterator const *>(base)->len();
 }
-void QIter_Abort(void *ctx) {
-  static_cast<QueryIterator *>(ctx)->abort();
+void QIter_Abort(IndexIterator *base) {
+  reinterpret_cast<QueryIterator *>(base)->abort();
 }
-void QIter_Rewind(void *ctx) {
-  static_cast<QueryIterator *>(ctx)->rewind();
+void QIter_Rewind(IndexIterator *base) {
+  reinterpret_cast<QueryIterator *>(base)->rewind();
 }
 
 }  // anonymous namespace
 
 IndexIterator QueryIterator::init_base(QueryIterator *ctx) {
   return IndexIterator{
-      .isValid = 1,
-      .ctx = ctx,
-      .current = NewVirtualResult(0, RS_FIELDMASK_ALL),
       .type = ID_LIST_ITERATOR,
+      .isValid = 1,
+      .LastDocId = 0,
+      .current = NewVirtualResult(0, RS_FIELDMASK_ALL),
       .NumEstimated = QIter_Len,
       .Read = QIter_Read,
       .SkipTo = QIter_SkipTo,
-      .LastDocId = QIter_LastDocId,
       .HasNext = QIter_HasNext,
       .Free = QIter_Free,
-      .Len = QIter_Len,
       .Abort = QIter_Abort,
       .Rewind = QIter_Rewind,
   };
