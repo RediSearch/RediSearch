@@ -1789,8 +1789,12 @@ yylhsminor.yy27 = yymsp[0].minor.yy27;
       case 33: /* termlist ::= param_term param_term */
 {
   yylhsminor.yy27 = NewPhraseNode(0);
-  QueryNode_AddChild(yylhsminor.yy27, NewTokenNode_WithParams(ctx, &yymsp[-1].minor.yy0));
-  QueryNode_AddChild(yylhsminor.yy27, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  if (!(yymsp[-1].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len))) {
+    QueryNode_AddChild(yylhsminor.yy27, NewTokenNode_WithParams(ctx, &yymsp[-1].minor.yy0));
+  }
+  if (!(yymsp[0].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len))) {
+    QueryNode_AddChild(yylhsminor.yy27, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  }
 }
   yymsp[-1].minor.yy27 = yylhsminor.yy27;
         break;
@@ -1915,17 +1919,33 @@ yylhsminor.yy27 = yymsp[0].minor.yy27;
         break;
       case 51: /* tag_list ::= affix */
       case 52: /* tag_list ::= verbatim */ yytestcase(yyruleno==52);
-      case 53: /* tag_list ::= termlist */ yytestcase(yyruleno==53);
 {
     yylhsminor.yy27 = NewPhraseNode(0);
     QueryNode_AddChild(yylhsminor.yy27, yymsp[0].minor.yy27);
 }
   yymsp[0].minor.yy27 = yylhsminor.yy27;
         break;
+      case 53: /* tag_list ::= termlist */
+{
+  if (unlikely(QueryNode_NumChildren(yymsp[0].minor.yy27) == 0)){
+    QueryNode_Free(yymsp[0].minor.yy27);
+    yylhsminor.yy27 = NULL;
+  } else {
+    yylhsminor.yy27 = NewPhraseNode(0);
+    QueryNode_AddChild(yylhsminor.yy27, yymsp[0].minor.yy27);
+  }
+}
+  yymsp[0].minor.yy27 = yylhsminor.yy27;
+        break;
       case 54: /* tag_list ::= tag_list OR param_term_case */
 {
-  QueryNode_AddChild(yymsp[-2].minor.yy27, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
-  yylhsminor.yy27 = yymsp[-2].minor.yy27;
+  if (unlikely(!yymsp[-2].minor.yy27)){
+    yylhsminor.yy27 = NewPhraseNode(0);
+    QueryNode_AddChild(yylhsminor.yy27, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+  } else {
+    QueryNode_AddChild(yymsp[-2].minor.yy27, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
+    yylhsminor.yy27 = yymsp[-2].minor.yy27;
+  }
 }
   yymsp[-2].minor.yy27 = yylhsminor.yy27;
         break;
@@ -1933,8 +1953,13 @@ yylhsminor.yy27 = yymsp[0].minor.yy27;
       case 56: /* tag_list ::= tag_list OR verbatim */ yytestcase(yyruleno==56);
       case 57: /* tag_list ::= tag_list OR termlist */ yytestcase(yyruleno==57);
 {
+  if (unlikely(!yymsp[-2].minor.yy27)){
+    yylhsminor.yy27 = NewPhraseNode(0);
+    QueryNode_AddChild(yylhsminor.yy27, yymsp[0].minor.yy27);
+  } else {
     QueryNode_AddChild(yymsp[-2].minor.yy27, yymsp[0].minor.yy27);
     yylhsminor.yy27 = yymsp[-2].minor.yy27;
+  }
 }
   yymsp[-2].minor.yy27 = yylhsminor.yy27;
         break;
