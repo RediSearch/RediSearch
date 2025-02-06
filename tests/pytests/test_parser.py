@@ -738,3 +738,22 @@ TAG:@tag {
 }
 '''[1:])
   env.expect('FT.SEARCH', 'idx', '@tag:{x y | banana }').equal([2, 'doc1', ['tag', 'x y'], 'doc3', ['tag', 'banana']])
+
+def testTagQueryWithStopwords_V1(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc1', 'tag', 'cat')
+    conn.execute_command('HSET', 'doc2', 'tag', 'dog')
+    env.expect('FT.EXPLAIN', 'idx', '@tag:{cat dog}').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    cat
+    dog
+  }
+}
+'''[1:])
+    env.expect('FT.SEARCH', 'idx', '@tag:{cat dog}', 'NOCONTENT').equal([0])
+
+    # error when contain stopwords
+    env.expect('FT.SEARCH', 'idx', '@tag:{with dog}').error().contains('Syntax error')
