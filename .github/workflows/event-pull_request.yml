@@ -11,24 +11,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  get-latest-redis-tag:
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
-      prefix: '8.0'
-
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml
 
   basic-test:
-    needs: [docs-only, get-latest-redis-tag]
+    needs: [docs-only]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/task-test.yml
     with:
       env: ${{ vars.RUNS_ON }}
       test-config: QUICK=1
       # get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      get-redis: '8.0'
+      get-redis: unstable
     secrets: inherit
 
   coverage:
@@ -38,12 +32,12 @@ jobs:
     secrets: inherit
 
   sanitize:
-    needs: [docs-only, get-latest-redis-tag]
+    needs: [docs-only]
     if: ${{ needs.docs-only.outputs.only-docs-changed == 'false' && !github.event.pull_request.draft }}
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
-      get-redis: '8.0'
+      get-redis: unstable
       test-config: QUICK=1
       san: address
       env: ubuntu-latest
@@ -52,7 +46,6 @@ jobs:
   pr-validation:
     needs:
       - docs-only # if the setup jobs fail, the rest of the jobs will be skipped, and we will exit with a failure
-      - get-latest-redis-tag
       - basic-test
       - coverage
       - sanitize
