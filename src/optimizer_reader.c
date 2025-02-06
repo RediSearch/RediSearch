@@ -50,6 +50,7 @@ static void OPT_Rewind(IndexIterator *base) {
   // rewind child iterator
   child->Rewind(child);
   IITER_CLEAR_EOF(base);
+  base->LastDocId = 0;
 
   // update numeric filter with old iterator result estimation
   // used to skip ranges when creating new numeric iterator

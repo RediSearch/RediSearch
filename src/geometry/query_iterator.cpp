@@ -84,6 +84,7 @@ void QueryIterator::abort() noexcept {
 void QueryIterator::rewind() noexcept {
   base_.isValid = true;
   base_.current->docId = 0;
+  base_.LastDocId = 0;
   index_ = 0;
 }
 

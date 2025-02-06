@@ -526,11 +526,6 @@ if
 at EOF
 */
 static int UI_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
-
-  if (docId == 0) {
-    return UI_ReadSorted(base, hit);
-  }
-
   if (!IITER_HAS_NEXT(base)) {
     return INDEXREAD_EOF;
   }
@@ -739,19 +734,9 @@ void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool as
 typedef struct {
   IndexIterator base;
   IndexIterator **its;
-  t_docId *docIds;
-  int *rcs;
   unsigned num;
   int maxSlop;
-  int inOrder;
-  // the last read docId from any child
-  t_docId lastDocId;
-  // the last id that was found on all children
-  t_docId lastFoundId;
-
-  // RSIndexResult *result;
-  DocTable *docTable;
-  t_fieldMask fieldMask;
+  bool inOrder;
   double weight;
   size_t nexpected;
 } IntersectIterator;
@@ -765,7 +750,6 @@ void IntersectIterator_Free(IndexIterator *base) {
     }
   }
 
-  rm_free(ui->docIds);
   rm_free(ui->its);
   IndexResult_Free(base->current);
   rm_free(base);
@@ -784,12 +768,10 @@ static void II_Abort(IndexIterator *base) {
 static void II_Rewind(IndexIterator *base) {
   IntersectIterator *ii = (IntersectIterator *)base;
   IITER_CLEAR_EOF(base);
-  ii->lastDocId = 0;
-  ii->lastFoundId = 0;
+  base->LastDocId = 0;
 
   // rewind all child iterators
   for (int i = 0; i < ii->num; i++) {
-    ii->docIds[i] = 0;
     if (ii->its[i]) {
       ii->its[i]->Rewind(ii->its[i]);
     }
@@ -858,14 +840,10 @@ IndexIterator *NewIntersectIterator(IndexIterator **its_, size_t num, DocTable *
                                    t_fieldMask fieldMask, int maxSlop, int inOrder, double weight) {
   // printf("Creating new intersection iterator with fieldMask=%llx\n", fieldMask);
   IntersectIterator *ctx = rm_calloc(1, sizeof(*ctx));
-  ctx->lastDocId = 0;
-  ctx->lastFoundId = 0;
   ctx->maxSlop = maxSlop;
   ctx->inOrder = inOrder;
-  ctx->fieldMask = fieldMask;
+  // ctx->fieldMask = fieldMask;
   ctx->weight = weight;
-  ctx->docIds = rm_calloc(num, sizeof(t_docId));
-  ctx->docTable = dt;
 
   ctx->base.current = NewIntersectResult(num, weight);
   ctx->its = its_;
@@ -894,20 +872,18 @@ IndexIterator *NewIntersectIterator(IndexIterator **its_, size_t num, DocTable *
 }
 
 static bool II_AgreeOnDocId(IntersectIterator *ic) {
-  t_docId docId = ic->lastDocId;
-  assert(docId);
+  t_docId docId = ic->base.LastDocId;
   for (int i = 0; i < ic->num; i++) {
-    RS_LOG_ASSERT_FMT(ic->docIds[i] <= docId, "docId %d, docIds[%d] %d", docId, i, ic->docIds[i]);
-    if (ic->docIds[i] < docId) {
+    RS_LOG_ASSERT_FMT(ic->its[i]->LastDocId <= docId, "docId %d, docIds[%d] %d", docId, i, ic->its[i]->LastDocId);
+    if (ic->its[i]->LastDocId < docId) {
       int rc = ic->its[i]->SkipTo(ic->its[i], docId, &ic->its[i]->current);
       if (rc == INDEXREAD_EOF) {
         ic->base.isValid = 0;
         return false; // TODO: more info?
       }
-      ic->docIds[i] = ic->its[i]->LastDocId;
-      if (ic->docIds[i] != docId) {
+      if (ic->its[i]->LastDocId != docId) {
         RS_LOG_ASSERT(rc == INDEXREAD_NOTFOUND, "Expected NOTFOUND");
-        ic->lastDocId = ic->docIds[i];
+        ic->base.LastDocId = ic->its[i]->LastDocId;
         return false; // TODO: more info?
       }
     }
@@ -923,10 +899,10 @@ static inline void II_setResult(IntersectIterator *ic) {
 }
 
 static inline bool II_currentIsRelevant(IntersectIterator *ic) {
-  // make sure the flags are matching.
-  if ((ic->base.current->fieldMask & ic->fieldMask) == 0) {
-    return false;
-  }
+  // // make sure the flags are matching.
+  // if ((ic->base.current->fieldMask & ic->fieldMask) == 0) {
+  //   return false;
+  // }
   // If we need to match slop and order, we do it now, and possibly skip the result
   if (ic->maxSlop >= 0 && !IndexResult_IsWithinRange(ic->base.current, ic->maxSlop, ic->inOrder)) {
     return false;
@@ -935,24 +911,18 @@ static inline bool II_currentIsRelevant(IntersectIterator *ic) {
 }
 
 static int II_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
-  /* A seek with docId 0 is equivalent to a read */
-  if (docId == 0) {
-    return II_ReadSorted(base, hit);
-  }
   if (!base->isValid) {
     return INDEXREAD_EOF;
   }
   IntersectIterator *ic = (IntersectIterator *)base;
 
-  RS_LOG_ASSERT_FMT(ic->lastDocId < docId, "lastDocId %d, docId %d", ic->lastDocId, docId);
-  ic->lastDocId = docId;
+  RS_LOG_ASSERT_FMT(base->LastDocId < docId, "lastDocId %zu, docId %zu", base->LastDocId, docId);
+  base->LastDocId = docId;
 
   if (II_AgreeOnDocId(ic)) {
     II_setResult(ic);
 
-    // Update the last found id
     if (II_currentIsRelevant(ic)) {
-      ic->lastFoundId = docId;
       if (hit) *hit = ic->base.current;
       return INDEXREAD_OK;
     }
@@ -979,16 +949,7 @@ static int II_ReadSorted(IndexIterator *base, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
-  if (ic->lastDocId == ic->lastFoundId) {
-    RSIndexResult *h;
-    int rc = ic->its[0]->Read(ic->its[0], &h);
-    if (rc == INDEXREAD_EOF) {
-      ic->base.isValid = 0;
-      return INDEXREAD_EOF;
-    }
-    ic->lastDocId = ic->docIds[0] = h->docId;
-    assert(ic->lastDocId);
-  }
+  base->LastDocId++; // advance the last docId. Current docId is at least this
 
   while (ic->base.isValid) {
     // retry until we agree on the docId
@@ -1004,7 +965,6 @@ static int II_ReadSorted(IndexIterator *base, RSIndexResult **hit) {
 
     // Hit!
     if (hit) *hit = ic->base.current;
-    ic->lastFoundId = ic->base.current->docId;
     return INDEXREAD_OK;
   }
   return INDEXREAD_EOF;
@@ -1017,7 +977,6 @@ typedef struct {
   IndexIterator base;         // base index iterator
   IndexIterator *wcii;        // wildcard index iterator
   IndexIterator *child;       // child index iterator
-  t_docId lastDocId;
   t_docId maxDocId;
   double weight;
   TimeoutCtx timeoutCtx;
@@ -1034,12 +993,12 @@ static void NI_Abort(IndexIterator *base) {
 
 static void NI_Rewind(IndexIterator *base) {
   NotContext *nc = (NotContext *)base;
-  nc->lastDocId = 0;
   if (nc->wcii) {
     nc->wcii->Rewind(nc->wcii);
   }
   nc->base.current->docId = 0;
-  nc->base.isValid = 1;
+  IITER_CLEAR_EOF(base);
+  base->LastDocId = 0;
   nc->child->Rewind(nc->child);
 }
 
@@ -1088,13 +1047,13 @@ static int NI_SkipTo_NO(IndexIterator *base, t_docId docId, RSIndexResult **hit)
     docId++;
     rc = nc->child->Read(nc->child, &child_res);
   } while (child_res->docId == docId && rc == INDEXREAD_OK);
-  nc->base.current->docId = nc->lastDocId = docId;
+  nc->base.current->docId = base->LastDocId = docId;
   *hit = nc->base.current;
   return INDEXREAD_NOTFOUND;
 
 ok:
   // NOT FOUND or end means OK. We need to set the docId to the hit we will bubble up
-  nc->base.current->docId = nc->lastDocId = docId;
+  nc->base.current->docId = base->LastDocId = docId;
   *hit = nc->base.current;
   return INDEXREAD_OK;
 }
@@ -1131,7 +1090,7 @@ int NI_SkipTo_O(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
     // Note: If this is the last block in the child index and not in the wildcard
     // index, we may have a docId in the child that does not exist in the
     // wildcard index
-    nc->base.current->docId = nc->lastDocId = nc->wcii->LastDocId;
+    nc->base.current->docId = base->LastDocId = nc->wcii->LastDocId;
     *hit = nc->base.current;
     return INDEXREAD_NOTFOUND;
   }
@@ -1148,7 +1107,7 @@ ok:
   // NOT FOUND or end at child means OK. We need to set the docId to the hit we
   // will bubble up
   wcii_rc = nc->wcii->SkipTo(nc->wcii, docId, hit);
-  nc->base.current->docId = nc->lastDocId = nc->wcii->LastDocId;
+  nc->base.current->docId = base->LastDocId = nc->wcii->LastDocId;
   if (wcii_rc == INDEXREAD_EOF) {
     IITER_SET_EOF(&nc->base);
     return INDEXREAD_EOF;
@@ -1156,7 +1115,7 @@ ok:
     // This doc-id was deleted
     return INDEXREAD_NOTFOUND;
   }
-  RS_LOG_ASSERT_FMT(nc->lastDocId == docId, "Expected docId to be %llu, got %llu", docId, nc->lastDocId);
+  RS_LOG_ASSERT_FMT(base->LastDocId == docId, "Expected docId to be %llu, got %llu", docId, base->LastDocId);
   return INDEXREAD_OK;
 }
 
@@ -1170,8 +1129,8 @@ static size_t NI_NumEstimated(IndexIterator *base) {
  * docId, skipping docIds that exist in the child */
 static int NI_ReadSorted_NO(IndexIterator *base, RSIndexResult **hit) {
   NotContext *nc = (NotContext *)base;
-  if (nc->lastDocId > nc->maxDocId) {
-    IITER_SET_EOF(&nc->base);
+  if (base->LastDocId > nc->maxDocId) {
+    IITER_SET_EOF(base);
     return INDEXREAD_EOF;
   }
 
@@ -1217,7 +1176,7 @@ ok:
   }
 
   // Set the next entry and return ok
-  nc->lastDocId = nc->base.current->docId;
+  base->LastDocId = nc->base.current->docId;
   if (hit) *hit = nc->base.current;
 
   return INDEXREAD_OK;
@@ -1233,7 +1192,7 @@ static int NI_ReadSorted_O(IndexIterator *base, RSIndexResult **hit) {
   int wcii_rc;
   int child_rc = INDEXREAD_OK;
 
-  if (nc->lastDocId > nc->maxDocId) {
+  if (base->LastDocId > nc->maxDocId) {
     IITER_SET_EOF(&nc->base);
     return INDEXREAD_EOF;
   }
@@ -1290,7 +1249,7 @@ static int NI_ReadSorted_O(IndexIterator *base, RSIndexResult **hit) {
 
 ok:
   // Set the next entry and return ok
-  nc->lastDocId = nc->base.current->docId;
+  base->LastDocId = nc->base.current->docId;
   if (hit) *hit = nc->base.current;
 
   return INDEXREAD_OK;
@@ -1316,7 +1275,6 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId,
   IndexIterator *ret = &nc->base;
 
   nc->child = it ? it : NewEmptyIterator();
-  nc->lastDocId = 0;
   nc->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
   nc->weight = weight;
   nc->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = 0 };
@@ -1385,8 +1343,6 @@ static void OI_Free(IndexIterator *base) {
 // SkipTo for OPTIONAL iterator - Non-optimized version.
 static int OI_SkipTo_NO(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
   OptionalIterator *nc = (OptionalIterator *)base;
-  //  printf("OI_SkipTo => %llu!. NextReal: %llu. Max: %llu. Last: %llu\n", docId, nc->nextRealId,
-  //  nc->maxDocId, nc->lastDocId);
 
   bool found = false;
 
@@ -1626,8 +1582,6 @@ static int WI_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
   WildcardIterator *wi = (WildcardIterator *)base;
 
   if (base->LastDocId > wi->topId) return INDEXREAD_EOF;
-
-  if (docId == 0) return WI_Read(base, hit);
 
   base->LastDocId = docId;
   CURRENT_RECORD(wi)->docId = docId;
