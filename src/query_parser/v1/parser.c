@@ -1286,13 +1286,10 @@ static YYACTIONTYPE yy_reduce(
         } else {
             yylhsminor.yy75 = NewUnionNode();
             QueryNode_AddChild(yylhsminor.yy75, yymsp[-2].minor.yy75);
-            yylhsminor.yy75->opts.fieldMask |= yymsp[-2].minor.yy75->opts.fieldMask;
         }
 
         // Handle yymsp[0].minor.yy75
         QueryNode_AddChild(yylhsminor.yy75, yymsp[0].minor.yy75);
-        yylhsminor.yy75->opts.fieldMask |= yymsp[0].minor.yy75->opts.fieldMask;
-        QueryNode_SetFieldMask(yylhsminor.yy75, yylhsminor.yy75->opts.fieldMask);
     }
 }
   yymsp[-2].minor.yy75 = yylhsminor.yy75;
