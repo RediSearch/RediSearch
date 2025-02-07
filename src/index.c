@@ -859,11 +859,11 @@ static size_t NI_NumEstimated(IndexIterator *base) {
 /* We always have next, in case anyone asks... ;) */
 static inline int NI_HasNext(IndexIterator *base) {
   NotContext *nc = (NotContext *)base;
-  return nc->child->LastDocId < nc->maxDocId;
+  return base->LastDocId < nc->maxDocId;
 }
 
-static inline int NI_SetReturnOK(NotContext *nc, RSIndexResult **hit) {
-  nc->base.LastDocId = nc->base.current->docId;
+static inline int NI_SetReturnOK(NotContext *nc, RSIndexResult **hit, t_docId docId) {
+  nc->base.LastDocId = nc->base.current->docId = docId;
   if (hit) *hit = nc->base.current;
   return INDEXREAD_OK;
 }
@@ -882,21 +882,17 @@ static int NI_SkipTo_NO(IndexIterator *base, t_docId docId, RSIndexResult **hit)
   }
 
   RSIndexResult *cr;
-  // Get the child's last read docId
-  t_docId childId = nc->child->LastDocId;
 
   // If the child is ahead of the skipto id, it means the child doesn't have this id.
   // So we are okay!
-  if (childId > docId || !IITER_HAS_NEXT(nc->child)) {
-    nc->base.current->docId = docId;
-    return NI_SetReturnOK(nc, hit);
-  } else if (childId < docId) {
+  if (nc->child->LastDocId > docId || !IITER_HAS_NEXT(nc->child)) {
+    return NI_SetReturnOK(nc, hit, docId);
+  } else if (nc->child->LastDocId < docId) {
     // read the next entry from the child
     int rc = nc->child->SkipTo(nc->child, docId, &cr);
     if (rc == INDEXREAD_TIMEOUT) return INDEXREAD_TIMEOUT;
     if (rc != INDEXREAD_OK) {
-      nc->base.current->docId = docId;
-      return NI_SetReturnOK(nc, hit);
+      return NI_SetReturnOK(nc, hit, docId);
     }
   }
   // If the child docId is the one we are looking for, it's an anti match!
@@ -918,15 +914,6 @@ static int NI_SkipTo_NO(IndexIterator *base, t_docId docId, RSIndexResult **hit)
   return INDEXREAD_NOTFOUND;
 }
 
-static inline int NI_WildcardSkipTo(NotContext *nc, t_docId docId, RSIndexResult **hit) {
-  int rc = nc->wcii->SkipTo(nc->wcii, docId, NULL);
-  if (rc == INDEXREAD_OK) {
-    nc->base.current->docId = docId;
-    NI_SetReturnOK(nc, hit);
-  }
-  return rc;
-}
-
 /* SkipTo for NOT iterator - Optimized version. If we have a match - return
  * NOTFOUND. If we don't or we're at the end - return OK */
 int NI_SkipTo_O(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
@@ -938,7 +925,8 @@ int NI_SkipTo_O(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
-  int rc = nc->wcii->SkipTo(nc->wcii, docId, NULL);
+  RSIndexResult *wr;
+  int rc = nc->wcii->SkipTo(nc->wcii, docId, &wr);
   if (rc != INDEXREAD_NOTFOUND && rc != INDEXREAD_OK) {
     return rc;
   } else if (rc == INDEXREAD_OK) {
@@ -946,16 +934,14 @@ int NI_SkipTo_O(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
     if (nc->child->LastDocId > docId || !IITER_HAS_NEXT(nc->child)) {
       // If the child is ahead of the skipto id, it means the child doesn't have this id.
       // So we are okay!
-      nc->base.current->docId = docId;
-      return NI_SetReturnOK(nc, hit);
+      return NI_SetReturnOK(nc, hit, docId);
     } else if (nc->child->LastDocId < docId) {
       // read the next entry from the child
       RSIndexResult *cr;
       rc = nc->child->SkipTo(nc->child, docId, &cr);
       if (rc == INDEXREAD_TIMEOUT) return INDEXREAD_TIMEOUT;
       if (rc != INDEXREAD_OK) {
-        nc->base.current->docId = docId;
-        return NI_SetReturnOK(nc, hit);
+        return NI_SetReturnOK(nc, hit, docId);
       }
     }
   }
@@ -974,30 +960,25 @@ int NI_SkipTo_O(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
  * docId, skipping docIds that exist in the child */
 static int NI_ReadSorted_NO(IndexIterator *base, RSIndexResult **hit) {
   NotContext *nc = (NotContext *)base;
-  if (!base->isValid || !!NI_HasNext(base)) {
+  if (!base->isValid || !NI_HasNext(base)) {
     IITER_SET_EOF(base);
     return INDEXREAD_EOF;
   }
 
-  base->LastDocId++;
-  // If we don't have a child result, or the child result is ahead of the current counter,
-  // we just increment our virtual result's id until we hit the child result's
-  // in which case we'll read from the child and bypass it by one.
-  if (base->LastDocId < nc->child->LastDocId || !IITER_HAS_NEXT(nc->child)) {
-    return NI_SetReturnOK(nc, hit);
-  }
-
-  while (base->LastDocId == nc->child->LastDocId) {
+  do {
+    base->LastDocId++;
+    if (base->LastDocId < nc->child->LastDocId || !IITER_HAS_NEXT(nc->child)) {
+      break;
+    }
     RSIndexResult *res;
     int rc = nc->child->Read(nc->child, &res);
     if (rc == INDEXREAD_TIMEOUT) return rc;
-    base->LastDocId++;
     // Check for timeout with low granularity (MOD-5512)
     if (TimedOut_WithCtx_Gran(&nc->timeoutCtx, 5000)) {
-      IITER_SET_EOF(&nc->base);
+      IITER_SET_EOF(base);
       return INDEXREAD_TIMEOUT;
     }
-  }
+  } while (base->LastDocId == nc->child->LastDocId);
   nc->timeoutCtx.counter = 0;
 
   // make sure we did not overflow
@@ -1006,7 +987,7 @@ static int NI_ReadSorted_NO(IndexIterator *base, RSIndexResult **hit) {
     return INDEXREAD_EOF;
   }
 
-  return NI_SetReturnOK(nc, hit);
+  return NI_SetReturnOK(nc, hit, base->LastDocId);
 }
 
 /* Read from a NOT iterator - Optimized version, utilizing the `existing docs`
@@ -1046,8 +1027,7 @@ static int NI_ReadSorted_O(IndexIterator *base, RSIndexResult **hit) {
     }
   } while (wr->docId == nc->child->LastDocId);
 
-  nc->base.current->docId = wr->docId;
-  return NI_SetReturnOK(nc, hit);
+  return NI_SetReturnOK(nc, hit, wr->docId);
 }
 
 IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId,
@@ -1267,9 +1247,7 @@ static int OI_ReadSorted_O(IndexIterator *base, RSIndexResult **hit) {
     }
   }
 
-  base->LastDocId = nc->base.current->docId = wcii_res->docId;
-
-  if (base->LastDocId != nc->child->LastDocId) {
+  if (wcii_res->docId != nc->child->LastDocId) {
     nc->base.current = nc->virt;
     nc->base.current->weight = 0;
   } else {
@@ -1277,6 +1255,7 @@ static int OI_ReadSorted_O(IndexIterator *base, RSIndexResult **hit) {
     nc->base.current->weight = nc->weight;
   }
 
+  base->LastDocId = nc->base.current->docId = wcii_res->docId;
   *hit = nc->base.current;
   return INDEXREAD_OK;
 }
