@@ -851,6 +851,25 @@ static void NI_Free(IndexIterator *base) {
   rm_free(base);
 }
 
+static size_t NI_NumEstimated(IndexIterator *base) {
+  NotContext *nc = (NotContext *)base;
+  return nc->maxDocId - nc->child->NumEstimated(nc->child);
+}
+
+/* We always have next, in case anyone asks... ;) */
+static inline int NI_HasNext(IndexIterator *base) {
+  NotContext *nc = (NotContext *)base;
+  return nc->child->LastDocId < nc->maxDocId;
+}
+
+static inline int NI_SetReturnOK(NotContext *nc, RSIndexResult **hit) {
+  nc->base.LastDocId = nc->base.current->docId;
+  if (hit) *hit = nc->base.current;
+  return INDEXREAD_OK;
+}
+
+static int NI_ReadSorted_O(IndexIterator *base, RSIndexResult **hit); // forward decl
+
 /* SkipTo for NOT iterator - Non-optimized version. If we have a match - return
  * NOTFOUND. If we don't or we're at the end - return OK */
 static int NI_SkipTo_NO(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
@@ -862,39 +881,50 @@ static int NI_SkipTo_NO(IndexIterator *base, t_docId docId, RSIndexResult **hit)
     return INDEXREAD_EOF;
   }
 
+  RSIndexResult *cr;
   // Get the child's last read docId
   t_docId childId = nc->child->LastDocId;
 
   // If the child is ahead of the skipto id, it means the child doesn't have this id.
   // So we are okay!
   if (childId > docId || !IITER_HAS_NEXT(nc->child)) {
-    goto ok;
-  }
-
-  if (childId < docId) {
+    nc->base.current->docId = docId;
+    return NI_SetReturnOK(nc, hit);
+  } else if (childId < docId) {
     // read the next entry from the child
-    int rc = nc->child->SkipTo(nc->child, docId, hit);
+    int rc = nc->child->SkipTo(nc->child, docId, &cr);
+    if (rc == INDEXREAD_TIMEOUT) return INDEXREAD_TIMEOUT;
     if (rc != INDEXREAD_OK) {
-      goto ok; // EOF or NOTFOUND - we have a match
+      nc->base.current->docId = docId;
+      return NI_SetReturnOK(nc, hit);
     }
   }
   // If the child docId is the one we are looking for, it's an anti match!
   // We need to return NOTFOUND and set hit to the next valid docId
-  RSIndexResult *child_res;
   int rc;
   do {
     docId++;
-    rc = nc->child->Read(nc->child, &child_res);
-  } while (child_res->docId == docId && rc == INDEXREAD_OK);
+    rc = nc->child->Read(nc->child, &cr);
+  } while (cr->docId == docId && rc == INDEXREAD_OK);
+  if (rc == INDEXREAD_TIMEOUT) return INDEXREAD_TIMEOUT;
+
+  if (docId > nc->maxDocId) {
+    IITER_SET_EOF(base);
+    return INDEXREAD_EOF;
+  }
+
   nc->base.current->docId = base->LastDocId = docId;
   *hit = nc->base.current;
   return INDEXREAD_NOTFOUND;
+}
 
-ok:
-  // NOT FOUND or end means OK. We need to set the docId to the hit we will bubble up
-  nc->base.current->docId = base->LastDocId = docId;
-  *hit = nc->base.current;
-  return INDEXREAD_OK;
+static inline int NI_WildcardSkipTo(NotContext *nc, t_docId docId, RSIndexResult **hit) {
+  int rc = nc->wcii->SkipTo(nc->wcii, docId, NULL);
+  if (rc == INDEXREAD_OK) {
+    nc->base.current->docId = docId;
+    NI_SetReturnOK(nc, hit);
+  }
+  return rc;
 }
 
 /* SkipTo for NOT iterator - Optimized version. If we have a match - return
@@ -904,63 +934,39 @@ int NI_SkipTo_O(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
 
   // do not skip beyond max doc id
   if (docId > nc->maxDocId) {
-    IITER_SET_EOF(nc->wcii);
-    IITER_SET_EOF(&nc->base);
+    IITER_SET_EOF(base);
     return INDEXREAD_EOF;
   }
 
-  // Get the child's last read docId
-  t_docId childId = nc->child->LastDocId;
-
-  // If the child is ahead of the skipto id, it means the child doesn't have this id.
-  // So we are okay!
-  if (childId > docId || !IITER_HAS_NEXT(nc->child)) {
-    goto ok;
-  }
-
-  // If the child docId is the one we are looking for, it's an anti match!
-  int wcii_rc;
-  if (childId == docId) {
-    // Skip the inner wildcard to `docId`, and return NOTFOUND
-    wcii_rc = nc->wcii->SkipTo(nc->wcii, docId, hit);
-    if (wcii_rc == INDEXREAD_EOF) {
-      IITER_SET_EOF(&nc->base);
+  int rc = nc->wcii->SkipTo(nc->wcii, docId, NULL);
+  if (rc != INDEXREAD_NOTFOUND && rc != INDEXREAD_OK) {
+    return rc;
+  } else if (rc == INDEXREAD_OK) {
+    // A valid wildcard result was found. Let's check if the child has it
+    if (nc->child->LastDocId > docId || !IITER_HAS_NEXT(nc->child)) {
+      // If the child is ahead of the skipto id, it means the child doesn't have this id.
+      // So we are okay!
+      nc->base.current->docId = docId;
+      return NI_SetReturnOK(nc, hit);
+    } else if (nc->child->LastDocId < docId) {
+      // read the next entry from the child
+      RSIndexResult *cr;
+      rc = nc->child->SkipTo(nc->child, docId, &cr);
+      if (rc == INDEXREAD_TIMEOUT) return INDEXREAD_TIMEOUT;
+      if (rc != INDEXREAD_OK) {
+        nc->base.current->docId = docId;
+        return NI_SetReturnOK(nc, hit);
+      }
     }
-    // Note: If this is the last block in the child index and not in the wildcard
-    // index, we may have a docId in the child that does not exist in the
-    // wildcard index
-    nc->base.current->docId = base->LastDocId = nc->wcii->LastDocId;
-    *hit = nc->base.current;
-    return INDEXREAD_NOTFOUND;
   }
 
-  // read the next entry from the child
-  int rc = nc->child->SkipTo(nc->child, docId, hit);
-
-  // OK means not found
+  // If the wildcard iterator is missing the docId, or the child iterator has it,
+  // We need to return NOTFOUND and set hit to the next valid docId
+  rc = NI_ReadSorted_O(base, hit);
   if (rc == INDEXREAD_OK) {
     return INDEXREAD_NOTFOUND;
   }
-
-ok:
-  // NOT FOUND or end at child means OK. We need to set the docId to the hit we
-  // will bubble up
-  wcii_rc = nc->wcii->SkipTo(nc->wcii, docId, hit);
-  nc->base.current->docId = base->LastDocId = nc->wcii->LastDocId;
-  if (wcii_rc == INDEXREAD_EOF) {
-    IITER_SET_EOF(&nc->base);
-    return INDEXREAD_EOF;
-  } else if (wcii_rc == INDEXREAD_NOTFOUND) {
-    // This doc-id was deleted
-    return INDEXREAD_NOTFOUND;
-  }
-  RS_LOG_ASSERT_FMT(base->LastDocId == docId, "Expected docId to be %zu, got %zu", docId, base->LastDocId);
-  return INDEXREAD_OK;
-}
-
-static size_t NI_NumEstimated(IndexIterator *base) {
-  NotContext *nc = (NotContext *)base;
-  return nc->maxDocId - nc->child->NumEstimated(nc->child);
+  return rc;
 }
 
 /* Read from a NOT iterator - Non-Optimized version. This is applicable only if
@@ -968,37 +974,24 @@ static size_t NI_NumEstimated(IndexIterator *base) {
  * docId, skipping docIds that exist in the child */
 static int NI_ReadSorted_NO(IndexIterator *base, RSIndexResult **hit) {
   NotContext *nc = (NotContext *)base;
-  if (base->LastDocId >= nc->maxDocId) {
+  if (!base->isValid || !!NI_HasNext(base)) {
     IITER_SET_EOF(base);
     return INDEXREAD_EOF;
   }
 
-  // if we have a child, get the latest result from the child
-  RSIndexResult *cr = IITER_CURRENT_RECORD(nc->child);
-
-  if (cr == NULL || cr->docId == 0) {
-    nc->child->Read(nc->child, &cr);
-  }
-
-  // advance our reader by one, and let's test if it's a valid value or not
-  nc->base.current->docId++;
-
+  base->LastDocId++;
   // If we don't have a child result, or the child result is ahead of the current counter,
   // we just increment our virtual result's id until we hit the child result's
   // in which case we'll read from the child and bypass it by one.
-  if (cr == NULL || cr->docId > nc->base.current->docId || !IITER_HAS_NEXT(nc->child)) {
-    goto ok;
+  if (base->LastDocId < nc->child->LastDocId || !IITER_HAS_NEXT(nc->child)) {
+    return NI_SetReturnOK(nc, hit);
   }
 
-  while (cr->docId == nc->base.current->docId) {
-    // advance our docId to the next possible id
-    nc->base.current->docId++;
-
-    // read the next entry from the child
-    if (nc->child->Read(nc->child, &cr) == INDEXREAD_EOF) {
-      break;
-    }
-
+  while (base->LastDocId == nc->child->LastDocId) {
+    RSIndexResult *res;
+    int rc = nc->child->Read(nc->child, &res);
+    if (rc == INDEXREAD_TIMEOUT) return rc;
+    base->LastDocId++;
     // Check for timeout with low granularity (MOD-5512)
     if (TimedOut_WithCtx_Gran(&nc->timeoutCtx, 5000)) {
       IITER_SET_EOF(&nc->base);
@@ -1007,18 +1000,13 @@ static int NI_ReadSorted_NO(IndexIterator *base, RSIndexResult **hit) {
   }
   nc->timeoutCtx.counter = 0;
 
-ok:
   // make sure we did not overflow
-  if (nc->base.current->docId > nc->maxDocId) {
-    IITER_SET_EOF(&nc->base);
+  if (base->LastDocId > nc->maxDocId) {
+    IITER_SET_EOF(base);
     return INDEXREAD_EOF;
   }
 
-  // Set the next entry and return ok
-  base->LastDocId = nc->base.current->docId;
-  if (hit) *hit = nc->base.current;
-
-  return INDEXREAD_OK;
+  return NI_SetReturnOK(nc, hit);
 }
 
 /* Read from a NOT iterator - Optimized version, utilizing the `existing docs`
@@ -1027,77 +1015,39 @@ ok:
  * exist in the child */
 static int NI_ReadSorted_O(IndexIterator *base, RSIndexResult **hit) {
   NotContext *nc = (NotContext *)base;
-  RSIndexResult *cr = NULL;
-  int wcii_rc;
-  int child_rc = INDEXREAD_OK;
-
-  if (base->LastDocId > nc->maxDocId) {
-    IITER_SET_EOF(&nc->base);
+  if (!base->isValid || !NI_HasNext(base)) {
+    IITER_SET_EOF(base);
     return INDEXREAD_EOF;
   }
 
-  // if we have a child, get the latest result from the child
-  cr = IITER_CURRENT_RECORD(nc->child);
-
-  if (cr == NULL || cr->docId == 0) {
-    nc->child->Read(nc->child, &cr);
-  }
-
-  // Advance the embedded wildcard iterator
-  RSIndexResult *wcii_res = NULL;
-  wcii_rc = nc->wcii->Read(nc->wcii, &wcii_res);
-
-  if (wcii_rc == INDEXREAD_EOF) {
-    // If the wildcard iterator hit EOF, we're done
-    IITER_SET_EOF(&nc->base);
-    return INDEXREAD_EOF;
-  }
-  nc->base.current->docId = wcii_res->docId;
-
-  // If there is no child result, or the child result is ahead of the wildcard
-  // iterator result, we wish to return the current docId.
-  if (cr == NULL || cr->docId > wcii_res->docId || !IITER_HAS_NEXT(nc->child)) {
-    goto ok;
-  }
-
-  while (cr->docId == wcii_res->docId && child_rc != INDEXREAD_EOF) {
-    wcii_rc = nc->wcii->Read(nc->wcii, &wcii_res);
-    nc->base.current->docId = wcii_res->docId;
-
-    if (wcii_rc == INDEXREAD_EOF) {
-      // No more valid docs --> Done.
-      IITER_SET_EOF(&nc->base);
+  RSIndexResult *cr, *wr;
+  do {
+    if (nc->wcii->Read(nc->wcii, &wr) == INDEXREAD_EOF || wr->docId > nc->maxDocId) {
+      IITER_SET_EOF(base);
       return INDEXREAD_EOF;
     }
 
+    if (wr->docId < nc->child->LastDocId || !IITER_HAS_NEXT(nc->child)) {
+      break;
+    }
     // read next entry from child
     // If the child docId is smaller than the wildcard docId, it was cleaned from
     // the `existingDocs` inverted index but not yet from child -> skip it.
+    int child_rc;
     do {
       child_rc = nc->child->Read(nc->child, &cr);
-    } while (child_rc != INDEXREAD_EOF && cr->docId < wcii_res->docId);
+      if (child_rc == INDEXREAD_TIMEOUT) return INDEXREAD_TIMEOUT;
+    } while (child_rc != INDEXREAD_EOF && cr->docId < wr->docId);
 
     // Check for timeout
     if (TimedOut_WithCtx_Gran(&nc->timeoutCtx, 5000)) {
-      IITER_SET_EOF(nc->wcii);
-      IITER_SET_EOF(&nc->base);
+      IITER_SET_EOF(base);
       return INDEXREAD_TIMEOUT;
     }
-  }
-  nc->timeoutCtx.counter = 0;
+  } while (wr->docId == nc->child->LastDocId);
 
-ok:
-  // Set the next entry and return ok
-  base->LastDocId = nc->base.current->docId;
-  if (hit) *hit = nc->base.current;
-
-  return INDEXREAD_OK;
-}
-
-/* We always have next, in case anyone asks... ;) */
-static int NI_HasNext(IndexIterator *base) {
-  NotContext *nc = (NotContext *)base;
-  return base->LastDocId < nc->maxDocId;
+  nc->base.current->docId = wr->docId;
+  return NI_SetReturnOK(nc, hit);
 }
 
 IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId,
