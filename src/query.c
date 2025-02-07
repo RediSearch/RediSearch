@@ -1057,13 +1057,44 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
 
 typedef IndexIterator **IndexIteratorArray;
 
+static void tag_strtofold(char *str, size_t *len, int caseSensitive) {
+  size_t origLen = *len;
+  char *origStr = str;
+  char *p = str;
+
+  while (*p) {
+    if (*p == '\\' && (ispunct(*(p+1)) || isspace(*(p+1)))) {
+      ++p;
+      --*len;
+    }
+    *str++ = *p++;
+  }
+  *str = '\0';
+
+  if (!caseSensitive) {
+    size_t newLen = unicode_tolower(origStr, origLen);
+    if (newLen && newLen < origLen) {
+      origStr[newLen] = '\0';
+    }
+  }
+}
+
 static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
-                                                IndexIteratorArray *iterout, double weight) {
+                                                IndexIteratorArray *iterout, double weight, bool caseSensitive) {
   TrieMap *t = idx->values;
   LexRangeCtx ctx = {.q = q, .opts = &qn->opts, .weight = weight};
 
   if (!t) {
     return NULL;
+  }
+
+  if(qn->lxrng.begin) {
+    size_t beginLen = strlen(qn->lxrng.begin);
+    tag_strtofold(qn->lxrng.begin, &beginLen, caseSensitive);
+  }
+  if(qn->lxrng.end) {
+    size_t endLen = strlen(qn->lxrng.end);
+    tag_strtofold(qn->lxrng.end, &endLen, caseSensitive);
   }
 
   ctx.cap = 8;
@@ -1086,11 +1117,15 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
 static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
                                               IndexIteratorArray *iterout, double weight,
-                                              int withSuffixTrie, t_fieldIndex fieldIndex) {
-  RSToken *tok = &qn->pfx.tok;
+                                              int withSuffixTrie, t_fieldIndex fieldIndex,
+                                              bool caseSensitive) {
   if (qn->type != QN_PREFIX) {
     return NULL;
   }
+  RSToken *tok = &qn->pfx.tok;
+
+  tag_strtofold(tok->str, &tok->len, caseSensitive);
+  tok->len = strlen(tok->str);
 
   // we allow a minimum of 2 letters in the prefix by default (configurable)
   if (tok->len < q->config->minTermPrefix) {
@@ -1184,14 +1219,19 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 }
 
 /* Evaluate a tag prefix by expanding it with a lookup on the tag index */
-static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
-                                              IndexIteratorArray *iterout, double weight, t_fieldIndex fieldIndex) {
+static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
+                     QueryNode *qn, IndexIteratorArray *iterout, double weight,
+                     t_fieldIndex fieldIndex, bool caseSensitive) {
   if (qn->type != QN_WILDCARD_QUERY) {
     return NULL;
   }
   if (!idx || !idx->values) return NULL;
 
   RSToken *tok = &qn->verb.tok;
+
+  tag_strtofold(tok->str, &tok->len, caseSensitive);
+  tok->len = strlen(tok->str);
+
   tok->len = Wildcard_RemoveEscape(tok->str, tok->len);
 
   size_t itsSz = 0, itsCap = 8;
@@ -1277,28 +1317,6 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx, 
   return NewUnionIterator(its, itsSz, 1, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);
 }
 
-static void tag_strtofold(char *str, size_t *len, int caseSensitive) {
-  size_t origLen = *len;
-  char *origStr = str;
-  char *p = str;
-
-  while (*p) {
-    if (*p == '\\' && (ispunct(*(p+1)) || isspace(*(p+1)))) {
-      ++p;
-      --*len;
-    }
-    *str++ = *p++;
-  }
-  *str = '\0';
-
-  if (!caseSensitive) {
-    size_t newLen = unicode_tolower(origStr, origLen);
-    if (newLen && newLen < origLen) {
-      origStr[newLen] = '\0';
-    }
-  }
-}
-
 static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *n,
                                               IndexIteratorArray *iterout, double weight,
                                               const FieldSpec *fs) {
@@ -1313,25 +1331,15 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       break;
     }
     case QN_PREFIX:
-      tag_strtofold(n->pfx.tok.str, &n->pfx.tok.len, caseSensitive);
-      n->pfx.tok.len = strlen(n->pfx.tok.str);
-      return Query_EvalTagPrefixNode(q, idx, n, iterout, weight, FieldSpec_HasSuffixTrie(fs), fs->index);
+      return Query_EvalTagPrefixNode(q, idx, n, iterout, weight,
+                         FieldSpec_HasSuffixTrie(fs), fs->index, caseSensitive);
 
     case QN_WILDCARD_QUERY:
-      tag_strtofold(n->verb.tok.str, &n->verb.tok.len, caseSensitive);
-      n->verb.tok.len = strlen(n->verb.tok.str);
-      return Query_EvalTagWildcardNode(q, idx, n, iterout, weight, fs->index);
+      return Query_EvalTagWildcardNode(q, idx, n, iterout, weight, fs->index,
+                                       caseSensitive);
 
     case QN_LEXRANGE:
-      if(n->lxrng.begin) {
-        size_t beginLen = strlen(n->lxrng.begin);
-        tag_strtofold(n->lxrng.begin, &beginLen, caseSensitive);
-      }
-      if(n->lxrng.end) {
-        size_t endLen = strlen(n->lxrng.end);
-        tag_strtofold(n->lxrng.end, &endLen, caseSensitive);
-      }
-      return Query_EvalTagLexRangeNode(q, idx, n, iterout, weight);
+      return Query_EvalTagLexRangeNode(q, idx, n, iterout, weight, caseSensitive);
 
     case QN_PHRASE: {
       char *terms[QueryNode_NumChildren(n)];
