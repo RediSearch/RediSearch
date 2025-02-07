@@ -945,6 +945,7 @@ int IR_Read(IndexIterator *base, RSIndexResult **e) {
     }
 
     *e = record;
+    base->LastDocId = record->docId;
     return INDEXREAD_OK;
 
   } while (1);
@@ -1007,17 +1008,10 @@ int IR_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
     goto eof;
   }
 
-  if (IR_CURRENT_BLOCK(ir).lastId < docId) {
+  if (IR_CURRENT_BLOCK(ir).lastId < docId || BufferReader_AtEnd(&ir->br)) {
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
     IndexReader_SkipToBlock(ir, docId);
-  } else if (BufferReader_AtEnd(&ir->br)) {
-    // Current block, but there's nothing here
-    if (IR_Read(base, hit) == INDEXREAD_EOF) {
-      goto eof;
-    } else {
-      return INDEXREAD_NOTFOUND;
-    }
   }
 
   /**
@@ -1054,6 +1048,7 @@ int IR_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
     }
     // Found a document that match the field mask and greater or equal the searched docid
     *hit = ir->record;
+    base->LastDocId = ir->record->docId;
     return (ir->record->docId == docId) ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
   } else {
     int rc;
@@ -1061,6 +1056,7 @@ int IR_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
     while (INDEXREAD_EOF != (rc = IR_Read(base, hit))) {
       rid = ir->lastId;
       if (rid < docId) continue;
+      base->LastDocId = rid;
       if (rid == docId) return INDEXREAD_OK;
       return INDEXREAD_NOTFOUND;
     }
