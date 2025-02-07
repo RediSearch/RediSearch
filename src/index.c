@@ -366,7 +366,7 @@ static int UI_SkipToQuick(IndexIterator *base, t_docId docId, RSIndexResult **hi
     return INDEXREAD_EOF;
   }
 
-  ui->base.LastDocId = docId - 1;
+  ui->base.LastDocId = docId; // advance the last docId to the minimal expected value
   int rc = UI_SkipAdvanceLagging(ui); // advance lagging iterators to `docId` or above
   if (rc != INDEXREAD_OK) return rc;
 
