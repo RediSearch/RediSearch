@@ -917,7 +917,6 @@ int IR_Read(IndexIterator *base, RSIndexResult **e) {
       }
       IndexReader_AdvanceBlock(ir);
     }
-
     IndexBlockReader reader = (IndexBlockReader){
       .buffReader = ir->br,
       .curBaseId = (ir->decoders.decoder != readRawDocIdsOnly) ? ir->lastId : IR_CURRENT_BLOCK(ir).firstId,
@@ -1105,7 +1104,6 @@ int IR_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
     while (INDEXREAD_EOF != (rc = IR_Read(base, hit))) {
       rid = ir->lastId;
       if (rid < docId) continue;
-      base->LastDocId = rid;
       if (rid == docId) return INDEXREAD_OK;
       return INDEXREAD_NOTFOUND;
     }
