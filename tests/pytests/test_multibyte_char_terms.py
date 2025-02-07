@@ -23,7 +23,7 @@ def testMultibyteText(env):
         # only 5 terms are indexed, the lowercase representation of the terms
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
         env.assertEqual(len(res), 5)
-        env.assertEqual(res, ['abcabc', 'fusball', 'grüsen', 'strase',
+        env.assertEqual(res, ['abcabc', 'fußball', 'grüßen', 'straße',
                               'бълга123'])
 
     for dialect in range(1, 5):
@@ -113,10 +113,6 @@ def testMultibyteText(env):
 
         # Test suffix search
         res = conn.execute_command(
-            'FT.SEARCH', 'idx', '@t:(*ßen)', 'NOCONTENT', 'SORTBY', 't')
-        env.assertEqual(res, expected, message=f'Dialect: {dialect}')
-
-        res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:(*üßen)', 'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, expected, message=f'Dialect: {dialect}')
 
@@ -129,7 +125,8 @@ def testMultibyteText(env):
         env.assertEqual(res, expected, message=f'Dialect: {dialect}')
 
         # Test suffix search replacing ẞ by SS.
-        # 0 results because ß is folded as a single S
+        # No results because normalization only converts to lowercase, it does
+        # not fold it to SS.
         res = conn.execute_command(
             'FT.SEARCH', 'idx', '@t:(GRÜss*)', 'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, [0])
@@ -168,7 +165,6 @@ def testMultibyteText(env):
         env.assertEqual(res, [1, 'doc:eszett_3'], message=f'Dialect: {dialect}')
 
         # Test phrase search replacing ẞ by SS
-        # 0 results because ß is folded as a single S
         res = conn.execute_command(
             'FT.SEARCH', 'idx', "@t:(FUSSBALL STRAssE)", 'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, [0], message=f'Dialect: {dialect}')
@@ -180,17 +176,17 @@ def testMultibyteText(env):
             'FT.SEARCH', 'idx', "@t:(%GRÜßET%)", 'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, expected, message = f'Dialect: {dialect}')
 
-        # 0 results because ß is folded as a single S
+        # This returns no results because ß is not being folded as SS
         res = conn.execute_command(
             'FT.SEARCH', 'idx', "@t:(%GRÜSSET%)", 'NOCONTENT', 'SORTBY', 't')
-        env.assertEqual(res, [0], message = f'Dialect: {dialect}')
+        env.assertEqual(res, [0])
 
         # Distance 0
         res = conn.execute_command(
             'FT.SEARCH', 'idx', "@t:(%grüßen%)", 'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, expected)
 
-        # Distance 2: G was replaced by C, N was replaced by T
+        # Distance 2, G was replaced by C, N was replaced by T
         res = conn.execute_command(
             'FT.SEARCH', 'idx', "@t:(%%CRÜßET%%)", 'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, expected)
@@ -250,7 +246,7 @@ def testJsonMultibyteText(env):
         # only 5 terms are indexed, the lowercase representation of the terms
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
         env.assertEqual(len(res), 5)
-        env.assertEqual(res, ['abcabc', 'fusball', 'grüsen', 'strase',
+        env.assertEqual(res, ['abcabc', 'fußball', 'grüßen', 'straße',
                               'бълга123'])
 
     for dialect in range(1, 5):
@@ -328,13 +324,7 @@ def testJsonMultibyteText(env):
             'FT.SEARCH', 'idx', "@t:(FUẞBALL STRAẞE)", 'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, [1, 'doc:eszett_3'], message=f'Dialect: {dialect}')
 
-        # Test phrase search, replacing ẞ by S
-        res = conn.execute_command(
-            'FT.SEARCH', 'idx', "@t:(FUSBALL STRAsE)", 'NOCONTENT', 'SORTBY', 't')
-        env.assertEqual(res, [1, 'doc:eszett_3'], message=f'Dialect: {dialect}')
-
         # Test phrase search, replacing ẞ by SS
-        # 0 results because ß is folded as a single S
         res = conn.execute_command(
             'FT.SEARCH', 'idx', "@t:(FUSSBALL STRAssE)", 'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, [0], message=f'Dialect: {dialect}')
@@ -593,16 +583,16 @@ def testGermanEszett(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'test:1', 't', 'GRÜẞEN') # term: grüssen
     conn.execute_command('HSET', 'test:2', 't', 'grüßen') # term: grüssen
-    # Some times the 'ẞ' (eszett) is written as 'ss', but to be BWC we are
-    # folding the eszett to a single 's', so the search for 'ẞ' should return
-    # the same results as the search for 's'
+    # Some times the 'ẞ' (eszett) is written as 'ss', we are folding the
+    # eszett to 'ss', so the search for 'ẞ' should return the same results as
+    # the search for 'ss'
     conn.execute_command('HSET', 'test:3', 't', 'GRÜSSEN')
     conn.execute_command('HSET', 'test:4', 't', 'grüssen')
 
     if not env.isCluster():
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
         env.assertEqual(len(res), 2)
-        env.assertEqual(res, ['grüsen', 'grüssen'])
+        env.assertEqual(res, ['grüssen', 'grüßen'])
 
     # 'ẞ' is normalized to 'ss', so the search for 'ẞ' should return the same
     # results as the search for 'ss'
@@ -654,8 +644,8 @@ def testGreekSigma(env):
 
     if not env.isCluster():
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
-        env.assertEqual(len(res), 2)
-        env.assertEqual(res, ['νεανίασ', 'σίγμα'])
+        env.assertEqual(len(res), 3)
+        env.assertEqual(res, ['νεανίας', 'νεανίασ', 'σίγμα'])
 
     # Test with sigma at the beginning of the word
     expected = [3, 'su@b:upper', 'su@b:mixed', 'su@b:lower']
@@ -676,12 +666,13 @@ def testGreekSigma(env):
     env.assertEqual(res, expected)
 
     # Test with uppercase sigma at the end of the word
-    expected = [4, 'su@e:upper', 'sl@e:mixed', 'su@e:mixed', 'sl@e:lower']
+    expected = [2, 'su@e:upper', 'su@e:mixed']
     res = conn.execute_command(
         'FT.SEARCH', 'idx', '@t:ΝΕΑΝΊΑΣ', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, expected)
 
     # Test with lowercase sigma at the end of the word
+    expected = [2, 'sl@e:mixed', 'sl@e:lower']
     res = conn.execute_command(
         'FT.SEARCH', 'idx', '@t:Νεανίας', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, expected)
@@ -741,10 +732,10 @@ def testMultibyteTag(env):
     conn.execute_command('HSET', 'doc:eszeet_3', 't', 'FUẞBALL STRAẞE', 'id', 8)
 
     if not env.isCluster():
-        # only 4 terms are indexed, the lowercase representation of the terms
+        # only 3 terms are indexed, the lowercase representation of the terms
         res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
-        env.assertEqual(res, [['abcabc', [1, 2]], ['fusball strase', [8]],
-                              ['grüsen', [6, 7]], ['бълга123', [3, 4, 5]]])
+        env.assertEqual(res, [['abcabc', [1, 2]], ['fußball straße', [8]],
+                              ['grüßen', [6, 7]], ['бълга123', [3, 4, 5]]])
 
     for dialect in range(1, 5):
         run_command_on_all_shards(env, config_cmd(),
@@ -914,8 +905,8 @@ def testJsonMultibyteTag(env):
     if not env.isCluster():
         # only 3 terms are indexed, the lowercase representation of the terms
         res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
-        env.assertEqual(res, [['abcabc', [1, 2]], ['fusball strase', [8]],
-                              ['grüsen', [6, 7]], ['бълга123', [3, 4, 5]]])
+        env.assertEqual(res, [['abcabc', [1, 2]], ['fußball straße', [8]],
+                              ['grüßen', [6, 7]], ['бълга123', [3, 4, 5]]])
 
     for dialect in range(1, 5):
         run_command_on_all_shards(env, config_cmd(),
@@ -1359,62 +1350,3 @@ def testGreekStemming(env):
     res = conn.execute_command(
         'FT.SEARCH', 'idx_no_stem', 'ΑΕΡΟΠΛΆΝΟΥ', 'NOCONTENT', 'SORTBY', 't')
     env.assertEqual(res, [2, 'doc:3U', 'doc:3L'])
-
-def testFuzzySearch(env):
-    conn = getConnectionByEnv(env)
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
-
-    # Create sample data
-    conn.execute_command('HSET', 'doc:L', 't', 'fußball')
-    conn.execute_command('HSET', 'doc:U', 't', 'fuẞball')
-    conn.execute_command('HSET', 'doc:1s', 't', 'fusball')
-    conn.execute_command('HSET', 'doc:2s', 't', 'fussball')
-
-    # Distance 1
-    expected = [3, 'doc:1s', 'doc:L', 'doc:U']
-    res = conn.execute_command(
-        'FT.SEARCH', 'idx', f'@t:(%fuXball%)', 'NOCONTENT', 'SORTBY', 't')
-    env.assertEqual(res, expected)
-
-    res = conn.execute_command(
-        'FT.SEARCH', 'idx', f'@t:(%fußbalx%)', 'NOCONTENT', 'SORTBY', 't')
-    env.assertEqual(res, expected)
-
-    # Distance 2.
-    expected = [4, 'doc:1s', 'doc:2s', 'doc:L', 'doc:U']
-    res = conn.execute_command(
-        'FT.SEARCH', 'idx', f'@t:(%%fuXball%%)', 'NOCONTENT', 'SORTBY', 't')
-    env.assertEqual(res, expected)
-
-    res = conn.execute_command(
-        'FT.SEARCH', 'idx', f'@t:(%%fußbalx%%)', 'NOCONTENT', 'SORTBY', 't')
-    env.assertEqual(res, expected)
-
-    # Distance 2.
-    expected = [3, 'doc:1s', 'doc:L', 'doc:U']
-    res = conn.execute_command(
-        'FT.SEARCH', 'idx', f'@t:(%%XuXball%%)', 'NOCONTENT', 'SORTBY', 't')
-    env.assertEqual(res, expected)
-
-    res = conn.execute_command(
-        'FT.SEARCH', 'idx', f'@t:(%%Xußbalx%%)', 'NOCONTENT', 'SORTBY', 't')
-    env.assertEqual(res, expected)
-
-@skip(cluster=True)
-def testTagSearch(env):
-    conn = getConnectionByEnv(env)
-    env.cmd('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TAG')
-
-    # Create sample data
-    conn.execute_command('HSET', 'doc:L', 't', 'fußball')
-    conn.execute_command('HSET', 'doc:U', 't', 'fuẞball')
-    conn.execute_command('HSET', 'doc:1s', 't', 'fusball')
-    conn.execute_command('HSET', 'doc:2s', 't', 'fussball')
-
-    for w in ['fußball', 'fuẞball', 'fusball']:
-        res = conn.execute_command(
-            'FT.SEARCH', 'idx', f'@t:{{{w}}}', 'NOCONTENT')
-        env.assertEqual(res, [3, 'doc:L', 'doc:U', 'doc:1s'])
-
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:{fussball}', 'NOCONTENT')
-    env.assertEqual(res, [1, 'doc:2s'])

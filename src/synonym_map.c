@@ -146,7 +146,7 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, con
   int ret;
   for (size_t i = 0; i < size; i++) {
     char *lowerSynonym = rm_strdup(synonyms[i]);
-    size_t newLen = unicode_fold(lowerSynonym, strlen(lowerSynonym));
+    size_t newLen = unicode_tolower(lowerSynonym, strlen(lowerSynonym));
     if (newLen) {
       lowerSynonym[newLen] = '\0';
     }

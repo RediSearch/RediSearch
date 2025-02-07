@@ -626,10 +626,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   size_t nstr;
-  rune *str = qn->pfx.tok.str ? strToSingleCodepointFoldedRunes(qn->pfx.tok.str, &nstr) : NULL;
-
-  size_t utf8Len = 0;
-  char *testStr = runesToStr(str, nstr, &utf8Len);
+  rune *str = qn->pfx.tok.str ? strToLowerRunes(qn->pfx.tok.str, &nstr) : NULL;
   if (!str) {
     QueryError_SetErrorFmt(q->status, QUERY_ELIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
     return NULL;
@@ -694,7 +691,7 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
 
   token->len = Wildcard_RemoveEscape(token->str, token->len);
   size_t nstr;
-  rune *str = strToSingleCodepointFoldedRunes(token->str, &nstr);
+  rune *str = strToLowerRunes(token->str, &nstr);
   if (!str) {
     QueryError_SetError(q->status, QUERY_ELIMIT, "Wildcard " TRIE_STR_TOO_LONG_MSG);
     return NULL;
@@ -837,10 +834,10 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
   rune *begin = NULL, *end = NULL;
   size_t nbegin, nend;
   if (lx->lxrng.begin) {
-    begin = strToSingleCodepointFoldedRunes(lx->lxrng.begin, &nbegin);
+    begin = strToLowerRunes(lx->lxrng.begin, &nbegin);
   }
   if (lx->lxrng.end) {
-    end = strToSingleCodepointFoldedRunes(lx->lxrng.end, &nend);
+    end = strToLowerRunes(lx->lxrng.end, &nend);
   }
 
   TrieNode_IterateRange(t->root, begin, begin ? nbegin : -1, lx->lxrng.includeBegin, end,
@@ -1295,7 +1292,7 @@ static void tag_strtofold(char *str, size_t *len, int caseSensitive) {
   *str = '\0';
 
   if (!caseSensitive) {
-    size_t newLen = unicode_fold(origStr, origLen);
+    size_t newLen = unicode_tolower(origStr, origLen);
     if (newLen && newLen < origLen) {
       origStr[newLen] = '\0';
     }
