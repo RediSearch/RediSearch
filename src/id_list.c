@@ -62,32 +62,31 @@ int IL_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **r) {
     return INDEXREAD_EOF;
   }
 
-  t_offset top = it->size - 1, bottom = it->offset;
-  t_offset i = 0;
-
+  int64_t top = it->size - 1, bottom = it->offset;
+  int64_t i;
+  t_docId did;
   while (bottom <= top) {
     i = (bottom + top) / 2;
-    t_docId did = it->docIds[i];
+    did = it->docIds[i];
 
     if (did == docId) {
       break;
     }
     if (docId < did) {
-      if (i == 0) break;
       top = i - 1;
     } else {
       bottom = i + 1;
     }
   }
+  if (did < docId) did = it->docIds[++i];
   it->offset = i + 1;
   if (it->offset >= it->size) {
     setEof(it, 1);
   }
 
-  it->base.current->docId = base->LastDocId = it->docIds[i];
+  it->base.current->docId = base->LastDocId = did;
   *r = it->base.current;
-
-  return docId == it->docIds[i] ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
+  return docId == did ? INDEXREAD_OK : INDEXREAD_NOTFOUND;
 }
 
 /* release the iterator's context and free everything needed */
