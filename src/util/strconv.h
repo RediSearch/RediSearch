@@ -110,15 +110,16 @@ static char *rm_strndup_unescape(const char *s, size_t len) {
   return ret;
 }
 
-// transform utf8 string to lower case using nunicode library
+// transform utf8 string to fold case using nunicode library
 // encoded: the utf8 string to transform, if the transformation is successful
 //          the transformed string will be written back to this buffer
 // in_len: the length of the utf8 string
 // returns the bytes written to encoded, or 0 if the length of the transformed
 // string is greater than in_len and no transformation was done
-static size_t unicode_tolower(char *encoded, size_t in_len) {
+static size_t unicode_fold(char *encoded, size_t in_len) {
   uint32_t u_stack_buffer[SSO_MAX_LENGTH];
-  uint32_t *u_buffer = u_stack_buffer;
+  uint32_t *
+  u_buffer = u_stack_buffer;
 
   if (in_len == 0) {
     return 0;
@@ -126,7 +127,7 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
 
   const char *encoded_char = encoded;
   ssize_t u_len = nu_strtransformnlen(encoded, in_len, nu_utf8_read,
-                                              nu_tolower, nu_casemap_read);
+                                              nu_tofold, nu_casemap_read);
 
   if (u_len >= (SSO_MAX_LENGTH - 1)) {
     u_buffer = (uint32_t *)rm_malloc(sizeof(*u_buffer) * (u_len + 1));
@@ -134,23 +135,32 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
 
   // Decode utf8 string into Unicode codepoints and transform to fold
   uint32_t codepoint;
-  unsigned i = 0;
+  uint16_t i = 0;
+  uint16_t ignored_codepoints = 0;
   for (ssize_t j = 0; j < u_len; j++) {
     // Read unicode codepoint from utf8 string
     encoded_char = nu_utf8_read(encoded_char, &codepoint);
     // Transform unicode codepoint to case fold
-    const char *map = nu_tolower(codepoint);
+    const char *map = nu_tofold(codepoint);
 
     // Read the transformed codepoint and store it in the unicode buffer
     if (map != 0) {
       uint32_t mu;
+      uint16_t k = 0;
       while (1) {
         map = nu_casemap_read(map, &mu);
         if (mu == 0) {
           break;
         }
-        u_buffer[i] = mu;
-        ++i;
+        if (k == 0) {
+          u_buffer[i] = mu;
+          ++i;
+        } else {
+          // If the folded rune occupies more than 1 codepoint, only the first
+          // is used, the rest are ignored.
+          ignored_codepoints++;
+        }
+        ++k;
       }
     }
     else {
@@ -160,6 +170,9 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
     }
   }
 
+  // Adjust the length of the reencoded string to ignore the codepoints that
+  // were ignored during the transformation
+  u_len -= ignored_codepoints;
   // Encode Unicode codepoints back to utf8 string
   ssize_t reencoded_len = nu_bytenlen(u_buffer, u_len, nu_utf8_write);
   if (reencoded_len > 0 && reencoded_len <= in_len) {
@@ -196,7 +209,7 @@ static char *rm_normalize(const char *s, size_t len) {
   *dst = '\0';
 
   // convert to fold
-  size_t newLen = unicode_tolower(ret, len);
+  size_t newLen = unicode_fold(ret, len);
   if (newLen && newLen <= len) {
     ret[newLen] = '\0';
   }
