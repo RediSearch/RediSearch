@@ -83,7 +83,7 @@ void InvertedIndex_Free(void *ctx) {
   rm_free(idx);
 }
 
-#define IR_IS_AT_END(ir) ((ir)->base.isValid)
+#define IR_IS_AT_END(ir) (!(ir)->base.isValid)
 
 /* A callback called from the ConcurrentSearchCtx after regaining execution and reopening the
  * underlying term key. We check for changes in the underlying key, or possible deletion of it */
