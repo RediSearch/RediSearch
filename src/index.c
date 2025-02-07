@@ -752,6 +752,7 @@ static inline int II_Read_Internal(IntersectIterator *ic, RSIndexResult **hit) {
     }
     II_setResult(ic);
     if (!II_currentIsRelevant(ic)) {
+      ic->base.LastDocId++; // advance the last docId to the next possible value
       continue;
     }
     // Hit!
@@ -780,6 +781,8 @@ static int II_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
       if (hit) *hit = ic->base.current;
       return INDEXREAD_OK;
     }
+    // Agreed on docId, but not relevant - need to read the next valid result.
+    ic->base.LastDocId++; // advance the last docId to the next possible value
   } else if (INDEXREAD_NOTFOUND != rc) {
     return rc; // Unexpected - bubble up
   }
@@ -1199,7 +1202,7 @@ static int OI_ReadSorted_NO(IndexIterator *base, RSIndexResult **hit) {
   // Increase the size by one
   base->LastDocId++;
 
-  if (base->LastDocId > nc->child->LastDocId) {
+  if (base->LastDocId > nc->child->LastDocId && IITER_HAS_NEXT(nc->child)) {
     int rc = nc->child->Read(nc->child, &nc->base.current);
     if (rc == INDEXREAD_TIMEOUT) {
       return rc;
@@ -1238,7 +1241,7 @@ static int OI_ReadSorted_O(IndexIterator *base, RSIndexResult **hit) {
 
   int rc;
   // We loop over this condition, since it reflects that the index is not up to date.
-  while (wcii_res->docId > nc->child->LastDocId) {
+  while (wcii_res->docId > nc->child->LastDocId && IITER_HAS_NEXT(nc->child)) {
     rc = nc->child->Read(nc->child, &nc->base.current);
     if (rc == INDEXREAD_TIMEOUT) {
       return rc;
