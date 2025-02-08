@@ -146,7 +146,6 @@ IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric 
   }
   ri->Rewind = MR_Rewind;
   ri->Free = MR_Free;
-  ri->HasNext = NULL;
   ri->NumEstimated = MR_NumEstimated;
   ri->Abort = MR_Abort;
 
