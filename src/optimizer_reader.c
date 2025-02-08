@@ -106,7 +106,9 @@ void OptimizerIterator_Free(IndexIterator *self) {
 int OPT_ReadYield(IndexIterator *base, RSIndexResult **e) {
   OptimizerIterator *it = (OptimizerIterator *)base;
   *e = heap_poll(it->heap);
-  return *e ? INDEXREAD_OK : INDEXREAD_EOF;
+  if (*e) return INDEXREAD_OK;
+  IITER_SET_EOF(base);
+  return INDEXREAD_EOF;
 }
 
 int OPT_Read(IndexIterator *base, RSIndexResult **e) {
