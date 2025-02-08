@@ -954,6 +954,7 @@ static void OI_Abort(IndexIterator *base) {
 
 static void OI_Rewind(IndexIterator *base) {
   OptionalIterator *nc = (OptionalIterator *)base;
+  IITER_CLEAR_EOF(base);
   base->LastDocId = 0;
   if (nc->wcii) {
     nc->wcii->Rewind(nc->wcii);
@@ -1278,14 +1279,18 @@ IndexIterator *NewEmptyIterator(void) {
  * Profile printing functions
  **********************************************************/
 
+static inline void PI_Align(ProfileIterator *pi) {
+  pi->base.isValid = pi->child->isValid;
+  pi->base.current = pi->child->current;
+  pi->base.LastDocId = pi->child->LastDocId;
+}
+
 static int PI_Read(IndexIterator *base, RSIndexResult **e) {
   ProfileIterator *pi = (ProfileIterator *)base;
   pi->counter++;
   clock_t begin = clock();
   int ret = pi->child->Read(pi->child, e);
-  pi->base.isValid = pi->child->isValid;
-  pi->base.current = pi->child->current;
-  pi->base.LastDocId = pi->child->LastDocId;
+  PI_Align(pi);
   pi->cpuTime += clock() - begin;
   return ret;
 }
@@ -1295,9 +1300,7 @@ static int PI_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
   pi->counter++;
   clock_t begin = clock();
   int ret = pi->child->SkipTo(pi->child, docId, hit);
-  pi->base.isValid = pi->child->isValid;
-  pi->base.current = pi->child->current;
-  pi->base.LastDocId = pi->child->LastDocId;
+  PI_Align(pi);
   pi->cpuTime += clock() - begin;
   return ret;
 }
@@ -1308,21 +1311,20 @@ static void PI_Free(IndexIterator *it) {
   rm_free(it);
 }
 
-static void PI_Rewind(IndexIterator *it) {
-  ProfileIterator *pi = (ProfileIterator *)it;
-  IITER_CLEAR_EOF(it);
-  pi->child->Rewind(pi->child);
-  it->LastDocId = 0;
+static size_t PI_NumEstimated(IndexIterator *base) {
+  ProfileIterator *pi = (ProfileIterator *)base;
+  return pi->child->NumEstimated(pi->child);
 }
 
-#define PROFILE_ITERATOR_FUNC_SIGN(func, rettype)     \
-static rettype PI_##func(IndexIterator *base) {       \
+#define PROFILE_ITERATOR_FUNC_SIGN(func)              \
+static void PI_##func(IndexIterator *base) {          \
   ProfileIterator *pi = (ProfileIterator *)base;      \
-  return pi->child->func(pi->child);                  \
+  pi->child->func(pi->child);                         \
+  PI_Align(pi);                                       \
 }
 
-PROFILE_ITERATOR_FUNC_SIGN(Abort, void);
-PROFILE_ITERATOR_FUNC_SIGN(NumEstimated, size_t);
+PROFILE_ITERATOR_FUNC_SIGN(Abort);
+PROFILE_ITERATOR_FUNC_SIGN(Rewind);
 
 /* Create a new wildcard iterator */
 IndexIterator *NewProfileIterator(IndexIterator *child) {
