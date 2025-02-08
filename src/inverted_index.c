@@ -1168,7 +1168,6 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
   ir->base.Free = ReadIterator_Free;
   ir->base.Abort = IR_Abort;
   ir->base.Rewind = IR_Rewind;
-  ir->base.HasNext = NULL;
   ir->base.isValid = true;
   ir->base.current = ir->record;
 

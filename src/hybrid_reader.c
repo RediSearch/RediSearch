@@ -482,12 +482,12 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   // by the creation of the metrics loader results processor.
   ri->ownKey = NULL;
   ri->type = HYBRID_ITERATOR;
+  IITER_CLEAR_EOF(ri);
   ri->LastDocId = 0;
   ri->NumEstimated = HR_NumEstimated;
   ri->Free = HybridIterator_Free;
   ri->Abort = HR_Abort;
   ri->Rewind = HR_Rewind;
-  ri->HasNext = NULL;
   ri->SkipTo = NULL; // As long as we return results by score (unsorted by id), this has no meaning.
   if (hi->searchMode == VECSIM_STANDARD_KNN) {
     ri->Read = HR_ReadKnnUnsorted;

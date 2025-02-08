@@ -40,7 +40,7 @@ recursively */
 typedef struct IndexIterator {
   enum iteratorType type;
 
-  // Cached value - used if HasNext() is not set.
+  // Can the iterator yield more results?
   bool isValid;
 
   /* the last docId read */
@@ -63,9 +63,6 @@ typedef struct IndexIterator {
    * matches */
   int (*SkipTo)(struct IndexIterator *self, t_docId docId, RSIndexResult **hit);
 
-  /* can we continue iteration? */
-  int (*HasNext)(struct IndexIterator *self);
-
   /* release the iterator's context and free everything needed */
   void (*Free)(struct IndexIterator *self);
 
@@ -77,26 +74,8 @@ typedef struct IndexIterator {
   void (*Rewind)(struct IndexIterator *self);
 } IndexIterator;
 
-// static inline int IITER_HAS_NEXT(IndexIterator *ii) {
-//   /**
-//    * Assume that this is false, in which case, we just need to perform a single
-//    * comparison
-//    */
-//   if (ii->isValid) {
-//     return 1;
-//   }
-
-//   if (ii->HasNext) {
-//     return ii->HasNext(ii->ctx);
-//   } else {
-//     return 0;
-//   }
-// }
-#define IITER_HAS_NEXT(ii) ((ii)->isValid ? 1 : (ii)->HasNext ? (ii)->HasNext((ii)) : 0)
-#define IITER_CURRENT_RECORD(ii) ((ii)->current ? (ii)->current : 0)
-#define IITER_NUM_ESTIMATED(ii) ((ii)->NumEstimated ? (ii)->NumEstimated((ii)) : 0)
-
-#define IITER_SET_EOF(ii) (ii)->isValid = 0
-#define IITER_CLEAR_EOF(ii) (ii)->isValid = 1
+#define IITER_HAS_NEXT(ii) ((ii)->isValid)
+#define IITER_SET_EOF(ii) ((ii)->isValid = false)
+#define IITER_CLEAR_EOF(ii) ((ii)->isValid = true)
 
 #endif

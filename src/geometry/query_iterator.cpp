@@ -20,7 +20,7 @@ auto QueryIterator::base() noexcept -> IndexIterator * {
 }
 
 int QueryIterator::read_single(RSIndexResult *&hit) noexcept {
-  if (!base_.isValid || !has_next()) {
+  if (!base_.isValid) {
     return INDEXREAD_EOF;
   }
   t_docId docId = iter_[index_++];
@@ -35,6 +35,10 @@ int QueryIterator::read_single(RSIndexResult *&hit) noexcept {
 }
 
 int QueryIterator::read(RSIndexResult *&hit) noexcept {
+  if (index_ >= len()) {
+    base_.isValid = false;
+    return INDEXREAD_EOF;
+  }
   size_t timeoutCounter = 0;
   int rc = INDEXREAD_OK;
   do {
@@ -46,7 +50,7 @@ int QueryIterator::read(RSIndexResult *&hit) noexcept {
   return rc;
 }
 int QueryIterator::skip_to(t_docId docId, RSIndexResult *&hit) {
-  if (!base_.isValid || !has_next()) {
+  if (!base_.isValid) {
     return INDEXREAD_EOF;
   }
   if (docId > iter_.back()) {
@@ -57,7 +61,7 @@ int QueryIterator::skip_to(t_docId docId, RSIndexResult *&hit) {
   const auto it = std::ranges::lower_bound(std::ranges::next(std::ranges::begin(iter_), index_),
                                            std::ranges::end(iter_), docId);
   index_ = std::ranges::distance(std::ranges::begin(iter_), it + 1);
-  if (!has_next()) {
+  if (index_ >= len()) {
     abort();
   }
 
@@ -71,9 +75,6 @@ int QueryIterator::skip_to(t_docId docId, RSIndexResult *&hit) {
 }
 t_docId QueryIterator::current() const noexcept {
   return base_.current->docId;
-}
-int QueryIterator::has_next() const noexcept {
-  return index_ < len();
 }
 std::size_t QueryIterator::len() const noexcept {
   return iter_.size();
@@ -94,9 +95,6 @@ int QIter_Read(IndexIterator *base, RSIndexResult **hit) {
 }
 int QIter_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
   return reinterpret_cast<QueryIterator *>(base)->skip_to(docId, *hit);
-}
-int QIter_HasNext(IndexIterator *base) {
-  return reinterpret_cast<QueryIterator const *>(base)->has_next();
 }
 void QIter_Free(IndexIterator *self) {
   using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
@@ -127,7 +125,6 @@ IndexIterator QueryIterator::init_base(QueryIterator *ctx) {
       .NumEstimated = QIter_Len,
       .Read = QIter_Read,
       .SkipTo = QIter_SkipTo,
-      .HasNext = QIter_HasNext,
       .Free = QIter_Free,
       .Abort = QIter_Abort,
       .Rewind = QIter_Rewind,

@@ -54,7 +54,6 @@ typedef struct {
   IndexIterator *child;
   size_t counter;
   clock_t cpuTime;
-  int eof;
 } ProfileIterator, ProfileIteratorCtx;
 
 typedef struct {
@@ -96,7 +95,7 @@ static void resetMinIdHeap(UnionIterator *ui) {
 }
 
 static void UI_HeapAddChildren(UnionIterator *ui, IndexIterator *it) {
-  AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
+  AggregateResult_AddChild(CURRENT_RECORD(ui), it->current);
 }
 
 static void UI_SyncIterList(UnionIterator *ui) {
@@ -157,7 +156,6 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, int quickExit,
   ctx->origType = type;
   ctx->num = num;
   ctx->norig = num;
-  IITER_CLEAR_EOF(&ctx->base);
   CURRENT_RECORD(ctx) = NewUnionResult(num, weight);
   ctx->quickExit = quickExit;
   ctx->its = rm_calloc(ctx->num, sizeof(*ctx->its));
@@ -168,19 +166,19 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, int quickExit,
 
   // bind the union iterator calls
   IndexIterator *it = &ctx->base;
-  it->LastDocId = 0;
   it->type = UNION_ITERATOR;
+  IITER_CLEAR_EOF(it);
+  it->LastDocId = 0;
   it->NumEstimated = UI_NumEstimated;
   it->Read = quickExit ? UI_ReadQuick : UI_ReadFull;
   it->SkipTo = quickExit ? UI_SkipToQuick : UI_SkipToFull;
-  it->HasNext = NULL;
   it->Free = UnionIterator_Free;
   it->Abort = UI_Abort;
   it->Rewind = UI_Rewind;
   UI_SyncIterList(ctx);
 
   for (size_t i = 0; i < num; ++i) {
-    ctx->nexpected += IITER_NUM_ESTIMATED(its[i]);
+    ctx->nexpected += its[i]->NumEstimated(its[i]);
   }
 
   if (ctx->norig > config->minUnionIterHeap && 0) {
@@ -224,6 +222,7 @@ static inline int UI_ReadUnsorted(IndexIterator *base, RSIndexResult **hit) {
     }
     ++ui->currIt;
   }
+  IITER_SET_EOF(base);
   return INDEXREAD_EOF;
 }
 
@@ -404,7 +403,7 @@ static inline int UI_ReadSortedHigh(IndexIterator *base, RSIndexResult **hit) {
    */
   while (heap_count(hp)) {
     it = heap_peek(hp);
-    res = IITER_CURRENT_RECORD(it);
+    res = it->current;
     if (it->LastDocId >= nextValidId && it->LastDocId != 0) {
       // valid result since id at root of min-heap is higher than union min id
       break;
@@ -497,7 +496,7 @@ static int UI_SkipToHigh(IndexIterator *base, t_docId docId, RSIndexResult **hit
   // On quickExit we just return one result.
   // Otherwise, we collect all the results that equal to the root of the heap.
   if (ui->quickExit) {
-    AggregateResult_AddChild(CURRENT_RECORD(ui), IITER_CURRENT_RECORD(it));
+    AggregateResult_AddChild(CURRENT_RECORD(ui), it->current);
   } else {
     heap_cb_root(hp, (HeapCallback)UI_HeapAddChildren, ui);
   }
@@ -608,6 +607,9 @@ static void II_Rewind(IndexIterator *base) {
   for (int i = 0; i < ii->num; i++) {
     if (ii->its[i]) {
       ii->its[i]->Rewind(ii->its[i]);
+    } else {
+      IITER_SET_EOF(base);
+      return;
     }
   }
 }
@@ -654,7 +656,7 @@ static bool II_SetEstimation(IntersectIterator *ctx) {
       return false;
     }
 
-    size_t amount = IITER_NUM_ESTIMATED(curit);
+    size_t amount = curit->NumEstimated(curit);
     if (amount < ctx->nexpected) {
       ctx->nexpected = amount;
     }
@@ -684,7 +686,6 @@ IndexIterator *NewIntersectIterator(IndexIterator **its_, size_t num, DocTable *
   ctx->num = num;
 
   bool allValid = II_SetEstimation(ctx);
-  ctx->base.isValid = allValid;
 
   // Sort children iterators from low count to high count which reduces the number of iterations.
   if (!ctx->inOrder && allValid) {
@@ -694,6 +695,7 @@ IndexIterator *NewIntersectIterator(IndexIterator **its_, size_t num, DocTable *
   // bind the iterator calls
   IndexIterator *it = &ctx->base;
   it->type = INTERSECT_ITERATOR;
+  it->isValid = allValid;
   it->LastDocId = 0;
   it->NumEstimated = II_NumEstimated;
   it->Read = II_ReadSorted;
@@ -701,7 +703,6 @@ IndexIterator *NewIntersectIterator(IndexIterator **its_, size_t num, DocTable *
   it->Free = IntersectIterator_Free;
   it->Abort = II_Abort;
   it->Rewind = II_Rewind;
-  it->HasNext = NULL;
   return it;
 }
 
@@ -859,12 +860,6 @@ static size_t NI_NumEstimated(IndexIterator *base) {
   return nc->maxDocId - nc->child->NumEstimated(nc->child);
 }
 
-/* We always have next, in case anyone asks... ;) */
-static inline int NI_HasNext(IndexIterator *base) {
-  NotContext *nc = (NotContext *)base;
-  return base->LastDocId < nc->maxDocId;
-}
-
 static inline int NI_SetReturnOK(NotContext *nc, RSIndexResult **hit, t_docId docId) {
   nc->base.LastDocId = nc->base.current->docId = docId;
   if (hit) *hit = nc->base.current;
@@ -955,7 +950,7 @@ int NI_SkipTo_O(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
  * docId, skipping docIds that exist in the child */
 static int NI_ReadSorted_NO(IndexIterator *base, RSIndexResult **hit) {
   NotContext *nc = (NotContext *)base;
-  if (!base->isValid || !NI_HasNext(base)) {
+  if (!base->isValid || base->LastDocId >= nc->maxDocId) {
     IITER_SET_EOF(base);
     return INDEXREAD_EOF;
   }
@@ -992,7 +987,7 @@ static int NI_ReadSorted_NO(IndexIterator *base, RSIndexResult **hit) {
  * exist in the child */
 static int NI_ReadSorted_O(IndexIterator *base, RSIndexResult **hit) {
   NotContext *nc = (NotContext *)base;
-  if (!base->isValid || !NI_HasNext(base)) {
+  if (!base->isValid || base->LastDocId >= nc->maxDocId) {
     IITER_SET_EOF(base);
     return INDEXREAD_EOF;
   }
@@ -1050,10 +1045,10 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId,
   nc->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = 0 };
 
   ret->type = NOT_ITERATOR;
+  IITER_CLEAR_EOF(ret);
   ret->LastDocId = 0;
   ret->NumEstimated = NI_NumEstimated;
   ret->Free = NI_Free;
-  ret->HasNext = NI_HasNext;
   ret->Read = optimized ? NI_ReadSorted_O : NI_ReadSorted_NO;
   ret->SkipTo = optimized ? NI_SkipTo_O : NI_SkipTo_NO;
   ret->Abort = NI_Abort;
@@ -1196,6 +1191,7 @@ static size_t OI_NumEstimated(IndexIterator *base) {
 static int OI_ReadSorted_NO(IndexIterator *base, RSIndexResult **hit) {
   OptionalIterator *nc = (OptionalIterator *)base;
   if (base->LastDocId >= nc->maxDocId) {
+    IITER_SET_EOF(base);
     return INDEXREAD_EOF;
   }
 
@@ -1227,6 +1223,7 @@ static int OI_ReadSorted_NO(IndexIterator *base, RSIndexResult **hit) {
 static int OI_ReadSorted_O(IndexIterator *base, RSIndexResult **hit) {
   OptionalIterator *nc = (OptionalIterator *)base;
   if (base->LastDocId >= nc->maxDocId) {
+    IITER_SET_EOF(base);
     return INDEXREAD_EOF;
   }
 
@@ -1261,12 +1258,6 @@ static int OI_ReadSorted_O(IndexIterator *base, RSIndexResult **hit) {
   return INDEXREAD_OK;
 }
 
-/* We always have next, in case anyone asks... ;) */
-static int OI_HasNext(IndexIterator *base) {
-  OptionalIterator *nc = (OptionalIterator *)base;
-  return (base->LastDocId < nc->maxDocId);
-}
-
 IndexIterator *NewOptionalIterator(IndexIterator *it, QueryEvalCtx *q, double weight) {
   OptionalIterator *nc = rm_calloc(1, sizeof(*nc));
 
@@ -1283,10 +1274,10 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, QueryEvalCtx *q, double we
 
   IndexIterator *ret = &nc->base;
   ret->type = OPTIONAL_ITERATOR;
+  IITER_CLEAR_EOF(ret);
   ret->LastDocId = 0;
   ret->NumEstimated = OI_NumEstimated;
   ret->Free = OI_Free;
-  ret->HasNext = OI_HasNext;
   ret->Read = optimized ? OI_ReadSorted_O : OI_ReadSorted_NO;
   ret->SkipTo = optimized ? OI_SkipTo_O : OI_SkipTo_NO;
   ret->Abort = OI_Abort;
@@ -1311,10 +1302,11 @@ static void WI_Free(IndexIterator *it) {
 /* Read reads the next consecutive id, unless we're at the end */
 static int WI_Read(IndexIterator *base, RSIndexResult **hit) {
   WildcardIterator *wi = (WildcardIterator *)base;
-  base->current->docId = ++base->LastDocId;
-  if (base->LastDocId > wi->topId) {
+  if (base->LastDocId >= wi->topId) {
+    IITER_SET_EOF(base);
     return INDEXREAD_EOF;
   }
+  base->current->docId = ++base->LastDocId;
   if (hit) {
     *hit = CURRENT_RECORD(wi);
   }
@@ -1327,7 +1319,10 @@ static int WI_Read(IndexIterator *base, RSIndexResult **hit) {
 static int WI_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
   WildcardIterator *wi = (WildcardIterator *)base;
 
-  if (base->LastDocId > wi->topId) return INDEXREAD_EOF;
+  if (base->LastDocId >= wi->topId) {
+    IITER_SET_EOF(base);
+    return INDEXREAD_EOF;
+  }
 
   base->LastDocId = docId;
   CURRENT_RECORD(wi)->docId = docId;
@@ -1341,13 +1336,6 @@ static void WI_Abort(IndexIterator *base) {
   WildcardIterator *wi = (WildcardIterator *)base;
   base->LastDocId = wi->topId + 1;
   IITER_SET_EOF(base);
-}
-
-/* We always have next, in case anyone asks... ;) */
-static int WI_HasNext(IndexIterator *base) {
-  WildcardIterator *wi = (WildcardIterator *)base;
-
-  return base->LastDocId < wi->topId;
 }
 
 static void WI_Rewind(IndexIterator *base) {
@@ -1371,9 +1359,9 @@ static IndexIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t num
 
   IndexIterator *ret = &c->base;
   ret->type = WILDCARD_ITERATOR;
+  ret->isValid = true;
   ret->LastDocId = 0;
   ret->Free = WI_Free;
-  ret->HasNext = WI_HasNext;
   ret->Read = WI_Read;
   ret->SkipTo = WI_SkipTo;
   ret->Abort = WI_Abort;
@@ -1418,14 +1406,16 @@ static void EOI_Abort(IndexIterator *self) {
 static void EOI_Rewind(IndexIterator *self) {
 }
 
-static IndexIterator eofIterator = {.Read = EOI_Read,
+static IndexIterator eofIterator = {.type = EMPTY_ITERATOR,
+                                    .isValid = false,
+                                    .LastDocId = 0,
+                                    .Read = EOI_Read,
                                     .Free = EOI_Free,
                                     .SkipTo = EOI_SkipTo,
-                                    .LastDocId = 0,
                                     .NumEstimated = EOI_NumEstimated,
                                     .Abort = EOI_Abort,
                                     .Rewind = EOI_Rewind,
-                                    .type = EMPTY_ITERATOR};
+};
 
 IndexIterator *NewEmptyIterator(void) {
   return &eofIterator;
@@ -1440,7 +1430,7 @@ static int PI_Read(IndexIterator *base, RSIndexResult **e) {
   pi->counter++;
   clock_t begin = clock();
   int ret = pi->child->Read(pi->child, e);
-  if (ret == INDEXREAD_EOF) pi->eof = 1;
+  pi->base.isValid = pi->child->isValid;
   pi->base.current = pi->child->current;
   pi->base.LastDocId = pi->child->LastDocId;
   pi->cpuTime += clock() - begin;
@@ -1452,7 +1442,7 @@ static int PI_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
   pi->counter++;
   clock_t begin = clock();
   int ret = pi->child->SkipTo(pi->child, docId, hit);
-  if (ret == INDEXREAD_EOF) pi->eof = 1;
+  pi->base.isValid = pi->child->isValid;
   pi->base.current = pi->child->current;
   pi->base.LastDocId = pi->child->LastDocId;
   pi->cpuTime += clock() - begin;
@@ -1467,6 +1457,7 @@ static void PI_Free(IndexIterator *it) {
 
 static void PI_Rewind(IndexIterator *it) {
   ProfileIterator *pi = (ProfileIterator *)it;
+  IITER_CLEAR_EOF(it);
   pi->child->Rewind(pi->child);
   it->LastDocId = 0;
 }
@@ -1480,24 +1471,18 @@ static rettype PI_##func(IndexIterator *base) {       \
 PROFILE_ITERATOR_FUNC_SIGN(Abort, void);
 PROFILE_ITERATOR_FUNC_SIGN(NumEstimated, size_t);
 
-static int PI_HasNext(IndexIterator *base) {
-  ProfileIterator *pi = (ProfileIterator *)base;
-  return IITER_HAS_NEXT(pi->child);
-}
-
 /* Create a new wildcard iterator */
 IndexIterator *NewProfileIterator(IndexIterator *child) {
   ProfileIteratorCtx *pc = rm_calloc(1, sizeof(*pc));
   pc->child = child;
   pc->counter = 0;
   pc->cpuTime = 0;
-  pc->eof = 0;
 
   IndexIterator *ret = &pc->base;
-  ret->LastDocId = 0;
+  ret->isValid = true;
   ret->type = PROFILE_ITERATOR;
+  ret->LastDocId = 0;
   ret->Free = PI_Free;
-  ret->HasNext = PI_HasNext;
   ret->Read = PI_Read;
   ret->SkipTo = PI_SkipTo;
   ret->Abort = PI_Abort;
@@ -1670,7 +1655,7 @@ PRINT_PROFILE_SINGLE(printOptimusIt, OptimizerIterator, "OPTIMIZER");
 
 PRINT_PROFILE_FUNC(printProfileIt) {
   ProfileIterator *pi = (ProfileIterator *)root;
-  printIteratorProfile(reply, pi->child, pi->counter - pi->eof,
+  printIteratorProfile(reply, pi->child, pi->counter - (pi->base.isValid ? 0 : 1),
     (double)(pi->cpuTime / CLOCKS_PER_MILLISEC), depth, limited, config);
 }
 

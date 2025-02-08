@@ -130,6 +130,7 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
 
   IndexIterator *ret = &it->base;
   ret->type = ID_LIST_ITERATOR;
+  ret->isValid = num > 0;
   ret->LastDocId = 0;
   ret->NumEstimated = IL_NumEstimated;
   ret->Free = IL_Free;
@@ -138,6 +139,5 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
   ret->Abort = IL_Abort;
   ret->Rewind = IL_Rewind;
 
-  ret->HasNext = NULL;
   return ret;
 }

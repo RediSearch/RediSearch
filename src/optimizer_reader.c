@@ -239,13 +239,13 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, Itera
 
   IndexIterator *ri = &oi->base;
   ri->type = OPTIMUS_ITERATOR;
+  IITER_CLEAR_EOF(ri);
   ri->LastDocId = 0;
 
   ri->NumEstimated = OPT_NumEstimated;
   ri->Free = OptimizerIterator_Free;
   ri->Abort = OPT_Abort;
   ri->Rewind = OPT_Rewind;
-  ri->HasNext = NULL;
   ri->SkipTo = NULL;            // The iterator is always on top and and Read() is called
   ri->Read = OPT_Read;
   ri->current = NewNumericResult();
