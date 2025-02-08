@@ -180,9 +180,10 @@ def test_issue1880(env):
 
   # test with a term which does not exist
   excepted_res = ['Type', 'INTERSECT', 'Counter', 0, 'Child iterators', [
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0, 'Size', 2],
                     None,
                     ['Type', 'TEXT', 'Term', 'world', 'Counter', 0, 'Size', 1],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0, 'Size', 2]]]
+  ]]
   res3 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello new world')
 
   env.assertEqual(res3[1][1][0][3], excepted_res)
