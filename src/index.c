@@ -170,7 +170,7 @@ static inline int UI_SkipAdvanceLagging_Heap(UnionIterator *ui, const t_docId ne
   while ((cur = heap_peek(hp)) && cur->LastDocId < nextId) {
     int rc = cur->SkipTo(cur, nextId, &h);
     if (rc == INDEXREAD_OK || rc == INDEXREAD_NOTFOUND) {
-      heap_replace(hp, cur); // replace current iterator with itself to update LastDocId
+      heap_replace(hp, cur); // replace current iterator with itself to update its position
     } else if (rc == INDEXREAD_EOF) {
       heap_poll(hp);
     } else {
@@ -212,7 +212,7 @@ static inline int UI_ReadAdvanceLagging_Heap(UnionIterator *ui) {
   while ((cur = heap_peek(hp)) && cur->LastDocId == ui->base.LastDocId) {
     int rc = cur->Read(cur, &h);
     if (rc == INDEXREAD_OK) {
-      heap_replace(hp, cur); // replace current iterator with itself to update LastDocId
+      heap_replace(hp, cur); // replace current iterator with itself to update its position
     } else if (rc == INDEXREAD_EOF) {
       heap_poll(hp);
     } else {
