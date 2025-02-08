@@ -614,15 +614,8 @@ static inline void II_setResult(IntersectIterator *ic) {
 }
 
 static inline bool II_currentIsRelevant(IntersectIterator *ic) {
-  // // make sure the flags are matching.
-  // if ((ic->base.current->fieldMask & ic->fieldMask) == 0) {
-  //   return false;
-  // }
   // If we need to match slop and order, we do it now, and possibly skip the result
-  if (ic->maxSlop >= 0 && !IndexResult_IsWithinRange(ic->base.current, ic->maxSlop, ic->inOrder)) {
-    return false;
-  }
-  return true;
+  return ic->maxSlop < 0 || IndexResult_IsWithinRange(ic->base.current, ic->maxSlop, ic->inOrder);
 }
 
 static inline int II_Read_Internal(IntersectIterator *ic, RSIndexResult **hit) {
@@ -986,39 +979,28 @@ static void OI_Free(IndexIterator *base) {
 // SkipTo for OPTIONAL iterator - Non-optimized version.
 static int OI_SkipTo_NO(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
   OptionalIterator *nc = (OptionalIterator *)base;
+  RSIndexResult *res;
 
   if (docId > nc->maxDocId || !IITER_HAS_NEXT(base)) {
     IITER_SET_EOF(base);
     return INDEXREAD_EOF;
   }
 
-  bool found = false;
-
-  // Set the current ID
-  base->LastDocId = docId;
-
-  if (docId == nc->child->LastDocId) {
-    // Edge case -- match on the docid we just looked for
-    found = true;
-    // reset current pointer since this might have been a prior
-    // virt return
-    nc->base.current = nc->child->current;
-
-  } else if (docId > nc->child->LastDocId) {
-    int rc = nc->child->SkipTo(nc->child, docId, &nc->base.current);
-    if (rc == INDEXREAD_OK) {
-      found = true;
-    }
+  if (docId > nc->child->LastDocId) {
+    int rc = nc->child->SkipTo(nc->child, docId, &res);
+    if (rc == INDEXREAD_TIMEOUT) return rc;
   }
 
-  if (found) {
+  if (docId == nc->child->LastDocId) {
     // Has a real hit on the child iterator
+    nc->base.current = nc->child->current;
     nc->base.current->weight = nc->weight;
   } else {
     nc->virt->docId = docId;
     nc->base.current = nc->virt;
   }
-
+  // Set the current ID
+  base->LastDocId = docId;
   *hit = nc->base.current;
   return INDEXREAD_OK;
 }
@@ -1034,13 +1016,14 @@ static int OI_SkipTo_O(IndexIterator *base, t_docId docId, RSIndexResult **hit) 
   }
 
   if (docId > nc->child->LastDocId) {
-    int rc = nc->child->SkipTo(nc->child, docId, &res);
-    if (rc == INDEXREAD_TIMEOUT) return rc;
+    int crc = nc->child->SkipTo(nc->child, docId, &res);
+    if (crc == INDEXREAD_TIMEOUT) return crc;
   }
 
   // Promote the wildcard iterator to the requested docId if the docId
+  int rc = INDEXREAD_OK;
   if (docId > nc->wcii->LastDocId) {
-    int rc = nc->wcii->SkipTo(nc->wcii, docId, &res);
+    rc = nc->wcii->SkipTo(nc->wcii, docId, &res);
     if (rc == INDEXREAD_EOF) IITER_SET_EOF(base);
   }
 
@@ -1056,7 +1039,7 @@ static int OI_SkipTo_O(IndexIterator *base, t_docId docId, RSIndexResult **hit) 
   }
 
   *hit = nc->base.current;
-  return INDEXREAD_OK;
+  return rc;
 }
 
 static size_t OI_NumEstimated(IndexIterator *base) {
@@ -1077,14 +1060,11 @@ static int OI_ReadSorted_NO(IndexIterator *base, RSIndexResult **hit) {
 
   if (base->LastDocId > nc->child->LastDocId && IITER_HAS_NEXT(nc->child)) {
     int rc = nc->child->Read(nc->child, &nc->base.current);
-    if (rc == INDEXREAD_TIMEOUT) {
-      return rc;
-    }
+    if (rc == INDEXREAD_TIMEOUT) return rc;
   }
 
   if (base->LastDocId != nc->child->LastDocId) {
     nc->base.current = nc->virt;
-    nc->base.current->weight = 0;
   } else {
     nc->base.current = nc->child->current;
     nc->base.current->weight = nc->weight;
@@ -1109,17 +1089,14 @@ static int OI_ReadSorted_O(IndexIterator *base, RSIndexResult **hit) {
   int wcii_rc = nc->wcii->Read(nc->wcii, &wcii_res);
   if (wcii_rc != INDEXREAD_OK) {
     // EOF, set invalid
-    IITER_SET_EOF(&nc->base);
+    IITER_SET_EOF(base);
     return wcii_rc;
   }
 
-  int rc;
   // We loop over this condition, since it reflects that the index is not up to date.
   while (wcii_res->docId > nc->child->LastDocId && IITER_HAS_NEXT(nc->child)) {
-    rc = nc->child->Read(nc->child, &nc->base.current);
-    if (rc == INDEXREAD_TIMEOUT) {
-      return rc;
-    }
+    int rc = nc->child->Read(nc->child, &nc->base.current);
+    if (rc == INDEXREAD_TIMEOUT) return rc;
   }
 
   if (wcii_res->docId != nc->child->LastDocId) {
