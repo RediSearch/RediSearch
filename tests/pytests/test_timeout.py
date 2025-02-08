@@ -5,7 +5,7 @@ def verifyTimeoutResultsResp3(env, res, expected_results_count, message="", dept
     VerifyTimeoutWarningResp3(env, res, depth=depth+1, message=message + " unexpected results count")
 
 def testEmptyResult():
-    env = Env(protocol=3)
+    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
     conn = getConnectionByEnv(env)
 
     # Create the index
@@ -29,7 +29,7 @@ def testEmptyResult():
 # As a result, with every cursor read resulted in a timeout, the pager would decrease its counter by 1, leading to a total
 # results count of limit - timedout_cursor_reads.
 def TestLimitWithCursor():
-    env = Env(protocol=3)
+    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
     conn = getConnectionByEnv(env)
     # Create the index
     env.expect('FT.CREATE idx SCHEMA n numeric').ok()

@@ -373,7 +373,7 @@ def CursorOnCoordinator(env: Env):
 # commands to always return empty results without depleting the cursor.
 # After the fix, the accumulated results until the timeout are returned, and the cursor is properly depleted.
 def testCursorDepletionNonStrictTimeoutPolicySortby():
-    env = Env(protocol=3)
+    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
     conn = getConnectionByEnv(env)
 
     # Create the index
@@ -389,7 +389,7 @@ def testCursorDepletionNonStrictTimeoutPolicySortby():
     # Create a cursor that will timeout during accumulation of results
     timeout_res_count = 3
     cursor_count = 5
-    res, cursor = runDebugQueryCommand(env, ['FT.AGGREGATE', 'idx', '*', 'sortby', '1', '@n', 'WITHCURSOR', 'count',
+    res, cursor = runDebugQueryCommandTimeoutAfterN(env, ['FT.AGGREGATE', 'idx', '*', 'sortby', '1', '@n', 'WITHCURSOR', 'count',
                           cursor_count], timeout_res_count)
     VerifyTimeoutWarningResp3(env, res)
 
@@ -415,9 +415,8 @@ def testCursorDepletionNonStrictTimeoutPolicySortby():
 def testCursorDepletionNonStrictTimeoutPolicy(env):
     """Tests that the cursor id is returned in case the timeout policy is
     non-strict (i.e., the `RETURN` timeout policy), even when a timeout is experienced"""
-    env = Env(protocol=3)
+    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
     conn = getConnectionByEnv(env)
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
 
     # Create the index
     env.expect('FT.CREATE idx SCHEMA t text sortable').ok()
@@ -431,7 +430,7 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
 
     # Create a cursor with a small `timeout` and large `count`, and read from
     # it until depleted
-    res, cursor = runDebugQueryCommand(env, ['FT.AGGREGATE', 'idx', '*', 'load', 1, '@t', 'WITHCURSOR', 'COUNT', '10000'], timeout_res_count=20)
+    res, cursor = runDebugQueryCommandTimeoutAfterN(env, ['FT.AGGREGATE', 'idx', '*', 'load', 1, '@t', 'WITHCURSOR', 'COUNT', '10000'], timeout_res_count=20)
     VerifyTimeoutWarningResp3(env, res)
     n_received = len(res["results"])
     cursor_runs = 1
