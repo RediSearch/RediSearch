@@ -27,6 +27,21 @@ rune runeFold(rune r) {
   return __fold((uint32_t)r);
 }
 
+static uint32_t __lower(uint32_t runelike) {
+  uint32_t lowered = 0;
+  const char *map = 0;
+  map = nu_tolower(runelike);
+  if (!map) {
+    return runelike;
+  }
+  nu_casemap_read(map, &lowered);
+  return lowered;
+}
+
+rune runeLower(rune r) {
+  return __lower((uint32_t)r);
+}
+
 char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   if (len > MAX_RUNESTR_LEN) {
     if (utflen) *utflen = 0;
@@ -45,12 +60,12 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   return ret;
 }
 
-/* convert string to runes, fold them and return the folded runes */
-rune *strToFoldedRunes(const char *str, size_t *len) {
+/* convert string to runes, lower them and return the lowereded runes */
+rune *strToLowerRunes(const char *str, size_t *len) {
 
   // determine the length of the folded string
   ssize_t rlen = nu_strtransformlen(str, nu_utf8_read,
-                                     nu_tofold, nu_casemap_read);
+                                     nu_tolower, nu_casemap_read);
   if (rlen > MAX_RUNESTR_LEN) {
     if (len) *len = 0;
     return NULL;
@@ -68,7 +83,7 @@ rune *strToFoldedRunes(const char *str, size_t *len) {
     // Read unicode codepoint from utf8 string
     encoded_char = nu_utf8_read(encoded_char, &codepoint);
     // Transform unicode codepoint to fold
-    const char *map = nu_tofold(codepoint);
+    const char *map = nu_tolower(codepoint);
 
     // Read the transformed codepoint and store it in the unicode buffer
     if (map != 0) {

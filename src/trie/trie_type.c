@@ -116,7 +116,7 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
 
 TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode) {
   size_t rlen;
-  rune *runes = strToFoldedRunes(prefix, &rlen);
+  rune *runes = strToLowerRunes(prefix, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
     if (runes) {
       rm_free(runes);
@@ -126,7 +126,7 @@ TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist,
 
   DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
-  TrieIterator *it = TrieNode_Iterate(t->root, FilterFunc, StackPop, fc);
+  TrieIterator *it = TrieNode_Iterate(t->root, LoweringFilterFunc, StackPop, fc);
   rm_free(runes);
   return it;
 }
@@ -150,7 +150,7 @@ Vector *Trie_Search(Trie *tree, const char *s, size_t len, size_t num, int maxDi
 
   DFAFilter *fc = NewDFAFilter(runes, rlen, maxDist, prefixMode);
 
-  TrieIterator *it = TrieNode_Iterate(tree->root, FilterFunc, StackPop, fc);
+  TrieIterator *it = TrieNode_Iterate(tree->root, FoldingFilterFunc, StackPop, fc);
   // TrieIterator *it = TrieNode_Iterate(tree->root,NULL, NULL, NULL);
   rune *rstr;
   t_len slen;
