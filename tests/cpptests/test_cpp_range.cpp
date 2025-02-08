@@ -392,7 +392,6 @@ TEST_F(RangeIndexTest, testNumericTreeOverhead) {
 
 //   NumericFilter *flt = NewNumericFilter(1000, 50000, 0, 0);
 //   IndexIterator *it = createNumericIterator(t, flt);
-//   ASSERT(it->HasNext(it));
 
 //   count = 0;
 
