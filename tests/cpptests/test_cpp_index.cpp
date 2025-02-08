@@ -1079,9 +1079,11 @@ TEST_F(IndexTest, testMetric_VectorRange) {
 
   // Invalid SkipTo
   ASSERT_EQ(vecIt->SkipTo(vecIt, n+1, &h), INDEXREAD_EOF);
-  ASSERT_EQ(vecIt->LastDocId, n);
+  ASSERT_EQ(vecIt->LastDocId, n-1); // LastDocId should not change
   ASSERT_EQ(vecIt->SkipTo(vecIt, n, &h), INDEXREAD_EOF);
+  ASSERT_EQ(vecIt->LastDocId, n-1); // LastDocId should not change
   ASSERT_EQ(vecIt->SkipTo(vecIt, lowest_id + 10, &h), INDEXREAD_EOF);
+  ASSERT_EQ(vecIt->LastDocId, n-1); // LastDocId should not change
 
   // Rewind and test skipping to the first id.
   vecIt->Rewind(vecIt);
