@@ -270,7 +270,7 @@ static int UI_Read##mode##algo(IndexIterator *base, RSIndexResult **hit) { \
   if (!IITER_HAS_NEXT(base)) {                                             \
     return INDEXREAD_EOF;                                                  \
   }                                                                        \
-  int rc = UI_ReadAdvanceLagging##algo(ui);                                \
+  int rc = UI_ReadAdvanceLagging_##algo(ui);                               \
   if (rc == INDEXREAD_OK) {                                                \
     UI_Set##mode##algo(ui);                                                \
     if (hit) *hit = CURRENT_RECORD(ui);                                    \
@@ -297,7 +297,7 @@ static int UI_SkipTo##mode##algo(IndexIterator *base, t_docId docId, RSIndexResu
     return INDEXREAD_EOF;                                                                   \
   }                                                                                         \
   /* advance lagging iterators to `docId` or above */                                       \
-  int rc = UI_SkipAdvanceLagging##algo(ui, docId);                                          \
+  int rc = UI_SkipAdvanceLagging_##algo(ui, docId);                                         \
   if (rc == INDEXREAD_OK || rc == INDEXREAD_NOTFOUND) {                                     \
     UI_Set##mode##algo(ui);                                                                 \
     if (hit) *hit = CURRENT_RECORD(ui);                                                     \
