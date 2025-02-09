@@ -503,25 +503,30 @@ def testSeekToExpirationChecks(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'x', 'TEXT', 'y', 'TEXT')
-    conn.execute_command('HSET', 'doc:1', 'x', 'world', 'y', 'hello')
-    conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', '47')
-    conn.execute_command('HSET', 'doc:3', 'x', 'hello', 'y', 'skip')
-    conn.execute_command('HSET', 'doc:expire', 'x', 'hello', 'y', '57') # doc:expire internal id is 4
-    # important we expire now since that assigns a new doc id for doc:expire
-    conn.execute_command('HPEXPIRE', 'doc:expire', '1', 'FIELDS', '1', 'y') # doc:expire internal id is 5
-    conn.execute_command('HSET', 'doc:6', 'x', 'hello', 'y', '57')
+    conn.execute_command('HSET', 'doc:0', 'x', 'hello', 'y', 'foo') # doc:expire internal id is 1001
+    # inverted index state
+    # 'hello': [1]
+    # 'foo': [1]
+    for i in range(1, 1001):
+        conn.execute_command('HSET', f'doc:{i}', 'x', 'hello', 'y', 'world')
+        # important we expire now since that assigns a new doc id for doc:expire - 1002
+        conn.execute_command('HPEXPIRE', 'doc:expire', '1', 'FIELDS', '1', 'y') # doc:expire internal id is 5
+    conn.execute_command('HSET', 'doc:1001', 'x', 'hello', 'y', 'world')
+    # inverted index state
+    # 'hello': ['doc:0', 'doc:1', , ..., 'doc:1000', 'doc:1001']
+    # 'world': ['doc:1', , ..., 'doc:1000', 'doc:1001']
+    # 'foo': ['doc:0']
+
     # expected flow
-    # - hello reader gets doc:2
-    # - 57 reader gets doc:expire - 5
-    # - we skip in hello reader to doc:expire - should call IndexReader_ReadWithSeeker
-    #   - IndexReader_ReadWithSeeker should return doc:6 since doc:expire field is expired
-    # - 57 reader skips to doc:6
-    # - doc:6 is returned
+    # - hello reader starts with doc:0
+    # - world reader starts with doc:1
+    # - intersect iterator reads doc:0 and tries to skip to it in world reader
+    # - world reader should skip to doc:1001 since all the other docs will be expired
     time.sleep(0.1)
-    # doc:3 should not be returned, due to the nature of intersection iterator we expect SkipTo to be called at least once
+    # doc:1001 should not be returned, due to the nature of intersection iterator we expect SkipTo to be called at least once
     # since text fields have a seeker we expect IndexReader_ReadWithSeeker to be called
     # that should provide coverage for IndexReader_ReadWithSeeker.
-    env.expect('FT.SEARCH', 'idx', '@x:(hello) @y:(57)', 'NOCONTENT').equal([1, 'doc:6'])
+    env.expect('FT.SEARCH', 'idx', '@x:(hello) @y:(world)', 'NOCONTENT').equal([1, 'doc:1001'])
 
 
 # Verify that background indexing does not cause lazy expiration of expired documents.
