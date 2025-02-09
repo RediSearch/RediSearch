@@ -895,8 +895,8 @@ int IR_Read(IndexIterator *base, RSIndexResult **e) {
   }
   do {
 
-    // if needed - skip to the next block (skipping empty blocks that may appear here due to GC)
-    while (BufferReader_AtEnd(&ir->br)) {
+    // if needed - skip to the next block
+    if (BufferReader_AtEnd(&ir->br)) {
       RS_LOG_ASSERT_FMT(ir->currentBlock < ir->idx->size, "Current block %d is out of bounds %d",
                         ir->currentBlock, ir->idx->size);
       if (ir->currentBlock + 1 == ir->idx->size) {
