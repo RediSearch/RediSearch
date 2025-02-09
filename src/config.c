@@ -142,6 +142,9 @@ int set_immutable_string_config(const char *name, RedisModuleString *val, void *
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
   char **ptr = (char **)privdata;
+  if (*ptr) {
+    rm_free(*ptr);
+  }
   size_t len;
   const char *ret = RedisModule_StringPtrLen(val, &len);
   *ptr = rm_strndup(ret, len);
