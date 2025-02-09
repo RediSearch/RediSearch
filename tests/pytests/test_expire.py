@@ -59,17 +59,18 @@ def buildExpireDocsResults(isJson):
     results = {}
     doc1 = ['doc1', ['t', 'bar'] if not isJson else ['$', '{"t":"bar"}']]
     doc2 = ['doc2', ['t', 'arr'] if not isJson else ['$', '{"t":"arr"}']]
-    lazy_expired_doc2 = doc2
+    doc1_with_sort_key = ['doc1', ['t', 'bar']] if not isJson else ['doc1', ['t', 'bar', '$', '{"t":"bar"}']]
+    doc2_with_sort_key = ['doc2', ['t', 'arr']] if not isJson else ['doc2', ['t', 'arr', '$', '{"t":"arr"}']]
     # When calling FT.SEARCH with SORTBY on json index, the sortby field is loaded into the result together with the json document
     results[both_docs_no_sortby] = [2, *doc1, *doc2]
-    results[both_docs_sortby] = [2, *doc2, *doc1]
+    results[both_docs_sortby] = [2, *doc2_with_sort_key, *doc1_with_sort_key]
 
-    results[doc2_is_lazy_expired] = [2, *doc1, *lazy_expired_doc2]
-    results[doc2_is_lazy_expired_sortby] = [2, *lazy_expired_doc2, *doc1]
-    results[doc2_is_lazy_expired_sortby_sorted] = [2, *lazy_expired_doc2, *doc1]
+    results[doc2_is_lazy_expired] = [2, *doc1, *doc2]
+    results[doc2_is_lazy_expired_sortby] = [2, *doc2_with_sort_key, *doc1_with_sort_key]
+    results[doc2_is_lazy_expired_sortby_sorted] = [2, *doc2_with_sort_key, *doc1_with_sort_key]
 
     # on Json we also return the sortby field value.
-    results[only_doc1_sortby] = [1, *doc1]
+    results[only_doc1_sortby] = [1, *doc1_with_sort_key]
     results[only_doc1_no_sortby] = [1, *doc1]
 
     return results
