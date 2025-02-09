@@ -1073,7 +1073,7 @@ static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
 
   if (!caseSensitive) {
     size_t newLen = unicode_tolower(origStr, origLen);
-    if (newLen && newLen < origLen) {
+    if (newLen) {
       origStr[newLen] = '\0';
       *len = newLen;
     }

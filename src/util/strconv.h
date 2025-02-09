@@ -197,7 +197,7 @@ static char *rm_normalize(const char *s, size_t len) {
 
   // convert to lower case
   size_t newLen = unicode_tolower(ret, len);
-  if (newLen && newLen <= len) {
+  if (newLen) {
     ret[newLen] = '\0';
   }
 
