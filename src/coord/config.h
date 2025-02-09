@@ -18,24 +18,19 @@ typedef enum { ClusterType_RedisOSS = 0, ClusterType_RedisLabs = 1 } MRClusterTy
 typedef struct {
   MRClusterType type;
   int timeoutMS;
-  const char* globalPass;
   size_t connPerShard;
   size_t cursorReplyThreshold;
   size_t coordinatorPoolSize; // number of threads in the coordinator thread pool
   size_t topologyValidationTimeoutMS;
-  // The username for the ACL user used by the coordinator to connect to the shards on OSS cluster.
-  const char* aclUsername;
 } SearchClusterConfig;
 
 extern SearchClusterConfig clusterConfig;
-extern RedisModuleString *config_oss_acl_username;
 extern RedisModuleString *config_dummy_password;
 
 #define CLUSTER_TYPE_OSS "redis_oss"
 #define CLUSTER_TYPE_RLABS "redislabs"
 
 #define COORDINATOR_POOL_DEFAULT_SIZE 20
-#define DEFAULT_ACL_USERNAME "default"
 #define DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT 30000
 
 #define DEFAULT_CLUSTER_CONFIG                                                 \
@@ -43,11 +38,9 @@ extern RedisModuleString *config_dummy_password;
     .connPerShard = 0,                                                         \
     .type = DetectClusterType(),                                               \
     .timeoutMS = 0,                                                            \
-    .globalPass = NULL,                                                        \
     .cursorReplyThreshold = 1,                                                 \
     .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                      \
     .topologyValidationTimeoutMS = DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,        \
-    .aclUsername = NULL,                                                       \
   }
 
 /* Detect the cluster type, by trying to see if we are running inside RLEC.
