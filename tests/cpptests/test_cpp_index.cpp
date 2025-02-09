@@ -723,7 +723,7 @@ TEST_F(IndexTest, testAbort) {
   RSIndexResult *res;
   while (INDEXREAD_EOF != it->Read(it, &res)) {
     if (n == 50) {
-      it->Abort(it);
+      IndexIterator_Abort(it);
     }
     n++;
   }
@@ -902,7 +902,7 @@ TEST_F(IndexTest, testHybridVector) {
     ASSERT_EQ(h->docId, expected_id);
   }
   ASSERT_EQ(hybridIt->LastDocId, max_id - step*((k/2)-1));
-  hybridIt->Abort(hybridIt);
+  IndexIterator_Abort(hybridIt);
   ASSERT_FALSE(IITER_HAS_NEXT(hybridIt));
 
   // Rerun in AD_HOC BF mode.
@@ -1115,7 +1115,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   }
   ASSERT_EQ(vecIt->LastDocId, lowest_id + count - 1);
   ASSERT_TRUE(IITER_HAS_NEXT(vecIt));
-  vecIt->Abort(vecIt);
+  IndexIterator_Abort(vecIt);
   ASSERT_FALSE(IITER_HAS_NEXT(vecIt));
 
   vecIt->Free(vecIt);
