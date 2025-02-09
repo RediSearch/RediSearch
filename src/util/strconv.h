@@ -132,13 +132,13 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
     u_buffer = (uint32_t *)rm_malloc(sizeof(*u_buffer) * (u_len + 1));
   }
 
-  // Decode utf8 string into Unicode codepoints and transform to fold
+  // Decode utf8 string into Unicode codepoints and transform to lower
   uint32_t codepoint;
   unsigned i = 0;
   for (ssize_t j = 0; j < u_len; j++) {
     // Read unicode codepoint from utf8 string
     encoded_char = nu_utf8_read(encoded_char, &codepoint);
-    // Transform unicode codepoint to case fold
+    // Transform unicode codepoint to lower case
     const char *map = nu_tolower(codepoint);
 
     // Read the transformed codepoint and store it in the unicode buffer
@@ -195,7 +195,7 @@ static char *rm_normalize(const char *s, size_t len) {
   }
   *dst = '\0';
 
-  // convert to fold
+  // convert to lower case
   size_t newLen = unicode_tolower(ret, len);
   if (newLen && newLen <= len) {
     ret[newLen] = '\0';

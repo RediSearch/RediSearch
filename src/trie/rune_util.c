@@ -82,7 +82,7 @@ rune *strToLowerRunes(const char *str, size_t *len) {
   for (ssize_t j = 0; j < rlen; j++) {
     // Read unicode codepoint from utf8 string
     encoded_char = nu_utf8_read(encoded_char, &codepoint);
-    // Transform unicode codepoint to fold
+    // Transform unicode codepoint to lower case
     const char *map = nu_tolower(codepoint);
 
     // Read the transformed codepoint and store it in the unicode buffer

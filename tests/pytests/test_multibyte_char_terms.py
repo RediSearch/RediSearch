@@ -337,7 +337,7 @@ def testJsonMultibyteText(env):
         env.assertEqual(res, [0], message=f'Dialect: {dialect}')
 
         # Test phrase search, replacing ẞ by SS
-        # 0 results because ß is folded as a single S
+        # 0 results because ß is transformed to lowercase, not to SS
         res = conn.execute_command(
             'FT.SEARCH', 'idx', "@t:(FUSSBALL STRAssE)", 'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, [0], message=f'Dialect: {dialect}')
@@ -596,9 +596,9 @@ def testGermanEszett(env):
     conn = getConnectionByEnv(env)
     conn.execute_command('HSET', 'test:1', 't', 'GRÜẞEN') # term: grüssen
     conn.execute_command('HSET', 'test:2', 't', 'grüßen') # term: grüssen
-    # Some times the 'ẞ' (eszett) is written as 'ss', but to be BWC we are
-    # folding the eszett to a single 's', so the search for 'ẞ' should return
-    # the same results as the search for 's'
+    # Some times the 'ẞ' (eszett) is written as 'ss', but during normalization
+    # we are converting to lowercase, not folding it to 'ss'.
+    # So the words 'grüssen' and 'grüßen' would be indexed as different terms.
     conn.execute_command('HSET', 'test:3', 't', 'GRÜSSEN')
     conn.execute_command('HSET', 'test:4', 't', 'grüssen')
 
@@ -607,8 +607,6 @@ def testGermanEszett(env):
         env.assertEqual(len(res), 2)
         env.assertEqual(res, ['grüssen', 'grüßen'])
 
-    # 'ẞ' is normalized to 'ss', so the search for 'ẞ' should return the same
-    # results as the search for 'ss'
     expected = [2, 'test:1', 'test:2']
     # Query for terms with 'ẞ'
     res = conn.execute_command(
@@ -1154,7 +1152,9 @@ def testMultibyteBasicSynonymsUseCase(env):
     env.assertEqual(res, [1, 'doc1', ['title', 'Football ist gut']])
 
 def testSuggestions(env):
-    '''Test suggestion dictionary with multi-byte characters.'''
+    '''Test suggestion dictionary with multi-byte characters.
+    For the suggestions, the suggestions are saved in the dictionary in its
+    original form, and during FT.SUGGET they are filtered using folding.'''
     conn = getConnectionByEnv(env)
     conn.execute_command('FT.SUGADD', 'sug', 'синий', 1)
     conn.execute_command('FT.SUGADD', 'sug', 'СИНИЙ красный', 1)
@@ -1192,7 +1192,6 @@ def testSuggestions(env):
 
     res = conn.execute_command('FT.SUGGET', 'sug', 'HEIẞ')
     env.assertEqual(res, expected, message='HEIẞ')
-
 
     # For this case, the 4 results are returned, because the folded version of
     # heiß = heiss, and it matches as suggestion for `heis`
