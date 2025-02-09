@@ -439,14 +439,14 @@ typedef struct {
 
 void IntersectIterator_Free(IndexIterator *base) {
   if (base == NULL) return;
-  IntersectIterator *ui = (IntersectIterator *)base;
-  for (int i = 0; i < ui->num; i++) {
-    if (ui->its[i] != NULL) {
-      ui->its[i]->Free(ui->its[i]);
+  IntersectIterator *ii = (IntersectIterator *)base;
+  for (int i = 0; i < ii->num; i++) {
+    if (ii->its[i] != NULL) {
+      ii->its[i]->Free(ii->its[i]);
     }
   }
 
-  rm_free(ui->its);
+  rm_free(ii->its);
   IndexResult_Free(base->current);
   rm_free(base);
 }
@@ -458,12 +458,7 @@ static void II_Rewind(IndexIterator *base) {
 
   // rewind all child iterators
   for (int i = 0; i < ii->num; i++) {
-    if (ii->its[i]) {
-      ii->its[i]->Rewind(ii->its[i]);
-    } else {
-      IITER_SET_EOF(base);
-      return;
-    }
+    ii->its[i]->Rewind(ii->its[i]);
   }
 }
 
@@ -546,7 +541,7 @@ IndexIterator *NewIntersectIterator(IndexIterator **its_, size_t num, DocTable *
   // bind the iterator calls
   IndexIterator *it = &ctx->base;
   it->type = INTERSECT_ITERATOR;
-  it->isValid = allValid;
+  it->isValid = true;
   it->isAborted = false;
   it->LastDocId = 0;
   it->NumEstimated = II_NumEstimated;
@@ -554,6 +549,7 @@ IndexIterator *NewIntersectIterator(IndexIterator **its_, size_t num, DocTable *
   it->SkipTo = II_SkipTo;
   it->Free = IntersectIterator_Free;
   it->Rewind = II_Rewind;
+  if (!allValid) IndexIterator_Abort(it); // If any of the iterators is NULL, abort the iterator (always EOF)
   return it;
 }
 
