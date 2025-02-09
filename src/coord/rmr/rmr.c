@@ -471,15 +471,22 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx) {
   return MRCluster_SendCommand(cluster_g, true, &ctx->cmd, mrIteratorRedisCB, ctx);
 }
 
-// Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible to other threads
+// Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible
+// to other threads
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
-  // Assuming no race condition with other shards, reading and testing inProcess not necessarily need to be atomic.
+  // Assuming no race condition with other shards, the sequence of reading `inProcess` and testing
+  // the result does not need to be guarded as an atomic operation.
   short isLast = __atomic_load_n(&ctx->it->ctx.inProcess, __ATOMIC_RELAXED);
-  // This is the last shards results, we can release the iterator
+  // This is the last shards result.
   if (isLast == 1) {
-    MRChannel_Unblock(ctx->it->ctx.chan);
-    MRIterator_Release(ctx->it);
     RQ_Done(rq_g);
+    bool is_released = MRIterator_Release(ctx->it);
+    if (is_released) {
+      // If the iterator was released, no one is holding a reference to it, we are done.
+      return;
+    }
+    // Else, let the reader continue and trigger the next batch of commands
+    MRChannel_Unblock(ctx->it->ctx.chan);
   }
   __atomic_sub_fetch(&ctx->it->ctx.inProcess, 1, __ATOMIC_RELEASE);
 }
@@ -647,9 +654,10 @@ static void MRIterator_Free(MRIterator *it) {
   rm_free(it);
 }
 
-void MRIterator_Release(MRIterator *it) {
+bool MRIterator_Release(MRIterator *it) {
+  bool is_released = false;
   bool shouldFree = __atomic_test_and_set(&it->ctx.freeFlag, __ATOMIC_ACQUIRE);
-  if (!shouldFree) return;
+  if (!shouldFree) return is_released;
 
   // Both reader and writers are done with the iterator. No writer is in process.
   if (it->ctx.pending) {
@@ -672,5 +680,8 @@ void MRIterator_Release(MRIterator *it) {
     // No pending shards, so no remote resources to free.
     // Free the iterator and we are done.
     MRIterator_Free(it);
+    is_released = true;
   }
+
+  return is_released;
 }
