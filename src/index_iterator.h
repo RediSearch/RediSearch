@@ -77,9 +77,28 @@ typedef struct IndexIterator {
 #define IITER_SET_EOF(ii) ((ii)->isValid = false)
 #define IITER_CLEAR_EOF(ii) ((ii)->isValid = true)
 
+
+static int EOI_Read(IndexIterator *p, RSIndexResult **e) {
+  return INDEXREAD_EOF;
+}
+static int EOI_SkipTo(IndexIterator *self, t_docId docId, RSIndexResult **hit) {
+  return INDEXREAD_EOF;
+}
+static size_t EOI_NumEstimated(IndexIterator *self) {
+  return 0;
+}
+static void EOI_Free(IndexIterator *self) {}
+static void EOI_Rewind(IndexIterator *self) {}
+
 static inline void IndexIterator_Abort(IndexIterator *it) {
   it->isValid = false;
   it->isAborted = true;
+  // Replace the Read, SkipTo, NumEstimated, and Rewind functions with no-ops to prevent further use.
+  // We don't touch Free to allow freeing the iterator as intended.
+  it->Read = EOI_Read;
+  it->SkipTo = EOI_SkipTo;
+  it->NumEstimated = EOI_NumEstimated;
+  it->Rewind = EOI_Rewind;
 }
 
 #endif

@@ -373,7 +373,6 @@ static size_t HR_NumEstimated(IndexIterator *base) {
 }
 
 static void HR_Rewind(IndexIterator *base) {
-  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   HybridIterator *hr = (HybridIterator *)base;
   hr->resultsPrepared = false;
   hr->numIterations = 0;

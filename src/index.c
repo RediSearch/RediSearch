@@ -108,7 +108,6 @@ static inline int UI_RemoveExhausted(UnionIterator *it, int badix) {
 }
 
 static void UI_Rewind(IndexIterator *base) {
-  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   UnionIterator *ui = (UnionIterator *)base;
   IITER_CLEAR_EOF(base);
   base->LastDocId = 0;
@@ -451,7 +450,6 @@ void IntersectIterator_Free(IndexIterator *base) {
 }
 
 static void II_Rewind(IndexIterator *base) {
-  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   IntersectIterator *ii = (IntersectIterator *)base;
   IITER_CLEAR_EOF(base);
   base->LastDocId = 0;
@@ -668,7 +666,6 @@ typedef struct {
 } NotIterator, NotContext;
 
 static void NI_Rewind(IndexIterator *base) {
-  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   NotContext *nc = (NotContext *)base;
   if (nc->wcii) {
     nc->wcii->Rewind(nc->wcii);
@@ -904,7 +901,6 @@ typedef struct {
 } OptionalIterator;
 
 static void OI_Rewind(IndexIterator *base) {
-  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   OptionalIterator *nc = (OptionalIterator *)base;
   IITER_CLEAR_EOF(base);
   base->LastDocId = 0;
@@ -1139,7 +1135,6 @@ static int WI_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
 }
 
 static void WI_Rewind(IndexIterator *base) {
-  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   IITER_CLEAR_EOF(base);
   base->LastDocId = 0;
 }
@@ -1188,21 +1183,6 @@ IndexIterator *NewWildcardIterator(QueryEvalCtx *q) {
 
   // Non-optimized wildcard iterator, using a simple doc-id increment as its base.
   return NewWildcardIterator_NonOptimized(q->docTable->maxDocId, q->docTable->size);
-}
-
-static int EOI_Read(IndexIterator *p, RSIndexResult **e) {
-  return INDEXREAD_EOF;
-}
-static void EOI_Free(IndexIterator *self) {
-  // Nothing
-}
-static size_t EOI_NumEstimated(IndexIterator *self) {
-  return 0;
-}
-static int EOI_SkipTo(IndexIterator *self, t_docId docId, RSIndexResult **hit) {
-  return INDEXREAD_EOF;
-}
-static void EOI_Rewind(IndexIterator *self) {
 }
 
 static IndexIterator eofIterator = {.type = EMPTY_ITERATOR,

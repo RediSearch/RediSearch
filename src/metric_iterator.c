@@ -13,7 +13,6 @@ static size_t MR_NumEstimated(IndexIterator *base) {
 }
 
 static void MR_Rewind(IndexIterator *base) {
-  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   MetricIterator *mr = (MetricIterator *)base;
   base->LastDocId = 0;
   mr->curIndex = 0;

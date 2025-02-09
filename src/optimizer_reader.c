@@ -38,7 +38,6 @@ static size_t OPT_NumEstimated(IndexIterator *base) {
 }
 
 static void OPT_Rewind(IndexIterator *base) {
-  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   OptimizerIterator *optIt = (OptimizerIterator *)base;
   QOptimizer *qOpt = optIt->optim;
   heap_t *heap = optIt->heap;

@@ -102,7 +102,6 @@ static int cmp_docids(const void *p1, const void *p2) {
 }
 
 void IL_Rewind(IndexIterator *base) {
-  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   IdListIterator *il = (IdListIterator *)base;
   setEof(il, 0);
   base->LastDocId = 0;

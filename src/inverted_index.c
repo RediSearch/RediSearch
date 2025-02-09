@@ -1145,7 +1145,6 @@ void ReadIterator_Free(IndexIterator *it) {
 }
 
 void IR_Rewind(IndexIterator *base) {
-  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   IndexReader *ir = (IndexReader *)base;
   IITER_CLEAR_EOF(base);
   base->LastDocId = 0;

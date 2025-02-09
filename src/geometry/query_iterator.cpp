@@ -105,7 +105,6 @@ std::size_t QIter_Len(IndexIterator *base) {
   return reinterpret_cast<QueryIterator const *>(base)->len();
 }
 void QIter_Rewind(IndexIterator *base) {
-  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   reinterpret_cast<QueryIterator *>(base)->rewind();
 }
 
