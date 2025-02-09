@@ -62,7 +62,7 @@ int QueryIterator::skip_to(t_docId docId, RSIndexResult *&hit) {
                                            std::ranges::end(iter_), docId);
   index_ = std::ranges::distance(std::ranges::begin(iter_), it + 1);
   if (index_ >= len()) {
-    abort();
+    base_.isValid = false;
   }
 
   base_.current->docId = *it;
@@ -78,9 +78,6 @@ t_docId QueryIterator::current() const noexcept {
 }
 std::size_t QueryIterator::len() const noexcept {
   return iter_.size();
-}
-void QueryIterator::abort() noexcept {
-  base_.isValid = false;
 }
 void QueryIterator::rewind() noexcept {
   base_.isValid = true;
@@ -107,10 +104,8 @@ void QIter_Free(IndexIterator *self) {
 std::size_t QIter_Len(IndexIterator *base) {
   return reinterpret_cast<QueryIterator const *>(base)->len();
 }
-void QIter_Abort(IndexIterator *base) {
-  reinterpret_cast<QueryIterator *>(base)->abort();
-}
 void QIter_Rewind(IndexIterator *base) {
+  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   reinterpret_cast<QueryIterator *>(base)->rewind();
 }
 
@@ -119,14 +114,14 @@ void QIter_Rewind(IndexIterator *base) {
 IndexIterator QueryIterator::init_base(QueryIterator *ctx) {
   return IndexIterator{
       .type = ID_LIST_ITERATOR,
-      .isValid = 1,
+      .isValid = true,
+      .isAborted = false,
       .LastDocId = 0,
       .current = NewVirtualResult(0, RS_FIELDMASK_ALL),
       .NumEstimated = QIter_Len,
       .Read = QIter_Read,
       .SkipTo = QIter_SkipTo,
       .Free = QIter_Free,
-      .Abort = QIter_Abort,
       .Rewind = QIter_Rewind,
   };
 }

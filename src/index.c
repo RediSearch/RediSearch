@@ -100,36 +100,15 @@ static void UI_SyncIterList(UnionIterator *ui) {
  * Removes the exhausted iterator from the active list, so that future
  * reads will no longer iterate over it
  */
-// static inline int UI_RemoveExhausted(UnionIterator *it, int badix) {
-//   // e.g. assume we have 10 entries, and we want to remove index 8, which means
-//   // one more valid entry at the end. This means we use
-//   // source: its + 8 + 1
-//   // destination: its + 8
-//   // number: it->len (10) - (8) - 1 == 1
-//   memmove(it->its + badix, it->its + badix + 1, sizeof(*it->its) * (it->num - badix - 1));
-//   it->num--;
-//   // Repeat the same index again, because we have a new iterator at the same
-//   // position
-//   return badix - 1;
-// }
 static inline int UI_RemoveExhausted(UnionIterator *it, int badix) {
-  if (badix != --it->num) {
-    it->its[badix] = it->its[it->num];
-  }
+  // Quickly remove the iterator by swapping it with the last iterator.
+  it->its[badix] = it->its[--it->num]; // Also decrement the number of iterators
+  // Repeat the same index again, because we have a new iterator at the same position
   return badix - 1;
 }
 
-static void UI_Abort(IndexIterator *base) {
-  UnionIterator *it = (UnionIterator *)base;
-  IITER_SET_EOF(base);
-  for (int i = 0; i < it->num; i++) {
-    if (it->its[i]) {
-      it->its[i]->Abort(it->its[i]);
-    }
-  }
-}
-
 static void UI_Rewind(IndexIterator *base) {
+  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   UnionIterator *ui = (UnionIterator *)base;
   IITER_CLEAR_EOF(base);
   base->LastDocId = 0;
@@ -331,10 +310,10 @@ IndexIterator *NewUnionIterator(IndexIterator **its, int num, bool quickExit,
   IndexIterator *it = &ctx->base;
   it->type = UNION_ITERATOR;
   IITER_CLEAR_EOF(it);
+  it->isAborted = false;
   it->LastDocId = 0;
   it->NumEstimated = UI_NumEstimated;
   it->Free = UnionIterator_Free;
-  it->Abort = UI_Abort;
   it->Rewind = UI_Rewind;
   UI_SyncIterList(ctx);
 
@@ -471,17 +450,8 @@ void IntersectIterator_Free(IndexIterator *base) {
   rm_free(base);
 }
 
-static void II_Abort(IndexIterator *base) {
-  IntersectIterator *it = (IntersectIterator *)base;
-  IITER_SET_EOF(base);
-  for (int i = 0; i < it->num; i++) {
-    if (it->its[i]) {
-      it->its[i]->Abort(it->its[i]);
-    }
-  }
-}
-
 static void II_Rewind(IndexIterator *base) {
+  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   IntersectIterator *ii = (IntersectIterator *)base;
   IITER_CLEAR_EOF(base);
   base->LastDocId = 0;
@@ -577,12 +547,12 @@ IndexIterator *NewIntersectIterator(IndexIterator **its_, size_t num, DocTable *
   IndexIterator *it = &ctx->base;
   it->type = INTERSECT_ITERATOR;
   it->isValid = allValid;
+  it->isAborted = false;
   it->LastDocId = 0;
   it->NumEstimated = II_NumEstimated;
   it->Read = II_ReadSorted;
   it->SkipTo = II_SkipTo;
   it->Free = IntersectIterator_Free;
-  it->Abort = II_Abort;
   it->Rewind = II_Rewind;
   return it;
 }
@@ -697,16 +667,8 @@ typedef struct {
   TimeoutCtx timeoutCtx;
 } NotIterator, NotContext;
 
-static void NI_Abort(IndexIterator *base) {
-  IITER_CLEAR_EOF(base);
-  NotContext *nc = (NotContext *)base;
-  if (nc->wcii) {
-    nc->wcii->Abort(nc->wcii);
-  }
-  nc->child->Abort(nc->child);
-}
-
 static void NI_Rewind(IndexIterator *base) {
+  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   NotContext *nc = (NotContext *)base;
   if (nc->wcii) {
     nc->wcii->Rewind(nc->wcii);
@@ -917,12 +879,12 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId,
 
   ret->type = NOT_ITERATOR;
   IITER_CLEAR_EOF(ret);
+  ret->isAborted = false;
   ret->LastDocId = 0;
   ret->NumEstimated = NI_NumEstimated;
   ret->Free = NI_Free;
   ret->Read = optimized ? NI_ReadSorted_O : NI_ReadSorted_NO;
   ret->SkipTo = optimized ? NI_SkipTo_O : NI_SkipTo_NO;
-  ret->Abort = NI_Abort;
   ret->Rewind = NI_Rewind;
 
   return ret;
@@ -941,17 +903,8 @@ typedef struct {
   double weight;
 } OptionalIterator;
 
-static void OI_Abort(IndexIterator *base) {
-  OptionalIterator *nc = (OptionalIterator *)base;
-  if (nc->wcii) {
-    nc->wcii->Abort(nc->wcii);
-  }
-  if (nc->child) {
-    nc->child->Abort(nc->child);
-  }
-}
-
 static void OI_Rewind(IndexIterator *base) {
+  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   OptionalIterator *nc = (OptionalIterator *)base;
   IITER_CLEAR_EOF(base);
   base->LastDocId = 0;
@@ -1128,12 +1081,12 @@ IndexIterator *NewOptionalIterator(IndexIterator *it, QueryEvalCtx *q, double we
   IndexIterator *ret = &nc->base;
   ret->type = OPTIONAL_ITERATOR;
   IITER_CLEAR_EOF(ret);
+  ret->isAborted = false;
   ret->LastDocId = 0;
   ret->NumEstimated = OI_NumEstimated;
   ret->Free = OI_Free;
   ret->Read = optimized ? OI_ReadSorted_O : OI_ReadSorted_NO;
   ret->SkipTo = optimized ? OI_SkipTo_O : OI_SkipTo_NO;
-  ret->Abort = OI_Abort;
   ret->Rewind = OI_Rewind;
 
   return ret;
@@ -1185,13 +1138,8 @@ static int WI_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
   return INDEXREAD_OK;
 }
 
-static void WI_Abort(IndexIterator *base) {
-  WildcardIterator *wi = (WildcardIterator *)base;
-  base->LastDocId = wi->topId + 1;
-  IITER_SET_EOF(base);
-}
-
 static void WI_Rewind(IndexIterator *base) {
+  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   IITER_CLEAR_EOF(base);
   base->LastDocId = 0;
 }
@@ -1213,11 +1161,11 @@ static IndexIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t num
   IndexIterator *ret = &c->base;
   ret->type = WILDCARD_ITERATOR;
   ret->isValid = true;
+  ret->isAborted = false;
   ret->LastDocId = 0;
   ret->Free = WI_Free;
   ret->Read = WI_Read;
   ret->SkipTo = WI_SkipTo;
-  ret->Abort = WI_Abort;
   ret->Rewind = WI_Rewind;
   ret->NumEstimated = WI_NumEstimated;
   return ret;
@@ -1254,19 +1202,17 @@ static size_t EOI_NumEstimated(IndexIterator *self) {
 static int EOI_SkipTo(IndexIterator *self, t_docId docId, RSIndexResult **hit) {
   return INDEXREAD_EOF;
 }
-static void EOI_Abort(IndexIterator *self) {
-}
 static void EOI_Rewind(IndexIterator *self) {
 }
 
 static IndexIterator eofIterator = {.type = EMPTY_ITERATOR,
                                     .isValid = false,
+                                    .isAborted = false,
                                     .LastDocId = 0,
                                     .Read = EOI_Read,
                                     .Free = EOI_Free,
                                     .SkipTo = EOI_SkipTo,
                                     .NumEstimated = EOI_NumEstimated,
-                                    .Abort = EOI_Abort,
                                     .Rewind = EOI_Rewind,
 };
 
@@ -1280,8 +1226,9 @@ IndexIterator *NewEmptyIterator(void) {
 
 static inline void PI_Align(ProfileIterator *pi) {
   pi->base.isValid = pi->child->isValid;
-  pi->base.current = pi->child->current;
+  pi->base.isAborted = pi->child->isAborted;
   pi->base.LastDocId = pi->child->LastDocId;
+  pi->base.current = pi->child->current;
 }
 
 static int PI_Read(IndexIterator *base, RSIndexResult **e) {
@@ -1315,15 +1262,11 @@ static size_t PI_NumEstimated(IndexIterator *base) {
   return pi->child->NumEstimated(pi->child);
 }
 
-#define PROFILE_ITERATOR_FUNC_SIGN(func)              \
-static void PI_##func(IndexIterator *base) {          \
-  ProfileIterator *pi = (ProfileIterator *)base;      \
-  pi->child->func(pi->child);                         \
-  PI_Align(pi);                                       \
+static void PI_Rewind(IndexIterator *base) {
+  ProfileIterator *pi = (ProfileIterator *)base;
+  pi->child->Rewind(pi->child);
+  PI_Align(pi);
 }
-
-PROFILE_ITERATOR_FUNC_SIGN(Abort);
-PROFILE_ITERATOR_FUNC_SIGN(Rewind);
 
 /* Create a new wildcard iterator */
 IndexIterator *NewProfileIterator(IndexIterator *child) {
@@ -1333,13 +1276,13 @@ IndexIterator *NewProfileIterator(IndexIterator *child) {
   pc->cpuTime = 0;
 
   IndexIterator *ret = &pc->base;
-  ret->isValid = true;
   ret->type = PROFILE_ITERATOR;
+  ret->isValid = true;
+  ret->isAborted = false;
   ret->LastDocId = 0;
   ret->Free = PI_Free;
   ret->Read = PI_Read;
   ret->SkipTo = PI_SkipTo;
-  ret->Abort = PI_Abort;
   ret->Rewind = PI_Rewind;
   ret->NumEstimated = PI_NumEstimated;
   return ret;

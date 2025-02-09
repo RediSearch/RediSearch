@@ -99,7 +99,7 @@ void TermReader_OnReopen(void *privdata) {
       // All the documents that were inside were deleted and new ones were added.
       // We will not continue reading those new results and instead abort reading
       // for this specific inverted index.
-      ir->base.Abort(&ir->base);
+      IndexIterator_Abort(&ir->base);
       return;
     }
   }
@@ -1135,10 +1135,6 @@ IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sct
   return NewIndexReaderGeneric(sctx, idx, decoder, dctx, false, record, &fieldFilterCtx);
 }
 
-void IR_Abort(IndexIterator *base) {
-  IITER_SET_EOF(base);
-}
-
 void ReadIterator_Free(IndexIterator *it) {
   if (it == NULL) {
     return;
@@ -1149,6 +1145,7 @@ void ReadIterator_Free(IndexIterator *it) {
 }
 
 void IR_Rewind(IndexIterator *base) {
+  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   IndexReader *ir = (IndexReader *)base;
   IITER_CLEAR_EOF(base);
   base->LastDocId = 0;
@@ -1161,15 +1158,15 @@ void IR_Rewind(IndexIterator *base) {
 
 IndexIterator *NewReadIterator(IndexReader *ir) {
   ir->base.type = READ_ITERATOR;
+  ir->base.isValid = true;
+  ir->base.isAborted = false;
+  ir->base.LastDocId = 0;
+  ir->base.current = ir->record;
   ir->base.NumEstimated = IR_NumEstimated;
   ir->base.Read = IR_Read;
   ir->base.SkipTo = IR_SkipTo;
-  ir->base.LastDocId = 0;
   ir->base.Free = ReadIterator_Free;
-  ir->base.Abort = IR_Abort;
   ir->base.Rewind = IR_Rewind;
-  ir->base.isValid = true;
-  ir->base.current = ir->record;
 
   return &ir->base;
 }

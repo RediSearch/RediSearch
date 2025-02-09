@@ -45,10 +45,6 @@ int IL_Read(IndexIterator *base, RSIndexResult **r) {
   return INDEXREAD_OK;
 }
 
-void IL_Abort(IndexIterator *base) {
-  IITER_SET_EOF(base);
-}
-
 /* Skip to a docid, potentially reading the entry into hit, if the docId
  * matches */
 int IL_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **r) {
@@ -106,6 +102,7 @@ static int cmp_docids(const void *p1, const void *p2) {
 }
 
 void IL_Rewind(IndexIterator *base) {
+  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   IdListIterator *il = (IdListIterator *)base;
   setEof(il, 0);
   base->LastDocId = 0;
@@ -131,12 +128,12 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
   IndexIterator *ret = &it->base;
   ret->type = ID_LIST_ITERATOR;
   ret->isValid = num > 0;
+  ret->isAborted = false;
   ret->LastDocId = 0;
   ret->NumEstimated = IL_NumEstimated;
   ret->Free = IL_Free;
   ret->Read = IL_Read;
   ret->SkipTo = IL_SkipTo;
-  ret->Abort = IL_Abort;
   ret->Rewind = IL_Rewind;
 
   return ret;

@@ -774,7 +774,7 @@ void NumericRangeIterator_OnReopen(void *privdata) {
   if (!rt || rt->revisionId != nu->lastRevId) {
     // The numeric tree was either completely deleted or a node was splitted or removed.
     // The cursor is invalidated.
-    it->Abort(it);
+    IndexIterator_Abort(it);
     return;
   }
 

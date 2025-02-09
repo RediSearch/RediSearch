@@ -230,7 +230,7 @@ static void TagReader_OnReopen(void *privdata) {
         // All the documents that were inside were deleted and new ones were added.
         // We will not continue reading those new results and instead abort reading
         // for this specific inverted index.
-        IR_Abort(&ir->base);
+        IndexIterator_Abort(&ir->base);
         continue; // Deal with the next IndexReader
       }
     }

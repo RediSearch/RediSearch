@@ -12,11 +12,8 @@ static size_t MR_NumEstimated(IndexIterator *base) {
   return mr->resultsNum;
 }
 
-static void MR_Abort(IndexIterator *base) {
-  IITER_SET_EOF(base);
-}
-
 static void MR_Rewind(IndexIterator *base) {
+  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   MetricIterator *mr = (MetricIterator *)base;
   base->LastDocId = 0;
   mr->curIndex = 0;
@@ -107,6 +104,7 @@ IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric 
   MetricIterator *mi = rm_new(MetricIterator);
   mi->base.LastDocId = 0;
   mi->base.isValid = 1;
+  mi->base.isAborted = 0;
   mi->idsList = ids_list;
   mi->metricList = metric_list;
   mi->resultsNum = array_len(ids_list);
@@ -130,7 +128,6 @@ IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric 
   ri->Rewind = MR_Rewind;
   ri->Free = MR_Free;
   ri->NumEstimated = MR_NumEstimated;
-  ri->Abort = MR_Abort;
 
   return ri;
 }

@@ -237,8 +237,6 @@ IndexReader *NewTermIndexReader(InvertedIndex *idx);
 IndexReader *NewGenericIndexReader(InvertedIndex *idx, const RedisSearchCtx *sctx, double weight, uint32_t freq,
                                    t_fieldIndex fieldIndex, enum FieldExpirationPredicate predicate);
 
-void IR_Abort(IndexIterator *base);
-
 /* Read an entry from an inverted index into RSIndexResult */
 int IR_Read(IndexIterator *base, RSIndexResult **e);
 

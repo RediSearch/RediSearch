@@ -43,6 +43,9 @@ typedef struct IndexIterator {
   // Can the iterator yield more results?
   bool isValid;
 
+  // Mark the iterator as aborted (permanent EOF, even if rewound)
+  bool isAborted;
+
   /* the last docId read */
   t_docId LastDocId;
 
@@ -66,10 +69,6 @@ typedef struct IndexIterator {
   /* release the iterator's context and free everything needed */
   void (*Free)(struct IndexIterator *self);
 
-  /* Abort the execution of the iterator and mark it as EOF. This is used for early aborting in case
-   * of data consistency issues due to multi threading */
-  void (*Abort)(struct IndexIterator *self);
-
   /* Rewind the iterator to the beginning and reset its state */
   void (*Rewind)(struct IndexIterator *self);
 } IndexIterator;
@@ -77,5 +76,10 @@ typedef struct IndexIterator {
 #define IITER_HAS_NEXT(ii) ((ii)->isValid)
 #define IITER_SET_EOF(ii) ((ii)->isValid = false)
 #define IITER_CLEAR_EOF(ii) ((ii)->isValid = true)
+
+static inline void IndexIterator_Abort(IndexIterator *it) {
+  it->isValid = false;
+  it->isAborted = true;
+}
 
 #endif

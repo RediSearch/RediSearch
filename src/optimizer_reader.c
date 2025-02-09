@@ -37,11 +37,8 @@ static size_t OPT_NumEstimated(IndexIterator *base) {
              opt->numericIter->NumEstimated(opt->numericIter));
 }
 
-static void OPT_Abort(IndexIterator *base) {
-  IITER_SET_EOF(base);
-}
-
 static void OPT_Rewind(IndexIterator *base) {
+  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   OptimizerIterator *optIt = (OptimizerIterator *)base;
   QOptimizer *qOpt = optIt->optim;
   heap_t *heap = optIt->heap;
@@ -242,11 +239,11 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, Itera
   IndexIterator *ri = &oi->base;
   ri->type = OPTIMUS_ITERATOR;
   IITER_CLEAR_EOF(ri);
+  ri->isAborted = false;
   ri->LastDocId = 0;
 
   ri->NumEstimated = OPT_NumEstimated;
   ri->Free = OptimizerIterator_Free;
-  ri->Abort = OPT_Abort;
   ri->Rewind = OPT_Rewind;
   ri->SkipTo = NULL;            // The iterator is always on top and and Read() is called
   ri->Read = OPT_Read;

@@ -372,11 +372,8 @@ static size_t HR_NumEstimated(IndexIterator *base) {
   return MIN(vec_res_num, hr->child->NumEstimated(hr->child));
 }
 
-static void HR_Abort(IndexIterator *base) {
-  IITER_SET_EOF(base);
-}
-
 static void HR_Rewind(IndexIterator *base) {
+  if (base->isAborted) return; // Not allowed to rewind an aborted iterator
   HybridIterator *hr = (HybridIterator *)base;
   hr->resultsPrepared = false;
   hr->numIterations = 0;
@@ -483,10 +480,10 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   ri->ownKey = NULL;
   ri->type = HYBRID_ITERATOR;
   IITER_CLEAR_EOF(ri);
+  ri->isAborted = false;
   ri->LastDocId = 0;
   ri->NumEstimated = HR_NumEstimated;
   ri->Free = HybridIterator_Free;
-  ri->Abort = HR_Abort;
   ri->Rewind = HR_Rewind;
   ri->SkipTo = NULL; // As long as we return results by score (unsorted by id), this has no meaning.
   if (hi->searchMode == VECSIM_STANDARD_KNN) {
