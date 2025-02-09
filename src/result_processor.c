@@ -128,7 +128,7 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
     } else {
       dmd = DocTable_Borrow(docs, r->docId);
     }
-    if (!dmd || (dmd->flags & Document_Deleted)) {
+    if (!dmd || (dmd->flags & Document_Deleted) || DocTable_IsDocExpired(docs, dmd, &sctx->time.current)) {
       DMD_Return(dmd);
       continue;
     }
