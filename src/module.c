@@ -1627,7 +1627,7 @@ void setKNNSpecialCase(searchRequestCtx *req, specialCaseCtx *knn_ctx) {
 // Prepare a TOPK special case, return a context with the required KNN fields if query is
 // valid and contains KNN section, NULL otherwise (and set proper error in *status* if error
 // was found).
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc,
+specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc, uint dialectVersion,
                                         QueryError *status) {
 
   // First, parse the query params if exists, to set the params in the query parser ctx.
@@ -1666,7 +1666,7 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
     goto cleanup;
   }
   if (QueryNode_NumParams(queryNode) > 0) {
-      int ret = QueryNode_EvalParamsCommon(params, queryNode, status);
+      int ret = QueryNode_EvalParamsCommon(params, queryNode, dialectVersion, status);
       if (ret != REDISMODULE_OK || QueryError_GetCode(status) != QUERY_OK) {
         // Params evaluation failed.
         goto cleanup;
@@ -1800,7 +1800,7 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   if(dialect >= 2) {
     // Note: currently there is only one single case. For extending those cases we should use a trie here.
     if(strcasestr(req->queryString, "KNN")) {
-      specialCaseCtx *knnCtx = prepareOptionalTopKCase(req->queryString, argv, argc, status);
+      specialCaseCtx *knnCtx = prepareOptionalTopKCase(req->queryString, argv, argc, dialect, status);
       if (QueryError_HasError(status)) {
         searchRequestCtx_Free(req);
         return NULL;
