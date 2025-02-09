@@ -1209,6 +1209,10 @@ num(A) ::= MINUS num(B). {
   A = B;
 }
 
+num(A) ::= PLUS num(B). {
+  A = B;
+}
+
 term(A) ::= TERM(B) . {
   A = B;
   A.type = QT_TERM;
