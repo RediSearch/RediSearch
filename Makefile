@@ -245,27 +245,6 @@ endif
 
 include $(MK)/rules
 
-#----------------------------------------------------------------------------------------------
-
-export REJSON ?= 1
-
-PLATFORM_TRI:=$(shell $(READIES)/bin/platform -t)
-REJSON_BINDIR=$(ROOT)/bin/$(PLATFORM_TRI)/RedisJSON
-
-ifneq ($(REJSON),0)
-
-ifneq ($(SAN),)
-REJSON_BRANCH ?= master
-REJSON_SO=$(BINROOT)/RedisJSON/$(REJSON_BRANCH)/rejson.so
-REJSON_PATH=$(REJSON_SO)
-
-$(REJSON_SO):
-	$(SHOW)BINROOT=$(BINROOT) SAN=$(SAN) ./sbin/build-redisjson
-else
-REJSON_SO=
-endif
-
-endif # REJSON=0
 
 #----------------------------------------------------------------------------------------------
 
@@ -404,11 +383,9 @@ test: unit-tests pytest
 unit-tests:
 	$(SHOW)BINROOT=$(BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
-pytest: $(REJSON_SO)
-ifneq ($(REJSON_PATH),)
-	@echo Testing with $(REJSON_PATH)
-endif
-	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
+pytest:
+	@printf "\n-------------- Running python flow test ------------------\n"
+	$(SHOW)REJSON=$(REJSON) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
 	LOG_LEVEL=$(LOG_LEVEL) TEST_TIMEOUT=$(TEST_TIMEOUT) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 

@@ -298,27 +298,58 @@ setup_coverage() {
 #----------------------------------------------------------------------------------------------
 
 setup_redisjson() {
-	REJSON_BRANCH=${REJSON_BRANCH:-master}
+  JSON_BRANCH=${REJSON_BRANCH:-master}
+  JSON_REPO_URL="https://github.com/RedisJSON/RedisJSON.git"
+  TEST_DEPS_DIR="${ROOT}/tests/pytests/deps"
+  JSON_MODULE_DIR="${TEST_DEPS_DIR}/RedisJSON"
+  JSON_BIN_DIR="${BINROOT}/RedisJSON/${JSON_BRANCH}"
 
-	if [[ -n $REJSON && $REJSON != 0 && -z $SAN ]]; then
-		if [[ -n $REJSON_PATH ]]; then
-			REJSON_MODULE="$REJSON_PATH"
-			RLTEST_REJSON_ARGS="--module $REJSON_PATH"
-			XREDIS_REJSON_ARGS="loadmodule $REJSON_PATH"
-		else
-			FORCE_GET=
-			[[ $REJSON == get ]] && FORCE_GET=1
-			export MODULE_FILE=$(mktemp /tmp/rejson.XXXXXX)
-			OSS=1 BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $ROOT/sbin/get-redisjson
-			REJSON_MODULE=$(cat $MODULE_FILE)
-			RLTEST_REJSON_ARGS="--module $REJSON_MODULE"
-			XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE"
-		fi
+  # Clone the RedisJSON repository
+  if [ ! -d "${JSON_MODULE_DIR}" ]; then
+      echo "Cloning RedisJSON repository from ${JSON_REPO_URL} to ${JSON_MODULE_DIR}."
+      git clone --quiet --recursive $JSON_REPO_URL $JSON_MODULE_DIR
+  else
+      echo "RedisJSON already exists in ${JSON_MODULE_DIR}."
+  fi
 
-		RLTEST_REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"
-		XREDIS_REJSON_ARGS+=" $REJSON_MODARGS"
-	fi
+  # Navigate to the module directory and checkout the specified branch and its submodules
+  cd ${JSON_MODULE_DIR}
+  git checkout --quiet $JSON_BRANCH
+  git submodule update --quiet --init --recursive
+
+  # Build the RedisJSON module, use nightly toolchain if running sanitizer is needed.
+  if [[ -n $SAN ]]; then
+    rustup component add rust-src --toolchain nightly
+  fi
+  echo "Building RedisJSON module for branch $JSON_BRANCH..."
+  BINROOT=${JSON_BIN_DIR} make SAN=$SAN > /dev/null 2>&1
+
+  echo "RedisJSON module built and artifacts stored in $JSON_BIN_DIR"
+  RLTEST_REJSON_ARGS="--module $JSON_BIN_DIR/rejson.so --module-args $REJSON_MODARGS"
 }
+
+#setup_redisjson() {
+#	REJSON_BRANCH=${REJSON_BRANCH:-master}
+#
+#	if [[ -n $REJSON && $REJSON != 0 && -z $SAN ]]; then
+#		if [[ -n $REJSON_PATH ]]; then
+#			REJSON_MODULE="$REJSON_PATH"
+#			RLTEST_REJSON_ARGS="--module $REJSON_PATH"
+#			XREDIS_REJSON_ARGS="loadmodule $REJSON_PATH"
+#		else
+#			FORCE_GET=
+#			[[ $REJSON == get ]] && FORCE_GET=1
+#			export MODULE_FILE=$(mktemp /tmp/rejson.XXXXXX)
+#			OSS=1 BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $ROOT/sbin/get-redisjson
+#			REJSON_MODULE=$(cat $MODULE_FILE)
+#			RLTEST_REJSON_ARGS="--module $REJSON_MODULE"
+#			XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE"
+#		fi
+#
+#		RLTEST_REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"
+#		XREDIS_REJSON_ARGS+=" $REJSON_MODARGS"
+#	fi
+#}
 
 #----------------------------------------------------------------------------------------------
 
@@ -468,6 +499,7 @@ run_tests() {
 
 	local E=0
 	if [[ $NOP != 1 ]]; then
+	  cd $HERE
 		{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
 	else
 		$OP python3 -m RLTest @$rltest_config
@@ -576,7 +608,6 @@ if [[ -n $PARALLEL && $PARALLEL != 0 ]]; then
 	fi
 	if (( $parallel==0 )) ; then parallel=1 ; fi
 	RLTEST_PARALLEL_ARG="--parallelism $parallel"
-	echo "Running tests in parallel using $parallel workers"
 fi
 #------------------------------------------------------------------------------- Test selection
 
@@ -615,14 +646,12 @@ if [[ $COV == 1 ]]; then
 	setup_coverage
 fi
 
-if [[ $REJSON == view ]]; then
-	REJSON=1
-	REJSON_PATH=view
+# Build redisjson module if required
+if [[ $REJSON != 0 ]]; then
+  setup_redisjson
+else
+  echo "Skipping tests with RedisJSON module"
 fi
-if [[ $REJSON_PATH == view ]]; then
-	REJSON_PATH=$(cd $ROOT/../RedisJSON; pwd)/bin/${OS}-${ARCH}-release/rejson.so
-fi
-setup_redisjson
 
 RLTEST_ARGS+=" $@"
 
@@ -670,6 +699,8 @@ MODARGS="${MODARGS}; TIMEOUT 0;" # disable query timeout by default
 if [[ $GC == 0 ]]; then
 	MODARGS="${MODARGS}; NOGC;"
 fi
+
+echo "Running tests in parallel using $parallel workers"
 
 if [[ $REDIS_STANDALONE == 1 ]]; then
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
