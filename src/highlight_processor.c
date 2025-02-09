@@ -278,10 +278,17 @@ static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
     return NULL;
   }
   it->Rewind(it->ctx);
-  if (INDEXREAD_OK != it->SkipTo(it->ctx, docId, &ir)) {
-    return NULL;
+  int rc;
+  if (it->SkipTo) {
+    rc = it->SkipTo(it->ctx, docId, &ir);
+  } else {
+    while ((rc = it->Read(it->ctx, &ir)) == INDEXREAD_OK) {
+      if (ir->docId == docId) {
+        break;
+      }
+    }
   }
-  return ir;
+  return rc == INDEXREAD_OK ? ir : NULL;
 }
 
 static int hlpNext(ResultProcessor *rbase, SearchResult *r) {
