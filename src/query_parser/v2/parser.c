@@ -1937,9 +1937,7 @@ static YYACTIONTYPE yy_reduce(
       case 34: /* termlist ::= termlist param_term */
 {
   yylhsminor.yy3 = yymsp[-1].minor.yy3;
-  if (!(yymsp[0].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len))) {
-    QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
-  }
+  QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
 }
   yymsp[-1].minor.yy3 = yylhsminor.yy3;
         break;

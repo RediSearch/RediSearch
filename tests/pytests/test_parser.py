@@ -650,3 +650,125 @@ def testQuotes_v2():
         env.expect('FT.EXPLAIN', 'idx', f'\'{query}\'').equal(expected)
         squote_query = query.replace('"', '\'')
         env.expect('FT.EXPLAIN', 'idx', f'"{squote_query}"').equal(expected)
+
+def testTagQueryWithStopwords_V2(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc1', 'tag', 'as is the with by')
+    conn.execute_command('HSET', 'doc2', 'tag', 'as,is,the,with,by')
+    env.expect('FT.EXPLAIN', 'idx', '@tag:{as is the with by}').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    as
+    is
+    the
+    with
+    by
+  }
+}
+'''[1:])
+    env.expect('FT.SEARCH', 'idx', '@tag:{as is the with by}', 'NOCONTENT').equal([1, 'doc1'])
+
+    conn.execute_command('HSET', 'doc3', 'tag', 'cat dog')
+    conn.execute_command('HSET', 'doc4', 'tag', 'cat with dog')
+    env.expect('FT.EXPLAIN', 'idx', '@tag:{cat with dog}').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    cat
+    with
+    dog
+  }
+}
+'''[1:])
+    env.expect('FT.SEARCH', 'idx', '@tag:{cat with dog}', 'NOCONTENT').equal([1, 'doc4'])
+
+    env.expect('FT.CREATE', 'custom_idx', 'STOPWORDS', 2, 'foo', 'bar', 'SCHEMA', 'tag', 'TAG').ok()
+    conn.execute_command('HSET', 'doc5', 'tag', 'foo bar')
+    conn.execute_command('HSET', 'doc7', 'tag', 'cat foo dog')
+    env.expect('FT.EXPLAIN', 'custom_idx', '@tag:{foo bar}').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    foo
+    bar
+  }
+}
+'''[1:])
+    env.expect('FT.SEARCH', 'custom_idx', '@tag:{foo bar}', 'NOCONTENT').equal([1, 'doc5'])
+    env.expect('FT.SEARCH', 'idx', '@tag:{cat foo dog}', 'NOCONTENT').equal([1, 'doc7'])
+
+def testTagQueryWithOR_V2(env):
+  env = Env(moduleArgs = 'DEFAULT_DIALECT 2')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
+  conn = getConnectionByEnv(env)
+  conn.execute_command('HSET', 'doc1', 'tag', 'x y')
+  conn.execute_command('HSET', 'doc2', 'tag', 'apple')
+  conn.execute_command('HSET', 'doc3', 'tag', 'banana')
+
+ # tag_list ::= taglist OR affix (affix is suffix)
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | *ple }').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    x
+    y
+  }
+  SUFFIX{*ple}
+}
+'''[1:])
+  env.expect('FT.SEARCH', 'idx', '@tag:{x y | *ple }').equal([2, 'doc1', ['tag', 'x y'], 'doc2', ['tag', 'apple']])
+
+  # tag_list ::= taglist OR affix (affix is prefix)
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | ba* }').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    x
+    y
+  }
+  PREFIX{ba*}
+}
+'''[1:])
+  env.expect('FT.SEARCH', 'idx', '@tag:{x y | ba* }').equal([2, 'doc1', ['tag', 'x y'], 'doc3', ['tag', 'banana']])
+
+ # tag_list ::= taglist OR affix (affix is contains)
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | *pl* }').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    x
+    y
+  }
+  INFIX{*pl*}
+}
+'''[1:])
+  env.expect('FT.SEARCH', 'idx', '@tag:{x y | *pl* }').equal([2, 'doc1', ['tag', 'x y'], 'doc2', ['tag', 'apple']])
+
+# taglist OR param_term_case
+  env.expect('FT.EXPLAIN', 'idx', '@tag:{x y | banana }').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    x
+    y
+  }
+  banana
+}
+'''[1:])
+  env.expect('FT.SEARCH', 'idx', '@tag:{x y | banana }').equal([2, 'doc1', ['tag', 'x y'], 'doc3', ['tag', 'banana']])
+
+def testTagQueryWithStopwords_V1(env):
+    env = Env(moduleArgs = 'DEFAULT_DIALECT 1')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'tag', 'TAG').ok()
+    conn = getConnectionByEnv(env)
+    conn.execute_command('HSET', 'doc1', 'tag', 'cat')
+    conn.execute_command('HSET', 'doc2', 'tag', 'dog')
+    env.expect('FT.EXPLAIN', 'idx', '@tag:{cat dog}').equal(r'''
+TAG:@tag {
+  INTERSECT {
+    cat
+    dog
+  }
+}
+'''[1:])
+    env.expect('FT.SEARCH', 'idx', '@tag:{cat dog}', 'NOCONTENT').equal([0])
+    env.expect('FT.SEARCH', 'idx', '@tag:{cat}', 'NOCONTENT').equal([1, 'doc1'])
+
+    # error when contain stopwords
+    env.expect('FT.SEARCH', 'idx', '@tag:{with dog}').error().contains('Syntax error')
