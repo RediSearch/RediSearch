@@ -737,6 +737,8 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
 
   idx->numDocs -= info->ndocsCollected;
   idx->gcMarker++;
+  RS_LOG_ASSERT(idx->size, "Index should have at least one block");
+  idx->lastId = idx->blocks[idx->size - 1].lastId; // Update lastId
 }
 
 typedef struct {

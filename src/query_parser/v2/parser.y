@@ -21,7 +21,7 @@
 
 %left EXACT.
 %left TERM.
-%left QUOTE.
+%left QUOTE SQUOTE.
 %left LP LB LSQB.
 
 %left TILDE MINUS.
@@ -73,7 +73,7 @@
 #include <assert.h>
 
 #include "../parse.h"
-
+#include "src/util/likely.h"
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
 
@@ -132,13 +132,10 @@ static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode*
         } else {
             A = NewUnionNode();
             QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
             child = C;
         }
         // Handle child
         QueryNode_AddChild(A, child);
-        A->opts.fieldMask |= child->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
     return A;
 }
@@ -550,7 +547,7 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
     size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
     if(tokLen > 0) {
-      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), tokLen);
+      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), -1);
       QueryNode_AddChild(A, C);
     }
   }
@@ -562,6 +559,17 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
 
 text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
   // Quoted/verbatim string should not be handled as parameters
+  // Also need to add the leading '$' which was consumed by the lexer
+  char *s = rm_malloc(B.len + 1);
+  *s = '$';
+  memcpy(s + 1, B.s, B.len);
+  A = NewTokenNode(ctx, rm_strdupcase(s, B.len + 1), -1);
+  rm_free(s);
+  A->opts.flags |= QueryNode_Verbatim;
+}
+
+text_expr(A) ::= SQUOTE ATTRIBUTE(B) SQUOTE. [TERMLIST] {
+  // Single quoted/verbatim string should not be handled as parameters
   // Also need to add the leading '$' which was consumed by the lexer
   char *s = rm_malloc(B.len + 1);
   *s = '$';
@@ -589,8 +597,12 @@ text_expr(A) ::= verbatim(B) . [VERBATIM]  {
 
 termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
   A = NewPhraseNode(0);
-  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
-  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+  if (!(B.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, B.s, B.len))) {
+    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &B));
+  }
+  if (!(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len))) {
+    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+  }
 }
 
 termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
@@ -789,28 +801,53 @@ tag_list(A) ::= verbatim(B) . [TAGLIST] {
 }
 
 tag_list(A) ::= termlist(B) . [TAGLIST] {
-  A = NewPhraseNode(0);
-  QueryNode_AddChild(A, B);
+  if (unlikely(QueryNode_NumChildren(B) == 0)){
+    QueryNode_Free(B);
+    A = NULL;
+  } else {
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, B);
+  }
 }
 
 tag_list(A) ::= tag_list(B) OR param_term_case(C) . [TAGLIST] {
-  QueryNode_AddChild(B, NewTokenNode_WithParams(ctx, &C));
-  A = B;
+  if (unlikely(!B)){
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
+  } else {
+    QueryNode_AddChild(B, NewTokenNode_WithParams(ctx, &C));
+    A = B;
+  }
 }
 
 tag_list(A) ::= tag_list(B) OR affix(C) . [TAGLIST] {
-  QueryNode_AddChild(B, C);
-  A = B;
+  if (unlikely(!B)){
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, C);
+  } else {
+    QueryNode_AddChild(B, C);
+    A = B;
+  }
 }
 
 tag_list(A) ::= tag_list(B) OR verbatim(C) . [TAGLIST] {
-  QueryNode_AddChild(B, C);
-  A = B;
+  if (unlikely(!B)){
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, C);
+  } else {
+    QueryNode_AddChild(B, C);
+    A = B;
+  }
 }
 
 tag_list(A) ::= tag_list(B) OR termlist(C) . [TAGLIST] {
-  QueryNode_AddChild(B, C);
-  A = B;
+  if (unlikely(!B)){
+    A = NewPhraseNode(0);
+    QueryNode_AddChild(A, C);
+  } else {
+    QueryNode_AddChild(B, C);
+    A = B;
+  }
 }
 
 /////////////////////////////////////////////////////////////////
