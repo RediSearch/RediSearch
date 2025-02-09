@@ -655,9 +655,8 @@ static void MRIterator_Free(MRIterator *it) {
 }
 
 bool MRIterator_Release(MRIterator *it) {
-  bool is_released = false;
   bool shouldFree = __atomic_test_and_set(&it->ctx.freeFlag, __ATOMIC_ACQUIRE);
-  if (!shouldFree) return is_released;
+  if (!shouldFree) return false;
 
   // Both reader and writers are done with the iterator. No writer is in process.
   if (it->ctx.pending) {
@@ -680,8 +679,7 @@ bool MRIterator_Release(MRIterator *it) {
     // No pending shards, so no remote resources to free.
     // Free the iterator and we are done.
     MRIterator_Free(it);
-    is_released = true;
   }
 
-  return is_released;
+  return true;
 }
