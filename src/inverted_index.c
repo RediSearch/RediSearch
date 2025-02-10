@@ -893,7 +893,7 @@ size_t IR_NumEstimated(void *ctx) {
 
 #define FIELD_MASK_BIT_COUNT (sizeof(t_fieldMask) * 8)
 
-// Used to detemrmine if the field mask for the given doc id are valid based on their ttl:
+// Used to determine if the field mask for the given doc id are valid based on their ttl:
 // ir->filterCtx.predicate
 static inline bool VerifyFieldMaskExpirationForDocId(IndexReader *ir, t_docId docId, t_fieldMask docFieldMask) {
   // If there isn't a ttl information then the doc fields are valid
