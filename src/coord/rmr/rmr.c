@@ -474,21 +474,13 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx) {
 // Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible
 // to other threads
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
-  // Assuming no race condition with other shards, the sequence of reading `inProcess` and testing
-  // the result does not need to be guarded as an atomic operation.
-  short isLast = __atomic_load_n(&ctx->it->ctx.inProcess, __ATOMIC_RELAXED);
-  // This is the last shards result.
-  if (isLast == 1) {
-    RQ_Done(rq_g);
-    bool is_released = MRIterator_Release(ctx->it);
-    if (is_released) {
-      // If the iterator was released, no one is holding a reference to it, we are done.
-      return;
-    }
-    // Else, let the reader continue and trigger the next batch of commands
+  short inProcess = __atomic_sub_fetch(&ctx->it->ctx.inProcess, 1, __ATOMIC_RELEASE);
+  if (!inProcess) {
+    // Assuming there race condition with the reader on unsafely changing the freeFlag.
     MRChannel_Unblock(ctx->it->ctx.chan);
+    MRIterator_Release(ctx->it);
+    RQ_Done(rq_g);
   }
-  __atomic_sub_fetch(&ctx->it->ctx.inProcess, 1, __ATOMIC_RELEASE);
 }
 
 // Use before obtaining `pending` (or any other variable of the iterator) to make sure it's synchronized with other threads
@@ -574,6 +566,15 @@ void iterManualNextCb(void *p) {
   }
 }
 
+void iterManualNextReadCb(void *p) {
+  MRIterator *it = p;
+  // Unsafely changing the flag is ok since we run this callback from the RQ,
+  // i.e no race conditions with the shards.
+  it->ctx.freeFlag = false; // Give the writers their reference back
+
+  iterManualNextCb(p);
+}
+
 bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   // We currently trigger the next batch of commands only when no commands are in process,
   // regardless of the number of replies we have in the channel.
@@ -593,9 +594,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   if (it->ctx.pending) {
     // We have more commands to send
     it->ctx.inProcess = it->ctx.pending;
-    it->ctx.freeFlag = false; // Give the writers their reference back
-    MRChannel_Block(it->ctx.chan);
-    RQ_Push(rq_g, iterManualNextCb, it);
+    RQ_Push(rq_g, iterManualNextReadCb, it);
     return true; // We may have more replies (and we surely will)
   }
   // We have no pending commands and no more than channelThreshold replies to process.
@@ -654,9 +653,9 @@ static void MRIterator_Free(MRIterator *it) {
   rm_free(it);
 }
 
-bool MRIterator_Release(MRIterator *it) {
+void MRIterator_Release(MRIterator *it) {
   bool shouldFree = __atomic_test_and_set(&it->ctx.freeFlag, __ATOMIC_ACQUIRE);
-  if (!shouldFree) return false;
+  if (!shouldFree) return;
 
   // Both reader and writers are done with the iterator. No writer is in process.
   if (it->ctx.pending) {
@@ -680,6 +679,4 @@ bool MRIterator_Release(MRIterator *it) {
     // Free the iterator and we are done.
     MRIterator_Free(it);
   }
-
-  return true;
 }

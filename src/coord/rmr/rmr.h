@@ -101,5 +101,4 @@ MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
 
 short MRIterator_GetPending(MRIterator *it);
 
-/** Returns true if the iterator we are done with the iterator, otherwise false */
-bool MRIterator_Release(MRIterator *it);
+void MRIterator_Release(MRIterator *it);
