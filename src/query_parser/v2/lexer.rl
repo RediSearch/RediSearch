@@ -95,7 +95,7 @@ int RSQuery_ParseNumericOp_v2(void* pParser, int OperatorType, QueryToken tok,
 
 machine query;
 
-inf = 'inf'i ;
+inf = ['+\-]? 'inf'i ;
 size = digit+ ;
 number = digit+('.' digit+)? (('E'|'e') ['+\-]? digit+)?;
 
@@ -123,12 +123,12 @@ term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  
 empty_string = quote.quote | squote.squote;
 mod = '@'.term ;
 attr = '$'.term ;
-mod_not_equal = '@'.term.(space*).'!='.(space*).(((plus|minus)?(space*).(number|inf))|size|(plus|minus)?.attr);
-mod_equal = '@'.term.(space*).'=='.(space*).(((plus|minus)?(space*).(number|inf))|size|(plus|minus)?.attr) ;
-mod_gt = '@'.term.(space*).'>'.(space*).(((plus|minus)?(space*).(number|inf))|size|(plus|minus)?.attr) ;
-mod_ge = '@'.term.(space*).'>='.(space*).(((plus|minus)?(space*).(number|inf))|size|(plus|minus)?.attr) ;
-mod_lt = '@'.term.(space*).'<'.(space*).(((plus|minus)?(space*).(number|inf))|size|(plus|minus)?.attr) ;
-mod_le = '@'.term.(space*).'<='.(space*).(((plus|minus)?(space*).(number|inf))|size|(plus|minus)?.attr) ;
+mod_not_equal = '@'.term.(space*).'!='.(space*).(((plus|minus)?(space*).number)|inf|size|(plus|minus)?.attr);
+mod_equal = '@'.term.(space*).'=='.(space*).(((plus|minus)?(space*).number)|inf|size|(plus|minus)?.attr) ;
+mod_gt = '@'.term.(space*).'>'.(space*).(((plus|minus)?(space*).number)|inf|size|(plus|minus)?.attr) ;
+mod_ge = '@'.term.(space*).'>='.(space*).(((plus|minus)?(space*).number)|inf|size|(plus|minus)?.attr) ;
+mod_lt = '@'.term.(space*).'<'.(space*).(((plus|minus)?(space*).number)|inf|size|(plus|minus)?.attr) ;
+mod_le = '@'.term.(space*).'<='.(space*).(((plus|minus)?(space*).number)|inf|size|(plus|minus)?.attr) ;
 contains = (star.term.star | star.((plus|minus)?number).star | star.attr.star) ;
 contains_exact = (star.exact.star) ;
 prefix = (term.star | (plus|minus)? number.star | attr.star) ;

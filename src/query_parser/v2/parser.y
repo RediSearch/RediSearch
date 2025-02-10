@@ -621,9 +621,25 @@ expr(A) ::= MINUS expr(B) . {
   }
 }
 
+expr(A) ::= PLUS expr(B) . {
+  if (B) {
+    A = B;
+  } else {
+    A = NULL;
+  }
+}
+
 text_expr(A) ::= MINUS text_expr(B) . {
   if (B) {
     A = NewNotNode(B);
+  } else {
+    A = NULL;
+  }
+}
+
+text_expr(A) ::= PLUS text_expr(B) . {
+  if (B) {
+    A = B;
   } else {
     A = NULL;
   }
@@ -1303,6 +1319,12 @@ param_num(A) ::= MINUS ATTRIBUTE(B). {
   A.type = QT_PARAM_NUMERIC;
 }
 
+param_num(A) ::= PLUS ATTRIBUTE(B). {
+  A = B;
+  A.sign = 1;
+  A.type = QT_PARAM_NUMERIC;
+}
+
 param_num(A) ::= num(B). {
   A.numval = B.num;
   A.type = QT_NUMERIC;
@@ -1320,6 +1342,13 @@ exclusive_param_num(A) ::= LP ATTRIBUTE(B). {
 
 exclusive_param_num(A) ::= LP MINUS ATTRIBUTE(B). {
   A = B;
-  A.type = QT_PARAM_NUMERIC;
   A.sign = -1;
+  A.type = QT_PARAM_NUMERIC;
 }
+
+exclusive_param_num(A) ::= LP PLUS ATTRIBUTE(B). {
+  A = B;
+  A.sign = +1;
+  A.type = QT_PARAM_NUMERIC;
+}
+
