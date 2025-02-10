@@ -476,7 +476,7 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx) {
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
   short inProcess = __atomic_sub_fetch(&ctx->it->ctx.inProcess, 1, __ATOMIC_RELEASE);
   if (!inProcess) {
-    // Assuming there race condition with the reader on unsafely changing the freeFlag.
+    // Assuming there is no race condition with the reader on unsafely changing the freeFlag.
     MRChannel_Unblock(ctx->it->ctx.chan);
     MRIterator_Release(ctx->it);
     RQ_Done(rq_g);
