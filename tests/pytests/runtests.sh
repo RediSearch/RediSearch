@@ -43,10 +43,9 @@ help() {
 		UNSTABLE=1            Do not skip unstable tests (default: 0)
 		ONLY_STABLE=1         Skip unstable tests
 
-		REJSON=0|1|get|view     Also load RedisJSON module (get: force download from S3; view: from local view)
-		REJSON_BRANCH=branch    Use a snapshot of given branch name
-		REJSON_PATH=path|view   RedisJSON module path
-		REJSON_MODARGS=args     RedisJSON module arguments
+    REJSON=1|0            Also load RedisJSON module (default: 1)
+    REJSON_BRANCH=branch  Use RedisJSON module from branch (default: 'master')
+    REJSON_PATH=path      Use RedisJSON module at `path` (default: '' - build from source)
 
 		REDIS_SERVER=path     Location of redis-server
 		REDIS_PORT=n          Redis server port
@@ -188,32 +187,6 @@ setup_clang_sanitizer() {
 
 	# --no-output-catch --exit-on-failure --check-exitcode
 	RLTEST_SAN_ARGS="--sanitizer $SAN"
-
-	if [[ -n $REJSON && $REJSON != 0 ]]; then
-		if [[ -z $REJSON_PATH ]]; then
-			if [[ -z $BINROOT ]]; then
-				eprint "BINROOT is not set - cannot build RedisJSON"
-				exit 1
-			fi
-			if [[ ! -f $BINROOT/RedisJSON/rejson.so ]]; then
-				echo Building RedisJSON ...
-				# BINROOT=$BINROOT/RedisJSON $ROOT/sbin/build-redisjson
-				export MODULE_FILE=$(mktemp /tmp/rejson.XXXXXX)
-				$ROOT/sbin/build-redisjson
-				REJSON_MODULE=$(cat $MODULE_FILE)
-				RLTEST_REJSON_ARGS="--module $REJSON_MODULE --module-args '$REJSON_MODARGS'"
-				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_MODARGS"
-			fi
-			export REJSON_PATH=$BINROOT/RedisJSON/rejson.so
-		elif [[ ! -f $REJSON_PATH ]]; then
-			eprint "REJSON_PATH is set to '$REJSON_PATH' but does not exist"
-			exit 1
-		else
-			RLTEST_REJSON_ARGS="--module $REJSON_PATH --module-args '$REJSON_MODARGS'"
-			XREDIS_REJSON_ARGS="loadmodule $REJSON_PATH $REJSON_MODARGS"
-		fi
-	fi
-
 	if [[ $SAN == addr || $SAN == address ]]; then
 		# RLTest places log file details in ASAN_OPTIONS
 		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=1:log_thread=1"
@@ -294,62 +267,6 @@ setup_coverage() {
 	export CODE_COVERAGE=1
 	export RS_GLOBAL_DTORS=1
 }
-
-#----------------------------------------------------------------------------------------------
-
-setup_redisjson() {
-  JSON_BRANCH=${REJSON_BRANCH:-master}
-  JSON_REPO_URL="https://github.com/RedisJSON/RedisJSON.git"
-  TEST_DEPS_DIR="${ROOT}/tests/pytests/deps"
-  JSON_MODULE_DIR="${TEST_DEPS_DIR}/RedisJSON"
-  JSON_BIN_DIR="${BINROOT}/RedisJSON/${JSON_BRANCH}"
-
-  # Clone the RedisJSON repository
-  if [ ! -d "${JSON_MODULE_DIR}" ]; then
-      echo "Cloning RedisJSON repository from ${JSON_REPO_URL} to ${JSON_MODULE_DIR}."
-      git clone --quiet --recursive $JSON_REPO_URL $JSON_MODULE_DIR
-  else
-      echo "RedisJSON already exists in ${JSON_MODULE_DIR}."
-  fi
-
-  # Navigate to the module directory and checkout the specified branch and its submodules
-  cd ${JSON_MODULE_DIR}
-  git checkout --quiet $JSON_BRANCH
-  git submodule update --quiet --init --recursive
-
-  # Build the RedisJSON module, use nightly toolchain if running sanitizer is needed.
-  if [[ -n $SAN ]]; then
-    rustup component add rust-src --toolchain nightly
-  fi
-  echo "Building RedisJSON module for branch $JSON_BRANCH..."
-  BINROOT=${JSON_BIN_DIR} make SAN=$SAN > /dev/null 2>&1
-
-  echo "RedisJSON module built and artifacts stored in $JSON_BIN_DIR"
-  RLTEST_REJSON_ARGS="--module $JSON_BIN_DIR/rejson.so --module-args $REJSON_MODARGS"
-}
-
-#setup_redisjson() {
-#	REJSON_BRANCH=${REJSON_BRANCH:-master}
-#
-#	if [[ -n $REJSON && $REJSON != 0 && -z $SAN ]]; then
-#		if [[ -n $REJSON_PATH ]]; then
-#			REJSON_MODULE="$REJSON_PATH"
-#			RLTEST_REJSON_ARGS="--module $REJSON_PATH"
-#			XREDIS_REJSON_ARGS="loadmodule $REJSON_PATH"
-#		else
-#			FORCE_GET=
-#			[[ $REJSON == get ]] && FORCE_GET=1
-#			export MODULE_FILE=$(mktemp /tmp/rejson.XXXXXX)
-#			OSS=1 BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $ROOT/sbin/get-redisjson
-#			REJSON_MODULE=$(cat $MODULE_FILE)
-#			RLTEST_REJSON_ARGS="--module $REJSON_MODULE"
-#			XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE"
-#		fi
-#
-#		RLTEST_REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"
-#		XREDIS_REJSON_ARGS+=" $REJSON_MODARGS"
-#	fi
-#}
 
 #----------------------------------------------------------------------------------------------
 
@@ -646,9 +563,10 @@ if [[ $COV == 1 ]]; then
 	setup_coverage
 fi
 
-# Build redisjson module if required
+# Build RedisJSON module if required
 if [[ $REJSON != 0 ]]; then
-  setup_redisjson
+  ROOT=$ROOT REJSON_BRANCH=$REJSON_BRANCH source $ROOT/tests/deps/setup_rejson.sh
+  RLTEST_REJSON_ARGS="--module $JSON_BIN_DIR/rejson.so --module-args $REJSON_MODARGS"
 else
   echo "Skipping tests with RedisJSON module"
 fi

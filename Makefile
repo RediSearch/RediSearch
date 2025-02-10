@@ -56,8 +56,9 @@ make pytest        # run python tests (tests/pytests)
   SA=1|0               # alias for REDIS_STANDALONE
   TEST=name            # e.g. TEST=test:testSearch
   RLTEST_ARGS=...      # pass args to RLTest
-  REJSON=1|0|get       # also load RedisJSON module (default: 1)
-  REJSON_PATH=path     # use RedisJSON module at `path`
+  REJSON=1|0           # also load RedisJSON module (default: 1)
+  REJSON_BRANCH=branch # use RedisJSON module from branch (default: 'master')
+  REJSON_PATH=path     # use RedisJSON module at `path` (default: '' - build from source)
   EXT=1                # External (existing) environment
   GDB=1                # RLTest interactive debugging
   VG=1                 # use Valgrind
@@ -251,8 +252,6 @@ include $(MK)/rules
 clean:
 ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
-else ifeq ($(ALL),all)
-	$(SHOW)rm -rf $(BINROOT) $(REJSON_BINDIR)
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
 endif
@@ -331,10 +330,15 @@ else ifeq ($(SA),0)
 WITH_RLTEST=1
 endif
 
+# RedisJSON defaults:
+REJSON ?= 1
+REJSON_BRANCH ?= master
+REJSON_PATH ?=
+
 run:
 ifeq ($(WITH_RLTEST),1)
-	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) \
-	MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
+	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) REJSON_BRANCH=$(REJSON_BRNACH) FORCE='' RLTEST= ENV_ONLY=1
+	 LOG_LEVEL=$(LOG_LEVEL) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 else
 ifeq ($(GDB),1)
@@ -385,7 +389,8 @@ unit-tests:
 
 pytest:
 	@printf "\n-------------- Running python flow test ------------------\n"
-	$(SHOW)REJSON=$(REJSON) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
+	$(SHOW)REJSON=$(REJSON) REJSON_BRANCH=$(REJSON_BRANCH) REJSON_PATH=$(REJSON_PATH) \
+	TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
 	LOG_LEVEL=$(LOG_LEVEL) TEST_TIMEOUT=$(TEST_TIMEOUT) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
@@ -464,7 +469,6 @@ upload-artifacts:
 .PHONY: pack upload-artifacts upload-release
 
 #----------------------------------------------------------------------------------------------
-
 ifeq ($(REMOTE),1)
 BENCHMARK_ARGS=run-remote
 else
@@ -473,15 +477,16 @@ endif
 
 BENCHMARK_ARGS += --module_path $(realpath $(TARGET)) --required-module search
 
-ifeq ($(REJSON),1)
-BENCHMARK_ARGS += --module_path $(realpath $(REJSON_PATH)) --required-module ReJSON
-endif
-
 ifneq ($(BENCHMARK),)
 BENCHMARK_ARGS += --test $(BENCHMARK)
 endif
 
 benchmark:
+ifeq ($(REJSON),1)
+	ROOT=$(ROOT) REJSON_BRANCH=$(REJSON_BRANCH) $(shell $(ROOT)/tests/deps/setup_rejson.sh)
+	BENCHMARK_ARGS += --module_path $(realpath $(JSON_BIN_DIR)) --required-module ReJSON
+endif
+
 	$(SHOW)cd tests/benchmarks ;\
 	redisbench-admin $(BENCHMARK_ARGS)
 
@@ -497,20 +502,12 @@ COV_EXCLUDE_DIRS += \
 
 COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
-ifeq ($(REJSON_PATH),)
-REJSON_MODULE_FILE:=$(shell mktemp /tmp/rejson.XXXXXX)
-REJSON_COV_ARG=REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
-endif
-
 coverage:
-ifeq ($(REJSON_PATH),)
-	$(SHOW)OSS=1 MODULE_FILE=$(REJSON_MODULE_FILE) ./sbin/get-redisjson
-endif
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(COVERAGE_RESET)
-	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 $(REJSON_COV_ARG)
+	$(SHOW)$(MAKE) unit-tests COV=1
+	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1
+	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
 .PHONY: coverage

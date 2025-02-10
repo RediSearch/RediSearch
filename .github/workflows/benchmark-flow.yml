@@ -13,7 +13,7 @@ on:
         default: bin/linux-x64-release/search-community/redisearch.so
       rejson_module_path:
         type: string
-        default: bin/linux-bullseye-x64/RedisJSON/master/rejson.so
+        default: bin/linux-x64-release/RedisJSON/master/rejson.so
       profile_env:
         type: number # for default of 0
       benchmark_glob:
@@ -77,7 +77,7 @@ jobs:
           python3 -m pip install -r tests/benchmarks/requirements.txt
           VERSION=0.14.8 ./deps/readies/bin/getterraform
       - name: Prepare ReJSON Module
-        run: ./sbin/get-redisjson
+        run: ./tests/deps/get_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         timeout-minutes: 240 # timeout for the step
