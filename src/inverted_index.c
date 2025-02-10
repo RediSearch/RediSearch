@@ -1012,7 +1012,7 @@ static bool IndexReader_ReadWithSeeker(IndexReader *ir, t_docId docId) {
       } else {
         // we reached the end of the inverted index
         // we are at the end of the last block
-        // break out of the loop and return found (found == false)
+        // break out of the loop and return found (found = false)
         break;
       }
     }
