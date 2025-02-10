@@ -518,6 +518,130 @@ void AddIntersectIterator(IndexIterator *parentIter, IndexIterator *childIter) {
   ii->its[ii->num - 1] = childIter;
 }
 
+static int II_AgreeOnDocId(IntersectIterator *ic) {
+  const t_docId docId = ic->base.LastDocId;
+  AggregateResult_Reset(ic->base.current);
+  for (int i = 0; i < ic->num; i++) {
+    if (ic->its[i]->LastDocId < docId) {
+      int rc = ic->its[i]->SkipTo(ic->its[i], docId, &ic->its[i]->current);
+      if (rc != INDEXREAD_OK) {
+        if (rc == INDEXREAD_EOF) {
+          IITER_SET_EOF(&ic->base);
+        } else if (rc == INDEXREAD_NOTFOUND) {
+          ic->base.LastDocId = ic->its[i]->LastDocId;
+        }
+        return rc;
+      }
+    }
+    AggregateResult_AddChild(ic->base.current, ic->its[i]->current);
+  }
+  return INDEXREAD_OK;
+}
+
+static inline bool II_currentIsRelevant(IntersectIterator *ic) {
+  return IndexResult_IsWithinRange(ic->base.current, ic->maxSlop, ic->inOrder);
+}
+
+static inline int II_Read_Internal_CheckRelevancy(IntersectIterator *ic, RSIndexResult **hit) {
+  int rc;
+  do { // retry until we agree on the docId
+    rc = II_AgreeOnDocId(ic);
+    if (rc != INDEXREAD_OK) {
+      continue;
+    }
+    if (!II_currentIsRelevant(ic)) {
+      ic->base.LastDocId++; // advance the last docId to the next possible value
+      continue;
+    }
+    // Hit!
+    *hit = ic->base.current;
+    return INDEXREAD_OK;
+
+  } while (rc == INDEXREAD_OK || rc == INDEXREAD_NOTFOUND);
+  return rc;
+}
+
+static inline int II_Read_Internal(IntersectIterator *ic, RSIndexResult **hit) {
+  int rc;
+  do { // retry until we agree on the docId
+    rc = II_AgreeOnDocId(ic);
+  } while (rc == INDEXREAD_NOTFOUND);
+
+  if (rc == INDEXREAD_OK) {
+    // Hit!
+    *hit = ic->base.current;
+  }
+  return rc;
+}
+
+static int II_ReadSorted_CheckRelevancy(IndexIterator *base, RSIndexResult **hit) {
+  IntersectIterator *ic = (IntersectIterator *)base;
+  if (!IITER_HAS_NEXT(base)) {
+    return INDEXREAD_EOF;
+  }
+  base->LastDocId++; // advance the last docId. Current docId is at least this
+  return II_Read_Internal_CheckRelevancy(ic, hit);
+}
+
+static int II_ReadSorted(IndexIterator *base, RSIndexResult **hit) {
+  IntersectIterator *ic = (IntersectIterator *)base;
+  if (!IITER_HAS_NEXT(base)) {
+    return INDEXREAD_EOF;
+  }
+  base->LastDocId++; // advance the last docId. Current docId is at least this
+  return II_Read_Internal(ic, hit);
+}
+
+static int II_SkipTo_CheckRelevancy(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
+  IntersectIterator *ic = (IntersectIterator *)base;
+  if (!IITER_HAS_NEXT(base)) {
+    return INDEXREAD_EOF;
+  }
+
+  base->LastDocId = docId;
+
+  int rc = II_AgreeOnDocId(ic);
+  if (INDEXREAD_OK == rc) {
+    if (II_currentIsRelevant(ic)) {
+      *hit = ic->base.current;
+      return INDEXREAD_OK;
+    }
+    // Agreed on docId, but not relevant - need to read the next valid result.
+    ic->base.LastDocId++; // advance the last docId to the next possible value
+  } else if (INDEXREAD_NOTFOUND != rc) {
+    return rc; // Unexpected - bubble up
+  }
+
+  // Not found - but we need to read the next valid result into hit
+  rc = II_Read_Internal_CheckRelevancy(ic, hit);
+  // Return rc, switching OK to NOTFOUND
+  return (rc == INDEXREAD_OK) ? INDEXREAD_NOTFOUND : rc; // Unexpected - bubble up
+}
+
+static int II_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
+  IntersectIterator *ic = (IntersectIterator *)base;
+  if (!IITER_HAS_NEXT(base)) {
+    return INDEXREAD_EOF;
+  }
+
+  base->LastDocId = docId;
+
+  int rc = II_AgreeOnDocId(ic);
+  if (INDEXREAD_OK == rc) {
+    *hit = ic->base.current;
+  } else if (INDEXREAD_NOTFOUND == rc) {
+    // Not found - but we need to read the next valid result into hit
+    rc = II_Read_Internal(ic, hit);
+    if (rc == INDEXREAD_OK) rc = INDEXREAD_NOTFOUND;
+  }
+  return rc;
+}
+
+static size_t II_NumEstimated(IndexIterator *base) {
+  IntersectIterator *ic = (IntersectIterator *)base;
+  return ic->nexpected;
+}
+
 IndexIterator *NewIntersectIterator(IndexIterator **its_, size_t num, DocTable *dt,
                                    t_fieldMask fieldMask, int maxSlop, int inOrder, double weight) {
   // printf("Creating new intersection iterator with fieldMask=%llx\n", fieldMask);
@@ -543,111 +667,12 @@ IndexIterator *NewIntersectIterator(IndexIterator **its_, size_t num, DocTable *
   it->isAborted = false;
   it->LastDocId = 0;
   it->NumEstimated = II_NumEstimated;
-  it->Read = II_ReadSorted;
-  it->SkipTo = II_SkipTo;
+  it->Read = maxSlop < 0 ? II_ReadSorted : II_ReadSorted_CheckRelevancy;
+  it->SkipTo = maxSlop < 0 ? II_SkipTo : II_SkipTo_CheckRelevancy;
   it->Free = IntersectIterator_Free;
   it->Rewind = II_Rewind;
   if (!allValid) IndexIterator_Abort(it); // If any of the iterators is NULL, abort the iterator (always EOF)
   return it;
-}
-
-static int II_AgreeOnDocId(IntersectIterator *ic) {
-  const t_docId docId = ic->base.LastDocId;
-  for (int i = 0; i < ic->num; i++) {
-    if (ic->its[i]->LastDocId < docId) {
-      int rc = ic->its[i]->SkipTo(ic->its[i], docId, &ic->its[i]->current);
-      if (rc != INDEXREAD_OK) {
-        if (rc == INDEXREAD_EOF) {
-          IITER_SET_EOF(&ic->base);
-        } else if (rc == INDEXREAD_NOTFOUND) {
-          ic->base.LastDocId = ic->its[i]->LastDocId;
-        }
-        return rc;
-      }
-    }
-  }
-  return INDEXREAD_OK;
-}
-
-static inline void II_setResult(IntersectIterator *ic) {
-  AggregateResult_Reset(ic->base.current);
-  for (int i = 0; i < ic->num; i++) {
-    AggregateResult_AddChild(ic->base.current, ic->its[i]->current);
-  }
-}
-
-static inline bool II_currentIsRelevant(IntersectIterator *ic) {
-  // If we need to match slop and order, we do it now, and possibly skip the result
-  return ic->maxSlop < 0 || IndexResult_IsWithinRange(ic->base.current, ic->maxSlop, ic->inOrder);
-}
-
-static inline int II_Read_Internal(IntersectIterator *ic, RSIndexResult **hit) {
-  int rc;
-  do { // retry until we agree on the docId
-    rc = II_AgreeOnDocId(ic);
-    if (rc != INDEXREAD_OK) {
-      continue;
-    }
-    II_setResult(ic);
-    if (!II_currentIsRelevant(ic)) {
-      ic->base.LastDocId++; // advance the last docId to the next possible value
-      continue;
-    }
-    // Hit!
-    if (hit) *hit = ic->base.current;
-    return INDEXREAD_OK;
-
-  } while (rc == INDEXREAD_OK || rc == INDEXREAD_NOTFOUND);
-  return rc;
-}
-
-
-static int II_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
-  if (!base->isValid) {
-    return INDEXREAD_EOF;
-  }
-  IntersectIterator *ic = (IntersectIterator *)base;
-
-  RS_LOG_ASSERT_FMT(base->LastDocId < docId, "lastDocId %zu, docId %zu", base->LastDocId, docId);
-  base->LastDocId = docId;
-
-  int rc = II_AgreeOnDocId(ic);
-  if (INDEXREAD_OK == rc) {
-    II_setResult(ic);
-
-    if (II_currentIsRelevant(ic)) {
-      if (hit) *hit = ic->base.current;
-      return INDEXREAD_OK;
-    }
-    // Agreed on docId, but not relevant - need to read the next valid result.
-    ic->base.LastDocId++; // advance the last docId to the next possible value
-  } else if (INDEXREAD_NOTFOUND != rc) {
-    return rc; // Unexpected - bubble up
-  }
-
-  // Not found - but we need to read the next valid result into hit
-  rc = II_Read_Internal(ic, hit);
-  // Return rc, switching OK to NOTFOUND
-  if (rc == INDEXREAD_OK)
-    return INDEXREAD_NOTFOUND;
-  else
-    return rc; // Unexpected - bubble up
-}
-
-static size_t II_NumEstimated(IndexIterator *base) {
-  IntersectIterator *ic = (IntersectIterator *)base;
-  return ic->nexpected;
-}
-
-static int II_ReadSorted(IndexIterator *base, RSIndexResult **hit) {
-  IntersectIterator *ic = (IntersectIterator *)base;
-
-  if (!ic->base.isValid) {
-    return INDEXREAD_EOF;
-  }
-
-  base->LastDocId++; // advance the last docId. Current docId is at least this
-  return II_Read_Internal(ic, hit);
 }
 
 /* A Not iterator works by wrapping another iterator, and returning OK for
