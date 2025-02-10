@@ -898,7 +898,7 @@ size_t IR_NumEstimated(void *ctx) {
 // returns true if the we don't have expiration information for the document
 // otherwise will return the same as DocTable_VerifyFieldExpirationPredicate
 // if predicate is default then it means at least one of the fields need to not be expired for us to return true
-// if predicate is misssing then it means at least one of the fields needs to be expired for us to return true
+// if predicate is missing then it means at least one of the fields needs to be expired for us to return true
 static inline bool VerifyFieldMaskExpirationForDocId(IndexReader *ir, t_docId docId, t_fieldMask docFieldMask) {
   // If there isn't a ttl information then the doc fields are valid
   if (!ir->sctx || !ir->sctx->spec || !DocTable_HasExpiration(&ir->sctx->spec->docs, docId)) {
