@@ -1225,24 +1225,31 @@ term(A) ::= NUMBER(B) . {
 
 term(A) ::= MINUS NUMBER(B) . {
   B.numval = -B.numval;
+  B.len += 1;
+  B.s -= 1;
   A = B;
   A.type = QT_NUMERIC;
 }
 
 term(A) ::= PLUS NUMBER(B) . {
   A = B;
+  B.len += 1;
+  B.s -= 1;
   A.type = QT_NUMERIC;
 }
 
 term(A) ::= MINUS SIZE(B). {
   B.numval = -B.numval;
   B.len += 1;
+  B.s -= 1;
   A = B;
   A.type = QT_NUMERIC;
 }
 
 term(A) ::= PLUS SIZE(B). {
   A = B;
+  B.len += 1;
+  B.s -= 1;
   A.type = QT_NUMERIC;
 }
 
