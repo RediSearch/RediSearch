@@ -895,6 +895,10 @@ size_t IR_NumEstimated(void *ctx) {
 
 // Used to determine if the field mask for the given doc id are valid based on their ttl:
 // ir->filterCtx.predicate
+// returns true if the we don't have expiration information for the document
+// otherwise will return the same as DocTable_VerifyFieldExpirationPredicate
+// if predicate is default then it means at least one of the fields need to not be expired for us to return true
+// if predicate is misssing then it means at least one of the fields needs to be expired for us to return true
 static inline bool VerifyFieldMaskExpirationForDocId(IndexReader *ir, t_docId docId, t_fieldMask docFieldMask) {
   // If there isn't a ttl information then the doc fields are valid
   if (!ir->sctx || !ir->sctx->spec || !DocTable_HasExpiration(&ir->sctx->spec->docs, docId)) {
@@ -913,7 +917,7 @@ static inline bool VerifyFieldMaskExpirationForDocId(IndexReader *ir, t_docId do
                                                             fieldIndicesArray);
   } else if (ir->filterCtx.field.value.index != RS_INVALID_FIELD_INDEX) {
     sortedFieldIndices = &ir->filterCtx.field.value.index;
-    ++numFieldIndices;
+    numFieldIndices = 1;
   }
   return DocTable_VerifyFieldExpirationPredicate(&ir->sctx->spec->docs, docId,
                                                  sortedFieldIndices, numFieldIndices,
@@ -976,27 +980,46 @@ eof:
 
 #define BLOCK_MATCHES(blk, docId) ((blk).firstId <= docId && docId <= (blk).lastId)
 
+// Will use the seeker to reach a valid doc id that is greater or equal to the requested doc id
+// returns true if a valid doc id was found, false if eof was reached
+// The validity of the document relies on the predicate the reader was initialized with.
+// Invariant: We only go forward, never backwards
 static bool IndexReader_ReadWithSeeker(IndexReader *ir, t_docId docId) {
   bool found = false;
   while (!found) {
-    // try and find nextDocId using seeker
+    // try and find docId using seeker
     found = ir->decoders.seeker(&ir->br, &ir->decoderCtx, ir, docId, ir->record);
     // ensure the entry is valid
     if (found && !VerifyFieldMaskExpirationForDocId(ir, ir->record->docId, ir->record->fieldMask)) {
+      // the doc id is not valid, filter out the doc id and continue scanning
+      // we set docId to be the next doc id to search for to avoid infinite loop
+      // we rely on the doc id ordering inside the inverted index
+      // IMPORTANT:
+      // we still perform the AtEnd check to avoid the case the non valid doc id was at the end of the block
+      // block: [1, 4, 7, ..., 564]
+      //                        ^-- we are here, and 564 is not valid
       found = false;
       docId = ir->record->docId + 1;
     }
 
-    if (!found) {
-      if (BufferReader_AtEnd(&ir->br)) {
-        if (ir->currentBlock < ir->idx->size - 1) {
-          IndexReader_AdvanceBlock(ir);
-        } else {
-          break;
-        }
+    // if found is true we found a doc id that is greater or equal to the searched doc id
+    // if found is false we need to continue scanning the inverted index, possibly advancing to the next block
+    if (!found && BufferReader_AtEnd(&ir->br)) {
+      if (ir->currentBlock < ir->idx->size - 1) {
+        // We reached the end of the current block but we have more blocks to advance to
+        // advance to the next block and continue the search using the seeker from there
+      	IndexReader_AdvanceBlock(ir);
+      } else {
+        // we reached the end of the inverted index
+        // we are at the end of the last block
+        // break out of the loop and return found (found == false)
+        break;
       }
     }
   }
+  // if found is true we found a doc id that is greater or equal to the searched doc id
+  // if found is false we are at the end of the inverted index, no more blocks or doc ids
+  // we could not find a valid doc id that is greater or equal to the doc id we were called with
   return found;
 }
 

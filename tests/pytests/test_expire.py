@@ -510,8 +510,9 @@ def testSeekToExpirationChecks(env):
     # 'foo': [1]
     for i in range(1, 1001):
         conn.execute_command('HSET', f'doc:{i}', 'x', 'hello', 'y', 'world')
-        # important we expire now since that assigns a new doc id for doc:expire - 1002
-        conn.execute_command('HPEXPIRE', f'doc:{i}', '1', 'FIELDS', '1', 'y') # doc:expire internal id is 5
+        # important we expire now since that assigns a new doc id for the document
+        # doc:{i} internal should now be (2 * i)
+        conn.execute_command('HPEXPIRE', f'doc:{i}', '1', 'FIELDS', '1', 'y')
     conn.execute_command('HSET', 'doc:1001', 'x', 'hello', 'y', 'world')
     # inverted index state
     # 'hello': ['doc:0', 'doc:1', , ..., 'doc:1000', 'doc:1001']
@@ -524,7 +525,10 @@ def testSeekToExpirationChecks(env):
     # - intersect iterator reads doc:0 and tries to skip to it in world reader
     # - world reader should skip to doc:1001 since all the other docs will be expired
     time.sleep(0.1) # we want to sleep enough so we filter out the expired documents at the iterator phase
-    # doc:1001 should not be returned, due to the nature of intersection iterator we expect SkipTo to be called at least once
+    # doc:0 up to doc:1000 should not be returned:
+    # - doc:0 because y != world
+    # - doc:1 up to doc:1000 y field should be expired
+    # Due to the nature of intersection iterator we expect SkipTo to be called at least once
     # since text fields have a seeker we expect IndexReader_ReadWithSeeker to be called
     # that should provide coverage for IndexReader_ReadWithSeeker.
     env.expect('FT.SEARCH', 'idx', '@x:(hello) @y:(world)', 'NOCONTENT').equal([1, 'doc:1001'])
