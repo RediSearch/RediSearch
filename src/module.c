@@ -3295,8 +3295,8 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   MRCommand_Insert(cmd, arg_pos++, "_INDEX_PREFIXES", sizeof("_INDEX_PREFIXES") - 1);
   arrayof(sds) prefixes = sp->rule->prefixes;
   char *n_prefixes;
-  rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
-  MRCommand_Insert(cmd, arg_pos++, n_prefixes, sizeof(n_prefixes) - 1);
+  int string_len = rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
+  MRCommand_Insert(cmd, arg_pos++, n_prefixes, string_len);
   rm_free(n_prefixes);
 
   for (uint i = 0; i < array_len(prefixes); i++) {
