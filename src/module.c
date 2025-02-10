@@ -3603,7 +3603,6 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const Version unstableRedis = {7, 9, 227};
   const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
 
-  // needed for setUpgradeIndex which can get called during this function
   legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
 
   if (RediSearch_InitModuleConfig(ctx, argv, argc, unprefixedConfigSupported, isClusterEnabled) == REDISMODULE_ERR) {
