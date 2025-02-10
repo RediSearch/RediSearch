@@ -3548,9 +3548,6 @@ static bool checkClusterEnabled(RedisModuleCtx *ctx) {
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfiguration, int isClusterEnabled) {
-  // needed for setUpgradeIndex which can get called during this function
-  legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
-
   // register the module configuration with redis, use loaded values from command line as defaults
   if (registerConfiguration) {
     if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
@@ -3605,6 +3602,10 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   const bool isClusterEnabled = checkClusterEnabled(ctx);
   const Version unstableRedis = {7, 9, 227};
   const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
+
+  // needed for setUpgradeIndex which can get called during this function
+  legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
+
   if (RediSearch_InitModuleConfig(ctx, argv, argc, unprefixedConfigSupported, isClusterEnabled) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }

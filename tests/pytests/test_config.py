@@ -691,7 +691,7 @@ def testConfigFileAndArgsNumericParams():
 
     moduleArgs = ''
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
-        moduleArgs += f'{argName} {minValue} '
+        moduleArgs += f'{argName} {maxValue} '
 
     env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
@@ -847,7 +847,7 @@ def testModuleLoadexEnumParams():
     env.stop()
     os.unlink(rdbFilePath)
 
-    # Load module using CONFIG and module arguments, last value wins
+    # Load module using CONFIG and module arguments, CONFIG wins
     env.start()
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, [])
@@ -1161,7 +1161,7 @@ def testModuleLoadexBooleanParams():
     _removeModuleArgs(env)
 
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
-        # ``search-partial-indexed-docs` has its own test because
+        # `search-partial-indexed-docs` has its own test because
         # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
         if configName == 'search-partial-indexed-docs':
             continue
@@ -1211,7 +1211,7 @@ def testModuleLoadexBooleanParams():
         configValue = 'yes' if defaultValue == 'yes' else 'no'
         # use non-default value as argument value
         argValue = 'false' if defaultValue == 'yes' else 'true'
-        # expected value should be equivalent to the argValue
+        # expected value should be equivalent to the configValue
         expectedArgValue = 'true' if argValue == 'false' else 'false'
         if not isFlag:
             res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
@@ -1272,7 +1272,7 @@ def testModuleLoadexSearchPartialIndexedDocs():
     env.stop()
     os.unlink(rdbFilePath)
 
-    # Load module using CONFIG and module ARGS, last value wins
+    # Load module using CONFIG and module ARGS, CONFIG wins
     env.start()
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, [])
@@ -1313,8 +1313,9 @@ def testConfigFileBooleanParams():
 
 @skip(redis_less_than='7.9.226')
 def testConfigFileAndArgsBooleanParams():
-    '''Test using redis config file and module arguments. The module arguments
-    should take precedence over the config file values'''
+    '''Test using redis config file and module arguments. The config file
+    should take precedence over the module arguments'''
+
     redisConfigFile = '/tmp/testConfigFileAndArgsBooleanParams.conf'
     # create redis.conf file in /tmp and add all the boolean parameters
     if os.path.isfile(redisConfigFile):
@@ -1339,11 +1340,10 @@ def testConfigFileAndArgsBooleanParams():
         # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
         if configName == 'search-partial-indexed-docs':
             continue
-        # the expected value is the opposite of the default value
-        configValue = 'yes' if defaultValue == 'yes' else 'no'
+        # the expected value is the default value, taken from the config file
         ftExpectedValue = 'true' if defaultValue == 'yes' else 'false'
         res = env.cmd('CONFIG', 'GET', configName)
-        env.assertEqual(res, [configName, configValue],
+        env.assertEqual(res, [configName, defaultValue],
                         message=f'configName: {configName}')
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, ftExpectedValue]],
