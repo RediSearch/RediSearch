@@ -24,7 +24,7 @@
 %left QUOTE SQUOTE.
 %left LP LB LSQB.
 
-%left TILDE MINUS.
+%left TILDE MINUS PLUS.
 %left AND.
 
 %left ARROW.
@@ -1223,10 +1223,34 @@ term(A) ::= NUMBER(B) . {
   A.type = QT_NUMERIC;
 }
 
+term(A) ::= MINUS NUMBER(B) . {
+  B.numval = -B.numval;
+  A = B;
+  A.type = QT_NUMERIC;
+}
+
+term(A) ::= PLUS NUMBER(B) . {
+  A = B;
+  A.type = QT_NUMERIC;
+}
+
+term(A) ::= MINUS SIZE(B). {
+  B.numval = -B.numval;
+  B.len += 1;
+  A = B;
+  A.type = QT_NUMERIC;
+}
+
+term(A) ::= PLUS SIZE(B). {
+  A = B;
+  A.type = QT_NUMERIC;
+}
+
 term(A) ::= SIZE(B). {
   A = B;
   A.type = QT_SIZE;
 }
+
 
 ///////////////////////////////////////////////////////////////////////////////////
 // Parameterized Primitives (actual numeric or string, or a parameter/placeholder)

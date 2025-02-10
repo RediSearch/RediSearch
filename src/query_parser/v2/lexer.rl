@@ -131,9 +131,9 @@ mod_lt = '@'.term.(space*).'<'.(space*).(((plus|minus)?(space*).(number|inf))|si
 mod_le = '@'.term.(space*).'<='.(space*).(((plus|minus)?(space*).(number|inf))|size|(plus|minus)?.attr) ;
 contains = (star.term.star | star.((plus|minus)?number).star | star.attr.star) ;
 contains_exact = (star.exact.star) ;
-prefix = (term.star | (plus|minus)?(space*).number.star | attr.star) ;
+prefix = (term.star | (plus|minus)? number.star | attr.star) ;
 prefix_exact = (exact.star) ;
-suffix = (star.term | star.(plus|minus)?(space*).number | star.attr) ;
+suffix = (star.term | star.(plus|minus)? .number | star.attr) ;
 suffix_exact = (star.exact) ;
 as = 'as'i;
 verbatim = ((quote . ((any - quote - escape) | escape.any)+ . quote) | (squote . ((any - squote - escape) | escape.any)+ . squote)) ;
