@@ -58,7 +58,7 @@ def testInfoModulesBasic(env):
                                           'INITIAL_CAP', '10000', 'M', '40', 'EF_CONSTRUCTION', '250', 'EF_RUNTIME', '20').ok()
 
   info = info_modules_to_dict(conn)
-  env.assertEqual(info['search_index']['search_number_of_indexes'], '3')
+  env.assertEqual(info['search_indexes']['search_number_of_indexes'], '3')
   fieldsInfo = info['search_fields_statistics']
   env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_text']), get_search_field_info('Text', 2, Sortable=1, NoIndex=1))
   env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_tag']), get_search_field_info('Tag', 2, Sortable=1, CaseSensitive=1))
@@ -92,7 +92,7 @@ def testInfoModulesAlter(env):
   env.expect('FT.ALTER', idx1, 'SCHEMA', 'ADD', 'n', 'NUMERIC', 'NOINDEX', 'geom', 'GEOSHAPE', 'SORTABLE').ok()
 
   info = info_modules_to_dict(conn)
-  env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
+  env.assertEqual(info['search_indexes']['search_number_of_indexes'], '1')
 
   fieldsInfo = info['search_fields_statistics']
   env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_text']), get_search_field_info('Text', 1, Sortable=1))
@@ -119,7 +119,7 @@ def testInfoModulesDrop(env):
   env.expect('FT.DROP', idx2).ok()
 
   info = info_modules_to_dict(conn)
-  env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
+  env.assertEqual(info['search_indexes']['search_number_of_indexes'], '1')
 
   fieldsInfo = info['search_fields_statistics']
   env.assertEqual(field_info_to_dict(fieldsInfo['search_fields_text']), get_search_field_info('Text', 2, Sortable=1))
@@ -136,7 +136,7 @@ def testInfoModulesAfterReload(env):
 
   for _ in env.reloadingIterator():
     info = info_modules_to_dict(conn)
-    env.assertEqual(info['search_index']['search_number_of_indexes'], '1')
+    env.assertEqual(info['search_indexes']['search_number_of_indexes'], '1')
 
     fieldsInfo = info['search_fields_statistics']
     env.assertFalse('search_fields_text' in fieldsInfo) # no text fields
