@@ -419,7 +419,7 @@ def testCursorDepletionNonStrictTimeoutPolicy(env):
     conn = getConnectionByEnv(env)
 
     # Create the index
-    env.expect('FT.CREATE idx SCHEMA t text sortable').ok()
+    env.expect('FT.CREATE idx SCHEMA t text').ok()
 
     # Populate the index
     num_docs = 150 * env.shardsCount

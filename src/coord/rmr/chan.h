@@ -23,7 +23,7 @@ void *MRChannel_Pop(MRChannel *chan);
 // This is unsafe, and should only be used when the caller is sure that the channel is not being used by other threads.
 void *MRChannel_UnsafeForcePop(MRChannel *chan);
 
-// Make channel unblocking.
+// Make channel unblocking for a single call to `MRChannel_Pop`.
 void MRChannel_Unblock(MRChannel *chan);
 
 size_t MRChannel_Size(MRChannel *chan);
