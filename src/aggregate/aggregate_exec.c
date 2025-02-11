@@ -1326,7 +1326,7 @@ static bool isClusterCoord(AREQ_Debug *debug_req) {
   return false;
 }
 
-int parseAndCompileDebug(AREQ_Debug *debug_req, const DebugQueryOptions *options, QueryError *status) {
+int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   RedisModuleString **debug_argv = debug_req->debug_params.debug_argv;
   unsigned long long debug_params_count = debug_req->debug_params.debug_params_count;
 
@@ -1357,7 +1357,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, const DebugQueryOptions *options
       // Note, this will add a result processor as the downstream of the last result processor
       // (rpidnext for SA, or RPNext for cluster)
       // Take this into account when adding more debug types that are modifying the rp pipeline.
-      PipelineAddTimeoutAfterCount(&debug_req->r, results_count, options->timeout_cb);
+      PipelineAddTimeoutAfterCount(&debug_req->r, results_count);
     }
   }
 

@@ -1152,25 +1152,24 @@ ResultProcessor *RPCounter_New() {
  * If N is larger than the actual results, EOF is returned.
  *******************************************************************************************************************/
 
-struct RPTimeoutAfterCount{
+typedef struct {
   ResultProcessor base;
   uint32_t count;
   uint32_t remaining;
-  debug_timeout_cb timeout_cb;
-};
+} RPTimeoutAfterCount;
 
 /** For debugging purposes
  * Will add a result processor that will return timeout according to the results count specified.
  * @param results_count: number of results to return. should be greater equal 0.
  * The result processor will also change the query timing so further checks down the pipeline will also result in timeout.
  */
-void PipelineAddTimeoutAfterCount(AREQ *r, size_t results_count, debug_timeout_cb timeout_cb) {
+void PipelineAddTimeoutAfterCount(AREQ *r, size_t results_count) {
   ResultProcessor *cur = r->qiter.endProc;
   ResultProcessor dummyHead = { .upstream = cur };
   ResultProcessor *downstream = &dummyHead;
   while (cur) {
     if (!cur->upstream) {
-      ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count, timeout_cb);
+      ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count);
       RPTimeoutAfterCount->parent = &r->qiter;
       downstream->upstream = RPTimeoutAfterCount;
       RPTimeoutAfterCount->upstream = cur;
@@ -1207,9 +1206,6 @@ static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
   if (!self->remaining) {
 
     RPTimeoutAfterCount_SimulateTimeout(base);
-    if (self->timeout_cb) {
-      self->timeout_cb(base);
-    }
 
     int rc = base->upstream->Next(base->upstream, r);
     if (rc == RS_RESULT_TIMEDOUT) {
@@ -1228,28 +1224,13 @@ static void RPTimeoutAfterCount_Free(ResultProcessor *base) {
   rm_free(base);
 }
 
-ResultProcessor *RPTimeoutAfterCount_New(size_t count, debug_timeout_cb timeout_cb) {
+ResultProcessor *RPTimeoutAfterCount_New(size_t count) {
   RPTimeoutAfterCount *ret = rm_calloc(1, sizeof(RPTimeoutAfterCount));
   ret->count = count;
   ret->remaining = count;
   ret->base.type = RP_TIMEOUT;
   ret->base.Next = RPTimeoutAfterCount_Next;
   ret->base.Free = RPTimeoutAfterCount_Free;
-  ret->timeout_cb = timeout_cb;
 
   return &ret->base;
-}
-
-size_t RPTimeoutAfterCount_getCount(const ResultProcessor *rp) {
-  const RPTimeoutAfterCount *self = (const RPTimeoutAfterCount *)rp;
-  return self->count;
-}
-
-ResultProcessor *getRP(const ResultProcessor *start, ResultProcessorType rp_type) {
-  ResultProcessor *cur = start->upstream;
-  while (cur && cur->type != rp_type) {
-      cur = cur->upstream;
-  }
-
-  return cur;
 }

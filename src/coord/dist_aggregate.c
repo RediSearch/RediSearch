@@ -802,21 +802,6 @@ err:
   return;
 }
 
-static void getNextReplyWhenEmptyResults(void *rp_timeout) {
-  // Handle empty results.
-  if (RPTimeoutAfterCount_getCount((ResultProcessor *)rp_timeout) == 0) {
-      RPNet *nc = (RPNet *)getRP(rp_timeout, RP_NETWORK);
-      RS_LOG_ASSERT(nc, "Expected to find RPNet");
-
-      // Simulate rpnetNext_Start
-      MRIterator *it = MR_Iterate(&nc->cmd, netCursorCallback);
-
-      nc->it = it;
-      nc->base.Next = rpnetNext;
-      getNextReply((RPNet *)nc);
-  }
-}
-
 void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
@@ -860,8 +845,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
     MRCommand_Append(cmd, arg, n);
   }
 
-  DebugQueryOptions debug_options = {.timeout_cb = getNextReplyWhenEmptyResults};
-  if (parseAndCompileDebug(debug_req, &debug_options, &status) != REDISMODULE_OK) {
+  if (parseAndCompileDebug(debug_req, &status) != REDISMODULE_OK) {
     goto err;
   }
 
