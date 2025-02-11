@@ -167,7 +167,7 @@ def test_vecsim_info_stats_memory(env):
     total_memory += get_memory(shard_conn.execute_command(debug_cmd(), 'VECSIM_INFO', 'idx', 'vector'))
   info = shard_conn.execute_command('ft.info', 'idx')
   env.assertTrue("field statistics" in info)
-  env.assertAlmostEqual(total_memory, info["field statistics"][0]["memory"], delta=env.shardsCount)
+  env.assertEqual(total_memory, info["field statistics"][0]["memory"])
 
 def test_vecsim_info_stats_marked_deleted(env):
   env = Env(protocol=3, moduleArgs='WORKERS 1 FORK_GC_RUN_INTERVAL 50000')
