@@ -901,12 +901,12 @@ def testConfigFileAndArgsEnumParams():
         f.write(f'{configName} {testValue}\n')
 
     # Start the server using the conf file and check each value,
-    # the module arguments should take precedence
+    # the conf file should take precedence
     env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
     res = env.cmd('CONFIG', 'GET', configName)
-    env.assertEqual(res, [configName, 'return'])
+    env.assertEqual(res, [configName, testValue])
     res = env.cmd(config_cmd(), 'GET', argName)
-    env.assertEqual(res, [[argName, 'return']])
+    env.assertEqual(res, [[argName, testValue]])
 
 ################################################################################
 # Test CONFIG SET/GET string parameters
