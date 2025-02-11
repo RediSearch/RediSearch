@@ -479,24 +479,6 @@ class TestQueryDebugCommands(object):
         # restore the default policy
         env.expect(config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN').ok()
 
-    def TimeoutQueryBuild(self):
-        env = self.env
-        if env.isCluster():
-            res = runDebugQueryCommandTimeoutBuild(env, self.basic_query)
-            # expect empty results
-            env.assertEqual(len(res["results"]), 0)
-        else:
-            with env.assertResponseError(contained="Timeout limit was reached"):
-                runDebugQueryCommandTimeoutBuild(env, self.basic_query)
-
-    def testTimeoutQueryBuildSearch(self):
-        self.setBasicDebugQuery("SEARCH")
-        self.TimeoutQueryBuild()
-
-    def testTimeoutQueryBuildAggregate(self):
-        self.setBasicDebugQuery("AGGREGATE")
-        self.TimeoutQueryBuild()
-
     def SearchDebug(self):
         self.setBasicDebugQuery("SEARCH")
         basic_debug_query = self.basic_debug_query
@@ -517,8 +499,6 @@ class TestQueryDebugCommands(object):
         self.QueryWithLimit(basic_debug_query, timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
 
         self.StrictPolicy()
-
-        self.TimeoutQueryBuild()
 
     def testSearchDebug(self):
         self.SearchDebug()
@@ -593,8 +573,6 @@ class TestQueryDebugCommands(object):
         self.verifyResultsResp3(res, cursor_count, should_timeout=should_timeout, message="AggregateDebug with cursor count lower than timeout_res_count:")
 
         self.StrictPolicy()
-
-        self.TimeoutQueryBuild()
 
     def testAggregateDebug(self):
         self.AggregateDebug()

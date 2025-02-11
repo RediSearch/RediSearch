@@ -828,7 +828,8 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
   }
 
   if (IsDebug(req)) {
-    if (rc = parseAndCompileDebug((AREQ_Debug *)req, status) != REDISMODULE_OK) {
+    rc = parseAndCompileDebug((AREQ_Debug *)req, status);
+    if (rc != REDISMODULE_OK) {
       return rc;
     }
   }
@@ -1331,15 +1332,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   while (debug_argv_iter < debug_params_count) {
     size_t n;
     const char *cmd = RedisModule_StringPtrLen(debug_argv[debug_argv_iter++], &n);
-    // Currently returns an error, regardless the timeout policy to align with the query command behaviour.
-    if (strncasecmp(cmd, "TIMEOUT_QUERY_BUILD", n) == 0) {
-      if (isClusterCoord(debug_req)) {
-        break; // nothing to do for cluster coordinator. replys from the shards will return an error.
-      }
-      // Simulate a timeout error returned from the shards
-      QueryError_SetCode(status, QUERY_ETIMEDOUT);
-      return REDISMODULE_ERR;
-    } else if (strncasecmp(cmd, "TIMEOUT_AFTER_N", n) == 0) {
+    if (strncasecmp(cmd, "TIMEOUT_AFTER_N", n) == 0) {
       unsigned long long results_count;
       if (RedisModule_StringToULongLong(debug_argv[debug_argv_iter++], &results_count) != REDISMODULE_OK) {
         QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid TIMEOUT_AFTER_N count");

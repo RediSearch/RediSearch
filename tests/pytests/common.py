@@ -830,7 +830,3 @@ def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, interna
     if internal_only:
         debug_params.append("INTERNAL_ONLY")
     return runDebugQueryCommand(env, query_cmd, debug_params)
-
-def runDebugQueryCommandTimeoutBuild(env, query_cmd):
-    debug_params = ['TIMEOUT_QUERY_BUILD']
-    return runDebugQueryCommand(env, query_cmd, debug_params)
