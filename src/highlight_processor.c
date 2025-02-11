@@ -282,6 +282,11 @@ static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
   if (it->SkipTo) {
     rc = it->SkipTo(it->ctx, docId, &ir);
   } else {
+    // If the root iterator does not support SkipTo, we have to read the iterator until we find the
+    // document. This is logically equivalent to SkipTo, especially in this context where we know
+    // that the document was found in the root iterator before.
+    // This is not efficient, but if the root iterator does not support SkipTo, we have no other
+    // choice. Look for "SkipTo = NULL" in the codebase for examples.
     do {
       rc = it->Read(it->ctx, &ir);
     } while (rc == INDEXREAD_OK && ir->docId != docId);

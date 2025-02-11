@@ -1502,7 +1502,9 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status, bool 
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       ReturnedField *ff = req->outFields.fields + ii;
       if (req->outFields.defaultField.mode == SummarizeMode_None && ff->mode == SummarizeMode_None) {
-        continue; // No need to highlight this field
+        // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
+        // (Default mode is not any of the summarize modes, and also there is no mode explicitly specified for this field)
+        continue;
       }
       RLookupKey *kk = RLookup_GetKey(lookup, ff->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!kk) {
