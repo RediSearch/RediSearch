@@ -41,7 +41,13 @@ if (SAN)
     endif()
 endif()
 
-# Needed to handle multi-byte characters architectural independently
+# The default signedness of char can vary by architecture and compiler.
+# Common defaults:
+# - x86/x86_64: Typically signed by default.
+# - ARM: Typically unsigned by default.
+# This can lead to different behavior when comparing or converting char to int,
+# and causes different behavior between different platforms when sorting strings.
+# To avoid this, we set the default signedness of char to unsigned.
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -funsigned-char")
 
 

@@ -1057,6 +1057,21 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
 
 typedef IndexIterator **IndexIteratorArray;
 
+
+/**
+ * Converts a given string to lowercase and handles escape sequences.
+ *
+ * This function processes the input string `str` and converts it to lowercase
+ * if `caseSensitive` is false.
+ * It also handles escape sequences by removing the backslash character if it
+ * precedes a punctuation or whitespace character.
+ *
+ * @param str The input string to be processed. The string is modified in place.
+ * @param len A pointer to the length of the input string. The length is updated
+ * to reflect any changes made to the string.
+ * @param caseSensitive A flag indicating whether the conversion to lowercase
+ * should be performed. If true, the string remains case-sensitive.
+ */
 static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
   size_t origLen = *len;
   char *origStr = str;

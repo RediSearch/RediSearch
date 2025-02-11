@@ -60,7 +60,7 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   return ret;
 }
 
-/* convert string to runes, lower them and return the lowereded runes */
+/* convert string to runes, lower them and return the lowered runes */
 rune *strToLowerRunes(const char *str, size_t *len) {
 
   // determine the length of the folded string
@@ -86,7 +86,7 @@ rune *strToLowerRunes(const char *str, size_t *len) {
     const char *map = nu_tolower(codepoint);
 
     // Read the transformed codepoint and store it in the unicode buffer
-    if (map != 0) {
+    if (map != NULL) {
       uint32_t mu;
       while (1) {
         map = nu_casemap_read(map, &mu);
