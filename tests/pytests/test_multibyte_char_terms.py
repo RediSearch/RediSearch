@@ -1432,3 +1432,40 @@ def testTagSearch(env):
 
     res = conn.execute_command('FT.SEARCH', 'idx', '@t:{fussball}', 'NOCONTENT')
     env.assertEqual(res, [1, 'doc:2s'])
+
+def testToLowerSize(env):
+    '''Test that the toLower function returns the correct size for multi-byte
+    characters.'''
+
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx_txt', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT')
+    env.cmd('FT.CREATE', 'idx_tag', 'ON', 'HASH', 'SCHEMA', 't', 'TAG')
+
+    for idx in ['idx_txt', 'idx_tag']:
+        for codepoint in range(0x110000):  # Unicode range from U+0000 to U+10FFFF
+            # Skip surrogate pairs (0xD800 to 0xDFFF)
+            if 0xD800 <= codepoint <= 0xDFFF:
+                continue
+            char = chr(codepoint)
+            upper_char = char.upper()
+            lower_char = char.lower()
+            lower_char2 = char.lower().upper().lower()
+            upper_bytes = upper_char.encode('utf-8')
+            lower_bytes = lower_char.encode('utf-8')
+
+            if (len(upper_bytes) < len(lower_bytes)):
+                # print(f"len(upper_bytes) < len(lower_bytes) -> {len(upper_bytes)} < {len(lower_bytes)}")
+                # if (lower_char != lower_char2):
+                #     print(f'Different: lower_char: {lower_char} {' '.join(f"U+{ord(c):04X}" for c in lower_char)} lower_char2: {lower_char2} {' '.join(f"U+{ord(c):04X}" for c in lower_char2)}')
+                lower_term = lower_char * 5
+                upper_term = upper_char * 5
+                # env.debugPrint(f'upper_term: {upper_term} lower_term: {lower_term}')
+                # print(f'upper_term: {upper_term} lower_term: {lower_term}')
+                env.cmd('HSET', 'doc:1', 't', lower_term)
+                env.cmd('HSET', 'doc:2', 't', upper_term)
+                res = conn.execute_command(
+                    'FT.SEARCH', idx, f'@t:({upper_term})', 'NOCONTENT')
+                env.assertEqual(res, [2, 'doc:1', 'doc:2'], message = f'{idx} upper_char: {upper_char} {' '.join(f"U+{ord(c):04X}" for c in upper_char)}' )
+                res = conn.execute_command(
+                    'FT.SEARCH', idx, f'@t:({lower_term})', 'NOCONTENT')
+                env.assertEqual(res, [2, 'doc:1', 'doc:2'], message = f'{idx} lower_char: {lower_char} {lower_char2} {' '.join(f"U+{ord(c):04X}" for c in lower_char)} lower2: {' '.join(f"U+{ord(c):04X}" for c in lower_char2)}')
