@@ -12,10 +12,13 @@
 
 #include <string>
 #include <map>
+#include <unordered_map>
 #include <list>
 #include <set>
+#include <unordered_set>
 #include <vector>
 #include <iostream>
+#include <optional>
 
 struct RedisModuleString : public std::string {
   using std::string::string;
@@ -99,7 +102,14 @@ class Value {
 };
 
 class HashValue : public Value {
-  typedef std::map<std::string, std::string> maptype;
+  // holds the expiration time for groups of keys
+  using ExpirationMapType = std::map<mstime_t, std::unordered_set<std::string>>;
+  // Key to value map
+  struct Entry {
+    std::string value;
+    ExpirationMapType::iterator expirationIt;
+  };
+  using KeyMapType = std::unordered_map<std::string, Entry>;
 
  public:
   struct Key {
@@ -126,20 +136,32 @@ class HashValue : public Value {
 
   virtual void debugDump(const char *indent) const override {
     for (auto ii : m_map) {
-      std::cerr << indent << ii.first << ": " << ii.second << std::endl;
+      std::cerr << indent << ii.first << ": " << ii.second.value << std::endl;
     }
   }
   void hset(const Key &, const RedisModuleString *);
   void add(const char *key, const char *value, int mode = REDISMODULE_HASH_NONE);
+  bool hexpire(const Key &, mstime_t expireAt);
+  std::optional<mstime_t> min_expire_time() const;
+  std::optional<mstime_t> get_expire_time(const Key &) const;
 
   const std::string *hget(const Key &) const;
   RedisModuleString **kvarray(RedisModuleCtx *allocctx) const;
-  const std::map<std::string, std::string> &items() const {
+  const KeyMapType &items() const {
     return m_map;
   }
 
+  auto begin() {
+    return m_map.begin();
+  }
+
+  auto end() {
+    return m_map.end();
+  }
+
  private:
-  std::map<std::string, std::string> m_map;
+  KeyMapType m_map;
+  ExpirationMapType m_expiration;
 };
 
 class ListValue : public Value {
@@ -252,6 +274,10 @@ struct KVDB {
       it.second->decref();
     }
     db.clear();
+  }
+
+  size_t size() const {
+    return db.size();
   }
 
   ~KVDB() {
