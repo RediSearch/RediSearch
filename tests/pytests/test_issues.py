@@ -1400,6 +1400,13 @@ def test_mod_8695():
                                   'RETURN', 2, 't', 'score', 'HIGHLIGHT', 'FIELDS', 1, 't').noError().equal(
                [2, 'doc1', ['score', '0', 't', '<b>foo</b>'], 'doc3', ['score', '0', 't', '<b>foo</b> bar']])
 
+  # Test that we get the same results (with scores) regardless of the order of the arguments
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                    'SORTBY', 'score', 'WITHSCORES')
+  res2 = env.cmd('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                    'WITHSCORES', 'SORTBY', 'score')
+  env.assertEqual(res1, res2)
+
   # Test vector with AGGREGATE and scores
   env.expect('FT.AGGREGATE', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????', 'ADDSCORES', 'SCORER', 'TFIDF').noError().equal(
                [2, ['score', '0', '__score', '1'], ['score', '0', '__score', '1']])
