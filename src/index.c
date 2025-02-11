@@ -255,7 +255,6 @@ static inline int UI_Skip_Quick_Flat(IndexIterator *base, const t_docId nextId, 
 }
 
 static inline int UI_Read_Quick_Flat(IndexIterator *base, RSIndexResult **hit) {
-  if (!IITER_HAS_NEXT(base)) return INDEXREAD_EOF;
   int rc = UI_Skip_Quick_Flat(base, base->LastDocId + 1, hit);
   return rc == INDEXREAD_NOTFOUND ? INDEXREAD_OK : rc;
 }
@@ -353,36 +352,8 @@ static inline int UI_Skip_Quick_Heap(IndexIterator *base, const t_docId nextId, 
 }
 
 static inline int UI_Read_Quick_Heap(IndexIterator *base, RSIndexResult **hit) {
-  UnionIterator *ui = (UnionIterator *)base;
-  if (!IITER_HAS_NEXT(base)) {
-    return INDEXREAD_EOF;
-  }
-  RSIndexResult *h;
-  IndexIterator *cur;
-  heap_t *hp = ui->heapMinId;
-  const t_docId nextId = base->LastDocId + 1;
-  AggregateResult_Reset(CURRENT_RECORD(ui));
-  while ((cur = heap_peek(hp)) && cur->LastDocId < nextId) {
-    int rc = cur->SkipTo(cur, nextId, &h);
-    if (rc == INDEXREAD_OK) {
-      heap_replace(hp, cur); // replace current iterator with itself to update its position
-      UI_QuickSet(ui, cur, hit);
-      return INDEXREAD_OK;
-    } else if (rc == INDEXREAD_NOTFOUND) {
-      heap_replace(hp, cur); // replace current iterator with itself to update its position
-    } else if (rc == INDEXREAD_EOF) {
-      heap_poll(hp);
-    } else {
-      return rc;
-    }
-  }
-
-  if (cur) {
-    UI_QuickSet(ui, cur, hit);
-    return INDEXREAD_OK;
-  }
-  IITER_SET_EOF(base);
-  return INDEXREAD_EOF;
+  int rc = UI_Skip_Quick_Heap(base, base->LastDocId + 1, hit);
+  return rc == INDEXREAD_NOTFOUND ? INDEXREAD_OK : rc;
 }
 
 IndexIterator *NewUnionIterator(IndexIterator **its, int num, bool quickExit,
