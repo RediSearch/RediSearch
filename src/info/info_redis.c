@@ -167,7 +167,7 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
 }
 
 void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
-  RedisModule_InfoAddSection(ctx, "index");
+  RedisModule_InfoAddSection(ctx, "indexes");
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", dictSize(specDict_g));
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes", total_info->num_active_indexes);
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_running_queries", total_info->num_active_indexes_querying);
