@@ -168,14 +168,17 @@ void handleFieldStatistics(MRReply *src, InfoFields *fields) {
   RedisModule_Assert(MRReply_Type(src) == MR_REPLY_ARRAY);
 
   size_t len = MRReply_Length(src);
-  if (!fields->fieldSpecInfo_arr) {
+  if (!fields->fieldSpecInfo_arr && len) {
     // Lazy initialization
-    fields->fieldSpecInfo_arr = array_new(FieldSpecInfo, len);
+    fields->fieldSpecInfo_arr = array_newlen(FieldSpecInfo, len);
     for (size_t i = 0; i < len; i++) {
-      FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Init();
-      array_append(fields->fieldSpecInfo_arr, fieldSpecInfo);
+      fields->fieldSpecInfo_arr[i] = FieldSpecInfo_Init();
     }
   }
+
+  // Something went wrong (number of fields mismatch)
+  // For now, ignore the odd ones
+  if (array_len(fields->fieldSpecInfo_arr) != len) return;
 
   for (size_t i = 0; i < len; i++) {
     MRReply *serializedFieldSpecInfo = MRReply_ArrayElement(src, i);
