@@ -4,6 +4,8 @@ def verifyTimeoutResultsResp3(env, res, expected_results_count, message="", dept
     env.assertEqual(len(res["results"]), expected_results_count, depth=depth+1, message=message + " unexpected results count")
     VerifyTimeoutWarningResp3(env, res, depth=depth+1, message=message + " unexpected results count")
 
+# skip on cluster since there might not be enough documents in each shard to reach the RP_INDEX timeout limit counter.
+@skip(cluster=True)
 def testEmptyResult():
     env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN')
     conn = getConnectionByEnv(env)
@@ -16,8 +18,9 @@ def testEmptyResult():
     for i in range(num_docs):
         conn.execute_command('HSET', f'doc{i}' ,'n', i)
 
-    # Before the bug fix, the first doc caused timeout and returns as an empty valid. Since we reset the timeout counter of RP_INDEX,
+    # Before the bug fix, the first doc caused timeout and returned as an empty valid result. Since we reset the timeout counter of RP_INDEX,
     # The next call to the query pipeline we will continue iterating over the results until EOF is reached or for another TIMEOUT_COUNTER_LIMIT reads.
+    # Now, upon timeout, the reply ends with no further calls to the query pipeline.
     res = env.cmd('_ft.debug', 'FT.AGGREGATE', 'idx', '*', 'load', '1', '@n', 'LIMIT', 99, 110, 'TIMEOUT_AFTER_N', 99, 'DEBUG_PARAMS_COUNT', 2)
 
     verifyTimeoutResultsResp3(env, res, 0)
