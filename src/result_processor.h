@@ -281,11 +281,20 @@ const char *RPTypeToString(ResultProcessorType type);
 /*******************************************************************************************************************
  *  Timeout Processor - DEBUG ONLY
  *
- * returns timeout after N results, N >= 0.
+ * @param count: returns timeout after at most count results, count >= 0.
+ * @param timeout_cb: OPTIONAL callback to call when timeout is simulated, i.e we reached `count` results and the
+ * timeout is set to now.
+ * timeout_cb can be NULL.
+ * The argument sent to the cb is the result processor.
  *******************************************************************************************************************/
-ResultProcessor *RPTimeoutAfterCount_New(size_t count);
-void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
+typedef void(*debug_timeout_cb)(void*);
 
+ResultProcessor *RPTimeoutAfterCount_New(size_t count, debug_timeout_cb timeout_cb);
+void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count, debug_timeout_cb timeout_cb);
+
+typedef struct RPTimeoutAfterCount RPTimeoutAfterCount;
+size_t RPTimeoutAfterCount_getCount(const ResultProcessor *rp);
+ResultProcessor *getRP(const ResultProcessor *start, ResultProcessorType rp_type);
 #ifdef __cplusplus
 }
 #endif

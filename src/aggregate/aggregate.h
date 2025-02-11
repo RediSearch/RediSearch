@@ -367,7 +367,13 @@ typedef struct {
 // expecting AREQ, including AREQ_Free
 AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *status);
 AREQ_Debug_params parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status);
-int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status);
+
+// Optional callback to be called when
+typedef struct {
+  debug_timeout_cb timeout_cb; // optional call when timeout is reached.
+} DebugQueryOptions;
+
+int parseAndCompileDebug(AREQ_Debug *debug_req, const DebugQueryOptions *options, QueryError *status);
 
 #ifdef __cplusplus
 }
