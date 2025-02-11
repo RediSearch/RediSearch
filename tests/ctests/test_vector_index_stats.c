@@ -1,6 +1,15 @@
 #include "test_util.h"
 #include "info/vector_index_stats.h"
 
+int test_memory_and_marked_deleted_invalid_input() {
+    VectorIndexStats_Getter getter = VectorIndexStats_GetGetter("invalid");
+    ASSERT(getter == NULL);
+
+    VectorIndexStats_Setter setter = VectorIndexStats_GetSetter("invalid");
+    ASSERT(setter == NULL);
+    return 0;
+}
+
 int test_memory_and_marked_deleted_setter_getter() {
     VectorIndexStats stats = VectorIndexStats_Init();
     VectorIndexStats_SetMemory(&stats, 1024);
@@ -43,13 +52,13 @@ int test_memory_and_marked_deleted_setter() {
     VectorIndexStats_Setter setter = VectorIndexStats_GetSetter("memory");
     ASSERT(setter == VectorIndexStats_SetMemory);
     setter(&stats, 2048);
+    ASSERT(VectorIndexStats_GetMemory(&stats) == 2048);
 
     setter = VectorIndexStats_GetSetter("marked_deleted");
     ASSERT(setter == VectorIndexStats_SetMarkedDeleted);
     setter(&stats, 20);
-
-    ASSERT(VectorIndexStats_GetMemory(&stats) == 2048);
     ASSERT(VectorIndexStats_GetMarkedDeleted(&stats) == 20);
+
 
     return 0;
 }

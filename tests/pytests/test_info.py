@@ -1,6 +1,6 @@
 from common import *
 import time
-import string
+
 # The output for this test can be used for recreating documentation for `FT.INFO`
 @skip()
 def testInfo(env):
@@ -170,25 +170,23 @@ def test_vecsim_info_stats_memory(env):
   env.assertAlmostEqual(total_memory, info["field statistics"][0]["memory"], delta=env.shardsCount)
 
 def test_vecsim_info_stats_marked_deleted(env):
-  env = Env(protocol=3, moduleArgs='WORKERS 1')
+  env = Env(protocol=3, moduleArgs='WORKERS 1 FORK_GC_RUN_INTERVAL 50000')
   conn = env.getClusterConnectionIfNeeded()
   vec_size = 6
   data_type = 'FLOAT16'
-  load_vectors_to_redis(env, 1000, 0, vec_size, data_type)
   conn.execute_command('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', 6, 'DIM', 6, 'TYPE', 'float16', 'DISTANCE_METRIC', 'L2')
-  for i in range(1, 101):
-    conn.execute_command('DEL', f'doc{i}')
-  env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
+  load_vectors_to_redis(env, 1000, 0, vec_size, data_type)
+  env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok() # wait for HNSW graph construction to finish
+  env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok() # pause to prevent repair jobs on the graph
+  docs_to_delete = 100
+  for i in range(1, 1 + docs_to_delete):
+    conn.execute_command('DEL', f'{i}')
   info = conn.execute_command('ft.info', 'idx')
   env.assertTrue("field statistics" in info)
-  # get marked deleted from 'FT.DEBUG VECSIM_INFO idx vector' output
-  def get_marked_deleted(data): return data[data.index('BACKEND_INDEX') + 1][data[data.index('BACKEND_INDEX') + 1].index('NUMBER_OF_MARKED_DELETED') + 1]
-  vecsim_info_marked_deleted = 0
-  for shard_conn in shardsConnections(env):
-    vecsim_info_marked_deleted += int(get_marked_deleted(shard_conn.execute_command(debug_cmd(), 'VECSIM_INFO', 'idx', 'vector')))
-  # compare results to FT.DEBUG VECSIM_INFO idx vector
-  env.assertEqual(info["field statistics"][0]["marked_deleted"], vecsim_info_marked_deleted)
+  env.assertEqual(info["field statistics"][0]["marked_deleted"], docs_to_delete)
   env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
   # Wait for all repair jobs to be finish, then run GC to remove the deleted vectors.
   env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
   env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
+  info = conn.execute_command('ft.info', 'idx')
+  env.assertEqual(info["field statistics"][0]["marked_deleted"], 0)
