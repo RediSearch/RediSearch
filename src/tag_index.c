@@ -93,8 +93,13 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
   if (sep == TAG_FIELD_DEFAULT_JSON_SEP) {
     char *tok = rm_strdup(str);
     if (!(flags & TagField_CaseSensitive)) { // check case sensitive
-      size_t newLen = unicode_tolower(tok, strlen(tok));
+      char *longer_dst = NULL;
+      size_t newLen = unicode_tolower(tok, strlen(tok), &longer_dst);
       if (newLen) {
+        if (longer_dst) {
+          rm_free(tok);
+          tok = longer_dst;
+        }
         tok[newLen] = '\0';
       }
     }
@@ -115,12 +120,20 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
     if (tok) {
       // normalize the string
       if (!(flags & TagField_CaseSensitive)) { // check case sensitive
-        size_t newLen = unicode_tolower(tok, strlen(tok));
+        char *longer_dst = NULL;
+        size_t newLen = unicode_tolower(tok, strlen(tok), &longer_dst);
         if (newLen) {
           toklen = newLen;
+          if (!longer_dst) {
+            tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
+          } else {
+            tok = longer_dst;
+          }
         }
+      } else {
+        tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
       }
-      tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
+
       array_append(*resArray, tok);
     } else {
       break;

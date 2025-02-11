@@ -40,7 +40,7 @@ static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uin
  * - len on input contains the length of the raw token, on output contains the
  *   length of the normalized token
  */
-static char *DefaultNormalize(char *s, char *dst, size_t *len) {
+static char *DefaultNormalize(char *s, char *dst, size_t *len, int *allocated) {
   size_t origLen = *len;
   char *realDest = s;
   size_t dstLen = 0;
@@ -67,12 +67,19 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
 
   *len = dstLen;
 
-  size_t newLen = unicode_tolower(dst, dstLen);
+  char *longer_dst = NULL;
+  size_t newLen = unicode_tolower(dst, dstLen, &longer_dst);
   if (newLen) {
     *len = newLen;
   }
 
-  return dst;
+  if (!longer_dst) {
+    *allocated = 0;
+    return dst;
+  } else {
+    *allocated = 1;
+    return longer_dst;
+  }
 }
 
 // tokenize the text in the context
@@ -98,7 +105,8 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
       normBuf = tok;
     }
 
-    char *normalized = DefaultNormalize(tok, normBuf, &normLen);
+    int allocated = 0;
+    char *normalized = DefaultNormalize(tok, normBuf, &normLen, &allocated);
 
     // ignore tokens that turn into nothing, unless the whole string is empty.
     if ((normalized == NULL || normLen == 0) && !ctx->empty_input) {
@@ -136,6 +144,10 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
         t->phoneticsPrimary = NULL;
       }
       PhoneticManager_ExpandPhonetics(NULL, tok, normLen, &t->phoneticsPrimary, NULL);
+    }
+
+    if (allocated) {
+      rm_free((void *)t->tok);
     }
 
     return ctx->lastOffset;
