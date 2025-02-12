@@ -1,4 +1,4 @@
-from common import getConnectionByEnv, index_info, to_dict, skip, waitForIndex
+from common import getConnectionByEnv, index_info, to_dict, skip, waitForIndex, Env
 
 
 
@@ -423,7 +423,6 @@ def test_stop_background_indexing_on_low_mem(env):
   used_memory = con.info('memory')['used_memory']
   con.config_set('maxmemory',  int(used_memory * 1.1))
 
-
   # Create an index with a text field. The background indexing should fail.
   env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
   # Check that the index has no documents.
@@ -437,3 +436,36 @@ def test_stop_background_indexing_on_low_mem(env):
     bg_index_status_str : 'OOM failure'
   }
   env.assertEqual(global_index_errors, expected_error_dict)
+
+@skip(cluster=True)
+def test_stop_indexing_low_mem_verbosity():
+  env = Env(protocol=3)
+  con = getConnectionByEnv(env)
+  con.hset('doc1', 't', 'hello')
+  used_memory = con.info('memory')['used_memory']
+  con.config_set('maxmemory',  int(used_memory * 1.1))
+  num_indexes_to_create = 10
+  for i in range(num_indexes_to_create):
+    env.expect('ft.create', f'idx{i}', 'SCHEMA', 't', 'text').ok()
+    used_memory = con.info('memory')['used_memory']
+    con.config_set('maxmemory',  int(used_memory * 1.1))
+
+  # Check ft.info for the last index error
+  info = index_info(env,idx='idx0')
+  env.assertEqual(info['num_docs'], 0)
+  global_index_errors = get_global_index_errors_dict(info)
+  expected_error_dict = {
+    indexing_failures_str: 1,
+    last_indexing_error_key_str: 'doc1',
+    last_indexing_error_str: 'Used memory is more than 80% of max memory, cancelling the scan',
+    bg_index_status_str : 'OOM failure'
+  }
+  env.assertEqual(global_index_errors, expected_error_dict)
+
+  # Check info metric for amount of failed indexes
+  con.info('modules')['search_OOM_indexing_failures_indexes_count'] == num_indexes_to_create
+
+  # Check resp3 warning for OOM
+  res = con.execute_command('ft.search', 'idx0','*')
+  print(res['warning'])
+  env.assertEqual(res['warning'][0], 'Index contains partial data due to OOM indexing failure')
