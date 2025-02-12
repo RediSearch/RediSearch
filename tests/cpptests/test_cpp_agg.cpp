@@ -283,35 +283,36 @@ int testAggregatePlan() {
 
 TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
-  int rv;
-  QueryError qerr = {QueryErrorCode(0)};
 
-  auto scenario = [&](QEFlags flags, bool canBeOptimized, auto... args) {
+  auto scenario = [&](QEFlags flags, auto... args) -> bool {
+    QueryError qerr = {QueryErrorCode(0)};
     AREQ *rr = AREQ_New();
     rr->reqflags = flags;
     RMCK::ArgvList aggArgs(ctx, "*", args...);
-    rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
-    ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
-    ASSERT_EQ(canBeOptimized, bool(rr->searchopts.flags & Search_CanSkipReachResults));
+    int rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
+    EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
+    bool res = rr->searchopts.flags & Search_CanSkipReachResults;
+    QueryError_ClearError(&qerr);
     AREQ_Free(rr);
+    return res;
   };
 
   // Default search command, we have an implicit sorter by scores
-  scenario(QEXEC_F_IS_SEARCH, false, "LIMIT", "0", "100");
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, "LIMIT", "0", "100"));
 
   // Explicit sorting, no need for scores
-  scenario(QEXEC_F_IS_SEARCH, true, "SORTBY", "foo", "ASC");
+  EXPECT_TRUE(scenario(QEXEC_F_IS_SEARCH, "SORTBY", "foo", "ASC"));
   // Explicit sorting, with explicit request for scores
-  scenario(QEXEC_F_IS_SEARCH, false, "WITHSCORES", "SORTBY", "foo", "ASC");
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, "WITHSCORES", "SORTBY", "foo", "ASC"));
   // Explicit sorting, with explicit request for scores in a different order
-  scenario(QEXEC_F_IS_SEARCH, false, "SORTBY", "foo", "ASC", "WITHSCORES");
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, "SORTBY", "foo", "ASC", "WITHSCORES"));
   // Requesting HIGHLIGHT, which requires reach results
-  scenario(QEXEC_F_IS_SEARCH, false, "SORTBY", "foo", "HIGHLIGHT", "FIELDS", "1", "foo");
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, "SORTBY", "foo", "HIGHLIGHT", "FIELDS", "1", "foo"));
 
   // Default aggregate command, no need for scores
-  scenario(QEXEC_F_IS_AGGREGATE, true, "LIMIT", "0", "100");
+  EXPECT_TRUE(scenario(QEXEC_F_IS_AGGREGATE, "LIMIT", "0", "100"));
   // Explicit request for scores
-  scenario(QEXEC_F_IS_AGGREGATE, false, "ADDSCORES");
+  EXPECT_FALSE(scenario(QEXEC_F_IS_AGGREGATE, "ADDSCORES"));
 
   RedisModule_FreeThreadSafeContext(ctx);
 }
