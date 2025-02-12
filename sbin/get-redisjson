@@ -94,9 +94,9 @@ else
 	elif [[ $dist == mariner ]]; then
 		OSS=1
 	elif [[ $os == macos ]]; then
-	  # Workaround: REJSON is supporting newer mac OS, but old mac OS artifacts are not being deleted from s3
-	  # For now force building locally on macos
-	  FORCE_BUILD=1
+		# Workaround: REJSON is supporting newer mac OS, but old mac OS artifacts are not being deleted from s3
+		# For now force building locally on macos
+		FORCE_BUILD=1
 		# as we don't build on macOS for every platform, we converge to a least common denominator
 		if [[ $arch == x86_64 ]]; then
 			nick=catalina  # to be aligned with the rest of the modules in redis stack
