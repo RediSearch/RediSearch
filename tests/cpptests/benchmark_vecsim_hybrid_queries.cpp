@@ -79,8 +79,8 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
                                       .query = top_k_query,
                                       .qParams = queryParams,
                                       .vectorScoreField = (char *)"__v_score",
-                                      .ignoreDocScore = true,
-                                      .childIt = ui
+                                      .canTrimDeepResults = true,
+                                      .childIt = ui,
       };
       QueryError err = {QUERY_OK};
       IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
