@@ -1321,7 +1321,7 @@ def test_mod_8568(env:Env):
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km').equal(expected)
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km',
                                       'GEOFILTER', 'g', '1.1', '1.1', '1000', 'km').equal(expected)
- 
+
 @skip(cluster=True)
 def test_mod_6786(env:Env):
   # Test search of long term (>128) inside text field
@@ -1335,6 +1335,19 @@ def test_mod_6786(env:Env):
   # Searching for the long term should return the document
   # Before fix, the long term was partialy normalized and the document was not found
   env.expect('FT.SEARCH', 'idx', long_term).equal([1, 'doc1', ['t', text_with_long_term]])
+
+@skip(cluster=False)
+def test_mod_7609(env:Env):
+  # Create the same named index on all shards, but with different schemas
+  for i in range(1, env.shardsCount + 1):
+    con = env.getConnection(i)
+    con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT') # required for running the internal `_FT.CREATE` command
+    schema = []
+    for j in range(i):
+      schema.extend(['f'+str(j), 'TEXT'])
+    con.execute_command('_FT.CREATE', 'idx', 'SCHEMA', *schema)
+
+  env.expect('FT.INFO', 'idx').error().contains('Inconsistent index state')
 
 @skip(cluster=True)
 def test_mod_8561(env:Env):
