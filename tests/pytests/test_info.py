@@ -155,7 +155,7 @@ def test_info_text_tag_overhead(env):
   env.assertEqual(float(res['tag_overhead_sz_mb']), 0)
   env.assertEqual(float(res['text_overhead_sz_mb']), 0)
 
-def test_vecsim_info_stats_memory(env):
+def test_vecsim_info_stats_memory():
   env = Env(protocol=3)
   vec_size = 6
   data_type = 'FLOAT16'
@@ -169,7 +169,7 @@ def test_vecsim_info_stats_memory(env):
   env.assertTrue("field statistics" in info)
   env.assertEqual(total_memory, info["field statistics"][0]["memory"])
 
-def test_vecsim_info_stats_marked_deleted(env):
+def test_vecsim_info_stats_marked_deleted():
   env = Env(protocol=3, moduleArgs='WORKERS 1 FORK_GC_RUN_INTERVAL 50000')
   conn = env.getClusterConnectionIfNeeded()
   vec_size = 6
@@ -178,15 +178,22 @@ def test_vecsim_info_stats_marked_deleted(env):
   load_vectors_to_redis(env, 1000, 0, vec_size, data_type)
   env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok() # wait for HNSW graph construction to finish
   env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok() # pause to prevent repair jobs on the graph
-  docs_to_delete = 100
-  for i in range(1, 1 + docs_to_delete):
-    conn.execute_command('DEL', f'{i}')
+
+  # Set the GC clean threshold to 0
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
+
+  docs_to_delete = 500
+  for i in range(docs_to_delete):
+    res = conn.execute_command('DEL', f'{i}')
+    env.assertEqual(res, 1)
+
   info = index_info(env, 'idx')
   env.assertTrue("field statistics" in info)
   env.assertEqual(info["field statistics"][0]["marked_deleted"], docs_to_delete)
   env.expect(debug_cmd(), 'WORKERS', 'resume').ok()
   # Wait for all repair jobs to be finish, then run GC to remove the deleted vectors.
   env.expect(debug_cmd(), 'WORKERS', 'DRAIN').ok()
-  env.expect(debug_cmd(), 'GC_FORCEINVOKE', 'idx').equal('DONE')
+  res = run_command_on_all_shards(env, debug_cmd(), 'GC_FORCEINVOKE', 'idx', '100000')
+  env.assertTrue(all([r == 'DONE' for r in res]))
   info = index_info(env, 'idx')
   env.assertEqual(info["field statistics"][0]["marked_deleted"], 0)
