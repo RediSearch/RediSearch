@@ -59,11 +59,11 @@ int test_memory_and_marked_deleted_setter() {
     setter(&stats, 20);
     ASSERT(VectorIndexStats_GetMarkedDeleted(&stats) == 20);
 
-
     return 0;
 }
 
 TEST_MAIN({
+    TESTFUNC(test_memory_and_marked_deleted_invalid_input);
     TESTFUNC(test_memory_and_marked_deleted_setter_getter);
     TESTFUNC(test_memory_and_marked_deleted_getter_setter);
     TESTFUNC(test_memory_and_marked_deleted_getter);
