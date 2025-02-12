@@ -821,6 +821,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
   if (!checkEnterpriseACL(ctx, sp)) {
     QueryError_SetError(error, QUERY_EGENERIC, NOPERM_ERR);
+    return REDISMODULE_ERR;
   }
 
   const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
