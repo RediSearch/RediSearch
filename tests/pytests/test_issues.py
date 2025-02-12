@@ -1347,7 +1347,7 @@ def test_mod_7609(env:Env):
       schema.extend(['f'+str(j), 'TEXT'])
     con.execute_command('_FT.CREATE', 'idx', 'SCHEMA', *schema)
 
-  env.expect('FT.INFO', 'idx').error().contains('Index mismatch: Shard index is different than queried index')
+  env.expect('FT.INFO', 'idx').error().contains('Inconsistent index state')
 
 @skip(cluster=True)
 def test_mod_8561(env:Env):
