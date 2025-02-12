@@ -89,6 +89,8 @@ def testGetConfigOptions(env):
     check_config('OSS_GLOBAL_PASSWORD')
     check_config('OSS_ACL_USERNAME')
     check_config('INDEX_CURSOR_LIMIT')
+    check_config('_INDEX_MEM_LIMIT')
+
 
 
 @skip(cluster=True)
@@ -115,6 +117,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
+    env.expect(config_cmd(), 'set', '_INDEX_MEM_LIMIT', 1).equal('OK')
 
 
 @skip(cluster=True)
@@ -127,6 +130,8 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', 'WORKERS',  2 ** 13 + 1).contains('Number of worker threads cannot exceed')
     env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 2 ** 13 + 1).contains('Number of worker threads cannot exceed')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', -1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', '_INDEX_MEM_LIMIT', -1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', '_INDEX_MEM_LIMIT', 101).contains('Memory limit for indexing cannot be greater then 100')
 
 
 @skip(cluster=True)
@@ -172,6 +177,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
+    env.assertEqual(res_dict['_INDEX_MEM_LIMIT'][0], '80')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -197,6 +203,7 @@ def testInitConfig():
     _test_config_num('BG_INDEX_SLEEP_GAP', 15)
     _test_config_num('MINSTEMLEN', 3)
     _test_config_num('INDEX_CURSOR_LIMIT', 128)
+    _test_config_num('_INDEX_MEM_LIMIT', 80)
 
 # True/False arguments
     _test_config_true_false('NOGC', 'true')
@@ -473,9 +480,11 @@ numericConfigs = [
     ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False, False),
     ('search-workers', 'WORKERS', 0, 0, 16, False, False),
     ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True, False),
+    ('search-_stop-indexing-memory-limit', '_INDEX_MEM_LIMIT', 80, 0, 100, False, False),
     # Cluster parameters
     ('search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True, True),
     ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False, True),
+
 ]
 
 @skip(redis_less_than='7.9.226')
