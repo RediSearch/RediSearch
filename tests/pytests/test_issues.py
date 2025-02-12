@@ -1268,3 +1268,53 @@ def test_mod_8561(env:Env):
   expected = [1, '2', ['t', 'foo,bar']]
   env.expect('FT.SEARCH', 'idx1', 'bar foo').noError().equal(expected)
   env.expect('FT.SEARCH', 'idx2', "@t:{bar} @t:{foo}").noError().equal(expected)
+
+@skip(cluster=True)
+def test_mod_8695():
+  env = Env(moduleArgs='DEFAULT_DIALECT 2')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT',
+                                           'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+  env.cmd('HSET', 'doc1', 't', 'foo', 'v', '????????')
+  env.cmd('HSET', 'doc2', 't', 'bar', 'v', '????????')
+  env.cmd('HSET', 'doc3', 't', 'foo bar', 'v', '????????')
+
+  # Test highlighting
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo',
+                 'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  res2 = env.cmd('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', '????????',
+                 'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  env.assertEqual(res1, res2)
+
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo|bar',
+                 'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  res2 = env.cmd('FT.SEARCH', 'idx', '(foo|bar)=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', '????????',
+                  'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  env.assertEqual(res1, res2)
+
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo bar',
+                  'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  res2 = env.cmd('FT.SEARCH', 'idx', '(foo bar)=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', '????????',
+                  'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  env.assertEqual(res1, res2)
+
+  # Test vector with highlight only (implicit return)
+  env.expect('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                  'HIGHLIGHT', 'FIELDS', 1, 't', ).noError().equal(
+               [2, 'doc1', ['score', '0', 't', '<b>foo</b>', 'v', '????????'], 'doc3', ['score', '0', 't', '<b>foo</b> bar', 'v', '????????']])
+
+  # Test vector with highlight and explicit return
+  env.expect('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                  'RETURN', 2, 't', 'score', 'HIGHLIGHT', 'FIELDS', 1, 't').noError().equal(
+               [2, 'doc1', ['score', '0', 't', '<b>foo</b>'], 'doc3', ['score', '0', 't', '<b>foo</b> bar']])
+
+  # Test that we get the same results (with scores) regardless of the order of the arguments
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                    'SORTBY', 'score', 'WITHSCORES')
+  res2 = env.cmd('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                    'WITHSCORES', 'SORTBY', 'score')
+  env.assertEqual(res1, res2)
+
+  # Test vector with AGGREGATE and scores
+  env.expect('FT.AGGREGATE', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????', 'ADDSCORES', 'SCORER', 'TFIDF').noError().equal(
+               [2, ['score', '0', '__score', '1'], ['score', '0', '__score', '1']])
