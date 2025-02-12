@@ -158,7 +158,7 @@ if [[ -z $REPO_PATH ]]; then
 	F_MOD_RAMP="${WORK_DIR}/${MOD_RAMP}"
 	if [[ $FORCE == 1 || ! -f $F_MOD_RAMP ]]; then
 		# check if redisjson module exists in the s3 bucket
-		if [[ $FORCE_BUILD == 0 && wget -q --spider ${MOD_S3_URL}/${MOD_RAMP} ]]; then
+		if [[ $FORCE_BUILD == 0 ]] && wget -q --spider "${MOD_S3_URL}/${MOD_RAMP}"; then
 			echo "Download ${MOD_NAME} [${MOD_S3_URL}/${MOD_RAMP}] ..."
 			runn wget -P ${WORK_DIR} ${MOD_S3_URL}/${MOD_RAMP}
 		else
