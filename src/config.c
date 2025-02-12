@@ -37,6 +37,7 @@ configPair_t __configPairs[] = {
   {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
   {"_PRINT_PROFILE_CLOCK",            "search-_print-profile-clock"},
   {"_PRIORITIZE_INTERSECT_UNION_CHILDREN", "search-_prioritize-intersect-union-children"},
+  {"_INDEX_MEM_LIMIT",                "search-_stop-indexing-memory-limit"},
   {"BG_INDEX_SLEEP_GAP",              "search-bg-index-sleep-gap"},
   {"CONN_PER_SHARD",                  "search-conn-per-shard"},
   {"CURSOR_MAX_IDLE",                 "search-cursor-max-idle"},
@@ -73,7 +74,6 @@ configPair_t __configPairs[] = {
   {"VSS_MAX_RESIZE",                  "search-vss-max-resize"},
   {"WORKERS",                         "search-workers"},
   {"WORKERS_PRIORITY_BIAS_THRESHOLD", "search-workers-priority-bias-threshold"},
-  {"STOP_INDEXING_MEMORY_LIMIT",      "search-stop-indexing-memory-limit"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -1182,9 +1182,9 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "overall estimated number of results instead.",
          .setValue = set_PrioritizeIntersectUnionChildren,
          .getValue = get_PrioritizeIntersectUnionChildren},
-        {.name = "INDEX_MEM_LIMIT",
+        {.name = "_INDEX_MEM_LIMIT",
          .helpText = "Set the maximum memory limit for the indexing. If the mermory exceeds this limit, documentw won't be indexed."
-                      "The limit is percentage from the total memory available to the process.",
+                      "The limit is percentage from the total memory available to the process. default is 80 percent.",
          .setValue = setIndexingMemoryLimit,
          .getValue = getIndexingMemoryLimit},
         {.name = NULL}}};
@@ -1613,7 +1613,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-workers-priority-bias-threshold",
       DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,
-      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 0,
+      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.highPriorityBiasNum)
     )
@@ -1621,9 +1621,9 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-stop-indexing-memory-limit",
+      ctx, "search-_stop-indexing-memory-limit",
       DEFAULT_INDEXING_MEMORY_LIMIT,
-      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 0,
+      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
       100, get_uint_numeric_config, set_uint_numeric_config, NULL,
       (void *)&(RSGlobalConfig.indexingMemoryLimit)
     )
