@@ -8,6 +8,7 @@ indexing_failures_str = 'indexing failures'
 last_indexing_error_key_str = 'last indexing error key'
 last_indexing_error_str = 'last indexing error'
 index_errors_str = 'Index Errors'
+bg_index_status_str = 'background indexing status'
 
 def get_field_stats_dict(info_command_output, index = 0):
   return to_dict(info_command_output['field statistics'][index])
@@ -369,30 +370,6 @@ def test_vector_indexing_with_json(env):
     error_dict = to_dict(info["Index Errors"])
     env.assertEqual(error_dict, expected_error_dict)
 
-@skip(cluster=True)
-# No need to run this test on cluster
-def test_fail_background_index_when_low_mem(env):
-    con = getConnectionByEnv(env)
-    # Create a document with a text field.
-    con.hset('doc1', 't', 'hello')
-    # Set the maxmemory to a value that will cause the background indexing to fail.
-    used_memory = con.info('memory')['used_memory']
-    con.config_set('maxmemory',  int(used_memory * 1.1))
-    # Create an index with a text field. The background indexing should fail.
-    env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
-    # Check that the index has no documents.
-    info = index_info(env)
-    env.assertEqual(info['num_docs'], 0)
-    
-    global_index_errors = get_global_index_errors_dict(info)
-    expected_error_dict = {
-      indexing_failures_str: 1,
-      last_indexing_error_key_str: 'doc1',
-      last_indexing_error_str: 'Used memory is more than 80% of max memory, cancelling the scan'
-    }
-    env.assertEqual(global_index_errors, expected_error_dict)
-    
-    
 @skip(no_json=True)
 def test_multiple_index_failures_json(env):
     # Create 2 indices with a different schema order.
@@ -436,3 +413,27 @@ def test_multiple_index_failures_json(env):
           env.assertEqual(info['num_docs'], 0)
           env.assertEqual(info['field statistics'][0], expected_failed_field_stats)
           env.assertEqual(info['field statistics'][1], expected_no_error_field_stats)
+
+@skip(cluster=True)
+def test_stop_background_indexing_on_low_mem(env):
+  con = getConnectionByEnv(env)
+  # Insert document that will be indexed later
+  con.hset('doc1', 't', 'hello')
+  # Set the maxmemory to a value that will cause the background indexing to fail.
+  used_memory = con.info('memory')['used_memory']
+  con.config_set('maxmemory',  int(used_memory * 1.1))
+
+
+  # Create an index with a text field. The background indexing should fail.
+  env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
+  # Check that the index has no documents.
+  info = index_info(env)
+  env.assertEqual(info['num_docs'], 0)
+  global_index_errors = get_global_index_errors_dict(info)
+  expected_error_dict = {
+    indexing_failures_str: 1,
+    last_indexing_error_key_str: 'doc1',
+    last_indexing_error_str: 'Used memory is more than 80% of max memory, cancelling the scan',
+    bg_index_status_str : 'OOM failure'
+  }
+  env.assertEqual(global_index_errors, expected_error_dict)
