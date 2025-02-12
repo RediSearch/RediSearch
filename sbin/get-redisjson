@@ -95,9 +95,7 @@ else
 	elif [[ $os == macos ]]; then
 		# as we don't build on macOS for every platform, we converge to a least common denominator
 		if [[ $arch == x86_64 ]]; then
-			nick=sonoma  # to be aligned with the rest of the modules in redis stack
-		else
-			[[ $nick == ventura ]] && nick=sonoma
+			nick=ventura  # to be aligned with the rest of the modules in redis stack
 		fi
 		OSS=1
 	elif [[ -n $OSNICK ]]; then
