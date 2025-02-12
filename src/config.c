@@ -158,6 +158,9 @@ CONFIG_SETTER(setExtLoad) {
     config->extLoad = NULL;
   }
   int acrc = AC_GetString(ac, &config->extLoad, NULL, 0);
+  if (acrc == AC_OK) {
+    config->extLoad = rm_strdup(config->extLoad);
+  }
   RETURN_STATUS(acrc);
 }
 
@@ -526,6 +529,9 @@ CONFIG_SETTER(setFrisoINI) {
     config->frisoIni = NULL;
   }
   int acrc = AC_GetString(ac, &config->frisoIni, NULL, 0);
+  if (acrc == AC_OK) {
+    config->frisoIni = rm_strdup(config->frisoIni);
+  }
   RETURN_STATUS(acrc);
 }
 CONFIG_GETTER(getFrisoINI) {
