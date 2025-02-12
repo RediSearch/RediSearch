@@ -280,3 +280,38 @@ int testAggregatePlan() {
   RETURN_TEST_SUCCESS
 }
 #endif
+
+TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+  int rv;
+  QueryError qerr = {QueryErrorCode(0)};
+
+  auto scenario = [&](QEFlags flags, bool canBeOptimized, auto... args) {
+    AREQ *rr = AREQ_New();
+    rr->reqflags = flags;
+    RMCK::ArgvList aggArgs(ctx, "*", args...);
+    rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
+    ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
+    ASSERT_EQ(canBeOptimized, bool(rr->searchopts.flags & Search_CanSkipReachResults));
+    AREQ_Free(rr);
+  };
+
+  // Default search command, we have an implicit sorter by scores
+  scenario(QEXEC_F_IS_SEARCH, false, "LIMIT", "0", "100");
+
+  // Explicit sorting, no need for scores
+  scenario(QEXEC_F_IS_SEARCH, true, "SORTBY", "foo", "ASC");
+  // Explicit sorting, with explicit request for scores
+  scenario(QEXEC_F_IS_SEARCH, false, "WITHSCORES", "SORTBY", "foo", "ASC");
+  // Explicit sorting, with explicit request for scores in a different order
+  scenario(QEXEC_F_IS_SEARCH, false, "SORTBY", "foo", "ASC", "WITHSCORES");
+  // Requesting HIGHLIGHT, which requires reach results
+  scenario(QEXEC_F_IS_SEARCH, false, "SORTBY", "foo", "HIGHLIGHT", "FIELDS", "1", "foo");
+
+  // Default aggregate command, no need for scores
+  scenario(QEXEC_F_IS_AGGREGATE, true, "LIMIT", "0", "100");
+  // Explicit request for scores
+  scenario(QEXEC_F_IS_AGGREGATE, false, "ADDSCORES");
+
+  RedisModule_FreeThreadSafeContext(ctx);
+}
