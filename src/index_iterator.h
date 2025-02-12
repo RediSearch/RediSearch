@@ -37,79 +37,68 @@ enum iteratorType {
 /* An abstract interface used by readers / intersectors / unioners etc.
 Basically query execution creates a tree of iterators that activate each other
 recursively */
-typedef struct indexIterator {
-  // Cached value - used if HasNext() is not set.
+typedef struct IndexIterator {
+  enum iteratorType type;
+
+  // Can the iterator yield more results?
   bool isValid;
 
-  void *ctx;
+  // Mark the iterator as aborted (permanent EOF, even if rewound)
+  bool isAborted;
 
-  // Used by union iterator. Cached here for performance
-  t_docId minId;
+  /* the last docId read */
+  t_docId LastDocId;
 
   // Cached value - used if Current() is not set
   RSIndexResult *current;
-
-  enum iteratorType type;
 
   // Used if the iterator yields some value.
   // Consider placing in a union with an array of keys, if a field want to yield multiple metrics
   struct RLookupKey *ownKey;
 
-  size_t (*NumEstimated)(void *ctx);
+  size_t (*NumEstimated)(struct IndexIterator *self);
 
   /* Read the next entry from the iterator, into hit *e.
    *  Returns INDEXREAD_EOF if at the end */
-  int (*Read)(void *ctx, RSIndexResult **e);
+  int (*Read)(struct IndexIterator *self, RSIndexResult **e);
 
   /* Skip to a docid, potentially reading the entry into hit, if the docId
    * matches */
-  int (*SkipTo)(void *ctx, t_docId docId, RSIndexResult **hit);
-
-  /* the last docId read */
-  t_docId (*LastDocId)(void *ctx);
-
-  /* can we continue iteration? */
-  int (*HasNext)(void *ctx);
+  int (*SkipTo)(struct IndexIterator *self, t_docId docId, RSIndexResult **hit);
 
   /* release the iterator's context and free everything needed */
-  void (*Free)(struct indexIterator *self);
-
-  /* Return the number of results in this iterator. Used by the query execution
-   * on the top iterator */
-  size_t (*Len)(void *ctx);
-
-  /* Abort the execution of the iterator and mark it as EOF. This is used for early aborting in case
-   * of data consistency issues due to multi threading */
-  void (*Abort)(void *ctx);
+  void (*Free)(struct IndexIterator *self);
 
   /* Rewind the iterator to the beginning and reset its state */
-  void (*Rewind)(void *ctx);
+  void (*Rewind)(struct IndexIterator *self);
 } IndexIterator;
 
-// static inline int IITER_HAS_NEXT(IndexIterator *ii) {
-//   /**
-//    * Assume that this is false, in which case, we just need to perform a single
-//    * comparison
-//    */
-//   if (ii->isValid) {
-//     return 1;
-//   }
+#define IITER_HAS_NEXT(ii) ((ii)->isValid)
+#define IITER_SET_EOF(ii) ((ii)->isValid = false)
+#define IITER_CLEAR_EOF(ii) ((ii)->isValid = true)
 
-//   if (ii->HasNext) {
-//     return ii->HasNext(ii->ctx);
-//   } else {
-//     return 0;
-//   }
-// }
-#define IITER_HAS_NEXT(ii) ((ii)->isValid ? 1 : (ii)->HasNext ? (ii)->HasNext((ii)->ctx) : 0)
-#define IITER_CURRENT_RECORD(ii) ((ii)->current ? (ii)->current : 0)
-#define IITER_NUM_ESTIMATED(ii) ((ii)->NumEstimated ? (ii)->NumEstimated((ii)->ctx) : 0)
 
-#define IITER_SET_EOF(ii) (ii)->isValid = 0
-#define IITER_CLEAR_EOF(ii) (ii)->isValid = 1
+static int EOI_Read(IndexIterator *p, RSIndexResult **e) {
+  return INDEXREAD_EOF;
+}
+static int EOI_SkipTo(IndexIterator *self, t_docId docId, RSIndexResult **hit) {
+  return INDEXREAD_EOF;
+}
+static size_t EOI_NumEstimated(IndexIterator *self) {
+  return 0;
+}
+static void EOI_Free(IndexIterator *self) {}
+static void EOI_Rewind(IndexIterator *self) {}
 
-#define IITER_INVALID_NUM_ESTIMATED_RESULTS UINT32_MAX
-
-// #define IITER_HAS_NEXT(ii) ((ii)->HasNext ? (ii)->HasNext((ii)->ctx) : (!(ii)->atEnd))
+static inline void IndexIterator_Abort(IndexIterator *it) {
+  it->isValid = false;
+  it->isAborted = true;
+  // Replace the Read, SkipTo, NumEstimated, and Rewind functions with no-ops to prevent further use.
+  // We don't touch Free to allow freeing the iterator as intended.
+  it->Read = EOI_Read;
+  it->SkipTo = EOI_SkipTo;
+  it->NumEstimated = EOI_NumEstimated;
+  it->Rewind = EOI_Rewind;
+}
 
 #endif

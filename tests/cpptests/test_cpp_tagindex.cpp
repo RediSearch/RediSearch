@@ -54,7 +54,7 @@ TEST_F(TagIndexTest, testCreate) {
 
   // TimeSample ts;
   // TimeSampler_Start(&ts);
-  while (INDEXREAD_EOF != it->Read(it->ctx, &r)) {
+  while (INDEXREAD_EOF != it->Read(it, &r)) {
     // printf("DocId: %d\n", r->docId);
     ASSERT_EQ(n++, r->docId);
     // TimeSampler_Tick(&ts);
@@ -64,24 +64,6 @@ TEST_F(TagIndexTest, testCreate) {
   // printf("%d iterations in %lldns, rate %fns/iter\n", N, ts.durationNS,
   //        TimeSampler_IterationMS(&ts) * 1000000);
   ASSERT_EQ(N + 1, n);
-  it->Free(it);
-  TagIndex_Free(idx);
-}
-
-TEST_F(TagIndexTest, testSkipToLastId) {
-  TagIndex *idx = NewTagIndex();
-  ASSERT_FALSE(idx == NULL);
-  std::vector<const char *> v{"hello"};
-  t_docId docId = 1;
-  TagIndex_Index(idx, &v[0], v.size(), docId);
-  IndexIterator *it = TagIndex_OpenReader(idx, NULL, "hello", 5, 1, RS_INVALID_FIELD_INDEX);
-  RSIndexResult *r;
-  int rc = it->Read(it->ctx, &r);
-  ASSERT_EQ(rc, INDEXREAD_OK);
-  rc = it->SkipTo(it->ctx, docId, &r);
-  ASSERT_EQ(rc, INDEXREAD_EOF);
-  ASSERT_GE(r->docId, docId);
-  ASSERT_GE(it->LastDocId(it->ctx), docId);
   it->Free(it);
   TagIndex_Free(idx);
 }

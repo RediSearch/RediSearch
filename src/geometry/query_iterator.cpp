@@ -20,7 +20,7 @@ auto QueryIterator::base() noexcept -> IndexIterator * {
 }
 
 int QueryIterator::read_single(RSIndexResult *&hit) noexcept {
-  if (!base_.isValid || !has_next()) {
+  if (!base_.isValid) {
     return INDEXREAD_EOF;
   }
   t_docId docId = iter_[index_++];
@@ -35,6 +35,10 @@ int QueryIterator::read_single(RSIndexResult *&hit) noexcept {
 }
 
 int QueryIterator::read(RSIndexResult *&hit) noexcept {
+  if (index_ >= len()) {
+    base_.isValid = false;
+    return INDEXREAD_EOF;
+  }
   size_t timeoutCounter = 0;
   int rc = INDEXREAD_OK;
   do {
@@ -46,7 +50,7 @@ int QueryIterator::read(RSIndexResult *&hit) noexcept {
   return rc;
 }
 int QueryIterator::skip_to(t_docId docId, RSIndexResult *&hit) {
-  if (!base_.isValid || !has_next()) {
+  if (!base_.isValid) {
     return INDEXREAD_EOF;
   }
   if (docId > iter_.back()) {
@@ -57,8 +61,8 @@ int QueryIterator::skip_to(t_docId docId, RSIndexResult *&hit) {
   const auto it = std::ranges::lower_bound(std::ranges::next(std::ranges::begin(iter_), index_),
                                            std::ranges::end(iter_), docId);
   index_ = std::ranges::distance(std::ranges::begin(iter_), it + 1);
-  if (!has_next()) {
-    abort();
+  if (index_ >= len()) {
+    base_.isValid = false;
   }
 
   base_.current->docId = *it;
@@ -72,68 +76,51 @@ int QueryIterator::skip_to(t_docId docId, RSIndexResult *&hit) {
 t_docId QueryIterator::current() const noexcept {
   return base_.current->docId;
 }
-int QueryIterator::has_next() const noexcept {
-  return index_ < len();
-}
 std::size_t QueryIterator::len() const noexcept {
   return iter_.size();
-}
-void QueryIterator::abort() noexcept {
-  base_.isValid = false;
 }
 void QueryIterator::rewind() noexcept {
   base_.isValid = true;
   base_.current->docId = 0;
+  base_.LastDocId = 0;
   index_ = 0;
 }
 
 namespace {
-int QIter_Read(void *ctx, RSIndexResult **hit) {
-  return static_cast<QueryIterator *>(ctx)->read(*hit);
+int QIter_Read(IndexIterator *base, RSIndexResult **hit) {
+  return reinterpret_cast<QueryIterator *>(base)->read(*hit);
 }
-int QIter_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
-  return static_cast<QueryIterator *>(ctx)->skip_to(docId, *hit);
-}
-t_docId QIter_LastDocId(void *ctx) {
-  return static_cast<QueryIterator const *>(ctx)->current();
-}
-int QIter_HasNext(void *ctx) {
-  return static_cast<QueryIterator const *>(ctx)->has_next();
+int QIter_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
+  return reinterpret_cast<QueryIterator *>(base)->skip_to(docId, *hit);
 }
 void QIter_Free(IndexIterator *self) {
   using alloc_type = Allocator::TrackingAllocator<QueryIterator>;
-  const auto qi = static_cast<QueryIterator *const>(self->ctx);
+  const auto qi = reinterpret_cast<QueryIterator *const>(self);
   auto alloc = alloc_type{qi->iter_.get_allocator()};
   IndexResult_Free(self->current);
   std::allocator_traits<alloc_type>::destroy(alloc, qi);
   std::allocator_traits<alloc_type>::deallocate(alloc, qi, 1);
 }
-std::size_t QIter_Len(void *ctx) {
-  return static_cast<QueryIterator const *>(ctx)->len();
+std::size_t QIter_Len(IndexIterator *base) {
+  return reinterpret_cast<QueryIterator const *>(base)->len();
 }
-void QIter_Abort(void *ctx) {
-  static_cast<QueryIterator *>(ctx)->abort();
-}
-void QIter_Rewind(void *ctx) {
-  static_cast<QueryIterator *>(ctx)->rewind();
+void QIter_Rewind(IndexIterator *base) {
+  reinterpret_cast<QueryIterator *>(base)->rewind();
 }
 
 }  // anonymous namespace
 
 IndexIterator QueryIterator::init_base(QueryIterator *ctx) {
   return IndexIterator{
-      .isValid = 1,
-      .ctx = ctx,
-      .current = NewVirtualResult(0, RS_FIELDMASK_ALL),
       .type = ID_LIST_ITERATOR,
+      .isValid = true,
+      .isAborted = false,
+      .LastDocId = 0,
+      .current = NewVirtualResult(0, RS_FIELDMASK_ALL),
       .NumEstimated = QIter_Len,
       .Read = QIter_Read,
       .SkipTo = QIter_SkipTo,
-      .LastDocId = QIter_LastDocId,
-      .HasNext = QIter_HasNext,
       .Free = QIter_Free,
-      .Len = QIter_Len,
-      .Abort = QIter_Abort,
       .Rewind = QIter_Rewind,
   };
 }

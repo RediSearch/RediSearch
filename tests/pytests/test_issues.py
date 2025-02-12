@@ -180,9 +180,10 @@ def test_issue1880(env):
 
   # test with a term which does not exist
   excepted_res = ['Type', 'INTERSECT', 'Counter', 0, 'Child iterators', [
+                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0, 'Size', 2],
                     None,
                     ['Type', 'TEXT', 'Term', 'world', 'Counter', 0, 'Size', 1],
-                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 0, 'Size', 2]]]
+  ]]
   res3 = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'QUERY', 'hello new world')
 
   env.assertEqual(res3[1][1][0][3], excepted_res)
@@ -1321,7 +1322,7 @@ def test_mod_8568(env:Env):
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km').equal(expected)
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km',
                                       'GEOFILTER', 'g', '1.1', '1.1', '1000', 'km').equal(expected)
- 
+
 @skip(cluster=True)
 def test_mod_6786(env:Env):
   # Test search of long term (>128) inside text field

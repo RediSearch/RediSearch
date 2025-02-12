@@ -94,7 +94,7 @@ static double SpellCheck_GetScore(SpellCheckCtx *scCtx, char *suggestion, size_t
   IndexReader *reader = NewTermIndexReaderEx(invidx, NULL, fieldMaskOrIndex, NULL, 1);
   IndexIterator *iter = NewReadIterator(reader);
   RSIndexResult *r;
-  if (iter->Read(iter->ctx, &r) != INDEXREAD_EOF) {
+  if (iter->Read(iter, &r) != INDEXREAD_EOF) {
     // we have at least one result, the suggestion is relevant.
     retVal = invidx->numDocs;
   } else {

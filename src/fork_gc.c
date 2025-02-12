@@ -791,7 +791,7 @@ static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocks
   }
   // Add the entries that were added since the fork to the HLL
   RSIndexResult *cur;
-  IndexReader *ir = NewMinimalNumericReader(range->entries, false);
+  IndexIterator *ir = NewReadIterator(NewMinimalNumericReader(range->entries, false));
   size_t startIdx = range->entries->size - blocksSinceFork; // Here `blocksSinceFork` > 0
   t_docId startId = range->entries->blocks[startIdx].firstId;
   int rc = IR_SkipTo(ir, startId, &cur);
@@ -799,7 +799,7 @@ static void resetCardinality(NumGcInfo *info, NumericRange *range, size_t blocks
     hll_add(&range->hll, &cur->num.value, sizeof(cur->num.value));
     rc = IR_Read(ir, &cur);
   }
-  IR_Free(ir);
+  ReadIterator_Free(ir);
 }
 
 static void applyNumIdx(ForkGC *gc, RedisSearchCtx *sctx, NumGcInfo *ninfo) {

@@ -48,7 +48,7 @@ void ReadIterator_Free(IndexIterator *it);
 
 /* Create a new UnionIterator over a list of underlying child iterators.
 It will return each document of the underlying iterators, exactly once */
-IndexIterator *NewUnionIterator(IndexIterator **its, int num, int quickExit,
+IndexIterator *NewUnionIterator(IndexIterator **its, int num, bool quickExit,
                                 double weight, QueryNodeType type, const char *qstr, IteratorsConfig *config);
 
 void UI_Foreach(IndexIterator *it, void (*callback)(IndexReader *it));

@@ -50,7 +50,6 @@ struct QueryIterator {
   int read(RSIndexResult *&hit) noexcept;
   int skip_to(t_docId docId, RSIndexResult *&hit);
   t_docId current() const noexcept;
-  int has_next() const noexcept;
   std::size_t len() const noexcept;
   void abort() noexcept;
   void rewind() noexcept;
