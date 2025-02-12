@@ -1764,7 +1764,7 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 28: /* text_expr ::= QUOTE term QUOTE */
 {
-  yymsp[-2].minor.yy119 = NewTokenNode(ctx, rm_strdupcase(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
+  yymsp[-2].minor.yy119 = NewTokenNode(ctx, rm_normalize(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len), -1);
   yymsp[-2].minor.yy119->opts.flags |= QueryNode_Verbatim;
 }
         break;
@@ -1775,7 +1775,7 @@ static YYACTIONTYPE yy_reduce(
   char *s = rm_malloc(yymsp[-1].minor.yy0.len + 1);
   *s = '$';
   memcpy(s + 1, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  yymsp[-2].minor.yy119 = NewTokenNode(ctx, rm_strdupcase(s, yymsp[-1].minor.yy0.len + 1), -1);
+  yymsp[-2].minor.yy119 = NewTokenNode(ctx, rm_normalize(s, yymsp[-1].minor.yy0.len + 1), -1);
   rm_free(s);
   yymsp[-2].minor.yy119->opts.flags |= QueryNode_Verbatim;
 }
