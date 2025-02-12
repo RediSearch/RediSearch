@@ -10,15 +10,22 @@
 #include "debug_command_names.h"
 #include "coord/rmr/redis_cluster.h"
 #include "module.h"
+#include "src/config.h"
 #include <assert.h>
 
 DEBUG_COMMAND(shardConnectionStates) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 2) return RedisModule_WrongArity(ctx);
   MR_GetConnectionPoolState(ctx);
   return REDISMODULE_OK;
 }
 
 DEBUG_COMMAND(pauseTopologyUpdater) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 2) return RedisModule_WrongArity(ctx);
   if (StopRedisTopologyUpdater(ctx) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "Topology updater is already paused");
@@ -28,6 +35,9 @@ DEBUG_COMMAND(pauseTopologyUpdater) {
 }
 
 DEBUG_COMMAND(resumeTopologyUpdater) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 2) return RedisModule_WrongArity(ctx);
   if (InitRedisTopologyUpdater(ctx) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "Topology updater is already running");
@@ -37,6 +47,9 @@ DEBUG_COMMAND(resumeTopologyUpdater) {
 }
 
 DEBUG_COMMAND(clearTopology) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc != 2) return RedisModule_WrongArity(ctx);
   RQ_Debug_ClearPendingTopo();
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -55,7 +68,9 @@ static_assert(sizeof(coordCommands)/sizeof(DebugCommandType) == sizeof(coordComm
 int RegisterCoordDebugCommands(RedisModuleCommand *debugCommand) {
   for (int i = 0; coordCommands[i].name != NULL; i++) {
     int rc = RedisModule_CreateSubcommand(debugCommand, coordCommands[i].name,
-              coordCommands[i].callback, IsEnterprise() ? "readonly " PROXY_FILTERED : "readonly", RS_DEBUG_FLAGS);
+              coordCommands[i].callback,
+              IsEnterprise() ? "readonly " CMD_PROXY_FILTERED : "readonly",
+              RS_DEBUG_FLAGS);
     if (rc != REDISMODULE_OK) return rc;
   }
   return REDISMODULE_OK;

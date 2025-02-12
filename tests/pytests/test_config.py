@@ -87,7 +87,6 @@ def testGetConfigOptions(env):
     check_config('_PRIORITIZE_INTERSECT_UNION_CHILDREN')
     check_config('MINSTEMLEN')
     check_config('OSS_GLOBAL_PASSWORD')
-    check_config('OSS_ACL_USERNAME')
     check_config('INDEX_CURSOR_LIMIT')
 
 
@@ -153,7 +152,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['PRIVILEGED_THREADS_NUM'][0], '1')
     env.assertEqual(res_dict['WORKERS_PRIORITY_BIAS_THRESHOLD'][0], '1')
     env.assertEqual(res_dict['FRISOINI'][0], None)
-    env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')
+    env.assertEqual(res_dict['ON_TIMEOUT'][0], 'fail')
     env.assertEqual(res_dict['GCSCANSIZE'][0], '100')
     env.assertEqual(res_dict['MIN_PHONETIC_TERM_LEN'][0], '3')
     env.assertEqual(res_dict['FORK_GC_RUN_INTERVAL'][0], '30')
@@ -205,7 +204,7 @@ def testInitConfig():
 
     _test_config_str('GC_POLICY', 'fork')
     _test_config_str('GC_POLICY', 'default', 'fork')
-    _test_config_str('ON_TIMEOUT', 'fail')
+    _test_config_str('ON_TIMEOUT', 'return')
     _test_config_str('TIMEOUT', '0', '0')
     _test_config_str('PARTIAL_INDEXED_DOCS', '0', 'false')
     _test_config_str('PARTIAL_INDEXED_DOCS', '1', 'true')
@@ -384,38 +383,9 @@ def testInitConfigCoord():
     # We test `OSS_GLOBAL_PASSWORD` manually since the getter obfuscates the value
     _testOSSGlobalPasswordConfig()
 
-    _test_config_str('OSS_ACL_USERNAME', 'default')
-
 @skip(cluster=False)
 def testImmutableCoord(env):
     env.expect(config_cmd(), 'set', 'SEARCH_THREADS').error().contains(not_modifiable)
-    env.expect(config_cmd(), 'set', 'OSS_GLOBAL_PASSWORD').error().contains(not_modifiable)
-    env.expect(config_cmd(), 'set', 'OSS_ACL_USERNAME').error().contains(not_modifiable)
-
-@skip(cluster=False)
-def testSetACLUsername():
-    """Tests that the OSS_ACL_USERNAME configuration is set correctly on module
-    load
-    we also test that the client hangs when trying to authenticate with a
-    non-existing user. This is a BUG that should be fixed - see MOD-8071.
-    """
-
-    # Setting the `OSS_ACL_USERNAME` configuration without the `OSS_GLOBAL_PASSWORD`
-    # the configuration should not do anything since we don't try to authenticate.
-    _test_config_str('OSS_ACL_USERNAME', 'test')
-
-    # Set both the username and password. This should fail since we have no such
-    # user.
-    env = Env(moduleArgs='OSS_ACL_USERNAME test_user OSS_GLOBAL_PASSWORD 123456', noDefaultModuleArgs=True)
-
-    timeout = 3 # 3 seconds, more than enough for the an env to be up normally
-    try:
-        with TimeLimit(timeout):
-            env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
-            # Client hangs.
-            env.assertTrue(False)
-    except Exception as e:
-        env.assertEqual(str(e), 'Timeout: operation timeout exceeded')
 
 ################################################################################
 # Test CONFIG SET/GET numeric parameters
@@ -820,16 +790,16 @@ def testConfigAPIRunTimeEnumParams():
 
     # Test default value
     env.expect('CONFIG', 'GET', 'search-on-timeout')\
-        .equal(['search-on-timeout', 'return'])
-
-    # Test search-on-timeout - valid values
-    env.expect('CONFIG', 'SET', 'search-on-timeout', 'fail').equal('OK')
-    env.expect('CONFIG', 'GET', 'search-on-timeout')\
         .equal(['search-on-timeout', 'fail'])
 
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'return').equal('OK')
     env.expect('CONFIG', 'GET', 'search-on-timeout')\
         .equal(['search-on-timeout', 'return'])
+
+    # Test search-on-timeout - valid values
+    env.expect('CONFIG', 'SET', 'search-on-timeout', 'fail').equal('OK')
+    env.expect('CONFIG', 'GET', 'search-on-timeout') \
+        .equal(['search-on-timeout', 'fail'])
 
     # Test search-on-timeout - invalid values
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'invalid_value').error()\
@@ -970,78 +940,6 @@ def testConfigAPIRunTimeStringParams():
     for configName, ftConfigName, ftDefault, testValue in stringConfigs:
         _testImmutableStringConfig(env, configName, ftConfigName, ftDefault,
                                    testValue)
-
-
-@skip(cluster=False, redis_less_than='7.9.226')
-def testConfigAPIRunTimeOssGlobalPassword():
-    env = Env(noDefaultModuleArgs=True)
-    if env.env != 'oss-cluster':
-        env.skip()
-
-    env.expect('CONFIG', 'GET', 'search-oss-global-password')\
-        .equal(['search-oss-global-password', 'Password: *******'])
-
-    # Test fails since `search-oss-global-password` is immutable, it can only
-    # be set at load time
-    env.expect('CONFIG', 'SET', 'search-oss-global-password', '123')\
-        .error().contains('CONFIG SET failed')
-
-
-@skip(cluster=False, redis_less_than='7.9.226')
-def testConfigAPIRunTimeOssACLUser():
-    env = Env(noDefaultModuleArgs=True)
-    if env.env != 'oss-cluster':
-        env.skip()
-
-    env.expect('CONFIG', 'GET', 'search-oss-acl-username')\
-        .equal(['search-oss-acl-username', 'default'])
-
-    # Test fails since `search-oss-acl-username` is immutable, it can only
-    # be set at load time
-    env.expect('CONFIG', 'SET', 'search-oss-acl-username', 'myUser')\
-        .error().contains('CONFIG SET failed')
-
-
-@skip(cluster=False, redis_less_than='7.9.226')
-def testClusterConfigFileOssGlobalPassword():
-    # Test using only redis config file
-    redisConfigFile = '/tmp/testClusterConfigFileOssGlobalPassword.conf'
-
-    # create redis.conf file in /tmp
-    if os.path.isfile(redisConfigFile):
-        os.unlink(redisConfigFile)
-    with open(redisConfigFile, 'w') as f:
-        f.write('search-oss-global-password mySecretPassword\n')
-
-    # Start the server using the conf file
-    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
-    if env.env != 'oss-cluster':
-        env.skip()
-
-    env.expect('CONFIG', 'GET', 'search-oss-global-password')\
-        .equal(['search-oss-global-password', 'Password: *******'])
-
-
-@skip(cluster=False, redis_less_than='7.9.226')
-def testClusterConfigFileOssACLUser():
-    # Test using only redis config file
-    redisConfigFile = '/tmp/testClusterConfigFileOssACLUser.conf'
-
-    # create redis.conf file in /tmp
-    if os.path.isfile(redisConfigFile):
-        os.unlink(redisConfigFile)
-    with open(redisConfigFile, 'w') as f:
-        f.write('search-oss-acl-username myUserName\n')
-
-    # Start the server using the conf file
-    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
-    if env.env != 'oss-cluster':
-        env.skip()
-
-    env.expect('CONFIG', 'GET', 'search-oss-acl-username')\
-        .equal(['search-oss-acl-username', 'myUserName'])
-    env.expect(config_cmd(), 'GET', 'OSS_ACL_USERNAME')\
-        .equal([['OSS_ACL_USERNAME', 'myUserName']])
 
 @skip(cluster=True, redis_less_than='7.9.226')
 def testModuleLoadexStringParams():
