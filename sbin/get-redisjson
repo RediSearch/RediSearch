@@ -31,7 +31,6 @@ fi
 MOD_NAME=RedisJSON
 
 BRANCH=${BRANCH:-master}
-FORCE_BUILD=${FORCE_BUILD:0}
 
 OP=""
 [[ $NOP == 1 ]] && OP=echo
@@ -94,15 +93,11 @@ else
 	elif [[ $dist == mariner ]]; then
 		OSS=1
 	elif [[ $os == macos ]]; then
-		# Workaround: REJSON is supporting newer mac OS, but old mac OS artifacts are not being deleted from s3
-		# For now force building locally on macos
-		FORCE_BUILD=1
 		# as we don't build on macOS for every platform, we converge to a least common denominator
 		if [[ $arch == x86_64 ]]; then
-			nick=catalina  # to be aligned with the rest of the modules in redis stack
+			nick=sonoma  # to be aligned with the rest of the modules in redis stack
 		else
-			[[ $nick == ventura ]] && nick=monterey
-			[[ $nick == sonoma ]] && nick=monterey
+			[[ $nick == ventura ]] && nick=sonoma
 		fi
 		OSS=1
 	elif [[ -n $OSNICK ]]; then
@@ -158,7 +153,7 @@ if [[ -z $REPO_PATH ]]; then
 	F_MOD_RAMP="${WORK_DIR}/${MOD_RAMP}"
 	if [[ $FORCE == 1 || ! -f $F_MOD_RAMP ]]; then
 		# check if redisjson module exists in the s3 bucket
-		if [[ $FORCE_BUILD == 0 ]] && wget -q --spider "${MOD_S3_URL}/${MOD_RAMP}"; then
+		if [[ $FORCE_BUILD == 0 && wget -q --spider ${MOD_S3_URL}/${MOD_RAMP} ]]; then
 			echo "Download ${MOD_NAME} [${MOD_S3_URL}/${MOD_RAMP}] ..."
 			runn wget -P ${WORK_DIR} ${MOD_S3_URL}/${MOD_RAMP}
 		else
