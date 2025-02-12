@@ -19,7 +19,6 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		REPO_PATH=dir      Get binary artifacts from given repo `dir`
 		BUILD=0            Do not build if unable to download
 		FORCE=1            Download module even if already present
-		FORCE_BUILD=0      Avoid Download and build locally
 		MODULE_FILE=file   Write module path into `file`
 		NOP=1              No operation
 		HELP=1             Show help
@@ -151,7 +150,7 @@ if [[ -z $REPO_PATH ]]; then
 	F_MOD_RAMP="${WORK_DIR}/${MOD_RAMP}"
 	if [[ $FORCE == 1 || ! -f $F_MOD_RAMP ]]; then
 		# check if redisjson module exists in the s3 bucket
-		if [[ $FORCE_BUILD == 0 && wget -q --spider ${MOD_S3_URL}/${MOD_RAMP} ]]; then
+		if wget -q --spider ${MOD_S3_URL}/${MOD_RAMP}; then
 			echo "Download ${MOD_NAME} [${MOD_S3_URL}/${MOD_RAMP}] ..."
 			runn wget -P ${WORK_DIR} ${MOD_S3_URL}/${MOD_RAMP}
 		else
