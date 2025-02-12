@@ -142,6 +142,9 @@ int set_immutable_string_config(const char *name, RedisModuleString *val, void *
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
   char **ptr = (char **)privdata;
+  if (*ptr) {
+    rm_free(*ptr);
+  }
   size_t len;
   const char *ret = RedisModule_StringPtrLen(val, &len);
   *ptr = rm_strndup(ret, len);
@@ -155,6 +158,9 @@ CONFIG_SETTER(setExtLoad) {
     config->extLoad = NULL;
   }
   int acrc = AC_GetString(ac, &config->extLoad, NULL, 0);
+  if (acrc == AC_OK) {
+    config->extLoad = rm_strdup(config->extLoad);
+  }
   RETURN_STATUS(acrc);
 }
 
@@ -523,6 +529,9 @@ CONFIG_SETTER(setFrisoINI) {
     config->frisoIni = NULL;
   }
   int acrc = AC_GetString(ac, &config->frisoIni, NULL, 0);
+  if (acrc == AC_OK) {
+    config->frisoIni = rm_strdup(config->frisoIni);
+  }
   RETURN_STATUS(acrc);
 }
 CONFIG_GETTER(getFrisoINI) {
