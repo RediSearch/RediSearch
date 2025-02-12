@@ -91,11 +91,6 @@ else
 		fi
 	elif [[ $dist == mariner ]]; then
 		OSS=1
-		if [[ $BRANCH == master ]]; then
-			# Mariner2 is created using github actions,
-			# for master branch the artifacts are uploaded to staging
-			STAGING=1
-		fi
 	elif [[ $os == macos ]]; then
 		# as we don't build on macOS for every platform, we converge to a least common denominator
 		if [[ $arch == x86_64 ]]; then
