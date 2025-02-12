@@ -1145,18 +1145,7 @@ cleanup:
   return rc;
 }
 
-int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  char *err;
-
-  legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
-
-  // Read module configuration from module ARGS
-  if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
-    RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
-    rm_free(err);
-    return REDISMODULE_ERR;
-  }
-
+int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   GetRedisVersion(ctx);
 
   char ver[64];
@@ -3559,6 +3548,34 @@ static bool checkClusterEnabled(RedisModuleCtx *ctx) {
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
+int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfiguration, int isClusterEnabled) {
+  // register the module configuration with redis, use loaded values from command line as defaults
+  if (registerConfiguration) {
+    if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
+      RedisModule_Log(ctx, "warning", "Error registering module configuration");
+      return REDISMODULE_ERR;
+    }
+    if (isClusterEnabled) {
+      // Register module configuration parameters for cluster
+      RM_TRY_F(RegisterClusterModuleConfig, ctx);
+    }
+  }
+
+  // Load default values
+  RM_TRY_F(RedisModule_LoadDefaultConfigs, ctx);
+
+  char *err = NULL;
+  // Read module configuration from module ARGS
+  if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
+    rm_free(err);
+    return REDISMODULE_ERR;
+  }
+  // Apply configuration redis has loaded from the configuration file
+  RM_TRY_F(RedisModule_LoadConfigs, ctx);
+  return REDISMODULE_OK;
+}
+
 int __attribute__((visibility("default")))
 RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
@@ -3581,29 +3598,20 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Register the module configuration parameters
   GetRedisVersion(ctx);
-  const Version unstableRedis = {7, 9, 227};
-  const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
-  if (unprefixedConfigSupported) {
-    if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
-      RedisModule_Log(ctx, "warning", "Error registering module configuration");
-      return REDISMODULE_ERR;
-    }
-  }
 
   // Check if we are actually in cluster mode
   const bool isClusterEnabled = checkClusterEnabled(ctx);
+  const Version unstableRedis = {7, 9, 227};
+  const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
 
-  // Apply configuration
-  if (unprefixedConfigSupported) {
-    if (isClusterEnabled) {
-      // Register module configuration parameters for cluster
-      RM_TRY_F(RegisterClusterModuleConfig, ctx);
-    }
-    RM_TRY_F(RedisModule_LoadConfigs, ctx);
+  legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
+
+  if (RediSearch_InitModuleConfig(ctx, argv, argc, unprefixedConfigSupported, isClusterEnabled) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
   }
 
   // Init RediSearch internal search
-  if (RediSearch_InitModuleInternal(ctx, argv, argc) == REDISMODULE_ERR) {
+  if (RediSearch_InitModuleInternal(ctx) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not init search library...");
     return REDISMODULE_ERR;
   }
