@@ -2191,6 +2191,8 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   setMemoryInfo(ctx);
   // Check if we need to cancel the scan due to memory limit, if memory limit is set to 0, we don't check it
   if (RSGlobalConfig.indexingMemoryLimit && (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit)) {
+      // const char* percentSign = "%%";
+      // rm_asprintf(&error, "Used memory is more than %u%s of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit,percentSign);
       rm_asprintf(&error, "Used memory is more than %u%% of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit);
       RedisModule_Log(ctx, "warning", error);
       scanner->cancelled = true;
@@ -2204,6 +2206,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
       if (sp) {
         sp->scan_failed_OOM = true;
         IndexSpec_SetIndexErrorMessage(sp, error, keyname);
+        IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
         StrongRef_Release(curr_run_ref);
       } else {
         // spec was deleted
