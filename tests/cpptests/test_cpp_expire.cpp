@@ -35,6 +35,7 @@ TEST_F(ExpireTest, testSkipTo) {
                                  RedisModule_CreateString(ctx, "t1", strlen("t1")),
                                  RedisModule_CreateString(ctx, "one", strlen("one"))};
   static const t_docId maxDocId = 1000;
+  // Add 1000 documents to the index and expire the fields
   for (t_docId doc = 1; doc <= maxDocId; ++doc) {
     char buf[1024];
     sprintf(buf, "doc:%ld", doc);
@@ -48,11 +49,11 @@ TEST_F(ExpireTest, testSkipTo) {
   RedisModule_FreeString(ctx, hset_args[1]);
   RedisModule_FreeString(ctx, hset_args[2]);
 
-  addDocument(ctx, index, "doc:last", "t1", "one", (const char *)NULL);
   RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->name, true);
   const auto epoch = std::chrono::system_clock::now().time_since_epoch();
   const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(epoch);
   const auto remaining = epoch - seconds;
+  // set the time so all previous fields should now be considered expired
   sctx->time.current.tv_sec = seconds.count() + 1;
   sctx->time.current.tv_nsec = std::chrono::duration_cast<std::chrono::nanoseconds>(remaining).count();
 

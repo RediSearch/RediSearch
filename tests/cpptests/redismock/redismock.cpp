@@ -58,7 +58,7 @@ bool HashValue::hexpire(const HashValue::Key &k, mstime_t expireAt) {
   }
 
   auto itKey = m_map.find(skey);
-  if (itKey == m_map.end() || expireAt == REDISMODULE_NO_EXPIRE) {
+  if (expireAt == REDISMODULE_NO_EXPIRE || itKey == m_map.end()) {
     return false;
   }
 

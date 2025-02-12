@@ -102,13 +102,19 @@ class Value {
 };
 
 class HashValue : public Value {
-  // holds the expiration time for groups of keys
+  // holds the expiration time for groups of keys (fields)
   using ExpirationMapType = std::map<mstime_t, std::unordered_set<std::string>>;
   // Key to value map
   struct Entry {
     std::string value;
     ExpirationMapType::iterator expirationIt;
   };
+  // Example:
+  // HSET doc foo bar goo zoo
+  // HEXPIRE doc 1 fields 1 foo
+  // HEXPIRE doc 3 fields 1 goo
+  // KeyMapType: { "foo": ("bar", *), "goo": ("zoo", *) }
+  // ExpirationMapType: { 1: [ "foo" ], 3: [ "goo", ... ] }
   using KeyMapType = std::unordered_map<std::string, Entry>;
 
  public:
