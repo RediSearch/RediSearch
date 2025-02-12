@@ -291,7 +291,7 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
     RMCK::ArgvList aggArgs(ctx, "*", args...);
     int rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
     EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
-    bool res = rr->searchopts.flags & Search_CanSkipReachResults;
+    bool res = rr->searchopts.flags & Search_CanSkipRichResults;
     QueryError_ClearError(&qerr);
     AREQ_Free(rr);
     return res;
@@ -306,7 +306,7 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
   EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, "WITHSCORES", "SORTBY", "foo", "ASC"));
   // Explicit sorting, with explicit request for scores in a different order
   EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, "SORTBY", "foo", "ASC", "WITHSCORES"));
-  // Requesting HIGHLIGHT, which requires reach results
+  // Requesting HIGHLIGHT, which requires rich results
   EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, "SORTBY", "foo", "HIGHLIGHT", "FIELDS", "1", "foo"));
 
   // Default aggregate command, no need for scores

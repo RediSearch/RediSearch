@@ -971,7 +971,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     // 1. We don't have a highlight/summarize step,
     // 2. We are not required to return scores explicitly,
     // 3. This is not a search query with implicit sorting by query score.
-    searchOpts->flags |= Search_CanSkipReachResults;
+    searchOpts->flags |= Search_CanSkipRichResults;
   }
 
   return REDISMODULE_OK;

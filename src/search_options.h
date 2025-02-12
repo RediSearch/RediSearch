@@ -75,10 +75,10 @@ int ParseSummarize(ArgsCursor *ac, FieldList *fields);
 int ParseHighlight(ArgsCursor *ac, FieldList *fields);
 
 typedef enum {
-  Search_Verbatim            = (1 << 0),
-  Search_NoStopWords         = (1 << 1),
-  Search_InOrder             = (1 << 2),
-  Search_CanSkipReachResults = (1 << 3), // No need to bubble up full result structure (used by the scorer and highlighter)
+  Search_Verbatim           = (1 << 0),
+  Search_NoStopWords        = (1 << 1),
+  Search_InOrder            = (1 << 2),
+  Search_CanSkipRichResults = (1 << 3), // No need to bubble up full result structure (used by the scorer and highlighter)
 } RSSearchFlags;
 
 #define RS_DEFAULT_QUERY_FLAGS 0x00
