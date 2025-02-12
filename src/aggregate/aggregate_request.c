@@ -290,10 +290,6 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-    // If we have sort by clause and don't need to return scores, we can avoid computing them.
-    if (IsSearch(req) && !IsScorerNeeded(req)) {
-      req->searchopts.flags |= Search_IgnoreScores;
-    }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
     if (AC_NumRemaining(ac) < 1) {
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");
@@ -499,7 +495,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       {AC_MKBITFLAG("WITHSORTKEYS", &req->reqflags, QEXEC_F_SEND_SORTKEYS)},
       {AC_MKBITFLAG("WITHPAYLOADS", &req->reqflags, QEXEC_F_SEND_PAYLOADS)},
       {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
-      {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopwrods)},
+      {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopWords)},
       {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
       {.name = "PAYLOAD",
        .type = AC_ARGTYPE_STRING,
@@ -903,6 +899,8 @@ AREQ *AREQ_New(void) {
   return req;
 }
 
+static bool hasQuerySortby(const AGGPlan *pln);
+
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
   req->args = rm_malloc(sizeof(*req->args) * argc);
   req->nargs = argc;
@@ -966,6 +964,14 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
       QueryError_FmtUnknownArg(status, &ac, "<main>");
       goto error;
     }
+  }
+
+  if (!(req->reqflags & QEXEC_F_SEND_HIGHLIGHT) && !IsScorerNeeded(req) && (!IsSearch(req) || hasQuerySortby(&req->ap))) {
+    // We can skip collecting full results structure and metadata from the iterators if:
+    // 1. We don't have a highlight/summarize step,
+    // 2. We are not required to return scores explicitly,
+    // 3. This is not a search query with implicit sorting by query score.
+    searchOpts->flags |= Search_CanSkipRichResults;
   }
 
   return REDISMODULE_OK;
@@ -1125,7 +1131,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (!(opts->flags & Search_NoStopwrods)) {
+  if (!(opts->flags & Search_NoStopWords)) {
     opts->stopwords = sctx->spec->stopwords;
     StopWordList_Ref(sctx->spec->stopwords);
   }
@@ -1404,7 +1410,7 @@ static ResultProcessor *getScorerRP(AREQ *req, RLookup *rl) {
   return rp;
 }
 
-static int hasQuerySortby(const AGGPlan *pln) {
+static bool hasQuerySortby(const AGGPlan *pln) {
   const PLN_BaseStep *bstp = AGPLN_FindStep(pln, NULL, NULL, PLN_T_GROUP);
   const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, bstp, PLN_T_ARRANGE);
   return arng && arng->sortKeys;
@@ -1495,6 +1501,11 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status, bool 
     RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       ReturnedField *ff = req->outFields.fields + ii;
+      if (req->outFields.defaultField.mode == SummarizeMode_None && ff->mode == SummarizeMode_None) {
+        // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
+        // (Default mode is not any of the summarize modes, and also there is no mode explicitly specified for this field)
+        continue;
+      }
       RLookupKey *kk = RLookup_GetKey(lookup, ff->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!kk) {
         QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property `%s`", ff->name);
