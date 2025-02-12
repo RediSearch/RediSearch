@@ -178,7 +178,8 @@ void handleFieldStatistics(InfoFields *fields, MRReply *src, QueryError *error) 
 
   // Something went wrong (number of fields mismatch)
   if (array_len(fields->fieldSpecInfo_arr) != len) {
-    return QueryError_SetCode(error, QUERY_EMISSMATCH);
+    QueryError_SetCode(error, QUERY_EMISSMATCH);
+    return;
   }
 
   for (size_t i = 0; i < len; i++) {
@@ -289,6 +290,9 @@ static void processKvArray(InfoFields *fields, MRReply *array, InfoValue *dsts, 
       convertField(field.value, value, field.type);
     } else if (!onlyScalarValues) {
       handleSpecialField(fields, s, value, error);
+      if (QueryError_HasError(error)) {
+        break;
+      }
     }
   }
 }
