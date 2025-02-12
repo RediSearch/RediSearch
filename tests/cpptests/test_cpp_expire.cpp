@@ -61,8 +61,8 @@ TEST_F(ExpireTest, testSkipTo) {
   ASSERT_NE(idx, nullptr);
   IndexIterator *it = TagIndex_OpenReader(idx, sctx, "one", strlen("one"), 1.0, 0);
   ASSERT_EQ(it->LastDocId(it->ctx), 1);
-  // should skip to last document
-  for (t_docId doc = 2; doc <= maxDocId; doc += 2) {
+  // should skip to last document, we index every doc twice so we should have 2 * maxDocId entries in the inverted index
+  for (t_docId doc = 2; doc <= (2 * maxDocId); doc += 2) {
     RSIndexResult *result = NULL;
     // we index in hset and in hexpire
     // for hset there won't be an expiration
