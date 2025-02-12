@@ -39,8 +39,8 @@ static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uin
  * Normalizes text.
  * - s contains the raw token
  * - dst is the destination buffer which contains the normalized text
- * - len on input contains the length of the raw token. on output contains the
- * on output contains the length of the normalized token
+ * - len on input contains the length of the raw token, on output contains the
+ *   length of the normalized token
  */
 static char *DefaultNormalize(char *s, char *dst, size_t *len) {
   size_t origLen = *len;
@@ -55,10 +55,7 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
   // set to 1 if the previous character was a backslash escape
   int escaped = 0;
   for (size_t ii = 0; ii < origLen; ++ii) {
-    if (isupper(s[ii])) {
-      SWITCH_DEST();
-      realDest[dstLen++] = tolower(s[ii]);
-    } else if ((isblank(s[ii]) && !escaped) || iscntrl(s[ii])) {
+    if ((isblank(s[ii]) && !escaped) || iscntrl(s[ii])) {
       SWITCH_DEST();
     } else if (s[ii] == '\\' && !escaped) {
       SWITCH_DEST();
@@ -71,6 +68,12 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
   }
 
   *len = dstLen;
+
+  size_t newLen = unicode_tolower(dst, dstLen);
+  if (newLen) {
+    *len = newLen;
+  }
+
   return dst;
 }
 
