@@ -1,5 +1,5 @@
 [codespell]
 quiet-level = 2
 count =
-skip = ./deps*,./srcutil*,./src/query_parser*
+skip = ./deps*,./srcutil*,./sbin*,./src/query_parser*,*.txt,*.csv, ./src/aggregate/expr*
 ignore-words = ./.codespell/wordlist.txt
