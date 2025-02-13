@@ -257,7 +257,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
   size_t nfields = 0;
   for (const RLookupKey *kk = lookup->head; kk; kk = kk->next, ++i) {
     if (kk->name == NULL) {
-      // Overriden key. Skip without incrementing the index
+      // Overridden key. Skip without incrementing the index
       --i;
       continue;
     }

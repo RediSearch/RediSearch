@@ -81,7 +81,7 @@ Otherwise, you can invoke ```./deps/readies/bin/getredis```.
 
 ```
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
-make fetch         # download and prepare dependant modules
+make fetch         # download and prepare dependent modules
 
 make build          # compile and link
   COORD=1|oss|rlec    # build coordinator (1|oss: Open Source, rlec: Enterprise)

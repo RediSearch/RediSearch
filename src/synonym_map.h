@@ -120,7 +120,7 @@ SynonymMap* SynonymMap_GetReadOnlyCopy(SynonymMap* smap);
 void SynonymMap_RdbSave(RedisModuleIO* rdb, void* value);
 
 /**
- * Loadin smap from an rdb
+ * Loading smap from an rdb
  */
 void* SynonymMap_RdbLoad(RedisModuleIO* rdb, int encver);
 

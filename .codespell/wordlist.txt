@@ -8,3 +8,4 @@ numer
 curEnt
 childRes
 worl
+studi

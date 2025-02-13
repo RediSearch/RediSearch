@@ -282,7 +282,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else if (strcasecmp(operation, "EXCLUDE") == 0) {
       array_append(excludeDict, (char *)dictName);
     } else {
-      RedisModule_ReplyWithError(ctx, "bad format, exlude/include operation was not given");
+      RedisModule_ReplyWithError(ctx, "bad format, exclude/include operation was not given");
       goto end;
     }
   }
