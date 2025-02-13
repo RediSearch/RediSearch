@@ -535,3 +535,38 @@ def testDocWithLongExpiration(env):
     # Set an expiration that will take a long time to expire
     conn.execute_command('EXPIRE', 'doc:1', '30000')
     env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+
+def testSeekToExpirationChecks(env):
+    # We want to cover the IndexReader_ReadWithSeeker function
+    conn = getConnectionByEnv(env)
+    conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'x', 'TEXT', 'y', 'TEXT')
+    conn.execute_command('HSET', 'doc:0', 'x', 'hello', 'y', 'foo') # doc:expire internal id is 1001
+    # inverted index state
+    # 'hello': [1]
+    # 'foo': [1]
+    for i in range(1, 1001):
+        conn.execute_command('HSET', f'doc:{i}', 'x', 'hello', 'y', 'world')
+        # important we expire now since that assigns a new doc id for the document
+        # doc:{i} internal should now be (2 * i)
+        conn.execute_command('HPEXPIRE', f'doc:{i}', '1', 'FIELDS', '1', 'y')
+    conn.execute_command('HSET', 'doc:1001', 'x', 'hello', 'y', 'world')
+    # inverted index state
+    # 'hello': ['doc:0', 'doc:1', , ..., 'doc:1000', 'doc:1001']
+    # 'world': ['doc:1', , ..., 'doc:1000', 'doc:1001']
+    # 'foo': ['doc:0']
+
+    # expected flow
+    # - hello reader starts with doc:0
+    # - world reader starts with doc:1
+    # - intersect iterator reads doc:0 and tries to skip to it in world reader
+    # - world reader should skip to doc:1001 since all the other docs will be expired
+    time.sleep(0.1) # we want to sleep enough so we filter out the expired documents at the iterator phase
+    # doc:0 up to doc:1000 should not be returned:
+    # - doc:0 because y != world
+    # - doc:1 up to doc:1000 y field should be expired
+    # Due to the nature of intersection iterator we expect SkipTo to be called at least once
+    # since text fields have a seeker we expect IndexReader_ReadWithSeeker to be called
+    # that should provide coverage for IndexReader_ReadWithSeeker.
+    env.expect('FT.SEARCH', 'idx', '@x:(hello) @y:(world)', 'NOCONTENT').equal([1, 'doc:1001'])
+
