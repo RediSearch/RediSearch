@@ -19,6 +19,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		REPO_PATH=dir      Get binary artifacts from given repo `dir`
 		BUILD=0            Do not build if unable to download
 		FORCE=1            Download module even if already present
+		FORCE_BUILD=0      Control whether to force building from source and avoid downloading
 		MODULE_FILE=file   Write module path into `file`
 		NOP=1              No operation
 		HELP=1             Show help
@@ -36,6 +37,8 @@ OP=""
 
 os="$($READIES/bin/platform --os)"
 arch="$($READIES/bin/platform --arch)"
+
+FORCE_BUILD=${FORCE_BUILD:-0}
 
 if [[ -n $REPO_PATH ]]; then
 	platform="$($READIES/bin/platform -t)"
@@ -89,6 +92,8 @@ else
 		else
 			nick="rhel7"
 		fi
+	elif [[ $os == alpine3 ]]; then
+	  FORCE_BUILD=1
 	elif [[ $os == macos ]]; then
 		# as we don't build on macOS for every platform, we converge to a least common denominator
 		if [[ $arch == x86_64 ]]; then
@@ -148,7 +153,7 @@ if [[ -z $REPO_PATH ]]; then
 	F_MOD_RAMP="${WORK_DIR}/${MOD_RAMP}"
 	if [[ $FORCE == 1 || ! -f $F_MOD_RAMP ]]; then
 		# check if redisjson module exists in the s3 bucket
-		if wget -q --spider ${MOD_S3_URL}/${MOD_RAMP}; then
+		if [[ $FORCE_BUILD == 0 ]] && wget -q --spider ${MOD_S3_URL}/${MOD_RAMP}; then
 			echo "Download ${MOD_NAME} [${MOD_S3_URL}/${MOD_RAMP}] ..."
 			runn wget -P ${WORK_DIR} ${MOD_S3_URL}/${MOD_RAMP}
 		else
