@@ -71,20 +71,24 @@ bool HashValue::hexpire(const HashValue::Key &k, mstime_t expireAt) {
     itKey->second.expirationIt = m_expiration.end();
   }
   // add the new expiration point, both to expiration map and to key
-  auto it = m_expiration.try_emplace(expireAt).first;
+  // TODO: find out why try_emplace doesn't compile on some environments
+  auto it = m_expiration.find(expireAt);
+  if (it == m_expiration.end()) {
+    it = m_expiration.emplace(expireAt, std::unordered_set<std::string>()).first;
+  }
   itKey->second.expirationIt = it;
   it->second.insert(skey);
   return true;
 }
 
-std::optional<mstime_t> HashValue::min_expire_time() const {
+Optional<mstime_t> HashValue::min_expire_time() const {
   if (m_expiration.empty()) {
-    return std::nullopt;
+    return boost::none;
   }
   return m_expiration.begin()->first;
 }
 
-std::optional<mstime_t> HashValue::get_expire_time(const Key &k) const {
+Optional<mstime_t> HashValue::get_expire_time(const Key &k) const {
   const char *skey;
   if (k.flags & REDISMODULE_HASH_CFIELDS) {
     skey = k.cstr;
@@ -94,7 +98,7 @@ std::optional<mstime_t> HashValue::get_expire_time(const Key &k) const {
 
   auto it = m_map.find(skey);
   if (it == m_map.end() || it->second.expirationIt == m_expiration.end()) {
-    return std::nullopt;
+    return boost::none;
   }
   return it->second.expirationIt->first;
 }

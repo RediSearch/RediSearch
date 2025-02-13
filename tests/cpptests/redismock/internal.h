@@ -18,7 +18,11 @@
 #include <unordered_set>
 #include <vector>
 #include <iostream>
-#include <optional>
+#include <boost/optional.hpp>
+
+// TODO find out why std::optional doesn't compile on some environments
+template <typename T>
+using Optional = boost::optional<T>;
 
 struct RedisModuleString : public std::string {
   using std::string::string;
@@ -148,8 +152,8 @@ class HashValue : public Value {
   void hset(const Key &, const RedisModuleString *);
   void add(const char *key, const char *value, int mode = REDISMODULE_HASH_NONE);
   bool hexpire(const Key &, mstime_t expireAt);
-  std::optional<mstime_t> min_expire_time() const;
-  std::optional<mstime_t> get_expire_time(const Key &) const;
+  Optional<mstime_t> min_expire_time() const;
+  Optional<mstime_t> get_expire_time(const Key &) const;
 
   const std::string *hget(const Key &) const;
   RedisModuleString **kvarray(RedisModuleCtx *allocctx) const;
