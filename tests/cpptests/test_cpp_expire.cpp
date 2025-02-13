@@ -68,7 +68,7 @@ TEST_F(ExpireTest, testSkipTo) {
     // we index in hset and in hexpire
     // for hset there won't be an expiration
     // for hexpire there will be
-    // if we skip to an odd doc number we should gfet the requested doc id
+    // if we skip to an odd doc number we should get the requested doc id
     // if we skip to an even doc number we should not get it since it will be expired
     it->SkipTo(it->ctx, doc, &result);
     ASSERT_EQ(result->docId, doc + 1);
