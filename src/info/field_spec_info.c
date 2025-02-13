@@ -150,13 +150,13 @@ FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
     return info;
 }
 
-// Assuming the spec is properly locked before calling this function.
+// Returns the size of the vector indexes in the index `sp`.
 size_t IndexSpec_VectorIndexesSize(IndexSpec *sp) {
   VectorIndexStats stats = IndexSpec_GetVectorIndexesStats(sp);
   return stats.memory;
 }
 
-// Assuming the spec is properly locked before calling this function.
+// Get the stats of the vector field `fs` in the index `sp`.
 VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *fs){
   VectorIndexStats stats = {0};
   RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
@@ -175,7 +175,7 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *f
   return stats;
 }
 
-// Assuming the spec is properly locked before calling this function.
+// Get the stats of the vector indexes in the index `sp`.
 VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
   VectorIndexStats stats = {0};
   for (size_t i = 0; i < sp->numFields; ++i) {
@@ -189,7 +189,7 @@ VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
   return stats;
 }
 
-// Assuming the spec is properly locked before calling this function.
+// Get the stats of the field `fs` in the index `sp`.
 FieldSpecStats IndexSpec_GetFieldStats(const FieldSpec *fs, IndexSpec *sp){
   FieldSpecStats stats = {0};
   stats.type = fs->types;
@@ -202,7 +202,7 @@ FieldSpecStats IndexSpec_GetFieldStats(const FieldSpec *fs, IndexSpec *sp){
   }
 }
 
-// Assuming the spec is properly locked before calling this function.
+// Get the information of the field `fs` in the index `sp`.
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, IndexSpec *sp) {
   FieldSpecInfo info = {0};
   FieldSpecInfo_SetIdentifier(&info, fs->path);
