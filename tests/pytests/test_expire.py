@@ -415,8 +415,8 @@ def test_background_index_no_lazy_expiration(env):
     env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     env.expect('HSET', 'doc:1', 't', 'bar').equal(1)
     env.expect('HSET', 'doc:2', 't', 'arr').equal(1)
-    env.expect('EXPIRE', 'doc:1', '1').equal(1)
-    time.sleep(1.5)
+    env.expect('PEXPIRE', 'doc:1', '1').equal(1)
+    time.sleep(0.5)
 
     # Expect background indexing to take place after doc:1 has expired.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').equal('OK')
@@ -437,8 +437,8 @@ def test_background_index_no_lazy_expiration_json(env):
     env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     env.expect('JSON.SET', 'doc:1', "$", r'{"t":"bar"}').ok()
     env.expect('JSON.SET', 'doc:2', "$", r'{"t":"arr"}').ok()
-    env.expect('EXPIRE', 'doc:1', '1').equal(1)
-    time.sleep(1.5)
+    env.expect('PEXPIRE', 'doc:1', '1').equal(1)
+    time.sleep(0.5)
 
     # Expect background indexing to take place after doc:1 has expired.
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', 't', 'TEXT').equal('OK')
