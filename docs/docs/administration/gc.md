@@ -22,7 +22,7 @@ You want to optimize the index, but you also don't want to disturb normal operat
 
 ## Garbage collecting a single-term index
 
-A single-term inverted index is an array of blocks, each of which containin an encoded list of records; e.g., a document id delta plus other data depending on the index encoding scheme. When some of these records refer to deleted documents this is called garbage. 
+A single-term inverted index is an array of blocks, each of which containing an encoded list of records; e.g., a document id delta plus other data depending on the index encoding scheme. When some of these records refer to deleted documents this is called garbage. 
 
 The algorithm is simple: 
 

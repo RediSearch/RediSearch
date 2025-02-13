@@ -1084,7 +1084,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMinUnionIteratorHeap,
          .getValue = getMinUnionIteratorHeap},
         {.name = "CURSOR_MAX_IDLE",
-         .helpText = "max idle time allowed to be set for cursor, setting it hight might cause "
+         .helpText = "max idle time allowed to be set for cursor, setting it to a high value might cause "
                      "high memory consumption.",
          .setValue = setCursorMaxIdle,
          .getValue = getCursorMaxIdle},

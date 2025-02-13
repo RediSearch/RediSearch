@@ -37,7 +37,7 @@ void HiddenName_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, Hidd
 RedisModuleString *HiddenName_CreateString(HiddenName* value, RedisModuleCtx* ctx);
 
 // Direct access to user data, should be used only when necessary
-// Avoid outputing user data to:
+// Avoid outputting user data to:
 // 1. Logs
 // 2. Metrics
 // 3. Command responses

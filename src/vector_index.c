@@ -188,7 +188,7 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
 void VectorQuery_Free(VectorQuery *vq) {
   if (vq->scoreField) rm_free((char *)vq->scoreField);
   switch (vq->type) {
-    case VECSIM_QT_KNN: // no need to free the vector as we pointes to the query dictionary
+    case VECSIM_QT_KNN: // no need to free the vector as we point to the query dictionary
     case VECSIM_QT_RANGE:
       break;
   }

@@ -995,7 +995,7 @@ size_t CmdArg_NumChildren(CmdArg *arg) {
  *  - l: Will be parsed as a long integer
  *  - d: Will be parsed as a double
  *  - !: will be skipped
- *  - ?: means evrything after is optional
+ *  - ?: means everything after is optional
  */
 
 int CmdArg_ArrayAssign(CmdArray *arg, const char *fmt, ...) {

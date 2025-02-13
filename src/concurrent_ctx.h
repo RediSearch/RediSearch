@@ -18,7 +18,7 @@
 #define CLOCK_MONOTONIC_RAW CLOCK_MONOTONIC
 #endif
 
-/** Concurrent Search Exection Context.
+/** Concurrent Search Execution Context.
  *
  * We allow queries to run concurrently, each running on its own thread, locking the redis GIL
  * for a bit, releasing it, and letting others run as well.

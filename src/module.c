@@ -1976,7 +1976,7 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
 
     // This was reversed to be more compatible with OSS version where tie breaker was changed
     // to return the lower doc ID to reduce sorting heap work. Doc name might not be ascending
-    // or decending but this still may reduce heap work.
+    // or descending but this still may reduce heap work.
     // Our tests are usually ascending so this will create similarity between RS and RSC.
     int rv = -cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
 
@@ -2126,7 +2126,7 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
    * SCORE         ---| optional - only if WITHSCORES was given, or SORTBY section was not given.
    * Payload
    * Sort field    ---|
-   * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwards comptability.
+   * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwards compatibility.
    * ...           ---|
    * First field
    *
