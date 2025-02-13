@@ -1,4 +1,6 @@
 
+set(CMAKE_CXX_STANDARD 17)
+
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 
 include_directories("${gtest_SOURCE_DIR}/include")
