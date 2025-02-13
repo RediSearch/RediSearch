@@ -8,7 +8,19 @@
 
 #include "index_error.h"
 #include "reply.h"
+#include "coord/rmr/reply.h"
+#include "field_spec.h"
+#include "vector_index_stats.h"
+#include "spec.h"
+#include "redis_index.h"
+#include "vector_index.h"
 
+typedef struct FieldSpecStats {
+  union {
+    VectorIndexStats vecStats;
+  };
+  FieldType type;
+} FieldSpecStats;
 
 // A struct to hold the information of a field specification.
 // To be used while field spec is still alive with respect to object lifetime.
@@ -16,7 +28,11 @@ typedef struct {
     const char *identifier; // The identifier of the field spec.
     const char *attribute; // The attribute of the field spec.
     IndexError error; // Indexing error of the field spec.
+    FieldSpecStats stats;
 } FieldSpecInfo;
+
+// Get the information of the field 'fs' in the index 'sp'.
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, IndexSpec *sp);
 
 // Create stack allocated FieldSpecInfo.
 FieldSpecInfo FieldSpecInfo_Init();
@@ -38,10 +54,14 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *, IndexError error);
 // Reply a Field spec info.
 void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool with_timestamp);
 
-#include "coord/rmr/reply.h"
-
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
-void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other);
+void FieldSpecInfo_Combine(FieldSpecInfo *info, const FieldSpecInfo *other);
 
 // Deserializes a FieldSpecInfo from a MRReply.
 FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply);
+
+//Get the total memory usage of all the vector fields in the index (in bytes).
+size_t IndexSpec_VectorIndexesSize(IndexSpec *sp);
+
+//Get the combined stats of all vector fields in the index.
+VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp);
