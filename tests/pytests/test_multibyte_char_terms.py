@@ -21,7 +21,7 @@ def testMultibyteText(env):
 
     if not env.isCluster():
         # only 5 terms are indexed, the lowercase representation of the terms
-        res = env.cmd(ftDebugCmdName(env), 'DUMP_TERMS', 'idx')
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
         env.assertEqual(len(res), 5)
         env.assertEqual(res, ['abcabc', 'fußball', 'grüßen', 'straße',
                               'бълга123'])
@@ -250,7 +250,7 @@ def testJsonMultibyteText(env):
 
     if not env.isCluster():
         # only 5 terms are indexed, the lowercase representation of the terms
-        res = env.cmd(ftDebugCmdName(env), 'DUMP_TERMS', 'idx')
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
         env.assertEqual(len(res), 5)
         env.assertEqual(res, ['abcabc', 'fußball', 'grüßen', 'straße',
                               'бълга123'])
@@ -361,7 +361,7 @@ def testRussianAlphabet(env):
     conn.execute_command('HSET', 'test:softVowelsL', 't', 'яеиёю')
 
     if not env.isCluster():
-        res = env.cmd(ftDebugCmdName(env), 'DUMP_TERMS', 'idx')
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
         env.assertEqual(len(res), 5)
 
     for dialect in range(1, 4):
@@ -425,7 +425,7 @@ def testDiacritics(env):
     conn.execute_command('HSET', 'test:18', 't', 'Æ')
 
     if not env.isCluster():
-        res = env.cmd(ftDebugCmdName(env), 'DUMP_TERMS', 'idx')
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
         # only 9 terms are indexed, the lowercase representation of the terms
         # with diacritics, but the diacritis are not removed.
         env.assertEqual(len(res), 9)
@@ -450,7 +450,7 @@ def testDiacriticLimitation(env):
     # the diacritics are not removed, so we got 6 different terms:
     # the 4 original terms from the documents, and 2 stemmed terms.
     if not env.isCluster():
-        res = env.cmd(ftDebugCmdName(env), 'DUMP_TERMS', 'idx')
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
         expected = ['+etud', '+étud', 'etude', 'etudes', 'étude', 'études']
         env.assertEqual(res, expected)
 
@@ -502,7 +502,7 @@ def testStopWords(env):
     conn.execute_command('HSET', 'doc:5', 't', 'МУЖЧИНЫ И ЖЕНЩИНЫ')
     conn.execute_command('HSET', 'doc:6', 't', 'ОТ ОДНОГО ДО ДЕСЯТИ')
     # only 6 terms are indexed, the stopwords are not indexed
-    res = env.cmd(ftDebugCmdName(env), 'DUMP_TERMS', 'idx1')
+    res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx1')
     env.assertEqual(len(res), 6)
     env.assertEqual(res, ['десяти', 'до', 'женщины', 'мужчины', 'одного', 'ясно'])
 
@@ -529,7 +529,7 @@ def testStopWords(env):
     # This fails, there are 9 terms because the stopwords are not converted
     # to lowercase correctly
     # Ticket created to fix this: MOD-8443
-    res = env.cmd(ftDebugCmdName(env), 'DUMP_TERMS', 'idx2')
+    res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx2')
     env.assertEqual(len(res), 9)
     env.assertEqual(res, ['десяти', 'до', 'женщины', 'и', 'мужчины', 'не',
                           'одного', 'от', 'ясно'])
@@ -580,7 +580,7 @@ def testInvalidMultiByteSequence(env):
 
     # Check the terms in the index
     if not env.isCluster():
-        res = env.cmd(ftDebugCmdName(env), 'DUMP_TERMS', 'idx')
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
         # Only the valid terms are indexed
         env.assertEqual(res, ['abcabc'])
 
@@ -605,7 +605,7 @@ def testGermanEszett(env):
     conn.execute_command('HSET', 'test:4', 't', 'grüssen')
 
     if not env.isCluster():
-        res = env.cmd(ftDebugCmdName(env), 'DUMP_TERMS', 'idx')
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
         env.assertEqual(len(res), 2)
         env.assertEqual(res, ['grüssen', 'grüßen'])
 
@@ -657,7 +657,7 @@ def testGreekSigma(env):
     conn.execute_command('HSET', 'sl@e:lower', 't', 'νεανίας')
 
     if not env.isCluster():
-        res = env.cmd(ftDebugCmdName(env), 'DUMP_TERMS', 'idx')
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
         env.assertEqual(len(res), 3)
         env.assertEqual(res, ['νεανίας', 'νεανίασ', 'σίγμα'])
 
@@ -717,7 +717,7 @@ def testLongTerms(env):
 
     # A single term should be generated in lower case.
     if not env.isCluster():
-        res = env.cmd(ftDebugCmdName(env), 'DUMP_TERMS', 'idx1')
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx1')
         # The term generated is the first 64 characters of the long term
         # because MAX_NORMALIZE_SIZE = 128 bytes
         env.assertEqual(res, [f'{long_term_lower[:64]}'])
@@ -729,7 +729,7 @@ def testLongTerms(env):
             'SCHEMA', 't', 'TEXT')
     waitForIndex(env, 'idx2')
     if not env.isCluster():
-        res = env.cmd(ftDebugCmdName(env), 'DUMP_TERMS', 'idx2')
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx2')
         env.assertEqual(res, [f'{long_term_lower[:64]}'])
 
 def testMultibyteTag(env):
@@ -751,7 +751,7 @@ def testMultibyteTag(env):
 
     if not env.isCluster():
         # only 4 terms are indexed, the lowercase representation of the terms
-        res = env.cmd(ftDebugCmdName(env), 'DUMP_TAGIDX', 'idx', 't')
+        res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
         env.assertEqual(res, [['abcabc', [1, 2]], ['fußball straße', [8]],
                               ['grüßen', [6, 7]], ['бълга123', [3, 4, 5]]])
 
@@ -916,7 +916,7 @@ def testJsonMultibyteTag(env):
 
     if not env.isCluster():
         # only 3 terms are indexed, the lowercase representation of the terms
-        res = env.cmd(ftDebugCmdName(env), 'DUMP_TAGIDX', 'idx', 't')
+        res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
         env.assertEqual(res, [['abcabc', [1, 2]], ['fußball straße', [8]],
                               ['grüßen', [6, 7]], ['бълга123', [3, 4, 5]]])
 
@@ -1061,7 +1061,7 @@ def testMultibyteTagCaseSensitive(env):
 
     if not env.isCluster():
         # 7 terms are indexed because the TAG field is CASESENSITIVE
-        res = env.cmd(ftDebugCmdName(env), 'DUMP_TAGIDX', 'idx', 't')
+        res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
         env.assertEqual(res, [['ABCABC', [2]], ['GRÜẞEN', [6]], ['abcabc', [1]],
                               ['grüßen', [7]], ['БЪЛГА123', [3]],
                               ['БЪлга123', [5]], ['бълга123', [4]]])
