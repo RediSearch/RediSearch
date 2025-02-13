@@ -1,5 +1,4 @@
 [codespell]
 quiet-level = 2
 count =
-skip =
 ignore-words = ./.codespell/wordlist.txt
