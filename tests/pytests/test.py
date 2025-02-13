@@ -4361,6 +4361,9 @@ def test_timeoutCoordSearch_NonStrict(env):
     if VALGRIND:
         unittest.SkipTest()
 
+    # Set the timeout policy to non-strict
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+
     # Create and populate an index
     n_docs_pershard = 1100
     n_docs = n_docs_pershard * env.shardsCount
