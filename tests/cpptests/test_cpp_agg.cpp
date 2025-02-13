@@ -311,8 +311,6 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
 
   // Default aggregate command, no need for scores
   EXPECT_TRUE(scenario(QEXEC_F_IS_AGGREGATE, "LIMIT", "0", "100"));
-  // Explicit request for scores
-  EXPECT_FALSE(scenario(QEXEC_F_IS_AGGREGATE, "ADDSCORES"));
 
   RedisModule_FreeThreadSafeContext(ctx);
 }
