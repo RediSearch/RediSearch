@@ -21,7 +21,7 @@ typedef struct {
   KNNVectorQuery query;
   VecSimQueryParams qParams;
   char *vectorScoreField;
-  bool ignoreDocScore;
+  bool canTrimDeepResults; // If true, no need to deep copy the results before adding them to the heap.
   IndexIterator *childIt;
   struct timespec timeout;
 } HybridIteratorParams;
@@ -46,7 +46,7 @@ typedef struct {
   heap_t *topResults;              // Sorted by score (max heap).
   //heap_t *orderedResults;        // Sorted by id (min heap) - for future use.
   size_t numIterations;
-  bool ignoreScores;               // Ignore the document scores, only vector score matters.
+  bool canTrimDeepResults;         // Ignore the document scores, only vector score matters. No need to deep copy the results from the child iterator.
   TimeoutCtx timeoutCtx;           // Timeout parameters
 } HybridIterator;
 

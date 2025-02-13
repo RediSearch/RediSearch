@@ -280,3 +280,42 @@ int testAggregatePlan() {
   RETURN_TEST_SUCCESS
 }
 #endif
+
+TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+
+  auto scenario = [&](QEFlags flags, const char *args[], size_t nargs) -> bool {
+    QueryError qerr = {QueryErrorCode(0)};
+    AREQ *rr = AREQ_New();
+    rr->reqflags = flags;
+    RMCK::ArgvList aggArgs(ctx, args, nargs);
+    int rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
+    EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
+    bool res = rr->searchopts.flags & Search_CanSkipRichResults;
+    QueryError_ClearError(&qerr);
+    AREQ_Free(rr);
+    return res;
+  };
+
+  // Default search command, we have an implicit sorter by scores
+  const char *args1[] = {"*", "LIMIT", "0", "100"};
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, args1, 4));
+
+  // Explicit sorting, no need for scores
+  const char *args2[] = {"*", "SORTBY", "foo", "ASC"};
+  EXPECT_TRUE(scenario(QEXEC_F_IS_SEARCH, args2, 4));
+  // Explicit sorting, with explicit request for scores
+  const char *args3[] = {"*", "WITHSCORES", "SORTBY", "foo", "ASC"};
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, args3, 5));
+  // Explicit sorting, with explicit request for scores in a different order
+  const char *args4[] = {"*", "SORTBY", "foo", "ASC", "WITHSCORES"};
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, args4, 5));
+  // Requesting HIGHLIGHT, which requires rich results
+  const char *args5[] = {"*", "SORTBY", "foo", "HIGHLIGHT", "FIELDS", "1", "foo"};
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, args5, 7));
+
+  // Default aggregate command, no need for scores
+  EXPECT_TRUE(scenario(QEXEC_F_IS_AGGREGATE, args1, 4));
+
+  RedisModule_FreeThreadSafeContext(ctx);
+}
