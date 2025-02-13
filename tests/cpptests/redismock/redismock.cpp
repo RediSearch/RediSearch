@@ -780,7 +780,8 @@ static RedisModuleCallReply* HExpire(RedisModuleCtx *ctx, const char *cmd, const
   reply->type = REDISMODULE_REPLY_ARRAY;
   const mstime_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
   for (size_t index = 0; index < count; ++index) {
-    auto& fieldReply = reply->arr.emplace_back(RedisModuleCallReply(ctx));
+    reply->arr.emplace_back(RedisModuleCallReply(ctx));
+    auto& fieldReply = reply->arr.back();
     fieldReply.type = REDISMODULE_REPLY_INTEGER;
     const char *field = get_string_arg(*fmt);
     if (field == NULL) {
