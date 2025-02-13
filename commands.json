@@ -1405,7 +1405,7 @@
                 "name": "ceil",
                 "token": "ceil",
                 "type": "function",
-                "summary": "Round to the smallest value not less than x",
+                "summary": "Round to the smallest integer not less than x",
                 "arguments": [
                   {
                     "token": "x"
