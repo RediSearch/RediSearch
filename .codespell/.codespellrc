@@ -2,4 +2,5 @@
 quiet-level = 2
 count =
 skip = ./deps*,./srcutil*,./sbin*,./src/query_parser*,*.csv,./src/aggregate/expr*,./tests*
+ignore-words-list = SUGGET,curEnt,childRes,specField,fo,nd,wel,studie,numer,splitted
 ignore-words = ./.codespell/wordlist.txt
