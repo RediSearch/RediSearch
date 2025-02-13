@@ -285,7 +285,7 @@ def test_async_updates_sanity():
     local_marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
     env.assertEqual(local_marked_deleted_vectors, n_local_vectors_before_update)
 
-    # Get the updated numer of local vectors after the update, and validate that all of them are in the frontend
+    # Get the updated number of local vectors after the update, and validate that all of them are in the frontend
     # index (hadn't been ingested already).
     n_local_vectors = get_vecsim_debug_dict(env, 'idx', 'vector')['INDEX_LABEL_COUNT']
     env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], n_local_vectors)

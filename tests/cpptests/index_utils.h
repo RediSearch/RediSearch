@@ -8,7 +8,7 @@
 #include "numeric_index.h"
 #include <string>
 
-/** returns a string object containg @param id as a string */
+/** returns a string object containing @param id as a string */
 std::string numToDocStr(unsigned id);
 
 /** Adds a document to a given index.

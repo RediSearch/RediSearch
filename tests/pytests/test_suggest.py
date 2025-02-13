@@ -35,7 +35,7 @@ def testSuggestions(env):
         env.assertEqual(res, ['hello world', 'hello werld'])
 
         # print  env.cmd('ft.SUGGET', 'ac', 'hello', 'FUZZY', 'MAX', '1', 'WITHSCORES')
-        # search fuzzy - shuold yield more results
+        # search fuzzy - should yield more results
         res = conn.execute_command('ft.SUGGET', 'ac', 'hello', 'FUZZY')
         env.assertEqual(res, ['hello world', 'hello werld', 'yellow world', 'hallo world'])
 

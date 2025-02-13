@@ -3,3 +3,7 @@ nd
 hel
 wel
 specField
+SUGGET
+numer
+curEnt
+childRes

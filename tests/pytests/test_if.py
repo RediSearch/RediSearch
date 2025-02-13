@@ -30,7 +30,7 @@ def testIfQueries(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt==@txt FIELDS txt word').equal('OK')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty==@empty FIELDS txt word').equal('NOADD')          # 1.4 OK
 
-    # comaprison filled to empty
+    # comparison filled to empty
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt==@empty FIELDS txt word').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt!=@empty FIELDS txt word').equal('NOADD')            # 1.4 OK
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @txt>@empty FIELDS txt word').equal('NOADD')             # 1.4 OK
@@ -45,7 +45,7 @@ def testIfQueries(env):
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt<@empty FIELDS txt word').equal('NOADD')            # 1.4 OK
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if !@txt<=@empty FIELDS txt word').equal('NOADD')           # 1.4 OK
 
-    # comaprison empty to empty
+    # comparison empty to empty
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty==@empty FIELDS txt word').equal('NOADD')          # 1.4 OK
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty!=@empty FIELDS txt word').equal('NOADD')
     env.expect('FT.ADD idx doc1 1.0 REPLACE PARTIAL if @empty>@empty FIELDS txt word').equal('NOADD')

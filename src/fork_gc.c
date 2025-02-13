@@ -1294,7 +1294,7 @@ static int periodicCb(void *privdata) {
   }
 
   // Now that we hold the GIL, we can cache this value knowing it won't change by the main thread
-  // upon deleting a docuemnt (this is the actual number of documents to be cleaned by the fork).
+  // upon deleting a document (this is the actual number of documents to be cleaned by the fork).
   size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
   gc->deletedDocsFromLastRun = 0;
 

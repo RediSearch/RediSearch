@@ -353,7 +353,7 @@ def testLanguageDefaultAndField(env):
         res = env.cmd('FT.SEARCH', 'idxTest1', u'अँगरेज़')
         res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
         env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', res1['body'])
-        # test for default langauge
+        # test for default language
         res = env.cmd('FT.SEARCH', 'idxTest2', u'अँगरेज़')
         res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
         env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', res1['body'])

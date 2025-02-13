@@ -91,7 +91,7 @@ static void Cursors_initSpec(IndexSpec *spec) {
 }
 
 /*
- * Get a field spec by field name. Case sensetive!
+ * Get a field spec by field name. Case sensitive!
  * Return the field spec if found, NULL if not.
  * Assuming the spec is properly locked before calling this function.
  */
@@ -462,14 +462,14 @@ static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
 #define LANGUAGES_SIZE 4
   char *languages[] = {"en", "pt", "fr", "es"};
 
-  bool langauge_found = false;
+  bool language_found = false;
   for (int i = 0; i < LANGUAGES_SIZE; ++i) {
     if (matcher[3] == languages[i][0] && matcher[4] == languages[i][1]) {
-      langauge_found = true;
+      language_found = true;
     }
   }
 
-  return langauge_found;
+  return language_found;
 }
 
 // Tries to get vector data type from ac. This function need to stay updated with
@@ -1566,7 +1566,7 @@ void IndexSpec_Free(IndexSpec *spec) {
     Indexer_Free(spec->indexer);
   }
   // Stop and destroy garbage collector
-  // We can't free it now, because it eighter runs at the moment or has a timer set which we can't
+  // We can't free it now, because it either runs at the moment or has a timer set which we can't
   // deal with without the GIL.
   // It will free itself when it discovers that the index was freed.
   // On the worst case, it just finishes the current run and will schedule another run soon.
@@ -2324,7 +2324,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     RedisModule_InfoEndDictField(ctx);
   }
 
-  // Index defenition
+  // Index definition
   RedisModule_InfoBeginDictField(ctx, "index_definition");
   SchemaRule *rule = sp->rule;
   RedisModule_InfoAddFieldCString(ctx, "type", (char*)DocumentType_ToString(rule->type));
@@ -2860,7 +2860,7 @@ int CompareVersions(Version v1, Version v2) {
 
   return 0;
 }
-// This funciton is called in case the server is started or
+// This function is called in case the server is started or
 // when the replica is loading the RDB file from the master.
 static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
@@ -2952,7 +2952,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     rv = Document_LoadSchemaFieldJson(&doc, &sctx, &status);
     break;
   case DocumentType_Unsupported:
-    RS_LOG_ASSERT(0, "Should receieve valid type");
+    RS_LOG_ASSERT(0, "Should receive valid type");
   }
 
   if (rv != REDISMODULE_OK) {

@@ -58,7 +58,7 @@ def testHashMinStemLen(env):
             'SCHEMA', 't', 'TEXT')
     env.cmd('HSET', '{doc}:1', 't', 'dar')
     
-    # altough MIN_STEMMING_LEN = 3, 'dar' does not need to be stemmed because
+    # although MIN_STEMMING_LEN = 3, 'dar' does not need to be stemmed because
     # the original word is equal to its stem
     res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx_es')
     env.assertEqual(res, ['dar'])
@@ -129,7 +129,7 @@ def testJsonMinStemLen(env):
             'SCHEMA', '$.t', 'AS', 't', 'TEXT')
     env.cmd('JSON.SET', '{doc}:1', '$', r'{"t":"dar"}')
     
-    # altough MIN_STEMMING_LEN = 3, 'dar' does not need to be stemmed because
+    # although MIN_STEMMING_LEN = 3, 'dar' does not need to be stemmed because
     # the original word is equal to its stem
     res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx_es')
     env.assertEqual(res, ['dar'])

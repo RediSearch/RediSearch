@@ -1445,7 +1445,7 @@ def testFieldSelectors(env):
     env.expect(
         'ft.create', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc',
         'schema', 'TiTle', 'text', 'BoDy', 'text', "יוניקוד", 'text', 'field.with,punct', 'text').ok()
-    #todo: document as breaking change, ft.add fields name are not case insentive
+    #todo: document as breaking change, ft.add fields name are not case insensitive
     env.expect('ft.add', 'idx', 'doc1', 1, 'fields',
                'TiTle', 'hello world', 'BoDy', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt').ok()
     env.expect('ft.add', 'idx', 'doc2', 0.5, 'fields',
@@ -1727,7 +1727,7 @@ def testPayload(env):
 @skip(cluster=True)
 def testGarbageCollector(env):
     if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
-        # this test is not relevent for fork gc cause its not cleaning the last block
+        # this test is not relevant for fork gc cause its not cleaning the last block
         env.skip()
 
     N = 100
@@ -3500,7 +3500,7 @@ def testFieldsCaseSensetive(env):
     run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC f TEXT t TAG g GEO')
 
-    # make sure text fields are case sesitive
+    # make sure text fields are case sensitive
     conn.execute_command('hset', 'doc1', 'F', 'test')
     conn.execute_command('hset', 'doc2', 'f', 'test')
     env.expect('ft.search idx @f:test').equal([1, 'doc2', ['f', 'test']])
@@ -3510,7 +3510,7 @@ def testFieldsCaseSensetive(env):
     else:
         res.error().contains("Unknown field at offset 0 near F")
 
-    # make sure numeric fields are case sesitive
+    # make sure numeric fields are case sensitive
     conn.execute_command('hset', 'doc3', 'N', '1.0')
     conn.execute_command('hset', 'doc4', 'n', '1.0')
     env.expect('ft.search', 'idx', '@n:[0 2]').equal([1, 'doc4', ['n', '1.0']])
@@ -3520,7 +3520,7 @@ def testFieldsCaseSensetive(env):
     else:
         res.error().contains("Unknown field at offset 0 near N")
 
-    # make sure tag fields are case sesitive
+    # make sure tag fields are case sensitive
     conn.execute_command('hset', 'doc5', 'T', 'tag')
     conn.execute_command('hset', 'doc6', 't', 'tag')
     env.expect('ft.search', 'idx', '@t:{tag}').equal([1, 'doc6', ['t', 'tag']])
@@ -3530,7 +3530,7 @@ def testFieldsCaseSensetive(env):
     else:
         res.error().contains("Unknown field at offset 0 near T")
 
-    # make sure geo fields are case sesitive
+    # make sure geo fields are case sensitive
     conn.execute_command('hset', 'doc8', 'G', '-113.524,53.5244')
     conn.execute_command('hset', 'doc9', 'g', '-113.524,53.5244')
     env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1, 'doc9', ['g', '-113.524,53.5244']])
@@ -3578,7 +3578,7 @@ def testSortedFieldsCaseSensetive(env):
     run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE f TEXT SORTABLE t TAG SORTABLE g GEO SORTABLE')
 
-    # make sure text fields are case sesitive
+    # make sure text fields are case sensitive
     conn.execute_command('hset', 'doc1', 'F', 'test')
     conn.execute_command('hset', 'doc2', 'f', 'test')
     env.expect('ft.search idx @f:test').equal([1, 'doc2', ['f', 'test']])
@@ -3588,7 +3588,7 @@ def testSortedFieldsCaseSensetive(env):
     else:
         res.error().contains("Unknown field at offset 0 near F")
 
-    # make sure numeric fields are case sesitive
+    # make sure numeric fields are case sensitive
     conn.execute_command('hset', 'doc3', 'N', '1.0')
     conn.execute_command('hset', 'doc4', 'n', '1.0')
     env.expect('ft.search', 'idx', '@n:[0 2]').equal([1, 'doc4', ['n', '1.0']])
@@ -3598,7 +3598,7 @@ def testSortedFieldsCaseSensetive(env):
     else:
         res.error().contains("Unknown field at offset 0 near N")
 
-    # make sure tag fields are case sesitive
+    # make sure tag fields are case sensitive
     conn.execute_command('hset', 'doc5', 'T', 'tag')
     conn.execute_command('hset', 'doc6', 't', 'tag')
     env.expect('ft.search', 'idx', '@t:{tag}').equal([1, 'doc6', ['t', 'tag']])
@@ -3608,7 +3608,7 @@ def testSortedFieldsCaseSensetive(env):
     else:
         res.error().contains("Unknown field at offset 0 near T")
 
-    # make sure geo fields are case sesitive
+    # make sure geo fields are case sensitive
     conn.execute_command('hset', 'doc8', 'G', '-113.524,53.5244')
     conn.execute_command('hset', 'doc9', 'g', '-113.524,53.5244')
     env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1, 'doc9', ['g', '-113.524,53.5244']])
@@ -4040,7 +4040,7 @@ def cluster_set_test(env: Env):
             env.assertTrue(False, message=str(e))
 
     def prepare_env(env):
-        # set validation timeout to 5ms so occasionaly we will fail to validate the cluster,
+        # set validation timeout to 5ms so occasionally we will fail to validate the cluster,
         # this is to test the timeout logic, and help us with ipv6 addresses in containers
         # where the ipv6 address is not available by default
         env.cmd(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', 5)
@@ -4220,7 +4220,7 @@ def test_cluster_set_errors(env: Env):
         '[::1:234'
     ]
     for addr in invalid_addresses:
-        # Test withouth unix socket
+        # Test without unix socket
         env.expect('SEARCH.CLUSTERSET',
                    'MYID',
                    '1',

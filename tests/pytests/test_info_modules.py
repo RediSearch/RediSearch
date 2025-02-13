@@ -521,7 +521,7 @@ def test_redis_info_modules_vecsim():
 
 @skip(cluster=True)
 def test_indexes_logically_deleted_docs(env):
-  # Set these values to manually control the GC, ensuring that the GC will not run automatically since the run intervall
+  # Set these values to manually control the GC, ensuring that the GC will not run automatically since the run interval
   # is > 8h (5 mintues is the hard limit for a test).
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
   env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()

@@ -31,7 +31,7 @@ def testBasicGC(env):
 @skip(cluster=True)
 def testBasicGCWithEmptyInvIdx(env):
     if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs:
-        # this test is not relevent for legacy gc cause its not squeshing inverted index
+        # this test is not relevant for legacy gc cause its not squeshing inverted index
         env.skip()
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text'))
