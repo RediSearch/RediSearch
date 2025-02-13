@@ -322,10 +322,6 @@ def expireDocs(isSortable, iter1_expected_without_sortby, iter1_expected_with_so
         res = master.execute_command('WAIT', '1', '10000')
         env.assertEqual(res, 1)
 
-def shardsConnections(env):
-  for s in range(1, env.shardsCount + 1):
-      yield env.getConnection(shardId=s)
-
 def runUntil(conn, expected_result, callback, sleep_time=0.1, timeout=1):
   with TimeLimit(timeout):
     while True:
