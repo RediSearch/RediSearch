@@ -26,7 +26,7 @@ int HiddenName_CompareC(const HiddenName *left, const char *right, size_t right_
 int HiddenName_CaseInsensitiveCompare(HiddenName *left, HiddenName *right);
 int HiddenName_CaseInsensitiveCompareC(HiddenName *left, const char *right, size_t right_length);
 
-// ownership managment
+// ownership management
 HiddenName *HiddenName_Duplicate(const HiddenName *value);
 void HiddenName_TakeOwnership(HiddenName *hidden);
 void HiddenName_Clone(HiddenName *src, HiddenName **dst);
