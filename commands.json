@@ -1,9 +1,9 @@
 {
   "FT.CREATE": {
     "summary": "Creates an index with the given spec",
-    "complexity": 
+    "complexity":
       "O(K) at creation where K is the number of fields, O(N) if scanning the keyspace is triggered, where N is the number of keys in the keyspace",
-      "history": [        
+      "history": [
         [
           "2.0.0",
           "Added `PAYLOAD_FIELD` argument for backward support of `FT.SEARCH` deprecated `WITHPAYLOADS` argument"
@@ -1112,7 +1112,7 @@
         "name": "params",
         "type": "block",
         "optional": true,
-        "arguments": [          
+        "arguments": [
           {
             "name": "params",
             "type": "pure-token",
@@ -1394,7 +1394,7 @@
                 "name": "abs",
                 "token": "abs",
                 "type": "function",
-                "summary": "Return the absolute number of a numeric expression",
+                "summary": "Return the absolute value of a numeric expression",
                 "arguments": [
                   {
                     "token": "x"
@@ -1416,7 +1416,7 @@
                 "name": "floor",
                 "token": "floor",
                 "type": "function",
-                "summary": "Round to largest value not greater than x",
+                "summary": "Round to largest integer not greater than x",
                 "arguments": [
                   {
                     "token": "x"
@@ -1521,7 +1521,7 @@
                 "name": "substr",
                 "token": "substr",
                 "type": "function",
-                "summary": "Return the substring of s, starting at offset and having count characters.If offset is negative, it represents the distance from the end of the string.If count is -1, it means \"the rest of the string starting at offset\".",
+                "summary": "Return the substring of s, starting at offset and having count characters. If offset is negative, it represents the distance from the end of the string. If count is -1, it means \"the rest of the string starting at offset\".",
                 "arguments": [
                   {
                     "token": "s"
@@ -1538,7 +1538,7 @@
                 "name": "format",
                 "token": "format",
                 "type": "function",
-                "summary": "Use the arguments following fmt to format a string.Currently the only format argument supported is %s and it applies to all types of arguments.",
+                "summary": "Use the arguments following fmt to format a string. Currently the only format argument supported is %s and it applies to all types of arguments.",
                 "arguments": [
                   {
                     "token": "fmt"
