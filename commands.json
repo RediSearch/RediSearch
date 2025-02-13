@@ -1,9 +1,9 @@
 {
   "FT.CREATE": {
     "summary": "Creates an index with the given spec",
-    "complexity": 
+    "complexity":
       "O(K) at creation where K is the number of fields, O(N) if scanning the keyspace is triggered, where N is the number of keys in the keyspace",
-      "history": [        
+      "history": [
         [
           "2.0.0",
           "Added `PAYLOAD_FIELD` argument for backward support of `FT.SEARCH` deprecated `WITHPAYLOADS` argument"
@@ -1112,7 +1112,7 @@
         "name": "params",
         "type": "block",
         "optional": true,
-        "arguments": [          
+        "arguments": [
           {
             "name": "params",
             "type": "pure-token",
@@ -1514,6 +1514,28 @@
                 "arguments": [
                   {
                     "token": "s"
+                  }
+                ]
+              },
+              {
+                "name": "to_number",
+                "token": "to_number",
+                "type": "function",
+                "summary": "Return the conversion of string s into its numerical value",
+                "arguments": [
+                  {
+                    "token": "s"
+                  }
+                ]
+              },
+              {
+                "name": "to_str",
+                "token": "to_str",
+                "type": "function",
+                "summary": "Return the conversion of value v into its string representation",
+                "arguments": [
+                  {
+                    "token": "v"
                   }
                 ]
               },
