@@ -58,7 +58,7 @@ void FieldSpecInfo_SetStats(FieldSpecInfo *info, FieldSpecStats stats) {
     info->stats = stats;
 }
 
-static FieldSpecStats FieldStats_Deserialize(const char* type,const MRReply* reply){
+static FieldSpecStats FieldStats_Deserialize(const char* type, const MRReply* reply){
     FieldSpecStats stats = {0};
     FieldType fieldType = getFieldType(type);
     switch (fieldType) {
@@ -68,6 +68,7 @@ static FieldSpecStats FieldStats_Deserialize(const char* type,const MRReply* rep
                 VectorIndexStats_GetSetter(VectorIndexStats_Metrics[i])(&stats.vecStats, metricValue);
             }
             stats.type = INDEXFLD_T_VECTOR;
+            break;
         default:
             break;
     }
@@ -77,9 +78,8 @@ static FieldSpecStats FieldStats_Deserialize(const char* type,const MRReply* rep
 // IO and cluster traits
 
 void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply){
-    if (!stats) {
-        return;
-    }
+    assert(stats);
+
     switch (stats->type) {
         case INDEXFLD_T_VECTOR:
             for (int i = 0; VectorIndexStats_Metrics[i] != NULL; i++) {
@@ -151,11 +151,12 @@ FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
 }
 
 // Assuming the spec is properly locked before calling this function.
-size_t IndexSpec_VectorIndexSize(IndexSpec *sp) {
+size_t IndexSpec_VectorIndexesSize(IndexSpec *sp) {
   VectorIndexStats stats = IndexSpec_GetVectorIndexesStats(sp);
   return stats.memory;
 }
 
+// Assuming the spec is properly locked before calling this function.
 VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *fs){
   VectorIndexStats stats = {0};
   RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
@@ -174,6 +175,7 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *f
   return stats;
 }
 
+// Assuming the spec is properly locked before calling this function.
 VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
   VectorIndexStats stats = {0};
   for (size_t i = 0; i < sp->numFields; ++i) {
@@ -187,6 +189,7 @@ VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp) {
   return stats;
 }
 
+// Assuming the spec is properly locked before calling this function.
 FieldSpecStats IndexSpec_GetFieldStats(const FieldSpec *fs, IndexSpec *sp){
   FieldSpecStats stats = {0};
   stats.type = fs->types;
@@ -199,6 +202,7 @@ FieldSpecStats IndexSpec_GetFieldStats(const FieldSpec *fs, IndexSpec *sp){
   }
 }
 
+// Assuming the spec is properly locked before calling this function.
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, IndexSpec *sp) {
   FieldSpecInfo info = {0};
   FieldSpecInfo_SetIdentifier(&info, fs->path);

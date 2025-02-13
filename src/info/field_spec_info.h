@@ -31,6 +31,7 @@ typedef struct {
     FieldSpecStats stats;
 } FieldSpecInfo;
 
+// Get the information of the field 'fs' in the index 'sp'.
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, IndexSpec *sp);
 
 // Create stack allocated FieldSpecInfo.
@@ -59,5 +60,8 @@ void FieldSpecInfo_Combine(FieldSpecInfo *info, const FieldSpecInfo *other);
 // Deserializes a FieldSpecInfo from a MRReply.
 FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply);
 
-size_t IndexSpec_VectorIndexSize(IndexSpec *sp);
+//Get the total memory usage of all the vector fields in the index (in bytes).
+size_t IndexSpec_VectorIndexesSize(IndexSpec *sp);
+
+//Get the combined stats of all vector fields in the index.
 VectorIndexStats IndexSpec_GetVectorIndexesStats(IndexSpec *sp);

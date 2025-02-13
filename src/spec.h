@@ -520,11 +520,6 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
 #endif
 
 /**
- * Get the total memory usage of all the vector fields in the index (in bytes).
- */
-size_t IndexSpec_VectorIndexSize(IndexSpec *sp);
-
-/**
  * Gets the next text id from the index. This does not currently
  * modify the index
  */
