@@ -134,8 +134,7 @@ static inline t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, Re
 int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError *status) {
   // must happen before opening the key, in case the call will cause a lazy expiration
   IndexSpec *spec = sctx->spec;
-  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey,
-    REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
+  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   int rv = REDISMODULE_ERR;
   // This is possible if the key has expired for example in previous redis API calls in this notification flow.
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
@@ -214,7 +213,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   size_t nitems = sctx->spec->numFields;
   JSONResultsIterator jsonIter = NULL;
 
-  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
+  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   if (!k) {
     QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key %s does not exist", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
@@ -226,7 +225,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
 
   RedisModule_CloseKey(k);
 
-  RedisJSON jsonRoot = japi->openKey(ctx, doc->docKey);
+  RedisJSON jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   if (!jsonRoot) {
     goto done;
   }
