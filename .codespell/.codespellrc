@@ -1,0 +1,9 @@
+[codespell]
+# Ignore certain files and directories
+skip = .git,./deps/*,*.csv,lexer.c,./srcutil/*,./bin/*,parser.c,./sbin/*
+
+# Ignore words
+ignore-words = .codespell/wordlist.txt
+
+# Set the quiet level
+quiet-level = 2
