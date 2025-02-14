@@ -10,8 +10,7 @@ on:
 
 jobs:
   spellcheck:
-    # runs-on: ${{ vars.RUNS_ON }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.RUNS_ON }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
