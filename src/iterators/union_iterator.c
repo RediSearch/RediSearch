@@ -89,7 +89,7 @@ static inline IteratorStatus UI_Skip_Full_Flat(QueryIterator *base, const t_docI
   for (int i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
     if (cur->LastDocId < nextId) {
-      int rc = cur->SkipTo(cur, nextId);
+      IteratorStatus rc = cur->SkipTo(cur, nextId);
       if (rc == ITERATOR_OK) {
         UI_AddChild(ui, cur);
       } else if (rc == ITERATOR_EOF) {
@@ -129,7 +129,7 @@ static inline IteratorStatus UI_Read_Full_Flat(QueryIterator *base) {
   for (int i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
     if (cur->LastDocId == lastId) {
-      int rc = cur->Read(cur);
+      IteratorStatus rc = cur->Read(cur);
       if (rc == ITERATOR_EOF) {
         i = UI_RemoveExhausted(ui, i);
         continue;
@@ -159,7 +159,7 @@ static inline IteratorStatus UI_Skip_Quick_Flat(QueryIterator *base, const t_doc
   for (int i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
     if (cur->LastDocId < nextId) {
-      int rc = cur->SkipTo(cur, nextId);
+      IteratorStatus rc = cur->SkipTo(cur, nextId);
       if (rc == ITERATOR_OK) {
         UI_QuickSet(ui, cur);
         return ITERATOR_OK;
@@ -205,7 +205,7 @@ static inline IteratorStatus UI_Skip_Full_Heap(QueryIterator *base, const t_docI
   heap_t *hp = ui->heapMinId;
   AggregateResult_Reset(ui->base.current);
   while ((cur = heap_peek(hp)) && cur->LastDocId < nextId) {
-    int rc = cur->SkipTo(cur, nextId);
+    IteratorStatus rc = cur->SkipTo(cur, nextId);
     if (rc == ITERATOR_OK || rc == ITERATOR_NOTFOUND) {
       heap_replace(hp, cur); // replace current iterator with itself to update its position
     } else if (rc == ITERATOR_EOF) {
@@ -233,7 +233,7 @@ static inline IteratorStatus UI_Read_Full_Heap(QueryIterator *base) {
   heap_t *hp = ui->heapMinId;
   AggregateResult_Reset(ui->base.current);
   while ((cur = heap_peek(hp)) && cur->LastDocId == base->LastDocId) {
-    int rc = cur->Read(cur);
+    IteratorStatus rc = cur->Read(cur);
     if (rc == ITERATOR_OK) {
       heap_replace(hp, cur); // replace current iterator with itself to update its position
     } else if (rc == ITERATOR_EOF) {
@@ -261,7 +261,7 @@ static inline IteratorStatus UI_Skip_Quick_Heap(QueryIterator *base, const t_doc
   heap_t *hp = ui->heapMinId;
   AggregateResult_Reset(ui->base.current);
   while ((cur = heap_peek(hp)) && cur->LastDocId < nextId) {
-    int rc = cur->SkipTo(cur, nextId);
+    IteratorStatus rc = cur->SkipTo(cur, nextId);
     if (rc == ITERATOR_OK) {
       heap_replace(hp, cur); // replace current iterator with itself to update its position
       UI_QuickSet(ui, cur);
