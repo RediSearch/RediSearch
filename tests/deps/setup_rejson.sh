@@ -37,6 +37,6 @@ if [[ -n $SAN ]]; then
   rustup component add rust-src --toolchain nightly
 fi
 echo "Building RedisJSON module for branch $JSON_BRANCH..."
-BINROOT=${JSON_BIN_DIR} make SAN=$SAN > /dev/null 2>&1
+BINROOT=${JSON_BIN_DIR} make SAN=$SAN > /dev/null  # print errors to console
 
 echo "RedisJSON module built and is available at ${JSON_BIN_PATH}"
