@@ -481,6 +481,8 @@ ifneq ($(BENCHMARK),)
 BENCHMARK_ARGS += --test $(BENCHMARK)
 endif
 
+
+# Todo: fix that, currently will not work manually with rejson
 benchmark:
 ifeq ($(REJSON),1)
 	ROOT=$(ROOT) REJSON_BRANCH=$(REJSON_BRANCH) $(shell $(ROOT)/tests/deps/setup_rejson.sh)
@@ -506,8 +508,8 @@ coverage:
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(COVERAGE_RESET)
 	$(SHOW)$(MAKE) unit-tests COV=1
-	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1
-	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1
+	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
+	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
 .PHONY: coverage

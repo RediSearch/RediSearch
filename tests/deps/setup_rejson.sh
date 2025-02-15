@@ -1,10 +1,22 @@
 #!/bin/bash
 
+# Set the default variables
+ROOT ?= `pwd`
+BINROOT ?= ${ROOT}/bin/linux-x64-release
+
 JSON_BRANCH=${REJSON_BRANCH:-master}
 JSON_REPO_URL="https://github.com/RedisJSON/RedisJSON.git"
 TEST_DEPS_DIR="${ROOT}/tests/deps"
 JSON_MODULE_DIR="${TEST_DEPS_DIR}/RedisJSON"
-export JSON_BIN_DIR="${BINROOT}/RedisJSON/${JSON_BRANCH}"
+JSON_BIN_DIR="${BINROOT}/RedisJSON/${JSON_BRANCH}"
+export JSON_BIN_PATH="${JSON_BIN_DIR}/rejson.so"
+
+# Check if REJSON_PATH is set externally
+if [ -n "$REJSON_PATH" ]; then
+    JSON_BIN_PATH="$REJSON_PATH"
+    echo "Using RedisJSON path given as REJSON_PATH: $REJSON_PATH"
+    return 0
+fi
 
 # Clone the RedisJSON repository if it doesn't exist
 if [ ! -d "${JSON_MODULE_DIR}" ]; then
@@ -27,4 +39,4 @@ fi
 echo "Building RedisJSON module for branch $JSON_BRANCH..."
 BINROOT=${JSON_BIN_DIR} make SAN=$SAN > /dev/null 2>&1
 
-echo "RedisJSON module built and artifacts stored in $JSON_BIN_DIR"
+echo "RedisJSON module built and is available at ${JSON_BIN_PATH}"

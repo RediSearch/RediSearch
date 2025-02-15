@@ -4,6 +4,15 @@ name: Coverage analysis
 
 on:
   workflow_call:
+    inputs:
+      rejson:
+        type: number
+        default: 1
+        description: 'Enable tests with RedisJSON'
+      rejson-branch:
+        type: string
+        default: master
+        description: 'Branch to use when building RedisJSON for tests'
 
 env:
   BOOST_VERSION: ${{ vars.BOOST_VERSION }}
@@ -35,7 +44,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: ./deps/readies/bin/getredis --with-github-token --branch unstable
     - name: Build and test
-      run: make coverage QUICK=1 SHOW=1
+      run: make coverage QUICK=1 SHOW=1 REJSON_BRANCH=${{ inputs.rejson-branch }}
     - name: Upload coverage
       uses: codecov/codecov-action@v5
       with:

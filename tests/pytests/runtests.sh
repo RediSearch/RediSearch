@@ -563,10 +563,11 @@ if [[ $COV == 1 ]]; then
 	setup_coverage
 fi
 
-# Build RedisJSON module if required
+# Prepare RedisJSON module to be loaded into testing environment if required.
 if [[ $REJSON != 0 ]]; then
   ROOT=$ROOT REJSON_BRANCH=$REJSON_BRANCH source $ROOT/tests/deps/setup_rejson.sh
-  RLTEST_REJSON_ARGS="--module $JSON_BIN_DIR/rejson.so --module-args $REJSON_MODARGS"
+  echo "Using RedisJSON module at $JSON_BIN_PATH with args $REJSON_MODARGS"
+  RLTEST_REJSON_ARGS="--module ${JSON_BIN_PATH} --module-args $REJSON_MODARGS"
 else
   echo "Skipping tests with RedisJSON module"
 fi
@@ -618,7 +619,7 @@ if [[ $GC == 0 ]]; then
 	MODARGS="${MODARGS}; NOGC;"
 fi
 
-echo "Running tests in parallel using $parallel workers"
+echo "Running tests in parallel using $parallel Python processes"
 
 if [[ $REDIS_STANDALONE == 1 ]]; then
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
