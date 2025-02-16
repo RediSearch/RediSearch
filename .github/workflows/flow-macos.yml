@@ -62,6 +62,6 @@ jobs:
       coordinator: ${{ inputs.coordinator }}
       standalone:  ${{ inputs.standalone }}
       get-redis:   ${{ inputs.redis-ref }}
-      rejson: ${{ inputs.rejson }}
+      rejson: ${{ (inputs.rejson == true || inputs.rejson == 1) && 1 || 0 }}
       rejson-branch: ${{ inputs.rejson-branch }}
     secrets: inherit

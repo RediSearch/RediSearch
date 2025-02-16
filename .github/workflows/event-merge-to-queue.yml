@@ -43,7 +43,7 @@ jobs:
     uses: ./.github/workflows/flow-coverage.yml
     secrets: inherit
     with:
-      rejson_branch: master
+      rejson-branch: master
 
   sanitize:
     needs: [docs-only]
