@@ -1000,7 +1000,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         if (dialect != 1) {
           if (fs) {
-            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field is Not a numeric field", ", field: %s", HiddenString_GetUnsafe(fs->fieldName, NULL));
+            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field is not a numeric field", ", field: %s", HiddenString_GetUnsafe(fs->fieldName, NULL));
           } else {
             QueryError_SetErrorFmt(status, QUERY_EINVAL, "Unknown Field", " '%s'", HiddenString_GetUnsafe(fieldName, NULL));
           }
@@ -1027,7 +1027,8 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       gf->field.resolved = true;
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         if (dialect != 1) {
-          QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field is not a geo field", ", field: %s", HiddenString_GetUnsafe(fieldName, NULL));
+          const char *generalError = fs ? "Field is not a geo field" : "Unknown Field";
+          QueryError_SetErrorFmt(status, QUERY_EINVAL, generalError, ", field: %s", HiddenString_GetUnsafe(fieldName, NULL));
           return REDISMODULE_ERR;
         } else {
           // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid

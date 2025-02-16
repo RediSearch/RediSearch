@@ -1421,12 +1421,18 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
 }
 
 DEBUG_COMMAND(ListIndexesSwitch) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   RedisModule_Reply _reply = RedisModule_NewReply(ctx);
   Indexes_List(&_reply, true);
   return REDISMODULE_OK;
 }
 
 DEBUG_COMMAND(getHideUserDataFromLogs) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   const long long value = RSGlobalConfig.hideUserDataFromLog;
   return RedisModule_ReplyWithLongLong(ctx, value);
 }

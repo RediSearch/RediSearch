@@ -337,6 +337,9 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 // Output the info for all the indexes whose obfuscated name matches
 // This function might use an optimization at a later date to not run in O(n) time
 int IndexObfuscatedInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
   if (argc < 3) return RedisModule_WrongArity(ctx);
   const char *nameOrAll = RedisModule_StringPtrLen(argv[2], NULL);
   const bool everything = !strcasecmp(nameOrAll, "ALL");

@@ -121,14 +121,14 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
     }
     case VECSIM_QT_RANGE: {
       if ((dim * VecSimType_sizeof(type)) != vq->range.vecLen) {
-        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
+        QueryError_SetUserDataAgnosticErrorFmt(q->status, QUERY_EINVAL,
                                "Error parsing vector similarity query: query vector blob size"
                                " (%zu) does not match index's expected size (%zu).",
                                vq->range.vecLen, (dim * VecSimType_sizeof(type)));
         return NULL;
       }
       if (vq->range.radius < 0) {
-        QueryError_SetErrorFmt(q->status, QUERY_EINVAL,
+        QueryError_SetUserDataAgnosticErrorFmt(q->status, QUERY_EINVAL,
                                "Error parsing vector similarity query: negative radius",
                                " (%g) given in a range query",
                                vq->range.radius);
