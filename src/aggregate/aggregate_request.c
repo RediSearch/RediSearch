@@ -178,9 +178,9 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
     QueryError_SetError(status, QUERY_EBADVAL, "Need an argument for FORMAT");
     return REDISMODULE_ERR;
   }
-  if (HiddenString_CaseInsensitiveCompareC(hformat, "EXPAND", strlen("EXPAND"))){
+  if (!HiddenString_CaseInsensitiveCompareC(hformat, "EXPAND", strlen("EXPAND"))){
     *flags |= QEXEC_FORMAT_EXPAND;
-  } else if (HiddenString_CaseInsensitiveCompareC(hformat, "STRING", strlen("STRING"))){
+  } else if (!HiddenString_CaseInsensitiveCompareC(hformat, "STRING", strlen("STRING"))){
     *flags &= ~QEXEC_FORMAT_EXPAND;
   } else {
     const char *format = HiddenString_GetUnsafe(hformat, NULL);
@@ -1075,7 +1075,7 @@ static bool IsIndexCoherent(AREQ *req) {
   uint base_idx = req->prefixesOffset + 2;
   for (uint i = 0; i < n_prefixes; i++) {
     sds arg = args[base_idx + i];
-    if (!HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
+    if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
       // Unmatching prefixes
       return false;
     }
