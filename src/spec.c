@@ -504,17 +504,17 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
     return rc;
   }
   // Uncomment these when support for other type is added.
-  if (HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_FLOAT32, strlen(VECSIM_TYPE_FLOAT32)))
+  if (!HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_FLOAT32, strlen(VECSIM_TYPE_FLOAT32)))
     *type = VecSimType_FLOAT32;
-  else if (HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_FLOAT64, strlen(VECSIM_TYPE_FLOAT64)))
+  else if (!HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_FLOAT64, strlen(VECSIM_TYPE_FLOAT64)))
     *type = VecSimType_FLOAT64;
-  else if (HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_FLOAT16, strlen(VECSIM_TYPE_FLOAT16)))
+  else if (!HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_FLOAT16, strlen(VECSIM_TYPE_FLOAT16)))
     *type = VecSimType_FLOAT16;
-  else if (HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_BFLOAT16, strlen(VECSIM_TYPE_BFLOAT16)))
+  else if (!HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_BFLOAT16, strlen(VECSIM_TYPE_BFLOAT16)))
     *type = VecSimType_BFLOAT16;
-  else if (HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_UINT8, strlen(VECSIM_TYPE_UINT8)))
+  else if (!HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_UINT8, strlen(VECSIM_TYPE_UINT8)))
     *type = VecSimType_UINT8;
-  else if (HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_INT8, strlen(VECSIM_TYPE_INT8)))
+  else if (!HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_INT8, strlen(VECSIM_TYPE_INT8)))
     *type = VecSimType_INT8;
   // else if (HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_INT32, strlen(VECSIM_TYPE_INT32)))
   //   *type = VecSimType_INT32;
@@ -680,8 +680,9 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
         return 0;
       }
     } else {
-      HiddenString *hac = AC_GetHiddenString(ac, NULL);
-      QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, HiddenString_GetUnsafe(ac, NULL));
+      HiddenString *hac;
+      AC_GetHiddenString(ac, &hac);
+      QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, HiddenString_GetUnsafe(hac, NULL));
       return 0;
     }
     numParam++;
@@ -758,8 +759,9 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
         return 0;
       }
     } else {
-      HiddenString *hac = AC_GetHiddenString(ac, NULL);
-      QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_BF, HiddenString_GetUnsafe(ac, NULL));
+      HiddenString *hac;
+      AC_GetHiddenString(ac, &hac);
+      QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_BF, HiddenString_GetUnsafe(hac, NULL));
       return 0;
     }
     numParam++;
@@ -915,13 +917,13 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
   logCtx->index_field_name = HiddenString_GetUnsafe(fs->fieldName, NULL);
   fs->vectorOpts.vecSimParams.logCtx = logCtx;
-  if (HiddenString_CaseInsensitiveCompareC(halgStr,VECSIM_ALGORITHM_BF, strlen(VECSIM_ALGORITHM_BF))){
+  if (!HiddenString_CaseInsensitiveCompareC(halgStr,VECSIM_ALGORITHM_BF, strlen(VECSIM_ALGORITHM_BF))){
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.initialCapacity = SIZE_MAX;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.blockSize = 0;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.multi = multi;
     result = parseVectorField_flat(fs, &fs->vectorOpts.vecSimParams, ac, status);
-  } else if (HiddenString_CaseInsensitiveCompareC(halgStr, VECSIM_ALGORITHM_HNSW, strlen(VECSIM_ALGORITHM_HNSW))) {
+  } else if (!HiddenString_CaseInsensitiveCompareC(halgStr, VECSIM_ALGORITHM_HNSW, strlen(VECSIM_ALGORITHM_HNSW))) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
     fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0; // Will be set to default value.
@@ -1090,7 +1092,6 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     } else {
       // if `AS` is not used, set the path as name
       HiddenString_GetUnsafe(hfieldPath, &namelen);
-      hfieldPath = NULL;
     }
 
     const char *fieldName = HiddenString_GetUnsafe(hfieldPath, NULL);

@@ -109,8 +109,6 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
       if (AC_GetHiddenString(ac, &hsaparator) != AC_OK) {
         rc = REDISMODULE_ERR;
         goto done;
-      } else {
-        defOpts.summarizeSettings.separator = HiddenString_GetUnsafe(hsaparator, NULL);
       }
     } else {
       break;

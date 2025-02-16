@@ -415,7 +415,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
 
       if (!HiddenString_CaseInsensitiveCompareC(hs, "ASC", strlen("ASC"))) {
         SORTASCMAP_SETASC(ascMap, array_len(keys) - 1);
-      } else if (HiddenString_CaseInsensitiveCompareC(hs, "DESC", strlen("DESC"))) {
+      } else if (!HiddenString_CaseInsensitiveCompareC(hs, "DESC", strlen("DESC"))) {
         SORTASCMAP_SETDESC(ascMap, array_len(keys) - 1);
       } else {
         // Unknown token - neither a property nor ASC/DESC
@@ -620,7 +620,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         if (rv != AC_OK) {
           QERR_MKBADARGS(status, "RETURN path AS name - must be accompanied with NAME");
           return REDISMODULE_ERR;
-        } else if (HiddenString_CaseInsensitiveCompareC(hname, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
+        } else if (!HiddenString_CaseInsensitiveCompareC(hname, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
           QERR_MKBADARGS(status, "Alias for RETURN cannot be `AS`");
           return REDISMODULE_ERR;
         }
@@ -751,8 +751,8 @@ PLN_GroupStep *PLNGroupStep_New(const char **properties, size_t nproperties) {
 
 static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor groupArgs = {0};
-  HiddenString *hs;
-  AC_GetHiddenString(ac, &hs);
+  // HiddenString *hs;
+  // AC_GetHiddenString(ac, &hs);
   int rv = AC_GetVarArgs(ac, &groupArgs);
   if (rv != AC_OK) {
     QERR_MKBADARGS_AC(status, "GROUPBY", rv);
@@ -772,9 +772,8 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
   AGPLN_AddStep(&req->ap, &gstp->base);
 
   while (AC_AdvanceIfMatch(ac, "REDUCE")) {
-    const char *name;
     HiddenString *hname;
-    if (AC_GetHiddenString(ac, &name) != AC_OK) {
+    if (AC_GetHiddenString(ac, &hname) != AC_OK) {
       QERR_MKBADARGS_AC(status, "REDUCE", rv);
       return REDISMODULE_ERR;
     }
@@ -1076,7 +1075,7 @@ static bool IsIndexCoherent(AREQ *req) {
   uint base_idx = req->prefixesOffset + 2;
   for (uint i = 0; i < n_prefixes; i++) {
     sds arg = args[base_idx + i];
-    if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
+    if (!HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
       // Unmatching prefixes
       return false;
     }
@@ -1618,7 +1617,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
         while (!AC_IsAtEnd(&lstp->args)) {
           size_t name_len;
           HiddenString *hname, *hpath = AC_GetHiddenStringNoCopy(&lstp->args);
-          if (HiddenString_StartsWith(hpath, '@')){
+          if (HiddenString_StartsWith(hpath, "@")){
             HiddenString_AdvanceBy(hpath, 1);
           }
           if (AC_AdvanceIfMatch(&lstp->args, SPEC_AS_STR)) {
@@ -1626,7 +1625,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
             if (rv != AC_OK) {
               QERR_MKBADARGS(status, "LOAD path AS name - must be accompanied with NAME");
               return REDISMODULE_ERR;
-            } else if (HiddenString_CaseInsensitiveCompareC(hname, SPEC_AS_STR, strlen(SPEC_AS_STR))){
+            } else if (!HiddenString_CaseInsensitiveCompareC(hname, SPEC_AS_STR, strlen(SPEC_AS_STR))){
               QERR_MKBADARGS(status, "Alias for LOAD cannot be `AS`");
               return REDISMODULE_ERR;
             }
@@ -1635,7 +1634,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
             hname = hpath;
           }
 
-          const char *name = HiddenString_GetUnsafe(hname, name_len);
+          const char *name = HiddenString_GetUnsafe(hname, &name_len);
           RLookupKey *kk = RLookup_GetKey_LoadEx(curLookup, name, name_len,
                                                       HiddenString_GetUnsafe(hpath, NULL), loadFlags);
           // We only get a NULL return if the key already exists, which means

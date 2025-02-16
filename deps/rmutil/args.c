@@ -209,7 +209,7 @@ HiddenString *AC_GetHiddenStringNoCopy(ArgsCursor *ac) {
   return rc == AC_OK ? NewHiddenString(text, n, false) : NULL;
 }
 
-int *AC_GetHiddenString(ArgsCursor *ac, HiddenString** hs) {
+int AC_GetHiddenString(ArgsCursor *ac, HiddenString** hs) {
   size_t n;
   const char *text = NULL;
   const int rc = AC_GetString(ac, &text, &n, 0);

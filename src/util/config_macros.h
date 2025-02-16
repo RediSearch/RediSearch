@@ -39,7 +39,7 @@
     HiddenString* htf;                                                                   \
     int acrc = AC_GetHiddenString(ac, &htf);                                            \
     CHECK_RETURN_PARSE_ERROR(acrc);                                                     \
-    if (HiddenString_CaseInsensitiveCompareC(htf, "true", strlen("true"))){             \
+    if (!HiddenString_CaseInsensitiveCompareC(htf, "true", strlen("true"))){             \
       config->var = 1;                                                                  \
     } else if (!HiddenString_CaseInsensitiveCompareC(htf, "false", strlen("false"))) {  \
       config->var = 0;                                                                  \

@@ -59,9 +59,9 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   ArgsCursor_InitRString(&ac, argv + 4, argc - 4);
   while (!AC_IsAtEnd(&ac)) {
     HiddenString *hs = AC_GetHiddenStringNoCopy(&ac);
-    if (HiddenString_CaseInsensitiveCompareC(hs, "INCR", strlen("INCR"))){
+    if (!HiddenString_CaseInsensitiveCompareC(hs, "INCR", strlen("INCR"))){
       incr = 1;
-    } else if (HiddenString_CaseInsensitiveCompareC(hs, "PAYLOAD", strlen("PAYLOAD"))){
+    } else if (!HiddenString_CaseInsensitiveCompareC(hs, "PAYLOAD", strlen("PAYLOAD"))){
       HiddenString *hpayloadDataStr;
       if ((rv = AC_GetHiddenString(&ac, &hpayloadDataStr)) != AC_OK) {
         return RMUtil_ReplyWithErrorFmt(ctx, "Invalid payload: %s", AC_Strerror(rv));

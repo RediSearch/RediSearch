@@ -464,11 +464,11 @@ CONFIG_SETTER(setMtMode) {
   HiddenString *hmt_mode;
   int acrc = AC_GetHiddenString(ac, &hmt_mode);
   CHECK_RETURN_PARSE_ERROR(acrc);\
-  if (HiddenString_CaseInsensitiveCompareC(hmt_mode, "MT_MODE_OFF", strlen("MT_MODE_OFF"))) {
+  if (!HiddenString_CaseInsensitiveCompareC(hmt_mode, "MT_MODE_OFF", strlen("MT_MODE_OFF"))) {
     mt_mode_config = MT_MODE_OFF;
-  } else if (HiddenString_CaseInsensitiveCompareC(hmt_mode, "MT_MODE_ONLY_ON_OPERATIONS", strlen("MT_MODE_ONLY_ON_OPERATIONS"))) {
+  } else if (!HiddenString_CaseInsensitiveCompareC(hmt_mode, "MT_MODE_ONLY_ON_OPERATIONS", strlen("MT_MODE_ONLY_ON_OPERATIONS"))) {
     mt_mode_config = MT_MODE_ONLY_ON_OPERATIONS;
-  } else if (HiddenString_CaseInsensitiveCompareC(hmt_mode, "MT_MODE_FULL", strlen("MT_MODE_FULL"))) {
+  } else if (!HiddenString_CaseInsensitiveCompareC(hmt_mode, "MT_MODE_FULL", strlen("MT_MODE_FULL"))) {
     mt_mode_config = MT_MODE_FULL;
   } else {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Invalie MT mode");
@@ -763,7 +763,7 @@ CONFIG_SETTER(setGcPolicy) {
   if (!HiddenString_CaseInsensitiveCompareC(hpolicy, "DEFAULT", strlen("DEFAULT")) ||
    !HiddenString_CaseInsensitiveCompareC(hpolicy, "FORK", strlen("FORK"))) {
     config->gcConfigParams.gcPolicy = GCPolicy_Fork;
-  } else if (HiddenString_CaseInsensitiveCompareC(hpolicy, "LEGACY", strlen("LEGACY"))) {
+  } else if (!HiddenString_CaseInsensitiveCompareC(hpolicy, "LEGACY", strlen("LEGACY"))) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Legacy GC policy is no longer supported (since 2.6.0)");
     return REDISMODULE_ERR;
   } else {
