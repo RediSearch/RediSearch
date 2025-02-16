@@ -129,7 +129,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
       }
       if (vq->range.radius < 0) {
         QueryError_SetUserDataAgnosticErrorFmt(q->status, QUERY_EINVAL,
-                               "Error parsing vector similarity query: negative radius",
+                               "Error parsing vector similarity query: negative radius"
                                " (%g) given in a range query",
                                vq->range.radius);
         return NULL;

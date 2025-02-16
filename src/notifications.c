@@ -336,11 +336,11 @@ void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
 #define HIDE_USER_DATA_FROM_LOGS "hide-user-data-from-log"
 
 bool getHideUserDataFromLogs() {
-  RedisModuleCallReply *reply =
-      RedisModule_Call(RSDummyContext, "CONFIG", "cc", "GET", HIDE_USER_DATA_FROM_LOGS);
-  RedisModule_Assert(reply);
-  RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_BOOL);
-  return RedisModule_CallReplyBool(reply);
+  char *value = getRedisConfigValue(RSDummyContext, HIDE_USER_DATA_FROM_LOGS);
+  RedisModule_Assert(value);
+  const bool hideUserData = !strcasecmp(value, "yes");
+  rm_free(value);
+  return hideUserData;
 }
 
 void onUpdatedHideUserDataFromLogs(RedisModuleCtx *ctx) {

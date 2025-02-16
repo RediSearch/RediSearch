@@ -74,7 +74,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
   switch (node->type) {
     case QN_NUMERIC:
       // add support for multiple ranges on field
-      if (name && !HiddenString_CompareC(node->nn.nf->field.u.name, name, strlen(name))) {
+      if (name && !HiddenString_CompareC(FIELD_NAME(node->nn.nf->field), name, strlen(name))) {
         ret = node;
       }
       break;

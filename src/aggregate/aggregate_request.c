@@ -1021,7 +1021,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   if (opts->legacy.geo_filters) {
     for (size_t ii = 0; ii < array_len(opts->legacy.geo_filters); ++ii) {
       GeoFilter *gf = opts->legacy.geo_filters[ii];
-      const HiddenString *fieldName = gf->field.u.name;
+      const HiddenString *fieldName = FIELD_NAME(gf->field);
       const FieldSpec *fs = IndexSpec_GetField(sctx->spec, fieldName);
       gf->field.u.spec = fs;
       gf->field.resolved = true;
