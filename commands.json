@@ -689,6 +689,7 @@
   "FT.CONFIG SET": {
     "summary": "Sets runtime configuration options",
     "complexity": "O(1)",
+    "deprecated_since": "8.0.0",
     "arguments": [
       {
         "name": "option",
@@ -705,6 +706,7 @@
   "FT.CONFIG GET": {
     "summary": "Retrieves runtime configuration options",
     "complexity": "O(1)",
+    "deprecated_since": "8.0.0",
     "arguments": [
       {
         "name": "option",
@@ -717,6 +719,7 @@
   "FT.CONFIG HELP": {
     "summary": "Help description of runtime configuration options",
     "complexity": "O(1)",
+    "deprecated_since": "8.0.0",
     "arguments": [
       {
         "name": "option",

@@ -951,7 +951,7 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   const FieldSpec *fs = node->gmn.geomq->fs;
 
   // TODO: open with DONT_CREATE_INDEX once the query string is validated before we get here.
-  // Currently, if  we use DONT_CREATE_INDEX, and the index was not initalized yet, and the query is invalid,
+  // Currently, if  we use DONT_CREATE_INDEX, and the index was not initialized yet, and the query is invalid,
   // we return results as if the index was empty, instead of raising an error.
   const GeometryIndex *index = OpenGeometryIndex(q->sctx->spec, fs, CREATE_INDEX);
   const GeometryApi *api = GeometryApi_Get(index);
@@ -1057,7 +1057,22 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
 
 typedef IndexIterator **IndexIteratorArray;
 
-static void tag_strtofold(char *str, size_t *len, int caseSensitive) {
+
+/**
+ * Converts a given string to lowercase and handles escape sequences.
+ *
+ * This function processes the input string `str` and converts it to lowercase
+ * if `caseSensitive` is false.
+ * It also handles escape sequences by removing the backslash character if it
+ * precedes a punctuation or whitespace character.
+ *
+ * @param str The input string to be processed. The string is modified in place.
+ * @param len A pointer to the length of the input string. The length is updated
+ * to reflect any changes made to the string.
+ * @param caseSensitive A flag indicating whether the conversion to lowercase
+ * should be performed. If true, the string remains case-sensitive.
+ */
+static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
   size_t origLen = *len;
   char *origStr = str;
   char *p = str;
@@ -1073,8 +1088,9 @@ static void tag_strtofold(char *str, size_t *len, int caseSensitive) {
 
   if (!caseSensitive) {
     size_t newLen = unicode_tolower(origStr, origLen);
-    if (newLen && newLen < origLen) {
+    if (newLen) {
       origStr[newLen] = '\0';
+      *len = newLen;
     }
   }
 }
@@ -1090,11 +1106,11 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
 
   if(qn->lxrng.begin) {
     size_t beginLen = strlen(qn->lxrng.begin);
-    tag_strtofold(qn->lxrng.begin, &beginLen, caseSensitive);
+    tag_strtolower(qn->lxrng.begin, &beginLen, caseSensitive);
   }
   if(qn->lxrng.end) {
     size_t endLen = strlen(qn->lxrng.end);
-    tag_strtofold(qn->lxrng.end, &endLen, caseSensitive);
+    tag_strtolower(qn->lxrng.end, &endLen, caseSensitive);
   }
 
   ctx.cap = 8;
@@ -1124,8 +1140,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
   RSToken *tok = &qn->pfx.tok;
 
-  tag_strtofold(tok->str, &tok->len, caseSensitive);
-  tok->len = strlen(tok->str);
+  tag_strtolower(tok->str, &tok->len, caseSensitive);
 
   // we allow a minimum of 2 letters in the prefix by default (configurable)
   if (tok->len < q->config->minTermPrefix) {
@@ -1229,8 +1244,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
 
   RSToken *tok = &qn->verb.tok;
 
-  tag_strtofold(tok->str, &tok->len, caseSensitive);
-  tok->len = strlen(tok->str);
+  tag_strtolower(tok->str, &tok->len, caseSensitive);
 
   tok->len = Wildcard_RemoveEscape(tok->str, tok->len);
 
@@ -1325,8 +1339,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   switch (n->type) {
     case QN_TOKEN: {
-      tag_strtofold(n->tn.str, &n->tn.len, caseSensitive);
-      n->tn.len = strlen(n->tn.str);
+      tag_strtolower(n->tn.str, &n->tn.len, caseSensitive);
       ret = TagIndex_OpenReader(idx, q->sctx, n->tn.str, n->tn.len, weight, fs->index);
       break;
     }
@@ -1345,7 +1358,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       char *terms[QueryNode_NumChildren(n)];
       for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
         if (n->children[i]->type == QN_TOKEN) {
-          tag_strtofold(n->children[i]->tn.str, &n->children[i]->tn.len, caseSensitive);
+          tag_strtolower(n->children[i]->tn.str, &n->children[i]->tn.len, caseSensitive);
           terms[i] = n->children[i]->tn.str;
         } else {
           terms[i] = "";

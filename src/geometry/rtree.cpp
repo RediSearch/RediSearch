@@ -138,7 +138,7 @@ constexpr auto geometry_reporter =
                return std::transform_reduce(
 // apple clang does not implement `std::execution` despite being a C++17 feature
 // feature test macro for std::execution. hopefully the most applicable, smallest necessary tool
-// nobody would define the feature test macro witout implementing the feature
+// nobody would define the feature test macro without implementing the feature
 #if defined(__cpp_lib_execution)
                    std::execution::unseq,
 #endif
