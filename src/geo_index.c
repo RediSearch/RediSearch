@@ -42,8 +42,6 @@ int GeoFilter_LegacyParse(GeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterVal
     QERR_MKBADARGS_AC(status, "<geo property>", rv);
     return REDISMODULE_ERR;
   }
-  gf->field.resolved = false;
-  gf->field.u.name = NewHiddenString(fieldName, strlen(fieldName), false);
   if ((rv = AC_GetDouble(ac, &gf->lon, AC_F_NOADVANCE) != AC_OK)) {
     QERR_MKBADARGS_AC(status, "<lon>", rv);
     return REDISMODULE_ERR;
@@ -76,7 +74,9 @@ int GeoFilter_LegacyParse(GeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterVal
     QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", unitstr);
     return REDISMODULE_ERR;
   }
-
+  // only allocate on the success path
+  gf->field.resolved = false;
+  gf->field.u.name = NewHiddenString(fieldName, strlen(fieldName), false);
   return REDISMODULE_OK;
 }
 
@@ -87,6 +87,9 @@ void GeoFilter_Free(GeoFilter *gf) {
         NumericFilter_Free(gf->numericFilters[i]);
     }
     rm_free(gf->numericFilters);
+  }
+  if (!gf->field.resolved && gf->field.u.name) {
+    HiddenString_Free(gf->field.u.name, false);
   }
   rm_free(gf);
 }

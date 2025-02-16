@@ -986,21 +986,23 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
     for (size_t ii = 0; ii < array_len(opts->legacy.filters); ++ii) {
       NumericFilter *filter = opts->legacy.filters[ii];
 
-      const HiddenString* fieldName = NULL;
       const FieldSpec *fs = NULL;
       if (filter->field.resolved) {
-        fieldName = filter->field.u.spec->fieldName;
         fs = filter->field.u.spec;
-      } else {
-        fieldName = filter->field.u.name;
-        fs = IndexSpec_GetField(sctx->spec, fieldName);
-        filter->field.u.spec = fs;
-        filter->field.resolved = true;
+      } else if (filter->field.u.name) {
+        fs = IndexSpec_GetField(sctx->spec, filter->field.u.name);
+        if (fs) {
+          HiddenString_Free(filter->field.u.name, false);
+          filter->field.u.spec = fs;
+          filter->field.resolved = true;
+        }
       }
+
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         if (dialect != 1) {
+          const HiddenString *fieldName = FIELD_NAME(filter->field);
           if (fs) {
-            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field is not a numeric field", ", field: %s", HiddenString_GetUnsafe(fs->fieldName, NULL));
+            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field is not a numeric field", ", field: %s", HiddenString_GetUnsafe(fieldName, NULL));
           } else {
             QueryError_SetErrorFmt(status, QUERY_EINVAL, "Unknown Field", " '%s'", HiddenString_GetUnsafe(fieldName, NULL));
           }
@@ -1021,14 +1023,22 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   if (opts->legacy.geo_filters) {
     for (size_t ii = 0; ii < array_len(opts->legacy.geo_filters); ++ii) {
       GeoFilter *gf = opts->legacy.geo_filters[ii];
-      const HiddenString *fieldName = FIELD_NAME(gf->field);
-      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, fieldName);
-      gf->field.u.spec = fs;
-      gf->field.resolved = true;
+      const FieldSpec *fs = NULL;
+      if (gf->field.resolved) {
+        fs = gf->field.u.spec;
+      } else if (gf->field.u.name) {
+        fs = IndexSpec_GetField(sctx->spec, gf->field.u.name);
+        // we only mark the field as resolved if spec was found, important so memory of allocated string would still be free if we failed to resolve the field
+        if (fs) {
+          HiddenString_Free(gf->field.u.name, false);
+          gf->field.u.spec = fs;
+          gf->field.resolved = true;
+        }
+      }
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         if (dialect != 1) {
           const char *generalError = fs ? "Field is not a geo field" : "Unknown Field";
-          QueryError_SetErrorFmt(status, QUERY_EINVAL, generalError, ", field: %s", HiddenString_GetUnsafe(fieldName, NULL));
+          QueryError_SetErrorFmt(status, QUERY_EINVAL, generalError, ", field: %s", HiddenString_GetUnsafe(FIELD_NAME(gf->field), NULL));
           return REDISMODULE_ERR;
         } else {
           // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid

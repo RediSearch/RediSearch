@@ -832,6 +832,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
   HiddenString *alias = NewHiddenString(rawAlias, length, false);
   if (dictFetchValue(specDict_g, alias)) {
+    HiddenString_Free(alias, false);
     QueryError_SetCode(error, QUERY_EALIASCONFLICT);
     return REDISMODULE_ERR;
   }

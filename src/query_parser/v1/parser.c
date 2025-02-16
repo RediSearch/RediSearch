@@ -1553,7 +1553,6 @@ static YYACTIONTYPE yy_reduce(
       case 49: /* expr ::= modifier COLON numeric_range */
 {
     // we keep the capitalization as is
-    yylhsminor.yy75 = NULL;
     const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len) : NULL;
     if (fs) {
         yylhsminor.yy75 = NewNumericNode(yymsp[0].minor.yy62, fs);
