@@ -1,6 +1,6 @@
 [codespell]
 # Ignore certain files and directories.
-skip = .git,./deps/*,*.csv,lexer.c,./srcutil/*,./bin/*,parser.c,./sbin/*,lexer.rl
+skip = .git,./deps/*,*.csv,./srcutil/*,./bin/*,parser.c,./sbin/*
 
 # Ignore words.
 ignore-words = .codespell/ignore_wordlist.txt
