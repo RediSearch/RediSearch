@@ -266,7 +266,7 @@ static inline char *toksep2(char **s, size_t *tokLen) {
 
 %type vector_attribute { SingleVectorQueryParam }
 // This destructor is commented out because it's not reachable: every vector_attribute that created
-// successfuly can successfuly be reduced to vector_attribute_list.
+// successfully can successfully be reduced to vector_attribute_list.
 // %destructor vector_attribute { rm_free((char*)($$.param.value)); rm_free((char*)($$.param.name)); }
 
 %type vector_attribute_list { VectorQueryParams }
@@ -310,7 +310,7 @@ star ::= STAR.
 
 star ::= LP star RP.
 
-// This rule switches from text contex to regular context.
+// This rule switches from text context to regular context.
 // In general, we want to stay in text context as long as we can (mostly for use of field modifiers).
 expr(A) ::= text_expr(B). [TEXTEXPR] {
   A = B;
@@ -547,7 +547,7 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
     size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
     if(tokLen > 0) {
-      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), -1);
+      QueryNode *C = NewTokenNode(ctx, rm_normalize(tok, tokLen), -1);
       QueryNode_AddChild(A, C);
     }
   }
@@ -563,7 +563,7 @@ text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
   char *s = rm_malloc(B.len + 1);
   *s = '$';
   memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_strdupcase(s, B.len + 1), -1);
+  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
   rm_free(s);
   A->opts.flags |= QueryNode_Verbatim;
 }
@@ -574,7 +574,7 @@ text_expr(A) ::= SQUOTE ATTRIBUTE(B) SQUOTE. [TERMLIST] {
   char *s = rm_malloc(B.len + 1);
   *s = '$';
   memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_strdupcase(s, B.len + 1), -1);
+  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
   rm_free(s);
   A->opts.flags |= QueryNode_Verbatim;
 }

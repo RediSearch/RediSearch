@@ -282,7 +282,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else if (strcasecmp(operation, "EXCLUDE") == 0) {
       array_append(excludeDict, (char *)dictName);
     } else {
-      RedisModule_ReplyWithError(ctx, "bad format, exlude/include operation was not given");
+      RedisModule_ReplyWithError(ctx, "bad format, exclude/include operation was not given");
       goto end;
     }
   }
@@ -821,6 +821,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 
   if (!checkEnterpriseACL(ctx, sp)) {
     QueryError_SetError(error, QUERY_EGENERIC, NOPERM_ERR);
+    return REDISMODULE_ERR;
   }
 
   const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
@@ -1144,18 +1145,7 @@ cleanup:
   return rc;
 }
 
-int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  char *err;
-
-  legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
-
-  // Read module configuration from module ARGS
-  if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
-    RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
-    rm_free(err);
-    return REDISMODULE_ERR;
-  }
-
+int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   GetRedisVersion(ctx);
 
   char ver[64];
@@ -1986,7 +1976,7 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
 
     // This was reversed to be more compatible with OSS version where tie breaker was changed
     // to return the lower doc ID to reduce sorting heap work. Doc name might not be ascending
-    // or decending but this still may reduce heap work.
+    // or descending but this still may reduce heap work.
     // Our tests are usually ascending so this will create similarity between RS and RSC.
     int rv = -cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
 
@@ -2070,7 +2060,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
     return res;
   }
 
-  // parse socre
+  // parse score
   MRReply *score = MRReply_MapElement(result_j, "score");
   if (explainScores) {
     if (MRReply_Type(score) != MR_REPLY_ARRAY) {
@@ -2136,7 +2126,7 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
    * SCORE         ---| optional - only if WITHSCORES was given, or SORTBY section was not given.
    * Payload
    * Sort field    ---|
-   * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwards comptability.
+   * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwards compatibility.
    * ...           ---|
    * First field
    *
@@ -3656,6 +3646,34 @@ static bool checkClusterEnabled(RedisModuleCtx *ctx) {
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
+int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfiguration, int isClusterEnabled) {
+  // register the module configuration with redis, use loaded values from command line as defaults
+  if (registerConfiguration) {
+    if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
+      RedisModule_Log(ctx, "warning", "Error registering module configuration");
+      return REDISMODULE_ERR;
+    }
+    if (isClusterEnabled) {
+      // Register module configuration parameters for cluster
+      RM_TRY_F(RegisterClusterModuleConfig, ctx);
+    }
+  }
+
+  // Load default values
+  RM_TRY_F(RedisModule_LoadDefaultConfigs, ctx);
+
+  char *err = NULL;
+  // Read module configuration from module ARGS
+  if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
+    RedisModule_Log(ctx, "warning", "Invalid Configurations: %s", err);
+    rm_free(err);
+    return REDISMODULE_ERR;
+  }
+  // Apply configuration redis has loaded from the configuration file
+  RM_TRY_F(RedisModule_LoadConfigs, ctx);
+  return REDISMODULE_OK;
+}
+
 int __attribute__((visibility("default")))
 RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
@@ -3678,29 +3696,20 @@ RedisModule_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   // Register the module configuration parameters
   GetRedisVersion(ctx);
-  const Version unstableRedis = {7, 9, 227};
-  const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
-  if (unprefixedConfigSupported) {
-    if (RegisterModuleConfig(ctx) == REDISMODULE_ERR) {
-      RedisModule_Log(ctx, "warning", "Error registering module configuration");
-      return REDISMODULE_ERR;
-    }
-  }
 
   // Check if we are actually in cluster mode
   const bool isClusterEnabled = checkClusterEnabled(ctx);
+  const Version unstableRedis = {7, 9, 227};
+  const bool unprefixedConfigSupported = (CompareVersions(redisVersion, unstableRedis) >= 0) ? true : false;
 
-  // Apply configuration
-  if (unprefixedConfigSupported) {
-    if (isClusterEnabled) {
-      // Register module configuration parameters for cluster
-      RM_TRY_F(RegisterClusterModuleConfig, ctx);
-    }
-    RM_TRY_F(RedisModule_LoadConfigs, ctx);
+  legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
+
+  if (RediSearch_InitModuleConfig(ctx, argv, argc, unprefixedConfigSupported, isClusterEnabled) == REDISMODULE_ERR) {
+    return REDISMODULE_ERR;
   }
 
   // Init RediSearch internal search
-  if (RediSearch_InitModuleInternal(ctx, argv, argc) == REDISMODULE_ERR) {
+  if (RediSearch_InitModuleInternal(ctx) == REDISMODULE_ERR) {
     RedisModule_Log(ctx, "warning", "Could not init search library...");
     return REDISMODULE_ERR;
   }

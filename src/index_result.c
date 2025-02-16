@@ -322,7 +322,7 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
     dist += cd * cd;
   }
 
-  // we return 1 if ditance could not be calculate, to avoid division by zero
+  // we return 1 if distance could not be calculate, to avoid division by zero
   return dist ? sqrt(dist) : agg->numChildren - 1;
 }
 

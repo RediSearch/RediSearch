@@ -57,7 +57,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
   // Array is filled backward in pair of [common, profile] result processors
   if (rp->type != RP_PROFILE) {
-    RedisModule_Reply_Map(reply); // start of resursive map
+    RedisModule_Reply_Map(reply); // start of recursive map
 
     switch (rp->type) {
       case RP_INDEX:
@@ -97,7 +97,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     printProfileTime(totalRPTime - upstreamTime);
   }
   printProfileCounter(RPProfile_GetCount(rp) - 1);
-  RedisModule_Reply_MapEnd(reply); // end of resursive map
+  RedisModule_Reply_MapEnd(reply); // end of recursive map
   return totalRPTime;
 }
 

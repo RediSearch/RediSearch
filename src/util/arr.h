@@ -40,7 +40,7 @@ extern "C" {
 #endif
 
 /* Definition of malloc & friends that can be overridden before including arr.h.
- * Alternatively you can include arr_rm_alloc.h, which wraps arr.h and sets the allcoation functions
+ * Alternatively you can include arr_rm_alloc.h, which wraps arr.h and sets the allocation functions
  * to those of the RM_ family
  */
 #ifndef array_alloc_fn
@@ -73,7 +73,7 @@ typedef void *array_t;
 #define array_sizeof(hdr) (sizeof(array_hdr_t) + (uint64_t)(hdr)->cap * (hdr)->elem_sz)
 /* Internal - get a pointer to the array header */
 #define array_hdr(arr) ((array_hdr_t *)(((char *)(arr)) - sizeof(array_hdr_t)))
-/* Interanl - get a pointer to an element inside the array at a given index */
+/* Internal - get a pointer to an element inside the array at a given index */
 #define array_elem(arr, idx) (*((void **)((char *)(arr) + ((idx)*array_hdr(arr)->elem_sz))))
 
 static inline uint32_t array_len(array_t arr);

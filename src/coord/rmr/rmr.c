@@ -671,7 +671,7 @@ void MRIterator_Release(MRIterator *it) {
         cmd->lens[1] = 3;
       }
     }
-    // Send the DEL commands without reseting the free flag,
+    // Send the DEL commands without resetting the free flag,
     // so we free the iterator after the DEL commands are done
     RQ_Push(rq_g, iterManualNextCb, it);
   } else {

@@ -142,6 +142,9 @@ int set_immutable_string_config(const char *name, RedisModuleString *val, void *
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
   char **ptr = (char **)privdata;
+  if (*ptr) {
+    rm_free(*ptr);
+  }
   size_t len;
   const char *ret = RedisModule_StringPtrLen(val, &len);
   *ptr = rm_strndup(ret, len);
@@ -155,6 +158,9 @@ CONFIG_SETTER(setExtLoad) {
     config->extLoad = NULL;
   }
   int acrc = AC_GetString(ac, &config->extLoad, NULL, 0);
+  if (acrc == AC_OK) {
+    config->extLoad = rm_strdup(config->extLoad);
+  }
   RETURN_STATUS(acrc);
 }
 
@@ -523,6 +529,9 @@ CONFIG_SETTER(setFrisoINI) {
     config->frisoIni = NULL;
   }
   int acrc = AC_GetString(ac, &config->frisoIni, NULL, 0);
+  if (acrc == AC_OK) {
+    config->frisoIni = rm_strdup(config->frisoIni);
+  }
   RETURN_STATUS(acrc);
 }
 CONFIG_GETTER(getFrisoINI) {
@@ -1038,7 +1047,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setGcScanSize,
          .getValue = getGcScanSize},
         {.name = "MIN_PHONETIC_TERM_LEN",
-         .helpText = "Minumum length of term to be considered for phonetic matching",
+         .helpText = "Minimum length of term to be considered for phonetic matching",
          .setValue = setMinPhoneticTermLen,
          .getValue = getMinPhoneticTermLen},
         {.name = "GC_POLICY",
@@ -1070,12 +1079,12 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = set_ForkGCCleanNumericEmptyNodes,
          .getValue = get_ForkGCCleanNumericEmptyNodes},
         {.name = "UNION_ITERATOR_HEAP",
-         .helpText = "minimum number of iterators in a union from which the interator will"
+         .helpText = "minimum number of iterators in a union from which the iterator will"
                      "switch to heap based implementation.",
          .setValue = setMinUnionIteratorHeap,
          .getValue = getMinUnionIteratorHeap},
         {.name = "CURSOR_MAX_IDLE",
-         .helpText = "max idle time allowed to be set for cursor, setting it hight might cause "
+         .helpText = "max idle time allowed to be set for cursor, setting it height might cause "
                      "high memory consumption.",
          .setValue = setCursorMaxIdle,
          .getValue = getCursorMaxIdle},
@@ -1122,7 +1131,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setNumericTreeMaxDepthRange,
          .getValue = getNumericTreeMaxDepthRange},
         {.name = "DEFAULT_DIALECT",
-         .helpText = "Set RediSearch default dialect version throught the lifetime of the server.",
+         .helpText = "Set RediSearch default dialect version through the lifetime of the server.",
          .setValue = setDefaultDialectVersion,
          .getValue = getDefaultDialectVersion},
         {.name = "VSS_MAX_RESIZE",
