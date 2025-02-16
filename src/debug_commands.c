@@ -1484,6 +1484,9 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_HNSW", dumpHNSWData},
                                {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
                                {"WORKERS", WorkerThreadsSwitch},
+                               /**
+                                * The following commands are for debugging distributed search/aggregation.
+                                */
                                {"FT.AGGREGATE", DistAggregateCommand_DebugWrapper},
                                {"_FT.AGGREGATE", RSAggregateCommandShard}, // internal use only, in SA use FT.AGGREGATE
                                {"FT.SEARCH", DistSearchCommand_DebugWrapper},

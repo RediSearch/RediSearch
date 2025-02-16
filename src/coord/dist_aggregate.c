@@ -235,23 +235,26 @@ typedef struct {
   arrayof(MRReply *) shardsProfile;
 } RPNet;
 
+static void RPNet_resetCurrent(RPNet *nc) {
+    nc->current.root = NULL;
+    nc->current.rows = NULL;
+}
+
 static int getNextReply(RPNet *nc) {
   if (nc->cmd.forCursor) {
     // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
     // TODO: could be replaced with a query specific configuration
     if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
       // No more replies
-      nc->current.root = NULL;
-      nc->current.rows = NULL;
+      RPNet_resetCurrent(nc);
       return 0;
     }
   }
   MRReply *root = MRIterator_Next(nc->it);
   if (root == NULL) {
     // No more replies
-    nc->current.root = NULL;
-    nc->current.rows = NULL;
-    return 0;
+    RPNet_resetCurrent(nc);
+    return MRIterator_GetPending(nc->it);
   }
 
   // Check if an error was returned
@@ -368,7 +371,8 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
         } else {
           MRReply_Free(root);
         }
-        nc->current.root = nc->current.rows = root = rows = NULL;
+        root = rows = NULL;
+        RPNet_resetCurrent(nc);
 
         if (timed_out) {
           return RS_RESULT_TIMEDOUT;

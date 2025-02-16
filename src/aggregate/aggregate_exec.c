@@ -579,10 +579,6 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     // <total_results>
     if (ShouldReplyWithTimeoutError(rc, req)) {
       RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
-    } else if (rc == RS_RESULT_TIMEDOUT) {
-      // Set rc to OK such that we will respond with the partial results
-      rc = RS_RESULT_OK;
-      RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
     } else {
       RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
     }
@@ -1261,6 +1257,14 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
+/********************************* DEBUG *********************************/
+/*  Using INTERNAL_ONLY with TIMEOUT_AFTER_N where N == 0 may result in an infinite loop in the coordinator.
+    Since shard replies are always empty, the coordinator might get stuck indefinitely waiting for results or a timeout.
+    If the query timeout is set to 0 (disabled), neither of these conditions is met.
+    To prevent this, if results_count == 0 and the query timeout is disabled, we enforce a forced timeout,
+    ideally large enough to break the infinite loop without impacting the requested flow */
+#define COORDINATOR_FORCED_TIMEOUT 1000
+
 // FT.DEBUG FT.AGGREGATE idx * <DEBUG_TYPE> <DEBUG_TYPE_ARGS> <DEBUG_TYPE> <DEBUG_TYPE_ARGS> ... DEBUG_PARAMS_COUNT 2
 // Example:
 // FT.AGGREGATE idx * TIMEOUT_AFTER_N 3 DEBUG_PARAMS_COUNT 2
@@ -1342,8 +1346,11 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
       if (debug_argv_iter != debug_params_count) {
         // timeout should be applied only for shard commands
         cmd = RedisModule_StringPtrLen(debug_argv[debug_argv_iter++], &n);
-        if (isClusterCoord(debug_req) && (strncasecmp(cmd, "INTERNAL_ONLY", n) == 0)) {
-          break;
+        if ((GetNumShards_UnSafe() > 1) && (strncasecmp(cmd, "INTERNAL_ONLY", n) == 0) && !(debug_req->r.reqflags & QEXEC_F_INTERNAL)) {
+          if (results_count == 0 && debug_req->r.reqConfig.queryTimeoutMS == 0) {
+            RedisModule_Log(RSDummyContext, "debug", "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 to avoid infinite loop");
+            debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
+          }
         }
       }
 
