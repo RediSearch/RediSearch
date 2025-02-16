@@ -300,6 +300,10 @@ QueryNode *NewTagNode(const FieldSpec *field) {
 QueryNode *NewNumericNode(QueryParam *p, const FieldSpec *fs) {
   QueryNode *ret = NewQueryNode(QN_NUMERIC);
   // Move data and params pointers
+  if (!p->nf->field.resolved) {
+    // since we take ownership on the filter we need to clean up the field name
+    HiddenString_Free(p->nf->field.u.name, false);
+  }
   ret->nn.nf = p->nf;
   ret->params = p->params;
   ret->nn.nf->field.u.spec = fs;
