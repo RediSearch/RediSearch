@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Set the default variables
-ROOT ?= `pwd`
-BINROOT ?= ${ROOT}/bin/linux-x64-release
+ROOT=${ROOT:=`pwd`}
+BINROOT=${BINROOT:=${ROOT}/bin/linux-x64-release}
 
 JSON_BRANCH=${REJSON_BRANCH:-master}
 JSON_REPO_URL="https://github.com/RedisJSON/RedisJSON.git"
