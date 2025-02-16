@@ -12,7 +12,6 @@
 #include "VecSim/vec_sim.h"
 #include "geometry/geometry_types.h"
 #include "info/index_error.h"
-#include "info/field_spec_info.h"
 #include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
@@ -164,10 +163,6 @@ void FieldSpec_Cleanup(FieldSpec* fs);
  * Convert field type given by integer to the name type in string form.
  */
 const char *FieldSpec_GetTypeNames(int idx);
-
-RSValueType fieldTypeToValueType(FieldType ft);
-
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate);
 
 char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate);
 char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate);

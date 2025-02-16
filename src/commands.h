@@ -17,7 +17,7 @@
 
 // write commands
 #define RS_CREATE_CMD RS_CMD_WRITE_PREFIX ".CREATE"
-#define RS_CREATE_IF_NX_CMD RS_CMD_WRITE_PREFIX "._CREATEIFNX"  // for replica of support
+#define RS_CREATE_IF_NX_CMD RS_CMD_WRITE_PREFIX "._CREATEIFNX"        // for replica of support
 #define RS_ADD_CMD RS_CMD_WRITE_PREFIX ".ADD"
 #define RS_SAFEADD_CMD RS_CMD_WRITE_PREFIX ".SAFEADD"
 #define LEGACY_RS_SAFEADD_CMD "_FT.SAFEADD"
@@ -30,14 +30,15 @@
 #define RS_DROP_INDEX_IF_X_CMD RS_CMD_WRITE_PREFIX "._DROPINDEXIFX"  // for replica of support
 #define RS_SYNUPDATE_CMD RS_CMD_WRITE_PREFIX ".SYNUPDATE"
 #define RS_ALTER_CMD RS_CMD_WRITE_PREFIX ".ALTER"
-#define RS_ALTER_IF_NX_CMD RS_CMD_WRITE_PREFIX "._ALTERIFNX"  // for replica of support
+#define RS_ALTER_IF_NX_CMD RS_CMD_WRITE_PREFIX "._ALTERIFNX"         // for replica of support
 #define RS_DICT_ADD RS_CMD_WRITE_PREFIX ".DICTADD"
 #define RS_DICT_DEL RS_CMD_WRITE_PREFIX ".DICTDEL"
 #define RS_ALIASADD RS_CMD_WRITE_PREFIX ".ALIASADD"
-#define RS_ALIASADD_IF_NX RS_CMD_WRITE_PREFIX "._ALIASADDIFNX"  // for replica of support
+#define RS_ALIASADD_IF_NX RS_CMD_WRITE_PREFIX "._ALIASADDIFNX"       // for replica of support
 #define RS_ALIASDEL RS_CMD_WRITE_PREFIX ".ALIASDEL"
-#define RS_ALIASDEL_IF_EX RS_CMD_WRITE_PREFIX "._ALIASDELIFX"  // for replica of support
+#define RS_ALIASDEL_IF_EX RS_CMD_WRITE_PREFIX "._ALIASDELIFX"        // for replica of support
 #define RS_ALIASUPDATE RS_CMD_WRITE_PREFIX ".ALIASUPDATE"
+#define RS_GET_CMD RS_CMD_WRITE_PREFIX ".GET"                        // "write" so it won't be redirected on enterprise cluster
 
 // Suggestion commands are key-bounded, so they are already directed to the correct shard
 #define RS_SUGADD_CMD "FT.SUGADD"
@@ -58,7 +59,6 @@
 #define RS_SEARCH_CMD RS_CMD_READ_PREFIX ".SEARCH"
 #define RS_AGGREGATE_CMD RS_CMD_READ_PREFIX ".AGGREGATE"
 #define RS_PROFILE_CMD RS_CMD_READ_PREFIX ".PROFILE"
-#define RS_GET_CMD RS_CMD_WRITE_PREFIX ".GET" // "write" so it won't be redirected on enterprise cluster
 #define RS_MGET_CMD RS_CMD_READ_PREFIX ".MGET"
 #define RS_TAGVALS_CMD RS_CMD_READ_PREFIX ".TAGVALS"
 #define RS_CURSOR_CMD RS_CMD_READ_PREFIX ".CURSOR"

@@ -132,13 +132,10 @@ static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode*
         } else {
             A = NewUnionNode();
             QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
             child = C;
         }
         // Handle child
         QueryNode_AddChild(A, child);
-        A->opts.fieldMask |= child->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
     return A;
 }
@@ -550,7 +547,7 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
     size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
     if(tokLen > 0) {
-      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), -1);
+      QueryNode *C = NewTokenNode(ctx, rm_normalize(tok, tokLen), -1);
       QueryNode_AddChild(A, C);
     }
   }
@@ -566,7 +563,7 @@ text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
   char *s = rm_malloc(B.len + 1);
   *s = '$';
   memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_strdupcase(s, B.len + 1), -1);
+  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
   rm_free(s);
   A->opts.flags |= QueryNode_Verbatim;
 }
@@ -577,7 +574,7 @@ text_expr(A) ::= SQUOTE ATTRIBUTE(B) SQUOTE. [TERMLIST] {
   char *s = rm_malloc(B.len + 1);
   *s = '$';
   memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_strdupcase(s, B.len + 1), -1);
+  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
   rm_free(s);
   A->opts.flags |= QueryNode_Verbatim;
 }
@@ -606,9 +603,7 @@ termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
 
 termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
   A = B;
-  if (!(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len))) {
-    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
-  }
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
 
 /////////////////////////////////////////////////////////////////

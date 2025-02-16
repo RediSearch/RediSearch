@@ -140,7 +140,7 @@ struct timespec IndexError_LastErrorTime(const IndexError *error) {
     return error->last_error_time;
 }
 
-void IndexError_OpPlusEquals(IndexError *error, const IndexError *other) {
+void IndexError_Combine(IndexError *error, const IndexError *other) {
     if (!NA_rstr) initDefaultKey();
     // Condition is valid even if one or both errors are NA (`last_error_time` is 0).
     if (!rs_timer_ge(&error->last_error_time, &other->last_error_time)) {

@@ -50,16 +50,8 @@ const char *FieldSpec_GetTypeNames(int idx) {
   }
 }
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate) {
-  FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, FieldSpec_FormatPath(fs, obfuscate));
-  FieldSpecInfo_SetAttribute(&info, FieldSpec_FormatName(fs, obfuscate));
-  FieldSpecInfo_SetIndexError(&info, fs->indexError);
-  return info;
-}
-
-void FieldSpec_AddError(FieldSpec *fs, const char *shortError, const char *detailedError, RedisModuleString *key) {
-  IndexError_AddError(&fs->indexError, shortError, detailedError, key);
+void FieldSpec_AddError(FieldSpec *fs, const char *error_message, RedisModuleString *key) {
+  IndexError_AddError(&fs->indexError, error_message, key);
   FieldsGlobalStats_UpdateIndexError(fs->types, 1);
 }
 

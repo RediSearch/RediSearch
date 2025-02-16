@@ -161,9 +161,10 @@ CursorsInfoStats Cursors_GetInfoStats(void) {
   CursorsInfoStats stats = {0};
   CursorList_Lock(&g_CursorsList);
   CursorList_Lock(&g_CursorsListCoord);
-  stats.total = kh_size(g_CursorsList.lookup) + kh_size(g_CursorsListCoord.lookup);
-  stats.total_idle = ARRAY_GETSIZE_AS(&g_CursorsList.idle, Cursor **) +
-                     ARRAY_GETSIZE_AS(&g_CursorsListCoord.idle, Cursor **);
+  stats.total_user = kh_size(g_CursorsList.lookup);
+  stats.total_internal = kh_size(g_CursorsListCoord.lookup);
+  stats.total_idle_user = ARRAY_GETSIZE_AS(&g_CursorsList.idle, Cursor **);
+  stats.total_idle_internal = ARRAY_GETSIZE_AS(&g_CursorsListCoord.idle, Cursor **);
   CursorList_Unlock(&g_CursorsListCoord);
   CursorList_Unlock(&g_CursorsList);
   return stats;

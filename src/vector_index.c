@@ -43,7 +43,7 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->p = temp;
   kdv->dtor = (void (*)(void *))VecSimIndex_Free;
-  dictAdd(spec->keysDict, keyName, kdv);  
+  dictAdd(spec->keysDict, keyName, kdv);
   return kdv->p;
 }
 
@@ -111,7 +111,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .query = vq->knn,
                                       .qParams = qParams,
                                       .vectorScoreField = vq->scoreField,
-                                      .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
+                                      .canTrimDeepResults = q->opts->flags & Search_CanSkipRichResults,
                                       .childIt = child_it,
                                       .timeout = q->sctx->time.timeout,
                                       .sctx = q->sctx,

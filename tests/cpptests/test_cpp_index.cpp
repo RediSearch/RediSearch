@@ -827,7 +827,7 @@ TEST_F(IndexTest, testHybridVector) {
                                   .query = top_k_query,
                                   .qParams = queryParams,
                                   .vectorScoreField = (char *)"__v_score",
-                                  .ignoreDocScore = true,
+                                  .canTrimDeepResults = true,
                                   .childIt = NULL,
                                   .filterCtx = &filterCtx
   };
@@ -908,7 +908,7 @@ TEST_F(IndexTest, testHybridVector) {
   // Rerun without ignoring document scores.
   r = NewTermIndexReader(w);
   ir = NewReadIterator(r);
-  hParams.ignoreDocScore = false;
+  hParams.canTrimDeepResults = false;
   hParams.childIt = ir;
   hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
@@ -987,7 +987,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .query = top_k_query,
                                   .qParams = queryParams,
                                   .vectorScoreField = (char *)"__v_score",
-                                  .ignoreDocScore = true,
+                                  .canTrimDeepResults = true,
                                   .childIt = ii,
                                   .filterCtx = &filterCtx};
   QueryError err = {QUERY_OK};

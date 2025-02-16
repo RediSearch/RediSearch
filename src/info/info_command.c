@@ -15,6 +15,7 @@
 #include "reply_macros.h"
 #include "info/global_stats.h"
 #include "util/units.h"
+#include "field_spec_info.h"
 #include "obfuscation/obfuscation_api.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
@@ -234,7 +235,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVINT("num_terms", sp->stats.numTerms);
   REPLY_KVINT("num_records", sp->stats.numRecords);
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
-  REPLY_KVNUM("vector_index_sz_mb", IndexSpec_VectorIndexSize(specForOpeningIndexes) / (float)0x100000);
+  REPLY_KVNUM("vector_index_sz_mb", IndexSpec_VectorIndexesSize(specForOpeningIndexes) / (float)0x100000);
   REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks);
 
   REPLY_KVNUM("offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
@@ -304,7 +305,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   REPLY_KVARRAY("field statistics"); // Field statistics
   for (int i = 0; i < sp->numFields; i++) {
     const FieldSpec *fs = &sp->fields[i];
-    FieldSpecInfo info = FieldSpec_GetInfo(fs, obfuscate);
+    FieldSpecInfo info = FieldSpec_GetInfo(fs, sp, obfuscate);
     FieldSpecInfo_Reply(&info, reply, withTimes, obfuscate);
     FieldSpecInfo_Clear(&info);
   }

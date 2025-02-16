@@ -91,13 +91,10 @@ static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode*
         } else {
             A = NewUnionNode();
             QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
             child = C;
         }
         // Handle child
         QueryNode_AddChild(A, child);
-        A->opts.fieldMask |= child->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
     return A;
 }
@@ -1884,7 +1881,7 @@ static YYACTIONTYPE yy_reduce(
     size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
     if(tokLen > 0) {
-      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), -1);
+      QueryNode *C = NewTokenNode(ctx, rm_normalize(tok, tokLen), -1);
       QueryNode_AddChild(yylhsminor.yy3, C);
     }
   }
@@ -1902,7 +1899,7 @@ static YYACTIONTYPE yy_reduce(
   char *s = rm_malloc(yymsp[-1].minor.yy0.len + 1);
   *s = '$';
   memcpy(s + 1, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  yymsp[-2].minor.yy3 = NewTokenNode(ctx, rm_strdupcase(s, yymsp[-1].minor.yy0.len + 1), -1);
+  yymsp[-2].minor.yy3 = NewTokenNode(ctx, rm_normalize(s, yymsp[-1].minor.yy0.len + 1), -1);
   rm_free(s);
   yymsp[-2].minor.yy3->opts.flags |= QueryNode_Verbatim;
 }
@@ -1914,7 +1911,7 @@ static YYACTIONTYPE yy_reduce(
   char *s = rm_malloc(yymsp[-1].minor.yy0.len + 1);
   *s = '$';
   memcpy(s + 1, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  yymsp[-2].minor.yy3 = NewTokenNode(ctx, rm_strdupcase(s, yymsp[-1].minor.yy0.len + 1), -1);
+  yymsp[-2].minor.yy3 = NewTokenNode(ctx, rm_normalize(s, yymsp[-1].minor.yy0.len + 1), -1);
   rm_free(s);
   yymsp[-2].minor.yy3->opts.flags |= QueryNode_Verbatim;
 }
@@ -1940,9 +1937,7 @@ static YYACTIONTYPE yy_reduce(
       case 34: /* termlist ::= termlist param_term */
 {
   yylhsminor.yy3 = yymsp[-1].minor.yy3;
-  if (!(yymsp[0].minor.yy0.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len))) {
-    QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
-  }
+  QueryNode_AddChild(yylhsminor.yy3, NewTokenNode_WithParams(ctx, &yymsp[0].minor.yy0));
 }
   yymsp[-1].minor.yy3 = yylhsminor.yy3;
         break;

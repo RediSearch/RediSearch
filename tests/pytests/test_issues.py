@@ -1321,7 +1321,7 @@ def test_mod_8568(env:Env):
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km').equal(expected)
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km',
                                       'GEOFILTER', 'g', '1.1', '1.1', '1000', 'km').equal(expected)
- 
+
 @skip(cluster=True)
 def test_mod_6786(env:Env):
   # Test search of long term (>128) inside text field
@@ -1335,3 +1335,91 @@ def test_mod_6786(env:Env):
   # Searching for the long term should return the document
   # Before fix, the long term was partialy normalized and the document was not found
   env.expect('FT.SEARCH', 'idx', long_term).equal([1, 'doc1', ['t', text_with_long_term]])
+
+@skip(cluster=False)
+def test_mod_7609(env:Env):
+  # Create the same named index on all shards, but with different schemas
+  for i in range(1, env.shardsCount + 1):
+    con = env.getConnection(i)
+    con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT') # required for running the internal `_FT.CREATE` command
+    schema = []
+    for j in range(i):
+      schema.extend(['f'+str(j), 'TEXT'])
+    con.execute_command('_FT.CREATE', 'idx', 'SCHEMA', *schema)
+
+  env.expect('FT.INFO', 'idx').error().contains('Inconsistent index state')
+
+@skip(cluster=True)
+def test_mod_8561(env:Env):
+  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+  env.expect('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT').ok()
+  env.expect('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TAG').ok()
+
+  # Add a document with the term foo
+  env.cmd('HSET', '1', 't', 'foo')
+
+  # Add two documents with the terms foo and bar
+  env.cmd('HSET', '2', 't', 'foo,bar')
+  env.cmd('HSET', '3', 't', 'foo,bar')
+
+  # Delete the last document with the term foo
+  env.cmd('DEL', '3')
+
+  # Run GC to remove the deleted document
+  forceInvokeGC(env, 'idx1')
+  forceInvokeGC(env, 'idx2')
+
+  # Search
+  expected = [1, '2', ['t', 'foo,bar']]
+  env.expect('FT.SEARCH', 'idx1', 'bar foo').noError().equal(expected)
+  env.expect('FT.SEARCH', 'idx2', "@t:{bar} @t:{foo}").noError().equal(expected)
+
+@skip(cluster=True)
+def test_mod_8695():
+  env = Env(moduleArgs='DEFAULT_DIALECT 2')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT',
+                                           'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+  env.cmd('HSET', 'doc1', 't', 'foo', 'v', '????????')
+  env.cmd('HSET', 'doc2', 't', 'bar', 'v', '????????')
+  env.cmd('HSET', 'doc3', 't', 'foo bar', 'v', '????????')
+
+  # Test highlighting
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo',
+                 'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  res2 = env.cmd('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', '????????',
+                 'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  env.assertEqual(res1, res2)
+
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo|bar',
+                 'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  res2 = env.cmd('FT.SEARCH', 'idx', '(foo|bar)=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', '????????',
+                  'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  env.assertEqual(res1, res2)
+
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo bar',
+                  'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  res2 = env.cmd('FT.SEARCH', 'idx', '(foo bar)=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', '????????',
+                  'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  env.assertEqual(res1, res2)
+
+  # Test vector with highlight only (implicit return)
+  env.expect('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                  'HIGHLIGHT', 'FIELDS', 1, 't', ).noError().equal(
+               [2, 'doc1', ['score', '0', 't', '<b>foo</b>', 'v', '????????'], 'doc3', ['score', '0', 't', '<b>foo</b> bar', 'v', '????????']])
+
+  # Test vector with highlight and explicit return
+  env.expect('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                  'RETURN', 2, 't', 'score', 'HIGHLIGHT', 'FIELDS', 1, 't').noError().equal(
+               [2, 'doc1', ['score', '0', 't', '<b>foo</b>'], 'doc3', ['score', '0', 't', '<b>foo</b> bar']])
+
+  # Test that we get the same results (with scores) regardless of the order of the arguments
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                    'SORTBY', 'score', 'WITHSCORES')
+  res2 = env.cmd('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                    'WITHSCORES', 'SORTBY', 'score')
+  env.assertEqual(res1, res2)
+
+  # Test vector with AGGREGATE and scores
+  env.expect('FT.AGGREGATE', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????', 'ADDSCORES', 'SCORER', 'TFIDF').noError().equal(
+               [2, ['score', '0', '__score', '1'], ['score', '0', '__score', '1']])

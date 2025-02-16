@@ -1041,46 +1041,6 @@ error:
 }
 
 // Assuming the spec is properly locked before calling this function.
-size_t IndexSpec_VectorIndexSize(IndexSpec *sp) {
-  size_t total_memory = 0;
-  for (size_t i = 0; i < sp->numFields; ++i) {
-    const FieldSpec *fs = sp->fields + i;
-    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-      VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
-      if (!vecsim) {
-        continue;
-      }
-      total_memory += VecSimIndex_Info(vecsim).commonInfo.memory;
-    }
-  }
-  return total_memory;
-}
-
-VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp) {
-  VectorIndexStats stats = {0};
-  for (size_t i = 0; i < sp->numFields; ++i) {
-    const FieldSpec *fs = sp->fields + i;
-    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-      VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
-      if (!vecsim) {
-        continue;
-      }
-      VecSimIndexInfo info = VecSimIndex_Info(vecsim);
-      stats.memory += info.commonInfo.memory;
-      if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
-        stats.marked_deleted += info.hnswInfo.numberOfMarkedDeletedNodes;
-      } else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
-                 fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
-        stats.marked_deleted += info.tieredInfo.backendInfo.hnswInfo.numberOfMarkedDeletedNodes;
-      }
-    }
-  }
-  return stats;
-}
-
-// Assuming the spec is properly locked before calling this function.
 int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
   size_t length = array_len(sp->fieldIdToIndex);
   if (length >= SPEC_MAX_FIELD_ID) {
@@ -2215,7 +2175,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   // RMKey it is provided as best effort but in some cases it might be NULL
   bool keyOpened = false;
   if (!key) {
-    key = RedisModule_OpenKey(ctx, keyname, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
+    key = RedisModule_OpenKey(ctx, keyname, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
     keyOpened = true;
   }
 
@@ -2433,7 +2393,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_in_mb");
   RedisModule_InfoAddFieldDouble(ctx, "inverted_size", sp->stats.invertedSize / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", IndexSpec_VectorIndexSize(sp) / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", IndexSpec_VectorIndexesSize(sp) / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", sp->docs.memsize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
@@ -3022,7 +2982,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         RedisModuleString *rmskey = IndexSpec_GetFormattedKey(spec, spec->fields + i, INDEXFLD_T_VECTOR);
-        VecSimIndex *vecsim = openVectorIndex(spec, rmskey, DONT_CREATE_INDEX); 
+        VecSimIndex *vecsim = openVectorIndex(spec, rmskey, DONT_CREATE_INDEX);
         if(!vecsim)
           continue;
         VecSimIndex_DeleteVector(vecsim, id);

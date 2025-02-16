@@ -90,17 +90,11 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
       int port = 0;
       RedisModule_GetClusterNodeInfo(ctx, id_str, NULL, NULL, &port, NULL);
 
-      const char *globalPass = NULL;
-      if (clusterConfig.globalPass && strlen(clusterConfig.globalPass) > 0) {
-        globalPass = clusterConfig.globalPass;
-      }
-
       MRClusterNode node = {
           .endpoint =
               (MREndpoint){
                   .host = rm_strndup(host, hostlen),
                   .port = port,
-                  .password = (globalPass ? rm_strdup(globalPass) : NULL),
                   .unixSock = NULL},
           .id = id_str,
           .flags = 0,
