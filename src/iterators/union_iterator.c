@@ -84,7 +84,7 @@ static inline IteratorStatus UI_Skip_Full_Flat(QueryIterator *base, const t_docI
   if (QITER_AT_EOF(base)) {
     return ITERATOR_EOF;
   }
-  ui->base.LastDocId = UINT64_MAX;
+  t_docId minId = UINT64_MAX;
   AggregateResult_Reset(ui->base.current);
   for (int i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
@@ -102,14 +102,17 @@ static inline IteratorStatus UI_Skip_Full_Flat(QueryIterator *base, const t_docI
       UI_AddChild(ui, cur);
     }
     // Look for the minimal LastDocId
-    if (ui->base.LastDocId > cur->LastDocId) ui->base.LastDocId = cur->LastDocId;
+    if (minId > cur->LastDocId) minId = cur->LastDocId;
   }
 
-  if (ui->base.current->docId) {
-    // Current record is set - we found what we were looking for
+  if (minId == nextId) {
+    // We found what we were looking for
+    ui->base.LastDocId = minId;
+    // Current record was already set while scanning the children
     return ITERATOR_OK;
   } else if (ui->num) {
-    // We didn't find the requested ID, but we set ui->base.LastDocId to the next minimal ID.
+    // We didn't find the requested ID, but we know the next minimal ID
+    base->LastDocId = minId;
     UI_SetFullFlat(ui);
     return ITERATOR_NOTFOUND;
   } else {
@@ -124,7 +127,7 @@ static inline IteratorStatus UI_Read_Full_Flat(QueryIterator *base) {
     return ITERATOR_EOF;
   }
   const t_docId lastId = ui->base.LastDocId;
-  ui->base.LastDocId = UINT64_MAX;
+  t_docId minId = UINT64_MAX;
   AggregateResult_Reset(ui->base.current);
   for (int i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
@@ -137,9 +140,10 @@ static inline IteratorStatus UI_Read_Full_Flat(QueryIterator *base) {
         return rc;
       }
     }
-    if (ui->base.LastDocId > cur->LastDocId) ui->base.LastDocId = cur->LastDocId;
+    if (minId > cur->LastDocId) minId = cur->LastDocId;
   }
   if (ui->num) {
+    base->LastDocId = minId;
     UI_SetFullFlat(ui);
     return ITERATOR_OK;
   } else {
@@ -153,7 +157,7 @@ static inline IteratorStatus UI_Skip_Quick_Flat(QueryIterator *base, const t_doc
   if (QITER_AT_EOF(base)) {
     return ITERATOR_EOF;
   }
-  ui->base.LastDocId = UINT64_MAX;
+  t_docId minId = UINT64_MAX;
   QueryIterator *minIt;
   AggregateResult_Reset(ui->base.current);
   for (int i = 0; i < ui->num; i++) {
@@ -174,8 +178,8 @@ static inline IteratorStatus UI_Skip_Quick_Flat(QueryIterator *base, const t_doc
       return ITERATOR_OK;
     }
     // Look for the minimal LastDocId + its iterator
-    if (ui->base.LastDocId > cur->LastDocId) {
-      ui->base.LastDocId = cur->LastDocId;
+    if (minId > cur->LastDocId) {
+      minId = cur->LastDocId;
       minIt = cur;
     }
   }
@@ -183,7 +187,7 @@ static inline IteratorStatus UI_Skip_Quick_Flat(QueryIterator *base, const t_doc
   if (ui->num) {
     // We didn't find the requested ID, but we set ui->base.LastDocId to the next minimal ID,
     // And `minIt` is set to an iterator holding this ID
-    UI_AddChild(ui, minIt);
+    UI_QuickSet(ui, minIt);
     return ITERATOR_NOTFOUND;
   } else {
     QITER_SET_EOF(base);
@@ -288,7 +292,7 @@ static inline IteratorStatus UI_Read_Quick_Heap(QueryIterator *base) {
   return rc == ITERATOR_NOTFOUND ? ITERATOR_OK : rc;
 }
 
-void UnionIterator_Free(QueryIterator *base) {
+static void UI_Free(QueryIterator *base) {
   if (base == NULL) return;
 
   UnionIterator *ui = (UnionIterator *)base;
@@ -306,7 +310,7 @@ void UnionIterator_Free(QueryIterator *base) {
   rm_free(ui);
 }
 
-QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit,
+QueryIterator *IT_V2(NewUnionIterator)(QueryIterator **its, int num, bool quickExit,
                                 double weight, QueryNodeType type, const char *q_str, IteratorsConfig *config) {
   // create union context
   UnionIterator *ctx = rm_calloc(1, sizeof(UnionIterator));
@@ -324,7 +328,7 @@ QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit,
   it->LastDocId = 0;
   it->current = NewUnionResult(num, weight);
   it->NumEstimated = UI_NumEstimated;
-  it->Free = UnionIterator_Free;
+  it->Free = UI_Free;
   it->Rewind = UI_Rewind;
 
   ctx->nExpected = 0;

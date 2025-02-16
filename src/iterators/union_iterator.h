@@ -8,6 +8,10 @@
 
 #include "iterator_api.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   QueryIterator base;
   heap_t *heapMinId;
@@ -30,5 +34,9 @@ typedef struct {
   const char *q_str;
 } UnionIterator;
 
-QueryIterator *NewUnionIterator(QueryIterator **its, int num, bool quickExit, double weight,
+QueryIterator *IT_V2(NewUnionIterator)(QueryIterator **its, int num, bool quickExit, double weight,
                                 QueryNodeType type, const char *q_str, IteratorsConfig *config);
+
+#ifdef __cplusplus
+}
+#endif
