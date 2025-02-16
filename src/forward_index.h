@@ -28,7 +28,7 @@ typedef struct ForwardIndexEntry {
   VarintVectorWriter *vw;
 } ForwardIndexEntry;
 
-// the quantizationn factor used to encode normalized (0..1) frquencies in the index
+// the quantizationn factor used to encode normalized (0..1) frequencies in the index
 #define FREQ_QUANTIZE_FACTOR 0xFFFF
 
 typedef struct ForwardIndex {

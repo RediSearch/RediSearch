@@ -951,7 +951,7 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   const FieldSpec *fs = node->gmn.geomq->fs;
 
   // TODO: open with DONT_CREATE_INDEX once the query string is validated before we get here.
-  // Currently, if  we use DONT_CREATE_INDEX, and the index was not initalized yet, and the query is invalid,
+  // Currently, if  we use DONT_CREATE_INDEX, and the index was not initialized yet, and the query is invalid,
   // we return results as if the index was empty, instead of raising an error.
   const GeometryIndex *index = OpenGeometryIndex(q->sctx->spec, fs, CREATE_INDEX);
   const GeometryApi *api = GeometryApi_Get(index);

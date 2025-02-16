@@ -816,3 +816,7 @@ def index_errors(env, idx = 'idx'):
     return to_dict(index_info(env, idx)['Index Errors'])
 def field_errors(env, idx = 'idx', fld_index = 0):
     return to_dict(to_dict(to_dict(index_info(env, idx)['field statistics'][fld_index]))['Index Errors'])
+
+def shardsConnections(env):
+  for s in range(1, env.shardsCount + 1):
+      yield env.getConnection(shardId=s)
