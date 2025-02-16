@@ -32,7 +32,7 @@ int HiddenString_CompareC(const HiddenString *left, const char *right, size_t ri
 int HiddenString_CaseInsensitiveCompare(const HiddenString *left, const HiddenString *right);
 int HiddenString_CaseInsensitiveCompareC(const HiddenString *left, const char *right, size_t right_length);
 
-// Ownership managment
+// ownership management
 HiddenString *HiddenString_Duplicate(const HiddenString *value);
 void HiddenString_TakeOwnership(HiddenString *hidden);
 void HiddenString_Clone(const HiddenString *src, HiddenString **dst);
@@ -47,7 +47,7 @@ void HiddenString_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, co
 RedisModuleString *HiddenString_CreateRedisModuleString(const HiddenString* value, RedisModuleCtx* ctx);
 
 // Direct access to user data, should be used only when necessary
-// Avoid outputing user data to:
+// Avoid outputting user data to:
 // 1. Logs
 // 2. Metrics
 // 3. Command responses

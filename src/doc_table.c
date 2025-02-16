@@ -138,7 +138,7 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
   dllist2_append(&chain->lroot, &dmd->llnode);
 }
 
-/** Get the docId of a key if it exists in the table, or 0 if it doesnt */
+/** Get the docId of a key if it exists in the table, or 0 if it doesn't */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n) {
   return DocIdMap_Get(&dt->dim, s, n);
 }

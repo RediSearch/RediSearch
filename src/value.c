@@ -258,7 +258,7 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l) {
 
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
-not. If possible, we put the actual value into teh double pointer */
+not. If possible, we put the actual value into the double pointer */
 int RSValue_ToNumber(const RSValue *v, double *d) {
   if (RSValue_IsNull(v)) return 0;
   v = RSValue_Dereference(v);
@@ -429,7 +429,7 @@ static inline int cmp_strings(const char *s1, const char *s2, size_t l1, size_t 
   if (l1 == l2) {
     // if the strings are the same length, just return the result of strcmp
     return cmp;
-  } else {  // if the lengths arent identical
+  } else {  // if the lengths aren't identical
     // if the strings are identical but the lengths aren't, return the longer string
     if (cmp == 0) {
       return l1 > l2 ? 1 : -1;
@@ -799,7 +799,7 @@ void print_rsvalue(RSValue *v) {
  *  - l: Will be parsed as a long integer
  *  - d: Will be parsed as a double
  *  - !: will be skipped
- *  - ?: means evrything after is optional
+ *  - ?: means everything after is optional
  */
 
 int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...) {

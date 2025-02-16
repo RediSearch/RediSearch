@@ -771,7 +771,7 @@ void NumericRangeIterator_OnReopen(void *privdata) {
   NumericRangeTree *rt = openNumericKeysDict(sp, numField, DONT_CREATE_INDEX);
 
   if (!rt || rt->revisionId != nu->lastRevId) {
-    // The numeric tree was either completely deleted or a node was splitted or removed.
+    // The numeric tree was either completely deleted or a node was split or removed.
     // The cursor is invalidated.
     it->Abort(it->ctx);
     return;

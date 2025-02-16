@@ -216,7 +216,7 @@ void Document_LoadHSetParams(Document *d, const AddDocumentOptions *opts);
  * Free any copied data within the document. anyCtx is any non-NULL
  * RedisModuleCtx. The reason for requiring a context is more related to the
  * Redis Module API requiring a context for AutoMemory purposes, though in
- * this case, the pointers are already removed from AutoMemory manangement
+ * this case, the pointers are already removed from AutoMemory management
  * anyway.
  *
  * This function also calls Document_Free
@@ -361,7 +361,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
  */
 int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, QueryError *status);
 
-/* Serialzie the document's fields to a redis client */
+/* Serialize the document's fields to a redis client */
 int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleString *id);
 
 DocumentField *Document_GetField(Document *d, const char *fieldName);
@@ -372,7 +372,7 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len);
 /* return an array value as c string */
 const char *DocumentField_GetArrayValueCStr(const DocumentField *df, size_t *len, size_t index);
 
-/* return the sum of all c string lenths in array */
+/* return the sum of all c string lengths in array */
 size_t DocumentField_GetArrayValueCStrTotalLen(const DocumentField *df);
 
 // Document add functions:

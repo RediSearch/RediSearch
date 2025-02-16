@@ -112,7 +112,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   renderIndexOptions(reply, sp);
   renderIndexDefinitions(reply, sp, obfuscate);
 
-  RedisModule_ReplyKV_Array(reply, "attributes"); // >attrbutes
+  RedisModule_ReplyKV_Array(reply, "attributes"); // >attributes
   size_t geom_idx_sz = 0;
 
   for (int i = 0; i < sp->numFields; i++) {

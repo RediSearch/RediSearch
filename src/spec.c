@@ -93,7 +93,7 @@ static void Cursors_initSpec(IndexSpec *spec) {
 }
 
 /*
- * Get a field spec by field name. Case sensetive!
+ * Get a field spec by field name. Case sensitive!
  * Return the field spec if found, NULL if not.
  * Assuming the spec is properly locked before calling this function.
  */
@@ -1556,7 +1556,7 @@ void IndexSpec_Free(IndexSpec *spec) {
   // At this point we should have already stopped the timer.
   assert(!spec->isTimerSet);
   // Stop and destroy garbage collector
-  // We can't free it now, because it eighter runs at the moment or has a timer set which we can't
+  // We can't free it now, because it either runs at the moment or has a timer set which we can't
   // deal with without the GIL.
   // It will free itself when it discovers that the index was freed.
   // On the worst case, it just finishes the current run and will schedule another run soon.
@@ -1621,7 +1621,7 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   // if ref count is > 1, the actual cleanup will be done only when StrongRefs are released.
   addPendingIndexDrop();
 
-  // Nullify the spec's quick access to the strong ref. (doesn't decrement refrences count).
+  // Nullify the spec's quick access to the strong ref. (doesn't decrement references count).
   spec->own_ref = (StrongRef){0};
 
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
@@ -1691,7 +1691,7 @@ StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options) {
   }
 
   if (!(options->flags & INDEXSPEC_LOAD_NOCOUNTERINC)){
-    // Increament the number of uses.
+    // Increment the number of uses.
     IndexSpec_IncreasCounter(sp);
   }
 
@@ -2319,7 +2319,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     RedisModule_InfoEndDictField(ctx);
   }
 
-  // Index defenition
+  // Index definition
   RedisModule_InfoBeginDictField(ctx, "index_definition");
   SchemaRule *rule = sp->rule;
   RedisModule_InfoAddFieldCString(ctx, "type", (char*)DocumentType_ToString(rule->type));
@@ -2844,7 +2844,7 @@ int CompareVersions(Version v1, Version v2) {
 
   return 0;
 }
-// This funciton is called in case the server is started or
+// This function is called in case the server is started or
 // when the replica is loading the RDB file from the master.
 static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
@@ -2883,7 +2883,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
 static void LoadingProgressCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
   RedisModule_Log(RSDummyContext, "debug", "Waiting for background jobs to be executed while"
-                  " loading is in progress (pregress is %d)",
+                  " loading is in progress (progress is %d)",
                   ((RedisModuleLoadingProgress *)data)->progress);
   workersThreadPool_Drain(ctx, 100);
 }
@@ -2936,7 +2936,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     rv = Document_LoadSchemaFieldJson(&doc, &sctx, &status);
     break;
   case DocumentType_Unsupported:
-    RS_LOG_ASSERT(0, "Should receieve valid type");
+    RS_LOG_ASSERT(0, "Should receive valid type");
   }
 
   if (rv != REDISMODULE_OK) {

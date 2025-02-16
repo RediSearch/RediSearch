@@ -469,7 +469,7 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
 /*
  * Parse an index spec from redis command arguments.
  * Returns REDISMODULE_ERR if there's a parsing error.
- * The command only receives the relvant part of argv.
+ * The command only receives the relevant part of argv.
  *
  * The format currently is <field> <weight>, <field> <weight> ...
  */
