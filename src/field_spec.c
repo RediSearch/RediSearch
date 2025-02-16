@@ -50,8 +50,8 @@ const char *FieldSpec_GetTypeNames(int idx) {
   }
 }
 
-void FieldSpec_AddError(FieldSpec *fs, const char *error_message, RedisModuleString *key) {
-  IndexError_AddError(&fs->indexError, error_message, key);
+void FieldSpec_AddError(FieldSpec *fs, ConstErrorMessage withoutUserData, ConstErrorMessage withUserData, RedisModuleString *key) {
+  IndexError_AddError(&fs->indexError, withoutUserData, withUserData, key);
   FieldsGlobalStats_UpdateIndexError(fs->types, 1);
 }
 

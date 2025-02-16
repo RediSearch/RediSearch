@@ -929,7 +929,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     if (!checkEnterpriseACL(ctx, spOrig)) {
       HiddenString_Free(alias, false);
       return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
-    } else if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), Orig_ref, 0, &status) != REDISMODULE_OK) {
+    } else if (IndexAlias_Del(alias, Orig_ref, 0, &status) != REDISMODULE_OK) {
       HiddenString_Free(alias, false);
       return QueryError_ReplyAndClear(ctx, &status);
     }

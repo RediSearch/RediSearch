@@ -185,9 +185,9 @@ void handleFieldStatistics(InfoFields *fields, MRReply *src, QueryError *error) 
 
   for (size_t i = 0; i < len; i++) {
     MRReply *serializedFieldSpecInfo = MRReply_ArrayElement(src, i);
-    AggregatedFieldSpecInfo_Deserialize fieldSpecInfo = AggregatedFieldSpecInfo_Deserialize(serializedFieldSpecInfo);
-    AggregatedFieldSpecInfo_Deserialize_Combine(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
-    AggregatedFieldSpecInfo_Deserialize_Clear(&fieldSpecInfo); // Free Resources
+    AggregatedFieldSpecInfo fieldSpecInfo = AggregatedFieldSpecInfo_Deserialize(serializedFieldSpecInfo);
+    AggregatedFieldSpecInfo_Combine(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
+    AggregatedFieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources
   }
 }
 
@@ -441,7 +441,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
     MR_ReplyWithMRReply(reply, firstError);
   } else if (QueryError_HasError(&error)) {
     // Reply with error
-    RedisModule_Reply_Error(reply, QueryError_GetError(&error));
+    RedisModule_Reply_Error(reply, QueryError_GetUserError(&error));
   } else {
     generateFieldsReply(&fields, reply, false);
   }

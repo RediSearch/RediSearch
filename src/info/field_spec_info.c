@@ -147,7 +147,7 @@ void AggregatedFieldSpecInfo_Combine(AggregatedFieldSpecInfo *info, const Aggreg
 
 // Deserializes a FieldSpecInfo from a MRReply.
 AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply) {
-    AggregatedFieldSpecInfo info = FieldSpecInfo_Init();
+    AggregatedFieldSpecInfo info = AggregatedFieldSpecInfo_Init();
     RedisModule_Assert(reply);
     // Validate the reply type - array or map.
     RedisModule_Assert(MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0));
@@ -228,10 +228,10 @@ FieldSpecStats IndexSpec_GetFieldStats(const FieldSpec *fs, IndexSpec *sp){
 }
 
 // Get the information of the field `fs` in the index `sp`.
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, IndexSpec *sp) {
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, IndexSpec *sp, bool obfuscate) {
   FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, fs->path);
-  FieldSpecInfo_SetAttribute(&info, fs->name);
+  FieldSpecInfo_SetIdentifier(&info, FieldSpec_FormatPath(fs, obfuscate));
+  FieldSpecInfo_SetAttribute(&info, FieldSpec_FormatName(fs, obfuscate));
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
   FieldSpecInfo_SetStats(&info, IndexSpec_GetFieldStats(fs, sp));
   return info;

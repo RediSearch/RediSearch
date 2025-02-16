@@ -30,6 +30,7 @@ typedef struct {
   char *identifier; // The identifier of the field spec.
   char *attribute; // The attribute of the field spec.
   IndexError error; // Indexing error of the field spec.
+  FieldSpecStats stats;
 } FieldSpecInfo;
 
 // A struct to hold the information of a field specification.
@@ -38,11 +39,11 @@ typedef struct {
   const char *identifier; // The identifier of the field spec, can already be obfuscated from the shard.
   const char *attribute; // The attribute of the field spec, can already be obfuscated from the shard.
   IndexError error; // Indexing error of the field spec.
-    FieldSpecStats stats;
+  FieldSpecStats stats;
 } AggregatedFieldSpecInfo;
 
 // Get the information of the field 'fs' in the index 'sp'.
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, IndexSpec *sp);
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, IndexSpec *sp, bool obfuscate);
 
 // Create stack allocated FieldSpecInfo.
 FieldSpecInfo FieldSpecInfo_Init();
@@ -74,7 +75,7 @@ void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bo
 void AggregatedFieldSpecInfo_Reply(const AggregatedFieldSpecInfo *info, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate);
 
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
-void AggregatedFieldSpecInfo__Combine(AggregatedFieldSpecInfo *info, const AggregatedFieldSpecInfo *other);
+void AggregatedFieldSpecInfo_Combine(AggregatedFieldSpecInfo *info, const AggregatedFieldSpecInfo *other);
 
 // Deserializes a FieldSpecInfo from a MRReply.
 AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply);

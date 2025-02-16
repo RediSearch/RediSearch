@@ -46,16 +46,16 @@ static inline void IndexError_ClearLastError(IndexError *error) {
     }
 }
 
-void IndexError_AddError(IndexError *error, ConstErrorMessage shortError, ConstErrorMessage detailedError, RedisModuleString *key) {
+void IndexError_AddError(IndexError *error, ConstErrorMessage withoutUserData, ConstErrorMessage withUserData, RedisModuleString *key) {
     if (!NA_rstr) initDefaultKey();
-    if (!shortError || !detailedError) {
+    if (!withoutUserData || !withUserData) {
         RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING,
                         "Index error occurred but no index error message was set.");
     }
     IndexError_ClearLastError(error);
     RedisModule_FreeString(RSDummyContext, error->key);
-    error->last_error_without_user_data = shortError ? rm_strdup(shortError) : NA; // Don't strdup NULL.
-    error->last_error_with_user_data = detailedError ? rm_strdup(detailedError) : NA; // Don't strdup NULL.
+    error->last_error_without_user_data = withoutUserData ? rm_strdup(withoutUserData) : NA; // Don't strdup NULL.
+    error->last_error_with_user_data = withUserData ? rm_strdup(withUserData) : NA; // Don't strdup NULL.
     error->key = RedisModule_HoldString(RSDummyContext, key);
     RedisModule_TrimStringAllocation(error->key);
     // Atomically increment the error_count by 1, since this might be called when spec is unlocked.
