@@ -4,3 +4,7 @@ numver
 ist
 ths
 anId
+nd
+curEnt
+childRes
+specField

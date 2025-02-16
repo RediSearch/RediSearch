@@ -262,7 +262,7 @@ static void rpscoreFree(ResultProcessor *rp) {
   rm_free(self);
 }
 
-/* Create a new scorer by name. If the name is not found in the scorer registry, we use the defalt
+/* Create a new scorer by name. If the name is not found in the scorer registry, we use the default
  * scorer */
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,

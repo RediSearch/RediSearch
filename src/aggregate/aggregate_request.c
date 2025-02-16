@@ -857,7 +857,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
       QERR_MKBADARGS_FMT(status, "Bad arguments for LOAD: Expected number of fields or `*`");
       return REDISMODULE_ERR;
     }
-    // Successfuly got a '*', load all fields
+    // Successfully got a '*', load all fields
     req->reqflags |= QEXEC_AGG_LOAD_ALL;
   } else if (rc != AC_OK) {
     QERR_MKBADARGS_AC(status, "LOAD", rc);
@@ -890,7 +890,7 @@ AREQ *AREQ_New(void) {
   */
   req->reqConfig = RSGlobalConfig.requestConfigParams;
 
-  // TODO: save only one of the configuration paramters according to the query type
+  // TODO: save only one of the configuration parameters according to the query type
   // once query offset is bounded by both.
   req->maxSearchResults = RSGlobalConfig.maxSearchResults;
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
@@ -1189,7 +1189,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     srckeys[ii] = RLookup_GetKeyEx(srclookup, fldname, fldname_len, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
     if (!srckeys[ii]) {
       if (loadKeys) {
-        // We faild to get the key for reading, so we know getting it for loading will succeed.
+        // We failed to get the key for reading, so we know getting it for loading will succeed.
         srckeys[ii] = RLookup_GetKey_LoadEx(srclookup, fldname, fldname_len, fldname, RLOOKUP_F_NOFLAGS);
         *loadKeys = array_ensure_append_1(*loadKeys, srckeys[ii]);
       }
@@ -1295,7 +1295,7 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
     }
 
     // In some cases the iterator that requested the additional field can be NULL (if some other iterator knows early
-    // that it has no results), but we still want the rest of the pipline to know about the additional field name,
+    // that it has no results), but we still want the rest of the pipeline to know about the additional field name,
     // because there is no syntax error and the sorter should be able to "sort" by this field.
     // If there is a pointer to the node's RLookupKey, write the address.
     if (requests[i].key_ptr)

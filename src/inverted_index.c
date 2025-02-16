@@ -282,7 +282,7 @@ typedef struct {
 // EncodingHeader internal structs must all be of the same size, beginning with common "base" fields, followed by specific fields per "derived" struct.
 // The specific types are:
 //  tiny - for tiny positive integers, including zero (the value is encoded in the header itself)
-//  posint and negint - for none-zero integer nubmers
+//  posint and negint - for none-zero integer numbers
 //  float - for floating point numbers
 typedef union {
   // Alternative representation as a primitive number (used for writing)

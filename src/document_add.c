@@ -14,7 +14,7 @@ bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp);
 
 /*
 ## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [PARTIAL] [IF <expr>] [LANGUAGE <lang>]
-[PAYLOAD {payload}] FIELDS <field> <text> ....] Add a documet to the index.
+[PAYLOAD {payload}] FIELDS <field> <text> ....] Add a document to the index.
 
 ## Parameters:
 
@@ -44,7 +44,7 @@ indexed.
 part of the document,
     or ignored if NOSAVE is set
 
-    - LANGUAGE lang: If set, we use a stemmer for the supplied langauge during
+    - LANGUAGE lang: If set, we use a stemmer for the supplied language during
 indexing. Defaults to
 English.
    If an unsupported language is sent, the command returns an error.

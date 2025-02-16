@@ -266,7 +266,7 @@ static inline char *toksep2(char **s, size_t *tokLen) {
 
 %type vector_attribute { SingleVectorQueryParam }
 // This destructor is commented out because it's not reachable: every vector_attribute that created
-// successfuly can successfuly be reduced to vector_attribute_list.
+// successfully can successfully be reduced to vector_attribute_list.
 // %destructor vector_attribute { rm_free((char*)($$.param.value)); rm_free((char*)($$.param.name)); }
 
 %type vector_attribute_list { VectorQueryParams }
@@ -310,7 +310,7 @@ star ::= STAR.
 
 star ::= LP star RP.
 
-// This rule switches from text contex to regular context.
+// This rule switches from text context to regular context.
 // In general, we want to stay in text context as long as we can (mostly for use of field modifiers).
 expr(A) ::= text_expr(B). [TEXTEXPR] {
   A = B;

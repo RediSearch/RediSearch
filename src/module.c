@@ -1976,7 +1976,7 @@ static int cmp_results(const void *p1, const void *p2, const void *udata) {
 
     // This was reversed to be more compatible with OSS version where tie breaker was changed
     // to return the lower doc ID to reduce sorting heap work. Doc name might not be ascending
-    // or decending but this still may reduce heap work.
+    // or descending but this still may reduce heap work.
     // Our tests are usually ascending so this will create similarity between RS and RSC.
     int rv = -cmpStrings(r2->id, r2->idLen, r1->id, r1->idLen);
 
@@ -2060,7 +2060,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
     return res;
   }
 
-  // parse socre
+  // parse score
   MRReply *score = MRReply_MapElement(result_j, "score");
   if (explainScores) {
     if (MRReply_Type(score) != MR_REPLY_ARRAY) {

@@ -73,7 +73,7 @@ int SparseAutomaton_CanMatch(SparseAutomaton *a, sparseVector *v);
 
 /* DFAFilter is a constructed DFA used to filter the traversal on the trie */
 typedef struct {
-    // a cache of the DFA states, allowing us to re-use the same state whenever we need it
+    // a cache of the DFA states, allowing us to reuse the same state whenever we need it
     Vector *cache;
     // A stack of the states leading up to the current state
     Vector *stack;

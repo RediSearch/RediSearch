@@ -1047,7 +1047,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setGcScanSize,
          .getValue = getGcScanSize},
         {.name = "MIN_PHONETIC_TERM_LEN",
-         .helpText = "Minumum length of term to be considered for phonetic matching",
+         .helpText = "Minimum length of term to be considered for phonetic matching",
          .setValue = setMinPhoneticTermLen,
          .getValue = getMinPhoneticTermLen},
         {.name = "GC_POLICY",
@@ -1079,7 +1079,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = set_ForkGCCleanNumericEmptyNodes,
          .getValue = get_ForkGCCleanNumericEmptyNodes},
         {.name = "UNION_ITERATOR_HEAP",
-         .helpText = "minimum number of iterators in a union from which the interator will"
+         .helpText = "minimum number of iterators in a union from which the iterator will"
                      "switch to heap based implementation.",
          .setValue = setMinUnionIteratorHeap,
          .getValue = getMinUnionIteratorHeap},
