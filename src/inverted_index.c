@@ -1023,7 +1023,7 @@ static bool IndexReader_ReadWithSeeker(IndexReader *ir, t_docId docId) {
   return found;
 }
 
-// Assumes there is a valid block to skip to (maching or past the requested docId)
+// Assumes there is a valid block to skip to (matching or past the requested docId)
 static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   InvertedIndex *idx = ir->idx;
   uint32_t top = idx->size - 1;

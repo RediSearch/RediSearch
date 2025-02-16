@@ -1084,7 +1084,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setMinUnionIteratorHeap,
          .getValue = getMinUnionIteratorHeap},
         {.name = "CURSOR_MAX_IDLE",
-         .helpText = "max idle time allowed to be set for cursor, setting it hight might cause "
+         .helpText = "max idle time allowed to be set for cursor, setting it height might cause "
                      "high memory consumption.",
          .setValue = setCursorMaxIdle,
          .getValue = getCursorMaxIdle},
@@ -1131,7 +1131,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setNumericTreeMaxDepthRange,
          .getValue = getNumericTreeMaxDepthRange},
         {.name = "DEFAULT_DIALECT",
-         .helpText = "Set RediSearch default dialect version throught the lifetime of the server.",
+         .helpText = "Set RediSearch default dialect version through the lifetime of the server.",
          .setValue = setDefaultDialectVersion,
          .getValue = getDefaultDialectVersion},
         {.name = "VSS_MAX_RESIZE",

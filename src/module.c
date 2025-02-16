@@ -282,7 +282,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     } else if (strcasecmp(operation, "EXCLUDE") == 0) {
       array_append(excludeDict, (char *)dictName);
     } else {
-      RedisModule_ReplyWithError(ctx, "bad format, exlude/include operation was not given");
+      RedisModule_ReplyWithError(ctx, "bad format, exclude/include operation was not given");
       goto end;
     }
   }
@@ -2126,7 +2126,7 @@ static void getReplyOffsets(const searchRequestCtx *ctx, searchReplyOffsets *off
    * SCORE         ---| optional - only if WITHSCORES was given, or SORTBY section was not given.
    * Payload
    * Sort field    ---|
-   * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwards comptability.
+   * ...              | special cases - SORTBY, TOPK. Sort key is always first for backwards compatibility.
    * ...           ---|
    * First field
    *

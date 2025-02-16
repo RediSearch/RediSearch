@@ -52,7 +52,7 @@ dfaNode *__dfn_getEdge(dfaNode *n, rune r);
 /* Create a new DFA node */
 dfaNode *__newDfaNode(int distance, sparseVector *state);
 
-/* Recusively build the DFA node and all its descendants */
+/* Recursively build the DFA node and all its descendants */
 void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache);
 
 /* Create a new Sparse Levenshtein Automaton  for string s and length len, with a maximal edit
