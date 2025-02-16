@@ -398,17 +398,11 @@ def testCursorDepletionNonStrictTimeoutPolicySortby():
     n_received = len(res['results'])
 
     # Ensure the cursor is properly depleted after one FT.CURSOR READ
-    iter = 0
-    while (cursor):
-        if (iter > 0):
-            env.debugPrint(f"iter:{iter}, n_received:{n_received}", force=True)
-        iter += 1
-        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-        n_received += len(res['results'])
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
 
-        # Cursor should be depleted after the first read
-        env.assertEqual(cursor, 0, message=f"expected cursor to be depleted after one FT.CURSOR READ.")
-        env.assertEqual(len(res['results']), 0, message=f"expected to receive 0 results after one FT.CURSOR READ. iter:{iter}, n_received:{n_received}")
+    # Cursor should be depleted after the first read
+    env.assertEqual(cursor, 0, message=f"expected cursor to be depleted after one FT.CURSOR READ.")
+    env.assertEqual(len(res['results']), 0, message=f"expected to receive 0 results after one FT.CURSOR READ.\n First query got {n_received} resuls, read results:{len(res['results'])}")
 
     env.assertEqual(getCursorStats(env, 'idx')['index_total'], starting_cursor_count)
 
