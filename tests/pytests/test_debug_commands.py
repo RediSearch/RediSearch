@@ -461,7 +461,7 @@ class TestQueryDebugCommands(object):
         # The sorter will continue to ask for results until it gets timeout or EOF.
         # the number of results in this case is the minimum between the LIMIT and the TIMEOUT_AFTER_N counter.
 
-        # Therefor, as opposed to queries without sorter and LIMIT < TIMEOUT_AFTER_N,
+        # Therefore, as opposed to queries without sorter and LIMIT < TIMEOUT_AFTER_N,
         # we will get LIMIT results *and* TIMEOUT warning.
         res = self.QueryWithLimit([*self.basic_debug_query, *sortby_params], timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=True, depth=depth+1)
         res_values = [doc_content['extra_attributes']['n'] for doc_content in res["results"]]

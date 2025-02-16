@@ -631,7 +631,7 @@ def test_profile_crash_mod5323():
         r.execute_command("HSET", "4", "t", "helowa")
     waitForIndex(env, 'idx')
 
-    res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT")
+    res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT") # codespell:ignore hel
     exp = {
       'Results': {
         'warning': [],
@@ -961,11 +961,11 @@ def testExpandJson():
   env.assertEqual(res, exp_string_default_dialect)
 
   # Default FORMAT is STRING
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'RETURN', *load_args, 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'STRING', 'RETURN', *load_args, 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
@@ -980,7 +980,7 @@ def testExpandJson():
   del exp_string['results'][1]['id']
 
   # Default FORMAT is STRING
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC', 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
@@ -992,7 +992,7 @@ def testExpandJson():
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND', 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC')
   env.assertEqual(res, exp_expand)
 
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'STRING', 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC', 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
@@ -1548,7 +1548,7 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}])
   env.assertEqual(res['warning'], [])
   # TAG
-  res = env.cmd('FT.SEARCH', 'idx', '@t2:{fo*}', 'nocontent')
+  res = env.cmd('FT.SEARCH', 'idx', '@t2:{fo*}', 'nocontent') # codespell:ignore
   env.assertEqual(res['total_results'], 1)
   env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}])
   env.assertEqual(res['warning'], [])
@@ -1563,7 +1563,7 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['results'], [{'extra_attributes': {'t': 'foo', 't2': 'foo'}, 'values': []}])
   env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
   # TAG
-  res = env.cmd('FT.AGGREGATE', 'idx', '@t2:{fo*}', 'load', '*')
+  res = env.cmd('FT.AGGREGATE', 'idx', '@t2:{fo*}', 'load', '*') # codespell:ignore fo
   env.assertEqual(res['total_results'], 1)
   env.assertEqual(res['results'], [{'extra_attributes': {'t': 'foo', 't2': 'foo'}, 'values': []}])
   env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])

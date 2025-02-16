@@ -834,7 +834,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
     goto err;
   }
 
-  // rpnet now owns the commad
+  // rpnet now owns the command
   MRCommand *cmd = &(((RPNet *)r->qiter.rootProc)->cmd);
 
   MRCommand_Insert(cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
