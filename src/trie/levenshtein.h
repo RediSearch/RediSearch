@@ -52,7 +52,7 @@ dfaNode *__dfn_getEdge(dfaNode *n, rune r);
 /* Create a new DFA node */
 dfaNode *__newDfaNode(int distance, sparseVector *state);
 
-/* Recusively build the DFA node and all its descendants */
+/* Recursively build the DFA node and all its descendants */
 void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache);
 
 /* Create a new Sparse Levenshtein Automaton  for string s and length len, with a maximal edit
@@ -73,7 +73,7 @@ int SparseAutomaton_CanMatch(SparseAutomaton *a, sparseVector *v);
 
 /* DFAFilter is a constructed DFA used to filter the traversal on the trie */
 typedef struct {
-    // a cache of the DFA states, allowing us to re-use the same state whenever we need it
+    // a cache of the DFA states, allowing us to reuse the same state whenever we need it
     Vector *cache;
     // A stack of the states leading up to the current state
     Vector *stack;

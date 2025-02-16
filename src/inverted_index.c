@@ -282,7 +282,7 @@ typedef struct {
 // EncodingHeader internal structs must all be of the same size, beginning with common "base" fields, followed by specific fields per "derived" struct.
 // The specific types are:
 //  tiny - for tiny positive integers, including zero (the value is encoded in the header itself)
-//  posint and negint - for none-zero integer nubmers
+//  posint and negint - for none-zero integer numbers
 //  float - for floating point numbers
 typedef union {
   // Alternative representation as a primitive number (used for writing)
@@ -1023,7 +1023,7 @@ static bool IndexReader_ReadWithSeeker(IndexReader *ir, t_docId docId) {
   return found;
 }
 
-// Assumes there is a valid block to skip to (maching or past the requested docId)
+// Assumes there is a valid block to skip to (matching or past the requested docId)
 static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   InvertedIndex *idx = ir->idx;
   uint32_t top = idx->size - 1;

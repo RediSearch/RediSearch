@@ -1,0 +1,37 @@
+name: Spellcheck
+
+on:
+  workflow_call:      # Allows calling from another workflow
+  workflow_dispatch:  # Allows manual trigger
+    inputs:
+      branch:
+        type: string
+        description: 'Branch to compare master against'
+
+jobs:
+  spellcheck:
+    runs-on: ${{ vars.RUNS_ON }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.head_ref || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Fetch master
+        run: git fetch origin master
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install codespell
+        run: |
+          pwd
+          ls -la
+          ls -la ./.codespell
+          pip install -r ./.codespell/requirements.txt
+
+      - name: Run codespell on diffs
+        run: git diff --name-only origin/master --diff-filter=AM | xargs -r codespell --config .codespell/.codespellrc

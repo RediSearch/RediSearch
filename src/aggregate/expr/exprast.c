@@ -28,7 +28,7 @@ static RSExpr *newExpr(RSExprType t) {
   return e;
 }
 
-// unquote and unescape a stirng literal, and return a cleaned copy of it
+// unquote and unescape a string literal, and return a cleaned copy of it
 char *unescapeStringDup(const char *s, size_t sz, uint32_t *newSz) {
 
   char *dst = rm_malloc(sz);
