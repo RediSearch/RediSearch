@@ -530,6 +530,7 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
+    A = NULL;
     const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len) : NULL;
     if (fs) {
         A = NewNumericNode(C, fs);
