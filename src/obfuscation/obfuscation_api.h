@@ -9,7 +9,7 @@
 #include "redisearch.h"
 #include "util/hash/hash.h"
 
-// Length definitions fo the required buffer sizes for obfuscation
+// Length definitions of the required buffer sizes for obfuscation
 #define MAX_OBFUSCATED_INDEX_NAME 6/*strlen("Index@")*/ + SHA1_TEXT_MAX_LENGTH + 1/*null terminator*/
 #define MAX_OBFUSCATED_FIELD_NAME 6/*strlen("Field@")*/ + MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND + 1/*null terminator*/
 #define MAX_OBFUSCATED_PATH_NAME MAX_OBFUSCATED_FIELD_NAME

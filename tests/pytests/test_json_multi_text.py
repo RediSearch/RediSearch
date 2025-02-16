@@ -106,7 +106,7 @@ def searchMultiTextCategory(env):
             .expect_when(True,  expect_1) \
             .expect_when(False, expect_undef_order)
 
-        # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
+        # Use toSortedFlatList when scores are not distinct (to succeed also with coordinaotr)
         res = env.cmd('FT.SEARCH', idx, '@category:(database)', 'NOCONTENT')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:1', 'doc:2']), message="A " + idx)
 
@@ -129,7 +129,7 @@ def searchMultiTextAuthor(env):
     for idx in ['idx_author_flat']:
         env.expect('FT.SEARCH', idx, '@author:(Richard)', 'NOCONTENT').equal([1, 'doc:1'])
 
-        # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
+        # Use toSortedFlatList when scores are not distinct (to succeed also with coordinaotr)
         res = env.cmd('FT.SEARCH', idx, '@author:(Brendan)', 'NOCONTENT')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:3']))
 

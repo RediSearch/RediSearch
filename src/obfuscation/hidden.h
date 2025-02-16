@@ -26,7 +26,7 @@ void HiddenString_Free(const HiddenString *value, bool tookOwnership);
 
 // Comparison functions
 // CompareC overloads receive a const char* right argument for the comparison for backward compatibility with existing code
-// Eventually the hope is to remove them alltogether.
+// Eventually the hope is to remove them altogether.
 int HiddenString_Compare(const HiddenString *left, const HiddenString *right);
 int HiddenString_CompareC(const HiddenString *left, const char *right, size_t right_length);
 int HiddenString_CaseInsensitiveCompare(const HiddenString *left, const HiddenString *right);
