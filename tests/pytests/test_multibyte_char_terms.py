@@ -399,7 +399,7 @@ def testRussianAlphabet(env):
         env.assertEqual(res, expected, message=f'Dialect: {dialect}')
 
 def testDiacritics(env):
-    ''' Test that caracters with diacritics are converted to lowercase, but the
+    ''' Test that characters with diacritics are converted to lowercase, but the
     diacritics are not removed.
     '''
     conn = getConnectionByEnv(env)
@@ -1261,7 +1261,7 @@ def testSuggestions(env):
     res = conn.execute_command('FT.SUGGET', 'sug', 'dreisi')
     env.assertEqual(res, ['Dreißig'], message = 'dreisi')
 
-    # same case for suggestion with İ characterss which is folded as two
+    # same case for suggestion with İ characters which is folded as two
     # codepoints: (U+0069)(U+0307) : (i)(combining dot above)
     test_value = 'İ = Letter I with dot above'
     expected = [test_value]
