@@ -89,7 +89,7 @@ void GeoFilter_Free(GeoFilter *gf) {
     rm_free(gf->numericFilters);
   }
   if (!gf->field.resolved && gf->field.u.name) {
-    HiddenString_Free(gf->field.u.name, false);
+    HiddenString_Free(gf->field.u.name);
   }
   rm_free(gf);
 }

@@ -97,7 +97,7 @@ NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterVal
 
 void NumericFilter_Free(NumericFilter *nf) {
   if (!nf->field.resolved && nf->field.u.name) {
-    HiddenString_Free(nf->field.u.name, false);
+    HiddenString_Free(nf->field.u.name);
   }
   rm_free(nf);
 }

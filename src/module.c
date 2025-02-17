@@ -832,7 +832,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
   HiddenString *alias = NewHiddenString(rawAlias, length, false);
   if (dictFetchValue(specDict_g, alias)) {
-    HiddenString_Free(alias, false);
+    HiddenString_Free(alias);
     QueryError_SetCode(error, QUERY_EALIASCONFLICT);
     return REDISMODULE_ERR;
   }
@@ -928,7 +928,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (spOrig) {
     // On Enterprise, we validate ACL permission to the index
     if (!checkEnterpriseACL(ctx, spOrig)) {
-      HiddenString_Free(alias, false);
+      HiddenString_Free(alias);
       return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
     } else if (IndexAlias_Del(alias, Orig_ref, 0, &status) != REDISMODULE_OK) {
       HiddenString_Free(alias);

@@ -37,7 +37,7 @@ const FieldSpec *FieldSpec_Resolve(Field *field, const IndexSpec *spec) {
   } else if (field->u.name) {
     fs = IndexSpec_GetField(spec, field->u.name);
     if (fs) {
-      HiddenString_Free(field->u.name, false);
+      HiddenString_Free(field->u.name);
       field->u.spec = fs;
       field->resolved = true;
     }
