@@ -30,6 +30,23 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
   IndexError_Clear(fs->indexError);
 }
 
+const FieldSpec *FieldSpec_Resolve(Field *field, const IndexSpec *spec) {
+  if (field->resolved) {
+    return field->u.spec;
+  } else if (field->u.name) {
+    const FieldSpec *fs = IndexSpec_GetField(spec, field->u.name);
+    if (fs) {
+      HiddenString_Free(field->u.name, false);
+      field->u.spec = fs;
+      field->resolved = true;
+    }
+  }
+}
+
+const FieldSpec *FieldSpec_Resolved(const Field *f) {
+  return f->resolved ? f->u.spec : NULL;
+}
+
 void FieldSpec_SetSortable(FieldSpec* fs) {
   RS_LOG_ASSERT(!(fs->options & FieldSpec_Dynamic), "dynamic fields cannot be sortable");
   fs->options |= FieldSpec_Sortable;

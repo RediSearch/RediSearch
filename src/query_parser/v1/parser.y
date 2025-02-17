@@ -534,6 +534,9 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
     const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len) : NULL;
     if (fs) {
         A = NewNumericNode(C, fs);
+    } else {
+        QueryParam_Free(C);
+        C = NULL;
     }
 }
 

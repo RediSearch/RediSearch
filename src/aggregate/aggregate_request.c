@@ -986,18 +986,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
     for (size_t ii = 0; ii < array_len(opts->legacy.filters); ++ii) {
       NumericFilter *filter = opts->legacy.filters[ii];
 
-      const FieldSpec *fs = NULL;
-      if (filter->field.resolved) {
-        fs = filter->field.u.spec;
-      } else if (filter->field.u.name) {
-        fs = IndexSpec_GetField(sctx->spec, filter->field.u.name);
-        if (fs) {
-          HiddenString_Free(filter->field.u.name, false);
-          filter->field.u.spec = fs;
-          filter->field.resolved = true;
-        }
-      }
-
+      const FieldSpec *fs = FieldSpec_Resolve(&filter->field, sctx->spec);
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         if (dialect != 1) {
           const HiddenString *fieldName = FIELD_NAME(filter->field);
@@ -1023,18 +1012,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   if (opts->legacy.geo_filters) {
     for (size_t ii = 0; ii < array_len(opts->legacy.geo_filters); ++ii) {
       GeoFilter *gf = opts->legacy.geo_filters[ii];
-      const FieldSpec *fs = NULL;
-      if (gf->field.resolved) {
-        fs = gf->field.u.spec;
-      } else if (gf->field.u.name) {
-        fs = IndexSpec_GetField(sctx->spec, gf->field.u.name);
-        // we only mark the field as resolved if spec was found, important so memory of allocated string would still be free if we failed to resolve the field
-        if (fs) {
-          HiddenString_Free(gf->field.u.name, false);
-          gf->field.u.spec = fs;
-          gf->field.resolved = true;
-        }
-      }
+      const FieldSpec *fs = FieldSpec_Resolve(&gf->field, sctx->spec);
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         if (dialect != 1) {
           const char *generalError = fs ? "Field is not a geo field" : "Unknown Field";

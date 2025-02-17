@@ -1557,6 +1557,9 @@ static YYACTIONTYPE yy_reduce(
     const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len) : NULL;
     if (fs) {
         yylhsminor.yy75 = NewNumericNode(yymsp[0].minor.yy62, fs);
+    } else {
+        QueryParam_Free(yymsp[0].minor.yy62);
+        yymsp[0].minor.yy62 = NULL;
     }
 }
   yymsp[-2].minor.yy75 = yylhsminor.yy75;
