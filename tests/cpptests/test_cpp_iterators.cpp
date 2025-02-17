@@ -92,6 +92,8 @@ TEST_P(UnionIteratorCommonTest, SkipTo) {
     }
     // Test reading after skipping to the last id
     ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_EOF);
+    ASSERT_EQ(ui_base->SkipTo(ui_base, ui_base->LastDocId + 1), ITERATOR_EOF);
+    ASSERT_FALSE(ui->base.isValid);
 
     ui_base->Rewind(ui_base);
     ASSERT_EQ(ui->base.LastDocId, 0);
@@ -221,3 +223,40 @@ INSTANTIATE_TEST_SUITE_P(UnionIteratorEdgesP, UnionIteratorEdgesTest, ::testing:
     ::testing::Bool(),
     ::testing::Bool()
 ));
+
+class UnionIteratorSingleTest : public ::testing::Test {};
+
+TEST_F(UnionIteratorSingleTest, ReuseResults) {
+    QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 2);
+    MockIterator *it1 = new MockIterator(3UL);
+    MockIterator *it2 = new MockIterator(2UL);
+    children[0] = (QueryIterator *)it1;
+    children[1] = (QueryIterator *)it2;
+    // Create a union iterator
+    IteratorsConfig config = RSGlobalConfig.iteratorsConfigParams;
+    config.minUnionIterHeap = INT64_MAX; // Ensure we don't use the heap
+    QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 2, true, 1.0, QN_UNION, NULL, &config);
+    ASSERT_EQ(ui_base->NumEstimated(ui_base), it1->docIds.size() + it2->docIds.size());
+
+    ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+    ASSERT_EQ(ui_base->LastDocId, 2);
+    ASSERT_EQ(it1->base.LastDocId, 3);
+    ASSERT_EQ(it2->base.LastDocId, 2);
+    ASSERT_EQ(it1->readCount, 1);
+    ASSERT_EQ(it2->readCount, 1);
+
+    ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
+    ASSERT_EQ(ui_base->LastDocId, 3);
+    ASSERT_EQ(it1->base.LastDocId, 3);
+    ASSERT_EQ(it2->base.LastDocId, 2);
+    ASSERT_EQ(it1->readCount, 1) << "it1 should not be read again";
+    ASSERT_TRUE(it1->base.isValid);
+    ASSERT_EQ(it2->readCount, 1) << "it2 should not be read again";
+    ASSERT_TRUE(it2->base.isValid);
+
+    ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_EOF);
+    ASSERT_EQ(it1->readCount, 2) << "it1 should be read again";
+    ASSERT_FALSE(it1->base.isValid);
+    ASSERT_EQ(it2->readCount, 2) << "it2 should be read again";
+    ASSERT_FALSE(it2->base.isValid);
+}

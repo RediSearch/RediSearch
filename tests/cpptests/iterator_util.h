@@ -24,6 +24,7 @@ public:
     std::vector<t_docId> docIds;
     size_t nextIndex;
     IteratorStatus whenDone;
+    size_t readCount;
 private:
 
     static void setBase(QueryIterator *base) {
@@ -40,6 +41,7 @@ private:
 public:
     // Public API
     IteratorStatus Read() {
+        readCount++;
         if (nextIndex >= docIds.size() || !base.isValid) {
             base.isValid = false;
             return whenDone;
@@ -48,6 +50,7 @@ public:
         return ITERATOR_OK;
     }
     IteratorStatus SkipTo(t_docId docId) {
+        readCount++;
         // Guarantee check
         if (base.LastDocId >= docId) {
             throw std::invalid_argument("SkipTo: requested to skip backwards");
@@ -58,6 +61,7 @@ public:
         while (nextIndex < docIds.size() && docIds[nextIndex] < docId) {
             nextIndex++;
         }
+        readCount--; // Decrement the read count before calling Read
         auto status = Read();
         if (status == ITERATOR_OK && base.LastDocId != docId) {
             return ITERATOR_NOTFOUND;
@@ -69,6 +73,7 @@ public:
     }
     void Rewind() {
         nextIndex = 0;
+        readCount = 0;
         base.LastDocId = base.current->docId = 0;
         base.isValid = true;
     }
@@ -84,7 +89,7 @@ public:
 
     template<typename... Args>
     MockIterator(IteratorStatus st, Args&&... args)
-        : whenDone(st), nextIndex(0) {
+        : whenDone(st), nextIndex(0), readCount(0) {
         setBase(&base);
         docIds = {args...};
         std::sort(docIds.begin(), docIds.end());

@@ -25,6 +25,7 @@ public:
     std::vector<t_docId> docIds;
     size_t nextIndex;
     int whenDone;
+    size_t readCount;
 private:
 
     static void setBase(IndexIterator *base) {
@@ -41,6 +42,7 @@ private:
 public:
     // Public API
     int Read(RSIndexResult **hit) {
+        readCount++;
         if (nextIndex >= docIds.size() || !base.isValid) {
             base.isValid = false;
             return whenDone;
@@ -50,12 +52,14 @@ public:
         return INDEXREAD_OK;
     }
     int SkipTo(t_docId docId, RSIndexResult **hit) {
+        readCount++;
         if (!base.isValid) {
             return whenDone;
         }
         while (nextIndex < docIds.size() && docIds[nextIndex] < docId) {
             nextIndex++;
         }
+        readCount--; // Decrement the read count before calling Read
         auto status = Read(hit);
         if (status == INDEXREAD_OK && base.current->docId != docId) {
             return INDEXREAD_NOTFOUND;
@@ -67,6 +71,7 @@ public:
     }
     void Rewind() {
         nextIndex = 0;
+        readCount = 0;
         base.current->docId = 0;
         base.isValid = true;
     }
