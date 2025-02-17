@@ -50,12 +50,15 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Setup
-        run: ./sbin/setup
-      - name: Git Config
-        run: git config --global --add safe.directory '*'
+      - name: Setup specific  # assuming node20 supported
+        working-directory: setup/.install
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
 
-
+      - name: Setup tests dependencies
+        run: |
+          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
+          .install/test_deps/install_rust.sh
       - name: Install Boost
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }}
@@ -80,6 +83,7 @@ jobs:
           python3 -m pip install -r tests/benchmarks/requirements.txt
           VERSION=0.14.8 ./deps/readies/bin/getterraform
       - name: Prepare ReJSON Module
+        continue-on-error: false
         run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}

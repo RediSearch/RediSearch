@@ -57,7 +57,7 @@ jobs:
         run: |
           [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
       - name: Check if node20 is Supported
-        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for theses platforms
+        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
           for platform in ubuntu:bionic amazonlinux:2 alpine:3; do
             if [[ "${{ inputs.container }}" == "$platform" ]]; then
