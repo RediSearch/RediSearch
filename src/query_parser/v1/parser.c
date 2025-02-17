@@ -16,7 +16,7 @@
 **
 ** The "lemon" program processes an LALR(1) input grammar file, then uses
 ** this template to construct a parser.  The "lemon" program inserts text
-** at each "%%" line.  Also, any "P-a-r-s-e" identifer prefix (without the
+** at each "%%" line.  Also, any "P-a-r-s-e" identifier prefix (without the
 ** interstitial "-" characters) contained in this template is changed into
 ** the value of the %name directive from the grammar.  Otherwise, the content
 ** of this template is copied straight through into the generate parser
@@ -1553,13 +1553,13 @@ static YYACTIONTYPE yy_reduce(
       case 49: /* expr ::= modifier COLON numeric_range */
 {
     // we keep the capitalization as is
-    yylhsminor.yy75 = NewNumericNode(yymsp[0].minor.yy62);
-    if (ctx->sctx->spec) {
-        yylhsminor.yy75->nn.nf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-        if (!yylhsminor.yy75->nn.nf->field) {
-            QueryNode_Free(yylhsminor.yy75);
-            yylhsminor.yy75 = NULL;
-        }
+    yylhsminor.yy75 = NULL;
+    const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len) : NULL;
+    if (fs) {
+        yylhsminor.yy75 = NewNumericNode(yymsp[0].minor.yy62, fs);
+    } else if (yymsp[0].minor.yy62) {
+        QueryParam_Free(yymsp[0].minor.yy62);
+        yymsp[0].minor.yy62 = NULL;
     }
 }
   yymsp[-2].minor.yy75 = yylhsminor.yy75;
@@ -1575,8 +1575,9 @@ static YYACTIONTYPE yy_reduce(
     // we keep the capitalization as is
     yylhsminor.yy75 = NewGeofilterNode(yymsp[0].minor.yy62);
     if (ctx->sctx->spec) {
-        yylhsminor.yy75->gn.gf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-        if (!yylhsminor.yy75->gn.gf->field) {
+        yylhsminor.yy75->gn.gf->field.u.spec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+        yylhsminor.yy75->gn.gf->field.resolved = true;
+        if (!yylhsminor.yy75->gn.gf->field.u.spec) {
             QueryNode_Free(yylhsminor.yy75);
             yylhsminor.yy75 = NULL;
         }
@@ -1678,7 +1679,7 @@ static void yy_syntax_error(
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 
-    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
+    QueryError_SetUserDataAgnosticErrorFmt(ctx->status, QUERY_ESYNTAX,
         "Syntax error at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
 /************ End %syntax_error code ******************************************/

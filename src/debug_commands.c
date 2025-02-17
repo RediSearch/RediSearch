@@ -20,6 +20,10 @@
 #include "suffix.h"
 #include "util/workers.h"
 #include "cursor.h"
+#include "reply.h"
+#include "reply_macros.h"
+#include "obfuscation/obfuscation_api.h"
+#include "info/info_command.h"
 
 #define GET_SEARCH_CTX(name)                                        \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
@@ -515,7 +519,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const TagIndex *tagIndex = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+  const TagIndex *tagIndex = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
 
   // Field was not initialized yet
   if (!tagIndex) {
@@ -588,7 +592,7 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
       goto end;
     }
-    const TagIndex *idx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+    const TagIndex *idx = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
 
     // Field was not initialized yet
     if (!idx) {
@@ -759,7 +763,7 @@ DEBUG_COMMAND(GCStopFutureRuns) {
   RedisModule_StopTimer(RSDummyContext, sp->gc->timerID, NULL);
   // mark as stopped. This will prevent the GC from scheduling itself again if it was already running.
   sp->gc->timerID = 0;
-  RedisModule_Log(ctx, "verbose", "Stopped GC %p periodic run for index %s", sp->gc, sp->name);
+  RedisModule_Log(ctx, "verbose", "Stopped GC %p periodic run for index %s", sp->gc, IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
@@ -1048,7 +1052,7 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+  const TagIndex *idx = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
 
   // Field was not initialized yet
   if (!idx) {
@@ -1137,7 +1141,7 @@ static void replyDocFlags(const char *name, const RSDocumentMetadata *dmd, Redis
 }
 
 static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
-                            RedisSearchCtx *sctx, RedisModule_Reply *reply) {
+                            RedisSearchCtx *sctx, bool obfuscate, RedisModule_Reply *reply) {
   RSSortingVector *sv = dmd->sortVector;
   RedisModule_ReplyKV_Array(reply, name);
   for (size_t ii = 0; ii < sv->len; ++ii) {
@@ -1149,7 +1153,20 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
 
       RedisModule_Reply_CString(reply, "field");
       const FieldSpec *fs = IndexSpec_GetFieldBySortingIndex(sctx->spec, ii);
-      RedisModule_Reply_Stringf(reply, "%s AS %s", fs ? fs->path : "!!!", fs ? fs->name : "???");
+
+      if (!fs) {
+        RedisModule_Reply_CString(reply, "!!! AS ???");
+      } else if (!fs->fieldPath) {
+        char *name = FieldSpec_FormatName(fs, obfuscate);
+        RedisModule_Reply_CString(reply, name);
+        rm_free(name);
+      } else {
+        char *path = FieldSpec_FormatPath(fs, obfuscate);
+        char *name = FieldSpec_FormatName(fs, obfuscate);
+        RedisModule_Reply_Stringf(reply, "%s AS %s", path, name);
+        rm_free(path);
+        rm_free(name);
+      }
 
       RedisModule_Reply_CString(reply, "value");
       RSValue_SendReply(reply, sv->values[ii], 0);
@@ -1159,7 +1176,7 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
 }
 
 /**
- * FT.DEBUG DOC_INFO <index> <doc>
+ * FT.DEBUG DOC_INFO <index> <doc> [OBFUSCATE]
  */
 DEBUG_COMMAND(DocInfo) {
   if (!debugCommandsEnabled(ctx)) {
@@ -1176,6 +1193,7 @@ DEBUG_COMMAND(DocInfo) {
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
   }
 
+  const bool obfuscate = (argc >= 5) && (!strcasecmp(RedisModule_StringPtrLen(argv[4], NULL), "OBFUSCATE"));
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   RedisModule_Reply_Map(reply);
@@ -1186,7 +1204,7 @@ DEBUG_COMMAND(DocInfo) {
     RedisModule_ReplyKV_LongLong(reply, "max_freq", dmd->maxFreq);
     RedisModule_ReplyKV_LongLong(reply, "refcount", dmd->ref_count - 1); // TODO: should include the refcount of the command call?
     if (dmd->sortVector) {
-      replySortVector("sortables", dmd, sctx, reply);
+      replySortVector("sortables", dmd, sctx, obfuscate, reply);
     }
   RedisModule_Reply_MapEnd(reply);
 
@@ -1402,6 +1420,23 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+DEBUG_COMMAND(ListIndexesSwitch) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+  Indexes_List(&_reply, true);
+  return REDISMODULE_OK;
+}
+
+DEBUG_COMMAND(getHideUserDataFromLogs) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  const long long value = RSGlobalConfig.hideUserDataFromLog;
+  return RedisModule_ReplyWithLongLong(ctx, value);
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1433,6 +1468,9 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_HNSW", dumpHNSWData},
                                {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
                                {"WORKERS", WorkerThreadsSwitch},
+                               {"INDEXES", ListIndexesSwitch},
+                               {"INFO", IndexObfuscatedInfo},
+                               {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                /* IMPORTANT NOTE: Every debug command starts with
                                 * checking if redis allows this context to execute
                                 * debug commands by calling `debugCommandsEnabled(ctx)`.

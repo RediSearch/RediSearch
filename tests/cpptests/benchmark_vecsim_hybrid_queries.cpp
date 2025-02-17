@@ -81,7 +81,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
                                       .spaceMetric = VecSimMetric_L2,
                                       .query = top_k_query,
                                       .qParams = queryParams,
-                                      .vectorScoreField = (char *)"__v_score",
+                                      .vectorScoreField = "__v_score",
                                       .canTrimDeepResults = true,
                                       .childIt = ui,
                                       .filterCtx = &filterCtx,
@@ -197,7 +197,7 @@ void TearDown() {
 }
 
 /**
- * This benchmark is used for comparing between thw two hybrid queries approaches:
+ * This benchmark is used for comparing between the two hybrid queries approaches:
  * - BATCHES - get a batch of the next top vectors in the vector index, and then filter, until we reach k results
  * - AD-HOC brute force - compute distance for every vector whose id passes the filter, then take the top k
  * To reproduce and/or run the benchmark for different configurations:

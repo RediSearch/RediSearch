@@ -38,7 +38,7 @@ typedef enum {  // Placeholder for bad/invalid unit
 } GeoDistance;
 
 typedef struct GeoFilter {
-  const FieldSpec *field;
+  Field field;
   double lat;
   double lon;
   double radius;

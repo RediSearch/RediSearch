@@ -18,7 +18,7 @@ extern "C" {
 #endif
 
 typedef struct NumericFilter {
-  const FieldSpec *field;   // the numeric field
+  Field field;   // the numeric field
   double min;               // beginning of range
   double max;               // end of range
   const void *geoFilter;    // geo filter

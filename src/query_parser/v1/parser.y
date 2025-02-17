@@ -32,7 +32,7 @@
 %name RSQueryParser_v1_
 
 %syntax_error {
-    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
+    QueryError_SetUserDataAgnosticErrorFmt(ctx->status, QUERY_ESYNTAX,
         "Syntax error at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
 }
@@ -530,13 +530,13 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
-    A = NewNumericNode(C);
-    if (ctx->sctx->spec) {
-        A->nn.nf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
-        if (!A->nn.nf->field) {
-            QueryNode_Free(A);
-            A = NULL;
-        }
+    A = NULL;
+    const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len) : NULL;
+    if (fs) {
+        A = NewNumericNode(C, fs);
+    } else if (C) {
+        QueryParam_Free(C);
+        C = NULL;
     }
 }
 
@@ -555,8 +555,9 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
     A = NewGeofilterNode(C);
     if (ctx->sctx->spec) {
-        A->gn.gf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
-        if (!A->gn.gf->field) {
+        A->gn.gf->field.u.spec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
+        A->gn.gf->field.resolved = true;
+        if (!A->gn.gf->field.u.spec) {
             QueryNode_Free(A);
             A = NULL;
         }
