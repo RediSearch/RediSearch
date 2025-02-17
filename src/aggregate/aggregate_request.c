@@ -216,10 +216,6 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-    // If we have sort by clause and don't need to return scores, we can avoid computing them.
-    if (req->reqflags & QEXEC_F_IS_SEARCH && !(QEXEC_F_SEND_SCORES & req->reqflags)) {
-      req->searchopts.flags |= Search_IgnoreScores;
-    }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
     if (AC_NumRemaining(ac) < 1) {
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");
@@ -372,11 +368,12 @@ static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, QueryE
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
-    options->legacy.gf = rm_calloc(1, sizeof(*options->legacy.gf));
-    if (GeoFilter_Parse(options->legacy.gf, ac, status) != REDISMODULE_OK) {
-      GeoFilter_Free(options->legacy.gf);
+    GeoFilter *cur_gf = rm_calloc(1, sizeof(GeoFilter));
+    if (GeoFilter_Parse(cur_gf, ac, status) != REDISMODULE_OK) {
+      GeoFilter_Free(cur_gf);
       return ARG_ERROR;
     }
+    array_ensure_append_1(options->legacy.geo_filters, cur_gf);
   } else {
     return ARG_UNKNOWN;
   }
@@ -407,7 +404,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       {AC_MKBITFLAG("WITHSORTKEYS", &req->reqflags, QEXEC_F_SEND_SORTKEYS)},
       {AC_MKBITFLAG("WITHPAYLOADS", &req->reqflags, QEXEC_F_SEND_PAYLOADS)},
       {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
-      {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopwrods)},
+      {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopWords)},
       {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
       {.name = "PAYLOAD",
        .type = AC_ARGTYPE_STRING,
@@ -709,14 +706,22 @@ static void loadDtor(PLN_BaseStep *bstp) {
 static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
   int rc = AC_GetVarArgs(ac, &loadfields);
-  if (rc != AC_OK) {
+  if (rc == AC_ERR_PARSE) {
+    // Didn't get a number, but we might have gotten a '*'
     const char *s = NULL;
     rc = AC_GetString(ac, &s, NULL, 0);
-    if (rc != AC_OK || strcmp(s, "*")) {
+    if (rc != AC_OK) {
       QERR_MKBADARGS_AC(status, "LOAD", rc);
       return REDISMODULE_ERR;
+    } else if (strcmp(s, "*")) {
+      QERR_MKBADARGS_FMT(status, "Bad arguments for LOAD: Expected number of fields or `*`");
+      return REDISMODULE_ERR;
     }
+    // Successfuly got a '*', load all fields
     req->reqflags |= QEXEC_AGG_LOAD_ALL;
+  } else if (rc != AC_OK) {
+    QERR_MKBADARGS_AC(status, "LOAD", rc);
+    return REDISMODULE_ERR;
   }
 
   PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
@@ -741,6 +746,8 @@ AREQ *AREQ_New(void) {
   req->reqTimeout = RSGlobalConfig.queryTimeoutMS;
   return req;
 }
+
+static bool hasQuerySortby(const AGGPlan *pln);
 
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
   req->args = rm_malloc(sizeof(*req->args) * argc);
@@ -806,6 +813,14 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     }
   }
 
+  if (!(req->reqflags & QEXEC_F_SEND_HIGHLIGHT) && !IsScorerNeeded(req) && (!IsSearch(req) || hasQuerySortby(&req->ap))) {
+    // We can skip collecting full results structure and metadata from the iterators if:
+    // 1. We don't have a highlight/summarize step,
+    // 2. We are not required to return scores explicitly,
+    // 3. This is not a search query with implicit sorting by query score.
+    searchOpts->flags |= Search_CanSkipRichResults;
+  }
+
   // Set timeout for the query
   updateTimeout(&req->timeoutTime, req->reqTimeout);
 
@@ -825,9 +840,13 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
     array_clear(opts->legacy.filters);  // so AREQ_Free() doesn't free the filters themselves, which
                                         // are now owned by the query object
   }
-  if (opts->legacy.gf) {
-    QAST_GlobalFilterOptions legacyOpts = {.geo = opts->legacy.gf};
-    QAST_SetGlobalFilters(ast, &legacyOpts);
+  if (opts->legacy.geo_filters) {
+    for (size_t ii = 0; ii < array_len(opts->legacy.geo_filters); ++ii) {
+      QAST_GlobalFilterOptions legacyFilterOpts = {.geo = opts->legacy.geo_filters[ii]};
+      QAST_SetGlobalFilters(ast, &legacyFilterOpts);
+    }
+    array_clear(opts->legacy.geo_filters);  // so AREQ_Free() doesn't free the filters themselves, which
+                                            // are now owned by the query object
   }
 
   if (opts->inkeys) {
@@ -877,7 +896,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
     return REDISMODULE_ERR;
   }
-  if (!(opts->flags & Search_NoStopwrods)) {
+  if (!(opts->flags & Search_NoStopWords)) {
     opts->stopwords = sctx->spec->stopwords;
     StopWordList_Ref(sctx->spec->stopwords);
   }
@@ -1102,7 +1121,7 @@ static ResultProcessor *getScorerRP(AREQ *req) {
   return rp;
 }
 
-static int hasQuerySortby(const AGGPlan *pln) {
+static bool hasQuerySortby(const AGGPlan *pln) {
   const PLN_BaseStep *bstp = AGPLN_FindStep(pln, NULL, NULL, PLN_T_GROUP);
   if (bstp != NULL) {
     const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, bstp, PLN_T_ARRANGE);
@@ -1203,6 +1222,11 @@ int buildOutputPipeline(AREQ *req, QueryError *status) {
     RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       ReturnedField *ff = req->outFields.fields + ii;
+      if (req->outFields.defaultField.mode == SummarizeMode_None && ff->mode == SummarizeMode_None) {
+        // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
+        // (Default mode is not any of the summarize modes, and also there is no mode explicitly specified for this field)
+        continue;
+      }
       RLookupKey *kk = RLookup_GetKey(lookup, ff->name, 0);
       if (!kk) {
         QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property `%s`", ff->name);
@@ -1417,6 +1441,10 @@ void AREQ_Free(AREQ *req) {
       }
     }
     array_free(req->searchopts.legacy.filters);
+  }
+  if (req->searchopts.legacy.geo_filters) {
+    array_foreach(req->searchopts.legacy.geo_filters, gf, if (gf) GeoFilter_Free(gf));
+    array_free(req->searchopts.legacy.geo_filters);
   }
   rm_free(req->searchopts.inids);
   if (req->searchopts.params) {

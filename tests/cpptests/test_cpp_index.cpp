@@ -723,8 +723,8 @@ TEST_F(IndexTest, testHybridVector) {
                                   .query = top_k_query,
                                   .qParams = queryParams,
                                   .vectorScoreField = (char *)"__v_score",
-                                  .ignoreDocScore = true,
-                                  .childIt = NULL
+                                  .canTrimDeepResults = true,
+                                  .childIt = NULL,
   };
   QueryError err = {QUERY_OK};
   IndexIterator *vecIt = NewHybridVectorIterator(hParams, &err);
@@ -806,7 +806,7 @@ TEST_F(IndexTest, testHybridVector) {
   // Rerun without ignoring document scores.
   r = NewTermIndexReader(w, NULL, RS_FIELDMASK_ALL, NULL, 1);
   ir = NewReadIterator(r);
-  hParams.ignoreDocScore = false;
+  hParams.canTrimDeepResults = false;
   hParams.childIt = ir;
   hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
@@ -882,7 +882,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .query = top_k_query,
                                   .qParams = queryParams,
                                   .vectorScoreField = (char *)"__v_score",
-                                  .ignoreDocScore = true,
+                                  .canTrimDeepResults = true,
                                   .childIt = ii};
   QueryError err = {QUERY_OK};
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
@@ -1448,26 +1448,27 @@ TEST_F(IndexTest, testDeltaSplits) {
 TEST_F(IndexTest, testRawDocId) {
   const int previousConfig = RSGlobalConfig.invertedIndexRawDocidEncoding;
   RSGlobalConfig.invertedIndexRawDocidEncoding = true;
-  const size_t INDEX_BLOCK_SIZE = 100;
+  constexpr size_t INDEX_BLOCK_SIZE_DOCID_ONLY = 1000;
   InvertedIndex *idx = NewInvertedIndex(Index_DocIdsOnly, 1);
   IndexEncoder enc = InvertedIndex_GetEncoder(idx->flags);
+  constexpr size_t n_ids = INDEX_BLOCK_SIZE_DOCID_ONLY * 3;
 
   // Add a few entries, all with an odd docId
-  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
+  for (t_docId id = 1; id < n_ids; id += 2) {
     InvertedIndex_WriteEntryGeneric(idx, enc, id, NULL);
   }
 
   // Test that we can read them back
   IndexReader *ir = NewTermIndexReader(idx, NULL, RS_FIELDMASK_ALL, NULL, 1);
   RSIndexResult *cur;
-  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id += 2) {
+  for (t_docId id = 1; id < n_ids; id += 2) {
     ASSERT_EQ(INDEXREAD_OK, IR_Read(ir, &cur));
     ASSERT_EQ(id, cur->docId);
   }
   ASSERT_EQ(INDEXREAD_EOF, IR_Read(ir, &cur));
 
   // Test that we can skip to all the ids
-  for (t_docId id = 1; id < INDEX_BLOCK_SIZE; id++) {
+  for (t_docId id = 1; id < n_ids; id++) {
     IR_Rewind(ir);
     int rc = IR_SkipTo(ir, id, &cur);
     if (id % 2 == 0) {

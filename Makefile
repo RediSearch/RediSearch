@@ -217,8 +217,8 @@ CMAKE_FILES+= \
 endif
 
 #----------------------------------------------------------------------------------------------
-
-_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME)
+BOOST_DIR ?= $(ROOT)/.install/boost
+_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR) -DSAN=$(SAN)
 
 ifeq ($(OS),macos)
 _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)

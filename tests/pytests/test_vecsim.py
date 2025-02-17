@@ -754,12 +754,12 @@ def test_hybrid_query_batches_mode_with_tags():
 
     for data_type in VECSIM_DATA_TYPES:
         conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
-                            'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG')
+                            'DIM', dim, 'DISTANCE_METRIC', 'L2', 'EF_RUNTIME', 100, 'tags', 'TAG', 'text', 'TEXT')
 
         p = conn.pipeline(transaction=False)
         for i in range(1, index_size+1):
             vector = create_np_array_typed([i]*dim, data_type)
-            p.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid')
+            p.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid', 'text', 'text')
         p.execute()
 
         query_data = create_np_array_typed([index_size/2]*dim, data_type)
@@ -2265,3 +2265,34 @@ def test_max_knn_k():
     env.expect('FT.SEARCH', 'idx', f'*=>[KNN {k} @{vec_fieldname} $BLOB AS {score_name.lower()}]',
                'PARAMS', 2, 'BLOB', create_np_array_typed([0] * dim).tobytes(),
                'RETURN', '1', score_name).error().contains('KNN K parameter is too large')
+def test_vector_index_ptr_valid(env):
+    conn = getConnectionByEnv(env)
+    # Scenerio1: Vecsim Index scheme with numeric (or non-vector type) and vector type with invalid parameter
+    #            Insert partial doc - only numeric
+    #            Update Doc
+
+    # HNSW parameters the causes an execution throw (M == 1)
+    M = 1
+    dim = 4
+
+    env.expect('FT.CREATE', 'idx','SCHEMA', 'n', 'NUMERIC',
+                    'v', 'VECTOR', 'HNSW', '8', 'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
+
+    res = conn.execute_command('HSET', 'doc', 'n', 0)
+    env.assertEqual(res, 1)
+    # before bug fix, the following command would cause a server crash due to null pointer access to the vector index that filed to be created.
+    res = conn.execute_command('HSET', 'doc', 'n', 1)
+    env.assertEqual(res, 0)
+
+    # Sanity check - insert a vector, expect indexing faliure
+    # doc is indexed, doc1 is not indexed
+    hash_fails = int(index_info(env, 'idx')['hash_indexing_failures'])
+    res = conn.execute_command('HSET', 'doc1', 'v', create_np_array_typed([0]*dim,'FLOAT32').tobytes())
+    env.assertEqual(res, 1)
+    # hash indexing failures should be increased by 1
+    env.assertEqual(int(index_info(env, 'idx')['hash_indexing_failures']), hash_fails+1)
+
+    # Check FlushAll - before bug fix, the following command would cause a server crash due to the null pointer accsess
+    # Server will reply OK but crash afterwards, so a PING is required to verify
+    env.expect('FLUSHALL').noError()
+    env.expect('PING').noError()

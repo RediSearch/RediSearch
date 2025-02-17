@@ -26,10 +26,6 @@
 #include "suffix.h"
 #include "info/global_stats.h"
 
-#ifdef __linux__
-#include <sys/prctl.h>
-#endif
-
 #define GC_WRITERFD 1
 #define GC_READERFD 0
 
@@ -158,11 +154,6 @@ FGC_recvBuffer(ForkGC *fgc, void **buf, size_t *len) {
   }
   return REDISMODULE_OK;
 }
-
-#define TRY_RECV_BUFFER(gc, buf, len)                   \
-  if (FGC_recvBuffer(gc, buf, len) != REDISMODULE_OK) { \
-    return REDISMODULE_ERR;                             \
-  }
 
 typedef struct {
   // Number of blocks prior to repair
@@ -751,6 +742,8 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
 
   idx->numDocs -= info->ndocsCollected;
   idx->gcMarker++;
+  RS_LOG_ASSERT(idx->size, "Index should have at least one block");
+  idx->lastId = idx->blocks[idx->size - 1].lastId; // Update lastId
 }
 
 static FGCError FGC_parentHandleTerms(ForkGC *gc, RedisModuleCtx *rctx) {
@@ -1127,23 +1120,6 @@ int FGC_parentHandleFromChild(ForkGC *gc) {
   return REDISMODULE_OK;
 }
 
-/**
- * In future versions of Redis, Redis will have its own fork() call.
- * The following two functions wrap this functionality.
- */
-static int FGC_haveRedisFork() {
-  return RedisModule_Fork != NULL;
-}
-
-static int FGC_fork(ForkGC *gc, RedisModuleCtx *ctx) {
-  if (FGC_haveRedisFork()) {
-    int ret = RedisModule_Fork(NULL, NULL);
-    return ret;
-  } else {
-    return fork();
-  }
-}
-
 static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   ForkGC *gc = privdata;
   if (gc->deleting) {
@@ -1206,7 +1182,7 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
 
   gc->execState = FGC_STATE_SCANNING;
 
-  cpid = FGC_fork(gc, ctx);  // duplicate the current process
+  cpid = RedisModule_Fork(NULL, NULL);  // duplicate the current process
 
   if (cpid == -1) {
     RedisModule_Log(ctx, "warning", "fork failed - got errno %d, aborting fork GC", errno);
@@ -1238,25 +1214,13 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   gc->retryInterval.tv_sec = RSGlobalConfig.forkGcRunIntervalSec;
 
   if (cpid == 0) {
-    setpriority(PRIO_PROCESS, getpid(), 19);
     // fork process
+    setpriority(PRIO_PROCESS, getpid(), 19);
     close(gc->pipefd[GC_READERFD]);
-#ifdef __linux__
-    if (!FGC_haveRedisFork()) {
-      // set the parrent death signal to SIGTERM
-      int r = prctl(PR_SET_PDEATHSIG, SIGKILL);
-      if (r == -1) {
-        exit(1);
-      }
-      // test in case the original parent exited just
-      // before the prctl() call
-      if (getppid() != ppid_before_fork) exit(1);
-    }
-#endif
     FGC_childScanIndexes(gc);
     close(gc->pipefd[GC_WRITERFD]);
     sleep(RSGlobalConfig.forkGcSleepBeforeExit);
-    _exit(EXIT_SUCCESS);
+    RedisModule_ExitFromChild(EXIT_SUCCESS);
   } else {
     // main process
     close(gc->pipefd[GC_WRITERFD]);
@@ -1271,45 +1235,34 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
       gcrv = 1;
     }
     close(gc->pipefd[GC_READERFD]);
-    if (FGC_haveRedisFork()) {
 
-      if (gc->type == FGC_TYPE_NOKEYSPACE) {
-        // If we are not in key space we still need to acquire the GIL to use the fork api
-        RedisModule_ThreadSafeContextLock(ctx);
-      }
+    if (gc->type == FGC_TYPE_NOKEYSPACE) {
+      // If we are not in key space we still need to acquire the GIL to use the fork api
+      RedisModule_ThreadSafeContextLock(ctx);
+    }
 
-      if (!FGC_lock(gc, ctx)) {
-        if (gc->type == FGC_TYPE_NOKEYSPACE) {
-          RedisModule_ThreadSafeContextUnlock(ctx);
-        }
-
-        return 0;
-      }
-
-      // KillForkChild must be called when holding the GIL
-      // otherwise it might cause a pipe leak and eventually run
-      // out of file descriptor
-      RedisModule_KillForkChild(cpid);
-
+    if (!FGC_lock(gc, ctx)) {
       if (gc->type == FGC_TYPE_NOKEYSPACE) {
         RedisModule_ThreadSafeContextUnlock(ctx);
       }
 
-      FGC_unlock(gc, ctx);
-
-    } else {
-      pid_t id = wait4(cpid, NULL, 0, NULL);
-      if (id == -1) {
-        RedisModule_Log(ctx, "warning", "an error occurred when waiting for fork GC to terminate,"
-                        " pid:%d", cpid);
-      }
+      return 0;
     }
-  }
 
+    // KillForkChild must be called when holding the GIL
+    // otherwise it might cause a pipe leak and eventually run
+    // out of file descriptor
+    RedisModule_KillForkChild(cpid);
+
+    if (gc->type == FGC_TYPE_NOKEYSPACE) {
+      RedisModule_ThreadSafeContextUnlock(ctx);
+    }
+
+    FGC_unlock(gc, ctx);
+  }
   IndexsGlobalStats_UpdateLogicallyDeleted(-num_docs_to_clean);
   gc->execState = FGC_STATE_IDLE;
   TimeSampler_End(&ts);
-
   long long msRun = TimeSampler_DurationMS(&ts);
 
   gc->stats.numCycles++;

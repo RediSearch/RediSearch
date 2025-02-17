@@ -11,23 +11,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  get-latest-redis-tag:
+  get-latest-redis-6-tag:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
       repo: redis/redis
       prefix: 6 # Only tags starting with 6.x.x will be considered.
+  get-latest-redis-7-2-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: 7.2 # For sanitizer, in which only redis >= 7 supports OOTB.
 
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml
 
   basic-test:
-    needs: [docs-only, get-latest-redis-tag]
+    needs: [docs-only, get-latest-redis-6-tag]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/task-test.yml
     with:
       env: ubuntu-latest
       test-config: QUICK=1
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      get-redis: ${{ needs.get-latest-redis-6-tag.outputs.tag }}
     secrets: inherit
 
   coverage:
@@ -37,17 +42,22 @@ jobs:
     secrets: inherit
 
   sanitize:
-    needs: docs-only
+    needs: [docs-only, get-latest-redis-7-2-tag]
     if: ${{ needs.docs-only.outputs.only-docs-changed == 'false' && !github.event.pull_request.draft }}
-    uses: ./.github/workflows/flow-sanitizer.yml
     secrets: inherit
+    uses: ./.github/workflows/task-test.yml
     with:
-      flow-config: QUICK=1
+      get-redis: ${{ needs.get-latest-redis-7-2-tag.outputs.tag }}
+      test-config: QUICK=1
+      san: address
+      env: ubuntu-latest
+      container: ubuntu:jammy
 
   pr-validation:
     needs:
       - docs-only # if the setup jobs fail, the rest of the jobs will be skipped, and we will exit with a failure
-      - get-latest-redis-tag
+      - get-latest-redis-6-tag
+      - get-latest-redis-7-2-tag
       - basic-test
       - coverage
       - sanitize

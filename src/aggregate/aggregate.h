@@ -68,6 +68,7 @@ typedef enum {
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
+#define IsScorerNeeded(r) ((r)->reqflags & QEXEC_F_SEND_SCORES)
 
 typedef enum {
   /* Received EOF from iterator */
