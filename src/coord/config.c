@@ -94,6 +94,21 @@ CONFIG_GETTER(getConnPerShard) {
   return sdsfromlonglong(realConfig->connPerShard);
 }
 
+// search-conn-per-shard
+int set_conn_per_shard(const char *name, long long val, void *privdata,
+  RedisModuleString **err) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  realConfig->connPerShard = (size_t)val;
+  return triggerConnPerShard(config);
+}
+
+long long get_conn_per_shard(const char *name, void *privdata) {
+RSConfig *config = (RSConfig *)privdata;
+SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+return (long long)realConfig->connPerShard;
+}
+
 // CURSOR_REPLY_THRESHOLD
 CONFIG_SETTER(setCursorReplyThreshold) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
@@ -280,6 +295,17 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
       (void*)&RSGlobalConfig
     )
   )
+
+  // TODO: Confirm the maximum value for search-conn-per-shard
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-conn-per-shard", DEFAULT_CONN_PER_SHARD,
+      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0, UINT32_MAX,
+      get_conn_per_shard, set_conn_per_shard, NULL,
+      (void*)&RSGlobalConfig
+    )
+  )
+
 
   return REDISMODULE_OK;
 }
