@@ -26,7 +26,7 @@ int HiddenName_CompareC(const HiddenName *left, const char *right, size_t right_
 int HiddenName_CaseInsensitiveCompare(HiddenName *left, HiddenName *right);
 int HiddenName_CaseInsensitiveCompareC(HiddenName *left, const char *right, size_t right_length);
 
-// ownership managment
+// ownership management
 HiddenName *HiddenName_Duplicate(const HiddenName *value);
 void HiddenName_TakeOwnership(HiddenName *hidden);
 void HiddenName_Clone(HiddenName *src, HiddenName **dst);
@@ -37,7 +37,7 @@ void HiddenName_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, Hidd
 RedisModuleString *HiddenName_CreateString(HiddenName* value, RedisModuleCtx* ctx);
 
 // Direct access to user data, should be used only when necessary
-// Avoid outputing user data to:
+// Avoid outputting user data to:
 // 1. Logs
 // 2. Metrics
 // 3. Command responses

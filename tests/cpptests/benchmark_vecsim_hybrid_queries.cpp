@@ -33,7 +33,7 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                          REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    return RediSearch_InitModuleInternal(ctx, argv, argc);
+    return RediSearch_InitModuleInternal(ctx);
 }
 
 }
@@ -82,7 +82,7 @@ void run_hybrid_benchmark(VecSimIndex *index, size_t max_id, size_t d, std::mt19
                                       .query = top_k_query,
                                       .qParams = queryParams,
                                       .vectorScoreField = (char *)"__v_score",
-                                      .ignoreDocScore = true,
+                                      .canTrimDeepResults = true,
                                       .childIt = ui,
                                       .filterCtx = &filterCtx,
       };

@@ -107,7 +107,7 @@ bool isWithinRadiusLonLat(double lon1, double lat1, double lon2, double lat2, do
 extern RedisModuleCtx *RSDummyContext;
 
 int parseGeo(const char *c, size_t len, double *lon, double *lat, QueryError *status) {
-  // pretect the heap from a large string. 128 is sufficient
+  // protect the heap from a large string. 128 is sufficient
   if (len > 128) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Geo string cannot be longer than 128 bytes");
     return REDISMODULE_ERR;

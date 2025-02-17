@@ -16,7 +16,7 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
                        REDISMODULE_APIVER_1) == REDISMODULE_ERR) {
     return REDISMODULE_ERR;
   }
-  return RediSearch_InitModuleInternal(ctx, argv, argc);
+  return RediSearch_InitModuleInternal(ctx);
 }
 
 }
