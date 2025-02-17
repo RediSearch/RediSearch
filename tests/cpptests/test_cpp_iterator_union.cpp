@@ -259,4 +259,6 @@ TEST_F(UnionIteratorSingleTest, ReuseResults) {
     ASSERT_FALSE(it1->base.isValid);
     ASSERT_EQ(it2->readCount, 2) << "it2 should be read again";
     ASSERT_FALSE(it2->base.isValid);
+
+    ui_base->Free(ui_base);
 }
