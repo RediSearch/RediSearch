@@ -730,7 +730,7 @@ def unf(env, is_sortable_unf):
         if is_sortable_unf:
             first = ['key1', [*sort_output_fields[0], *loaded_fields[0]]]
             second = ['key2', [*sort_output_fields[1], *loaded_fields[1]]]
-        # Otherwise, the indexed value is formated the original and ameow < meow
+        # Otherwise, the indexed value is formatted the original and ameow < meow
         else :
             first = ['key2', [*sort_output_fields[1], *loaded_fields[1]]]
             second = ['key1', [*sort_output_fields[0], *loaded_fields[0]]]
