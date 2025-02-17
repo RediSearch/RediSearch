@@ -243,7 +243,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
       if (!opt->field) {
         // TODO: For now set to NONE. Maybe add use of FILTER
         opt->type = Q_OPT_NONE;
-        const FieldSpec *fs = FieldSpec_Resolved(&opt->sortbyNode->nn.nf->field, req->sctx->spec);
+        const FieldSpec *fs = FieldSpec_Resolved(&opt->sortbyNode->nn.nf->field);
         FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
         IndexIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->sortbyNode->nn.nf,
                                                              &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config,
