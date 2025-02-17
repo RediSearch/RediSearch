@@ -88,23 +88,22 @@ public:
         setBase(&base);
         docIds = {args...};
         std::sort(docIds.begin(), docIds.end());
+        std::unique(docIds.begin(), docIds.end());
     }
 };
 
-extern "C" {
-    IteratorStatus MockIterator_Read(QueryIterator *base) {
-        return reinterpret_cast<MockIterator *>(base)->Read();
-    }
-    IteratorStatus MockIterator_SkipTo(QueryIterator *base, t_docId docId) {
-        return reinterpret_cast<MockIterator *>(base)->SkipTo(docId);
-    }
-    size_t MockIterator_NumEstimated(QueryIterator *base) {
-        return reinterpret_cast<MockIterator *>(base)->NumEstimated();
-    }
-    void MockIterator_Rewind(QueryIterator *base) {
-        reinterpret_cast<MockIterator *>(base)->Rewind();
-    }
-    void MockIterator_Free(QueryIterator *base) {
-        delete reinterpret_cast<MockIterator *>(base);
-    }
+IteratorStatus MockIterator_Read(QueryIterator *base) {
+    return reinterpret_cast<MockIterator *>(base)->Read();
+}
+IteratorStatus MockIterator_SkipTo(QueryIterator *base, t_docId docId) {
+    return reinterpret_cast<MockIterator *>(base)->SkipTo(docId);
+}
+size_t MockIterator_NumEstimated(QueryIterator *base) {
+    return reinterpret_cast<MockIterator *>(base)->NumEstimated();
+}
+void MockIterator_Rewind(QueryIterator *base) {
+    reinterpret_cast<MockIterator *>(base)->Rewind();
+}
+void MockIterator_Free(QueryIterator *base) {
+    delete reinterpret_cast<MockIterator *>(base);
 }
