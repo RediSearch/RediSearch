@@ -153,7 +153,7 @@ void QueryError_SetUserDataAgnosticErrorFmt(QueryError *status, QueryErrorCode c
  *
  * Equivalent to the following boilerplate:
  * @code{c}
- *  HiddenString *hs = AC_GetHiddenStringNoCopy(ac);
+ *  HiddenString *hs = AC_GetHiddenStringNC(ac);
  *  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument for %s:", " %s", name, hs);
  * @endcode
  */

@@ -500,7 +500,7 @@ static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
 static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
   HiddenString *htypeStr;
   int rc;
-  if ((rc = AC_GetHiddenString(ac, &htypeStr) != AC_OK)) {
+  if ((rc = AC_GetHiddenString(ac, &htypeStr, 0) != AC_OK)) {
     return rc;
   }
   // Uncomment these when support for other type is added.
@@ -531,7 +531,7 @@ static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
   const char *metricStr;
   HiddenString *hmetricStr;
   int rc;
-  if ((rc = AC_GetHiddenString(ac, &hmetricStr)) != AC_OK) {
+  if ((rc = AC_GetHiddenString(ac, &hmetricStr, 0)) != AC_OK) {
     return rc;
   }
   if (!HiddenString_CaseInsensitiveCompareC(hmetricStr, VECSIM_METRIC_IP, strlen(VECSIM_METRIC_IP)))
@@ -680,8 +680,7 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
         return 0;
       }
     } else {
-      HiddenString *hac;
-      AC_GetHiddenString(ac, &hac);
+      HiddenString *hac = AC_GetHiddenStringNC(ac);
       QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, HiddenString_GetUnsafe(hac, NULL));
       return 0;
     }
@@ -759,8 +758,7 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
         return 0;
       }
     } else {
-      HiddenString *hac;
-      AC_GetHiddenString(ac, &hac);
+      HiddenString *hac = AC_GetHiddenStringNC(ac);
       QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_BF, HiddenString_GetUnsafe(hac, NULL));
       return 0;
     }
@@ -814,7 +812,7 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
         QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_PHONETIC_STR " requires an argument");
         return 0;
       }
-      HiddenString *hmatcher = AC_GetHiddenStringNoCopy(ac);
+      HiddenString *hmatcher = AC_GetHiddenStringNC(ac);
       // try and parse the matcher
       // currently we just make sure algorithm is double metaphone (dm)
       // and language is one of the following : English (en), French (fr), Portuguese (pt) and
@@ -855,7 +853,7 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
           rc = 0;
           break;
         }
-        HiddenString *hsep = AC_GetHiddenStringNoCopy(ac);
+        HiddenString *hsep = AC_GetHiddenStringNC(ac);
         size_t sepLen;
         const char *sep = HiddenString_GetUnsafe(hsep, &sepLen);
         if (sepLen != 1) {
@@ -910,7 +908,7 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
 
   int rc;
   int result;
-  if (rc = AC_GetHiddenString(ac, &halgStr) != AC_OK) {
+  if ((rc = AC_GetHiddenString(ac, &halgStr, 0) != AC_OK)) {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", rc);
     return 0;
   }
@@ -1080,21 +1078,21 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
     // Parse path and name of field
     size_t namelen;
-    HiddenString *hfieldPath = AC_GetHiddenStringNoCopy(ac);
+    HiddenString *hfieldPath = AC_GetHiddenStringNC(ac);
     HiddenString *hfieldName = hfieldPath;
     if (AC_AdvanceIfMatch(ac, SPEC_AS_STR)) {
       if (AC_IsAtEnd(ac)) {
         QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_AS_STR " requires an argument");
         goto reset;
       }
-      hfieldName = AC_GetHiddenStringNoCopy(ac);
+      hfieldName = AC_GetHiddenStringNC(ac);
       sp->flags |= Index_HasFieldAlias;
     } else {
       // if `AS` is not used, set the path as name
-      HiddenString_GetUnsafe(hfieldPath, &namelen);
+      hfieldPath = NULL;
     }
 
-    const char *fieldName = HiddenString_GetUnsafe(hfieldPath, NULL);
+    const char *fieldName = HiddenString_GetUnsafe(hfieldName, &namelen);
     const char *fieldPath = hfieldPath ? HiddenString_GetUnsafe(hfieldPath, NULL): NULL;
 
     if (IndexSpec_GetFieldWithLength(sp, fieldName, namelen)) {
@@ -1331,7 +1329,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
 
   if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
     if (AC_NumRemaining(&ac)) {
-      HiddenString *hbadarg = AC_GetHiddenStringNoCopy(&ac);
+      HiddenString *hbadarg = AC_GetHiddenStringNC(&ac);
       const char *badarg = HiddenString_GetUnsafe(hbadarg, NULL);
       QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s`", badarg);
     } else {

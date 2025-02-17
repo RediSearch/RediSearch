@@ -22,7 +22,7 @@ static int parseFieldList(ArgsCursor *ac, FieldList *fields, Array *fieldPtrs) {
   }
 
   while (!AC_IsAtEnd(&fieldArgs)) {
-    HiddenString *hname = AC_GetHiddenStringNoCopy(&fieldArgs);
+    HiddenString *hname = AC_GetHiddenStringNC(&fieldArgs);
     ReturnedField *fieldInfo = FieldList_GetCreateField(fields, HiddenString_GetUnsafe(hname, NULL), NULL);
     size_t ix = (fieldInfo - fields->fields);
     Array_Write(fieldPtrs, &ix, sizeof(size_t));
@@ -89,9 +89,10 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
         rc = REDISMODULE_ERR;
         goto done;
       }
-      HiddenString *hTag = AC_GetHiddenStringNoCopy(ac);
-      defOpts.highlightSettings.openTag = (char *)HiddenString_GetUnsafe(hTag, NULL);
-      defOpts.highlightSettings.closeTag = (char *)HiddenString_GetUnsafe(hTag, NULL);
+      HiddenString *hopenTag = AC_GetHiddenStringNC(ac);
+      defOpts.highlightSettings.openTag = (char *)HiddenString_GetUnsafe(hopenTag, NULL);
+      HiddenString *hcloseTag = AC_GetHiddenStringNC(ac);
+      defOpts.highlightSettings.closeTag = (char *)HiddenString_GetUnsafe(hcloseTag, NULL);
     } else if (!isHighlight && AC_AdvanceIfMatch(ac, "LEN")) {
       if (AC_GetUnsigned(ac, &defOpts.summarizeSettings.contextLen, 0) != AC_OK) {
         rc = REDISMODULE_ERR;
@@ -106,9 +107,11 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
       defOpts.summarizeSettings.numFrags = tmp;
     } else if (!isHighlight && AC_AdvanceIfMatch(ac, "SEPARATOR")) {
       HiddenString *hsaparator;
-      if (AC_GetHiddenString(ac, &hsaparator) != AC_OK) {
+      if (AC_GetHiddenString(ac, &hsaparator, 0) != AC_OK) {
         rc = REDISMODULE_ERR;
         goto done;
+      } else {
+        defOpts.summarizeSettings.separator = (char *)HiddenString_GetUnsafe(hsaparator, NULL);
       }
     } else {
       break;

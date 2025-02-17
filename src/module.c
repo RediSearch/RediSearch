@@ -739,7 +739,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     return RedisModule_WrongArity(ctx);
   }
   QueryError status = {0};
-  HiddenString *hixname = AC_GetHiddenStringNoCopy(&ac);
+  HiddenString *hixname = AC_GetHiddenStringNC(&ac);
   StrongRef ref = IndexSpec_LoadUnsafe(HiddenString_GetUnsafe(hixname, NULL));
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
@@ -774,7 +774,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     size_t fieldNameSize;
     HiddenString* hfieldName;
 
-    AC_GetHiddenString(&ac, &hfieldName);
+    AC_GetHiddenString(&ac, &hfieldName, AC_F_NOADVANCE);
     fieldName = HiddenString_GetUnsafe(hfieldName, &fieldNameSize);
     RedisSearchCtx_LockSpecRead(&sctx);
     const FieldSpec *field_exists = IndexSpec_GetFieldWithLength(sp, fieldName, fieldNameSize);

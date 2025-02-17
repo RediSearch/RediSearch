@@ -83,7 +83,7 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
     if ((rv = AC_ParseArgSpec(ac, argList, &errArg)) == AC_OK) {
       continue;
     } else if (rv == AC_ERR_ENOENT) {
-      HiddenString* hs = AC_GetHiddenStringNoCopy(ac);
+      HiddenString* hs = AC_GetHiddenStringNC(ac);
       if (!HiddenString_CaseInsensitiveCompareC(hs, "FIELDS", strlen("FIELDS"))){
         size_t numRemaining = AC_NumRemaining(ac);
         if (numRemaining % 2 != 0) {

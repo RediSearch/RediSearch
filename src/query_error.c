@@ -19,7 +19,7 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
   const char *s;
   size_t n;
   HiddenString *hs;
-  if (AC_GetHiddenString(ac, &hs) != AC_OK) {
+  if (AC_GetHiddenString(ac, &hs, AC_F_NOADVANCE) != AC_OK) {
     s = "Unknown (FIXME)";
     n = strlen(s);
   } else {

@@ -462,7 +462,7 @@ CONFIG_GETTER(getDeprWorkThreads) {
 CONFIG_SETTER(setMtMode) {
   RedisModule_Log(RSDummyContext, "warning", "MT_MODE and WORKER_THREADS are deprecated, use WORKERS and MIN_OPERATION_WORKERS instead");
   HiddenString *hmt_mode;
-  int acrc = AC_GetHiddenString(ac, &hmt_mode);
+  int acrc = AC_GetHiddenString(ac, &hmt_mode, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);\
   if (!HiddenString_CaseInsensitiveCompareC(hmt_mode, "MT_MODE_OFF", strlen("MT_MODE_OFF"))) {
     mt_mode_config = MT_MODE_OFF;
@@ -560,7 +560,7 @@ RedisModuleString * get_friso_ini(const char *name, void *privdata) {
 // ON_TIMEOUT
 CONFIG_SETTER(setOnTimeout) {
   HiddenString *hpolicy;
-  int acrc = AC_GetHiddenString(ac, &hpolicy);
+  int acrc = AC_GetHiddenString(ac, &hpolicy, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   size_t len;
   const char *policy = HiddenString_GetUnsafe(hpolicy, &len);
@@ -758,7 +758,7 @@ CONFIG_GETTER(getMultiTextOffsetDelta) {
 
 CONFIG_SETTER(setGcPolicy) {
   HiddenString *hpolicy;
-  int acrc = AC_GetHiddenString(ac, &hpolicy);
+  int acrc = AC_GetHiddenString(ac, &hpolicy, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (!HiddenString_CaseInsensitiveCompareC(hpolicy, "DEFAULT", strlen("DEFAULT")) ||
    !HiddenString_CaseInsensitiveCompareC(hpolicy, "FORK", strlen("FORK"))) {
@@ -790,7 +790,7 @@ CONFIG_SETTER(setUpgradeIndex) {
   size_t dummy2;
   HiddenString *hrawIndexName;
   SchemaRuleArgs *rule = NULL;
-  int acrc = AC_GetHiddenString(ac, &hrawIndexName);
+  int acrc = AC_GetHiddenString(ac, &hrawIndexName, 0);
 
   if (acrc != AC_OK) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Index name was not given to upgrade argument");
@@ -912,7 +912,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv, argc);
   while (!AC_IsAtEnd(&ac)) {
-    HiddenString *hname = AC_GetHiddenStringNoCopy(&ac);
+    HiddenString *hname = AC_GetHiddenStringNC(&ac);
     const char *name = HiddenString_GetUnsafe(hname, NULL);
     RSConfigVar *curVar = findConfigVar(&RSGlobalConfigOptions, name);
     if (curVar == NULL) {

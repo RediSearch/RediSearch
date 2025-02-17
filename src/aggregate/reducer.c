@@ -61,7 +61,7 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   ArgsCursor *ac = options->args;
   const char *s;
   HiddenString *hs;
-  if (AC_GetHiddenString(ac, &hs) != AC_OK) {
+  if (AC_GetHiddenString(ac, &hs, 0) != AC_OK) {
     QERR_MKBADARGS_FMT(options->status, "Missing arguments", " for %s", options->name);
     return 0;
   }

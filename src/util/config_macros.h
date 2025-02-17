@@ -37,7 +37,7 @@
 #define CONFIG_BOOLEAN_SETTER(name, var)                                                \
   CONFIG_SETTER(name) {                                                                 \
     HiddenString* htf;                                                                   \
-    int acrc = AC_GetHiddenString(ac, &htf);                                            \
+    int acrc = AC_GetHiddenString(ac, &htf, 0);                                            \
     CHECK_RETURN_PARSE_ERROR(acrc);                                                     \
     if (!HiddenString_CaseInsensitiveCompareC(htf, "true", strlen("true"))){             \
       config->var = 1;                                                                  \

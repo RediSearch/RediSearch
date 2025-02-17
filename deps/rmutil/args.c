@@ -194,6 +194,18 @@ int AC_GetString(ArgsCursor *ac, const char **s, size_t *n, int flags) {
   return AC_OK;
 }
 
+int AC_GetHiddenString(ArgsCursor *ac, HiddenString** hs, int flags) {
+  size_t n;
+  const char *text = NULL;
+  const int rc = AC_GetString(ac, &text, &n, flags);
+  if (rc == AC_OK) {
+    *hs = NewHiddenString(text, n, false);
+  } else {
+    *hs = NULL;
+  }
+  return rc;
+}
+
 const char *AC_GetStringNC(ArgsCursor *ac, size_t *len) {
   const char *s = NULL;
   if (AC_GetString(ac, &s, len, 0) != AC_OK) {
@@ -202,23 +214,11 @@ const char *AC_GetStringNC(ArgsCursor *ac, size_t *len) {
   return s;
 }
 
-HiddenString *AC_GetHiddenStringNoCopy(ArgsCursor *ac) {
+HiddenString *AC_GetHiddenStringNC(ArgsCursor *ac) {
   size_t n;
   const char *text = NULL;
   const int rc = AC_GetString(ac, &text, &n, 0);
   return rc == AC_OK ? NewHiddenString(text, n, false) : NULL;
-}
-
-int AC_GetHiddenString(ArgsCursor *ac, HiddenString** hs) {
-  size_t n;
-  const char *text = NULL;
-  const int rc = AC_GetString(ac, &text, &n, 0);
-  if (rc == AC_OK) {
-    *hs = NewHiddenString(text, n, true);
-  } else {
-    *hs = NULL;
-  }
-  return rc;
 }
 
 int AC_GetVarArgs(ArgsCursor *ac, ArgsCursor *dst) {
