@@ -31,16 +31,18 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
 }
 
 const FieldSpec *FieldSpec_Resolve(Field *field, const IndexSpec *spec) {
+  const FieldSpec *fs = NULL;
   if (field->resolved) {
-    return field->u.spec;
+    fs = field->u.spec;
   } else if (field->u.name) {
-    const FieldSpec *fs = IndexSpec_GetField(spec, field->u.name);
+    fs = IndexSpec_GetField(spec, field->u.name);
     if (fs) {
       HiddenString_Free(field->u.name, false);
       field->u.spec = fs;
       field->resolved = true;
     }
   }
+  return fs;
 }
 
 const FieldSpec *FieldSpec_Resolved(const Field *f) {
