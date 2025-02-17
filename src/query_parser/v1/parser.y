@@ -49,6 +49,11 @@
 #include "rmutil/vector.h"
 #include "query_node.h"
 
+static HiddenString *MakeToken(const char *str, size_t len) {
+    char *normalized = rm_normalize(str, len);
+    return NewHiddenStringEx(normalized, strlen(normalized), Move);
+}
+
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
 
@@ -490,14 +495,14 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
 
 tag_list(A) ::= LB term(B) . [TAGLIST] {
     A = NewPhraseNode(0);
-    HiddenString *tag = MakeTagToken(B.s, B.len);
+    HiddenString *tag = MakeToken(B.s, B.len);
     QueryNode_AddChild(A, NewTokenNode(ctx, tag));
     HiddenString_Free(tag);
 }
 
 tag_list(A) ::= LB STOPWORD(B) . [TAGLIST] {
     A = NewPhraseNode(0);
-    HiddenString *tag = MakeTagToken(B.s, B.len);
+    HiddenString *tag = MakeToken(B.s, B.len);
     QueryNode_AddChild(A, NewTokenNode(ctx, tag));
     HiddenString_Free(tag);
 }
@@ -513,14 +518,14 @@ tag_list(A) ::= LB termlist(B) . [TAGLIST] {
 }
 
 tag_list(A) ::= tag_list(B) OR term(C) . [TAGLIST] {
-    HiddenString *tag = MakeTagToken(C.s, C.len);
+    HiddenString *tag = MakeToken(C.s, C.len);
     QueryNode_AddChild(B, NewTokenNode(ctx, tag));
     HiddenString_Free(tag);
     A = B;
 }
 
 tag_list(A) ::= tag_list(B) OR STOPWORD(C) . [TAGLIST] {
-    HiddenString *tag = MakeTagToken(C.s, C.len);
+    HiddenString *tag = MakeToken(C.s, C.len);
     QueryNode_AddChild(B, NewTokenNode(ctx, tag));
     HiddenString_Free(tag);
     A = B;

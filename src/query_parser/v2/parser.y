@@ -569,6 +569,7 @@ text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
   char *normalized = rm_normalize(s, B.len + 1);
   HiddenString* hidden = NewHiddenStringEx(normalized, strlen(normalized), Move);
   A = NewTokenNode(ctx, hidden);
+  HiddenString_Free(hidden);
   rm_free(s);
   A->opts.flags |= QueryNode_Verbatim;
 }
@@ -579,7 +580,10 @@ text_expr(A) ::= SQUOTE ATTRIBUTE(B) SQUOTE. [TERMLIST] {
   char *s = rm_malloc(B.len + 1);
   *s = '$';
   memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
+  char *normalize = rm_normalize(s, B.len + 1);
+  HiddenString *hidden = NewHiddenStringEx(normalize, strlen(normalize), Move);
+  A = NewTokenNode(ctx, hidden);
+  HiddenString_Free(hidden);
   rm_free(s);
   A->opts.flags |= QueryNode_Verbatim;
 }

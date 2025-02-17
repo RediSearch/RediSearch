@@ -1156,16 +1156,21 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
   RSToken *tok = &qn->pfx.tok;
 
-  tag_strtolower(tok->str, &tok->len, caseSensitive);
-
-  // we allow a minimum of 2 letters in the prefix by default (configurable)
   size_t len;
   const char *str = HiddenString_GetUnsafe(tok->str, &len);
+  char *mutate = rm_strndup(str, len);
+  tag_strtolower(mutate, &len, caseSensitive);
+  HiddenString_Free(tok->str);
+  len = strlen(mutate);
+
+  // we allow a minimum of 2 letters in the prefix by default (configurable)
+
   if (len < q->config->minTermPrefix) {
     return NULL;
   }
   if (!idx || !idx->values) return NULL;
 
+  tok->str = NewHiddenStringEx(mutate, len, Move);
   size_t itsSz = 0, itsCap = 8;
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
 
@@ -1365,15 +1370,18 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   switch (n->type) {
     case QN_TOKEN: {
-      n->tn.str = tag_strtolower(n->tn.str, caseSensitive);
       size_t len;
       const char *str = HiddenString_GetUnsafe(n->tn.str, &len);
-      ret = TagIndex_OpenReader(idx, q->sctx, str, len, weight, fs->index);
+      char *mutate = rm_strndup(str, len);
+      tag_strtolower(mutate, &len, caseSensitive);
+      HiddenString_Free(n->tn.str);
+      n->tn.str = NewHiddenStringEx(mutate, len, Move);
+      ret = TagIndex_OpenReader(idx, q->sctx, mutate, len, weight, fs->index);
       break;
     }
     case QN_PREFIX:
     {
-      n->pfx.tok.str = HiddenTagLowercase(n->pfx.tok.str, fs->tagOpts.tagFlags); // needed for testPrefixNodeCaseSensitive
+      // n->pfx.tok.str = HiddenTagLowercase(n->pfx.tok.str, fs->tagOpts.tagFlags); // needed for testPrefixNodeCaseSensitive
       return Query_EvalTagPrefixNode(q, idx, n, iterout, weight,
                          FieldSpec_HasSuffixTrie(fs), fs->index, caseSensitive);
     }
@@ -1386,8 +1394,13 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       char *terms[QueryNode_NumChildren(n)];
       for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
         if (n->children[i]->type == QN_TOKEN) {
-          tag_strtolower(n->children[i]->tn.str, &n->children[i]->tn.len, caseSensitive);
-          terms[i] = (char*)HiddenString_GetUnsafe(n->children[i]->tn.str, NULL);
+          size_t len;
+          const char *str = HiddenString_GetUnsafe(n->children[i]->tn.str, &len);
+          char *mutate = rm_strndup(str, len);
+          tag_strtolower(mutate, &len, caseSensitive);
+          HiddenString_Free(n->children[i]->tn.str);
+          n->children[i]->tn.str = NewHiddenStringEx(mutate, len, Move);
+          terms[i] = mutate;
         } else {
           terms[i] = "";
         }

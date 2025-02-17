@@ -192,8 +192,8 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
           // parsed as double to check +inf, -inf
           val_is_numeric = 1;
         }
-        char *dup = rm_strdupcase(val, val_len);
-        val_len = strlen(dup); // rm_strdupcase can unescape the string, so we need to recalculate the length
+        char *dup = rm_normalize(val, val_len);
+        val_len = strlen(dup); // rm_normalize can unescape the string, so we need to recalculate the length
         *(HiddenString**)param->target = NewHiddenStringEx(dup, val_len, Move);
         if (param->target_len) *param->target_len = val_len;
       }

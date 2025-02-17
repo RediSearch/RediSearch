@@ -36,6 +36,11 @@
 #include "rmutil/vector.h"
 #include "query_node.h"
 
+static HiddenString *MakeToken(const char *str, size_t len) {
+    char *normalized = rm_normalize(str, len);
+    return NewHiddenStringEx(normalized, strlen(normalized), Move);
+}
+
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
 
@@ -1534,7 +1539,7 @@ static YYACTIONTYPE yy_reduce(
       case 41: /* tag_list ::= LB STOPWORD */ yytestcase(yyruleno==41);
 {
     yymsp[-1].minor.yy75 = NewPhraseNode(0);
-    HiddenString *tag = MakeTagToken(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+    HiddenString *tag = MakeToken(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
     QueryNode_AddChild(yymsp[-1].minor.yy75, NewTokenNode(ctx, tag));
     HiddenString_Free(tag);
 }
@@ -1547,9 +1552,17 @@ static YYACTIONTYPE yy_reduce(
 }
         break;
       case 44: /* tag_list ::= tag_list OR term */
-      case 45: /* tag_list ::= tag_list OR STOPWORD */ yytestcase(yyruleno==45);
 {
-    HiddenString *tag = MakeTagToken(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+    HiddenString *tag = MakeToken(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
+    QueryNode_AddChild(yymsp[-2].minor.yy75, NewTokenNode(ctx, tag));
+    HiddenString_Free(tag);
+    yylhsminor.yy75 = yymsp[-2].minor.yy75;
+}
+  yymsp[-2].minor.yy75 = yylhsminor.yy75;
+        break;
+      case 45: /* tag_list ::= tag_list OR STOPWORD */
+{
+    HiddenString *tag = MakeToken(yymsp[0].minor.yy0.s, yymsp[0].minor.yy0.len);
     QueryNode_AddChild(yymsp[-2].minor.yy75, NewTokenNode(ctx, tag));
     HiddenString_Free(tag);
     yylhsminor.yy75 = yymsp[-2].minor.yy75;

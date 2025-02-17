@@ -1106,22 +1106,22 @@ static void yy_destructor(
     case 58: /* vector_command */
     case 59: /* vector_range_command */
 {
- QueryNode_Free((yypminor->yy3));
+ QueryNode_Free((yypminor->yy3)); 
 }
       break;
     case 43: /* attribute */
 {
- rm_free((char*)(yypminor->yy79).value);
+ rm_free((char*)(yypminor->yy79).value); 
 }
       break;
     case 44: /* attribute_list */
 {
- array_free_ex((yypminor->yy41), rm_free((char*)((QueryAttribute*)ptr )->value));
+ array_free_ex((yypminor->yy41), rm_free((char*)((QueryAttribute*)ptr )->value)); 
 }
       break;
     case 55: /* geo_filter */
 {
- QueryParam_Free((yypminor->yy62));
+ QueryParam_Free((yypminor->yy62)); 
 }
       break;
     case 61: /* vector_attribute_list */
@@ -1902,7 +1902,10 @@ static YYACTIONTYPE yy_reduce(
   char *s = rm_malloc(yymsp[-1].minor.yy0.len + 1);
   *s = '$';
   memcpy(s + 1, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  yymsp[-2].minor.yy3 = NewTokenNode(ctx, rm_normalize(s, yymsp[-1].minor.yy0.len + 1), -1);
+  char *normalized = rm_normalize(s, yymsp[-1].minor.yy0.len + 1);
+  HiddenString* hidden = NewHiddenStringEx(normalized, strlen(normalized), Move);
+  yymsp[-2].minor.yy3 = NewTokenNode(ctx, hidden);
+  HiddenString_Free(hidden);
   rm_free(s);
   yymsp[-2].minor.yy3->opts.flags |= QueryNode_Verbatim;
 }
@@ -1914,7 +1917,10 @@ static YYACTIONTYPE yy_reduce(
   char *s = rm_malloc(yymsp[-1].minor.yy0.len + 1);
   *s = '$';
   memcpy(s + 1, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  yymsp[-2].minor.yy3 = NewTokenNode(ctx, rm_normalize(s, yymsp[-1].minor.yy0.len + 1), -1);
+  char *normalize = rm_normalize(s, yymsp[-1].minor.yy0.len + 1);
+  HiddenString *hidden = NewHiddenStringEx(normalize, strlen(normalize), Move);
+  yymsp[-2].minor.yy3 = NewTokenNode(ctx, hidden);
+  HiddenString_Free(hidden);
   rm_free(s);
   yymsp[-2].minor.yy3->opts.flags |= QueryNode_Verbatim;
 }
@@ -2433,7 +2439,9 @@ static YYACTIONTYPE yy_reduce(
     yymsp[0].minor.yy0.type = QT_PARAM_VEC;
     yylhsminor.yy3 = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
     yylhsminor.yy3->vn.vq->field = yymsp[-1].minor.yy150.fs;
-    RedisModule_Assert(-1 != (rm_asprintf(&yylhsminor.yy3->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy150.tok.len, yymsp[-1].minor.yy150.tok.s)));
+    char* scoreField = NULL;
+    RedisModule_Assert(-1 != (rm_asprintf(&scoreField, "__%.*s_score", yymsp[-1].minor.yy150.tok.len, yymsp[-1].minor.yy150.tok.s)));
+    yylhsminor.yy3->vn.vq->scoreField = NewHiddenStringEx(scoreField, strlen(scoreField), Move);
   } else {
     reportSyntaxError(ctx->status, &yymsp[-3].minor.yy0, "Syntax error: Expecting Vector Similarity command");
     yylhsminor.yy3 = NULL;
