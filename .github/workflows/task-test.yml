@@ -151,11 +151,10 @@ jobs:
         if: steps.node20.outputs.supported == 'false'
         run: echo "Done already earlier."
       - name: Setup tests dependencies
-        working-directory: .install/test_deps
         run: |
-          ./common_installations.sh ${{ steps.mode.outputs.mode }}
-          ./install_llvm.sh ${{ env.LLVM_VERSION }} ${{ steps.mode.outputs.mode }}
-          ./install_rust.sh
+          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
+          .install/test_deps/install_llvm.sh ${{ env.LLVM_VERSION }} ${{ steps.mode.outputs.mode }}
+          .install/test_deps/install_rust.sh
       - name: Install Boost
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
