@@ -33,7 +33,7 @@ jobs:
       working-directory: .install
       run: ./install_script.sh sudo
     - name: Setup common
-      run: .install/common_installations.sh sudo
+      run: .install/test_deps/common_installations.sh sudo
 
     - name: Install Boost
       working-directory: .install
