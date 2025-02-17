@@ -153,7 +153,7 @@ jobs:
       - name: Setup tests dependencies
         run: |
           .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
-          .install/test_deps/install_llvm.sh ${{ env.LLVM_VERSION }} ${{ steps.mode.outputs.mode }}
+#          .install/test_deps/install_llvm.sh ${{ env.LLVM_VERSION }} ${{ steps.mode.outputs.mode }}
           .install/test_deps/install_rust.sh
       - name: Install Boost
         working-directory: .install
