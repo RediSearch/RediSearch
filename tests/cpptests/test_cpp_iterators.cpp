@@ -58,6 +58,15 @@ TEST_P(UnionIteratorCommonTest, Read) {
     }
     ASSERT_EQ(rc, ITERATOR_EOF);
     ASSERT_FALSE(ui->base.isValid);
+    ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_EOF); // Reading after EOF should return EOF
+    ASSERT_EQ(i, resultSet.size()) << "Expected to read " << resultSet.size() << " documents";
+
+    size_t expected = 0;
+    for (auto &child : docIds) {
+        expected += child.size();
+    }
+    ASSERT_EQ(ui->nExpected, expected);
+    ASSERT_EQ(ui_base->NumEstimated(ui_base), expected);
 }
 
 TEST_P(UnionIteratorCommonTest, SkipTo) {
@@ -121,7 +130,7 @@ TEST_P(UnionIteratorCommonTest, Rewind) {
 }
 
 INSTANTIATE_TEST_SUITE_P(UnionIteratorP, UnionIteratorCommonTest, ::testing::Combine(
-    ::testing::Values(1, 5, 25),
+    ::testing::Values(2, 5, 25),
     ::testing::Bool(),
     ::testing::Values(
         std::vector<t_docId>{1, 2, 3, 40, 50},
@@ -152,79 +161,63 @@ protected:
     void TearDown() override {
         ui_base->Free(ui_base);
     }
+
+    void TimeoutChildTest(int childIdx) {
+        UnionIterator *ui = (UnionIterator *)ui_base;
+        auto [numChildren, quickExit, sparse_ids] = GetParam();
+
+        auto child = reinterpret_cast<MockIterator *>(ui->its[childIdx]);
+        child->whenDone = ITERATOR_TIMEOUT;
+        child->docIds.clear();
+
+        auto rc = ui_base->Read(ui_base);
+        if (!quickExit || sparse_ids) {
+            // Usually, the first read will detect the timeout
+            ASSERT_EQ(rc, ITERATOR_TIMEOUT);
+        } else {
+            // If quickExit is enabled and we have a dense range of ids, we may not read from the timed-out child
+            ASSERT_TRUE(rc == ITERATOR_OK || rc == ITERATOR_TIMEOUT);
+            // We still expect the first non-ok status to be TIMEOUT
+            while (rc == ITERATOR_OK) {
+                rc = ui_base->Read(ui_base);
+            }
+            ASSERT_EQ(rc, ITERATOR_TIMEOUT);
+        }
+
+        ui_base->Rewind(ui_base);
+
+        // Test skipping with a timeout child
+        t_docId next = 1;
+        rc = ui_base->SkipTo(ui_base, next);
+        if (!quickExit || sparse_ids) {
+            // Usually, the first read will detect the timeout
+            ASSERT_EQ(rc, ITERATOR_TIMEOUT);
+        } else {
+            // If quickExit is enabled and we have a dense range of ids, we may not read from the timed-out child
+            ASSERT_TRUE(rc == ITERATOR_OK || rc == ITERATOR_TIMEOUT);
+            // We still expect the first non-ok status to be TIMEOUT
+            while (rc == ITERATOR_OK) {
+                rc = ui_base->SkipTo(ui_base, ++next);
+            }
+            ASSERT_EQ(rc, ITERATOR_TIMEOUT);
+        }
+    }
 };
 
 TEST_P(UnionIteratorEdgesTest, TimeoutFirstChild) {
-    UnionIterator *ui = (UnionIterator *)ui_base;
-    auto [numChildren, quickExit, sparse_ids] = GetParam();
-
-    auto firstChild = reinterpret_cast<MockIterator *>(ui->its[0]);
-    firstChild->whenDone = ITERATOR_TIMEOUT;
-    firstChild->docIds.clear();
-
-    auto rc = ui_base->Read(ui_base);
-    if (!quickExit || sparse_ids) {
-        // Usually, the first read will detect the timeout
-        ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-    } else {
-        // If quickExit is enabled and we have a dense range of ids, we may not read from the timed-out child
-        ASSERT_TRUE(rc == ITERATOR_OK || rc == ITERATOR_TIMEOUT);
-        // We still expect the first non-ok status to be TIMEOUT
-        while (rc == ITERATOR_OK) {
-            rc = ui_base->Read(ui_base);
-        }
-        ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-    }
+    TimeoutChildTest(0);
 }
 
 TEST_P(UnionIteratorEdgesTest, TimeoutMidChild) {
-    UnionIterator *ui = (UnionIterator *)ui_base;
-    auto [numChildren, quickExit, sparse_ids] = GetParam();
-
-    auto midChild = reinterpret_cast<MockIterator *>(ui->its[numChildren / 2]);
-    midChild->whenDone = ITERATOR_TIMEOUT;
-    midChild->docIds.clear();
-
-    auto rc = ui_base->Read(ui_base);
-    if (!quickExit || sparse_ids) {
-        // Usually, the first read will detect the timeout
-        ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-    } else {
-        // If quickExit is enabled and we have a dense range of ids, we may not read from the timed-out child
-        ASSERT_TRUE(rc == ITERATOR_OK || rc == ITERATOR_TIMEOUT);
-        // We still expect the first non-ok status to be TIMEOUT
-        while (rc == ITERATOR_OK) {
-            rc = ui_base->Read(ui_base);
-        }
-        ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-    }
+    TimeoutChildTest(std::get<0>(GetParam()) / 2);
 }
 
 TEST_P(UnionIteratorEdgesTest, TimeoutLastChild) {
-    UnionIterator *ui = (UnionIterator *)ui_base;
-    auto [numChildren, quickExit, sparse_ids] = GetParam();
-
-    auto lastChild = reinterpret_cast<MockIterator *>(ui->its[numChildren - 1]);
-    lastChild->whenDone = ITERATOR_TIMEOUT;
-    lastChild->docIds.clear();
-
-    auto rc = ui_base->Read(ui_base);
-    if (!quickExit || sparse_ids) {
-        // Usually, the first read will detect the timeout
-        ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-    } else {
-        // If quickExit is enabled and we have a dense range of ids, we may not read from the timed-out child
-        ASSERT_TRUE(rc == ITERATOR_OK || rc == ITERATOR_TIMEOUT);
-        // We still expect the first non-ok status to be TIMEOUT
-        while (rc == ITERATOR_OK) {
-            rc = ui_base->Read(ui_base);
-        }
-        ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-    }
+    TimeoutChildTest(std::get<0>(GetParam()) - 1);
 }
 
 INSTANTIATE_TEST_SUITE_P(UnionIteratorEdgesP, UnionIteratorEdgesTest, ::testing::Combine(
-    ::testing::Values(1, 5, 25),
+    ::testing::Values(2, 5, 25),
     ::testing::Bool(),
     ::testing::Bool()
 ));

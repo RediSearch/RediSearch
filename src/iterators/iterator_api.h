@@ -111,7 +111,7 @@ static inline void QueryIterator_Abort(QueryIterator *it) {
   it->Rewind = EOI_Rewind;
 }
 
-// TODO: REMOVE
+// Scaffold for the iterator API. TODO: Remove this when the old API is removed
 #define IT_V2(api_name) api_name##_V2
 
 #endif
