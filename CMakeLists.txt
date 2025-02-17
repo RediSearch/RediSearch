@@ -123,6 +123,7 @@ file(GLOB SOURCES
     "src/util/*.c"
     "src/trie/*.c"
     "src/info/*.c"
+    "src/iterators/*.c"
     "src/module-init/*.c"
     "src/obfuscation/*.c"
 
@@ -201,6 +202,7 @@ if (BUILD_SEARCH_UNIT_TESTS)
 
     add_subdirectory(deps/googletest)
     add_subdirectory(tests/cpptests)
+    add_subdirectory(tests/cpptests/micro-benchmarks)
     add_subdirectory(tests/ctests)
     add_subdirectory(tests/ctests/ext-example example_extension)
     add_subdirectory(tests/ctests/coord_tests)
