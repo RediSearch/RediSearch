@@ -29,7 +29,7 @@ public:
         }
 
         auto numChildren = state.range(0);
-        std::mt19937 rng(std::random_device{}());
+        std::mt19937 rng(46);
         std::uniform_int_distribution<t_docId> dist(1, 2'000'000);
 
         childrenIds.resize(numChildren);
@@ -57,7 +57,7 @@ public:
     }
 };
 bool BM_UnionIterator::initialized = false;
-#define UNION_SCENARIOS() RangeMultiplier(5)->Range(1, 125)->Iterations(1000000)
+#define UNION_SCENARIOS() RangeMultiplier(5)->Range(1, 125)
 
 BENCHMARK_DEFINE_F(BM_UnionIterator, ReadFull)(benchmark::State &state) {
     QueryIterator **children = createChildren();
@@ -65,12 +65,9 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, ReadFull)(benchmark::State &state) {
                                                     1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
     for (auto _ : state) {
         IteratorStatus rc = ui_base->Read(ui_base);
-        state.PauseTiming();
-        benchmark::DoNotOptimize(rc);
         if (rc == ITERATOR_EOF) {
             ui_base->Rewind(ui_base);
         }
-        state.ResumeTiming();
     }
 
     ui_base->Free(ui_base);
@@ -82,12 +79,9 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, ReadQuick)(benchmark::State &state) {
                                                     1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
     for (auto _ : state) {
         IteratorStatus rc = ui_base->Read(ui_base);
-        state.PauseTiming();
-        benchmark::DoNotOptimize(rc);
         if (rc == ITERATOR_EOF) {
             ui_base->Rewind(ui_base);
         }
-        state.ResumeTiming();
     }
 
     ui_base->Free(ui_base);
@@ -100,14 +94,11 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToFull)(benchmark::State &state) {
     t_docId docId = 10;
     for (auto _ : state) {
         IteratorStatus rc = ui_base->SkipTo(ui_base, docId);
-        state.PauseTiming();
-        benchmark::DoNotOptimize(rc);
         docId += 10;
         if (rc == ITERATOR_EOF) {
             ui_base->Rewind(ui_base);
             docId = 10;
         }
-        state.ResumeTiming();
     }
 
     ui_base->Free(ui_base);
@@ -120,14 +111,11 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToQuick)(benchmark::State &state) {
     t_docId docId = 10;
     for (auto _ : state) {
         IteratorStatus rc = ui_base->SkipTo(ui_base, docId);
-        state.PauseTiming();
-        benchmark::DoNotOptimize(rc);
         docId += 10;
         if (rc == ITERATOR_EOF) {
             ui_base->Rewind(ui_base);
             docId = 10;
         }
-        state.ResumeTiming();
     }
 
     ui_base->Free(ui_base);
@@ -145,12 +133,9 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, ReadFull_old)(benchmark::State &state) {
     RSIndexResult *hit;
     for (auto _ : state) {
         int rc = ui_base->Read(ui_base->ctx, &hit);
-        state.PauseTiming();
-        benchmark::DoNotOptimize(rc);
-        if (rc == ITERATOR_EOF) {
+        if (rc == INDEXREAD_EOF) {
             ui_base->Rewind(ui_base->ctx);
         }
-        state.ResumeTiming();
     }
 
     ui_base->Free(ui_base);
@@ -163,12 +148,9 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, ReadQuick_old)(benchmark::State &state) {
     RSIndexResult *hit;
     for (auto _ : state) {
         int rc = ui_base->Read(ui_base->ctx, &hit);
-        state.PauseTiming();
-        benchmark::DoNotOptimize(rc);
-        if (rc == ITERATOR_EOF) {
+        if (rc == INDEXREAD_EOF) {
             ui_base->Rewind(ui_base->ctx);
         }
-        state.ResumeTiming();
     }
 
     ui_base->Free(ui_base);
@@ -182,14 +164,11 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToFull_old)(benchmark::State &state) {
     t_docId docId = 10;
     for (auto _ : state) {
         int rc = ui_base->SkipTo(ui_base->ctx, docId, &hit);
-        state.PauseTiming();
-        benchmark::DoNotOptimize(rc);
         docId += 10;
-        if (rc == ITERATOR_EOF) {
+        if (rc == INDEXREAD_EOF) {
             ui_base->Rewind(ui_base->ctx);
             docId = 10;
         }
-        state.ResumeTiming();
     }
 
     ui_base->Free(ui_base);
@@ -203,14 +182,11 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToQuick_old)(benchmark::State &state) {
     t_docId docId = 10;
     for (auto _ : state) {
         int rc = ui_base->SkipTo(ui_base->ctx, docId, &hit);
-        state.PauseTiming();
-        benchmark::DoNotOptimize(rc);
         docId += 10;
-        if (rc == ITERATOR_EOF) {
+        if (rc == INDEXREAD_EOF) {
             ui_base->Rewind(ui_base->ctx);
             docId = 10;
         }
-        state.ResumeTiming();
     }
 
     ui_base->Free(ui_base);
