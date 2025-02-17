@@ -257,7 +257,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
   size_t nfields = 0;
   for (const RLookupKey *kk = lookup->head; kk; kk = kk->next, ++i) {
     if (kk->name == NULL) {
-      // Overriden key. Skip without incrementing the index
+      // Overridden key. Skip without incrementing the index
       --i;
       continue;
     }
@@ -623,7 +623,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     RedisModuleCtx *ctx = options->sctx->redisCtx;
     RedisModuleString *keyName =
         RedisModule_CreateString(ctx, keyPtr, strlen(keyPtr));
-    *keyobj = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
+    *keyobj = RedisModule_OpenKey(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
     RedisModule_FreeString(ctx, keyName);
     if (!*keyobj) {
       QueryError_SetCode(options->status, QUERY_ENODOC);
@@ -679,7 +679,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
 
     if (japi_ver >= 5) {
       RedisModuleString* keyName = RedisModule_CreateString(ctx, keyPtr, strlen(keyPtr));
-      *keyobj = japi->openKeyWithFlags(ctx, keyName, REDISMODULE_OPEN_KEY_NOEFFECTS);
+      *keyobj = japi->openKeyWithFlags(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
       RedisModule_FreeString(ctx, keyName);
     } else {
       *keyobj = japi->openKeyFromStr(ctx, keyPtr);
@@ -842,7 +842,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
       RLookup_WriteOwnKey(rlk, dst, vptr);
     }
   } else {
-    RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
     if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
       // key does not exist or is not a hash
       if (key) {
@@ -884,7 +884,7 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   RedisJSON jsonRoot;
   if (japi_ver >= 5) {
     RedisModuleString* keyName = RedisModule_CreateString(ctx, options->dmd->keyPtr, strlen(options->dmd->keyPtr));
-    jsonRoot = japi->openKeyWithFlags(ctx, keyName, REDISMODULE_OPEN_KEY_NOEFFECTS);
+    jsonRoot = japi->openKeyWithFlags(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
     RedisModule_FreeString(ctx, keyName);
   } else {
     jsonRoot = japi->openKeyFromStr(ctx, options->dmd->keyPtr);

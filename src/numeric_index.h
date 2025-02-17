@@ -108,7 +108,7 @@ NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t);
 /* Create a new tree */
 NumericRangeTree *NewNumericRangeTree();
 
-/* Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes */
+/* Add a value to a tree. Returns 0 if no nodes were split, 1 if we split nodes */
 NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value, int isMulti);
 
 /* Recursively find all the leaves under tree's root, that correspond to a given min-max range.

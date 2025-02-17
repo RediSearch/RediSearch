@@ -29,6 +29,7 @@ doc1_content = r'''{"string": "gotcha1",
 @skip(msan=True, no_json=True)
 def testSearchUpdatedContent(env):
     conn = getConnectionByEnv(env)
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
 
     # TODO: test when rejson module is loaded after search
     # TODO: test when rejson module is loaded before search
@@ -889,12 +890,12 @@ def testScoreField(env):
     env.cmd('FT.CREATE', 'permits1', 'ON', 'JSON', 'PREFIX', '1', 'tst:', 'SCORE_FIELD', '$._score', 'SCHEMA', '$._score', 'AS', '_score', 'NUMERIC', '$.description', 'AS', 'description', 'TEXT')
     env.cmd('FT.CREATE', 'permits2', 'ON', 'JSON', 'PREFIX', '1', 'tst:', 'SCORE_FIELD', '$._score', 'SCHEMA', '$.description', 'AS', 'description', 'TEXT')
     env.assertOk(conn.execute_command('JSON.SET', 'tst:permit1', '$', r'{"_score":0.8, "description":"Fix the facade"}'))
-    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit2', '$', r'{"_score":0.7, "description":"Fix the facade"}'))
-    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit3', '$', r'{"_score":0.9, "description":"Fix the facade"}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit2', '$', r'{"_score":0.07, "description":"Fix the facade"}'))
+    env.assertOk(conn.execute_command('JSON.SET', 'tst:permit3', '$', r'{"_score":9, "description":"Fix the facade"}'))
 
-    res = [3, 'tst:permit3', ['$', '{"_score":0.9,"description":"Fix the facade"}'],
+    res = [3, 'tst:permit3', ['$', '{"_score":9,"description":"Fix the facade"}'],
                'tst:permit1', ['$', '{"_score":0.8,"description":"Fix the facade"}'],
-               'tst:permit2', ['$', '{"_score":0.7,"description":"Fix the facade"}']]
+               'tst:permit2', ['$', '{"_score":0.07,"description":"Fix the facade"}']]
     env.expect('FT.SEARCH', 'permits1', '*').equal(res)
     env.expect('FT.SEARCH', 'permits2', '*').equal(res)
     env.expect('FT.SEARCH', 'permits1', 'facade').equal(res)

@@ -16,30 +16,24 @@ concurrency:
 # TODO: Use RedisJSON's `${{ vars.DEFAULT_REDISJSON_REF }}` branch when testing on nightly
 
 jobs:
-  get-latest-redis-tag:
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
-      prefix: '8.0'
-
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml
 
   test-linux:
-    needs: [docs-only, get-latest-redis-tag]
+    needs: [docs-only]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      redis-ref: unstable
 
   test-macos:
-    needs: [docs-only, get-latest-redis-tag]
+    needs: [docs-only]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      redis-ref: unstable
 
   coverage:
     needs: docs-only
@@ -48,12 +42,12 @@ jobs:
     secrets: inherit
 
   sanitize:
-    needs: [docs-only, get-latest-redis-tag]
+    needs: [docs-only]
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      get-redis: unstable
       test-config: '' # run all tests
       san: address
       env: ubuntu-latest
@@ -62,7 +56,6 @@ jobs:
   pr-validation:
     needs:
       - docs-only # if the setup jobs fail, the rest of the jobs will be skipped, and we will exit with a failure
-      - get-latest-redis-tag
       - test-linux
       - test-macos
       - coverage

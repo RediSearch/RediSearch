@@ -15,6 +15,12 @@ struct TEvalCtx : ExprEval {
   QueryError status_s = {QueryErrorCode(0)};
   RSValue res_s = {RSValue_Null};
 
+  TEvalCtx() {
+    root = NULL;
+    lookup = NULL;
+    memset(static_cast<ExprEval *>(this), 0, sizeof(ExprEval));
+  }
+
   TEvalCtx(const char *s) {
     lookup = NULL;
     root = NULL;
@@ -93,14 +99,82 @@ TEST_F(ExprTest, testExpr) {
   ASSERT_EQ(6, eval.result().numval);
 }
 
+TEST_F(ExprTest, testArithmetics) {
+  TEvalCtx ctx;
+#define TEST_ARITHMETIC(e, expected)                \
+  {                                                 \
+    ctx.assign(e);                                  \
+    ASSERT_TRUE(ctx) << ctx.error();                \
+    ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());            \
+    auto res = RSValue_Dereference(&ctx.result());  \
+    ASSERT_EQ(RSValue_Number, res->t);              \
+    if (std::isnan(expected)) {                     \
+      EXPECT_TRUE(std::isnan(res->numval));         \
+    } else {                                        \
+      EXPECT_FLOAT_EQ(expected, res->numval);       \
+    }                                               \
+  }
+
+  TEST_ARITHMETIC("3 + 3", 6);
+  TEST_ARITHMETIC("3 - 3", 0);
+  TEST_ARITHMETIC("3 * 3", 9);
+  TEST_ARITHMETIC("3 / 3", 1);
+  TEST_ARITHMETIC("3 % 3", 0);
+  TEST_ARITHMETIC("3 ^ 3", 27);
+
+  TEST_ARITHMETIC("3 + sqrt(9)", 6);
+  TEST_ARITHMETIC("3 - sqrt(9)", 0);
+  TEST_ARITHMETIC("3 * sqrt(9)", 9);
+  TEST_ARITHMETIC("3 / sqrt(9)", 1);
+  TEST_ARITHMETIC("3 % sqrt(9)", 0);
+  TEST_ARITHMETIC("3 ^ sqrt(9)", 27);
+
+  TEST_ARITHMETIC("sqrt(9) + 3", 6);
+  TEST_ARITHMETIC("sqrt(9) - 3", 0);
+  TEST_ARITHMETIC("sqrt(9) * 3", 9);
+  TEST_ARITHMETIC("sqrt(9) / 3", 1);
+  TEST_ARITHMETIC("sqrt(9) % 3", 0);
+  TEST_ARITHMETIC("sqrt(9) ^ 3", 27);
+
+  TEST_ARITHMETIC("sqrt(9) + sqrt(9)", 6);
+  TEST_ARITHMETIC("sqrt(9) - sqrt(9)", 0);
+  TEST_ARITHMETIC("sqrt(9) * sqrt(9)", 9);
+  TEST_ARITHMETIC("sqrt(9) / sqrt(9)", 1);
+  TEST_ARITHMETIC("sqrt(9) % sqrt(9)", 0);
+  TEST_ARITHMETIC("sqrt(9) ^ sqrt(9)", 27);
+
+  // Test 0 edge cases
+  TEST_ARITHMETIC("0 / 0", NAN);
+  TEST_ARITHMETIC("0 % 0", NAN);
+  TEST_ARITHMETIC("0 ^ 0", 1);
+  TEST_ARITHMETIC("1 / 0", INFINITY);
+  TEST_ARITHMETIC("1 % 0", NAN);
+
+  TEST_ARITHMETIC("sqrt(0) / 0", NAN);
+  TEST_ARITHMETIC("sqrt(0) % 0", NAN);
+  TEST_ARITHMETIC("sqrt(0) ^ 0", 1);
+  TEST_ARITHMETIC("sqrt(1) / 0", INFINITY);
+  TEST_ARITHMETIC("sqrt(1) % 0", NAN);
+
+  TEST_ARITHMETIC("0 / sqrt(0)", NAN);
+  TEST_ARITHMETIC("0 % sqrt(0)", NAN);
+  TEST_ARITHMETIC("0 ^ sqrt(0)", 1);
+  TEST_ARITHMETIC("1 / sqrt(0)", INFINITY);
+  TEST_ARITHMETIC("1 % sqrt(0)", NAN);
+
+  TEST_ARITHMETIC("sqrt(0) / sqrt(0)", NAN);
+  TEST_ARITHMETIC("sqrt(0) % sqrt(0)", NAN);
+  TEST_ARITHMETIC("sqrt(0) ^ sqrt(0)", 1);
+  TEST_ARITHMETIC("sqrt(1) / sqrt(0)", INFINITY);
+  TEST_ARITHMETIC("sqrt(1) % sqrt(0)", NAN);
+
+}
+
 TEST_F(ExprTest, testParser) {
   const char *e = "(((2 + 2) * (3 / 4) + 2 % 3 - 0.43) ^ -3)";
   QueryError status = {QueryErrorCode(0)};
   RSExpr *root = ExprAST_Parse(e, strlen(e), &status);
-  if (!root) {
-    FAIL() << "Could not parse expression";
-  }
-  ASSERT_TRUE(root != NULL);
+  ASSERT_TRUE(root) << "Could not parse expression " << e << " " << QueryError_GetError(&status);
   // ExprAST_Print(root);
   // printf("\n");
 
@@ -131,13 +205,13 @@ TEST_F(ExprTest, testGetFields) {
 TEST_F(ExprTest, testFunction) {
   const char *e = "floor(log2(35) + sqrt(4) % 10) - abs(-5/20)";
   TEvalCtx ctx(e);
-  // ExprAST_Print(ctx.root);
-  int rc = ctx.eval();
-  if (rc != EXPR_EVAL_OK) {
-    FAIL() << "Could not parse " << e << " " << ctx.error();
-  }
-  ASSERT_EQ(RSValue_Number, ctx.result().t);
-  // RSValue_Print(&ctx.result());
+
+  EXPECT_EQ(ctx.eval(), EXPR_EVAL_OK) << "Could not parse " << e << " " << ctx.error();
+  EXPECT_EQ(RSValue_Number, ctx.result().t);
+
+  ctx.assign("banana(1, 2, 3)");
+  EXPECT_TRUE(!ctx) << "Parsed invalid function";
+  EXPECT_STREQ(ctx.error(), "Unknown function name 'banana'");
 }
 
 struct EvalResult {
@@ -170,7 +244,7 @@ static EvalResult testEval(const char *e, RLookup *lk, RLookupRow *rr, QueryErro
     return EvalResult::failure(&ctx.status_s);
   }
 
-  return EvalResult::ok(ctx.result().numval);
+  return EvalResult::ok(RSValue_Dereference(&ctx.result())->numval);
 }
 
 TEST_F(ExprTest, testPredicate) {
@@ -222,8 +296,23 @@ TEST_F(ExprTest, testPredicate) {
   TEST_EVAL("!(1 == 3) || 2", 1);
   TEST_EVAL("!0", 1);
   TEST_EVAL("!1", 0);
+  TEST_EVAL("!!1", 1);
+  TEST_EVAL("!!0", 0);
   TEST_EVAL("!('foo' == 'bar')", 1);
   TEST_EVAL("!NULL", 1);
+
+  // Test order of operations
+  TEST_EVAL("1 + 2 * 3", 7);
+  TEST_EVAL("1 + 2 * 3 + 4", 11);
+  TEST_EVAL("1 + 2 * 3 ^ 2", 19);
+  TEST_EVAL("1 + 2 * sqrt(9)", 7);
+  TEST_EVAL("1 + sqrt(9) * 2", 7);
+  TEST_EVAL("2 * sqrt(9) + 1", 7);
+  TEST_EVAL("sqrt(9) * 2 + 1", 7);
+  TEST_EVAL("1 + 3 * @bar", 7);
+  TEST_EVAL("1 + @bar * 3", 7);
+  TEST_EVAL("3 * @bar + 1", 7);
+  TEST_EVAL("@bar * 3 + 1", 7);
 
   RLookupRow_Cleanup(&rr);
   RLookup_Cleanup(&lk);
@@ -258,7 +347,8 @@ TEST_F(ExprTest, testPropertyFetch) {
   rc = ctx.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   ASSERT_EQ(RSValue_Number, ctx.result().t);
-  // RSValue_Print(&ctx.result());
+  ASSERT_FLOAT_EQ(log(10) + 2 * sqrt(10), ctx.result().numval);
+
   RLookupRow_Cleanup(&rr);
   RLookup_Cleanup(&lk);
 }

@@ -43,7 +43,7 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->p = temp;
   kdv->dtor = (void (*)(void *))VecSimIndex_Free;
-  dictAdd(spec->keysDict, keyName, kdv);  
+  dictAdd(spec->keysDict, keyName, kdv);
   return kdv->p;
 }
 
@@ -111,7 +111,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .query = vq->knn,
                                       .qParams = qParams,
                                       .vectorScoreField = vq->scoreField,
-                                      .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
+                                      .canTrimDeepResults = q->opts->flags & Search_CanSkipRichResults,
                                       .childIt = child_it,
                                       .timeout = q->sctx->time.timeout,
                                       .sctx = q->sctx,
@@ -154,9 +154,9 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   return NULL;
 }
 
-int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status) {
+int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status) {
   for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
-    int res = QueryParam_Resolve(&node->params[i], params, status);
+    int res = QueryParam_Resolve(&node->params[i], params, dialectVersion, status);
     if (res < 0) {
       return REDISMODULE_ERR;
     }
@@ -188,7 +188,7 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
 void VectorQuery_Free(VectorQuery *vq) {
   if (vq->scoreField) rm_free((char *)vq->scoreField);
   switch (vq->type) {
-    case VECSIM_QT_KNN: // no need to free the vector as we pointes to the query dictionary
+    case VECSIM_QT_KNN: // no need to free the vector as we points to the query dictionary
     case VECSIM_QT_RANGE:
       break;
   }

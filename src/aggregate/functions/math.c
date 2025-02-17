@@ -7,18 +7,12 @@
 #include "function.h"
 #include <aggregate/expr/expression.h>
 #include <math.h>
-#include <err.h>
 
 /* Template for single argument double to double math function */
 #define NUMERIC_SIMPLE_FUNCTION(f)                                                               \
-  static int mathfunc_##f(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,           \
-                          QueryError *error) {                                                   \
-    if (argc != 1) {                                                                             \
-      QueryError_SetErrorFmt(error, QUERY_EPARSEARGS, "Invalid number of arguments for %s", #f); \
-      return EXPR_EVAL_ERR;                                                                      \
-    }                                                                                            \
+  static int mathfunc_##f(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {          \
     double d;                                                                                    \
-    if (!RSValue_ToNumber(argv[0], &d)) {                                                        \
+    if (!RSValue_ToNumber(&argv[0], &d)) {                                                       \
       RSValue_SetNumber(result, NAN);                                                            \
       return EXPR_EVAL_OK;                                                                       \
     }                                                                                            \
@@ -35,7 +29,7 @@ NUMERIC_SIMPLE_FUNCTION(log2);
 NUMERIC_SIMPLE_FUNCTION(exp);
 
 #define REGISTER_MATHFUNC(name, f) \
-  RSFunctionRegistry_RegisterFunction(name, mathfunc_##f, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction(name, mathfunc_##f, RSValue_Number, 1, 1);
 
 void RegisterMathFunctions() {
   REGISTER_MATHFUNC("log", log);
