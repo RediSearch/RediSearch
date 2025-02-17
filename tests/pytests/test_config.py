@@ -446,6 +446,7 @@ numericConfigs = [
     # Cluster parameters
     ('search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True, True),
     ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False, True),
+    ('search-cursor-reply-threshold', 'CURSOR_REPLY_THRESHOLD', 1, 1, LLONG_MAX, False, True),
 ]
 
 @skip(redis_less_than='7.9.227')
@@ -504,6 +505,7 @@ def testConfigAPIRunTimeNumericParams():
             if not env.isCluster():
                 continue
 
+        print(f'Testing {configName} with default={default}, min={min}, max={max}')
         if immutable:
             _testImmutableNumericConfig(env, configName, ftConfigName, default)
         else:

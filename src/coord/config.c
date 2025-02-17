@@ -106,6 +106,21 @@ CONFIG_GETTER(getCursorReplyThreshold) {
   return sdsfromlonglong(realConfig->cursorReplyThreshold);
 }
 
+// search-cursor-reply-threshold
+int set_cursor_reply_threshold(const char *name, long long val, void *privdata,
+  RedisModuleString **err) {
+RSConfig *config = (RSConfig *)privdata;
+SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+realConfig->cursorReplyThreshold = (size_t)val;
+return REDISMODULE_OK;
+}
+
+long long get_cursor_reply_threshold(const char *name, void *privdata) {
+RSConfig *config = (RSConfig *)privdata;
+SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+return (long long)realConfig->cursorReplyThreshold;
+}
+
 // SEARCH_THREADS
 CONFIG_SETTER(setSearchThreads) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
@@ -253,6 +268,15 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
       ctx, "search-topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
       get_topology_validation_timeout, set_topology_validation_timeout, NULL,
+      (void*)&RSGlobalConfig
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-cursor-reply-threshold", DEFAULT_CURSOR_REPLY_THRESHOLD,
+      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1, LLONG_MAX,
+      get_cursor_reply_threshold, set_cursor_reply_threshold, NULL,
       (void*)&RSGlobalConfig
     )
   )

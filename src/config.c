@@ -48,7 +48,6 @@ configPair_t __configPairs[] = {
   {"FORK_GC_RUN_INTERVAL",            "search-fork-gc-run-interval"},
   {"FORKGC_SLEEP_BEFORE_EXIT",        "search-fork-gc-sleep-before-exit"},
   {"FRISOINI",                        "search-friso-ini"},
-  {"GC_POLICY",                       "search-gc-policy"},
   {"GCSCANSIZE",                      "search-gc-scan-size"},
   {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
   {"MAXAGGREGATERESULTS",             "search-max-aggregate-results"},
