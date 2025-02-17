@@ -12,8 +12,8 @@
 
 #ifdef NDEBUG
 
-#define RS_LOG_ASSERT(ctx, condition, fmt, ...)    (__ASSERT_VOID_CAST (0))
-#define RS_LOG_ASSERT_STR(ctx, condition, str)     (__ASSERT_VOID_CAST (0))
+#define RS_LOG_ASSERT_FMT(condition, fmt, ...)
+#define RS_LOG_ASSERT(condition, str)
 
 #else
 
@@ -25,7 +25,16 @@
 
 #define RS_LOG_ASSERT(condition, str)  RS_LOG_ASSERT_FMT(condition, str "%s", "")
 
-#endif  //NDEBUG
+#endif  // NDEBUG
+
+// Assertions that we want to keep in production artifacts.
+#define RS_LOG_ASSERT_FMT_ALWAYS(condition, fmt, ...)                                   \
+    if (__builtin_expect(!(condition), 0)) {                                            \
+        RedisModule_Log(RSDummyContext, "warning", (fmt), __VA_ARGS__);                 \
+        RedisModule_Assert(condition); /* Crashes server and create a crash report*/    \
+    }
+
+#define RS_LOG_ASSERT_ALWAYS(condition, str)  RS_LOG_ASSERT_FMT_ALWAYS(condition, str "%s", "")
 
 #define RS_CHECK_FUNC(funcName, ...)                                          \
     if (funcName) {                                                           \

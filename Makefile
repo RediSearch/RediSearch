@@ -213,6 +213,11 @@ endif
 CMAKE_COORD += -DCOORD_TYPE=$(COORD)
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) $(CMAKE_LITE)
 
+# If DEBUG is not set, set NDEBUG
+ifeq ($(DEBUG),)
+CC_FLAGS.defs += -DNDEBUG
+endif
+
 include $(MK)/defs
 
 MK_CUSTOM_CLEAN=1
