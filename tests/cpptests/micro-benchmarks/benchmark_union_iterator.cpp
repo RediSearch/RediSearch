@@ -57,7 +57,7 @@ public:
     }
 };
 bool BM_UnionIterator::initialized = false;
-#define UNION_SCENARIOS() RangeMultiplier(5)->Range(1, 125)
+#define UNION_SCENARIOS() RangeMultiplier(2)->Range(2, 20)->DenseRange(25, 100, 25)
 
 BENCHMARK_DEFINE_F(BM_UnionIterator, ReadFull)(benchmark::State &state) {
     QueryIterator **children = createChildren();
