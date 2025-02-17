@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Exit immediately with statys 1 (error) if a command exits with a non-zero status
+set -e
+
 # Set the default variables
 ROOT=${ROOT:=`pwd`}
 BINROOT=${BINROOT:=${ROOT}/bin/linux-x64-release}
@@ -32,10 +35,7 @@ cd ${JSON_MODULE_DIR}
 git checkout --quiet ${JSON_BRANCH}
 git submodule update --quiet --init --recursive
 
-# Build the RedisJSON module, use nightly toolchain if running sanitizer is needed.
-if [[ -n $SAN ]]; then
-  rustup component add rust-src --toolchain nightly
-fi
+# Build the RedisJSON module
 echo "Building RedisJSON module for branch $JSON_BRANCH..."
 BINROOT=${JSON_BIN_DIR} make SAN=$SAN > /dev/null  # print errors to console
 
