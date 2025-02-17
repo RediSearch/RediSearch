@@ -10,6 +10,13 @@
 #include "redismodule.h"
 #include "module.h"
 
+// Not to be called directly, used by the macros below
+#define _RS_LOG_ASSERT(condition, fmt, ...)                                          \
+    if (__builtin_expect(!(condition), 0)) {                                         \
+        RedisModule_Log(RSDummyContext, "warning", (fmt), __VA_ARGS__);              \
+        RedisModule_Assert(condition); /* Crashes server and create a crash report*/ \
+    }
+
 #ifdef NDEBUG
 
 #define RS_LOG_ASSERT_FMT(condition, fmt, ...)
@@ -17,22 +24,14 @@
 
 #else
 
-#define RS_LOG_ASSERT_FMT(condition, fmt, ...)                                          \
-    if (__builtin_expect(!(condition), 0)) {                                            \
-        RedisModule_Log(RSDummyContext, "warning", (fmt), __VA_ARGS__);                 \
-        RedisModule_Assert(condition); /* Crashes server and create a crash report*/    \
-    } 
+#define RS_LOG_ASSERT_FMT(condition, fmt, ...) _RS_LOG_ASSERT(condition, fmt, __VA_ARGS__)
 
 #define RS_LOG_ASSERT(condition, str)  RS_LOG_ASSERT_FMT(condition, str "%s", "")
 
 #endif  // NDEBUG
 
 // Assertions that we want to keep in production artifacts.
-#define RS_LOG_ASSERT_FMT_ALWAYS(condition, fmt, ...)                                   \
-    if (__builtin_expect(!(condition), 0)) {                                            \
-        RedisModule_Log(RSDummyContext, "warning", (fmt), __VA_ARGS__);                 \
-        RedisModule_Assert(condition); /* Crashes server and create a crash report*/    \
-    }
+#define RS_LOG_ASSERT_FMT_ALWAYS(condition, fmt, ...) _RS_LOG_ASSERT(condition, fmt, __VA_ARGS__)
 
 #define RS_LOG_ASSERT_ALWAYS(condition, str)  RS_LOG_ASSERT_FMT_ALWAYS(condition, str "%s", "")
 
