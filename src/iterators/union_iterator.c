@@ -6,14 +6,9 @@
 
 #include "union_iterator.h"
 
-int cmpLastDocId(const void *e1, const void *e2, const void *udata) {
+static int cmpLastDocId(const void *e1, const void *e2, const void *udata) {
   const QueryIterator *it1 = e1, *it2 = e2;
-  if (it1->LastDocId < it2->LastDocId) {
-    return 1;
-  } else if (it1->LastDocId > it2->LastDocId) {
-    return -1;
-  }
-  return 0;
+  return (int64_t)(it2->LastDocId - it1->LastDocId);
 }
 
 static void resetMinIdHeap(UnionIterator *ui) {
