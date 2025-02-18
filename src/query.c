@@ -1165,10 +1165,10 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   // we allow a minimum of 2 letters in the prefix by default (configurable)
 
-  if (len < q->config->minTermPrefix) {
+  if (len < q->config->minTermPrefix || !idx || !idx->values) {
+    rm_free(mutate);
     return NULL;
   }
-  if (!idx || !idx->values) return NULL;
 
   tok->str = NewHiddenStringEx(mutate, len, Move);
   size_t itsSz = 0, itsCap = 8;
@@ -1732,7 +1732,7 @@ static inline bool QueryNode_DoesIndexEmpty(QueryNode *n, IndexSpec *spec, RSSea
 // If the token is of an empty string, and the searched field doesn't index
 // empty strings, we should return an error
 static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
-  if (n->tn.str && !HiddenString_IsEmpty(n->tn.str) && !QueryNode_DoesIndexEmpty(n, spec, opts)) {
+  if (n->tn.str && HiddenString_IsEmpty(n->tn.str) && !QueryNode_DoesIndexEmpty(n, spec, opts)) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Use `" SPEC_INDEXEMPTY_STR "` in field creation in order to index and query for empty strings");
     return false;
   }

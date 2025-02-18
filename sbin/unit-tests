@@ -145,7 +145,7 @@ for TESTS_DIR in "$(cd $BINROOT/search-community/tests/ctests/coord_tests; pwd)"
   if [[ -z $TEST ]]; then
     if [[ $NOP != 1 ]]; then
   	  for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
-  	    test_name="$(basename $test)" sanitizer_defs
+  		  test_name="$(basename $test)" sanitizer_defs
   		  echo $test_name
   		  { $test; (( E |= $? )); } || true
   	  done
