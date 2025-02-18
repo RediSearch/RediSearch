@@ -27,8 +27,8 @@ static void CheckAndSetEmptyFilterValue(ArgsCursor *ac, bool *hasEmptyFilterValu
  * is not passed to us.
  * The GEO filter syntax is (FILTER) <property> LONG LAT DIST m|km|ft|mi
  * Returns REDISMODUEL_OK or ERR  */
-int GeoFilter_LegacyParse(GeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status) {
-  *gf = (GeoFilter){0};
+int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status) {
+  *gf = (LegacyGeoFilter){0};
 
   if (AC_NumRemaining(ac) < 5) {
     QERR_MKBADARGS(status, "GEOFILTER requires 5 arguments");
@@ -42,41 +42,40 @@ int GeoFilter_LegacyParse(GeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterVal
     QERR_MKBADARGS_AC(status, "<geo property>", rv);
     return REDISMODULE_ERR;
   }
-  if ((rv = AC_GetDouble(ac, &gf->lon, AC_F_NOADVANCE) != AC_OK)) {
+  if ((rv = AC_GetDouble(ac, &gf->base.lon, AC_F_NOADVANCE) != AC_OK)) {
     QERR_MKBADARGS_AC(status, "<lon>", rv);
     return REDISMODULE_ERR;
   }
-  if (gf->lon == 0) {
+  if (gf->base.lon == 0) {
     CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
   }
   AC_Advance(ac);
 
-  if ((rv = AC_GetDouble(ac, &gf->lat, AC_F_NOADVANCE)) != AC_OK) {
+  if ((rv = AC_GetDouble(ac, &gf->base.lat, AC_F_NOADVANCE)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<lat>", rv);
     return REDISMODULE_ERR;
   }
-  if (gf->lat == 0) {
+  if (gf->base.lat == 0) {
     CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
   }
   AC_Advance(ac);
 
-  if ((rv = AC_GetDouble(ac, &gf->radius, AC_F_NOADVANCE)) != AC_OK) {
+  if ((rv = AC_GetDouble(ac, &gf->base.radius, AC_F_NOADVANCE)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<radius>", rv);
     return REDISMODULE_ERR;
   }
-  if (gf->radius == 0) {
+  if (gf->base.radius == 0) {
     CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
   }
   AC_Advance(ac);
 
   const char *unitstr = AC_GetStringNC(ac, NULL);
-  if ((gf->unitType = GeoDistance_Parse(unitstr)) == GEO_DISTANCE_INVALID) {
+  if ((gf->base.unitType = GeoDistance_Parse(unitstr)) == GEO_DISTANCE_INVALID) {
     QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", unitstr);
     return REDISMODULE_ERR;
   }
   // only allocate on the success path
-  gf->field.resolved = false;
-  gf->field.u.name = NewHiddenString(fieldName, strlen(fieldName), false);
+  gf->field = NewHiddenString(fieldName, strlen(fieldName), false);
   return REDISMODULE_OK;
 }
 
@@ -88,10 +87,14 @@ void GeoFilter_Free(GeoFilter *gf) {
     }
     rm_free(gf->numericFilters);
   }
-  if (!gf->field.resolved && gf->field.u.name) {
-    HiddenString_Free(gf->field.u.name, false);
-  }
   rm_free(gf);
+}
+
+void LegacyGeoFilter_Free(LegacyGeoFilter *gf) {
+  if (gf->field) {
+    HiddenString_Free(gf->field, false);
+  }
+  GeoFilter_Free(&gf->base);
 }
 
 static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *num) {
@@ -137,7 +140,7 @@ IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *g
   // check input parameters are valid
   if (gf->radius <= 0 ||
       gf->lon > GEO_LONG_MAX || gf->lon < GEO_LONG_MIN ||
-      gf->lat > GEO_LAT_MAX || gf->lat < GEO_LAT_MIN || !gf->field.resolved) {
+      gf->lat > GEO_LAT_MAX || gf->lat < GEO_LAT_MIN) {
     return NULL;
   }
 
@@ -148,12 +151,12 @@ IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *g
   IndexIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
   ((GeoFilter *)gf)->numericFilters = rm_calloc(GEO_RANGE_COUNT, sizeof(*gf->numericFilters));
   size_t itersCount = 0;
-  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = gf->field.u.spec->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = gf->spec->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
     if (ranges[ii].min != ranges[ii].max) {
       NumericFilter *filt = gf->numericFilters[ii] =
-              NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, true);
-      filt->field = gf->field;
+              NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, true, NULL);
+      filt->spec = gf->spec;
       filt->geoFilter = gf;
       struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, csx, INDEXFLD_T_GEO, config, &filterCtx);
       if (numIter != NULL) {

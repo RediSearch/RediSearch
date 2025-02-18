@@ -128,21 +128,6 @@ typedef struct FieldSpec {
   IndexError indexError;
 } FieldSpec;
 
-
-typedef struct {
-  union {
-    const FieldSpec *spec;
-    const HiddenString *name;
-  } u;
-  bool resolved;
-} Field;
-
-#define FIELD_NAME(f) ((f).resolved ? (f).u.spec->fieldName : (f).u.name)
-
-typedef struct IndexSpec IndexSpec;
-const FieldSpec *FieldSpec_Resolve(Field *f, const IndexSpec *spec);
-const FieldSpec *FieldSpec_Resolved(const Field *f);
-
 #define FIELD_IS(f, t) (((f)->types) & (t))
 #define FIELD_CHKIDX(fmask, ix) (fmask & ix)
 

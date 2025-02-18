@@ -109,13 +109,13 @@ static void setup_trace(QueryParseCtx *ctx) {
 
 static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
-    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX,
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ESYNTAX,
       "%s at offset %d near %.*s", msg, tok->pos, tok->len, tok->s);
   } else if (tok->type == QT_NUMERIC) {
-    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX,
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ESYNTAX,
       "%s at offset %d near %f", msg, tok->pos, tok->numval);
   } else {
-    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX, msg, " at offset %d", tok->pos);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ESYNTAX, msg, " at offset %d", tok->pos);
   }
 }
 
@@ -2268,8 +2268,7 @@ static YYACTIONTYPE yy_reduce(
     QueryParam_Free(yymsp[0].minor.yy62);
   } else if (yymsp[0].minor.yy62) {
     // we keep the capitalization as is
-    yymsp[0].minor.yy62->gf->field.u.spec = yymsp[-2].minor.yy150.fs;
-    yymsp[0].minor.yy62->gf->field.resolved = true;
+    yymsp[0].minor.yy62->gf->spec = yymsp[-2].minor.yy150.fs;
     yylhsminor.yy3 = NewGeofilterNode(yymsp[0].minor.yy62);
   }
 }
@@ -2672,7 +2671,7 @@ static void yy_syntax_error(
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 
-  QueryError_SetUserDataAgnosticErrorFmt(ctx->status, QUERY_ESYNTAX,
+  QueryError_SetWithoutUserDataFmt(ctx->status, QUERY_ESYNTAX,
     "Syntax error at offset %d near %.*s",
     TOKEN.pos, TOKEN.len, TOKEN.s);
 /************ End %syntax_error code ******************************************/

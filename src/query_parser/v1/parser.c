@@ -1567,7 +1567,7 @@ static YYACTIONTYPE yy_reduce(
       case 50: /* numeric_range ::= LSQB num num RSQB */
 {
   yymsp[-3].minor.yy62 = NewQueryParam(QP_NUMERIC_FILTER);
-  yymsp[-3].minor.yy62->nf = NewNumericFilter(yymsp[-2].minor.yy47.num, yymsp[-1].minor.yy47.num, yymsp[-2].minor.yy47.inclusive, yymsp[-1].minor.yy47.inclusive, true);
+  yymsp[-3].minor.yy62->nf = NewNumericFilter(yymsp[-2].minor.yy47.num, yymsp[-1].minor.yy47.num, yymsp[-2].minor.yy47.inclusive, yymsp[-1].minor.yy47.inclusive, true, NULL);
 }
         break;
       case 51: /* expr ::= modifier COLON geo_filter */
@@ -1575,9 +1575,8 @@ static YYACTIONTYPE yy_reduce(
     // we keep the capitalization as is
     yylhsminor.yy75 = NewGeofilterNode(yymsp[0].minor.yy62);
     if (ctx->sctx->spec) {
-        yylhsminor.yy75->gn.gf->field.u.spec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-        yylhsminor.yy75->gn.gf->field.resolved = true;
-        if (!yylhsminor.yy75->gn.gf->field.u.spec) {
+        yylhsminor.yy75->gn.gf->spec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+        if (!yylhsminor.yy75->gn.gf->spec) {
             QueryNode_Free(yylhsminor.yy75);
             yylhsminor.yy75 = NULL;
         }
@@ -1679,7 +1678,7 @@ static void yy_syntax_error(
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 
-    QueryError_SetUserDataAgnosticErrorFmt(ctx->status, QUERY_ESYNTAX,
+    QueryError_SetWithoutUserDataFmt(ctx->status, QUERY_ESYNTAX,
         "Syntax error at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
 /************ End %syntax_error code ******************************************/

@@ -18,7 +18,7 @@ extern "C" {
 #endif
 
 typedef struct NumericFilter {
-  Field field;   // the numeric field
+  const FieldSpec *spec;
   double min;               // beginning of range
   double max;               // end of range
   const void *geoFilter;    // geo filter
@@ -31,13 +31,19 @@ typedef struct NumericFilter {
   size_t offset;            // record number of documents in iterated ranges. used to skip them
 } NumericFilter;
 
+typedef struct LegacyNumericFilter {
+  NumericFilter base; // the numeric filter base details
+  HiddenString *field;    // the numeric field name
+} LegacyNumericFilter;
+
 #define NumericFilter_IsNumeric(f) (!(f)->geoFilter)
 
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax,
-                                bool asc);
-NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status);
+                                bool asc, const FieldSpec *fs);
+LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status);
 int NumericFilter_EvalParams(dict *params, QueryNode *node, QueryError *status);
 void NumericFilter_Free(NumericFilter *nf);
+void LegacyNumericFilter_Free(LegacyNumericFilter *nf);
 
 int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
                      int sign, QueryError *status);
