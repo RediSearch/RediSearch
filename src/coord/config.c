@@ -296,7 +296,6 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
     )
   )
 
-  // TODO: Confirm the maximum value for search-conn-per-shard
   RM_TRY(
     RedisModule_RegisterNumericConfig (
       ctx, "search-conn-per-shard", DEFAULT_CONN_PER_SHARD,

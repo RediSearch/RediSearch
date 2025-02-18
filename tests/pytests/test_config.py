@@ -485,8 +485,18 @@ def testConfigAPIRunTimeNumericParams():
         env.expect('CONFIG', 'GET', configName).equal([configName, str(default)])
 
         # write using CONFIG SET, read using CONFIG GET/FT.CONFIG GET
-        env.expect('CONFIG', 'SET', configName, max).equal('OK')
-        env.expect('CONFIG', 'GET', configName).equal([configName, str(max)])
+        if ftConfigName == 'CONN_PER_SHARD':
+            # for CONN_PER_SHARD (search-conn-per-shard), we don't test the
+            # maximum, we test with a smaller value
+            max_conns = 16
+            expected = str(max_conns)
+            env.expect('CONFIG', 'SET', configName, max_conns).equal('OK')
+            env.expect('CONFIG', 'GET', configName).equal([configName, expected])
+        else:
+            env.expect('CONFIG', 'SET', configName, max).equal('OK')
+            expected = str(max)
+            env.expect('CONFIG', 'GET', configName).equal([configName, expected])
+
         if ftConfigName in ['MAXSEARCHRESULTS', 'MAXAGGREGATERESULTS']:
             # These configurations returns 'unlimited' when the value is the
             # maximum
@@ -494,7 +504,7 @@ def testConfigAPIRunTimeNumericParams():
                 .equal([[ftConfigName, 'unlimited']])
         else:
             env.expect(config_cmd(), 'GET', ftConfigName)\
-                .equal([[ftConfigName, str(max)]])
+                .equal([[ftConfigName, expected]])
 
         # Write using FT.CONFIG SET, read using CONFIG GET/FT.CONFIG GET
         env.expect(config_cmd(), 'SET', ftConfigName, min).ok()
@@ -513,8 +523,10 @@ def testConfigAPIRunTimeNumericParams():
         # test valid range limits
         env.expect('CONFIG', 'SET', configName, str(min)).equal('OK')
         env.expect('CONFIG', 'GET', configName).equal([configName, str(min)])
-        env.expect('CONFIG', 'SET', configName, str(max)).equal('OK')
-        env.expect('CONFIG', 'GET', configName).equal([configName, str(max)])
+
+        if ftConfigName != 'CONN_PER_SHARD':
+            env.expect('CONFIG', 'SET', configName, str(max)).equal('OK')
+            env.expect('CONFIG', 'GET', configName).equal([configName, str(max)])
 
     def _testImmutableNumericConfig(env, configName, ftConfigName, default):
         # Check default value
@@ -1461,5 +1473,3 @@ def testBooleanArgDeprecationMessage():
         expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}`'
         matchCount = _grep_file_count(logFilePath, expectedMessage)
         env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
-
-
