@@ -644,13 +644,13 @@ static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCurso
   char buf[255];
   ArgsCursor tmp = *args;
   while (!AC_IsAtEnd(&tmp)) {
-    size_t l;
-    const char *s = AC_GetStringNC(&tmp, &l);
-    while (*s == '@') {
+    HiddenString *hs = AC_GetHiddenStringNC(&tmp);
+    while (HiddenString_StartsWith(hs, "@")) {
       // Don't allow the leading '@' to be included as an alias!
-      ++s;
-      --l;
+      HiddenString_AdvanceBy(hs, 1);
     }
+    size_t l;
+    const char *s = HiddenString_GetUnsafe(hs, &l);
     out = sdscatlen(out, s, l);
     if (!AC_IsAtEnd(&tmp)) {
       out = sdscat(out, ",");
@@ -857,12 +857,12 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc == AC_ERR_PARSE) {
     // Didn't get a number, but we might have gotten a '*'
-    const char *s = NULL;
-    rc = AC_GetString(ac, &s, NULL, 0);
+    HiddenString *hs = NULL;
+    rc = AC_GetHiddenString(ac, &hs, 0);
     if (rc != AC_OK) {
       QERR_MKBADARGS_AC(status, "LOAD", rc);
       return REDISMODULE_ERR;
-    } else if (strcmp(s, "*")) {
+    } else if (!HiddenString_StartsWith(hs, "*")) {
       QERR_MKBADARGS(status, "Bad arguments for LOAD: Expected number of fields or `*`");
       return REDISMODULE_ERR;
     }
@@ -928,8 +928,8 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     QueryError_SetError(status, QUERY_EPARSEARGS, "No query string provided");
     return REDISMODULE_ERR;
   }
-
-  req->query = AC_GetStringNC(&ac, NULL);
+  HiddenString* hac = AC_GetHiddenStringNC(&ac);
+  req->query  = HiddenString_GetUnsafe(hac, NULL);
   AGPLN_Init(&req->ap);
 
   RSSearchOptions *searchOpts = &req->searchopts;

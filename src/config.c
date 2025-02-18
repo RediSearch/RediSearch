@@ -158,7 +158,7 @@ CONFIG_SETTER(setExtLoad) {
     config->extLoad = NULL;
   }
   HiddenString *hextLoad;
-  int acrc = AC_GetHiddenString(ac, &hextLoad);
+  int acrc = AC_GetHiddenString(ac, &hextLoad, 0);
   if (acrc == AC_OK) {
     config->extLoad = rm_strdup(HiddenString_GetUnsafe(hextLoad, NULL));
   }
@@ -530,7 +530,7 @@ CONFIG_SETTER(setFrisoINI) {
     config->frisoIni = NULL;
   }
   HiddenString *hfrisoIni;
-  int acrc = AC_GetHiddenString(ac, &hfrisoIni);
+  int acrc = AC_GetHiddenString(ac, &hfrisoIni, 0);
   if (acrc == AC_OK) {
     config->frisoIni = rm_strdup(HiddenString_GetUnsafe(hfrisoIni, NULL));
   }

@@ -65,11 +65,11 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
     QERR_MKBADARGS_FMT(options->status, "Missing arguments", " for %s", options->name);
     return 0;
   }
-  s = HiddenString_GetUnsafe(hs, NULL);
   // Get the input key..
-  if (*s == '@') {
-    s++;
+  if (HiddenString_StartsWith(hs, "@")) {
+    HiddenString_AdvanceBy(hs, 1);
   }
+  s = HiddenString_GetUnsafe(hs, NULL);
   *out = RLookup_GetKey(options->srclookup, s, RLOOKUP_M_READ, RLOOKUP_F_HIDDEN);
   if (!*out) {
     if (options->loadKeys) {
