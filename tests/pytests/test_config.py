@@ -1,6 +1,7 @@
 from RLTest import Env
 from includes import *
 from common import *
+import subprocess
 
 not_modifiable = 'Not modifiable at runtime'
 
@@ -390,6 +391,31 @@ def testImmutableCoord(env):
 ################################################################################
 # Test CONFIG SET/GET numeric parameters
 ################################################################################
+
+def _grep_file_count(filename, pattern):
+    """
+    Grep a file for a given pattern using subprocess.
+
+    Args:
+        filename (str): The path to the file to grep.
+        pattern (str): The pattern to search for.
+
+    Returns:
+        int: The number of lines that match the pattern.
+    """
+    try:
+        result = subprocess.run(
+            ['grep', '--count', pattern, filename],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True
+        )
+        return result.stdout.count('\n')
+    except subprocess.CalledProcessError as e:
+        # Handle errors, e.g., pattern not found
+        print(f"Error: {e}")
+        return 0
 
 def _removeModuleArgs(env: Env):
     """Remove modules and args from the environment (to test MODULE LOADEX)"""
@@ -783,6 +809,21 @@ def testModuleLoadexNumericParamsLastWins():
         env.assertTrue(env.isUp())
         env.stop()
 
+@skip(redis_less_than='7.9.227')
+def testNumericArgDeprecationMessage():
+    moduleArgs = ''
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        moduleArgs += f'{argName} {maxValue} '
+
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}`'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
 ################################################################################
 # Test CONFIG SET/GET enum parameters
 ################################################################################
@@ -909,6 +950,21 @@ def testConfigFileAndArgsEnumParams():
     env.assertEqual(res, [configName, testValue])
     res = env.cmd(config_cmd(), 'GET', argName)
     env.assertEqual(res, [[argName, testValue]])
+
+@skip(redis_less_than='7.9.227')
+def testEnumArgDeprecationMessage():
+    # Test search-on-timeout deprecation message
+    configName = 'search-on-timeout'
+    argName = 'ON_TIMEOUT'
+    moduleArgs = 'ON_TIMEOUT fail'
+
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+    expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}`'
+    matchCount = _grep_file_count(logFilePath, expectedMessage)
+    env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
 
 ################################################################################
 # Test CONFIG SET/GET string parameters
@@ -1085,6 +1141,39 @@ def testConfigFileAndArgsStringParams():
         env.assertEqual(res, [configName, testValue])
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, testValue]])
+
+@skip(cluster=True, redis_less_than='7.9.227')
+def testStringArgDeprecationMessage():
+    '''Test deprecation message of module string arguments'''
+
+    env = Env()
+    # stop the server and remove the rdb file
+    rdbFilePath = _getRDBFilePath(env)
+    env.stop()
+    if (os.path.exists(rdbFilePath)):
+        os.unlink(rdbFilePath)
+
+    # get module path
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    redisearch_module_path = env.envRunner.modulePath[0]
+    basedir = os.path.dirname(redisearch_module_path)
+
+    # create module arguments
+    moduleArgs = ''
+    for configName, argName, ftDefaultValue, testValue in stringConfigs:
+        testValue = os.path.abspath(os.path.join(basedir, testValue))
+        moduleArgs += f'{argName} {testValue} '
+
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
+    env.assertTrue(env.isUp())
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+    for configName, argName, ftDefaultValue, testValue in stringConfigs:
+        expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}`'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
 
 ################################################################################
 # Test CONFIG SET/GET boolean parameters
@@ -1350,3 +1439,27 @@ def testConfigFileAndArgsBooleanParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, ftExpectedValue]],
                         message=f'argName: {argName}')
+
+@skip(redis_less_than='7.9.227')
+def testBooleanArgDeprecationMessage():
+    '''Test deprecation message of module boolean arguments'''
+    # create module arguments
+    moduleArgs = ''
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        # use non-default value as argument value
+        ftDefaultValue = 'false' if defaultValue == 'yes' else 'true'
+        if isFlag:
+            moduleArgs += f'{argName} '
+        else:
+            moduleArgs += f'{argName} {ftDefaultValue} '
+
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}`'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+
