@@ -213,12 +213,15 @@ endif
 CMAKE_COORD += -DCOORD_TYPE=$(COORD)
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) $(CMAKE_LITE)
 
-# If DEBUG is not set, set NDEBUG
-ifeq ($(DEBUG),)
-CC_FLAGS.defs += -DNDEBUG
-endif
 
 include $(MK)/defs
+
+# If DEBUG is not set, set NDEBUG. We set it in `CC_FLAGS.debug` so that it is
+# appended after the unsetting of this flag in cc.defs (once it is removed can
+# be set regularly).
+ifeq ($(DEBUG),)
+CC_FLAGS.debug += -DNDEBUG
+endif
 
 MK_CUSTOM_CLEAN=1
 
