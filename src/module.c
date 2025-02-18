@@ -1025,14 +1025,14 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
     redisVersion = supportedVersion;
     return;
   }
-  RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
+  RS_ASSERT(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
   size_t len;
   const char *replyStr = RedisModule_CallReplyStringPtr(reply, &len);
 
   int n = sscanf(replyStr, "# Server\nredis_version:%d.%d.%d", &redisVersion.majorVersion,
                  &redisVersion.minorVersion, &redisVersion.patchVersion);
 
-  RedisModule_Assert(n == 3);
+  RS_ASSERT(n == 3);
 
   rlecVersion.majorVersion = -1;
   rlecVersion.minorVersion = -1;
@@ -2036,7 +2036,7 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
     if (res->sortKey[0] == '#') {
       char *endptr;
       res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
-      RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
+      RS_ASSERT(endptr == res->sortKey + res->sortKeyLen);
     }
     // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
   }
@@ -2107,7 +2107,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
         if (res->sortKey[0] == '#') {
           char *endptr;
           res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
-          RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
+          RS_ASSERT(endptr == res->sortKey + res->sortKeyLen);
         }
         // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
       }
@@ -2210,10 +2210,10 @@ static int cmp_scored_results(const void *p1, const void *p2, const void *udata)
 }
 
 static double parseNumeric(const char *str, const char *sortKey) {
-    RedisModule_Assert(str[0] == '#');
+    RS_ASSERT(str[0] == '#');
     char *eptr;
     double d = strtod(str + 1, &eptr);
-    RedisModule_Assert(eptr != sortKey + 1 && *eptr == 0);
+    RS_ASSERT(eptr != sortKey + 1 && *eptr == 0);
     return d;
 }
 
@@ -2458,7 +2458,7 @@ static void noOpPostProcess(searchReducerCtx *rCtx){
 
 static void knnPostProcess(searchReducerCtx *rCtx) {
   specialCaseCtx* reducerSpecialCaseCtx = rCtx->reduceSpecialCaseCtxKnn;
-  RedisModule_Assert(reducerSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN);
+  RS_ASSERT(reducerSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN);
   if(reducerSpecialCaseCtx->knn.pq) {
     size_t numberOfResults = heap_count(reducerSpecialCaseCtx->knn.pq);
     for (size_t i = 0; i < numberOfResults; i++) {
@@ -2872,7 +2872,7 @@ static inline int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *c
 static int genericCallUnderscoreVariant(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t len;
   const char *cmd = RedisModule_StringPtrLen(argv[0], &len);
-  RedisModule_Assert(!strncasecmp(cmd, "FT.", 3));
+  RS_ASSERT(!strncasecmp(cmd, "FT.", 3));
   char *localCmd;
   rm_asprintf(&localCmd, "_%.*s", len, cmd);
   /*
@@ -3175,7 +3175,7 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
       // Handle sortby
       case SPECIAL_CASE_SORTBY: {
         // Sort by is always the first case.
-        RedisModule_Assert(i==0);
+        RS_ASSERT(i==0);
         if(req->requiredFields == NULL) {
           req->requiredFields = array_new(const char*, 1);
         }
@@ -3537,7 +3537,7 @@ void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
 
 static bool checkClusterEnabled(RedisModuleCtx *ctx) {
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "CONFIG", "cc", "GET", "cluster-enabled");
-  RedisModule_Assert(rep && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY &&
+  RS_ASSERT(rep && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY &&
                      RedisModule_CallReplyLength(rep) == 2);
   size_t len;
   const char *isCluster = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, 1), &len);

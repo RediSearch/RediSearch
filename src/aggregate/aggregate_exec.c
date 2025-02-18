@@ -981,6 +981,15 @@ error:
 }
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  #ifdef NDEBUG
+  RedisModule_Log(RSDummyContext, "warning", "(Raz) NDEBUG is defined");
+  #else
+  RedisModule_Log(RSDummyContext, "warning", "(Raz) NDEBUG is not defined");
+  #endif
+  
+  RS_LOG_ASSERT(false, "(Raz) Test");
+  // RS_LOG_ASSERT_FMT(false, "(Raz) Test %d", 1);
+  // RS_ASSERT_ALWAYS(false);
   return execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE, NO_PROFILE);
 }
 
