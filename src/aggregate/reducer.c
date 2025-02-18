@@ -60,15 +60,16 @@ void RDCR_RegisterBuiltins(void) {
 int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   ArgsCursor *ac = options->args;
   const char *s;
-  if (AC_GetString(ac, &s, NULL, 0) != AC_OK) {
+  HiddenString *hs;
+  if (AC_GetHiddenString(ac, &hs, 0) != AC_OK) {
     QERR_MKBADARGS_FMT(options->status, "Missing arguments", " for %s", options->name);
     return 0;
   }
-
   // Get the input key..
-  if (*s == '@') {
-    s++;
+  if (HiddenString_StartsWith(hs, "@")) {
+    HiddenString_AdvanceBy(hs, 1);
   }
+  s = HiddenString_GetUnsafe(hs, NULL);
   *out = RLookup_GetKey(options->srclookup, s, RLOOKUP_M_READ, RLOOKUP_F_HIDDEN);
   if (!*out) {
     if (options->loadKeys) {

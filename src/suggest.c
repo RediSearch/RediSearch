@@ -58,14 +58,18 @@ int RSSuggestAddCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, argv + 4, argc - 4);
   while (!AC_IsAtEnd(&ac)) {
-    const char *s = AC_GetStringNC(&ac, NULL);
-    if (!strcasecmp(s, "INCR")) {
+    HiddenString *hs = AC_GetHiddenStringNC(&ac);
+    if (!HiddenString_CaseInsensitiveCompareC(hs, "INCR", strlen("INCR"))){
       incr = 1;
-    } else if (!strcasecmp(s, "PAYLOAD")) {
-      if ((rv = AC_GetString(&ac, (const char **)&payload.data, &payload.len, 0)) != AC_OK) {
+    } else if (!HiddenString_CaseInsensitiveCompareC(hs, "PAYLOAD", strlen("PAYLOAD"))){
+      HiddenString *hpayloadDataStr;
+      if ((rv = AC_GetHiddenString(&ac, &hpayloadDataStr, 0)) != AC_OK) {
         return RMUtil_ReplyWithErrorFmt(ctx, "Invalid payload: %s", AC_Strerror(rv));
+      } else {
+        payload.data = (char *)HiddenString_GetUnsafe(hpayloadDataStr, &payload.len);
       }
     } else {
+      const char *s = HiddenString_GetUnsafe(hs, NULL);
       return RMUtil_ReplyWithErrorFmt(ctx, "Unknown argument `%s`", s);
     }
   }
@@ -252,8 +256,9 @@ int parseSuggestOptions(RedisModuleString **argv, int argc, SuggestOptions *opti
   if (rv != AC_OK) {
     if (rv == AC_ERR_ENOENT) {
       // Argument not recognized
+      HiddenString * hac = AC_GetHiddenStringNC(&ac);
       QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Unrecognized argument", ": %s",
-                             AC_GetStringNC(&ac, NULL));
+                             HiddenString_GetUnsafe(hac, NULL));
     } else if (errArg) {
       QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, errArg->name, ": %s", AC_Strerror(rv));
     } else {

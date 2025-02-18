@@ -29,6 +29,12 @@ void HiddenString_Free(const HiddenString* hn, bool tookOwnership) {
   rm_free(value);
 };
 
+bool HiddenString_IsEmpty(const HiddenString *value) {
+  const UserString* impl = (const UserString*)value;
+  return impl->length == 0;
+}
+
+
 static inline int Compare(const char *left, size_t left_length, const char *right, size_t right_length) {
   int result = strncmp(left, right, MIN(left_length, right_length));
   if (result != 0 || left_length == right_length) {
@@ -38,7 +44,7 @@ static inline int Compare(const char *left, size_t left_length, const char *righ
   }
 }
 
-static inline int CaseSensitiveCompare(const char *left, size_t left_length, const char *right, size_t right_length) {
+static inline int CaseInsensitiveCompare(const char *left, size_t left_length, const char *right, size_t right_length) {
   int result = strncasecmp(left, right, MIN(left_length, right_length));
   if (result != 0 || left_length == right_length) {
     return result;
@@ -64,7 +70,7 @@ int HiddenString_CaseInsensitiveCompare(const HiddenString *left, const HiddenSt
 
 int HiddenString_CaseInsensitiveCompareC(const HiddenString *left, const char *right, size_t right_length) {
   UserString* l = (UserString*)left;
-  return CaseSensitiveCompare(l->user, l->length, right, right_length);
+  return CaseInsensitiveCompare(l->user, l->length, right, right_length);
 }
 
 HiddenString *HiddenString_Duplicate(const HiddenString *value) {
@@ -121,4 +127,23 @@ const char *HiddenString_GetUnsafe(const HiddenString* value, size_t* length) {
 RedisModuleString *HiddenString_CreateRedisModuleString(const HiddenString* value, RedisModuleCtx* ctx) {
   const UserString* text = (const UserString*)value;
   return RedisModule_CreateString(ctx, text->user, text->length);
+}
+
+bool HiddenString_StartsWith(HiddenString *hs, const char* s) {
+  UserString *us = (UserString*)hs;
+  size_t s_len = strlen(s);
+  if (us->length < s_len) {
+    return false;
+  }
+  return strncmp(us->user, s, s_len) == 0;
+}
+
+int HiddenString_AdvanceBy(HiddenString *hs, size_t l) {
+  UserString *us = (UserString*)hs;
+  if (l > us->length) {
+    return AC_ERR_NOARG;
+  }
+  us->user += l;
+  us->length -= l;
+  return AC_OK;
 }
