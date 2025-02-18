@@ -515,7 +515,7 @@ text_expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
 }
 
 text_expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
-  A = NewTokenNode(ctx, rm_strdupcase(B.s, B.len), -1);
+  A = NewTokenNode(ctx, rm_normalize(B.s, B.len), -1);
   A->opts.flags |= QueryNode_Verbatim;
 }
 
@@ -525,7 +525,7 @@ text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
   char *s = rm_malloc(B.len + 1);
   *s = '$';
   memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_strdupcase(s, B.len + 1), -1);
+  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
   rm_free(s);
   A->opts.flags |= QueryNode_Verbatim;
 }

@@ -516,6 +516,19 @@ static void PopulateIndex(RSIndex* index) {
   }
 }
 
+static void PopulateIndexMultibyte(RSIndex* index) {
+  char buf[] = {"GRÜẞEN_"};
+  size_t nbuf = strlen(buf);
+  for (char c = 'a'; c <= 'z'; c++) {
+    buf[nbuf - 1] = c;
+    char did[64];
+    sprintf(did, "doc%c", c);
+    RSDoc* d = RediSearch_CreateDocument(did, strlen(did), 0, NULL);
+    RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, buf, RSFLDTYPE_DEFAULT);
+    RediSearch_SpecAddDocument(index, d);
+  }
+}
+
 static void ValidateResults(RSIndex* index, RSQNode* qn, char start, char end, int numResults) {
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_FALSE(NULL == iter);
@@ -575,6 +588,35 @@ TEST_F(LLApiTest, testRangesOnTags) {
   // test without include max and min
   tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
   qn = RediSearch_CreateTagLexRangeNode(index, "Markn", "Markx", 0, 0);
+  RediSearch_QueryNodeAddChild(tagQn, qn);
+
+  ValidateResults(index, tagQn, 'o', 'w', 9);
+
+  tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
+  qn = RediSearch_CreateTagLexRangeNode(index, NULL, NULL, 1, 1);
+  RediSearch_QueryNodeAddChild(tagQn, qn);
+
+  ValidateResults(index, tagQn, 'a', 'z', 26);
+
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testRangesOnTagsMultibyte) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  RediSearch_CreateTagField(index, FIELD_NAME_1);
+
+  PopulateIndexMultibyte(index);
+
+  // test with include max and min
+  RSQNode* tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
+  RSQNode* qn = RediSearch_CreateTagLexRangeNode(index, "GRÜẞENn", "GRÜẞENx", 1, 1);
+  RediSearch_QueryNodeAddChild(tagQn, qn);
+
+  ValidateResults(index, tagQn, 'n', 'x', 11);
+
+  // test without include max and min
+  tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
+  qn = RediSearch_CreateTagLexRangeNode(index, "GRÜẞENn", "GRÜẞENx", 0, 0);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   ValidateResults(index, tagQn, 'o', 'w', 9);
