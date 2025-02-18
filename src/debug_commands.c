@@ -1405,6 +1405,27 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+DEBUG_COMMAND(set_max_scanned_docs) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 4) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long max_scanned_docs;
+  if (RedisModule_StringToLongLong(argv[3], &max_scanned_docs) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'set_max_scanned_docs'");
+  }
+  if (max_scanned_docs < 0) {
+    return RedisModule_ReplyWithError(ctx, "max_scanned_docs must be a non-negative number");
+  }
+  debugCtx.maxDocsTBscanned = (size_t) max_scanned_docs;
+  debugCtx.debugMode = true;
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats

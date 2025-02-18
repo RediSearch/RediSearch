@@ -2136,7 +2136,7 @@ static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref, size_t
 
 void DebugIndexesScanner_Free(DebugIndexesScanner *dScanner)
 {
-  IndexesScanner_Free(dScanner);
+  IndexesScanner_Free((IndexesScanner*)dScanner);
 }
 
 
@@ -2286,7 +2286,7 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
 #endif
   IndexesScanner *scanner = NULL;
   if (debugCtx.debugMode) {
-    scanner = DebugIndexesScanner_New(spec_ref, debugCtx.maxDocsTBscanned);
+    scanner = (IndexesScanner*)(spec_ref, debugCtx.maxDocsTBscanned);
   }
   else {
     scanner = IndexesScanner_New(spec_ref);
