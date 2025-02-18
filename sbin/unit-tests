@@ -178,8 +178,7 @@ fi
 if [[ -n $STATFILE ]]; then
 	mkdir -p "$(dirname "$STATFILE")"
 	if [[ -f $STATFILE ]]; then
-		(( E |= $(cat $STA
-		TFILE || echo 1) )) || true
+		(( E |= $(cat $STATFILE || echo 1) )) || true
 	fi
 	echo $E > $STATFILE
 fi

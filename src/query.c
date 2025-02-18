@@ -1272,6 +1272,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   const char *hidden = HiddenString_GetUnsafe(tok->str, &len);
   char* mutate = rm_strndup(hidden, len);
   tag_strtolower(mutate, &len, caseSensitive);
+  len = Wildcard_RemoveEscape(mutate, len);
   HiddenString_Free(tok->str);
   tok->str = NewHiddenStringEx(mutate, len, Move);
 
@@ -1380,11 +1381,8 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       break;
     }
     case QN_PREFIX:
-    {
-      // n->pfx.tok.str = HiddenTagLowercase(n->pfx.tok.str, fs->tagOpts.tagFlags); // needed for testPrefixNodeCaseSensitive
       return Query_EvalTagPrefixNode(q, idx, n, iterout, weight,
                          FieldSpec_HasSuffixTrie(fs), fs->index, caseSensitive);
-    }
     case QN_WILDCARD_QUERY:
       return Query_EvalTagWildcardNode(q, idx, n, iterout, weight, fs->index,
                                        caseSensitive);
@@ -1734,7 +1732,7 @@ static inline bool QueryNode_DoesIndexEmpty(QueryNode *n, IndexSpec *spec, RSSea
 // If the token is of an empty string, and the searched field doesn't index
 // empty strings, we should return an error
 static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
-  if (n->tn.str && !HiddenString_CompareC(n->tn.str, "", 0) && !QueryNode_DoesIndexEmpty(n, spec, opts)) {
+  if (n->tn.str && !HiddenString_IsEmpty(n->tn.str) && !QueryNode_DoesIndexEmpty(n, spec, opts)) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Use `" SPEC_INDEXEMPTY_STR "` in field creation in order to index and query for empty strings");
     return false;
   }
@@ -1936,11 +1934,9 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       {
         size_t len = 0;
         const char* str = "\"\"";
-        if (qs->tn.str) {
+        if (qs->tn.str && !HiddenString_IsEmpty(qs->tn.str)) {
           const char *hidden = HiddenString_GetUnsafe(qs->tn.str, &len);
-          if (len) {
-            str = hidden;
-          }
+          str = hidden;
         }
         s = sdscatprintf(s, "%s%s", str, qs->tn.expanded ? "(expanded)" : "");
         if (qs->opts.weight != 1) {
