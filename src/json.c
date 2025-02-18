@@ -607,7 +607,7 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
       rv = REDISMODULE_ERR;
       break;
     case JSONType__EOF:
-      RS_LOG_ASSERT(0, "Should not happen");
+      RS_ABORT("Should not happen");
   }
 
   return rv;

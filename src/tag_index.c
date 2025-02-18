@@ -164,7 +164,7 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
   case FLD_VAR_T_NUM:
   case FLD_VAR_T_BLOB_ARRAY:
   case FLD_VAR_T_GEOMETRY:
-    RS_LOG_ASSERT(0, "nope")
+    RS_ABORT("nope")
   }
   fdata->tags = arr;
   return ret;

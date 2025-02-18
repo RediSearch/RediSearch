@@ -44,7 +44,7 @@ const char *FieldSpec_GetTypeNames(int idx) {
   case IXFLDPOS_GEOMETRY: return SPEC_GEOMETRY_STR;
 
   default:
-    RS_LOG_ASSERT(0, "oops");
+    RS_ABORT("oops");
     break;
   }
 }

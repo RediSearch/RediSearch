@@ -441,7 +441,7 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
     case JSONType__EOF:
       break;
   }
-  RS_LOG_ASSERT(0, "Cannot get here");
+  RS_ABORT("Cannot get here");
 }
 
 // {"a":1, "b":[2, 3, {"c": "foo"}, 4], "d": null}
