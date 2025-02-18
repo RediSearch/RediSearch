@@ -199,7 +199,7 @@ void RedisSearchCtx_LockSpecRead(RedisSearchCtx *ctx) {
   pthread_rwlock_rdlock(&ctx->spec->rwlock);
   // pause rehashing while we're using the dict for reads only
   // Assert that the pause value before we pause is valid.
-  RS_ASSERT(dictPauseRehashing(ctx->spec->keysDict));
+  RS_ASSERT_ALWAYS(dictPauseRehashing(ctx->spec->keysDict));
   ctx->flags = RS_CTX_READONLY;
 }
 
@@ -235,7 +235,7 @@ void RedisSearchCtx_UnlockSpec(RedisSearchCtx *sctx) {
   if (sctx->flags == RS_CTX_READONLY) {
     // We paused rehashing when we locked the spec for read. Now we can resume it.
     // Assert that it was actually previously paused
-    RS_ASSERT(dictResumeRehashing(sctx->spec->keysDict));
+    RS_ASSERT_ALWAYS(dictResumeRehashing(sctx->spec->keysDict));
   }
   pthread_rwlock_unlock(&sctx->spec->rwlock);
   sctx->flags = RS_CTX_UNSET;
