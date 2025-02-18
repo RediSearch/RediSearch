@@ -35,7 +35,16 @@ cd ${JSON_MODULE_DIR}
 git checkout --quiet ${JSON_BRANCH}
 git submodule update --quiet --init --recursive
 
-# Build the RedisJSON module
+# Patch RedisJSON to build in Alpine - disable static linking
+# This is to fix RedisJSON build in Alpine, which is used only for testing
+# See https://github.com/rust-lang/rust/pull/58575#issuecomment-496026747
+if [[ -f /etc/os-release ]]; then
+	OS_NAME=$(grep '^NAME=' /etc/os-release | sed 's/"//g')
+	OS_NAME=${OS_NAME#"NAME="}
+	if [[ $OS_NAME == "Alpine Linux" ]]; then
+		sed -i "s/^RUST_FLAGS=$/RUST_FLAGS=-C target-feature=-crt-static/g" Makefile
+	fi
+fi
 echo "Building RedisJSON module for branch $JSON_BRANCH..."
 BINROOT=${JSON_BIN_DIR} make SAN=$SAN > /dev/null  # print errors to console
 
