@@ -21,6 +21,9 @@
 #include "util/workers.h"
 #include "cursor.h"
 
+
+DebugCTX debugCtx = {0};
+
 #define GET_SEARCH_CTX(name)                                        \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
   if (!sctx) {                                                      \

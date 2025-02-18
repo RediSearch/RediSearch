@@ -622,6 +622,11 @@ typedef struct IndexesScanner {
   size_t scannedKeys;
 } IndexesScanner;
 
+typedef struct DebugIndexesScanner {
+  IndexesScanner base;
+  size_t maxDocsTBscanned;
+} DebugIndexesScanner;
+
 double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, IndexSpec *sp);
 
 /**

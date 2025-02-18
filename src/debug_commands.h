@@ -7,6 +7,7 @@
 #pragma once
 
 #include "redismodule.h"
+#include  <stdbool.h>
 
 #define RS_DEBUG_FLAGS 0, 0, 0
 #define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -17,3 +18,8 @@ typedef struct DebugCommandType {
 } DebugCommandType;
 
 int RegisterDebugCommands(RedisModuleCommand *debugCommand);
+
+typedef struct DebugCTX {
+  bool debugMode;
+  size_t maxDocsTBscanned;
+} DebugCTX;
