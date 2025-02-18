@@ -156,7 +156,7 @@ jobs:
       - name: Setup common
         run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
-        run: pip install -q -r .install/build_package_requirments.txt
+        run: pip install -q -r .install/build_package_requirements.txt
 
       - name: Install Boost
         working-directory: .install
