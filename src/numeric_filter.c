@@ -70,25 +70,25 @@ NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterVal
   nf->min = 0;
   nf->max = 0;
   // Store the field name at the field spec pointer, to validate later
-  const char *fieldName = AC_GetStringNC(ac, NULL);
+  HiddenString *hfieldName = AC_GetHiddenStringNC(ac);
   nf->field.resolved = false;
-  nf->field.u.name = NewHiddenString(fieldName, strlen(fieldName), false);
+  nf->field.u.name = hfieldName;
 
   // Parse the min range
-  const char *s = AC_GetStringNC(ac, NULL);
-  if (!*s) {
+  HiddenString *hs = AC_GetHiddenStringNC(ac);
+  if (HiddenString_IsEmpty(hs)) {
     *hasEmptyFilterValue = true;
   }
-  if (parseDoubleRange(s, &nf->inclusiveMin, &nf->min, 1, 1, status) != REDISMODULE_OK) {
+  if (parseDoubleRange(HiddenString_GetUnsafe(hs, NULL), &nf->inclusiveMin, &nf->min, 1, 1, status) != REDISMODULE_OK) {
     NumericFilter_Free(nf);
     return NULL;
   }
 
-  s = AC_GetStringNC(ac, NULL);
-  if (!*s) {
+  hs = AC_GetHiddenStringNC(ac);
+  if (HiddenString_IsEmpty(hs)) {
     *hasEmptyFilterValue = true;
   }
-  if (parseDoubleRange(s, &nf->inclusiveMax, &nf->max, 0, 1, status) != REDISMODULE_OK) {
+  if (parseDoubleRange(HiddenString_GetUnsafe(hs, NULL), &nf->inclusiveMax, &nf->max, 0, 1, status) != REDISMODULE_OK) {
     NumericFilter_Free(nf);
     return NULL;
   }
