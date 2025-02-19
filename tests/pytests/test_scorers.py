@@ -362,3 +362,39 @@ def testExposeScore(env: Env):
 def testExposeScoreOptimized(env: Env):
     env.expect('FT.CREATE', 'idxOpt', 'INDEXALL', 'ENABLE', 'SCHEMA', 'title', 'TEXT').ok()
     _test_expose_score(env, 'idxOpt')
+
+def testBM25STDScoreWithWeight(env: Env):
+    conn = getConnectionByEnv(env)
+    env.expect('ft.create idx ON HASH schema title text').ok()
+    conn.execute_command('HSET', 'doc1', 'title', 'hello world')
+    conn.execute_command('HSET', 'doc2', 'title', 'hello world cat dog')
+
+    def get_scores(env, query):
+        res = env.cmd('ft.search', 'idx', query, 'withscores', 'scorer', 'BM25STD', 'nocontent')
+        return [float(res[2]), float(res[4])]
+
+    default_query = '@title: hello'
+    weighted_query = '((@title:hello) => {$weight: 0.5;})'
+
+    scores = get_scores(env, default_query)
+    weighted_scores = get_scores(env, weighted_query)
+    max_difference = max(abs(2*w - s) for w, s in zip(weighted_scores, scores))
+    env.assertAlmostEqual(max_difference, 0, 1E-6)
+
+def testBM25ScoreWithWeight(env: Env):
+    conn = getConnectionByEnv(env)
+    env.expect('ft.create idx ON HASH schema title text').ok()
+    conn.execute_command('HSET', 'doc1', 'title', 'hello world')
+    conn.execute_command('HSET', 'doc2', 'title', 'hello world cat dog')
+
+    def get_scores(env, query):
+        res = env.cmd('ft.search', 'idx', query, 'withscores', 'scorer', 'BM25', 'nocontent')
+        return [float(res[2]), float(res[4])]
+
+    default_query = '@title: hello'
+    weighted_query = '((@title:hello) => {$weight: 0.5;})'
+
+    scores = get_scores(env, default_query)
+    weighted_scores = get_scores(env, weighted_query)
+    max_difference = max(abs(2*w - s) for w, s in zip(weighted_scores, scores))
+    env.assertAlmostEqual(max_difference, 0, 1E-6)
