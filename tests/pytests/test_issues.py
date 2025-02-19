@@ -1333,7 +1333,7 @@ def test_mod_6786(env:Env):
   env.cmd('HSET', 'doc1', 't', text_with_long_term)
 
   # Searching for the long term should return the document
-  # Before fix, the long term was partialy normalized and the document was not found
+  # Before fix, the long term was partially normalized and the document was not found
   env.expect('FT.SEARCH', 'idx', long_term).equal([1, 'doc1', ['t', text_with_long_term]])
 
 @skip(cluster=False)
