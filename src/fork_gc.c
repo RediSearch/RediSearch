@@ -691,7 +691,7 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
     }
 
     // Number of blocks added in the parent process since the last scan
-    size_t newAddedLen = idx->size - info->nblocksOrig; // TODO: can we just decrease by numer of deleted.
+    size_t newAddedLen = idx->size - info->nblocksOrig; // TODO: can we just decrease by number of deleted.
 
     // The final size is the reordered block size, plus the number of blocks
     // which we haven't scanned yet, because they were added in the parent
@@ -737,6 +737,8 @@ static void FGC_applyInvertedIndex(ForkGC *gc, InvIdxBuffers *idxData, MSG_Index
 
   idx->numDocs -= info->ndocsCollected;
   idx->gcMarker++;
+  RS_LOG_ASSERT(idx->size, "Index should have at least one block");
+  idx->lastId = idx->blocks[idx->size - 1].lastId; // Update lastId
 }
 
 typedef struct {
@@ -1237,7 +1239,7 @@ static int periodicCb(void *privdata) {
   // If the index was deleted, we don't want to reschedule the GC, so we return 0.
   // If the index is still valid, we MUST hold the strong reference to it until after the fork, to make sure
   // the child process has a valid reference to the index.
-  // If we were to try and revalidate the index after the fork, it might already be droped and the child
+  // If we were to try and revalidate the index after the fork, it might already be dropped and the child
   // will exit before sending any data, and might left the parent waiting for data that will never arrive.
   // Attempting to revalidate the index after the fork is also problematic because the parent and child are
   // not synchronized, and the parent might see the index alive while the child sees it as deleted.
@@ -1292,7 +1294,7 @@ static int periodicCb(void *privdata) {
   }
 
   // Now that we hold the GIL, we can cache this value knowing it won't change by the main thread
-  // upon deleting a docuemnt (this is the actual number of documents to be cleaned by the fork).
+  // upon deleting a document (this is the actual number of documents to be cleaned by the fork).
   size_t num_docs_to_clean = gc->deletedDocsFromLastRun;
   gc->deletedDocsFromLastRun = 0;
 

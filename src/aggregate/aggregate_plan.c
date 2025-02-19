@@ -34,7 +34,7 @@ static const char *steptypeToString(PLN_StepType type) {
 
 /* add a step to the plan at its end (before the dummy tail) */
 void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step) {
-  RS_LOG_ASSERT(step->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
+  RS_LOG_ASSERT(step->type > PLN_T_INVALID, "Step type cannot be PLN_T_INVALID");
   dllist_append(&plan->steps, &step->llnodePln);
   plan->steptypes |= (1 << (step->type - 1));
 }
@@ -44,7 +44,7 @@ int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t) {
 }
 
 void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
-  RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
+  RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type cannot be PLN_T_INVALID");
   if (posstp == NULL || DLLIST_IS_FIRST(&pln->steps, &posstp->llnodePln)) {
     dllist_prepend(&pln->steps, &posstp->llnodePln);
   } else {
@@ -53,7 +53,7 @@ void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
 }
 
 void AGPLN_AddAfter(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
-  RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
+  RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type cannot be PLN_T_INVALID");
   if (posstp == NULL || DLLIST_IS_LAST(&pln->steps, &posstp->llnodePln)) {
     AGPLN_AddStep(pln, newstp);
   } else {

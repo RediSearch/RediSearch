@@ -53,39 +53,20 @@ CONFIG_GETTER(getClusterTimeout) {
 }
 
 CONFIG_SETTER(setGlobalPass) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  if (realConfig->globalPass) {
-    rm_free((void *)realConfig->globalPass);
-  }
-  int acrc = AC_GetString(ac, &realConfig->globalPass, NULL, 0);
-  RETURN_STATUS(acrc);
+  // Deprecated, no scenario in which this config param should be set, nor should
+  // it affect something (replaced by internal connections)
+
+  RedisModule_Log(RSDummyContext, "warning",
+    "Notice: OSS_GLOBAL_PASSWORD is deprecated, inter-shard communication is now done via internal connections");
+  // Read next arg, but do nothing with it
+  int acrc = AC_Advance(ac);
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getGlobalPass) {
   RedisModule_Log(RSDummyContext, "warning",
-    "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG GET search-oss-global-password` instead");
+    "Notice: OSS_GLOBAL_PASSWORD is deprecated, inter-shard communication is now done via internal connections");
   return sdsnew("Password: *******");
-}
-
-// global-password
-int set_immutable_cluster_string_config(const char *name, RedisModuleString *val,
-                                      void *privdata, RedisModuleString **err) {
-  REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
-  char **ptr = (char **)privdata;
-  size_t len;
-  const char *ret = RedisModule_StringPtrLen(val, &len);
-  *ptr = rm_strndup(ret, len);
-  return REDISMODULE_OK;
-}
-
-RedisModuleString * get_oss_global_password(const char *name, void *privdata) {
-  REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(privdata);
-  if (!config_dummy_password) {
-    config_dummy_password = RedisModule_CreateString(NULL, "Password: *******", 17);
-  }
-  return config_dummy_password;
 }
 
 // CONN_PER_SHARD
@@ -164,35 +145,6 @@ CONFIG_GETTER(getTopologyValidationTimeout) {
   return sdsfromlonglong(realConfig->topologyValidationTimeoutMS);
 }
 
-// ACL_USERNAME
-CONFIG_GETTER(getOSSACLUsername) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  return sdsnew(realConfig->aclUsername);
-}
-
-CONFIG_SETTER(setOSSACLUsername) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  if (realConfig->aclUsername) {
-    rm_free((void *)realConfig->aclUsername);
-  }
-  int acrc = AC_GetString(ac, &realConfig->aclUsername, NULL, 0);
-  RETURN_STATUS(acrc);
-}
-
-// acl-username
-RedisModuleString * get_oss_acl_username(const char *name, void *privdata) {
-  char *str = *(char **)privdata;
-  if (config_oss_acl_username) {
-    RedisModule_FreeString(NULL, config_oss_acl_username);
-  }
-  if (!str) {
-    config_oss_acl_username = RedisModule_CreateString(NULL, "", 0);
-  } else {
-    config_oss_acl_username = RedisModule_CreateString(NULL, str, strlen(str));
-  }
-  return config_oss_acl_username;
-}
-
 // topology-validation-timeout
 int set_topology_validation_timeout(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
@@ -222,10 +174,9 @@ static RSConfigOptions clusterOptions_g = {
              .setValue = setClusterTimeout,
              .getValue = getClusterTimeout},
             {.name = "OSS_GLOBAL_PASSWORD",
-             .helpText = "Global oss cluster password that will be used to connect to other shards",
+             .helpText = "Deprecated, Global oss cluster password that will be used to connect to other shards",
              .setValue = setGlobalPass,
-             .getValue = getGlobalPass,
-             .flags = RSCONFIGVAR_F_IMMUTABLE},
+             .getValue = getGlobalPass},
             {.name = "CONN_PER_SHARD",
              .helpText = "Number of connections to each shard in the cluster. Default to 0. "
                          "If 0, the number of connections is set to `WORKERS` + 1.",
@@ -246,11 +197,6 @@ static RSConfigOptions clusterOptions_g = {
                          "Default is 30000 (30 seconds). 0 means no timeout.",
              .setValue = setTopologyValidationTimeout,
              .getValue = getTopologyValidationTimeout,},
-             {.name = "OSS_ACL_USERNAME",
-             .helpText = "Set the username for the ACL user used by the coordinator to connect to the shards on OSS cluster.",
-             .setValue = setOSSACLUsername,
-             .getValue = getOSSACLUsername,
-             .flags = RSCONFIGVAR_F_IMMUTABLE},
             {.name = NULL}
             // fin
         }
@@ -310,26 +256,6 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
       (void*)&RSGlobalConfig
     )
   )
-
-  if (clusterConfig.type == ClusterType_RedisOSS) {
-    if (RedisModule_RegisterStringConfig (
-          ctx, "search-oss-global-password", "",
-          REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED | REDISMODULE_CONFIG_SENSITIVE,
-          get_oss_global_password, set_immutable_cluster_string_config, NULL,
-          (void*)&clusterConfig.globalPass) == REDISMODULE_ERR) {
-      return REDISMODULE_ERR;
-    }
-  }
-
-  if (clusterConfig.type == ClusterType_RedisOSS) {
-    if (RedisModule_RegisterStringConfig (
-          ctx, "search-oss-acl-username", DEFAULT_ACL_USERNAME,
-          REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-          get_oss_acl_username, set_immutable_cluster_string_config, NULL,
-          (void*)&clusterConfig.aclUsername) == REDISMODULE_ERR) {
-      return REDISMODULE_ERR;
-    }
-  }
 
   return REDISMODULE_OK;
 }

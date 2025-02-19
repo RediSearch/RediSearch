@@ -229,6 +229,8 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 
 void UpgradeDeprecatedMTConfigs();
 
+char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
+
 #define DEFAULT_BG_INDEX_SLEEP_GAP 100
 #define DEFAULT_DIALECT_VERSION 1
 #define DEFAULT_DOC_TABLE_SIZE 1000000
@@ -267,7 +269,7 @@ void UpgradeDeprecatedMTConfigs();
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \
     .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,\
     .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
-    .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                 \
+    .requestConfigParams.timeoutPolicy = TimeoutPolicy_Fail,                   \
     .cursorReadSize = 1000,                                                    \
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
