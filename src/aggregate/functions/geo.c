@@ -9,8 +9,6 @@
 #include "aggregate/expr/expression.h"
 #include "rs_geo.h"
 
-#include <err.h>
-
 // parse "x,y"
 static int parseField(RSValue *argv, double *geo, QueryError *status) {
   int rv = REDISMODULE_OK;
@@ -18,7 +16,7 @@ static int parseField(RSValue *argv, double *geo, QueryError *status) {
 
   if (RSValue_IsString(val)) {
     size_t len;
-    char *p = (char *)RSValue_StringPtrLen(val, &len); 
+    const char *p = RSValue_StringPtrLen(val, &len);
     rv = parseGeo(p, len, &geo[0], &geo[1], status);
   } else if (val && val->t == RSValue_Number) {
     double dbl;
@@ -37,27 +35,45 @@ static int parseField(RSValue *argv, double *geo, QueryError *status) {
 static int parseLonLat(RSValue *arg1, RSValue *arg2, double *geo) {
   if (!RSValue_ToNumber(arg1, &geo[0]) || !RSValue_ToNumber(arg2, &geo[1])) {
     return REDISMODULE_ERR;
-  }    
+  }
   return REDISMODULE_OK;
 }
 
 /* distance() */
-static int geofunc_distance(ExprEval *ctx, RSValue *result,
-                            RSValue **argv, size_t argc, QueryError *err) {
-  VALIDATE_ARGS("geodistance", 2, 4, err);
+static int geofunc_distance(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   int rv;
-  char *p, *end;
   double geo[2][2], dummy;
 
-  for (int i = 0, j = 0; i < 2; i++) {
-    if (RSValue_ToNumber(argv[j], &dummy)) {
-      rv = parseLonLat(argv[j], argv[j + 1], geo[i]);
-      j += 2;
-    } else {
-      rv = parseField(argv[j], geo[i], err);
-      j += 1;
+  switch (argc) {
+  case 2:
+    for (int i = 0; i < 2; i++) {
+      rv = parseField(&argv[i], geo[i], ctx->err);
+      if (rv != REDISMODULE_OK) goto error;
     }
-    if (rv != REDISMODULE_OK) goto error;
+    break;
+
+  case 4:
+    for (int i = 0, j = 0; i < 2; i++, j += 2) {
+      rv = parseLonLat(&argv[j], &argv[j + 1], geo[i]);
+      if (rv != REDISMODULE_OK) goto error;
+    }
+    break;
+
+  case 3:
+    if (RSValue_ToNumber(&argv[0], &dummy)) {
+      // lon,lat,"lon,lat"
+      rv = parseLonLat(&argv[0], &argv[1], geo[0]);
+      if (rv != REDISMODULE_OK) goto error;
+      rv = parseField(&argv[2], geo[1], ctx->err);
+      if (rv != REDISMODULE_OK) goto error;
+    } else {
+      // "lon,lat",lon,lat
+      rv = parseField(&argv[0], geo[0], ctx->err);
+      if (rv != REDISMODULE_OK) goto error;
+      rv = parseLonLat(&argv[1], &argv[2], geo[1]);
+      if (rv != REDISMODULE_OK) goto error;
+    }
+    break;
   }
 
   double distance = geohashGetDistance(geo[0][0], geo[0][1], geo[1][0], geo[1][1]);
@@ -71,5 +87,5 @@ error:
 }
 
 void RegisterGeoFunctions() {
-  RSFunctionRegistry_RegisterFunction("geodistance", geofunc_distance, RSValue_String);
+  RSFunctionRegistry_RegisterFunction("geodistance", geofunc_distance, RSValue_String, 2, 4);
 }

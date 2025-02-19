@@ -145,7 +145,7 @@ bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct ti
 // missing predicate - one of the fields did expire -> entry is valid in the context of missing
 bool DocTable_VerifyFieldExpirationPredicate(const DocTable *t, t_docId docId, const t_fieldIndex* fieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint);
 
-/** Get the docId of a key if it exists in the table, or 0 if it doesnt */
+/** Get the docId of a key if it exists in the table, or 0 if it doesn't */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
 
 #define STRVARS_FROM_RSTRING(r) \

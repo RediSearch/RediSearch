@@ -53,8 +53,6 @@ exclude_commands:
     - _FT.CURSOR
     - _FT.SPELLCHECK
     - _FT.TAGVALS
-    - _FT.DEL
-    - _FT.SAFEADD
     - search.CLUSTERREFRESH
     - search.CLUSTERINFO
 overide_command:

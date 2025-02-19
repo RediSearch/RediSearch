@@ -107,7 +107,7 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *res,
 
 static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,
                                RSIndexResult **vec_res, double *upper_bound) {
-  if (hr->ignoreScores) {
+  if (hr->canTrimDeepResults) {
     // If we ignore the document score, insert a single node of type DISTANCE.
     insertResultToHeap_Metric(hr, child_res, vec_res, upper_bound);
   } else {
@@ -464,7 +464,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->topResults = NULL;
   hi->returnedResults = NULL;
   hi->numIterations = 0;
-  hi->ignoreScores = hParams.ignoreDocScore;
+  hi->canTrimDeepResults = hParams.canTrimDeepResults;
   hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = 0 };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
   hi->sctx = hParams.sctx;
@@ -521,7 +521,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   } else {
     // Hybrid query - save the RSIndexResult subtree which is not the vector distance only if required.
     ri->Read = HR_ReadHybridUnsorted;
-    if (hParams.ignoreDocScore) {
+    if (hParams.canTrimDeepResults) {
       ri->current = NewMetricResult();
     } else {
       ri->current = NewHybridResult();
