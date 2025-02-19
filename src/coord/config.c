@@ -104,9 +104,9 @@ int set_conn_per_shard(const char *name, long long val, void *privdata,
 }
 
 long long get_conn_per_shard(const char *name, void *privdata) {
-RSConfig *config = (RSConfig *)privdata;
-SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-return (long long)realConfig->connPerShard;
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  return (long long)realConfig->connPerShard;
 }
 
 // CURSOR_REPLY_THRESHOLD
@@ -124,16 +124,16 @@ CONFIG_GETTER(getCursorReplyThreshold) {
 // search-cursor-reply-threshold
 int set_cursor_reply_threshold(const char *name, long long val, void *privdata,
   RedisModuleString **err) {
-RSConfig *config = (RSConfig *)privdata;
-SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-realConfig->cursorReplyThreshold = (size_t)val;
-return REDISMODULE_OK;
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  realConfig->cursorReplyThreshold = (size_t)val;
+  return REDISMODULE_OK;
 }
 
 long long get_cursor_reply_threshold(const char *name, void *privdata) {
-RSConfig *config = (RSConfig *)privdata;
-SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-return (long long)realConfig->cursorReplyThreshold;
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  return (long long)realConfig->cursorReplyThreshold;
 }
 
 // SEARCH_THREADS

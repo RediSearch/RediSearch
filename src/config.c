@@ -900,15 +900,15 @@ static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *nam
 }
 
 static void LogWarningDeprecatedModuleArgs(const char *name) {
-  const char *ConfigName = FTConfigNameToConfigName(name);
-    if (ConfigName != NULL && strlen(ConfigName) > 0) {
-      RedisModule_Log(RSDummyContext, "warning",
-        "`%s` was set, but module arguments are deprecated, consider using CONFIG parameter `%s`",
-        name, ConfigName);
-    } else {
-      RedisModule_Log(RSDummyContext, "warning",
-        "`%s` was set, but module arguments are deprecated", name);
-    }
+  const char *configName = FTConfigNameToConfigName(name);
+  if (configName != NULL && strlen(configName) > 0) {
+    RedisModule_Log(RSDummyContext, "warning",
+      "`%s` was set, but module arguments are deprecated, consider using CONFIG parameter `%s` instead",
+      name, configName);
+  } else {
+    RedisModule_Log(RSDummyContext, "warning",
+      "`%s` was set, but module arguments are deprecated", name);
+  }
 }
 
 int ReadConfig(RedisModuleString **argv, int argc, char **err) {

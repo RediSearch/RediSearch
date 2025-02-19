@@ -394,7 +394,7 @@ def testImmutableCoord(env):
 
 def _grep_file_count(filename, pattern):
     """
-    Grep a file for a given pattern using subprocess.
+    Grep a file for a given pattern using python.
 
     Args:
         filename (str): The path to the file to grep.
@@ -404,16 +404,16 @@ def _grep_file_count(filename, pattern):
         int: The number of lines that match the pattern.
     """
     try:
-        result = subprocess.run(
-            ['grep', '--count', pattern, filename],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True
-        )
-        return result.stdout.count('\n')
-    except subprocess.CalledProcessError as e:
-        # Handle errors, e.g., pattern not found
+        with open(filename, 'r') as f:
+            count = 0
+            for line in f:
+                if pattern in line:
+                    count += 1
+            return count
+    except FileNotFoundError:
+        print(f"Error: File not found: {filename}")
+        return 0
+    except Exception as e:
         print(f"Error: {e}")
         return 0
 
@@ -1467,7 +1467,7 @@ def testBooleanArgDeprecationMessage():
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
     logFilePath = os.path.join(logDir, logFileName)
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
-        expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}`'
+        expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}` instead'
         matchCount = _grep_file_count(logFilePath, expectedMessage)
         env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
 
