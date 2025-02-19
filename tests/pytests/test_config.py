@@ -1200,9 +1200,6 @@ booleanConfigs = [
     # ('search-partial-indexed-docs', 'PARTIAL_INDEXED_DOCS', 'no', True, False),
     ('search-_prioritize-intersect-union-children', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no', False, False),
     ('search-raw-docid-encoding', 'RAW_DOCID_ENCODING', 'no', True, False),
-    # # TODO: Confirm if we need to test search-_fork-gc-clean-numeric-empty-nodes,
-    # # because it will be deprecated in  8.0
-    # ('search-_fork-gc-clean-numeric-empty-nodes', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'yes', False)
 ]
 
 @skip(redis_less_than='7.9.227')
@@ -1473,3 +1470,23 @@ def testBooleanArgDeprecationMessage():
         expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}`'
         matchCount = _grep_file_count(logFilePath, expectedMessage)
         env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+def testDeprecatedModuleArgsMessage():
+    '''Test deprecation message of module arguments'''
+    # create module arguments using deprecated parameters
+    moduleArgs = 'WORKER_THREADS 3'
+    moduleArgs += ' MT_MODE MT_MODE_FULL'
+    moduleArgs += ' FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
+    moduleArgs += ' _FORK_GC_CLEAN_NUMERIC_EMPTY_NODES true'
+
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+    for argName in ['WORKER_THREADS', 'MT_MODE',
+                    'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES',
+                    '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
+                    ]:
+        expectedMessage = f'`{argName}` was set, but module arguments are deprecated'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}')

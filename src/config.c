@@ -31,7 +31,9 @@ typedef struct {
   const char *ConfigName;
 } configPair_t;
 
+// For deprecated FTConfigName, the ConfigName is an empty string
 configPair_t __configPairs[] = {
+  {"_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},
   {"_FREE_RESOURCE_ON_THREAD",        "search-_free-resource-on-thread"},
   {"_NUMERIC_COMPRESS",               "search-_numeric-compress"},
   {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
@@ -43,11 +45,13 @@ configPair_t __configPairs[] = {
   {"CURSOR_REPLY_THRESHOLD",          "search-cursor-reply-threshold"},
   {"DEFAULT_DIALECT",                 "search-default-dialect"},
   {"EXTLOAD",                         "search-ext-load"},
+  {"FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},
   {"FORK_GC_CLEAN_THRESHOLD",         "search-fork-gc-clean-threshold"},
   {"FORK_GC_RETRY_INTERVAL",          "search-fork-gc-retry-interval"},
   {"FORK_GC_RUN_INTERVAL",            "search-fork-gc-run-interval"},
   {"FORKGC_SLEEP_BEFORE_EXIT",        "search-fork-gc-sleep-before-exit"},
   {"FRISOINI",                        "search-friso-ini"},
+  {"GC_POLICY",                       ""},
   {"GCSCANSIZE",                      "search-gc-scan-size"},
   {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
   {"MAXAGGREGATERESULTS",             "search-max-aggregate-results"},
@@ -58,6 +62,7 @@ configPair_t __configPairs[] = {
   {"MIN_PHONETIC_TERM_LEN",           "search-min-phonetic-term-len"},
   {"MINPREFIX",                       "search-min-prefix"},
   {"MINSTEMLEN",                      "search-min-stem-len"},
+  {"MT_MODE",                         ""},
   {"NO_MEM_POOLS",                    "search-no-mem-pools"},
   {"NOGC",                            "search-no-gc"},
   {"ON_TIMEOUT",                      "search-on-timeout"},
@@ -72,6 +77,7 @@ configPair_t __configPairs[] = {
   {"VSS_MAX_RESIZE",                  "search-vss-max-resize"},
   {"WORKERS",                         "search-workers"},
   {"WORKERS_PRIORITY_BIAS_THRESHOLD", "search-workers-priority-bias-threshold"},
+  {"WORKER_THREADS",                  ""},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -893,6 +899,18 @@ static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *nam
   return NULL;
 }
 
+static void LogWarningDeprecatedModuleArgs(const char *name) {
+  const char *ConfigName = FTConfigNameToConfigName(name);
+    if (ConfigName != NULL && strlen(ConfigName) > 0) {
+      RedisModule_Log(RSDummyContext, "warning",
+        "`%s` was set, but module arguments are deprecated, consider using CONFIG parameter `%s`",
+        name, ConfigName);
+    } else {
+      RedisModule_Log(RSDummyContext, "warning",
+        "`%s` was set, but module arguments are deprecated", name);
+    }
+}
+
 int ReadConfig(RedisModuleString **argv, int argc, char **err) {
   *err = NULL;
   QueryError status = {0};
@@ -925,9 +943,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     }
     // Mark the option as having been modified
     curVar->flags |= RSCONFIGVAR_F_MODIFIED;
-    RedisModule_Log(RSDummyContext, "warning",
-      "`%s` was set, but module arguments are deprecated, consider using CONFIG parameter `%s`",
-      name, FTConfigNameToConfigName(name));
+    LogWarningDeprecatedModuleArgs(name);
   }
 
   return REDISMODULE_OK;
@@ -1679,16 +1695,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       (void *)&(RSGlobalConfig.prioritizeIntersectUnionChildren)
     )
   )
-
-  // TODO: Confirm if we need this, because it should be deprecated in 8.0
-  // RM_TRY(
-  //   RedisModule_RegisterBoolConfig(
-  //     ctx, "_fork-gc-clean-numeric-empty-nodes", 1,
-  //     REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED,
-  //     get_bool_config, set_bool_config, NULL,
-  //     (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes)
-  //   )
-  // )
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(
