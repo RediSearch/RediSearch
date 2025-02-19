@@ -149,6 +149,7 @@ def testIdxField(env):
 
     conn.execute_command('hset', 'doc1', 'name', 'foo', 'indexName', 'idx1')
     conn.execute_command('hset', 'doc2', 'name', 'bar', 'indexName', 'idx2')
+    conn.execute_command('hset', 'doc3', 'name', 'baz')
 
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx1', '*')), toSortedFlatList([1, 'doc1', ['name', 'foo', 'indexName', 'idx1']]))
     env.assertEqual(toSortedFlatList(env.cmd('ft.search', 'idx2', '*')), toSortedFlatList([1, 'doc2', ['name', 'bar', 'indexName', 'idx2']]))
@@ -761,3 +762,73 @@ def testFilterWithNot(env):
     conn.execute_command('JSON.SET', 'thing:bar', '$', r'{"name":"foo", "indexName":"idx1"}')
 
     env.expect('ft.search', 'things', 'foo').equal([0])
+
+def testFilter(env):
+    """ Test FILTER after index creation """
+
+    conn = getConnectionByEnv(env)
+
+    # create sample data before the index creation
+    conn.execute_command('HSET', 'doc1', 'name', 'Andy', 'isActive', 'true')
+    conn.execute_command('HSET', 'doc2', 'name', 'Bob', 'isActive', 'false')
+    conn.execute_command('HSET', 'doc3', 'name', 'Steve')
+
+    # create index
+    env.cmd('FT.CREATE', 'idxActive1', 'ON', 'HASH',
+            'FILTER', '@isActive=="true"',
+            'SCHEMA',
+            'name', 'TEXT',
+            'isActive', 'TAG')
+
+    env.cmd('FT.CREATE', 'idxActive0', 'ON', 'HASH',
+            'FILTER', '@isActive=="false"',
+            'SCHEMA',
+            'name', 'TEXT',
+            'isActive', 'TAG')
+    
+    waitForIndex(env, 'idxActive1')
+    waitForIndex(env, 'idxActive0')
+
+    # search with filter
+    res = env.cmd('FT.SEARCH', 'idxActive1', '*', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc1'])
+    res = env.cmd('FT.SEARCH', 'idxActive0', '*', 'NOCONTENT')
+    env.assertEqual(res, [1, 'doc2'])
+
+    # Create new data after index creation
+    conn.execute_command('HSET', 'doc3', 'name', 'John', 'isActive', 'true')
+    conn.execute_command('HSET', 'doc4', 'name', 'Mike', 'isActive', 'false')
+    conn.execute_command('HSET', 'doc5', 'name', 'Sue')
+    conn.execute_command('HSET', 'doc6', 'name', 'Sam')
+    
+    # search with filter
+    res = env.cmd('FT.SEARCH', 'idxActive1', '*', 'NOCONTENT')
+    env.assertEqual(res, [2, 'doc1', 'doc3'])
+    res = env.cmd('FT.SEARCH', 'idxActive0', '*', 'NOCONTENT')
+    env.assertEqual(res, [2, 'doc2', 'doc4'])
+
+    # Update docs: change isActive value
+    conn.execute_command('HSET', 'doc1', 'isActive', 'false')
+    conn.execute_command('HSET', 'doc2', 'isActive', 'true')
+    res = env.cmd('FT.SEARCH', 'idxActive1', '*', 'NOCONTENT', 'SORTBY', 'name')
+    env.assertEqual(res, [2, 'doc2', 'doc3'])
+    res = env.cmd('FT.SEARCH', 'idxActive0', '*', 'NOCONTENT', 'SORTBY', 'name')
+    env.assertEqual(res, [2, 'doc1', 'doc4'])
+    
+    # TODO: Fix this case
+    # Update docs: remove isActive field
+    res = conn.execute_command('HDEL', 'doc1', 'isActive')
+    res = conn.execute_command('HDEL', 'doc2', 'isActive')
+    res = env.cmd('FT.SEARCH', 'idxActive1', '*')
+    env.assertEqual(res, [1, 'doc3'])
+    res = env.cmd('FT.SEARCH', 'idxActive0', '*')
+    env.assertEqual(res, [2, 'doc4'])
+
+    # TODO: Fix this case
+    # Update docs: add isActive field
+    conn.execute_command('HSET', 'doc5', 'isActive', 'true')
+    conn.execute_command('HSET', 'doc6', 'isActive', 'false')
+    res = env.cmd('FT.SEARCH', 'idxActive1', '*', 'SORTBY', 'name')
+    env.assertEqual(res, [2, 'doc3', 'doc5'])
+    res = env.cmd('FT.SEARCH', 'idxActive0', '*', 'SORTBY', 'name')
+    env.assertEqual(res, [2, 'doc4', 'doc6'])
