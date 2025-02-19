@@ -14,7 +14,7 @@ include deps/readies/mk/main
 
 define HELPTEXT
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
-make fetch         # download and prepare dependant modules
+make fetch         # download and prepare dependent modules
 
 make build          # compile and link
   COORD=oss|rlec      # build coordinator (oss: Open Source, rlec: Enterprise) default: oss
@@ -34,7 +34,7 @@ make build          # compile and link
   BOOST_DIR= 		  # Custom boost headers location path (default value: .install/boost).
   					  # Can be left empty if boost is located in the standard system includes path.
   VERBOSE_UTESTS=1    # enable logging in cpp tests
-  REDIS_VER=		  # Hint the redis version to run against so we choose the appopriate build params.
+  REDIS_VER=		  # Hint the redis version to run against so we choose the appropriate build params.
 
 make parsers       # build parsers code
 make clean         # remove build artifacts
