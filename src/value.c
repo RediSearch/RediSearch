@@ -11,6 +11,7 @@
 #include "module.h"
 #include "query_error.h"
 #include "rmutil/rm_assert.h"
+#include "fast_float/fast_float_strtod.h"
 
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
@@ -248,7 +249,7 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l) {
 
   char *e;
   errno = 0;
-  double d = strtod(p, &e);
+  double d = fast_float_strtod(p, &e);
   if ((errno == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL)) || (errno != 0 && d == 0) ||
       *e != '\0') {
     return NULL;
@@ -296,7 +297,7 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
   if (p) {
     char *e;
     errno = 0;
-    *d = strtod(p, &e);
+    *d = fast_float_strtod(p, &e);
     if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
         *e != '\0') {
       return 0;
