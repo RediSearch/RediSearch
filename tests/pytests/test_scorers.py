@@ -267,11 +267,11 @@ def testOptionalAndWildcardScoring(env):
 
     expected_res = [2, 'doc1', ['1.073170733125631',
                                 ['Final BM25 : words BM25 1.07 * document score 1.00',
-                                 ['*: (1.07 = IDF 1.00 * (F 1.00 * (k1 1.2 + 1)) /'
+                                 ['*: (1.07 = Weight 1.00 * IDF 1.00 * (F 1.00 * (k1 1.2 + 1)) /'
                                   ' (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 4.00)))']]],
                        'doc2', ['0.936170211686652',
                                 ['Final BM25 : words BM25 0.94 * document score 1.00',
-                                 ['*: (0.94 = IDF 1.00 * (F 1.00 * (k1 1.2 + 1)) /'
+                                 ['*: (0.94 = Weight 1.00 * IDF 1.00 * (F 1.00 * (k1 1.2 + 1)) /'
                                   ' (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 5 / Average Doc Len 4.00)))']]]]
     res = conn.execute_command('ft.search', 'idx', '*', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25STD', 'nocontent')
     env.assertEqual(res, expected_res)
@@ -279,7 +279,7 @@ def testOptionalAndWildcardScoring(env):
     expected_res = [1, 'doc2', ['0.6489037427548099',
                                 ['Final BM25 : words BM25 0.65 * document score 1.00',
                                  [['(Weight 1.00 * children BM25 0.65)',
-                                   ['words: (0.65 = IDF 0.69 * (F 1.00 * (k1 1.2 + 1)) '
+                                   ['words: (0.65 = Weight 1.00 * IDF 0.69 * (F 1.00 * (k1 1.2 + 1)) '
                                     '/ (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 5 / Average Doc Len 4.00)))']]]]]]
     res = conn.execute_command('ft.search', 'idx', '*ds', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25STD', 'nocontent')
     env.assertEqual(res, expected_res)
@@ -363,14 +363,14 @@ def testExposeScoreOptimized(env: Env):
     env.expect('FT.CREATE', 'idxOpt', 'INDEXALL', 'ENABLE', 'SCHEMA', 'title', 'TEXT').ok()
     _test_expose_score(env, 'idxOpt')
 
-def testBM25STDScoreWithWeight(env: Env):
+def scorer_test(env, scorer):
     conn = getConnectionByEnv(env)
     env.expect('ft.create idx ON HASH schema title text').ok()
     conn.execute_command('HSET', 'doc1', 'title', 'hello world')
     conn.execute_command('HSET', 'doc2', 'title', 'hello world cat dog')
 
     def get_scores(env, query):
-        res = env.cmd('ft.search', 'idx', query, 'withscores', 'scorer', 'BM25STD', 'nocontent')
+        res = env.cmd('ft.search', 'idx', query, 'withscores', 'scorer', scorer, 'nocontent')
         return [float(res[2]), float(res[4])]
 
     default_query = '@title: hello'
@@ -380,21 +380,9 @@ def testBM25STDScoreWithWeight(env: Env):
     weighted_scores = get_scores(env, weighted_query)
     max_difference = max(abs(2*w - s) for w, s in zip(weighted_scores, scores))
     env.assertAlmostEqual(max_difference, 0, 1E-6)
+
+def testBM25STDScoreWithWeight(env: Env):
+    scorer_test(env, 'BM25STD')
 
 def testBM25ScoreWithWeight(env: Env):
-    conn = getConnectionByEnv(env)
-    env.expect('ft.create idx ON HASH schema title text').ok()
-    conn.execute_command('HSET', 'doc1', 'title', 'hello world')
-    conn.execute_command('HSET', 'doc2', 'title', 'hello world cat dog')
-
-    def get_scores(env, query):
-        res = env.cmd('ft.search', 'idx', query, 'withscores', 'scorer', 'BM25', 'nocontent')
-        return [float(res[2]), float(res[4])]
-
-    default_query = '@title: hello'
-    weighted_query = '((@title:hello) => {$weight: 0.5;})'
-
-    scores = get_scores(env, default_query)
-    weighted_scores = get_scores(env, weighted_query)
-    max_difference = max(abs(2*w - s) for w, s in zip(weighted_scores, scores))
-    env.assertAlmostEqual(max_difference, 0, 1E-6)
+    scorer_test(env, 'BM25')
