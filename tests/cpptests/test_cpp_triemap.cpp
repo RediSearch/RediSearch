@@ -24,7 +24,7 @@ int testTMNumResults(TrieMap *t, const char *str, tm_iter_mode mode) {
   tm_len_t len;
   void *val;
   int numRes = 0;
-  
+
   TrieMapIterator *it = TrieMap_Iterate(t, str, strlen(str));
   it->mode = mode;
   affixFunc *f = (mode == TM_PREFIX_MODE) ? TrieMapIterator_Next : TrieMapIterator_NextContains;
@@ -43,7 +43,7 @@ TEST_F(TrieMapTest, testPrefix) {
   TrieMap *t = loadTrieMap();
 
   ASSERT_EQ(testTMNumResults(t, "he", TM_PREFIX_MODE), 7);
-  ASSERT_EQ(testTMNumResults(t, "hel", TM_PREFIX_MODE), 5);
+  ASSERT_EQ(testTMNumResults(t, "hel", TM_PREFIX_MODE), 5); //codespell:ignore hel
   ASSERT_EQ(testTMNumResults(t, "hell", TM_PREFIX_MODE), 3);
 
   TrieMap_Free(t, freeCb);
@@ -51,7 +51,7 @@ TEST_F(TrieMapTest, testPrefix) {
 
 TEST_F(TrieMapTest, testSuffix) {
   TrieMap *t = loadTrieMap();
-  
+
   ASSERT_EQ(testTMNumResults(t, "he", TM_SUFFIX_MODE), 1);
   ASSERT_EQ(testTMNumResults(t, "er", TM_SUFFIX_MODE), 3);
 
@@ -60,8 +60,8 @@ TEST_F(TrieMapTest, testSuffix) {
 
 TEST_F(TrieMapTest, testContains) {
   TrieMap *t = loadTrieMap();
-  
-  ASSERT_EQ(testTMNumResults(t, "wel", TM_CONTAINS_MODE), 1);
+
+  ASSERT_EQ(testTMNumResults(t, "wel", TM_CONTAINS_MODE), 1); // codespell:ignore wel
   ASSERT_EQ(testTMNumResults(t, "el", TM_CONTAINS_MODE), 7);
   ASSERT_EQ(testTMNumResults(t, "ell", TM_CONTAINS_MODE), 4);
   ASSERT_EQ(testTMNumResults(t, "ll", TM_CONTAINS_MODE), 4);
@@ -137,7 +137,7 @@ TEST_F(TrieMapTest, testSizeAndCardinality) {
   ASSERT_EQ(t->size, 4);
   ASSERT_EQ(t->cardinality, 3);
 
-  // Deleting a node with children, should affect cardinality but not size 
+  // Deleting a node with children, should affect cardinality but not size
   TrieMap_Delete(t, "b:1", 3, testFreeCB);
   // Node str:'' term=0 deleted=0
   //   Node str:'b:1' term=0 deleted=0

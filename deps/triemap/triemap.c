@@ -333,7 +333,7 @@ TrieMapNode *TrieMapNode_FindNode(TrieMapNode *n, char *str, tm_len_t len, tm_le
     }
 
     // we've reached the end of the string - return the node even if it's not
-    // temrinal
+    // terminal
     if (offset == len) {
       // let the caller know the local offset
       if (poffset) {
@@ -434,7 +434,7 @@ int __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
     } else {
       // this node is ok!
       // if needed - merge this node with it its single child
-      if (nodes[i] && nodes[i]->numChildren == 1 && 
+      if (nodes[i] && nodes[i]->numChildren == 1 &&
             !__trieMapNode_isTerminal(nodes[i])) {
         nodes[i] = __trieMapNode_MergeWithSingleChild(nodes[i]);
         rc++;
@@ -925,7 +925,7 @@ static int __fullmatch_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void
 }
 
 /*
- * The function is called after a match of one characther was found.
+ * The function is called after a match of one character was found.
  * It checks whether the partial match is a full match and if not, it returns 0.
  * If a full match is found, in `suffix` mode the string buffer is updated and return 1.
  * In `contains`, an internal iterator is created. and return all children until exhuasted.
