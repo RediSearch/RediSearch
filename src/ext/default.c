@@ -216,12 +216,12 @@ static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
  ******************************************************************************************/
 
 static double inline CalculateBM25Std(float b, float k1, double idf, double f, int doc_len,
-                                      double avg_doc_len, RSScoreExplain *scrExp, const char *term) {
-  double ret = idf * f * (k1 + 1) / (f + k1 * (1.0f - b + b * (float)doc_len/avg_doc_len));
+                                      double avg_doc_len, double weight, RSScoreExplain *scrExp, const char *term) {
+  double ret = weight * idf * f * (k1 + 1) / (f + k1 * (1.0f - b + b * (float)doc_len/avg_doc_len));
   EXPLAIN(scrExp,
-          "%s: (%.2f = IDF %.2f * (F %.2f * (k1 1.2 + 1)) / (F %.2f + k1 1.2 * (1 - b 0.5 + b 0.5 *"
+          "%s: (%.2f = Weight %.2f * IDF %.2f * (F %.2f * (k1 1.2 + 1)) / (F %.2f + k1 1.2 * (1 - b 0.5 + b 0.5 *"
           " Doc Len %d / Average Doc Len %.2f)))",
-          term, ret, idf, f, f, doc_len, avg_doc_len);
+          term, ret, weight, idf, f, f, doc_len, avg_doc_len);
   return ret;
 }
 
@@ -235,9 +235,8 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
   if (r->type == RSResultType_Term) {
     // Compute IDF based on total number of docs in the index and the term's total frequency.
     double idf = r->term.term->bm25_idf;
-    ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, scrExp,
+    ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp,
                            r->term.term->str);
-    ret *= r->weight;
   } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
     int numChildren = r->agg.numChildren;
     if (!scrExp) {
@@ -257,8 +256,8 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
     // For wildcard, score should be determined only by the weight
     // and the document's length (so we set idf and f to be 1).
     double idf = 1.0;
-    double bm25 = CalculateBM25Std(b, k1, idf, 1, dmd->len, ctx->indexStats.avgDocLen, scrExp,
-                                   "*");
+    double bm25 = CalculateBM25Std(b, k1, idf, 1, dmd->len, ctx->indexStats.avgDocLen, r->weight,
+                                   scrExp, "*");
     ret = r->weight * bm25;
   } else {
     // Record is either optional term with no match or non text token.
