@@ -68,7 +68,7 @@ class TestDebugCommands(object):
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
     def testDocInfo(self):
-        rv = self.env.cmd(debug_cmd(), 'docinfo', 'idx', 'doc1')
+        rv = self.env.cmd(debug_cmd(), 'docinfo', 'idx', 'doc1', 'REVEAL')
         self.env.assertEqual(['internal_id', 1, 'flags', '(0xc):HasSortVector,HasOffsetVector,',
                               'score', '1', 'num_tokens', 1, 'max_freq', 1, 'refcount', 1, 'sortables',
                                [['index', 0, 'field', 'name AS name', 'value', 'meir'],

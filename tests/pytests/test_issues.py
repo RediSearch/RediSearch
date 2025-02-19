@@ -1308,7 +1308,7 @@ def test_mod_6783(env:Env):
 def test_mod_8589(env:Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   env.cmd('HSET', 'doc1', 'v', '????????', 't', 'foo bar foo') # Max frequency is 2 (foo)
-  docinfo = to_dict(env.cmd(debug_cmd(), 'DOCINFO', 'idx', 'doc1'))
+  docinfo = to_dict(env.cmd(debug_cmd(), 'DOCINFO', 'idx', 'doc1', 'REVEAL'))
   env.assertEqual(docinfo['max_freq'], 2)
 
 @skip(cluster=True)
