@@ -325,11 +325,7 @@ def testMemoryAfterDrop_tag(env):
 def testDocTableInfo(env):
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'txt', 'TEXT', 'SORTABLE')
-
-    nodes = 1
-    if env.isCluster():
-        res = conn.execute_command("cluster info")
-        nodes = float(res['cluster_known_nodes'])
+    n = env.shardsCount
 
     # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
     #              = 72 + (1000 * 16) = 16072 bytes
@@ -337,7 +333,7 @@ def testDocTableInfo(env):
 
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 0)
-    env.assertEqual(float(d['doc_table_size_mb']), nodes * doc_table_size_mb)
+    env.assertEqual(float(d['doc_table_size_mb']), n * doc_table_size_mb)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
 
     conn.execute_command('HSET', 'a', 'txt', 'hello')
@@ -354,7 +350,7 @@ def testDocTableInfo(env):
     #   + (strlen(key) + 2)
     # = (72 - 8) + 3 = 67
     # 2 docs * 67 = 134
-    exp_doc_table_size = (nodes * doc_table_size_mb) + (134 / (1024 * 1024))
+    exp_doc_table_size = (n * doc_table_size_mb) + (134 / (1024 * 1024))
     env.assertEqual(doctable_size1, exp_doc_table_size)
     sortable_size1 = float(d['sortable_values_size_mb'])
     env.assertGreater(sortable_size1, 0)
@@ -382,7 +378,7 @@ def testDocTableInfo(env):
     conn.execute_command('DEL', 'b')
     d = index_info(env)
     env.assertEqual(int(d['num_docs']), 0)
-    env.assertEqual(float(d['doc_table_size_mb']), nodes * doc_table_size_mb)
+    env.assertEqual(float(d['doc_table_size_mb']), n * doc_table_size_mb)
     env.assertEqual(int(d['sortable_values_size_mb']), 0)
 
 @skip(cluster=True)
