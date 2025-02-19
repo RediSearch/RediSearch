@@ -196,7 +196,7 @@ def testBM25STDScorerExplanation(env):
                                         '(F 10.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 23 / Average Doc Len 23.00)))']]]])
         env.assertEqual(res[5][1], ['Final BM25 : words BM25 0.72 * document score 1.00',
                                     [['(Weight 1.00 * children BM25 0.72)',
-                                      ['hello: (0.36 = Weight 1.00 *IDF 0.18 * (F 10.00 * (k1 1.2 + 1)) /'
+                                      ['hello: (0.36 = Weight 1.00 * IDF 0.18 * (F 10.00 * (k1 1.2 + 1)) /'
                                        ' (F 10.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 35 / Average Doc Len 40.00)))',
                                        'world: (0.36 = Weight 1.00 * IDF 0.18 * (F 10.00 * (k1 1.2 + 1)) /'
                                        ' (F 10.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 35 / Average Doc Len 40.00)))']]]])
