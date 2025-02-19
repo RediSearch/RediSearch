@@ -482,8 +482,8 @@ def testDiacriticLimitation(env):
 
 @skip(cluster=True)
 def testStopWords(env):
-    '''Test that stopwords are not indexed, but for multibyte characters they
-    are not converted to lowercase correctly
+    '''Test that stopwords using multibyte characters are converted to lowercase
+    correctly
     '''
 
     conn = getConnectionByEnv(env)
