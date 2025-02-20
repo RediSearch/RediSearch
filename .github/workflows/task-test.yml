@@ -28,8 +28,8 @@ on:
         type: string
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
       rejson:
-        type: number
-        default: 1
+        type: boolean
+        default: true
         description: 'Enable tests with RedisJSON'
       rejson-branch:
         type: string
@@ -42,6 +42,7 @@ on:
 env:
   BOOST_VERSION: ${{ vars.BOOST_VERSION }}
   LLVM_VERSION: ${{vars.LLVM_VERSION}}
+  REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
 
 jobs:
@@ -213,14 +214,14 @@ jobs:
         if: ${{ inputs.standalone }}
         continue-on-error: true
         run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
-          REJSON=${{ inputs.rejson }} REJSON_BRANCH=${{ inputs.rejson-branch }}
+          REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
         if: ${{ inputs.coordinator }}
         continue-on-error: true
         run: make pytest SA=0 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
-          REJSON=${{ inputs.rejson }} REJSON_BRANCH=${{ inputs.rejson-branch }}
+          REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)

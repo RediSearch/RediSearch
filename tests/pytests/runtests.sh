@@ -566,7 +566,7 @@ fi
 # Prepare RedisJSON module to be loaded into testing environment if required.
 if [[ $REJSON != 0 ]]; then
   ROOT=$ROOT REJSON_BRANCH=$REJSON_BRANCH source $ROOT/tests/deps/setup_rejson.sh
-  echo "Using RedisJSON module at $JSON_BIN_PATH with args $REJSON_MODARGS"
+  echo "Using RedisJSON module at $JSON_BIN_PATH, with the following args: $REJSON_MODARGS"
   RLTEST_REJSON_ARGS="--module ${JSON_BIN_PATH} --module-args $REJSON_MODARGS"
 else
   echo "Skipping tests with RedisJSON module"

@@ -24,8 +24,8 @@ on:
       redis-ref:
         type: string
       rejson:
-        type: number
-        default: 1
+        type: boolean
+        default: true
         description: 'Enable tests with RedisJSON'
       rejson-branch:
         type: string
@@ -108,7 +108,7 @@ jobs:
     secrets: inherit
     with:
       get-redis: ${{ inputs.redis-ref }}
-      rejson: ${{ (inputs.rejson == true || inputs.rejson == 1) && 1 || 0 }}
+      rejson: ${{ inputs.rejson }}
       rejson-branch: ${{ inputs.rejson-branch }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
@@ -129,7 +129,7 @@ jobs:
     with:
       env: ${{ vars.RUNS_ON_ARM }}
       get-redis: ${{ inputs.redis-ref }}
-      rejson: ${{ (inputs.rejson == true || inputs.rejson == 1) && 1 || 0 }}
+      rejson: ${{ inputs.rejson }}
       rejson-branch: ${{ inputs.rejson-branch }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
