@@ -256,9 +256,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
     // For wildcard, score should be determined only by the weight
     // and the document's length (so we set idf and f to be 1).
     double idf = 1.0;
-    double bm25 = CalculateBM25Std(b, k1, idf, 1, dmd->len, ctx->indexStats.avgDocLen, r->weight,
-                                   scrExp, "*");
-    ret = r->weight * bm25;
+    ret = CalculateBM25Std(b, k1, idf, 1, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp, "*");
   } else {
     // Record is either optional term with no match or non text token.
     // For optional term with no match - we would expect 0 contribution to the score

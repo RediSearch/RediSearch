@@ -363,7 +363,8 @@ def testExposeScoreOptimized(env: Env):
     env.expect('FT.CREATE', 'idxOpt', 'INDEXALL', 'ENABLE', 'SCHEMA', 'title', 'TEXT').ok()
     _test_expose_score(env, 'idxOpt')
 
-def scorer_test(env, scorer):
+def scorer_with_weight_test(env, scorer):
+    # Test that the scorer is applied correctly when using the `weight` attribute
     conn = getConnectionByEnv(env)
     env.expect('ft.create idx ON HASH schema title text').ok()
     conn.execute_command('HSET', 'doc1', 'title', 'hello world')
@@ -378,11 +379,12 @@ def scorer_test(env, scorer):
 
     scores = get_scores(env, default_query)
     weighted_scores = get_scores(env, weighted_query)
+    # Assert that weighted_scores are half of the default scores, since the weight is 0.5
     max_difference = max(abs(2*w - s) for w, s in zip(weighted_scores, scores))
     env.assertAlmostEqual(max_difference, 0, 1E-6)
 
 def testBM25STDScoreWithWeight(env: Env):
-    scorer_test(env, 'BM25STD')
+    scorer_with_weight_test(env, 'BM25STD')
 
 def testBM25ScoreWithWeight(env: Env):
-    scorer_test(env, 'BM25')
+    scorer_with_weight_test(env, 'BM25')
