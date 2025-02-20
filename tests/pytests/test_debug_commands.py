@@ -412,7 +412,7 @@ def test_hideUserDataFromLogs(env):
     env.assertEqual(value, 0)
 
 def testIndexObfuscatedInfo(env: Env):
-    # we create more indexes to cover the found case in the code(it should break from the loop)
+    # we create more indexes to cover the found case in the code (it should break from the loop)
     env.expect('FT.CREATE', 'first', 'SCHEMA', 'name', 'TEXT').ok()
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     env.expect('FT.CREATE', 'last', 'SCHEMA', 'name', 'TEXT').ok()
