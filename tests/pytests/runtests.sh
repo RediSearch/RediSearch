@@ -42,11 +42,10 @@ help() {
 
     UNSTABLE=1            Do not skip unstable tests (default: 0)
 		ONLY_STABLE=1         Skip unstable tests
-
-    REJSON=1|0            Also load RedisJSON module (default: 1)
-    REJSON_BRANCH=branch  Use RedisJSON module from branch (default: 'master')
-    REJSON_PATH=path      Use RedisJSON module at `path` (default: '' - build from source)
-    REJSON_ARGS=args      RedisJSON module arguments
+		REJSON=1|0            Also load RedisJSON module (default: 1)
+		REJSON_BRANCH=branch  Use RedisJSON module from branch (default: 'master')
+		REJSON_PATH=path      Use RedisJSON module at `path` (default: '' - build from source)
+		REJSON_ARGS=args      RedisJSON module arguments
 
 		REDIS_SERVER=path     Location of redis-server
 		REDIS_PORT=n          Redis server port
