@@ -113,7 +113,7 @@ TEST_F(ExprTest, testDump) {
     QueryError status = {QueryErrorCode(0)};
     RSExpr *root = ExprAST_Parse(expr, strlen(expr), &status);
     if (!root) {
-      FAIL() << "Could not parse expression" << expr;
+      FAIL() << "Could not parse expression " << expr;
     }
     char *value = ExprAST_Dump(root, false);
     ASSERT_STREQ(value, pair.first);
