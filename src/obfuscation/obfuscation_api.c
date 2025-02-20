@@ -93,4 +93,5 @@ const char *Obfuscate_QueryNode(struct RSQueryNode *node) {
     case QN_WILDCARD_QUERY:
       return "WildcardQuery";
   }
+  return "Unknown";
 }

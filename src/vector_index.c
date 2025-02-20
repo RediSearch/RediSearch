@@ -110,7 +110,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .spaceMetric = metric,
                                       .query = vq->knn,
                                       .qParams = qParams,
-                                      .vectorScoreField = vq->scoreField,
+                                      .vectorScoreField = vq->scoreField, // note we don't retain the string, that is done in NewHybridVectorIterator
                                       .canTrimDeepResults = q->opts->flags & Search_CanSkipRichResults,
                                       .childIt = child_it,
                                       .timeout = q->sctx->time.timeout,
@@ -186,7 +186,7 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
 }
 
 void VectorQuery_Free(VectorQuery *vq) {
-  if (vq->scoreField) rm_free((char *)vq->scoreField);
+  if (vq->scoreField) HiddenString_Free(vq->scoreField);
   switch (vq->type) {
     case VECSIM_QT_KNN: // no need to free the vector as we points to the query dictionary
     case VECSIM_QT_RANGE:

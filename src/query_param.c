@@ -83,13 +83,15 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
 
   case QT_TERM:
     target_param->type = PARAM_NONE;
-    *(char**)target_value = rm_normalize(source->s, source->len);
-    if (target_len) *target_len = strlen(target_value);
+    char *dup = rm_normalize(source->s, source->len);
+    size_t len = strlen(dup); // rm_strdupcase can unescape the string, so we need to recalculate the length
+    *(HiddenString**)target_value = NewHiddenStringEx(dup, len, Move);
+    if (target_len) *target_len = source->len;
     return false; // done
 
   case QT_TERM_CASE:
     target_param->type = PARAM_NONE;
-    *(char**)target_value = rm_strndup(source->s, source->len);
+    *(HiddenString**)target_value = NewHiddenStringEx(source->s, source->len, Take);
     if (target_len) *target_len = source->len;
     return false; // done
 
@@ -105,8 +107,9 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
 
   case QT_WILDCARD:
     target_param->type = PARAM_NONE;
-    *(char**)target_value = rm_calloc(1, source->len + 1);
+    char *target = rm_calloc(1, source->len + 1);
     memcpy(*(char**)target_value, source->s, source->len);
+    *(HiddenString**)target_value = NewHiddenStringEx(target, source->len, Move);
     if (target_len) *target_len = source->len;
     return false; // done
 
@@ -184,23 +187,33 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
 
     case PARAM_ANY:
     case PARAM_TERM:
-      if (ParseDouble(val, (double*)param->target, param->sign)) {
-        // parsed as double to check +inf, -inf
-        val_is_numeric = 1;
+      {
+        if (ParseDouble(val, (double*)param->target, param->sign)) {
+          // parsed as double to check +inf, -inf
+          val_is_numeric = 1;
+        }
+        char *dup = rm_normalize(val, val_len);
+        val_len = strlen(dup); // rm_normalize can unescape the string, so we need to recalculate the length
+        *(HiddenString**)param->target = NewHiddenStringEx(dup, val_len, Move);
+        if (param->target_len) *param->target_len = val_len;
       }
-      *(char**)param->target = rm_normalize(val, val_len);
-      if (param->target_len) *param->target_len = strlen(*(char**)param->target);
       return 1 + val_is_numeric;
 
     case PARAM_WILDCARD:
-      *(char**)param->target = rm_calloc(1, val_len + 1);
-      memcpy(*(char**)param->target, val, val_len);
-      if (param->target_len) *param->target_len = val_len;
+      {
+        char *dup = rm_calloc(1, val_len + 1);
+        memcpy(dup, val, val_len);
+        *(HiddenString**)param->target = NewHiddenStringEx(dup, val_len, Move);
+        if (param->target_len) *param->target_len = val_len;
+      }
       return 1;
 
     case PARAM_TERM_CASE:
-      *(char**)param->target = rm_strdup(val);
-      if (param->target_len) *param->target_len = val_len;
+      {
+        char *dup = rm_strdup(val);
+        *(HiddenString**)param->target = NewHiddenStringEx(dup, val_len, Move);
+        if (param->target_len) *param->target_len = val_len;
+      }
       return 1;
 
     case PARAM_NUMERIC:

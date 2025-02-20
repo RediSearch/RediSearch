@@ -56,8 +56,8 @@ struct GeoFilter;
 QueryNode *NewQueryNode(QueryNodeType type);
 QueryNode *NewQueryNodeChildren(QueryNodeType type, QueryNode **children, size_t n);
 
-QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len);
-QueryNode *NewTokenNodeExpanded(struct QueryAST *q, const char *s, size_t len, RSTokenFlags flags);
+QueryNode *NewTokenNode(QueryParseCtx *q, HiddenString *s);
+QueryNode *NewTokenNodeExpanded(struct QueryAST *q, HiddenString *s, RSTokenFlags flags);
 QueryNode *NewPhraseNode(int exact);
 
 #define NewUnionNode() NewQueryNode(QN_UNION)

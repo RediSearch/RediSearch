@@ -381,7 +381,7 @@ QueryNode* RediSearch_CreateTokenNode(RefManager* rm, const char* fieldName, con
   QueryNode* ret = NewQueryNode(QN_TOKEN);
 
   ret->tn = (QueryTokenNode){
-      .str = (char*)rm_strdup(token), .len = strlen(token), .expanded = 0, .flags = 0};
+      .str = NewHiddenString(token, strlen(token), true), .expanded = 0, .flags = 0};
   if (fieldName) {
     ret->opts.fieldMask = IndexSpec_GetFieldBit(sp, fieldName, strlen(fieldName));
   }
@@ -391,7 +391,7 @@ QueryNode* RediSearch_CreateTokenNode(RefManager* rm, const char* fieldName, con
 QueryNode* RediSearch_CreateTagTokenNode(RefManager* rm, const char* token) {
   QueryNode* ret = NewQueryNode(QN_TOKEN);
   ret->tn = (QueryTokenNode){
-      .str = (char*)rm_strdup(token), .len = strlen(token), .expanded = 0, .flags = 0};
+      .str = NewHiddenString(token, strlen(token), true), .expanded = 0, .flags = 0};
   return ret;
 }
 
@@ -432,7 +432,7 @@ static QueryNode* RediSearch_CreateAffixNode(IndexSpec* sp, const char* fieldNam
                                              const char* s, int flags) {
   QueryNode* ret = NewQueryNode(QN_PREFIX);
   ret->pfx = (QueryPrefixNode){
-    .tok = (RSToken){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0},
+    .tok = (RSToken){.str = NewHiddenString(s, strlen(s), true), .expanded = 0, .flags = 0},
     .prefix = flags & NODE_PREFIX,
     .suffix = flags & NODE_SUFFIX,
   };
@@ -457,7 +457,7 @@ QueryNode* RediSearch_CreateSuffixNode(RefManager* rm, const char* fieldName, co
 static QueryNode* RediSearch_CreateTagAffixNode(IndexSpec* sp, const char* s, int flags) {
   QueryNode* ret = NewQueryNode(QN_PREFIX);
   ret->pfx = (QueryPrefixNode){
-    .tok = (RSToken){.str = (char*)rm_strdup(s), .len = strlen(s), .expanded = 0, .flags = 0},
+    .tok = (RSToken){.str = NewHiddenString(s, strlen(s), true), .expanded = 0, .flags = 0},
     .prefix = flags & NODE_PREFIX,
     .suffix = flags & NODE_SUFFIX,
   };

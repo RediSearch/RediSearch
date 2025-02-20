@@ -43,7 +43,7 @@
 #define EFFECTIVE_FIELDMASK(q_, qn_) ((qn_)->opts.fieldMask & (q)->opts->fieldmask)
 
 static void QueryTokenNode_Free(QueryTokenNode *tn) {
-  if (tn->str) rm_free(tn->str);
+  if (tn->str) HiddenString_Free(tn->str);
 }
 
 static void QueryGeometryNode_Free(QueryGeometryNode *geom) {
@@ -84,7 +84,7 @@ void QueryNode_Free(QueryNode *n) {
     n->params = NULL;
   }
   if (n->opts.distField) {
-    rm_free(n->opts.distField);
+    HiddenString_Free(n->opts.distField);
   }
 
   switch (n->type) {
@@ -137,7 +137,7 @@ void RangeNumber_Free(RangeNumber *r) {
 
 // Add a new metric request to the metricRequests array. Returns the index of the request
 static int addMetricRequest(QueryEvalCtx *q, HiddenString *metric_name, RLookupKey **key_addr) {
-  MetricRequest mr = {metric_name, key_addr};
+  MetricRequest mr = {HiddenString_Retain(metric_name), key_addr};
   *q->metricRequestsP = array_ensure_append_1(*q->metricRequestsP, mr);
   return array_len(*q->metricRequestsP) - 1;
 }
@@ -162,27 +162,22 @@ QueryNode *NewQueryNodeChildren(QueryNodeType type, QueryNode **children, size_t
   return ret;
 }
 
-QueryNode *NewTokenNodeExpanded(QueryAST *q, const char *s, size_t len, RSTokenFlags flags) {
+QueryNode *NewTokenNodeExpanded(QueryAST *q, HiddenString *s, RSTokenFlags flags) {
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
   ret->tn = (QueryTokenNode){
-    .str = (char *)s,
-    .len = len,
+    .str = HiddenString_Retain(s),
     .expanded = 1,
     .flags = flags,
   };
   return ret;
 }
 
-QueryNode *NewTokenNode(QueryParseCtx *q, const char *s, size_t len) {
-  if (len == (size_t)-1) {
-    len = strlen(s);
-  }
-
+QueryNode *NewTokenNode(QueryParseCtx *q, HiddenString *s) {
   QueryNode *ret = NewQueryNode(QN_TOKEN);
   q->numTokens++;
 
-  ret->tn = (QueryTokenNode){.str = (char *)s, .len = len, .expanded = 0, .flags = 0};
+  ret->tn = (QueryTokenNode){.str = HiddenString_Retain(s), .expanded = 0, .flags = 0};
   return ret;
 }
 
@@ -201,15 +196,15 @@ QueryNode *NewTokenNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
       s = rm_strndup(qt->s, qt->len);
       len = qt->len;
     }
-    ret->tn = (QueryTokenNode){.str = s, .len = len, .expanded = 0, .flags = 0};
+    ret->tn = (QueryTokenNode){.str = NewHiddenStringEx(s, len, Move), .expanded = 0, .flags = 0};
     // Do not expand numbers
     if(qt->type == QT_NUMERIC || qt->type == QT_SIZE) {
         ret->opts.flags |= QueryNode_Verbatim;
     }
   } else {
-    ret->tn = (QueryTokenNode){.str = NULL, .len = 0, .expanded = 0, .flags = 0};
+    ret->tn = (QueryTokenNode){.str = NULL, .expanded = 0, .flags = 0};
     QueryNode_InitParams(ret, 1);
-    QueryNode_SetParam(q, &ret->params[0], &ret->tn.str, &ret->tn.len, qt);
+    QueryNode_SetParam(q, &ret->params[0], &ret->tn.str, NULL, qt);
   }
   return ret;
 }
@@ -233,11 +228,11 @@ QueryNode *NewPrefixNode_WithParams(QueryParseCtx *q, QueryToken *qt, bool prefi
   q->numTokens++;
   if (qt->type == QT_TERM) {
     char *s = rm_strndup_unescape(qt->s, qt->len);
-    ret->pfx.tok = (RSToken){.str = s, .len = strlen(s), .expanded = 0, .flags = 0};
+    ret->pfx.tok = (RSToken){.str = NewHiddenStringEx(s, strlen(s), Move), .expanded = 0, .flags = 0};
   } else {
     assert (qt->type == QT_PARAM_TERM);
     QueryNode_InitParams(ret, 1);
-    QueryNode_SetParam(q, &ret->params[0], &ret->pfx.tok.str, &ret->pfx.tok.len, qt);
+    QueryNode_SetParam(q, &ret->params[0], &ret->pfx.tok.str, NULL, qt);
   }
   return ret;
 }
@@ -250,11 +245,11 @@ QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
     char *s = rm_malloc(qt->len + 1);
     memcpy(s, qt->s, qt->len);
     s[qt->len] = '\0';
-    ret->verb.tok = (RSToken){.str = s, .len = qt->len, .expanded = 0, .flags = 0};
+    ret->verb.tok = (RSToken){.str = NewHiddenStringEx(s, qt->len, Move), .expanded = 0, .flags = 0};
   } else {
     assert(qt->type == QT_PARAM_WILDCARD);
     QueryNode_InitParams(ret, 1);
-    QueryNode_SetParam(q, &ret->params[0], &ret->verb.tok.str, &ret->verb.tok.len, qt);
+    QueryNode_SetParam(q, &ret->params[0], &ret->verb.tok.str, NULL, qt);
     ret->params[0].type = PARAM_WILDCARD;
   }
   return ret;
@@ -269,8 +264,7 @@ QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist
     ret->fz = (QueryFuzzyNode){
       .tok =
           (RSToken){
-            .str = (char *)s,
-            .len = strlen(s),
+            .str = NewHiddenStringEx(s, strlen(s), Move),
             .expanded = 0,
             .flags = 0,
             },
@@ -280,7 +274,7 @@ QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist
     ret->fz.maxDist = maxDist;
     assert(qt->type == QT_PARAM_TERM);
     QueryNode_InitParams(ret, 1);
-    QueryNode_SetParam(q, &ret->params[0], &ret->fz.tok.str, &ret->fz.tok.len, qt);
+    QueryNode_SetParam(q, &ret->params[0], &ret->fz.tok.str, NULL, qt);
   }
   return ret;
 }
@@ -368,7 +362,7 @@ QueryNode *NewGeometryNode_FromWkt_WithParams(struct QueryParseCtx *q, const cha
   geomq->format = GEOMETRY_FORMAT_WKT;
   geomq->query_type = query_type;
   QueryNode_InitParams(ret, 1);
-  QueryNode_SetParam(q, &ret->params[0], &geomq->str, &geomq->str_len, wkt);
+  QueryNode_SetParam(q, &ret->params[0], &geomq->str, NULL, wkt);
   ret->gmn.geomq = geomq;
   return ret;
 }
@@ -485,8 +479,8 @@ static void QueryNode_Expand(RSQueryTokenExpander expander, RSQueryExpanderCtx *
       }
     }
   }
-
-  if (qn->type == QN_TOKEN && qn->tn.len > 0) {
+  if (qn->type == QN_TOKEN && qn->tn.str && !HiddenString_IsEmpty(qn->tn.str)) {
+    // can only access tn member if we know we are a token
     expCtx->currentNode = pqn;
     expander(expCtx, &qn->tn);
   } else {
@@ -520,11 +514,11 @@ static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
   RSToken tok = (RSToken){
       .expanded = 0,
       .flags = 0,
-      .len = tok_len,
-      .str = str
+      .str = NewHiddenString(str, tok_len, true),
   };
 
   RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
+  HiddenString_Free(tok.str);
 
   // Open an index reader
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
@@ -543,9 +537,11 @@ static inline void addTerm(char *str, size_t tok_len, QueryEvalCtx *q,
   }
 }
 
-static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const char *str,
-                                           size_t len, int maxDist, int prefixMode,
+static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const HiddenString *hidden,
+                                           int maxDist, int prefixMode,
                                            QueryNodeOptions *opts) {
+  size_t len;
+  const char* str = HiddenString_GetUnsafe(hidden, &len);
   TrieIterator *it = Trie_Iterate(terms, str, len, maxDist, prefixMode);
   if (!it) return NULL;
 
@@ -584,7 +580,7 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     return NULL;
   }
   QueryNodeType type = prefixMode ? QN_PREFIX : QN_FUZZY;
-  return NewUnionIterator(its, itsSz, 1, opts->weight, type, str, q->config);
+  return NewUnionIterator(its, itsSz, 1, opts->weight, type, hidden, q->config);
 }
 
 typedef struct {
@@ -619,7 +615,9 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_PREFIX, "query node type should be prefix");
 
   // we allow a minimum of 2 letters in the prefix by default (configurable)
-  if (qn->pfx.tok.len < q->config->minTermPrefix) {
+  size_t len = 0;
+  const char *hidden = qn->pfx.tok.str ? HiddenString_GetUnsafe(qn->pfx.tok.str, &len) : NULL;
+  if (len < q->config->minTermPrefix) {
     return NULL;
   }
 
@@ -632,7 +630,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   size_t nstr;
-  rune *str = qn->pfx.tok.str ? strToLowerRunes(qn->pfx.tok.str, &nstr) : NULL;
+  rune *str = hidden ? strToLowerRunes(hidden, &nstr) : NULL;
   if (!str) {
     QueryError_SetUserDataAgnosticErrorFmt(q->status, QUERY_ELIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
     return NULL;
@@ -694,10 +692,15 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
   if (!t || !token->str) {
     return NULL;
   }
+  size_t len;
+  const char *hidden = HiddenString_GetUnsafe(token->str, &len);
+  char* mutate = rm_strndup(hidden, len);
+  len = Wildcard_RemoveEscape(mutate, len);
+  HiddenString_Free(token->str);
+  token->str = NewHiddenStringEx(mutate, len, Move);
 
-  token->len = Wildcard_RemoveEscape(token->str, token->len);
   size_t nstr;
-  rune *str = strToLowerRunes(token->str, &nstr);
+  rune *str = strToLowerRunes(mutate, &nstr);
   if (!str) {
     QueryError_SetError(q->status, QUERY_ELIMIT, "Wildcard " TRIE_STR_TOO_LONG_MSG);
     return NULL;
@@ -717,8 +720,8 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
         .root = spec->suffix->root,
         .rune = str,
         .runelen = nstr,
-        .cstr = token->str,
-        .cstrlen = token->len,
+        .cstr = mutate,
+        .cstrlen = len,
         .type = SUFFIX_TYPE_WILDCARD,
         .callback = charIterCb, // the difference is weather the function receives char or rune
         .cbCtx = &ctx,
@@ -768,11 +771,11 @@ static void rangeIterCbStrs(const char *r, size_t n, void *p, void *invidx) {
   LexRangeCtx *ctx = p;
   QueryEvalCtx *q = ctx->q;
   RSToken tok = {0};
-  tok.str = (char *)r;
-  tok.len = n;
+  tok.str = NewHiddenString(r, n, true);
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
   FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value.index = ctx->opts->fieldIndex};
   IndexReader *ir = NewTermIndexReaderEx(invidx, q->sctx, fieldMaskOrIndex, term, ctx->weight);
+  HiddenString_Free(tok.str);
   if (!ir) {
     Term_Free(term);
     return;
@@ -789,11 +792,13 @@ static int runeIterCb(const rune *r, size_t n, void *p, void *payload) {
     return REDISEARCH_ERR;
   }
   RSToken tok = {0};
-  tok.str = runesToStr(r, n, &tok.len);
+  size_t len;
+  char *str = runesToStr(r, n, &len);
+  tok.str = NewHiddenStringEx(str, len, Move);
   RSQueryTerm *term = NewQueryTerm(&tok, ctx->q->tokenId++);
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
-  rm_free(tok.str);
+  HiddenString_Free(tok.str);
   if (!ir) {
     Term_Free(term);
     return REDISEARCH_OK;
@@ -810,10 +815,11 @@ static int charIterCb(const char *s, size_t n, void *p, void *payload) {
     q->status->reachedMaxPrefixExpansions = true;
     return REDISEARCH_ERR;
   }
-  RSToken tok = {.str = (char *)s, .len = n};
+  RSToken tok = {.str = NewHiddenString(s, n, true)};
   RSQueryTerm *term = NewQueryTerm(&tok, q->tokenId++);
   IndexReader *ir = Redis_OpenReader(q->sctx, term, &q->sctx->spec->docs,
                                      q->opts->fieldmask & ctx->opts->fieldMask, q->conc, 1);
+  HiddenString_Free(tok.str);
   if (!ir) {
     Term_Free(term);
     return REDISEARCH_OK;
@@ -865,7 +871,7 @@ static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (!terms) return NULL;
 
-  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, qn->pfx.tok.len, qn->fz.maxDist, 0, &qn->opts);
+  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, qn->fz.maxDist, 0, &qn->opts);
 }
 
 static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -964,7 +970,9 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   const GeometryQuery *gq = node->gmn.geomq;
   RedisModuleString *errMsg;
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
-  IndexIterator *ret = api->query(q->sctx, &filterCtx, index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
+  size_t str_len;
+  const char *str = HiddenString_GetUnsafe(gq->str, &str_len);
+  IndexIterator *ret = api->query(q->sctx, &filterCtx, index, gq->query_type, gq->format, str, str_len, &errMsg);
   if (ret == NULL) {
     QueryError_SetErrorFmt(q->status, QUERY_EBADVAL, "Error querying geoshape index", ": %s",
                            RedisModule_StringPtrLen(errMsg, NULL));
@@ -986,24 +994,22 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
       char default_score_field[len + 9];  // buffer for __<field>_score
       sprintf(default_score_field, "__%s_score", fieldName);
       // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
-      if (strcasecmp(qn->vn.vq->scoreField, default_score_field) != 0) {
+      if (HiddenString_CompareC(qn->vn.vq->scoreField, default_score_field, strlen(default_score_field)) != 0) {
         QueryError_SetErrorFmt(q->status, QUERY_EDUPFIELD,
                                "Distance field was specified twice for vector query", ": %s and %s",
-                               qn->vn.vq->scoreField, qn->opts.distField);
+                               HiddenString_GetUnsafe(qn->vn.vq->scoreField, NULL), HiddenString_GetUnsafe(qn->opts.distField, NULL));
         return NULL;
       }
-      rm_free(qn->vn.vq->scoreField);
+      HiddenString_Free(qn->vn.vq->scoreField);
     }
-    qn->vn.vq->scoreField = qn->opts.distField; // move ownership
-    qn->opts.distField = NULL;
+    qn->vn.vq->scoreField = HiddenString_Retain(qn->opts.distField);
   }
 
   // Add the score field name to the ast score field names array.
   // This function creates the array if it's the first name, and ensure its size is sufficient.
   size_t idx = -1;
   if (qn->vn.vq->scoreField) {
-    const char* scoreField = qn->vn.vq->scoreField;
-    idx = addMetricRequest(q, NewHiddenString(scoreField, strlen(scoreField), true), NULL);
+    idx = addMetricRequest(q, qn->vn.vq->scoreField, NULL);
   }
 
   IndexIterator *child_it = NULL;
@@ -1150,19 +1156,29 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
   RSToken *tok = &qn->pfx.tok;
 
-  tag_strtolower(tok->str, &tok->len, caseSensitive);
+  size_t len;
+  char *mutate = NULL;
+  {
+    const char *str = HiddenString_GetUnsafe(tok->str, &len);
+    mutate = rm_strndup(str, len);
+    tag_strtolower(mutate, &len, caseSensitive);
+    HiddenString_Free(tok->str);
+    len = strlen(mutate);
+  }
 
   // we allow a minimum of 2 letters in the prefix by default (configurable)
-  if (tok->len < q->config->minTermPrefix) {
+
+  if (len < q->config->minTermPrefix || !idx || !idx->values) {
+    rm_free(mutate);
     return NULL;
   }
-  if (!idx || !idx->values) return NULL;
 
+  tok->str = NewHiddenStringEx(mutate, len, Move);
   size_t itsSz = 0, itsCap = 8;
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
 
   if (!qn->pfx.suffix || !withSuffixTrie) {    // prefix query or no suffix triemap, use bruteforce
-    TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
+    TrieMapIterator *it = TrieMap_Iterate(idx->values, mutate, len);
     if (!it) {
       rm_free(its);
       return NULL;
@@ -1205,7 +1221,9 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
     TrieMapIterator_Free(it);
   } else {    // TAG field has suffix triemap
-    arrayof(char**) arr = GetList_SuffixTrieMap(idx->suffix, tok->str, tok->len,
+    size_t len;
+    const char *str = HiddenString_GetUnsafe(tok->str, &len);
+    arrayof(char**) arr = GetList_SuffixTrieMap(idx->suffix, str, len,
                                                 qn->pfx.prefix, q->sctx->time.timeout);
     if (!arr) {
       rm_free(its);
@@ -1253,10 +1271,13 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   if (!idx || !idx->values) return NULL;
 
   RSToken *tok = &qn->verb.tok;
-
-  tag_strtolower(tok->str, &tok->len, caseSensitive);
-
-  tok->len = Wildcard_RemoveEscape(tok->str, tok->len);
+  size_t len;
+  const char *hidden = HiddenString_GetUnsafe(tok->str, &len);
+  char* mutate = rm_strndup(hidden, len);
+  tag_strtolower(mutate, &len, caseSensitive);
+  len = Wildcard_RemoveEscape(mutate, len);
+  HiddenString_Free(tok->str);
+  tok->str = NewHiddenStringEx(mutate, len, Move);
 
   size_t itsSz = 0, itsCap = 8;
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
@@ -1264,7 +1285,9 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   bool fallbackBruteForce = false;
   if (idx->suffix) {
     // with suffix
-    arrayof(char*) arr = GetList_SuffixTrieMap_Wildcard(idx->suffix, tok->str, tok->len,
+    size_t len;
+    const char *str = HiddenString_GetUnsafe(tok->str, &len);
+    arrayof(char*) arr = GetList_SuffixTrieMap_Wildcard(idx->suffix, str, len,
                                                         q->sctx->time.timeout, q->config->maxPrefixExpansions);
     if (!arr) {
       // No matching terms
@@ -1295,10 +1318,12 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
 
   if (!idx->suffix || fallbackBruteForce) {
     // brute force wildcard query
-    TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
+    size_t len;
+    const char *str = HiddenString_GetUnsafe(tok->str, &len);
+    TrieMapIterator *it = TrieMap_Iterate(idx->values, str, len);
     TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
     // If there is no '*`, the length is known which can be used for optimization
-    it->mode = strchr(tok->str, '*') ? TM_WILDCARD_MODE : TM_WILDCARD_FIXED_LEN_MODE;
+    it->mode = strchr(str, '*') ? TM_WILDCARD_MODE : TM_WILDCARD_FIXED_LEN_MODE;
 
     char *s;
     tm_len_t sl;
@@ -1349,27 +1374,34 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   switch (n->type) {
     case QN_TOKEN: {
-      tag_strtolower(n->tn.str, &n->tn.len, caseSensitive);
-      ret = TagIndex_OpenReader(idx, q->sctx, n->tn.str, n->tn.len, weight, fs->index);
+      size_t len;
+      const char *str = HiddenString_GetUnsafe(n->tn.str, &len);
+      char *mutate = rm_strndup(str, len);
+      tag_strtolower(mutate, &len, caseSensitive);
+      HiddenString_Free(n->tn.str);
+      n->tn.str = NewHiddenStringEx(mutate, len, Move);
+      ret = TagIndex_OpenReader(idx, q->sctx, mutate, len, weight, fs->index);
       break;
     }
     case QN_PREFIX:
       return Query_EvalTagPrefixNode(q, idx, n, iterout, weight,
                          FieldSpec_HasSuffixTrie(fs), fs->index, caseSensitive);
-
     case QN_WILDCARD_QUERY:
       return Query_EvalTagWildcardNode(q, idx, n, iterout, weight, fs->index,
                                        caseSensitive);
-
     case QN_LEXRANGE:
       return Query_EvalTagLexRangeNode(q, idx, n, iterout, weight, caseSensitive);
-
     case QN_PHRASE: {
       char *terms[QueryNode_NumChildren(n)];
       for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
         if (n->children[i]->type == QN_TOKEN) {
-          tag_strtolower(n->children[i]->tn.str, &n->children[i]->tn.len, caseSensitive);
-          terms[i] = n->children[i]->tn.str;
+          size_t len;
+          const char *str = HiddenString_GetUnsafe(n->children[i]->tn.str, &len);
+          char *mutate = rm_strndup(str, len);
+          tag_strtolower(mutate, &len, caseSensitive);
+          HiddenString_Free(n->children[i]->tn.str);
+          n->children[i]->tn.str = NewHiddenStringEx(mutate, len, Move);
+          terms[i] = mutate;
         } else {
           terms[i] = "";
         }
@@ -1703,7 +1735,7 @@ static inline bool QueryNode_DoesIndexEmpty(QueryNode *n, IndexSpec *spec, RSSea
 // If the token is of an empty string, and the searched field doesn't index
 // empty strings, we should return an error
 static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
-  if (n->tn.len == 0 && n->tn.str && !strcmp(n->tn.str, "") && !QueryNode_DoesIndexEmpty(n, spec, opts)) {
+  if (n->tn.str && HiddenString_IsEmpty(n->tn.str) && !QueryNode_DoesIndexEmpty(n, spec, opts)) {
     QueryError_SetError(status, QUERY_ESYNTAX, "Use `" SPEC_INDEXEMPTY_STR "` in field creation in order to index and query for empty strings");
     return false;
   }
@@ -1902,17 +1934,24 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     case QN_TOKEN:
-      s = sdscatprintf(s, "%s%s", (qs->tn.len > 0) ? qs->tn.str : "\"\"", qs->tn.expanded ? "(expanded)" : "");
-      if (qs->opts.weight != 1) {
-        s = sdscatprintf(s, " => {$weight: %g;}", qs->opts.weight);
+      {
+        size_t len = 0;
+        const char* str = "\"\"";
+        if (qs->tn.str && !HiddenString_IsEmpty(qs->tn.str)) {
+          const char *hidden = HiddenString_GetUnsafe(qs->tn.str, &len);
+          str = hidden;
+        }
+        s = sdscatprintf(s, "%s%s", str, qs->tn.expanded ? "(expanded)" : "");
+        if (qs->opts.weight != 1) {
+          s = sdscatprintf(s, " => {$weight: %g;}", qs->opts.weight);
+        }
+        s = sdscat(s, "\n");
+        return s;
       }
-      s = sdscat(s, "\n");
-      return s;
-
     case QN_PREFIX:
       s = sdscatprintf(s, "%s{%s%s%s}", PrefixNode_GetTypeString(&qs->pfx),
                                         qs->pfx.suffix ? "*" : "",
-                                        qs->pfx.tok.str,
+                                        HiddenString_GetUnsafe(qs->pfx.tok.str, NULL),
                                         qs->pfx.prefix ? "*" : "");
       break;
 
@@ -2006,7 +2045,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
         s = sdscatlen(s, qs->vn.vq->params.params[i].value, qs->vn.vq->params.params[i].valLen);
       }
       if (qs->vn.vq->scoreField) {
-        s = sdscatprintf(s, ", yields distance as `%s`", qs->vn.vq->scoreField);
+        s = sdscatprintf(s, ", yields distance as `%s`", HiddenString_GetUnsafe(qs->vn.vq->scoreField, NULL));
       }
       s = sdscat(s, "}"); // end of VECTOR
       break;
@@ -2014,16 +2053,16 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "<WILDCARD>");
       break;
     case QN_FUZZY:
-      s = sdscatprintf(s, "FUZZY{%s}", qs->fz.tok.str);
+      s = sdscatprintf(s, "FUZZY{%s}", HiddenString_GetUnsafe(qs->fz.tok.str, NULL));
       break;
     case QN_WILDCARD_QUERY:
-      s = sdscatprintf(s, "WILDCARD{%s}", qs->verb.tok.str);
+      s = sdscatprintf(s, "WILDCARD{%s}", HiddenString_GetUnsafe(qs->verb.tok.str, NULL));
       break;
     case QN_NULL:
       s = sdscat(s, "<empty>");
       break;
     case QN_GEOMETRY:
-      s = sdscatprintf(s, "GEOSHAPE{%d %s}", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
+      s = sdscatprintf(s, "GEOSHAPE{%d %s}", qs->gmn.geomq->query_type, HiddenString_GetUnsafe(qs->gmn.geomq->str, NULL));
       break;
     case QN_MISSING:
       s = sdscatprintf(s, "ISMISSING{%s}", HiddenString_GetUnsafe(qs->miss.field->fieldName, NULL));
@@ -2188,8 +2227,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
 
   } else if (STR_EQCASE(attr->name, attr->namelen, YIELD_DISTANCE_ATTR) && qn->opts.flags & QueryNode_YieldsDistance) {
     // Move ownership on the value string, so it won't get freed when releasing the QueryAttribute.
-    qn->opts.distField = (char *)attr->value;
-    attr->value = NULL;
+    qn->opts.distField = NewHiddenStringEx(attr->value, attr->vallen, Take);
     res = 1;
 
   } else if (qn->type == QN_VECTOR) {

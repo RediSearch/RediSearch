@@ -1880,8 +1880,11 @@ static YYACTIONTYPE yy_reduce(
     // get the next token
     size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
-    if(tokLen > 0) {
-      QueryNode *C = NewTokenNode(ctx, rm_normalize(tok, tokLen), -1);
+    if (tokLen > 0) {
+      char *normalized = rm_normalize(tok, tokLen);
+      HiddenString *hidden = NewHiddenStringEx(normalized, strlen(normalized), Move);
+      QueryNode *C = NewTokenNode(ctx, hidden);
+      HiddenString_Free(hidden);
       QueryNode_AddChild(yylhsminor.yy3, C);
     }
   }
@@ -1899,7 +1902,10 @@ static YYACTIONTYPE yy_reduce(
   char *s = rm_malloc(yymsp[-1].minor.yy0.len + 1);
   *s = '$';
   memcpy(s + 1, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  yymsp[-2].minor.yy3 = NewTokenNode(ctx, rm_normalize(s, yymsp[-1].minor.yy0.len + 1), -1);
+  char *normalized = rm_normalize(s, yymsp[-1].minor.yy0.len + 1);
+  HiddenString* hidden = NewHiddenStringEx(normalized, strlen(normalized), Move);
+  yymsp[-2].minor.yy3 = NewTokenNode(ctx, hidden);
+  HiddenString_Free(hidden);
   rm_free(s);
   yymsp[-2].minor.yy3->opts.flags |= QueryNode_Verbatim;
 }
@@ -1911,7 +1917,10 @@ static YYACTIONTYPE yy_reduce(
   char *s = rm_malloc(yymsp[-1].minor.yy0.len + 1);
   *s = '$';
   memcpy(s + 1, yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-  yymsp[-2].minor.yy3 = NewTokenNode(ctx, rm_normalize(s, yymsp[-1].minor.yy0.len + 1), -1);
+  char *normalize = rm_normalize(s, yymsp[-1].minor.yy0.len + 1);
+  HiddenString *hidden = NewHiddenStringEx(normalize, strlen(normalize), Move);
+  yymsp[-2].minor.yy3 = NewTokenNode(ctx, hidden);
+  HiddenString_Free(hidden);
   rm_free(s);
   yymsp[-2].minor.yy3->opts.flags |= QueryNode_Verbatim;
 }
@@ -2337,7 +2346,7 @@ static YYACTIONTYPE yy_reduce(
       case 78: /* vector_query ::= vector_command vector_attribute_list vector_score_field */
 {
   if (yymsp[-2].minor.yy3->vn.vq->scoreField) {
-    rm_free(yymsp[-2].minor.yy3->vn.vq->scoreField);
+    HiddenString_Free(yymsp[-2].minor.yy3->vn.vq->scoreField);
     yymsp[-2].minor.yy3->vn.vq->scoreField = NULL;
   }
   yymsp[-2].minor.yy3->params = array_grow(yymsp[-2].minor.yy3->params, 1);
@@ -2351,7 +2360,7 @@ static YYACTIONTYPE yy_reduce(
       case 79: /* vector_query ::= vector_command vector_score_field */
 {
   if (yymsp[-1].minor.yy3->vn.vq->scoreField) {
-    rm_free(yymsp[-1].minor.yy3->vn.vq->scoreField);
+    HiddenString_Free(yymsp[-1].minor.yy3->vn.vq->scoreField);
     yymsp[-1].minor.yy3->vn.vq->scoreField = NULL;
   }
   yymsp[-1].minor.yy3->params = array_grow(yymsp[-1].minor.yy3->params, 1);
@@ -2430,7 +2439,9 @@ static YYACTIONTYPE yy_reduce(
     yymsp[0].minor.yy0.type = QT_PARAM_VEC;
     yylhsminor.yy3 = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
     yylhsminor.yy3->vn.vq->field = yymsp[-1].minor.yy150.fs;
-    RedisModule_Assert(-1 != (rm_asprintf(&yylhsminor.yy3->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy150.tok.len, yymsp[-1].minor.yy150.tok.s)));
+    char* scoreField = NULL;
+    RedisModule_Assert(-1 != (rm_asprintf(&scoreField, "__%.*s_score", yymsp[-1].minor.yy150.tok.len, yymsp[-1].minor.yy150.tok.s)));
+    yylhsminor.yy3->vn.vq->scoreField = NewHiddenStringEx(scoreField, strlen(scoreField), Move);
   } else {
     reportSyntaxError(ctx->status, &yymsp[-3].minor.yy0, "Syntax error: Expecting Vector Similarity command");
     yylhsminor.yy3 = NULL;

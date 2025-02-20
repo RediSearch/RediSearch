@@ -1764,7 +1764,7 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
     }
     specialCaseCtx *ctx = SpecialCaseCtx_New();
     ctx->knn.k = k;
-    ctx->knn.fieldName = queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField;
+    ctx->knn.fieldName = HiddenString_GetUnsafe(queryNode->opts.distField ? queryNode->opts.distField : queryVectorNode.vq->scoreField, NULL);
     ctx->knn.pq = NULL;
     ctx->knn.queryNode = queryNode;  // take ownership
     ctx->specialCaseType = SPECIAL_CASE_KNN;

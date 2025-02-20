@@ -13,7 +13,7 @@
 
 void GeometryQuery_Free(GeometryQuery *geomq) {
   if (geomq->str) {
-    rm_free((void *)geomq->str);
+    HiddenString_Free(geomq->str);
   }
   rm_free(geomq);
 }

@@ -79,7 +79,7 @@ def testTagPrefix(env):
         waitForIndex(env, 'idx')
         for q in ('@tags:{hello world}', '@tags:{hel*}', '@tags:{hello\\-*}', '@tags:{he*}'):
             res = env.cmd('ft.search', 'idx', q)
-            env.assertEqual(res[0], 1)
+            env.assertEqual(res[0], 1, message=q)
 
 def testTagFieldCase(env):
     dialect = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1]
