@@ -49,9 +49,9 @@ run_command git submodule update --quiet --init --recursive
 if [[ -f /etc/os-release ]]; then
 	OS_NAME=$(grep '^NAME=' /etc/os-release | sed 's/"//g')
 	OS_NAME=${OS_NAME#"NAME="}
-	if [[ $OS_NAME == "Alpine Linux" ]]; then
-		run_command sed -i "s/^RUST_FLAGS=$/RUST_FLAGS=-C target-feature=-crt-static/g" Makefile
-	fi
+#	if [[ $OS_NAME == "Alpine Linux" ]]; then
+	run_command "sed -i 's/^RUST_FLAGS=$/RUST_FLAGS=-C target-feature=-crt-static/g' Makefile"
+#	fi
 fi
 
 echo "Building RedisJSON module for branch $JSON_BRANCH..."
