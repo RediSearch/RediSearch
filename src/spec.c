@@ -2130,6 +2130,8 @@ static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref, size_t
 
   DebugIndexesScanner *dScanner = rm_realloc(IndexesScanner_New(global_ref), sizeof(DebugIndexesScanner));
   dScanner->maxDocsTBscanned = maxDocsTBscanned;
+  IndexSpec *spec = StrongRef_Get(global_ref);
+  spec->scanner = (IndexesScanner*)dScanner;
 
   return dScanner;
 }
@@ -2201,8 +2203,9 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
                              DebugIndexesScanner *dScanner) {
 
   IndexesScanner *scanner = &(dScanner->base);
-  if (scanner->scannedKeys >= dScanner->maxDocsTBscanned) {
-    return;
+    // Negative maxDocsTBscanned represents no limit
+  if ((dScanner->maxDocsTBscanned >=0) && scanner->scannedKeys >= dScanner->maxDocsTBscanned) {
+    scanner->cancelled = true;
   }
   Indexes_ScanProc(ctx, keyname, key, &(dScanner->base));
 }
@@ -2231,7 +2234,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   if (debugCtx.debugMode) {
     scanner_func = (RedisModuleScanCB)DebugIndexes_ScanProc;
   }
-  while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB)Indexes_ScanProc, scanner)) {
+  while (RedisModule_Scan(ctx, cursor, scanner_func, scanner)) {
     RedisModule_ThreadSafeContextUnlock(ctx);
     counter++;
     if (counter % RSGlobalConfig.numBGIndexingIterationsBeforeSleep == 0) {
@@ -2286,7 +2289,7 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
 #endif
   IndexesScanner *scanner = NULL;
   if (debugCtx.debugMode) {
-    scanner = (IndexesScanner*)(spec_ref, debugCtx.maxDocsTBscanned);
+    scanner = (IndexesScanner*)DebugIndexesScanner_New(spec_ref, debugCtx.maxDocsTBscanned);
   }
   else {
     scanner = IndexesScanner_New(spec_ref);

@@ -22,7 +22,7 @@
 #include "cursor.h"
 
 
-DebugCTX debugCtx = {0};
+DebugCTX debugCtx = {0,-1};
 
 #define GET_SEARCH_CTX(name)                                        \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
@@ -1405,21 +1405,21 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
-DEBUG_COMMAND(set_max_scanned_docs) {
+DEBUG_COMMAND(setMaxScannedDocs) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  if (argc != 4) {
+  if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
   long long max_scanned_docs;
-  if (RedisModule_StringToLongLong(argv[3], &max_scanned_docs) != REDISMODULE_OK) {
+  if (RedisModule_StringToLongLong(argv[2], &max_scanned_docs) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'set_max_scanned_docs'");
   }
-  if (max_scanned_docs < 0) {
-    return RedisModule_ReplyWithError(ctx, "max_scanned_docs must be a non-negative number");
-  }
-  debugCtx.maxDocsTBscanned = (size_t) max_scanned_docs;
+
+  // Negative maxDocsTBscanned represents no limit
+
+  debugCtx.maxDocsTBscanned = (int) max_scanned_docs;
   debugCtx.debugMode = true;
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -1457,6 +1457,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_HNSW", dumpHNSWData},
                                {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
                                {"WORKERS", WorkerThreadsSwitch},
+                               {"SET_MAX_SCANNED_DOCS", setMaxScannedDocs},
                                /* IMPORTANT NOTE: Every debug command starts with
                                 * checking if redis allows this context to execute
                                 * debug commands by calling `debugCommandsEnabled(ctx)`.

@@ -21,5 +21,5 @@ int RegisterDebugCommands(RedisModuleCommand *debugCommand);
 
 typedef struct DebugCTX {
   bool debugMode;
-  size_t maxDocsTBscanned;
+  int maxDocsTBscanned;
 } DebugCTX;

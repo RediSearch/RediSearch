@@ -387,4 +387,45 @@ def testHNSWdump_badParams(env: Env):
     # If index error is "Can't open vector index" then function tries to accsses null pointer
     env.expect(debug_cmd(), 'DUMP_HNSW', 'idx','v').error() \
         .contains("Can't open vector index")
-    
+
+def testSetMaxScannedDocs(env: Env):
+    # time.sleep(30)
+    def local_waitForIndex(env, idx = 'idx'):
+        while True:
+            res = index_info(env, idx)
+            scan_started = res['num_docs'] > 0 or res['indexing'] == 1
+            scan_ended = res['percent_indexed'] == '1'
+            if scan_started and scan_ended:
+                break
+            time.sleep(0.1)
+    #env.expect('FLUSHABLE').true()
+    # Test setting max scanned docs of background scan
+    # Insert 10 documents
+    num_docs = 10
+    for i in range(num_docs):
+        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+    # Create a baseline index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    local_waitForIndex(env)
+    # Get count of indexed documents
+    docs_in_index = env.cmd('FT.SEARCH', 'idx', '*')[0]
+    env.assertEqual(docs_in_index, num_docs)
+
+    # Set max scanned docs to 5
+    max_scanned = 5
+    env.expect(debug_cmd(), 'SET_MAX_SCANNED_DOCS', max_scanned).ok()
+    # Create a new index
+    env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
+    local_waitForIndex(env, 'idx2')
+    # Get count of indexed documents
+    docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
+    env.assertEqual(docs_in_index, max_scanned)
+
+    # Reset max scanned docs by setting negative value
+    env.expect(debug_cmd(), 'SET_MAX_SCANNED_DOCS', -1).ok()
+    # Create a new index
+    env.expect('FT.CREATE', 'idx3', 'SCHEMA', 'name', 'TEXT').ok()
+    local_waitForIndex(env, 'idx3')
+    # Get count of indexed documents
+    docs_in_index = env.cmd('FT.SEARCH', 'idx3', '*')[0]
+    env.assertEqual(docs_in_index, num_docs)
