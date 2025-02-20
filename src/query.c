@@ -1157,11 +1157,14 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   RSToken *tok = &qn->pfx.tok;
 
   size_t len;
-  const char *str = HiddenString_GetUnsafe(tok->str, &len);
-  char *mutate = rm_strndup(str, len);
-  tag_strtolower(mutate, &len, caseSensitive);
-  HiddenString_Free(tok->str);
-  len = strlen(mutate);
+  char *mutate = NULL;
+  {
+    const char *str = HiddenString_GetUnsafe(tok->str, &len);
+    mutate = rm_strndup(str, len);
+    tag_strtolower(mutate, &len, caseSensitive);
+    HiddenString_Free(tok->str);
+    len = strlen(mutate);
+  }
 
   // we allow a minimum of 2 letters in the prefix by default (configurable)
 
@@ -1175,7 +1178,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
 
   if (!qn->pfx.suffix || !withSuffixTrie) {    // prefix query or no suffix triemap, use bruteforce
-    TrieMapIterator *it = TrieMap_Iterate(idx->values, str, len);
+    TrieMapIterator *it = TrieMap_Iterate(idx->values, mutate, len);
     if (!it) {
       rm_free(its);
       return NULL;

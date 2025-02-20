@@ -525,7 +525,7 @@ int StemmerExpander(RSQueryExpanderCtx *ctx, RSToken *token) {
     const char *str = HiddenString_GetUnsafe(token->str, &len);
     const char *stemmed_cstr = (const char *)stemmed;
     if (sl != len || strncmp(stemmed_cstr, str, len)) {
-      HiddenString* tok = NewHiddenString(stemmed_cstr, sl, true);
+      tok = NewHiddenString(stemmed_cstr, sl, true);
       ctx->ExpandToken(ctx, tok, 0x0);
       HiddenString_Free(tok);
     }
