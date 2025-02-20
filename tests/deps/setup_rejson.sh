@@ -1,9 +1,6 @@
 #!/bin/bash
 
-# Exit immediately with statys 1 (error) if a command exits with a non-zero status
-set -e
-
-# Function to run a command and print stdout and stderr only if it fails
+# Function to run a command, and only if it fails, print stdout and stderr and then exit
 run_command() {
   output=$($@ 2>&1)
   status=$?
@@ -14,7 +11,8 @@ run_command() {
 }
 
 # Set the default variables
-ROOT=${ROOT:=`pwd`}
+CURR_DIR=`pwd`
+ROOT=${ROOT:=$CURR_DIR}  # unless ROOT is set, assume it is the current directory
 BINROOT=${BINROOT:=${ROOT}/bin/linux-x64-release}
 
 JSON_BRANCH=${REJSON_BRANCH:-master}
@@ -55,7 +53,8 @@ if [[ -f /etc/os-release ]]; then
 		run_command sed -i "s/^RUST_FLAGS=$/RUST_FLAGS=-C target-feature=-crt-static/g" Makefile
 	fi
 fi
+
 echo "Building RedisJSON module for branch $JSON_BRANCH..."
 run_command make SAN=$SAN BINROOT=${JSON_BIN_DIR}
-
 echo "RedisJSON module built and is available at ${JSON_BIN_PATH}"
+cd $CURR_DIR

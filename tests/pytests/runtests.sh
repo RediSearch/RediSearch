@@ -46,6 +46,7 @@ help() {
     REJSON=1|0            Also load RedisJSON module (default: 1)
     REJSON_BRANCH=branch  Use RedisJSON module from branch (default: 'master')
     REJSON_PATH=path      Use RedisJSON module at `path` (default: '' - build from source)
+    REJSON_ARGS=args      RedisJSON module arguments
 
 		REDIS_SERVER=path     Location of redis-server
 		REDIS_PORT=n          Redis server port
@@ -360,7 +361,7 @@ run_tests() {
 	else # existing env
 		if [[ $EXT == run ]]; then
 			if [[ $REJSON_MODULE ]]; then
-				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_MODARGS"
+				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_ARGS"
 			fi
 
 			xredis_conf=$(mktemp "${TMPDIR:-/tmp}/xredis_conf.XXXXXXX")
@@ -416,7 +417,6 @@ run_tests() {
 
 	local E=0
 	if [[ $NOP != 1 ]]; then
-	  cd $HERE
 		{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
 	else
 		$OP python3 -m RLTest @$rltest_config
@@ -566,8 +566,8 @@ fi
 # Prepare RedisJSON module to be loaded into testing environment if required.
 if [[ $REJSON != 0 ]]; then
   ROOT=$ROOT REJSON_BRANCH=$REJSON_BRANCH source $ROOT/tests/deps/setup_rejson.sh
-  echo "Using RedisJSON module at $JSON_BIN_PATH, with the following args: $REJSON_MODARGS"
-  RLTEST_REJSON_ARGS="--module ${JSON_BIN_PATH} --module-args $REJSON_MODARGS"
+  echo "Using RedisJSON module at $JSON_BIN_PATH, with the following args: $REJSON_ARGS"
+  RLTEST_REJSON_ARGS="--module ${JSON_BIN_PATH} --module-args $REJSON_ARGS"
 else
   echo "Skipping tests with RedisJSON module"
 fi

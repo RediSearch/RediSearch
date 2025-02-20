@@ -59,6 +59,7 @@ make pytest        # run python tests (tests/pytests)
   REJSON=1|0           # also load RedisJSON module (default: 1)
   REJSON_BRANCH=branch # use RedisJSON module from branch (default: 'master')
   REJSON_PATH=path     # use RedisJSON module at `path` (default: '' - build from source)
+  REJSON_ARGS=''       # pass args to RedisJSON module
   EXT=1                # External (existing) environment
   GDB=1                # RLTest interactive debugging
   VG=1                 # use Valgrind
@@ -334,11 +335,12 @@ endif
 REJSON ?= 1
 REJSON_BRANCH ?= master
 REJSON_PATH ?=
+REJSON_ARGS ?=
 
 run:
 ifeq ($(WITH_RLTEST),1)
-	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) REJSON_BRANCH=$(REJSON_BRNACH) FORCE='' RLTEST= ENV_ONLY=1
-	 LOG_LEVEL=$(LOG_LEVEL) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
+	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) REJSON_BRANCH=$(REJSON_BRANCH) REJSON_ARGS=$(REJSON_ARGS) \
+	 FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 else
 ifeq ($(GDB),1)
@@ -389,7 +391,7 @@ unit-tests:
 
 pytest:
 	@printf "\n-------------- Running python flow test ------------------\n"
-	$(SHOW)REJSON=$(REJSON) REJSON_BRANCH=$(REJSON_BRANCH) REJSON_PATH=$(REJSON_PATH) \
+	$(SHOW)REJSON=$(REJSON) REJSON_BRANCH=$(REJSON_BRANCH) REJSON_PATH=$(REJSON_PATH) REJSON_ARGS=$(REJSON_ARGS) \
 	TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
 	LOG_LEVEL=$(LOG_LEVEL) TEST_TIMEOUT=$(TEST_TIMEOUT) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
