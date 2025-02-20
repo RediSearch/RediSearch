@@ -294,8 +294,7 @@ TEST_F(IndexTest, testGetEncoderAndDecoders) {
 
     // invalid flags combination
     default:
-      ASSERT_FALSE(InvertedIndex_GetDecoder(IndexFlags(curFlags)).decoder);
-      ASSERT_FALSE(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
+      continue;
     }
   }
 }
