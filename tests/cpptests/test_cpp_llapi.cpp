@@ -517,6 +517,19 @@ static void PopulateIndex(RSIndex* index) {
   }
 }
 
+static void PopulateIndexMultibyte(RSIndex* index) {
+  char buf[] = {"GRÜẞEN_"};
+  size_t nbuf = strlen(buf);
+  for (char c = 'a'; c <= 'z'; c++) {
+    buf[nbuf - 1] = c;
+    char did[64];
+    sprintf(did, "doc%c", c);
+    RSDoc* d = RediSearch_CreateDocument(did, strlen(did), 0, NULL);
+    RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, buf, RSFLDTYPE_DEFAULT);
+    RediSearch_SpecAddDocument(index, d);
+  }
+}
+
 static void ValidateResults(RSIndex* index, RSQNode* qn, char start, char end, int numResults) {
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_FALSE(NULL == iter);
@@ -576,6 +589,35 @@ TEST_F(LLApiTest, testRangesOnTags) {
   // test without include max and min
   tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
   qn = RediSearch_CreateTagLexRangeNode(index, FIELD_NAME_1, "Markn", "Markx", 0, 0);
+  RediSearch_QueryNodeAddChild(tagQn, qn);
+
+  ValidateResults(index, tagQn, 'o', 'w', 9);
+
+  tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
+  qn = RediSearch_CreateTagLexRangeNode(index, FIELD_NAME_1, NULL, NULL, 1, 1);
+  RediSearch_QueryNodeAddChild(tagQn, qn);
+
+  ValidateResults(index, tagQn, 'a', 'z', 26);
+
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testRangesOnTagsMultibyte) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  RediSearch_CreateTagField(index, FIELD_NAME_1);
+
+  PopulateIndexMultibyte(index);
+
+  // test with include max and min
+  RSQNode* tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
+  RSQNode* qn = RediSearch_CreateTagLexRangeNode(index, FIELD_NAME_1, "GRÜẞENn", "GRÜẞENx", 1, 1);
+  RediSearch_QueryNodeAddChild(tagQn, qn);
+
+  ValidateResults(index, tagQn, 'n', 'x', 11);
+
+  // test without include max and min
+  tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
+  qn = RediSearch_CreateTagLexRangeNode(index, FIELD_NAME_1, "GRÜẞENn", "GRÜẞENx", 0, 0);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   ValidateResults(index, tagQn, 'o', 'w', 9);
@@ -977,7 +1019,7 @@ TEST_F(LLApiTest, testScorer) {
   Document* d1 = RediSearch_CreateDocumentSimple("doc1");
   Document* d2 = RediSearch_CreateDocumentSimple("doc2");
 
-  // adding document with a different TFIDF score
+  // adding document with a different score
   RediSearch_DocumentAddFieldCString(d1, FIELD_NAME_1, "hello world hello world", RSFLDTYPE_DEFAULT);
   ASSERT_EQ(RediSearch_SpecAddDocument(index, d1), REDISMODULE_OK);
   RediSearch_DocumentAddFieldCString(d2, FIELD_NAME_1, "hello world hello", RSFLDTYPE_DEFAULT);
@@ -986,9 +1028,9 @@ TEST_F(LLApiTest, testScorer) {
   const char *s = "hello world";
   RSResultsIterator *it = RediSearch_IterateQuery(index, s, strlen(s), NULL);
   RediSearch_ResultsIteratorNext(it, index, NULL);
-  ASSERT_EQ(RediSearch_ResultsIteratorGetScore(it), 2);
+  EXPECT_NEAR(RediSearch_ResultsIteratorGetScore(it), 0.488305, 1e-6);
   RediSearch_ResultsIteratorNext(it, index, NULL);
-  ASSERT_EQ(RediSearch_ResultsIteratorGetScore(it), 1.5);
+  EXPECT_NEAR(RediSearch_ResultsIteratorGetScore(it), 0.447305, 1e-6);
 
   RediSearch_ResultsIteratorFree(it);
   RediSearch_DropIndex(index);

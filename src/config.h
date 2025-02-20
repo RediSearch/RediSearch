@@ -10,12 +10,22 @@
 #include "hiredis/sds.h"
 #include "query_error.h"
 #include "reply.h"
+#include "util/config_macros.h"
 
 typedef enum {
   TimeoutPolicy_Return,       // Return what we have on timeout
   TimeoutPolicy_Fail,         // Just fail without returning anything
   TimeoutPolicy_Invalid       // Not a real value
 } RSTimeoutPolicy;
+
+static const int on_timeout_enums[2] = {
+  TimeoutPolicy_Return,
+  TimeoutPolicy_Fail
+};
+static const char *on_timeout_vals[2] = {
+  "return",
+  "fail"
+};
 
 typedef enum { GCPolicy_Fork = 0 } GCPolicy;
 
@@ -129,8 +139,8 @@ typedef struct {
   // 0 indicates no limit. Default value is 0.
   unsigned int vssMaxResize;
   // The delta used to increase positional offsets between array slots for multi text values.
-  // Can allow to control the seperation between phrases in different array slots (related to the SLOP parameter in ft.search command)
-  // Default value is 100. 0 will not increment (as if all text is a continus phrase).
+  // Can allow to control the separation between phrases in different array slots (related to the SLOP parameter in ft.search command)
+  // Default value is 100. 0 will not increment (as if all text is a continuous phrase).
   unsigned int multiTextOffsetDelta;
   // The number of iterations to run while performing background indexing
   // before we call usleep(1) (sleep for 1 micro-second) and make sure that
@@ -170,6 +180,8 @@ typedef int (*RSConfigExternalTrigger)(RSConfig *);
 // global config extern references
 extern RSConfig RSGlobalConfig;
 extern RSConfigOptions RSGlobalConfigOptions;
+extern RedisModuleString *config_ext_load;
+extern RedisModuleString *config_friso_ini;
 
 /**
  * Add new configuration options to the chain of already recognized options
@@ -189,6 +201,9 @@ void RSConfigExternalTrigger_Register(RSConfigExternalTrigger trigger, const cha
 /* Read configuration from redis module arguments into the global config object. Return
  * REDISMODULE_ERR and sets an error message if something is invalid */
 int ReadConfig(RedisModuleString **argv, int argc, char **err);
+
+/* Register module configuration parameters using Module Configuration API */
+int RegisterModuleConfig(RedisModuleCtx *ctx);
 
 /**
  * Writes the retrieval of the configuration value to the network.
@@ -214,61 +229,76 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 
 void UpgradeDeprecatedMTConfigs();
 
+char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
+
+#define DEFAULT_BG_INDEX_SLEEP_GAP 100
+#define DEFAULT_DIALECT_VERSION 1
 #define DEFAULT_DOC_TABLE_SIZE 1000000
-#define MAX_DOC_TABLE_SIZE 100000000
-#define GC_SCANSIZE 100
+#define DEFAULT_GC_SCANSIZE 100
 #define DEFAULT_MIN_PHONETIC_TERM_LEN 3
+#define DEFAULT_FORK_GC_CLEAN_THRESHOLD 100
+#define DEFAULT_FORK_GC_RETRY_INTERVAL 5
 #define DEFAULT_FORK_GC_RUN_INTERVAL 30
 #define DEFAULT_INDEX_CURSOR_LIMIT 128
 #define MAX_AGGREGATE_REQUEST_RESULTS (1ULL << 31)
 #define DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS MAX_AGGREGATE_REQUEST_RESULTS
+#define DEFAULT_MAX_CURSOR_IDLE 300000
+#define DEFAULT_MAX_PREFIX_EXPANSIONS 200
 #define DEFAULT_MAX_SEARCH_REQUEST_RESULTS 1000000
 #define MAX_SEARCH_REQUEST_RESULTS (1ULL << 31)
 #define MAX_KNN_K (1ULL << 58)
+#define DEFAULT_MIN_TERM_PREFIX 2
+#define DEFAULT_MIN_STEM_LENGTH 4
+#define DEFAULT_MULTI_TEXT_SLOP 100
+#define DEFAULT_QUERY_TIMEOUT_MS 500
+#define DEFAULT_UNION_ITERATOR_HEAP 20
+#define DEFAULT_VSS_MAX_RESIZE 0
+#define DEFAULT_WORKER_THREADS 0
+#define MAX_DOC_TABLE_SIZE 100000000
 #define NR_MAX_DEPTH_BALANCE 2
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
-#define DEFAULT_MIN_STEM_LENGTH 4
 #define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
     .extLoad = NULL,                                                           \
+    .frisoIni = NULL,                                                          \
     .gcConfigParams.enableGC = 1,                                              \
-    .iteratorsConfigParams.minTermPrefix = 2,                                  \
+    .iteratorsConfigParams.minTermPrefix = DEFAULT_MIN_TERM_PREFIX,            \
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \
-    .iteratorsConfigParams.maxPrefixExpansions = 200,                          \
-    .requestConfigParams.queryTimeoutMS = 500,                                 \
-    .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                 \
+    .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,\
+    .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
+    .requestConfigParams.timeoutPolicy = TimeoutPolicy_Fail,                   \
     .cursorReadSize = 1000,                                                    \
-    .cursorMaxIdle = 300000,                                                   \
+    .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
-    .numWorkerThreads = 0,                                                     \
+    .numWorkerThreads = DEFAULT_WORKER_THREADS,                                \
     .minOperationWorkers = MIN_OPERATION_WORKERS,                              \
     .tieredVecSimIndexBufferLimit = DEFAULT_BLOCK_SIZE,                        \
     .highPriorityBiasNum = DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,               \
-    .gcConfigParams.gcScanSize = GC_SCANSIZE,                                  \
+    .gcConfigParams.gcScanSize = DEFAULT_GC_SCANSIZE,                          \
     .minPhoneticTermLen = DEFAULT_MIN_PHONETIC_TERM_LEN,                       \
     .gcConfigParams.gcPolicy = GCPolicy_Fork,                                  \
     .gcConfigParams.forkGc.forkGcRunIntervalSec = DEFAULT_FORK_GC_RUN_INTERVAL,\
     .gcConfigParams.forkGc.forkGcSleepBeforeExit = 0,                          \
-    .gcConfigParams.forkGc.forkGcRetryInterval = 5,                            \
-    .gcConfigParams.forkGc.forkGcCleanThreshold = 100,                         \
+    .gcConfigParams.forkGc.forkGcRetryInterval = DEFAULT_FORK_GC_RETRY_INTERVAL,\
+    .gcConfigParams.forkGc.forkGcCleanThreshold = DEFAULT_FORK_GC_CLEAN_THRESHOLD,\
     .noMemPool = 0,                                                            \
     .filterCommands = 0,                                                       \
-    .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                            \
-    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,                                                 \
-    .iteratorsConfigParams.minUnionIterHeap = 20,                              \
+    .maxSearchResults = DEFAULT_MAX_SEARCH_REQUEST_RESULTS,                    \
+    .maxAggregateResults = DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,              \
+    .iteratorsConfigParams.minUnionIterHeap = DEFAULT_UNION_ITERATOR_HEAP,     \
     .numericCompress = false,                                                  \
     .numericTreeMaxDepthRange = 0,                                             \
     .requestConfigParams.printProfileClock = 1,                                \
     .invertedIndexRawDocidEncoding = false,                                    \
     .gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes = true,                \
     .freeResourcesThread = true,                                               \
-    .requestConfigParams.dialectVersion = 1,                                   \
-    .vssMaxResize = 0,                                                         \
-    .multiTextOffsetDelta = 100,                                               \
-    .numBGIndexingIterationsBeforeSleep = 100,                                 \
+    .requestConfigParams.dialectVersion = DEFAULT_DIALECT_VERSION,             \
+    .vssMaxResize = DEFAULT_VSS_MAX_RESIZE,                                    \
+    .multiTextOffsetDelta = DEFAULT_MULTI_TEXT_SLOP,                           \
+    .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,          \
     .prioritizeIntersectUnionChildren = false,                                 \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                             \
   }

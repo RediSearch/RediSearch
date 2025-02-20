@@ -36,11 +36,14 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
   }
 
   // create new vector data structure
+  VecSimIndex* temp = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
+  if (!temp) {
+    return NULL;
+  }
   kdv = rm_calloc(1, sizeof(*kdv));
-  kdv->p = VecSimIndex_New(&fieldSpec->vectorOpts.vecSimParams);
-
-  dictAdd(spec->keysDict, keyName, kdv);
+  kdv->p = temp;
   kdv->dtor = (void (*)(void *))VecSimIndex_Free;
+  dictAdd(spec->keysDict, keyName, kdv);
   return kdv->p;
 }
 
@@ -108,7 +111,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .query = vq->knn,
                                       .qParams = qParams,
                                       .vectorScoreField = vq->scoreField,
-                                      .ignoreDocScore = q->opts->flags & Search_IgnoreScores,
+                                      .canTrimDeepResults = q->opts->flags & Search_CanSkipRichResults,
                                       .childIt = child_it,
                                       .timeout = q->sctx->time.timeout,
                                       .sctx = q->sctx,
@@ -151,9 +154,9 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
   return NULL;
 }
 
-int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status) {
+int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status) {
   for (size_t i = 0; i < QueryNode_NumParams(node); i++) {
-    int res = QueryParam_Resolve(&node->params[i], params, status);
+    int res = QueryParam_Resolve(&node->params[i], params, dialectVersion, status);
     if (res < 0) {
       return REDISMODULE_ERR;
     }
@@ -185,7 +188,7 @@ int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *param
 void VectorQuery_Free(VectorQuery *vq) {
   if (vq->scoreField) rm_free((char *)vq->scoreField);
   switch (vq->type) {
-    case VECSIM_QT_KNN: // no need to free the vector as we pointes to the query dictionary
+    case VECSIM_QT_KNN: // no need to free the vector as we points to the query dictionary
     case VECSIM_QT_RANGE:
       break;
   }
@@ -204,6 +207,8 @@ const char *VecSimType_ToString(VecSimType type) {
     case VecSimType_FLOAT64: return VECSIM_TYPE_FLOAT64;
     case VecSimType_FLOAT16: return VECSIM_TYPE_FLOAT16;
     case VecSimType_BFLOAT16: return VECSIM_TYPE_BFLOAT16;
+    case VecSimType_UINT8: return VECSIM_TYPE_UINT8;
+    case VecSimType_INT8: return VECSIM_TYPE_INT8;
     case VecSimType_INT32: return VECSIM_TYPE_INT32;
     case VecSimType_INT64: return VECSIM_TYPE_INT64;
   }
@@ -216,6 +221,8 @@ size_t VecSimType_sizeof(VecSimType type) {
         case VecSimType_FLOAT64: return sizeof(double);
         case VecSimType_FLOAT16: return sizeof(float)/2;
         case VecSimType_BFLOAT16: return sizeof(float)/2;
+        case VecSimType_UINT8: return sizeof(uint8_t);
+        case VecSimType_INT8: return sizeof(int8_t);
         case VecSimType_INT32: return sizeof(int32_t);
         case VecSimType_INT64: return sizeof(int64_t);
     }

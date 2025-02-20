@@ -98,7 +98,7 @@ machine query;
 
 inf = [+\-]? 'inf'i $ 4;
 size = digit+ $ 2;
-number = [+\-]? digit+('.' digit+)? (('E'|'e') ['+\-]? digit+)? $ 3;
+number = [+\-]? (digit+('.' digit+)? | ('.' digit+) | (digit+('.'))) (('E'|'e') ['+\-]? digit+)? $ 3;
 
 quote = '"';
 or = '|';
@@ -118,7 +118,7 @@ lsqb = '[';
 escape = '\\';
 squote = "'";
 escaped_character = escape (punct | space | escape);
-exact = quote . ((any - quote) | (escape.quote))+ . quote;
+exact = (quote . ((any - quote) | (escape.quote))+ . quote) | (squote . ((any - squote) | (escape.squote))+ . squote);
 term = (((any - (punct | cntrl | space | escape)) | escaped_character) | '_')+  $0 ;
 empty_string = quote.quote | squote.squote;
 mod = '@'.term $ 1;
@@ -136,7 +136,7 @@ prefix_exact = (exact.star) $1;
 suffix = (star.term | star.number | star.attr) $1;
 suffix_exact = (star.exact) $1;
 as = 'as'i;
-verbatim = squote . ((any - squote - escape) | escape.any)+ . squote $4;
+verbatim = ((quote . ((any - quote - escape) | escape.any)+ . quote) | (squote . ((any - squote - escape) | escape.any)+ . squote)) $4;
 wildcard = 'w' . verbatim $4;
 ismissing = 'ismissing'i $1;
 

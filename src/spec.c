@@ -91,7 +91,7 @@ static void Cursors_initSpec(IndexSpec *spec) {
 }
 
 /*
- * Get a field spec by field name. Case sensetive!
+ * Get a field spec by field name. Case sensitive!
  * Return the field spec if found, NULL if not.
  * Assuming the spec is properly locked before calling this function.
  */
@@ -490,6 +490,10 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
     *type = VecSimType_FLOAT16;
   else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_BFLOAT16))
     *type = VecSimType_BFLOAT16;
+  else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_UINT8))
+    *type = VecSimType_UINT8;
+  else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT8))
+    *type = VecSimType_INT8;
   // else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT32))
   //   *type = VecSimType_INT32;
   // else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT64))
@@ -1014,46 +1018,6 @@ error:
 }
 
 // Assuming the spec is properly locked before calling this function.
-size_t IndexSpec_VectorIndexSize(IndexSpec *sp) {
-  size_t total_memory = 0;
-  for (size_t i = 0; i < sp->numFields; ++i) {
-    const FieldSpec *fs = sp->fields + i;
-    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-      VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
-      if (!vecsim) {
-        continue;
-      }
-      total_memory += VecSimIndex_Info(vecsim).commonInfo.memory;
-    }
-  }
-  return total_memory;
-}
-
-VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp) {
-  VectorIndexStats stats = {0};
-  for (size_t i = 0; i < sp->numFields; ++i) {
-    const FieldSpec *fs = sp->fields + i;
-    if (FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
-      RedisModuleString *vecsim_name = IndexSpec_GetFormattedKey(sp, fs, INDEXFLD_T_VECTOR);
-      VecSimIndex *vecsim = openVectorIndex(sp, vecsim_name, DONT_CREATE_INDEX);
-      if (!vecsim) {
-        continue;
-      }
-      VecSimIndexInfo info = VecSimIndex_Info(vecsim);
-      stats.memory += info.commonInfo.memory;
-      if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
-        stats.marked_deleted += info.hnswInfo.numberOfMarkedDeletedNodes;
-      } else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
-                 fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
-        stats.marked_deleted += info.tieredInfo.backendInfo.hnswInfo.numberOfMarkedDeletedNodes;
-      }
-    }
-  }
-  return stats;
-}
-
-// Assuming the spec is properly locked before calling this function.
 int IndexSpec_CreateTextId(IndexSpec *sp, t_fieldIndex index) {
   size_t length = array_len(sp->fieldIdToIndex);
   if (length >= SPEC_MAX_FIELD_ID) {
@@ -1562,7 +1526,7 @@ void IndexSpec_Free(IndexSpec *spec) {
     Indexer_Free(spec->indexer);
   }
   // Stop and destroy garbage collector
-  // We can't free it now, because it eighter runs at the moment or has a timer set which we can't
+  // We can't free it now, because it either runs at the moment or has a timer set which we can't
   // deal with without the GIL.
   // It will free itself when it discovers that the index was freed.
   // On the worst case, it just finishes the current run and will schedule another run soon.
@@ -1631,7 +1595,7 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   // if ref count is > 1, the actual cleanup will be done only when StrongRefs are released.
   addPendingIndexDrop();
 
-  // Nullify the spec's quick access to the strong ref. (doesn't decrement refrences count).
+  // Nullify the spec's quick access to the strong ref. (doesn't decrement references count).
   spec->own_ref = (StrongRef){0};
 
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
@@ -1701,7 +1665,7 @@ StrongRef IndexSpec_LoadUnsafeEx(IndexLoadOptions *options) {
   }
 
   if (!(options->flags & INDEXSPEC_LOAD_NOCOUNTERINC)){
-    // Increament the number of uses.
+    // Increment the number of uses.
     IndexSpec_IncreasCounter(sp);
   }
 
@@ -2178,7 +2142,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   // RMKey it is provided as best effort but in some cases it might be NULL
   bool keyOpened = false;
   if (!key) {
-    key = RedisModule_OpenKey(ctx, keyname, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
+    key = RedisModule_OpenKey(ctx, keyname, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
     keyOpened = true;
   }
 
@@ -2320,7 +2284,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
     RedisModule_InfoEndDictField(ctx);
   }
 
-  // Index defenition
+  // Index definition
   RedisModule_InfoBeginDictField(ctx, "index_definition");
   SchemaRule *rule = sp->rule;
   RedisModule_InfoAddFieldCString(ctx, "type", (char*)DocumentType_ToString(rule->type));
@@ -2394,7 +2358,7 @@ void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp) {
 
   RedisModule_InfoBeginDictField(ctx, "index_properties_in_mb");
   RedisModule_InfoAddFieldDouble(ctx, "inverted_size", sp->stats.invertedSize / (float)0x100000);
-  RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", IndexSpec_VectorIndexSize(sp) / (float)0x100000);
+  RedisModule_InfoAddFieldDouble(ctx, "vector_index_size", IndexSpec_VectorIndexesSize(sp) / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "offset_vectors_size", sp->stats.offsetVecsSize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "doc_table_size", sp->docs.memsize / (float)0x100000);
   RedisModule_InfoAddFieldDouble(ctx, "sortable_values_size", sp->docs.sortablesSize / (float)0x100000);
@@ -2835,7 +2799,7 @@ void Indexes_RdbSave2(RedisModuleIO *rdb, int when) {
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value) {
 }
 
-int CompareVestions(Version v1, Version v2) {
+int CompareVersions(Version v1, Version v2) {
   if (v1.majorVersion < v2.majorVersion) {
     return -1;
   } else if (v1.majorVersion > v2.majorVersion) {
@@ -2856,7 +2820,7 @@ int CompareVestions(Version v1, Version v2) {
 
   return 0;
 }
-// This funciton is called in case the server is started or
+// This function is called in case the server is started or
 // when the replica is loading the RDB file from the master.
 static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
@@ -2895,7 +2859,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
 static void LoadingProgressCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
   RedisModule_Log(RSDummyContext, "debug", "Waiting for background jobs to be executed while"
-                  " loading is in progress (pregress is %d)",
+                  " loading is in progress (progress is %d)",
                   ((RedisModuleLoadingProgress *)data)->progress);
   workersThreadPool_Drain(ctx, 100);
 }
@@ -2948,7 +2912,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     rv = Document_LoadSchemaFieldJson(&doc, &sctx, &status);
     break;
   case DocumentType_Unsupported:
-    RS_LOG_ASSERT(0, "Should receieve valid type");
+    RS_LOG_ASSERT(0, "Should receive valid type");
   }
 
   if (rv != REDISMODULE_OK) {
@@ -2994,11 +2958,9 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         RedisModuleString *rmskey = IndexSpec_GetFormattedKey(spec, spec->fields + i, INDEXFLD_T_VECTOR);
-        KeysDictValue *kdv = dictFetchValue(spec->keysDict, rmskey);
-        if (!kdv) {
+        VecSimIndex *vecsim = openVectorIndex(spec, rmskey, DONT_CREATE_INDEX);
+        if(!vecsim)
           continue;
-        }
-        VecSimIndex *vecsim = kdv->p;
         VecSimIndex_DeleteVector(vecsim, id);
       }
     }

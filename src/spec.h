@@ -404,7 +404,7 @@ void Spec_AddToDict(RefManager *w_spec);
 /**
  * Compare redis versions
  */
-int CompareVestions(Version v1, Version v2);
+int CompareVersions(Version v1, Version v2);
 
 /**
  * Retrieves the current spec cache from the index, incrementing its
@@ -472,7 +472,7 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
 /*
  * Parse an index spec from redis command arguments.
  * Returns REDISMODULE_ERR if there's a parsing error.
- * The command only receives the relvant part of argv.
+ * The command only receives the relevant part of argv.
  *
  * The format currently is <field> <weight>, <field> <weight> ...
  */
@@ -518,21 +518,6 @@ void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
  */
 void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
 #endif
-
-/**
- * Get the total memory usage of all the vector fields in the index (in bytes).
- */
-size_t IndexSpec_VectorIndexSize(IndexSpec *sp);
-
-typedef struct {
-  size_t memory;
-  size_t marked_deleted;
-} VectorIndexStats;
-
-/**
- * Get an index's vector index stats.
- */
-VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp);
 
 /**
  * Gets the next text id from the index. This does not currently
@@ -620,7 +605,6 @@ int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
 int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, int when);
 void IndexSpec_Digest(RedisModuleDigest *digest, void *value);
-int CompareVestions(Version v1, Version v2);
 int IndexSpec_RegisterType(RedisModuleCtx *ctx);
 // int IndexSpec_UpdateWithHash(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key);
 void IndexSpec_ClearAliases(StrongRef ref);

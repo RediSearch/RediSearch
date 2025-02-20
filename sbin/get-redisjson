@@ -19,6 +19,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		REPO_PATH=dir      Get binary artifacts from given repo `dir`
 		BUILD=0            Do not build if unable to download
 		FORCE=1            Download module even if already present
+		FORCE_BUILD=0      Control whether to force building from source and avoid downloading
 		MODULE_FILE=file   Write module path into `file`
 		NOP=1              No operation
 		HELP=1             Show help
@@ -37,11 +38,13 @@ OP=""
 os="$($READIES/bin/platform --os)"
 arch="$($READIES/bin/platform --arch)"
 
+FORCE_BUILD=${FORCE_BUILD:-0}
+
 if [[ -n $REPO_PATH ]]; then
 	platform="$($READIES/bin/platform -t)"
 else
 	if [[ $os != linux && $os != macos ]]; then
-		if [[ BUILD == 0 ]]; then
+		if [[ $BUILD == 0 ]]; then
 			eprint "Cannot match binary artifacts - build ${MOD_NAME} and set REPO_PATH"
 			exit 1
 		fi
@@ -89,20 +92,13 @@ else
 		else
 			nick="rhel7"
 		fi
-	elif [[ $dist == mariner ]]; then
-		OSS=1
-		if [[ $BRANCH == master ]]; then
-			# Mariner2 is created using github actions,
-			# for master branch the artifacts are uploaded to staging
-			STAGING=1
-		fi
+	elif [[ $dist == alpine ]]; then
+	  FORCE_BUILD=1
+	  OSS=1
 	elif [[ $os == macos ]]; then
 		# as we don't build on macOS for every platform, we converge to a least common denominator
 		if [[ $arch == x86_64 ]]; then
-			nick=catalina  # to be aligned with the rest of the modules in redis stack
-		else
-			[[ $nick == ventura ]] && nick=monterey
-			[[ $nick == sonoma ]] && nick=monterey
+			nick=ventura  # to be aligned with the rest of the modules in redis stack
 		fi
 		OSS=1
 	elif [[ -n $OSNICK ]]; then
@@ -158,17 +154,17 @@ if [[ -z $REPO_PATH ]]; then
 	F_MOD_RAMP="${WORK_DIR}/${MOD_RAMP}"
 	if [[ $FORCE == 1 || ! -f $F_MOD_RAMP ]]; then
 		# check if redisjson module exists in the s3 bucket
-		if wget -q --spider ${MOD_S3_URL}/${MOD_RAMP}; then
+		if [[ $FORCE_BUILD == 0 ]] && wget -q --spider ${MOD_S3_URL}/${MOD_RAMP}; then
 			echo "Download ${MOD_NAME} [${MOD_S3_URL}/${MOD_RAMP}] ..."
 			runn wget -P ${WORK_DIR} ${MOD_S3_URL}/${MOD_RAMP}
 		else
 			if [[ $NOP != 1 ]]; then
-				if [[ BUILD == 0 ]]; then
+				if [[ $BUILD == 0 ]]; then
 					eprint "Cannot download binary artifacts - build ${MOD_NAME} and set REPO_PATH"
 					exit 1
 				fi
 				echo "Cannot download binary artifacts - building ${MOD_NAME} from source."
-				$ROOT/sbin/build-redisjson BINROOT=$BINROOT BRANCH=$BRANCH
+				BINROOT=$BINROOT BRANCH=$BRANCH $ROOT/sbin/build-redisjson
 				exit $?
 			fi
 		fi

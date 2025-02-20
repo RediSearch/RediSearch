@@ -73,13 +73,12 @@ def dotestSanity(env, dialect):
       pl.execute()
 
   env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
-  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
   env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
   #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
   #  .contains('Timeout limit was reached')
 
-  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
   env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
   #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
@@ -160,14 +159,13 @@ def dotestSanityTag(env, dialect):
       pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
       pl.execute()
 
-  env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
-  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'TIMEOUT', 1)
+  run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
   env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
   env.expect('ft.search', index_list[1], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
 
-  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
   env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
   env.expect('ft.search', index_list[1], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
@@ -361,10 +359,11 @@ def testBasic():
   conn.execute_command('HSET', 'doc7', 't', 'hall')
   conn.execute_command('HSET', 'doc8', 't', 'hallo')
 
-  env.expect('FT.SEARCH', 'idx', "w'*el*'", 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
-  env.expect('FT.SEARCH', 'idx', "w'*ll*'", 'NOCONTENT').equal([4, 'doc1', 'doc2', 'doc7', 'doc8'])
-  env.expect('FT.SEARCH', 'idx', "w'*llo'", 'NOCONTENT').equal([2, 'doc1', 'doc8'])
-  env.expect('FT.SEARCH', 'idx', "w'he*'", 'NOCONTENT').equal([5, 'doc1', 'doc2', 'doc3', 'doc4', 'doc6'])
+  q_params = ('NOCONTENT', 'SCORER', 'TFIDF')
+  env.expect('FT.SEARCH', 'idx', "w'*el*'", *q_params).equal([4, 'doc1', 'doc2', 'doc3', 'doc4'])
+  env.expect('FT.SEARCH', 'idx', "w'*ll*'", *q_params).equal([4, 'doc1', 'doc2', 'doc7', 'doc8'])
+  env.expect('FT.SEARCH', 'idx', "w'*llo'", *q_params).equal([2, 'doc1', 'doc8'])
+  env.expect('FT.SEARCH', 'idx', "w'he*'", *q_params).equal([5, 'doc1', 'doc2', 'doc3', 'doc4', 'doc6'])
 
   env.expect('FT.AGGREGATE', 'idx', "w'*el*'", 'LOAD', 1, '@t', 'SORTBY', 1, '@t')    \
         .equal([4, ['t', 'helen'], ['t', 'hell'], ['t', 'hello'], ['t', 'help']])

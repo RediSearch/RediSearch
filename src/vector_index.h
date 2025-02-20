@@ -15,6 +15,8 @@
 #define VECSIM_TYPE_FLOAT16 "FLOAT16"
 #define VECSIM_TYPE_FLOAT32 "FLOAT32"
 #define VECSIM_TYPE_FLOAT64 "FLOAT64"
+#define VECSIM_TYPE_UINT8 "UINT8"
+#define VECSIM_TYPE_INT8 "INT8"
 #define VECSIM_TYPE_INT32 "INT32"
 #define VECSIM_TYPE_INT64 "INT64"
 
@@ -115,7 +117,7 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
 
 IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator *child_it);
 
-int VectorQuery_EvalParams(dict *params, QueryNode *node, QueryError *status);
+int VectorQuery_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 int VectorQuery_ParamResolve(VectorQueryParams params, size_t index, dict *paramsDict, QueryError *status);
 void VectorQuery_Free(VectorQuery *vq);
 

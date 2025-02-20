@@ -27,7 +27,7 @@ typedef struct {
     int max;
 } SparseAutomaton;
 
-struct dfaEdge; 
+struct dfaEdge;
 
 /* dfaNode is DFA graph node constructed using the Levenshtein automaton */
 typedef struct dfaNode {
@@ -52,7 +52,7 @@ dfaNode *__dfn_getEdge(dfaNode *n, rune r);
 /* Create a new DFA node */
 dfaNode *__newDfaNode(int distance, sparseVector *state);
 
-/* Recusively build the DFA node and all its descendants */
+/* Recursively build the DFA node and all its descendants */
 void dfa_build(dfaNode *parent, SparseAutomaton *a, Vector *cache);
 
 /* Create a new Sparse Levenshtein Automaton  for string s and length len, with a maximal edit
@@ -73,7 +73,7 @@ int SparseAutomaton_CanMatch(SparseAutomaton *a, sparseVector *v);
 
 /* DFAFilter is a constructed DFA used to filter the traversal on the trie */
 typedef struct {
-    // a cache of the DFA states, allowing us to re-use the same state whenever we need it
+    // a cache of the DFA states, allowing us to reuse the same state whenever we need it
     Vector *cache;
     // A stack of the states leading up to the current state
     Vector *stack;
@@ -91,7 +91,9 @@ typedef struct {
 DFAFilter *NewDFAFilter(rune *str, size_t len, int maxDist, int prefixMode);
 
 /* A callback function for the DFA Filter, passed to the Trie iterator */
-FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
+// FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
+FilterCode FoldingFilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
+FilterCode LoweringFilterFunc(rune b, void *ctx, int *matched, void *matchCtx);
 
 /* A stack-pop callback, passed to the trie iterator. It's called when we reach a dead end and need
  * to rewind the stack of the filter */

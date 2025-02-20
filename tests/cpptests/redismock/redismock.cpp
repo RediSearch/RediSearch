@@ -46,7 +46,61 @@ void HashValue::add(const char *key, const char *value, int mode) {
       return;
     }
   }
-  m_map[key] = value;
+  m_map[key].value = value;
+}
+
+bool HashValue::hexpire(const HashValue::Key &k, mstime_t expireAt) {
+  const char *skey;
+  if (k.flags & REDISMODULE_HASH_CFIELDS) {
+    skey = k.cstr;
+  } else {
+    skey = (*k.rstr).c_str();
+  }
+
+  auto itKey = m_map.find(skey);
+  if (expireAt == REDISMODULE_NO_EXPIRE || itKey == m_map.end()) {
+    return false;
+  }
+
+  // if field had a different expiration point, remove it
+  if (itKey->second.expirationIt != m_expiration.end()) {
+    if (itKey->second.expirationIt->first == expireAt) {
+      return true;
+    }
+    itKey->second.expirationIt->second.erase(skey);
+    itKey->second.expirationIt = m_expiration.end();
+  }
+  // add the new expiration point, both to expiration map and to key
+  // TODO: find out why try_emplace doesn't compile on some environments
+  auto it = m_expiration.find(expireAt);
+  if (it == m_expiration.end()) {
+    it = m_expiration.emplace(expireAt, std::unordered_set<std::string>()).first;
+  }
+  itKey->second.expirationIt = it;
+  it->second.insert(skey);
+  return true;
+}
+
+Optional<mstime_t> HashValue::min_expire_time() const {
+  if (m_expiration.empty()) {
+    return boost::none;
+  }
+  return m_expiration.begin()->first;
+}
+
+Optional<mstime_t> HashValue::get_expire_time(const Key &k) const {
+  const char *skey;
+  if (k.flags & REDISMODULE_HASH_CFIELDS) {
+    skey = k.cstr;
+  } else {
+    skey = (*k.rstr).c_str();
+  }
+
+  auto it = m_map.find(skey);
+  if (it == m_map.end() || it->second.expirationIt == m_expiration.end()) {
+    return boost::none;
+  }
+  return it->second.expirationIt->first;
 }
 
 void HashValue::hset(const HashValue::Key &k, const RedisModuleString *value) {
@@ -73,12 +127,9 @@ void HashValue::hset(const HashValue::Key &k, const RedisModuleString *value) {
       return;
     }
   }
-  m_map[skey] = *value;
-
-  if (k.flags & REDISMODULE_HASH_CFIELDS) {
-  } else {
-    m_map[*k.rstr] = *value;
-  }
+  auto& e = m_map[skey];
+  e.value = *value;
+  e.expirationIt = m_expiration.end();
 }
 
 const std::string *HashValue::hget(const Key &e) const {
@@ -86,14 +137,14 @@ const std::string *HashValue::hget(const Key &e) const {
   if (entry == m_map.end()) {
     return NULL;
   }
-  return &entry->second;
+  return &entry->second.value;
 }
 
 RedisModuleString **HashValue::kvarray(RedisModuleCtx *allocctx) const {
   std::vector<RedisModuleString *> ll;
   for (auto it : m_map) {
     RedisModuleString *keyp = new RedisModuleString(it.first);
-    RedisModuleString *valp = new RedisModuleString(it.second);
+    RedisModuleString *valp = new RedisModuleString(it.second.value);
     ll.push_back(keyp);
     ll.push_back(valp);
     allocctx->addPointer(keyp);
@@ -147,6 +198,15 @@ size_t RMCK_ValueLength(RedisModuleKey *k) {
   } else {
     return k->ref->size();
   }
+}
+
+mstime_t RMCK_HashFieldMinExpire(RedisModuleKey *k) {
+  auto hv = dynamic_cast<HashValue *>(k->ref);
+  if (!hv) {
+    return REDISMODULE_NO_EXPIRE;
+  }
+  const auto minExpire = hv->min_expire_time();
+  return minExpire ? *minExpire : REDISMODULE_NO_EXPIRE;
 }
 
 /** String functions */
@@ -298,6 +358,7 @@ int RMCK_StringToLongLong(RedisModuleString *s, long long *l) {
 #define ENTRY_OK 1
 #define ENTRY_DONE 0
 #define ENTRY_ERROR -1
+// Retreives the hash value key and the following argument, and stores them in the provided pointers
 static int getNextEntry(va_list &ap, HashValue::Key &e, void **vpp) {
   void *kp = va_arg(ap, void *);
   if (!kp) {
@@ -365,31 +426,34 @@ int RMCK_HashGet(RedisModuleKey *key, int flags, ...) {
     return REDISMODULE_ERR;
   }
 
+  if ((flags & REDISMODULE_HASH_EXISTS) && (flags & REDISMODULE_HASH_EXPIRE_TIME))
+    return REDISMODULE_ERR;
+
   HashValue *hv = static_cast<HashValue *>(key->ref);
 
   while (true) {
     void *vpp = NULL;
-    int rc = getNextEntry(ap, e, (void **)&vpp);
-    if (rc != ENTRY_OK) {
+    e.rawkey = va_arg(ap, void *);
+    if (!e.rawkey) {
       break;
     }
 
     // Get the key
     const std::string *value = hv->hget(e);
-    if (!value) {
-      if (flags & REDISMODULE_HASH_EXISTS) {
-        *reinterpret_cast<int *>(vpp) = 0;
-      } else {
-        *reinterpret_cast<RedisModuleString **>(vpp) = NULL;
-      }
+    if (flags & REDISMODULE_HASH_EXISTS) {
+      int *exists = va_arg(ap, int *);
+      *exists = value != NULL;
+    } else if (flags & REDISMODULE_HASH_EXPIRE_TIME) {
+      mstime_t *ms = va_arg(ap, mstime_t *);
+      *ms = hv->get_expire_time(e).value_or(REDISMODULE_NO_EXPIRE);
     } else {
-      if (flags & REDISMODULE_HASH_EXISTS) {
-        *reinterpret_cast<int *>(vpp) = 1;
-      } else {
-        RedisModuleString *newv = new RedisModuleString(*value);
+      RedisModuleString **value_ptr = va_arg(ap, RedisModuleString* *);
+      RedisModuleString *newv = NULL;
+      if (value) {
+        newv = new RedisModuleString(*value);
         key->parent->addPointer(newv);
-        *reinterpret_cast<RedisModuleString **>(vpp) = newv;
       }
+      *reinterpret_cast<RedisModuleString **>(value_ptr) = newv;
     }
   }
   va_end(ap);
@@ -677,6 +741,74 @@ static RedisModuleCallReply *RMCK_CallHset(RedisModuleCtx *ctx, const char *cmd,
   return NULL;
 }
 
+static RedisModuleCallReply* HExpire(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+                                    va_list ap, int scale) {
+  auto get_string_arg = [&ap] (const char format) -> const char * {
+    if (format == 'c') {
+      return va_arg(ap, const char *);
+    } else if (format == 's') {
+      RedisModuleString *rid = va_arg(ap, RedisModuleString *);
+      return rid->c_str();
+    }
+    return NULL;
+  };
+
+  RedisModuleCallReply *reply = new RedisModuleCallReply(ctx);
+  const char *id = get_string_arg(*fmt);
+  if (!id) {
+    reply->type = REDISMODULE_REPLY_ERROR;
+    reply->s = "Invalid key";
+    return reply;
+  }
+
+  auto value = ctx->db->get(id);
+  auto hash = dynamic_cast<HashValue *>(value);
+  if (!hash) {
+    reply->type = REDISMODULE_REPLY_ERROR;
+    reply->s = "Could not find key";
+    return reply;
+  }
+
+  const mstime_t expireAt = va_arg(ap, mstime_t) * scale;
+  ++fmt;
+  if (*fmt != 'v') {
+    reply->type = REDISMODULE_REPLY_ERROR;
+    reply->s = "Unexpected format";
+  }
+  ++fmt; // fmt should either be c or s - a vector of const char* or redis string
+  size_t count = va_arg(ap, size_t);
+  reply->type = REDISMODULE_REPLY_ARRAY;
+  const mstime_t now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+  for (size_t index = 0; index < count; ++index) {
+    reply->arr.emplace_back(RedisModuleCallReply(ctx));
+    auto& fieldReply = reply->arr.back();
+    fieldReply.type = REDISMODULE_REPLY_INTEGER;
+    const char *field = get_string_arg(*fmt);
+    if (field == NULL) {
+      fieldReply.ll = -2; // no such field exists
+    } else if (expireAt == 0) {
+      fieldReply.ll = 2; // invalid expiration time
+    } else {
+      fieldReply.ll = 1;
+      HashValue::Key e(REDISMODULE_HASH_CFIELDS);
+      e.cstr = field;
+      hash->hexpire(e, now + expireAt);
+    }
+  }
+  RMCK_Notify("hexpire", REDISMODULE_NOTIFY_HASH, id);
+  return reply;
+}
+
+static RedisModuleCallReply *RMCK_CallHexpire(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+                                              va_list ap) {
+  return HExpire(ctx, cmd, fmt, ap, 1000);
+}
+
+static RedisModuleCallReply *RMCK_CallHpexpire(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
+                                              va_list ap) {
+  return HExpire(ctx, cmd, fmt, ap, 1);
+}
+
 static RedisModuleCallReply *RMCK_CallHgetall(RedisModuleCtx *ctx, const char *cmd, const char *fmt,
                                               va_list ap) {
   const char *id = NULL;
@@ -703,7 +835,7 @@ static RedisModuleCallReply *RMCK_CallHgetall(RedisModuleCtx *ctx, const char *c
   HashValue *hv = static_cast<HashValue *>(v);
   for (auto it : hv->items()) {
     r->arr.push_back(RedisModuleCallReply(ctx, it.first));
-    r->arr.push_back(RedisModuleCallReply(ctx, it.second));
+    r->arr.push_back(RedisModuleCallReply(ctx, it.second.value));
   }
   return r;
 }
@@ -726,6 +858,10 @@ RedisModuleCallReply *RMCK_Call(RedisModuleCtx *ctx, const char *cmd, const char
     reply = RMCK_CallHgetall(ctx, cmd, fmt, ap);
   } else if (strcasecmp(cmd, "HSET") == 0) {
     reply = RMCK_CallHset(ctx, cmd, fmt, ap);
+  } else if (strcasecmp(cmd, "HEXPIRE") == 0) {
+    reply = RMCK_CallHexpire(ctx, cmd, fmt, ap);
+  } else if (strcasecmp(cmd, "HPEXPIRE") == 0) {
+    reply = RMCK_CallHpexpire(ctx, cmd, fmt, ap);
   } else if (strcasecmp(cmd, "SET") == 0) {
     reply = RMCK_CallSet(ctx, cmd, fmt, ap);
   } else if (strcasecmp(cmd, "GET") == 0) {
@@ -837,6 +973,9 @@ static int RMCK_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
   return fork();
 }
 
+static void RMCK_SendChildHeartbeat(double progress) {
+}
+
 static int RMCK_ExitFromChild(int retcode) {
   _exit(retcode);
 }
@@ -910,6 +1049,63 @@ static mstime_t RMCK_GetAbsExpire(RedisModuleKey *key) {
   return REDISMODULE_NO_EXPIRE;
 }
 
+struct ServerInfo {
+};
+
+static RedisModuleServerInfoData* RMCK_GetServerInfo(RedisModuleCtx *, const char *section) {
+  return reinterpret_cast<RedisModuleServerInfoData*>(new ServerInfo());
+}
+
+static void RMCK_FreeServerInfo(RedisModuleCtx *, RedisModuleServerInfoData *si) {
+  delete reinterpret_cast<ServerInfo*>(si);
+}
+
+
+static unsigned long long RMCK_ServerInfoGetFieldUnsigned(RedisModuleServerInfoData *data, const char* field, int *out_err) {
+  return 0;
+}
+
+static unsigned long long RMCK_DbSize(RedisModuleCtx *ctx) {
+  return ctx->db->size();
+}
+
+struct Cursor {
+  using Iterator = decltype(std::declval<HashValue>().begin());
+  Iterator it;
+  Iterator end;
+};
+
+static RedisModuleScanCursor* RMCK_ScanCursorCreate() {
+  return reinterpret_cast<RedisModuleScanCursor*>(new Cursor());
+}
+
+static void RMCK_ScanCursorDestroy(RedisModuleScanCursor *cursor) {
+  delete reinterpret_cast<Cursor*>(cursor);
+}
+
+static int RMCK_ScanKey(RedisModuleKey *key, RedisModuleScanCursor *cursor, RedisModuleScanKeyCB fn, void *privdata) {
+  HashValue* hv = dynamic_cast<HashValue*>(key->ref);
+  auto cur = reinterpret_cast<Cursor*>(cursor);
+  if (!hv || !cur) {
+    errno = EINVAL;
+    return 0;
+  }
+  if (cur->end != hv->end()) {
+    cur->it = hv->begin();
+    cur->end = hv->end();
+  }
+
+  if (cur->it != cur->end) {
+    RedisModuleString* field = new RedisModuleString(cur->it->first);
+    RedisModuleString* value = new RedisModuleString(cur->it->second.value);
+    fn(key, field, value, privdata);
+    field->decref();
+    value->decref();
+    cur->it++;
+  }
+  return cur->it != cur->end;
+}
+
 static void registerApis() {
   REGISTER_API(GetApi);
   REGISTER_API(Alloc);
@@ -931,6 +1127,7 @@ static void registerApis() {
 
   REGISTER_API(_Assert);
 
+  REGISTER_API(HashFieldMinExpire);
   REGISTER_API(CreateString);
   REGISTER_API(CreateStringPrintf);
   REGISTER_API(CreateStringFromString);
@@ -972,6 +1169,14 @@ static void registerApis() {
   REGISTER_API(ExportSharedAPI);
   REGISTER_API(GetSharedAPI);
 
+  REGISTER_API(DbSize);
+  REGISTER_API(GetServerInfo);
+  REGISTER_API(FreeServerInfo);
+  REGISTER_API(ServerInfoGetFieldUnsigned);
+  REGISTER_API(ScanCursorCreate);
+  REGISTER_API(ScanCursorDestroy);
+  REGISTER_API(ScanKey);
+
   REGISTER_API(SubscribeToKeyspaceEvents);
   REGISTER_API(SubscribeToServerEvent);
   REGISTER_API(RegisterCommandFilter);
@@ -979,6 +1184,7 @@ static void registerApis() {
   REGISTER_API(SetModuleOptions);
 
   REGISTER_API(KillForkChild);
+  REGISTER_API(SendChildHeartbeat);
   REGISTER_API(ExitFromChild);
   REGISTER_API(Fork);
   REGISTER_API(AddACLCategory);

@@ -49,14 +49,6 @@ const char *FieldSpec_GetTypeNames(int idx) {
   }
 }
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
-  FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, fs->path);
-  FieldSpecInfo_SetAttribute(&info, fs->name);
-  FieldSpecInfo_SetIndexError(&info, fs->indexError);
-  return info;
-}
-
 void FieldSpec_AddError(FieldSpec *fs, const char *error_message, RedisModuleString *key) {
   IndexError_AddError(&fs->indexError, error_message, key);
   FieldsGlobalStats_UpdateIndexError(fs->types, 1);
