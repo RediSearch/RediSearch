@@ -26,6 +26,7 @@ static int parseFieldList(ArgsCursor *ac, FieldList *fields, Array *fieldPtrs) {
     ReturnedField *fieldInfo = FieldList_GetCreateField(fields, HiddenString_GetUnsafe(hname, NULL), NULL);
     size_t ix = (fieldInfo - fields->fields);
     Array_Write(fieldPtrs, &ix, sizeof(size_t));
+    HiddenString_Free(hname, false);
   }
 
   return 0;
@@ -91,8 +92,10 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
       }
       HiddenString *hopenTag = AC_GetHiddenStringNC(ac);
       defOpts.highlightSettings.openTag = (char *)HiddenString_GetUnsafe(hopenTag, NULL);
+      HiddenString_Free(hopenTag, false);
       HiddenString *hcloseTag = AC_GetHiddenStringNC(ac);
       defOpts.highlightSettings.closeTag = (char *)HiddenString_GetUnsafe(hcloseTag, NULL);
+      HiddenString_Free(hcloseTag, false);
     } else if (!isHighlight && AC_AdvanceIfMatch(ac, "LEN")) {
       if (AC_GetUnsigned(ac, &defOpts.summarizeSettings.contextLen, 0) != AC_OK) {
         rc = REDISMODULE_ERR;
@@ -112,6 +115,7 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
         goto done;
       } else {
         defOpts.summarizeSettings.separator = (char *)HiddenString_GetUnsafe(hsaparator, NULL);
+        HiddenString_Free(hsaparator, false);
       }
     } else {
       break;

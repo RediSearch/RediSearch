@@ -267,6 +267,8 @@ int parseParams (dict **destParams, ArgsCursor *ac, QueryError *status) {
     HiddenString *hvalue = AC_GetHiddenStringNC(&paramsArgs);
     const char *param = HiddenString_GetUnsafe(hparam, NULL);
     const char *value = HiddenString_GetUnsafe(hvalue, &value_len);
+    HiddenString_Free(hparam, false);
+    HiddenString_Free(hvalue, false);
     // FIXME: Validate param is [a-zA-Z][a-zA-z_\-:0-9]*
     if (DICT_ERR == Param_DictAdd(params, param, value, value_len, status)) {
       Param_DictFree(params);

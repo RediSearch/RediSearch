@@ -741,6 +741,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   QueryError status = {0};
   HiddenString *hixname = AC_GetHiddenStringNC(&ac);
   StrongRef ref = IndexSpec_LoadUnsafe(HiddenString_GetUnsafe(hixname, NULL));
+  HiddenString_Free(hixname, false);
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
@@ -776,6 +777,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
 
     AC_GetHiddenString(&ac, &hfieldName, AC_F_NOADVANCE);
     fieldName = HiddenString_GetUnsafe(hfieldName, &fieldNameSize);
+    HiddenString_Free(hfieldName, false);
     RedisSearchCtx_LockSpecRead(&sctx);
     const FieldSpec *field_exists = IndexSpec_GetFieldWithLength(sp, fieldName, fieldNameSize);
     RedisSearchCtx_UnlockSpec(&sctx);

@@ -89,11 +89,13 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
         if (numRemaining % 2 != 0) {
           QueryError_SetError(status, QUERY_EADDARGS,
                               "Fields must be specified in FIELD VALUE pairs");
+          HiddenString_Free(hs, false);
           return REDISMODULE_ERR;
         } else {
           opts->fieldsArray = (RedisModuleString **)ac->objs + ac->offset;
           opts->numFieldElems = numRemaining;
           foundFields = 1;
+          HiddenString_Free(hs, false);
         }
         break;
 
@@ -101,6 +103,7 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
         size_t length;
         const char* s = HiddenString_GetUnsafe(hs, &length);
         QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Unknown keyword", " `%.*s` provided", (int)length, s);
+        HiddenString_Free(hs, false);
         return REDISMODULE_ERR;
       }
       // Argument not found, that's ok. We'll handle it below

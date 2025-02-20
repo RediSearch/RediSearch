@@ -24,6 +24,7 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
     n = strlen(s);
   } else {
     s = HiddenString_GetUnsafe(hs, &n);
+    HiddenString_Free(hs, false);
   }
   QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument", " `%.*s` at position %lu for %s",
                          (int)n, s, ac->offset, name);

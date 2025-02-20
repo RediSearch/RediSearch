@@ -20,6 +20,7 @@ static void CheckAndSetEmptyFilterValue(ArgsCursor *ac, bool *hasEmptyFilterValu
   if (rv == AC_OK && HiddenString_IsEmpty(hval)) {
     *hasEmptyFilterValue = true;
   }
+  HiddenString_Free(hval, false);
 }
 
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], and FILTER
@@ -71,6 +72,7 @@ int GeoFilter_LegacyParse(GeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterVal
   HiddenString *hunitstr = AC_GetHiddenStringNC(ac);
   if ((gf->unitType = GeoDistance_Parse(HiddenString_GetUnsafe(hunitstr, NULL))) == GEO_DISTANCE_INVALID) {
     QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", HiddenString_GetUnsafe(hunitstr, NULL));
+    HiddenString_Free(hunitstr, false);
     return REDISMODULE_ERR;
   }
   // only allocate on the success path

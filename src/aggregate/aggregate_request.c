@@ -140,11 +140,11 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
   const char** requiredFields = array_new(const char*, requiredFieldNum);
   for(size_t i=0; i < requiredFieldNum; i++) {
     HiddenString *hs = AC_GetHiddenStringNC(&args);
-    const char *s = HiddenString_GetUnsafe(hs, NULL); {
-      if(!s) {
-        array_free(requiredFields);
-        return REDISMODULE_ERR;
-      }
+    const char *s = HiddenString_GetUnsafe(hs, NULL);
+    HiddenString_Free(hs, false);
+    if(!s) {
+      array_free(requiredFields);
+      return REDISMODULE_ERR;
     }
     array_append(requiredFields, s);
   }
@@ -185,9 +185,11 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
   } else {
     const char *format = HiddenString_GetUnsafe(hformat, NULL);
     QERR_MKBADARGS_FMT(status, "FORMAT", " %s is not supported", format);
+    HiddenString_Free(hformat, false);
     return REDISMODULE_ERR;
   }
   *flags &= ~QEXEC_FORMAT_DEFAULT;
+  HiddenString_Free(hformat, false);
   return REDISMODULE_OK;
 }
 
@@ -407,10 +409,12 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
       if (HiddenString_StartsWith(hs, "@")) {
         if (array_len(keys) >= SORTASCMAP_MAXFIELDS) {
           QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ELIMIT, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
+          HiddenString_Free(hs, false);
           goto err;
         }
         HiddenString_AdvanceBy(hs, 1);
         array_append(keys, HiddenString_GetUnsafe(hs, NULL));
+        HiddenString_Free(hs, false);
         continue;
       }
 
@@ -422,8 +426,10 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
         // Unknown token - neither a property nor ASC/DESC
         const char *s = HiddenString_GetUnsafe(hs, NULL);
         QERR_MKBADARGS_FMT(status, "MISSING ASC or DESC after sort field", " (%s)", s);
+        HiddenString_Free(hs, false);
         goto err;
       }
+      HiddenString_Free(hs, false);
     }
   }
 
@@ -620,14 +626,21 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         int rv = AC_GetHiddenString(&returnFields, &hname, 0);
         if (rv != AC_OK) {
           QERR_MKBADARGS(status, "RETURN path AS name - must be accompanied with NAME");
+          HiddenString_Free(hpath, false);
           return REDISMODULE_ERR;
         } else if (!HiddenString_CaseInsensitiveCompareC(hname, SPEC_AS_STR, strlen(SPEC_AS_STR))) {
           QERR_MKBADARGS(status, "Alias for RETURN cannot be `AS`");
+          HiddenString_Free(hname, false);
+          HiddenString_Free(hpath, false);
           return REDISMODULE_ERR;
         }
       }
       const char *name = HiddenString_GetUnsafe(hname, NULL);
       const char *path = HiddenString_GetUnsafe(hpath, NULL);
+      if (hname != hpath) {
+        HiddenString_Free(hname, false);
+      }
+      HiddenString_Free(hpath, false);
       ReturnedField *f = FieldList_GetCreateField(&req->outFields, name, path);
       f->explicitReturn = 1;
     }
@@ -651,6 +664,7 @@ static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCurso
     }
     size_t l;
     const char *s = HiddenString_GetUnsafe(hs, &l);
+    HiddenString_Free(hs, false);
     out = sdscatlen(out, s, l);
     if (!AC_IsAtEnd(&tmp)) {
       out = sdscat(out, ",");
@@ -729,6 +743,7 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
     gr->alias = rm_strdup(alias);
   }
   gr->isHidden = 0; // By default, reducers are not hidden
+  HiddenString_Free(halias, false);
   return REDISMODULE_OK;
 
 error:
@@ -779,6 +794,7 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
       return REDISMODULE_ERR;
     }
     const char *name = HiddenString_GetUnsafe(hname, NULL);
+    HiddenString_Free(hname, false);
     if (PLNGroupStep_AddReducer(gstp, name, ac, status) != REDISMODULE_OK) {
       goto error;
     }
@@ -817,7 +833,6 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
   }
 
   PLN_MapFilterStep *stp = PLNMapFilterStep_New(hexpr, isApply ? PLN_T_APPLY : PLN_T_FILTER);
-  HiddenString_Free(hexpr, false);
   AGPLN_AddStep(&req->ap, &stp->base);
 
   if (isApply) {
@@ -827,14 +842,17 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
       HiddenString *halias;
       if (AC_GetHiddenString(ac, &halias, 0) != AC_OK) {
         QERR_MKBADARGS(status, "AS needs argument");
+        HiddenString_Free(hexpr, false);
         goto error;
       }
       alias = HiddenString_GetUnsafe(halias, &aliasLen);
+      HiddenString_Free(halias, false);
       stp->base.alias = rm_strndup(alias, aliasLen);
     } else {
       alias = HiddenString_GetUnsafe(hexpr, &aliasLen);
       stp->base.alias = rm_strndup(alias, aliasLen);
     }
+    HiddenString_Free(hexpr, false);
   }
   return REDISMODULE_OK;
 
@@ -857,17 +875,19 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   int rc = AC_GetVarArgs(ac, &loadfields);
   if (rc == AC_ERR_PARSE) {
     // Didn't get a number, but we might have gotten a '*'
-    HiddenString *hs = NULL;
+    HiddenString *hs;
     rc = AC_GetHiddenString(ac, &hs, 0);
     if (rc != AC_OK) {
       QERR_MKBADARGS_AC(status, "LOAD", rc);
       return REDISMODULE_ERR;
     } else if (!HiddenString_StartsWith(hs, "*")) {
       QERR_MKBADARGS(status, "Bad arguments for LOAD: Expected number of fields or `*`");
+      HiddenString_Free(hs, false);
       return REDISMODULE_ERR;
     }
     // Successfully got a '*', load all fields
     req->reqflags |= QEXEC_AGG_LOAD_ALL;
+    HiddenString_Free(hs, false);
   } else if (rc != AC_OK) {
     QERR_MKBADARGS_AC(status, "LOAD", rc);
     return REDISMODULE_ERR;
@@ -930,6 +950,7 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
   }
   HiddenString* hac = AC_GetHiddenStringNC(&ac);
   req->query  = HiddenString_GetUnsafe(hac, NULL);
+  HiddenString_Free(hac, false);
   AGPLN_Init(&req->ap);
 
   RSSearchOptions *searchOpts = &req->searchopts;
@@ -1628,6 +1649,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
               return REDISMODULE_ERR;
             } else if (!HiddenString_CaseInsensitiveCompareC(hname, SPEC_AS_STR, strlen(SPEC_AS_STR))){
               QERR_MKBADARGS(status, "Alias for LOAD cannot be `AS`");
+              HiddenString_Free(hname, false);
               return REDISMODULE_ERR;
             }
           } else {
@@ -1638,6 +1660,10 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
           const char *name = HiddenString_GetUnsafe(hname, &name_len);
           RLookupKey *kk = RLookup_GetKey_LoadEx(curLookup, name, name_len,
                                                       HiddenString_GetUnsafe(hpath, NULL), loadFlags);
+          if (hname != hpath) {
+            HiddenString_Free(hname, false);
+          }
+          HiddenString_Free(hpath, false);
           // We only get a NULL return if the key already exists, which means
           // that we don't need to retrieve it again.
           if (kk) {

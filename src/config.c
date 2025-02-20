@@ -161,6 +161,7 @@ CONFIG_SETTER(setExtLoad) {
   int acrc = AC_GetHiddenString(ac, &hextLoad, 0);
   if (acrc == AC_OK) {
     config->extLoad = rm_strdup(HiddenString_GetUnsafe(hextLoad, NULL));
+    HiddenString_Free(hextLoad, false);
   }
   RETURN_STATUS(acrc);
 }
@@ -471,9 +472,11 @@ CONFIG_SETTER(setMtMode) {
   } else if (!HiddenString_CaseInsensitiveCompareC(hmt_mode, "MT_MODE_FULL", strlen("MT_MODE_FULL"))) {
     mt_mode_config = MT_MODE_FULL;
   } else {
+    HiddenString_Free(hmt_mode, false);
     QueryError_SetError(status, QUERY_EPARSEARGS, "Invalie MT mode");
     return REDISMODULE_ERR;
   }
+  HiddenString_Free(hmt_mode, false);
   return REDISMODULE_OK;
 }
 
@@ -533,9 +536,11 @@ CONFIG_SETTER(setFrisoINI) {
   int acrc = AC_GetHiddenString(ac, &hfrisoIni, 0);
   if (acrc == AC_OK) {
     config->frisoIni = rm_strdup(HiddenString_GetUnsafe(hfrisoIni, NULL));
+    HiddenString_Free(hfrisoIni, false);
   }
   RETURN_STATUS(acrc);
 }
+
 CONFIG_GETTER(getFrisoINI) {
   if (config->frisoIni && strlen(config->frisoIni) > 0) {
     return sdsnew(config->frisoIni);
@@ -565,6 +570,7 @@ CONFIG_SETTER(setOnTimeout) {
   size_t len;
   const char *policy = HiddenString_GetUnsafe(hpolicy, &len);
   RSTimeoutPolicy top = TimeoutPolicy_Parse(policy, len);
+  HiddenString_Free(hpolicy, false);
   if (top == TimeoutPolicy_Invalid) {
     QueryError_SetError(status, QUERY_EBADVAL, "Invalid ON_TIMEOUT value");
     return REDISMODULE_ERR;
@@ -764,12 +770,15 @@ CONFIG_SETTER(setGcPolicy) {
    !HiddenString_CaseInsensitiveCompareC(hpolicy, "FORK", strlen("FORK"))) {
     config->gcConfigParams.gcPolicy = GCPolicy_Fork;
   } else if (!HiddenString_CaseInsensitiveCompareC(hpolicy, "LEGACY", strlen("LEGACY"))) {
+    HiddenString_Free(hpolicy, false);
     QueryError_SetError(status, QUERY_EPARSEARGS, "Legacy GC policy is no longer supported (since 2.6.0)");
     return REDISMODULE_ERR;
   } else {
+    HiddenString_Free(hpolicy, false);
     QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid GC Policy value");
     return REDISMODULE_ERR;
   }
+  HiddenString_Free(hpolicy, false);
   return REDISMODULE_OK;
 }
 
@@ -914,6 +923,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
   while (!AC_IsAtEnd(&ac)) {
     HiddenString *hname = AC_GetHiddenStringNC(&ac);
     const char *name = HiddenString_GetUnsafe(hname, NULL);
+    HiddenString_Free(hname, false);
     RSConfigVar *curVar = findConfigVar(&RSGlobalConfigOptions, name);
     if (curVar == NULL) {
       rm_asprintf(err, "No such configuration option `%s`", name);

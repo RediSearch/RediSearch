@@ -83,7 +83,7 @@ NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterVal
     NumericFilter_Free(nf);
     return NULL;
   }
-
+  HiddenString_Free(hs, false);
   hs = AC_GetHiddenStringNC(ac);
   if (HiddenString_IsEmpty(hs)) {
     *hasEmptyFilterValue = true;

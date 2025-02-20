@@ -520,8 +520,11 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
   //   *type = VecSimType_INT32;
   // else if (HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_INT64, strlen(VECSIM_TYPE_INT64)))
   //   *type = VecSimType_INT64;
-  else
+  else {
+    HiddenString_Free(htypeStr, false);
     return AC_ERR_ENOENT;
+  }
+  HiddenString_Free(htypeStr, false);
   return AC_OK;
 }
 
@@ -540,8 +543,11 @@ static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
     *metric = VecSimMetric_L2;
   else if (!HiddenString_CaseInsensitiveCompareC(hmetricStr, VECSIM_METRIC_COSINE, strlen(VECSIM_METRIC_COSINE)))
     *metric = VecSimMetric_Cosine;
-  else
+  else {
+    HiddenString_Free(hmetricStr, false);
     return AC_ERR_ENOENT;
+  }
+  HiddenString_Free(hmetricStr, false);
   return AC_OK;
 }
 
@@ -682,6 +688,7 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
     } else {
       HiddenString *hac = AC_GetHiddenStringNC(ac);
       QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, HiddenString_GetUnsafe(hac, NULL));
+      HiddenString_Free(hac, false);
       return 0;
     }
     numParam++;
@@ -760,6 +767,7 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
     } else {
       HiddenString *hac = AC_GetHiddenStringNC(ac);
       QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_BF, HiddenString_GetUnsafe(hac, NULL));
+      HiddenString_Free(hac, false);
       return 0;
     }
     numParam++;
@@ -824,8 +832,10 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
             "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
             "double metaphone (dm). Supported languages: English (en), French (fr), "
             "Portuguese (pt) and Spanish (es)");
+        HiddenString_Free(hmatcher, false);
         return 0;
       }
+      HiddenString_Free(hmatcher, false);
       fs->options |= FieldSpec_Phonetics;
       continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
@@ -856,6 +866,7 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
         HiddenString *hsep = AC_GetHiddenStringNC(ac);
         size_t sepLen;
         const char *sep = HiddenString_GetUnsafe(hsep, &sepLen);
+        HiddenString_Free(hsep, false);
         if (sepLen != 1) {
           QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
                                 "Tag separator must be a single character. Got `%s`", sep);
@@ -939,9 +950,11 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     result = parseVectorField_hnsw(fs, params, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
+    HiddenString_Free(halgStr, false);
     return 0;
   }
 
+  HiddenString_Free(halgStr, false);
   if(result != 0) {
     if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
       fs->options |= FieldSpec_IndexMissing;
