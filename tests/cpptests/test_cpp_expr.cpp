@@ -111,8 +111,8 @@ TEST_F(ExprTest, testDump) {
   using String = const char *;
   std::map<String, std::pair<String, String>> exprToDump = {
     {"NULL", {"NULL", "NULL"}},
-    {"4 + 2", {"(4 + 2)", "(Number + Number)"}},
-    {"!9", {"!(9)", "!(Number)"}},
+    {"4 + 2", {"6", "Number"}},
+    {"!9", {"!9", "!Number"}},
     {"((@foo + (sqrt(@bar) / @baz)) + ' ')", {"((@foo + (sqrt(@bar) / @baz)) + \" \")", "((@Text + (sqrt(@Text) / @Text)) + \"Text\")"}},
   };
   for (auto& [expr, pair] : exprToDump) {
