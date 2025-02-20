@@ -40,7 +40,7 @@ help() {
 		TESTFILE=file         Run tests listed in `file`
 		FAILEDFILE=file       Write failed tests into `file`
 
-		UNSTABLE=1            Do not skip unstable tests (default: 0)
+    UNSTABLE=1            Do not skip unstable tests (default: 0)
 		ONLY_STABLE=1         Skip unstable tests
 
     REJSON=1|0            Also load RedisJSON module (default: 1)

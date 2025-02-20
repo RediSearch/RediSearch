@@ -2,7 +2,7 @@
 
 # Function to run a command, and only if it fails, print stdout and stderr and then exit
 run_command() {
-  output=$($@ 2>&1)
+  output=$(eval "$@" 2>&1)
   status=$?
   if [ $status -ne 0 ]; then
     echo "$output"
