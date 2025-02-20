@@ -57,6 +57,10 @@ add_compile_definitions(
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
+if (NOT DEBUG)
+    add_compile_definitions(NDEBUG)
+endif()
+
 if (BUILD_LITE)
     message(WARNING "Building artifact under the name searchlight for backward compatibility, but coordinator will be activated in clustered environment")
 endif()
