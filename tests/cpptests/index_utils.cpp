@@ -10,7 +10,8 @@ std::string numToDocStr(unsigned id) {
 
 size_t addDocumentWrapper(RedisModuleCtx *ctx, RSIndex *index, const char *docid, const char *field, const char *value) {
     size_t beforAddMem = get_spec(index)->stats.invertedSize;
-    assert(RS::addDocument(ctx, index, docid, field, value));
+    bool rv = RS::addDocument(ctx, index, docid, field, value);
+    assert(rv);
     return (get_spec(index))->stats.invertedSize - beforAddMem;
 }
 
