@@ -518,7 +518,7 @@ class TestQueryDebugCommands(object):
         limit = 2
         res = self.QueryWithLimit(basic_debug_query, timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=False)
 
-        self.QueryWithSorter(sortby_params=['sortby', 1, '@n', 'load', 1, '@n'])
+        self.QueryWithSorter(sortby_params=['sortby', 1, '@n'])
 
         # with cursor
         timeout_res_count = 200

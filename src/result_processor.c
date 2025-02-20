@@ -1167,10 +1167,13 @@ void PipelineAddTimeoutAfterCount(AREQ *r, size_t results_count) {
   ResultProcessor *cur = r->qiter.endProc;
   ResultProcessor dummyHead = { .upstream = cur };
   ResultProcessor *downstream = &dummyHead;
+
+  // Search for the last result processor
   while (cur) {
     if (!cur->upstream) {
       ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count);
       RPTimeoutAfterCount->parent = &r->qiter;
+      // Insert the timeout processor between the last result processor and its downstream result processor
       downstream->upstream = RPTimeoutAfterCount;
       RPTimeoutAfterCount->upstream = cur;
     }

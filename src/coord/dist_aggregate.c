@@ -756,6 +756,20 @@ static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Rep
   return REDISMODULE_OK;
 }
 
+static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp,
+                          StrongRef *strong_ref, specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply, QueryError *status) {
+  assert(QueryError_HasError(status));
+  QueryError_ReplyAndClear(ctx, status);
+  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  if (sp) {
+    StrongRef_Release(*strong_ref);
+  }
+  SpecialCaseCtx_Free(knnCtx);
+  if (r) AREQ_Free(r);
+  RedisModule_EndReply(reply);
+  return;
+}
+
 void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
@@ -790,15 +804,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 // See if we can distribute the plan...
 err:
-  assert(QueryError_HasError(&status));
-  QueryError_ReplyAndClear(ctx, &status);
-  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  if (sp) {
-    StrongRef_Release(strong_ref);
-  }
-  SpecialCaseCtx_Free(knnCtx);
-  AREQ_Free(r);
-  RedisModule_EndReply(reply);
+  DistAggregateCleanups(ctx, cmdCtx, sp, &strong_ref, knnCtx, r, reply, &status);
   return;
 }
 
@@ -861,14 +867,6 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
 // See if we can distribute the plan...
 err:
-  assert(QueryError_HasError(&status));
-  QueryError_ReplyAndClear(ctx, &status);
-  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  if (sp) {
-    StrongRef_Release(strong_ref);
-  }
-  SpecialCaseCtx_Free(knnCtx);
-  if (r) AREQ_Free(r);
-  RedisModule_EndReply(reply);
+  DistAggregateCleanups(ctx, cmdCtx, sp, &strong_ref, knnCtx, r, reply, &status);
   return;
 }
