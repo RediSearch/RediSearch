@@ -1,7 +1,6 @@
 from RLTest import Env
 from includes import *
 from common import *
-import subprocess
 
 not_modifiable = 'Not modifiable at runtime'
 
