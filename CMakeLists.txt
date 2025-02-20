@@ -116,6 +116,7 @@ file(GLOB SOURCES
     "src/info/*.c"
     "src/module-init/*.c"
     "src/obfuscation/*.c"
+    "src/active_queries/*.c"
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"

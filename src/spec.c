@@ -32,7 +32,7 @@
 #include "commands.h"
 #include "util/workers.h"
 #include "info/global_stats.h"
-#include "active_threads.h"
+#include "active_queries/thread_info.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -1641,7 +1641,7 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
 
   if (removeActive) {
     // Remove thread from active-threads container
-    activeThreads_RemoveCurrentThread();
+    CurrentThread_ClearIndexSpec();
   }
 
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
@@ -2210,11 +2210,11 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     if (sp) {
       // This check is performed without locking the spec, but it's ok since we locked the GIL
       // So the main thread is not running and the GC is not touching the relevant data
-      activeThreads_AddCurrentThread(curr_run_ref);
+      CurrentThread_SetIndexSpec(curr_run_ref);
       if (SchemaRule_ShouldIndex(sp, keyname, type)) {
         IndexSpec_UpdateDoc(sp, ctx, keyname, type);
       }
-      activeThreads_RemoveCurrentThread();
+      CurrentThread_ClearIndexSpec();
       StrongRef_Release(curr_run_ref);
     } else {
       // spec was deleted, cancel scan

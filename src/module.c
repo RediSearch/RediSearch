@@ -58,7 +58,7 @@
 #include "coord/info_command.h"
 #include "info/global_stats.h"
 #include "util/units.h"
-#include "active_threads.h"
+#include "active_queries/thread_info.h"
 
 #define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
 #define NOPERM_ERR "-NOPERM User does not have the required permissions to query the index"
@@ -142,7 +142,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  activeThreads_AddCurrentThread(sctx->spec->own_ref);
+  CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
   const DocTable *dt = &sctx->spec->docs;
   RedisModule_ReplyWithArray(ctx, argc - 2);
@@ -156,7 +156,7 @@ int GetDocumentsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     Document_ReplyAllFields(ctx, sctx->spec, argv[i]);
   }
 
-  activeThreads_RemoveCurrentThread();
+  CurrentThread_ClearIndexSpec();
 
   SearchCtx_Free(sctx);
 
@@ -180,7 +180,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  activeThreads_AddCurrentThread(sctx->spec->own_ref);
+  CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
   if (DocTable_GetIdR(&sctx->spec->docs, argv[2]) == 0) {
     RedisModule_ReplyWithNull(ctx);
@@ -188,7 +188,7 @@ int GetSingleDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     Document_ReplyAllFields(ctx, sctx->spec, argv[2]);
   }
   SearchCtx_Free(sctx);
-  activeThreads_RemoveCurrentThread();
+  CurrentThread_ClearIndexSpec();
   return REDISMODULE_OK;
 }
 
@@ -224,7 +224,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (sctx == NULL) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
-  activeThreads_AddCurrentThread(sctx->spec->own_ref);
+  CurrentThread_SetIndexSpec(sctx->spec->own_ref);
   QueryError status = {0};
   size_t len;
   const char *rawQuery = RedisModule_StringPtrLen(argv[2], &len);
@@ -300,7 +300,7 @@ end:
     array_free(excludeDict);
   }
   QAST_Destroy(&qast);
-  activeThreads_RemoveCurrentThread();
+  CurrentThread_ClearIndexSpec();
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -369,7 +369,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  activeThreads_AddCurrentThread(ref);
+  CurrentThread_SetIndexSpec(ref);
 
   RedisModuleCallReply *rep = NULL;
   RedisModuleString *doc_id = argv[2];
@@ -385,7 +385,7 @@ int DeleteCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     RedisModule_FreeCallReply(rep);
   }
 
-  activeThreads_RemoveCurrentThread();
+  CurrentThread_ClearIndexSpec();
 
   return REDISMODULE_OK;
 }
@@ -405,7 +405,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  activeThreads_AddCurrentThread(sctx->spec->own_ref);
+  CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
   size_t len;
   const char *field = RedisModule_StringPtrLen(argv[2], &len);
@@ -430,7 +430,7 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   TagIndex_SerializeValues(idx, ctx);
 
 cleanup:
-  activeThreads_RemoveCurrentThread();
+  CurrentThread_ClearIndexSpec();
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -528,7 +528,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown Index name");
   }
 
-  activeThreads_AddCurrentThread(global_ref);
+  CurrentThread_SetIndexSpec(global_ref);
 
   int delDocs;
   if (RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
@@ -561,7 +561,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     DOCTABLE_FOREACH(dt, Redis_DeleteKeyC(ctx, dmd->keyPtr));
 
     // Return call's references
-    activeThreads_RemoveCurrentThread();
+    CurrentThread_ClearIndexSpec();
     StrongRef_Release(own_ref);
   } else {
     // If we don't delete the docs, we just remove the index from the global dict
@@ -626,7 +626,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  activeThreads_AddCurrentThread(ref);
+  CurrentThread_SetIndexSpec(ref);
 
   bool initialScan = true;
   int offset = 3;
@@ -648,7 +648,7 @@ int SynUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisSearchCtx_UnlockSpec(&sctx);
-  activeThreads_RemoveCurrentThread();
+  CurrentThread_ClearIndexSpec();
 
   RedisModule_ReplyWithSimpleString(ctx, "OK");
 
@@ -683,7 +683,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
-  activeThreads_AddCurrentThread(ref);
+  CurrentThread_SetIndexSpec(ref);
 
   if (!sp->smap) {
     return RedisModule_ReplyWithMapOrArray(ctx, 0, false);
@@ -709,7 +709,7 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisSearchCtx_UnlockSpec(&sctx);
-  activeThreads_RemoveCurrentThread();
+  CurrentThread_ClearIndexSpec();
 
   rm_free(terms_data);
   return REDISMODULE_OK;
@@ -752,7 +752,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
     return RedisModule_ReplyWithError(ctx, "No fields provided");
   }
 
-  activeThreads_AddCurrentThread(ref);
+  CurrentThread_SetIndexSpec(ref);
 
   if (ifnx) {
     const char *fieldName;
@@ -765,7 +765,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
 
     if (field_exists) {
       RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
-      activeThreads_RemoveCurrentThread();
+      CurrentThread_ClearIndexSpec();
       return RedisModule_ReplyWithSimpleString(ctx, "OK");
     }
   }
@@ -775,12 +775,12 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   // if adding the fields has failed we return without updating statistics.
   if (QueryError_HasError(&status)) {
     RedisSearchCtx_UnlockSpec(&sctx);
-    activeThreads_RemoveCurrentThread();
+    CurrentThread_ClearIndexSpec();
     return QueryError_ReplyAndClear(ctx, &status);
   }
 
   RedisSearchCtx_UnlockSpec(&sctx);
-  activeThreads_RemoveCurrentThread();
+  CurrentThread_ClearIndexSpec();
 
   RedisModule_Replicate(ctx, RS_ALTER_IF_NX_CMD, "v", argv + 1, (size_t)argc - 1);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -810,16 +810,16 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return REDISMODULE_ERR;
   }
 
-  activeThreads_AddCurrentThread(ref);
+  CurrentThread_SetIndexSpec(ref);
 
   const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
   StrongRef alias_ref = IndexAlias_Get(alias);
   if (!skipIfExists || !StrongRef_Equals(alias_ref, ref)) {
-    activeThreads_RemoveCurrentThread();
+    CurrentThread_ClearIndexSpec();
     return IndexAlias_Add(alias, ref, 0, error);
   }
 
-  activeThreads_RemoveCurrentThread();
+  CurrentThread_ClearIndexSpec();
   return REDISMODULE_OK;
 }
 
@@ -858,15 +858,15 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
     return RedisModule_ReplyWithError(ctx, "Alias does not exist");
   }
 
-  activeThreads_AddCurrentThread(ref);
+  CurrentThread_SetIndexSpec(ref);
 
   QueryError status = {0};
   if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), ref, 0, &status) != REDISMODULE_OK) {
-    activeThreads_RemoveCurrentThread();
+    CurrentThread_ClearIndexSpec();
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
     RedisModule_Replicate(ctx, RS_ALIASDEL_IF_EX, "v", argv + 1, (size_t)argc - 1);
-    activeThreads_RemoveCurrentThread();
+    CurrentThread_ClearIndexSpec();
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 }
@@ -895,12 +895,12 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   StrongRef Orig_ref = IndexSpec_LoadUnsafeEx(&lOpts);
   IndexSpec *spOrig = StrongRef_Get(Orig_ref);
   if (spOrig) {
-    activeThreads_AddCurrentThread(Orig_ref);
+    CurrentThread_SetIndexSpec(Orig_ref);
     if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), Orig_ref, 0, &status) != REDISMODULE_OK) {
-      activeThreads_RemoveCurrentThread();
+      CurrentThread_ClearIndexSpec();
       return QueryError_ReplyAndClear(ctx, &status);
     }
-    activeThreads_RemoveCurrentThread();
+    CurrentThread_ClearIndexSpec();
   }
   if (aliasAddCommon(ctx, argv, argc, &status, false) != REDISMODULE_OK) {
     // Add back the previous index. this shouldn't fail
@@ -972,7 +972,7 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     while ((entry = dictNext(iter))) {
       StrongRef ref = dictGetRef(entry);
       IndexSpec *sp = StrongRef_Get(ref);
-      activeThreads_AddCurrentThread(ref);
+      CurrentThread_SetIndexSpec(ref);
       if (isUnsafeForSimpleString(sp->name)) {
         char *escaped = escapeSimpleString(sp->name);
         RedisModule_Reply_SimpleString(reply, escaped);
@@ -980,7 +980,7 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       } else {
         RedisModule_Reply_SimpleString(reply, sp->name);
       }
-      activeThreads_RemoveCurrentThread();
+      CurrentThread_ClearIndexSpec();
     }
     dictReleaseIterator(iter);
   RedisModule_Reply_SetEnd(reply);
@@ -1120,7 +1120,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   char *err;
 
   legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
-  activeThreads_Init();
+  // Prepare thread local storage for future threads
+  ThreadLocalStorage_Init();
 
   // Read module configuration from module ARGS
   if (ReadConfig(argv, argc, &err) == REDISMODULE_ERR) {
@@ -1334,9 +1335,9 @@ void RediSearch_CleanupModule(void) {
   workersThreadPool_Drain(RSDummyContext, 0);
   workersThreadPool_Destroy();
 
-  // At this point, the active-threads container is empty, since all threads
+  // At this point, the thread local storage is no longer needed, since all threads
   // finished their work.
-  activeThreads_Destroy();
+  ThreadLocalStorage_Destroy();
 
   if (legacySpecDict) {
     dictRelease(legacySpecDict);

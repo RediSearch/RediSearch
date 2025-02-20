@@ -19,7 +19,8 @@
 #include "resp3.h"
 #include "query_error.h"
 #include "info/global_stats.h"
-#include "active_threads.h"
+#include "active_queries/block_client.h"
+#include "active_queries/thread_info.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -738,7 +739,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   }
 
   // Register the thread to the active-threads container
-  activeThreads_AddCurrentThread(execution_ref);
+  CurrentThread_SetIndexSpec(execution_ref);
 
   // Cursors are created with a thread-safe context, so we don't want to replace it
   if (!(req->reqflags & QEXEC_F_IS_CURSOR)) {
@@ -775,7 +776,7 @@ error:
 cleanup:
   // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
   RedisModule_FreeThreadSafeContext(outctx);
-  activeThreads_RemoveCurrentThread();
+  CurrentThread_ClearIndexSpec();
   StrongRef_Release(execution_ref);
   blockedClientReqCtx_destroy(BCRctx);
 }
@@ -863,13 +864,13 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
 
-  activeThreads_AddCurrentThread(sctx->spec->own_ref);
+  CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
   rc = AREQ_ApplyContext(*r, sctx, status);
   thctx = NULL;
   // ctx is always assigned after ApplyContext
   if (rc != REDISMODULE_OK) {
-    activeThreads_RemoveCurrentThread();
+    CurrentThread_ClearIndexSpec();
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
   }
 
@@ -932,18 +933,11 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   SET_DIALECT(RSGlobalStats.totalStats.used_dialects, r->reqConfig.dialectVersion);
 
   if (RunInThread()) {
-    // Prepare context for the worker thread
-    // Since we are still in the main thread, and we already validated the
-    // spec's existence, it is safe to directly get the strong reference from the spec
-    // found in buildRequest.
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(r->sctx->spec);
-    RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-    // report block client start time
-    RedisModule_BlockedClientMeasureTimeStart(blockedClient);
+    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, r, 0);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     r->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
-
     workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else {
     // Take a read lock on the spec (to avoid conflicts with the GC).
@@ -951,7 +945,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     RedisSearchCtx_LockSpecRead(r->sctx);
 
     if (prepareExecutionPlan(r, &status) != REDISMODULE_OK) {
-      activeThreads_RemoveCurrentThread();
+      CurrentThread_ClearIndexSpec();
       goto error;
     }
     if (r->reqflags & QEXEC_F_IS_CURSOR) {
@@ -963,7 +957,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
       int rc = AREQ_StartCursor(r, reply, spec_ref, &status, false);
       RedisModule_EndReply(reply);
       if (rc != REDISMODULE_OK) {
-        activeThreads_RemoveCurrentThread();
+        CurrentThread_ClearIndexSpec();
         goto error;
       }
     } else {
@@ -971,7 +965,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     }
   }
 
-  activeThreads_RemoveCurrentThread();
+  CurrentThread_ClearIndexSpec();
   return REDISMODULE_OK;
 
 error:
@@ -1047,12 +1041,12 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
   if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
     AREQ_Free(r);
-    activeThreads_RemoveCurrentThread();
+    CurrentThread_ClearIndexSpec();
     return NULL;
   }
   char *ret = QAST_DumpExplain(&r->ast, r->sctx->spec);
   AREQ_Free(r);
-  activeThreads_RemoveCurrentThread();
+  CurrentThread_ClearIndexSpec();
   return ret;
 }
 
@@ -1120,7 +1114,7 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
     }
 
     // Register the thread to the active-threads container (BG, main)
-    activeThreads_AddCurrentThread(execution_ref);
+    CurrentThread_SetIndexSpec(execution_ref);
 
     if (HasLoader(req)) { // Quick check if the cursor has loaders.
       bool isSetForBackground = req->reqflags & QEXEC_F_RUN_IN_BACKGROUND;
@@ -1144,7 +1138,7 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
 
   runCursor(reply, cursor, count);
   if (has_spec) {
-    activeThreads_RemoveCurrentThread();
+    CurrentThread_ClearIndexSpec();
     StrongRef_Release(execution_ref);
   }
 }
@@ -1211,7 +1205,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
     if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
       CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
-      cr_ctx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+      cr_ctx->bc = BlockCursorClient(ctx, cid, count, 0);
       cr_ctx->cid = cid;
       cr_ctx->count = count;
       RedisModule_BlockedClientMeasureTimeStart(cr_ctx->bc);

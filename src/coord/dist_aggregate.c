@@ -17,7 +17,7 @@
 #include "coord/config.h"
 #include "dist_profile.h"
 #include "util/misc.h"
-#include "active_threads.h"
+#include "active_queries/thread_info.h"
 
 #include <err.h>
 
@@ -692,7 +692,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto err;
   }
 
-  activeThreads_AddCurrentThread(spec_ref);
+  CurrentThread_SetIndexSpec(spec_ref);
 
   r->qiter.err = &status;
   r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
@@ -766,7 +766,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
   SpecialCaseCtx_Free(knnCtx);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  activeThreads_RemoveCurrentThread();
+  CurrentThread_ClearIndexSpec();
   StrongRef_Release(spec_ref);
   RedisModule_EndReply(reply);
   return;
@@ -777,7 +777,7 @@ err:
   QueryError_ReplyAndClear(ctx, &status);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   if (sp) {
-    activeThreads_RemoveCurrentThread();
+    CurrentThread_ClearIndexSpec();
     StrongRef_Release(spec_ref);
   }
   SpecialCaseCtx_Free(knnCtx);

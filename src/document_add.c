@@ -8,7 +8,7 @@
 #include "err.h"
 #include "util/logging.h"
 #include "rmutil/rm_assert.h"
-#include "active_threads.h"
+#include "active_queries/thread_info.h"
 
 /*
 ## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [PARTIAL] [IF <expr>] [LANGUAGE <lang>]
@@ -245,7 +245,7 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto cleanup;
   }
 
-  activeThreads_AddCurrentThread(ref);
+  CurrentThread_SetIndexSpec(ref);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   rv = RS_AddDocument(&sctx, argv[2], &opts, &status);
@@ -265,7 +265,7 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
-  activeThreads_RemoveCurrentThread();
+  CurrentThread_ClearIndexSpec();
 
 cleanup:
   QueryError_ClearError(&status);
