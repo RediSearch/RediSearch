@@ -119,7 +119,7 @@ void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, c
 #define QERR_MKBADARGS_FMT(status, message, fmt, ...) \
   QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, message, fmt, ##__VA_ARGS__)
 
-#define QERR_MKBADARGS_DATA_AGNOSTIC_FMT(status, fmt, ...) \
+#define QERR_MKBADARGS_WITHOUT_USER_DATA_FMT(status, fmt, ...) \
   QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, fmt, ##__VA_ARGS__)
 
 #define QERR_MKBADARGS(status, message) \

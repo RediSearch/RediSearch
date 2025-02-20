@@ -301,7 +301,7 @@ QueryNode *NewNumericNode(QueryParam *p, const FieldSpec *fs) {
   QueryNode *ret = NewQueryNode(QN_NUMERIC);
   ret->nn.nf = p->nf;
   ret->params = p->params;
-  ret->nn.nf->spec = fs;
+  ret->nn.nf->fieldSpec = fs;
   p->nf = NULL;
   p->params = NULL;
   rm_free(p);
@@ -929,7 +929,7 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
   RS_LOG_ASSERT(node->type == QN_NUMERIC, "query node type should be numeric")
 
-  const FieldSpec *fs = node->nn.nf->spec;
+  const FieldSpec *fs = node->nn.nf->fieldSpec;
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   return NewNumericFilterIterator(q->sctx, node->nn.nf, q->conc, INDEXFLD_T_NUMERIC, q->config, &filterCtx);
 }
@@ -1742,7 +1742,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_NUMERIC: {
         if (n->nn.nf->min > n->nn.nf->max) {
           QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid numeric range (min > max)", ": @%s:[%f %f]",
-                                 HiddenString_GetUnsafe(n->nn.nf->spec->fieldName, NULL), n->nn.nf->min, n->nn.nf->max);
+                                 HiddenString_GetUnsafe(n->nn.nf->fieldSpec->fieldName, NULL), n->nn.nf->min, n->nn.nf->max);
           res = REDISMODULE_ERR;
         }
       }
@@ -1930,7 +1930,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_NUMERIC: {
       const NumericFilter *f = qs->nn.nf;
       s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->inclusiveMin ? "<=" : "<",
-                       HiddenString_GetUnsafe(f->spec->fieldName, NULL), f->inclusiveMax ? "<=" : "<", f->max);
+                       HiddenString_GetUnsafe(f->fieldSpec->fieldName, NULL), f->inclusiveMax ? "<=" : "<", f->max);
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");

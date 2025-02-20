@@ -546,7 +546,7 @@ NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyNam
 struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config,
                                                const FieldFilterContext* filterCtx) {
-  const FieldSpec *fs = flt->spec;
+  const FieldSpec *fs = flt->fieldSpec;
   RedisModuleString *s = IndexSpec_GetFormattedKey(ctx->spec, fs, forType);
   if (!s) {
     return NULL;

@@ -109,7 +109,7 @@ NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int in
 
   f->min = min;
   f->max = max;
-  f->spec = fs;
+  f->fieldSpec = fs;
   f->inclusiveMax = inclusiveMax;
   f->inclusiveMin = inclusiveMin;
   f->geoFilter = NULL;

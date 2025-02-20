@@ -686,7 +686,7 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
     numParam++;
   }
   if (expNumParam > numParam) {
-    QERR_MKBADARGS_DATA_AGNOSTIC_FMT(status, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
+    QERR_MKBADARGS_WITHOUT_USER_DATA_FMT(status, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
     return 0;
   }
   if (!mandtype) {

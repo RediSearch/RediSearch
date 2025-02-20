@@ -156,7 +156,7 @@ IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *g
     if (ranges[ii].min != ranges[ii].max) {
       NumericFilter *filt = gf->numericFilters[ii] =
               NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, true, NULL);
-      filt->spec = gf->spec;
+      filt->fieldSpec = gf->spec;
       filt->geoFilter = gf;
       struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, csx, INDEXFLD_T_GEO, config, &filterCtx);
       if (numIter != NULL) {

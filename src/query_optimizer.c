@@ -74,7 +74,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
   switch (node->type) {
     case QN_NUMERIC:
       // add support for multiple ranges on field
-      if (name && !HiddenString_CompareC(node->nn.nf->spec->fieldName, name, strlen(name))) {
+      if (name && !HiddenString_CompareC(node->nn.nf->fieldSpec->fieldName, name, strlen(name))) {
         ret = node;
       }
       break;
@@ -243,7 +243,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
       if (!opt->field) {
         // TODO: For now set to NONE. Maybe add use of FILTER
         opt->type = Q_OPT_NONE;
-        const FieldSpec *fs = opt->sortbyNode->nn.nf->spec;
+        const FieldSpec *fs = opt->sortbyNode->nn.nf->fieldSpec;
         FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
         IndexIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->sortbyNode->nn.nf,
                                                              &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config,
