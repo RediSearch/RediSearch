@@ -281,7 +281,7 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig (
       ctx, "search-topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
+      REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
       get_topology_validation_timeout, set_topology_validation_timeout, NULL,
       (void*)&RSGlobalConfig
     )
@@ -290,7 +290,7 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig (
       ctx, "search-cursor-reply-threshold", DEFAULT_CURSOR_REPLY_THRESHOLD,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1, LLONG_MAX,
+      REDISMODULE_CONFIG_UNPREFIXED, 1, LLONG_MAX,
       get_cursor_reply_threshold, set_cursor_reply_threshold, NULL,
       (void*)&RSGlobalConfig
     )
@@ -299,7 +299,7 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig (
       ctx, "search-conn-per-shard", DEFAULT_CONN_PER_SHARD,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0, UINT32_MAX,
+      REDISMODULE_CONFIG_UNPREFIXED, 0, UINT32_MAX,
       get_conn_per_shard, set_conn_per_shard, NULL,
       (void*)&RSGlobalConfig
     )

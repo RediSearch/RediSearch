@@ -835,6 +835,33 @@ def testNumericArgDeprecationMessage():
         matchCount = _grep_file_count(logFilePath, expectedMessage)
         env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
 
+@skip(redis_less_than='7.9.227')
+def testNumericFTConfigDeprecationMessage():
+    '''Test deprecation message of FT.CONFIG using numeric parameters'''
+    # create module arguments
+    env = Env(noDefaultModuleArgs=True)
+
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        if immutable:
+            continue
+        env.expect(config_cmd(), 'SET', argName, minValue).ok()
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, str(minValue)]])
+
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        if immutable:
+            continue
+        expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG SET {configName} instead'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+        expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG GET {configName} instead'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
 ################################################################################
 # Test CONFIG SET/GET enum parameters
 ################################################################################
@@ -974,6 +1001,31 @@ def testEnumArgDeprecationMessage():
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
     logFilePath = os.path.join(logDir, logFileName)
     expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}`'
+    matchCount = _grep_file_count(logFilePath, expectedMessage)
+    env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+@skip(redis_less_than='7.9.227')
+def testEnumFTConfigDeprecationMessage():
+    '''Test deprecation message of FT.CONFIG using enum parameters'''
+    # create module arguments
+    env = Env(noDefaultModuleArgs=True)
+
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+
+    configName = 'search-on-timeout'
+    argName = 'ON_TIMEOUT'
+    argValue = 'fail'
+
+    env.expect(config_cmd(), 'SET', argName, argValue).ok()
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
+
+    expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG SET {configName} instead'
+    matchCount = _grep_file_count(logFilePath, expectedMessage)
+    env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+    expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG GET {configName} instead'
     matchCount = _grep_file_count(logFilePath, expectedMessage)
     env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
 
@@ -1489,3 +1541,30 @@ def testDeprecatedModuleArgsMessage():
         expectedMessage = f'`{argName}` was set, but module arguments are deprecated'
         matchCount = _grep_file_count(logFilePath, expectedMessage)
         env.assertEqual(matchCount, 1, message=f'argName: {argName}')
+
+@skip(redis_less_than='7.9.227')
+def testBooleanFTConfigDeprecationMessage():
+    '''Test deprecation message of FT.CONFIG using boolean parameters'''
+    # create module arguments
+    env = Env(noDefaultModuleArgs=True)
+
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        if immutable:
+            continue
+        env.expect(config_cmd(), 'SET', argName, 'true').ok()
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, 'true']])
+
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        if immutable:
+            continue
+        expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG SET {configName} instead'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+        expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG GET {configName} instead'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
