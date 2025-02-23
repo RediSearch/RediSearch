@@ -1018,13 +1018,13 @@ void SetLoadersForMainThread(AREQ *r) {
 
 /*********************************************************************************/
 
-static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
+static char *RPTypeLookup[RP_END] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
                                      "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
                                      "Grouper", "Projector", "Filter",            "Profile",
                                      "Network", "Metrics Applier"};
 
 const char *RPTypeToString(ResultProcessorType type) {
-  RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
+  RS_LOG_ASSERT(type >= 0 && type < RP_END, "type is out of enum range");
   return RPTypeLookup[type];
 }
 
@@ -1095,16 +1095,13 @@ void Profile_AddRPs(QueryIterator *qiter) {
 }
 
 /*******************************************************************************************************************
- *  Scoring Processor
+ *  Counting processor
  *
- * It takes results from upstream, and using a scoring function applies the score to each one.
- *
- * It may not be invoked if we are working in SORTBY mode (or later on in aggregations)
+ * It depletes the upstream while freeing the results it got.
  *******************************************************************************************************************/
 
 typedef struct {
   ResultProcessor base;
-  size_t count;
 } RPCounter;
 
 static int rpcountNext(ResultProcessor *base, SearchResult *res) {
@@ -1112,7 +1109,6 @@ static int rpcountNext(ResultProcessor *base, SearchResult *res) {
   RPCounter *self = (RPCounter *)base;
 
   while ((rc = base->upstream->Next(base->upstream, res)) == RS_RESULT_OK) {
-    self->count += 1;
     SearchResult_Clear(res);
   }
 
@@ -1134,7 +1130,6 @@ static void rpcountFree(ResultProcessor *rp) {
 /* Create a new counter. */
 ResultProcessor *RPCounter_New() {
   RPCounter *ret = rm_calloc(1, sizeof(*ret));
-  ret->count = 0;
   ret->base.Next = rpcountNext;
   ret->base.Free = rpcountFree;
   ret->base.type = RP_COUNTER;

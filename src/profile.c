@@ -84,7 +84,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
         break;
 
       case RP_PROFILE:
-      case RP_MAX:
+      case RP_END:
         RS_LOG_ASSERT(0, "RPType error");
         break;
     }

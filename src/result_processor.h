@@ -56,7 +56,7 @@ typedef enum {
   RP_PROFILE,
   RP_NETWORK,
   RP_METRICS,
-  RP_MAX,
+  RP_END,               // Marks the end, update upon adding new types.
 } ResultProcessorType;
 
 struct ResultProcessor;
