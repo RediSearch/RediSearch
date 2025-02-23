@@ -21,6 +21,7 @@
 #include "util/workers.h"
 #include "cursor.h"
 #include "module.h"
+#include "aggregate/aggregate_debug.h"
 
 #define GET_SEARCH_CTX(name)                                        \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \

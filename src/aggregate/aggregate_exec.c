@@ -9,7 +9,6 @@
 #include "search_ctx.h"
 #include "aggregate.h"
 #include "cursor.h"
-#include "module.h"
 #include "rmutil/util.h"
 #include "util/timeout.h"
 #include "util/workers.h"
@@ -20,6 +19,7 @@
 #include "resp3.h"
 #include "query_error.h"
 #include "info/global_stats.h"
+#include "aggregate_debug.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -1257,13 +1257,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return REDISMODULE_OK;
 }
 
-/********************************* DEBUG *********************************/
-/*  Using INTERNAL_ONLY with TIMEOUT_AFTER_N where N == 0 may result in an infinite loop in the coordinator.
-    Since shard replies are always empty, the coordinator might get stuck indefinitely waiting for results or a timeout.
-    If the query timeout is set to 0 (disabled), neither of these conditions is met.
-    To prevent this, if results_count == 0 and the query timeout is disabled, we enforce a forced timeout,
-    ideally large enough to break the infinite loop without impacting the requested flow */
-#define COORDINATOR_FORCED_TIMEOUT 1000
+/* ======================= DEBUG ONLY ======================= */
 
 // FT.DEBUG FT.AGGREGATE idx * <DEBUG_TYPE> <DEBUG_TYPE_ARGS> <DEBUG_TYPE> <DEBUG_TYPE_ARGS> ... DEBUG_PARAMS_COUNT 2
 // Example:
@@ -1315,51 +1309,4 @@ int DEBUG_RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
 
 int DEBUG_RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   return DEBUG_execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, EXEC_DEBUG);
-}
-
-// Return True if we are in a cluster environment running the coordinator
-static bool isClusterCoord(AREQ_Debug *debug_req) {
-  if ((GetNumShards_UnSafe() > 1) && !(debug_req->r.reqflags & QEXEC_F_INTERNAL)) {
-    return true;
-  }
-
-  return false;
-}
-
-int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
-  RedisModuleString **debug_argv = debug_req->debug_params.debug_argv;
-  unsigned long long debug_params_count = debug_req->debug_params.debug_params_count;
-
-  // Parse the debug params
-  // For example debug_params = TIMEOUT_AFTER_N 2 [INTERNAL_ONLY]
-  size_t debug_argv_iter = 0;
-  while (debug_argv_iter < debug_params_count) {
-    size_t n;
-    const char *cmd = RedisModule_StringPtrLen(debug_argv[debug_argv_iter++], &n);
-    if (strncasecmp(cmd, "TIMEOUT_AFTER_N", n) == 0) {
-      unsigned long long results_count;
-      if (RedisModule_StringToULongLong(debug_argv[debug_argv_iter++], &results_count) != REDISMODULE_OK) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid TIMEOUT_AFTER_N count");
-        return REDISMODULE_ERR;
-      }
-      // Check for optional argument
-      if (debug_argv_iter != debug_params_count) {
-        // timeout should be applied only for shard commands
-        cmd = RedisModule_StringPtrLen(debug_argv[debug_argv_iter++], &n);
-        if ((GetNumShards_UnSafe() > 1) && (strncasecmp(cmd, "INTERNAL_ONLY", n) == 0) && !(debug_req->r.reqflags & QEXEC_F_INTERNAL)) {
-          if (results_count == 0 && debug_req->r.reqConfig.queryTimeoutMS == 0) {
-            RedisModule_Log(RSDummyContext, "debug", "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 to avoid infinite loop");
-            debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
-          }
-        }
-      }
-
-      // Note, this will add a result processor as the downstream of the last result processor
-      // (rpidnext for SA, or RPNext for cluster)
-      // Take this into account when adding more debug types that are modifying the rp pipeline.
-      PipelineAddTimeoutAfterCount(&debug_req->r, results_count);
-    }
-  }
-
-  return REDISMODULE_OK;
 }

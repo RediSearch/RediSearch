@@ -58,6 +58,7 @@
 #include "coord/info_command.h"
 #include "info/global_stats.h"
 #include "util/units.h"
+#include "aggregate/aggregate_debug.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                  \
   do {                                                                         \
@@ -86,6 +87,10 @@ size_t NumShards = 0;
 // Strings returned by CONFIG GET functions
 RedisModuleString *config_ext_load = NULL;
 RedisModuleString *config_friso_ini = NULL;
+
+/* ======================= DEBUG ONLY DECLARATIONS ======================= */
+static void DEBUG_DistSearchCommandHandler(void* pd);
+/* ======================= DEBUG ONLY DECLARATIONS ======================= */
 
 static inline bool SearchCluster_Ready() {
   return NumShards != 0;
@@ -3334,45 +3339,6 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   return REDISMODULE_OK;
 }
 
-int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
-  RedisModuleString **argv, int argc, WeakRef spec_ref) {
-  QueryError status = {0};
-  AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
-
-  if (debug_params.debug_params_count == 0) {
-    bailOut(bc, &status);
-    return REDISMODULE_OK;
-  }
-
-  int debug_argv_count = debug_params.debug_params_count + 2;
-  int base_argc = argc - debug_argv_count;
-  searchRequestCtx *req = createReq(argv, base_argc, bc, &status);
-
-  if (!req) {
-    return REDISMODULE_OK;
-  }
-
-  MRCommand cmd = MR_NewCommandFromRedisStrings(base_argc, argv);
-  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, spec_ref, &status);
-  if (!(rc == REDISMODULE_OK)) {
-    return REDISMODULE_OK;
-  }
-
-  MRCommand_Insert(&cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
-  // insert also debug params at the end
-  for (size_t i = 0; i < debug_argv_count; i++) {
-    size_t n;
-    const char *arg = RedisModule_StringPtrLen(debug_params.debug_argv[i], &n);
-    MRCommand_Append(&cmd, arg, n);
-  }
-
-  struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
-
-  MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
-  MR_Fanout(mrctx, NULL, cmd, false);
-  return REDISMODULE_OK;
-}
-
 typedef struct SearchCmdCtx {
   RedisModuleString **argv;
   int argc;
@@ -3380,17 +3346,6 @@ typedef struct SearchCmdCtx {
   int protocol;
   WeakRef spec_ref;
 } SearchCmdCtx;
-
-static void DEBUG_DistSearchCommandHandler(void* pd) {
-  SearchCmdCtx* sCmdCtx = pd;
-  // send argv not including the _FT.DEBUG
-  DEBUG_FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, sCmdCtx->spec_ref);
-  for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
-    RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
-  }
-  rm_free(sCmdCtx->argv);
-  rm_free(sCmdCtx);
-}
 
 static void DistSearchCommandHandler(void* pd) {
   SearchCmdCtx* sCmdCtx = pd;
@@ -3823,4 +3778,55 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
   }
 
   return REDISMODULE_OK;
+}
+/* ======================= DEBUG ONLY ======================= */
+
+static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
+  RedisModuleString **argv, int argc, WeakRef spec_ref) {
+  QueryError status = {0};
+  AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
+
+  if (debug_params.debug_params_count == 0) {
+    bailOut(bc, &status);
+    return REDISMODULE_OK;
+  }
+
+  int debug_argv_count = debug_params.debug_params_count + 2;
+  int base_argc = argc - debug_argv_count;
+  searchRequestCtx *req = createReq(argv, base_argc, bc, &status);
+
+  if (!req) {
+    return REDISMODULE_OK;
+  }
+
+  MRCommand cmd = MR_NewCommandFromRedisStrings(base_argc, argv);
+  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, spec_ref, &status);
+  if (!(rc == REDISMODULE_OK)) {
+    return REDISMODULE_OK;
+  }
+
+  MRCommand_Insert(&cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
+  // insert also debug params at the end
+  for (size_t i = 0; i < debug_argv_count; i++) {
+    size_t n;
+    const char *arg = RedisModule_StringPtrLen(debug_params.debug_argv[i], &n);
+    MRCommand_Append(&cmd, arg, n);
+  }
+
+  struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
+
+  MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
+  MR_Fanout(mrctx, NULL, cmd, false);
+  return REDISMODULE_OK;
+}
+
+static void DEBUG_DistSearchCommandHandler(void* pd) {
+  SearchCmdCtx* sCmdCtx = pd;
+  // send argv not including the _FT.DEBUG
+  DEBUG_FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, sCmdCtx->spec_ref);
+  for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
+    RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
+  }
+  rm_free(sCmdCtx->argv);
+  rm_free(sCmdCtx);
 }

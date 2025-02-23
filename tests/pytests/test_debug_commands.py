@@ -496,7 +496,7 @@ class TestQueryDebugCommands(object):
         self.QueryWithSorter()
 
         # with no sorter (dialect 4)
-        self.QueryWithLimit(basic_debug_query, timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
+        self.QueryWithLimit(basic_debug_query + ["DIALECT", 4], timeout_res_count, limit, expected_res_count=expected_results_count, should_timeout=True, message="SearchDebug:")
 
         self.StrictPolicy()
 

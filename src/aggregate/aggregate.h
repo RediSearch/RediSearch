@@ -351,24 +351,6 @@ void SetSearchCtx(RedisSearchCtx *sctx, const AREQ *req);
 
 #define AREQ_RP(req) (req)->qiter.endProc
 
-/***************************** DEBUG ONLY *****************************/
-
-typedef struct {
-  RedisModuleString **debug_argv;
-  unsigned long long debug_params_count; // not including the DEBUG_PARAMS_COUNT <count> args
-} AREQ_Debug_params;
-
-typedef struct {
-  AREQ r;
-  AREQ_Debug_params debug_params;
-} AREQ_Debug;
-
-// Will hold AREQ by value, so we can use AREQ_Debug->r in all functions
-// expecting AREQ, including AREQ_Free
-AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *status);
-AREQ_Debug_params parseDebugParamsCount(RedisModuleString **argv, int argc, QueryError *status);
-int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status);
-
 #ifdef __cplusplus
 }
 #endif

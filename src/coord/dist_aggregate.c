@@ -17,6 +17,7 @@
 #include "coord/config.h"
 #include "dist_profile.h"
 #include "util/misc.h"
+#include "aggregate/aggregate_debug.h"
 
 #include <err.h>
 
@@ -808,6 +809,7 @@ err:
   return;
 }
 
+/* ======================= DEBUG ONLY ======================= */
 void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx) {
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
