@@ -2124,12 +2124,15 @@ void IndexesScanner_Free(IndexesScanner *scanner) {
   rm_free(scanner);
 }
 
-static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref, size_t maxDocsTBscanned) {
-
-  assert(debugCtx.debugMode);
+static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref) {
 
   DebugIndexesScanner *dScanner = rm_realloc(IndexesScanner_New(global_ref), sizeof(DebugIndexesScanner));
-  dScanner->maxDocsTBscanned = maxDocsTBscanned;
+
+  dScanner->maxDocsTBscanned = debugCtx.maxDocsTBscanned;
+  dScanner->maxDocsTBscannedPause = debugCtx.maxDocsTBscannedPause;
+  dScanner->wasPaused = false;
+  dScanner->status = DEBUG_INDEX_SCANNER_CODE_NEW;
+
   IndexSpec *spec = StrongRef_Get(global_ref);
   spec->scanner = (IndexesScanner*)dScanner;
 
@@ -2203,10 +2206,33 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
                              DebugIndexesScanner *dScanner) {
 
   IndexesScanner *scanner = &(dScanner->base);
-    // Negative maxDocsTBscanned represents no limit
-  if ((dScanner->maxDocsTBscanned >=0) && scanner->scannedKeys >= dScanner->maxDocsTBscanned) {
-    scanner->cancelled = true;
+
+  if (dScanner->status == DEBUG_INDEX_SCANNER_CODE_NEW) {
+    dScanner->status = DEBUG_INDEX_SCANNER_CODE_RUNNING;
   }
+
+  if (dScanner->maxDocsTBscannedPause > 0 && (!dScanner->wasPaused) && scanner->scannedKeys >= dScanner->maxDocsTBscannedPause) {
+    debugCtx.pause = true;
+    dScanner->wasPaused = true;
+  }
+
+  if ((dScanner->maxDocsTBscanned > 0) && (scanner->scannedKeys >= dScanner->maxDocsTBscanned)) {
+    scanner->cancelled = true;
+    dScanner->status = DEBUG_INDEX_SCANNER_CODE_CANCELLED;
+  }
+
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  while (debugCtx.pause) // volatile variable
+  {
+    dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED;
+    usleep(1000);
+  }
+  RedisModule_ThreadSafeContextLock(ctx);
+
+  if(dScanner->status == DEBUG_INDEX_SCANNER_CODE_PAUSED) {
+    dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
+  }
+
   Indexes_ScanProc(ctx, keyname, key, &(dScanner->base));
 }
 
@@ -2233,6 +2259,16 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RedisModuleScanCB scanner_func = (RedisModuleScanCB)Indexes_ScanProc;
   if (debugCtx.debugMode) {
     scanner_func = (RedisModuleScanCB)DebugIndexes_ScanProc;
+    if (debugCtx.pauseBeforeScan)
+    {
+      debugCtx.pause = true;
+      RedisModule_ThreadSafeContextUnlock(ctx);
+      while (debugCtx.pause) // volatile variable
+      {
+        usleep(1000);
+      }
+      RedisModule_ThreadSafeContextLock(ctx);
+    }
   }
   while (RedisModule_Scan(ctx, cursor, scanner_func, scanner)) {
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -2256,6 +2292,17 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     }
 
 
+  }
+
+  if (debugCtx.debugMode) {
+    StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
+    IndexSpec *sp = StrongRef_Get(curr_run_ref);
+    if (sp) {
+      if (sp->flags & Index_DebugScanner) {
+        DebugIndexesScanner* dScanner = (DebugIndexesScanner*)scanner;
+        dScanner->status = DEBUG_INDEX_SCANNER_CODE_DONE;
+      }
+    }
   }
 
   if (scanner->global) {
@@ -2289,7 +2336,9 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
 #endif
   IndexesScanner *scanner = NULL;
   if (debugCtx.debugMode) {
-    scanner = (IndexesScanner*)DebugIndexesScanner_New(spec_ref, debugCtx.maxDocsTBscanned);
+    scanner = (IndexesScanner*)DebugIndexesScanner_New(spec_ref);
+    IndexSpec *sp = StrongRef_Get(spec_ref);
+    sp->flags |= Index_DebugScanner;
   }
   else {
     scanner = IndexesScanner_New(spec_ref);
