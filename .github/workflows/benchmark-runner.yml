@@ -17,6 +17,10 @@ on:
         type: string
         description: 'if empty allows all setups. if not, will only trigger for a specific setup'
         default: ""
+      rejson_branch:
+        type: string
+        default: master
+        description: 'branch to use for rejson'
   workflow_call:
     inputs:
       extended:
