@@ -2101,16 +2101,15 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
       res->id = NULL;
       return res;
     }
-    if (sortkey) {
-      res->sortKey = MRReply_String(sortkey, &res->sortKeyLen);
-      if (res->sortKey) {
-        if (res->sortKey[0] == '#') {
-          char *endptr;
-          res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
-          RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
-        }
-        // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
+
+    res->sortKey = MRReply_String(sortkey, &res->sortKeyLen);
+    if (res->sortKey) {
+      if (res->sortKey[0] == '#') {
+        char *endptr;
+        res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
+        RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
       }
+      // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
     }
   }
 
@@ -2393,8 +2392,6 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
     // Empty reply??
     return;
   }
-
-  searchRequestCtx *req = rCtx->searchCtx;
 
   if (resp3) // RESP3
   {
