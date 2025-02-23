@@ -827,7 +827,7 @@ TEST_F(IndexTest, testHybridVector) {
                                   .query = top_k_query,
                                   .qParams = queryParams,
                                   .vectorScoreField = (char *)"__v_score",
-                                  .ignoreDocScore = true,
+                                  .canTrimDeepResults = true,
                                   .childIt = NULL,
                                   .filterCtx = &filterCtx
   };
@@ -908,7 +908,7 @@ TEST_F(IndexTest, testHybridVector) {
   // Rerun without ignoring document scores.
   r = NewTermIndexReader(w);
   ir = NewReadIterator(r);
-  hParams.ignoreDocScore = false;
+  hParams.canTrimDeepResults = false;
   hParams.childIt = ir;
   hybridIt = NewHybridVectorIterator(hParams, &err);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
@@ -987,7 +987,7 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .query = top_k_query,
                                   .qParams = queryParams,
                                   .vectorScoreField = (char *)"__v_score",
-                                  .ignoreDocScore = true,
+                                  .canTrimDeepResults = true,
                                   .childIt = ii,
                                   .filterCtx = &filterCtx};
   QueryError err = {QUERY_OK};
@@ -1605,9 +1605,11 @@ TEST_F(IndexTest, testRawDocId) {
     int rc = IR_SkipTo(ir, id, &cur);
     if (id % 2 == 0) {
       ASSERT_EQ(INDEXREAD_NOTFOUND, rc);
+      ASSERT_EQ(id + 1, ir->lastId);
       ASSERT_EQ(id + 1, cur->docId) << "Expected to skip to " << id + 1 << " but got " << cur->docId;
     } else {
       ASSERT_EQ(INDEXREAD_OK, rc);
+      ASSERT_EQ(id, ir->lastId);
       ASSERT_EQ(id, cur->docId);
     }
   }

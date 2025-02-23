@@ -262,7 +262,7 @@ static void rpscoreFree(ResultProcessor *rp) {
   rm_free(self);
 }
 
-/* Create a new scorer by name. If the name is not found in the scorer registry, we use the defalt
+/* Create a new scorer by name. If the name is not found in the scorer registry, we use the default
  * scorer */
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
@@ -883,6 +883,9 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
   // First, we verify that we unlocked the spec before we lock Redis.
   RedisSearchCtx_UnlockSpec(sctx);
 
+  bool isQueryProfile = rp->parent->isProfile;
+  struct timespec rpStartTime, rpEndTime;
+  if (isQueryProfile) clock_gettime(CLOCK_MONOTONIC, &rpStartTime);
   // Then, lock Redis to guarantee safe access to Redis keyspace
   RedisModule_ThreadSafeContextLock(sctx->redisCtx);
 
@@ -890,6 +893,13 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
 
   // Done loading. Unlock Redis
   RedisModule_ThreadSafeContextUnlock(sctx->redisCtx);
+
+  if (isQueryProfile) {
+    clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
+    rs_timersub(&rpEndTime, &rpStartTime, &rpEndTime);
+    rs_timeradd(&rpEndTime, &rp->GILTime, &rp->GILTime);
+    rs_timeradd(&rpEndTime, &rp->parent->GILTime, &rp->parent->GILTime);
+  }
 
   // Move to the yielding phase
   rp->Next = rpSafeLoaderNext_Yield;

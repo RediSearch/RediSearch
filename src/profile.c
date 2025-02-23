@@ -57,13 +57,12 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
   // Array is filled backward in pair of [common, profile] result processors
   if (rp->type != RP_PROFILE) {
-    RedisModule_Reply_Map(reply); // start of resursive map
+    RedisModule_Reply_Map(reply); // start of recursive map
 
     switch (rp->type) {
       case RP_INDEX:
       case RP_METRICS:
       case RP_LOADER:
-      case RP_SAFE_LOADER:
       case RP_SCORER:
       case RP_SORTER:
       case RP_COUNTER:
@@ -77,6 +76,11 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_PROJECTOR:
       case RP_FILTER:
         RPEvaluator_Reply(reply, "Type", rp);
+        break;
+
+      case RP_SAFE_LOADER:
+        printProfileType(RPTypeToString(rp->type));
+        printProfileGILTime(rp->GILTime);
         break;
 
       case RP_PROFILE:
@@ -93,7 +97,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     printProfileTime(totalRPTime - upstreamTime);
   }
   printProfileCounter(RPProfile_GetCount(rp) - 1);
-  RedisModule_Reply_MapEnd(reply); // end of resursive map
+  RedisModule_Reply_MapEnd(reply); // end of recursive map
   return totalRPTime;
 }
 
@@ -125,6 +129,19 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         if (profile_verbose)
           RedisModule_ReplyKV_Double(reply, "Pipeline creation time",
             (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
+
+      //Print total GIL time
+        if (profile_verbose){
+          if (RunInThread()){
+            RedisModule_ReplyKV_Double(reply, "Total GIL time",
+            rs_timer_ms(&req->qiter.GILTime));
+          } else {
+            struct timespec rpEndTime;
+            clock_gettime(CLOCK_MONOTONIC, &rpEndTime);
+            rs_timersub(&rpEndTime, &req->qiter.initTime, &rpEndTime);
+            RedisModule_ReplyKV_Double(reply, "Total GIL time", rs_timer_ms(&rpEndTime));
+          }
+        }
 
       // Print whether a warning was raised throughout command execution
       if (timedout) {

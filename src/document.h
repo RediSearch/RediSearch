@@ -140,6 +140,13 @@ typedef struct {
   RedisModuleString *languageStr;  // Language string for HSET
 } AddDocumentOptions;
 
+// When indexing the document we are okay with open key returning null
+// If the fields lazily expire then we simply don't index them
+#define DOCUMENT_OPEN_KEY_INDEXING_FLAGS REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS
+// When loading the document we are after the iterators phase, where we already verified the expiration time of the field and document
+// We don't allow any lazy expiration to happen here
+#define DOCUMENT_OPEN_KEY_QUERY_FLAGS REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_ACCESS_EXPIRED
+
 void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
                        uint32_t typemask);
 
@@ -214,7 +221,7 @@ void Document_Dump(const Document *doc);  // LCOV_EXCL_LINE debug
  * Free any copied data within the document. anyCtx is any non-NULL
  * RedisModuleCtx. The reason for requiring a context is more related to the
  * Redis Module API requiring a context for AutoMemory purposes, though in
- * this case, the pointers are already removed from AutoMemory manangement
+ * this case, the pointers are already removed from AutoMemory management
  * anyway.
  *
  * This function also calls Document_Free
@@ -364,7 +371,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
  */
 int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, QueryError *status);
 
-/* Serialzie the document's fields to a redis client */
+/* Serialize the document's fields to a redis client */
 int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleString *id);
 
 DocumentField *Document_GetField(Document *d, const char *fieldName);
@@ -375,7 +382,7 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len);
 /* return an array value as c string */
 const char *DocumentField_GetArrayValueCStr(const DocumentField *df, size_t *len, size_t index);
 
-/* return the sum of all c string lenths in array */
+/* return the sum of all c string lengths in array */
 size_t DocumentField_GetArrayValueCStrTotalLen(const DocumentField *df);
 
 // Document add functions:

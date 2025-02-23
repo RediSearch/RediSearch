@@ -290,10 +290,6 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if ((parseSortby(arng, ac, status, req->reqflags & QEXEC_F_IS_SEARCH)) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
-    // If we have sort by clause and don't need to return scores, we can avoid computing them.
-    if (IsSearch(req) && !IsScorerNeeded(req)) {
-      req->searchopts.flags |= Search_IgnoreScores;
-    }
   } else if (AC_AdvanceIfMatch(ac, "TIMEOUT")) {
     if (AC_NumRemaining(ac) < 1) {
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need argument for TIMEOUT");
@@ -454,6 +450,26 @@ err:
   return REDISMODULE_ERR;
 }
 
+static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *hasEmptyFilterValue, QueryError *status) {
+  if (AC_AdvanceIfMatch(ac, "FILTER")) {
+    // Numeric filter
+    NumericFilter **curpp = array_ensure_tail(&options->legacy.filters, NumericFilter *);
+    *curpp = NumericFilter_LegacyParse(ac, hasEmptyFilterValue, status);
+    if (!*curpp) {
+      return ARG_ERROR;
+    }
+  } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
+    GeoFilter *cur_gf = rm_new(*cur_gf);
+    array_ensure_append_1(options->legacy.geo_filters, cur_gf);
+    if (GeoFilter_LegacyParse(cur_gf, ac, hasEmptyFilterValue, status) != REDISMODULE_OK) {
+      return ARG_ERROR;
+    }
+  } else {
+    return ARG_UNKNOWN;
+  }
+  return ARG_HANDLED;
+}
+
 static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts,
                           AggregatePlan *plan, QueryError *status) {
   // Parse query-specific arguments..
@@ -479,7 +495,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       {AC_MKBITFLAG("WITHSORTKEYS", &req->reqflags, QEXEC_F_SEND_SORTKEYS)},
       {AC_MKBITFLAG("WITHPAYLOADS", &req->reqflags, QEXEC_F_SEND_PAYLOADS)},
       {AC_MKBITFLAG("NOCONTENT", &req->reqflags, QEXEC_F_SEND_NOFIELDS)},
-      {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopwrods)},
+      {AC_MKBITFLAG("NOSTOPWORDS", &searchOpts->flags, Search_NoStopWords)},
       {AC_MKBITFLAG("EXPLAINSCORE", &req->reqflags, QEXEC_F_SEND_SCOREEXPLAIN)},
       {.name = "PAYLOAD",
        .type = AC_ARGTYPE_STRING,
@@ -489,6 +505,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   req->reqflags |= QEXEC_FORMAT_DEFAULT;
   bool optimization_specified = false;
+  bool hasEmptyFilterValue = false;
   while (!AC_IsAtEnd(ac)) {
     ACArgSpec *errSpec = NULL;
     int rv = AC_ParseArgSpec(ac, querySpecs, &errSpec);
@@ -525,6 +542,11 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       }
       req->reqflags |= QEXEC_F_SEND_HIGHLIGHT;
 
+    } else if ((req->reqflags & QEXEC_F_IS_SEARCH) &&
+               ((rv = parseQueryLegacyArgs(ac, searchOpts, &hasEmptyFilterValue, status)) != ARG_UNKNOWN)) {
+      if (rv == ARG_ERROR) {
+        return REDISMODULE_ERR;
+      }
     } else if (AC_AdvanceIfMatch(ac, "WITHCOUNT")) {
       req->reqflags &= ~QEXEC_OPTIMIZE;
       optimization_specified = true;
@@ -541,6 +563,12 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
         break;
       }
     }
+  }
+
+  // In dialect 2, we require a non empty numeric filter
+  if (req->reqConfig.dialectVersion >= 2 && hasEmptyFilterValue){
+      QERR_MKBADARGS_FMT(status, "Numeric/Geo filter value/s cannot be empty");
+      return REDISMODULE_ERR;
   }
 
   if (!optimization_specified && req->reqConfig.dialectVersion >= 4) {
@@ -818,14 +846,22 @@ static void loadDtor(PLN_BaseStep *bstp) {
 static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
   ArgsCursor loadfields = {0};
   int rc = AC_GetVarArgs(ac, &loadfields);
-  if (rc != AC_OK) {
+  if (rc == AC_ERR_PARSE) {
+    // Didn't get a number, but we might have gotten a '*'
     const char *s = NULL;
     rc = AC_GetString(ac, &s, NULL, 0);
-    if (rc != AC_OK || strcmp(s, "*")) {
+    if (rc != AC_OK) {
       QERR_MKBADARGS_AC(status, "LOAD", rc);
       return REDISMODULE_ERR;
+    } else if (strcmp(s, "*")) {
+      QERR_MKBADARGS_FMT(status, "Bad arguments for LOAD: Expected number of fields or `*`");
+      return REDISMODULE_ERR;
     }
+    // Successfully got a '*', load all fields
     req->reqflags |= QEXEC_AGG_LOAD_ALL;
+  } else if (rc != AC_OK) {
+    QERR_MKBADARGS_AC(status, "LOAD", rc);
+    return REDISMODULE_ERR;
   }
 
   PLN_LoadStep *lstp = rm_calloc(1, sizeof(*lstp));
@@ -854,7 +890,7 @@ AREQ *AREQ_New(void) {
   */
   req->reqConfig = RSGlobalConfig.requestConfigParams;
 
-  // TODO: save only one of the configuration paramters according to the query type
+  // TODO: save only one of the configuration parameters according to the query type
   // once query offset is bounded by both.
   req->maxSearchResults = RSGlobalConfig.maxSearchResults;
   req->maxAggregateResults = RSGlobalConfig.maxAggregateResults;
@@ -862,6 +898,8 @@ AREQ *AREQ_New(void) {
   req->profile = Profile_PrintDefault;
   return req;
 }
+
+static bool hasQuerySortby(const AGGPlan *pln);
 
 int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *status) {
   req->args = rm_malloc(sizeof(*req->args) * argc);
@@ -928,14 +966,75 @@ int AREQ_Compile(AREQ *req, RedisModuleString **argv, int argc, QueryError *stat
     }
   }
 
+  if (!(req->reqflags & QEXEC_F_SEND_HIGHLIGHT) && !IsScorerNeeded(req) && (!IsSearch(req) || hasQuerySortby(&req->ap))) {
+    // We can skip collecting full results structure and metadata from the iterators if:
+    // 1. We don't have a highlight/summarize step,
+    // 2. We are not required to return scores explicitly,
+    // 3. This is not a search query with implicit sorting by query score.
+    searchOpts->flags |= Search_CanSkipRichResults;
+  }
+
   return REDISMODULE_OK;
 
 error:
   return REDISMODULE_ERR;
 }
 
-static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisSearchCtx *sctx) {
+static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisSearchCtx *sctx, unsigned dialect, QueryError *status) {
   /** The following blocks will set filter options on the entire query */
+  if (opts->legacy.filters) {
+    for (size_t ii = 0; ii < array_len(opts->legacy.filters); ++ii) {
+      NumericFilter *filter = opts->legacy.filters[ii];
+      const char *fieldName = (const char *)filter->field;
+      filter->field = IndexSpec_GetField(sctx->spec, fieldName);
+      if (!filter->field || !FIELD_IS(filter->field, INDEXFLD_T_NUMERIC)) {
+        if (dialect != 1) {
+          if (!filter->field) {
+            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
+          } else {
+            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field '%s' is not a numeric field", fieldName);
+          }
+          return REDISMODULE_ERR;
+        } else {
+          // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
+          QAST_GlobalFilterOptions legacyFilterOpts = {.empty = true};
+          QAST_SetGlobalFilters(ast, &legacyFilterOpts);
+          continue; // Keep the filter entry in the legacy filters array for AREQ_Free()
+        }
+      }
+      QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = filter};
+      QAST_SetGlobalFilters(ast, &legacyFilterOpts);
+      opts->legacy.filters[ii] = NULL;  // so AREQ_Free() doesn't free the filters themselves, which
+                                        // are now owned by the query object
+    }
+  }
+  if (opts->legacy.geo_filters) {
+    for (size_t ii = 0; ii < array_len(opts->legacy.geo_filters); ++ii) {
+      GeoFilter *gf = opts->legacy.geo_filters[ii];
+      const char *fieldName = (const char *)gf->field;
+      gf->field = IndexSpec_GetField(sctx->spec, fieldName);
+      if (!gf->field || !FIELD_IS(gf->field, INDEXFLD_T_GEO)) {
+        if (dialect != 1) {
+          if (!gf->field) {
+            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
+          } else {
+            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field '%s' is not a geo field", fieldName);
+          }
+          return REDISMODULE_ERR;
+        } else {
+          // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
+          QAST_GlobalFilterOptions legacyOpts = {.empty = true};
+          QAST_SetGlobalFilters(ast, &legacyOpts);
+        }
+      } else {
+        QAST_GlobalFilterOptions legacyOpts = {.geo = gf};
+        QAST_SetGlobalFilters(ast, &legacyOpts);
+        opts->legacy.geo_filters[ii] = NULL;  // so AREQ_Free() doesn't free the filter itself, which is now owned
+                                              // by the query object
+      }
+    }
+  }
+
   if (opts->inkeys) {
     opts->inids = rm_malloc(sizeof(*opts->inids) * opts->ninkeys);
     for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
@@ -947,6 +1046,7 @@ static void applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const Redis
     QAST_GlobalFilterOptions filterOpts = {.ids = opts->inids, .nids = opts->nids};
     QAST_SetGlobalFilters(ast, &filterOpts);
   }
+  return REDISMODULE_OK;
 }
 
 static bool IsIndexCoherent(AREQ *req) {
@@ -1031,7 +1131,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (!(opts->flags & Search_NoStopwrods)) {
+  if (!(opts->flags & Search_NoStopWords)) {
     opts->stopwords = sctx->spec->stopwords;
     StopWordList_Ref(sctx->spec->stopwords);
   }
@@ -1039,13 +1139,19 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   SetSearchCtx(sctx, req);
   QueryAST *ast = &req->ast;
 
-  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), req->reqConfig.dialectVersion, status);
+  unsigned long dialectVersion = req->reqConfig.dialectVersion;
+
+  int rv = QAST_Parse(ast, sctx, opts, req->query, strlen(req->query), dialectVersion, status);
   if (rv != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
-  QAST_EvalParams(ast, opts, status);
-  applyGlobalFilters(opts, ast, sctx);
+  if (QAST_EvalParams(ast, opts, dialectVersion, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+  if (applyGlobalFilters(opts, ast, sctx, dialectVersion, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
 
   if (QAST_CheckIsValid(ast, req->sctx->spec, opts, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
@@ -1083,7 +1189,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     srckeys[ii] = RLookup_GetKeyEx(srclookup, fldname, fldname_len, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
     if (!srckeys[ii]) {
       if (loadKeys) {
-        // We faild to get the key for reading, so we know getting it for loading will succeed.
+        // We failed to get the key for reading, so we know getting it for loading will succeed.
         srckeys[ii] = RLookup_GetKey_LoadEx(srclookup, fldname, fldname_len, fldname, RLOOKUP_F_NOFLAGS);
         *loadKeys = array_ensure_append_1(*loadKeys, srckeys[ii]);
       }
@@ -1189,7 +1295,7 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
     }
 
     // In some cases the iterator that requested the additional field can be NULL (if some other iterator knows early
-    // that it has no results), but we still want the rest of the pipline to know about the additional field name,
+    // that it has no results), but we still want the rest of the pipeline to know about the additional field name,
     // because there is no syntax error and the sorter should be able to "sort" by this field.
     // If there is a pointer to the node's RLookupKey, write the address.
     if (requests[i].key_ptr)
@@ -1304,7 +1410,7 @@ static ResultProcessor *getScorerRP(AREQ *req, RLookup *rl) {
   return rp;
 }
 
-static int hasQuerySortby(const AGGPlan *pln) {
+static bool hasQuerySortby(const AGGPlan *pln) {
   const PLN_BaseStep *bstp = AGPLN_FindStep(pln, NULL, NULL, PLN_T_GROUP);
   const PLN_ArrangeStep *arng = (PLN_ArrangeStep *)AGPLN_FindStep(pln, NULL, bstp, PLN_T_ARRANGE);
   return arng && arng->sortKeys;
@@ -1395,6 +1501,11 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status, bool 
     RLookup *lookup = AGPLN_GetLookup(pln, NULL, AGPLN_GETLOOKUP_LAST);
     for (size_t ii = 0; ii < req->outFields.numFields; ++ii) {
       ReturnedField *ff = req->outFields.fields + ii;
+      if (req->outFields.defaultField.mode == SummarizeMode_None && ff->mode == SummarizeMode_None) {
+        // Ignore - this is a field for `RETURN`, not `SUMMARIZE`
+        // (Default mode is not any of the summarize modes, and also there is no mode explicitly specified for this field)
+        continue;
+      }
       RLookupKey *kk = RLookup_GetKey(lookup, ff->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!kk) {
         QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property `%s`", ff->name);
@@ -1619,6 +1730,19 @@ void AREQ_Free(AREQ *req) {
   }
   for (size_t ii = 0; ii < req->nargs; ++ii) {
     sdsfree(req->args[ii]);
+  }
+  if (req->searchopts.legacy.filters) {
+    for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {
+      NumericFilter *nf = req->searchopts.legacy.filters[ii];
+      if (nf) {
+        NumericFilter_Free(req->searchopts.legacy.filters[ii]);
+      }
+    }
+    array_free(req->searchopts.legacy.filters);
+  }
+  if (req->searchopts.legacy.geo_filters) {
+    array_foreach(req->searchopts.legacy.geo_filters, gf, if (gf) GeoFilter_Free(gf));
+    array_free(req->searchopts.legacy.geo_filters);
   }
   rm_free(req->searchopts.inids);
   if (req->searchopts.params) {

@@ -472,7 +472,7 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
 /*
  * Parse an index spec from redis command arguments.
  * Returns REDISMODULE_ERR if there's a parsing error.
- * The command only receives the relvant part of argv.
+ * The command only receives the relevant part of argv.
  *
  * The format currently is <field> <weight>, <field> <weight> ...
  */
@@ -518,21 +518,6 @@ void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
  */
 void IndexSpec_AddToInfo(RedisModuleInfoCtx *ctx, IndexSpec *sp);
 #endif
-
-/**
- * Get the total memory usage of all the vector fields in the index (in bytes).
- */
-size_t IndexSpec_VectorIndexSize(IndexSpec *sp);
-
-typedef struct {
-  size_t memory;
-  size_t marked_deleted;
-} VectorIndexStats;
-
-/**
- * Get an index's vector index stats.
- */
-VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp);
 
 /**
  * Gets the next text id from the index. This does not currently

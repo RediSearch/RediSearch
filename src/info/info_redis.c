@@ -177,12 +177,13 @@ void AddToInfo_Fields(RedisModuleInfoCtx *ctx, TotalIndexesFieldsInfo *aggregate
 }
 
 void AddToInfo_Indexes(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
-  RedisModule_InfoAddSection(ctx, "index");
+  RedisModule_InfoAddSection(ctx, "indexes");
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_indexes", dictSize(specDict_g));
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes", total_info->num_active_indexes);
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_running_queries", total_info->num_active_indexes_querying);
   RedisModule_InfoAddFieldULongLong(ctx, "number_of_active_indexes_indexing", total_info->num_active_indexes_indexing);
   RedisModule_InfoAddFieldULongLong(ctx, "total_active_write_threads", total_info->total_active_write_threads);
+  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", (float)total_info->indexing_time / (float)CLOCKS_PER_MILLISEC);
 }
 
 void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
@@ -198,9 +199,6 @@ void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
   RedisModule_InfoAddFieldDouble(ctx, "largest_memory_index", total_info->max_mem);
   RedisModule_InfoAddFieldDouble(ctx, "largest_memory_index_human", MEMORY_MB(total_info->max_mem));
 
-	// Indexing time
-  RedisModule_InfoAddFieldDouble(ctx, "total_indexing_time", total_info->indexing_time / (float)CLOCKS_PER_MILLISEC);
-
 	// Vector memory
   RedisModule_InfoAddFieldDouble(ctx, "used_memory_vector_index", total_info->fields_stats.total_vector_idx_mem);
 }
@@ -208,18 +206,20 @@ void AddToInfo_Memory(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
 void AddToInfo_Cursors(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddSection(ctx, "cursors");
   CursorsInfoStats cursorsStats = Cursors_GetInfoStats();
-  RedisModule_InfoAddFieldLongLong(ctx, "global_idle", cursorsStats.total_idle);
-  RedisModule_InfoAddFieldLongLong(ctx, "global_total", cursorsStats.total);
+  RedisModule_InfoAddFieldLongLong(ctx, "global_idle_user", cursorsStats.total_idle_user);
+  RedisModule_InfoAddFieldLongLong(ctx, "global_idle_internal", cursorsStats.total_idle_internal);
+  RedisModule_InfoAddFieldLongLong(ctx, "global_total_user", cursorsStats.total_user);
+  RedisModule_InfoAddFieldLongLong(ctx, "global_total_internal", cursorsStats.total_internal);
 }
 
 void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
-  RedisModule_InfoAddSection(ctx, "gc");
+  RedisModule_InfoAddSection(ctx, "garbage collector");
   InfoGCStats stats = total_info->gc_stats;
-  RedisModule_InfoAddFieldDouble(ctx, "bytes_collected", stats.totalCollectedBytes);
-  RedisModule_InfoAddFieldDouble(ctx, "total_cycles", stats.totalCycles);
-  RedisModule_InfoAddFieldDouble(ctx, "total_ms_run", stats.totalTime);
-  RedisModule_InfoAddFieldULongLong(ctx, "total_docs_not_collected_by_gc", IndexesGlobalStats_GetLogicallyDeletedDocs());
-  RedisModule_InfoAddFieldULongLong(ctx, "marked_deleted_vectors", total_info->fields_stats.total_mark_deleted_vectors);
+  RedisModule_InfoAddFieldDouble(ctx, "gc_bytes_collected", stats.totalCollectedBytes);
+  RedisModule_InfoAddFieldDouble(ctx, "gc_total_cycles", stats.totalCycles);
+  RedisModule_InfoAddFieldDouble(ctx, "gc_total_ms_run", stats.totalTime);
+  RedisModule_InfoAddFieldULongLong(ctx, "gc_total_docs_not_collected", IndexesGlobalStats_GetLogicallyDeletedDocs());
+  RedisModule_InfoAddFieldULongLong(ctx, "gc_marked_deleted_vectors", total_info->fields_stats.total_mark_deleted_vectors);
 }
 
 void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {

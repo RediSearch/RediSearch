@@ -10,9 +10,12 @@
 #include "rmutil/rm_assert.h"
 #include "active_queries/thread_info.h"
 
+// Forward declaration.
+bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp);
+
 /*
 ## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [PARTIAL] [IF <expr>] [LANGUAGE <lang>]
-[PAYLOAD {payload}] FIELDS <field> <text> ....] Add a documet to the index.
+[PAYLOAD {payload}] FIELDS <field> <text> ....] Add a document to the index.
 
 ## Parameters:
 
@@ -42,7 +45,7 @@ indexed.
 part of the document,
     or ignored if NOSAVE is set
 
-    - LANGUAGE lang: If set, we use a stemmer for the supplied langauge during
+    - LANGUAGE lang: If set, we use a stemmer for the supplied language during
 indexing. Defaults to
 English.
    If an unsupported language is sent, the command returns an error.
@@ -217,10 +220,20 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_WrongArity(ctx);
   }
 
+  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  // On Enterprise, we validate ACL permission to the index
+  if (IsEnterprise() && !ACLUserMayAccessIndex(ctx, sp)) {
+    return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
+  }
+
   ArgsCursor ac;
   AddDocumentOptions opts = {.keyStr = argv[2], .scoreStr = argv[3], .donecb = replyCallback};
   QueryError status = {0};
-  IndexSpec *sp = NULL;
 
   ArgsCursor_InitRString(&ac, argv + 3, argc - 3);
 
@@ -235,13 +248,6 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   if (QueryError_HasError(&status)) {
     RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
-    goto cleanup;
-  }
-
-  StrongRef ref = IndexSpec_LoadUnsafe(RedisModule_StringPtrLen(argv[1], NULL));
-  sp = StrongRef_Get(ref);
-  if (!sp) {
-    RedisModule_ReplyWithError(ctx, "Unknown index name");
     goto cleanup;
   }
 

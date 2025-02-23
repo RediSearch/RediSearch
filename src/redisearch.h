@@ -418,7 +418,7 @@ typedef struct {
 typedef double (*RSScoringFunction)(const ScoringFunctionArgs *ctx, const RSIndexResult *res,
                                     const RSDocumentMetadata *dmd, double minScore);
 
-/* The extension registeration context, containing the callbacks avaliable to the extension for
+/* The extension registration context, containing the callbacks available to the extension for
  * registering query expanders and scorers. */
 typedef struct RSExtensionCtx {
   int (*RegisterScoringFunction)(const char *alias, RSScoringFunction func, RSFreeFunction ff,

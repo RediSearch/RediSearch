@@ -891,10 +891,13 @@ done:
 
 static void parseProfile(AREQ *r, int withProfile) {
   if (withProfile != NO_PROFILE) {
+    r->qiter.isProfile = true;
     r->reqflags |= QEXEC_F_PROFILE;
     if (withProfile == PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
     }
+  } else {
+    r->qiter.isProfile = false;
   }
 }
 
@@ -921,6 +924,10 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     r->initClock = clock();
   }
 
+  if (r->qiter.isProfile) {
+    clock_gettime(CLOCK_MONOTONIC, &r->qiter.initTime);
+  }
+
   // This function also builds the RedisSearchCtx, and registers the thread to
   // the active-threads container (if successful).
   // It will search for the spec according the the name given in the argv array,
@@ -938,6 +945,12 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     r->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
+    if (r->qiter.isProfile){
+      struct timespec time;
+      clock_gettime(CLOCK_MONOTONIC, &time);
+      rs_timersub(&time, &r->qiter.initTime, &time);
+      rs_timeradd(&time, &r->qiter.GILTime, &r->qiter.GILTime);
+    }
     workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
   } else {
     // Take a read lock on the spec (to avoid conflicts with the GC).

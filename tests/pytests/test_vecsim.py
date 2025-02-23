@@ -42,7 +42,7 @@ def load_vectors_with_texts_into_redis(con, vector_field, dim, num_vectors, data
 
 
 def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_by_vector=True, sort_by_non_vector_field=False,
-                         hybrid_mode='HYBRID_BATCHES'):
+                         hybrid_mode='HYBRID_BATCHES', scorer='BM25STD'):
     if sort_by_vector:
         ret = env.expect('FT.SEARCH', 'idx', query_string,
                          'SORTBY', '__v_score',
@@ -50,14 +50,15 @@ def execute_hybrid_query(env, query_string, query_data, non_vector_field, sort_b
                          'RETURN', 2, '__v_score', non_vector_field, 'LIMIT', 0, 10)
 
     else:
+
         if sort_by_non_vector_field:
-            ret = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
+            ret = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES', 'SCORER', scorer,
                              'SORTBY', non_vector_field,
                              'PARAMS', 2, 'vec_param', query_data.tobytes(),
                              'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
 
         else:
-            ret = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES',
+            ret = env.expect('FT.SEARCH', 'idx', query_string, 'WITHSCORES', 'SCORER', scorer,
                              'PARAMS', 2, 'vec_param', query_data.tobytes(),
                              'RETURN', 2, non_vector_field, '__v_score', 'LIMIT', 0, 10)
 
@@ -830,7 +831,7 @@ def test_hybrid_query_batches_mode_with_tags():
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
         vector = create_np_array_typed([i]*dim, data_type)
-        p.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid')
+        p.execute_command('HSET', i, 'v', vector.tobytes(), 'tags', 'hybrid', 'text', 'text')
     p.execute()
 
     query_data = create_np_array_typed([index_size/2]*dim, data_type)
@@ -883,7 +884,7 @@ def test_hybrid_query_batches_mode_with_tags():
         expected_res.extend([str(int(index_size/2) - 5 + i), '1'])
         expected_res.append(['__v_score', str(dim*abs(5-i)**2), 'tags', 'hybrid'])
     execute_hybrid_query(env, '(@tags:{hybrid|tag})=>[KNN 10 @v $vec_param]', query_data, 'tags',
-                            sort_by_vector=False).equal(expected_res)
+                            sort_by_vector=False, scorer='TFIDF').equal(expected_res)
 
 
 def test_hybrid_query_with_numeric():
@@ -1052,9 +1053,9 @@ def test_hybrid_query_non_vector_score():
                       '98', '2', ['__v_score', '512', 't', 'text value'],
                       '99', '2', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '((text ~"value")|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
-                         hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_1)
+                         hybrid_mode='HYBRID_ADHOC_BF', scorer='TFIDF').equal(expected_res_1)
     execute_hybrid_query(env, '((text ~"value")|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
-                         sort_by_non_vector_field=True, hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_1)
+                         sort_by_non_vector_field=True, hybrid_mode='HYBRID_ADHOC_BF', scorer='TFIDF').equal(expected_res_1)
 
     # Same as above, but here we use fuzzy for 'text'
     expected_res_2 = [10,
@@ -1069,9 +1070,9 @@ def test_hybrid_query_non_vector_score():
                       '98', '1', ['__v_score', '512', 't', 'text value'],
                       '99', '1', ['__v_score', '128', 't', 'text value']]
     execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
-                         hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_2)
+                         hybrid_mode='HYBRID_ADHOC_BF', scorer='TFIDF').equal(expected_res_2)
     execute_hybrid_query(env, '(%test%|other)=>[KNN 10 @v $vec_param]', query_data, 't', sort_by_vector=False,
-                         sort_by_non_vector_field=True, hybrid_mode='HYBRID_ADHOC_BF').equal(expected_res_2)
+                         sort_by_non_vector_field=True, hybrid_mode='HYBRID_ADHOC_BF', scorer='TFIDF').equal(expected_res_2)
 
     # use TFIDF.DOCNORM scorer
     expected_res_3 = [10,
@@ -2090,7 +2091,7 @@ def test_range_query_complex_queries():
             expected_res.extend([str(i), '2'])
         for i in sorted(set(range(index_size-10, index_size))-set(range(index_size-10, index_size+1, 5))):
             expected_res.extend([str(i), '1'])
-        res = env.cmd('FT.SEARCH', 'idx', '(text|other|unique) @v:[VECTOR_RANGE $r $vec_param]', 'WITHSCORES',
+        res = env.cmd('FT.SEARCH', 'idx', '(text|other|unique) @v:[VECTOR_RANGE $r $vec_param]', 'SCORER', 'TFIDF', 'WITHSCORES',
                         'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', radius,
                         'RETURN', 0, 'LIMIT', 0, 11)
         env.assertEqual(res, expected_res, message=loop_case)
@@ -2256,7 +2257,7 @@ def test_query_with_knn_substr():
                                "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes())
     env.assertEqual([to_dict(res_item) for res_item in res[1:]], expected_res)
 
-    res = conn.execute_command("FT.SEARCH", "idx", query_with_vecsim,
+    res = conn.execute_command("FT.SEARCH", "idx", query_with_vecsim, 'SORTBY', 'dist',
                                "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes(), 'RETURN', '1', 'dist')
     env.assertEqual([to_dict(res_item) for res_item in res[2::2]], expected_res)
 
@@ -2269,7 +2270,8 @@ def test_query_with_knn_substr():
     env.assertEqual([res_item[1] for res_item in res[1:]], expected_res)
 
     res = conn.execute_command("FT.SEARCH", "idx", query_without_vecsim,
-                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes(), 'nocontent')
+                               "PARAMS", 2, "BLOB", create_np_array_typed([0] * dim).tobytes(), 'nocontent',
+                               'LOAD', '1', '@__key', 'SORTBY', '__key')
     env.assertEqual(res[1:], expected_res)
 
 

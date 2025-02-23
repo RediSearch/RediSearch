@@ -33,13 +33,26 @@ typedef struct {
 // The maximum size we allow converting to at once
 #define MAX_RUNESTR_LEN 1024
 
+/* A callback for a rune transformation function */
+typedef rune (*runeTransform)(rune r);
+
 /* fold rune: assumes rune is of the correct size */
 rune runeFold(rune r);
+
+/* Convert rune to lowercase */
+rune runeLower(rune r);
 
 /* Convert a rune string to utf-8 characters */
 char *runesToStr(const rune *in, size_t len, size_t *utflen);
 
-rune *strToFoldedRunes(const char *str, size_t *len);
+/* Convert a string to runes, lowercase them and return the transformed runes.
+ * This function supports lowercasing of multi-codepoint runes. */
+rune *strToLowerRunes(const char *str, size_t *len);
+
+/* Convert a string to runes, fold them and return the folded runes.
+ * If a folded runes contains more than one codepoint, only the first
+ * codepoint is taken, the rest are ignored. */
+rune *strToSingleCodepointFoldedRunes(const char *str, size_t *len);
 
 /* Convert a utf-8 string to constant width runes */
 rune *strToRunes(const char *str, size_t *len);
