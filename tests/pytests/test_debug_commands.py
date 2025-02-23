@@ -53,6 +53,12 @@ class TestDebugCommands(object):
             "DUMP_HNSW",
             "SET_MONITOR_EXPIRATION",
             "WORKERS",
+            "SET_MAX_SCANNED_DOCS",
+            "SET_PAUSE_ON_SCANNED_DOCS",
+            "SET_RESUME",
+            "GET_DEBUG_SCANNER_STATUS",
+            "SET_PAUSE_BEFORE_SCAN",
+
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
