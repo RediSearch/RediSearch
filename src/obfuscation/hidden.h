@@ -8,6 +8,7 @@
 #define HIDDEN_H
 #include <stdint.h>
 #include <stddef.h>
+#include <stdbool.h>
 #include "redismodule.h"
 
 #ifdef __cplusplus
