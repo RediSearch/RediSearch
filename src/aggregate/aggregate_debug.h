@@ -51,10 +51,18 @@
  *   ```
  *
  * -----------------------------------------------------------------------------
- * ### Limitations:
+ *
+ *  ### Limitations:
  * - `_FT.DEBUG` does not support `FT.PROFILE`.
  *
  * -----------------------------------------------------------------------------
+ *
+ * ### Debug Params Order:
+ * - All debug parameters must be placed at the end of the command. This is required because the query itself is extracted
+ *   from the command to be processed using the regular query execution pipeline.
+ *
+ * -----------------------------------------------------------------------------
+ *
  * ### Current Capabilities:
  *
  * #### Timeout Simulation:
