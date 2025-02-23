@@ -22,10 +22,4 @@ int RegisterDebugCommands(RedisModuleCommand *debugCommand);
 typedef struct DebugCTX {
   bool debugMode;
   int maxDocsTBscanned;
-  int maxDocsTBscannedPause;
-  bool pauseBeforeScan;
-  volatile bool pause;
 } DebugCTX;
-
-// Should be called after each debug command that changes the debugCtx
-void validateDebugMode(DebugCTX *debugCtx);

@@ -820,28 +820,3 @@ def field_errors(env, idx = 'idx', fld_index = 0):
 def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):
       yield env.getConnection(shardId=s)
-
-def waitForIndexFinishScan(env, idx = 'idx'):
-    scan_started = False
-    scan_ended = False
-    while True:
-        res = index_info(env, idx)
-        scan_started = scan_started or res['num_docs'] > 0 or res['indexing'] == 1
-        scan_ended = scan_ended or res['percent_indexed'] == '1'
-        if scan_started and scan_ended:
-            break
-        time.sleep(0.1)
-
-def getDebugScannerStatus(env, idx = 'idx'):
-    return env.cmd(debug_cmd(), 'GET_DEBUG_SCANNER_STATUS', idx)
-
-def checkDebugScannerError(env, idx = 'idx', expected_error = ''):
-    env.expect(debug_cmd(), 'GET_DEBUG_SCANNER_STATUS', idx).error() \
-        .contains(expected_error)
-
-def waitForIndexPauseScan(env, idx = 'idx'):
-    while True:
-        res = getDebugScannerStatus(env, idx)
-        if res=='PAUSED':
-            break
-        time.sleep(0.1)
