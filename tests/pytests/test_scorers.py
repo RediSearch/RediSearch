@@ -138,9 +138,9 @@ def testBM25ScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
-    env.expect('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum').ok()
-    env.expect('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
-    env.expect('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
+    env.expect('ft.add', 'idx', 'doc1{hash_seed}', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum').ok()
+    env.expect('ft.add', 'idx', 'doc2{hash_seed}', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
+    env.expect('ft.add', 'idx', 'doc3{hash_seed}', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25')
     env.assertEqual(res[0], 3)
 
@@ -174,9 +174,9 @@ def testBM25STDScorerExplanation(env):
     conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
-    conn.execute_command('HSET', 'doc1', 'title', 'hello world', 'body', 'lorem ist ipsum')
-    conn.execute_command('HSET', 'doc2', 'title', 'hello space world', 'body', 'lorem ist ipsum lorem lorem')
-    conn.execute_command('HSET', 'doc3', 'title', 'hello more space world', 'body', 'lorem ist ipsum lorem lorem')
+    conn.execute_command('HSET', 'doc1{hash_seed}', 'title', 'hello world', 'body', 'lorem ist ipsum')
+    conn.execute_command('HSET', 'doc2{hash_seed}', 'title', 'hello space world', 'body', 'lorem ist ipsum lorem lorem')
+    conn.execute_command('HSET', 'doc3{hash_seed}', 'title', 'hello more space world', 'body', 'lorem ist ipsum lorem lorem')
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25STD')
     env.assertEqual(res[0], 3)
 
