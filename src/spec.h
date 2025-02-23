@@ -122,6 +122,17 @@ struct DocumentIndexer;
 extern dict *specDict_g;
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 
+
+#define DEBUG_INDEX_SCANNER_CODE_NEW 0
+#define DEBUG_INDEX_SCANNER_CODE_RUNNING 1
+#define DEBUG_INDEX_SCANNER_CODE_DONE 2
+#define DEBUG_INDEX_SCANNER_CODE_CANCELLED 3
+#define DEBUG_INDEX_SCANNER_CODE_PAUSED 4
+#define DEBUG_INDEX_SCANNER_CODE_RESUMED 5
+
+#define DEBUG_INDEX_SCANNER_STATUS_STRS \
+  { "NEW", "SCANNING", "DONE", "CANCELLED", "PAUSED", "RESUMED" }
+
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
 extern dict *legacySpecRules;
@@ -170,6 +181,10 @@ typedef enum {
   Index_HasGeometry = 0x40000,
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
+
+  Index_DebugScanner = 0x100000   // Index scanner is a DebugIndexesScanner
+
+
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -624,8 +639,12 @@ typedef struct IndexesScanner {
 
 typedef struct DebugIndexesScanner {
   IndexesScanner base;
-  size_t maxDocsTBscanned;
+  int maxDocsTBscanned;
+  int maxDocsTBscannedPause;
+  bool wasPaused;
+  int status;
 } DebugIndexesScanner;
+
 
 double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, IndexSpec *sp);
 

@@ -22,7 +22,32 @@
 #include "cursor.h"
 
 
-DebugCTX debugCtx = {0,-1};
+DebugCTX debugCtx = {0};
+
+void validateDebugMode(DebugCTX *debugCtx)
+{
+  // Debug mode is enabled if any of its field is non-default
+  // Should be called after each debug command that changes the debugCtx
+
+  if (debugCtx->maxDocsTBscanned > 0)
+  {
+    debugCtx->debugMode = true;
+    return;
+  }
+  if (debugCtx->maxDocsTBscannedPause > 0)
+  {
+    debugCtx->debugMode = true;
+    return;
+  }
+  if (debugCtx->pauseBeforeScan)
+  {
+    debugCtx->debugMode = true;
+    return;
+  }
+
+  debugCtx->debugMode = false;
+}
+
 
 #define GET_SEARCH_CTX(name)                                        \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
@@ -1420,11 +1445,107 @@ DEBUG_COMMAND(setMaxScannedDocs) {
   // Negative maxDocsTBscanned represents no limit
 
   debugCtx.maxDocsTBscanned = (int) max_scanned_docs;
-  debugCtx.debugMode = true;
+
+  // Check if we need to enable debug mode
+  validateDebugMode(&debugCtx);
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+DEBUG_COMMAND(setPauseOnScannedDocs) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long pause_scanned_docs;
+  if (RedisModule_StringToLongLong(argv[2], &pause_scanned_docs) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_MAX_SCANNED_DOCS'");
+  }
+
+  // Negative maxDocsTBscanned represents no limit
+
+  debugCtx.maxDocsTBscannedPause = (int) pause_scanned_docs;
+
+  // Check if we need to enable debug mode
+  validateDebugMode(&debugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+DEBUG_COMMAND(setResume) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long resume;
+  if (RedisModule_StringToLongLong(argv[2], &resume) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_RESUME'");
+  }
+
+  debugCtx.pause = !resume;
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+DEBUG_COMMAND(getDebugScannerStatus) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  if (!debugCtx.debugMode) {
+    return RedisModule_ReplyWithError(ctx, "Debug mode is not enabled");
+  }
+
+  if(!(sp->flags & Index_DebugScanner)) {
+    return RedisModule_ReplyWithError(ctx, "Debug mode enabled but scanner is not a debug scanner");
+  }
+
+  // Assuming this file is aware of spec.h, via direct or in-direct include//
+  DebugIndexesScanner *dScanner = (DebugIndexesScanner*)sp->scanner;
+
+  if (!dScanner) {
+    return RedisModule_ReplyWithError(ctx, "Scanner is not initialized");
+  }
+  const char* strs[] = DEBUG_INDEX_SCANNER_STATUS_STRS;
+
+  return RedisModule_ReplyWithSimpleString(ctx, strs[dScanner->status]);
+}
+
+DEBUG_COMMAND(setPauseBeforeScan) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long pauseBeforeScan;
+  if (RedisModule_StringToLongLong(argv[2], &pauseBeforeScan) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_SCAN'");
+  }
+
+  debugCtx.pauseBeforeScan = !!pauseBeforeScan;
+
+  validateDebugMode(&debugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
 
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
@@ -1458,6 +1579,11 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
                                {"WORKERS", WorkerThreadsSwitch},
                                {"SET_MAX_SCANNED_DOCS", setMaxScannedDocs},
+                               {"SET_PAUSE_ON_SCANNED_DOCS", setPauseOnScannedDocs},
+                               {"SET_RESUME",setResume},
+                               {"GET_DEBUG_SCANNER_STATUS",getDebugScannerStatus},
+                               {"SET_PAUSE_BEFORE_SCAN", setPauseBeforeScan},
+
                                /* IMPORTANT NOTE: Every debug command starts with
                                 * checking if redis allows this context to execute
                                 * debug commands by calling `debugCommandsEnabled(ctx)`.
