@@ -7,8 +7,15 @@
 #include "redismodule.h"
 #include "util/references.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct IndexSpec;
 struct AREQ;
 RedisModuleBlockedClient* BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec, struct AREQ* req, int timeoutMS);
 RedisModuleBlockedClient* BlockCursorClient(RedisModuleCtx *ctx, uint64_t cursorId, size_t count, int timeoutMS);
 
+#ifdef __cplusplus
+}
+#endif

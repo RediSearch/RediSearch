@@ -17,20 +17,27 @@ pthread_key_t activeQueriesKey;
 // TLS key for a query thread
 pthread_key_t threadInfoKey;
 
+bool initialized = false;
+
 void ThreadLocalStorage_Init() {
+  assert(!initialized);
   pthread_key_create(&threadInfoKey, NULL);
 
   ActiveQueries *activeQueries = ActiveQueries_Init();
   pthread_key_create(&activeQueriesKey, NULL);
+  printf("ThreadLocalStorage_Init %p\n", activeQueries);
   pthread_setspecific(activeQueriesKey, activeQueries);
+  initialized = true;
 }
 
 void ThreadLocalStorage_Destroy() {
+  assert(initialized);
   pthread_key_delete(threadInfoKey);
 
   ActiveQueries *activeQueries = pthread_getspecific(activeQueriesKey);
   ActiveQueries_Free(activeQueries);
   pthread_key_delete(activeQueriesKey);
+  initialized = false;
 }
 
 ActiveQueries *GetActiveQueries() {
@@ -56,6 +63,10 @@ void CurrentThread_SetIndexSpec(StrongRef specRef) {
 }
 
 void CurrentThread_ClearIndexSpec() {
-  ThreadInfo *info = CurrentThread_GetInfo();
+  ThreadInfo *info = pthread_getspecific(threadInfoKey);
+  assert(info);
   StrongRef_Release(info->specRef);
+  // need to avoid leaking
+  rm_free(info);
+  pthread_setspecific(threadInfoKey, NULL);
 }

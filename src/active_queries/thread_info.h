@@ -10,6 +10,10 @@
 #include <pthread.h>
 #include "active_queries/active_queries.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   pthread_t tid;         // pthread thread id
   pid_t Ltid;            // Linux thread id
@@ -32,3 +36,6 @@ void CurrentThread_SetIndexSpec(StrongRef specRef);
 // Clear the current index spec the thread is working on
 void CurrentThread_ClearIndexSpec();
 
+#ifdef __cplusplus
+}
+#endif
