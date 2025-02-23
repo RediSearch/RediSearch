@@ -7,7 +7,8 @@
 #ifndef HIDDEN_H
 #define HIDDEN_H
 #include <stdint.h>
-#include "reply.h"
+#include <stddef.h>
+#include "redismodule.h"
 
 #ifdef __cplusplus
 extern "C" {
