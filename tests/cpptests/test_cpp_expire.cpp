@@ -75,7 +75,7 @@ TEST_F(ExpireTest, testSkipTo) {
   }
   it->Free(it);
   SearchCtx_Free(sctx);
-  IndexSpec_RemoveFromGlobals(spec->own_ref);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, true);
   args.clear();
   RedisModule_FreeThreadSafeContext(ctx);
 }

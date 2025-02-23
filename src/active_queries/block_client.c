@@ -12,15 +12,15 @@
 #include "active_queries.h"
 
 static void FreeQueryNode(RedisModuleCtx*, void *node) {
-  ActiveQueryNode *aqn = node;
-  ActiveQueries_RemoveQuery(aqn);
-  rm_free(aqn);
+  ActiveQueryNode *activeQueryNode = node;
+  ActiveQueries_RemoveQuery(activeQueryNode);
+  rm_free(activeQueryNode);
 }
 
 static void FreeCursorNode(RedisModuleCtx*, void *node) {
-  ActiveCursorNode *acn = node;
-  ActiveQueries_RemoveCursor(acn);
-  rm_free(acn);
+  ActiveCursorNode *activeCursorNode = node;
+  ActiveQueries_RemoveCursor(activeCursorNode);
+  rm_free(activeCursorNode);
 }
 
 RedisModuleBlockedClient *BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec_ref, AREQ* req, int timeoutMS) {
