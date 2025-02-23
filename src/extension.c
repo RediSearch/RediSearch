@@ -136,8 +136,16 @@ ExtScoringFunctionCtx *Extensions_GetScoringFunction(ScoringFunctionArgs *fnargs
 
   if (!scorers_g) return NULL;
 
+  // Transform the name to upper case for case insensitivity.
+  size_t inLen = strlen(name);
+  char upperName[inLen + 1];
+  for (size_t i = 0; i < inLen; i++) {
+    upperName[i] = toupper(name[i]);
+  }
+  upperName[inLen] = '\0';
+
   /* lookup the scorer by name (case sensitive) */
-  ExtScoringFunctionCtx *p = TrieMap_Find(scorers_g, (char *)name, strlen(name));
+  ExtScoringFunctionCtx *p = TrieMap_Find(scorers_g, upperName, inLen);
   if (p && (void *)p != TRIEMAP_NOTFOUND) {
     /* if no ctx was given, we just return the scorer */
     if (fnargs) {

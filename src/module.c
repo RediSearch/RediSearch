@@ -3253,7 +3253,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   }
 
   // adding the WITHSCORES option only if there is no SORTBY (hence the score is the default sort key)
-  if (!req->withSortby) {
+  if (!req->withSortby && !req->withScores) {
     MRCommand_Insert(&cmd, 3 + req->profileArgs, "WITHSCORES", sizeof("WITHSCORES") - 1);
   }
 

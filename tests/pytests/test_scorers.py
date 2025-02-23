@@ -300,7 +300,7 @@ def testScoreError(env):
 
 def _test_expose_score(env, idx):
     conn = env.getClusterConnectionIfNeeded()
-    conn.execute_command('HSET', 'doc1', 'title', 'hello')
+    conn.execute_command('HSET', 'doc1{tag}', 'title', 'hello')
 
     # MOD-8060 - `SCORER` should propagate to the shards on `FT.AGGREGATE` (cluster mode)
     # Test with default scorer (BM25STD)
@@ -312,9 +312,9 @@ def _test_expose_score(env, idx):
     expected = [1, ['__score', str(1)]] # TFIDF score (different from BM25STD)
     env.expect('FT.AGGREGATE', idx, '~hello', 'SCORER', 'TFIDF', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
 
-    conn.execute_command('HSET', 'doc2', 'title', 'world')
+    conn.execute_command('HSET', 'doc2{tag}', 'title', 'world')
 
-    doc1_score = 0.287682102254 if env.isCluster() else 0.69314718056
+    doc1_score = 0.69314718056
 
     expected = [2, ['__score', str(doc1_score)], ['__score', '0']]
     env.expect('FT.AGGREGATE', idx, '~hello', 'ADDSCORES', 'SORTBY', '2', '@__score', 'DESC').equal(expected)
