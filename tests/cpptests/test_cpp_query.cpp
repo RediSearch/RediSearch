@@ -97,7 +97,7 @@ TEST_F(QueryTest, testParser_delta) {
   ctx.spec = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
 
-  // wildcard with parentheses are avalible from version 2
+  // wildcard with parentheses are available from version 2
   assertInvalidQuery_v(1, "(*)");
   assertValidQuery_v(2, "(*)");
 
