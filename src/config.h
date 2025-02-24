@@ -320,6 +320,9 @@ extern "C" {
 // The size of the memory @param config points to must be at least sizeof(IteratorsConfig)
 void iteratorsConfig_init(IteratorsConfig *config);
 
+void LogWarningDeprecatedFTConfig(RedisModuleCtx *ctx, const char *action,
+                                  const char *name);
+
 #ifdef __cplusplus
 }
 #endif
