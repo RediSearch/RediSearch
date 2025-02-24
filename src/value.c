@@ -773,7 +773,7 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
       return sdscat(s, "]");
       break;
     case RSValue_Reference:
-      return RSValue_DumpSds(v->ref, s, obfuscate);g
+      return RSValue_DumpSds(v->ref, s, obfuscate);
       break;
 
     case RSValue_Duo:
