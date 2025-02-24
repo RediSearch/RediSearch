@@ -4,7 +4,6 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#define MICRO_BENCHMARKS
 #include "src/index_iterator.h"
 
 #include <stdint.h>
