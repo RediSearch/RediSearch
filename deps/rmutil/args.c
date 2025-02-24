@@ -197,12 +197,14 @@ int AC_GetString(ArgsCursor *ac, const char **s, size_t *n, int flags) {
 int AC_GetHiddenString(ArgsCursor *ac, HiddenString** hs, int flags) {
   size_t n;
   const char *text = NULL;
+
   const int rc = AC_GetString(ac, &text, &n, flags);
   if (rc == AC_OK) {
     *hs = NewHiddenString(text, n, false);
   } else {
     *hs = NULL;
   }
+
   return rc;
 }
 
