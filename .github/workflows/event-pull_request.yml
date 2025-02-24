@@ -25,12 +25,15 @@ jobs:
       env: ${{ vars.RUNS_ON }}
       test-config: QUICK=1
       get-redis: unstable
+      rejson-branch: master
     secrets: inherit
 
   coverage:
     needs: docs-only
     if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' && needs.docs-only.outputs.only-docs-changed == 'false' && !github.event.pull_request.draft }}
     uses: ./.github/workflows/flow-coverage.yml
+    with:
+      rejson-branch: master
     secrets: inherit
 
   sanitize:
@@ -44,6 +47,7 @@ jobs:
       san: address
       env: ubuntu-latest
       container: ubuntu:jammy
+      rejson-branch: master
 
   pr-validation:
     needs:

@@ -28,8 +28,13 @@ on:
         type: string
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
       rejson:
-        type: number
-        default: 1
+        type: boolean
+        default: true
+        description: 'Enable tests with RedisJSON'
+      rejson-branch:
+        type: string
+        default: master
+        description: 'Branch to use when building RedisJSON for tests'
       test-timeout:
         type: number
         default: 50
@@ -37,6 +42,7 @@ on:
 env:
   BOOST_VERSION: ${{ vars.BOOST_VERSION }}
   LLVM_VERSION: ${{vars.LLVM_VERSION}}
+  REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
 
 jobs:
@@ -150,9 +156,9 @@ jobs:
       - name: Full checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
         run: echo "Done already earlier."
-      - name: Setup common
+      - name: Setup tests dependencies
         run: |
-          .install/common_installations.sh ${{ steps.mode.outputs.mode }}
+          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
           .install/test_deps/install_rust.sh
       - name: Install Boost
         working-directory: .install
@@ -207,13 +213,15 @@ jobs:
         id: standalone_tests
         if: ${{ inputs.standalone }}
         continue-on-error: true
-        run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }}
+        run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+          REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
         if: ${{ inputs.coordinator }}
         continue-on-error: true
-        run: make pytest SA=0 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }}
+        run: make pytest SA=0 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
+          REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)
