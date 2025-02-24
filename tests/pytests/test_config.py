@@ -1522,6 +1522,7 @@ def testBooleanArgDeprecationMessage():
         matchCount = _grep_file_count(logFilePath, expectedMessage)
         env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
 
+@skip(redis_less_than='7.9.227')
 def testDeprecatedModuleArgsMessage():
     '''Test deprecation message of module arguments'''
     # create module arguments using deprecated parameters
@@ -1568,3 +1569,41 @@ def testBooleanFTConfigDeprecationMessage():
         expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG GET {configName} instead'
         matchCount = _grep_file_count(logFilePath, expectedMessage)
         env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+@skip(redis_less_than='7.9.227')
+def testDeprecatedConfigParamMessage():
+    '''Test deprecation message of deprecated CONFIG parameters'''
+    env = Env(noDefaultModuleArgs=True)
+
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+
+    deprecated_configs = [
+        # configName, testValue, isImmutable, isFlag
+        ('_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true', False, False),
+        ('FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true', False, True),
+        ('MT_MODE', 'MT_MODE_OFF', True, False),
+        ('WORKER_THREADS', '0', True, False)
+    ]
+
+    for ftConfigName, testValue, isImmutable, isFlag in deprecated_configs:
+        if not isImmutable:
+            if isFlag == True:
+                env.expect(config_cmd(), 'SET', ftConfigName).ok()
+            else:
+                env.expect(config_cmd(), 'SET', ftConfigName, testValue).ok()
+
+        env.expect(config_cmd(), 'GET', ftConfigName).equal([[ftConfigName, testValue]])
+
+    for ftConfigName, testValue, isImmutable, isFlag in deprecated_configs:
+        expectedMessage = f'FT.CONFIG is deprecated and its parameter `{ftConfigName}` is deprecated'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        if isImmutable:
+            # For immutable parameters, we only expect one match because we only
+            # call FT.CONFIG GET
+            expectedMatchCount = 1
+        else:
+            expectedMatchCount = 2
+        env.assertEqual(matchCount, expectedMatchCount,
+                        message=f'configName: {ftConfigName}')

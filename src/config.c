@@ -917,6 +917,9 @@ void LogWarningDeprecatedFTConfig(RedisModuleCtx *ctx, const char *action,
   if (configName != NULL && strlen(configName) > 0) {
     RedisModule_Log(ctx, "warning",
       "FT.CONFIG is deprecated, please use CONFIG %s %s instead", action, configName);
+  } else {
+    RedisModule_Log(ctx, "warning",
+      "FT.CONFIG is deprecated and its parameter `%s` is deprecated", name);
   }
 }
 
