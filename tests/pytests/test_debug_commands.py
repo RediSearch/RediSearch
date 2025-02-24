@@ -55,7 +55,7 @@ class TestDebugCommands(object):
             "WORKERS",
             "SET_MAX_SCANNED_DOCS",
             "SET_PAUSE_ON_SCANNED_DOCS",
-            "SET_RESUME",
+            "SET_BG_INDEX_RESUME",
             "GET_DEBUG_SCANNER_STATUS",
             "SET_PAUSE_BEFORE_SCAN",
 
@@ -458,7 +458,7 @@ def testPauseOnScannedDocs(env: Env):
     env.assertEqual(idx_info['percent_indexed'], f'{pause_on_scanned/num_docs}')
 
     # Resume indexing
-    env.expect(debug_cmd(), 'SET_RESUME','true').ok()
+    env.expect(debug_cmd(), 'SET_BG_INDEX_RESUME','true').ok()
     waitForIndexFinishScan(env, 'idx2')
     # Get count of indexed documents
     docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
@@ -488,7 +488,7 @@ def testPauseBeforeScan(env: Env):
     # If is indexing, but debug scanner status is NEW, it means that the scanner is paused before scan
 
     # Resume indexing
-    env.expect(debug_cmd(), 'SET_RESUME','true').ok()
+    env.expect(debug_cmd(), 'SET_BG_INDEX_RESUME','true').ok()
     waitForIndexFinishScan(env, 'idx2')
     # Get count of indexed documents
     docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
@@ -508,10 +508,10 @@ def testDebugScannerStatus(env: Env):
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     env.assertEqual(getDebugScannerStatus(env, 'idx'), 'NEW')
-    env.expect(debug_cmd(), 'SET_RESUME', 'true').ok()
+    env.expect(debug_cmd(), 'SET_BG_INDEX_RESUME', 'true').ok()
     waitForIndexPauseScan(env, 'idx')
     env.assertEqual(getDebugScannerStatus(env, 'idx'), 'PAUSED')
-    env.expect(debug_cmd(), 'SET_RESUME', 'true').ok()
+    env.expect(debug_cmd(), 'SET_BG_INDEX_RESUME', 'true').ok()
     waitForIndexFinishScan(env, 'idx')
     # When scan is done, the scanner is freed
     checkDebugScannerError(env, 'idx', 'Scanner is not initialized')

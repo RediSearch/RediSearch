@@ -186,9 +186,6 @@ typedef enum {
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
 
-  Index_DebugScanner = 0x100000   // Index scanner is a DebugIndexesScanner
-
-
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -636,6 +633,7 @@ void Indexes_SetTempSpecsTimers(TimerOp op);
 typedef struct IndexesScanner {
   bool global;
   bool cancelled;
+  bool isDebug;
   WeakRef spec_ref;
   char *spec_name;
   size_t scannedKeys;

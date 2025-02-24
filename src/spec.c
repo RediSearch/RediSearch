@@ -2101,6 +2101,7 @@ static IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
   scanner->spec_ref = StrongRef_Demote(global_ref);
   IndexSpec *spec = StrongRef_Get(global_ref);
   scanner->spec_name = rm_strndup(spec->name, spec->nameLen);
+  scanner->isDebug = false;
 
   // scan already in progress?
   if (spec->scanner) {
@@ -2142,6 +2143,7 @@ static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref) {
   dScanner->maxDocsTBscannedPause = debugCtx.bgIndexing.maxDocsTBscannedPause;
   dScanner->wasPaused = false;
   dScanner->status = DEBUG_INDEX_SCANNER_CODE_NEW;
+  dScanner->base.isDebug = true;
 
   IndexSpec *spec = StrongRef_Get(global_ref);
   spec->scanner = (IndexesScanner*)dScanner;
@@ -2222,7 +2224,7 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
   }
 
   if (dScanner->maxDocsTBscannedPause > 0 && (!dScanner->wasPaused) && scanner->scannedKeys >= dScanner->maxDocsTBscannedPause) {
-    debugCtx.pause = true;
+    debugCtx.bgIndexing.pause = true;
     dScanner->wasPaused = true;
   }
 
@@ -2232,7 +2234,7 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
   }
 
   RedisModule_ThreadSafeContextUnlock(ctx);
-  while (debugCtx.pause) // volatile variable
+  while (debugCtx.bgIndexing.pause) // volatile variable
   {
     dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED;
     usleep(1000);
@@ -2271,9 +2273,9 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     scanner_func = (RedisModuleScanCB)DebugIndexes_ScanProc;
     if (debugCtx.bgIndexing.pauseBeforeScan)
     {
-      debugCtx.pause = true;
+      debugCtx.bgIndexing.pause = true;
       RedisModule_ThreadSafeContextUnlock(ctx);
-      while (debugCtx.pause) // volatile variable
+      while (debugCtx.bgIndexing.pause) // volatile variable
       {
         usleep(1000);
       }
@@ -2304,15 +2306,9 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
 
   }
 
-  if (debugCtx.debugMode) {
-    StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
-    IndexSpec *sp = StrongRef_Get(curr_run_ref);
-    if (sp) {
-      if (sp->flags & Index_DebugScanner) {
-        DebugIndexesScanner* dScanner = (DebugIndexesScanner*)scanner;
-        dScanner->status = DEBUG_INDEX_SCANNER_CODE_DONE;
-      }
-    }
+  if (scanner->isDebug) {
+    DebugIndexesScanner* dScanner = (DebugIndexesScanner*)scanner;
+    dScanner->status = DEBUG_INDEX_SCANNER_CODE_DONE;
   }
 
   if (scanner->global) {
@@ -2347,8 +2343,6 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   IndexesScanner *scanner;
   if (debugCtx.debugMode) {
     scanner = (IndexesScanner*)DebugIndexesScanner_New(spec_ref);
-    IndexSpec *sp = StrongRef_Get(spec_ref);
-    sp->flags |= Index_DebugScanner;
   } else {
     scanner = IndexesScanner_New(spec_ref);
   }

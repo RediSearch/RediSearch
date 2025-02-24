@@ -24,12 +24,12 @@ typedef struct BgIndexingDebugCtx {
   int maxDocsTBscanned;
   int maxDocsTBscannedPause;
   bool pauseBeforeScan;
+  volatile bool pause;
 } BgIndexingDebugCtx;
 
 // General debug context
 typedef struct DebugCTX {
   bool debugMode;
-  volatile bool pause;
   BgIndexingDebugCtx bgIndexing;
 } DebugCTX;
 

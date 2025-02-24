@@ -1458,7 +1458,7 @@ DEBUG_COMMAND(setPauseOnScannedDocs) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
-DEBUG_COMMAND(setResume) {
+DEBUG_COMMAND(setBgIndexResume) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -1468,10 +1468,10 @@ DEBUG_COMMAND(setResume) {
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcasecmp(op, "true")) {
-    debugCtx.pause = false;
+    debugCtx.bgIndexing.pause = false;
   } else if (!strcasecmp(op, "false")) {
-    debugCtx.pause = true;
-    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_RESUME'");
+    debugCtx.bgIndexing.pause = true;
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_BG_INDEX_RESUME'");
   }
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -1495,20 +1495,17 @@ DEBUG_COMMAND(getDebugScannerStatus) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
 
-  if (!debugCtx.debugMode) {
-    return RedisModule_ReplyWithError(ctx, "Debug mode is not enabled");
+  if (!sp->scanner) {
+    return RedisModule_ReplyWithError(ctx, "Scanner is not initialized");
   }
 
-  if(!(sp->flags & Index_DebugScanner)) {
+  if(!(sp->scanner->isDebug)) {
     return RedisModule_ReplyWithError(ctx, "Debug mode enabled but scanner is not a debug scanner");
   }
 
-  // Assuming this file is aware of spec.h, via direct or in-direct include//
+  // Assuming this file is aware of spec.h, via direct or in-direct include
   DebugIndexesScanner *dScanner = (DebugIndexesScanner*)sp->scanner;
 
-  if (!dScanner) {
-    return RedisModule_ReplyWithError(ctx, "Scanner is not initialized");
-  }
 
   return RedisModule_ReplyWithSimpleString(ctx, DEBUG_INDEX_SCANNER_STATUS_STRS[dScanner->status]);
 }
@@ -1568,7 +1565,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"WORKERS", WorkerThreadsSwitch},
                                {"SET_MAX_SCANNED_DOCS", setMaxScannedDocs},
                                {"SET_PAUSE_ON_SCANNED_DOCS", setPauseOnScannedDocs},
-                               {"SET_RESUME",setResume},
+                               {"SET_BG_INDEX_RESUME",setBgIndexResume},
                                {"GET_DEBUG_SCANNER_STATUS",getDebugScannerStatus},
                                {"SET_PAUSE_BEFORE_SCAN", setPauseBeforeScan},
 
