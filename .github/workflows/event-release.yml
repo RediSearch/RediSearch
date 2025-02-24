@@ -23,7 +23,7 @@ env:
 jobs:
   validate-tag:
     # Verify that the tag matches the version in src/version.h
-     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     outputs:
       cur_version: ${{ steps.verify.outputs.cur_version }}
       next_version: ${{ steps.verify.outputs.next_version }}
@@ -66,7 +66,7 @@ jobs:
 
   update-version:
     # Generate a PR to bump the version for the next patch (if releasing from a version branch)
-     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     needs: validate-tag
     if: needs.validate-tag.outputs.should_bump == 'true'
     env:
@@ -112,7 +112,7 @@ jobs:
 
   set-artifacts:
     needs: validate-tag
-     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - name: Configure AWS Credentials Using Role
         if: vars.USE_AWS_ROLE == 'true'

@@ -4,7 +4,7 @@ on: [workflow_call, workflow_dispatch]
 
 jobs:
   spellcheck:
-     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4

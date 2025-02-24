@@ -42,7 +42,7 @@ on:
 jobs:
   setup:
     # Sets SHA and Validates the reference Input (branch or tag)
-     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
       redis-ref: ${{ steps.get-redis.outputs.tag }}
@@ -75,7 +75,7 @@ jobs:
       architecture: ${{ inputs.architecture }}
 
   decide-macos:
-     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ contains(fromJson('["macos", "all"]'), inputs.platform) }}
     outputs:
       platforms: ${{ steps.decide.outputs.platforms }}
