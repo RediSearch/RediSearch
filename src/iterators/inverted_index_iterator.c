@@ -8,6 +8,7 @@
 */
 
 #include "inverted_index_iterator.h"
+#include "inverted_index.h"
 
 // pointer to the current block while reading the index
 #define CURRENT_BLOCK(it) ((it)->idx->blocks[(it)->currentBlock])
@@ -19,6 +20,18 @@ void InvIndIterator_Free(QueryIterator *it) {
   rm_free(it);
 }
 
+static inline void SetCurrentBlockReader(InvIndIterator *it) {
+  it->blockReader = (IndexBlockReader) {
+    NewBufferReader(&CURRENT_BLOCK(it).buf),
+    CURRENT_BLOCK(it).firstId,
+  };
+}
+
+static inline void AdvanceBlock(InvIndIterator *it) {
+  it->currentBlock++;
+  SetCurrentBlockReader(it);
+}
+
 void InvIndIterator_Rewind(QueryIterator *base) {
   InvIndIterator *it = (InvIndIterator *)base;
   base->atEOF = false;
@@ -26,9 +39,7 @@ void InvIndIterator_Rewind(QueryIterator *base) {
   base->current->docId = 0;
   it->currentBlock = 0;
   it->gcMarker = it->idx->gcMarker;
-  it->br = NewBufferReader(&CURRENT_BLOCK(it).buf);
-  it->lastId = CURRENT_BLOCK(it).firstId;
-  it->sameId = 0;
+  SetCurrentBlockReader(it);
 }
 
 size_t InvIndIterator_NumEstimated(QueryIterator *base) {
@@ -36,10 +47,40 @@ size_t InvIndIterator_NumEstimated(QueryIterator *base) {
   return it->idx->numDocs;
 }
 
-static inline void AdvanceBlock(InvIndIterator *it) {
-  it->currentBlock++;
-  it->br = NewBufferReader(&CURRENT_BLOCK(it).buf);
-  it->lastId = CURRENT_BLOCK(it).firstId;
+#define FIELD_MASK_BIT_COUNT (sizeof(t_fieldMask) * 8)
+
+// Used to determine if the field mask for the given doc id are valid based on their ttl:
+// it->filterCtx.predicate
+// returns true if the we don't have expiration information for the document
+// otherwise will return the same as DocTable_VerifyFieldExpirationPredicate
+// if predicate is default then it means at least one of the fields need to not be expired for us to return true
+// if predicate is missing then it means at least one of the fields needs to be expired for us to return true
+static inline bool VerifyFieldMaskExpirationForDocId(InvIndIterator *it, t_docId docId, t_fieldMask docFieldMask) {
+  // If there isn't a ttl information then the doc fields are valid
+  if (!it->sctx || !it->sctx->spec || !DocTable_HasExpiration(&it->sctx->spec->docs, docId)) {
+    return true;
+  }
+
+
+  // TODO: move to constructor
+
+  // doc has expiration information, create a field id array to check for expiration predicate
+  size_t numFieldIndices = 0;
+  // Use a stack allocated array for the field indices, if the field mask is not a single field
+  t_fieldIndex fieldIndicesArray[FIELD_MASK_BIT_COUNT];
+  t_fieldIndex* sortedFieldIndices = fieldIndicesArray;
+  if (it->filterCtx.field.isFieldMask) {
+    const t_fieldMask relevantMask = docFieldMask & it->filterCtx.field.value.mask;
+    numFieldIndices = IndexSpec_TranslateMaskToFieldIndices(it->sctx->spec,
+                                                            relevantMask,
+                                                            fieldIndicesArray);
+  } else if (it->filterCtx.field.value.index != RS_INVALID_FIELD_INDEX) {
+    sortedFieldIndices = &it->filterCtx.field.value.index;
+    numFieldIndices = 1;
+  }
+  return DocTable_VerifyFieldExpirationPredicate(&it->sctx->spec->docs, docId,
+                                                 sortedFieldIndices, numFieldIndices,
+                                                 it->filterCtx.predicate, &it->sctx->time.current);
 }
 
 IteratorStatus InvIndIterator_Read(QueryIterator *base) {
@@ -47,9 +88,10 @@ IteratorStatus InvIndIterator_Read(QueryIterator *base) {
   if (base->atEOF) {
     return ITERATOR_EOF;
   }
+  RSIndexResult *record = base->current;
   while (true) {
     // if needed - advance to the next block
-    if (BufferReader_AtEnd(&it->br)) {
+    if (BufferReader_AtEnd(&it->blockReader.br)) {
       if (it->currentBlock + 1 == it->idx->size) {
         // We're at the end of the last block...
         break;
@@ -71,28 +113,11 @@ IteratorStatus InvIndIterator_Read(QueryIterator *base) {
       // Avoid returning the same doc
       // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
       // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.
-      if (it->sameId == it->lastId) {
-        continue;
-      }
-      it->sameId = it->lastId;
+      continue;
     }
 
-    // TODO: move to constructor
-    if (it->sctx && it->sctx->spec && DocTable_HasExpiration(&it->sctx->spec->docs, record->docId)) {
-      size_t numFieldIndices = 0;
-      // Use a stack allocated array for the field indices, if the field mask is not a single field
-      t_fieldIndex fieldIndicesArray[FIELD_MASK_BIT_COUNT];
-      t_fieldIndex* sortedFieldIndices = fieldIndicesArray;
-      if (it->filterCtx.field.isFieldMask) {
-        numFieldIndices = IndexSpec_TranslateMaskToFieldIndices(it->sctx->spec, it->filterCtx.field.value.mask, fieldIndicesArray);
-      } else if (it->filterCtx.field.value.index != RS_INVALID_FIELD_INDEX) {
-        sortedFieldIndices = &it->filterCtx.field.value.index;
-        ++numFieldIndices;
-      }
-      const bool validValue = DocTable_VerifyFieldExpirationPredicate(&it->sctx->spec->docs, record->docId, sortedFieldIndices, numFieldIndices, it->filterCtx.predicate, &it->sctx->time.current);
-      if (!validValue) {
-        continue;
-      }
+    if (!VerifyFieldMaskExpirationForDocId(it, record->docId, record->fieldMask)) {
+      continue;
     }
 
     base->lastDocId = record->docId;
@@ -141,8 +166,7 @@ static inline void SkipToBlock(InvIndIterator *it, t_docId docId) {
 
 new_block:
   RS_LOG_ASSERT(it->currentBlock < idx->size, "Invalid block index");
-  it->lastId = CURRENT_BLOCK(it).firstId;
-  it->br = NewBufferReader(&CURRENT_BLOCK(it).buf);
+  SetCurrentBlockReader(it);
 }
 
 IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId) {
@@ -157,7 +181,7 @@ IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId)
     return ITERATOR_EOF;
   }
 
-  if (CURRENT_BLOCK(it).lastId < docId || BufferReader_AtEnd(&it->br)) {
+  if (CURRENT_BLOCK(it).lastId < docId || CURRENT_BLOCK_READER_AT_END(it)) {
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
     SkipToBlock(it, docId);
@@ -224,7 +248,7 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId doc
     goto eof;
   }
 
-  if (CURRENT_BLOCK(it).lastId < docId || BufferReader_AtEnd(&it->br)) {
+  if (CURRENT_BLOCK(it).lastId < docId || CURRENT_BLOCK_READER_AT_END(it)) {
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
     SkipToBlock(it, docId);
@@ -233,12 +257,8 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId doc
   // the seeker will return 1 only when it found a docid which is greater or equals the
   // searched docid and the field mask matches the searched fields mask. We need to continue
   // scanning only when we found such an id or we reached the end of the inverted index.
-  while (!it->decoders.seeker(&it->br, &it->decoderCtx, it, docId, it->base.current)) {
-    if (it->currentBlock + 1 < it->idx->size) {
-      AdvanceBlock(it);
-    } else {
-      goto eof;
-    }
+  if (!ReadWithSeeker(it, docId)) {
+    goto eof;
   }
   // Found a document that match the field mask and greater or equal the searched docid
   base->lastDocId = it->base.current->docId;
