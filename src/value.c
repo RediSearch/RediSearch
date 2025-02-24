@@ -772,19 +772,8 @@ sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
       }
       return sdscat(s, "]");
       break;
-    case RSValue_Map:
-      s = sdscat(s, "{");
-      for (uint32_t i = 0; i < v->mapval.len; i++) {
-        if (i > 0)
-          s = sdscat(s, ", ");
-        s = RSValue_DumpSds(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], s, obfuscate);
-        s = sdscat(s, ": ");
-        s = RSValue_DumpSds(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], s, obfuscate);
-      }
-      s = sdscat(s, "}");
-      break;
     case RSValue_Reference:
-      return RSValue_DumpSds(v->ref, s, obfuscate);
+      return RSValue_DumpSds(v->ref, s, obfuscate);g
       break;
 
     case RSValue_Duo:
