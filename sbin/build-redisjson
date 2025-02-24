@@ -63,7 +63,7 @@ fi
 # Install only rust, because the rest of the dependencies are already installed
 if [[ $NOP != 1 ]]; then
 
-	# for RedisJSON build with addess santizer if required
+	# for RedisJSON build with address sanitizer if required
 	if [[ -n $SAN ]]; then
 		rustup component add rust-src --toolchain nightly
 	fi
