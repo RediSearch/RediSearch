@@ -407,7 +407,7 @@ int CheckVersionForShortRead() {
 void Initialize_RdbNotifications(RedisModuleCtx *ctx) {
   if (CheckVersionForShortRead() == REDISMODULE_OK) {
     int success = RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_ReplBackup, ReplicaBackupCallback);
-    RS_ASSERT(success != REDISMODULE_ERR); // should be supported in this redis version/release
+    RS_ASSERT_ALWAYS(success != REDISMODULE_ERR); // should be supported in this redis version/release
 	RedisModule_SetModuleOptions(ctx, REDISMODULE_OPTIONS_HANDLE_IO_ERRORS);
     if (redisVersion.majorVersion < 7 || IsEnterprise()) {
 	    RedisModule_Log(ctx, "notice", "Enabled diskless replication");

@@ -444,6 +444,7 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
       break;
   }
   RS_ABORT("Cannot get here");
+  return NULL;
 }
 
 // {"a":1, "b":[2, 3, {"c": "foo"}, 4], "d": null}

@@ -3537,7 +3537,7 @@ void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
 
 static bool checkClusterEnabled(RedisModuleCtx *ctx) {
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "CONFIG", "cc", "GET", "cluster-enabled");
-  RS_ASSERT(rep && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY &&
+  RS_ASSERT_ALWAYS(rep && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY &&
                      RedisModule_CallReplyLength(rep) == 2);
   size_t len;
   const char *isCluster = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, 1), &len);
