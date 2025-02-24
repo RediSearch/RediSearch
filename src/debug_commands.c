@@ -1468,9 +1468,10 @@ DEBUG_COMMAND(setBgIndexResume) {
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcasecmp(op, "true")) {
+    if (!debugCtx.bgIndexing.pause)
+      return RedisModule_ReplyWithError(ctx, "BG indexing is not paused");
     debugCtx.bgIndexing.pause = false;
-  } else if (!strcasecmp(op, "false")) {
-    debugCtx.bgIndexing.pause = true;
+  } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_BG_INDEX_RESUME'");
   }
 

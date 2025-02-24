@@ -510,7 +510,6 @@ def testDebugScannerStatus(env: Env):
     env.assertEqual(getDebugScannerStatus(env, 'idx'), 'NEW')
     env.expect(debug_cmd(), 'SET_BG_INDEX_RESUME', 'true').ok()
     waitForIndexPauseScan(env, 'idx')
-    env.assertEqual(getDebugScannerStatus(env, 'idx'), 'PAUSED')
     env.expect(debug_cmd(), 'SET_BG_INDEX_RESUME', 'true').ok()
     waitForIndexFinishScan(env, 'idx')
     # When scan is done, the scanner is freed

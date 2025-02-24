@@ -8,6 +8,7 @@
 
 #include "redismodule.h"
 #include  <stdbool.h>
+#include <stdatomic.h>
 
 #define RS_DEBUG_FLAGS 0, 0, 0
 #define DEBUG_COMMAND(name) static int name(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
@@ -24,7 +25,7 @@ typedef struct BgIndexingDebugCtx {
   int maxDocsTBscanned;
   int maxDocsTBscannedPause;
   bool pauseBeforeScan;
-  volatile bool pause;
+  volatile atomic_bool pause;
 } BgIndexingDebugCtx;
 
 // General debug context

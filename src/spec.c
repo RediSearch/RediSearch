@@ -2271,16 +2271,11 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RedisModuleScanCB scanner_func = (RedisModuleScanCB)Indexes_ScanProc;
   if (debugCtx.debugMode) {
     scanner_func = (RedisModuleScanCB)DebugIndexes_ScanProc;
-    if (debugCtx.bgIndexing.pauseBeforeScan)
-    {
-      debugCtx.bgIndexing.pause = true;
-      RedisModule_ThreadSafeContextUnlock(ctx);
-      while (debugCtx.bgIndexing.pause) // volatile variable
-      {
-        usleep(1000);
-      }
-      RedisModule_ThreadSafeContextLock(ctx);
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    while (debugCtx.bgIndexing.pause) { // volatile variable
+      usleep(1000);
     }
+    RedisModule_ThreadSafeContextLock(ctx);
   }
   while (RedisModule_Scan(ctx, cursor, scanner_func, scanner)) {
     RedisModule_ThreadSafeContextUnlock(ctx);
@@ -2343,9 +2338,13 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   IndexesScanner *scanner;
   if (debugCtx.debugMode) {
     scanner = (IndexesScanner*)DebugIndexesScanner_New(spec_ref);
+    if (debugCtx.bgIndexing.pauseBeforeScan) {
+      debugCtx.bgIndexing.pause = true;
+    }
   } else {
     scanner = IndexesScanner_New(spec_ref);
   }
+
   redisearch_thpool_add_work(reindexPool, (redisearch_thpool_proc)Indexes_ScanAndReindexTask, scanner, THPOOL_PRIORITY_HIGH);
 }
 
