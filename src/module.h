@@ -125,6 +125,7 @@ typedef struct {
   int profileLimited;
   clock_t profileClock;
   void *reducer;
+  bool normalizeScore;
 } searchRequestCtx;
 
 bool debugCommandsEnabled(RedisModuleCtx *ctx);

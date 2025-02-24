@@ -58,6 +58,7 @@
 #include "coord/info_command.h"
 #include "info/global_stats.h"
 #include "util/units.h"
+#include "ext/default.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                  \
   do {                                                                         \
@@ -1611,6 +1612,8 @@ typedef struct{
   specialCaseCtx* reduceSpecialCaseCtxSortby;
 
   MRReply *warning;
+
+  double maxScore;  // Maximum score among the returned results.
 } searchReducerCtx;
 
 typedef struct {
@@ -1817,6 +1820,17 @@ searchRequestCtx *rscParseRequest(RedisModuleString **argv, int argc, QueryError
   req->withExplainScores = RMUtil_ArgExists("EXPLAINSCORE", argv, argc, argvOffset) != 0;
   req->specialCases = NULL;
   req->requiredFields = NULL;
+
+  // Check if we need to normalize the score we got from the shards.
+  // Currently only done for the BM25STD.NORM scorer.
+  req->normalizeScore = false;
+  int scorerIndex = RMUtil_ArgIndex("SCORER", argv, argc);
+  if (scorerIndex > 0 && scorerIndex + 1 < argc) {
+    const char *scorerValue = RedisModule_StringPtrLen(argv[scorerIndex + 1], NULL);
+    if (strcmp(scorerValue, BM25_STD_NORMALIZED_SCORER_NAME) == 0) {
+      req->normalizeScore = true;
+    }
+  }
 
   req->withSortingKeys = RMUtil_ArgExists("WITHSORTKEYS", argv, argc, argvOffset) != 0;
   // fprintf(stderr, "Sortby: %d, asc: %d withsort: %d\n", req->withSortby, req->sortAscending,
@@ -2043,8 +2057,9 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
   return res;
 }
 
-searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, searchReplyOffsets* offsets, bool explainScores, specialCaseCtx *reduceSpecialCaseCtxSortBy) {
-  searchResult *res = cached ? cached : rm_malloc(sizeof *res);
+searchResult *newResult_resp3(searchReducerCtx *rCtx, MRReply *results, int j) {
+
+  searchResult *res = rCtx->cachedResult ? rCtx->cachedResult : rm_malloc(sizeof *res);
   res->sortKey = NULL;
   res->sortKeyNum = HUGE_VAL;
 
@@ -2062,7 +2077,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
 
   // parse score
   MRReply *score = MRReply_MapElement(result_j, "score");
-  if (explainScores) {
+  if (rCtx->searchCtx->withExplainScores) {
     if (MRReply_Type(score) != MR_REPLY_ARRAY) {
       res->id = NULL;
       return res;
@@ -2073,7 +2088,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
     }
     res->explainScores = MRReply_ArrayElement(score, 1);
 
-  } else if (offsets->score > 0 && !MRReply_ToDouble(score, &res->score)) {
+  } else if (rCtx->offsets.score > 0 && !MRReply_ToDouble(score, &res->score)) {
       res->id = NULL;
       return res;
   }
@@ -2084,12 +2099,12 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
   // get payloads
   res->payload = MRReply_MapElement(result_j, "payload");
 
-  if (offsets->sortKey > 0) {
+  if (rCtx->offsets.sortKey > 0) {
     MRReply *sortkey = NULL;
-    if (reduceSpecialCaseCtxSortBy) {
+    if (rCtx->reduceSpecialCaseCtxSortby) {
       MRReply *require_fields = MRReply_MapElement(result_j, "required_fields");
       if (require_fields) {
-        sortkey = MRReply_MapElement(require_fields, reduceSpecialCaseCtxSortBy->sortby.sortKey);
+        sortkey = MRReply_MapElement(require_fields, rCtx->reduceSpecialCaseCtxSortby->sortby.sortKey);
       }
     }
     if (!sortkey) {
@@ -2256,6 +2271,8 @@ static void ProcessKNNSearchResult(searchResult *res, searchReducerCtx *rCtx, do
 }
 
 static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
+  // TODO: Handle this reply processor as well to maintain the maxScore for normalization
+
   if (arr == NULL) {
     return;
   }
@@ -2271,7 +2288,6 @@ static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMod
 
   searchRequestCtx *req = rCtx->searchCtx;
   specialCaseCtx* reduceSpecialCaseCtxKnn = rCtx->reduceSpecialCaseCtxKnn;
-  specialCaseCtx* reduceSpecialCaseCtxSortBy = rCtx->reduceSpecialCaseCtxSortby;
   searchResult *res;
   if (resp3) {
     // Check for a warning
@@ -2285,7 +2301,7 @@ static void ProcessKNNSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisMod
     RS_LOG_ASSERT(results && MRReply_Type(results) == MR_REPLY_ARRAY, "invalid results record");
     size_t len = MRReply_Length(results);
     for (int j = 0; j < len; ++j) {
-      res = newResult_resp3(rCtx->cachedResult, results, j, &rCtx->offsets, rCtx->searchCtx->withExplainScores, reduceSpecialCaseCtxSortBy);
+      res = newResult_resp3(rCtx, results, j);
       if (res && res->id) {
         rCtx->cachedResult = NULL;
       } else {
@@ -2343,12 +2359,12 @@ error:
   rCtx->cachedResult = res;
 }
 
-static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx, RedisModuleCtx *ctx) {
+static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx) {
   if (!res || !res->id) {
-    RedisModule_Log(ctx, "warning", "got an unexpected argument when parsing redisearch results");
+    RedisModule_Log(RSDummyContext, "warning", "got an unexpected argument when parsing redisearch results");
     rCtx->errorOccurred = true;
-    // invalid result - usually means something is off with the response, and we should just
-    // quit this response
+    // invalid result - usually means something is off with the response, and we
+    // should just quit this response.
     rCtx->cachedResult = res;
     return;
   }
@@ -2361,6 +2377,10 @@ static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx, 
   if (heap_count(rCtx->pq) < heap_size(rCtx->pq)) {
     // printf("Offering result score %f\n", res->score);
     heap_offerx(rCtx->pq, res);
+
+    if (rCtx->searchCtx->normalizeScore && rCtx->maxScore < res->score) {
+      rCtx->maxScore = res->score;
+    }
   } else {
     searchResult *smallest = heap_peek(rCtx->pq);
     int c = cmp_results(res, smallest, rCtx->searchCtx);
@@ -2368,6 +2388,11 @@ static void processSearchReplyResult(searchResult *res, searchReducerCtx *rCtx, 
       smallest = heap_poll(rCtx->pq);
       heap_offerx(rCtx->pq, res);
       rCtx->cachedResult = smallest;
+
+      // Maintain the maximum score for normalization, if needed
+      if (rCtx->searchCtx->normalizeScore && rCtx->maxScore < res->score) {
+        rCtx->maxScore = res->score;
+      }
     } else {
       rCtx->cachedResult = res;
       if (rCtx->searchCtx->withSortby) {
@@ -2417,8 +2442,8 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
 
     bool needScore = rCtx->offsets.score > 0;
     for (int i = 0; i < len; ++i) {
-      searchResult *res = newResult_resp3(rCtx->cachedResult, results, i, &rCtx->offsets, rCtx->searchCtx->withExplainScores, rCtx->reduceSpecialCaseCtxSortby);
-      processSearchReplyResult(res, rCtx, ctx);
+    searchResult *res = newResult_resp3(rCtx, results, i);
+      processSearchReplyResult(res, rCtx);
     }
     processResultFormat(&rCtx->searchCtx->format, arr);
   }
@@ -2441,7 +2466,7 @@ static void processSearchReply(MRReply *arr, searchReducerCtx *rCtx, RedisModule
         break;
       }
       searchResult *res = newResult_resp2(rCtx->cachedResult, arr, j, &rCtx->offsets , rCtx->searchCtx->withExplainScores);
-      processSearchReplyResult(res, rCtx, ctx);
+      processSearchReplyResult(res, rCtx);
     }
   }
 }
@@ -2454,6 +2479,8 @@ static void noOpPostProcess(searchReducerCtx *rCtx){
 }
 
 static void knnPostProcess(searchReducerCtx *rCtx) {
+  // TODO: Needs handling?
+
   specialCaseCtx* reducerSpecialCaseCtx = rCtx->reduceSpecialCaseCtxKnn;
   RedisModule_Assert(reducerSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN);
   if(reducerSpecialCaseCtx->knn.pq) {
@@ -2496,11 +2523,17 @@ static void sendSearchResults(RedisModule_Reply *reply, searchReducerCtx *rCtx) 
   size_t qlen = heap_count(rCtx->pq);
   size_t pos = qlen;
 
-  // Load the results from the heap into a sorted array. Free the items in
-  // the heap one-by-one so that we don't have to go through them again
+  // Load the results from the heap into a sorted array.
   searchResult **results = rm_malloc(sizeof(*results) * qlen);
   while (pos) {
     results[--pos] = heap_poll(rCtx->pq);
+
+    // Normalize the results, if needed
+    // TODO: Consider taking outside of the loop (manual "branching prediction")
+    if (req->normalizeScore && rCtx->maxScore > 0) {
+      RedisModule_Log(RSDummyContext, "warning", "Normalizing score %f by %f", results[pos]->score, rCtx->maxScore);
+      results[pos]->score /= rCtx->maxScore;
+    }
   }
   heap_free(rCtx->pq);
   rCtx->pq = NULL;
@@ -2711,11 +2744,10 @@ static int searchResultReducer_background(struct MRCtx *mc, int count, MRReply *
 }
 
 static bool should_return_error(MRReply *reply) {
-  // TODO: Replace third condition with a var instead of hard-coded string
   const char *errStr = MRReply_String(reply, NULL);
   return (!errStr
           || RSGlobalConfig.requestConfigParams.timeoutPolicy == TimeoutPolicy_Fail
-          || strcmp(errStr, "Timeout limit was reached"));
+          || strcmp(errStr, QueryError_Strerror(QUERY_ETIMEDOUT)));
 }
 
 static bool should_return_timeout_error(searchRequestCtx *req) {
@@ -2741,7 +2773,7 @@ static int searchResultReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   // Traverse the replies, check for early bail-out which we want for all errors
-  // but timeout+non-strict timeout policy.
+  // but timeout + non-strict timeout policy.
   for (int i = 0; i < count; i++) {
     MRReply *curr_rep = replies[i];
     if (MRReply_Type(curr_rep) == MR_REPLY_ERROR) {
