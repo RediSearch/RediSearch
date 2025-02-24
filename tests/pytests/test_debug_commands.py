@@ -503,7 +503,7 @@ def testDebugScannerStatus(env: Env):
     env.expect(debug_cmd(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
     pause_on_scanned = 5
     env.expect(debug_cmd(), 'SET_PAUSE_ON_SCANNED_DOCS', pause_on_scanned).ok()
-    max_scanned = 5
+    max_scanned = 7
     env.expect(debug_cmd(), 'SET_MAX_SCANNED_DOCS', max_scanned).ok()
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
