@@ -5,8 +5,6 @@
 PROGNAME="${BASH_SOURCE[0]}"
 HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
 ROOT=$(cd $HERE/../.. && pwd)
-READIES=$ROOT/deps/readies
-. $READIES/shibumi/defs
 
 export PYTHONUNBUFFERED=1
 
@@ -91,40 +89,6 @@ help() {
 	END
 }
 
-#----------------------------------------------------------------------------------------------
-
-traps() {
-	local func="$1"
-	shift
-	local sig
-	for sig in "$@"; do
-		trap "$func $sig" "$sig"
-	done
-}
-
-linux_stop() {
-	local pgid=$(cat /proc/$PID/status | grep pgid | awk '{print $2}')
-	kill -9 -- -$pgid
-}
-
-macos_stop() {
-	local pgid=$(ps -o pid,pgid -p $PID | awk "/$PID/"'{ print $2 }' | tail -1)
-	pkill -9 -g $pgid
-}
-
-stop() {
-	trap - SIGINT
-	if [[ $OS == linux ]]; then
-		linux_stop
-	elif [[ $OS == macos ]]; then
-		macos_stop
-	fi
-	exit 1
-}
-
-traps 'stop' SIGINT
-
-#----------------------------------------------------------------------------------------------
 
 setup_rltest() {
 	if [[ $RLTEST == view ]]; then
@@ -193,14 +157,14 @@ setup_clang_sanitizer() {
 		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=1:log_thread=1"
 		# :use_tls=0
 
-	elif [[ $SAN == mem || $SAN == memory ]]; then
-		REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-$SAN_REDIS_VER}
-		if ! command -v $REDIS_SERVER > /dev/null; then
-			echo Building Redis for clang-msan ...
-			$READIES/bin/getredis --force -v $SAN_REDIS_VER  --no-run --own-openssl \
-				--suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan \
-				--clang-san-blacklist $ignorelist
-		fi
+	# elif [[ $SAN == mem || $SAN == memory ]]; then
+	# 	REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-$SAN_REDIS_VER}
+	# 	if ! command -v $REDIS_SERVER > /dev/null; then
+	# 		echo Building Redis for clang-msan ...
+	# 		$READIES/bin/getredis --force -v $SAN_REDIS_VER  --no-run --own-openssl \
+	# 			--suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan \
+	# 			--clang-san-blacklist $ignorelist
+	# 	fi
 	fi
 }
 
@@ -209,55 +173,12 @@ setup_clang_sanitizer() {
 setup_redis_server() {
 	REDIS_SERVER=${REDIS_SERVER:-redis-server}
 
-	if ! is_command $REDIS_SERVER; then
+	if ! command -v $REDIS_SERVER &> /dev/null; then
 		echo "Cannot find $REDIS_SERVER. Aborting."
 		exit 1
 	fi
 }
 
-#----------------------------------------------------------------------------------------------
-
-setup_valgrind() {
-	REDIS_SERVER=${REDIS_SERVER:-redis-server-vg-$VG_REDIS_SUFFIX}
-	if ! is_command $REDIS_SERVER; then
-		echo Building Redis for Valgrind ...
-		V="$VERBOSE" runn $READIES/bin/getredis -v ${VG_REDIS_VER} --valgrind --suffix vg-${VG_REDIS_VER}
-	fi
-
-	if [[ $VG_LEAKS == 0 ]]; then
-		VG_LEAK_CHECK=no
-		RLTEST_VG_NOLEAKS="--vg-no-leakcheck"
-	else
-		VG_LEAK_CHECK=full
-		RLTEST_VG_NOLEAKS=""
-	fi
-	# RLTest reads this
-	VG_OPTIONS="\
-		-q \
-		--leak-check=$VG_LEAK_CHECK \
-		--show-reachable=no \
-		--track-origins=yes \
-		--show-possibly-lost=no"
-
-	VALGRIND_SUPRESSIONS=$ROOT/tests/memcheck/valgrind.supp
-
-	RLTEST_VG_ARGS+="\
-		--use-valgrind \
-		--vg-verbose \
-		$RLTEST_VG_NOLEAKS \
-		--vg-no-fail-on-errors \
-		--vg-suppressions $VALGRIND_SUPRESSIONS"
-
-
-	# for module
-	export RS_GLOBAL_DTORS=1
-
-	# for RLTest
-	export SHORT_READ_BYTES_DELTA=512
-	export VALGRIND=1
-	export VG_OPTIONS
-	export RLTEST_VG_ARGS
-}
 
 #----------------------------------------------------------------------------------------------
 
@@ -325,7 +246,6 @@ run_tests() {
 		if [[ -n $GITHUB_ACTIONS ]]; then
 			echo "::group::$title"
 		else
-			$READIES/bin/sep1 -0
 			printf "Running $title:\n\n"
 		fi
 	fi
@@ -453,9 +373,7 @@ EXT_HOST=${EXT_HOST:-127.0.0.1}
 EXT_PORT=${EXT_PORT:-6379}
 
 PID=$$
-OS=$($READIES/bin/platform --os)
-ARCH=$($READIES/bin/platform --arch)
-OSNICK=$($READIES/bin/platform --osnick)
+
 
 # RLTest uses `fork` which might fail on macOS with the following variable set
 [[ $OS == macos ]] && export OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
@@ -518,7 +436,7 @@ PARALLEL=${PARALLEL:-1}
 
 if [[ -n $PARALLEL && $PARALLEL != 0 ]]; then
 	if [[ $PARALLEL == 1 ]]; then
-		parallel="$($READIES/bin/nproc)"
+		parallel="$(nproc)"
 	else
 		parallel=$PARALLEL
 	fi
@@ -586,11 +504,6 @@ setup_rltest
 
 if [[ -n $SAN ]]; then
 	setup_clang_sanitizer
-fi
-
-if [[ $VG == 1 ]]; then
-	export VALGRIND=1
-	setup_valgrind
 fi
 
 if [[ $RLEC != 1 ]]; then
@@ -667,14 +580,5 @@ if [[ $NOP != 1 ]]; then
 	fi
 fi
 
-if [[ $COLLECT_LOGS == 1 ]]; then
-	cd $ROOT
-	mkdir -p bin/artifacts/tests
-	test_tar="bin/artifacts/tests/tests-pytests-logs-${ARCH}-${OSNICK}.tgz"
-	rm -f "$test_tar"
-	find tests/pytests/logs -name "*.log*" | tar -czf "$test_tar" -T -
-	echo "Test logs:"
-	du -ah --apparent-size bin/artifacts/tests
-fi
 
 exit $E
