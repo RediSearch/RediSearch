@@ -215,6 +215,7 @@ jobs:
           SAN: ${{ inputs.san }}
           LOG: 1
           CLEAR_LOGS: 0
+          DEBUG: 1
         run: make unit-tests
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
@@ -228,6 +229,7 @@ jobs:
           SA: 1
           REJSON: ${{ inputs.rejson }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
+          DEBUG: 1
         run: make pytest ${{ inputs.test-config }}
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
@@ -241,6 +243,7 @@ jobs:
           SA: 0
           REJSON: ${{ inputs.rejson }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
+          DEBUG: 1
         run: make pytest ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
