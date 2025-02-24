@@ -30,7 +30,7 @@ jobs:
 
   coverage:
     needs: docs-only
-    if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' && needs.docs-only.outputs.only-docs-changed == 'false' && !github.event.pull_request.draft }}
+    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' ||  && needs.docs-only.outputs.only-docs-changed == 'false' && !github.event.pull_request.draft }}
     uses: ./.github/workflows/flow-coverage.yml
     with:
       rejson-branch: master

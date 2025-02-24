@@ -39,7 +39,7 @@ jobs:
 
   coverage:
     needs: docs-only
-    if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' && needs.docs-only.outputs.only-docs-changed == 'false' }}
+    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && needs.docs-only.outputs.only-docs-changed == 'false' }}
     uses: ./.github/workflows/flow-coverage.yml
     secrets: inherit
     with:
