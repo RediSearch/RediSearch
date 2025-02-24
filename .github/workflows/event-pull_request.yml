@@ -22,7 +22,7 @@ jobs:
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/task-test.yml
     with:
-      env: ${{ vars.RUNS_ON }}
+      env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
       test-config: QUICK=1
       get-redis: unstable
       rejson-branch: master
@@ -56,7 +56,7 @@ jobs:
       - basic-test
       - coverage
       - sanitize
-    runs-on: ${{ vars.RUNS_ON }}
+     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ !cancelled() }}
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')

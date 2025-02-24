@@ -19,7 +19,7 @@ jobs:
   ##### Remove path filter and uncomment the following lines if other jobs need to be triggered on push #####
 
   # benchmark-needed:
-  #   runs-on: ${{ vars.RUNS_ON }}
+  #    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
   #   outputs:
   #     BENCHMARK_NEEDED: ${{ steps.check-benchmarks.outputs.any_modified }}
   #   steps:

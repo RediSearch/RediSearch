@@ -22,7 +22,7 @@ env:
 jobs:
   get-tag: # Following best practices: https://docs.github.com/en/rest/releases/releases?apiVersion=2022-11-28
     name: Get Latest Release Tag for ${{ inputs.repo }} ${{ inputs.prefix }}
-    runs-on: ${{ vars.RUNS_ON }}
+     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     outputs:
       tag: ${{ steps.latest.outputs.tag || steps.with-prefix.outputs.tag }}
     defaults:

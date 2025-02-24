@@ -38,12 +38,12 @@ on:
         type: number
         default: 1
 env:
-  BOOST_VERSION: ${{ vars.BOOST_VERSION }}
+  BOOST_VERSION: ${{ vars.BOOST_VERSION || '1.83.0' }}
 
 jobs:
   benchmark-steps:
     name: "Benchmark ${{ inputs.allowed_envs }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }} "
-    runs-on: ${{ vars.RUNS_ON }}
+     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     container: ${{ inputs.container }}
     steps:
       - name: Checkout
@@ -62,7 +62,7 @@ jobs:
            echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
       - name: Install Boost
         working-directory: .install
-        run: ./install_boost.sh ${{ env.BOOST_VERSION }}
+        run: ./install_boost.sh ${{ env.BOOST_VERSION || '1.83.0' }}
 
       - name: Get Redis
         uses: actions/checkout@v4

@@ -10,7 +10,7 @@ on:
 
 jobs:
   take:
-    runs-on: ${{ vars.RUNS_ON }}
+     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     env:
       GH_TOKEN: ${{ secrets.CI_GH_P_TOKEN }}
     steps:

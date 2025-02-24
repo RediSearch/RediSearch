@@ -42,7 +42,7 @@ on:
 jobs:
   setup:
     # Sets SHA and Validates the reference Input (branch or tag)
-    runs-on: ${{ vars.RUNS_ON }}
+     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
       redis-ref: ${{ steps.get-redis.outputs.tag }}
@@ -75,7 +75,7 @@ jobs:
       architecture: ${{ inputs.architecture }}
 
   decide-macos:
-    runs-on: ${{ vars.RUNS_ON }}
+     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ contains(fromJson('["macos", "all"]'), inputs.platform) }}
     outputs:
       platforms: ${{ steps.decide.outputs.platforms }}
@@ -121,7 +121,7 @@ jobs:
     uses: ./.github/workflows/task-build-artifacts.yml
     secrets: inherit
     with:
-      env: ${{ vars.RUNS_ON_ARM }}
+      env: ${{ vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       sha: ${{ needs.setup.outputs.sha }}

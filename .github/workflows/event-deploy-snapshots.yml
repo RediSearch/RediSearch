@@ -20,7 +20,7 @@ jobs:
   notify-failure:
     needs: deploy-snapshots
     if: failure()
-    runs-on: ${{ vars.RUNS_ON }}
+     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - name: Notify Failure
         uses: slackapi/slack-github-action@v1

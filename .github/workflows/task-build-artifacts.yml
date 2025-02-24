@@ -28,7 +28,7 @@ on:
 env:
   REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
   BRANCH: ${{ inputs.ref || github.ref_name }}        # Define "branch" name for pack name (used in `make pack`)
-  BOOST_VERSION: ${{ vars.BOOST_VERSION }}
+  BOOST_VERSION: ${{ vars.BOOST_VERSION  }}
   AWS_ACCESS_KEY_ID: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
   AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}

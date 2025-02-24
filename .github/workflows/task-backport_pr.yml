@@ -13,7 +13,7 @@ permissions:
 jobs:
   backport:
     name: Backport pull request
-    runs-on: ${{ vars.RUNS_ON }}
+     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
 
     # Only run when pull request is merged
     # or when a comment starting with `/backport` is created by someone other than the
