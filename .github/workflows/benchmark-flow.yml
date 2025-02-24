@@ -62,7 +62,7 @@ jobs:
            echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
       - name: Install Boost
         working-directory: .install
-        run: ./install_boost.sh ${{ env.BOOST_VERSION || '1.83.0' }}
+        run: ./install_boost.sh ${{ env.BOOST_VERSION }}
 
       - name: Get Redis
         uses: actions/checkout@v4
