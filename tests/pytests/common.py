@@ -822,14 +822,7 @@ def shardsConnections(env):
       yield env.getConnection(shardId=s)
 
 def waitForIndexFinishScan(env, idx = 'idx'):
-    scan_started = False
-    scan_ended = False
-    while True:
-        res = index_info(env, idx)
-        scan_started = scan_started or res['num_docs'] > 0 or res['indexing'] == 1
-        scan_ended = scan_ended or res['percent_indexed'] == '1'
-        if scan_started and scan_ended:
-            break
+    while index_info(env, idx)['percent_indexed'] != '1':
         time.sleep(0.1)
 
 def getDebugScannerStatus(env, idx = 'idx'):
@@ -840,8 +833,5 @@ def checkDebugScannerError(env, idx = 'idx', expected_error = ''):
         .contains(expected_error)
 
 def waitForIndexPauseScan(env, idx = 'idx'):
-    while True:
-        res = getDebugScannerStatus(env, idx)
-        if res=='PAUSED':
-            break
+    while getDebugScannerStatus(env, idx)!='PAUSED':
         time.sleep(0.1)

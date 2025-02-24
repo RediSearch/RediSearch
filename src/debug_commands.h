@@ -19,12 +19,18 @@ typedef struct DebugCommandType {
 
 int RegisterDebugCommands(RedisModuleCommand *debugCommand);
 
-typedef struct DebugCTX {
-  bool debugMode;
+// Struct used for debugging background indexing
+typedef struct BgIndexingDebugCtx {
   int maxDocsTBscanned;
   int maxDocsTBscannedPause;
   bool pauseBeforeScan;
+} BgIndexingDebugCtx;
+
+// General debug context
+typedef struct DebugCTX {
+  bool debugMode;
   volatile bool pause;
+  BgIndexingDebugCtx bgIndexing;
 } DebugCTX;
 
 // Should be called after each debug command that changes the debugCtx

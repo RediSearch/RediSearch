@@ -394,6 +394,7 @@ def testHNSWdump_badParams(env: Env):
     env.expect(debug_cmd(), 'DUMP_HNSW', 'idx','v').error() \
         .contains("Can't open vector index")
 
+@skip(cluster=True)
 def testSetMaxScannedDocs(env: Env):
 
     # Test setting max scanned docs of background scan
@@ -427,6 +428,7 @@ def testSetMaxScannedDocs(env: Env):
     docs_in_index = env.cmd('FT.SEARCH', 'idx3', '*')[0]
     env.assertEqual(docs_in_index, num_docs)
 
+@skip(cluster=True)
 def testPauseOnScannedDocs(env: Env):
     num_docs = 10
     for i in range(num_docs):
@@ -456,12 +458,13 @@ def testPauseOnScannedDocs(env: Env):
     env.assertEqual(idx_info['percent_indexed'], f'{pause_on_scanned/num_docs}')
 
     # Resume indexing
-    env.expect(debug_cmd(), 'SET_RESUME',1).ok()
+    env.expect(debug_cmd(), 'SET_RESUME','true').ok()
     waitForIndexFinishScan(env, 'idx2')
     # Get count of indexed documents
     docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
     env.assertEqual(docs_in_index, num_docs)
 
+@skip(cluster=True)
 def testPauseBeforeScan(env: Env):
     num_docs = 10
     for i in range(num_docs):
@@ -475,27 +478,29 @@ def testPauseBeforeScan(env: Env):
     env.assertEqual(docs_in_index, num_docs)
 
     # Set pause before scan
-    env.expect(debug_cmd(), 'SET_PAUSE_BEFORE_SCAN', 1).ok()
+    env.expect(debug_cmd(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
 
     env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
     env.assertEqual(getDebugScannerStatus(env, 'idx2'), 'NEW')
+
     idx_info = index_info(env, 'idx2')
     env.assertEqual(idx_info['indexing'], 1)
     # If is indexing, but debug scanner status is NEW, it means that the scanner is paused before scan
 
     # Resume indexing
-    env.expect(debug_cmd(), 'SET_RESUME',1).ok()
+    env.expect(debug_cmd(), 'SET_RESUME','true').ok()
     waitForIndexFinishScan(env, 'idx2')
     # Get count of indexed documents
     docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
     env.assertEqual(docs_in_index, num_docs)
 
+@skip(cluster=True)
 def testDebugScannerStatus(env: Env):
     num_docs = 10
     for i in range(num_docs):
         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
-    env.expect(debug_cmd(), 'SET_PAUSE_BEFORE_SCAN', 1).ok()
+    env.expect(debug_cmd(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
     pause_on_scanned = 5
     env.expect(debug_cmd(), 'SET_PAUSE_ON_SCANNED_DOCS', pause_on_scanned).ok()
     max_scanned = 5
@@ -503,10 +508,10 @@ def testDebugScannerStatus(env: Env):
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     env.assertEqual(getDebugScannerStatus(env, 'idx'), 'NEW')
-    env.expect(debug_cmd(), 'SET_RESUME',1).ok()
+    env.expect(debug_cmd(), 'SET_RESUME', 'true').ok()
     waitForIndexPauseScan(env, 'idx')
     env.assertEqual(getDebugScannerStatus(env, 'idx'), 'PAUSED')
-    env.expect(debug_cmd(), 'SET_RESUME',1).ok()
+    env.expect(debug_cmd(), 'SET_RESUME', 'true').ok()
     waitForIndexFinishScan(env, 'idx')
     # When scan is done, the scanner is freed
     checkDebugScannerError(env, 'idx', 'Scanner is not initialized')

@@ -24,28 +24,14 @@
 
 DebugCTX debugCtx = {0};
 
-void validateDebugMode(DebugCTX *debugCtx)
-{
+void validateDebugMode(DebugCTX *debugCtx) {
   // Debug mode is enabled if any of its field is non-default
   // Should be called after each debug command that changes the debugCtx
+  debugCtx->debugMode =
+    (debugCtx->bgIndexing.maxDocsTBscanned > 0) ||
+    (debugCtx->bgIndexing.maxDocsTBscannedPause > 0) ||
+    (debugCtx->bgIndexing.pauseBeforeScan);
 
-  if (debugCtx->maxDocsTBscanned > 0)
-  {
-    debugCtx->debugMode = true;
-    return;
-  }
-  if (debugCtx->maxDocsTBscannedPause > 0)
-  {
-    debugCtx->debugMode = true;
-    return;
-  }
-  if (debugCtx->pauseBeforeScan)
-  {
-    debugCtx->debugMode = true;
-    return;
-  }
-
-  debugCtx->debugMode = false;
 }
 
 
@@ -1444,7 +1430,7 @@ DEBUG_COMMAND(setMaxScannedDocs) {
 
   // Negative maxDocsTBscanned represents no limit
 
-  debugCtx.maxDocsTBscanned = (int) max_scanned_docs;
+  debugCtx.bgIndexing.maxDocsTBscanned = (int) max_scanned_docs;
 
   // Check if we need to enable debug mode
   validateDebugMode(&debugCtx);
@@ -1464,9 +1450,7 @@ DEBUG_COMMAND(setPauseOnScannedDocs) {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_MAX_SCANNED_DOCS'");
   }
 
-  // Negative maxDocsTBscanned represents no limit
-
-  debugCtx.maxDocsTBscannedPause = (int) pause_scanned_docs;
+  debugCtx.bgIndexing.maxDocsTBscannedPause = (int) pause_scanned_docs;
 
   // Check if we need to enable debug mode
   validateDebugMode(&debugCtx);
@@ -1481,12 +1465,14 @@ DEBUG_COMMAND(setResume) {
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
-  long long resume;
-  if (RedisModule_StringToLongLong(argv[2], &resume) != REDISMODULE_OK) {
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    debugCtx.pause = false;
+  } else if (!strcasecmp(op, "false")) {
+    debugCtx.pause = true;
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_RESUME'");
   }
-
-  debugCtx.pause = !resume;
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -1523,9 +1509,8 @@ DEBUG_COMMAND(getDebugScannerStatus) {
   if (!dScanner) {
     return RedisModule_ReplyWithError(ctx, "Scanner is not initialized");
   }
-  const char* strs[] = DEBUG_INDEX_SCANNER_STATUS_STRS;
 
-  return RedisModule_ReplyWithSimpleString(ctx, strs[dScanner->status]);
+  return RedisModule_ReplyWithSimpleString(ctx, DEBUG_INDEX_SCANNER_STATUS_STRS[dScanner->status]);
 }
 
 DEBUG_COMMAND(setPauseBeforeScan) {
@@ -1535,12 +1520,15 @@ DEBUG_COMMAND(setPauseBeforeScan) {
   if (argc != 3) {
     return RedisModule_WrongArity(ctx);
   }
-  long long pauseBeforeScan;
-  if (RedisModule_StringToLongLong(argv[2], &pauseBeforeScan) != REDISMODULE_OK) {
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    debugCtx.bgIndexing.pauseBeforeScan = true;
+  } else if (!strcasecmp(op, "false")) {
+    debugCtx.bgIndexing.pauseBeforeScan = false;
+  } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_SCAN'");
   }
-
-  debugCtx.pauseBeforeScan = !!pauseBeforeScan;
 
   validateDebugMode(&debugCtx);
 

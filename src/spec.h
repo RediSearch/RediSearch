@@ -122,16 +122,20 @@ struct DocumentIndexer;
 extern dict *specDict_g;
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 
+typedef enum {
+    DEBUG_INDEX_SCANNER_CODE_NEW,
+    DEBUG_INDEX_SCANNER_CODE_RUNNING,
+    DEBUG_INDEX_SCANNER_CODE_DONE,
+    DEBUG_INDEX_SCANNER_CODE_CANCELLED,
+    DEBUG_INDEX_SCANNER_CODE_PAUSED,
+    DEBUG_INDEX_SCANNER_CODE_RESUMED,
 
-#define DEBUG_INDEX_SCANNER_CODE_NEW 0
-#define DEBUG_INDEX_SCANNER_CODE_RUNNING 1
-#define DEBUG_INDEX_SCANNER_CODE_DONE 2
-#define DEBUG_INDEX_SCANNER_CODE_CANCELLED 3
-#define DEBUG_INDEX_SCANNER_CODE_PAUSED 4
-#define DEBUG_INDEX_SCANNER_CODE_RESUMED 5
+    //Insert new codes here (before COUNT)
+    DEBUG_INDEX_SCANNER_CODE_COUNT  // Helps with array size checks
+    //Do not add new codes after COUNT
+} DebugIndexScannerCode;
 
-#define DEBUG_INDEX_SCANNER_STATUS_STRS \
-  { "NEW", "SCANNING", "DONE", "CANCELLED", "PAUSED", "RESUMED" }
+extern const char *DEBUG_INDEX_SCANNER_STATUS_STRS[DEBUG_INDEX_SCANNER_CODE_COUNT];
 
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;

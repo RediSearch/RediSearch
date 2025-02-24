@@ -67,6 +67,16 @@ static redisearch_thpool_t *cleanPool = NULL;
 
 extern DebugCTX debugCtx;
 
+const char *DEBUG_INDEX_SCANNER_STATUS_STRS[DEBUG_INDEX_SCANNER_CODE_COUNT] = {
+    "NEW", "SCANNING", "DONE", "CANCELLED", "PAUSED", "RESUMED"
+};
+
+// Static assertion to ensure array size matches the number of statuses
+static_assert(
+    sizeof(DEBUG_INDEX_SCANNER_STATUS_STRS) / sizeof(DEBUG_INDEX_SCANNER_STATUS_STRS[0]) == DEBUG_INDEX_SCANNER_CODE_COUNT,
+    "Mismatch between DebugIndexScannerCode enum and DEBUG_INDEX_SCANNER_STATUS_STRS array"
+);
+
 //---------------------------------------------------------------------------------------------
 
 static void setMemoryInfo(RedisModuleCtx *ctx) {
@@ -2128,8 +2138,8 @@ static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref) {
 
   DebugIndexesScanner *dScanner = rm_realloc(IndexesScanner_New(global_ref), sizeof(DebugIndexesScanner));
 
-  dScanner->maxDocsTBscanned = debugCtx.maxDocsTBscanned;
-  dScanner->maxDocsTBscannedPause = debugCtx.maxDocsTBscannedPause;
+  dScanner->maxDocsTBscanned = debugCtx.bgIndexing.maxDocsTBscanned;
+  dScanner->maxDocsTBscannedPause = debugCtx.bgIndexing.maxDocsTBscannedPause;
   dScanner->wasPaused = false;
   dScanner->status = DEBUG_INDEX_SCANNER_CODE_NEW;
 
@@ -2259,7 +2269,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RedisModuleScanCB scanner_func = (RedisModuleScanCB)Indexes_ScanProc;
   if (debugCtx.debugMode) {
     scanner_func = (RedisModuleScanCB)DebugIndexes_ScanProc;
-    if (debugCtx.pauseBeforeScan)
+    if (debugCtx.bgIndexing.pauseBeforeScan)
     {
       debugCtx.pause = true;
       RedisModule_ThreadSafeContextUnlock(ctx);
@@ -2334,13 +2344,12 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
 #ifdef _DEBUG
   RedisModule_Log(RSDummyContext, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(spec_ref))->name);
 #endif
-  IndexesScanner *scanner = NULL;
+  IndexesScanner *scanner;
   if (debugCtx.debugMode) {
     scanner = (IndexesScanner*)DebugIndexesScanner_New(spec_ref);
     IndexSpec *sp = StrongRef_Get(spec_ref);
     sp->flags |= Index_DebugScanner;
-  }
-  else {
+  } else {
     scanner = IndexesScanner_New(spec_ref);
   }
   redisearch_thpool_add_work(reindexPool, (redisearch_thpool_proc)Indexes_ScanAndReindexTask, scanner, THPOOL_PRIORITY_HIGH);
