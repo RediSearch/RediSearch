@@ -38,7 +38,7 @@ static inline int Compare(const char *left, size_t left_length, const char *righ
   }
 }
 
-static inline int CaseInsensitiveCompare(const char *left, size_t left_length, const char *right, size_t right_length) {
+static inline int CaseSensitiveCompare(const char *left, size_t left_length, const char *right, size_t right_length) {
   int result = strncasecmp(left, right, MIN(left_length, right_length));
   if (result != 0 || left_length == right_length) {
     return result;
@@ -64,7 +64,7 @@ int HiddenName_CaseInsensitiveCompare(HiddenName *left, HiddenName *right) {
 
 int HiddenName_CaseInsensitiveCompareC(HiddenName *left, const char *right, size_t right_length) {
   UserString* l = (UserString*)left;
-  return CaseInsensitiveCompare(l->user, l->length, right, right_length);
+  return CaseSensitiveCompare(l->user, l->length, right, right_length);
 }
 
 HiddenName *HiddenName_Duplicate(const HiddenName *value) {
