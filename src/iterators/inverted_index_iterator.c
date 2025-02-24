@@ -8,6 +8,7 @@
 */
 
 #include "inverted_index_iterator.h"
+#include "inverted_index.h"
 
 // pointer to the current block while reading the index
 #define CURRENT_BLOCK(it) ((it)->idx->blocks[(it)->currentBlock])
