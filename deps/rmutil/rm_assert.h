@@ -18,27 +18,20 @@
     }
 
 #ifdef NDEBUG
-
-// NOP
-#define RS_LOG_ASSERT_FMT(condition, fmt, ...)
-#define RS_LOG_ASSERT(condition, str)
-#define RS_ASSERT(condition)
-#define RS_ABORT(str)
-
+#define RS_LOG_ASSERT_FMT(condition, fmt, ...) // NOP
 #else
-
 #define RS_LOG_ASSERT_FMT(condition, fmt, ...) _RS_LOG_ASSERT_FMT(condition, fmt, __VA_ARGS__)
-#define RS_LOG_ASSERT(condition, str)  RS_LOG_ASSERT_FMT(condition, str "%s", "")
-#define RS_ASSERT(condition) _RS_LOG_ASSERT_FMT(condition, "Assertion failed: %s", #condition)
-#define RS_ABORT(str) _RS_LOG_ASSERT_FMT(0, "Aborting: %s", str)
+#endif
 
-#endif  // NDEBUG
+#define RS_LOG_ASSERT(condition, str) RS_LOG_ASSERT_FMT(condition, str "%s", "")
+#define RS_ASSERT(condition) RS_LOG_ASSERT_FMT(condition, "Assertion failed: %s", #condition)
+#define RS_ABORT(str) RS_LOG_ASSERT_FMT(0, "Aborting: %s", str)
 
 // Assertions that we want to keep in production artifacts.
 #define RS_LOG_ASSERT_FMT_ALWAYS(condition, fmt, ...) _RS_LOG_ASSERT_FMT(condition, fmt, __VA_ARGS__)
 #define RS_LOG_ASSERT_ALWAYS(condition, str)  RS_LOG_ASSERT_FMT_ALWAYS(condition, str "%s", "")
-#define RS_ASSERT_ALWAYS(condition) _RS_LOG_ASSERT_FMT(condition, "Assertion failed: %s", #condition)
-#define RS_ABORT_ALWAYS(str) _RS_LOG_ASSERT_FMT(0, "Aborting: %s", str)
+#define RS_ASSERT_ALWAYS(condition) RS_LOG_ASSERT_FMT_ALWAYS(condition, "Assertion failed: %s", #condition)
+#define RS_ABORT_ALWAYS(str) RS_LOG_ASSERT_FMT_ALWAYS(0, "Aborting: %s", str)
 
 #define RS_CHECK_FUNC(funcName, ...)                                          \
     if (funcName) {                                                           \
