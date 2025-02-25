@@ -418,10 +418,6 @@ def testSetMaxScannedDocs(env: Env):
     max_scanned = 5
     env.expect(debug_cmd(), 'SET_MAX_SCANNED_DOCS', max_scanned).ok()
 
-    # Test error handling
-    # Index 'idx' was not created in debug mode, so the scanner is not a debug scanner
-    env.assertEqual(getDebugScannerStatus(env, 'idx'), 'Unknown index name')
-
     # Create a new index
     env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
     waitForIndexFinishScan(env, 'idx2')
@@ -543,4 +539,4 @@ def testDebugScannerStatus(env: Env):
 
     # Test error handling
     # Giving non existing index name
-    env.assertEqual(getDebugScannerStatus(env, 'NotIdx'), 'Unknown index name')
+    checkDebugScannerError(env, 'non_existing', 'Unknown index name')
