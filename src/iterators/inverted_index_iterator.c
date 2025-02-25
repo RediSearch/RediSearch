@@ -88,7 +88,7 @@ IteratorStatus InvIndIterator_Read(QueryIterator *base) {
   RSIndexResult *record = base->current;
   while (true) {
     // if needed - advance to the next block
-    if (BufferReader_AtEnd(&it->blockReader.br)) {
+    if (CURRENT_BLOCK_READER_AT_END(it)) {
       if (it->currentBlock + 1 == it->idx->size) {
         // We're at the end of the last block...
         break;
@@ -174,7 +174,7 @@ IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId)
     return ITERATOR_EOF;
   }
 
-  if (CURRENT_BLOCK(it).lastId < docId || CURRENT_BLOCK_READER_AT_END(it)) {
+  if (CURRENT_BLOCK(it).lastId < docId) {
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
     SkipToBlock(it, docId);
@@ -192,9 +192,24 @@ IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId)
 // returns true if a valid doc id was found, false if eof was reached
 // The validity of the document relies on the predicate the reader was initialized with.
 // Invariant: We only go forward, never backwards
-static bool ReadWithSeeker(InvIndIterator *it, t_docId docId) {
+static inline bool ReadWithSeeker(InvIndIterator *it, t_docId docId) {
   bool found = false;
   while (!found) {
+    // if found is true we found a doc id that is greater or equal to the searched doc id
+    // if found is false we need to continue scanning the inverted index, possibly advancing to the next block
+    if (CURRENT_BLOCK_READER_AT_END(it)) {
+      if (it->currentBlock + 1 < it->idx->size) {
+        // We reached the end of the current block but we have more blocks to advance to
+        // advance to the next block and continue the search using the seeker from there
+        AdvanceBlock(it);
+      } else {
+        // we reached the end of the inverted index
+        // we are at the end of the last block
+        // break out of the loop and return found (found = false)
+        break;
+      }
+    }
+
     // try and find docId using seeker
     found = it->decoders.seeker(&it->blockReader, &it->decoderCtx, docId, it->base.current);
     // ensure the entry is valid
@@ -208,21 +223,6 @@ static bool ReadWithSeeker(InvIndIterator *it, t_docId docId) {
       //                        ^-- we are here, and 564 is not valid
       found = false;
       docId = it->base.current->docId + 1;
-    }
-
-    // if found is true we found a doc id that is greater or equal to the searched doc id
-    // if found is false we need to continue scanning the inverted index, possibly advancing to the next block
-    if (!found && CURRENT_BLOCK_READER_AT_END(it)) {
-      if (it->currentBlock < it->idx->size - 1) {
-        // We reached the end of the current block but we have more blocks to advance to
-        // advance to the next block and continue the search using the seeker from there
-      	AdvanceBlock(it);
-      } else {
-        // we reached the end of the inverted index
-        // we are at the end of the last block
-        // break out of the loop and return found (found = false)
-        break;
-      }
     }
   }
   // if found is true we found a doc id that is greater or equal to the searched doc id
@@ -241,7 +241,7 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId doc
     goto eof;
   }
 
-  if (CURRENT_BLOCK(it).lastId < docId || CURRENT_BLOCK_READER_AT_END(it)) {
+  if (CURRENT_BLOCK(it).lastId < docId) {
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
     SkipToBlock(it, docId);
