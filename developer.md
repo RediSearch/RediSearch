@@ -66,7 +66,7 @@ To run the tests, you need to execute the following commands:
 ```bash
 make test
 ```
-For runnig specific tests you can use the following commands:
+For running specific tests you can use the following commands:
 * C tests, located in tests/ctests, run by `make c-tests`.
 * C++ tests (enabled by GTest), located in tests/cpptests, run by `make cpp-tests`.
 * Python behavioral tests (enabled by [RLTest](https://github.com/RedisLabsModules/RLTest)), located in tests/pytests, run by `make pytest`.
