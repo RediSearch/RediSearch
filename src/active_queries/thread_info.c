@@ -59,7 +59,7 @@ ThreadInfo *CurrentThread_GetInfo() {
 
 void CurrentThread_SetIndexSpec(StrongRef specRef) {
   ThreadInfo *info = CurrentThread_GetInfo();
-  info->specRef = (specRef);
+  info->specRef = StrongRef_Clone(specRef);
 }
 
 void CurrentThread_ClearIndexSpec() {
