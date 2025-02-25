@@ -1848,8 +1848,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   case QN_LEXRANGE : unionTypeStr = "LEXRANGE"; break;
   case QN_WILDCARD_QUERY : unionTypeStr = "WILDCARD"; break;
   default:
-    RS_ABORT("Invalid type for union");
-    break;
+    RS_ABORT_ALWAYS("Invalid type for union");
   }
   if (!ui->qstr) {
     RedisModule_Reply_SimpleString(reply, unionTypeStr);
