@@ -558,8 +558,6 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
   }
 
-  CurrentThread_SetIndexSpec(global_ref);
-
   bool dropCommand = RMUtil_StringEqualsCaseC(argv[0], "FT.DROP") ||
                RMUtil_StringEqualsCaseC(argv[0], "_FT.DROP");
   bool delDocs = dropCommand;
@@ -575,6 +573,7 @@ int DropIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     }
   }
 
+  CurrentThread_SetIndexSpec(global_ref);
 
   if((delDocs || sp->flags & Index_Temporary)) {
     // We take a strong reference to the index, so it will not be freed
@@ -857,10 +856,10 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
 
   CurrentThread_SetIndexSpec(ref);
-
   const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
   if (dictFetchValue(specDict_g, alias)) {
     QueryError_SetCode(error, QUERY_EALIASCONFLICT);
+    CurrentThread_ClearIndexSpec();
     return REDISMODULE_ERR;
   }
 
