@@ -91,7 +91,7 @@ IteratorStatus InvIndIterator_Read(QueryIterator *base) {
   RSIndexResult *record = base->current;
   while (true) {
     // if needed - advance to the next block
-    if (BufferReader_AtEnd(&it->blockReader.br)) {
+    if (CURRENT_BLOCK_READER_AT_END(it)) {
       if (it->currentBlock + 1 == it->idx->size) {
         // We're at the end of the last block...
         break;
@@ -181,7 +181,7 @@ IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId)
     return ITERATOR_EOF;
   }
 
-  if (CURRENT_BLOCK(it).lastId < docId || CURRENT_BLOCK_READER_AT_END(it)) {
+  if (CURRENT_BLOCK(it).lastId < docId) {
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
     SkipToBlock(it, docId);
@@ -248,7 +248,7 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId doc
     goto eof;
   }
 
-  if (CURRENT_BLOCK(it).lastId < docId || CURRENT_BLOCK_READER_AT_END(it)) {
+  if (CURRENT_BLOCK(it).lastId < docId) {
     // We know that `docId <= idx->lastId`, so there must be a following block that contains the
     // lastId, which either contains the requested docId or higher ids. We can skip to it.
     SkipToBlock(it, docId);
