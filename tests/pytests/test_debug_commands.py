@@ -498,6 +498,11 @@ def testPauseBeforeScan(env: Env):
     docs_in_index = env.cmd('FT.SEARCH', 'idx', '*')[0]
     env.assertEqual(docs_in_index, num_docs)
 
+    # Check error handling
+    # Giving invalid argument
+    env.expect(debug_cmd(), 'SET_PAUSE_BEFORE_SCAN', 'notTrue').error()\
+    .contains("Invalid argument for 'SET_PAUSE_BEFORE_SCAN'")
+
     # Set pause before scan
     env.expect(debug_cmd(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
 
