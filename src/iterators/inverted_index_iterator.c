@@ -5,7 +5,6 @@
  */
 
 #include "inverted_index_iterator.h"
-#include "inverted_index.h"
 
 // pointer to the current block while reading the index
 #define CURRENT_BLOCK(it) ((it)->idx->blocks[(it)->currentBlock])
@@ -260,4 +259,99 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId doc
 eof:
   QITER_SET_EOF(base);
   return ITERATOR_EOF;
+}
+
+static QueryIterator *NewInvIndIterator(InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
+                                        bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx) {
+  InvIndIterator *it = rm_calloc(1, sizeof(*it));
+  it->idx = idx;
+  it->currentBlock = 0;
+  it->gcMarker = idx->gcMarker;
+  it->decoders = InvertedIndex_GetDecoder(idx->flags);
+  it->decoderCtx = *decoderCtx;
+  it->skipMulti = skipMulti;
+  it->sctx = sctx;
+  it->filterCtx = *filterCtx;
+  SetCurrentBlockReader(it);
+
+  it->base.current = res;
+  it->base.type = READ_ITERATOR;
+  it->base.isValid = true;
+  it->base.LastDocId = 0;
+  it->base.NumEstimated = InvIndIterator_NumEstimated;
+  it->base.Read = InvIndIterator_Read;
+  it->base.SkipTo = it->decoders.seeker ? InvIndIterator_SkipTo_withSeeker : InvIndIterator_SkipTo_Default;
+  it->base.Free = InvIndIterator_Free;
+  it->base.Rewind = InvIndIterator_Rewind;
+  return &it->base;
+}
+
+QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx) {
+  FieldFilterContext fieldCtx = {
+    .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
+    .predicate = FIELD_EXPIRATION_DEFAULT,
+  };
+  IndexDecoderCtx decoderCtx = {.filter = NULL};
+  return NewInvIndIterator(idx, NewNumericResult(), &fieldCtx, false, NULL, &decoderCtx);
+}
+
+QueryIterator *NewInvIndIterator_TermFull(InvertedIndex *idx) {
+  FieldFilterContext fieldCtx = {
+    .field = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}},
+    .predicate = FIELD_EXPIRATION_DEFAULT,
+  };
+  IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
+  RSIndexResult *res = NewTokenRecord(NULL, 1);
+  res->freq = 1;
+  res->fieldMask = RS_FIELDMASK_ALL;
+  return NewInvIndIterator(idx, res, &fieldCtx, false, NULL, &decoderCtx);
+}
+
+QueryIterator *NewInvIndIterator_NumericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
+                                              const NumericFilter *flt, double rangeMin, double rangeMax) {
+  IndexDecoderCtx decoderCtx = {.filter = flt};
+  QueryIterator *ret = NewInvIndIterator(idx, NewNumericResult(), fieldCtx, true, sctx, &decoderCtx);
+  InvIndIterator *it = (InvIndIterator *)ret;
+  it->profileCtx.numeric.rangeMin = rangeMin;
+  it->profileCtx.numeric.rangeMax = rangeMax;
+  return ret;
+}
+
+QueryIterator *NewInvIndIterator_TermQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
+                                           RSQueryTerm *term, double weight) {
+  FieldFilterContext fieldCtx = {
+    .field = fieldMaskOrIndex,
+    .predicate = FIELD_EXPIRATION_DEFAULT,
+  };
+  if (term && sctx) {
+    // compute IDF based on num of docs in the header
+    term->idf = CalculateIDF(sctx->spec->docs.size, idx->numDocs);
+    term->bm25_idf = CalculateIDF_BM25(sctx->spec->docs.size, idx->numDocs);
+  }
+
+  RSIndexResult *record = NewTokenRecord(term, weight);
+  record->fieldMask = RS_FIELDMASK_ALL;
+  record->freq = 1;
+
+  IndexDecoderCtx dctx = {0};
+  if (fieldMaskOrIndex.isFieldMask && (idx->flags & Index_WideSchema))
+    dctx.wideMask = fieldMaskOrIndex.value.mask;
+  else if (fieldMaskOrIndex.isFieldMask)
+    dctx.mask = fieldMaskOrIndex.value.mask;
+  else
+    dctx.wideMask = RS_FIELDMASK_ALL; // Also covers the case of a non-wide schema
+
+  return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &dctx);
+}
+
+QueryIterator *NewInvIndIterator_GenericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
+                                              enum FieldExpirationPredicate predicate) {
+  FieldFilterContext fieldCtx = {
+    .field = {.isFieldMask = false, .value = {.index = fieldIndex}},
+    .predicate = predicate,
+  };
+  IndexDecoderCtx decoderCtx = {.wideMask = RS_FIELDMASK_ALL}; // Also covers the case of a non-wide schema
+  RSIndexResult *record = NewVirtualResult(1, RS_FIELDMASK_ALL);
+  record->freq = (predicate == FIELD_EXPIRATION_MISSING) ? 0 : 1; // TODO: is this required?
+  return NewInvIndIterator(idx, record, &fieldCtx, true, sctx, &decoderCtx);
 }

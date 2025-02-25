@@ -45,4 +45,21 @@ typedef struct InvIndIterator {
   FieldFilterContext filterCtx;
 } InvIndIterator;
 
-QueryIterator *NewInvIndIterator(); // TODO: API?
+// API for full index scan. Not suitable for queries
+QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx);
+// API for full index scan. Not suitable for queries
+QueryIterator *NewInvIndIterator_TermFull(InvertedIndex *idx);
+
+// Returns an iterator for a numeric index, suitable for queries
+QueryIterator *NewInvIndIterator_NumericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, const FieldFilterContext* fieldCtx,
+                                              const NumericFilter *flt, double rangeMin, double rangeMax);
+
+// Returns an iterator for a term index, suitable for queries
+QueryIterator *NewInvIndIterator_TermQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
+                                           RSQueryTerm *term, double weight);
+
+// Returns an iterator for a generic index, suitable for queries
+// The returned iterator will yield "virtual" records. For term/numeric indexes, it is best to use
+// the specific functions NewInvIndIterator_TermQuery/NewInvIndIterator_NumericQuery
+QueryIterator *NewInvIndIterator_GenericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
+                                              enum FieldExpirationPredicate predicate);
