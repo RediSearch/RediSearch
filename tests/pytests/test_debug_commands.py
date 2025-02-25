@@ -53,12 +53,7 @@ class TestDebugCommands(object):
             "DUMP_HNSW",
             "SET_MONITOR_EXPIRATION",
             "WORKERS",
-            "SET_MAX_SCANNED_DOCS",
-            "SET_PAUSE_ON_SCANNED_DOCS",
-            "SET_BG_INDEX_RESUME",
-            "GET_DEBUG_SCANNER_STATUS",
-            "SET_PAUSE_BEFORE_SCAN",
-
+            'BG_SCAN_CONTROLLER',
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
@@ -411,12 +406,12 @@ def testSetMaxScannedDocs(env: Env):
 
     # Check error handling
     # Giving invalid argument
-    env.expect(debug_cmd(), 'SET_MAX_SCANNED_DOCS', 'notAnumber').error()\
+    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', 'notAnumber').error()\
     .contains("Invalid argument for 'SET_MAX_SCANNED_DOCS'")
 
     # Set max scanned docs to 5
     max_scanned = 5
-    env.expect(debug_cmd(), 'SET_MAX_SCANNED_DOCS', max_scanned).ok()
+    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', max_scanned).ok()
 
     # Create a new index
     env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
@@ -426,7 +421,7 @@ def testSetMaxScannedDocs(env: Env):
     env.assertEqual(docs_in_index, max_scanned)
 
     # Reset max scanned docs by setting negative value
-    env.expect(debug_cmd(), 'SET_MAX_SCANNED_DOCS', -1).ok()
+    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', -1).ok()
     # Create a new index
     env.expect('FT.CREATE', 'idx3', 'SCHEMA', 'name', 'TEXT').ok()
     waitForIndexFinishScan(env, 'idx3')
@@ -450,12 +445,12 @@ def testPauseOnScannedDocs(env: Env):
 
     # Check error handling
     # Giving invalid argument
-    env.expect(debug_cmd(), 'SET_PAUSE_ON_SCANNED_DOCS', 'notAnumber').error()\
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 'notAnumber').error()\
     .contains("Invalid argument for 'SET_PAUSE_ON_SCANNED_DOCS'")
 
     # Set max scanned docs to 5
     pause_on_scanned = 5
-    env.expect(debug_cmd(), 'SET_PAUSE_ON_SCANNED_DOCS', pause_on_scanned).ok()
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', pause_on_scanned).ok()
 
     env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
     waitForIndexPauseScan(env, 'idx2')
@@ -471,10 +466,10 @@ def testPauseOnScannedDocs(env: Env):
 
     # Check resume error handling
     # Giving invalid argument
-    env.expect(debug_cmd(), 'SET_BG_INDEX_RESUME', 'notTrue').error()\
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'notTrue').error()\
     .contains("Invalid argument for 'SET_BG_INDEX_RESUME'")
     # Resume indexing
-    env.expect(debug_cmd(), 'SET_BG_INDEX_RESUME','true').ok()
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
     waitForIndexFinishScan(env, 'idx2')
     # Get count of indexed documents
     docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
@@ -496,11 +491,11 @@ def testPauseBeforeScan(env: Env):
 
     # Check error handling
     # Giving invalid argument
-    env.expect(debug_cmd(), 'SET_PAUSE_BEFORE_SCAN', 'notTrue').error()\
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'notTrue').error()\
     .contains("Invalid argument for 'SET_PAUSE_BEFORE_SCAN'")
 
     # Set pause before scan
-    env.expect(debug_cmd(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
 
     env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
     env.assertEqual(getDebugScannerStatus(env, 'idx2'), 'NEW')
@@ -510,7 +505,7 @@ def testPauseBeforeScan(env: Env):
     # If is indexing, but debug scanner status is NEW, it means that the scanner is paused before scan
 
     # Resume indexing
-    env.expect(debug_cmd(), 'SET_BG_INDEX_RESUME','true').ok()
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
     waitForIndexFinishScan(env, 'idx2')
     # Get count of indexed documents
     docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
@@ -522,17 +517,17 @@ def testDebugScannerStatus(env: Env):
     for i in range(num_docs):
         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
-    env.expect(debug_cmd(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
     pause_on_scanned = 5
-    env.expect(debug_cmd(), 'SET_PAUSE_ON_SCANNED_DOCS', pause_on_scanned).ok()
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', pause_on_scanned).ok()
     max_scanned = 7
-    env.expect(debug_cmd(), 'SET_MAX_SCANNED_DOCS', max_scanned).ok()
+    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', max_scanned).ok()
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     env.assertEqual(getDebugScannerStatus(env, 'idx'), 'NEW')
-    env.expect(debug_cmd(), 'SET_BG_INDEX_RESUME', 'true').ok()
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
     waitForIndexPauseScan(env, 'idx')
-    env.expect(debug_cmd(), 'SET_BG_INDEX_RESUME', 'true').ok()
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
     waitForIndexFinishScan(env, 'idx')
     # When scan is done, the scanner is freed
     checkDebugScannerError(env, 'idx', 'Scanner is not initialized')
@@ -540,3 +535,8 @@ def testDebugScannerStatus(env: Env):
     # Test error handling
     # Giving non existing index name
     checkDebugScannerError(env, 'non_existing', 'Unknown index name')
+
+    # Test error handling
+    # Giving invalid argument to debug scanner control command
+    env.expect(bgScanCommand(), 'NOT_A_COMMAND', 'notTrue').error()\
+    .contains("Invalid command for 'BG_SCAN_CONTROLLER'")

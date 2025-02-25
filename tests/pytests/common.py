@@ -825,11 +825,14 @@ def waitForIndexFinishScan(env, idx = 'idx'):
     while index_info(env, idx)['percent_indexed'] != '1':
         time.sleep(0.1)
 
+def bgScanCommand():
+    return debug_cmd() + ' BG_SCAN_CONTROLLER'
+
 def getDebugScannerStatus(env, idx = 'idx'):
-    return env.cmd(debug_cmd(), 'GET_DEBUG_SCANNER_STATUS', idx)
+    return env.cmd(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
 
 def checkDebugScannerError(env, idx = 'idx', expected_error = ''):
-    env.expect(debug_cmd(), 'GET_DEBUG_SCANNER_STATUS', idx).error() \
+    env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx).error() \
         .contains(expected_error)
 
 def waitForIndexPauseScan(env, idx = 'idx'):

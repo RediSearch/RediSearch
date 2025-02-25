@@ -22,7 +22,7 @@
 #include "cursor.h"
 
 
-DebugCTX debugCtx = {0};
+DebugCTX globalDebugCtx = {0};
 
 void validateDebugMode(DebugCTX *debugCtx) {
   // Debug mode is enabled if any of its field is non-default
@@ -1430,10 +1430,10 @@ DEBUG_COMMAND(setMaxScannedDocs) {
 
   // Negative maxDocsTBscanned represents no limit
 
-  debugCtx.bgIndexing.maxDocsTBscanned = (int) max_scanned_docs;
+  globalDebugCtx.bgIndexing.maxDocsTBscanned = (int) max_scanned_docs;
 
   // Check if we need to enable debug mode
-  validateDebugMode(&debugCtx);
+  validateDebugMode(&globalDebugCtx);
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -1450,10 +1450,10 @@ DEBUG_COMMAND(setPauseOnScannedDocs) {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_ON_SCANNED_DOCS'");
   }
 
-  debugCtx.bgIndexing.maxDocsTBscannedPause = (int) pause_scanned_docs;
+  globalDebugCtx.bgIndexing.maxDocsTBscannedPause = (int) pause_scanned_docs;
 
   // Check if we need to enable debug mode
-  validateDebugMode(&debugCtx);
+  validateDebugMode(&globalDebugCtx);
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -1468,7 +1468,7 @@ DEBUG_COMMAND(setBgIndexResume) {
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcasecmp(op, "true")) {
-    debugCtx.bgIndexing.pause = false;
+    globalDebugCtx.bgIndexing.pause = false;
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_BG_INDEX_RESUME'");
   }
@@ -1519,18 +1519,45 @@ DEBUG_COMMAND(setPauseBeforeScan) {
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcasecmp(op, "true")) {
-    debugCtx.bgIndexing.pauseBeforeScan = true;
+    globalDebugCtx.bgIndexing.pauseBeforeScan = true;
   } else if (!strcasecmp(op, "false")) {
-    debugCtx.bgIndexing.pauseBeforeScan = false;
+    globalDebugCtx.bgIndexing.pauseBeforeScan = false;
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_SCAN'");
   }
 
-  validateDebugMode(&debugCtx);
+  validateDebugMode(&globalDebugCtx);
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
+DEBUG_COMMAND(bgScanController) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
+  // Check here all background indexing possible commands
+  if (!strcmp("SET_MAX_SCANNED_DOCS", op)) {
+    return setMaxScannedDocs(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_PAUSE_ON_SCANNED_DOCS", op)) {
+    return setPauseOnScannedDocs(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_BG_INDEX_RESUME", op)) {
+    return setBgIndexResume(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("GET_DEBUG_SCANNER_STATUS", op)) {
+    return getDebugScannerStatus(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_PAUSE_BEFORE_SCAN", op)) {
+    return setPauseBeforeScan(ctx, argv+1, argc-1);
+  }
+  return RedisModule_ReplyWithError(ctx, "Invalid command for 'BG_SCAN_CONTROLLER'");
+
+}
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1562,11 +1589,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_HNSW", dumpHNSWData},
                                {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
                                {"WORKERS", WorkerThreadsSwitch},
-                               {"SET_MAX_SCANNED_DOCS", setMaxScannedDocs},
-                               {"SET_PAUSE_ON_SCANNED_DOCS", setPauseOnScannedDocs},
-                               {"SET_BG_INDEX_RESUME",setBgIndexResume},
-                               {"GET_DEBUG_SCANNER_STATUS",getDebugScannerStatus},
-                               {"SET_PAUSE_BEFORE_SCAN", setPauseBeforeScan},
+                               {"BG_SCAN_CONTROLLER", bgScanController},
+
 
                                /* IMPORTANT NOTE: Every debug command starts with
                                 * checking if redis allows this context to execute

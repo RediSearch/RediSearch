@@ -22,16 +22,16 @@ int RegisterDebugCommands(RedisModuleCommand *debugCommand);
 
 // Struct used for debugging background indexing
 typedef struct BgIndexingDebugCtx {
-  int maxDocsTBscanned;
-  int maxDocsTBscannedPause;
-  bool pauseBeforeScan;
-  volatile atomic_bool pause;
+  int maxDocsTBscanned; // Max number of documents to be scanned before stopping
+  int maxDocsTBscannedPause; // Number of documents to be scanned before pausing
+  bool pauseBeforeScan; // Whether to pause before scanning
+  volatile atomic_bool pause; // Volatile atomic bool to wait for the resume command
 } BgIndexingDebugCtx;
 
 // General debug context
 typedef struct DebugCTX {
-  bool debugMode;
-  BgIndexingDebugCtx bgIndexing;
+  bool debugMode; // Indicates whether debug mode is enabled
+  BgIndexingDebugCtx bgIndexing; // Background indexing debug context
 } DebugCTX;
 
 // Should be called after each debug command that changes the debugCtx
