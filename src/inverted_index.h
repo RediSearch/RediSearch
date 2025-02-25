@@ -51,6 +51,11 @@ typedef struct InvertedIndex {
   };
 } InvertedIndex;
 
+typedef struct IndexBlockReader {
+  BufferReader br;
+  t_docId curOffset;
+} IndexBlockReader;
+
 /**
  * This context is passed to the decoder callback, and can contain either
  * a pointer or an integer. It is intended to relay along any kind of additional
@@ -112,12 +117,12 @@ void InvertedIndex_Free(void *idx);
  * (2) Advancing the reader's position to the next record
  * (3) Filtering the record based on any relevant information (can be passed through `ctx`)
  * (4) Populating `res` with the information from the record.
+ * (5) Setting `br->curOffset` for reading the next record
  *
  * If the record should not be processed, it should not be populated and 0 should
  * be returned. Otherwise, the function should return 1.
  */
-typedef bool (*IndexDecoder)(BufferReader *br, const IndexDecoderCtx *ctx, RSIndexResult *res,
-                             t_docId offset);
+typedef bool (*IndexDecoder)(IndexBlockReader *br, const IndexDecoderCtx *ctx, RSIndexResult *res);
 
 struct IndexReader;
 /**
@@ -126,11 +131,8 @@ struct IndexReader;
  *
  * The implementation of this function is optional. If this is not used, then
  * the decoder() implementation will be used instead.
- *
- * Note: This function must update the reader's `lastId`.
  */
-typedef bool (*IndexSeeker)(BufferReader *br, const IndexDecoderCtx *ctx, struct IndexReader *ir,
-                            t_docId to, RSIndexResult *res);
+typedef bool (*IndexSeeker)(IndexBlockReader *br, const IndexDecoderCtx *ctx, t_docId to, RSIndexResult *res);
 
 typedef struct {
   IndexDecoder decoder;
