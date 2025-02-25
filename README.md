@@ -63,6 +63,9 @@ To connect to this instance, run:
 $ redis-cli
 ```
 
+## Developer notes
+Please check the [developer notes](developer.md) for more information on how to build and test RediSearch.
+
 ## Documentation
 
 The [RediSearch documentation](https://redis.io/docs/interact/search-and-query/) provides a complete overview of RediSearch. Helpful sections include:
@@ -70,6 +73,7 @@ The [RediSearch documentation](https://redis.io/docs/interact/search-and-query/)
 * The [RediSearch quick start](https://redis.io/docs/latest/develop/get-started/document-database/)
 * The [RediSearch command reference](https://redis.io/commands/?group=search)
 * References on features such as [aggregations](https://redis.io/docs/interact/search-and-query/search/aggregations/), [highlights](https://redis.io/docs/interact/search-and-query/advanced-concepts/highlight/), [stemming](https://redis.io/docs/interact/search-and-query/advanced-concepts/stemming/), and [spelling correction](https://redis.io/docs/interact/search-and-query/advanced-concepts/spellcheck/).
+* [Vector search] (https://redis.io/docs/latest/develop/interact/search-and-query/query/vector-search/)
 
 ## Mailing list and forum
 
@@ -173,6 +177,9 @@ If you have a more detailed question, drop us a line on the [RediSearch Discussi
 * Supports for all utf-8 encoded text
 * Retrieve full documents, selected fields, or only the document IDs
 * Sorting results (for example, by creation date)
+* Geoshape indexing
+* Vector similarity search - KNN, iltered KNN and range query
+
 
 ## Cluster support
 
