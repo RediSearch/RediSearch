@@ -1190,7 +1190,7 @@ static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout) {
         cur = cur->upstream;
     }
 
-    if (cur) {
+    if (cur) { // This is a coordinator pipeline
       RPIndexIterator *rp_index = (RPIndexIterator *)cur;
       rp_index->timeoutLimiter = TIMEOUT_COUNTER_LIMIT - 1;
     }

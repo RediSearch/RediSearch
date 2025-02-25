@@ -534,22 +534,16 @@ class TestQueryDebugCommands(object):
         expected_results_per_iter = timeout_res_count
 
         should_timeout = True
-        check_res_count = True
+        check_res = True
         while (cursor):
-            # The counter of timeout simulator rp is initialized to timeout_res_count and decreases with each result returned from the upstream rp.
-            # In cluster mode, RPNet_next (the upstream rp) checks for timeouts at the end/start of reading each shard's reply.
-            # i.e we will always consume the entire chunk of results from each shard before checking for timeout.
-            # If some shards returns fewer than timeout_res_count results (due to EOF), we will continue to read replies until
-            # the sum of their results exceeds timeout_res_count.
-            # if the sum of results from all shards exceeds timeout_res_count but *each* shard individually returns fewer:
-            # no timeout warning is issued, the cursor is depleted.
-            # if the sum of results from all shards exceeds timeout_res_count but *one* shard returns timeout_res_count:
-            # we will get a timeout warning, and a valid cursor id.
             remaining = limit - total_returned
             if remaining <= timeout_res_count * env.shardsCount:
-                # we don't know how many results are left in each shard, check only timeout
+                # We don't know how many docs are left in each shard, so the result structure is unpredictable.
+                # If all shards return fewer results than timeout_res_count, no timeout warning will occur.
+                # If at least one shard returns more than timeout_res_count, a timeout warning will be issued.
+                # See aggregate/aggregate_debug.h for more details.
                 if env.isCluster():
-                    check_res_count = False
+                    check_res = False
                 else:
                     # in a single shard the next read will return EOF
                     expected_results_per_iter = remaining
@@ -558,9 +552,7 @@ class TestQueryDebugCommands(object):
             if cursor == 0:
                 should_timeout = False
 
-            if check_res_count == False:
-                self.verifyWarning(res, f"AggregateDebug with cursor: iter: {iter}, total_returned: {total_returned}", should_timeout=should_timeout)
-            else:
+            if check_res:
                 self.verifyResultsResp3(res, expected_results_per_iter, f"AggregateDebug with cursor: iter: {iter}, total_returned: {total_returned}", should_timeout=should_timeout)
             iter += 1
         env.assertEqual(total_returned, self.num_docs, message=f"AggregateDebug with cursor: depletion took {iter} iterations")
@@ -584,11 +576,11 @@ class TestQueryDebugCommands(object):
 
     # compare results of regular query and debug query
     def Sanity(self, cmd, query_params):
-        # avoid running this test in cluster mode, as it relies on the order of the results
+        # avoid running this test in cluster mode, as it relies on the order of the shards reply.
         skipTest(cluster=True)
         env = self.env
         results_count = 200
-        timeout_res_count = results_count - 1
+        timeout_res_count = results_count - 1 # less than limit to get timeout and not EOF
         query = ['FT.' + cmd, 'idx', '*', *query_params, 'LIMIT', 0, results_count]
         debug_params = ["TIMEOUT_AFTER_N", timeout_res_count, "DEBUG_PARAMS_COUNT", 2]
 
