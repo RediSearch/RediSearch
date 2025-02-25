@@ -19,7 +19,7 @@ void Obfuscate_FieldPath(t_uniqueId fieldId, char* buffer);
 void Obfuscate_Document(t_uniqueId docId, char* buffer);
 
 char *Obfuscate_Text(const char* text);
-char *Obfuscate_Number(size_t number);
+char *Obfuscate_Number(double number);
 char *Obfuscate_Vector(const char* vector, size_t dim);
 char *Obfuscate_Tag(const char* tag);
 char *Obfuscate_Geo(uint16_t longitude, uint16_t latitude);
