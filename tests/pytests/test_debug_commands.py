@@ -409,9 +409,19 @@ def testSetMaxScannedDocs(env: Env):
     docs_in_index = env.cmd('FT.SEARCH', 'idx', '*')[0]
     env.assertEqual(docs_in_index, num_docs)
 
+    # Check error handling
+    # Giving invalid argument
+    env.expect(debug_cmd(), 'SET_MAX_SCANNED_DOCS', 'notAnumber').error()\
+    .contains("Invalid argument for 'SET_MAX_SCANNED_DOCS'")
+
     # Set max scanned docs to 5
     max_scanned = 5
     env.expect(debug_cmd(), 'SET_MAX_SCANNED_DOCS', max_scanned).ok()
+
+    # Test error handling
+    # Index 'idx' was not created in debug mode, so the scanner is not a debug scanner
+    env.assertEqual(getDebugScannerStatus(env, 'idx'), 'Unknown index name')
+
     # Create a new index
     env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
     waitForIndexFinishScan(env, 'idx2')
@@ -441,6 +451,12 @@ def testPauseOnScannedDocs(env: Env):
     docs_in_index = env.cmd('FT.SEARCH', 'idx', '*')[0]
     env.assertEqual(docs_in_index, num_docs)
 
+
+    # Check error handling
+    # Giving invalid argument
+    env.expect(debug_cmd(), 'SET_PAUSE_ON_SCANNED_DOCS', 'notAnumber').error()\
+    .contains("Invalid argument for 'SET_PAUSE_ON_SCANNED_DOCS'")
+
     # Set max scanned docs to 5
     pause_on_scanned = 5
     env.expect(debug_cmd(), 'SET_PAUSE_ON_SCANNED_DOCS', pause_on_scanned).ok()
@@ -457,6 +473,10 @@ def testPauseOnScannedDocs(env: Env):
     env.assertEqual(idx_info['indexing'], 1)
     env.assertEqual(idx_info['percent_indexed'], f'{pause_on_scanned/num_docs}')
 
+    # Check resume error handling
+    # Giving invalid argument
+    env.expect(debug_cmd(), 'SET_BG_INDEX_RESUME', 'notTrue').error()\
+    .contains("Invalid argument for 'SET_BG_INDEX_RESUME'")
     # Resume indexing
     env.expect(debug_cmd(), 'SET_BG_INDEX_RESUME','true').ok()
     waitForIndexFinishScan(env, 'idx2')
@@ -473,6 +493,7 @@ def testPauseBeforeScan(env: Env):
     # Create a baseline index
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     waitForIndexFinishScan(env)
+
     # Get count of indexed documents
     docs_in_index = env.cmd('FT.SEARCH', 'idx', '*')[0]
     env.assertEqual(docs_in_index, num_docs)
@@ -514,3 +535,7 @@ def testDebugScannerStatus(env: Env):
     waitForIndexFinishScan(env, 'idx')
     # When scan is done, the scanner is freed
     checkDebugScannerError(env, 'idx', 'Scanner is not initialized')
+
+    # Test error handling
+    # Giving non existing index name
+    env.assertEqual(getDebugScannerStatus(env, 'NotIdx'), 'Unknown index name')

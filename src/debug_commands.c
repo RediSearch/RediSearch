@@ -1425,7 +1425,7 @@ DEBUG_COMMAND(setMaxScannedDocs) {
   }
   long long max_scanned_docs;
   if (RedisModule_StringToLongLong(argv[2], &max_scanned_docs) != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'set_max_scanned_docs'");
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_MAX_SCANNED_DOCS'");
   }
 
   // Negative maxDocsTBscanned represents no limit
@@ -1447,7 +1447,7 @@ DEBUG_COMMAND(setPauseOnScannedDocs) {
   }
   long long pause_scanned_docs;
   if (RedisModule_StringToLongLong(argv[2], &pause_scanned_docs) != REDISMODULE_OK) {
-    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_MAX_SCANNED_DOCS'");
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_ON_SCANNED_DOCS'");
   }
 
   debugCtx.bgIndexing.maxDocsTBscannedPause = (int) pause_scanned_docs;
@@ -1468,8 +1468,6 @@ DEBUG_COMMAND(setBgIndexResume) {
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcasecmp(op, "true")) {
-    if (!debugCtx.bgIndexing.pause)
-      return RedisModule_ReplyWithError(ctx, "BG indexing is not paused");
     debugCtx.bgIndexing.pause = false;
   } else {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_BG_INDEX_RESUME'");
