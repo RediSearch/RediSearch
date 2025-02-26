@@ -1194,7 +1194,11 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   GetRedisVersion(ctx);
 
   // Prepare thread local storage for future threads
-  ThreadLocalStorage_Init();
+  int error = ThreadLocalStorage_Init();
+  if (error) {
+    RedisModule_Log(ctx, "warning", "Failed to initialize thread local data, error: %d", error);
+    return REDISMODULE_ERR;
+  }
 
   char ver[64];
   GetFormattedRedisVersion(ver, sizeof(ver));

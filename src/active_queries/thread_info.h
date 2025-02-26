@@ -21,7 +21,8 @@ typedef struct {
 } ThreadInfo;
 
 // Call in module startup, initializes the thread local storage
-void ThreadLocalStorage_Init();
+// 0 - success, otherwise the returned int is a system error code
+int ThreadLocalStorage_Init();
 // Call in module shutdown, destroys the thread local storage
 void ThreadLocalStorage_Destroy();
 

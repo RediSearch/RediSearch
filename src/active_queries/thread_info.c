@@ -20,29 +20,33 @@ pthread_key_t threadInfoKey;
 
 bool initialized = false;
 
-// Called when the thread finishes, releases the info
-void CurrentThread_Done(void *current_info) {
-  ThreadInfo *info = current_info;
-  if (info) {
-      rm_free(info);
-  }
-}
-
-void ThreadLocalStorage_Init() {
+int ThreadLocalStorage_Init() {
   assert(!initialized);
-  pthread_key_create(&threadInfoKey, CurrentThread_Done);
-
+  int rc = pthread_key_create(&threadInfoKey, NULL);
+  if (rc) {
+    return rc;
+  }
+  rc = pthread_key_create(&activeQueriesKey, NULL);
+  if (rc) {
+    return rc;
+  }
   ActiveQueries *activeQueries = ActiveQueries_Init();
-  pthread_key_create(&activeQueriesKey, NULL);
-  printf("ThreadLocalStorage_Init %p\n", activeQueries);
-  pthread_setspecific(activeQueriesKey, activeQueries);
+  rc = pthread_setspecific(activeQueriesKey, activeQueries);
+  if (rc) {
+    if (activeQueries) {
+      ActiveQueries_Free(activeQueries);
+    }
+    return rc;
+  }
   initialized = true;
+  return rc;
 }
 
 void ThreadLocalStorage_Destroy() {
-  assert(initialized);
+  if (!initialized) {
+    return;
+  }
   pthread_key_delete(threadInfoKey);
-
   ActiveQueries *activeQueries = pthread_getspecific(activeQueriesKey);
   ActiveQueries_Free(activeQueries);
   pthread_key_delete(activeQueriesKey);
@@ -61,20 +65,28 @@ ThreadInfo *CurrentThread_GetInfo() {
 #ifdef __linux__
     info->Ltid = syscall(SYS_gettid);
 #endif
-    pthread_setspecific(threadInfoKey, info);
+    int rc = pthread_setspecific(threadInfoKey, info);
+    if (rc) {
+      rm_free(info);
+      info = NULL;
+    }
   }
   return info;
 }
 
 void CurrentThread_SetIndexSpec(StrongRef specRef) {
   ThreadInfo *info = CurrentThread_GetInfo();
-  info->specRef = StrongRef_Clone(specRef);
+  if (info) {
+    info->specRef = StrongRef_Clone(specRef);
+  }
 }
 
 void CurrentThread_ClearIndexSpec() {
   ThreadInfo *info = pthread_getspecific(threadInfoKey);
-  assert(info);
   if (info) {
+    assert(info->specRef.rm != NULL);
     StrongRef_Release(info->specRef);
+    rm_free(info);
+    pthread_setspecific(threadInfoKey, NULL);
   }
 }
