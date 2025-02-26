@@ -159,7 +159,6 @@ jobs:
       - name: Setup tests dependencies
         run: |
           .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
-          .install/test_deps/install_rust.sh
       - name: Install Boost
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
@@ -175,18 +174,17 @@ jobs:
         run: |
           REPO_URL="https://github.com/redis/redis.git"
           DEST_DIR="redis"  # Directory to clone into
-          
+
           # Clone the repository (shallow clone without tags)
           git clone $REPO_URL $DEST_DIR
           cd $DEST_DIR
-          
+
           # Checkout the REF
           git fetch origin ${{ inputs.get-redis }}
           git checkout ${{ inputs.get-redis }}
       - name: verify CC and CXX
         if: inputs.san == 'address'
         run: |
-          echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
           echo "CC=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
           echo "CXX=$(which clang++-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
           echo "LD=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
@@ -202,7 +200,8 @@ jobs:
           echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Build
-        run: make SAN=${{ inputs.san }} REDIS_VER=${{ inputs.get-redis }}
+        run: |
+          make SAN=${{ inputs.san }} REDIS_VER=${{ inputs.get-redis }}
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests

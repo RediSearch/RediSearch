@@ -73,6 +73,7 @@ make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
 make c-tests       # run C tests (from tests/ctests)
 make cpp-tests     # run C++ tests (from tests/cpptests)
+make rust-tests    # run Rust tests (from src/redisearch_rs)
 make vecsim-bench  # run VecSim micro-benchmark
 
 make callgrind     # produce a call graph
@@ -159,6 +160,16 @@ LIBUV_DIR=$(ROOT)/deps/libuv
 export LIBUV_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/libuv
 include build/libuv/Makefile.defs
 
+REDISEARCH_RS_DIR=$(ROOT)/src/redisearch_rs
+export REDISEARCH_RS_TARGET_DIR=$(ROOT)/bin/redisearch_rs/
+export REDISEARCH_RS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT)/redisearch_rs/
+
+ifeq ($(DEBUG),1)
+export RUST_BUILD_MODE=
+else
+export RUST_BUILD_MODE=--release
+endif
+
 HIREDIS_DIR=$(ROOT)/deps/hiredis
 HIREDIS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/hiredis
 include build/hiredis/Makefile.defs
@@ -227,6 +238,10 @@ ifeq ($(wildcard $(LIBUV)),)
 MISSING_DEPS += $(LIBUV)
 endif
 
+ifeq ($(wildcard $(REDISEARCH_RS)),)
+MISSING_DEPS += $(REDISEARCH_RS)
+endif
+
 ifeq ($(wildcard $(HIREDIS)),)
 #@@ MISSING_DEPS += $(HIREDIS)
 endif
@@ -235,7 +250,7 @@ ifneq ($(MISSING_DEPS),)
 DEPS=1
 endif
 
-DEPENDENCIES=libuv #@@  s2geometry hiredis
+DEPENDENCIES=libuv redisearch_rs #@@ s2geometry hiredis
 
 ifneq ($(filter all deps $(DEPENDENCIES) pack,$(MAKECMDGOALS)),)
 DEPS=1
@@ -250,12 +265,16 @@ include $(MK)/rules
 
 #----------------------------------------------------------------------------------------------
 
-clean:
+clean: clean-rust
 ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
 endif
+
+clean-rust:
+	$(SHOW)rm -rf $(REDISEARCH_RS_TARGET_DIR)
+	$(SHOW)rm -rf $(REDISEARCH_RS_BINDIR)
 
 #----------------------------------------------------------------------------------------------
 
@@ -287,6 +306,22 @@ libuv: $(LIBUV)
 $(LIBUV):
 	@echo Building libuv...
 	$(SHOW)$(MAKE) --no-print-directory -C build/libuv DEBUG=''
+
+ifeq ($(DEBUG),1)
+RUST_ARTIFACT_SUBDIR=debug
+else
+RUST_ARTIFACT_SUBDIR=release
+endif
+
+redisearch_rs:
+	@echo Building redisearch_rs..
+	$(SHOW)mkdir -p $(REDISEARCH_RS_TARGET_DIR)
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo build $(RUST_BUILD_MODE)
+	$(SHOW)mkdir -p $(REDISEARCH_RS_BINDIR)
+	$(SHOW)cp $(REDISEARCH_RS_TARGET_DIR)/$(RUST_ARTIFACT_SUBDIR)/*.a $(REDISEARCH_RS_BINDIR)
+
+# Ensure that redisearch_rs is built before attempting to build the main module
+$(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile redisearch_rs
 
 hiredis: $(HIREDIS)
 
@@ -384,10 +419,13 @@ else
 _TEST_PARALLEL=$(TEST_PARALLEL)
 endif
 
-test: unit-tests pytest
+test: unit-tests pytest rust-tests
 
 unit-tests:
 	$(SHOW)BINROOT=$(BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+
+rust-tests:
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo test $(RUST_BUILD_MODE) $(TEST_NAME)
 
 pytest:
 	@printf "\n-------------- Running python flow test ------------------\n"
@@ -407,7 +445,7 @@ cpp-tests:
 vecsim-bench:
 	$(SHOW)$(BINROOT)/search/tests/cpptests/rsbench
 
-.PHONY: test unit-tests pytest c_tests cpp_tests vecsim-bench
+.PHONY: test unit-tests pytest rust-tests c_tests cpp_tests vecsim-bench
 
 #----------------------------------------------------------------------------------------------
 

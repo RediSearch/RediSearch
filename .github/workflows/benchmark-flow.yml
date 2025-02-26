@@ -54,12 +54,9 @@ jobs:
         working-directory: .install
         run: |
           ./install_script.sh ${{ steps.mode.outputs.mode }}
-
       - name: Setup tests dependencies
         run: |
           .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
-          .install/test_deps/install_rust.sh
-           echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
       - name: Install Boost
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }}
