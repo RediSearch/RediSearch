@@ -1053,11 +1053,11 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   // Expect to get top 76 results that are within the range, with ids: 25, 26, ... , 100
   VecSim_Normalize(query, d, t);
   while (vecIt->Read(vecIt->ctx, &h) != INDEXREAD_EOF) {
-    ASSERT_EQ(h->type, RSResultType_Metric);
-    ASSERT_EQ(h->docId, lowest_id + count);
+    EXPECT_EQ(h->type, RSResultType_Metric);
+    EXPECT_EQ(h->docId, lowest_id + count);
     double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
-    ASSERT_EQ(h->num.value, exp_dist);
-    ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
+    EXPECT_EQ(h->num.value, exp_dist);
+    EXPECT_EQ(h->metrics[0].value->numval, exp_dist);
     count++;
   }
   ASSERT_EQ(count, n_expected_res);
