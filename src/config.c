@@ -23,7 +23,7 @@
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)
 
-#define DEFAULT_UNSTABLE_FEATURES_ENABLE true
+#define DEFAULT_UNSTABLE_FEATURES_ENABLE false
 
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
