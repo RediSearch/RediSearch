@@ -78,6 +78,7 @@ configPair_t __configPairs[] = {
   {"WORKERS",                         "search-workers"},
   {"WORKERS_PRIORITY_BIAS_THRESHOLD", "search-workers-priority-bias-threshold"},
   {"WORKER_THREADS",                  ""},
+  {"ENABLE_UNSTABLE_FEATURES",        "search-enable-unstable-features"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -885,6 +886,10 @@ CONFIG_GETTER(getIndexCursorLimit) {
   return sdscatprintf(ss, "%lld", config->indexCursorLimit);
 }
 
+// ENABLE_UNSTABLE_FEATURES
+CONFIG_BOOLEAN_SETTER(set_EnableUnstableFeatures, enableUnstableFeatures)
+CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -1188,6 +1193,10 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "overall estimated number of results instead.",
          .setValue = set_PrioritizeIntersectUnionChildren,
          .getValue = get_PrioritizeIntersectUnionChildren},
+         {.name = "ENABLE_UNSTABLE_FEATURES",
+         .helpText = "Enable unstable features.",
+         .setValue = set_EnableUnstableFeatures,
+         .getValue = get_EnableUnstableFeatures},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -1739,6 +1748,15 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_RegisterBoolConfig(
       ctx, "search-raw-docid-encoding", 0,
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.invertedIndexRawDocidEncoding)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-enable-unstable-features", 0,
+      REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.invertedIndexRawDocidEncoding)
     )

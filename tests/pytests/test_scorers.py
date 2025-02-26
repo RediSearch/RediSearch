@@ -362,16 +362,23 @@ def testBM25Normalized():
     res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD')
 
     # Search for the same query and get the scores using the BM25STD.NORM scorer
-    norm_res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
-
-    env.assertEqual(len(res), len(norm_res))
+    norm_res_search = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+    env.assertEqual(len(res), len(norm_res_search))
+    norm_scores = []
     for i in range(1, len(res), 2):
         # The same order should be kept
-        env.assertEqual(res[i], norm_res[i])
+        env.assertEqual(res[i], norm_res_search[i])
         # The score should be normalized using the stretched tanh function
-        env.assertEqual(round(float(norm_res[i+1]), 5), round(math.tanh(float(res[i+1]) * SCORE_NORM_STRETCH_FACTOR), 5))
+        env.assertEqual(round(float(norm_res_search[i+1]), 5), round(math.tanh(float(res[i+1]) * SCORE_NORM_STRETCH_FACTOR), 5))
+        # Save the score to make sure the aggregate command returns the same results
+        norm_scores.append(round(float(norm_res_search[i+1]), 5))
 
-def testNormalizedBM25ScorerExplanation(env):
+    norm_res_aggregate = env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM', 'SORTBY', '2', '@__score', 'DESC')
+    for i, res in enumerate(norm_res_aggregate[1:]):
+      # Check that the order and the scores are the same
+      env.assertEqual(round(float(res[1]), 5), norm_scores[i])
+
+def testNormalizedBM25ScorerExplanation():
     """
     Tests that the normalized BM25STD scorer explanation is correct
     """
@@ -459,11 +466,13 @@ def testNormalizedBM25ScorerExplanation(env):
         ]]]
     )
 
-def testBM25NormalizedScoreField(env: Env):
+def testBM25NormalizedScoreField():
     """
     Tests that the normalized BM25 scorer works as expected when using a score
     field for the score.
     """
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
 
     conn = env.getClusterConnectionIfNeeded()
 

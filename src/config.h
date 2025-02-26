@@ -151,6 +151,9 @@ typedef struct {
   int prioritizeIntersectUnionChildren;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
+
+  // Enable to execute unstable features
+  bool enableUnstableFeatures;
 } RSConfig;
 
 typedef enum {
@@ -300,7 +303,8 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .multiTextOffsetDelta = DEFAULT_MULTI_TEXT_SLOP,                           \
     .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,          \
     .prioritizeIntersectUnionChildren = false,                                 \
-    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                             \
+    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
+    .enableUnstableFeatures = true                                             \
   }
 
 #define REDIS_ARRAY_LIMIT 7
