@@ -49,7 +49,7 @@ on:
 jobs:
   get-required-envs:
     name: for ${{ inputs.platform }} platform on ${{ inputs.architecture }} architecture
-    runs-on: ${{ vars.RUNS_ON }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     outputs:
       platforms_arm: ${{ steps.get_platforms.outputs.arm_platforms }}
       platforms_x86: ${{ steps.get_platforms.outputs.x86_platforms }}

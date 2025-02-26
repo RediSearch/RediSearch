@@ -127,7 +127,7 @@ jobs:
     uses:  ./.github/workflows/task-test.yml
     secrets: inherit
     with:
-      env: ${{ vars.RUNS_ON_ARM }}
+      env: ${{ vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' }}
       get-redis: ${{ inputs.redis-ref }}
       rejson: ${{ inputs.rejson }}
       rejson-branch: ${{ inputs.rejson-branch }}
