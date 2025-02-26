@@ -304,7 +304,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,          \
     .prioritizeIntersectUnionChildren = false,                                 \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
-    .enableUnstableFeatures = true                                             \
+    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE                 \
   }
 
 #define REDIS_ARRAY_LIMIT 7

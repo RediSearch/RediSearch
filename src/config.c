@@ -23,6 +23,8 @@
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)
 
+#define DEFAULT_UNSTABLE_FEATURES_ENABLE true
+
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
 
@@ -1755,7 +1757,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(
-      ctx, "search-enable-unstable-features", 1,
+      ctx, "search-enable-unstable-features", DEFAULT_UNSTABLE_FEATURES_ENABLE,
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.enableUnstableFeatures)
