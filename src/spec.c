@@ -2249,8 +2249,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
                   scanner->scannedKeys);
       goto end;
     }
-
-
   }
 
   if (scanner->isDebug) {
@@ -3288,13 +3286,6 @@ static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref) {
   return dScanner;
 }
 
-// This function is currently not called as the pointer is freed via the IndexSpec_Free function
-// It is kept here for completeness and in case it is needed in the future
-static void DebugIndexesScanner_Free(DebugIndexesScanner *dScanner)
-{
-  IndexesScanner_Free((IndexesScanner*)dScanner);
-}
-
 static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              DebugIndexesScanner *dScanner) {
 
@@ -3315,8 +3306,7 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
   }
 
   RedisModule_ThreadSafeContextUnlock(ctx);
-  while (globalDebugCtx.bgIndexing.pause) // volatile variable
-  {
+  while (globalDebugCtx.bgIndexing.pause) { // volatile variable
     dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED;
     usleep(1000);
   }
