@@ -11,13 +11,13 @@
 #include "active_queries/thread_info.h"
 #include "active_queries.h"
 
-static void FreeQueryNode(RedisModuleCtx*, void *node) {
+static void FreeQueryNode(RedisModuleCtx* ctx, void *node) {
   ActiveQueryNode *activeQueryNode = node;
   ActiveQueries_RemoveQuery(activeQueryNode);
   rm_free(activeQueryNode);
 }
 
-static void FreeCursorNode(RedisModuleCtx*, void *node) {
+static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
   ActiveCursorNode *activeCursorNode = node;
   ActiveQueries_RemoveCursor(activeCursorNode);
   rm_free(activeCursorNode);
