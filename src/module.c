@@ -2213,7 +2213,7 @@ static double parseNumeric(const char *str, const char *sortKey) {
     RS_ASSERT(str[0] == '#');
     char *eptr;
     double d = strtod(str + 1, &eptr);
-    RS_ASSERT(eptr != sortKey + 1 && *eptr == 0);
+    RS_ASSERT_ALWAYS(eptr != sortKey + 1 && *eptr == 0);
     return d;
 }
 
