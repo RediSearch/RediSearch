@@ -167,7 +167,10 @@ def testBM25ScorerExplanation(env):
                                 [['(Weight 0.30 * children BM25 0.52)',
                                 ['(0.17 = Weight 0.50 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 30.00)))',
                                     '(0.35 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 30.00)))']]]])
-
+    env.assertEqual(res[6][1], ['Final BM25 : words BM25 0.16 * document score 0.10 / slop 3',
+                                [['(Weight 0.30 * children BM25 0.52)',
+                                ['(0.17 = Weight 0.50 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 30.00)))',
+                                    '(0.35 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 30.00)))']]]])
 
 
 def testBM25STDScorerExplanation(env):
@@ -211,6 +214,10 @@ def testBM25STDScorerExplanation(env):
                                 [['(Weight 0.30 * children BM25 0.39)',
                                 ['hello: (0.13 = Weight 0.50 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) / (F 10.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 35 / Average Doc Len 34.33)))',
                                     'world: (0.26 = Weight 1.00 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) / (F 10.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 35 / Average Doc Len 34.33)))']]]])
+    env.assertEqual(res[6][1], ['Final BM25 : words BM25 0.12 * document score 1.00',
+                                [['(Weight 0.30 * children BM25 0.39)',
+                                ['hello: (0.13 = Weight 0.50 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) / (F 10.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 45 / Average Doc Len 34.33)))',
+                                    'world: (0.26 = Weight 1.00 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) / (F 10.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 45 / Average Doc Len 34.33)))']]]])
 
 @skip(cluster=True)
 def testOptionalAndWildcardScoring(env):
@@ -350,7 +357,7 @@ def scorer_with_weight_test(env, scorer):
     scores = get_scores(env, default_query)
     weighted_scores = get_scores(env, weighted_query)
     # Assert that weighted_scores are half of the default scores, since the weight is 0.5
-    max_difference = max(abs(2*w - s) for w, s in zip(weighted_scores, scores))
+    max_difference = max(abs(w - 0.5*s) for w, s in zip(weighted_scores, scores))
     env.assertAlmostEqual(max_difference, 0, 1E-6)
 
 def testBM25STDScoreWithWeight(env: Env):
