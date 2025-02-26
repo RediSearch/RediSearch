@@ -501,8 +501,7 @@ endif
 COV_EXCLUDE_DIRS += \
 	bin \
 	deps \
-	tests \
-	coord/tests
+	tests 
 
 COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
