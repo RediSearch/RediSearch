@@ -178,7 +178,7 @@ If you have a more detailed question, drop us a line on the [RediSearch Discussi
 * Retrieve full documents, selected fields, or only the document IDs
 * Sorting results (for example, by creation date)
 * Geoshape indexing
-* Vector similarity search - KNN, iltered KNN and range query
+* Vector similarity search - KNN, filtered KNN and range query
 
 
 ## Cluster support
