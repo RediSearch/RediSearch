@@ -1,6 +1,11 @@
 name: Spellcheck
 
-on: [workflow_call, workflow_dispatch]
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
 
 jobs:
   spellcheck:
@@ -9,7 +14,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref || github.ref_name }}
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
 
       - name: Fetch master

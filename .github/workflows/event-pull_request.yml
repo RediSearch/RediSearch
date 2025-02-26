@@ -16,6 +16,10 @@ jobs:
 
   spellcheck:
     uses: ./.github/workflows/task-spellcheck.yml
+    with:
+      # The sha needs to still be valid if the PR is from a forked repository
+      # Can't use github.head_ref since it is local to our repository
+      ref: ${{ github.event.pull_request.head.sha }}
 
   basic-test:
     needs: [docs-only]
