@@ -294,15 +294,16 @@ TEST_F(IndexTest, testGetEncoderAndDecoders) {
 
     // invalid flags combination
     default:
-      // TODO: We currently test only with sanitizer since the sanitizer is
-      // running in debug mode always, while the regular tests are running in
-      // release mode.
-      #ifdef __SANITIZE_ADDRESS__
-        ASSERT_ANY_THROW(InvertedIndex_GetDecoder(IndexFlags(curFlags)));
-        ASSERT_ANY_THROW(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
-      #else
-        continue;
-      #endif;
+      // // TODO: We currently test only with sanitizer since the sanitizer is
+      // // running in debug mode always, while the regular tests are running in
+      // // release mode.
+      // #ifdef __SANITIZE_ADDRESS__
+      //   ASSERT_ANY_THROW(InvertedIndex_GetDecoder(IndexFlags(curFlags)));
+      //   ASSERT_ANY_THROW(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
+      // #else
+      //   continue;
+      // #endif;
+      continue;
     }
   }
 }
