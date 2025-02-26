@@ -32,6 +32,7 @@
 #include "commands.h"
 #include "util/workers.h"
 #include "info/global_stats.h"
+#include "debug_commands.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -63,6 +64,24 @@ size_t memoryLimit = -1;
 size_t used_memory = 0;
 
 static redisearch_thpool_t *cleanPool = NULL;
+
+extern DebugCTX globalDebugCtx;
+
+const char *DEBUG_INDEX_SCANNER_STATUS_STRS[DEBUG_INDEX_SCANNER_CODE_COUNT] = {
+    "NEW", "SCANNING", "DONE", "CANCELLED", "PAUSED", "RESUMED"
+};
+
+// Static assertion to ensure array size matches the number of statuses
+static_assert(
+    sizeof(DEBUG_INDEX_SCANNER_STATUS_STRS) / sizeof(DEBUG_INDEX_SCANNER_STATUS_STRS[0]) == DEBUG_INDEX_SCANNER_CODE_COUNT,
+    "Mismatch between DebugIndexScannerCode enum and DEBUG_INDEX_SCANNER_STATUS_STRS array"
+);
+
+// Debug scanner functions
+static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref);
+static void DebugIndexesScanner_Free(DebugIndexesScanner *dScanner);
+static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
+                             DebugIndexesScanner *dScanner);
 
 //---------------------------------------------------------------------------------------------
 
@@ -2081,6 +2100,7 @@ static IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
   scanner->spec_ref = StrongRef_Demote(global_ref);
   IndexSpec *spec = StrongRef_Get(global_ref);
   scanner->spec_name = rm_strndup(spec->name, spec->nameLen);
+  scanner->isDebug = false;
 
   // scan already in progress?
   if (spec->scanner) {
@@ -2129,6 +2149,7 @@ static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, Redi
 int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString *key, DocumentType type);
 static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              IndexesScanner *scanner) {
+
   if (scanner->cancelled) {
     return;
   }
@@ -2188,7 +2209,20 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   }
 
   size_t counter = 0;
-  while (RedisModule_Scan(ctx, cursor, (RedisModuleScanCB)Indexes_ScanProc, scanner)) {
+  RedisModuleScanCB scanner_func = (RedisModuleScanCB)Indexes_ScanProc;
+  if (globalDebugCtx.debugMode) {
+    // If we are in debug mode, we need to use the debug scanner function
+    scanner_func = (RedisModuleScanCB)DebugIndexes_ScanProc;
+
+    // If background indexing paused, wait until it is resumed
+    // Allow the redis server to acquire the GIL while we release it
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    while (globalDebugCtx.bgIndexing.pause) { // volatile variable
+      usleep(1000);
+    }
+    RedisModule_ThreadSafeContextLock(ctx);
+  }
+  while (RedisModule_Scan(ctx, cursor, scanner_func, scanner)) {
     RedisModule_ThreadSafeContextUnlock(ctx);
     counter++;
     if (counter % RSGlobalConfig.numBGIndexingIterationsBeforeSleep == 0) {
@@ -2208,6 +2242,11 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
                   scanner->scannedKeys);
       goto end;
     }
+  }
+
+  if (scanner->isDebug) {
+    DebugIndexesScanner* dScanner = (DebugIndexesScanner*)scanner;
+    dScanner->status = DEBUG_INDEX_SCANNER_CODE_DONE;
   }
 
   if (scanner->global) {
@@ -2239,7 +2278,18 @@ static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
 #ifdef _DEBUG
   RedisModule_Log(RSDummyContext, "notice", "Register index %s for async scan", ((IndexSpec*)StrongRef_Get(spec_ref))->name);
 #endif
-  IndexesScanner *scanner = IndexesScanner_New(spec_ref);
+  IndexesScanner *scanner;
+  if (globalDebugCtx.debugMode) {
+    // If we are in debug mode, we need to allocate a debug scanner
+    scanner = (IndexesScanner*)DebugIndexesScanner_New(spec_ref);
+    // If we need to pause before the scan, we set the pause flag
+    if (globalDebugCtx.bgIndexing.pauseBeforeScan) {
+      globalDebugCtx.bgIndexing.pause = true;
+    }
+  } else {
+    scanner = IndexesScanner_New(spec_ref);
+  }
+
   redisearch_thpool_add_work(reindexPool, (redisearch_thpool_proc)Indexes_ScanAndReindexTask, scanner, THPOOL_PRIORITY_HIGH);
 }
 
@@ -3210,3 +3260,54 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
   Indexes_SpecOpsIndexingCtxFree(to_specs);
 }
 ///////////////////////////////////////////////////////////////////////////////////////////////
+
+// Debug Scanner Functions
+
+static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref) {
+
+  DebugIndexesScanner *dScanner = rm_realloc(IndexesScanner_New(global_ref), sizeof(DebugIndexesScanner));
+
+  dScanner->maxDocsTBscanned = globalDebugCtx.bgIndexing.maxDocsTBscanned;
+  dScanner->maxDocsTBscannedPause = globalDebugCtx.bgIndexing.maxDocsTBscannedPause;
+  dScanner->wasPaused = false;
+  dScanner->status = DEBUG_INDEX_SCANNER_CODE_NEW;
+  dScanner->base.isDebug = true;
+
+  IndexSpec *spec = StrongRef_Get(global_ref);
+  spec->scanner = (IndexesScanner*)dScanner;
+
+  return dScanner;
+}
+
+static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
+                             DebugIndexesScanner *dScanner) {
+
+  IndexesScanner *scanner = &(dScanner->base);
+
+  if (dScanner->status == DEBUG_INDEX_SCANNER_CODE_NEW) {
+    dScanner->status = DEBUG_INDEX_SCANNER_CODE_RUNNING;
+  }
+
+  if (dScanner->maxDocsTBscannedPause > 0 && (!dScanner->wasPaused) && scanner->scannedKeys >= dScanner->maxDocsTBscannedPause) {
+    globalDebugCtx.bgIndexing.pause = true;
+    dScanner->wasPaused = true;
+  }
+
+  if ((dScanner->maxDocsTBscanned > 0) && (scanner->scannedKeys >= dScanner->maxDocsTBscanned)) {
+    scanner->cancelled = true;
+    dScanner->status = DEBUG_INDEX_SCANNER_CODE_CANCELLED;
+  }
+
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  while (globalDebugCtx.bgIndexing.pause) { // volatile variable
+    dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED;
+    usleep(1000);
+  }
+  RedisModule_ThreadSafeContextLock(ctx);
+
+  if (dScanner->status == DEBUG_INDEX_SCANNER_CODE_PAUSED) {
+    dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
+  }
+
+  Indexes_ScanProc(ctx, keyname, key, &(dScanner->base));
+}
