@@ -291,13 +291,18 @@ static double BM25StdScorer(const ScoringFunctionArgs *ctx, const RSIndexResult 
  *
  ******************************************************************************************/
 
+/* Stretched tanh.
+ * The stretching is in the sense that we increase the range in which the tanh
+ * function behaves as a linear function, thus more suiting to our scoring
+ * expectations.
+ */
 static inline double tanhStretched(double x, double stretch) {
   return tanh((1 / stretch) * x);
 }
 
 /* Normalized BM25 scoring function (of the standard version)
  * The normalization is done by applying the stretched hyperbolic tangent function
- * on the standard BM25 score of the result.
+ * on the standard BM25 score of the result, resulting in a score in the range [0,1].
 */
 static double BM25StdNormScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
                          const RSDocumentMetadata *dmd, double minScore) {
