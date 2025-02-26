@@ -1,6 +1,7 @@
 import math
 from includes import *
 from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip
+from RLTest import Env
 
 
 def testHammingScorer(env):
@@ -138,9 +139,9 @@ def testBM25ScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
-    env.expect('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum').ok()
-    env.expect('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
-    env.expect('ft.add', 'idx', 'doc3', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
+    env.expect('ft.add', 'idx', 'doc1{hash_tag}', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum').ok()
+    env.expect('ft.add', 'idx', 'doc2{hash_tag}', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem').ok()
+    env.expect('ft.add', 'idx', 'doc3{hash_tag}', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25')
     env.assertEqual(res[0], 3)
     if env.isCluster():
@@ -205,3 +206,26 @@ def testScoreError(env):
     waitForIndex(env, 'idx')
     env.expect('ft.add idx doc1 0.01 fields title hello').ok()
     env.expect('ft.search idx hello EXPLAINSCORE').error().contains('EXPLAINSCORE must be accompanied with WITHSCORES')
+
+def scorer_with_weight_test(env, scorer):
+    # Test that the scorer is applied correctly when using the `weight` attribute
+    conn = getConnectionByEnv(env)
+    env.expect('ft.create idx ON HASH schema title text').ok()
+    conn.execute_command('HSET', 'doc1', 'title', 'hello world')
+    conn.execute_command('HSET', 'doc2', 'title', 'hello world cat dog')
+
+    def get_scores(env, query):
+        res = env.cmd('ft.search', 'idx', query, 'withscores', 'scorer', scorer, 'nocontent')
+        return [float(res[2]), float(res[4])]
+
+    default_query = '@title: hello'
+    weighted_query = '((@title:hello) => {$weight: 0.5;})'
+
+    scores = get_scores(env, default_query)
+    weighted_scores = get_scores(env, weighted_query)
+    # Assert that weighted_scores are half of the default scores, since the weight is 0.5
+    max_difference = max(abs(w - 0.5*s) for w, s in zip(weighted_scores, scores))
+    env.assertAlmostEqual(max_difference, 0, 1E-6)
+
+def testBM25ScoreWithWeight(env: Env):
+    scorer_with_weight_test(env, 'BM25')

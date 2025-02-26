@@ -154,11 +154,11 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
   double ret = 0;
   if (r->type == RSResultType_Term) {
     double idf = (r->term.term ? r->term.term->idf : 0);
-
-    ret = idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
+    ret = r->weight * idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
     EXPLAIN(scrExp,
-            "(%.2f = IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
-            ret, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
+            "(%.2f = Weight %.2f * IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
+            ret, r->weight, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
+
   } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
     int numChildren = r->agg.numChildren;
     if (!scrExp) {
