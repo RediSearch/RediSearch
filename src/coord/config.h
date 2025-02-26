@@ -32,13 +32,15 @@ extern RedisModuleString *config_dummy_password;
 
 #define COORDINATOR_POOL_DEFAULT_SIZE 20
 #define DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT 30000
+#define DEFAULT_CURSOR_REPLY_THRESHOLD 1
+#define DEFAULT_CONN_PER_SHARD 0
 
 #define DEFAULT_CLUSTER_CONFIG                                                 \
   (SearchClusterConfig) {                                                      \
-    .connPerShard = 0,                                                         \
+    .connPerShard = DEFAULT_CONN_PER_SHARD,                                    \
     .type = DetectClusterType(),                                               \
     .timeoutMS = 0,                                                            \
-    .cursorReplyThreshold = 1,                                                 \
+    .cursorReplyThreshold = DEFAULT_CURSOR_REPLY_THRESHOLD,                    \
     .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                      \
     .topologyValidationTimeoutMS = DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,        \
   }
