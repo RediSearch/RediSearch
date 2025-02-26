@@ -986,17 +986,17 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisModule_Log(ctx, "warning", "FT.CONFIG is deprecated, please use CONFIG instead");
-
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   const char *action = RedisModule_StringPtrLen(argv[1], NULL);
   const char *name = RedisModule_StringPtrLen(argv[2], NULL);
   if (!strcasecmp(action, "GET")) {
+    LogWarningDeprecatedFTConfig(ctx, "GET", name);
     RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, reply, false);
   } else if (!strcasecmp(action, "HELP")) {
     RSConfig_DumpProto(&RSGlobalConfig, &RSGlobalConfigOptions, name, reply, true);
   } else if (!strcasecmp(action, "SET")) {
+    LogWarningDeprecatedFTConfig(ctx, "SET", name);
     size_t offset = 3;  // Might be == argc. SetOption deals with it.
     int rc = RSConfig_SetOption(&RSGlobalConfig, &RSGlobalConfigOptions, name, argv, argc,
                                 &offset, &status);
