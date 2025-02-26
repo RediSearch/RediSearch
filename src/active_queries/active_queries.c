@@ -5,7 +5,8 @@
  */
 
 #ifdef __linux__
-#include <syscall.h>
+#include <unistd.h>
+#include <sys/syscall.h>
 #endif
 
 #include "active_queries/active_queries.h"

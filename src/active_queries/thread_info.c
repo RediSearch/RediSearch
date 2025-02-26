@@ -9,7 +9,8 @@
 #include "rmalloc.h"
 
 #ifdef __linux__
-#include <syscall.h>
+#include <unistd.h>
+#include <sys/syscall.h>
 #endif
 
 // TLS key for the main thread
