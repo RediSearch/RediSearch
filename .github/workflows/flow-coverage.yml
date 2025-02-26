@@ -21,8 +21,7 @@ env:
 
 jobs:
   coverage:
-    runs-on: ubuntu-24.04  # Temporary hard coded until we resolve the issues with ubuntu-latest(24)
-    defaults:
+    runs-on: ubuntu-latest
       run:
         shell: bash -l -eo pipefail {0}
     steps:
