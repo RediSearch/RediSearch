@@ -11,6 +11,7 @@
 #include "module.h"
 #include "query_error.h"
 #include "rmutil/rm_assert.h"
+#include "obfuscation/obfuscation_api.h"
 
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
@@ -733,64 +734,87 @@ int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags
   return REDISMODULE_OK;
 }
 
-void RSValue_Print(const RSValue *v) {
-  FILE *fp = stderr;
+sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate) {
   if (!v) {
-    fprintf(fp, "nil");
+    return sdscat(s, "nil");
   }
   switch (v->t) {
     case RSValue_String:
-      fprintf(fp, "\"%.*s\"", v->strval.len, v->strval.str);
+      if (obfuscate) {
+        const char *obfuscated = Obfuscate_Text(v->strval.str);
+        return sdscatfmt(s, "\"%s\"", obfuscated);
+      } else {
+        s = sdscat(s, "\"");
+        s = sdscatlen(s, v->strval.str, v->strval.len);
+        s = sdscat(s, "\"");
+        return s;
+      }
       break;
     case RSValue_RedisString:
     case RSValue_OwnRstring:
-      fprintf(fp, "\"%s\"", RedisModule_StringPtrLen(v->rstrval, NULL));
+      if (obfuscate) {
+        size_t len;
+        const char *obfuscated = Obfuscate_Text(RedisModule_StringPtrLen(v->rstrval, &len));
+        return sdscatfmt(s, "\"%s\"", obfuscated);
+      } else {
+        size_t len;
+        const char *str = RedisModule_StringPtrLen(v->rstrval, &len);
+        s = sdscat(s, "\"");
+        s = sdscatlen(s, str, len);
+        s = sdscat(s, "\"");
+        return s;
+      }
       break;
     case RSValue_Number: {
-      char tmp[128];
-      RSValue_NumToString(v->numval, tmp);
-      fprintf(fp, "%s", tmp);
+      if (obfuscate) {
+        return sdscat(s, Obfuscate_Number(v->numval));
+      } else {
+        char buf[128];
+        size_t len = RSValue_NumToString(v->numval, buf);
+        return sdscatlen(s, buf, len);
+      }
       break;
     }
     case RSValue_Null:
-      fprintf(fp, "NULL");
+      return sdscat(s, "NULL");
       break;
     case RSValue_Undef:
-      fprintf(fp, "<Undefined>");
+      return sdscat(s, "<Undefined>");
     case RSValue_Array:
-      fprintf(fp, "[");
+      s = sdscat(s, "[");
       for (uint32_t i = 0; i < v->arrval.len; i++) {
         if (i > 0)
-          fprintf(fp, ", ");
-        RSValue_Print(v->arrval.vals[i]);
+          s = sdscat(s, ", ");
+        s = RSValue_DumpSds(v->arrval.vals[i], s, obfuscate);
       }
-      fprintf(fp, "]");
+      return sdscat(s, "]");
       break;
     case RSValue_Map:
-      fprintf(fp, "{");
+      s = sdscat(s, "{");
       for (uint32_t i = 0; i < v->mapval.len; i++) {
         if (i > 0)
-          fprintf(fp, ", ");
-        RSValue_Print(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)]);
-        fprintf(fp, ": ");
-        RSValue_Print(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)]);
+          s = sdscat(s, ", ");
+        s = RSValue_DumpSds(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)], s, obfuscate);
+        s = sdscat(s, ": ");
+        s = RSValue_DumpSds(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)], s, obfuscate);
       }
-      fprintf(fp, "}");
+      s = sdscat(s, "}");
       break;
     case RSValue_Reference:
-      RSValue_Print(v->ref);
+      return RSValue_DumpSds(v->ref, s, obfuscate);
       break;
 
     case RSValue_Duo:
-      RSValue_Print(RS_DUOVAL_VAL(*v));
+      return RSValue_DumpSds(RS_DUOVAL_VAL(*v), s, obfuscate);
       break;
   }
 }
 
 #ifdef _DEBUG
 void print_rsvalue(RSValue *v) {
-  RSValue_Print(v);
-  fputs("\n", stderr);
+  sds s = RSValue_DumpSds(v, sdsempty(), true);
+  fprintf(stderr, "%s\n", s);
+  sdsfree(s);
 }
 #endif // _DEBUG
 

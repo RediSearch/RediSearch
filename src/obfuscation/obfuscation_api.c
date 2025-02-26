@@ -24,7 +24,7 @@ char *Obfuscate_Text(const char* text) {
   return "Text";
 }
 
-char *Obfuscate_Number(size_t number) {
+char *Obfuscate_Number(double number) {
   return "Number";
 }
 
