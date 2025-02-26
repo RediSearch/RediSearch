@@ -3288,6 +3288,8 @@ static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref) {
   return dScanner;
 }
 
+// This function is currently not called as the pointer is freed via the IndexSpec_Free function
+// It is kept here for completeness and in case it is needed in the future
 static void DebugIndexesScanner_Free(DebugIndexesScanner *dScanner)
 {
   IndexesScanner_Free((IndexesScanner*)dScanner);

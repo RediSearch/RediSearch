@@ -408,6 +408,10 @@ def testSetMaxScannedDocs(env: Env):
     # Giving invalid argument
     env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', 'notAnumber').error()\
     .contains("Invalid argument for 'SET_MAX_SCANNED_DOCS'")
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS').error()\
+    .contains('wrong number of arguments')
+
 
     # Set max scanned docs to 5
     max_scanned = 5
@@ -447,6 +451,9 @@ def testPauseOnScannedDocs(env: Env):
     # Giving invalid argument
     env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 'notAnumber').error()\
     .contains("Invalid argument for 'SET_PAUSE_ON_SCANNED_DOCS'")
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS').error()\
+    .contains('wrong number of arguments')
 
     # Set max scanned docs to 5
     pause_on_scanned = 5
@@ -468,6 +475,10 @@ def testPauseOnScannedDocs(env: Env):
     # Giving invalid argument
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'notTrue').error()\
     .contains("Invalid argument for 'SET_BG_INDEX_RESUME'")
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').error()\
+    .contains('wrong number of arguments')
+
     # Resume indexing
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
     waitForIndexFinishScan(env, 'idx2')
@@ -493,6 +504,9 @@ def testPauseBeforeScan(env: Env):
     # Giving invalid argument
     env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'notTrue').error()\
     .contains("Invalid argument for 'SET_PAUSE_BEFORE_SCAN'")
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN').error()\
+    .contains('wrong number of arguments')
 
     # Set pause before scan
     env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
@@ -540,3 +554,6 @@ def testDebugScannerStatus(env: Env):
     # Giving invalid argument to debug scanner control command
     env.expect(bgScanCommand(), 'NOT_A_COMMAND', 'notTrue').error()\
     .contains("Invalid command for 'BG_SCAN_CONTROLLER'")
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').error()\
+    .contains('wrong number of arguments')
