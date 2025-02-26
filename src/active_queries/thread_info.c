@@ -19,9 +19,17 @@ pthread_key_t threadInfoKey;
 
 bool initialized = false;
 
+// Called when the thread finishes, releases the info
+void CurrentThread_Done(void *current_info) {
+  ThreadInfo *info = current_info;
+  if (info) {
+      rm_free(info);
+  }
+}
+
 void ThreadLocalStorage_Init() {
   assert(!initialized);
-  pthread_key_create(&threadInfoKey, NULL);
+  pthread_key_create(&threadInfoKey, CurrentThread_Done);
 
   ActiveQueries *activeQueries = ActiveQueries_Init();
   pthread_key_create(&activeQueriesKey, NULL);
@@ -65,8 +73,7 @@ void CurrentThread_SetIndexSpec(StrongRef specRef) {
 void CurrentThread_ClearIndexSpec() {
   ThreadInfo *info = pthread_getspecific(threadInfoKey);
   assert(info);
-  StrongRef_Release(info->specRef);
-  // need to avoid leaking
-  rm_free(info);
-  pthread_setspecific(threadInfoKey, NULL);
+  if (info) {
+    StrongRef_Release(info->specRef);
+  }
 }
