@@ -1755,10 +1755,10 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(
-      ctx, "search-enable-unstable-features", 0,
+      ctx, "search-enable-unstable-features", 1,
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
-      (void *)&(RSGlobalConfig.invertedIndexRawDocidEncoding)
+      (void *)&(RSGlobalConfig.enableUnstableFeatures)
     )
   )
 
