@@ -20,7 +20,7 @@ Debian linux 12
 Rocky linux 8
 Rocky linux 9
 Amazon linux 2
-Amazon linux 23
+Amazon linux 2023
 Mariner 2.0
 MacOS
 Alpine linux 3
