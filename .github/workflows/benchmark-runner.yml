@@ -19,7 +19,7 @@ on:
         default: ""
       rejson_branch:
         type: string
-        default: master
+        default: '2.8'
         description: 'branch to use for rejson'
   workflow_call:
     inputs:

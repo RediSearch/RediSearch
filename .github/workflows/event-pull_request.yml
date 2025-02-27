@@ -36,7 +36,7 @@ jobs:
     if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' && needs.docs-only.outputs.only-docs-changed == 'false' && !github.event.pull_request.draft }}
     uses: ./.github/workflows/flow-coverage.yml
     with:
-      rejson-branch: master
+      rejson-branch: '2.8'
     secrets: inherit
 
   sanitize:
@@ -50,7 +50,7 @@ jobs:
       san: address
       env: ubuntu-latest
       container: ubuntu:jammy
-      rejson-branch: master
+      rejson-branch: '2.8'
 
   pr-validation:
     needs:
