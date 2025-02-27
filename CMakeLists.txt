@@ -28,8 +28,6 @@ set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
 message(STATUS "SAN: ${SAN}")
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
-set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -g")
 # check if env sanitizers are set, and set ld_flags accordingly
 if (SAN)
     if (SAN STREQUAL "address")
