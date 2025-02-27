@@ -19,12 +19,29 @@ extern RedisModuleCtx *RSDummyContext;
 // By using these functions through the strong and weak refcount API, we can guarantee that
 // the object will be freed before the weak refcount reaches 0.
 
+enum CountIncrement {
+   Weak = 1u,
+   Strong = (1u << 31)
+};
+
+typedef struct {
+  uint32_t weak;
+  uint32_t strong;
+} RefCount;
+
+typedef struct {
+  union {
+    RefCount count;
+    // need to store in a 64 bit integer to ensure proper atomicity
+    uint64_t raw;
+  } ref;
+  bool isInvalid;
+} ControlBlock;
+
 struct RefManager {
   void *obj;
   RefManager_Free freeCB;
-  uint64_t weak_refcount;
-  uint32_t strong_refcount;
-  bool isInvalid;
+  ControlBlock block;
 };
 
 // For tests, LLAPI and strong/weak references only. DO NOT USE DIRECTLY
@@ -36,22 +53,32 @@ static RefManager *RefManager_New(void *obj, RefManager_Free freeCB) {
   RefManager *rm = rm_new(*rm);
   rm->obj = obj;
   rm->freeCB = freeCB;
-  rm->weak_refcount = 1;
-  rm->strong_refcount = 1;
-  rm->isInvalid = false;
+  rm->block.ref.count.weak = 1;
+  rm->block.ref.count.strong = 1;
+  rm->block.isInvalid = false;
   RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "RefManager created: %p", rm);
   return rm;
 }
 
+// Strong reference also takes a weak reference to the RefManager
+// so it won't be freed before the object it manages.
 static void RefManager_ReturnStrongReference(RefManager *rm) {
-  if (__atomic_sub_fetch(&rm->strong_refcount, 1, __ATOMIC_SEQ_CST) == 0) {
+  ControlBlock block = {0};
+  block.ref.raw = __atomic_sub_fetch(&rm->block.ref.raw, Weak | Strong, __ATOMIC_SEQ_CST);
+  if (block.ref.count.strong == 0) {
     rm->freeCB(rm->obj);
     RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "RefManager's object freed: %p", rm);
+  }
+  if (block.ref.count.weak == 0) {
+    rm_free(rm);
+    RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "RefManager freed: %p", rm);
   }
 }
 
 static void RefManager_ReturnWeakReference(RefManager *rm) {
-  if (__atomic_sub_fetch(&rm->weak_refcount, 1, __ATOMIC_SEQ_CST) == 0) {
+  ControlBlock block = {0};
+  block.ref.raw = __atomic_sub_fetch(&rm->block.ref.raw, Weak, __ATOMIC_SEQ_CST);
+  if (block.ref.count.weak == 0) {
     rm_free(rm);
     RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "RefManager freed: %p", rm);
   }
@@ -59,31 +86,36 @@ static void RefManager_ReturnWeakReference(RefManager *rm) {
 
 static void RefManager_ReturnReferences(RefManager *rm) {
   RefManager_ReturnStrongReference(rm);
-  RefManager_ReturnWeakReference(rm);
 }
 
 static void RefManager_InvalidateObject(RefManager *rm) {
-  __atomic_store_n(&rm->isInvalid, 1, __ATOMIC_RELAXED);
+  __atomic_store_n(&rm->block.isInvalid, 1, __ATOMIC_RELAXED);
 }
 
 static void RefManager_GetWeakReference(RefManager *rm) {
-  __atomic_add_fetch(&rm->weak_refcount, 1, __ATOMIC_RELAXED);
+  __atomic_add_fetch(&rm->block.ref.raw, Weak, __ATOMIC_RELAXED);
 }
 
 // Returns false if the object is being freed or marked as invalid,
 // otherwise increases the strong refcount and returns true.
 static bool RefManager_TryGetStrongReference(RefManager *rm) {
-  // Attempt to increase the strong refcount by 1 only if it's not 0
-  uint32_t cur_ref = __atomic_load_n(&rm->strong_refcount, __ATOMIC_RELAXED);
+  // Attempt to increase the strong refcount and weak refcount by 1 only if it's not 0
+  uint64_t expected = __atomic_load_n(&rm->block.ref.raw, __ATOMIC_RELAXED);
+  uint64_t newValue = 0;
   do {
-    if (cur_ref == 0) {
+    ControlBlock newBlock = {0};
+    newBlock.ref.raw = expected;
+    if (newBlock.ref.count.strong == 0) {
       // Refcount was 0, so the object is being freed
       return false;
     }
-  } while (!__atomic_compare_exchange_n(&rm->strong_refcount, &cur_ref, cur_ref + 1, false, 0, 0));
+    newBlock.ref.count.strong++;
+    newBlock.ref.count.weak++;
+    newValue = newBlock.ref.raw;
+  } while (!__atomic_compare_exchange_n(&rm->block.ref.raw, &expected, newValue, false, 0, 0));
 
   // We have a valid strong reference. Check if the object is invalid before returning it
-  if (__atomic_load_n(&rm->isInvalid, __ATOMIC_RELAXED)) {
+  if (__atomic_load_n(&rm->block.isInvalid, __ATOMIC_RELAXED)) {
     RefManager_ReturnStrongReference(rm);
     return false;
   } else {
@@ -96,9 +128,6 @@ static bool RefManager_TryGetStrongReference(RefManager *rm) {
 static StrongRef _Ref_GetStrong(RefManager *rm) {
   StrongRef s_ref = {0};
   if (RefManager_TryGetStrongReference(rm)) {
-    // a strong reference also holds a weak reference (reference to the RefManager),
-    // so it won't be freed before the object it manages.
-    RefManager_GetWeakReference(rm);
     s_ref.rm = rm;
   }
   return s_ref;
