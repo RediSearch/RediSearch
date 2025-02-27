@@ -13,7 +13,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 
 		Argument variables:
 		BINROOT=dir        Build into dir
-		BRANCH=name        Use given branch (default: master)
+		BRANCH=name        Use given branch (default: 8.0)
 		SAN=mode           Clang Sanitizer mode (address|memory)
 		MODULE_FILE=file   Write module path into `file`
 		FORCE=1            Force rebuild
@@ -31,7 +31,7 @@ if [[ -n $SAN && $SAN != address && $SAN != memory ]]; then
 fi
 
 
-BRANCH=${BRANCH:-master}
+BRANCH=${BRANCH:-8.0}
 
 TARGET_DIR=$BINROOT/RedisJSON/${BRANCH}
 echo Building into $TARGET_DIR ...
