@@ -45,10 +45,10 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *
 }
 
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize) {
-  RedisModule_Assert(memsize != NULL);
+  RS_ASSERT(memsize != NULL);
   int useFieldMask = flags & Index_StoreFieldFlags;
   int useNumEntries = flags & Index_StoreNumeric;
-  RedisModule_Assert(!(useFieldMask && useNumEntries));
+  RS_ASSERT(!(useFieldMask && useNumEntries));
   size_t size = sizeof_InvertedIndex(flags);
   InvertedIndex *idx = rm_malloc(size);
   *memsize = size;
