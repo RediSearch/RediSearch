@@ -41,11 +41,10 @@ help() {
 
 		UNSTABLE=1            Do not skip unstable tests (default: 0)
 		ONLY_STABLE=1         Skip unstable tests
-
-		REJSON=0|1|get|view     Also load RedisJSON module (get: force download from S3; view: from local view)
-		REJSON_BRANCH=branch    Use a snapshot of given branch name
-		REJSON_PATH=path|view   RedisJSON module path
-		REJSON_MODARGS=args     RedisJSON module arguments
+		REJSON=1|0            Also load RedisJSON module (default: 1)
+		REJSON_BRANCH=branch  Use RedisJSON module from branch (default: 'master')
+		REJSON_PATH=path      Use RedisJSON module at `path` (default: '' - build from source)
+		REJSON_ARGS=args      RedisJSON module arguments
 
 		REDIS_SERVER=path     Location of redis-server
 		REDIS_PORT=n          Redis server port
@@ -187,32 +186,6 @@ setup_clang_sanitizer() {
 
 	# --no-output-catch --exit-on-failure --check-exitcode
 	RLTEST_SAN_ARGS="--sanitizer $SAN"
-
-	if [[ -n $REJSON && $REJSON != 0 ]]; then
-		if [[ -z $REJSON_PATH ]]; then
-			if [[ -z $BINROOT ]]; then
-				eprint "BINROOT is not set - cannot build RedisJSON"
-				exit 1
-			fi
-			if [[ ! -f $BINROOT/RedisJSON/rejson.so ]]; then
-				echo Building RedisJSON ...
-				# BINROOT=$BINROOT/RedisJSON $ROOT/sbin/build-redisjson
-				export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
-				$ROOT/sbin/build-redisjson
-				REJSON_MODULE=$(cat $MODULE_FILE)
-				RLTEST_REJSON_ARGS="--module $REJSON_MODULE --module-args '$REJSON_MODARGS'"
-				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_MODARGS"
-			fi
-			export REJSON_PATH=$BINROOT/RedisJSON/rejson.so
-		elif [[ ! -f $REJSON_PATH ]]; then
-			eprint "REJSON_PATH is set to '$REJSON_PATH' but does not exist"
-			exit 1
-		else
-			RLTEST_REJSON_ARGS="--module $REJSON_PATH --module-args '$REJSON_MODARGS'"
-			XREDIS_REJSON_ARGS="loadmodule $REJSON_PATH $REJSON_MODARGS"
-		fi
-	fi
-
 	if [[ $SAN == addr || $SAN == address ]]; then
 		# RLTest places log file details in ASAN_OPTIONS
 		export ASAN_OPTIONS="detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=1:log_thread=1"
@@ -292,31 +265,6 @@ setup_coverage() {
 
 	export CODE_COVERAGE=1
 	export RS_GLOBAL_DTORS=1
-}
-
-#----------------------------------------------------------------------------------------------
-
-setup_redisjson() {
-	REJSON_BRANCH=${REJSON_BRANCH:-master}
-
-	if [[ -n $REJSON && $REJSON != 0 && -z $SAN ]]; then
-		if [[ -n $REJSON_PATH ]]; then
-			REJSON_MODULE="$REJSON_PATH"
-			RLTEST_REJSON_ARGS="--module $REJSON_PATH"
-			XREDIS_REJSON_ARGS="loadmodule $REJSON_PATH"
-		else
-			FORCE_GET=
-			[[ $REJSON == get ]] && FORCE_GET=1
-			export MODULE_FILE=$(mktemp /tmp/rejson.XXXX)
-			OSS=1 BRANCH=$REJSON_BRANCH FORCE=$FORCE_GET $ROOT/sbin/get-redisjson
-			REJSON_MODULE=$(cat $MODULE_FILE)
-			RLTEST_REJSON_ARGS="--module $REJSON_MODULE"
-			XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE"
-		fi
-
-		RLTEST_REJSON_ARGS+=" --module-args '$REJSON_MODARGS'"
-		XREDIS_REJSON_ARGS+=" $REJSON_MODARGS"
-	fi
 }
 
 #----------------------------------------------------------------------------------------------
@@ -411,7 +359,7 @@ run_tests() {
 	else # existing env
 		if [[ $EXT == run ]]; then
 			if [[ $REJSON_MODULE ]]; then
-				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_MODARGS"
+				XREDIS_REJSON_ARGS="loadmodule $REJSON_MODULE $REJSON_ARGS"
 			fi
 
 			xredis_conf=$(mktemp "${TMPDIR:-/tmp}/xredis_conf.XXXXXXX")
@@ -574,7 +522,6 @@ if [[ -n $PARALLEL && $PARALLEL != 0 ]]; then
 	fi
 	if (( $parallel==0 )) ; then parallel=1 ; fi
 	RLTEST_PARALLEL_ARG="--parallelism $parallel"
-	echo "Running tests in parallel using $parallel workers"
 fi
 #------------------------------------------------------------------------------- Test selection
 
@@ -613,14 +560,14 @@ if [[ $COV == 1 ]]; then
 	setup_coverage
 fi
 
-if [[ $REJSON == view ]]; then
-	REJSON=1
-	REJSON_PATH=view
+# Prepare RedisJSON module to be loaded into testing environment if required.
+if [[ $REJSON != 0 ]]; then
+  ROOT=$ROOT REJSON_BRANCH=$REJSON_BRANCH source $ROOT/tests/deps/setup_rejson.sh
+  echo "Using RedisJSON module at $JSON_BIN_PATH, with the following args: $REJSON_ARGS"
+  RLTEST_REJSON_ARGS="--module ${JSON_BIN_PATH} --module-args $REJSON_ARGS"
+else
+  echo "Skipping tests with RedisJSON module"
 fi
-if [[ $REJSON_PATH == view ]]; then
-	REJSON_PATH=$(cd $ROOT/../RedisJSON; pwd)/bin/${OS}-${ARCH}-release/rejson.so
-fi
-setup_redisjson
 
 RLTEST_ARGS+=" $@"
 
@@ -669,6 +616,7 @@ if [[ $GC == 0 ]]; then
 	MODARGS="${MODARGS}; NOGC;"
 fi
 
+echo "Running tests in parallel using $parallel Python processes"
 if [[ -z $COORD ]]; then
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true

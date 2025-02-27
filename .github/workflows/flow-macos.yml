@@ -19,6 +19,14 @@ on:
       redis-ref:
         description: 'Redis Reference to use (tag, branch, or commit). Defaults to "unstable"'
         type: string
+      rejson:
+        type: boolean
+        default: true
+        description: 'Enable tests with RedisJSON'
+      rejson-branch:
+        type: string
+        default: '2.8'
+        description: 'Branch to use when building RedisJSON for tests (default: master)'
   workflow_call:
     inputs:
       test-config:
@@ -32,6 +40,14 @@ on:
         default: true
       redis-ref:
         type: string
+      rejson:
+        type: boolean
+        default: true
+        description: 'Enable tests with RedisJSON'
+      rejson-branch:
+        type: string
+        default: '2.8'
+        description: 'Branch to use when building RedisJSON for tests'
 
 jobs:
   build-macos:
@@ -46,4 +62,6 @@ jobs:
       coordinator: ${{ inputs.coordinator }}
       standalone:  ${{ inputs.standalone }}
       get-redis:   ${{ inputs.redis-ref }}
+      rejson: ${{ inputs.rejson }}
+      rejson-branch: ${{ inputs.rejson-branch }}
     secrets: inherit

@@ -4,11 +4,21 @@ name: Coverage analysis
 
 on:
   workflow_call:
+    inputs:
+      rejson:
+        type: boolean
+        default: true
+        description: 'Enable tests with RedisJSON'
+      rejson-branch:
+        type: string
+        default: '2.8'
+        description: 'Branch to use when building RedisJSON for tests'
 
 env:
   REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
   BOOST_VERSION: ${{ vars.BOOST_VERSION }}
   VERBOSE_UTESTS: 1
+  REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
 
 jobs:
   coverage:
@@ -25,7 +35,7 @@ jobs:
       working-directory: .install
       run: ./install_script.sh sudo
     - name: Setup common
-      run: .install/common_installations.sh sudo
+      run: .install/test_deps/common_installations.sh sudo
 
     - name: Install Boost
       working-directory: .install
@@ -36,7 +46,7 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: ./deps/readies/bin/getredis --with-github-token
     - name: Build and test
-      run: make coverage QUICK=1 SHOW=1
+      run: make coverage QUICK=1 SHOW=1 REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
     - name: Upload coverage
       uses: codecov/codecov-action@v5
       with:
