@@ -39,7 +39,7 @@ jobs:
 
   coverage:
     needs: docs-only
-    if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' && needs.docs-only.outputs.only-docs-changed == 'false' }}
+    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' && needs.docs-only.outputs.only-docs-changed == 'false' }}
     uses: ./.github/workflows/flow-coverage.yml
     secrets: inherit
     with:
@@ -65,7 +65,7 @@ jobs:
       - test-macos
       - coverage
       - sanitize
-    runs-on: ${{ vars.RUNS_ON }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ !cancelled() }}
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
