@@ -88,7 +88,7 @@ def testGetConfigOptions(env):
     check_config('MINSTEMLEN')
     check_config('OSS_GLOBAL_PASSWORD')
     check_config('INDEX_CURSOR_LIMIT')
-
+    check_config('ENABLE_UNSTABLE_FEATURES')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
@@ -114,6 +114,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
 
 
 @skip(cluster=True)
@@ -171,6 +172,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
+    env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -220,6 +222,8 @@ def testInitConfig():
     _test_config_str('_FREE_RESOURCE_ON_THREAD', 'true', 'true')
     _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true', 'true')
     _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
+    _test_config_str('ENABLE_UNSTABLE_FEATURES', 'true', 'true')
+    _test_config_str('ENABLE_UNSTABLE_FEATURES', 'false', 'false')
 
 @skip(cluster=True)
 def test_command_name(env: Env):
@@ -1251,6 +1255,7 @@ booleanConfigs = [
     # ('search-partial-indexed-docs', 'PARTIAL_INDEXED_DOCS', 'no', True, False),
     ('search-_prioritize-intersect-union-children', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no', False, False),
     ('search-raw-docid-encoding', 'RAW_DOCID_ENCODING', 'no', True, False),
+    ('search-enable-unstable-features', 'ENABLE_UNSTABLE_FEATURES', 'no', False, False),
 ]
 
 @skip(redis_less_than='7.9.227')
