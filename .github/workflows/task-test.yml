@@ -28,8 +28,13 @@ on:
         type: string
         description: 'Script to run before any other steps (extremely basic dependency needs only)'
       rejson:
-        type: number
-        default: 1
+        type: boolean
+        default: true
+        description: 'Enable tests with RedisJSON'
+      rejson-branch:
+        type: string
+        default: '2.8'
+        description: 'Branch to use when building RedisJSON for tests'
       test-timeout:
         type: number
         default: 50
@@ -37,6 +42,7 @@ on:
 env:
   REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
   LLVM_VERSION: 17
+  REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
 
 jobs:
@@ -58,7 +64,7 @@ jobs:
         run: |
           [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
       - name: Check if node20 is Supported
-        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for theses platforms
+        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
           for platform in ubuntu:xenial ubuntu:bionic centos:7 amazonlinux:2; do
             if [[ "${{ inputs.container }}" == "$platform" ]]; then
@@ -156,9 +162,9 @@ jobs:
       - name: Full checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
         run: echo "Done already earlier."
-      - name: Setup common
+      - name: Setup tests dependencies
         run: |
-          .install/common_installations.sh ${{ steps.mode.outputs.mode }}
+          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
           .install/test_deps/install_rust.sh
       - name: Get Redis (node20)
         if: ${{ steps.node20.outputs.supported == 'true' }}
@@ -217,7 +223,7 @@ jobs:
         id: standalone_tests
         if: ${{ inputs.standalone }}
         continue-on-error: true
-        run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }}
+        run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }} REJSON_BRANCH=${{ inputs.rejson-branch }}
       - name: Unit tests (coordinator)
         id: coordinator_unit_tests
         if: ${{ inputs.coordinator }}
@@ -228,7 +234,7 @@ jobs:
         id: coordinator_tests
         if: ${{ inputs.coordinator }}
         continue-on-error: true
-        run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }}
+        run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }} REJSON_BRANCH=${{ inputs.rejson-branch }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)

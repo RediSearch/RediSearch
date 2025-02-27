@@ -11,6 +11,12 @@ on:
       module_path:
         type: string
         default: bin/linux-x64-release/search/redisearch.so
+      rejson_branch:
+        type: string
+        default: '2.'
+      rejson_module_path:
+        type: string
+        default: bin/linux-x64-release/RedisJSON/2.8/rejson.so
       profile_env:
         type: number # for default of 0
       cluster_env:
@@ -42,10 +48,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Setup
-        run: ./sbin/setup
-      - name: Git Config
-        run: git config --global --add safe.directory '*'
+      - name: Setup specific  # assuming node20 supported
+        working-directory: .install
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+
+      - name: Setup tests dependencies
+        run: |
+          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
+          .install/test_deps/install_rust.sh
+           echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
       - name: Get Redis
         uses: actions/checkout@v4
         with:
@@ -67,7 +79,7 @@ jobs:
           python3 -m pip install -r tests/benchmarks/requirements.txt
           VERSION=0.14.8 ./deps/readies/bin/getterraform
       - name: Prepare ReJSON Module
-        run: MODULE_FILE=bin/REJSON_PATH ./sbin/get-redisjson
+        run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         timeout-minutes: 240 # timeout for the step
@@ -88,12 +100,13 @@ jobs:
           BENCHMARK_RUNNER_GROUP_M_ID: ${{ inputs.benchmark_runner_group_member_id }}
           BENCHMARK_RUNNER_GROUP_TOTAL: ${{ inputs.benchmark_runner_group_total }}
         run: redisbench-admin run-remote
-              --module_path $(cat ../../bin/REJSON_PATH)
               --module_path ../../${{ inputs.module_path }}
+              --required-module search
               --github_actor ${{ github.triggering_actor }}
               --github_repo ${{ github.event.repository.name }}
               --github_org ${{ github.repository_owner }}
-              --required-module search
+              --module_path ../../${{ inputs.rejson_module_path }}
+              --required-module ReJSON              
               --github_sha ${{ github.sha }}
               --github_branch ${{ github.head_ref || github.ref_name }}
               --upload_results_s3
