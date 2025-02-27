@@ -1024,8 +1024,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
                                                .metric = met,
                                                .initialCapacity = n,
                                                .M = 16,
-                                               .efConstruction = 100,
-                                               .epsilon = 0.1}},
+                                               .efConstruction = 100}},
                       .logCtx = &logCtx};
   VecSimIndex *index = VecSimIndex_New(&params);
   for (size_t i = 1; i <= n; i++) {
@@ -1042,7 +1041,6 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
   VecSimQueryParams queryParams;
   queryParams.hnswRuntimeParams.efRuntime = n;
-  queryParams.hnswRuntimeParams.epsilon = 0.1;
   VecSimQueryReply *results =
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
 
