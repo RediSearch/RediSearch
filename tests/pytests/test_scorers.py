@@ -405,8 +405,8 @@ def testNormalizedBM25ScorerExplanation():
         ['Final Normalized BM25 : tanh(stretch factor 1/4 * Final BM25 0.29)',
          [['Final BM25 : words BM25 0.29 * document score 1.00',
            [['(Weight 1.00 * children BM25 0.29)',
-             ['hello: (0.15 = IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 2 / Average Doc Len 3.00)))',
-             'world: (0.15 = IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 2 / Average Doc Len 3.00)))'
+             ['hello: (0.15 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 2 / Average Doc Len 3.00)))',
+             'world: (0.15 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 2 / Average Doc Len 3.00)))'
              ]
            ]]
         ]]]
@@ -417,8 +417,8 @@ def testNormalizedBM25ScorerExplanation():
         ['Final Normalized BM25 : tanh(stretch factor 1/4 * Final BM25 0.27)',
          [['Final BM25 : words BM25 0.27 * document score 1.00',
            [['(Weight 1.00 * children BM25 0.27)',
-             ['hello: (0.13 = IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 3.00)))',
-              'world: (0.13 = IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 3.00)))'
+             ['hello: (0.13 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 3.00)))',
+              'world: (0.13 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 3.00)))'
               ]
             ]]
         ]]]
@@ -429,8 +429,8 @@ def testNormalizedBM25ScorerExplanation():
         ['Final Normalized BM25 : tanh(stretch factor 1/4 * Final BM25 0.24)',
          [['Final BM25 : words BM25 0.24 * document score 1.00',
            [['(Weight 1.00 * children BM25 0.24)',
-             ['hello: (0.12 = IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 4 / Average Doc Len 3.00)))',
-              'world: (0.12 = IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 4 / Average Doc Len 3.00)))'
+             ['hello: (0.12 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 4 / Average Doc Len 3.00)))',
+              'world: (0.12 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 4 / Average Doc Len 3.00)))'
               ]
             ]]
         ]]]
@@ -444,8 +444,8 @@ def testNormalizedBM25ScorerExplanation():
         ['Final Normalized BM25 : tanh(stretch factor 1/4 * Final BM25 0.07)',
          [['Final BM25 : words BM25 0.07 * document score 1.00',
            [['(Weight 0.25 * children BM25 0.29)',
-             ['hello: (0.15 = IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 2 / Average Doc Len 3.00)))',
-             'world: (0.15 = IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 2 / Average Doc Len 3.00)))'
+             ['hello: (0.15 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 2 / Average Doc Len 3.00)))',
+             'world: (0.15 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 2 / Average Doc Len 3.00)))'
              ]
            ]]
         ]]]
@@ -456,8 +456,8 @@ def testNormalizedBM25ScorerExplanation():
         ['Final Normalized BM25 : tanh(stretch factor 1/4 * Final BM25 0.07)',
          [['Final BM25 : words BM25 0.07 * document score 1.00',
            [['(Weight 0.25 * children BM25 0.27)',
-             ['hello: (0.13 = IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 3.00)))',
-              'world: (0.13 = IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 3.00)))'
+             ['hello: (0.13 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 3.00)))',
+              'world: (0.13 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 3.00)))'
               ]
             ]]
         ]]]
@@ -468,8 +468,8 @@ def testNormalizedBM25ScorerExplanation():
         ['Final Normalized BM25 : tanh(stretch factor 1/4 * Final BM25 0.06)',
          [['Final BM25 : words BM25 0.06 * document score 1.00',
            [['(Weight 0.25 * children BM25 0.24)',
-             ['hello: (0.12 = IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 4 / Average Doc Len 3.00)))',
-              'world: (0.12 = IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 4 / Average Doc Len 3.00)))'
+             ['hello: (0.12 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 4 / Average Doc Len 3.00)))',
+              'world: (0.12 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 4 / Average Doc Len 3.00)))'
               ]
             ]]
         ]]]
