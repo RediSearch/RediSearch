@@ -1038,7 +1038,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
 
   float query[] = {(float)n, (float)n, (float)n, (float)n};
   RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
-  VecSimQueryParams queryParams;
+  VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = n;
   VecSimQueryReply *results =
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
