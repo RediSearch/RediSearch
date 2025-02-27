@@ -55,6 +55,6 @@ if [[ -f /etc/os-release ]]; then
 fi
 
 echo "Building RedisJSON module for branch $JSON_BRANCH..."
-run_command make SAN=$SAN BINROOT=${JSON_BIN_DIR}
+run_command make SAN=$SAN BINROOT=${JSON_BIN_DIR} CC_STATIC_LIBSTDCXX=1
 echo "RedisJSON module built and is available at ${JSON_BIN_PATH}"
 cd $CURR_DIR
