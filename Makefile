@@ -159,6 +159,9 @@ LIBUV_DIR=$(ROOT)/deps/libuv
 export LIBUV_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/libuv
 include build/libuv/Makefile.defs
 
+REDISEARCH_RS_DIR=$(ROOT)/src/redisearch_rs
+export REDISEARCH_RS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT)/redisearch_rs/
+
 HIREDIS_DIR=$(ROOT)/deps/hiredis
 HIREDIS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/hiredis
 include build/hiredis/Makefile.defs
@@ -227,6 +230,10 @@ ifeq ($(wildcard $(LIBUV)),)
 MISSING_DEPS += $(LIBUV)
 endif
 
+ifeq ($(wildcard $(REDISEARCH_RS)),)
+MISSING_DEPS += $(REDISEARCH_RS)
+endif
+
 ifeq ($(wildcard $(HIREDIS)),)
 #@@ MISSING_DEPS += $(HIREDIS)
 endif
@@ -235,7 +242,7 @@ ifneq ($(MISSING_DEPS),)
 DEPS=1
 endif
 
-DEPENDENCIES=libuv #@@  s2geometry hiredis
+DEPENDENCIES=libuv redisearch_rs #@@ s2geometry hiredis
 
 ifneq ($(filter all deps $(DEPENDENCIES) pack,$(MAKECMDGOALS)),)
 DEPS=1
@@ -253,8 +260,10 @@ include $(MK)/rules
 clean:
 ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo clean
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo clean
 endif
 
 #----------------------------------------------------------------------------------------------
@@ -287,6 +296,26 @@ libuv: $(LIBUV)
 $(LIBUV):
 	@echo Building libuv...
 	$(SHOW)$(MAKE) --no-print-directory -C build/libuv DEBUG=''
+
+ifeq ($(DEBUG),1)
+RUST_BUILD_MODE=
+else
+RUST_BUILD_MODE=--release
+endif
+ifeq ($(DEBUG),1)
+RUST_ARTIFACT_SUBDIR=debug
+else
+RUST_ARTIFACT_SUBDIR=release
+endif
+
+redisearch_rs:
+	@echo Building redisearch_rs..
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo build $(RUST_BUILD_MODE)
+	$(SHOW)mkdir -p $(REDISEARCH_RS_BINDIR)
+	$(SHOW)cp -r $(REDISEARCH_RS_DIR)/target/$(RUST_ARTIFACT_SUBDIR)/*.a $(REDISEARCH_RS_BINDIR)
+
+# Ensure that redisearch_rs is built before attempting to build the main module
+$(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile redisearch_rs
 
 hiredis: $(HIREDIS)
 

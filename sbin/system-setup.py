@@ -18,6 +18,7 @@ class RediSearchSetup(paella.Setup):
 
     def common_first(self):
         self.install_downloaders()
+        self.run(f"{READIES}/bin/getrust")
         self.setup_dotlocal()
 
         self.run(f"{READIES}/bin/enable-utf8", sudo=self.os != 'macos')
