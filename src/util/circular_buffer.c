@@ -224,8 +224,8 @@ size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance){
   read_idx = (read_idx >= 0) ? read_idx : (cb->item_cap + read_idx);
 
   size_t first_chunk = (read_idx + item_count <= cb->item_cap) ? item_count : (cb->item_cap - read_idx);
-  first_chunk *= cb->item_size;
   size_t second_chunk = item_count - first_chunk;
+  first_chunk *= cb->item_size;
   second_chunk *= cb->item_size;
 
   // copy item from buffer to output
