@@ -207,6 +207,46 @@ void *CircularBuffer_Read(CircularBuffer cb, void *item) {
   return read;
 }
 
+size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance){
+  RedisModule_Assert(cb != NULL);
+
+  // make sure there's data to return
+  if (unlikely(CircularBuffer_Empty(cb))) {
+    return 0;
+  }
+
+  //calculate the offset_idx of the read pointer
+  size_t item_count = cb->item_count;
+  uint64_t write = cb->write;
+  uint idx = write / cb->item_size;
+  int read_idx = idx - item_count;
+
+  read_idx = (read_idx >= 0) ? read_idx : (cb->item_cap + read_idx);
+
+  size_t first_chunk = (read_idx + item_count <= cb->item_cap) ? item_count : (cb->item_cap - read_idx);
+  first_chunk *= cb->item_size;
+  size_t second_chunk = item_count - first_chunk;
+  second_chunk *= cb->item_size;
+
+  // copy item from buffer to output
+  void* read = cb->data + read_idx * cb->item_size;
+  if (dst != NULL) {
+    memcpy(dst, read, first_chunk);
+    if (second_chunk > 0) {
+      memcpy(dst + first_chunk, cb->data, second_chunk);
+    }
+  }
+
+  if (advance) {
+    // advance read position
+    // circle back if read reached the end of the buffer
+    cb->item_count = 0;
+    cb->read = cb->data + cb->write * cb->item_size;
+  }
+  // update buffer item count
+  return item_count;
+}
+
 // Sets the read pointer to the beginning of the buffer. Not thread-safe.
 // assuming the buffer looks like this:
 //

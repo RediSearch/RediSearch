@@ -51,6 +51,11 @@ void *CircularBuffer_Reserve(CircularBuffer cb, bool *wasFull);
 // This function pops the oldest item from the buffer.
 void *CircularBuffer_Read(CircularBuffer cb, void *item);
 
+// Read All items from buffer to dst.
+// This function is not thread-safe.
+// This function copies all items from the buffer to dst.
+size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance);
+
 // Sets the read pointer to the beginning of the buffer. Not thread-safe.
 void CircularBuffer_ResetReader(CircularBuffer cb);
 

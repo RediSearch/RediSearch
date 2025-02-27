@@ -285,3 +285,69 @@ TEST_F(CircularBufferTest, test_CircularBuffer_multiReserve) {
   ASSERT_EQ(sum, SUM_ITEMS);
   CircularBuffer_Free(cb);
 }
+
+
+TEST_F(CircularBufferTest, test_CircularBuffer_ReadAll) {
+  CircularBuffer cb = CircularBuffer_New(sizeof(int), 6);
+  int dst[6];
+
+  // [ 0, 1, 2, 3, ., .]
+  //  R^          W^
+  for (int i = 0; i < 4; i++) {
+    int *item = (int *)CircularBuffer_Reserve(cb, NULL);
+    *item = i;
+  }
+  ASSERT_EQ(CircularBuffer_ItemCount(cb), 4);
+
+  std::fill(std::begin(dst), std::end(dst), 0);
+
+  CircularBuffer_ReadAll(cb, dst, false);
+  for (int i = 0; i < 4; i++) {
+    ASSERT_EQ(dst[i], i);
+  }
+  for (int i = 4; i < 6; i++) {
+    ASSERT_EQ(dst[i], 0);
+  }
+  // [ 0, 1, 2, 3, ., .]
+  //  R^          W^
+  // advance = false
+
+  // set dst to 0
+  std::fill(std::begin(dst), std::end(dst), 0);
+
+  CircularBuffer_ReadAll(cb, dst, true);
+  ASSERT_EQ(dst[0], 0);
+  ASSERT_EQ(dst[1], 1);
+  ASSERT_EQ(dst[2], 2);
+  ASSERT_EQ(dst[3], 3);
+  ASSERT_EQ(dst[4], 0);
+  ASSERT_EQ(dst[5], 0);
+
+  // [ 0, 1, 2, 3, ., .]
+  //            R,W^
+  // advance = true
+
+  ASSERT_EQ(CircularBuffer_Empty(cb), true);
+
+  for (int i = 0; i < 9; i++) {
+    int *item = (int *)CircularBuffer_Reserve(cb, NULL);
+    *item = i;
+  }
+  // [ 8, 3, 4, 5, 6, 7]
+  //     W^       R^
+  // advance = true
+
+// set dst to 0
+  for (int i = 0; i < 6; i++) {
+    dst[i] = 0;
+  }
+
+  CircularBuffer_ReadAll(cb, dst, false);
+  ASSERT_EQ(dst[0], 3);
+  ASSERT_EQ(dst[1], 4);
+  ASSERT_EQ(dst[2], 5);
+  ASSERT_EQ(dst[3], 6);
+  ASSERT_EQ(dst[4], 7);
+  ASSERT_EQ(dst[5], 8);
+  CircularBuffer_Free(cb);
+}
