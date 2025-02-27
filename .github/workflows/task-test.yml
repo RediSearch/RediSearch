@@ -40,8 +40,8 @@ on:
         default: 50
 
 env:
-  BOOST_VERSION: ${{ vars.BOOST_VERSION }}
-  LLVM_VERSION: ${{vars.LLVM_VERSION}}
+  BOOST_VERSION: ${{ vars.BOOST_VERSION || '1.83.0' }}
+  LLVM_VERSION: ${{ vars.LLVM_VERSION || 18 }}
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
 
