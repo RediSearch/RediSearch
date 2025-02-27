@@ -78,6 +78,7 @@ void CurrentThread_SetIndexSpec(StrongRef specRef) {
   ThreadInfo *info = CurrentThread_GetInfo();
   if (info) {
     info->specRef = StrongRef_Clone(specRef);
+    assert(info->specRef.rm != NULL);
   }
 }
 

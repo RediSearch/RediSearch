@@ -20,8 +20,8 @@ extern RedisModuleCtx *RSDummyContext;
 // the object will be freed before the weak refcount reaches 0.
 
 enum CountIncrement {
-   Weak = 1u,
-   Strong = (1u << 31)
+   Weak = 1ull,
+   Strong = (1ull << 32)
 };
 
 typedef struct {
@@ -64,7 +64,8 @@ static RefManager *RefManager_New(void *obj, RefManager_Free freeCB) {
 // so it won't be freed before the object it manages.
 static void RefManager_ReturnStrongReference(RefManager *rm) {
   ControlBlock block = {0};
-  block.ref.raw = __atomic_sub_fetch(&rm->block.ref.raw, Weak | Strong, __ATOMIC_SEQ_CST);
+  const uint64_t decrement = (uint64_t)Strong + Weak;
+  block.ref.raw = __atomic_sub_fetch(&rm->block.ref.raw, decrement, __ATOMIC_SEQ_CST);
   if (block.ref.count.strong == 0) {
     rm->freeCB(rm->obj);
     RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_DEBUG, "RefManager's object freed: %p", rm);
