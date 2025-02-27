@@ -45,6 +45,8 @@ make run           # run redis with RediSearch
   COORD=1|oss        # run cluster
   WITH_RLTEST=1      # run with RLTest wrapper
   GDB=1              # invoke using gdb
+make compile_commands # generate compile_commands.json for clangd
+
 
 make test          # run all tests
   REDIS_STANDALONE=1|0 # test with standalone/cluster Redis
@@ -355,6 +357,13 @@ endif
 endif
 
 .PHONY: run
+
+#----------------------------------------------------------------------------------------------
+compile_commands:
+		$(SHOW)$(MAKE) build CMAKE_ARGS="-DCMAKE_EXPORT_COMPILE_COMMANDS=ON"
+		$(SHOW)ln -sf $(BINDIR)/compile_commands.json .
+
+.PHONY: compile_commands
 
 #----------------------------------------------------------------------------------------------
 
