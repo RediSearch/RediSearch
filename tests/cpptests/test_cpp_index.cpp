@@ -1024,7 +1024,8 @@ TEST_F(IndexTest, testMetric_VectorRange) {
                                                .metric = met,
                                                .initialCapacity = n,
                                                .M = 16,
-                                               .efConstruction = 100}},
+                                               .efConstruction = 100,
+                                               .epsilon = 0.1}},
                       .logCtx = &logCtx};
   VecSimIndex *index = VecSimIndex_New(&params);
   for (size_t i = 1; i <= n; i++) {
@@ -1039,8 +1040,11 @@ TEST_F(IndexTest, testMetric_VectorRange) {
 
   float query[] = {(float)n, (float)n, (float)n, (float)n};
   RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
+  VecSimQueryParams queryParams;
+  queryParams.hnswRuntimeParams.efRuntime = n;
+  queryParams.hnswRuntimeParams.epsilon = 0.1;
   VecSimQueryReply *results =
-      VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, nullptr, range_query.order);
+      VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
 
   // Run simple range query.
   IndexIterator *vecIt = createMetricIteratorFromVectorQueryResults(results, true);
@@ -1053,7 +1057,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   VecSim_Normalize(query, d, t);
   while (vecIt->Read(vecIt->ctx, &h) != INDEXREAD_EOF) {
     EXPECT_EQ(h->type, RSResultType_Metric);
-    EXPECT_EQ(h->docId, lowest_id + count);
+    EXPECT_EQ(h->docId, lowest_id + count) << queryParams.hnswRuntimeParams.epsilon;
     double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
     EXPECT_EQ(h->num.value, exp_dist);
     EXPECT_EQ(h->metrics[0].value->numval, exp_dist);
