@@ -953,7 +953,6 @@ def test_mod5910(env):
     env.assertEqual(iterators_profile[1][7][1], 'NUMERIC')
     env.assertEqual(iterators_profile[1][8][1], 'UNION')
 
-
 @skip(cluster=True)
 def test_mod5880(env):
     env.cmd("ft.config", "set", "FORK_GC_CLEAN_THRESHOLD", "0")
