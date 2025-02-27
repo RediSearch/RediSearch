@@ -229,6 +229,8 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 
 void UpgradeDeprecatedMTConfigs();
 
+char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
+
 #define DEFAULT_BG_INDEX_SLEEP_GAP 100
 #define DEFAULT_DIALECT_VERSION 1
 #define DEFAULT_DOC_TABLE_SIZE 1000000
@@ -317,6 +319,9 @@ extern "C" {
 // RSGlobalConfig.IteratorsConfig parameters values into it.
 // The size of the memory @param config points to must be at least sizeof(IteratorsConfig)
 void iteratorsConfig_init(IteratorsConfig *config);
+
+void LogWarningDeprecatedFTConfig(RedisModuleCtx *ctx, const char *action,
+                                  const char *name);
 
 #ifdef __cplusplus
 }
