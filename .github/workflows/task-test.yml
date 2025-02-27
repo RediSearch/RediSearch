@@ -203,7 +203,7 @@ jobs:
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Build
         env:
-          # DEBUG: 1
+          DEBUG: 1
           REDIS_VER: ${{ inputs.get-redis }}
           SAN: ${{ inputs.san }}
         run: make
@@ -214,7 +214,7 @@ jobs:
         env:
           LOG: 1
           CLEAR_LOGS: 0
-          # DEBUG: 1
+          DEBUG: 1
           SAN: ${{ inputs.san }}
         run: make unit-tests
       - name: Flow tests (standalone)
@@ -226,7 +226,7 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           SA: 1
-          # DEBUG: 1
+          DEBUG: 1
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           REJSON: ${{ inputs.rejson }}
           SAN: ${{ inputs.san }}
@@ -237,7 +237,7 @@ jobs:
         if: ${{ inputs.coordinator }}
         continue-on-error: true
         env:
-          # DEBUG: 1
+          DEBUG: 1
           LOG: 1
           CLEAR_LOGS: 0
           SA: 0
