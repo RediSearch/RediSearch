@@ -122,6 +122,21 @@ struct DocumentIndexer;
 extern dict *specDict_g;
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 
+typedef enum {
+    DEBUG_INDEX_SCANNER_CODE_NEW,
+    DEBUG_INDEX_SCANNER_CODE_RUNNING,
+    DEBUG_INDEX_SCANNER_CODE_DONE,
+    DEBUG_INDEX_SCANNER_CODE_CANCELLED,
+    DEBUG_INDEX_SCANNER_CODE_PAUSED,
+    DEBUG_INDEX_SCANNER_CODE_RESUMED,
+
+    //Insert new codes here (before COUNT)
+    DEBUG_INDEX_SCANNER_CODE_COUNT  // Helps with array size checks
+    //Do not add new codes after COUNT
+} DebugIndexScannerCode;
+
+extern const char *DEBUG_INDEX_SCANNER_STATUS_STRS[DEBUG_INDEX_SCANNER_CODE_COUNT];
+
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
 extern dict *legacySpecRules;
@@ -170,6 +185,7 @@ typedef enum {
   Index_HasGeometry = 0x40000,
 
   Index_HasNonEmpty = 0x80000,  // Index has at least one field that does not indexes empty values
+
 } IndexFlags;
 
 // redis version (its here because most file include it with no problem,
@@ -617,10 +633,20 @@ void Indexes_SetTempSpecsTimers(TimerOp op);
 typedef struct IndexesScanner {
   bool global;
   bool cancelled;
+  bool isDebug;
   WeakRef spec_ref;
   char *spec_name;
   size_t scannedKeys;
 } IndexesScanner;
+
+typedef struct DebugIndexesScanner {
+  IndexesScanner base;
+  int maxDocsTBscanned;
+  int maxDocsTBscannedPause;
+  bool wasPaused;
+  int status;
+} DebugIndexesScanner;
+
 
 double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, IndexSpec *sp);
 
