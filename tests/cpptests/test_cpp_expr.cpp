@@ -123,7 +123,7 @@ TEST_F(ExprTest, testDump) {
     RSExpr *root = ExprAST_Parse(expr, &status);
     HiddenString_Free(expr, false);
     if (!root) {
-      FAIL() << "Could not parse expression " << expr;
+      FAIL() << "Could not parse expression " << expression;
     }
     char *value = ExprAST_Dump(root, false);
     ASSERT_STREQ(value, pair.first);
