@@ -8,9 +8,7 @@ description: "
                 - Query type: N/A
                 - Query sample: N/A
              "
-remote:
- - type: oss-standalone
- - setup: redisearch-m5
+
 metadata:
   component: "search"
 setups:
