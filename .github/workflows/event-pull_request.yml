@@ -22,7 +22,7 @@ jobs:
       env: ${{ vars.RUNS_ON }}
       test-config: QUICK=1
       get-redis: unstable
-      rejson-branch: master
+      rejson-branch: '8.0'
     secrets: inherit
 
   coverage:
