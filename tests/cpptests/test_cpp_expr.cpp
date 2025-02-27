@@ -117,9 +117,11 @@ TEST_F(ExprTest, testDump) {
     {"!9", {"!9", "!Number"}},
     {"((@foo + (sqrt(@bar) / @baz)) + ' ')", {"((@foo + (sqrt(@bar) / @baz)) + \" \")", "((@Text + (sqrt(@Text) / @Text)) + \"Text\")"}},
   };
-  for (auto& [expr, pair] : exprToDump) {
+  for (auto& [expression, pair] : exprToDump) {
     QueryError status = {QueryErrorCode(0)};
-    RSExpr *root = ExprAST_Parse(expr, strlen(expr), &status);
+    HiddenString *expr = NewHiddenString(expression, strlen(expression), false);
+    RSExpr *root = ExprAST_Parse(expr, &status);
+    HiddenString_Free(expr, false);
     if (!root) {
       FAIL() << "Could not parse expression " << expr;
     }
