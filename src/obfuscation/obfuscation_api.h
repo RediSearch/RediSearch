@@ -43,7 +43,7 @@ void Obfuscate_KeyWithTime(struct timespec spec, char *buffer);
 // the returned pointer needs to be freed using rm_free
 const char *Obfuscate_Text(const char *text);
 
-const char *Obfuscate_Number(size_t number);
+const char *Obfuscate_Number(double number);
 
 const char *Obfuscate_Vector(const char *vector, size_t dim);
 

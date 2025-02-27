@@ -1,21 +1,15 @@
 name: Spellcheck
 
-on:
-  workflow_call:      # Allows calling from another workflow
-  workflow_dispatch:  # Allows manual trigger
-    inputs:
-      branch:
-        type: string
-        description: 'Branch to compare master against'
+on: [workflow_call, workflow_dispatch]
 
 jobs:
   spellcheck:
-    runs-on: ${{ vars.RUNS_ON }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch || github.head_ref || github.ref_name }}
+          ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
       - name: Fetch master

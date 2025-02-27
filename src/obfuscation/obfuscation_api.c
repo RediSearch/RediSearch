@@ -32,7 +32,7 @@ const char *Obfuscate_Text(const char* text) {
   return "Text";
 }
 
-const char *Obfuscate_Number(size_t number) {
+const char *Obfuscate_Number(double number) {
   return "Number";
 }
 

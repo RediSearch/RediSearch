@@ -350,22 +350,24 @@ void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
   RLookupRow_Wipe(src);
 }
 
-void RLookupRow_Dump(const RLookupRow *rr) {
-  printf("Row @%p\n", rr);
+sds RLookupRow_DumpSds(const RLookupRow *rr, bool obfuscate) {
+  sds s = sdsempty();
+  s = sdscatfmt(s, "Row @%p\n", rr);
   if (rr->dyn) {
-    printf("  DYN @%p\n", rr->dyn);
+    s = sdscatfmt(s, "  DYN @%p\n", rr->dyn);
     for (size_t ii = 0; ii < array_len(rr->dyn); ++ii) {
-      printf("  [%lu]: %p\n", ii, rr->dyn[ii]);
+      s = sdscatfmt(s, "  [%lu]: %p\n", ii, rr->dyn[ii]);
       if (rr->dyn[ii]) {
-        printf("    ");
-        RSValue_Print(rr->dyn[ii]);
-        printf("\n");
+        s = sdscat(s, "    ");
+        s = RSValue_DumpSds(rr->dyn[ii], s, obfuscate);
+        s = sdscat(s, "\n");
       }
     }
   }
   if (rr->sv) {
-    printf("  SV @%p\n", rr->sv);
+    s = sdscatfmt(s, "  SV @%p\n", rr->sv);
   }
+  return s;
 }
 
 static void RLookupKey_Cleanup(RLookupKey *k) {
