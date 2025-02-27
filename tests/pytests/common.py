@@ -817,6 +817,20 @@ def index_errors(env, idx = 'idx'):
 def field_errors(env, idx = 'idx', fld_index = 0):
     return to_dict(to_dict(to_dict(index_info(env, idx)['field statistics'][fld_index]))['Index Errors'])
 
+def VerifyTimeoutWarningResp3(env, res, message="", depth=0):
+    env.assertTrue(res['warning'], message=message + " expected warning", depth=depth+1)
+    if (res['warning']):
+        env.assertContains("Timeout", res["warning"][0], message=message + " expected timeout warning", depth=depth+1)
+
+def runDebugQueryCommand(env, query_cmd, debug_params):
+    return env.cmd(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params))
+
+def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, internal_only=False):
+    debug_params = ['TIMEOUT_AFTER_N', timeout_res_count]
+    if internal_only:
+        debug_params.append("INTERNAL_ONLY")
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
 def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):
       yield env.getConnection(shardId=s)
