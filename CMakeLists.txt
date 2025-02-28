@@ -50,7 +50,6 @@ endif()
 # To avoid this, we set the default signedness of char to unsigned.
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -funsigned-char")
 
-
 add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""
