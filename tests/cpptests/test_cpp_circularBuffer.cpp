@@ -285,3 +285,46 @@ TEST_F(CircularBufferTest, test_CircularBuffer_multiReserve) {
   ASSERT_EQ(sum, SUM_ITEMS);
   CircularBuffer_Free(cb);
 }
+
+
+TEST_F(CircularBufferTest, test_CircularBuffer_ReadAll) {
+  constexpr size_t buffer_size = 10;
+  CircularBuffer cb = CircularBuffer_New(sizeof(int), buffer_size);
+  int dst[buffer_size];
+  std::fill(std::begin(dst), std::end(dst), 0);
+
+  //test partial fill
+  for (int i = 0; i < buffer_size/2 ; i++) {
+    int *item = (int *)CircularBuffer_Reserve(cb, NULL);
+    *item = i;
+  }
+  ASSERT_EQ(CircularBuffer_ItemCount(cb), buffer_size/2);
+  CircularBuffer_ReadAll(cb, dst, false);
+  for (int i = 0; i < buffer_size/2; i++) {
+    ASSERT_EQ(dst[i], i);
+  }
+  for (int i = buffer_size/2; i < buffer_size; i++) {
+    ASSERT_EQ(dst[i], 0);
+  }
+  std::fill(std::begin(dst), std::end(dst), 0);
+
+  //test_advance = true
+  CircularBuffer_ReadAll(cb, dst, true);
+  ASSERT_EQ(CircularBuffer_Empty(cb), true);
+
+
+  constexpr size_t overflow_amount = buffer_size / 3;
+  std::fill(std::begin(dst), std::end(dst), 0);
+  //test fill more than buffer size
+  for (int i = 0; i < buffer_size + overflow_amount; i++) {
+    int *item = (int *)CircularBuffer_Reserve(cb, NULL);
+    *item = i;
+  }
+
+  CircularBuffer_ReadAll(cb, dst, false);
+  for (int i = 0; i < buffer_size; i++) {
+    ASSERT_EQ(dst[i], i + overflow_amount);
+  }
+
+  CircularBuffer_Free(cb);
+}
