@@ -156,14 +156,6 @@ setup_clang_sanitizer() {
 		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:print_suppressions=0:verbosity=1:log_thread=1"
 		# :use_tls=0
 
-	# elif [[ $SAN == mem || $SAN == memory ]]; then
-	# 	REDIS_SERVER=${REDIS_SERVER:-redis-server-msan-$SAN_REDIS_VER}
-	# 	if ! command -v $REDIS_SERVER > /dev/null; then
-	# 		echo Building Redis for clang-msan ...
-	# 		$READIES/bin/getredis --force -v $SAN_REDIS_VER  --no-run --own-openssl \
-	# 			--suffix msan --clang-msan --llvm-dir /opt/llvm-project/build-msan \
-	# 			--clang-san-blacklist $ignorelist
-	# 	fi
 	fi
 }
 
