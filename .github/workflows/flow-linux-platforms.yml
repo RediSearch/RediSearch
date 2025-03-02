@@ -80,7 +80,7 @@ on:
       rejson-branch:
         type: string
         default: '2.6'
-        description: 'Branch to use when building RedisJSON for tests (default: master)'
+        description: 'Branch to use when building RedisJSON for tests (default: 2.6)'
       fail-fast:
         description: 'Whether to fail fast on first failure'
         type: boolean
