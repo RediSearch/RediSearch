@@ -75,7 +75,6 @@ help() {
 		UNIX=1                Use unix sockets
 		RANDPORTS=1           Use randomized ports
 
-		COLLECT_LOGS=1        Collect logs into .tar file
 		CLEAR_LOGS=0          Do not remove logs prior to running tests
 
 		LIST=1                List all tests and exit
