@@ -1266,7 +1266,7 @@ static int periodicCb(void *privdata) {
   }
 
   // Register GC thread to the active-threads container
-  CurrentThread_SetIndexSpec(early_check);
+  // CurrentThread_SetIndexSpec(early_check);
 
   int gcrv = 1;
   pid_t cpid;
