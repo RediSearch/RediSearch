@@ -1134,7 +1134,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (opts->scorerName && Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
+  if (opts->scorerName && (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL)) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
     return REDISMODULE_ERR;
   }

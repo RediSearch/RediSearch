@@ -151,6 +151,9 @@ typedef struct {
   int prioritizeIntersectUnionChildren;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
+  // Enable to execute unstable features
+  bool enableUnstableFeatures;
+  // Control user data obfuscation in logs
   bool hideUserDataFromLog;
 } RSConfig;
 
@@ -302,6 +305,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,          \
     .prioritizeIntersectUnionChildren = false,                                 \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
+    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE,                \
     .hideUserDataFromLog = false                                               \
   }
 
