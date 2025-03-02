@@ -2,7 +2,7 @@ import math
 from time import sleep
 
 from includes import *
-from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip, Env
+from common import *
 
 SCORE_NORM_STRETCH_FACTOR = 1/4
 
@@ -350,7 +350,7 @@ def testBM25Normalized():
     value between 0 and 1.
     """
 
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
 
     # Prepare the index
     _prepare_index(env, 'idx')
@@ -380,7 +380,7 @@ def testNormalizedBM25ScorerExplanation():
     Tests that the normalized BM25STD scorer explanation is correct
     """
 
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
 
     # Prepare the index
     _prepare_index(env, 'idx')
@@ -469,7 +469,7 @@ def testBM25NormalizedScoreField():
     field for the score.
     """
 
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
 
     conn = env.getClusterConnectionIfNeeded()
 
@@ -524,4 +524,3 @@ def testBM25STDScoreWithWeight(env: Env):
 
 def testBM25ScoreWithWeight(env: Env):
     scorer_with_weight_test(env, 'BM25')
-

@@ -284,7 +284,7 @@ void UpgradeDeprecatedMTConfigs();
     .numBGIndexingIterationsBeforeSleep = 100,                                  \
     .prioritizeIntersectUnionChildren = false,                                  \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                             \
-    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE,                 \
+    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE                  \
   }
 
 #define REDIS_ARRAY_LIMIT 7

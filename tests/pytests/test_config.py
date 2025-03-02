@@ -382,3 +382,26 @@ def testInitConfigCoord():
 @skip(cluster=False)
 def testImmutableCoord(env):
     env.expect('_ft.config', 'set', 'SEARCH_THREADS').error().contains(not_modifiable)
+
+@skip(cluster=True)
+def testUnstableFeaturesOffByDefault():
+    """Tests that the unstable features are off by default."""
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+
+    # Prepare the index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+
+    # Add a document
+    env.cmd('HSET', 'doc1', 'title', 'hello world')
+
+    # -------------------- BM25STD.NORM scorer --------------------
+    env.expect('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM') \
+        .error().contains('Scorer BM25STD.NORM not available when `ENABLE_UNSTABLE_FEATURES` is off')
+
+    env.cmd(config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
+
+    res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+
+    # Check the score (only 1 doc..)
+    env.assertEqual(round(float(res[2]), 5), 0.14286)

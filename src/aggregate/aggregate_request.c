@@ -1024,9 +1024,14 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (opts->scorerName && (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL)) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
-    return REDISMODULE_ERR;
+  if (opts->scorerName) {
+    if (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
+      QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
+      return REDISMODULE_ERR;
+    } else if (!strcmp(opts->scorerName, BM25_STD_NORMALIZED_SCORER_NAME) && !RSGlobalConfig.enableUnstableFeatures) {
+      QueryError_SetErrorFmt(status, QUERY_EINVAL, "Scorer %s not available when `ENABLE_UNSTABLE_FEATURES` is off", opts->scorerName);
+      return REDISMODULE_ERR;
+    }
   }
 
   bool resp3 = req->protocol == 3;
