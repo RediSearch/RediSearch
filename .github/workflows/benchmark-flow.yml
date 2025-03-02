@@ -16,7 +16,7 @@ on:
         default: '2.6'
       rejson_module_path:
         type: string
-        default: bin/linux-x64-release/RedisJSON/2.8/rejson.so
+        default: bin/linux-x64-release/RedisJSON/2.6/rejson.so
       profile_env:
         type: number # for default of 0
       cluster_env:
