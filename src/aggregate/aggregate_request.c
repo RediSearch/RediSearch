@@ -45,7 +45,7 @@ static bool ensureSimpleMode(AREQ *areq) {
  */
 static int ensureExtendedMode(AREQ *areq, const char *name, QueryError *status) {
   if (areq->reqflags & QEXEC_F_IS_SEARCH) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL,
+    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL,
                            "option `%s` is mutually exclusive with simple (i.e. search) options",
                            name);
     return 0;
@@ -159,7 +159,7 @@ int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
       return REDISMODULE_ERR;
     }
     if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {
-      QueryError_SetErrorFmt(
+      QueryError_SetWithoutUserDataFmt(
         status, QUERY_EPARSEARGS,
         "DIALECT requires a non negative integer >=%u and <= %u",
         MIN_DIALECT_VERSION, MAX_DIALECT_VERSION
@@ -182,7 +182,7 @@ int parseValueFormat(uint32_t *flags, ArgsCursor *ac, QueryError *status) {
   } else if (!strcasecmp(format, "STRING")) {
     *flags &= ~QEXEC_FORMAT_EXPAND;
   } else {
-    QERR_MKBADARGS_FMT(status, "FORMAT %s is not supported", format);
+    QERR_MKBADARGS_FMT(status, "FORMAT", " %s is not supported", format);
     return REDISMODULE_ERR;
   }
   *flags &= ~QEXEC_FORMAT_DEFAULT;
@@ -197,7 +197,7 @@ int parseTimeout(long long *timeout, ArgsCursor *ac, QueryError *status) {
   }
 
   if (AC_GetLongLong(ac, timeout, AC_F_GE0) != AC_OK) {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS,
+    QueryError_SetError(status, QUERY_EPARSEARGS,
       "TIMEOUT requires a non negative integer.");
     return REDISMODULE_ERR;
   }
@@ -217,7 +217,7 @@ int SetValueFormat(bool is_resp3, bool is_json, uint32_t *flags, QueryError *sta
       return REDISMODULE_ERR;
     }
     if (!is_json) {
-      QueryError_SetErrorFmt(status, QUERY_EBADVAL, "EXPAND format is only supported with JSON");
+      QueryError_SetError(status, QUERY_EBADVAL, "EXPAND format is only supported with JSON");
       return REDISMODULE_ERR;
     }
     if (japi_ver < 4) {
@@ -260,7 +260,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     }
 
     if (arng->limit == 0 && arng->offset != 0) {
-      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "The `offset` of the LIMIT must be 0 when `num` is 0");
+      QueryError_SetError(status, QUERY_ELIMIT, "The `offset` of the LIMIT must be 0 when `num` is 0");
       return ARG_ERROR;
     }
 
@@ -272,16 +272,16 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       //(SEARCH / AGGREGATE)
     } else if ((arng->limit > req->maxSearchResults) &&
                (req->reqflags & QEXEC_F_IS_SEARCH)) {
-      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              req->maxSearchResults);
       return ARG_ERROR;
     } else if ((arng->limit > req->maxAggregateResults) &&
                !(req->reqflags & QEXEC_F_IS_SEARCH)) {
-      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              req->maxAggregateResults);
       return ARG_ERROR;
     } else if (arng->offset > req->maxSearchResults) {
-      QueryError_SetErrorFmt(status, QUERY_ELIMIT, "OFFSET exceeds maximum of %llu",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "OFFSET exceeds maximum of %llu",
                              req->maxSearchResults);
       return ARG_ERROR;
     }
@@ -296,7 +296,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       return ARG_ERROR;
     }
     if (AC_GetLongLong(ac, &req->reqConfig.queryTimeoutMS, AC_F_GE0) != AC_OK) {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");
+      QueryError_SetError(status, QUERY_EPARSEARGS, "TIMEOUT requires a non negative integer");
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "WITHCURSOR")) {
@@ -338,7 +338,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
   }
 
   if (dialect_specified && req->reqConfig.dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST && req->reqflags & QEXEC_FORMAT_EXPAND) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
     return ARG_ERROR;
   }
 
@@ -349,9 +349,9 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   // Prevent multiple SORTBY steps
   if (arng->sortKeys != NULL) {
     if (isLegacy) {
-      QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed");
+      QERR_MKBADARGS(status, "Multiple SORTBY steps are not allowed");
     } else {
-      QERR_MKBADARGS_FMT(status, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
+      QERR_MKBADARGS(status, "Multiple SORTBY steps are not allowed. Sort multiple fields in a single step");
     }
     return REDISMODULE_ERR;
   }
@@ -403,7 +403,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
       const char *s = AC_GetStringNC(&subArgs, NULL);
       if (*s == '@') {
         if (array_len(keys) >= SORTASCMAP_MAXFIELDS) {
-          QERR_MKBADARGS_FMT(status, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
+          QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
           goto err;
         }
         s++;
@@ -417,7 +417,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
         SORTASCMAP_SETDESC(ascMap, array_len(keys) - 1);
       } else {
         // Unknown token - neither a property nor ASC/DESC
-        QERR_MKBADARGS_FMT(status, "MISSING ASC or DESC after sort field (%s)", s);
+        QERR_MKBADARGS_FMT(status, "MISSING ASC or DESC after sort field", " (%s)", s);
         goto err;
       }
     }
@@ -428,7 +428,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   // back to `ac`
   if (AC_AdvanceIfMatch(ac, "MAX")) {
     if (isLegacy) {
-      QERR_MKBADARGS_FMT(status, "SORTBY MAX is not supported by FT.SEARCH");
+      QERR_MKBADARGS(status, "SORTBY MAX is not supported by FT.SEARCH");
       goto err;
     }
     unsigned mx = 0;
@@ -443,7 +443,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
   arng->sortKeys = keys;
   return REDISMODULE_OK;
 err:
-  QERR_MKBADARGS_FMT(status, "Bad SORTBY arguments");
+  QERR_MKBADARGS(status, "Bad SORTBY arguments");
   if (keys) {
     array_free(keys);
   }
@@ -453,13 +453,13 @@ err:
 static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *hasEmptyFilterValue, QueryError *status) {
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
     // Numeric filter
-    NumericFilter **curpp = array_ensure_tail(&options->legacy.filters, NumericFilter *);
+    LegacyNumericFilter **curpp = array_ensure_tail(&options->legacy.filters, LegacyNumericFilter *);
     *curpp = NumericFilter_LegacyParse(ac, hasEmptyFilterValue, status);
     if (!*curpp) {
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
-    GeoFilter *cur_gf = rm_new(*cur_gf);
+    LegacyGeoFilter *cur_gf = rm_new(*cur_gf);
     array_ensure_append_1(options->legacy.geo_filters, cur_gf);
     if (GeoFilter_LegacyParse(cur_gf, ac, hasEmptyFilterValue, status) != REDISMODULE_OK) {
       return ARG_ERROR;
@@ -521,23 +521,23 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     // See if this is one of our arguments which requires special handling
     if (AC_AdvanceIfMatch(ac, "SUMMARIZE")) {
       if(!ensureSimpleMode(req)) {
-        QERR_MKBADARGS_FMT(status, "SUMMARIZE is not supported on FT.AGGREGATE");
+        QERR_MKBADARGS(status, "SUMMARIZE is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
       }
       if (ParseSummarize(ac, &req->outFields) == REDISMODULE_ERR) {
-        QERR_MKBADARGS_FMT(status, "Bad arguments for SUMMARIZE");
+        QERR_MKBADARGS(status, "Bad arguments for SUMMARIZE");
         return REDISMODULE_ERR;
       }
       req->reqflags |= QEXEC_F_SEND_HIGHLIGHT;
 
     } else if (AC_AdvanceIfMatch(ac, "HIGHLIGHT")) {
       if(!ensureSimpleMode(req)) {
-        QERR_MKBADARGS_FMT(status, "HIGHLIGHT is not supported on FT.AGGREGATE");
+        QERR_MKBADARGS(status, "HIGHLIGHT is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
       }
 
       if (ParseHighlight(ac, &req->outFields) == REDISMODULE_ERR) {
-        QERR_MKBADARGS_FMT(status, "Bad arguments for HIGHLIGHT");
+        QERR_MKBADARGS(status, "Bad arguments for HIGHLIGHT");
         return REDISMODULE_ERR;
       }
       req->reqflags |= QEXEC_F_SEND_HIGHLIGHT;
@@ -567,7 +567,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   // In dialect 2, we require a non empty numeric filter
   if (req->reqConfig.dialectVersion >= 2 && hasEmptyFilterValue){
-      QERR_MKBADARGS_FMT(status, "Numeric/Geo filter value/s cannot be empty");
+      QERR_MKBADARGS(status, "Numeric/Geo filter value/s cannot be empty");
       return REDISMODULE_ERR;
   }
 
@@ -577,12 +577,12 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   }
 
   if ((req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) && !(req->reqflags & QEXEC_F_SEND_SCORES)) {
-    QERR_MKBADARGS_FMT(status, "EXPLAINSCORE must be accompanied with WITHSCORES");
+    QERR_MKBADARGS(status, "EXPLAINSCORE must be accompanied with WITHSCORES");
     return REDISMODULE_ERR;
   }
 
   if (IsSearch(req) && HasScoreInPipeline(req)) {
-    QERR_MKBADARGS_FMT(status, "ADDSCORES is not supported on FT.SEARCH");
+    QERR_MKBADARGS(status, "ADDSCORES is not supported on FT.SEARCH");
     return REDISMODULE_ERR;
   }
 
@@ -600,7 +600,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
 
   if (AC_IsInitialized(&returnFields)) {
     if(!ensureSimpleMode(req)) {
-        QERR_MKBADARGS_FMT(status, "RETURN is not supported on FT.AGGREGATE");
+        QERR_MKBADARGS(status, "RETURN is not supported on FT.AGGREGATE");
         return REDISMODULE_ERR;
     }
 
@@ -615,10 +615,10 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
       if (AC_AdvanceIfMatch(&returnFields, SPEC_AS_STR)) {
         int rv = AC_GetString(&returnFields, &name, NULL, 0);
         if (rv != AC_OK) {
-          QERR_MKBADARGS_FMT(status, "RETURN path AS name - must be accompanied with NAME");
+          QERR_MKBADARGS(status, "RETURN path AS name - must be accompanied with NAME");
           return REDISMODULE_ERR;
         } else if (!strcasecmp(name, SPEC_AS_STR)) {
-          QERR_MKBADARGS_FMT(status, "Alias for RETURN cannot be `AS`");
+          QERR_MKBADARGS(status, "Alias for RETURN cannot be `AS`");
           return REDISMODULE_ERR;
         }
       }
@@ -755,7 +755,7 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
 
   for (size_t ii = 0; ii < groupArgs.argc; ++ii) {
     if (*(char*)groupArgs.objs[ii] != '@') {
-      QERR_MKBADARGS_FMT(status, "Bad arguments for GROUPBY: Unknown property `%s`. Did you mean `@%s`?",
+      QERR_MKBADARGS_FMT(status, "Bad arguments for GROUPBY", ": Unknown property `%s`. Did you mean `@%s`?",
                          groupArgs.objs[ii], groupArgs.objs[ii]);
       return REDISMODULE_ERR;
     }
@@ -786,18 +786,16 @@ static void freeFilterStep(PLN_BaseStep *bstp) {
   if (fstp->parsedExpr) {
     ExprAST_Free(fstp->parsedExpr);
   }
-  if (fstp->shouldFreeRaw) {
-    rm_free((char *)fstp->rawExpr);
-  }
+  HiddenString_Free(fstp->expr, true);
   rm_free((void *)fstp->base.alias);
   rm_free(bstp);
 }
 
-PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, int mode) {
+PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString* expr, int mode) {
   PLN_MapFilterStep *stp = rm_calloc(1, sizeof(*stp));
   stp->base.dtor = freeFilterStep;
   stp->base.type = mode;
-  stp->rawExpr = expr;
+  stp->expr = HiddenString_Duplicate(expr);
   return stp;
 }
 
@@ -811,7 +809,9 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
     return REDISMODULE_ERR;
   }
 
-  PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, isApply ? PLN_T_APPLY : PLN_T_FILTER);
+  HiddenString* expression = NewHiddenString(expr, exprLen, false);
+  PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, isApply ? PLN_T_APPLY : PLN_T_FILTER);
+  HiddenString_Free(expression, false);
   AGPLN_AddStep(&req->ap, &stp->base);
 
   if (isApply) {
@@ -819,7 +819,7 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
       const char *alias;
       size_t aliasLen;
       if (AC_GetString(ac, &alias, &aliasLen, 0) != AC_OK) {
-        QERR_MKBADARGS_FMT(status, "AS needs argument");
+        QERR_MKBADARGS(status, "AS needs argument");
         goto error;
       }
       stp->base.alias = rm_strndup(alias, aliasLen);
@@ -854,7 +854,7 @@ static int handleLoad(AREQ *req, ArgsCursor *ac, QueryError *status) {
       QERR_MKBADARGS_AC(status, "LOAD", rc);
       return REDISMODULE_ERR;
     } else if (strcmp(s, "*")) {
-      QERR_MKBADARGS_FMT(status, "Bad arguments for LOAD: Expected number of fields or `*`");
+      QERR_MKBADARGS(status, "Bad arguments for LOAD: Expected number of fields or `*`");
       return REDISMODULE_ERR;
     }
     // Successfully got a '*', load all fields
@@ -984,15 +984,17 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   /** The following blocks will set filter options on the entire query */
   if (opts->legacy.filters) {
     for (size_t ii = 0; ii < array_len(opts->legacy.filters); ++ii) {
-      NumericFilter *filter = opts->legacy.filters[ii];
-      const char *fieldName = (const char *)filter->field;
-      filter->field = IndexSpec_GetField(sctx->spec, fieldName);
-      if (!filter->field || !FIELD_IS(filter->field, INDEXFLD_T_NUMERIC)) {
+      LegacyNumericFilter *filter = opts->legacy.filters[ii];
+
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, filter->field);
+      filter->base.fieldSpec = fs;
+      if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         if (dialect != 1) {
-          if (!filter->field) {
-            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
+          const HiddenString *fieldName = filter->field;
+          if (fs) {
+            QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Field is not a numeric field", ", field: %s", HiddenString_GetUnsafe(fieldName, NULL));
           } else {
-            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field '%s' is not a numeric field", fieldName);
+            QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Unknown Field", " '%s'", HiddenString_GetUnsafe(fieldName, NULL));
           }
           return REDISMODULE_ERR;
         } else {
@@ -1002,7 +1004,13 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
           continue; // Keep the filter entry in the legacy filters array for AREQ_Free()
         }
       }
-      QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = filter};
+      if (filter->field) {
+        // Need to free the hidden string since we pass the base pointer to the query AST
+        // And we are about to zero out the filter in the legacy filters
+        HiddenString_Free(filter->field, false);
+        filter->field = NULL;
+      }
+      QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = &filter->base};
       QAST_SetGlobalFilters(ast, &legacyFilterOpts);
       opts->legacy.filters[ii] = NULL;  // so AREQ_Free() doesn't free the filters themselves, which
                                         // are now owned by the query object
@@ -1010,16 +1018,14 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   }
   if (opts->legacy.geo_filters) {
     for (size_t ii = 0; ii < array_len(opts->legacy.geo_filters); ++ii) {
-      GeoFilter *gf = opts->legacy.geo_filters[ii];
-      const char *fieldName = (const char *)gf->field;
-      gf->field = IndexSpec_GetField(sctx->spec, fieldName);
-      if (!gf->field || !FIELD_IS(gf->field, INDEXFLD_T_GEO)) {
+      LegacyGeoFilter *gf = opts->legacy.geo_filters[ii];
+
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, gf->field);
+      gf->base.spec = fs;
+      if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         if (dialect != 1) {
-          if (!gf->field) {
-            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
-          } else {
-            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field '%s' is not a geo field", fieldName);
-          }
+          const char *generalError = fs ? "Field is not a geo field" : "Unknown Field";
+          QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, generalError, ", field: %s", HiddenString_GetUnsafe(gf->field, NULL));
           return REDISMODULE_ERR;
         } else {
           // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
@@ -1027,7 +1033,13 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
           QAST_SetGlobalFilters(ast, &legacyOpts);
         }
       } else {
-        QAST_GlobalFilterOptions legacyOpts = {.geo = gf};
+        if (gf->field) {
+          // Need to free the hidden string since we pass the base pointer to the query AST
+          // And we are about to zero out the filter in the legacy filters
+          HiddenString_Free(gf->field, false);
+          gf->field = NULL;
+        }
+        QAST_GlobalFilterOptions legacyOpts = {.geo = &gf->base};
         QAST_SetGlobalFilters(ast, &legacyOpts);
         opts->legacy.geo_filters[ii] = NULL;  // so AREQ_Free() doesn't free the filter itself, which is now owned
                                               // by the query object
@@ -1059,7 +1071,7 @@ static bool IsIndexCoherent(AREQ *req) {
   sds *args = req->args;
   long long n_prefixes = strtol(args[req->prefixesOffset + 1], NULL, 10);
 
-  arrayof(sds) spec_prefixes = req->sctx->spec->rule->prefixes;
+  arrayof(HiddenUnicodeString*) spec_prefixes = req->sctx->spec->rule->prefixes;
   if (n_prefixes != array_len(spec_prefixes)) {
     return false;
   }
@@ -1069,7 +1081,8 @@ static bool IsIndexCoherent(AREQ *req) {
   // The first argument is at req->prefixesOffset + 2
   uint base_idx = req->prefixesOffset + 2;
   for (uint i = 0; i < n_prefixes; i++) {
-    if (sdscmp(spec_prefixes[i], args[base_idx + i]) != 0) {
+    sds arg = args[base_idx + i];
+    if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
       // Unmatching prefixes
       return false;
     }
@@ -1122,7 +1135,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
   }
 
   if (opts->scorerName && (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL)) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
     return REDISMODULE_ERR;
   }
 
@@ -1196,13 +1209,13 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
       // We currently allow implicit loading only for known fields from the schema.
       // If we can't load keys, or the key we loaded is not in the schema, we fail.
       if (!loadKeys || !(srckeys[ii]->flags & RLOOKUP_F_SCHEMASRC)) {
-        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "No such property `%s`", fldname);
+        QueryError_SetWithUserDataFmt(err, QUERY_ENOPROPKEY, "No such property", " `%s`", fldname);
         return NULL;
       }
     }
     dstkeys[ii] = RLookup_GetKeyEx(&gstp->lookup, fldname, fldname_len, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
     if (!dstkeys[ii]) {
-      QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property `%s` specified more than once", fldname);
+      QueryError_SetWithUserDataFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", fldname);
       return NULL;
     }
   }
@@ -1218,7 +1231,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     if (!ff) {
       // No such reducer!
       Grouper_Free(grp);
-      QueryError_SetErrorFmt(err, QUERY_ENOREDUCER, "No such reducer: %s", pr->name);
+      QueryError_SetWithoutUserDataFmt(err, QUERY_ENOREDUCER, "No such reducer: %s", pr->name);
       return NULL;
     }
     Reducer *rr = ff(&options);
@@ -1234,7 +1247,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     Grouper_AddReducer(grp, rr, dstkey);
     if (!dstkey) {
       Grouper_Free(grp);
-      QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property `%s` specified more than once", pr->alias);
+      QueryError_SetWithUserDataFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", pr->alias);
       return NULL;
     }
   }
@@ -1282,15 +1295,15 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
 static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryError *status) {
   MetricRequest *requests = req->ast.metricRequests;
   for (size_t i = 0; i < array_len(requests); i++) {
-    char *name = requests[i].metric_name;
+    const char *name = requests[i].metric_name;
     size_t name_len = strlen(name);
     if (IndexSpec_GetFieldWithLength(req->sctx->spec, name, name_len)) {
-      QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property `%s` already exists in schema", name);
+      QueryError_SetWithUserDataFmt(status, QUERY_EINDEXEXISTS, "Property", " `%s` already exists in schema", name);
       return NULL;
     }
     RLookupKey *key = RLookup_GetKeyEx(rl, name, name_len, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
     if (!key) {
-      QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", name);
+      QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", name);
       return NULL;
     }
 
@@ -1352,7 +1365,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
           // We currently allow implicit loading only for known fields from the schema.
           // If the key we loaded is not in the schema, we fail.
           if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
-            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in schema", keystr);
+            QueryError_SetWithUserDataFmt(status, QUERY_ENOPROPKEY, "Property", " `%s` not loaded nor in schema", keystr);
             goto end;
           }
           *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
@@ -1508,10 +1521,10 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status, bool 
       }
       RLookupKey *kk = RLookup_GetKey(lookup, ff->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!kk) {
-        QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property `%s`", ff->name);
+        QueryError_SetWithUserDataFmt(status, QUERY_ENOPROPKEY, "No such property", " `%s`", ff->name);
         goto error;
       } else if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
-        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property `%s` is not in schema", ff->name);
+        QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Property", " `%s` is not in schema", ff->name);
         goto error;
       }
       ff->lookupKey = kk;
@@ -1571,7 +1584,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       case PLN_T_APPLY:
       case PLN_T_FILTER: {
         PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
-        mstp->parsedExpr = ExprAST_Parse(mstp->rawExpr, strlen(mstp->rawExpr), status);
+        mstp->parsedExpr = ExprAST_Parse(mstp->expr, status);
         if (!mstp->parsedExpr) {
           goto error;
         }
@@ -1587,7 +1600,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
           RLookupKey *dstkey = RLookup_GetKey(curLookup, stp->alias, RLOOKUP_M_WRITE, flags);
           if (!dstkey) {
             // Can only happen if we're in noOverride mode
-            QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property `%s` specified more than once", stp->alias);
+            QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", stp->alias);
             goto error;
           }
           rp = RPEvaluator_NewProjector(mstp->parsedExpr, curLookup, dstkey);
@@ -1618,10 +1631,10 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
           if (AC_AdvanceIfMatch(&lstp->args, SPEC_AS_STR)) {
             int rv = AC_GetString(&lstp->args, &name, &name_len, 0);
             if (rv != AC_OK) {
-              QERR_MKBADARGS_FMT(status, "LOAD path AS name - must be accompanied with NAME");
+              QERR_MKBADARGS(status, "LOAD path AS name - must be accompanied with NAME");
               return REDISMODULE_ERR;
             } else if (!strcasecmp(name, SPEC_AS_STR)) {
-              QERR_MKBADARGS_FMT(status, "Alias for LOAD cannot be `AS`");
+              QERR_MKBADARGS(status, "Alias for LOAD cannot be `AS`");
               return REDISMODULE_ERR;
             }
           } else {
@@ -1733,15 +1746,15 @@ void AREQ_Free(AREQ *req) {
   }
   if (req->searchopts.legacy.filters) {
     for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {
-      NumericFilter *nf = req->searchopts.legacy.filters[ii];
+      LegacyNumericFilter *nf = req->searchopts.legacy.filters[ii];
       if (nf) {
-        NumericFilter_Free(req->searchopts.legacy.filters[ii]);
+        LegacyNumericFilter_Free(req->searchopts.legacy.filters[ii]);
       }
     }
     array_free(req->searchopts.legacy.filters);
   }
   if (req->searchopts.legacy.geo_filters) {
-    array_foreach(req->searchopts.legacy.geo_filters, gf, if (gf) GeoFilter_Free(gf));
+    array_foreach(req->searchopts.legacy.geo_filters, gf, if (gf) LegacyGeoFilter_Free(gf));
     array_free(req->searchopts.legacy.geo_filters);
   }
   rm_free(req->searchopts.inids);

@@ -25,6 +25,7 @@
 #include "rules.h"
 #include <pthread.h>
 #include "info/index_error.h"
+#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,7 +34,6 @@ extern "C" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct IndexesScanner;
-struct DocumentIndexer;
 
 // Initial capacity (in bytes) of a new block
 #define INDEX_BLOCK_INITIAL_CAP 6
@@ -283,9 +283,8 @@ typedef struct {
 typedef struct InvertedIndex InvertedIndex;
 
 typedef struct IndexSpec {
-  char *name;                     // Index name
-  size_t nameLen;                 // Index name length
-  uint64_t uniqueId;              // Id of index
+  const HiddenString *specName;         // Index private name
+  char *obfuscatedName;           // Index hashed name
   FieldSpec *fields;              // Fields in the index schema
   int16_t numFields;              // Number of fields
   int16_t numSortableFields;      // Number of sortable fields
@@ -305,7 +304,7 @@ typedef struct IndexSpec {
   GCContext *gc;                  // Garbage collection
 
   SynonymMap *smap;               // List of synonym
-  char **aliases;                 // Aliases to self-remove when the index is deleted
+  HiddenString **aliases;         // Aliases to self-remove when the index is deleted
 
   struct SchemaRule *rule;        // Contains schema rules for follow-the-hash/JSON
   struct IndexesScanner *scanner; // Scans new hash/JSON documents or rescan
@@ -315,8 +314,6 @@ typedef struct IndexSpec {
   bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
   bool monitorDocumentExpiration;
   bool monitorFieldExpiration;
-
-  struct DocumentIndexer *indexer;// Indexer of fields into inverted indexes
 
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;
@@ -439,8 +436,8 @@ void IndexSpecCache_Decref(IndexSpecCache *cache);
  * Get a field spec by field name. Case insensitive!
  * Return the field spec if found, NULL if not
  */
-const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char *name, size_t len);
-const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name);
+const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenString *name);
+const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char* name, size_t len);
 
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 
@@ -492,7 +489,7 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
  *
  * The format currently is <field> <weight>, <field> <weight> ...
  */
-StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
+StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name,
                                    RedisModuleString **argv, int argc, QueryError *status);
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type);
@@ -509,7 +506,10 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef spec_ref, IndexSpec *sp);
 void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */
-StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
+StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc, QueryError *status);
+// Calls IndexSpec_Parse after wrapping name with a hidden string
+StrongRef IndexSpec_ParseC(const char *name, const char **argv, int argc, QueryError *status);
+
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
 // This function locks the spec for writing. use it if you know the spec is not locked
@@ -616,7 +616,7 @@ void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
 RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s, FieldType forType);
 
-IndexSpec *NewIndexSpec(const char *name);
+IndexSpec *NewIndexSpec(const HiddenString *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
 int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, int when);
@@ -635,7 +635,7 @@ typedef struct IndexesScanner {
   bool cancelled;
   bool isDebug;
   WeakRef spec_ref;
-  char *spec_name;
+  char *spec_name_for_logs;
   size_t scannedKeys;
 } IndexesScanner;
 
@@ -648,19 +648,19 @@ typedef struct DebugIndexesScanner {
 } DebugIndexesScanner;
 
 
-double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, IndexSpec *sp);
+double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp);
 
 /**
  * @return the overhead used by the TAG fields in `sp`, i.e., the size of the
  * TrieMaps used for the `values` and `suffix` fields.
  */
-size_t IndexSpec_collect_tags_overhead(IndexSpec *sp);
+size_t IndexSpec_collect_tags_overhead(const IndexSpec *sp);
 
 /**
  * @return the overhead used by the TEXT fields in `sp`, i.e., the size of the
  * sp->terms and sp->suffix Tries.
  */
-size_t IndexSpec_collect_text_overhead(IndexSpec *sp);
+size_t IndexSpec_collect_text_overhead(const IndexSpec *sp);
 
 /**
  * @return the overhead used by the NUMERIC and GEO fields in `sp`, i.e., the accumulated size of all
@@ -674,6 +674,16 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
  */
 size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead);
 
+/**
+* obfuscate argument is used to determine how we will format the index name
+* if obfuscate is true we will return the obfuscated name
+* meant to allow us and the user to use the same commands with different outputs
+* meaning we don't want to have access to the user data
+* @return the formatted name of the index
+*/
+const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
+char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
+
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
@@ -684,6 +694,7 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
                                            RedisModuleString **hashFields);
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key);
+void Indexes_List(RedisModule_Reply* reply, bool obfuscate);
 
 //---------------------------------------------------------------------------------------------
 

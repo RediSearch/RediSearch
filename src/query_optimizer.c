@@ -28,7 +28,7 @@ void QOptimizer_Parse(AREQ *req) {
     }
     if (arng->sortKeys) {
       const char *name = arng->sortKeys[0];
-      const FieldSpec *field = IndexSpec_GetField(req->sctx->spec, name);
+      const FieldSpec *field = IndexSpec_GetFieldWithLength(req->sctx->spec, name, strlen(name));
       if (field && field->types == INDEXFLD_T_NUMERIC) {
         opt->field = field;
         opt->fieldName = name;
@@ -74,7 +74,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
   switch (node->type) {
     case QN_NUMERIC:
       // add support for multiple ranges on field
-      if (name && !strcmp(name, node->nn.nf->field->name)) {
+      if (name && !HiddenString_CompareC(node->nn.nf->fieldSpec->fieldName, name, strlen(name))) {
         ret = node;
       }
       break;
@@ -243,7 +243,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
       if (!opt->field) {
         // TODO: For now set to NONE. Maybe add use of FILTER
         opt->type = Q_OPT_NONE;
-        const FieldSpec *fs = opt->sortbyNode->nn.nf->field;
+        const FieldSpec *fs = opt->sortbyNode->nn.nf->fieldSpec;
         FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
         IndexIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->sortbyNode->nn.nf,
                                                              &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config,

@@ -283,7 +283,7 @@ def CursorOnCoordinator(env: Env):
 
     env.expect(
         'FT.AGGREGATE', 'non-existing', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1
-    ).error().contains('non-existing: no such index')
+    ).error().contains('No index exists with provided name non-existing')
 
     # Verify we can read from the cursor all the results.
     # The coverage proves that the `_FT.CURSOR READ` command is sent to the shards only when more results are needed.

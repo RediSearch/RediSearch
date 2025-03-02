@@ -13,35 +13,45 @@
 extern "C" {
 #endif
 
-typedef struct HiddenName HiddenName;
+typedef struct HiddenString HiddenString;
 
 // Hides the string, obfuscation is done elsewhere
 // Should discourage directly accessing the string and printing out user data
-HiddenName *NewHiddenName(const char *name, uint64_t length, bool takeOwnership);
-void HiddenName_Free(HiddenName *value, bool tookOwnership);
+// This is a security measure to prevent leaking user data
+// The additional takeOwnership determines whether to duplicate the buffer or directly point at the given buffer
+// HiddenString_Free must be called for the object to release it
+HiddenString *NewHiddenString(const char *name, size_t length, bool takeOwnership);
+// Frees a hidden string, if takeOwnership is true, the buffer is freed as well
+void HiddenString_Free(const HiddenString *value, bool tookOwnership);
 
-// comparison
-int HiddenName_Compare(const HiddenName *left, const HiddenName *right);
-int HiddenName_CompareC(const HiddenName *left, const char *right, size_t right_length);
-int HiddenName_CaseInsensitiveCompare(HiddenName *left, HiddenName *right);
-int HiddenName_CaseInsensitiveCompareC(HiddenName *left, const char *right, size_t right_length);
+// Comparison functions
+// CompareC overloads receive a const char* right argument for the comparison for backward compatibility with existing code
+// Eventually the hope is to remove them altogether.
+int HiddenString_Compare(const HiddenString *left, const HiddenString *right);
+int HiddenString_CompareC(const HiddenString *left, const char *right, size_t right_length);
+int HiddenString_CaseInsensitiveCompare(const HiddenString *left, const HiddenString *right);
+int HiddenString_CaseInsensitiveCompareC(const HiddenString *left, const char *right, size_t right_length);
 
 // ownership management
-HiddenName *HiddenName_Duplicate(const HiddenName *value);
-void HiddenName_TakeOwnership(HiddenName *hidden);
-void HiddenName_Clone(HiddenName *src, HiddenName **dst);
+HiddenString *HiddenString_Duplicate(const HiddenString *value);
+void HiddenString_TakeOwnership(HiddenString *hidden);
+void HiddenString_Clone(const HiddenString *src, HiddenString **dst);
 
-// allowed actions
-void HiddenName_SaveToRdb(HiddenName* value, RedisModuleIO* rdb);
-void HiddenName_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, HiddenName* value);
-RedisModuleString *HiddenName_CreateString(HiddenName* value, RedisModuleCtx* ctx);
+// Allowed actions
+// Save a hidden string to an RDB file, e.g an index name
+void HiddenString_SaveToRdb(const HiddenString* value, RedisModuleIO* rdb);
+// Remove a key from the keyspace using the hidden string, e.g an index name that
+// Used in legacy code, should be avoided in new code
+void HiddenString_DropFromKeySpace(RedisModuleCtx* redisCtx, const char* fmt, const HiddenString* value);
+// Creates a redis module string from a hidden string
+RedisModuleString *HiddenString_CreateRedisModuleString(const HiddenString* value, RedisModuleCtx* ctx);
 
 // Direct access to user data, should be used only when necessary
 // Avoid outputting user data to:
 // 1. Logs
 // 2. Metrics
 // 3. Command responses
-const char *HiddenName_GetUnsafe(const HiddenName* value, size_t* length);
+const char *HiddenString_GetUnsafe(const HiddenString* value, size_t* length);
 
 #ifdef __cplusplus
 }

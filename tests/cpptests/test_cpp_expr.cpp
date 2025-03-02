@@ -38,7 +38,9 @@ struct TEvalCtx : ExprEval {
 
     memset(static_cast<ExprEval *>(this), 0, sizeof(ExprEval));
 
-    root = ExprAST_Parse(s, strlen(s), &status_s);
+    HiddenString* hidden = NewHiddenString(s, strlen(s), false);
+    root = ExprAST_Parse(hidden, &status_s);
+    HiddenString_Free(hidden, false);
     if (!root) {
       assert(QueryError_HasError(&status_s));
     }
@@ -69,7 +71,7 @@ struct TEvalCtx : ExprEval {
   }
 
   const char *error() const {
-    return QueryError_GetError(&status_s);
+    return QueryError_GetUserError(&status_s);
   }
 
   operator bool() const {
@@ -115,11 +117,13 @@ TEST_F(ExprTest, testDump) {
     {"!9", {"!9", "!Number"}},
     {"((@foo + (sqrt(@bar) / @baz)) + ' ')", {"((@foo + (sqrt(@bar) / @baz)) + \" \")", "((@Text + (sqrt(@Text) / @Text)) + \"Text\")"}},
   };
-  for (auto& [expr, pair] : exprToDump) {
+  for (auto& [expression, pair] : exprToDump) {
     QueryError status = {QueryErrorCode(0)};
-    RSExpr *root = ExprAST_Parse(expr, strlen(expr), &status);
+    HiddenString *expr = NewHiddenString(expression, strlen(expression), false);
+    RSExpr *root = ExprAST_Parse(expr, &status);
+    HiddenString_Free(expr, false);
     if (!root) {
-      FAIL() << "Could not parse expression " << expr;
+      FAIL() << "Could not parse expression " << expression;
     }
     char *value = ExprAST_Dump(root, false);
     ASSERT_STREQ(value, pair.first);
@@ -205,8 +209,10 @@ TEST_F(ExprTest, testArithmetics) {
 TEST_F(ExprTest, testParser) {
   const char *e = "(((2 + 2) * (3 / 4) + 2 % 3 - 0.43) ^ -3)";
   QueryError status = {QueryErrorCode(0)};
-  RSExpr *root = ExprAST_Parse(e, strlen(e), &status);
-  ASSERT_TRUE(root) << "Could not parse expression " << e << " " << QueryError_GetError(&status);
+  HiddenString *hidden = NewHiddenString(e, strlen(e), false);
+  RSExpr *root = ExprAST_Parse(hidden, &status);
+  HiddenString_Free(hidden, false);
+  ASSERT_TRUE(root) << "Could not parse expression " << e << " " << QueryError_GetUserError(&status);
   // ExprAST_Print(root);
   // printf("\n");
 
@@ -219,8 +225,10 @@ TEST_F(ExprTest, testParser) {
 TEST_F(ExprTest, testGetFields) {
   const char *e = "@foo + sqrt(@bar) / @baz + ' '";
   QueryError status = {QueryErrorCode(0)};
-  RSExpr *root = ExprAST_Parse(e, strlen(e), &status);
-  ASSERT_TRUE(root) << "Failed to parse query " << e << " " << QueryError_GetError(&status);
+  HiddenString *hidden = NewHiddenString(e, strlen(e), false);
+  RSExpr *root = ExprAST_Parse(hidden, &status);
+  HiddenString_Free(hidden, false);
+  ASSERT_TRUE(root) << "Failed to parse query " << e << " " << QueryError_GetUserError(&status);
   RLookup lk;
 
   RLookup_Init(&lk, NULL);
@@ -251,7 +259,7 @@ struct EvalResult {
   std::string errmsg;
 
   static EvalResult failure(const QueryError *status = NULL) {
-    return EvalResult{0, false, status ? QueryError_GetError(status) : ""};
+    return EvalResult{0, false, status ? QueryError_GetUserError(status) : ""};
   }
 
   static EvalResult ok(double rv) {
@@ -260,7 +268,9 @@ struct EvalResult {
 };
 
 static EvalResult testEval(const char *e, RLookup *lk, RLookupRow *rr, QueryError *status) {
-  RSExpr *root = ExprAST_Parse(e, strlen(e), status);
+  HiddenString* hidden = NewHiddenString(e, strlen(e), false);
+  RSExpr *root = ExprAST_Parse(hidden, status);
+  HiddenString_Free(hidden, false);
   if (root == NULL) {
     assert(QueryError_HasError(status));
     return EvalResult::failure(status);
