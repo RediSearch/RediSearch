@@ -1,5 +1,6 @@
 {
     "image": "ubuntu:latest",
-    "onCreateCommand": ["./.devcontainer/onCreateCommand.sh"],
-    "postCreateCommand": "source venv/bin/activate"
+    "onCreateCommand": "./.devcontainer/onCreateCommand.sh",
+    "postCreateCommand": ["bash", "./.devcontainer/start_venv.sh"],
+    "postStartCommand": ["bash", "./.devcontainer/start_venv.sh"]
 }
