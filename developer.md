@@ -7,7 +7,7 @@ git clone --recursive https://github.com/RediSearch/RediSearch.git
 ```
 
 ## Dev container
-We have provided a dev container based on `ubuntu:latest` docker image with all the dependecies (Redis, build systems, rust, python virtual) installed. Just clone the repo and open it in the dev container. It will take a few minutes for the first time to download and install the dependencies.
+We have provided a dev container based on `ubuntu:latest` docker image with all the dependencies (Redis, build systems, rust, python virtual) installed. Just clone the repo and open it in the dev container. It will take a few minutes for the first time to download and install the dependencies.
 If you would like to built it on your machine without a docker, proceed to the next sections.
 
 ## Installing prerequisites
