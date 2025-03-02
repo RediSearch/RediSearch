@@ -26,7 +26,7 @@ on:
       rejson-branch:
         type: string
         default: '2.4'
-        description: 'Branch to use when building RedisJSON for tests (default: master)'
+        description: 'Branch to use when building RedisJSON for tests (default: 2.4)'
   workflow_call:
     inputs:
       test-config:

@@ -55,7 +55,7 @@ jobs:
       san: address
       env: ubuntu-latest
       container: ubuntu:jammy
-      rejson-branch: '2.6'
+      rejson-branch: '2.4'
 
   pr-validation:
     needs:
