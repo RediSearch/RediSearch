@@ -3,7 +3,7 @@ from time import sleep
 
 from includes import *
 from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip
-
+from RLTest import Env
 
 def testHammingScorer(env):
     conn = getConnectionByEnv(env)
