@@ -29,7 +29,8 @@ def testHammingScorer(env):
                       'SCORER', 'HAMMING', 'WITHSCORES', 'WITHPAYLOADS')
         env.assertEqual(res[2], '0')
 
-def testScoreIndex(env):
+def testScoreIndex():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
     conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
