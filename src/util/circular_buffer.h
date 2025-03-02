@@ -52,6 +52,7 @@ void *CircularBuffer_Reserve(CircularBuffer cb, bool *wasFull);
 void *CircularBuffer_Read(CircularBuffer cb, void *item);
 
 // Read All items from buffer to dst.
+// dst must be large enough to hold all items in the buffer.
 // This function is not thread-safe.
 // This function copies all items from the buffer to dst.
 size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance);
