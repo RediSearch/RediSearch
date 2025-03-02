@@ -44,21 +44,22 @@ make test          # run all tests
   TEST=name          # run specified test
 
 make pytest        # run python tests (tests/pytests)
-  COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
-  TEST=name          # e.g. TEST=test:testSearch
-  RLTEST_ARGS=...    # pass args to RLTest
+  COORD=1|oss|rlec     # test coordinator (1|oss: Open Source, rlec: Enterprise)
+  TEST=name            # e.g. TEST=test:testSearch
+  RLTEST_ARGS=...      # pass args to RLTest
+  REJSON=1|0           # also load RedisJSON module (default: 1)
   REJSON_BRANCH=branch # use RedisJSON module from branch (default: 'master')
   REJSON_PATH=path     # use RedisJSON module at `path` (default: '' - build from source)
   REJSON_ARGS=''       # pass args to RedisJSON module
-  EXT=1              # External (existing) environment
-  GDB=1              # RLTest interactive debugging
-  VG=1               # use Valgrind
-  VG_LEAKS=0         # do not search leaks with Valgrind
-  SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread)
-  ONLY_STABLE=1      # skip unstable tests
-  TEST_PARALLEL=n    # test parallalization
-  REDIS_VER=6    	 # redis version to run against
-  LOG_LEVEL=<level>  # server log level (default: debug)
+  EXT=1                # External (existing) environment
+  GDB=1                # RLTest interactive debugging
+  VG=1                 # use Valgrind
+  VG_LEAKS=0           # do not search leaks with Valgrind
+  SAN=type             # use LLVM sanitizer (type=address|memory|leak|thread)
+  ONLY_STABLE=1        # skip unstable tests
+  TEST_PARALLEL=n      # test parallalization
+  REDIS_VER=6    	   # redis version to run against
+  LOG_LEVEL=<level>    # server log level (default: debug)
 
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock

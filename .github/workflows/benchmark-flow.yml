@@ -13,10 +13,10 @@ on:
         default: bin/linux-x64-release/search/redisearch.so
       rejson_branch:
         type: string
-        default: '2.'
+        default: '2.4'
       rejson_module_path:
         type: string
-        default: bin/linux-x64-release/RedisJSON/2.8/rejson.so
+        default: bin/linux-x64-release/RedisJSON/2.4/rejson.so
       profile_env:
         type: number # for default of 0
       cluster_env:
