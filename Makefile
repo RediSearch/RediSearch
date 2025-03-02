@@ -49,8 +49,7 @@ make test          # run all tests
   TEST=name          # run specified test
 
 make pytest        # run python tests (tests/pytests)
-  REDIS_STANDALONE=1|0 # test with standalone/cluster Redis
-  SA=1|0               # alias for REDIS_STANDALONE
+  COORD=1|oss|rlec     # test coordinator (1|oss: Open Source, rlec: Enterprise)
   TEST=name            # e.g. TEST=test:testSearch
   RLTEST_ARGS=...      # pass args to RLTest
   REJSON_BRANCH=branch # use RedisJSON module from branch (default: 'master')
