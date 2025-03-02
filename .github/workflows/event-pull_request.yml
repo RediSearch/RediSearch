@@ -28,7 +28,7 @@ jobs:
       env: ubuntu-latest
       test-config: QUICK=1
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      rejson-branch: '2.8'
+      rejson-branch: '2.6'
     secrets: inherit
 
   coverage:
