@@ -66,7 +66,7 @@ def testGetConfigOptions(env):
     check_config('_PRIORITIZE_INTERSECT_UNION_CHILDREN')
     check_config('MINSTEMLEN')
     check_config('INDEX_CURSOR_LIMIT')
-
+    check_config('ENABLE_UNSTABLE_FEATURES')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
@@ -93,6 +93,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
 
 
 @skip(cluster=True)
@@ -152,6 +153,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
+    env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -380,3 +382,26 @@ def testInitConfigCoord():
 @skip(cluster=False)
 def testImmutableCoord(env):
     env.expect('_ft.config', 'set', 'SEARCH_THREADS').error().contains(not_modifiable)
+
+@skip(cluster=True)
+def testUnstableFeaturesOffByDefault():
+    """Tests that the unstable features are off by default."""
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+
+    # Prepare the index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+
+    # Add a document
+    env.cmd('HSET', 'doc1', 'title', 'hello world')
+
+    # -------------------- BM25STD.NORM scorer --------------------
+    env.expect('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM') \
+        .error().contains('Scorer BM25STD.NORM not available when `ENABLE_UNSTABLE_FEATURES` is off')
+
+    env.cmd(config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
+
+    res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+
+    # Check the score (only 1 doc..)
+    env.assertEqual(round(float(res[2]), 5), 0.14286)
