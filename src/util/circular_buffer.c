@@ -207,6 +207,10 @@ void *CircularBuffer_Read(CircularBuffer cb, void *item) {
   return read;
 }
 
+// Read all items from buffer.
+// dst must be large enough to hold all items in the buffer.
+// This function is not thread-safe.
+// This function pops the oldest item from the buffer.
 size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance){
   RedisModule_Assert(cb != NULL);
 
@@ -220,7 +224,6 @@ size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance){
   uint64_t write = cb->write;
   uint idx = write / cb->item_size;
   int read_idx = idx - item_count;
-
   read_idx = (read_idx >= 0) ? read_idx : (cb->item_cap + read_idx);
 
   size_t first_chunk = (read_idx + item_count <= cb->item_cap) ? item_count : (cb->item_cap - read_idx);
