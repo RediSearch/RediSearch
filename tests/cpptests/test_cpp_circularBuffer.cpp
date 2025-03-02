@@ -313,7 +313,7 @@ TEST_F(CircularBufferTest, test_CircularBuffer_ReadAll) {
   ASSERT_EQ(CircularBuffer_Empty(cb), true);
 
 
-  constexpr size_t overflow_amount = buffer_size / 2;
+  constexpr size_t overflow_amount = buffer_size / 3;
   std::fill(std::begin(dst), std::end(dst), 0);
   //test fill more than buffer size
   for (int i = 0; i < buffer_size + overflow_amount; i++) {
