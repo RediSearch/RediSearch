@@ -19,12 +19,9 @@ $MODE yum install -y https://packages.endpointdev.com/rhel/7/os/${ARCH}/endpoint
 $MODE yum groupinstall -y "Development Tools"
 $MODE yum -y install centos-release-scl
 
-# Install clang latest available repositories (we need >= 5.0.0)
-$MODE curl -o /etc/yum.repos.d/llvm.repo https://packages.endpointdev.com/rhel/7/os/${ARCH}/endpoint-repo.${ARCH}.rpm
-
 set_all_baseurls # set the baseurls again before installing devtoolset-11 (some new repos were added)
 $MODE yum -y install openssl-devel openssl bzip2-devel libffi-devel wget which git sqlite sqlite-devel\
-    devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make devtoolset-11-libatomic-devel rsync libclang-dec clang
+    devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make devtoolset-11-libatomic-devel rsync libclang-dec clang-5.0.0
 
 source /opt/rh/devtoolset-11/enable
 
