@@ -1290,9 +1290,6 @@ static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv
     goto error;
   }
 
-  // We don't need debug args anymore
-  debug_params.debug_argv = NULL;
-  debug_params.debug_params_count = 0;
   return REDISMODULE_OK;
 
 error:

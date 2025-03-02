@@ -46,33 +46,71 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
 
   // Parse the debug params
   // For example debug_params = TIMEOUT_AFTER_N 2 [INTERNAL_ONLY]
-  size_t debug_argv_iter = 0;
-  while (debug_argv_iter < debug_params_count) {
-    size_t n;
-    const char *cmd = RedisModule_StringPtrLen(debug_argv[debug_argv_iter++], &n);
-    if (strncasecmp(cmd, "TIMEOUT_AFTER_N", n) == 0) {
-      unsigned long long results_count;
-      if (RedisModule_StringToULongLong(debug_argv[debug_argv_iter++], &results_count) != REDISMODULE_OK) {
-        QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid TIMEOUT_AFTER_N count");
-        return REDISMODULE_ERR;
-      }
-      // Check for optional argument
-      if (debug_argv_iter != debug_params_count) {
-        // timeout should be applied only for shard commands
-        cmd = RedisModule_StringPtrLen(debug_argv[debug_argv_iter++], &n);
-        if (isClusterCoord(debug_req) && (strncasecmp(cmd, "INTERNAL_ONLY", n) == 0)) {
-          if (results_count == 0 && debug_req->r.reqConfig.queryTimeoutMS == 0) {
-            RedisModule_Log(RSDummyContext, "debug", "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 to avoid infinite loop");
-            debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
-          }
-        }
-      }
+  ArgsCursor ac = {0};
+  ArgsCursor_InitRString(&ac, debug_argv, debug_params_count);
+  ArgsCursor timeoutArgs = {0};
+  int internal_only = 0;
+  int dummy_debug_option = 0;
+  ACArgSpec debugArgsSpec[] = {
+      // Getting TIMEOUT_AFTER_N as an array to use AC_IsInitialized API.
+      {.name = "TIMEOUT_AFTER_N",
+       .type = AC_ARGTYPE_SUBARGS_N,
+       .target = &timeoutArgs,
+       .slicelen = 1},
+      // optional arg for TIMEOUT_AFTER_N
+      {.name = "INTERNAL_ONLY", .type = AC_ARGTYPE_BOOLFLAG, .target = &internal_only},
+      // Used for testing purposes.
+      {.name = "DUMMY_DEBUG_OPTION", .type = AC_ARGTYPE_BOOLFLAG, .target = &dummy_debug_option},
+      {NULL}};
 
+  ACArgSpec *errSpec = NULL;
+  int rv = AC_ParseArgSpec(&ac, debugArgsSpec, &errSpec);
+  if (rv != AC_OK) {
+    if (rv == AC_ERR_ENOENT) {
+      // Argument not recognized
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Unrecognized argument: %s",
+                             AC_GetStringNC(&ac, NULL));
+    } else if (errSpec) {
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "%s: %s", errSpec->name, AC_Strerror(rv));
+    } else {
+      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Error parsing arguments: %s",
+                             AC_Strerror(rv));
+    }
+    return REDISMODULE_ERR;
+  }
+
+  if (AC_IsInitialized(&timeoutArgs)) {
+    unsigned long long results_count = -1;
+    if (AC_GetUnsignedLongLong(&timeoutArgs, &results_count, AC_F_GE0) != AC_OK) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid TIMEOUT_AFTER_N count");
+      return REDISMODULE_ERR;
+    }
+
+    // Check if timeout should be applied only in the shard query pipeline
+    if (internal_only && isClusterCoord(debug_req)) {
+      if (debug_req->r.reqConfig.queryTimeoutMS == 0) {
+        RedisModule_Log(RSDummyContext, "debug",
+                        "Forcing coordinator timeout for TIMEOUT_AFTER_N 0 and query timeout 0 "
+                        "to avoid infinite loop");
+        debug_req->r.reqConfig.queryTimeoutMS = COORDINATOR_FORCED_TIMEOUT;
+      }
+    } else {  // INTERNAL_ONLY was not provided, or we are not in a cluster coordinator
+      // Add timeout to the pipeline
       // Note, this will add a result processor as the downstream of the last result processor
       // (rpidnext for SA, or RPNext for cluster)
       // Take this into account when adding more debug types that are modifying the rp pipeline.
       PipelineAddTimeoutAfterCount(&debug_req->r, results_count);
     }
+  } else {
+    if (internal_only) {
+      QueryError_SetError(status, QUERY_EPARSEARGS,
+                          "INTERNAL_ONLY must be used with TIMEOUT_AFTER_N");
+      return REDISMODULE_ERR;
+    }
+  }
+
+  if (dummy_debug_option) {
+    // Do noting
   }
 
   return REDISMODULE_OK;

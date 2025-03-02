@@ -76,7 +76,7 @@
  * **Cluster Mode:**
  *
  * - **`FT.SEARCH`**
- *   - The coordinator does not check for timeouts, and there is no query pipeline in `FT.SEARCH`.
+ *   - When the timeout policy is non strict, the coordinator does not check for timeouts, and there is no query pipeline in `FT.SEARCH`.
  *   - Timeout simulation is applied only at the shard level.
  *   - Each shard processes `N` results before returning a timeout warning.
  *   - Since the coordinator aggregates all shard responses, the final result will contain
@@ -105,7 +105,7 @@
  *    as the order of replies depends on timing. If a shard with insufficient results replies
  *    first (EOF), the results will not align with `N`, leading to potential inconsistencies. See details below.
  *
- * 4. When Does Result Length is Not Aligned with N
+ * 4. When Does Result Length Not Align with N
  *    - If the first shard’s reply contains fewer than N results due to EOF,
  *      subsequent replies might push the total accumulated results past N, and the
  *      exact alignment with N is lost.
