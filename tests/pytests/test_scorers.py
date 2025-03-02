@@ -144,24 +144,33 @@ def testBM25ScorerExplanation(env):
     env.expect('ft.add', 'idx', 'doc3{hash_tag}', 0.1, 'fields', 'title', 'hello yet another world',' body', 'lorem ist ipsum lorem lorem').ok()
     res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25')
     env.assertEqual(res[0], 3)
-    if env.isCluster():
-        env.assertContains('Final BM25', res[2][1][0])
-        env.assertContains('Final BM25', res[5][1][0])
-        env.assertContains('Final BM25', res[8][1][0])
-    else:
-        env.assertEqual(res[2][1], ['Final BM25 : words BM25 1.56 * document score 0.50 / slop 1',
-                            [['(Weight 1.00 * children BM25 1.56)',
-                            ['(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
-                            '(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
-        env.assertEqual(res[5][1], ['Final BM25 : words BM25 1.56 * document score 1.00 / slop 2',
-                            [['(Weight 1.00 * children BM25 1.56)',
-                            ['(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
-                            '(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
-        env.assertEqual(res[8][1], ['Final BM25 : words BM25 1.56 * document score 0.10 / slop 3',
-                            [['(Weight 1.00 * children BM25 1.56)',
-                            ['(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
-                            '(0.78 = IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
+    env.assertEqual(res[2][1], ['Final BM25 : words BM25 1.56 * document score 0.50 / slop 1',
+                        [['(Weight 1.00 * children BM25 1.56)',
+                        ['(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
+                        '(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
+    env.assertEqual(res[5][1], ['Final BM25 : words BM25 1.56 * document score 1.00 / slop 2',
+                        [['(Weight 1.00 * children BM25 1.56)',
+                        ['(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
+                        '(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
+    env.assertEqual(res[8][1], ['Final BM25 : words BM25 1.56 * document score 0.10 / slop 3',
+                        [['(Weight 1.00 * children BM25 1.56)',
+                        ['(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
+                        '(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
 
+    res = env.cmd('ft.search', 'idx', '((@title:(hello => {$weight: 0.5;}|world) => {$weight: 0.7;}) => {$weight: 0.3;})', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25', 'nocontent')
+
+    env.assertEqual(res[2][1],['Final BM25 : words BM25 0.35 * document score 0.50 / slop 1',
+                                [['(Weight 0.30 * children BM25 1.17)',
+                                ['(0.39 = Weight 0.50 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
+                                    '(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
+    env.assertEqual(res[4][1],['Final BM25 : words BM25 0.35 * document score 1.00 / slop 2',
+                                [['(Weight 0.30 * children BM25 1.17)',
+                                ['(0.39 = Weight 0.50 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
+                                    '(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
+    env.assertEqual(res[6][1], ['Final BM25 : words BM25 0.35 * document score 0.10 / slop 3',
+                                [['(Weight 0.30 * children BM25 1.17)',
+                                ['(0.39 = Weight 0.50 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))',
+                                    '(0.78 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 3.67)))']]]])
 
 def testDisMaxScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
