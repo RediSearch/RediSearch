@@ -1789,11 +1789,11 @@ IndexSpec *NewIndexSpec(const char *name) {
   int res = 0;
   pthread_rwlockattr_t attr;
   res = pthread_rwlockattr_init(&attr);
-  RedisModule_Assert(res == 0);
+  RS_ASSERT(res == 0);
 #if !defined(__APPLE__) && !defined(__FreeBSD__) && defined(__GLIBC__)
   int pref = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP;
   res = pthread_rwlockattr_setkind_np(&attr, pref);
-  RedisModule_Assert(res == 0);
+  RS_ASSERT(res == 0);
 #endif
 
   pthread_rwlock_init(&sp->rwlock, &attr);
@@ -1824,7 +1824,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
       case DocumentType_Json:
         fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
       case DocumentType_Unsupported:
-        RS_LOG_ASSERT(0, "shouldn't get here");
+        RS_ABORT("shouldn't get here");
     }
   }
   fs->indexError = IndexError_Init();
@@ -2962,7 +2962,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     rv = Document_LoadSchemaFieldJson(&doc, &sctx, &status);
     break;
   case DocumentType_Unsupported:
-    RS_LOG_ASSERT(0, "Should receive valid type");
+    RS_ABORT("Should receive valid type");
   }
 
   if (rv != REDISMODULE_OK) {
