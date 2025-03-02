@@ -399,7 +399,7 @@ def testRussianAlphabet(env):
         env.assertEqual(res, expected, message=f'Dialect: {dialect}')
 
 def testDiacritics(env):
-    ''' Test that caracters with diacritics are converted to lowercase, but the
+    ''' Test that characters with diacritics are converted to lowercase, but the
     diacritics are not removed.
     '''
     conn = getConnectionByEnv(env)
@@ -482,77 +482,79 @@ def testDiacriticLimitation(env):
 
 @skip(cluster=True)
 def testStopWords(env):
-    '''Test that stopwords are not indexed, but for multibyte characters they
-    are not converted to lowercase correctly. This is a limitation that will be
-    fixed by MOD-8443'''
+    '''Test that stopwords using multibyte characters are converted to lowercase
+    correctly
+    '''
 
     conn = getConnectionByEnv(env)
-    # test with russian lowercase stopwords
+    # test with multi-byte lowercase stopwords
     env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
-            'STOPWORDS', 3, 'и', 'не', 'от',
+            'STOPWORDS', 4, 'и', 'не', 'от', 'fußball',
             'SCHEMA', 't', 'TEXT', 'NOSTEM')
 
-    conn.execute_command('HSET', 'doc:1', 't', 'не ясно') # 1 term
+    conn.execute_command('HSET', 'doc:1', 't', 'не ясно fußball') # 1 term
     conn.execute_command('HSET', 'doc:2', 't', 'Мужчины и женщины') # 2 terms
     conn.execute_command('HSET', 'doc:3', 't', 'от одного до десяти') # 3 terms
     # create the same text with different case
-    conn.execute_command('HSET', 'doc:4', 't', 'НЕ ЯСНО')
+    conn.execute_command('HSET', 'doc:4', 't', 'НЕ ЯСНО FUßBALL')
     conn.execute_command('HSET', 'doc:5', 't', 'МУЖЧИНЫ И ЖЕНЩИНЫ')
     conn.execute_command('HSET', 'doc:6', 't', 'ОТ ОДНОГО ДО ДЕСЯТИ')
+
     # only 6 terms are indexed, the stopwords are not indexed
+    expected_terms = ['десяти', 'до', 'женщины', 'мужчины', 'одного', 'ясно']
     res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx1')
     env.assertEqual(len(res), 6)
-    env.assertEqual(res, ['десяти', 'до', 'женщины', 'мужчины', 'одного', 'ясно'])
+    env.assertEqual(res, expected_terms)
 
     # check the stopwords list - lowercase
+    expected_stopwords = ['fußball', 'и', 'не', 'от']
     res = index_info(env, 'idx1')['stopwords_list']
-    env.assertEqual(res, ['и', 'не', 'от'])
+    env.assertEqual(res, expected_stopwords)
 
     for dialect in range(1, 5):
         run_command_on_all_shards(env, config_cmd(),
                                   'SET', 'DEFAULT_DIALECT', dialect)
 
         # search for a stopword term should return 0 results
-        res = conn.execute_command('FT.SEARCH', 'idx1', '@t:(не | от | и)')
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx1', '@t:(не | от | и | fußball)',)
         env.assertEqual(res, [0])
-        res = conn.execute_command('FT.SEARCH', 'idx1', '@t:(НЕ | ОТ | И)')
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx1', '@t:(НЕ | ОТ | И | FUßBALL)')
         env.assertEqual(res, [0])
 
 
-    # test with russian uppercase stopwords.
+    # test with multi-byte uppercase stopwords.
     env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
-            'STOPWORDS', 3, 'И', 'НЕ', 'ОТ',
+            'STOPWORDS', 4, 'И', 'НЕ', 'ОТ', 'FUßBALL',
             'SCHEMA', 't', 'TEXT', 'NOSTEM')
     waitForIndex(env, 'idx2')
-    # This fails, there are 9 terms because the stopwords are not converted
-    # to lowercase correctly
-    # Ticket created to fix this: MOD-8443
+    # only 6 terms are indexed, the stopwords are not indexed, the same terms
+    # as idx1
     res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx2')
-    env.assertEqual(len(res), 9)
-    env.assertEqual(res, ['десяти', 'до', 'женщины', 'и', 'мужчины', 'не',
-                          'одного', 'от', 'ясно'])
+    env.assertEqual(len(res), 6)
+    env.assertEqual(res, expected_terms)
 
     # check the stopwords list - uppercase
     res = index_info(env, 'idx2')['stopwords_list']
-    env.assertEqual(res, ['И', 'НЕ', 'ОТ'])
+    # the stopwords are converted to lowercase
+    env.assertEqual(res, expected_stopwords)
 
     for dialect in range(1, 5):
         run_command_on_all_shards(env, config_cmd(),
                                   'SET', 'DEFAULT_DIALECT', dialect)
-
-        # In idx2, the stopwords were created with uppercase, and currently they
-        # are not converted to lowercase.
-        # So the search for the stopwords in lowercase returns all the docs.
-        expected = [6, 'doc:5', 'doc:2', 'doc:4', 'doc:6', 'doc:1', 'doc:3']
+        # In idx2, the stopwords were created with uppercase, but they are
+        # converted to lowercase.
+        # So the search for the stopwords in lowercase returns 0 docs.
         res = conn.execute_command('FT.SEARCH', 'idx2', '@t:(не | от | и)',
                                    'NOCONTENT', 'SORTBY', 't')
-        env.assertEqual(res, expected, message=f'Dialect: {dialect}')
+        env.assertEqual(res, [0])
 
         # Search for the stopwords in uppercase should return 0 results, because
         # they were not indexed.
-        res = conn.execute_command('FT.SEARCH', 'idx2', '@t:(НЕ | ОТ | И)',
+        res = conn.execute_command('FT.SEARCH', 'idx2', '@t:(НЕ | ОТ | И | FÜßBALL)',
                                    'NOCONTENT', 'SORTBY', 't')
-        env.assertEqual(res, [0], message=f'Dialect: {dialect}')
+        env.assertEqual(res, [0])
 
 def testInvalidMultiByteSequence(env):
     '''Test that invalid multi-byte sequences are ignored when indexing terms.
@@ -1259,7 +1261,7 @@ def testSuggestions(env):
     res = conn.execute_command('FT.SUGGET', 'sug', 'dreisi')
     env.assertEqual(res, ['Dreißig'], message = 'dreisi')
 
-    # same case for suggestion with İ characterss which is folded as two
+    # same case for suggestion with İ characters which is folded as two
     # codepoints: (U+0069)(U+0307) : (i)(combining dot above)
     test_value = 'İ = Letter I with dot above'
     expected = [test_value]
