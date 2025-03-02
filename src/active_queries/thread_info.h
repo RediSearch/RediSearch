@@ -17,7 +17,10 @@ extern "C" {
 typedef struct {
   pthread_t tid;         // pthread thread id
   pid_t Ltid;            // Linux thread id
-  StrongRef specRef;     // Strong reference to the IndexSpec
+  WeakRef specRef;       // Weak reference to the IndexSpec
+  // WeakRef vs StrongRef consideration
+  // If we obtain a strong ref then failure is possible
+  // We don't want to fail in
 } ThreadInfo;
 
 // Call in module startup, initializes the thread local storage

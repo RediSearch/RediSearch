@@ -20,9 +20,13 @@ pthread_key_t threadInfoKey;
 
 bool initialized = false;
 
+void FreeInfo(void *ctx) {
+  rm_free(ctx);
+}
+
 int ThreadLocalStorage_Init() {
   assert(!initialized);
-  int rc = pthread_key_create(&threadInfoKey, NULL);
+  int rc = pthread_key_create(&threadInfoKey, FreeInfo);
   if (rc) {
     return rc;
   }
@@ -76,18 +80,15 @@ ThreadInfo *CurrentThread_GetInfo() {
 
 void CurrentThread_SetIndexSpec(StrongRef specRef) {
   ThreadInfo *info = CurrentThread_GetInfo();
-  if (info) {
-    info->specRef = StrongRef_Clone(specRef);
-    assert(info->specRef.rm != NULL);
-  }
+  assert(specRef.rm != NULL);
+  info->specRef = StrongRef_Demote(specRef);
 }
 
 void CurrentThread_ClearIndexSpec() {
   ThreadInfo *info = pthread_getspecific(threadInfoKey);
   if (info) {
     assert(info->specRef.rm != NULL);
-    StrongRef_Release(info->specRef);
-    rm_free(info);
-    pthread_setspecific(threadInfoKey, NULL);
+    WeakRef_Release(info->specRef);
+    info->specRef.rm = NULL;
   }
 }

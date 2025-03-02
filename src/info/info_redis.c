@@ -287,9 +287,12 @@ void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
     return;
   }
   RedisModule_InfoAddSection(ctx, "current_thread");
-  IndexSpec *spec = StrongRef_Get(currentThread->specRef);
+  StrongRef strong = WeakRef_Promote(currentThread->specRef);
+  IndexSpec *spec = StrongRef_Get(strong);
   if (spec) {
     RedisModule_InfoAddFieldCString(ctx, "index", spec->name);
+  } else {
+    RedisModule_InfoAddFieldCString(ctx, "index", "n/a");
   }
 }
 
