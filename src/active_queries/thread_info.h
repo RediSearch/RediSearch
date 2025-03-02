@@ -19,8 +19,10 @@ typedef struct {
   pid_t Ltid;            // Linux thread id
   WeakRef specRef;       // Weak reference to the IndexSpec
   // WeakRef vs StrongRef consideration
-  // If we obtain a strong ref then failure is possible
-  // We don't want to fail in
+  // If we obtain a strong ref then failure is possible - e.g index was just deleted after strong ref was taken
+  // By obtaining a weak ref we avoid the immediate failure - it will be handled in the case we crash
+  // By holding a weak ref we ensure we could still access the memory even if the thread forgot to call
+  // CurrentThread_ClearIndexSpec
 } ThreadInfo;
 
 // Call in module startup, initializes the thread local storage

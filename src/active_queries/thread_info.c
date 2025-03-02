@@ -21,6 +21,11 @@ pthread_key_t threadInfoKey;
 bool initialized = false;
 
 void FreeInfo(void *ctx) {
+  ThreadInfo *info = (ThreadInfo *) ctx;
+  if (info->specRef.rm != NULL) {
+    RedisModule_Log(RSDummyContext, "warning", "Thread %lu did not clean up the index references", info->tid);
+    WeakRef_Release(info->specRef);
+  }
   rm_free(ctx);
 }
 
