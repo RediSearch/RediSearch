@@ -801,3 +801,21 @@ def field_errors(env, idx = 'idx', fld_index = 0):
 def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):
       yield env.getConnection(shardId=s)
+
+def waitForIndexFinishScan(env, idx = 'idx'):
+    while index_info(env, idx)['percent_indexed'] != '1':
+        time.sleep(0.1)
+
+def bgScanCommand():
+    return debug_cmd() + ' BG_SCAN_CONTROLLER'
+
+def getDebugScannerStatus(env, idx = 'idx'):
+    return env.cmd(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
+
+def checkDebugScannerError(env, idx = 'idx', expected_error = ''):
+    env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx).error() \
+        .contains(expected_error)
+
+def waitForIndexPauseScan(env, idx = 'idx'):
+    while getDebugScannerStatus(env, idx)!='PAUSED':
+        time.sleep(0.1)
