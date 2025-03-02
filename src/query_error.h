@@ -192,9 +192,6 @@ static inline int QueryError_HasError(const QueryError *status) {
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code);
 
-#define ADD_QUERY_ERROR(name, err, query_ptr, key) \
-name ## _AddError(err, QueryError_GetDisplayableError(query_ptr, true), QueryError_GetDisplayableError(query_ptr, false), key);
-
 #ifdef __cplusplus
 }
 #endif
