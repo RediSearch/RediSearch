@@ -2059,6 +2059,7 @@ void Profile_AddIters(IndexIterator **root) {
     case PROFILE_ITERATOR:
     case MAX_ITERATOR:
       RS_ABORT("Error");
+      break;
   }
 
   // Create a profile iterator and update outparam pointer

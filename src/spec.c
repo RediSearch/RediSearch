@@ -1825,6 +1825,7 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
         fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
       case DocumentType_Unsupported:
         RS_ABORT("shouldn't get here");
+        break;
     }
   }
   fs->indexError = IndexError_Init();
@@ -2963,6 +2964,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     break;
   case DocumentType_Unsupported:
     RS_ABORT("Should receive valid type");
+    break;
   }
 
   if (rv != REDISMODULE_OK) {

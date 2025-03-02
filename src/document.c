@@ -677,6 +677,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
       RS_ABORT("Unsupported field type for GEO index");
+      break;
   }
 
   const char *str = NULL;
@@ -1026,6 +1027,7 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len) {
     case FLD_VAR_T_GEO:
     case FLD_VAR_T_GEOMETRY:
       RS_ABORT("invalid types");
+      break;
   }
   return NULL;
 }
