@@ -1,0 +1,5 @@
+{
+    "image": "ubuntu:latest",
+    "onCreateCommand": ["./.devcontainer/onCreateCommand.sh"],
+    "postCreateCommand": "source venv/bin/activate"
+}

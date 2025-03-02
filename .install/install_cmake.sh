@@ -25,5 +25,6 @@ else
         chmod u+x ./${filename}
         $MODE ./${filename} --skip-license --prefix=/usr/local --exclude-subdir
         cmake --version
+        rm ./${filename}
     fi
 fi
