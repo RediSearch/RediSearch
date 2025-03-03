@@ -12,6 +12,7 @@
 #include "rmutil/args.h"
 #include "query_error.h"
 #include "query_node.h"
+#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 extern "C" {

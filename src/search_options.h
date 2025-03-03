@@ -14,6 +14,7 @@
 #include "config.h"
 #include "rlookup.h"
 #include "util/dict.h"
+#include "obfuscation/hidden.h"
 
 typedef enum {
   // No summaries

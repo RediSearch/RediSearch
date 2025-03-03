@@ -16,6 +16,7 @@
 #include "rs_geo.h"
 #include "numeric_index.h"
 #include "query_node.h"
+#include "obfuscation/hidden.h"
 
 typedef struct geoIndex {
   RedisSearchCtx *ctx;
