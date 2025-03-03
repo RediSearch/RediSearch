@@ -16,6 +16,7 @@
 #include "rs_geo.h"
 #include "numeric_index.h"
 #include "query_node.h"
+#include "obfuscation/hidden.h"
 
 typedef struct geoIndex {
   RedisSearchCtx *ctx;
@@ -38,13 +39,19 @@ typedef enum {  // Placeholder for bad/invalid unit
 } GeoDistance;
 
 typedef struct GeoFilter {
-  const FieldSpec *field;
+  const FieldSpec *spec;
   double lat;
   double lon;
   double radius;
   GeoDistance unitType;
   NumericFilter **numericFilters;
 } GeoFilter;
+
+typedef struct {
+  GeoFilter base;
+  HiddenString *field;
+} LegacyGeoFilter;
+
 
 /* Create a geo filter from parsed strings and numbers */
 GeoFilter *NewGeoFilter(double lon, double lat, double radius, const char *unit, size_t unit_len);
@@ -61,8 +68,9 @@ GeoDistance GeoDistance_Parse_Buffer(const char *s, size_t len);
 int GeoFilter_Validate(const GeoFilter *gf, QueryError *status);
 
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0] */
-int GeoFilter_LegacyParse(GeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status);
+int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status);
 void GeoFilter_Free(GeoFilter *gf);
+void LegacyGeoFilter_Free(LegacyGeoFilter *gf);
 IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *gf, ConcurrentSearchCtx *csx, IteratorsConfig *config);
 
 /*****************************************************************************/

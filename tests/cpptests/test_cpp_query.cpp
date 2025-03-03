@@ -97,7 +97,7 @@ TEST_F(QueryTest, testParser_delta) {
   ctx.spec = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
 
-  // wildcard with parentheses are avalible from version 2
+  // wildcard with parentheses are available from version 2
   assertInvalidQuery_v(1, "(*)");
   assertValidQuery_v(2, "(*)");
 
@@ -712,7 +712,7 @@ TEST_F(QueryTest, testGeoQuery_v1) {
 
   QueryNode *gn = n->children[1];
   ASSERT_EQ(gn->type, QN_GEO);
-  ASSERT_STREQ(gn->gn.gf->field->name, "loc");
+  ASSERT_STREQ(gn->gn.gf->spec->name, "loc");
   ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
@@ -738,7 +738,7 @@ TEST_F(QueryTest, testGeoQuery_v2) {
 
   QueryNode *gn = n->children[2];
   ASSERT_EQ(gn->type, QN_GEO);
-  ASSERT_STREQ(gn->gn.gf->field->name, "loc");
+  ASSERT_STREQ(gn->gn.gf->spec->name, "loc");
   ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);

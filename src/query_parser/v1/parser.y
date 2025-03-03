@@ -530,20 +530,20 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
-    A = NewNumericNode(C);
-    if (ctx->sctx->spec) {
-        A->nn.nf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
-        if (!A->nn.nf->field) {
-            QueryNode_Free(A);
-            A = NULL;
-        }
+    A = NULL;
+    const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len) : NULL;
+    if (fs) {
+        A = NewNumericNode(C, fs);
+    } else if (C) {
+        QueryParam_Free(C);
+        C = NULL;
     }
 }
 
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
   A = NewQueryParam(QP_NUMERIC_FILTER);
-  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive, true);
+  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive, true, NULL);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -555,8 +555,8 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
     A = NewGeofilterNode(C);
     if (ctx->sctx->spec) {
-        A->gn.gf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
-        if (!A->gn.gf->field) {
+        A->gn.gf->spec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
+        if (!A->gn.gf->spec) {
             QueryNode_Free(A);
             A = NULL;
         }
