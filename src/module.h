@@ -37,6 +37,8 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 int IsMaster();
 bool IsEnterprise();
 
+size_t GetNumShards_UnSafe();
+
 void GetFormattedRedisVersion(char *buf, size_t len);
 void GetFormattedRedisEnterpriseVersion(char *buf, size_t len);
 
@@ -135,6 +137,9 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
 void SpecialCaseCtx_Free(specialCaseCtx* ctx);
 
 void processResultFormat(uint32_t *flags, MRReply *map);
+
+int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 #ifdef __cplusplus
 }
