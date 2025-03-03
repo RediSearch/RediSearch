@@ -398,6 +398,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
     // of these are handled above, so no need for argument parsing
     hs = AC_GetHiddenStringNC(&subArgs);
     const char *s = HiddenString_GetUnsafe(hs, NULL);
+    HiddenString_Free(hs, false);
     array_append(keys, s);
 
     if (legacyDesc) {
