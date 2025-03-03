@@ -1111,7 +1111,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     // Parse path and name of field
     size_t namelen;
     HiddenString *hfieldPath = AC_GetHiddenStringNC(ac);
-    HiddenString *hfieldName = hfieldPath;
+    HiddenString *hfieldName;
     if (AC_AdvanceIfMatch(ac, SPEC_AS_STR)) {
       if (AC_IsAtEnd(ac)) {
         QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_AS_STR " requires an argument");
@@ -1122,6 +1122,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       sp->flags |= Index_HasFieldAlias;
     } else {
       // if `AS` is not used, set the path as name
+      hfieldName = hfieldPath;
       hfieldPath = NULL;
     }
 
@@ -1129,9 +1130,9 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     const char *fieldPath = hfieldPath ? HiddenString_GetUnsafe(hfieldPath, NULL): NULL;
 
     if (hfieldName != hfieldPath) {
-      HiddenString_Free(hfieldName, false);
+      HiddenString_Free(hfieldPath, false);
     }
-    HiddenString_Free(hfieldPath, false);
+    HiddenString_Free(hfieldName, false);
 
 
     if (IndexSpec_GetFieldWithLength(sp, fieldName, namelen)) {
