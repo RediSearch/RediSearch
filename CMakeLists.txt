@@ -80,6 +80,11 @@ else()
     set(SSL_LIBS crypto crypt ssl)
 endif()
 
+# On debug artifacts, enable assertions
+if (DEBUG)
+    add_compile_definitions(ENABLE_ASSERT=1)
+endif()
+
 #----------------------------------------------------------------------------------------------
 
 include(${root}/build/libuv/libuv.cmake)

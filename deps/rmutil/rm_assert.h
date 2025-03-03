@@ -17,7 +17,7 @@
         RedisModule_Assert(condition); /* Crashes server and create a crash report*/ \
     }
 
-#ifdef NDEBUG
+#ifndef ENABLE_ASSERT
 #define RS_LOG_ASSERT_FMT(condition, fmt, ...) // NOP
 #else
 #define RS_LOG_ASSERT_FMT(condition, fmt, ...) _RS_LOG_ASSERT_FMT(condition, fmt, __VA_ARGS__)

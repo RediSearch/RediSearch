@@ -11,7 +11,7 @@
 #include <stdbool.h>
 
 #include "minmax_heap.h"
-
+#include "rmutil/rm_assert.h"
 #include "rmalloc.h"
 
 /*

@@ -7,7 +7,7 @@
 #include "cluster.h"
 #include "crc16.h"
 #include "crc12.h"
-#include "rm_assert.h"
+#include "rmutil/rm_assert.h"
 
 #include <stdlib.h>
 

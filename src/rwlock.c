@@ -7,7 +7,7 @@
 #include "rwlock.h"
 #include "rmalloc.h"
 #include "util/arr_rm_alloc.h"
-#include <rm_assert.h>
+#include "rmutil/rm_assert.h"
 
 pthread_mutex_t rwLockMutex;
 pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;

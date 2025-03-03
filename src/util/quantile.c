@@ -9,11 +9,11 @@
 #include <string.h>
 #include <math.h>
 #include <float.h>
-#include <assert.h>
 #include <stdio.h>
 #include "util/block_alloc.h"
 #include "quantile.h"
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 typedef struct Sample {
   // Variables are named per the paper

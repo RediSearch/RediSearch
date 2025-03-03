@@ -1,6 +1,11 @@
-#include <stdio.h>
-#include <rm_assert.h>
+/*
+ * Copyright Redis Ltd. 2016 - present
+ * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
+ * the Server Side Public License v1 (SSPLv1).
+ */
 
+ #include <stdio.h>
+#include <rmutil/rm_assert.h>
 #include "wildcard.h"
 
 match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, size_t str_len) {

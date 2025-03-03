@@ -477,6 +477,8 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
     return RedisModule_WrongArity(ctx);
   }
 
+  RS_ABORT("(Raz) Test");
+
   if (RedisModule_GetSelectedDb(ctx) != 0) {
     return RedisModule_ReplyWithError(ctx, "Cannot create index on db != 0");
   }

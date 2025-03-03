@@ -8,6 +8,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 static void freeCommon(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, size_t elemSize,
                        int reuse) {

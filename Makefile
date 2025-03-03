@@ -68,6 +68,7 @@ make pytest        # run python tests (tests/pytests)
   ONLY_STABLE=1        # skip unstable tests
   TEST_PARALLEL=n      # test parallalization
   LOG_LEVEL=<level>    # server log level (default: debug)
+  ENABLE_ASSERT=1      # enable assertions
 
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
@@ -186,6 +187,10 @@ endif
 
 ifeq ($(VERBOSE_UTESTS),1)
 CC_FLAGS.common += -DVERBOSE_UTESTS
+endif
+
+ifeq ($(ENABLE_ASSERT),1)
+CC_FLAGS.common += -DENABLE_ASSERT
 endif
 
 #----------------------------------------------------------------------------------------------
