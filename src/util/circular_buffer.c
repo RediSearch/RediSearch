@@ -244,7 +244,7 @@ size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance){
     // advance read position
     // circle back if read reached the end of the buffer
     cb->item_count = 0;
-    cb->read = cb->data + cb->write * cb->item_size;
+    cb->read = cb->data + cb->write;
   }
   // update buffer item count
   return item_count;
