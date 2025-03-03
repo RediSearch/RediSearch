@@ -70,7 +70,7 @@ help() {
 		RLTEST_DEBUG=1        Show debugging printouts from tests
 		RLTEST_ARGS=args      Extra RLTest args
 		LOG_LEVEL=<level>     Set log level (default: debug)
-		TEST_TIMEOUT=n        Set RLTest test timeout in seconds (default: 300)
+		TEST_TIMEOUT=n        Set RLTest test timeout in seconds (default: 420)
 
 		PARALLEL=1            Runs tests in parallel
 		SLOW=1                Do not test in parallel
