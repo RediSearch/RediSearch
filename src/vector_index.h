@@ -41,7 +41,7 @@
 #define VECSIM_DISTANCE_METRIC "DISTANCE_METRIC"
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
-  QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create %s index without specifying %s argument", algorithm, arg)
+  QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)
 
 #define VECSIM_KNN_K_TOO_LARGE_ERR_MSG "KNN K parameter is too large"
 

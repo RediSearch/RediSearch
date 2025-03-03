@@ -227,7 +227,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
     QueryError status = {0};
     if(parseDialect(&dialect, &ac, &status) != REDISMODULE_OK) {
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+      RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
       QueryError_ClearError(&status);
       return REDISMODULE_OK;
     }
@@ -246,7 +246,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, dialect, &status);
 
   if (rc != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     goto end;
   }
 
@@ -484,7 +484,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
   if (sp == NULL) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
     return REDISMODULE_OK;
   }
@@ -1755,7 +1755,7 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
     QueryVectorNode queryVectorNode = queryNode->vn;
     size_t k = queryVectorNode.vq->knn.k;
     if (k > MAX_KNN_K) {
-      QueryError_SetErrorFmt(status, QUERY_ELIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
       goto cleanup;
     }
     specialCaseCtx *ctx = SpecialCaseCtx_New();
@@ -3063,7 +3063,7 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // Reply with error
-    return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "No index exists with provided name %s", idx);
   }
 
   bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);
@@ -3224,7 +3224,7 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
 
   if (!req) {
     RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
-    RedisModule_ReplyWithError(clientCtx, QueryError_GetError(&status));
+    RedisModule_ReplyWithError(clientCtx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, NULL);
@@ -3350,7 +3350,7 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // Reply with error
-    return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "No index exists with provided name %s", idx);
   }
 
   bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);

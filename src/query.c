@@ -628,7 +628,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   size_t nstr;
   rune *str = qn->pfx.tok.str ? strToLowerRunes(qn->pfx.tok.str, &nstr) : NULL;
   if (!str) {
-    QueryError_SetErrorFmt(q->status, QUERY_ELIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
+    QueryError_SetWithoutUserDataFmt(q->status, QUERY_ELIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
     return NULL;
   }
 
@@ -652,7 +652,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
       };
       Suffix_IterateContains(&sufCtx);
     } else {
-      QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
+      QueryError_SetError(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
   } else {
     TrieNode_IterateContains(t->root, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
@@ -723,7 +723,7 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
         fallbackBruteForce = true;
       }
     } else {
-      QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
+      QueryError_SetError(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
   }
 
@@ -960,7 +960,7 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   IndexIterator *ret = api->query(q->sctx, &filterCtx, index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
   if (ret == NULL) {
-    QueryError_SetErrorFmt(q->status, QUERY_EBADVAL, "Error querying geoshape index: %s",
+    QueryError_SetWithUserDataFmt(q->status, QUERY_EBADVAL, "Error querying geoshape index", ": %s",
                            RedisModule_StringPtrLen(errMsg, NULL));
     RedisModule_FreeString(NULL, errMsg);
   }
@@ -975,12 +975,14 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     if (qn->vn.vq->scoreField) {
       // Since the KNN syntax allows specifying the distance field in two ways (...=>[KNN ... AS <dist_field>] and
       // ...=>[KNN ...]=>{$YIELD_DISTANCE_AS:<dist_field>), we validate that we got it only once.
-      char default_score_field[strlen(qn->vn.vq->field->name) + 9];  // buffer for __<field>_score
-      sprintf(default_score_field, "__%s_score", qn->vn.vq->field->name);
+      size_t len = strlen(qn->vn.vq->field->name);
+      const char *fieldName = qn->vn.vq->field->name;
+      char default_score_field[len + 9];  // buffer for __<field>_score
+      sprintf(default_score_field, "__%s_score", fieldName);
       // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
       if (strcasecmp(qn->vn.vq->scoreField, default_score_field) != 0) {
-        QueryError_SetErrorFmt(q->status, QUERY_EDUPFIELD,
-                               "Distance field was specified twice for vector query: %s and %s",
+        QueryError_SetWithUserDataFmt(q->status, QUERY_EDUPFIELD,
+                               "Distance field was specified twice for vector query", ": %s and %s",
                                qn->vn.vq->scoreField, qn->opts.distField);
         return NULL;
       }
@@ -1027,6 +1029,7 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
 
   // a union stage with one child is the same as the child, so we just return it
   if (QueryNode_NumChildren(qn) == 1) {
+    qn->children[0]->opts.fieldMask &= qn->opts.fieldMask;
     return Query_EvalNode(q, qn->children[0]);
   }
 
@@ -1693,7 +1696,7 @@ static inline bool QueryNode_DoesIndexEmpty(QueryNode *n, IndexSpec *spec, RSSea
 // empty strings, we should return an error
 static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
   if (n->tn.len == 0 && n->tn.str && !strcmp(n->tn.str, "") && !QueryNode_DoesIndexEmpty(n, spec, opts)) {
-    QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Use `%s` in field creation in order to index and query for empty strings", SPEC_INDEXEMPTY_STR);
+    QueryError_SetError(status, QUERY_ESYNTAX, "Use `" SPEC_INDEXEMPTY_STR "` in field creation in order to index and query for empty strings");
     return false;
   }
   return true;
@@ -1738,7 +1741,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       break;
     case QN_NUMERIC: {
         if (n->nn.nf->min > n->nn.nf->max) {
-          QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric range (min > max): @%s:[%f %f]",
+          QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid numeric range (min > max)", ": @%s:[%f %f]",
                                  n->nn.nf->fieldSpec->name, n->nn.nf->min, n->nn.nf->max);
           res = REDISMODULE_ERR;
         }
@@ -1942,7 +1945,6 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     case QN_GEO:
-
       s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", qs->gn.gf->spec->name, qs->gn.gf->lon,
                        qs->gn.gf->lat, qs->gn.gf->radius,
                        GeoDistance_ToString(qs->gn.gf->unitType));
@@ -2117,8 +2119,8 @@ static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr)
 
 static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryError *status) {
 
-#define MK_INVALID_VALUE()                                                         \
-  QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid value (%.*s) for `%.*s`", \
+#define MK_INVALID_VALUE()                                                             \
+  QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid value", " (%.*s) for `%.*s`", \
                          (int)attr->vallen, attr->value, (int)attr->namelen, attr->name)
 
   int res = 0;
@@ -2187,7 +2189,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
   }
 
   if (!res) {
-    QueryError_SetErrorFmt(status, QUERY_ENOOPTION, "Invalid attribute %.*s", (int)attr->namelen,
+    QueryError_SetWithUserDataFmt(status, QUERY_ENOOPTION, "Invalid attribute", " %.*s", (int)attr->namelen,
                            attr->name);
   }
   return res;
