@@ -231,7 +231,7 @@ jobs:
           (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
         uses: actions/upload-artifact@v4
         with:
-          name: Test Logs ${{ steps.artifact-names.outputs.name }} & Library
+          name: Test Logs ${{ steps.artifact-names.outputs.name }}
           path: tests/**/logs/*.log*
           if-no-files-found: ignore
       # If node20 is not supported, we can only use version 3.

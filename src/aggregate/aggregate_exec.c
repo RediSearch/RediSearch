@@ -928,8 +928,7 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     clock_gettime(CLOCK_MONOTONIC, &r->qiter.initTime);
   }
 
-  // This function also builds the RedisSearchCtx, and registers the thread to
-  // the active-threads container (if successful).
+  // This function also builds the RedisSearchCtx
   // It will search for the spec according the the name given in the argv array,
   // and ensure the spec is valid.
   if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {

@@ -14,44 +14,39 @@
 #endif
 
 // TLS key for the main thread
-pthread_key_t activeQueriesKey;
+static pthread_key_t activeQueriesKey;
 // TLS key for a spec information
-pthread_key_t specInfoKey;
+static pthread_key_t specInfoKey;
 
-bool initialized = false;
+static void __attribute__((constructor)) initializeKeys() {
+  int rc = pthread_key_create(&activeQueriesKey, NULL);
+  assert(rc == 0);
+  rc = pthread_key_create(&specInfoKey, NULL);
+  assert(rc == 0);
+}
+
+static void __attribute__((destructor)) destroyKeys() {
+  pthread_key_delete(specInfoKey);
+  pthread_key_delete(activeQueriesKey);
+}
+
+static bool initialized = false;
 
 int ThreadLocalStorage_Init() {
-  assert(!initialized);
-  pthread_key_t *keys[] = { &activeQueriesKey, &specInfoKey };
-  for (int i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
-    int rc = pthread_key_create(&specInfoKey, NULL);
-    if (rc != 0) {
-      return rc;
-    }
-  }
   // Assumption: the main thread called the Init function
   // If watchdog kills the process it will notify the main thread which will use this list to output useful information
   ActiveQueries *activeQueries = ActiveQueries_Init();
   int rc = pthread_setspecific(activeQueriesKey, activeQueries);
-  if (rc) {
-    if (activeQueries) {
-      ActiveQueries_Free(activeQueries);
-    }
-    return rc;
-  }
+  assert(rc == 0);
   initialized = true;
-  return rc;
 }
 
 void ThreadLocalStorage_Destroy() {
   if (!initialized) {
     return;
   }
-  pthread_key_delete(specInfoKey);
   ActiveQueries *activeQueries = pthread_getspecific(activeQueriesKey);
   ActiveQueries_Free(activeQueries);
-  pthread_key_delete(activeQueriesKey);
-  initialized = false;
 }
 
 ActiveQueries *GetActiveQueries() {
