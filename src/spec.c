@@ -1115,6 +1115,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     if (AC_AdvanceIfMatch(ac, SPEC_AS_STR)) {
       if (AC_IsAtEnd(ac)) {
         QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_AS_STR " requires an argument");
+        HiddenString_Free(hfieldName, false);
         goto reset;
       }
       hfieldName = AC_GetHiddenStringNC(ac);
@@ -1126,6 +1127,12 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
     const char *fieldName = HiddenString_GetUnsafe(hfieldName, &namelen);
     const char *fieldPath = hfieldPath ? HiddenString_GetUnsafe(hfieldPath, NULL): NULL;
+
+    if (hfieldName != hfieldPath) {
+      HiddenString_Free(hfieldName, false);
+    }
+    HiddenString_Free(hfieldPath, false);
+
 
     if (IndexSpec_GetFieldWithLength(sp, fieldName, namelen)) {
       QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Duplicate field in schema", " - %s", fieldName);
