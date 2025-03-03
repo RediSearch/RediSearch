@@ -15,15 +15,14 @@ extern "C" {
 #endif
 
 typedef struct {
-  pthread_t tid;         // pthread thread id
-  pid_t Ltid;            // Linux thread id
+  char *specName;        // Index name, useful if can't obtain a spec from the weak reference
   WeakRef specRef;       // Weak reference to the IndexSpec
   // WeakRef vs StrongRef consideration
   // If we obtain a strong ref then failure is possible - e.g index was just deleted after strong ref was taken
   // By obtaining a weak ref we avoid the immediate failure - it will be handled in the case we crash
   // By holding a weak ref we ensure we could still access the memory even if the thread forgot to call
   // CurrentThread_ClearIndexSpec
-} ThreadInfo;
+} SpecInfo;
 
 // Call in module startup, initializes the thread local storage
 // 0 - success, otherwise the returned int is a system error code
@@ -35,7 +34,7 @@ void ThreadLocalStorage_Destroy();
 ActiveQueries *GetActiveQueries();
 
 // Get the thread local info for the current thread
-ThreadInfo* CurrentThread_GetInfo();
+SpecInfo* CurrentThread_GetSpecInfo();
 // Set the current spec the current thread is working on
 // If the thread will crash while pointing to this spec then the spec information will be outputted
 void CurrentThread_SetIndexSpec(StrongRef specRef);

@@ -282,17 +282,20 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
 }
 
 void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
-  ThreadInfo *currentThread = CurrentThread_GetInfo();
-  if (!currentThread) {
+  SpecInfo *specInfo = CurrentThread_GetSpecInfo();
+  if (!specInfo) {
     return;
   }
   RedisModule_InfoAddSection(ctx, "current_thread");
-  StrongRef strong = WeakRef_Promote(currentThread->specRef);
-  IndexSpec *spec = StrongRef_Get(strong);
-  if (spec) {
-    RedisModule_InfoAddFieldCString(ctx, "index", spec->name);
-  } else {
-    RedisModule_InfoAddFieldCString(ctx, "index", "n/a");
+  if (specInfo) {
+    StrongRef strong = WeakRef_Promote(specInfo->specRef);
+    IndexSpec *spec = StrongRef_Get(strong);
+    if (!spec) {
+      RedisModule_InfoAddFieldCString(ctx, "index", specInfo->specName ? specInfo->specName : "n/a");
+    } else {
+      RedisModule_InfoAddFieldCString(ctx, "index", spec->name);
+      // output FT.INFO
+    }
   }
 }
 
