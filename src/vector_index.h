@@ -27,6 +27,7 @@
 #define VECSIM_ALGORITHM_BF "FLAT"
 #define VECSIM_ALGORITHM_HNSW "HNSW"
 #define VECSIM_ALGORITHM_TIERED "TIERED"
+#define VECSIM_ALGORITHM_SVS "SVS"
 
 #define VECSIM_INITIAL_CAP "INITIAL_CAP"
 #define VECSIM_BLOCKSIZE "BLOCK_SIZE"
@@ -39,6 +40,26 @@
 #define VECSIM_TYPE "TYPE"
 #define VECSIM_DIM "DIM"
 #define VECSIM_DISTANCE_METRIC "DISTANCE_METRIC"
+#define VECSIM_GRAPH_DEGREE "GRAPH_DEGREE"
+#define VECSIM_WINDOW_SIZE "WS_CONSTRUCTION"
+#define VECSIM_NUM_THREADS "NUM_THREADS"
+#define VECSIM_WSSEARCH "WS_SEARCH"
+#define VECSIM_MAX_CANDIDATE_POOL_SIZE "CANDIDATE_POOL_SIZE"
+#define VECSIM_PRUNE_TO "PRUNE_TO"
+#define VECSIM_ALPHA "ALPHA"
+#define VECSIM_USE_SEARCH_HISTORY "USE_SEARCH_HISTORY"
+#define VECSIM_USE_SEARCH_HISTORY_ON "ON"
+#define VECSIM_USE_SEARCH_HISTORY_OFF "OFF"
+#define VECSIM_USE_SEARCH_HISTORY_DEFAULT "DEFAULT"
+#define VECSIM_QUANT_BITS "QUANTIZATION"
+#define VECSIM_QUANT_BITS_NONE "NO"
+#define VECSIM_QUANT_BITS_0 "0"
+#define VECSIM_QUANT_BITS_4 "4"
+#define VECSIM_QUANT_BITS_8 "8"
+#define VECSIM_QUANT_BITS_4X4 "4X4"
+#define VECSIM_QUANT_BITS_4X8 "4X8"
+
+
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
   QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create %s index without specifying %s argument", algorithm, arg)
@@ -127,6 +148,8 @@ size_t VecSimType_sizeof(VecSimType type);
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
+const char *VecSimQuantBits_ToString(VecSimQuantBits quantBits);
+const char *VecSimSearchHistory_ToString(VecSimOptionBool option);
 
 void VecSimParams_Cleanup(VecSimParams *params);
 
