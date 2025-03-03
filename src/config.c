@@ -792,16 +792,20 @@ CONFIG_BOOLEAN_GETTER(getFilterCommand, filterCommands, 0)
 // UPGRADE_INDEX
 CONFIG_SETTER(setUpgradeIndex) {
   size_t dummy2;
-  const char *indexName;
+  const char *rawIndexName;
   SchemaRuleArgs *rule = NULL;
-  int acrc = AC_GetString(ac, &indexName, NULL, 0);
+  size_t len;
+  int acrc = AC_GetString(ac, &rawIndexName, &len, 0);
 
   if (acrc != AC_OK) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Index name was not given to upgrade argument");
     return REDISMODULE_ERR;
   }
 
+  // We aren't taking ownership on the string we got from the user, less cost memory-wise
+  HiddenString *indexName = NewHiddenString(rawIndexName, len, false);
   if (dictFetchValue(legacySpecRules, indexName)) {
+    HiddenString_Free(indexName, false);
     QueryError_SetError(status, QUERY_EPARSEARGS,
                         "Upgrade index definition was given more then once on the same index");
     return REDISMODULE_ERR;
@@ -823,6 +827,7 @@ CONFIG_SETTER(setUpgradeIndex) {
     if (rc != AC_ERR_ENOENT) {
       QERR_MKBADARGS_AC(status, errarg->name, rc);
       rm_free(rule);
+      HiddenString_Free(indexName, false);
       return REDISMODULE_ERR;
     }
   }
@@ -851,8 +856,8 @@ CONFIG_SETTER(setUpgradeIndex) {
   rule->type = rm_strdup(RULE_TYPE_HASH);
 
   // add rule to rules dictionary
-  dictAdd(legacySpecRules, (char *)indexName, rule);
-
+  dictAdd(legacySpecRules, (void*)indexName, rule);
+  HiddenString_Free(indexName, false);
   return REDISMODULE_OK;
 }
 

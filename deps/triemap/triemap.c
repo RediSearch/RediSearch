@@ -330,7 +330,7 @@ TrieMapNode *TrieMapNode_FindNode(TrieMapNode *n, char *str, tm_len_t len, tm_le
     }
 
     // we've reached the end of the string - return the node even if it's not
-    // temrinal
+    // terminal
     if (offset == len) {
       // let the caller know the local offset
       if (poffset) {
@@ -516,7 +516,7 @@ int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, freeCB func) {
   return deleted;
 }
 
-size_t TrieMap_MemUsage(TrieMap *t) {
+size_t TrieMap_MemUsage(const TrieMap *t) {
   return t->size * (sizeof(TrieMapNode) +    // size of struct
                     sizeof(TrieMapNode *) +  // size of ptr to struct in parent node
                     1 +                      // char key to children in parent node
@@ -918,7 +918,7 @@ static int __fullmatch_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void
 }
 
 /*
- * The function is called after a match of one characther was found.
+ * The function is called after a match of one character was found.
  * It checks whether the partial match is a full match and if not, it returns 0.
  * If a full match is found, in `suffix` mode the string buffer is updated and return 1.
  * In `contains`, an internal iterator is created. and return all children until exhuasted.
