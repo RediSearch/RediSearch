@@ -153,12 +153,12 @@ setup_rltest() {
 	LOG_LEVEL=${LOG_LEVEL:-debug}
 	RLTEST_ARGS+=" --log-level $LOG_LEVEL"
 
-	TEST_TIMEOUT=${TEST_TIMEOUT:-700}
+	TEST_TIMEOUT=${TEST_TIMEOUT:-420}
 	RLTEST_ARGS+=" --test-timeout $TEST_TIMEOUT"
 
-	if [[ $RLTEST_VERBOSE == 1 ]]; then
+	# if [[ $RLTEST_VERBOSE == 1 ]]; then
 		RLTEST_ARGS+=" -v"
-	fi
+	# fi
 	if [[ $RLTEST_DEBUG == 1 ]]; then
 		RLTEST_ARGS+=" --debug-print"
 	fi
