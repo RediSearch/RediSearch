@@ -260,10 +260,8 @@ include $(MK)/rules
 clean:
 ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
-	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo clean
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
-	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo clean
 endif
 
 #----------------------------------------------------------------------------------------------
@@ -310,9 +308,8 @@ endif
 
 redisearch_rs:
 	@echo Building redisearch_rs..
-	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo build $(RUST_BUILD_MODE)
 	$(SHOW)mkdir -p $(REDISEARCH_RS_BINDIR)
-	$(SHOW)cp -r $(REDISEARCH_RS_DIR)/target/$(RUST_ARTIFACT_SUBDIR)/*.a $(REDISEARCH_RS_BINDIR)
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && CARGO_TARGET_DIR=$(REDISEARCH_RS_BINDIR) cargo build $(RUST_BUILD_MODE)
 
 # Ensure that redisearch_rs is built before attempting to build the main module
 $(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile redisearch_rs

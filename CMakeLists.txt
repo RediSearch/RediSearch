@@ -156,8 +156,8 @@ if (BUILD_STATIC)
     setup_shared_object_target(redisearch "")
     target_link_libraries(redisearch redisearch-geometry VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
     target_link_libraries(redisearch
-  		debug ${root}/src/redisearch_rs/target/debug/libtrie_rs.a
-  		optimized ${root}/src/redisearch_rs/target/release/libtrie_rs.a)
+  		debug ${binroot}/redisearch_rs/debug/libtrie_rs.a
+  		optimized ${binroot}/redisearch_rs/release/libtrie_rs.a)
 
     set(TEST_MODULE "redisearch-static")
     set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
@@ -177,8 +177,8 @@ else() # OSS RediSearch
             ${REDISEARCH_LIBS}
             ${CMAKE_LD_LIBS})
     target_link_libraries(redisearch
-  		debug ${root}/src/redisearch_rs/target/debug/libtrie_rs.a
-  		optimized ${root}/src/redisearch_rs/target/release/libtrie_rs.a)
+  		debug ${binroot}/redisearch_rs/debug/libtrie_rs.a
+  		optimized ${binroot}/redisearch_rs/release/libtrie_rs.a)
 
     extract_debug_symbols(redisearch)
 
