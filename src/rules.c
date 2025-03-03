@@ -251,7 +251,7 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  assert(japi);
+  RS_ASSERT(japi);
   if (!japi) {
     goto done;
   }
@@ -319,7 +319,7 @@ double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  assert(japi);
+  RS_ASSERT(japi);
   if (!japi) {
     goto done;
   }

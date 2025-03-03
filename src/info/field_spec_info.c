@@ -78,7 +78,7 @@ static FieldSpecStats FieldStats_Deserialize(const char* type, const MRReply* re
 // IO and cluster traits
 
 void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply){
-    assert(stats);
+    RS_ASSERT(stats);
 
     switch (stats->type) {
         case INDEXFLD_T_VECTOR:

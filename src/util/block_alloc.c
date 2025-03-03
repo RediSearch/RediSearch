@@ -67,7 +67,7 @@ static BlkAllocBlock *getNewBlock(BlkAlloc *alloc, size_t blockSize) {
         if (cur == alloc->avail) {
           alloc->avail = cur->next;
         } else {
-          assert(prev != NULL);
+          RS_ASSERT(prev != NULL);
           prev->next = cur->next;
         }
         break;
@@ -92,7 +92,7 @@ static BlkAllocBlock *getNewBlock(BlkAlloc *alloc, size_t blockSize) {
 }
 
 void *BlkAlloc_Alloc(BlkAlloc *blocks, size_t elemSize, size_t blockSize) {
-  assert(blockSize >= elemSize);
+  RS_ASSERT(blockSize >= elemSize);
   if (!blocks->root) {
     blocks->root = blocks->last = getNewBlock(blocks, blockSize);
 

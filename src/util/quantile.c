@@ -93,7 +93,7 @@ static inline void verifyCount(const QuantStream *stream) {
 #define INSERT_BEFORE 0
 #define INSERT_AFTER 1
 static void QS_InsertSampleAt(QuantStream *stream, Sample *pos, Sample *sample) {
-  assert(pos);
+  RS_ASSERT(pos);
   // printf("Inserting. Num=%lu. First=%p. Last=%p. posPrev=%p. posNext=%p\n",
   // stream->samplesLength,
   //        stream->firstSample, stream->lastSample, pos->prev, pos->next);
@@ -113,15 +113,15 @@ static void QS_InsertSampleAt(QuantStream *stream, Sample *pos, Sample *sample) 
 }
 
 static void QS_AppendSample(QuantStream *stream, Sample *sample) {
-  assert(sample->prev == NULL && sample->next == NULL);
+  RS_ASSERT(sample->prev == NULL && sample->next == NULL);
   if (stream->lastSample == NULL) {
-    assert(stream->samplesLength == 0);
+    RS_ASSERT(stream->samplesLength == 0);
     stream->lastSample = stream->firstSample = sample;
   } else {
     sample->prev = stream->lastSample;
     stream->lastSample->next = sample;
     stream->lastSample = sample;
-    assert(stream->samplesLength > 0);
+    RS_ASSERT(stream->samplesLength > 0);
   }
 
   stream->samplesLength++;
@@ -197,7 +197,7 @@ static void QS_Flush(QuantStream *stream) {
     }
 
     if (!inserted) {
-      assert(pos == NULL);
+      RS_ASSERT(pos == NULL);
       newSample->d = 0;
       QS_AppendSample(stream, newSample);
     }
@@ -241,7 +241,7 @@ static void QS_Compress(QuantStream *stream) {
 }
 
 void QS_Insert(QuantStream *stream, double val) {
-  assert(stream->bufferLength != stream->bufferCap);
+  RS_ASSERT(stream->bufferLength != stream->bufferCap);
   stream->buffer[stream->bufferLength] = val;
   if (++stream->bufferLength == stream->bufferCap) {
     QS_Flush(stream);

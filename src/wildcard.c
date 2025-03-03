@@ -1,5 +1,5 @@
 #include <stdio.h>
-#include <assert.h>
+#include <rm_assert.h>
 
 #include "wildcard.h"
 
@@ -57,7 +57,7 @@ match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, s
     pattern_itr = np_itr;
     str_itr = ns_itr;
   }
-  assert(0);
+  RS_ASSERT("Error");
   return FULL_MATCH;
 }
 
@@ -100,7 +100,7 @@ match_t Wildcard_MatchRune(const rune *pattern, size_t p_len, const rune *str, s
     pattern_itr = np_itr;
     str_itr = ns_itr;
   }
-  assert(0);
+  RS_ABORT("Error");
   return FULL_MATCH;
 }
 

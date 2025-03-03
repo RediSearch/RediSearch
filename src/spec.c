@@ -1539,7 +1539,7 @@ void IndexSpec_Free(IndexSpec *spec) {
   // For temporary index
   // This function might be called from any thread, and we cannot deal with timers without the GIL.
   // At this point we should have already stopped the timer.
-  assert(!spec->isTimerSet);
+  RS_ASSERT(!spec->isTimerSet);
   // Stop and destroy indexer
   if (spec->indexer) {
     Indexer_Free(spec->indexer);
@@ -2738,7 +2738,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       int rc = IndexAlias_Add(s, spec_ref, 0, &status);
       RedisModule_Free(s);
-      assert(rc == REDISMODULE_OK);
+      RS_ASSERT(rc == REDISMODULE_OK);
     }
   }
   sp->indexer = NewIndexer(sp);

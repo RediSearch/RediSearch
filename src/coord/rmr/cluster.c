@@ -7,6 +7,7 @@
 #include "cluster.h"
 #include "crc16.h"
 #include "crc12.h"
+#include "rm_assert.h"
 
 #include <stdlib.h>
 
@@ -255,7 +256,7 @@ int MRCLuster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopo) {
 
 
 void MRCluster_UpdateConnPerShard(MRCluster *cl, size_t new_conn_pool_size) {
-  assert(new_conn_pool_size > 0);
+  RS_ASSERT(new_conn_pool_size > 0);
   size_t old_conn_pool_size = cl->mgr.nodeConns;
   if (old_conn_pool_size > new_conn_pool_size) {
     MRConnManager_Shrink(&cl->mgr, new_conn_pool_size);
