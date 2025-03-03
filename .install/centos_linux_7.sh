@@ -21,7 +21,7 @@ $MODE yum -y install centos-release-scl
 
 set_all_baseurls # set the baseurls again before installing devtoolset-11 (some new repos were added)
 $MODE yum -y install openssl-devel openssl bzip2-devel libffi-devel wget which git sqlite sqlite-devel\
-    devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make devtoolset-11-libatomic-devel rsync
+    devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make devtoolset-11-libatomic-devel rsync libclang-dec clang-5.0.0
 
 source /opt/rh/devtoolset-11/enable
 
