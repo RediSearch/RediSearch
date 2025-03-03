@@ -20,7 +20,7 @@ extern "C" {
     RSValue *dref = RSValue_Dereference(&args[idx]);                                           \
     if (!verifier(dref, varg)) {                                                               \
                                                                                                \
-      QueryError_SetUserDataAgnosticErrorFmt(                                                      \
+      QueryError_SetWithoutUserDataFmt(                                                      \
           ctx->err, QUERY_EPARSEARGS,                                                          \
           "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.", dref->t, \
           idx, fname, #verifier, #varg);                                                       \

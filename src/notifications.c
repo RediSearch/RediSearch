@@ -346,10 +346,10 @@ bool getHideUserDataFromLogs() {
 void onUpdatedHideUserDataFromLogs(RedisModuleCtx *ctx) {
   RSGlobalConfig.hideUserDataFromLog = getHideUserDataFromLogs();
   if (RSGlobalConfig.hideUserDataFromLog) {
-    RedisModule_Log(ctx, "info", "Hide user data from search logs is now enabled, "
+    RedisModule_Log(ctx, "notice", "Hide user data from search logs is now enabled, "
                    "search entity names (such as indexes and fields) in the logs will now be obfuscated");
   } else {
-    RedisModule_Log(ctx, "info", "Hide user data from search logs is now disabled, "
+    RedisModule_Log(ctx, "notice", "Hide user data from search logs is now disabled, "
                    "search entity names (such as indexes and fields) in the logs will now be visible");
   }
 }

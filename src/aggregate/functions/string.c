@@ -110,7 +110,7 @@ int func_to_number(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   if (!RSValue_ToNumber(&argv[0], &n)) {
     size_t sz = 0;
     const char *p = RSValue_StringPtrLen(&argv[0], &sz);
-    QueryError_SetErrorFmt(ctx->err, QUERY_EPARSEARGS, "to_number: cannot convert string", " '%s'", p);
+    QueryError_SetWithUserDataFmt(ctx->err, QUERY_EPARSEARGS, "to_number: cannot convert string", " '%s'", p);
     return EXPR_EVAL_ERR;
   }
 

@@ -45,7 +45,7 @@ static bool ensureSimpleMode(AREQ *areq) {
  */
 static int ensureExtendedMode(AREQ *areq, const char *name, QueryError *status) {
   if (areq->reqflags & QEXEC_F_IS_SEARCH) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL,
+    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL,
                            "option `%s` is mutually exclusive with simple (i.e. search) options",
                            name);
     return 0;
@@ -160,7 +160,7 @@ int parseDialect(unsigned int *dialect, ArgsCursor *ac, QueryError *status) {
       return REDISMODULE_ERR;
     }
     if ((AC_GetUnsigned(ac, dialect, AC_F_GE1) != AC_OK) || (*dialect > MAX_DIALECT_VERSION)) {
-      QueryError_SetUserDataAgnosticErrorFmt(
+      QueryError_SetWithoutUserDataFmt(
         status, QUERY_EPARSEARGS,
         "DIALECT requires a non negative integer >=%u and <= %u",
         MIN_DIALECT_VERSION, MAX_DIALECT_VERSION
@@ -276,16 +276,16 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       //(SEARCH / AGGREGATE)
     } else if ((arng->limit > req->maxSearchResults) &&
                (req->reqflags & QEXEC_F_IS_SEARCH)) {
-      QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              req->maxSearchResults);
       return ARG_ERROR;
     } else if ((arng->limit > req->maxAggregateResults) &&
                !(req->reqflags & QEXEC_F_IS_SEARCH)) {
-      QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "LIMIT exceeds maximum of %llu",
                              req->maxAggregateResults);
       return ARG_ERROR;
     } else if (arng->offset > req->maxSearchResults) {
-      QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ELIMIT, "OFFSET exceeds maximum of %llu",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "OFFSET exceeds maximum of %llu",
                              req->maxSearchResults);
       return ARG_ERROR;
     }
@@ -342,7 +342,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
   }
 
   if (dialect_specified && req->reqConfig.dialectVersion < APIVERSION_RETURN_MULTI_CMP_FIRST && req->reqflags & QEXEC_FORMAT_EXPAND) {
-    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ELIMIT, "EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "EXPAND format requires dialect %u or greater", APIVERSION_RETURN_MULTI_CMP_FIRST);
     return ARG_ERROR;
   }
 
@@ -408,7 +408,7 @@ static int parseSortby(PLN_ArrangeStep *arng, ArgsCursor *ac, QueryError *status
       hs = AC_GetHiddenStringNC(&subArgs);
       if (HiddenString_StartsWith(hs, "@")) {
         if (array_len(keys) >= SORTASCMAP_MAXFIELDS) {
-          QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ELIMIT, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
+          QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Cannot sort by more than %lu fields", SORTASCMAP_MAXFIELDS);
           HiddenString_Free(hs, false);
           goto err;
         }
@@ -463,13 +463,13 @@ err:
 static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *hasEmptyFilterValue, QueryError *status) {
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
     // Numeric filter
-    NumericFilter **curpp = array_ensure_tail(&options->legacy.filters, NumericFilter *);
+    LegacyNumericFilter **curpp = array_ensure_tail(&options->legacy.filters, LegacyNumericFilter *);
     *curpp = NumericFilter_LegacyParse(ac, hasEmptyFilterValue, status);
     if (!*curpp) {
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
-    GeoFilter *cur_gf = rm_new(*cur_gf);
+    LegacyGeoFilter *cur_gf = rm_new(*cur_gf);
     array_ensure_append_1(options->legacy.geo_filters, cur_gf);
     if (GeoFilter_LegacyParse(cur_gf, ac, hasEmptyFilterValue, status) != REDISMODULE_OK) {
       return ARG_ERROR;
@@ -1014,16 +1014,17 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   /** The following blocks will set filter options on the entire query */
   if (opts->legacy.filters) {
     for (size_t ii = 0; ii < array_len(opts->legacy.filters); ++ii) {
-      NumericFilter *filter = opts->legacy.filters[ii];
+      LegacyNumericFilter *filter = opts->legacy.filters[ii];
 
-      const FieldSpec *fs = FieldSpec_Resolve(&filter->field, sctx->spec);
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, filter->field);
+      filter->base.fieldSpec = fs;
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         if (dialect != 1) {
-          const HiddenString *fieldName = FIELD_NAME(filter->field);
+          const HiddenString *fieldName = filter->field;
           if (fs) {
-            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field is not a numeric field", ", field: %s", HiddenString_GetUnsafe(fieldName, NULL));
+            QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Field is not a numeric field", ", field: %s", HiddenString_GetUnsafe(fieldName, NULL));
           } else {
-            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Unknown Field", " '%s'", HiddenString_GetUnsafe(fieldName, NULL));
+            QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Unknown Field", " '%s'", HiddenString_GetUnsafe(fieldName, NULL));
           }
           return REDISMODULE_ERR;
         } else {
@@ -1033,7 +1034,13 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
           continue; // Keep the filter entry in the legacy filters array for AREQ_Free()
         }
       }
-      QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = filter};
+      if (filter->field) {
+        // Need to free the hidden string since we pass the base pointer to the query AST
+        // And we are about to zero out the filter in the legacy filters
+        HiddenString_Free(filter->field, false);
+        filter->field = NULL;
+      }
+      QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = &filter->base};
       QAST_SetGlobalFilters(ast, &legacyFilterOpts);
       opts->legacy.filters[ii] = NULL;  // so AREQ_Free() doesn't free the filters themselves, which
                                         // are now owned by the query object
@@ -1041,12 +1048,14 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   }
   if (opts->legacy.geo_filters) {
     for (size_t ii = 0; ii < array_len(opts->legacy.geo_filters); ++ii) {
-      GeoFilter *gf = opts->legacy.geo_filters[ii];
-      const FieldSpec *fs = FieldSpec_Resolve(&gf->field, sctx->spec);
+      LegacyGeoFilter *gf = opts->legacy.geo_filters[ii];
+
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, gf->field);
+      gf->base.spec = fs;
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         if (dialect != 1) {
           const char *generalError = fs ? "Field is not a geo field" : "Unknown Field";
-          QueryError_SetErrorFmt(status, QUERY_EINVAL, generalError, ", field: %s", HiddenString_GetUnsafe(FIELD_NAME(gf->field), NULL));
+          QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, generalError, ", field: %s", HiddenString_GetUnsafe(gf->field, NULL));
           return REDISMODULE_ERR;
         } else {
           // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
@@ -1054,7 +1063,13 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
           QAST_SetGlobalFilters(ast, &legacyOpts);
         }
       } else {
-        QAST_GlobalFilterOptions legacyOpts = {.geo = gf};
+        if (gf->field) {
+          // Need to free the hidden string since we pass the base pointer to the query AST
+          // And we are about to zero out the filter in the legacy filters
+          HiddenString_Free(gf->field, false);
+          gf->field = NULL;
+        }
+        QAST_GlobalFilterOptions legacyOpts = {.geo = &gf->base};
         QAST_SetGlobalFilters(ast, &legacyOpts);
         opts->legacy.geo_filters[ii] = NULL;  // so AREQ_Free() doesn't free the filter itself, which is now owned
                                               // by the query object
@@ -1149,8 +1164,8 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (opts->scorerName && Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
-    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
+  if (opts->scorerName && (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL)) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
     return REDISMODULE_ERR;
   }
 
@@ -1224,13 +1239,13 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
       // We currently allow implicit loading only for known fields from the schema.
       // If we can't load keys, or the key we loaded is not in the schema, we fail.
       if (!loadKeys || !(srckeys[ii]->flags & RLOOKUP_F_SCHEMASRC)) {
-        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "No such property", " `%s`", fldname);
+        QueryError_SetWithUserDataFmt(err, QUERY_ENOPROPKEY, "No such property", " `%s`", fldname);
         return NULL;
       }
     }
     dstkeys[ii] = RLookup_GetKeyEx(&gstp->lookup, fldname, fldname_len, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
     if (!dstkeys[ii]) {
-      QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", fldname);
+      QueryError_SetWithUserDataFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", fldname);
       return NULL;
     }
   }
@@ -1246,7 +1261,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     if (!ff) {
       // No such reducer!
       Grouper_Free(grp);
-      QueryError_SetUserDataAgnosticErrorFmt(err, QUERY_ENOREDUCER, "No such reducer: %s", pr->name);
+      QueryError_SetWithoutUserDataFmt(err, QUERY_ENOREDUCER, "No such reducer: %s", pr->name);
       return NULL;
     }
     Reducer *rr = ff(&options);
@@ -1262,7 +1277,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     Grouper_AddReducer(grp, rr, dstkey);
     if (!dstkey) {
       Grouper_Free(grp);
-      QueryError_SetErrorFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", pr->alias);
+      QueryError_SetWithUserDataFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", pr->alias);
       return NULL;
     }
   }
@@ -1313,12 +1328,12 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
     const char *name = requests[i].metric_name;
     size_t name_len = strlen(name);
     if (IndexSpec_GetFieldWithLength(req->sctx->spec, name, name_len)) {
-      QueryError_SetErrorFmt(status, QUERY_EINDEXEXISTS, "Property", " `%s` already exists in schema", name);
+      QueryError_SetWithUserDataFmt(status, QUERY_EINDEXEXISTS, "Property", " `%s` already exists in schema", name);
       return NULL;
     }
     RLookupKey *key = RLookup_GetKeyEx(rl, name, name_len, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
     if (!key) {
-      QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", name);
+      QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", name);
       return NULL;
     }
 
@@ -1380,7 +1395,7 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
           // We currently allow implicit loading only for known fields from the schema.
           // If the key we loaded is not in the schema, we fail.
           if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
-            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Property", " `%s` not loaded nor in schema", keystr);
+            QueryError_SetWithUserDataFmt(status, QUERY_ENOPROPKEY, "Property", " `%s` not loaded nor in schema", keystr);
             goto end;
           }
           *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
@@ -1536,10 +1551,10 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status, bool 
       }
       RLookupKey *kk = RLookup_GetKey(lookup, ff->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!kk) {
-        QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "No such property", " `%s`", ff->name);
+        QueryError_SetWithUserDataFmt(status, QUERY_ENOPROPKEY, "No such property", " `%s`", ff->name);
         goto error;
       } else if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
-        QueryError_SetErrorFmt(status, QUERY_EINVAL, "Property", " `%s` is not in schema", ff->name);
+        QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Property", " `%s` is not in schema", ff->name);
         goto error;
       }
       ff->lookupKey = kk;
@@ -1615,7 +1630,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
           RLookupKey *dstkey = RLookup_GetKey(curLookup, stp->alias, RLOOKUP_M_WRITE, flags);
           if (!dstkey) {
             // Can only happen if we're in noOverride mode
-            QueryError_SetErrorFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", stp->alias);
+            QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", stp->alias);
             goto error;
           }
           rp = RPEvaluator_NewProjector(mstp->parsedExpr, curLookup, dstkey);
@@ -1767,15 +1782,15 @@ void AREQ_Free(AREQ *req) {
   }
   if (req->searchopts.legacy.filters) {
     for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {
-      NumericFilter *nf = req->searchopts.legacy.filters[ii];
+      LegacyNumericFilter *nf = req->searchopts.legacy.filters[ii];
       if (nf) {
-        NumericFilter_Free(req->searchopts.legacy.filters[ii]);
+        LegacyNumericFilter_Free(req->searchopts.legacy.filters[ii]);
       }
     }
     array_free(req->searchopts.legacy.filters);
   }
   if (req->searchopts.legacy.geo_filters) {
-    array_foreach(req->searchopts.legacy.geo_filters, gf, if (gf) GeoFilter_Free(gf));
+    array_foreach(req->searchopts.legacy.geo_filters, gf, if (gf) LegacyGeoFilter_Free(gf));
     array_free(req->searchopts.legacy.geo_filters);
   }
   rm_free(req->searchopts.inids);

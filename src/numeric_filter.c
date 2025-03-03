@@ -56,31 +56,29 @@ int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
  *  Returns a numeric filter on success, NULL if there was a problem with the
  * arguments
  */
-NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status) {
+LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status) {
   if (AC_NumRemaining(ac) < 3) {
     QERR_MKBADARGS(status, "FILTER requires 3 arguments");
     return NULL;
   }
 
-  NumericFilter *nf = rm_calloc(1, sizeof(*nf));
+  LegacyNumericFilter *nf = rm_calloc(1, sizeof(*nf));
 
   // make sure we have an index spec for this filter and it's indeed numeric
-  nf->inclusiveMax = 1;
-  nf->inclusiveMin = 1;
-  nf->min = 0;
-  nf->max = 0;
+  nf->base.inclusiveMax = 1;
+  nf->base.inclusiveMin = 1;
+  nf->base.min = 0;
+  nf->base.max = 0;
   // Store the field name at the field spec pointer, to validate later
-  HiddenString *hfieldName = AC_GetHiddenStringNC(ac);
-  nf->field.resolved = false;
-  nf->field.u.name = hfieldName;
+  nf->field = AC_GetHiddenStringNC(ac);
 
   // Parse the min range
   HiddenString *hs = AC_GetHiddenStringNC(ac);
   if (HiddenString_IsEmpty(hs)) {
     *hasEmptyFilterValue = true;
   }
-  if (parseDoubleRange(HiddenString_GetUnsafe(hs, NULL), &nf->inclusiveMin, &nf->min, 1, 1, status) != REDISMODULE_OK) {
-    NumericFilter_Free(nf);
+  if (parseDoubleRange(HiddenString_GetUnsafe(hs, NULL), &nf->base.inclusiveMin, &nf->base.min, 1, 1, status) != REDISMODULE_OK) {
+    LegacyNumericFilter_Free(nf);
     return NULL;
   }
   HiddenString_Free(hs, false);
@@ -88,28 +86,29 @@ NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterVal
   if (HiddenString_IsEmpty(hs)) {
     *hasEmptyFilterValue = true;
   }
-  if (parseDoubleRange(HiddenString_GetUnsafe(hs, NULL), &nf->inclusiveMax, &nf->max, 0, 1, status) != REDISMODULE_OK) {
-    NumericFilter_Free(nf);
+  if (parseDoubleRange(HiddenString_GetUnsafe(hs, NULL), &nf->base.inclusiveMax, &nf->base.max, 0, 1, status) != REDISMODULE_OK) {
+    LegacyNumericFilter_Free(nf);
     return NULL;
   }
   return nf;
 }
 
 void NumericFilter_Free(NumericFilter *nf) {
-  if (!nf->field.resolved && nf->field.u.name) {
-    HiddenString_Free(nf->field.u.name, false);
-  }
+  rm_free(nf);
+}
+
+void LegacyNumericFilter_Free(LegacyNumericFilter *nf) {
+  HiddenString_Free(nf->field, false);
   rm_free(nf);
 }
 
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax,
-                                bool asc) {
+                                bool asc, const FieldSpec *fs) {
   NumericFilter *f = rm_malloc(sizeof(NumericFilter));
 
   f->min = min;
   f->max = max;
-  f->field.u.name = NULL;
-  f->field.resolved = false;
+  f->fieldSpec = fs;
   f->inclusiveMax = inclusiveMax;
   f->inclusiveMin = inclusiveMin;
   f->geoFilter = NULL;

@@ -262,13 +262,13 @@ int parseSuggestOptions(RedisModuleString **argv, int argc, SuggestOptions *opti
     if (rv == AC_ERR_ENOENT) {
       // Argument not recognized
       HiddenString * hac = AC_GetHiddenStringNC(&ac);
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Unrecognized argument", ": %s",
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unrecognized argument", ": %s",
                              HiddenString_GetUnsafe(hac, NULL));
       HiddenString_Free(hac, false);
     } else if (errArg) {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, errArg->name, ": %s", AC_Strerror(rv));
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, errArg->name, ": %s", AC_Strerror(rv));
     } else {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Error parsing arguments:", " %s",
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Error parsing arguments:", " %s",
                              AC_Strerror(rv));
     }
     return REDISMODULE_ERR;

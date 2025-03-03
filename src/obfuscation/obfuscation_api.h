@@ -12,7 +12,7 @@
 // Length definitions of the required buffer sizes for obfuscation
 #define MAX_OBFUSCATED_INDEX_NAME 6/*strlen("Index@")*/ + SHA1_TEXT_MAX_LENGTH + 1/*null terminator*/
 #define MAX_OBFUSCATED_FIELD_NAME 6/*strlen("Field@")*/ + MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND + 1/*null terminator*/
-#define MAX_OBFUSCATED_PATH_NAME MAX_OBFUSCATED_FIELD_NAME
+#define MAX_OBFUSCATED_PATH_NAME 10/*strlen("FieldPath")*/ + MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND + 1/*null terminator*/
 #define MAX_OBFUSCATED_DOCUMENT_NAME 9/*strlen("Document@")*/ + MAX_UNIQUE_ID_TEXT_LENGTH_UPPER_BOUND + 1/*null terminator*/
 #define MAX_OBFUSCATED_KEY_NAME MAX_OBFUSCATED_DOCUMENT_NAME
 
@@ -43,7 +43,7 @@ void Obfuscate_KeyWithTime(struct timespec spec, char *buffer);
 // the returned pointer needs to be freed using rm_free
 const char *Obfuscate_Text(const char *text);
 
-const char *Obfuscate_Number(size_t number);
+const char *Obfuscate_Number(double number);
 
 const char *Obfuscate_Vector(const char *vector, size_t dim);
 

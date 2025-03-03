@@ -100,15 +100,15 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
         break;
 
       } else {
-        size_t length;
-        const char* s = HiddenString_GetUnsafe(hs, &length);
-        QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Unknown keyword", " `%.*s` provided", (int)length, s);
+        size_t nargs;
+        const char* s = HiddenString_GetUnsafe(hs, &nargs);
+        QueryError_SetWithUserDataFmt(status, QUERY_EADDARGS, "Unknown keyword", " `%.*s` provided", (int)nargs, s);
         HiddenString_Free(hs, false);
         return REDISMODULE_ERR;
       }
       // Argument not found, that's ok. We'll handle it below
     } else {
-      QueryError_SetErrorFmt(status, QUERY_EADDARGS, errArg->name, ": %s", AC_Strerror(rv));
+      QueryError_SetWithUserDataFmt(status, QUERY_EADDARGS, errArg->name, ": %s", AC_Strerror(rv));
       return REDISMODULE_ERR;
     }
   }

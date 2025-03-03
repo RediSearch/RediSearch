@@ -47,6 +47,13 @@ struct TEvalCtx : ExprEval {
     lookup = NULL;
   }
 
+  std::string dump(bool obfuscate) {
+    char *s = ExprAST_Dump((RSExpr *)root, obfuscate);
+    std::string ret(s);
+    rm_free(s);
+    return ret;
+  }
+
   int bindLookupKeys() {
     assert(lookup);
     return ExprAST_GetLookupKeys((RSExpr *)root, (RLookup *)lookup, &status_s);
@@ -99,6 +106,33 @@ TEST_F(ExprTest, testExpr) {
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   ASSERT_EQ(RSValue_Number, eval.result().t);
   ASSERT_EQ(6, eval.result().numval);
+}
+
+
+TEST_F(ExprTest, testDump) {
+  using String = const char *;
+  std::map<String, std::pair<String, String>> exprToDump = {
+    {"NULL", {"NULL", "NULL"}},
+    {"4 + 2", {"6", "Number"}},
+    {"!9", {"!9", "!Number"}},
+    {"((@foo + (sqrt(@bar) / @baz)) + ' ')", {"((@foo + (sqrt(@bar) / @baz)) + \" \")", "((@Text + (sqrt(@Text) / @Text)) + \"Text\")"}},
+  };
+  for (auto& [expression, pair] : exprToDump) {
+    QueryError status = {QueryErrorCode(0)};
+    HiddenString *expr = NewHiddenString(expression, strlen(expression), false);
+    RSExpr *root = ExprAST_Parse(expr, &status);
+    HiddenString_Free(expr, false);
+    if (!root) {
+      FAIL() << "Could not parse expression " << expression;
+    }
+    char *value = ExprAST_Dump(root, false);
+    ASSERT_STREQ(value, pair.first);
+    rm_free(value);
+    char *obfuscated = ExprAST_Dump(root, true);
+    ASSERT_STREQ(obfuscated, pair.second);
+    rm_free(obfuscated);
+    ExprAST_Free(root);
+  }
 }
 
 TEST_F(ExprTest, testArithmetics) {
@@ -186,7 +220,6 @@ TEST_F(ExprTest, testParser) {
   int rc = eval.eval();
   ASSERT_EQ(EXPR_EVAL_OK, rc);
   ASSERT_EQ(RSValue_Number, eval.result().t);
-  // RSValue_Print(&eval.result());
 }
 
 TEST_F(ExprTest, testGetFields) {
@@ -263,7 +296,6 @@ TEST_F(ExprTest, testPredicate) {
   RLookupRow rr = {0};
   RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(1));
   RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(2));
-  // RLookupRow_Dump(&rr);
   QueryError status = {QueryErrorCode(0)};
 #define TEST_EVAL(e, expected)                          \
   {                                                     \

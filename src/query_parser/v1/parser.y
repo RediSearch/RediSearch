@@ -32,7 +32,7 @@
 %name RSQueryParser_v1_
 
 %syntax_error {
-    QueryError_SetUserDataAgnosticErrorFmt(ctx->status, QUERY_ESYNTAX,
+    QueryError_SetWithoutUserDataFmt(ctx->status, QUERY_ESYNTAX,
         "Syntax error at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
 }
@@ -543,7 +543,7 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
   A = NewQueryParam(QP_NUMERIC_FILTER);
-  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive, true);
+  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive, true, NULL);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -555,9 +555,8 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
     A = NewGeofilterNode(C);
     if (ctx->sctx->spec) {
-        A->gn.gf->field.u.spec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
-        A->gn.gf->field.resolved = true;
-        if (!A->gn.gf->field.u.spec) {
+        A->gn.gf->spec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
+        if (!A->gn.gf->spec) {
             QueryNode_Free(A);
             A = NULL;
         }

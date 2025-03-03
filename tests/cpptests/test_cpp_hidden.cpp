@@ -11,6 +11,9 @@ extern "C" {
 
 class HiddenTest : public ::testing::Test {};
 
+// Test HiddenString ownership mechanism
+// if we take ownership either in creation or later on
+// the buffer pointer should be different than the original
 TEST_F(HiddenTest, testHiddenOwnership) {
   const char *expected = "Text";
   size_t length = 0;
@@ -25,6 +28,8 @@ TEST_F(HiddenTest, testHiddenOwnership) {
   HiddenString_Free(name, true);
 }
 
+// Test the comparison functions for hidden strings
+// both for case insensitive and case sensitive
 TEST_F(HiddenTest, testHiddenCompare) {
   const char *expected = "Text";
   HiddenString *first = NewHiddenString(expected, strlen(expected), true);
@@ -42,6 +47,11 @@ TEST_F(HiddenTest, testHiddenCompare) {
   HiddenString_Free(lower, true);
 }
 
+// Test unicode strings comparison
+// The unicode string should get duplicated inside the hidden string ctor
+// So underlying pointers should differ
+// Besides that the two string are equal except for the last character
+// If we compare them case insensitive they should be equal, case sensitive not
 TEST_F(HiddenTest, testHiddenUnicodeCompare) {
   sds expected = sdsnew("¥£€$®a");
   HiddenUnicodeString *first = NewHiddenUnicodeString(expected);
@@ -64,6 +74,8 @@ TEST_F(HiddenTest, testHiddenUnicodeCompare) {
   sdsfree(unicode);
 }
 
+// Test hidden string duplication
+// Duplicate the string and make sure it is the same as the original
 TEST_F(HiddenTest, testHiddenDuplicate) {
   const char *expected = "Text";
   HiddenString *name = NewHiddenString(expected, strlen(expected), true);

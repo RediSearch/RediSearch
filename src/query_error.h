@@ -107,27 +107,27 @@ void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *me
 void QueryError_SetCode(QueryError *status, QueryErrorCode code);
 
 /** Set the error code using a custom-formatted string */
-void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char* message, const char *fmt, ...);
+void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, const char* message, const char *fmt, ...);
 
 /**
  * Set the error code using a custom-formatted string
  * Only use this function if you are certain that no user data is leaked in the format string
  */
-void QueryError_SetUserDataAgnosticErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
+void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
 
 /** Convenience macro to set an error of a 'bad argument' with the name of the argument */
 #define QERR_MKBADARGS_FMT(status, message, fmt, ...) \
-  QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, message, fmt, ##__VA_ARGS__)
+  QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, message, fmt, ##__VA_ARGS__)
 
-#define QERR_MKBADARGS_DATA_AGNOSTIC_FMT(status, fmt, ...) \
-  QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_EPARSEARGS, fmt, ##__VA_ARGS__)
+#define QERR_MKBADARGS_WITHOUT_USER_DATA_FMT(status, fmt, ...) \
+  QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, fmt, ##__VA_ARGS__)
 
 #define QERR_MKBADARGS(status, message) \
   QueryError_SetError(status, QUERY_EPARSEARGS, message)
 
 /** Convenience macro to extract the error string of the argument parser */
 #define QERR_MKBADARGS_AC(status, name, rv)                                          \
-  QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for %s: %s", name, \
+  QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for %s: %s", name, \
                          AC_Strerror(rv))
 
 #define QERR_MKSYNTAXERR(status, message) QueryError_SetError(status, QUERY_ESYNTAX, message)
@@ -153,8 +153,8 @@ void QueryError_SetUserDataAgnosticErrorFmt(QueryError *status, QueryErrorCode c
  *
  * Equivalent to the following boilerplate:
  * @code{c}
- *  HiddenString *hs = AC_GetHiddenStringNC(ac);
- *  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument for %s:", " %s", name, hs);
+ *  const char *unknown = AC_GetStringNC(ac, NULL);
+ *  QueryError_SetWithUserDataFmt(err, QUERY_EPARSEARGS, "Unknown argument for %s:", " %s", name, unknown);
  * @endcode
  */
 void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name);
@@ -191,9 +191,6 @@ static inline int QueryError_HasError(const QueryError *status) {
 }
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code);
-
-#define ADD_QUERY_ERROR(name, err, query_ptr, key) \
-name ## _AddError(err, QueryError_GetDisplayableError(query_ptr, true), QueryError_GetDisplayableError(query_ptr, false), key);
 
 #ifdef __cplusplus
 }

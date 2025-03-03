@@ -960,7 +960,6 @@ def test_mod5910(env):
     env.assertEqual(iterators_profile[7][0][1], 'NUMERIC')
     env.assertEqual(iterators_profile[7][1][1], 'UNION')
 
-
 @skip(cluster=True)
 def test_mod5880(env):
     env.cmd(config_cmd(), "set", "FORK_GC_CLEAN_THRESHOLD", "0")
@@ -1308,7 +1307,7 @@ def test_mod_6783(env:Env):
 def test_mod_8589(env:Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   env.cmd('HSET', 'doc1', 'v', '????????', 't', 'foo bar foo') # Max frequency is 2 (foo)
-  docinfo = to_dict(env.cmd(debug_cmd(), 'DOCINFO', 'idx', 'doc1'))
+  docinfo = to_dict(env.cmd(debug_cmd(), 'DOCINFO', 'idx', 'doc1', 'REVEAL'))
   env.assertEqual(docinfo['max_freq'], 2)
 
 @skip(cluster=True)
@@ -1333,7 +1332,7 @@ def test_mod_6786(env:Env):
   env.cmd('HSET', 'doc1', 't', text_with_long_term)
 
   # Searching for the long term should return the document
-  # Before fix, the long term was partialy normalized and the document was not found
+  # Before fix, the long term was partially normalized and the document was not found
   env.expect('FT.SEARCH', 'idx', long_term).equal([1, 'doc1', ['t', text_with_long_term]])
 
 @skip(cluster=False)
