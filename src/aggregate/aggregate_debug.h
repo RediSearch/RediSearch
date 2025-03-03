@@ -52,14 +52,15 @@
  *
  * -----------------------------------------------------------------------------
  *
- *  ### Limitations:
+ * ### Limitations:
  * - `_FT.DEBUG` does not support `FT.PROFILE`.
  *
  * -----------------------------------------------------------------------------
  *
  * ### Debug Params Order:
  * - All debug parameters must be placed at the end of the command. This is required because the
- *   query itself is extracted from the command to be processed using the regular query execution pipeline.
+ *   query itself is extracted from the command to be processed using the regular query execution
+ *   pipeline.
  *
  * -----------------------------------------------------------------------------
  *
@@ -76,7 +77,8 @@
  * **Cluster Mode:**
  *
  * - **`FT.SEARCH`**
- *   - When the timeout policy is non strict, the coordinator does not check for timeouts, and there is no query pipeline in `FT.SEARCH`.
+ *   - When the timeout policy is non strict, the coordinator does not check for timeouts, and there
+ *     is no query pipeline in `FT.SEARCH`.
  *   - Timeout simulation is applied only at the shard level.
  *   - Each shard processes `N` results before returning a timeout warning.
  *   - Since the coordinator aggregates all shard responses, the final result will contain
@@ -103,7 +105,8 @@
  *
  *    It is important that **all shards** have sufficient results to ensure tests are not flaky,
  *    as the order of replies depends on timing. If a shard with insufficient results replies
- *    first (EOF), the results will not align with `N`, leading to potential inconsistencies. See details below.
+ *    first (EOF), the results will not align with `N`, leading to potential inconsistencies. See
+ *    details below.
  *
  * 4. When Does Result Length Not Align with N
  *    - If the first shard’s reply contains fewer than N results due to EOF,
@@ -129,9 +132,9 @@
  *
  *    - **Elapsed time before fetching a new reply:**
  *      If the current reply did not contain a timeout warning but was returned due to EOF, the
- *      coordinator must request another shard’s reply. Before making this request, it checks the elapsed
- *      time. Since the timeout time was already set when we reached N, this check will
- *      trigger a timeout status.
+ *      coordinator must request another shard’s reply. Before making this request, it checks the
+ *      elapsed time. Since the timeout time was already set when we reached N, this check will trigger a
+ *      timeout status.
  *
  *    *Example of timeout warning due to elapsed time:*
  *      - `timeout_res_count = 10`
@@ -153,12 +156,31 @@
  *   least `N` matching documents. This way, a timeout occurs after processing the first shard's
  *   response.
  * - When using `WITHCURSOR` be mindful to the last `FT.CURSOR READ` iterations. Some shards might
- *   run out of docs and return fewer than `N` results (EOF), causing the result content to be harder to predict.
+ *   run out of docs and return fewer than `N` results (EOF), causing the result content to be
+ * harder to predict.
  *
  * - **`INTERNAL_ONLY` Flag:**
- *   - Enforces timeout only at the shard level, without affecting the coordinator.
- *   - If a shard returns an empty result, the coordinator is not notified, which could cause it to
- *     hang indefinitely. To avoid this, if `N == 0`, a real timeout is enforced.
+ *   - The `INTERNAL_ONLY` capability was originally introduced to simulate cursor-related bugs in
+ *     cluster mode.
+ *   - It allows the coordinator to reach the point where it waits for replies **before** checking
+ *     its own timeout.
+ *   - Previously, if all shards returned empty results, the coordinator was not notified, causing
+ *     it to hang indefinitely.
+ *   - This bug has been fixed—the coordinator is now notified once **all** shards have returned a
+ *     reply, even if all replies are empty.
+ *   - To prevent similar issues, when `N == 0`, a real timeout is enforced at the coordinator
+ *     level—large enough to allow shard timeouts to occur first.
+ *
+ *   NOTE: `FT.AGGREGATE TIMEOUT_AFTER_N 0 INTERNAL_ONLY` **without** `WITHCURSOR` is not allowed.
+ *   It has no practical use and can lead to an infinite loop:
+ *    - `N == 0` forces shards to return empty results instead of issuing a timeout.
+ *    - `INTERNAL_ONLY` prevents the coordinator from enforcing its own timeout.
+ *    - Since shard responses are empty but **not EOF**, the coordinator keeps requesting more
+ *      results indefinitely.
+ *    - This created an **infinite loop**, where the coordinator waited for non-empty results that
+ *      would never arrive.
+ *    **In production, this infinite loop does not occur** because shards will eventually return EOF
+ *    once they have finished iterating all documents in the dataset.
  */
 
 

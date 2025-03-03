@@ -578,9 +578,12 @@ class TestQueryDebugCommands(object):
         self.basic_query = []
         self.basic_debug_query = []
 
+        self.cmd = None
+
     def setBasicDebugQuery(self, cmd):
         self.basic_query  = ['FT.' + cmd, 'idx', '*']
         self.basic_debug_query = [debug_cmd(), *self.basic_query]
+        self.cmd = cmd
 
     def verifyWarning(self, res, message, should_timeout=True, depth=0):
         if should_timeout:
@@ -605,6 +608,60 @@ class TestQueryDebugCommands(object):
 
         return res
 
+    def InvalidParams(self):
+        env = self.env
+        basic_debug_query = self.basic_debug_query
+
+        basic_debug_query_with_args = [*basic_debug_query, 'limit', 0, 0, 'timeout', 10000] # add random params to reach the minimum required to run the debug command
+
+        def expectError(debug_params, error_message, message="", depth=1):
+            test_cmd = [*basic_debug_query_with_args, *debug_params]
+            err = env.expect(*test_cmd).error().res
+            self.env.assertContains(error_message, err, message=message, depth=depth)
+
+        # Unrecognized arguments
+        debug_params = ['TIMEOUT_AFTER_MEOW', 1, 'DEBUG_PARAMS_COUNT', 2]
+        expectError(debug_params, "Unrecognized argument: TIMEOUT_AFTER_MEOW")
+
+        debug_params = ['TIMEOUT_AFTER_N', 1, 'PRINT_MEOW', 'DEBUG_PARAMS_COUNT', 3]
+        expectError(debug_params, "Unrecognized argument: PRINT_MEOW")
+
+        invalid_numeric_values = ["meow", -1, 0.2]
+
+        # Test invalid params count
+        def invalid_params_count(invalid_count, message=""):
+            debug_params = ['DEBUG_PARAMS_COUNT', invalid_count]
+            expectError(debug_params, 'Invalid DEBUG_PARAMS_COUNT count', message)
+
+        for invalid_count in invalid_numeric_values:
+            invalid_params_count(invalid_count, f"DEBUG_PARAMS_COUNT {invalid_count} should be invalid")
+
+        # Test invalid N count
+        def invalid_N(invalid_count, message=""):
+            debug_params = ['TIMEOUT_AFTER_N', invalid_count, 'DEBUG_PARAMS_COUNT', 2]
+            expectError(debug_params, 'Invalid TIMEOUT_AFTER_N count', message)
+
+        for invalid_count in invalid_numeric_values:
+            invalid_N(invalid_count, f"TIMEOUT_AFTER_N {invalid_count} should be invalid")
+
+        # test missing params
+        # no N
+        debug_params = ['TIMEOUT_AFTER_N', 'DEBUG_PARAMS_COUNT', 1]
+        expectError(debug_params, 'TIMEOUT_AFTER_N: Expected an argument, but none provided')
+        debug_params = ['INTERNAL_ONLY', 'TIMEOUT_AFTER_N', 'DEBUG_PARAMS_COUNT', 2]
+        expectError(debug_params, 'TIMEOUT_AFTER_N: Expected an argument, but none provided')
+
+        # INTERNAL_ONLY without TIMEOUT_AFTER_N
+        debug_params = ['INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 1]
+        expectError(debug_params, 'INTERNAL_ONLY must be used with TIMEOUT_AFTER_N')
+        debug_params = ['INTERNAL_ONLY', 'DUMMY_DEBUG_OPTION', 'DEBUG_PARAMS_COUNT', 2]
+        expectError(debug_params, 'INTERNAL_ONLY must be used with TIMEOUT_AFTER_N')
+
+        # TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR is disabled.
+        if (self.env.isCluster() and self.cmd == "AGGREGATE"):
+            debug_params = ['TIMEOUT_AFTER_N', 0, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3]
+            expectError(debug_params, 'INTERNAL_ONLY with TIMEOUT_AFTER_N 0 is not allowed without WITHCURSOR')
+
     def QueryDebug(self):
         env = self.env
         basic_debug_query = self.basic_debug_query
@@ -614,12 +671,23 @@ class TestQueryDebugCommands(object):
 
         basic_debug_query_with_args = [*basic_debug_query, 'limit', 0, 0, 'timeout', 10000] # add random params to reach the minimum required to run the debug command
         env.expect(*basic_debug_query_with_args).error().contains('DEBUG_PARAMS_COUNT arg is missing')
-        test_cmd = [*basic_debug_query_with_args, 'DEBUG_PARAMS_COUNT', 'meow'] # expect a number
-        env.expect(*test_cmd).error().contains('Invalid DEBUG_PARAMS_COUNT count')
 
         # in this case we try to parse [*basic_debug_query, 'limit', 0, 0, 'TIMEOUT'] so TIMEOUT count is missing
         test_cmd = [*basic_debug_query_with_args, 'MEOW', 'DEBUG_PARAMS_COUNT', 2]
         env.expect(*test_cmd).error().contains('argument for TIMEOUT')
+
+        self.InvalidParams()
+
+        # order of debug options doesn't matter
+        timeout_res_count = 1
+        debug_params = ['DUMMY_DEBUG_OPTION', 'INTERNAL_ONLY', 'TIMEOUT_AFTER_N', 1, 'DEBUG_PARAMS_COUNT', 4]
+        res1 = env.cmd(*basic_debug_query, *debug_params)
+        debug_params = ['INTERNAL_ONLY', 'TIMEOUT_AFTER_N', 1, 'DUMMY_DEBUG_OPTION', 'DEBUG_PARAMS_COUNT', 4]
+        res2 = env.cmd(*basic_debug_query, *debug_params)
+
+        expected_res_count = timeout_res_count * self.env.shardsCount if self.cmd == "SEARCH" else timeout_res_count
+        self.verifyResultsResp3(res1, expected_res_count, "QueryDebug:")
+        self.env.assertEqual(res1, res2, message="QueryDebug: expected same results regardless params order")
 
         # ft.<cmd> idx * TIMEOUT_AFTER_N 0 -> expect empty result
         debug_params = ['TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2]
