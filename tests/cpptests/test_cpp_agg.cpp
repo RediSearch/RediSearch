@@ -48,15 +48,15 @@ TEST_F(AggTest, testBasic) {
   AREQ *rr = AREQ_New();
   RMCK::ArgvList aggArgs(ctx, "*");
   rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
-  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
+  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
   ASSERT_FALSE(QueryError_HasError(&qerr));
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->name, true);
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->specName, true);
   ASSERT_FALSE(sctx == NULL);
   rv = AREQ_ApplyContext(rr, sctx, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv);
 
   rv = AREQ_BuildPipeline(rr, &qerr);
-  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
+  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
 
   auto rp = AREQ_RP(rr);
   ASSERT_FALSE(rp == NULL);
@@ -166,7 +166,7 @@ TEST_F(AggTest, testGroupBy) {
   Grouper_AddReducer(gr, RDCRCount_New(&opt), count_out);
   ReducerOptionsCXX sumOptions("SUM", &rk_in, "score");
   auto sumReducer = RDCRSum_New(&sumOptions);
-  ASSERT_TRUE(sumReducer != NULL) << QueryError_GetError(sumOptions.status);
+  ASSERT_TRUE(sumReducer != NULL) << QueryError_GetUserError(sumOptions.status);
   Grouper_AddReducer(gr, sumReducer, score_out);
   SearchResult res = {0};
   ResultProcessor *gp = Grouper_GetRP(gr);
@@ -289,7 +289,7 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
     rr->reqflags = flags;
     RMCK::ArgvList aggArgs(ctx, "*", args...);
     int rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
-    EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
+    EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
     bool res = rr->searchopts.flags & Search_CanSkipRichResults;
     QueryError_ClearError(&qerr);
     AREQ_Free(rr);

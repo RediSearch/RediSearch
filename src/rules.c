@@ -35,7 +35,7 @@ int DocumentType_Parse(const char *type_str, DocumentType *type, QueryError *sta
     *type = DocumentType_Json;
     return REDISMODULE_OK;
   }
-  QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Invalid rule type: %s", type_str);
+  QueryError_SetWithUserDataFmt(status, QUERY_EADDARGS, "Invalid rule type", ": %s", type_str);
   return REDISMODULE_ERR;
 }
 

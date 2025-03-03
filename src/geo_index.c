@@ -31,7 +31,7 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
   *gf = (LegacyGeoFilter){0};
 
   if (AC_NumRemaining(ac) < 5) {
-    QERR_MKBADARGS_FMT(status, "GEOFILTER requires 5 arguments");
+    QERR_MKBADARGS(status, "GEOFILTER requires 5 arguments");
     return REDISMODULE_ERR;
   }
 

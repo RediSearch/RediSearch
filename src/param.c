@@ -26,7 +26,7 @@ int Param_DictAdd(dict *d, const char *name, const char *value, size_t value_len
   int res = dictAdd(d, (void*)name, (void*)rms_value);
   if (res == DICT_ERR) {
     RedisModule_FreeString(NULL, rms_value);
-    QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Duplicate parameter `%s`", name);
+    QueryError_SetWithUserDataFmt(status, QUERY_EADDARGS, "Duplicate parameter", " `%s`", name);
   }
   return res;
 }
@@ -34,7 +34,7 @@ int Param_DictAdd(dict *d, const char *name, const char *value, size_t value_len
 const char *Param_DictGet(dict *d, const char *name, size_t *value_len, QueryError *status) {
   RedisModuleString *rms_val = d ? dictFetchValue(d, name) : NULL;
   if (!rms_val) {
-    QueryError_SetErrorFmt(status, QUERY_ENOPARAM, "No such parameter `%s`", name);
+    QueryError_SetWithUserDataFmt(status, QUERY_ENOPARAM, "No such parameter", " `%s`", name);
     return NULL;
   }
   const char *val = RedisModule_StringPtrLen(rms_val, value_len);
