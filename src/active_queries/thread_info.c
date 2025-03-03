@@ -37,8 +37,8 @@ int ThreadLocalStorage_Init() {
   // If watchdog kills the process it will notify the main thread which will use this list to output useful information
   ActiveQueries *activeQueries = ActiveQueries_Init();
   int rc = pthread_setspecific(activeQueriesKey, activeQueries);
-  assert(rc == 0);
-  initialized = true;
+  initialized = rc == 0;
+  return rc;
 }
 
 void ThreadLocalStorage_Destroy() {
