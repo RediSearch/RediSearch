@@ -73,6 +73,7 @@ make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
 make c-tests       # run C tests (from tests/ctests)
 make cpp-tests     # run C++ tests (from tests/cpptests)
+make rust-tests    # run Rust tests (from src/redisearch_rs)
 make vecsim-bench  # run VecSim micro-benchmark
 
 make callgrind     # produce a call graph
@@ -161,6 +162,12 @@ include build/libuv/Makefile.defs
 
 REDISEARCH_RS_DIR=$(ROOT)/src/redisearch_rs
 export REDISEARCH_RS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT)/redisearch_rs/
+
+ifeq ($(DEBUG),1)
+export RUST_BUILD_MODE=
+else
+export RUST_BUILD_MODE=--release
+endif
 
 HIREDIS_DIR=$(ROOT)/deps/hiredis
 HIREDIS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/hiredis
@@ -296,11 +303,6 @@ $(LIBUV):
 	$(SHOW)$(MAKE) --no-print-directory -C build/libuv DEBUG=''
 
 ifeq ($(DEBUG),1)
-RUST_BUILD_MODE=
-else
-RUST_BUILD_MODE=--release
-endif
-ifeq ($(DEBUG),1)
 RUST_ARTIFACT_SUBDIR=debug
 else
 RUST_ARTIFACT_SUBDIR=release
@@ -410,10 +412,13 @@ else
 _TEST_PARALLEL=$(TEST_PARALLEL)
 endif
 
-test: unit-tests pytest
+test: unit-tests pytest rust-tests
 
 unit-tests:
 	$(SHOW)BINROOT=$(BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+
+rust-tests:
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && CARGO_TARGET_DIR=$(REDISEARCH_RS_BINDIR) cargo test $(RUST_BUILD_MODE) $(TEST_NAME)
 
 pytest:
 	@printf "\n-------------- Running python flow test ------------------\n"
