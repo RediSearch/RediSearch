@@ -14,6 +14,7 @@ env:
                     'amazonlinux:2',
                     'amazonlinux:2023',
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0',
+                    'mcr.microsoft.com/azurelinux/base/core:3.0',
                     'alpine:3']"
   ALL_ARM_IMAGES: "['ubuntu:noble',
                     'ubuntu:jammy',
@@ -25,6 +26,7 @@ env:
                     'gcc:12-bookworm',
                     'amazonlinux:2',
                     'amazonlinux:2023',
+                    'mcr.microsoft.com/azurelinux/base/core:3.0',
                     'alpine:3']"
 
 on:
@@ -74,6 +76,7 @@ jobs:
 
           naming = {
             'mariner:2': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
+            'azurelinux:3': 'mcr.microsoft.com/azurelinux/base/core:3.0',
             'debian:bookworm': 'gcc:12-bookworm',
           }
 
@@ -120,7 +123,7 @@ jobs:
               'pre-deps': "yum install -y tar gzip"})
 
           # amazonlinux:2023 needs pre-checkout dependencies
-          if 'amazonlinux:2023' in x86_platforms: 
+          if 'amazonlinux:2023' in x86_platforms:
             x86_include.append({
               'OS': 'amazonlinux:2023',
               'pre-deps': "dnf install -y tar gzip"})
@@ -134,6 +137,16 @@ jobs:
             x86_include.append({
               'OS': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
               'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip"})
+
+          # azurelinux:3 needs pre-checkout dependencies
+          if 'mcr.microsoft.com/azurelinux/base/core:3.0' in x86_platforms:
+            x86_include.append({
+              'OS': 'mcr.microsoft.com/azurelinux/base/core:3.0',
+              'pre-deps': "tdnf install -y --noplugins tar"})
+          if 'mcr.microsoft.com/azurelinux/base/core:3.0' in arm_platforms:
+            arm_include.append({
+              'OS': 'mcr.microsoft.com/azurelinux/base/core:3.0',
+              'pre-deps': "tdnf install -y --noplugins tar"})
 
           # alpine:3 needs pre-checkout dependencies
           if 'alpine:3' in x86_platforms:
