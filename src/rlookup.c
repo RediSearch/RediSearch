@@ -308,7 +308,8 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
     case JSONType__EOF:
       break;
   }
-  RS_LOG_ASSERT(0, "Cannot get here");
+  RS_ABORT("Cannot get here");
+  return NULL;
 }
 
 // Get the value from an iterator and free the iterator
@@ -559,7 +560,7 @@ done:
     switch (type) {
     case DocumentType_Hash: RedisModule_CloseKey(key); break;
     case DocumentType_Json: break;
-    case DocumentType_Unsupported: RS_LOG_ASSERT(1, "placeholder");
+    case DocumentType_Unsupported: RS_LOG_ASSERT(1, "placeholder"); break;
     }
   }
   return rc;

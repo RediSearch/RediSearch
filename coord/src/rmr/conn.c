@@ -535,7 +535,7 @@ static MRConn *MR_NewConn(MREndpoint *ep) {
 
 /* Connect to a cluster node. Return REDIS_OK if either connected, or if  */
 static int MRConn_Connect(MRConn *conn) {
-  assert(!conn->conn);
+  RS_ASSERT(!conn->conn);
   // fprintf(stderr, "Connectig to %s:%d\n", conn->ep.host, conn->ep.port);
 
   redisOptions options = {.type = REDIS_CONN_TCP,

@@ -12,7 +12,7 @@ include deps/readies/mk/main
 
 define HELPTEXT
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
-make fetch         # download and prepare dependant modules
+make fetch         # download and prepare dependent modules
 
 make build          # compile and link
   COORD=1|oss|rlec    # build coordinator (1|oss: Open Source, rlec: Enterprise)
@@ -29,6 +29,8 @@ make build          # compile and link
   GCC=1               # build with GCC (default unless Sanitizer)
   CLANG=1             # build with CLang
   STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
+  ENABLE_ASSERT=1     # enable assertions (disabled by default)
+
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1              # remove entire artifacts directory
@@ -181,6 +183,10 @@ CC_STATIC_LIBSTDCXX ?= 1
 
 CC_COMMON_H=src/common.h
 
+ifeq ($(ENABLE_ASSERT),1)
+CC_FLAGS.common += -DENABLE_ASSERT
+endif
+
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(TESTS),0)
@@ -229,6 +235,7 @@ endif
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
 
 #----------------------------------------------------------------------------------------------
+
 
 include $(MK)/defs
 

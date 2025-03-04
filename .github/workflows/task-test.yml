@@ -207,34 +207,67 @@ jobs:
 
       - name: Build Standalone
         if: ${{ inputs.standalone }}
-        run: make SAN=${{ inputs.san }}
+        env:
+          SAN: ${{ inputs.san }}
+          ENABLE_ASSERT: 1
+        run: make
       - name: Build Coordinator
         if: ${{ inputs.coordinator }}
-        run: make COORD=1 SAN=${{ inputs.san }}
+        env:
+          SAN: ${{ inputs.san }}
+          COORD: 1
+          ENABLE_ASSERT: 1
+        run: make
 
       - name: Unit tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
         if: ${{ inputs.standalone }}
         continue-on-error: true
-        run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          ENABLE_ASSERT: 1
+        run: make unit-tests
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
         if: ${{ inputs.standalone }}
         continue-on-error: true
-        run: make pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }} REJSON_BRANCH=${{ inputs.rejson-branch }}
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          REJSON: ${{ inputs.rejson }}
+          REJSON_BRANCH: ${{ inputs.rejson-branch }}
+          ENABLE_ASSERT: 1
+        run: make pytest ${{ inputs.test-config }}
       - name: Unit tests (coordinator)
         id: coordinator_unit_tests
         if: ${{ inputs.coordinator }}
         continue-on-error: true
-        run: make COORD=1 unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          COORD: 1
+          ENABLE_ASSERT: 1
+        run: make unit-tests
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
         if: ${{ inputs.coordinator }}
         continue-on-error: true
-        run: make COORD=1 pytest LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }} REJSON=${{ inputs.rejson }} REJSON_BRANCH=${{ inputs.rejson-branch }}
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          COORD: 1
+          REJSON: ${{ inputs.rejson }}
+          REJSON_BRANCH: ${{ inputs.rejson-branch }}
+          ENABLE_ASSERT: 1
+        run: make pytest ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)

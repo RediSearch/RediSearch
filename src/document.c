@@ -656,7 +656,8 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       break;
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
-      RS_LOG_ASSERT(0, "Oops");
+      RS_ABORT("Oops");
+      break;
   }
 
   const char *str = NULL;
@@ -999,6 +1000,7 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len) {
     case FLD_VAR_T_NUM:
     case FLD_VAR_T_GEO:
       RS_LOG_ASSERT(0, "invalid types");
+      break;
   }
   return NULL;
 }
