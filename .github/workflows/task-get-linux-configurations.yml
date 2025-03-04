@@ -137,6 +137,12 @@ jobs:
               'OS': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
               'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip"})
 
+          # azurelinux:3 needs pre-checkout dependencies
+          if 'mcr.microsoft.com/azurelinux/base/core:3.0' in x86_platforms:
+            x86_include.append({
+              'OS': 'mcr.microsoft.com/azurelinux/base/core:3.0',
+              'pre-deps': "tdnf install -y --noplugins tar"})
+
           # alpine:3 needs pre-checkout dependencies
           if 'alpine:3' in x86_platforms:
             x86_include.append({

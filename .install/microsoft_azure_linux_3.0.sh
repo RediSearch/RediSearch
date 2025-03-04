@@ -5,6 +5,6 @@ export DEBIAN_FRONTEND=noninteractive
 
 $MODE tdnf install -q -y build-essential git wget ca-certificates tar unzip \
                          rsync openssl-devel openssl python3 python3-pip which \
-                         clang libcryp-devel
+                         clang libcrypt
 
 source install_cmake.sh $MODE
