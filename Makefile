@@ -14,7 +14,7 @@ include deps/readies/mk/main
 
 define HELPTEXT
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
-make fetch         # download and prepare dependant modules
+make fetch         # download and prepare dependent modules
 
 make build          # compile and link
   COORD=oss|rlec      # build coordinator (oss: Open Source, rlec: Enterprise) default: oss
@@ -67,6 +67,7 @@ make pytest        # run python tests (tests/pytests)
   ONLY_STABLE=1        # skip unstable tests
   TEST_PARALLEL=n      # test parallalization
   LOG_LEVEL=<level>    # server log level (default: debug)
+  ENABLE_ASSERT=1      # enable assertions
 
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
@@ -180,6 +181,10 @@ ifeq ($(VERBOSE_UTESTS),1)
 CC_FLAGS.common += -DVERBOSE_UTESTS
 endif
 
+ifeq ($(ENABLE_ASSERT),1)
+CC_FLAGS.common += -DENABLE_ASSERT
+endif
+
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(TESTS),0)
@@ -206,6 +211,7 @@ endif
 
 CMAKE_COORD += -DCOORD_TYPE=$(COORD)
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) $(CMAKE_LITE)
+
 
 include $(MK)/defs
 
