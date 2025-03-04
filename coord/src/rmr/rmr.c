@@ -96,7 +96,7 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->strategy = MRCluster_FlatCoordination;
   ret->redisCtx = ctx;
   ret->bc = bc;
-  RedisModule_Assert(ctx || bc);
+  RS_ASSERT(ctx || bc);
   ret->protocol = ctx ? (is_resp3(ctx) ? 3 : 2) : 0;
   ret->fn = NULL;
   totalAllocd++;
@@ -227,7 +227,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
       RedisModuleBlockedClient *bc = ctx->bc;
-      RedisModule_Assert(bc);
+      RS_ASSERT(bc);
       RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
       RedisModule_UnblockClient(bc, ctx);
     }
@@ -331,7 +331,7 @@ static void uvFanoutRequest(struct MRRequestCtx *mc) {
 
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->bc;
-    RedisModule_Assert(bc);
+    RS_ASSERT(bc);
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mrctx);
     // printf("could not send single command. hande fail please\n");
@@ -373,7 +373,7 @@ static void uvMapRequest(struct MRRequestCtx *mc) {
 
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->bc;
-    RedisModule_Assert(bc);
+    RS_ASSERT(bc);
     RS_CHECK_FUNC(RedisModule_BlockedClientMeasureTimeEnd, bc);
     RedisModule_UnblockClient(bc, mrctx);
     // printf("could not send single command. hande fail please\n");
@@ -395,7 +395,7 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
   rc->protocol = MRCtx_GetProtocol(mrctx);
 
   if (block) {
-    RedisModule_Assert(!mrctx->bc);
+    RS_ASSERT(!mrctx->bc);
     mrctx->bc = RedisModule_BlockClient(
         mrctx->redisCtx, unblockHandler, timeoutHandler,
         redisMajorVesion < 5 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB : freePrivDataCB_V5,
@@ -452,7 +452,7 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   rc->numCmds = 1;
   rc->cmds[0] = cmd;
   rc->protocol = MRCtx_GetProtocol(ctx);
-  RedisModule_Assert(!ctx->bc);
+  RS_ASSERT(!ctx->bc);
   ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler,
       redisMajorVesion < 5 ? (void (*)(RedisModuleCtx *, void *))freePrivDataCB : freePrivDataCB_V5,
       0); // timeout_g);

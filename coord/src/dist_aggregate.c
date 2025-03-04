@@ -275,7 +275,7 @@ static int getNextReply(RPNet *nc) {
   nc->current.root = root;
   nc->current.rows = rows;
 
-  assert(   !nc->current.rows
+  RS_ASSERT(!nc->current.rows
          || MRReply_Type(nc->current.rows) == MR_REPLY_ARRAY
          || MRReply_Type(nc->current.rows) == MR_REPLY_MAP);
   return 1;
@@ -583,7 +583,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
     rpProfile = RPProfile_New(&rpRoot->base, &r->qiter);
   }
 
-  assert(!r->qiter.rootProc);
+  RS_ASSERT(!r->qiter.rootProc);
   // Get the deepest-most root:
   int found = 0;
   for (ResultProcessor *rp = r->qiter.endProc; rp; rp = rp->upstream) {
@@ -749,7 +749,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
 // See if we can distribute the plan...
 err:
-  assert(QueryError_HasError(&status));
+  RS_ASSERT(QueryError_HasError(&status));
   QueryError_ReplyAndClear(ctx, &status);
   SpecialCaseCtx_Free(knnCtx);
   AREQ_Free(r);

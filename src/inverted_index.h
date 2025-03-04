@@ -84,7 +84,7 @@ typedef struct {
 static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
   bool useFieldMask = flags & Index_StoreFieldFlags;
   bool useNumEntries = flags & Index_StoreNumeric;
-  RedisModule_Assert(!(useFieldMask && useNumEntries));
+  RS_ASSERT(!(useFieldMask && useNumEntries));
   // Avoid some of the allocation if not needed
   const size_t base = sizeof(InvertedIndex) - sizeof(t_fieldMask); // Size without the union
   if (useFieldMask) return base + sizeof(t_fieldMask);
