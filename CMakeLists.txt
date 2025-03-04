@@ -93,6 +93,7 @@ include(${root}/build/hiredis/hiredis.cmake)
 include_directories(
     ${root}/src
     ${root}/src/coord
+    ${root}/src/redisearch_rs
     ${root}/deps/libuv/include
     ${root}/deps
     ${root}/deps/RedisModulesSDK
@@ -158,6 +159,7 @@ if (BUILD_STATIC)
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
     target_link_libraries(redisearch redisearch-geometry VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch ${binroot}/redisearch_rs/libtrie_rs.a)
 
     set(TEST_MODULE "redisearch-static")
     set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
@@ -176,6 +178,7 @@ else() # OSS RediSearch
             ${SSL_LIBS}
             ${REDISEARCH_LIBS}
             ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch ${binroot}/redisearch_rs/libtrie_rs.a)
 
     extract_debug_symbols(redisearch)
 
