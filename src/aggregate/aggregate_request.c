@@ -855,6 +855,7 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
     }
     HiddenString_Free(hexpr, false);
   }
+  HiddenString_Free(hexpr, false);
   return REDISMODULE_OK;
 
 error:
