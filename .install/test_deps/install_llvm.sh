@@ -14,4 +14,5 @@ else
     wget https://apt.llvm.org/llvm.sh
     chmod +x llvm.sh
     $MODE ./llvm.sh $VERSION
+    rm llvm.sh
 fi
