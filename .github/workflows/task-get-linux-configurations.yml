@@ -26,6 +26,7 @@ env:
                     'gcc:12-bookworm',
                     'amazonlinux:2',
                     'amazonlinux:2023',
+                    'mcr.microsoft.com/azurelinux/base/core:3.0',
                     'alpine:3']"
 
 on:
@@ -140,6 +141,10 @@ jobs:
           # azurelinux:3 needs pre-checkout dependencies
           if 'mcr.microsoft.com/azurelinux/base/core:3.0' in x86_platforms:
             x86_include.append({
+              'OS': 'mcr.microsoft.com/azurelinux/base/core:3.0',
+              'pre-deps': "tdnf install -y --noplugins tar"})
+          if 'mcr.microsoft.com/azurelinux/base/core:3.0' in arm_platforms:
+            arm_include.append({
               'OS': 'mcr.microsoft.com/azurelinux/base/core:3.0',
               'pre-deps': "tdnf install -y --noplugins tar"})
 
