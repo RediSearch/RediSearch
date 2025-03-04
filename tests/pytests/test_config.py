@@ -88,7 +88,7 @@ def testGetConfigOptions(env):
     check_config('MINSTEMLEN')
     check_config('OSS_GLOBAL_PASSWORD')
     check_config('INDEX_CURSOR_LIMIT')
-
+    check_config('ENABLE_UNSTABLE_FEATURES')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
@@ -114,6 +114,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
 
 
 @skip(cluster=True)
@@ -171,6 +172,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
+    env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -220,6 +222,8 @@ def testInitConfig():
     _test_config_str('_FREE_RESOURCE_ON_THREAD', 'true', 'true')
     _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true', 'true')
     _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
+    _test_config_str('ENABLE_UNSTABLE_FEATURES', 'true', 'true')
+    _test_config_str('ENABLE_UNSTABLE_FEATURES', 'false', 'false')
 
 @skip(cluster=True)
 def test_command_name(env: Env):
@@ -391,6 +395,31 @@ def testImmutableCoord(env):
 # Test CONFIG SET/GET numeric parameters
 ################################################################################
 
+def _grep_file_count(filename, pattern):
+    """
+    Grep a file for a given pattern using python.
+
+    Args:
+        filename (str): The path to the file to grep.
+        pattern (str): The pattern to search for.
+
+    Returns:
+        int: The number of lines that match the pattern.
+    """
+    try:
+        with open(filename, 'r') as f:
+            count = 0
+            for line in f:
+                if pattern in line:
+                    count += 1
+            return count
+    except FileNotFoundError:
+        print(f"Error: File not found: {filename}")
+        return 0
+    except Exception as e:
+        print(f"Error: {e}")
+        return 0
+
 def _removeModuleArgs(env: Env):
     """Remove modules and args from the environment (to test MODULE LOADEX)"""
     env.assertEqual(len(env.envRunner.modulePath), 2)
@@ -446,6 +475,8 @@ numericConfigs = [
     # Cluster parameters
     ('search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True, True),
     ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False, True),
+    ('search-cursor-reply-threshold', 'CURSOR_REPLY_THRESHOLD', 1, 1, LLONG_MAX, False, True),
+    ('search-conn-per-shard', 'CONN_PER_SHARD', 0, 0, UINT32_MAX, False, True),
 ]
 
 @skip(redis_less_than='7.9.227')
@@ -457,8 +488,18 @@ def testConfigAPIRunTimeNumericParams():
         env.expect('CONFIG', 'GET', configName).equal([configName, str(default)])
 
         # write using CONFIG SET, read using CONFIG GET/FT.CONFIG GET
-        env.expect('CONFIG', 'SET', configName, max).equal('OK')
-        env.expect('CONFIG', 'GET', configName).equal([configName, str(max)])
+        if ftConfigName == 'CONN_PER_SHARD':
+            # for CONN_PER_SHARD (search-conn-per-shard), we don't test the
+            # maximum, we test with a smaller value
+            max_conns = 16
+            expected = str(max_conns)
+            env.expect('CONFIG', 'SET', configName, max_conns).equal('OK')
+            env.expect('CONFIG', 'GET', configName).equal([configName, expected])
+        else:
+            env.expect('CONFIG', 'SET', configName, max).equal('OK')
+            expected = str(max)
+            env.expect('CONFIG', 'GET', configName).equal([configName, expected])
+
         if ftConfigName in ['MAXSEARCHRESULTS', 'MAXAGGREGATERESULTS']:
             # These configurations returns 'unlimited' when the value is the
             # maximum
@@ -466,7 +507,7 @@ def testConfigAPIRunTimeNumericParams():
                 .equal([[ftConfigName, 'unlimited']])
         else:
             env.expect(config_cmd(), 'GET', ftConfigName)\
-                .equal([[ftConfigName, str(max)]])
+                .equal([[ftConfigName, expected]])
 
         # Write using FT.CONFIG SET, read using CONFIG GET/FT.CONFIG GET
         env.expect(config_cmd(), 'SET', ftConfigName, min).ok()
@@ -485,8 +526,10 @@ def testConfigAPIRunTimeNumericParams():
         # test valid range limits
         env.expect('CONFIG', 'SET', configName, str(min)).equal('OK')
         env.expect('CONFIG', 'GET', configName).equal([configName, str(min)])
-        env.expect('CONFIG', 'SET', configName, str(max)).equal('OK')
-        env.expect('CONFIG', 'GET', configName).equal([configName, str(max)])
+
+        if ftConfigName != 'CONN_PER_SHARD':
+            env.expect('CONFIG', 'SET', configName, str(max)).equal('OK')
+            env.expect('CONFIG', 'GET', configName).equal([configName, str(max)])
 
     def _testImmutableNumericConfig(env, configName, ftConfigName, default):
         # Check default value
@@ -781,6 +824,48 @@ def testModuleLoadexNumericParamsLastWins():
         env.assertTrue(env.isUp())
         env.stop()
 
+@skip(redis_less_than='7.9.227')
+def testNumericArgDeprecationMessage():
+    moduleArgs = ''
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        moduleArgs += f'{argName} {maxValue} '
+
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}`'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+@skip(redis_less_than='7.9.227')
+def testNumericFTConfigDeprecationMessage():
+    '''Test deprecation message of FT.CONFIG using numeric parameters'''
+    # create module arguments
+    env = Env(noDefaultModuleArgs=True)
+
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        if immutable:
+            continue
+        env.expect(config_cmd(), 'SET', argName, minValue).ok()
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, str(minValue)]])
+
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        if immutable:
+            continue
+        expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG SET {configName} instead'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+        expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG GET {configName} instead'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
 ################################################################################
 # Test CONFIG SET/GET enum parameters
 ################################################################################
@@ -907,6 +992,46 @@ def testConfigFileAndArgsEnumParams():
     env.assertEqual(res, [configName, testValue])
     res = env.cmd(config_cmd(), 'GET', argName)
     env.assertEqual(res, [[argName, testValue]])
+
+@skip(redis_less_than='7.9.227')
+def testEnumArgDeprecationMessage():
+    # Test search-on-timeout deprecation message
+    configName = 'search-on-timeout'
+    argName = 'ON_TIMEOUT'
+    moduleArgs = 'ON_TIMEOUT fail'
+
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+    expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}`'
+    matchCount = _grep_file_count(logFilePath, expectedMessage)
+    env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+@skip(redis_less_than='7.9.227')
+def testEnumFTConfigDeprecationMessage():
+    '''Test deprecation message of FT.CONFIG using enum parameters'''
+    # create module arguments
+    env = Env(noDefaultModuleArgs=True)
+
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+
+    configName = 'search-on-timeout'
+    argName = 'ON_TIMEOUT'
+    argValue = 'fail'
+
+    env.expect(config_cmd(), 'SET', argName, argValue).ok()
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
+
+    expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG SET {configName} instead'
+    matchCount = _grep_file_count(logFilePath, expectedMessage)
+    env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+    expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG GET {configName} instead'
+    matchCount = _grep_file_count(logFilePath, expectedMessage)
+    env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
 
 ################################################################################
 # Test CONFIG SET/GET string parameters
@@ -1084,6 +1209,39 @@ def testConfigFileAndArgsStringParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, testValue]])
 
+@skip(cluster=True, redis_less_than='7.9.227')
+def testStringArgDeprecationMessage():
+    '''Test deprecation message of module string arguments'''
+
+    env = Env()
+    # stop the server and remove the rdb file
+    rdbFilePath = _getRDBFilePath(env)
+    env.stop()
+    if (os.path.exists(rdbFilePath)):
+        os.unlink(rdbFilePath)
+
+    # get module path
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    redisearch_module_path = env.envRunner.modulePath[0]
+    basedir = os.path.dirname(redisearch_module_path)
+
+    # create module arguments
+    moduleArgs = ''
+    for configName, argName, ftDefaultValue, testValue in stringConfigs:
+        testValue = os.path.abspath(os.path.join(basedir, testValue))
+        moduleArgs += f'{argName} {testValue} '
+
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
+    env.assertTrue(env.isUp())
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+    for configName, argName, ftDefaultValue, testValue in stringConfigs:
+        expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}`'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
 ################################################################################
 # Test CONFIG SET/GET boolean parameters
 ################################################################################
@@ -1097,9 +1255,7 @@ booleanConfigs = [
     # ('search-partial-indexed-docs', 'PARTIAL_INDEXED_DOCS', 'no', True, False),
     ('search-_prioritize-intersect-union-children', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no', False, False),
     ('search-raw-docid-encoding', 'RAW_DOCID_ENCODING', 'no', True, False),
-    # # TODO: Confirm if we need to test search-_fork-gc-clean-numeric-empty-nodes,
-    # # because it will be deprecated in  8.0
-    # ('search-_fork-gc-clean-numeric-empty-nodes', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'yes', False)
+    ('search-enable-unstable-features', 'ENABLE_UNSTABLE_FEATURES', 'no', False, False),
 ]
 
 @skip(redis_less_than='7.9.227')
@@ -1348,3 +1504,111 @@ def testConfigFileAndArgsBooleanParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, ftExpectedValue]],
                         message=f'argName: {argName}')
+
+@skip(redis_less_than='7.9.227')
+def testBooleanArgDeprecationMessage():
+    '''Test deprecation message of module boolean arguments'''
+    # create module arguments
+    moduleArgs = ''
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        # use non-default value as argument value
+        ftDefaultValue = 'false' if defaultValue == 'yes' else 'true'
+        if isFlag:
+            moduleArgs += f'{argName} '
+        else:
+            moduleArgs += f'{argName} {ftDefaultValue} '
+
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}` instead'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+@skip(redis_less_than='7.9.227')
+def testDeprecatedModuleArgsMessage():
+    '''Test deprecation message of module arguments'''
+    # create module arguments using deprecated parameters
+    moduleArgs = 'WORKER_THREADS 3'
+    moduleArgs += ' MT_MODE MT_MODE_FULL'
+    moduleArgs += ' FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
+    moduleArgs += ' _FORK_GC_CLEAN_NUMERIC_EMPTY_NODES true'
+
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+    for argName in ['WORKER_THREADS', 'MT_MODE',
+                    'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES',
+                    '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
+                    ]:
+        expectedMessage = f'`{argName}` was set, but module arguments are deprecated'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}')
+
+@skip(redis_less_than='7.9.227')
+def testBooleanFTConfigDeprecationMessage():
+    '''Test deprecation message of FT.CONFIG using boolean parameters'''
+    # create module arguments
+    env = Env(noDefaultModuleArgs=True)
+
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        if immutable:
+            continue
+        env.expect(config_cmd(), 'SET', argName, 'true').ok()
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, 'true']])
+
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        if immutable:
+            continue
+        expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG SET {configName} instead'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+        expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG GET {configName} instead'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+@skip(redis_less_than='7.9.227')
+def testDeprecatedConfigParamMessage():
+    '''Test deprecation message of deprecated CONFIG parameters'''
+    env = Env(noDefaultModuleArgs=True)
+
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+
+    deprecated_configs = [
+        # configName, testValue, isImmutable, isFlag
+        ('_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true', False, False),
+        ('FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true', False, True),
+        ('MT_MODE', 'MT_MODE_OFF', True, False),
+        ('WORKER_THREADS', '0', True, False)
+    ]
+
+    for ftConfigName, testValue, isImmutable, isFlag in deprecated_configs:
+        if not isImmutable:
+            if isFlag == True:
+                env.expect(config_cmd(), 'SET', ftConfigName).ok()
+            else:
+                env.expect(config_cmd(), 'SET', ftConfigName, testValue).ok()
+
+        env.expect(config_cmd(), 'GET', ftConfigName).equal([[ftConfigName, testValue]])
+
+    for ftConfigName, testValue, isImmutable, isFlag in deprecated_configs:
+        expectedMessage = f'FT.CONFIG is deprecated and its parameter `{ftConfigName}` is deprecated'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        if isImmutable:
+            # For immutable parameters, we only expect one match because we only
+            # call FT.CONFIG GET
+            expectedMatchCount = 1
+        else:
+            expectedMatchCount = 2
+        env.assertEqual(matchCount, expectedMatchCount,
+                        message=f'configName: {ftConfigName}')
