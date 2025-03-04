@@ -83,23 +83,27 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
     if ((rv = AC_ParseArgSpec(ac, argList, &errArg)) == AC_OK) {
       continue;
     } else if (rv == AC_ERR_ENOENT) {
-      size_t narg;
-      const char *s = AC_GetStringNC(ac, &narg);
-      if (STR_EQCASE(s, narg, "FIELDS")) {
+      HiddenString* hs = AC_GetHiddenStringNC(ac);
+      if (!HiddenString_CaseInsensitiveCompareC(hs, "FIELDS", strlen("FIELDS"))){
         size_t numRemaining = AC_NumRemaining(ac);
         if (numRemaining % 2 != 0) {
           QueryError_SetError(status, QUERY_EADDARGS,
                               "Fields must be specified in FIELD VALUE pairs");
+          HiddenString_Free(hs, false);
           return REDISMODULE_ERR;
         } else {
           opts->fieldsArray = (RedisModuleString **)ac->objs + ac->offset;
           opts->numFieldElems = numRemaining;
           foundFields = 1;
+          HiddenString_Free(hs, false);
         }
         break;
 
       } else {
-        QueryError_SetWithUserDataFmt(status, QUERY_EADDARGS, "Unknown keyword", " `%.*s` provided", (int)narg, s);
+        size_t nargs;
+        const char* s = HiddenString_GetUnsafe(hs, &nargs);
+        QueryError_SetWithUserDataFmt(status, QUERY_EADDARGS, "Unknown keyword", " `%.*s` provided", (int)nargs, s);
+        HiddenString_Free(hs, false);
         return REDISMODULE_ERR;
       }
       // Argument not found, that's ok. We'll handle it below

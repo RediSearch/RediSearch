@@ -517,31 +517,33 @@ static bool checkPhoneticAlgorithmAndLang(const char *matcher) {
 // Tries to get vector data type from ac. This function need to stay updated with
 // the supported vector data types list of VecSim.
 static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
-  const char *typeStr;
-  size_t len;
+  HiddenString *htypeStr;
   int rc;
-  if ((rc = AC_GetString(ac, &typeStr, &len, 0)) != AC_OK) {
+  if ((rc = AC_GetHiddenString(ac, &htypeStr, 0) != AC_OK)) {
     return rc;
   }
   // Uncomment these when support for other type is added.
-  if (STR_EQCASE(typeStr, len, VECSIM_TYPE_FLOAT32))
+  if (!HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_FLOAT32, strlen(VECSIM_TYPE_FLOAT32)))
     *type = VecSimType_FLOAT32;
-  else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_FLOAT64))
+  else if (!HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_FLOAT64, strlen(VECSIM_TYPE_FLOAT64)))
     *type = VecSimType_FLOAT64;
-  else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_FLOAT16))
+  else if (!HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_FLOAT16, strlen(VECSIM_TYPE_FLOAT16)))
     *type = VecSimType_FLOAT16;
-  else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_BFLOAT16))
+  else if (!HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_BFLOAT16, strlen(VECSIM_TYPE_BFLOAT16)))
     *type = VecSimType_BFLOAT16;
-  else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_UINT8))
+  else if (!HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_UINT8, strlen(VECSIM_TYPE_UINT8)))
     *type = VecSimType_UINT8;
-  else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT8))
+  else if (!HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_INT8, strlen(VECSIM_TYPE_INT8)))
     *type = VecSimType_INT8;
-  // else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT32))
+  // else if (HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_INT32, strlen(VECSIM_TYPE_INT32)))
   //   *type = VecSimType_INT32;
-  // else if (STR_EQCASE(typeStr, len, VECSIM_TYPE_INT64))
+  // else if (HiddenString_CaseInsensitiveCompareC(htypeStr, VECSIM_TYPE_INT64, strlen(VECSIM_TYPE_INT64)))
   //   *type = VecSimType_INT64;
-  else
+  else {
+    HiddenString_Free(htypeStr, false);
     return AC_ERR_ENOENT;
+  }
+  HiddenString_Free(htypeStr, false);
   return AC_OK;
 }
 
@@ -549,18 +551,22 @@ static int parseVectorField_GetType(ArgsCursor *ac, VecSimType *type) {
 // the supported distance metric functions list of VecSim.
 static int parseVectorField_GetMetric(ArgsCursor *ac, VecSimMetric *metric) {
   const char *metricStr;
+  HiddenString *hmetricStr;
   int rc;
-  if ((rc = AC_GetString(ac, &metricStr, NULL, 0)) != AC_OK) {
+  if ((rc = AC_GetHiddenString(ac, &hmetricStr, 0)) != AC_OK) {
     return rc;
   }
-  if (!strcasecmp(VECSIM_METRIC_IP, metricStr))
+  if (!HiddenString_CaseInsensitiveCompareC(hmetricStr, VECSIM_METRIC_IP, strlen(VECSIM_METRIC_IP)))
     *metric = VecSimMetric_IP;
-  else if (!strcasecmp(VECSIM_METRIC_L2, metricStr))
+  else if (!HiddenString_CaseInsensitiveCompareC(hmetricStr, VECSIM_METRIC_L2, strlen(VECSIM_METRIC_L2)))
     *metric = VecSimMetric_L2;
-  else if (!strcasecmp(VECSIM_METRIC_COSINE, metricStr))
+  else if (!HiddenString_CaseInsensitiveCompareC(hmetricStr, VECSIM_METRIC_COSINE, strlen(VECSIM_METRIC_COSINE)))
     *metric = VecSimMetric_Cosine;
-  else
+  else {
+    HiddenString_Free(hmetricStr, false);
     return AC_ERR_ENOENT;
+  }
+  HiddenString_Free(hmetricStr, false);
   return AC_OK;
 }
 
@@ -699,7 +705,9 @@ static int parseVectorField_hnsw(FieldSpec *fs, VecSimParams *params, ArgsCursor
         return 0;
       }
     } else {
-      QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, AC_GetStringNC(ac, NULL));
+      HiddenString *hac = AC_GetHiddenStringNC(ac);
+      QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_HNSW, HiddenString_GetUnsafe(hac, NULL));
+      HiddenString_Free(hac, false);
       return 0;
     }
     numParam++;
@@ -776,7 +784,9 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
         return 0;
       }
     } else {
-      QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_BF, AC_GetStringNC(ac, NULL));
+      HiddenString *hac = AC_GetHiddenStringNC(ac);
+      QERR_MKBADARGS_FMT(status, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_BF, HiddenString_GetUnsafe(hac, NULL));
+      HiddenString_Free(hac, false);
       return 0;
     }
     numParam++;
@@ -829,21 +839,22 @@ static int parseTextField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
         QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_PHONETIC_STR " requires an argument");
         return 0;
       }
-
-      const char *matcher = AC_GetStringNC(ac, NULL);
+      HiddenString *hmatcher = AC_GetHiddenStringNC(ac);
       // try and parse the matcher
       // currently we just make sure algorithm is double metaphone (dm)
       // and language is one of the following : English (en), French (fr), Portuguese (pt) and
       // Spanish (es)
       // in the future we will support more algorithms and more languages
-      if (!checkPhoneticAlgorithmAndLang(matcher)) {
+      if (!checkPhoneticAlgorithmAndLang(HiddenString_GetUnsafe(hmatcher, NULL))) {
         QueryError_SetError(
             status, QUERY_EINVAL,
             "Matcher Format: <2 chars algorithm>:<2 chars language>. Support algorithms: "
             "double metaphone (dm). Supported languages: English (en), French (fr), "
             "Portuguese (pt) and Spanish (es)");
+        HiddenString_Free(hmatcher, false);
         return 0;
       }
+      HiddenString_Free(hmatcher, false);
       fs->options |= FieldSpec_Phonetics;
       continue;
     } else if (AC_AdvanceIfMatch(ac, SPEC_WITHSUFFIXTRIE_STR)) {
@@ -871,8 +882,11 @@ static int parseTagField(FieldSpec *fs, ArgsCursor *ac, QueryError *status) {
           rc = 0;
           break;
         }
-        const char *sep = AC_GetStringNC(ac, NULL);
-        if (strlen(sep) != 1) {
+        HiddenString *hsep = AC_GetHiddenStringNC(ac);
+        size_t sepLen;
+        const char *sep = HiddenString_GetUnsafe(hsep, &sepLen);
+        HiddenString_Free(hsep, false);
+        if (sepLen != 1) {
           QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS,
                                 "Tag separator must be a single character. Got `%s`", sep);
           rc = 0;
@@ -920,25 +934,24 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
   }
 
   // parse algorithm
-  const char *algStr;
-  size_t len;
+  HiddenString *halgStr;
+
   int rc;
   int result;
-  if ((rc = AC_GetString(ac, &algStr, &len, 0)) != AC_OK) {
+  if ((rc = AC_GetHiddenString(ac, &halgStr, 0) != AC_OK)) {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", rc);
     return 0;
   }
   VecSimLogCtx *logCtx = rm_new(VecSimLogCtx);
   logCtx->index_field_name = HiddenString_GetUnsafe(fs->fieldName, NULL);
   fs->vectorOpts.vecSimParams.logCtx = logCtx;
-
-  if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_BF)) {
+  if (!HiddenString_CaseInsensitiveCompareC(halgStr,VECSIM_ALGORITHM_BF, strlen(VECSIM_ALGORITHM_BF))){
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_BF;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.initialCapacity = SIZE_MAX;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.blockSize = 0;
     fs->vectorOpts.vecSimParams.algoParams.bfParams.multi = multi;
     result = parseVectorField_flat(fs, &fs->vectorOpts.vecSimParams, ac, status);
-  } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_HNSW)) {
+  } else if (!HiddenString_CaseInsensitiveCompareC(halgStr, VECSIM_ALGORITHM_HNSW, strlen(VECSIM_ALGORITHM_HNSW))) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
     fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredHnswParams.swapJobThreshold = 0; // Will be set to default value.
@@ -956,9 +969,11 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     result = parseVectorField_hnsw(fs, params, ac, status);
   } else {
     QERR_MKBADARGS_AC(status, "vector similarity algorithm", AC_ERR_ENOENT);
+    HiddenString_Free(halgStr, false);
     return 0;
   }
 
+  HiddenString_Free(halgStr, false);
   if(result != 0) {
     if (AC_AdvanceIfMatch(ac, SPEC_INDEXMISSING_STR)) {
       fs->options |= FieldSpec_IndexMissing;
@@ -1094,21 +1109,31 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     }
 
     // Parse path and name of field
-    size_t pathlen, namelen;
-    const char *fieldPath = AC_GetStringNC(ac, &pathlen);
-    const char *fieldName = fieldPath;
+    size_t namelen;
+    HiddenString *hfieldPath = AC_GetHiddenStringNC(ac);
+    HiddenString *hfieldName;
     if (AC_AdvanceIfMatch(ac, SPEC_AS_STR)) {
       if (AC_IsAtEnd(ac)) {
         QueryError_SetError(status, QUERY_EPARSEARGS, SPEC_AS_STR " requires an argument");
+        HiddenString_Free(hfieldName, false);
         goto reset;
       }
-      fieldName = AC_GetStringNC(ac, &namelen);
+      hfieldName = AC_GetHiddenStringNC(ac);
       sp->flags |= Index_HasFieldAlias;
     } else {
       // if `AS` is not used, set the path as name
-      namelen = pathlen;
-      fieldPath = NULL;
+      hfieldName = hfieldPath;
+      hfieldPath = NULL;
     }
+
+    const char *fieldName = HiddenString_GetUnsafe(hfieldName, &namelen);
+    const char *fieldPath = hfieldPath ? HiddenString_GetUnsafe(hfieldPath, NULL): NULL;
+
+    if (hfieldName != hfieldPath) {
+      HiddenString_Free(hfieldPath, false);
+    }
+    HiddenString_Free(hfieldName, false);
+
 
     if (IndexSpec_GetFieldWithLength(sp, fieldName, namelen)) {
       QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Duplicate field in schema", " - %s", fieldName);
@@ -1344,7 +1369,8 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
 
   if (!AC_AdvanceIfMatch(&ac, SPEC_SCHEMA_STR)) {
     if (AC_NumRemaining(&ac)) {
-      const char *badarg = AC_GetStringNC(&ac, NULL);
+      HiddenString *hbadarg = AC_GetHiddenStringNC(&ac);
+      const char *badarg = HiddenString_GetUnsafe(hbadarg, NULL);
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s`", badarg);
     } else {
       QueryError_SetError(status, QUERY_EPARSEARGS, "No schema found");

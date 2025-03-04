@@ -14,8 +14,8 @@
 #include <stdbool.h>
 
 #ifdef __cplusplus
-extern "C" {      
-#endif      
+extern "C" {
+#endif
 
 #define QUERY_XERRS(X)                                                                          \
   X(QUERY_EGENERIC, "Generic error evaluating the query")                                       \
