@@ -4,7 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
- #include <stdio.h>
+#include <stdio.h>
 #include <rmutil/rm_assert.h>
 #include "wildcard.h"
 
@@ -62,7 +62,7 @@ match_t Wildcard_MatchChar(const char *pattern, size_t p_len, const char *str, s
     pattern_itr = np_itr;
     str_itr = ns_itr;
   }
-  RS_ASSERT("Error");
+  RS_ABORT("Error");
   return FULL_MATCH;
 }
 
