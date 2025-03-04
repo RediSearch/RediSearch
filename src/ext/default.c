@@ -35,6 +35,8 @@
 #define NORM_MAXFREQ 1
 // normalize TF by number of tokens (weighted)
 #define NORM_DOCLEN 2
+// Stretch factor for the BM25 normalization function (tanh)
+#define NORMALIZED_BM25_STRETCH_FACTOR 4
 
 #define EXPLAIN(exp, fmt, args...) \
   {                                \
@@ -281,6 +283,46 @@ static double BM25StdScorer(const ScoringFunctionArgs *ctx, const RSIndexResult 
   return score;
 }
 
+/******************************************************************************************
+ *
+ * Normalized BM25 Scoring Function
+ *
+ ******************************************************************************************/
+
+/* Stretched tanh.
+ * The stretching is in the sense that we increase the range in which the tanh
+ * function behaves as a linear function, thus more suiting to our scoring
+ * expectations.
+ */
+static inline double tanhStretched(double x, double stretch) {
+  return tanh((1 / stretch) * x);
+}
+
+/* Normalized BM25 scoring function (of the standard version)
+ * The normalization is done by applying the stretched hyperbolic tangent function
+ * on the standard BM25 score of the result, resulting in a score in the range [0,1].
+*/
+static double BM25StdNormScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+                         const RSDocumentMetadata *dmd, double minScore) {
+  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+  double bm25res = bm25StdRecursive(ctx, r, dmd, scrExp);
+  double score = dmd->score * bm25res;
+  strExpCreateParent(ctx, &scrExp);
+
+  EXPLAIN(scrExp, "Final BM25 : words BM25 %.2f * document score %.2f", bm25res,
+          dmd->score);
+
+  // Normalize the score
+  double normalizedScore = tanhStretched(score, NORMALIZED_BM25_STRETCH_FACTOR);
+
+  // Modify the explanation to include the normalization
+  strExpCreateParent(ctx, &scrExp);
+  EXPLAIN(scrExp,
+    "Final Normalized BM25 : tanh(stretch factor 1/%d * Final BM25 %.2f)",
+    NORMALIZED_BM25_STRETCH_FACTOR, score);
+
+  return normalizedScore;
+}
 
 /******************************************************************************************
  *
@@ -653,6 +695,11 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
 
   /* Register BM25 scorer - STANDARD VARIATION */
   if (ctx->RegisterScoringFunction(BM25_STD_SCORER_NAME, BM25StdScorer, NULL, NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Register BM25 scorer - STANDARD VARIATION */
+  if (ctx->RegisterScoringFunction(BM25_STD_NORMALIZED_SCORER_NAME, BM25StdNormScorer, NULL, NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 
