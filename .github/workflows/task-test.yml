@@ -202,26 +202,49 @@ jobs:
           echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Build
-        run: make SAN=${{ inputs.san }} REDIS_VER=${{ inputs.get-redis }}
+        env:
+          SAN: ${{ inputs.san }}
+          REDIS_VER: ${{ inputs.get-redis }}
+          ENABLE_ASSERT: 1
+        run: make
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
         continue-on-error: true
-        run: make unit-tests LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }}
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          ENABLE_ASSERT: 1
+        run: make unit-tests
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
         if: ${{ inputs.standalone }}
         continue-on-error: true
-        run: make pytest SA=1 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
-          REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          SA: 1
+          REJSON: ${{ inputs.rejson }}
+          REJSON_BRANCH: ${{ inputs.rejson-branch }}
+          ENABLE_ASSERT: 1
+        run: make pytest ${{ inputs.test-config }}
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
         if: ${{ inputs.coordinator }}
         continue-on-error: true
-        run: make pytest SA=0 LOG=1 CLEAR_LOGS=0 SAN=${{ inputs.san }} ${{ inputs.test-config }}
-          REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          SA: 0
+          REJSON: ${{ inputs.rejson }}
+          REJSON_BRANCH: ${{ inputs.rejson-branch }}
+          ENABLE_ASSERT: 1
+        run: make pytest ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)
