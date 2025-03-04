@@ -342,6 +342,7 @@ TEST_F(CircularBufferTest, test_CircularBuffer_ReadAll_advance) {
   int *item = (int *)CircularBuffer_Reserve(cb, NULL);
   *item = 10;
   int result = 0;
+  // Read without prior reset, using the read pointer calculated in ReadAll
   CircularBuffer_Read(cb, &result);
   ASSERT_EQ(result, 10);
 
