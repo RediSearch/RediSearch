@@ -878,14 +878,14 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
     redisVersion = supportedVersion;
     return;
   }
-  RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
+  RS_ASSERT(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
   size_t len;
   const char *replyStr = RedisModule_CallReplyStringPtr(reply, &len);
 
   int n = sscanf(replyStr, "# Server\nredis_version:%d.%d.%d", &redisVersion.majorVersion,
                  &redisVersion.minorVersion, &redisVersion.patchVersion);
 
-  RedisModule_Assert(n == 3);
+  RS_ASSERT(n == 3);
 
   rlecVersion.majorVersion = -1;
   rlecVersion.minorVersion = -1;

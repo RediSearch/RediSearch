@@ -120,7 +120,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
   size_t nitems = sctx->spec->numFields;
   IndexSpec *spec = sctx->spec;
   SchemaRule *rule = spec->rule;
-  assert(rule);
+  RS_ASSERT(rule);
   RedisModuleString *payload_rms = NULL;
   Document_MakeStringsOwner(doc); // TODO: necessary?
   const char *keyname = (const char *)RedisModule_StringPtrLen(doc->docKey, NULL);

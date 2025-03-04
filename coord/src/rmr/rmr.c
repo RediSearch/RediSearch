@@ -78,7 +78,7 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->mastersOnly = true; // default to masters only
   ret->redisCtx = ctx;
   ret->bc = bc;
-  RedisModule_Assert(ctx || bc);
+  RS_ASSERT(ctx || bc);
   ret->fn = NULL;
 
   return ret;
@@ -174,7 +174,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
       RedisModuleBlockedClient *bc = ctx->bc;
-      RedisModule_Assert(bc);
+      RS_ASSERT(bc);
       RedisModule_BlockedClientMeasureTimeEnd(bc);
       RedisModule_UnblockClient(bc, ctx);
     }
@@ -209,7 +209,7 @@ static void uvFanoutRequest(void *p) {
 
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->bc;
-    RedisModule_Assert(bc);
+    RS_ASSERT(bc);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
   }
@@ -223,7 +223,7 @@ static void uvMapRequest(void *p) {
 
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->bc;
-    RedisModule_Assert(bc);
+    RS_ASSERT(bc);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
   }
@@ -237,7 +237,7 @@ void MR_requestCompleted() {
  * reply to the reducer callback */
 int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool block) {
   if (block) {
-    RedisModule_Assert(!mrctx->bc);
+    RS_ASSERT(!mrctx->bc);
     mrctx->bc = RedisModule_BlockClient(
         mrctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
     RedisModule_BlockedClientMeasureTimeStart(mrctx->bc);
@@ -251,7 +251,7 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
 int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   ctx->reducer = reducer;
   ctx->cmd = cmd;
-  RedisModule_Assert(!ctx->bc);
+  RS_ASSERT(!ctx->bc);
   ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
   RedisModule_BlockedClientMeasureTimeStart(ctx->bc);
   RQ_Push(rq_g, uvMapRequest, ctx);

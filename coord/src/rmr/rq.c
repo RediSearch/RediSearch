@@ -12,6 +12,7 @@
 #include "rmalloc.h"
 #include "rmr.h"
 #include "coord/src/config.h"
+#include "rmutil/rm_assert.h"
 
 struct queueItem {
   void *privdata;
@@ -124,7 +125,7 @@ static void verify_uv_thread() {
     uv_async_init(uv_default_loop(), &topologyAsync, topologyAsyncCB);
     // Verify that we are running on the event loop thread
     int uv_thread_create_status = uv_thread_create(&loop_th, sideThread, NULL);
-    RedisModule_Assert(uv_thread_create_status == 0);
+    RS_ASSERT(uv_thread_create_status == 0);
     REDISMODULE_NOT_USED(uv_thread_create_status);
     RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread");
   }

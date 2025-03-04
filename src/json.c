@@ -67,7 +67,7 @@ void pathFree(JSONPath jsonpath) {
     japi->pathFree(jsonpath);
   } else {
     // Should not attempt to free none-null path when the required API to parse is not available
-    assert(jsonpath != NULL);
+    RS_ASSERT(jsonpath != NULL);
   }
 }
 
@@ -76,7 +76,7 @@ int pathIsSingle(JSONPath jsonpath) {
     return japi->pathIsSingle(jsonpath);
   } else {
     // Should not use none-null path when the required API to parse is not available
-    assert(jsonpath != NULL);
+    RS_ASSERT(jsonpath != NULL);
   }
   return false;
 }
@@ -86,7 +86,7 @@ int pathHasDefinedOrder(JSONPath jsonpath) {
     return japi->pathHasDefinedOrder(jsonpath);
   } else {
     // Should not use none-null path when the required API to parse is not available
-    assert(jsonpath != NULL);
+    RS_ASSERT(jsonpath != NULL);
   }
   return false;
 }
@@ -589,7 +589,8 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
       rv = REDISMODULE_ERR;
       break;
     case JSONType__EOF:
-      RS_LOG_ASSERT(0, "Should not happen");
+      RS_ABORT("Should not happen");
+      rv = REDISMODULE_ERR;
   }
 
   return rv;
