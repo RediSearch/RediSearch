@@ -1371,6 +1371,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     if (AC_NumRemaining(&ac)) {
       HiddenString *hbadarg = AC_GetHiddenStringNC(&ac);
       const char *badarg = HiddenString_GetUnsafe(hbadarg, NULL);
+      HiddenString_Free(hbadarg, false);
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown argument", " `%s`", badarg);
     } else {
       QueryError_SetError(status, QUERY_EPARSEARGS, "No schema found");
