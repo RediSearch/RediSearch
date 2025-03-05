@@ -8,8 +8,11 @@ resolver = "3"
 # We therefore require documentation in two locations:
 # - When defining `unsafe` functions, we must document what preconditions
 #   must be met to use the function safely (i.e. without causing undefined behavior)
+#   This is caught by the `clippy::missing_safety_doc` lint, which is `warn`
+#   by default.
 # - When invoking `unsafe` functions, we must document why the preconditions
-#   are met.
+#   are met. This is caught by the `clippy::undocumented_unsafe_blocks` lint,
+#   which is `allow` by default and we're raising to `warn` here.
 # Without this documentation it is significantly harder to reason about the
 # safety of the code.
 undocumented_unsafe_blocks = "warn"
