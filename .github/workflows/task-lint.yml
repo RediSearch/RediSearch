@@ -1,4 +1,4 @@
-name: Common Flow for Linting
+name: Lint for warnings, and check that code is well-formatted
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
@@ -14,7 +14,7 @@ env:
   LLVM_VERSION: ${{ vars.LLVM_VERSION || 18 }}
 
 jobs:
-  common-flow:
+  lint:
     name: Linting ${{ inputs.env }}
     runs-on: ${{ inputs.env }}
     defaults:

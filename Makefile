@@ -51,9 +51,10 @@ make test          # run all tests
   SA=1|0               # alias for REDIS_STANDALONE
   TEST=name            # run specified test
 
-make lint          # run linters
-make fmt           # run code formatters
-  CHECK=1              # exit with an error if the code is not formatted
+make lint          # run linters and exit with an error if warnings are found
+make fmt           # format the source files using the appropriate auto-formatter
+  CHECK=1              # don't modify the source files, but exit with an error if
+                       # running the auto-formatter would result in changes
 
 make pytest        # run python tests (tests/pytests)
   REDIS_STANDALONE=1|0 # test with standalone/cluster Redis
@@ -460,7 +461,7 @@ vecsim-bench:
 #----------------------------------------------------------------------------------------------
 
 lint:
-	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo clippy
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo clippy -- -D warnings
 
 .PHONY: lint
 
