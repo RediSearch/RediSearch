@@ -12,3 +12,4 @@ default = ["redis_allocator"]
 redis_allocator = []
 
 [dependencies]
+libc.workspace = true
