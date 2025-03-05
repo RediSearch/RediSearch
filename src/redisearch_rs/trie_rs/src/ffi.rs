@@ -18,6 +18,30 @@ pub type tm_len_t = u16;
 #[used]
 pub static mut TRIEMAP_NOTFOUND: *mut ::std::os::raw::c_void = c"NOT FOUND".as_ptr() as *mut _;
 
+/// Used by TrieMapIterator to determine type of query.
+///
+/// C equivalent:
+/// ```c
+/// typedef enum {
+///     TM_PREFIX_MODE = 0,
+///     TM_CONTAINS_MODE = 1,
+///     TM_SUFFIX_MODE = 2,
+///     TM_WILDCARD_MODE = 3,
+///     TM_WILDCARD_FIXED_LEN_MODE = 4,
+///   } tm_iter_mode;
+#[repr(C)]
+enum tm_iter_mode {
+    TM_PREFIX_MODE = 0,
+    TM_CONTAINS_MODE = 1,
+    TM_SUFFIX_MODE = 2,
+    TM_WILDCARD_MODE = 3,
+    TM_WILDCARD_FIXED_LEN_MODE = 4,
+}
+
+/// Default mode for TrieMapIterator
+#[unsafe(no_mangle)]
+static TM_ITER_MODE_DEFAULT: tm_iter_mode = tm_iter_mode::TM_PREFIX_MODE;
+
 /// Opaque type TrieMap
 pub enum TrieMap {}
 
@@ -116,14 +140,14 @@ unsafe extern "C" fn TrieMap_Find(
     str: *const c_char,
     len: tm_len_t,
 ) -> *mut c_void {
-    unsafe { TRIEMAP_NOTFOUND }
+    todo!()
 }
 
 /// Find nodes that have a given prefix. Results are placed in an array.
 ///
 /// C equivalent:
 /// ```c
-/// int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, arrayof(void*) *results); // arrayof(void*) == void**
+/// int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, void** *results); // arrayof(void*)
 /// ```
 #[unsafe(no_mangle)]
 unsafe extern "C" fn TrieMap_FindPrefixes(
@@ -188,6 +212,7 @@ unsafe extern "C" fn TrieMap_Iterate(
     t: *mut TrieMap,
     prefix: *const c_char,
     prefix_len: tm_len_t,
+    iter_mode: tm_iter_mode,
 ) -> *mut TrieMapIterator {
     todo!()
 }
