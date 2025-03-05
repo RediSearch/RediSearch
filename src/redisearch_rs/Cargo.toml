@@ -2,6 +2,10 @@
 members = ["trie_rs"]
 resolver = "3"
 
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+multiple_unsafe_ops_per_block = "warn"
+
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
