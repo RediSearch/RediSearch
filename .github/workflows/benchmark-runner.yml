@@ -193,7 +193,17 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   notify-failure:
-    needs: [benchmark-search-oss-standalone, benchmark-vecsim-oss-standalone, benchmark-search-oss-cluster-02-primaries, benchmark-search-oss-cluster-04-primaries, benchmark-search-oss-cluster-08-primaries, benchmark-search-oss-cluster-16-primaries, benchmark-search-oss-cluster-20-primaries, benchmark-search-oss-cluster-24-primaries, benchmark-search-oss-standalone-profiler, benchmark-vecsim-oss-standalone-profiler]
+    needs:
+      - benchmark-search-oss-standalone
+      - benchmark-vecsim-oss-standalone
+      - benchmark-search-oss-cluster-02-primaries
+      - benchmark-search-oss-cluster-04-primaries
+      - benchmark-search-oss-cluster-08-primaries
+      - benchmark-search-oss-cluster-16-primaries
+      - benchmark-search-oss-cluster-20-primaries
+      - benchmark-search-oss-cluster-24-primaries
+      - benchmark-search-oss-standalone-profiler
+      - benchmark-vecsim-oss-standalone-profiler
     if: failure()
     runs-on: ${{ vars.RUNS_ON }}
     steps:
@@ -205,4 +215,4 @@ jobs:
               "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
             }
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_NIGHTLY_FAILED }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_BENCHMARK_FAILED }}
