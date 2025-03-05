@@ -847,7 +847,7 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
         goto error;
       }
       alias = HiddenString_GetUnsafe(halias, &aliasLen);
-      // HiddenString_Free(halias, false);
+      HiddenString_Free(halias, false);
       stp->base.alias = rm_strndup(alias, aliasLen);
     } else {
       alias = HiddenString_GetUnsafe(hexpr, &aliasLen);
