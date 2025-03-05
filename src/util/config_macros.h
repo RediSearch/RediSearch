@@ -34,19 +34,20 @@
     return sdsnew(cv ? "true" : "false");        \
   }
 
-#define CONFIG_BOOLEAN_SETTER(name, var)       \
-  CONFIG_SETTER(name) {                        \
-    const char *tf;                            \
-    int acrc = AC_GetString(ac, &tf, NULL, 0); \
-    CHECK_RETURN_PARSE_ERROR(acrc);            \
-    if (!strcasecmp(tf, "true")) {             \
-      config->var = 1;                         \
-    } else if (!strcasecmp(tf, "false")) {     \
-      config->var = 0;                         \
-    } else {                                   \
-      acrc = AC_ERR_PARSE;                     \
-    }                                          \
-    RETURN_STATUS(acrc);                       \
+#define CONFIG_BOOLEAN_SETTER(name, var)                                                \
+  CONFIG_SETTER(name) {                                                                 \
+    HiddenString* htf;                                                                  \
+    int acrc = AC_GetHiddenString(ac, &htf, 0);                                         \
+    CHECK_RETURN_PARSE_ERROR(acrc);                                                     \
+    if (!HiddenString_CaseInsensitiveCompareC(htf, "true", strlen("true"))){            \
+      config->var = 1;                                                                  \
+    } else if (!HiddenString_CaseInsensitiveCompareC(htf, "false", strlen("false"))) {  \
+      config->var = 0;                                                                  \
+    } else {                                                                            \
+      acrc = AC_ERR_PARSE;                                                              \
+    }                                                                                   \
+    HiddenString_Free(htf, false);                                                      \
+    RETURN_STATUS(acrc);                                                                \
   }
 
 #define COORDINATOR_TRIGGER() RSGlobalConfigTriggers[externalTriggerId](config)

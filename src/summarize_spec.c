@@ -22,10 +22,11 @@ static int parseFieldList(ArgsCursor *ac, FieldList *fields, Array *fieldPtrs) {
   }
 
   while (!AC_IsAtEnd(&fieldArgs)) {
-    const char *name = AC_GetStringNC(&fieldArgs, NULL);
-    ReturnedField *fieldInfo = FieldList_GetCreateField(fields, name, NULL);
+    HiddenString *hname = AC_GetHiddenStringNC(&fieldArgs);
+    ReturnedField *fieldInfo = FieldList_GetCreateField(fields, HiddenString_GetUnsafe(hname, NULL), NULL);
     size_t ix = (fieldInfo - fields->fields);
     Array_Write(fieldPtrs, &ix, sizeof(size_t));
+    HiddenString_Free(hname, false);
   }
 
   return 0;
@@ -89,8 +90,12 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
         rc = REDISMODULE_ERR;
         goto done;
       }
-      defOpts.highlightSettings.openTag = (char *)AC_GetStringNC(ac, NULL);
-      defOpts.highlightSettings.closeTag = (char *)AC_GetStringNC(ac, NULL);
+      HiddenString *hopenTag = AC_GetHiddenStringNC(ac);
+      defOpts.highlightSettings.openTag = (char *)HiddenString_GetUnsafe(hopenTag, NULL);
+      HiddenString_Free(hopenTag, false);
+      HiddenString *hcloseTag = AC_GetHiddenStringNC(ac);
+      defOpts.highlightSettings.closeTag = (char *)HiddenString_GetUnsafe(hcloseTag, NULL);
+      HiddenString_Free(hcloseTag, false);
     } else if (!isHighlight && AC_AdvanceIfMatch(ac, "LEN")) {
       if (AC_GetUnsigned(ac, &defOpts.summarizeSettings.contextLen, 0) != AC_OK) {
         rc = REDISMODULE_ERR;
@@ -104,9 +109,13 @@ static int parseCommon(ArgsCursor *ac, FieldList *fields, int isHighlight) {
       }
       defOpts.summarizeSettings.numFrags = tmp;
     } else if (!isHighlight && AC_AdvanceIfMatch(ac, "SEPARATOR")) {
-      if (AC_GetString(ac, (const char **)&defOpts.summarizeSettings.separator, NULL, 0) != AC_OK) {
+      HiddenString *hsaparator;
+      if (AC_GetHiddenString(ac, &hsaparator, 0) != AC_OK) {
         rc = REDISMODULE_ERR;
         goto done;
+      } else {
+        defOpts.summarizeSettings.separator = (char *)HiddenString_GetUnsafe(hsaparator, NULL);
+        HiddenString_Free(hsaparator, false);
       }
     } else {
       break;
