@@ -20,6 +20,8 @@
 #include "suffix.h"
 #include "util/workers.h"
 #include "cursor.h"
+#include "module.h"
+#include "aggregate/aggregate_debug.h"
 
 #define GET_SEARCH_CTX(name)                                        \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
@@ -1233,6 +1235,45 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
 }
 #endif
 
+DEBUG_COMMAND(DistSearchCommand_DebugWrapper) {
+  // at least one debug_param should be provided
+  // (1)_FT.DEBUG (2)FT.SEARCH (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (GetNumShards_UnSafe() == 1) {
+    // skip _FT.DEBUG
+    return DEBUG_RSSearchCommand(ctx, ++argv, --argc);
+  }
+
+  return DistSearchCommand(ctx, argv, argc);
+}
+
+DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
+  // at least one debug_param should be provided
+  // (1)_FT.DEBUG (2)FT.AGGREGATE (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (GetNumShards_UnSafe() == 1) {
+    // skip _FT.DEBUG
+    return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
+  }
+
+  return DistAggregateCommand(ctx, argv, argc);
+}
+
+DEBUG_COMMAND(RSSearchCommandShard) {
+  return DEBUG_RSSearchCommand(ctx, ++argv, --argc);
+}
+
+DEBUG_COMMAND(RSAggregateCommandShard) {
+  return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
+}
+
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1265,6 +1306,13 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
 #ifdef MT_BUILD
                                {"WORKERS", WorkerThreadsSwitch},
 #endif
+                               /**
+                                * The following commands are for debugging distributed search/aggregation.
+                                */
+                               {"FT.AGGREGATE", DistAggregateCommand_DebugWrapper},
+                               {"_FT.AGGREGATE", RSAggregateCommandShard}, // internal use only, in SA use FT.AGGREGATE
+                               {"FT.SEARCH", DistSearchCommand_DebugWrapper},
+                               {"_FT.SEARCH", RSSearchCommandShard}, // internal use only, in SA use FT.SEARCH
                                {NULL, NULL}};
 
 int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
