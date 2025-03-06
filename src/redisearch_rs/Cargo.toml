@@ -2,6 +2,28 @@
 members = ["trie_rs"]
 resolver = "3"
 
+[workspace.lints.clippy]
+# `unsafe` pushes on you, the developer, the responsibility
+# to uphold invariants that the compiler cannot verify via static analysis.
+# We therefore require documentation in two locations:
+# - When defining `unsafe` functions, we must document what preconditions
+#   must be met to use the function safely (i.e. without causing undefined behavior)
+#   This is caught by the `clippy::missing_safety_doc` lint, which is `warn`
+#   by default.
+# - When invoking `unsafe` functions, we must document why the preconditions
+#   are met. This is caught by the `clippy::undocumented_unsafe_blocks` lint,
+#   which is `allow` by default and we're raising to `warn` here.
+# Without this documentation it is significantly harder to reason about the
+# safety of the code.
+undocumented_unsafe_blocks = "warn"
+# Each unsafe operation has different preconditions and postconditions.
+# By wrapping each unsafe operation in its own block, we can ensure that
+# each operation is used safely and that the preconditions and postconditions
+# are met.
+# We can also more easily track the amount of unsafe operations throughout
+# the codebase.
+multiple_unsafe_ops_per_block = "warn"
+
 [workspace.package]
 version = "0.0.1"
 edition = "2024"

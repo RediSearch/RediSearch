@@ -44,6 +44,9 @@ env:
   LLVM_VERSION: ${{ vars.LLVM_VERSION || 18 }}
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
+  # Setting RUSTFLAGS here to ensure that all `cargo` invocations use the same
+  # flags, and therefore reuse the same intermediate build artifacts.
+  RUSTFLAGS: "-D warnings"
 
 jobs:
   common-flow:
