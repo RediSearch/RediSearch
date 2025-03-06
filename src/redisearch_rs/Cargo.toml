@@ -6,3 +6,6 @@ resolver = "3"
 version = "0.0.1"
 edition = "2024"
 license = "Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1)"
+
+[workspace.dependencies]
+libc = "0.2.170"
