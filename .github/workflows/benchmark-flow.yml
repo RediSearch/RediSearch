@@ -37,8 +37,6 @@ on:
       benchmark_runner_group_total:
         type: number
         default: 1
-env:
-  BOOST_VERSION: ${{ vars.BOOST_VERSION || '1.83.0' }}
 
 jobs:
   benchmark-steps:
@@ -62,7 +60,7 @@ jobs:
           .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: Install Boost
         working-directory: .install
-        run: ./install_boost.sh ${{ env.BOOST_VERSION }}
+        run: ./install_boost.sh
 
       - name: Get Redis
         uses: actions/checkout@v4

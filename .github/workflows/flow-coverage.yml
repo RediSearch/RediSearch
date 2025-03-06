@@ -15,7 +15,6 @@ on:
         description: 'Branch to use when building RedisJSON for tests'
 
 env:
-  BOOST_VERSION: ${{ vars.BOOST_VERSION || '1.83.0' }}
   VERBOSE_UTESTS: 1
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
 
@@ -38,7 +37,7 @@ jobs:
 
     - name: Install Boost
       working-directory: .install
-      run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
+      run: ./install_boost.sh
 
     - name: Get Redis
       env:
