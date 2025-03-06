@@ -654,7 +654,6 @@ class TestQueryDebugCommands(object):
         # INTERNAL_ONLY without TIMEOUT_AFTER_N
         debug_params = ['INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 1]
         expectError(debug_params, 'INTERNAL_ONLY must be used with TIMEOUT_AFTER_N')
-        debug_params = ['INTERNAL_ONLY', 'DUMMY_DEBUG_OPTION', 'DEBUG_PARAMS_COUNT', 2]
         expectError(debug_params, 'INTERNAL_ONLY must be used with TIMEOUT_AFTER_N')
 
         # TIMEOUT_AFTER_N 0 INTERNAL_ONLY without WITHCURSOR is disabled.
@@ -677,13 +676,6 @@ class TestQueryDebugCommands(object):
         env.expect(*test_cmd).error().contains('argument for TIMEOUT')
 
         self.InvalidParams()
-
-        # order of debug options doesn't matter
-        timeout_res_count = 1
-        debug_params = ['DUMMY_DEBUG_OPTION', 'INTERNAL_ONLY', 'TIMEOUT_AFTER_N', 1, 'DEBUG_PARAMS_COUNT', 4]
-        res1 = env.cmd(*basic_debug_query, *debug_params)
-        debug_params = ['INTERNAL_ONLY', 'TIMEOUT_AFTER_N', 1, 'DUMMY_DEBUG_OPTION', 'DEBUG_PARAMS_COUNT', 4]
-        res2 = env.cmd(*basic_debug_query, *debug_params)
 
         expected_res_count = timeout_res_count * self.env.shardsCount if self.cmd == "SEARCH" else timeout_res_count
         self.verifyResultsResp3(res1, expected_res_count, "QueryDebug:")

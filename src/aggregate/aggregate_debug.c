@@ -50,7 +50,6 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   ArgsCursor_InitRString(&ac, debug_argv, debug_params_count);
   ArgsCursor timeoutArgs = {0};
   int internal_only = 0;
-  int dummy_debug_option = 0;
   ACArgSpec debugArgsSpec[] = {
       // Getting TIMEOUT_AFTER_N as an array to use AC_IsInitialized API.
       {.name = "TIMEOUT_AFTER_N",
@@ -59,8 +58,6 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
        .slicelen = 1},
       // optional arg for TIMEOUT_AFTER_N
       {.name = "INTERNAL_ONLY", .type = AC_ARGTYPE_BOOLFLAG, .target = &internal_only},
-      // Used for testing purposes.
-      {.name = "DUMMY_DEBUG_OPTION", .type = AC_ARGTYPE_BOOLFLAG, .target = &dummy_debug_option},
       {NULL}};
 
   ACArgSpec *errSpec = NULL;
@@ -114,10 +111,6 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
                           "INTERNAL_ONLY must be used with TIMEOUT_AFTER_N");
       return REDISMODULE_ERR;
     }
-  }
-
-  if (dummy_debug_option) {
-    // Do noting
   }
 
   return REDISMODULE_OK;
