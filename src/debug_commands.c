@@ -20,7 +20,8 @@
 #include "suffix.h"
 #include "util/workers.h"
 #include "cursor.h"
-
+#include "module.h"
+#include "aggregate/aggregate_debug.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -33,7 +34,6 @@ void validateDebugMode(DebugCTX *debugCtx) {
     (debugCtx->bgIndexing.pauseBeforeScan);
 
 }
-
 
 #define GET_SEARCH_CTX(name)                                        \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
@@ -1417,6 +1417,56 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+DEBUG_COMMAND(DistSearchCommand_DebugWrapper) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  // at least one debug_param should be provided
+  // (1)_FT.DEBUG (2)FT.SEARCH (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (GetNumShards_UnSafe() == 1) {
+    // skip _FT.DEBUG
+    return DEBUG_RSSearchCommand(ctx, ++argv, --argc);
+  }
+
+  return DistSearchCommand(ctx, argv, argc);
+}
+
+DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  // at least one debug_param should be provided
+  // (1)_FT.DEBUG (2)FT.AGGREGATE (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  if (GetNumShards_UnSafe() == 1) {
+    // skip _FT.DEBUG
+    return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
+  }
+
+  return DistAggregateCommand(ctx, argv, argc);
+}
+
+DEBUG_COMMAND(RSSearchCommandShard) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  return DEBUG_RSSearchCommand(ctx, ++argv, --argc);
+}
+
+DEBUG_COMMAND(RSAggregateCommandShard) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
+}
+
 DEBUG_COMMAND(setMaxScannedDocs) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -1531,6 +1581,7 @@ DEBUG_COMMAND(setPauseBeforeScan) {
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
+
 DEBUG_COMMAND(bgScanController) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -1559,6 +1610,7 @@ DEBUG_COMMAND(bgScanController) {
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'BG_SCAN_CONTROLLER'");
 
 }
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1591,8 +1643,13 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
                                {"WORKERS", WorkerThreadsSwitch},
                                {"BG_SCAN_CONTROLLER", bgScanController},
-
-
+                               /**
+                                * The following commands are for debugging distributed search/aggregation.
+                                */
+                               {"FT.AGGREGATE", DistAggregateCommand_DebugWrapper},
+                               {"_FT.AGGREGATE", RSAggregateCommandShard}, // internal use only, in SA use FT.AGGREGATE
+                               {"FT.SEARCH", DistSearchCommand_DebugWrapper},
+                               {"_FT.SEARCH", RSSearchCommandShard}, // internal use only, in SA use FT.SEARCH
                                /* IMPORTANT NOTE: Every debug command starts with
                                 * checking if redis allows this context to execute
                                 * debug commands by calling `debugCommandsEnabled(ctx)`.
