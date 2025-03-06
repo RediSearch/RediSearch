@@ -58,10 +58,6 @@ jobs:
       - name: Setup tests dependencies
         run: |
           .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
-      - name: Install Boost
-        working-directory: .install
-        run: ./install_boost.sh
-
       - name: Get Redis
         uses: actions/checkout@v4
         with:

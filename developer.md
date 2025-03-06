@@ -31,8 +31,7 @@ For installing the prerequisites you can take the following approaches:
 
     ```bash
     cd ./install
-    ./install_script.sh sudo
-    ./install_boost.sh
+    ./install_script.sh sudo  
     ```
     Note that this will install various packages on your system using the native package manager (sudo is not required in a Docker environment). 
 

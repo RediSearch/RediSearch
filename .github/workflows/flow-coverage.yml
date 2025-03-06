@@ -34,11 +34,6 @@ jobs:
       run: ./install_script.sh sudo
     - name: Setup common
       run: .install/test_deps/common_installations.sh sudo
-
-    - name: Install Boost
-      working-directory: .install
-      run: ./install_boost.sh
-
     - name: Get Redis
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
