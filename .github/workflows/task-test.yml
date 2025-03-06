@@ -42,6 +42,7 @@ on:
 env:
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
+  LLVM_VERSION: 18
 
 jobs:
   common-flow:
