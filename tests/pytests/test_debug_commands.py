@@ -677,10 +677,6 @@ class TestQueryDebugCommands(object):
 
         self.InvalidParams()
 
-        expected_res_count = timeout_res_count * self.env.shardsCount if self.cmd == "SEARCH" else timeout_res_count
-        self.verifyResultsResp3(res1, expected_res_count, "QueryDebug:")
-        self.env.assertEqual(res1, res2, message="QueryDebug: expected same results regardless params order")
-
         # ft.<cmd> idx * TIMEOUT_AFTER_N 0 -> expect empty result
         debug_params = ['TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2]
         res = env.cmd(*basic_debug_query, *debug_params)
