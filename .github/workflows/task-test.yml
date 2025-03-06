@@ -132,7 +132,7 @@ jobs:
         working-directory: .install
         run: |
           ./install_script.sh ${{ steps.mode.outputs.mode }}
-          .test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
+          ./test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: Install LLVM for sanitizer
         if: inputs.san == 'address'
         working-directory: .install
