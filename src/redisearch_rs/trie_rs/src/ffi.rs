@@ -1,6 +1,9 @@
 #![allow(non_camel_case_types)]
 
-use std::ffi::{c_char, c_int, c_void};
+use std::{
+    ffi::{c_char, c_int, c_void},
+    mem::MaybeUninit,
+};
 
 /// C equivalent:
 /// ```c
@@ -71,6 +74,43 @@ type TrieMapIterator_NextFunc = Option<
 
 /// Opaque type TrieMapIterator
 enum TrieMapIterator {}
+
+/// Opaque type TrieMapResultBuf. Holds the results of [`TrieMap_FindPrefixes`].
+enum TrieMapResultBuf {}
+
+/// Free the TrieMapResultBuf and its data.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+///
+/// C equivalent:
+/// ```c
+/// void TrieMapResultBuf_Free(TrieMapResultBuf *buf);
+/// ```
+#[unsafe(no_mangle)]
+unsafe extern "C" fn TrieMapResultBuf_Free(buf: *mut TrieMapResultBuf) {
+    debug_assert!(!buf.is_null(), "buf cannot be NULL");
+    todo!()
+}
+
+/// Get the data from the TrieMapResultBuf as an array of values.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+///
+/// C equivalent:
+/// ```c
+/// void **TrieMapResultBuf_Data(TrieMapResultBuf *buf);
+/// ```
+#[unsafe(no_mangle)]
+unsafe extern "C" fn TrieMapResultBuf_Data(buf: *mut TrieMapResultBuf) -> *mut *mut c_void {
+    debug_assert!(!buf.is_null(), "buf cannot be NULL");
+    todo!()
+}
 
 /// Create a new [`TrieMap`]. Returns an opaque pointer to the newly created trie.
 ///
@@ -144,17 +184,19 @@ unsafe extern "C" fn TrieMap_Find(
 }
 
 /// Find nodes that have a given prefix. Results are placed in an array.
+/// The `results` buffer is initialized by this function using the Redis allocator
+/// and should be freed by calling [`TrieMapResultBuf_Free`].
 ///
 /// C equivalent:
 /// ```c
-/// int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, void** *results); // arrayof(void*)
+/// int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, TrieMapResultBuf *results);
 /// ```
 #[unsafe(no_mangle)]
 unsafe extern "C" fn TrieMap_FindPrefixes(
     t: *mut TrieMap,
     str: *const c_char,
     len: tm_len_t,
-    results: *mut *mut *mut c_void,
+    results: *mut MaybeUninit<TrieMapResultBuf>,
 ) -> c_int {
     todo!()
 }
