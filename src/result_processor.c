@@ -985,7 +985,7 @@ void SetLoadersForBG(AREQ *r) {
       // If the pipeline was originally built with a safe loader and later got set to run on
       // the main thread, we keep the safe loader and only change the next function.
       // Now we need to change the next function back to the safe loader's next function.
-      assert(cur->Next == rploaderNext);
+      RS_ASSERT(cur->Next == rploaderNext);
       cur->Next = rpSafeLoaderNext_Accumulate;
       ((RPSafeLoader *)cur)->becomePlainLoader = false;
     }

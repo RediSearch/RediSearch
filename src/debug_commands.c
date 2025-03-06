@@ -893,7 +893,8 @@ DEBUG_COMMAND(ttlPause) {
   WeakRef timer_ref;
   // The timed-out callback is called from the main thread and removes the index from the global
   // dictionary, so at this point we know that the timer exists.
-  RedisModule_Assert(RedisModule_StopTimer(RSDummyContext, sp->timerId, (void**)&timer_ref) == REDISMODULE_OK);
+  int rc = RedisModule_StopTimer(RSDummyContext, sp->timerId, (void**)&timer_ref);
+  RS_ASSERT(rc == REDISMODULE_OK);
   WeakRef_Release(timer_ref);
   sp->timerId = 0;
   sp->isTimerSet = false;
