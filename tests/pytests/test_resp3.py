@@ -631,7 +631,7 @@ def test_profile_crash_mod5323():
         r.execute_command("HSET", "4", "t", "helowa")
     waitForIndex(env, 'idx')
 
-    res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT") # codespell:ignore hel
+    res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT") # codespell:ignore hel # codespell:ignore hel
     exp = {
       'Results': {
         'warning': [],
@@ -1513,24 +1513,26 @@ def test_error_with_partial_results():
       conn.execute_command('HSET', f'doc{i}', 't', str(i))
 
   # `FT.AGGREGATE`
-  res = conn.execute_command(
-    'FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '1'
+  res = runDebugQueryCommandTimeoutAfterN(env,
+    ['FT.AGGREGATE', 'idx', '*'],
+    timeout_res_count=3,
   )
-
   # Assert that we got results
   env.assertGreater(len(res['results']), 0)
 
   # Assert that we got a warning
-  env.assertEqual(len(res['warning']), 1)
-  env.assertEqual(res['warning'][0], 'Timeout limit was reached')
+  VerifyTimeoutWarningResp3(env, res)
 
   # `FT.SEARCH`
-  res = conn.execute_command(
-    'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+  res = runDebugQueryCommandTimeoutAfterN(env,
+    ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs)],
+    timeout_res_count=3,
   )
 
-  env.assertEqual(len(res['warning']), 1)
-  env.assertEqual(res['warning'][0], 'Timeout limit was reached')
+  # Assert that we got results
+  env.assertGreater(len(res['results']), 0)
+  # Assert that we got a warning
+  VerifyTimeoutWarningResp3(env, res)
 
 def test_warning_maxprefixexpansions():
   env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
@@ -1557,7 +1559,7 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}])
   env.assertEqual(res['warning'], [])
   # TAG
-  res = env.cmd('FT.SEARCH', 'idx', '@t2:{fo*}', 'nocontent') # codespell:ignore fo
+  res = env.cmd('FT.SEARCH', 'idx', '@t2:{fo*}', 'nocontent') # codespell:ignore
   env.assertEqual(res['total_results'], 1)
   env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}])
   env.assertEqual(res['warning'], [])
