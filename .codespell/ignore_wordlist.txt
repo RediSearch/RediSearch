@@ -5,8 +5,8 @@ ist
 ths
 anId
 nd
-curEnt
+curent
 childRes
-specField
+specfield
 runn
 te
