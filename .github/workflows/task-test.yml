@@ -73,16 +73,12 @@ jobs:
             fi
           done
           echo "supported=true" >> $GITHUB_OUTPUT
-      - name: Deps checkout (node20)
+      - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
         with:
-          path: setup
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            .install
-            tests/pytests/requirements.*
-      - name: Deps checkout (node20 not supported)
+          submodules: recursive
+      - name: Full checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
         run: |
           # Execute the logic based on the detected platform
@@ -132,32 +128,16 @@ jobs:
               exit 1
               ;;
           esac
-      - name: Setup specific (node20)
-        if: steps.node20.outputs.supported == 'true'
-        working-directory: setup/.install
-        run: |
-          ./install_script.sh ${{ steps.mode.outputs.mode }}
-      - name: Setup specific (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
+      - name: Setup
         working-directory: .install
         run: |
           ./install_script.sh ${{ steps.mode.outputs.mode }}
+          .test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: Install LLVM for sanitizer
         if: inputs.san == 'address'
-        working-directory: setup/.install
+        working-directory: .install
         run: |
           ./test_deps/install_llvm.sh ${{ steps.mode.outputs.mode }}
-      - name: Full checkout (node20)
-        if: steps.node20.outputs.supported == 'true'
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Full checkout (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
-        run: echo "Done already earlier."
-      - name: Setup tests dependencies
-        run: |
-          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: Get Redis (node20)
         if: ${{ steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
