@@ -5,9 +5,9 @@ name: Run a Benchmark Flow
 on:
   workflow_call:
     inputs:
-      container:
-        type: string
-        default: redisfab/rmbuilder:6.2.7-x64-bullseye
+      # container:
+      #   type: string
+      #   default: redisfab/rmbuilder:6.2.7-x64-bullseye
       module_path:
         type: string
         default: bin/linux-x64-release/search-community/redisearch.so
@@ -44,7 +44,6 @@ jobs:
   benchmark-steps:
     name: "Benchmark ${{ inputs.allowed_envs }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }} "
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-    container: ${{ inputs.container }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -64,15 +63,15 @@ jobs:
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }}
 
-      - name: Get Redis
-        uses: actions/checkout@v4
-        with:
-          repository: redis/redis
-          ref: unstable
-          path: redis
-      - name: Build Redis
-        working-directory: redis
-        run: make install
+      # - name: Get Redis
+      #   uses: actions/checkout@v4
+      #   with:
+      #     repository: redis/redis
+      #     ref: unstable
+      #     path: redis
+      # - name: Build Redis
+      #   working-directory: redis
+      #   run: make install
       - name: Build RediSearch
         run: make build
             PROFILE=${{ inputs.profile_env }}
