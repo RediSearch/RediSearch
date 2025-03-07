@@ -631,7 +631,7 @@ def test_profile_crash_mod5323():
         r.execute_command("HSET", "4", "t", "helowa")
     waitForIndex(env, 'idx')
 
-    res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT") # codespell:ignore hel # codespell:ignore hel
+    res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT") # codespell:ignore hel
     exp = {
       'Results': {
         'warning': [],
