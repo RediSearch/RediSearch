@@ -98,8 +98,7 @@ def testFlushallManyPrefixes(env):
     # Verify the global prefixes trie is empty
     dump_trie = to_dict(env.cmd(debug_cmd(), "DUMP_PREFIX_TRIE"))
     env.assertEqual(dump_trie['prefixes_count'], 0)
-    # 1 = root node
-    env.assertEqual(dump_trie['prefixes_trie_nodes'], 1)
+    env.assertEqual(dump_trie['prefixes_trie_nodes'], 0)
 
 def testFilter2(env):
     conn = getConnectionByEnv(env)
@@ -354,7 +353,7 @@ def testLanguageDefaultAndField(env):
         res = env.cmd('FT.SEARCH', 'idxTest1', u'अँगरेज़')
         res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
         env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', res1['body'])
-        # test for default language
+        # test for default langauge
         res = env.cmd('FT.SEARCH', 'idxTest2', u'अँगरेज़')
         res1 = {res[2][i]:res[2][i + 1] for i in range(0, len(res[2]), 2)}
         env.assertEqual(u'अँगरेजी अँगरेजों अँगरेज़', res1['body'])

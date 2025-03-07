@@ -59,7 +59,7 @@ TrieMapNode *__newTrieMapNode(const char *str, tm_len_t offset, tm_len_t len, tm
 
 TrieMap *NewTrieMap() {
   TrieMap *tm = rm_malloc(sizeof(TrieMap));
-  tm->size = 1; // root node
+  tm->size = 0;
   tm->cardinality = 0;
   tm->root = __newTrieMapNode("", 0, 0, 0, NULL, 0);
   return tm;
@@ -120,8 +120,7 @@ TrieMapNode *__trieMapNode_Split(TrieMapNode *n, tm_len_t offset) {
   return n;
 }
 
-int TrieMapNode_Add(TrieMapNode **np, const char *str, tm_len_t len,
-      void *value, TrieMapReplaceFunc cb, int *existing) {
+int TrieMapNode_Add(TrieMapNode **np, const char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
   TrieMapNode *n = *np;
   int rv = 0;
 
@@ -175,10 +174,9 @@ int TrieMapNode_Add(TrieMapNode **np, const char *str, tm_len_t len,
     // if it was deleted, make sure it's not now
     n->flags &= ~TM_NODE_DELETED;
     *np = n;
-    // it is an existing node, the size is the same but cardinality increases
-    *existing = 1;
-    // we are using an existing node, so we return 0
-    return 0;
+    // if the node existed - we return 0, otherwise return 1 as it's a new node
+    rv += term && !deleted ? 0 : 1;
+    return rv;
   }
 
   // proceed to the next child or add a new child for the current char
@@ -188,7 +186,7 @@ int TrieMapNode_Add(TrieMapNode **np, const char *str, tm_len_t len,
   if (ptr != NULL) {
     const size_t char_offset = ptr - childKeys;
     TrieMapNode *child = __trieMapNode_children(n)[char_offset];
-    rv = TrieMapNode_Add(&child, str + offset, len - offset, value, cb, existing);
+    rv = TrieMapNode_Add(&child, str + offset, len - offset, value, cb);
     __trieMapNode_children(n)[char_offset] = child;
     return rv;
   }
@@ -200,10 +198,9 @@ int TrieMapNode_Add(TrieMapNode **np, const char *str, tm_len_t len,
 }
 
 int TrieMap_Add(TrieMap *t, const char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
-  int existing = 0;
-  int rc = TrieMapNode_Add(&t->root, str, len, value, cb, &existing);
+  int rc = TrieMapNode_Add(&t->root, str, len, value, cb);
   t->size += rc;
-  int added = rc ? 1 : existing;
+  int added = rc ? 1 : 0;
   t->cardinality += added;
   return added;
 }
@@ -333,7 +330,7 @@ TrieMapNode *TrieMapNode_FindNode(TrieMapNode *n, char *str, tm_len_t len, tm_le
     }
 
     // we've reached the end of the string - return the node even if it's not
-    // terminal
+    // temrinal
     if (offset == len) {
       // let the caller know the local offset
       if (poffset) {
@@ -434,8 +431,7 @@ int __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
     } else {
       // this node is ok!
       // if needed - merge this node with it its single child
-      if (nodes[i] && nodes[i]->numChildren == 1 &&
-            !__trieMapNode_isTerminal(nodes[i])) {
+      if (nodes[i] && nodes[i]->numChildren == 1) {
         nodes[i] = __trieMapNode_MergeWithSingleChild(nodes[i]);
         rc++;
       }
@@ -445,8 +441,7 @@ int __trieMapNode_optimizeChildren(TrieMapNode *n, void (*freeCB)(void *)) {
   return rc;
 }
 
-int TrieMapNode_Delete(TrieMapNode *n, const char *str, tm_len_t len,
-                        void (*freeCB)(void *), int *deleted) {
+int TrieMapNode_Delete(TrieMapNode *n, const char *str, tm_len_t len, void (*freeCB)(void *)) {
   tm_len_t offset = 0;
   int stackCap = 8;
   TrieMapNode **stack = rm_calloc(stackCap, sizeof(TrieMapNode *));
@@ -472,7 +467,6 @@ int TrieMapNode_Delete(TrieMapNode *n, const char *str, tm_len_t len,
         if (!(n->flags & TM_NODE_DELETED)) {
           n->flags |= TM_NODE_DELETED;
           n->flags &= ~TM_NODE_TERMINAL;
-          *deleted = 1;
 
           if (n->value) {
             if (freeCB) {
@@ -515,16 +509,15 @@ end:
 }
 
 int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, freeCB func) {
-  int deleted = 0;
-  int rc = TrieMapNode_Delete(t->root, str, len, func, &deleted);
+  int rc = TrieMapNode_Delete(t->root, str, len, func);
   t->size -= rc;
+  int deleted = rc ? 1 : 0;
   t->cardinality -= deleted;
   return deleted;
 }
 
 size_t TrieMap_MemUsage(TrieMap *t) {
-  // (t->size - 1) because we are not counting the root node in memory usage
-  return (t->size - 1) * (sizeof(TrieMapNode) +   // size of struct
+  return t->size * (sizeof(TrieMapNode) +    // size of struct
                     sizeof(TrieMapNode *) +  // size of ptr to struct in parent node
                     1 +                      // char key to children in parent node
                     sizeof(char *));         // == 8, string size rounded up to 8 bits due to padding
@@ -925,7 +918,7 @@ static int __fullmatch_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void
 }
 
 /*
- * The function is called after a match of one character was found.
+ * The function is called after a match of one characther was found.
  * It checks whether the partial match is a full match and if not, it returns 0.
  * If a full match is found, in `suffix` mode the string buffer is updated and return 1.
  * In `contains`, an internal iterator is created. and return all children until exhuasted.
