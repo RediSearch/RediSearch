@@ -123,17 +123,17 @@ jobs:
           if 'amazonlinux:2023' in x86_platforms: 
             x86_include.append({
               'OS': 'amazonlinux:2023',
-              'pre-deps': "dnf install -y tar gzip"})
+              'pre-deps': "dnf install -y tar gzip git"})
           if 'amazonlinux:2023' in arm_platforms:
             arm_include.append({
               'OS': 'amazonlinux:2023',
-              'pre-deps': "dnf install -y tar gzip"})
+              'pre-deps': "dnf install -y tar gzip git"})
 
           # mariner:2 needs pre-checkout dependencies
           if 'mcr.microsoft.com/cbl-mariner/base/core:2.0' in x86_platforms:
             x86_include.append({
               'OS': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
-              'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip"})
+              'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip git"})
 
           # alpine:3 needs pre-checkout dependencies
           if 'alpine:3' in x86_platforms:
