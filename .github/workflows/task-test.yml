@@ -57,6 +57,8 @@ jobs:
     steps:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
+        # if image is alpine, we need to use sh instead of bash
+        shell: ${{ inputs.container == 'alpine:3' && 'sh' || 'bash' }} -l -eo pipefail {0}
         run: ${{ inputs.pre-steps-script }}
       - name: Get Installation Mode
         id: mode
