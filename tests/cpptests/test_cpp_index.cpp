@@ -302,7 +302,7 @@ TEST_F(IndexTest, testGetEncoderAndDecoders) {
         ASSERT_ANY_THROW(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
       #else
         continue;
-      #endif;
+      #endif
     }
   }
 }
