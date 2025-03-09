@@ -78,6 +78,9 @@ option(BUILD_LITE "Build lite version" OFF)
 option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
 option(ENABLE_ASSERT "Enable assertions" OFF)
 
+# For cpu_features::list_cpu_features coming from VecSim
+option(BUILD_TESTING "Enable test rule" OFF)
+
 # Set default values for other build parameters if not specified
 if(NOT DEFINED COORD_TYPE)
   set(COORD_TYPE "oss")
@@ -202,7 +205,7 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 # Include external dependencies
-include(${root}/build/libuv/libuv.cmake)
+
 include(${root}/build/hiredis/hiredis.cmake)
 
 include_directories(
@@ -213,6 +216,7 @@ include_directories(
     ${root}/deps
     ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
+    ${root}/deps/libuv/include
     ${BOOST_DIR}
     ${root})
 
@@ -220,6 +224,7 @@ add_subdirectory(deps/rmutil)
 add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
+add_subdirectory(deps/libuv)
 
 option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
