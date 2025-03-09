@@ -45,6 +45,7 @@
 #include "resp3.h"
 #include "info/global_stats.h"
 #include "util/units.h"
+#include "aggregate/aggregate_debug.h"
 
 
 /* FT.MGET {index} {key} ...
