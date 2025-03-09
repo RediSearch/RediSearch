@@ -32,7 +32,7 @@ extern "C" {
 namespace RS {
 
 static void donecb(RSAddDocumentCtx *aCtx, RedisModuleCtx *, void *) {
-  // printf("Finished indexing document. Status: %s\n", QueryError_GetError(&aCtx->status));
+  // printf("Finished indexing document. Status: %s\n", QueryError_GetUserError(&aCtx->status));
 }
 
 template <typename... Ts>

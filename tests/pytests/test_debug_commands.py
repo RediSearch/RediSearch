@@ -392,7 +392,6 @@ def testHNSWdump_badParams(env: Env):
     # If index error is "Can't open vector index" then function tries to accsses null pointer
     env.expect(debug_cmd(), 'DUMP_HNSW', 'idx','v').error() \
         .contains("Can't open vector index")
-
 @skip(cluster=True)
 def testSetMaxScannedDocs(env: Env):
 
