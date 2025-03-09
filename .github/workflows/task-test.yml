@@ -57,7 +57,6 @@ jobs:
     steps:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
-        shell: bash -l -eo pipefail {0}
         run: ${{ inputs.pre-steps-script }}
       - name: Get Installation Mode
         id: mode
