@@ -53,8 +53,7 @@ jobs:
     if: ${{ inputs.standalone || inputs.coordinator }}
     defaults:
       run:
-        # if container is alpine use sh instead of bash
-        shell: ${{ inputs.container == 'alpine:3' && 'sh' || 'bash' }} -l -eo pipefail {0}
+        shell: bash -l -eo pipefail {0}
     steps:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
