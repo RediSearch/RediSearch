@@ -508,7 +508,7 @@ void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx) {
 
 void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   // Mark the command of the context as depleted (so we won't send another command to the shard)
-  RS_ASSERT(ctx->cmd.depleted);
+  RS_ASSERT(!ctx->cmd.depleted);
   ctx->cmd.depleted = true;
   short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
   RS_LOG_ASSERT(pending >= 0, "Pending should not reach a negative value");
