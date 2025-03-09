@@ -6,7 +6,6 @@ env:
   ALL_X86_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal',
                     'ubuntu:bionic',
-                    'centos:7',
                     'rockylinux:8',
                     'rockylinux:9',
                     'debian:bullseye',
