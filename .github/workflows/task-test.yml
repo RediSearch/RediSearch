@@ -53,7 +53,8 @@ jobs:
     if: ${{ inputs.standalone || inputs.coordinator }}
     defaults:
       run:
-        shell: bash -l -eo pipefail {0}
+        # if container is alpine use sh instead of bash
+        shell: ${{ inputs.container == 'alpine:3' && 'sh' || 'bash' }} -l -eo pipefail {0}
     steps:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
@@ -84,23 +85,6 @@ jobs:
           echo "Detected platform: ${{ inputs.container }}"
           case "${{ inputs.container }}" in
             ubuntu:bionic | amazonlinux:2 | alpine:3)
-              echo "Installing prerequisites for ${{ inputs.container }}..."
-
-              # Install git (platform-specific package management)
-              case "${{ inputs.container }}" in
-                ubuntu:bionic)
-                  apt update
-                  apt install -y git
-                  ;;
-                amazonlinux:2)
-                  yum update -y
-                  yum install -y git
-                  ;;
-                alpine:3)
-                  apk update
-                  apk add --no-cache git
-                  ;;
-              esac
 
               # Configure the safe directory
               git config --global --add safe.directory /__w/${{ github.repository }}
