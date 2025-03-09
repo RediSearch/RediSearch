@@ -508,6 +508,7 @@ void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx) {
 
 void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   // Mark the command of the context as depleted (so we won't send another command to the shard)
+  RS_ASSERT(ctx->cmd.depleted);
   ctx->cmd.depleted = true;
   short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
   RS_LOG_ASSERT(pending >= 0, "Pending should not reach a negative value");
@@ -665,7 +666,7 @@ void MRIterator_Release(MRIterator *it) {
     for (size_t i = 0; i < it->len; i++) {
       MRCommand *cmd = &it->cbxs[i].cmd;
       if (!cmd->depleted) {
-        // assert(!strcmp(cmd->strs[1], "READ"));
+        RS_LOG_ASSERT_FMT(cmd->rootCommand != C_DEL, "pending = %d", it->ctx.pending);
         cmd->rootCommand = C_DEL;
         strcpy(cmd->strs[1], "DEL");
         cmd->lens[1] = 3;

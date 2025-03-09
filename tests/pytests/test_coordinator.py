@@ -190,6 +190,12 @@ def test_mod_6287(env):
     for i in range(n_docs):
         conn.execute_command('HSET', i, 'n', i)
 
+    shard_size = []
+    for i in range (1, env.shardsCount + 1):
+        shard_size.append(env.getConnection(i).execute_command("dbsize"))
+
+    env.debugPrint(f"shard keys: {shard_size}")
+
     # Dispatch an aggregate with cursor command to the coordinator
     res, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'LOAD', '*', 'WITHCURSOR')
     received = len(res)-1
