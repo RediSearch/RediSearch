@@ -16,7 +16,7 @@
 **
 ** The "lemon" program processes an LALR(1) input grammar file, then uses
 ** this template to construct a parser.  The "lemon" program inserts text
-** at each "%%" line.  Also, any "P-a-r-s-e" identifier prefix (without the
+** at each "%%" line.  Also, any "P-a-r-s-e" identifer prefix (without the
 ** interstitial "-" characters) contained in this template is changed into
 ** the value of the %name directive from the grammar.  Otherwise, the content
 ** of this template is copied straight through into the generate parser
@@ -2268,7 +2268,7 @@ static YYACTIONTYPE yy_reduce(
     QueryParam_Free(yymsp[0].minor.yy62);
   } else if (yymsp[0].minor.yy62) {
     // we keep the capitalization as is
-    yymsp[0].minor.yy62->gf->spec = yymsp[-2].minor.yy150.fs;
+    yymsp[0].minor.yy62->gf->fieldSpec = yymsp[-2].minor.yy150.fs;
     yylhsminor.yy3 = NewGeofilterNode(yymsp[0].minor.yy62);
   }
 }

@@ -151,12 +151,12 @@ IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *g
   IndexIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
   ((GeoFilter *)gf)->numericFilters = rm_calloc(GEO_RANGE_COUNT, sizeof(*gf->numericFilters));
   size_t itersCount = 0;
-  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = gf->spec->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = gf->fieldSpec->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
     if (ranges[ii].min != ranges[ii].max) {
       NumericFilter *filt = gf->numericFilters[ii] =
               NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, true, NULL);
-      filt->fieldSpec = gf->spec;
+      filt->fieldSpec = gf->fieldSpec;
       filt->geoFilter = gf;
       struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, csx, INDEXFLD_T_GEO, config, &filterCtx);
       if (numIter != NULL) {
