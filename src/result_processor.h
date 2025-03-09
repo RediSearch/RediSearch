@@ -56,6 +56,7 @@ typedef enum {
   RP_PROFILE,
   RP_NETWORK,
   RP_METRICS,
+  RP_TIMEOUT, // DEBUG ONLY
   RP_MAX,
 } ResultProcessorType;
 
@@ -276,6 +277,14 @@ void Profile_AddRPs(QueryIterator *qiter);
 
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);
+
+/*******************************************************************************************************************
+ *  Timeout Processor - DEBUG ONLY
+ *
+ * returns timeout after N results, N >= 0.
+ *******************************************************************************************************************/
+ResultProcessor *RPTimeoutAfterCount_New(size_t count);
+void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
 
 #ifdef __cplusplus
 }
