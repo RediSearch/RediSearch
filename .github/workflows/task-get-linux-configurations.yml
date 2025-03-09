@@ -154,6 +154,47 @@ jobs:
             arm_include.append({
               'OS': 'ubuntu:jammy',
               'pre-deps': "apt update && apt install -y git"})
+
+          # ubuntu:noble needs git pre-checkout dependencies
+          if 'ubuntu:noble' in x86_platforms:
+            x86_include.append({
+              'OS': 'ubuntu:noble',
+              'pre-deps': "apt update && apt install -y git"})
+          if 'ubuntu:noble' in arm_platforms:
+            arm_include.append({
+              'OS': 'ubuntu:noble',
+              'pre-deps': "apt update && apt install -y git"})
+
+          # ubuntu:focal needs git pre-checkout dependencies
+          if 'ubuntu:focal' in x86_platforms:
+            x86_include.append({
+              'OS': 'ubuntu:focal',
+              'pre-deps': "apt update && apt install -y git"})
+          if 'ubuntu:focal' in arm_platforms:
+            arm_include.append({
+              'OS': 'ubuntu:focal',
+              'pre-deps': "apt update && apt install -y git"})
+          
+          # ubuntu:bionic needs git pre-checkout dependencies
+          if 'ubuntu:bionic' in x86_platforms:
+            x86_include.append({
+              'OS': 'ubuntu:bionic',
+              'pre-deps': "apt update && apt install -y git"})
+          if 'ubuntu:bionic' in arm_platforms:    
+            arm_include.append({
+              'OS': 'ubuntu:bionic',
+              'pre-deps': "apt update && apt install -y git"})
+
+          # debian:bullseye needs git pre-checkout dependencies
+          if 'debian:bullseye' in x86_platforms:
+            x86_include.append({
+              'OS': 'debian:bullseye',
+              'pre-deps': "apt update && apt install -y git"})
+          if 'debian:bullseye' in arm_platforms:
+            arm_include.append({
+              'OS': 'debian:bullseye',
+              'pre-deps': "apt update && apt install -y git"})  
+          
           
 
           
