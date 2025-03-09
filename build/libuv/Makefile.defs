@@ -1,2 +1,0 @@
-
-export LIBUV=$(LIBUV_BINDIR)/libuv_a.a
