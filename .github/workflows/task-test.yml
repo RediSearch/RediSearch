@@ -55,7 +55,7 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      # Split to alpine and non-alpine due to different default shells, once the dependecy installation is done, we can use the same shell in the rest of the flow
+      # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Pre-steps Dependencies (Alpine)
         if: inputs.pre-steps-script && inputs.container == 'alpine:3'
         shell: sh -l -eo pipefail {0}
