@@ -81,6 +81,7 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
     HiddenString_Free(hunitstr, false);
     return REDISMODULE_ERR;
   }
+  HiddenString_Free(hunitstr, false);
   // only allocate on the success path
   gf->field = hfieldName;
   return REDISMODULE_OK;
