@@ -53,8 +53,13 @@ ActiveQueries *GetActiveQueries() {
   return pthread_getspecific(activeQueriesKey);
 }
 
-SpecInfo *CurrentThread_GetSpecInfo() {
+SpecInfo *CurrentThread_TryGetSpecInfo() {
   SpecInfo *info = pthread_getspecific(specInfoKey);
+  return info;
+}
+
+SpecInfo *CurrentThread_GetSpecInfo() {
+  SpecInfo *info = CurrentThread_TryGetSpecInfo();
   if (!info) {
     info = rm_calloc(1, sizeof(*info));
     int rc = pthread_setspecific(specInfoKey, info);
@@ -76,7 +81,7 @@ void CurrentThread_SetIndexSpec(StrongRef specRef) {
 }
 
 void CurrentThread_ClearIndexSpec() {
-  SpecInfo *info = pthread_getspecific(specInfoKey);
+  SpecInfo *info = CurrentThread_TryGetSpecInfo();
   if (info) {
     assert(info->specRef.rm != NULL);
     WeakRef_Release(info->specRef);

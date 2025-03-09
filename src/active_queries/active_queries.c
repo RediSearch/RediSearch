@@ -47,9 +47,6 @@ void ActiveQueries_Free(ActiveQueries *activeQueries) {
   rm_free(activeQueries);
 }
 
-ActiveQueries* ActiveQueries_Get() {
-}
-
 ActiveQueryNode* ActiveQueries_AddQuery(ActiveQueries* activeQueries, StrongRef spec, QueryAST* ast) {
   ActiveQueryNode* activeQueryNode = rm_calloc(1, sizeof(ActiveQueryNode));
   activeQueryNode->spec = spec;

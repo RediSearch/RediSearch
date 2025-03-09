@@ -33,7 +33,9 @@ void ThreadLocalStorage_Destroy();
 // Return the active queries list, will return null if called outside the main thread
 ActiveQueries *GetActiveQueries();
 
-// Get the thread local info for the current thread
+// Tries to obtain the thread local info for the current thread, returns null if missing
+SpecInfo* CurrentThread_TryGetSpecInfo();
+// Get the thread local info for the current thread, initializes it if missing
 SpecInfo* CurrentThread_GetSpecInfo();
 // Set the current spec the current thread is working on
 // If the thread will crash while pointing to this spec then the spec information will be outputted

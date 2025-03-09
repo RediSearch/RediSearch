@@ -282,7 +282,7 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
 }
 
 void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
-  SpecInfo *specInfo = CurrentThread_GetSpecInfo();
+  SpecInfo *specInfo = CurrentThread_TryGetSpecInfo();
   if (!specInfo) {
     return;
   }

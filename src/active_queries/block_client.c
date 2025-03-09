@@ -26,7 +26,6 @@ static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
 RedisModuleBlockedClient *BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec_ref, AREQ* req, int timeoutMS) {
   ActiveQueries *activeQueries = GetActiveQueries();
   RS_LOG_ASSERT(activeQueries, "ThreadLocalStorage_Init was not called, or function not called from main thread");
-  pthread_t tid = pthread_self();
   ActiveQueryNode *node = ActiveQueries_AddQuery(activeQueries, spec_ref, &req->ast);
 
   // Prepare context for the worker thread
