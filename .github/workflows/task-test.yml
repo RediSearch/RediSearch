@@ -55,10 +55,15 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: Pre-steps Dependencies
-        if: inputs.pre-steps-script
-        # if image is alpine, we need to use sh instead of bash
-        shell: ${{ inputs.container == 'alpine:3' && 'sh' || 'bash' }} -l -eo pipefail {0}
+      # Split to alpine and non-alpine due to different default shells, once the dependecy installation is done, we can use the same shell in the rest of the flow
+      - name: Pre-steps Dependencies (Alpine)
+        if: inputs.pre-steps-script && inputs.container == 'alpine:3'
+        shell: sh -l -eo pipefail {0}
+        run: ${{ inputs.pre-steps-script }}
+        
+      - name: Pre-steps Dependencies (Non-Alpine)
+        if: inputs.pre-steps-script && inputs.container != 'alpine:3'
+        shell: bash -l -eo pipefail {0}
         run: ${{ inputs.pre-steps-script }}
       - name: Get Installation Mode
         id: mode
