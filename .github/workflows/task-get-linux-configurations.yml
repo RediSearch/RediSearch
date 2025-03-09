@@ -139,7 +139,7 @@ jobs:
           if 'alpine:3' in x86_platforms:
             x86_include.append({
               'OS': 'alpine:3',
-              'pre-deps': "apk add bash"})
+              'pre-deps': "apk add bash git"})
           if 'alpine:3' in arm_platforms:
             arm_include.append({
               'OS': 'alpine:3',
