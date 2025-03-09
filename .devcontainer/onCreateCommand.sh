@@ -1,6 +1,7 @@
 #!/bin/bash
 cd .install
 ./install_script.sh
+cd ../
 ./.install//test_deps/install_llvm.sh 18
 ./.install/test_deps/common_installations.sh
 cd ../
