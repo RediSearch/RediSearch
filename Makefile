@@ -44,20 +44,22 @@ make test          # run all tests
   TEST=name          # run specified test
 
 make pytest        # run python tests (tests/pytests)
-  COORD=1|oss|rlec   # test coordinator (1|oss: Open Source, rlec: Enterprise)
-  TEST=name          # e.g. TEST=test:testSearch
-  RLTEST_ARGS=...    # pass args to RLTest
-  REJSON=1|0|get     # also load RedisJSON module (default: 1)
-  REJSON_PATH=path   # use RedisJSON module at `path`
-  EXT=1              # External (existing) environment
-  GDB=1              # RLTest interactive debugging
-  VG=1               # use Valgrind
-  VG_LEAKS=0         # do not search leaks with Valgrind
-  SAN=type           # use LLVM sanitizer (type=address|memory|leak|thread)
-  ONLY_STABLE=1      # skip unstable tests
-  TEST_PARALLEL=n    # test parallalization
-  REDIS_VER=6    	 # redis version to run against
-  LOG_LEVEL=<level>  # server log level (default: debug)
+  COORD=1|oss|rlec     # test coordinator (1|oss: Open Source, rlec: Enterprise)
+  TEST=name            # e.g. TEST=test:testSearch
+  RLTEST_ARGS=...      # pass args to RLTest
+  REJSON=1|0           # also load RedisJSON module (default: 1)
+  REJSON_BRANCH=branch # use RedisJSON module from branch (default: 'master')
+  REJSON_PATH=path     # use RedisJSON module at `path` (default: '' - build from source)
+  REJSON_ARGS=''       # pass args to RedisJSON module
+  EXT=1                # External (existing) environment
+  GDB=1                # RLTest interactive debugging
+  VG=1                 # use Valgrind
+  VG_LEAKS=0           # do not search leaks with Valgrind
+  SAN=type             # use LLVM sanitizer (type=address|memory|leak|thread)
+  ONLY_STABLE=1        # skip unstable tests
+  TEST_PARALLEL=n      # test parallalization
+  REDIS_VER=6    	   # redis version to run against
+  LOG_LEVEL=<level>    # server log level (default: debug)
 
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
@@ -262,47 +264,12 @@ all: bindirs $(TARGET)
 
 include $(MK)/rules
 
-#----------------------------------------------------------------------------------------------
-
-export REJSON ?= 1
-
-PLATFORM_TRI:=$(shell $(READIES)/bin/platform -t)
-REJSON_BINDIR=$(ROOT)/bin/$(PLATFORM_TRI)/RedisJSON
-
-ifneq ($(REJSON),0)
-export REJSON_BRANCH=master
-
-ifeq ($(REDIS_VER),)  # default is 6
-REJSON_BRANCH=2.4
-endif
-ifeq ($(REDIS_VER), 6)
-REJSON_BRANCH=2.4
-endif
-ifeq ($(REDIS_VER), 6.2)
-REJSON_BRANCH=2.4
-endif
-
-ifneq ($(SAN),)
-REJSON_BRANCH=2.4
-REJSON_SO=$(BINROOT)/RedisJSON/$(REJSON_BRANCH)/rejson.so
-REJSON_PATH=$(REJSON_SO)
-
-$(REJSON_SO):
-	$(SHOW)BINROOT=$(BINROOT) SAN=$(SAN) BRANCH=$(REJSON_BRANCH) ./sbin/build-redisjson
-else
-REJSON_SO=
-endif
-
-endif # REJSON=0
 
 #----------------------------------------------------------------------------------------------
 
 clean:
 ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
-else ifeq ($(ALL),all)
-	$(SHOW)rm -rf $(BINROOT) $(REJSON_BINDIR)
-	$(SHOW)$(MAKE) --no-print-directory -C build/conan DEBUG='' clean
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
 endif
@@ -385,9 +352,16 @@ ifeq ($(COORD),oss)
 WITH_RLTEST=1
 endif
 
+# RedisJSON defaults:
+REJSON ?= 1
+REJSON_BRANCH ?= master
+REJSON_PATH ?=
+REJSON_ARGS ?=
+
 run:
 ifeq ($(WITH_RLTEST),1)
-	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) \
+	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) REJSON_BRANCH=$(REJSON_BRANCH) REJSON_ARGS=$(REJSON_ARGS) \
+	FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 else
 ifeq ($(GDB),1)
@@ -436,11 +410,10 @@ test: unit-tests pytest
 unit-tests:
 	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
-pytest: $(REJSON_SO)
-ifneq ($(REJSON_PATH),)
-	@echo Testing with $(REJSON_PATH)
-endif
-	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
+pytest:
+	@printf "\n-------------- Running python flow test ------------------\n"
+	$(SHOW)REJSON=$(REJSON) REJSON_BRANCH=$(REJSON_BRANCH) REJSON_PATH=$(REJSON_PATH) REJSON_ARGS=$(REJSON_ARGS) \
+	$(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
 	LOG_LEVEL=$(LOG_LEVEL) TEST_TIMEOUT=$(TEST_TIMEOUT) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
@@ -518,7 +491,6 @@ upload-artifacts:
 .PHONY: pack upload-artifacts upload-release
 
 #----------------------------------------------------------------------------------------------
-
 ifeq ($(REMOTE),1)
 BENCHMARK_ARGS=run-remote
 else
@@ -527,15 +499,18 @@ endif
 
 BENCHMARK_ARGS += --module_path $(realpath $(TARGET)) --required-module search
 
-ifeq ($(REJSON),1)
-BENCHMARK_ARGS += --module_path $(realpath $(REJSON_PATH)) --required-module ReJSON
-endif
-
 ifneq ($(BENCHMARK),)
 BENCHMARK_ARGS += --test $(BENCHMARK)
 endif
 
+
+# Todo: fix that, currently will not work manually with rejson
 benchmark:
+ifeq ($(REJSON),1)
+	ROOT=$(ROOT) REJSON_BRANCH=$(REJSON_BRANCH) $(shell $(ROOT)/tests/deps/setup_rejson.sh)
+	BENCHMARK_ARGS += --module_path $(realpath $(JSON_BIN_DIR)) --required-module ReJSON
+endif
+
 	$(SHOW)cd tests/benchmarks ;\
 	redisbench-admin $(BENCHMARK_ARGS)
 
@@ -551,22 +526,14 @@ COV_EXCLUDE_DIRS += \
 
 COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
-ifeq ($(REJSON_PATH),)
-REJSON_MODULE_FILE:=$(shell mktemp /tmp/rejson.XXXX)
-REJSON_COV_ARG=REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
-endif
-
 coverage:
-ifeq ($(REJSON_PATH),)
-	$(SHOW)OSS=1 MODULE_FILE=$(REJSON_MODULE_FILE) ./sbin/get-redisjson
-endif
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(MAKE) build COORD=oss COV=1
 	$(SHOW)$(COVERAGE_RESET)
 	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) pytest COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) pytest COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
 	-$(SHOW)$(MAKE) unit-tests COORD=oss COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) pytest COORD=oss COV=1 $(REJSON_COV_ARG)
+	-$(SHOW)$(MAKE) pytest COORD=oss COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
 .PHONY: coverage

@@ -6,10 +6,7 @@ env:
   ALL_X86_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal',
                     'ubuntu:bionic',
-                    'ubuntu:xenial',
-                    'centos:7',
                     'rockylinux:8',
-
                     'debian:bullseye',
                     'amazonlinux:2',
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0'
