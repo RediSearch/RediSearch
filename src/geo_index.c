@@ -40,10 +40,12 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
   HiddenString *hfieldName = NULL;
   if ((rv = AC_GetHiddenString(ac, &hfieldName, 0) != AC_OK)) {
     QERR_MKBADARGS_AC(status, "<geo property>", rv);
+    HiddenString_Free(hfieldName, false);
     return REDISMODULE_ERR;
   }
   if ((rv = AC_GetDouble(ac, &gf->base.lon, AC_F_NOADVANCE) != AC_OK)) {
     QERR_MKBADARGS_AC(status, "<lon>", rv);
+    HiddenString_Free(hfieldName, false);
     return REDISMODULE_ERR;
   }
   if (gf->base.lon == 0) {
@@ -53,6 +55,7 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
 
   if ((rv = AC_GetDouble(ac, &gf->base.lat, AC_F_NOADVANCE)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<lat>", rv);
+    HiddenString_Free(hfieldName, false);
     return REDISMODULE_ERR;
   }
   if (gf->base.lat == 0) {
@@ -62,16 +65,19 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
 
   if ((rv = AC_GetDouble(ac, &gf->base.radius, AC_F_NOADVANCE)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<radius>", rv);
+    HiddenString_Free(hfieldName, false);
     return REDISMODULE_ERR;
   }
   if (gf->base.radius == 0) {
     CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
   }
+
   AC_Advance(ac);
 
   HiddenString *hunitstr = AC_GetHiddenStringNC(ac);
   if ((gf->base.unitType = GeoDistance_Parse(HiddenString_GetUnsafe(hunitstr, NULL))) == GEO_DISTANCE_INVALID) {
     QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", HiddenString_GetUnsafe(hunitstr, NULL));
+    HiddenString_Free(hfieldName, false);
     HiddenString_Free(hunitstr, false);
     return REDISMODULE_ERR;
   }

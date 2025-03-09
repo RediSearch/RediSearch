@@ -78,6 +78,7 @@ LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFil
     *hasEmptyFilterValue = true;
   }
   if (parseDoubleRange(HiddenString_GetUnsafe(hs, NULL), &nf->base.inclusiveMin, &nf->base.min, 1, 1, status) != REDISMODULE_OK) {
+    HiddenString_Free(hs, false);
     LegacyNumericFilter_Free(nf);
     return NULL;
   }
@@ -87,9 +88,11 @@ LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFil
     *hasEmptyFilterValue = true;
   }
   if (parseDoubleRange(HiddenString_GetUnsafe(hs, NULL), &nf->base.inclusiveMax, &nf->base.max, 0, 1, status) != REDISMODULE_OK) {
+    HiddenString_Free(hs, false);
     LegacyNumericFilter_Free(nf);
     return NULL;
   }
+  HiddenString_Free(hs, false);
   return nf;
 }
 
