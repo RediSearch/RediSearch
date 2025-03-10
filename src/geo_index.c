@@ -15,12 +15,12 @@
 static double extractUnitFactor(GeoDistance unit);
 
 static void CheckAndSetEmptyFilterValue(ArgsCursor *ac, bool *hasEmptyFilterValue) {
-  const char *val;
-
-  int rv = AC_GetString(ac, &val, NULL, AC_F_NOADVANCE);
-  if (rv == AC_OK && !(*val)) {
+  HiddenString *hval;
+  int rv = AC_GetHiddenString(ac, &hval, AC_F_NOADVANCE);
+  if (rv == AC_OK && HiddenString_IsEmpty(hval)) {
     *hasEmptyFilterValue = true;
   }
+  HiddenString_Free(hval, false);
 }
 
 /* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], and FILTER
@@ -37,13 +37,15 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
 
   int rv;
   // Store the field name at the field spec pointer, to validate later
-  const char *fieldName = NULL;
-  if ((rv = AC_GetString(ac, &fieldName, NULL, 0)) != AC_OK) {
+  HiddenString *hfieldName = NULL;
+  if ((rv = AC_GetHiddenString(ac, &hfieldName, 0) != AC_OK)) {
     QERR_MKBADARGS_AC(status, "<geo property>", rv);
+    HiddenString_Free(hfieldName, false);
     return REDISMODULE_ERR;
   }
   if ((rv = AC_GetDouble(ac, &gf->base.lon, AC_F_NOADVANCE) != AC_OK)) {
     QERR_MKBADARGS_AC(status, "<lon>", rv);
+    HiddenString_Free(hfieldName, false);
     return REDISMODULE_ERR;
   }
   if (gf->base.lon == 0) {
@@ -53,6 +55,7 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
 
   if ((rv = AC_GetDouble(ac, &gf->base.lat, AC_F_NOADVANCE)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<lat>", rv);
+    HiddenString_Free(hfieldName, false);
     return REDISMODULE_ERR;
   }
   if (gf->base.lat == 0) {
@@ -62,20 +65,25 @@ int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFil
 
   if ((rv = AC_GetDouble(ac, &gf->base.radius, AC_F_NOADVANCE)) != AC_OK) {
     QERR_MKBADARGS_AC(status, "<radius>", rv);
+    HiddenString_Free(hfieldName, false);
     return REDISMODULE_ERR;
   }
   if (gf->base.radius == 0) {
     CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
   }
+
   AC_Advance(ac);
 
-  const char *unitstr = AC_GetStringNC(ac, NULL);
-  if ((gf->base.unitType = GeoDistance_Parse(unitstr)) == GEO_DISTANCE_INVALID) {
-    QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", unitstr);
+  HiddenString *hunitstr = AC_GetHiddenStringNC(ac);
+  if ((gf->base.unitType = GeoDistance_Parse(HiddenString_GetUnsafe(hunitstr, NULL))) == GEO_DISTANCE_INVALID) {
+    QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", HiddenString_GetUnsafe(hunitstr, NULL));
+    HiddenString_Free(hfieldName, false);
+    HiddenString_Free(hunitstr, false);
     return REDISMODULE_ERR;
   }
+  HiddenString_Free(hunitstr, false);
   // only allocate on the success path
-  gf->field = NewHiddenString(fieldName, strlen(fieldName), false);
+  gf->field = hfieldName;
   return REDISMODULE_OK;
 }
 

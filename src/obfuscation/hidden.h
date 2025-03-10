@@ -24,6 +24,8 @@ HiddenString *NewHiddenString(const char *name, size_t length, bool takeOwnershi
 // Frees a hidden string, if takeOwnership is true, the buffer is freed as well
 void HiddenString_Free(const HiddenString *value, bool tookOwnership);
 
+bool HiddenString_IsEmpty(const HiddenString *value);
+
 // Comparison functions
 // CompareC overloads receive a const char* right argument for the comparison for backward compatibility with existing code
 // Eventually the hope is to remove them altogether.
@@ -52,6 +54,9 @@ RedisModuleString *HiddenString_CreateRedisModuleString(const HiddenString* valu
 // 2. Metrics
 // 3. Command responses
 const char *HiddenString_GetUnsafe(const HiddenString* value, size_t* length);
+
+bool HiddenString_StartsWith(HiddenString *hs, const char* s);
+int HiddenString_AdvanceBy(HiddenString *hs, size_t l);
 
 #ifdef __cplusplus
 }
