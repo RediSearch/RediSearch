@@ -7,7 +7,7 @@
 #include "rwlock.h"
 #include "rmalloc.h"
 #include "util/arr_rm_alloc.h"
-#include <assert.h>
+#include "rmutil/rm_assert.h"
 
 pthread_mutex_t rwLockMutex;
 pthread_rwlock_t RWLock = PTHREAD_RWLOCK_INITIALIZER;
@@ -51,29 +51,29 @@ static rwlockThreadLocal* RediSearch_GetLockThreadData() {
 
 void RediSearch_LockRead() {
   rwlockThreadLocal* rwData = RediSearch_GetLockThreadData();
-  assert(rwData->type != lockType_Write);
+  RS_ASSERT(rwData->type != lockType_Write);
   if (rwData->locked == 0) {
     pthread_rwlock_rdlock(&RWLock);
     rwData->type = lockType_Read;
   }
-  assert(rwData->type == lockType_Read);
+  RS_ASSERT(rwData->type == lockType_Read);
   ++rwData->locked;
 }
 
 void RediSearch_LockWrite() {
   rwlockThreadLocal* rwData = RediSearch_GetLockThreadData();
-  assert(rwData->type != lockType_Read);
+  RS_ASSERT(rwData->type != lockType_Read);
   if (rwData->locked == 0) {
     pthread_rwlock_wrlock(&RWLock);
     rwData->type = lockType_Write;
   }
-  assert(rwData->type == lockType_Write);
+  RS_ASSERT(rwData->type == lockType_Write);
   ++rwData->locked;
 }
 
 void RediSearch_LockRelease() {
   rwlockThreadLocal* rwData = RediSearch_GetLockThreadData();
-  assert(rwData->locked > 0);
+  RS_ASSERT(rwData->locked > 0);
   if ((--rwData->locked) == 0) {
     pthread_rwlock_unlock(&RWLock);
     rwData->type = lockType_None;

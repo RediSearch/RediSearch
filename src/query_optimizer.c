@@ -216,7 +216,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
 
   switch (opt->type) {
     case Q_OPT_HYBRID:
-      RS_LOG_ASSERT(0, "cannot be decided earlier");
+      RS_ABORT("cannot be decided earlier");
 
     // Nothing to do here
     case Q_OPT_NO_SORTER:

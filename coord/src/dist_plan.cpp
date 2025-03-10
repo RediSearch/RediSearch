@@ -170,7 +170,7 @@ cleanup:
  */
 static PLN_BaseStep *moveStep(AGGPlan *dst, AGGPlan *src, PLN_BaseStep *step) {
   PLN_BaseStep *next = PLN_NEXT_STEP(step);
-  assert(next != step);
+  RS_ASSERT(next != step);
   AGPLN_PopStep(src, step);
   AGPLN_AddStep(dst, step);
   return next;
@@ -333,7 +333,7 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
                              // are not allowed to override aliases
   applyStep->base.alias = rm_strdup(src->alias);
 
-  assert(rdctx->currentLocal);
+  RS_ASSERT(rdctx->currentLocal);
   AGPLN_AddAfter(rdctx->localPlan, rdctx->currentLocal, &applyStep->base);
   rdctx->currentLocal = PLN_NEXT_STEP(rdctx->currentLocal);
   rdctx->addedLocalSteps.push_back(&applyStep->base);
@@ -508,7 +508,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
 int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError *status) {
 
   auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
-  assert(dstp);
+  RS_ASSERT(dstp);
 
   dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
   int rc = AREQ_BuildPipeline(r, status);

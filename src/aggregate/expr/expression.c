@@ -152,7 +152,7 @@ static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *
       return RSValue_BoolTest(l) || RSValue_BoolTest(r);
 
     default:
-      RS_LOG_ASSERT(0, "invalid RSCondition");
+      RS_ABORT("invalid RSCondition");
       return 0;
   }
 }
@@ -531,7 +531,7 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
       RedisModule_Reply_SimpleStringf(reply, "%s - Inverted", typeStr);
       break;
     default:
-      RS_LOG_ASSERT(0, "error");
+      RS_ABORT("error");
       break;
   }
 }

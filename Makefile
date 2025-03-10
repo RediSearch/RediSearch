@@ -14,7 +14,7 @@ include deps/readies/mk/main
 
 define HELPTEXT
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
-make fetch         # download and prepare dependant modules
+make fetch         # download and prepare dependent modules
 
 make build          # compile and link
   COORD=1|oss|rlec    # build coordinator (1|oss: Open Source, rlec: Enterprise)
@@ -34,6 +34,8 @@ make build          # compile and link
   STATIC_LIBSTDCXX=0  # link libstdc++ dynamically (default: 1)
   BOOST_DIR= 		  # Custom boost headers location path (default value: .install/boost).
   					  # Can be left empty if boost is located in the standard system includes path.
+  ENABLE_ASSERT=1     # enable assertions (disabled by default)
+
 make parsers       # build parsers code
 make clean         # remove build artifacts
   ALL=1|all          # remove entire artifacts directory (all: remove Conan artifacts)
@@ -211,6 +213,10 @@ ifeq ($(VERBOSE_UTESTS),1)
 CC_FLAGS.common += -DVERBOSE_UTESTS
 endif
 
+ifeq ($(ENABLE_ASSERT),1)
+CC_FLAGS.common += -DENABLE_ASSERT
+endif
+
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(TESTS),0)
@@ -255,6 +261,7 @@ _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix)
 endif
 
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST)
+
 
 include $(MK)/defs
 

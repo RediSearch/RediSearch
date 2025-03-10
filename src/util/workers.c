@@ -34,8 +34,8 @@ static void yieldCallback(void *yieldCtx) {
 
 // set up workers' thread pool
 int workersThreadPool_CreatePool(size_t worker_count) {
-  assert(worker_count);
-  assert(_workers_thpool == NULL);
+  RS_ASSERT(worker_count);
+  RS_ASSERT(_workers_thpool == NULL);
 
   _workers_thpool = redisearch_thpool_create(worker_count, RSGlobalConfig.privilegedThreadsNum, LogCallback);
   if (_workers_thpool == NULL) return REDISMODULE_ERR;
@@ -51,7 +51,7 @@ void workersThreadPool_InitPool() {
 
 // return number of currently working threads
 size_t workersThreadPool_WorkingThreadCount(void) {
-  assert(_workers_thpool != NULL);
+  RS_ASSERT(_workers_thpool != NULL);
 
   return redisearch_thpool_num_threads_working(_workers_thpool);
 }
@@ -59,7 +59,7 @@ size_t workersThreadPool_WorkingThreadCount(void) {
 // add task for worker thread
 // DvirDu: I think we should add a priority parameter to this function
 int workersThreadPool_AddWork(redisearch_thpool_proc function_p, void *arg_p) {
-  assert(_workers_thpool != NULL);
+  RS_ASSERT(_workers_thpool != NULL);
 
   return redisearch_thpool_add_work(_workers_thpool, function_p, arg_p, THPOOL_PRIORITY_HIGH);
 }

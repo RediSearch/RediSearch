@@ -58,9 +58,9 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
   // Can't execute commands on the loading context, so make a new one
   RedisModuleCallReply *reply =
       RedisModule_Call(RSDummyContext, "CONFIG", "cc", "GET", "aof-use-rdb-preamble");
-  assert(reply);
-  assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
-  assert(RedisModule_CallReplyLength(reply) == 2);
+  RS_ASSERT(reply);
+  RS_ASSERT(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
+  RS_ASSERT(RedisModule_CallReplyLength(reply) == 2);
   const char *value =
       RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(reply, 1), NULL);
 
