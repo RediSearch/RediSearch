@@ -7,6 +7,7 @@
 #include "info_command.h"
 #include "resp3.h"
 #include "info/field_spec_info.h"
+#include "rmutil/rm_assert.h"
 
 // Type of field returned in INFO
 typedef enum {
