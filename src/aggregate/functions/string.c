@@ -196,7 +196,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   return EXPR_EVAL_OK;
 
 error:
-  assert(QueryError_HasError(ctx->err));
+  RS_ASSERT(QueryError_HasError(ctx->err));
   sdsfree(out);
   RSValue_MakeReference(result, RS_NullVal());
   return EXPR_EVAL_ERR;

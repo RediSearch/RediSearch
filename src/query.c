@@ -252,7 +252,7 @@ QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
     s[qt->len] = '\0';
     ret->verb.tok = (RSToken){.str = s, .len = qt->len, .expanded = 0, .flags = 0};
   } else {
-    assert(qt->type == QT_PARAM_WILDCARD);
+    RS_ASSERT(qt->type == QT_PARAM_WILDCARD);
     QueryNode_InitParams(ret, 1);
     QueryNode_SetParam(q, &ret->params[0], &ret->verb.tok.str, &ret->verb.tok.len, qt);
     ret->params[0].type = PARAM_WILDCARD;
@@ -278,7 +278,7 @@ QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist
     };
   } else {
     ret->fz.maxDist = maxDist;
-    assert(qt->type == QT_PARAM_TERM);
+    RS_ASSERT(qt->type == QT_PARAM_TERM);
     QueryNode_InitParams(ret, 1);
     QueryNode_SetParam(q, &ret->params[0], &ret->fz.tok.str, &ret->fz.tok.len, qt);
   }
@@ -309,7 +309,7 @@ QueryNode *NewNumericNode(QueryParam *p, const FieldSpec *fs) {
 }
 
 QueryNode *NewGeofilterNode(QueryParam *p) {
-  assert(p->type == QP_GEO_FILTER);
+  RS_ASSERT(p->type == QP_GEO_FILTER);
   QueryNode *ret = NewQueryNode(QN_GEO);
   // Move data and params pointers
   ret->gn.gf = p->gf;
@@ -1001,7 +1001,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
 
   IndexIterator *child_it = NULL;
   if (QueryNode_NumChildren(qn) > 0) {
-    RedisModule_Assert(QueryNode_NumChildren(qn) == 1);
+    RS_ASSERT(QueryNode_NumChildren(qn) == 1);
     child_it = Query_EvalNode(q, qn->children[0]);
     // If child iterator is in valid or empty, the hybrid iterator is empty as well.
     if (child_it == NULL) {
@@ -1637,7 +1637,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion
       break;
     case QN_UNION:
       // no immediately owned params to resolve
-      assert(n->params == NULL);
+      RS_ASSERT(n->params == NULL);
       break;
     case QN_NULL:
     case QN_MISSING:

@@ -59,6 +59,7 @@
 #include "coord/info_command.h"
 #include "info/global_stats.h"
 #include "util/units.h"
+#include "aggregate/aggregate_debug.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                  \
   do {                                                                         \
@@ -87,6 +88,10 @@ size_t NumShards = 0;
 // Strings returned by CONFIG GET functions
 RedisModuleString *config_ext_load = NULL;
 RedisModuleString *config_friso_ini = NULL;
+
+/* ======================= DEBUG ONLY DECLARATIONS ======================= */
+static void DEBUG_DistSearchCommandHandler(void* pd);
+/* ======================= DEBUG ONLY DECLARATIONS ======================= */
 
 static inline bool SearchCluster_Ready() {
   return NumShards != 0;
@@ -1027,14 +1032,14 @@ static void GetRedisVersion(RedisModuleCtx *ctx) {
     redisVersion = supportedVersion;
     return;
   }
-  RedisModule_Assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
+  RS_ASSERT(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_STRING);
   size_t len;
   const char *replyStr = RedisModule_CallReplyStringPtr(reply, &len);
 
   int n = sscanf(replyStr, "# Server\nredis_version:%d.%d.%d", &redisVersion.majorVersion,
                  &redisVersion.minorVersion, &redisVersion.patchVersion);
 
-  RedisModule_Assert(n == 3);
+  RS_ASSERT(n == 3);
 
   rlecVersion.majorVersion = -1;
   rlecVersion.minorVersion = -1;
@@ -2038,7 +2043,7 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
     if (res->sortKey[0] == '#') {
       char *endptr;
       res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
-      RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
+      RS_ASSERT(endptr == res->sortKey + res->sortKeyLen);
     }
     // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
   }
@@ -2109,7 +2114,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
         if (res->sortKey[0] == '#') {
           char *endptr;
           res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
-          RedisModule_Assert(endptr == res->sortKey + res->sortKeyLen);
+          RS_ASSERT(endptr == res->sortKey + res->sortKeyLen);
         }
         // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
       }
@@ -2212,10 +2217,10 @@ static int cmp_scored_results(const void *p1, const void *p2, const void *udata)
 }
 
 static double parseNumeric(const char *str, const char *sortKey) {
-    RedisModule_Assert(str[0] == '#');
+    RS_ASSERT(str[0] == '#');
     char *eptr;
     double d = strtod(str + 1, &eptr);
-    RedisModule_Assert(eptr != sortKey + 1 && *eptr == 0);
+    RS_ASSERT(eptr != sortKey + 1 && *eptr == 0);
     return d;
 }
 
@@ -2460,7 +2465,7 @@ static void noOpPostProcess(searchReducerCtx *rCtx){
 
 static void knnPostProcess(searchReducerCtx *rCtx) {
   specialCaseCtx* reducerSpecialCaseCtx = rCtx->reduceSpecialCaseCtxKnn;
-  RedisModule_Assert(reducerSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN);
+  RS_ASSERT(reducerSpecialCaseCtx->specialCaseType == SPECIAL_CASE_KNN);
   if(reducerSpecialCaseCtx->knn.pq) {
     size_t numberOfResults = heap_count(reducerSpecialCaseCtx->knn.pq);
     for (size_t i = 0; i < numberOfResults; i++) {
@@ -2874,7 +2879,7 @@ static inline int ReplyBlockDeny(RedisModuleCtx *ctx, const RedisModuleString *c
 static int genericCallUnderscoreVariant(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   size_t len;
   const char *cmd = RedisModule_StringPtrLen(argv[0], &len);
-  RedisModule_Assert(!strncasecmp(cmd, "FT.", 3));
+  RS_ASSERT(!strncasecmp(cmd, "FT.", 3));
   char *localCmd;
   rm_asprintf(&localCmd, "_%.*s", len, cmd);
   /*
@@ -3051,11 +3056,25 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
                          struct ConcurrentCmdCtx *cmdCtx);
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+/** Debug */
+void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                         struct ConcurrentCmdCtx *cmdCtx);
+
+int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
     return RedisModule_WrongArity(ctx);
+  }
+
+  // Coord callback
+  ConcurrentCmdHandler dist_callback = RSExecDistAggregate;
+
+  bool isDebug = (RMUtil_ArgIndex("_FT.DEBUG", argv, 1) != -1);
+  if (isDebug) {
+    argv++;
+    argc--;
+    dist_callback = DEBUG_RSExecDistAggregate;
   }
 
   // Prepare the spec ref for the background thread
@@ -3083,7 +3102,7 @@ static int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, i
   }
 
   return ConcurrentSearch_HandleRedisCommandEx(DIST_AGG_THREADPOOL, CMDCTX_NO_GIL,
-                                               RSExecDistAggregate, ctx, argv, argc,
+                                               dist_callback, ctx, argv, argc,
                                                StrongRef_Demote(spec_ref));
 }
 
@@ -3177,7 +3196,7 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
       // Handle sortby
       case SPECIAL_CASE_SORTBY: {
         // Sort by is always the first case.
-        RedisModule_Assert(i==0);
+        RS_ASSERT(i==0);
         if(req->requiredFields == NULL) {
           req->requiredFields = array_new(const char*, 1);
         }
@@ -3219,71 +3238,62 @@ void sendRequiredFields(searchRequestCtx *req, MRCommand *cmd) {
   }
 }
 
-int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
-      RedisModuleString **argv, int argc, WeakRef spec_ref) {
-  QueryError status = {0};
-  searchRequestCtx *req = rscParseRequest(argv, argc, &status);
+static void bailOut(RedisModuleBlockedClient *bc, QueryError *status) {
+  RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
+  QueryError_ReplyAndClear(clientCtx, status);
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
+  RedisModule_UnblockClient(bc, NULL);
+  RedisModule_FreeThreadSafeContext(clientCtx);
+}
 
-  if (!req) {
-    RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
-    RedisModule_ReplyWithError(clientCtx, QueryError_GetUserError(&status));
-    QueryError_ClearError(&status);
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, NULL);
-    RedisModule_FreeThreadSafeContext(clientCtx);
-    return REDISMODULE_OK;
-  }
+static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBlockedClient *bc, int protocol,
+  RedisModuleString **argv, int argc, WeakRef spec_ref, QueryError *status) {
 
-  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
-  cmd.protocol = protocol;
+  cmd->protocol = protocol;
 
   // replace the LIMIT {offset} {limit} with LIMIT 0 {limit}, because we need all top N to merge
   int limitIndex = RMUtil_ArgExists("LIMIT", argv, argc, 3);
   if (limitIndex && req->limit > 0 && limitIndex < argc - 2) {
     size_t k =0;
-    MRCommand_ReplaceArg(&cmd, limitIndex + 1, "0", 1);
+    MRCommand_ReplaceArg(cmd, limitIndex + 1, "0", 1);
     char buf[32];
     snprintf(buf, sizeof(buf), "%lld", req->requestedResultsCount);
-    MRCommand_ReplaceArg(&cmd, limitIndex + 2, buf, strlen(buf));
+    MRCommand_ReplaceArg(cmd, limitIndex + 2, buf, strlen(buf));
   }
 
   /* Replace our own FT command with _FT. command */
   if (req->profileArgs == 0) {
-    MRCommand_ReplaceArg(&cmd, 0, "_FT.SEARCH", sizeof("_FT.SEARCH") - 1);
+    MRCommand_ReplaceArg(cmd, 0, "_FT.SEARCH", sizeof("_FT.SEARCH") - 1);
   } else {
-    MRCommand_ReplaceArg(&cmd, 0, "_FT.PROFILE", sizeof("_FT.PROFILE") - 1);
+    MRCommand_ReplaceArg(cmd, 0, "_FT.PROFILE", sizeof("_FT.PROFILE") - 1);
   }
 
   // adding the WITHSCORES option only if there is no SORTBY (hence the score is the default sort key)
   if (!req->withSortby) {
-    MRCommand_Insert(&cmd, 3 + req->profileArgs, "WITHSCORES", sizeof("WITHSCORES") - 1);
+    MRCommand_Insert(cmd, 3 + req->profileArgs, "WITHSCORES", sizeof("WITHSCORES") - 1);
   }
 
   if(req->specialCases) {
-    sendRequiredFields(req, &cmd);
+    sendRequiredFields(req, cmd);
   }
 
   // Append the prefixes of the index to the command
   StrongRef strong_ref = WeakRef_Promote(spec_ref);
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
-    MRCommand_Free(&cmd);
+    MRCommand_Free(cmd);
+    QueryError_SetCode(status, QUERY_EDROPPEDBACKGROUND);
 
-    RedisModuleCtx* clientCtx = RedisModule_GetThreadSafeContext(bc);
-    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
-    QueryError_ReplyAndClear(clientCtx, &status);
-    RedisModule_BlockedClientMeasureTimeEnd(bc);
-    RedisModule_UnblockClient(bc, NULL);
-    RedisModule_FreeThreadSafeContext(clientCtx);
-    return REDISMODULE_OK;
+    bailOut(bc, status);
+    return REDISMODULE_ERR;
   }
 
   uint16_t arg_pos = 3 + req->profileArgs;
-  MRCommand_Insert(&cmd, arg_pos++, "_INDEX_PREFIXES", sizeof("_INDEX_PREFIXES") - 1);
+  MRCommand_Insert(cmd, arg_pos++, "_INDEX_PREFIXES", sizeof("_INDEX_PREFIXES") - 1);
   arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
   char *n_prefixes;
-  rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
-  MRCommand_Insert(&cmd, arg_pos++, n_prefixes, sizeof(n_prefixes) - 1);
+  int string_len = rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
+  MRCommand_Insert(cmd, arg_pos++, n_prefixes, string_len);
   rm_free(n_prefixes);
 
   for (uint i = 0; i < array_len(prefixes); i++) {
@@ -3296,6 +3306,35 @@ int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
   StrongRef_Release(strong_ref);
   WeakRef_Release(spec_ref);
 
+
+  return REDISMODULE_OK;
+}
+
+static searchRequestCtx *createReq(RedisModuleString **argv, int argc, RedisModuleBlockedClient *bc, QueryError *status) {
+  searchRequestCtx *req = rscParseRequest(argv, argc, status);
+
+  if (!req) {
+    bailOut(bc, status);
+    return NULL;
+  }
+  return req;
+}
+
+int FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
+  RedisModuleString **argv, int argc, WeakRef spec_ref) {
+  QueryError status = {0};
+
+  searchRequestCtx *req = createReq(argv, argc, bc, &status);
+
+  if (!req) {
+    return REDISMODULE_OK;
+  }
+
+  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
+  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, spec_ref, &status);
+  if (!(rc == REDISMODULE_OK)) {
+    return REDISMODULE_OK;
+  }
   // Here we have an unsafe read of `NumShards`. This is fine because its just a hint.
   struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
 
@@ -3340,11 +3379,21 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
 
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (NumShards == 0) {
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   } else if (argc < 3) {
     return RedisModule_WrongArity(ctx);
+  }
+
+  // Coord callback
+  void (*dist_callback)(void *) = DistSearchCommandHandler;
+
+  bool isDebug = (RMUtil_ArgIndex("_FT.DEBUG", argv, 1) != -1);
+  if (isDebug) {
+    argv++;
+    argc--;
+    dist_callback = DEBUG_DistSearchCommandHandler;
   }
 
   // Prepare spec ref for the background thread
@@ -3385,7 +3434,7 @@ static int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   sCmdCtx->protocol = is_resp3(ctx) ? 3 : 2;
   RedisModule_BlockedClientMeasureTimeStart(bc);
 
-  ConcurrentSearch_ThreadPoolRun(DistSearchCommandHandler, sCmdCtx, DIST_AGG_THREADPOOL);
+  ConcurrentSearch_ThreadPoolRun(dist_callback, sCmdCtx, DIST_AGG_THREADPOOL);
 
   return REDISMODULE_OK;
 }
@@ -3481,6 +3530,10 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 }
 
+size_t GetNumShards_UnSafe() {
+  return NumShards;
+}
+
 /** A dummy command handler, for commands that are disabled when running the module in OSS
  * clusters
  * when it is not an internal OSS build. */
@@ -3541,7 +3594,7 @@ void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
 
 static bool checkClusterEnabled(RedisModuleCtx *ctx) {
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "CONFIG", "cc", "GET", "cluster-enabled");
-  RedisModule_Assert(rep && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY &&
+  RS_ASSERT_ALWAYS(rep && RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY &&
                      RedisModule_CallReplyLength(rep) == 2);
   size_t len;
   const char *isCluster = RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(rep, 1), &len);
@@ -3729,4 +3782,55 @@ int RedisModule_OnUnload(RedisModuleCtx *ctx) {
   }
 
   return REDISMODULE_OK;
+}
+/* ======================= DEBUG ONLY ======================= */
+
+static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int protocol,
+  RedisModuleString **argv, int argc, WeakRef spec_ref) {
+  QueryError status = {0};
+  AREQ_Debug_params debug_params = parseDebugParamsCount(argv, argc, &status);
+
+  if (debug_params.debug_params_count == 0) {
+    bailOut(bc, &status);
+    return REDISMODULE_OK;
+  }
+
+  int debug_argv_count = debug_params.debug_params_count + 2;
+  int base_argc = argc - debug_argv_count;
+  searchRequestCtx *req = createReq(argv, base_argc, bc, &status);
+
+  if (!req) {
+    return REDISMODULE_OK;
+  }
+
+  MRCommand cmd = MR_NewCommandFromRedisStrings(base_argc, argv);
+  int rc = prepareCommand(&cmd, req, bc, protocol, argv, argc, spec_ref, &status);
+  if (!(rc == REDISMODULE_OK)) {
+    return REDISMODULE_OK;
+  }
+
+  MRCommand_Insert(&cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
+  // insert also debug params at the end
+  for (size_t i = 0; i < debug_argv_count; i++) {
+    size_t n;
+    const char *arg = RedisModule_StringPtrLen(debug_params.debug_argv[i], &n);
+    MRCommand_Append(&cmd, arg, n);
+  }
+
+  struct MRCtx *mrctx = MR_CreateCtx(0, bc, req, NumShards);
+
+  MRCtx_SetReduceFunction(mrctx, searchResultReducer_background);
+  MR_Fanout(mrctx, NULL, cmd, false);
+  return REDISMODULE_OK;
+}
+
+static void DEBUG_DistSearchCommandHandler(void* pd) {
+  SearchCmdCtx* sCmdCtx = pd;
+  // send argv not including the _FT.DEBUG
+  DEBUG_FlatSearchCommandHandler(sCmdCtx->bc, sCmdCtx->protocol, sCmdCtx->argv, sCmdCtx->argc, sCmdCtx->spec_ref);
+  for (size_t i = 0 ; i < sCmdCtx->argc ; ++i) {
+    RedisModule_FreeString(NULL, sCmdCtx->argv[i]);
+  }
+  rm_free(sCmdCtx->argv);
+  rm_free(sCmdCtx);
 }

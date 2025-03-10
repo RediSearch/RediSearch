@@ -241,12 +241,12 @@ RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *f
 }
 
 RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t name_len, RLookupMode mode, uint32_t flags) {
-  assert(mode != RLOOKUP_M_LOAD);
+  RS_ASSERT(mode != RLOOKUP_M_LOAD);
   return RLookup_GetKey_common(lookup, name, name_len, NULL, mode, flags);
 }
 
 RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, RLookupMode mode, uint32_t flags) {
-  assert(mode != RLOOKUP_M_LOAD);
+  RS_ASSERT(mode != RLOOKUP_M_LOAD);
   return RLookup_GetKey_common(lookup, name, strlen(name), NULL, mode, flags);
 }
 
@@ -444,7 +444,8 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
     case JSONType__EOF:
       break;
   }
-  RS_LOG_ASSERT(0, "Cannot get here");
+  RS_ABORT("Cannot get here");
+  return NULL;
 }
 
 // {"a":1, "b":[2, 3, {"c": "foo"}, 4], "d": null}
@@ -464,12 +465,12 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       RedisJSON value;
       pairs = rm_malloc(sizeof(RSValue*) * len * 2);
       for (; (value = japi->nextKeyValue(iter, &keyName)); ++i) {
-        assert(i < len);
+        RS_ASSERT(i < len);
         pairs[RSVALUE_MAP_KEYPOS(i)] = RS_StealRedisStringVal(keyName);
         pairs[RSVALUE_MAP_VALUEPOS(i)] = jsonValToValueExpanded(ctx, value);
       }
       japi->freeKeyValuesIter(iter);
-      assert(i == len && !value);
+      RS_ASSERT(i == len && !value);
     }
     ret = RSValue_NewMap(pairs, len);
   } else if (type == JSONType_Array) {

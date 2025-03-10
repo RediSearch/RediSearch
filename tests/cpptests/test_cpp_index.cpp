@@ -294,8 +294,15 @@ TEST_F(IndexTest, testGetEncoderAndDecoders) {
 
     // invalid flags combination
     default:
-      ASSERT_ANY_THROW(InvertedIndex_GetDecoder(IndexFlags(curFlags)));
-      ASSERT_ANY_THROW(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
+      // TODO: We currently test only with sanitizer since the sanitizer is
+      // running in debug mode always, while the regular tests are running in
+      // release mode.
+      #ifdef __SANITIZE_ADDRESS__
+        ASSERT_ANY_THROW(InvertedIndex_GetDecoder(IndexFlags(curFlags)));
+        ASSERT_ANY_THROW(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
+      #else
+        continue;
+      #endif
     }
   }
 }
@@ -303,7 +310,7 @@ TEST_F(IndexTest, testGetEncoderAndDecoders) {
 TEST_F(IndexTest, testReadIterator) {
   InvertedIndex *idx = createPopulateTermsInvIndex(10, 1);
 
-  IndexReader *r1 = NewTermIndexReader(idx);  //
+  IndexReader *r1 = NewTermIndexReader(idx);
 
   RSIndexResult *h = NULL;
 
@@ -1031,7 +1038,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
 
   float query[] = {(float)n, (float)n, (float)n, (float)n};
   RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
-  VecSimQueryParams queryParams;
+  VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = n;
   VecSimQueryReply *results =
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
