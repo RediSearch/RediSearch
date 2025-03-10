@@ -1,230 +1,286 @@
 #!/bin/bash
 set -e
 
-# RediSearch Build Script - Simplified version
-# All build logic is now in CMakeLists.txt
+#-----------------------------------------------------------------------------
+# RediSearch Build Script
+# 
+# This script handles building the RediSearch module and running tests.
+# It supports various build configurations and test types.
+#-----------------------------------------------------------------------------
 
-# Root directory
+# Get the absolute path to script directory
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BINROOT="$ROOT/bin"
 
-# Default values
-COORD="oss"  # oss or rlec
-DEBUG=0
-FORCE=0
-VERBOSE=0
+#-----------------------------------------------------------------------------
+# Default configuration values
+#-----------------------------------------------------------------------------
+COORD="oss"      # Coordinator type: oss or rlec
+DEBUG=0          # Debug build flag
+FORCE=1          # Force clean build flag
+VERBOSE=0        # Verbose output flag
 
-# Test types (0=disabled, 1=enabled)
-BUILD_TESTS=0
-RUN_UNIT_TESTS=0
-RUN_RUST_TESTS=0
-RUN_PYTEST=0
-RUN_ALL_TESTS=0
+# Test configuration (0=disabled, 1=enabled)
+BUILD_TESTS=0    # Build test binaries
+RUN_UNIT_TESTS=0 # Run C/C++ unit tests
+RUN_RUST_TESTS=0 # Run Rust tests
+RUN_PYTEST=0     # Run Python tests
+RUN_ALL_TESTS=0  # Run all test types
 
-# Parse arguments
-for arg in "$@"; do
-  case $arg in
-    COORD=*)
-      COORD="${arg#*=}"
-      ;;
-    DEBUG=*)
-      DEBUG="${arg#*=}"
-      ;;
-    STATIC=*)
-      STATIC="${arg#*=}"
-      ;;
-    LITE=*)
-      LITE="${arg#*=}"
-      ;;
-    TESTS=*)
-      BUILD_TESTS="${arg#*=}"
-      ;;
-    RUN_TESTS=*)
-      RUN_ALL_TESTS="${arg#*=}"
-      ;;
-    RUN_UNIT_TESTS=*)
-      RUN_UNIT_TESTS="${arg#*=}"
-      ;;
-    RUN_RUST_TESTS=*)
-      RUN_RUST_TESTS="${arg#*=}"
-      ;;
-    RUN_PYTEST=*)
-      RUN_PYTEST="${arg#*=}"
-      ;;
-    TEST=*)
-      TEST_FILTER="${arg#*=}"
-      ;;
-    SAN=*)
-      SAN="${arg#*=}"
-      ;;
-    FORCE=*)
-      FORCE="${arg#*=}"
-      ;;
-    VERBOSE=*)
-      VERBOSE="${arg#*=}"
-      ;;
-    *)
-      # Pass all other arguments directly to CMake
-      CMAKE_ARGS="$CMAKE_ARGS -D${arg}"
-      ;;
-  esac
-done
+#-----------------------------------------------------------------------------
+# Function: parse_arguments
+# Parse command-line arguments and set configuration variables
+#-----------------------------------------------------------------------------
+parse_arguments() {
+  for arg in "$@"; do
+    case $arg in
+      COORD=*)
+        COORD="${arg#*=}"
+        ;;
+      DEBUG=*)
+        DEBUG="${arg#*=}"
+        ;;
+      STATIC=*)
+        STATIC="${arg#*=}"
+        ;;
+      LITE=*)
+        LITE="${arg#*=}"
+        ;;
+      TESTS=*)
+        BUILD_TESTS="${arg#*=}"
+        ;;
+      RUN_TESTS=*)
+        RUN_ALL_TESTS="${arg#*=}"
+        ;;
+      RUN_UNIT_TESTS=*)
+        RUN_UNIT_TESTS="${arg#*=}"
+        ;;
+      RUN_RUST_TESTS=*)
+        RUN_RUST_TESTS="${arg#*=}"
+        ;;
+      RUN_PYTEST=*)
+        RUN_PYTEST="${arg#*=}"
+        ;;
+      TEST=*)
+        TEST_FILTER="${arg#*=}"
+        ;;
+      SAN=*)
+        SAN="${arg#*=}"
+        ;;
+      FORCE=*)
+        FORCE="${arg#*=}"
+        ;;
+      VERBOSE=*)
+        VERBOSE="${arg#*=}"
+        ;;
+      *)
+        # Pass all other arguments directly to CMake
+        CMAKE_ARGS="$CMAKE_ARGS -D${arg}"
+        ;;
+    esac
+  done
+}
 
-# If any tests will be run, ensure BUILD_TESTS is enabled
-if [[ "$RUN_ALL_TESTS" == "1" || "$RUN_UNIT_TESTS" == "1" || "$RUN_RUST_TESTS" == "1" || "$RUN_PYTEST" == "1" ]]; then
-  if [[ "$BUILD_TESTS" != "1" ]]; then
-    echo "Test execution requested, enabling test build automatically"
-    BUILD_TESTS="1"
-  fi
-fi
-
-# If RUN_ALL_TESTS is enabled, enable all test types
-if [[ "$RUN_ALL_TESTS" == "1" ]]; then
-  RUN_UNIT_TESTS=1
-  RUN_RUST_TESTS=1
-  RUN_PYTEST=1
-fi
-
-# Determine build flavor
-if [[ "$DEBUG" == "1" ]]; then
-  FLAVOR="debug"
-else
-  FLAVOR="release"
-fi
-
-# Get OS and architecture
-OS_NAME=$(uname)
-# Convert OS name to lowercase and convert Darwin to macos
-if [[ "$OS_NAME" == "Darwin" ]]; then
-  OS_NAME="macos"
-else
-  OS_NAME=$(echo "$OS_NAME" | tr '[:upper:]' '[:lower:]')
-fi
-
-# Get architecture and convert arm64 to arm64v8
-ARCH=$(uname -m)
-if [[ "$ARCH" == "arm64" ]]; then
-  ARCH="arm64v8"
-fi
-
-# Create full variant string for the build directory
-FULL_VARIANT="${OS_NAME}-${ARCH}-${FLAVOR}"
-
-# Set BINDIR based on configuration and FULL_VARIANT
-if [[ "$COORD" == "oss" ]]; then
-  OUTDIR="search-community"
-elif [[ "$COORD" == "rlec" ]]; then
-  OUTDIR="search-enterprise"
-else
-  echo "COORD should be either oss or rlec"
-  exit 1
-fi
-
-if [[ -n "$LITE" && "$LITE" == "1" ]]; then
-  OUTDIR="search-lite"
-fi
-
-if [[ -n "$STATIC" && "$STATIC" == "1" ]]; then
-  OUTDIR="search-static"
-fi
-
-# Set the final BINDIR using the full variant path
-BINDIR="${BINROOT}/${FULL_VARIANT}/${OUTDIR}"
-
-# Prepare CMake arguments
-CMAKE_BASIC_ARGS="-DCOORD_TYPE=$COORD"
-
-if [[ -n "$STATIC" && "$STATIC" == "1" ]]; then
-  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_STATIC=ON"
-fi
-
-if [[ -n "$LITE" && "$LITE" == "1" ]]; then
-  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_LITE=ON"
-fi
-
-if [[ "$BUILD_TESTS" == "1" ]]; then
-  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_SEARCH_UNIT_TESTS=ON"
-fi
-
-if [[ -n "$SAN" ]]; then
-  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSAN=$SAN"
-fi
-
-if [[ "$DEBUG" == "1" ]]; then
-  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_BUILD_TYPE=Debug"
-else
-  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_BUILD_TYPE=Release"
-fi
-
-# Ensure output file is always .so even on macOS
-CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_SHARED_LIBRARY_SUFFIX=.so"
-
-# Add caching flags to prevent using old configurations
-CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -UCMAKE_TOOLCHAIN_FILE -DREUSE_READIES=OFF"
-
-# Create build directory and ensure any parent directories exist
-mkdir -p "$BINDIR"
-cd "$BINDIR"
-
-# Clean up any cached CMake configuration if force is enabled
-if [[ "$FORCE" == "1" ]]; then
-  echo "Cleaning CMake cache..."
-  rm -f CMakeCache.txt
-  rm -rf CMakeFiles
-fi
-
-echo "Configuring CMake..."
-echo "Build directory: $BINDIR"
-
-# Run CMake with all the flags
-if [[ "$FORCE" == "1" || ! -f "$BINDIR/Makefile" ]]; then
-  CMAKE_CMD="cmake $ROOT $CMAKE_BASIC_ARGS $CMAKE_ARGS"
-  echo "$CMAKE_CMD"
-  
-  # If verbose, dump all CMake variables before and after configuration
-  if [[ "$VERBOSE" == "1" ]]; then
-    echo "Running CMake with verbose output..."
-    $CMAKE_CMD --trace-expand
-  else
-    $CMAKE_CMD
-  fi
-fi
-
-# Determine number of parallel jobs for make
-if command -v nproc &> /dev/null; then
-  NPROC=$(nproc)
-elif command -v sysctl &> /dev/null && [[ "$OS_NAME" == "macos" ]]; then
-  NPROC=$(sysctl -n hw.physicalcpu)
-else
-  NPROC=4  # Default if we can't determine
-fi
-
-echo "Building RediSearch with $NPROC parallel jobs..."
-make -j "$NPROC"
-
-# If needed, build the example extension library
-if [[ "$BUILD_TESTS" == "1" ]]; then
-  # Ensure ext-example binary gets compiled
-  if [[ -d "$ROOT/tests/ctests/ext-example" ]]; then
-    echo "Building ext-example for unit tests..."
-    make -j "$NPROC" example_extension
-    
-    # Make sure the extension binary exists and export its path
-    EXTENSION_PATH="$BINDIR/example_extension/libexample_extension.so"
-    if [[ -f "$EXTENSION_PATH" ]]; then
-      echo "Example extension built at: $EXTENSION_PATH"
-      export EXT_TEST_PATH="$EXTENSION_PATH"
-    else
-      echo "Warning: Could not find example extension at $EXTENSION_PATH"
-      echo "Some tests may fail if they depend on this extension"
+#-----------------------------------------------------------------------------
+# Function: setup_test_configuration
+# Configure test settings based on input arguments
+#-----------------------------------------------------------------------------
+setup_test_configuration() {
+  # If any tests will be run, ensure BUILD_TESTS is enabled
+  if [[ "$RUN_ALL_TESTS" == "1" || "$RUN_UNIT_TESTS" == "1" || "$RUN_RUST_TESTS" == "1" || "$RUN_PYTEST" == "1" ]]; then
+    if [[ "$BUILD_TESTS" != "1" ]]; then
+      echo "Test execution requested, enabling test build automatically"
+      BUILD_TESTS="1"
     fi
   fi
-fi
 
-echo "Build complete. Artifacts in $BINDIR"
+  # If RUN_ALL_TESTS is enabled, enable all test types
+  if [[ "$RUN_ALL_TESTS" == "1" ]]; then
+    RUN_UNIT_TESTS=1
+    RUN_RUST_TESTS=1
+    RUN_PYTEST=1
+  fi
+}
 
-# Run tests if requested
-if [[ "$RUN_UNIT_TESTS" == "1" ]]; then
+#-----------------------------------------------------------------------------
+# Function: setup_build_environment
+# Configure the build environment variables
+#-----------------------------------------------------------------------------
+setup_build_environment() {
+  # Determine build flavor
+  if [[ "$DEBUG" == "1" ]]; then
+    FLAVOR="debug"
+  else
+    FLAVOR="release"
+  fi
+
+  # Get OS and architecture
+  OS_NAME=$(uname)
+  # Convert OS name to lowercase and convert Darwin to macos
+  if [[ "$OS_NAME" == "Darwin" ]]; then
+    OS_NAME="macos"
+  else
+    OS_NAME=$(echo "$OS_NAME" | tr '[:upper:]' '[:lower:]')
+  fi
+
+  # Get architecture and convert arm64 to arm64v8
+  ARCH=$(uname -m)
+  if [[ "$ARCH" == "arm64" ]]; then
+    ARCH="arm64v8"
+  fi
+
+  # Create full variant string for the build directory
+  FULL_VARIANT="${OS_NAME}-${ARCH}-${FLAVOR}"
+
+  # Set BINDIR based on configuration and FULL_VARIANT
+  if [[ "$COORD" == "oss" ]]; then
+    OUTDIR="search-community"
+  elif [[ "$COORD" == "rlec" ]]; then
+    OUTDIR="search-enterprise"
+  else
+    echo "COORD should be either oss or rlec"
+    exit 1
+  fi
+
+  if [[ -n "$LITE" && "$LITE" == "1" ]]; then
+    OUTDIR="search-lite"
+  fi
+
+  if [[ -n "$STATIC" && "$STATIC" == "1" ]]; then
+    OUTDIR="search-static"
+  fi
+
+  # Set the final BINDIR using the full variant path
+  BINDIR="${BINROOT}/${FULL_VARIANT}/${OUTDIR}"
+}
+
+#-----------------------------------------------------------------------------
+# Function: prepare_cmake_arguments
+# Prepare arguments to pass to CMake
+#-----------------------------------------------------------------------------
+prepare_cmake_arguments() {
+  # Initialize with base arguments
+  CMAKE_BASIC_ARGS="-DCOORD_TYPE=$COORD"
+
+  # Add configuration-specific arguments
+  if [[ -n "$STATIC" && "$STATIC" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_STATIC=ON"
+  fi
+
+  if [[ -n "$LITE" && "$LITE" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_LITE=ON"
+  fi
+
+  if [[ "$BUILD_TESTS" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_SEARCH_UNIT_TESTS=ON"
+  fi
+
+  if [[ -n "$SAN" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSAN=$SAN"
+  fi
+
+  # Set build type
+  if [[ "$DEBUG" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_BUILD_TYPE=Debug"
+  else
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_BUILD_TYPE=Release"
+  fi
+
+  # Ensure output file is always .so even on macOS
+  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_SHARED_LIBRARY_SUFFIX=.so"
+
+  # Add caching flags to prevent using old configurations
+  CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -UCMAKE_TOOLCHAIN_FILE -DREUSE_READIES=OFF"
+}
+
+#-----------------------------------------------------------------------------
+# Function: run_cmake
+# Run CMake to configure the build
+#-----------------------------------------------------------------------------
+run_cmake() {
+  # Create build directory and ensure any parent directories exist
+  mkdir -p "$BINDIR"
+  cd "$BINDIR"
+
+  # Clean up any cached CMake configuration if force is enabled
+  if [[ "$FORCE" == "1" ]]; then
+    echo "Cleaning CMake cache..."
+    rm -f CMakeCache.txt
+    rm -rf CMakeFiles
+  fi
+
+  echo "Configuring CMake..."
+  echo "Build directory: $BINDIR"
+
+  # Run CMake with all the flags
+  if [[ "$FORCE" == "1" || ! -f "$BINDIR/Makefile" ]]; then
+    CMAKE_CMD="cmake $ROOT $CMAKE_BASIC_ARGS $CMAKE_ARGS"
+    echo "$CMAKE_CMD"
+    
+    # If verbose, dump all CMake variables before and after configuration
+    if [[ "$VERBOSE" == "1" ]]; then
+      echo "Running CMake with verbose output..."
+      $CMAKE_CMD --trace-expand
+    else
+      $CMAKE_CMD
+    fi
+  fi
+}
+
+#-----------------------------------------------------------------------------
+# Function: build_project
+# Build the RediSearch project using Make
+#-----------------------------------------------------------------------------
+build_project() {
+  # Determine number of parallel jobs for make
+  if command -v nproc &> /dev/null; then
+    NPROC=$(nproc)
+  elif command -v sysctl &> /dev/null && [[ "$OS_NAME" == "macos" ]]; then
+    NPROC=$(sysctl -n hw.physicalcpu)
+  else
+    NPROC=4  # Default if we can't determine
+  fi
+
+  echo "Building RediSearch with $NPROC parallel jobs..."
+  make -j "$NPROC"
+
+  # Build test dependencies if needed
+  build_test_dependencies
+}
+
+#-----------------------------------------------------------------------------
+# Function: build_test_dependencies
+# Build additional dependencies needed for tests
+#-----------------------------------------------------------------------------
+build_test_dependencies() {
+  if [[ "$BUILD_TESTS" == "1" ]]; then
+    # Ensure ext-example binary gets compiled
+    if [[ -d "$ROOT/tests/ctests/ext-example" ]]; then
+      echo "Building ext-example for unit tests..."
+      make -j "$NPROC" example_extension
+      
+      # Make sure the extension binary exists and export its path
+      EXTENSION_PATH="$BINDIR/example_extension/libexample_extension.so"
+      if [[ -f "$EXTENSION_PATH" ]]; then
+        echo "Example extension built at: $EXTENSION_PATH"
+        export EXT_TEST_PATH="$EXTENSION_PATH"
+      else
+        echo "Warning: Could not find example extension at $EXTENSION_PATH"
+        echo "Some tests may fail if they depend on this extension"
+      fi
+    fi
+  fi
+}
+
+#-----------------------------------------------------------------------------
+# Function: run_unit_tests
+# Run C/C++ unit tests
+#-----------------------------------------------------------------------------
+run_unit_tests() {
+  if [[ "$RUN_UNIT_TESTS" != "1" ]]; then
+    return 0
+  fi
+
   echo "Running unit tests..."
   
   # Set test environment variables if needed
@@ -256,10 +312,17 @@ if [[ "$RUN_UNIT_TESTS" == "1" ]]; then
     echo "Some unit tests failed. Check the test logs above for details."
     HAS_FAILURES=1
   fi
-fi
+}
 
-# Run Rust tests if requested
-if [[ "$RUN_RUST_TESTS" == "1" ]]; then
+#-----------------------------------------------------------------------------
+# Function: run_rust_tests
+# Run Rust tests
+#-----------------------------------------------------------------------------
+run_rust_tests() {
+  if [[ "$RUN_RUST_TESTS" != "1" ]]; then
+    return 0
+  fi
+
   echo "Running Rust tests..."
   
   # Set Rust test environment
@@ -289,10 +352,17 @@ if [[ "$RUN_RUST_TESTS" == "1" ]]; then
     echo "Some Rust tests failed. Check the test logs above for details."
     HAS_FAILURES=1
   fi
-fi
+}
 
-# Run Python tests if requested
-if [[ "$RUN_PYTEST" == "1" ]]; then
+#-----------------------------------------------------------------------------
+# Function: run_python_tests
+# Run Python behavioral tests
+#-----------------------------------------------------------------------------
+run_python_tests() {
+  if [[ "$RUN_PYTEST" != "1" ]]; then
+    return 0
+  fi
+
   echo "Running Python behavioral tests..."
   
   # Locate the built module
@@ -342,10 +412,53 @@ if [[ "$RUN_PYTEST" == "1" ]]; then
     echo "Some Python tests failed. Check the test logs above for details."
     HAS_FAILURES=1
   fi
-fi
+}
 
-# Exit with failure if any test suite failed
-if [[ "$HAS_FAILURES" == "1" ]]; then
-  echo "One or more test suites had failures"
-  exit 1
-fi
+#-----------------------------------------------------------------------------
+# Function: run_tests
+# Run all requested tests and check results
+#-----------------------------------------------------------------------------
+run_tests() {
+  HAS_FAILURES=0
+  
+  # Run each test type as requested
+  run_unit_tests
+  run_rust_tests
+  run_python_tests
+  
+  # Report build success
+  echo "Build complete. Artifacts in $BINDIR"
+  
+  # Exit with failure if any test suite failed
+  if [[ "$HAS_FAILURES" == "1" ]]; then
+    echo "One or more test suites had failures"
+    exit 1
+  fi
+}
+
+#-----------------------------------------------------------------------------
+# Main execution flow
+#-----------------------------------------------------------------------------
+
+# Parse command line arguments
+parse_arguments "$@"
+
+# Set up test configuration based on input parameters
+setup_test_configuration
+
+# Set up the build environment
+setup_build_environment
+
+# Prepare CMake arguments
+prepare_cmake_arguments
+
+# Run CMake to configure the build
+run_cmake
+
+# Build the project
+build_project
+
+# Run tests if requested
+run_tests
+
+exit 0
