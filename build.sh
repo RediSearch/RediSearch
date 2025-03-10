@@ -17,8 +17,9 @@ BINROOT="$ROOT/bin"
 #-----------------------------------------------------------------------------
 COORD="oss"      # Coordinator type: oss or rlec
 DEBUG=0          # Debug build flag
-FORCE=1          # Force clean build flag
+FORCE=0         # Force clean build flag
 VERBOSE=0        # Verbose output flag
+QUICK=0          # Quick test mode (subset of tests)
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0    # Build test binaries
@@ -72,6 +73,9 @@ parse_arguments() {
         ;;
       VERBOSE=*)
         VERBOSE="${arg#*=}"
+        ;;
+      QUICK=*)
+        QUICK="${arg#*=}"
         ;;
       *)
         # Pass all other arguments directly to CMake
@@ -381,13 +385,16 @@ run_python_tests() {
   export BINROOT="$BINROOT"
   export BINDIR="$BINDIR"
   
-  # Default to standalone mode
-  export REDIS_STANDALONE=1
-  
   # Set up test filter if provided
   if [[ -n "$TEST_FILTER" ]]; then
     export TEST="$TEST_FILTER"
     echo "Running Python tests matching: $TEST_FILTER"
+  fi
+  
+  # Enable quick mode if requested (run only a subset of tests)
+  if [[ "$QUICK" == "1" ]]; then
+    echo "Running in QUICK mode - using a subset of tests"
+    export QUICK=1
   fi
   
   # Enable verbose mode if requested
