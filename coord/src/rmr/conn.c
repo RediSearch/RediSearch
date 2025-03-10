@@ -6,13 +6,13 @@
 
 #include "conn.h"
 #include "reply.h"
+#include "rmutil/rm_assert.h"
 #include "hiredis/adapters/libuv.h"
 
 #include <uv.h>
 #include <signal.h>
 #include <sys/param.h>
 #include <stdio.h>
-#include <assert.h>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
