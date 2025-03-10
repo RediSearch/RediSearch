@@ -1591,8 +1591,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   case QN_LEXRANGE : unionTypeStr = "LEXRANGE"; break;
   case QN_WILDCARD_QUERY : unionTypeStr = "WILDCARD"; break;
   default:
-    RS_LOG_ASSERT(0, "Invalid type for union");
-    break;
+    RS_ABORT_ALWAYS("Invalid type for union");
   }
   if (!ui->qstr) {
     RedisModule_Reply_SimpleString(reply, unionTypeStr);
@@ -1675,7 +1674,7 @@ PRINT_PROFILE_FUNC(printMetricIt) {
       break;
     }
     default: {
-      RS_LOG_ASSERT(0, "Invalid type for metric");
+      RS_ABORT("Invalid type for metric");
       break;
     }
   }
@@ -1771,7 +1770,7 @@ void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, size_t 
     case HYBRID_ITERATOR:     { printHybridIt(reply, root, counter, cpuTime, depth, limited, config);     break; }
     case METRIC_ITERATOR:     { printMetricIt(reply, root, counter, cpuTime, depth, limited, config);     break; }
     case OPTIMUS_ITERATOR:    { printOptimusIt(reply, root, counter, cpuTime, depth, limited, config);    break; }
-    case MAX_ITERATOR:        { RS_LOG_ASSERT(0, "nope");   break; }
+    case MAX_ITERATOR:        { RS_ABORT("nope");   break; }
   }
 }
 
@@ -1817,7 +1816,8 @@ void Profile_AddIters(IndexIterator **root) {
       break;
     case PROFILE_ITERATOR:
     case MAX_ITERATOR:
-      RS_LOG_ASSERT(0, "Error");
+      RS_ABORT("Error");
+      break;
   }
 
   // Create a profile iterator and update outparam pointer

@@ -1072,7 +1072,8 @@ vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
     A->vn.vq->property = rm_strndup(C.s, C.len);
-    RedisModule_Assert(-1 != (rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.len, C.s)));
+    int n_written = rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.len, C.s);
+    RS_ASSERT(n_written != -1);
   } else {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
     A = NULL;

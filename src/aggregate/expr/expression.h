@@ -70,8 +70,7 @@ static const char *getRSConditionStrings(RSCondition type) {
   case RSCondition_And: return "&&";
   case RSCondition_Or: return "||";
   default:
-    RS_LOG_ASSERT(0, "oops");
-    break;
+    RS_ABORT_ALWAYS("oops");
   }
 }
 
