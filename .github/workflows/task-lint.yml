@@ -15,7 +15,7 @@ env:
 
 jobs:
   lint:
-    name: Linting ${{ inputs.env }}
+    name: Linting
     runs-on: ${{ inputs.env }}
     defaults:
       run:

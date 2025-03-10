@@ -17,12 +17,6 @@ jobs:
       test-config: QUICK=1
       fail-fast: false
 
-  lint:
-    uses: ./.github/workflows/task-lint.yml
-    with:
-      env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-    secrets: inherit
-
   test-macos:
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
