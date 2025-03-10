@@ -18,7 +18,7 @@
 #include "field_spec_info.h"
 #include "obfuscation/obfuscation_api.h"
 
-static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
+static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
 
 #define ADD_NEGATIVE_OPTION(flag, str)               \
   do {                                               \

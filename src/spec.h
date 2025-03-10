@@ -648,19 +648,19 @@ typedef struct DebugIndexesScanner {
 } DebugIndexesScanner;
 
 
-double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, IndexSpec *sp);
+double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp);
 
 /**
  * @return the overhead used by the TAG fields in `sp`, i.e., the size of the
  * TrieMaps used for the `values` and `suffix` fields.
  */
-size_t IndexSpec_collect_tags_overhead(IndexSpec *sp);
+size_t IndexSpec_collect_tags_overhead(const IndexSpec *sp);
 
 /**
  * @return the overhead used by the TEXT fields in `sp`, i.e., the size of the
  * sp->terms and sp->suffix Tries.
  */
-size_t IndexSpec_collect_text_overhead(IndexSpec *sp);
+size_t IndexSpec_collect_text_overhead(const IndexSpec *sp);
 
 /**
  * @return the overhead used by the NUMERIC and GEO fields in `sp`, i.e., the accumulated size of all

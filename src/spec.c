@@ -357,7 +357,7 @@ void Indexes_SetTempSpecsTimers(TimerOp op) {
 
 //---------------------------------------------------------------------------------------------
 
-double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, IndexSpec *sp) {
+double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp) {
   if (scanner || sp->scan_in_progress) {
     if (scanner) {
       size_t totalKeys = RedisModule_DbSize(ctx);
@@ -389,7 +389,7 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp) {
   return overhead;
 }
 
-size_t IndexSpec_collect_tags_overhead(IndexSpec *sp) {
+size_t IndexSpec_collect_tags_overhead(const IndexSpec *sp) {
   // Traverse the fields and calculates the overhead of the tags
   size_t overhead = 0;
   for (size_t i = 0; i < sp->numFields; i++) {
@@ -401,7 +401,7 @@ size_t IndexSpec_collect_tags_overhead(IndexSpec *sp) {
   return overhead;
 }
 
-size_t IndexSpec_collect_text_overhead(IndexSpec *sp) {
+size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
   // Traverse the fields and calculates the overhead of the text suffixes
   size_t overhead = 0;
   // Collect overhead from sp->terms
@@ -1725,7 +1725,7 @@ RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs,
         ret = fmtRedisNumericIndexKey(&sctx, fs->name);
         break;
       case INDEXFLD_T_TAG:
-        ret = TagIndex_FormatName(&sctx, fs->name);
+        ret = TagIndex_FormatName(sctx.spec, fs->name);
         break;
       case INDEXFLD_T_VECTOR:
         ret = RedisModule_CreateString(sctx.redisCtx, fs->name, strlen(fs->name));

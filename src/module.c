@@ -434,8 +434,8 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  RedisModuleString *rstr = TagIndex_FormatName(sctx, field);
-  TagIndex *idx = TagIndex_Open(sctx, rstr, DONT_CREATE_INDEX);
+  RedisModuleString *rstr = TagIndex_FormatName(sctx->spec, field);
+  TagIndex *idx = TagIndex_Open(sctx->spec, rstr, DONT_CREATE_INDEX);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
     RedisModule_ReplyWithSetOrArray(ctx, 0);

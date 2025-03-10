@@ -746,7 +746,7 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
 
 FIELD_BULK_INDEXER(tagIndexer) {
   RedisModuleString *kname = IndexSpec_GetFormattedKey(ctx->spec, fs, INDEXFLD_T_TAG);
-  TagIndex *tidx = TagIndex_Open(ctx, kname, CREATE_INDEX);
+  TagIndex *tidx = TagIndex_Open(ctx->spec, kname, CREATE_INDEX);
   if (!tidx) {
     QueryError_SetError(status, QUERY_EGENERIC, "Could not open tag index for indexing");
     return -1;

@@ -533,7 +533,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const TagIndex *tagIndex = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+  const TagIndex *tagIndex = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
 
   // Field was not initialized yet
   if (!tagIndex) {
@@ -606,7 +606,7 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
       goto end;
     }
-    const TagIndex *idx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+    const TagIndex *idx = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
 
     // Field was not initialized yet
     if (!idx) {
@@ -1067,7 +1067,7 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+  const TagIndex *idx = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
 
   // Field was not initialized yet
   if (!idx) {
