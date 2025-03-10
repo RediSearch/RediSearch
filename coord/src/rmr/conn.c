@@ -8,12 +8,12 @@
 #include "reply.h"
 #include "hiredis/adapters/libuv.h"
 #include "search_cluster.h"
+#include "rmutil/rm_assert.h"
 
 #include <uv.h>
 #include <signal.h>
 #include <sys/param.h>
 #include <stdio.h>
-#include <assert.h>
 
 #include <openssl/ssl.h>
 #include <openssl/err.h>
