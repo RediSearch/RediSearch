@@ -6,6 +6,7 @@
 
 #include "field_spec_info.h"
 #include "reply_macros.h"
+#include "rmutil/rm_assert.h"
 
 FieldSpecInfo FieldSpecInfo_Init() {
     FieldSpecInfo info = {0};
