@@ -33,8 +33,8 @@ set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 # Define compiler setup function
 function(setup_cc_options)
   # Common compiler flags
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wno-unused-function -fPIC" PARENT_SCOPE)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wno-unused-function -fPIC -std=c++20" PARENT_SCOPE)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wno-unused-function -Wno-unused-variable -fPIC" PARENT_SCOPE)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wno-unused-function -Wno-unused-variable -fPIC -std=c++20" PARENT_SCOPE)
   
   # Release/Debug specific flags
   set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O2" PARENT_SCOPE)
@@ -206,6 +206,10 @@ endif()
 #----------------------------------------------------------------------------------------------
 # Include external dependencies
 
+# Remove the include for external libuv
+# include(${root}/build/libuv/libuv.cmake)
+
+# Keep the include for hiredis
 include(${root}/build/hiredis/hiredis.cmake)
 
 include_directories(
@@ -216,7 +220,6 @@ include_directories(
     ${root}/deps
     ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
-    ${root}/deps/libuv/include
     ${BOOST_DIR}
     ${root})
 
@@ -224,6 +227,11 @@ add_subdirectory(deps/rmutil)
 add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
+
+# Configure libuv options
+set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
+set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
+set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE) # Force static library
 add_subdirectory(deps/libuv)
 
 option(VECSIM_STATIC "Build as static library" ON)
@@ -299,7 +307,7 @@ else() # OSS RediSearch
             redisearch-geometry
             VectorSimilarity
             redisearch-coord
-            ${LIBUV_LIBS}
+            uv_a  # Changed from uv to uv_a (the static library target name)
             ${HIREDIS_LIBS}
             ${SSL_LIBS}
             ${REDISEARCH_LIBS}
@@ -312,6 +320,7 @@ else() # OSS RediSearch
 
     extract_debug_symbols(redisearch)
     add_dependencies(redisearch VectorSimilarity)
+    add_dependencies(redisearch uv_a)  # Changed from uv to uv_a (static library)
 endif()
 
 # Configure output name based on COORD_TYPE
