@@ -42,10 +42,11 @@ static bool ensureSimpleMode(AREQ *areq) {
  * Like @ref ensureSimpleMode(), but does the opposite -- ensures that one of the
  * 'simple' options - i.e. ones which rely on the field to be the exact same as
  * found in the document - was not requested.
+ * name argument must not contain any user data, as it is used for error formatting
  */
 static int ensureExtendedMode(AREQ *areq, const char *name, QueryError *status) {
   if (areq->reqflags & QEXEC_F_IS_SEARCH) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL,
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL,
                            "option `%s` is mutually exclusive with simple (i.e. search) options",
                            name);
     return 0;
