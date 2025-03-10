@@ -1540,7 +1540,7 @@ void IndexSpec_Free(IndexSpec *spec) {
   // For temporary index
   // This function might be called from any thread, and we cannot deal with timers without the GIL.
   // At this point we should have already stopped the timer.
-  assert(!spec->isTimerSet);
+  RS_ASSERT(!spec->isTimerSet);
   // Stop and destroy indexer
   if (spec->indexer) {
     Indexer_Free(spec->indexer);
@@ -1795,11 +1795,11 @@ IndexSpec *NewIndexSpec(const char *name) {
   int res = 0;
   pthread_rwlockattr_t attr;
   res = pthread_rwlockattr_init(&attr);
-  RedisModule_Assert(res == 0);
+  RS_ASSERT(res == 0);
 #if !defined(__APPLE__) && !defined(__FreeBSD__) && defined(__GLIBC__)
   int pref = PTHREAD_RWLOCK_PREFER_WRITER_NONRECURSIVE_NP;
   res = pthread_rwlockattr_setkind_np(&attr, pref);
-  RedisModule_Assert(res == 0);
+  RS_ASSERT(res == 0);
 #endif
 
   pthread_rwlock_init(&sp->rwlock, &attr);
@@ -1830,7 +1830,8 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
       case DocumentType_Json:
         fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
       case DocumentType_Unsupported:
-        RS_LOG_ASSERT(0, "shouldn't get here");
+        RS_ABORT("shouldn't get here");
+        break;
     }
   }
   fs->indexError = IndexError_Init();
@@ -2745,7 +2746,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       int rc = IndexAlias_Add(s, spec_ref, 0, &status);
       RedisModule_Free(s);
-      assert(rc == REDISMODULE_OK);
+      RS_ASSERT(rc == REDISMODULE_OK);
     }
   }
   sp->indexer = NewIndexer(sp);
@@ -2970,7 +2971,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     rv = Document_LoadSchemaFieldJson(&doc, &sctx, &status);
     break;
   case DocumentType_Unsupported:
-    RS_LOG_ASSERT(0, "Should receive valid type");
+    RS_ABORT("Should receive valid type");
+    break;
   }
 
   if (rv != REDISMODULE_OK) {

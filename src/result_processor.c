@@ -380,7 +380,9 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
     RLookupRow_Cleanup(&oldrow);
     return RS_RESULT_OK;
   }
-  return self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+  int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+  self->timedOut = false;
+  return ret;
 }
 
 static void rpsortFree(ResultProcessor *rp) {
@@ -571,8 +573,10 @@ static int rppagerNext_Limit(ResultProcessor *base, SearchResult *r) {
     return RS_RESULT_EOF;
   }
 
-  self->remaining--;
-  return base->upstream->Next(base->upstream, r);
+  int ret = base->upstream->Next(base->upstream, r);
+  // Account for the result only if we got one.
+  if (ret == RS_RESULT_OK) self->remaining--;
+  return ret;
 }
 
 static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
@@ -981,7 +985,7 @@ void SetLoadersForBG(AREQ *r) {
       // If the pipeline was originally built with a safe loader and later got set to run on
       // the main thread, we keep the safe loader and only change the next function.
       // Now we need to change the next function back to the safe loader's next function.
-      assert(cur->Next == rploaderNext);
+      RS_ASSERT(cur->Next == rploaderNext);
       cur->Next = rpSafeLoaderNext_Accumulate;
       ((RPSafeLoader *)cur)->becomePlainLoader = false;
     }
@@ -1132,5 +1136,98 @@ ResultProcessor *RPCounter_New() {
   ret->base.Next = rpcountNext;
   ret->base.Free = rpcountFree;
   ret->base.type = RP_COUNTER;
+  return &ret->base;
+}
+
+/*******************************************************************************************************************
+ *  Timeout Processor - DEBUG ONLY
+ *
+ * returns timeout after N results, N >= 0.
+ * If N is larger than the actual results, EOF is returned.
+ *******************************************************************************************************************/
+
+typedef struct {
+  ResultProcessor base;
+  uint32_t count;
+  uint32_t remaining;
+} RPTimeoutAfterCount;
+
+/** For debugging purposes
+ * Will add a result processor that will return timeout according to the results count specified.
+ * @param results_count: number of results to return. should be greater equal 0.
+ * The result processor will also change the query timing so further checks down the pipeline will also result in timeout.
+ */
+void PipelineAddTimeoutAfterCount(AREQ *r, size_t results_count) {
+  ResultProcessor *cur = r->qiter.endProc;
+  ResultProcessor dummyHead = { .upstream = cur };
+  ResultProcessor *downstream = &dummyHead;
+
+  // Search for the last result processor
+  while (cur) {
+    if (!cur->upstream) {
+      ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count);
+      RPTimeoutAfterCount->parent = &r->qiter;
+      // Insert the timeout processor between the last result processor and its downstream result processor
+      downstream->upstream = RPTimeoutAfterCount;
+      RPTimeoutAfterCount->upstream = cur;
+    }
+    downstream = cur;
+    cur = cur->upstream;
+  }
+  // Update the endProc to the new head in case it was changed
+  r->qiter.endProc = dummyHead.upstream;
+}
+
+static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout) {
+    // set timeout to now for the RP up the chain to handle
+    static struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+    rp_timeout->parent->sctx->time.timeout = now;
+
+    // search upstream for rpidxNext to set timeout limiter
+    ResultProcessor *cur = rp_timeout->upstream;
+    while (cur && cur->type != RP_INDEX) {
+        cur = cur->upstream;
+    }
+
+    if (cur) { // This is a shard pipeline
+      RPIndexIterator *rp_index = (RPIndexIterator *)cur;
+      rp_index->timeoutLimiter = TIMEOUT_COUNTER_LIMIT - 1;
+    }
+}
+
+static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
+  RPTimeoutAfterCount *self = (RPTimeoutAfterCount *)base;
+
+  // If we've reached COUNT:
+  if (!self->remaining) {
+
+    RPTimeoutAfterCount_SimulateTimeout(base);
+
+    int rc = base->upstream->Next(base->upstream, r);
+    if (rc == RS_RESULT_TIMEDOUT) {
+      // reset the counter for the next run in cursor mode
+      self->remaining = self->count;
+    }
+
+    return rc;
+  }
+
+  self->remaining--;
+  return base->upstream->Next(base->upstream, r);
+}
+
+static void RPTimeoutAfterCount_Free(ResultProcessor *base) {
+  rm_free(base);
+}
+
+ResultProcessor *RPTimeoutAfterCount_New(size_t count) {
+  RPTimeoutAfterCount *ret = rm_calloc(1, sizeof(RPTimeoutAfterCount));
+  ret->count = count;
+  ret->remaining = count;
+  ret->base.type = RP_TIMEOUT;
+  ret->base.Next = RPTimeoutAfterCount_Next;
+  ret->base.Free = RPTimeoutAfterCount_Free;
+
   return &ret->base;
 }

@@ -4,6 +4,7 @@ from time import sleep
 from includes import *
 from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip, Env, debug_cmd
 
+SCORE_NORM_STRETCH_FACTOR = 1/4
 
 def testHammingScorer(env):
     conn = getConnectionByEnv(env)
@@ -43,6 +44,7 @@ def testScoreIndex(env):
         [24, 'doc1', 0.9, 'doc2', 0.88, 'doc3', 0.87, 'doc4', 0.86, 'doc5', 0.84],
         [24, 'doc17', 0.73, 'doc18', 0.73, 'doc16', 0.72, 'doc19', 0.72, 'doc15', 0.72],
         [24, 'doc2', 0.08, 'doc3', 0.08, 'doc1', 0.08, 'doc4', 0.08, 'doc5', 0.08],
+        [24, 'doc2', 0.02, 'doc3', 0.02, 'doc1', 0.02, 'doc4', 0.02, 'doc5', 0.02],
         [24, 'doc24', 480.0, 'doc23', 460.0, 'doc22', 440.0, 'doc21', 420.0, 'doc20', 400.0],
         [24, 'doc1', 0.99, 'doc2', 0.97, 'doc3', 0.96, 'doc4', 0.94, 'doc5', 0.93]
     ]
@@ -53,10 +55,11 @@ def testScoreIndex(env):
         [24, 'doc1', 0.9, 'doc2', 0.88, 'doc3', 0.87, 'doc4', 0.86, 'doc5', 0.84],
         [24, 'doc17', 0.77, 'doc16', 0.77, 'doc13', 0.75, 'doc12', 0.73, 'doc18', 0.73],
         [24, 'doc4', 0.26, 'doc8', 0.25, 'doc11', 0.23, 'doc1', 0.23, 'doc5', 0.23],
+        [24, 'doc4', 0.07, 'doc8', 0.06, 'doc11', 0.06, 'doc1', 0.06, 'doc5', 0.06],
         [24, 'doc24', 480.0, 'doc23', 460.0, 'doc22', 440.0, 'doc21', 420.0, 'doc20', 400.0],
         [24, 'doc1', 0.99, 'doc2', 0.97, 'doc3', 0.96, 'doc4', 0.94, 'doc5', 0.93],
     ]
-    scorers = ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'BM25STD', 'DISMAX', 'DOCSCORE']
+    scorers = ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'BM25STD', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE']
     expected_results = results_cluster if env.shardsCount > 1 else results_single
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
@@ -65,7 +68,6 @@ def testScoreIndex(env):
             res = [round(float(x), 2) if j > 0 and (j - 1) %
                    2 == 1 else x for j, x in enumerate(res)]
             env.assertEqual(expected_results[i], res)
-
 
 def testDocscoreScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
@@ -172,7 +174,6 @@ def testBM25ScorerExplanation(env):
                                 ['(0.17 = Weight 0.50 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 30.00)))',
                                     '(0.35 = Weight 1.00 * IDF 1.00 * F 10 / (F 10 + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len 30.00)))']]]])
 
-
 def testBM25STDScorerExplanation(env):
     conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
@@ -261,7 +262,6 @@ def testOptionalAndWildcardScoring(env):
     res = conn.execute_command('ft.search', 'idx', '*ds', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25STD', 'nocontent')
     env.assertEqual(res, expected_res)
 
-
 def testDisMaxScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
@@ -340,6 +340,177 @@ def testExposeScoreOptimized(env: Env):
     env.expect('FT.CREATE', 'idxOpt', 'INDEXALL', 'ENABLE', 'SCHEMA', 'title', 'TEXT').ok()
     _test_expose_score(env, 'idxOpt')
 
+def _prepare_index(env, idx):
+    """Prepares the index for the score tests"""
+
+    conn = env.getClusterConnectionIfNeeded()
+
+    # Create an index
+    env.expect('FT.CREATE', idx, 'SCHEMA', 'title', 'TEXT').ok()
+
+    # We are going to search against
+    # We currently use a hash-tag such that all docs will reside on the same shard
+    # such that we will not get a score difference between the standalone and cluster modes
+    conn.execute_command('HSET', 'doc1{tag}', 'title', 'hello world')
+    conn.execute_command('HSET', 'doc2{tag}', 'title', 'hello space world')
+    conn.execute_command('HSET', 'doc3{tag}', 'title', 'hello more space world')
+
+def testBM25Normalized():
+    """
+    Tests that the normalized BM25 scorer works as expected.
+    We apply the stretched tanh function to the BM25 score, reaching a normalized
+    value between 0 and 1.
+    """
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+
+    # Prepare the index
+    _prepare_index(env, 'idx')
+
+    # Search for `hello world` and get the scores using the BM25STD scorer
+    res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD')
+
+    # Search for the same query and get the scores using the BM25STD.NORM scorer
+    norm_res_search = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+    env.assertEqual(len(res), len(norm_res_search))
+    norm_scores = []
+    for i in range(1, len(res), 2):
+        # The same order should be kept
+        env.assertEqual(res[i], norm_res_search[i])
+        # The score should be normalized using the stretched tanh function
+        env.assertEqual(round(float(norm_res_search[i+1]), 5), round(math.tanh(float(res[i+1]) * SCORE_NORM_STRETCH_FACTOR), 5))
+        # Save the score to make sure the aggregate command returns the same results
+        norm_scores.append(round(float(norm_res_search[i+1]), 5))
+
+    norm_res_aggregate = env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM', 'SORTBY', '2', '@__score', 'DESC')
+    for i, res in enumerate(norm_res_aggregate[1:]):
+      # Check that the order and the scores are the same
+      env.assertEqual(round(float(res[1]), 5), norm_scores[i])
+
+def testNormalizedBM25ScorerExplanation():
+    """
+    Tests that the normalized BM25STD scorer explanation is correct
+    """
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+
+    # Prepare the index
+    _prepare_index(env, 'idx')
+
+    # Search for the same query and get the scores using the BM25STD.NORM scorer
+    norm_res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+
+    env.assertEqual(
+        norm_res[2][1],
+        ['Final Normalized BM25 : tanh(stretch factor 1/4 * Final BM25 0.29)',
+         [['Final BM25 : words BM25 0.29 * document score 1.00',
+           [['(Weight 1.00 * children BM25 0.29)',
+             ['hello: (0.15 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 2 / Average Doc Len 3.00)))',
+             'world: (0.15 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 2 / Average Doc Len 3.00)))'
+             ]
+           ]]
+        ]]]
+    )
+
+    env.assertEqual(
+        norm_res[4][1],
+        ['Final Normalized BM25 : tanh(stretch factor 1/4 * Final BM25 0.27)',
+         [['Final BM25 : words BM25 0.27 * document score 1.00',
+           [['(Weight 1.00 * children BM25 0.27)',
+             ['hello: (0.13 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 3.00)))',
+              'world: (0.13 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 3.00)))'
+              ]
+            ]]
+        ]]]
+    )
+
+    env.assertEqual(
+        norm_res[6][1],
+        ['Final Normalized BM25 : tanh(stretch factor 1/4 * Final BM25 0.24)',
+         [['Final BM25 : words BM25 0.24 * document score 1.00',
+           [['(Weight 1.00 * children BM25 0.24)',
+             ['hello: (0.12 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 4 / Average Doc Len 3.00)))',
+              'world: (0.12 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 4 / Average Doc Len 3.00)))'
+              ]
+            ]]
+        ]]]
+    )
+
+    # Test using weights
+    norm_res = env.cmd('FT.SEARCH', 'idx', '(hello world) => {$weight: 0.25}', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+
+    env.assertEqual(
+        norm_res[2][1],
+        ['Final Normalized BM25 : tanh(stretch factor 1/4 * Final BM25 0.07)',
+         [['Final BM25 : words BM25 0.07 * document score 1.00',
+           [['(Weight 0.25 * children BM25 0.29)',
+             ['hello: (0.15 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 2 / Average Doc Len 3.00)))',
+             'world: (0.15 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 2 / Average Doc Len 3.00)))'
+             ]
+           ]]
+        ]]]
+    )
+
+    env.assertEqual(
+        norm_res[4][1],
+        ['Final Normalized BM25 : tanh(stretch factor 1/4 * Final BM25 0.07)',
+         [['Final BM25 : words BM25 0.07 * document score 1.00',
+           [['(Weight 0.25 * children BM25 0.27)',
+             ['hello: (0.13 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 3.00)))',
+              'world: (0.13 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 3.00)))'
+              ]
+            ]]
+        ]]]
+    )
+
+    env.assertEqual(
+        norm_res[6][1],
+        ['Final Normalized BM25 : tanh(stretch factor 1/4 * Final BM25 0.06)',
+         [['Final BM25 : words BM25 0.06 * document score 1.00',
+           [['(Weight 0.25 * children BM25 0.24)',
+             ['hello: (0.12 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 4 / Average Doc Len 3.00)))',
+              'world: (0.12 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 4 / Average Doc Len 3.00)))'
+              ]
+            ]]
+        ]]]
+    )
+
+def testBM25NormalizedScoreField():
+    """
+    Tests that the normalized BM25 scorer works as expected when using a score
+    field for the score.
+    """
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+
+    conn = env.getClusterConnectionIfNeeded()
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCORE_FIELD', 'my_score_field', 'SCHEMA', 'title', 'TEXT').ok()
+
+    # We are going to search against
+    # We currently use a hash-tag such that all docs will reside on the same shard
+    # such that we will not get a score difference between the standalone and cluster modes
+    conn.execute_command('HSET', 'doc1{tag}', 'title', 'hello world', 'my_score_field', 10)
+    conn.execute_command('HSET', 'doc2{tag}', 'title', 'hello space world', 'my_score_field', 100)
+    conn.execute_command('HSET', 'doc3{tag}', 'title', 'hello more space world', 'my_score_field', 10000)
+
+    # Search for `hello world` and get the scores using the BM25STD scorer
+    res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD')
+    # Order of results
+    env.assertEqual(res[1::2], ['doc3{tag}', 'doc2{tag}', 'doc1{tag}'])
+    # Scores
+    expected_scores = [2448.07635, 26.70629, 2.93769]
+    env.assertEqual([round(float(x), 5) for x in res[2::2]], expected_scores)
+
+    # Search for the same query and get the scores using the BM25STD.NORM scorer
+    norm_res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+    # Order of results
+    env.assertEqual(norm_res[1::2], ['doc3{tag}', 'doc2{tag}', 'doc1{tag}'])
+    # Scores
+    norm_expected_scores = [round(math.tanh(x * SCORE_NORM_STRETCH_FACTOR), 5) for x in expected_scores]
+    env.assertEqual([round(float(x), 5) for x in norm_res[2::2]], norm_expected_scores)
+
 def scorer_with_weight_test(env, scorer):
     # Test that the scorer is applied correctly when using the `weight` attribute
     conn = getConnectionByEnv(env)
@@ -365,3 +536,4 @@ def testBM25STDScoreWithWeight(env: Env):
 
 def testBM25ScoreWithWeight(env: Env):
     scorer_with_weight_test(env, 'BM25')
+

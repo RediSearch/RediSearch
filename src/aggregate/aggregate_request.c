@@ -1121,7 +1121,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (opts->scorerName && Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
+  if (opts->scorerName && (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL)) {
     QueryError_SetErrorFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
     return REDISMODULE_ERR;
   }
@@ -1655,7 +1655,8 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       case PLN_T_INVALID:
       case PLN_T__MAX:
         // not handled yet
-        RS_LOG_ASSERT(0, "Oops");
+        RS_ABORT("Oops");
+        break;
     }
   }
 
