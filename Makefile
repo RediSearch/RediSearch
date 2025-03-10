@@ -34,6 +34,7 @@ make build          # compile and link
   BOOST_DIR= 		  # Custom boost headers location path (default value: .install/boost).
   					  # Can be left empty if boost is located in the standard system includes path.
   VERBOSE_UTESTS=1    # enable logging in cpp tests
+  ENABLE_ASSERT=1     # enable assertions (disabled by default)
 
 make parsers       # build parsers code
 make clean         # remove build artifacts
@@ -67,7 +68,6 @@ make pytest        # run python tests (tests/pytests)
   ONLY_STABLE=1        # skip unstable tests
   TEST_PARALLEL=n      # test parallalization
   LOG_LEVEL=<level>    # server log level (default: debug)
-  ENABLE_ASSERT=1      # enable assertions
 
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
