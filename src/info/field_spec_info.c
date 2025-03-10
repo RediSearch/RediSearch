@@ -107,8 +107,8 @@ void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply)
 void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate) {
     RedisModule_Reply_Map(reply);
 
-    REPLY_KVSTR("identifier", info->identifier);
-    REPLY_KVSTR("attribute", info->attribute);
+    REPLY_KVSTR_SAFE("identifier", info->identifier);
+    REPLY_KVSTR_SAFE("attribute", info->attribute);
     // Set the error as a new object.
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
     IndexError_Reply(&info->error, reply, withTimestamp, obfuscate);
