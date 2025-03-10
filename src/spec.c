@@ -2556,9 +2556,9 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   char *name = rm_strndup(rawName, len);
   RedisModule_Free(rawName);
   RefManager *oldSpec = dictFetchValue(specDict_g, name);
-  rm_free(name);
   if (oldSpec) {
     // spec already exists lets just free this one
+    rm_free(name);
     RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
     return REDISMODULE_OK;
   }
@@ -2573,7 +2573,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   IndexSpec_MakeKeyless(sp);
   sp->fieldIdToIndex = array_new(t_fieldIndex, 0);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
-  sp->name = LoadStringBuffer_IOError(rdb, NULL, goto cleanup);
+  sp->name = name;
   sp->nameLen = strlen(sp->name);
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->name, sp->nameLen);
   char *tmpName = rm_strdup(sp->name);

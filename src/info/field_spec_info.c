@@ -42,8 +42,6 @@ AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Init() {
 }
 
 void FieldSpecInfo_Clear(FieldSpecInfo *info) {
-    rm_free(info->identifier);
-    rm_free(info->attribute);
     info->identifier = NULL;
     info->attribute = NULL;
 }

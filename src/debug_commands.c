@@ -1185,13 +1185,13 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
 }
 
 /**
- * FT.DEBUG DOC_INFO <index> <doc>
+ * FT.DEBUG DOC_INFO <index> <doc> [OBFUSCATE/REVEAL]
  */
 DEBUG_COMMAND(DocInfo) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  if (argc < 4) {
+  if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2]);
@@ -1200,6 +1200,14 @@ DEBUG_COMMAND(DocInfo) {
   if (!dmd) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
+  }
+
+  const char *obfuscateOrReveal = RedisModule_StringPtrLen(argv[4], NULL);
+  const bool reveal = !strcasecmp(obfuscateOrReveal, "REVEAL");
+  const bool obfuscate = !strcasecmp(obfuscateOrReveal, "OBFUSCATE");
+  if (!reveal && !obfuscate) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Invalid argument. Expected REVEAL or OBFUSCATE as the last argument");
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
@@ -1212,7 +1220,7 @@ DEBUG_COMMAND(DocInfo) {
     RedisModule_ReplyKV_LongLong(reply, "max_freq", dmd->maxFreq);
     RedisModule_ReplyKV_LongLong(reply, "refcount", dmd->ref_count - 1); // TODO: should include the refcount of the command call?
     if (dmd->sortVector) {
-      replySortVector("sortables", dmd, sctx, false, reply);
+      replySortVector("sortables", dmd, sctx, obfuscate, reply);
     }
   RedisModule_Reply_MapEnd(reply);
 
