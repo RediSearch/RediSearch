@@ -511,7 +511,9 @@ void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   RS_ASSERT(!ctx->cmd.depleted);
   ctx->cmd.depleted = true;
   short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
-  RS_LOG_ASSERT(pending >= 0, "Pending should not reach a negative value");
+
+  RS_LOG_ASSERT_FMT(pending >= 0, "Pending (%d) should not reach a negative value. inproc: %d, freeflag: %d, channel size: %d, shard_slot: %d",
+  pending, ctx->it->ctx.inProcess, ctx->it->ctx.freeFlag, MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetSlot);
   MRIteratorCallback_ProcessDone(ctx);
 }
 
