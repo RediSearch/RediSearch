@@ -54,13 +54,13 @@ class TestDebugCommands(object):
             "SET_MONITOR_EXPIRATION",
             "WORKERS",
             'BG_SCAN_CONTROLLER',
+            "INDEXES",
+            "INFO",
+            'GET_HIDE_USER_DATA_FROM_LOGS',
             'FT.AGGREGATE',
             '_FT.AGGREGATE',
             'FT.SEARCH',
             '_FT.SEARCH',
-            "INDEXES",
-            "INFO",
-            'GET_HIDE_USER_DATA_FROM_LOGS',
         ]
         coord_help_list = ['SHARD_CONNECTION_STATES', 'PAUSE_TOPOLOGY_UPDATER', 'RESUME_TOPOLOGY_UPDATER', 'CLEAR_PENDING_TOPOLOGY']
         help_list.extend(coord_help_list)
