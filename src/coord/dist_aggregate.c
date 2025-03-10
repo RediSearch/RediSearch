@@ -802,7 +802,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   SpecialCaseCtx_Free(knnCtx);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   CurrentThread_ClearIndexSpec();
-  StrongRef_Release(spec_ref);
+  StrongRef_Release(strong_ref);
   RedisModule_EndReply(reply);
   return;
 
