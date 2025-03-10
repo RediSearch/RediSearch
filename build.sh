@@ -261,12 +261,35 @@ build_test_dependencies() {
     # Ensure ext-example binary gets compiled
     if [[ -d "$ROOT/tests/ctests/ext-example" ]]; then
       echo "Building ext-example for unit tests..."
-      make -j "$NPROC" example_extension
       
-      # Make sure the extension binary exists and export its path
+      # Check if we're already in the build directory
+      if [[ "$PWD" != "$BINDIR" ]]; then
+        cd "$BINDIR"
+      fi
+      
+      # The example_extension target is created by CMake in the build directory
+      # First check if the target exists in this build
+      if grep -q "example_extension" Makefile 2>/dev/null || (make -q example_extension 2>/dev/null); then
+        make example_extension
+      else
+        # If the target doesn't exist, we need to ensure the test was properly configured
+        echo "Warning: 'example_extension' target not found in Makefile"
+        echo "Checking for extension binary..."
+        
+        # Check if extension was already built by a previous run
+        EXTENSION_PATH="$BINDIR/example_extension/libexample_extension.so"
+        if [[ -f "$EXTENSION_PATH" ]]; then
+          echo "Extension binary already exists at: $EXTENSION_PATH"
+        else
+          echo "Extension binary not found. Some tests may fail."
+          echo "Try running 'make example_extension' manually in $BINDIR"
+        fi
+      fi
+      
+      # Export extension path for tests
       EXTENSION_PATH="$BINDIR/example_extension/libexample_extension.so"
       if [[ -f "$EXTENSION_PATH" ]]; then
-        echo "Example extension built at: $EXTENSION_PATH"
+        echo "Example extension located at: $EXTENSION_PATH"
         export EXT_TEST_PATH="$EXTENSION_PATH"
       else
         echo "Warning: Could not find example extension at $EXTENSION_PATH"
