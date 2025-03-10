@@ -14,6 +14,14 @@ jobs:
   docs-only: # Check whether the PR is only modifying docs
     uses: ./.github/workflows/task-check-docs.yml
 
+  lint:
+    needs: [docs-only]
+    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    uses: ./.github/workflows/task-lint.yml
+    with:
+      env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    secrets: inherit
+
   spellcheck:
     uses: ./.github/workflows/task-spellcheck.yml
 
@@ -54,6 +62,7 @@ jobs:
       - docs-only # if the setup jobs fail, the rest of the jobs will be skipped, and we will exit with a failure
       - spellcheck
       - basic-test
+      - lint
       - coverage
       - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
