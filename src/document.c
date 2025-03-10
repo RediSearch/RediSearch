@@ -190,7 +190,6 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
       aCtx->specNameLen = len;
     }
     strncpy(aCtx->specName, sp->name, len);
-    aCtx->specId = sp->uniqueId;
   }
   RS_LOG_ASSERT(sp->indexer, "No indexer");
 

@@ -285,7 +285,7 @@ typedef struct InvertedIndex InvertedIndex;
 typedef struct IndexSpec {
   char *name;                     // Index name
   size_t nameLen;                 // Index name length
-  uint64_t uniqueId;              // Id of index
+  char *obfuscatedName;           // Index hashed name
   FieldSpec *fields;              // Fields in the index schema
   int16_t numFields;              // Number of fields
   int16_t numSortableFields;      // Number of sortable fields
@@ -635,7 +635,7 @@ typedef struct IndexesScanner {
   bool cancelled;
   bool isDebug;
   WeakRef spec_ref;
-  char *spec_name;
+  char *spec_name_for_logs;
   size_t scannedKeys;
 } IndexesScanner;
 
@@ -674,6 +674,16 @@ size_t IndexSpec_collect_numeric_overhead(IndexSpec *sp);
  */
 size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead);
 
+/**
+* obfuscate argument is used to determine how we will format the index name
+* if obfuscate is true we will return the obfuscated name
+* meant to allow us and the user to use the same commands with different outputs
+* meaning we don't want to have access to the user data
+* @return the formatted name of the index
+*/
+const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
+char *IndexSpec_FormatObfuscatedName(const char *specName, size_t len);
+
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
@@ -684,6 +694,7 @@ void Indexes_DeleteMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStrin
                                            RedisModuleString **hashFields);
 void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleString *from_key,
                                             RedisModuleString *to_key);
+void Indexes_List(RedisModule_Reply* reply, bool obfuscate);
 
 //---------------------------------------------------------------------------------------------
 

@@ -26,6 +26,7 @@
 #include "suffix.h"
 #include "resp3.h"
 #include "info/global_stats.h"
+#include "obfuscation/obfuscation_api.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -518,7 +519,8 @@ static void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
 
 static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
-  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes start", sctx.spec->name);
+  const char* indexName = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
+  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes start", indexName);
   FGC_setProgress(gc, 0);
   FGC_childCollectTerms(gc, &sctx);
   FGC_setProgress(gc, 0.2);
@@ -530,7 +532,7 @@ static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
   FGC_setProgress(gc, 0.8);
   FGC_childCollectExistingDocs(gc, &sctx);
   FGC_setProgress(gc, 1);
-  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes end", sctx.spec->name);
+  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes end", indexName);
 }
 
 typedef struct {
@@ -871,8 +873,9 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
       }
     }
     if (!Trie_Delete(sctx->spec->terms, term, len)) {
-      RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting the term '%s' from"
-                      " trie in index '%s' failed", term, sctx->spec->name);
+      const char* name = IndexSpec_FormatName(sctx->spec, RSGlobalConfig.hideUserDataFromLog);
+      RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting a term '%s' from"
+                      " trie in index '%s' failed", RSGlobalConfig.hideUserDataFromLog ? Obfuscate_Text(term) : term, name);
     }
     sctx->spec->stats.numTerms--;
     sctx->spec->stats.termsSize -= len;
