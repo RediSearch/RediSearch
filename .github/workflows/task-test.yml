@@ -129,6 +129,9 @@ jobs:
         working-directory: .install
         run: |
           ./test_deps/install_llvm.sh ${{ steps.mode.outputs.mode }}
+          echo "CC=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
+          echo "CXX=$(which clang++-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
+          echo "LD=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
       - name: Get Redis (node20)
         if: ${{ steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
@@ -149,12 +152,7 @@ jobs:
           # Checkout the REF
           git fetch origin ${{ inputs.get-redis }}
           git checkout ${{ inputs.get-redis }}
-      - name: verify CC and CXX
-        if: inputs.san == 'address'
-        run: |
-          echo "CC=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
-          echo "CXX=$(which clang++-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
-          echo "LD=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
+
       - name: Build Redis
         working-directory: redis
         run: |
