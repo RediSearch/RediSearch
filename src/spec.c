@@ -1601,7 +1601,8 @@ FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *pa
       case DocumentType_Json:
         fs->tagOpts.tagSep = TAG_FIELD_DEFAULT_JSON_SEP; break;
       case DocumentType_Unsupported:
-        RS_LOG_ASSERT(0, "shouldn't get here");
+        RS_ABORT("shouldn't get here");
+        break;
     }
   }
   fs->indexError = IndexError_Init();
@@ -2403,7 +2404,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
       char *s = RedisModule_LoadStringBuffer(rdb, &dummy);
       int rc = IndexAlias_Add(s, sp, 0, &status);
       RedisModule_Free(s);
-      assert(rc == REDISMODULE_OK);
+      RS_ASSERT(rc == REDISMODULE_OK);
     }
   }
   sp->indexer = NewIndexer(sp);
@@ -2618,7 +2619,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     rv = Document_LoadSchemaFieldJson(&doc, &sctx, &status);
     break;
   case DocumentType_Unsupported:
-    RS_LOG_ASSERT(0, "Should receieve valid type");
+    RS_ABORT("Should receive valid type");
+    break;
   }
 
   if (rv != REDISMODULE_OK) {

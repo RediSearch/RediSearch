@@ -15,6 +15,7 @@
 #include "tag_index.h"
 #include "rmalloc.h"
 #include <stdio.h>
+#include "rmutil/rm_assert.h"
 
 RedisModuleType *InvertedIndexType;
 
@@ -400,7 +401,7 @@ int Redis_DropScanHandler(RedisModuleCtx *ctx, RedisModuleString *kn, void *opaq
 
 int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "s", s);
-  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
+  RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);
   return res;
@@ -409,7 +410,7 @@ int Redis_DeleteKey(RedisModuleCtx *ctx, RedisModuleString *s) {
 int Redis_DeleteKeyC(RedisModuleCtx *ctx, char *cstr) {
   // Send command and args to replicas and AOF
   RedisModuleCallReply *rep = RedisModule_Call(ctx, "DEL", "c!", cstr);
-  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
+  RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_INTEGER);
   long long res = RedisModule_CallReplyInteger(rep);
   RedisModule_FreeCallReply(rep);
   return res;
