@@ -1,6 +1,12 @@
 #![allow(non_camel_case_types, non_snake_case)]
 
-use std::ffi::{c_char, c_int, c_void};
+type MapImpl = crate::trie::TrieMap<*mut c_void>;
+type BoxMapImpl = Box<MapImpl>;
+
+use std::{
+    ffi::{CStr, c_char, c_int, c_void},
+    mem, slice,
+};
 
 /// Holds the length of a key string in the trie.
 ///
@@ -18,7 +24,7 @@ pub type tm_len_t = u16;
 /// ```
 #[unsafe(no_mangle)]
 #[used]
-pub static mut TRIEMAP_NOTFOUND: *mut ::std::os::raw::c_void = c"NOT FOUND".as_ptr() as *mut _;
+pub static TRIEMAP_NOTFOUND: &CStr = c"NOT FOUND";
 
 /// Used by TrieMapIterator to determine type of query.
 ///
@@ -124,7 +130,8 @@ unsafe extern "C" fn TrieMapResultBuf_Data(buf: *mut TrieMapResultBuf) -> *mut *
 /// ```
 #[unsafe(no_mangle)]
 unsafe extern "C" fn NewTrieMap() -> *mut TrieMap {
-    todo!()
+    let map = Box::new(MapImpl::new());
+    Box::into_raw(map) as *mut TrieMap
 }
 
 /// Callback type for passing to [`TrieMap_Deleet`].
@@ -181,8 +188,38 @@ unsafe extern "C" fn TrieMap_Add(
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
     }
 
-    let _unused = (value, cb);
-    todo!()
+    // Safety: The safety requirements of this function
+    // require the caller to ensure that the pointer `t` is
+    // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
+    // If that invariant is upheld, then the following line is sound.
+    let mut map = unsafe { BoxMapImpl::from_raw(t as *mut MapImpl) };
+
+    let key = if len > 0 {
+        // Safety: The safety requirements of this function
+        // require the caller to ensure that the pointer `str` is
+        // a valid pointer to a C string, with a length of `len` bytes.
+        // If that invariant is upheld, then the following line is sound.
+        unsafe { slice::from_raw_parts(str as *const u8, len as usize) }
+    } else {
+        &[]
+    };
+
+    let value = match cb {
+        Some(cb) => {
+            if let Some(old) = map.get(key) {
+                // Safety: The following line is sound if the cb implementation
+                // does not introduce undefined behavior.
+                unsafe { cb(*old, value) }
+            } else {
+                value
+            }
+        }
+        None => value,
+    };
+
+    let was_vacant = map.insert(key, value).is_none();
+    mem::forget(map);
+    was_vacant as _
 }
 
 /// Find the entry with a given string and length, and return its value, even if
@@ -216,7 +253,29 @@ unsafe extern "C" fn TrieMap_Find(
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
     }
 
-    todo!()
+    // Safety: The safety requirements of this function
+    // require the caller to ensure that the pointer `t` is
+    // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
+    // If that invariant is upheld, then the following line is sound.
+    let map = unsafe { BoxMapImpl::from_raw(t as *mut MapImpl) };
+
+    let key = if len > 0 {
+        // Safety: The safety requirements of this function
+        // require the caller to ensure that the pointer `str` is
+        // a valid pointer to a C string, with a length of `len` bytes.
+        // If that invariant is upheld, then the following line is sound.
+        unsafe { slice::from_raw_parts(str as *const u8, len as usize) }
+    } else {
+        &[]
+    };
+
+    let value = *map
+        .get(key)
+        .unwrap_or(&(TRIEMAP_NOTFOUND.as_ptr() as *mut c_void));
+
+    mem::forget(map);
+
+    value
 }
 
 /// Find nodes that have a given prefix. Results are placed in an array.

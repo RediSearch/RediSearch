@@ -16,3 +16,8 @@ redis_allocator = []
 
 [dependencies]
 libc.workspace = true
+
+lm_thin_vec = { path = "../lm_thin_vec" }
+
+[dev-dependencies]
+insta = "1.42.2"
