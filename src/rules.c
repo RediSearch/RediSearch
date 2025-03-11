@@ -22,7 +22,6 @@ const char *DocumentType_ToString(DocumentType type) {
       return "JSON";
     case DocumentType_Unsupported:
     default:
-      RS_LOG_ASSERT(true, "SchameRuleType_Any is not supported");
       return "";
   }
 }
@@ -252,7 +251,7 @@ RSLanguage SchemaRule_JsonLang(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  assert(japi);
+  RS_ASSERT(japi);
   if (!japi) {
     goto done;
   }
@@ -320,7 +319,7 @@ double SchemaRule_JsonScore(RedisModuleCtx *ctx, const SchemaRule *rule,
     goto done;
   }
 
-  assert(japi);
+  RS_ASSERT(japi);
   if (!japi) {
     goto done;
   }
