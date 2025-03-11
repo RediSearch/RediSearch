@@ -199,6 +199,12 @@ ifneq ($(REDIS_VER), 'unstable')
 export CC_STATIC_LIBSTDCXX=1
 endif
 endif
+
+ifeq ($(COV),1)
+# Add coverage flags to compiler options
+CC_FLAGS += --coverage -ftest-coverage -fprofile-arcs
+CXX_FLAGS += --coverage -ftest-coverage -fprofile-arcs
+endif
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(VERBOSE_UTESTS),1)
@@ -418,7 +424,8 @@ FLOW_TESTS_DEFS=\
 	VG=$(VALGRIND) \
 	VG_LEAKS=0 \
 	SAN=$(SAN) \
-	EXT=$(EXT)
+	EXT=$(EXT) \
+	COV=$(COV)
 
 export EXT_TEST_PATH:=$(BINDIR)/example_extension/libexample_extension.so
 
@@ -571,17 +578,35 @@ COV_EXCLUDE_DIRS += \
 	bin \
 	deps \
 	tests \
+	.install \
 	coord/tests
 
 COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
 coverage:
 	$(SHOW)$(MAKE) build COV=1
-	$(SHOW)$(COVERAGE_RESET)
-	$(SHOW)$(MAKE) unit-tests COV=1
+#	COVERAGE_RESET
+	$(SHOW) echo "Starting coverage analysis."
+	$(SHOW) mkdir -p $(COV_DIR)
+	$(SHOW) lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z \
+	--rc lcov_branch_coverage=1
+#	$(SHOW)$(MAKE) unit-tests COV=1
 	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
 	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
-	$(SHOW)$(COVERAGE_COLLECT_REPORT)
+#   COVERAGE_COLLECT
+	$(SHOW) echo "Collecting coverage data ..."
+	$(SHOW) lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) \
+	--output-file $(COV_INFO) --rc lcov_branch_coverage=1
+	$(SHOW) lcov -o $(COV_INFO).1 -r $(COV_INFO) $(COV_EXCLUDE) \
+	--rc lcov_branch_coverage=1 ;\
+	$(SHOW) mv $(COV_INFO).1 $(COV_INFO)
+#   COVERAGE_REPORT
+	$(SHOW) echo "Generating coverage report ..."
+	$(SHOW) lcov -l $(COV_INFO) --rc lcov_branch_coverage=1
+	$(SHOW) genhtml $(COV_INFO) --output-directory $(COV_DIR) --branch-coverage \
+	--title "RediSearch Coverage" --show-details --legend --highlight \
+	--ignore-errors source
+	$(SHOW) echo "Coverage info at $$(realpath $(COV_DIR))/index.html"
 
 .PHONY: coverage
 
