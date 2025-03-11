@@ -206,7 +206,7 @@ unsafe extern "C" fn TrieMap_Add(
 
     let value = match cb {
         Some(cb) => {
-            if let Some(old) = map.get(key) {
+            if let Some(old) = map.find(key) {
                 // Safety: The following line is sound if the cb implementation
                 // does not introduce undefined behavior.
                 unsafe { cb(*old, value) }
@@ -270,7 +270,7 @@ unsafe extern "C" fn TrieMap_Find(
     };
 
     let value = *map
-        .get(key)
+        .find(key)
         .unwrap_or(&(TRIEMAP_NOTFOUND.as_ptr() as *mut c_void));
 
     mem::forget(map);

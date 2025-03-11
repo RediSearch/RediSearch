@@ -62,6 +62,13 @@ impl<Data> ChildRefs<Data> {
         };
         &mut self.0[index].node
     }
+
+    pub fn find(&self, first_byte: u8) -> Option<&Node<Data>> {
+        self.0
+            .binary_search_by_key(&first_byte, |child| child.first_byte)
+            .ok()
+            .map(|index| &self.0[index].node)
+    }
 }
 
 /// A trie data structure that maps strings to values.
@@ -158,13 +165,13 @@ impl<T> TrieMap<T> {
 
     /// Get a reference to the value associated with a key.
     /// Returns `None` if the key is not present.
-    pub fn get(&self, key: &[u8]) -> Option<&T> {
-        todo!()
+    pub fn find(&self, key: &[u8]) -> Option<&T> {
+        self.root.as_ref().and_then(|n| n.find(key))
     }
 
     /// Get a mutable reference to the value associated with a key.
     /// Returns `None` if the key is not present.
-    pub fn get_mut(&mut self, key: &[u8]) -> Option<&mut T> {
+    pub fn find_mut(&mut self, key: &[u8]) -> Option<&mut T> {
         todo!()
     }
 }
@@ -343,6 +350,17 @@ impl<Data> Node<Data> {
         self.label.truncate(index);
         self.children = parent_children;
     }
+
+    /// Get a reference to the value associated with a key.
+    /// Returns `None` if the key is not present.
+    fn find(&self, key: &[u8]) -> Option<&Data> {
+        let suffix = key.strip_prefix(self.label.as_slice())?;
+        let Some(first_byte) = suffix.first() else {
+            // The suffix is empty, so the key and the label are equal.
+            return self.data.as_ref();
+        };
+        self.children.find(*first_byte)?.find(suffix)
+    }
 }
 
 trait LabelExt {
@@ -363,15 +381,25 @@ mod test {
     fn test_trie() {
         let mut trie = TrieMap::new();
         trie.insert(b"bike", 0);
+        assert_eq!(trie.find(b"bike"), Some(&0));
+        assert_eq!(trie.find(b"cool"), None);
+
         insta::assert_debug_snapshot!(trie, @r#""bike" (0)"#);
 
         trie.insert(b"biker", 1);
+        assert_eq!(trie.find(b"bike"), Some(&0));
+        assert_eq!(trie.find(b"biker"), Some(&1));
+        assert_eq!(trie.find(b"cool"), None);
         insta::assert_debug_snapshot!(trie, @r#"
         "bike" (0)
          |---------"r" (1)
         "#);
 
         trie.insert(b"bis", 2);
+        assert_eq!(trie.find(b"bike"), Some(&0));
+        assert_eq!(trie.find(b"biker"), Some(&1));
+        assert_eq!(trie.find(b"bis"), Some(&2));
+        assert_eq!(trie.find(b"cool"), None);
         insta::assert_debug_snapshot!(trie, @r#"
         "bi" (-)
          |-------"ke" (0)
@@ -380,6 +408,10 @@ mod test {
         "#);
 
         trie.insert(b"cool", 3);
+        assert_eq!(trie.find(b"bike"), Some(&0));
+        assert_eq!(trie.find(b"biker"), Some(&1));
+        assert_eq!(trie.find(b"bis"), Some(&2));
+        assert_eq!(trie.find(b"cool"), Some(&3));
         insta::assert_debug_snapshot!(trie, @r#"
         "" (-)
          |-----"bi" (-)
@@ -390,4 +422,3 @@ mod test {
         "#);
     }
 }
-
