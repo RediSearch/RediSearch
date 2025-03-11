@@ -1198,7 +1198,7 @@ cleanup:
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   GetRedisVersion(ctx);
 
-  // Prepare thread local storage for future threads
+  // Prepare thread local storage for storing active queries/cursors
   int error = ThreadLocalStorage_Init();
   if (error) {
     RedisModule_Log(ctx, "warning", "Failed to initialize thread local data, error: %d", error);

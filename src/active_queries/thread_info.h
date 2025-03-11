@@ -35,10 +35,9 @@ ActiveQueries *GetActiveQueries();
 
 // Tries to obtain the thread local info for the current thread, returns null if missing
 SpecInfo* CurrentThread_TryGetSpecInfo();
-// Get the thread local info for the current thread, initializes it if missing
-SpecInfo* CurrentThread_GetSpecInfo();
 // Set the current spec the current thread is working on
 // If the thread will crash while pointing to this spec then the spec information will be outputted
+// We require a strong ref in order to obtain some minimal information on the spec if it is deleted while the thread is working on it
 void CurrentThread_SetIndexSpec(StrongRef specRef);
 // Clear the current index spec the thread is working on
 void CurrentThread_ClearIndexSpec();

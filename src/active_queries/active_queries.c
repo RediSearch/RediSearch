@@ -4,25 +4,10 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#ifdef __linux__
-#include <sys/syscall.h>
-#include <unistd.h>
-#endif
-
 #include "active_queries/active_queries.h"
 #include "rmutil/rm_assert.h"
 #include "redismodule.h"
 
-ActiveQueries *activeQueries = NULL;
-
-/**
- * @brief Initializes the active threads data structure.
- *
- * This function allocates memory for the `ActiveQueries` structure and
- * initializes the doubly-linked list for storing `ActiveThread` objects. It
- * also initializes the mutex used for thread-safe operations on the
- * `ActiveQueries` structure.
- */
 ActiveQueries *ActiveQueries_Init() {
   ActiveQueries* activeQueries = rm_calloc(1, sizeof(ActiveQueries));
   dllist_init(&activeQueries->queries);
@@ -30,12 +15,6 @@ ActiveQueries *ActiveQueries_Init() {
   return activeQueries;
 }
 
-/**
- * @brief Frees the active threads data structure.
- *
- * This function releases the doubly-linked list and destroys the mutex used
- * for thread-safe operations on the `ActiveQueries` structure.
- */
 void ActiveQueries_Free(ActiveQueries *activeQueries) {
   // Assert that the list is empty
   RS_LOG_ASSERT((activeQueries->queries.prev == activeQueries->queries.next) &&
@@ -49,7 +28,7 @@ void ActiveQueries_Free(ActiveQueries *activeQueries) {
 
 ActiveQueryNode* ActiveQueries_AddQuery(ActiveQueries* activeQueries, StrongRef spec, QueryAST* ast) {
   ActiveQueryNode* activeQueryNode = rm_calloc(1, sizeof(ActiveQueryNode));
-  activeQueryNode->spec = spec;
+  activeQueryNode->spec = StrongRef_Clone(spec);
   activeQueryNode->ast = ast;
   activeQueryNode->start = time(NULL);
   dllist_prepend(&activeQueries->queries, &activeQueryNode->llnode);
@@ -66,6 +45,7 @@ ActiveCursorNode* ActiveQueries_AddCursor(ActiveQueries* activeQueries, uint64_t
 }
 
 void ActiveQueries_RemoveQuery(ActiveQueryNode* activeQueryNode) {
+  StrongRef_Release(activeQueryNode->spec);
   dllist_delete(&activeQueryNode->llnode);
 }
 

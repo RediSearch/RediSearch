@@ -1247,7 +1247,6 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
       cr_ctx->bc = BlockCursorClient(ctx, cid, count, 0);
       cr_ctx->cid = cid;
       cr_ctx->count = count;
-      RedisModule_BlockedClientMeasureTimeStart(cr_ctx->bc);
       workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
     } else {
       cursorRead(reply, cid, count, false);

@@ -17,7 +17,7 @@ extern "C" {
 #endif
 
 /**
- * @brief Represents all the active qureis.
+ * @brief Represents all the active queries.
  *
  * This structure is used to store information about an active query, including
  * the query itself, and a strong reference to the `IndexSpec`
@@ -26,7 +26,7 @@ extern "C" {
  */
 typedef struct {
   DLLIST_node llnode; // Node in the doubly-linked list
-  StrongRef spec;     // Thread information
+  StrongRef spec;     // IndexSpec strong ref
   QueryAST *ast;      // The query AST
   time_t start;       // Time node was added into list
 } ActiveQueryNode;
@@ -42,8 +42,8 @@ typedef struct {
  * @brief Represents a list of active queries.
  *
  * This structure is used to store a list of active queries. It contains a
- * doubly-linked list of `ActiveQueryNode` objects
- * It is not threads safe and should be manipulated from a single thread
+ * doubly-linked list of `ActiveQueryNode` and `ActiveCursorNode` objects
+ * It is not thread safe and should be manipulated from a single thread
  */
 typedef struct ActiveQueries {
   DLLIST queries;
@@ -53,7 +53,7 @@ typedef struct ActiveQueries {
 /**
  * @brief Initializes the active queries data structure.
  *
- * This function allocates memory for the `activeQueries` structure and
+ * This function allocates memory for the `ActiveQueries` structure and
  * initializes the doubly-linked list for storing `ActiveQueries` objects.
  */
 ActiveQueries* ActiveQueries_Init();
@@ -61,7 +61,7 @@ ActiveQueries* ActiveQueries_Init();
 /**
  * @brief Frees the active queries data structure.
  *
- * This function releases the doubly-linked list
+ * This function destroys the doubly-linked lists and frees the active queries pointer
  */
 void ActiveQueries_Free(ActiveQueries*);
 

@@ -12,6 +12,7 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 #endif
+#include "rmutil/rm_assert.h"
 
 // TLS key for the main thread
 static pthread_key_t activeQueriesKey;
@@ -30,21 +31,14 @@ static void __attribute__((destructor)) destroyKeys() {
   pthread_key_delete(activeQueriesKey);
 }
 
-static bool initialized = false;
-
 int ThreadLocalStorage_Init() {
   // Assumption: the main thread called the Init function
   // If watchdog kills the process it will notify the main thread which will use this list to output useful information
   ActiveQueries *activeQueries = ActiveQueries_Init();
-  int rc = pthread_setspecific(activeQueriesKey, activeQueries);
-  initialized = rc == 0;
-  return rc;
+  return pthread_setspecific(activeQueriesKey, activeQueries);
 }
 
 void ThreadLocalStorage_Destroy() {
-  if (!initialized) {
-    return;
-  }
   ActiveQueries *activeQueries = pthread_getspecific(activeQueriesKey);
   ActiveQueries_Free(activeQueries);
 }
@@ -58,22 +52,17 @@ SpecInfo *CurrentThread_TryGetSpecInfo() {
   return info;
 }
 
-SpecInfo *CurrentThread_GetSpecInfo() {
+void CurrentThread_SetIndexSpec(StrongRef specRef) {
   SpecInfo *info = CurrentThread_TryGetSpecInfo();
   if (!info) {
     info = rm_calloc(1, sizeof(*info));
     int rc = pthread_setspecific(specInfoKey, info);
     if (rc) {
       rm_free(info);
-      info = NULL;
+      return;
     }
   }
-  return info;
-}
-
-void CurrentThread_SetIndexSpec(StrongRef specRef) {
-  SpecInfo *info = CurrentThread_GetSpecInfo();
-  assert(specRef.rm != NULL);
+  RS_ASSERT(specRef.rm != NULL);
   info->specRef = StrongRef_Demote(specRef);
   // we duplicate the name in case we won't be able to access the weak ref
   const IndexSpec *spec = StrongRef_Get(specRef);
@@ -83,7 +72,7 @@ void CurrentThread_SetIndexSpec(StrongRef specRef) {
 void CurrentThread_ClearIndexSpec() {
   SpecInfo *info = CurrentThread_TryGetSpecInfo();
   if (info) {
-    assert(info->specRef.rm != NULL);
+    RS_ASSERT(info->specRef.rm != NULL);
     WeakRef_Release(info->specRef);
     rm_free(info->specName);
     rm_free(info);
