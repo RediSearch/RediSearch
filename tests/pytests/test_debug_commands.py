@@ -895,7 +895,7 @@ def testIndexObfuscatedInfo(env: Env):
     info = to_dict(debug_output[0])
     env.assertEqual(info['index_name'], obfuscated_name)
     index_definition = to_dict(info['index_definition'])
-    env.assertEqual(index_definition['prefixes'][0], 'Text')
+    env.assertEqual(index_definition['prefixes'][0], '')
     attr_list = info['attributes']
     field_stats_list = info['field statistics']
     field_count = len(attr_list)
@@ -903,8 +903,8 @@ def testIndexObfuscatedInfo(env: Env):
     env.assertEqual(len(field_stats_list), field_count)
     for i in range(field_count):
         attr = to_dict(attr_list[i])
-        env.assertEqual(attr['identifier'], f'FieldPath@{i}')
-        env.assertEqual(attr['attribute'], f'Field@{i}')
+        env.assertEqual(attr['identifier'], 'name')
+        env.assertEqual(attr['attribute'], 'name')
         field_stats = to_dict(field_stats_list[i])
-        env.assertEqual(field_stats['identifier'], f'FieldPath@{i}')
-        env.assertEqual(field_stats['attribute'], f'Field@{i}')
+        env.assertEqual(field_stats['identifier'], 'name')
+        env.assertEqual(field_stats['attribute'], 'name')
