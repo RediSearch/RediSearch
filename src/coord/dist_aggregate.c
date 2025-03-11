@@ -765,6 +765,7 @@ static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *
   QueryError_ReplyAndClear(ctx, status);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   if (sp) {
+    CurrentThread_ClearIndexSpec();
     StrongRef_Release(*strong_ref);
   }
   SpecialCaseCtx_Free(knnCtx);
