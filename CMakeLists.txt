@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.13)
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 include(${root}/deps/readies/cmake/main)
 
+
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 
 #----------------------------------------------------------------------------------------------
@@ -50,7 +51,6 @@ endif()
 # To avoid this, we set the default signedness of char to unsigned.
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -funsigned-char")
 
-
 add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""
@@ -81,14 +81,24 @@ else()
     set(SSL_LIBS crypto crypt ssl)
 endif()
 
+# On debug artifacts, enable assertions
+if (DEBUG)
+    add_compile_definitions(ENABLE_ASSERT=1)
+endif()
+
 #----------------------------------------------------------------------------------------------
 
 include(${root}/build/libuv/libuv.cmake)
 include(${root}/build/hiredis/hiredis.cmake)
+include(${root}/build/boost/boost.cmake)
+set(BOOST_ROOT ${BOOST_DIR})
+set(Boost_NO_WARN_NEW_VERSIONS ON)
+
 
 include_directories(
     ${root}/src
     ${root}/src/coord
+    ${root}/src/redisearch_rs
     ${root}/deps/libuv/include
     ${root}/deps
     ${root}/deps/RedisModulesSDK
@@ -106,6 +116,7 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
+add_subdirectory(src/util/hash)
 add_subdirectory(src/coord)
 
 #----------------------------------------------------------------------------------------------
@@ -154,7 +165,8 @@ if (BUILD_STATIC)
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch redisearch-geometry VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch redisearch-geometry redisearch-hash VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch ${binroot}/redisearch_rs/libtrie_rs.a)
 
     set(TEST_MODULE "redisearch-static")
     set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
@@ -166,6 +178,7 @@ else() # OSS RediSearch
     setup_shared_object_target(redisearch "")
     target_link_libraries(redisearch
             redisearch-geometry
+            redisearch-hash
             VectorSimilarity
             redisearch-coord
             ${LIBUV_LIBS}
@@ -173,6 +186,7 @@ else() # OSS RediSearch
             ${SSL_LIBS}
             ${REDISEARCH_LIBS}
             ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch ${binroot}/redisearch_rs/libtrie_rs.a)
 
     extract_debug_symbols(redisearch)
 

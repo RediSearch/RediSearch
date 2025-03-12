@@ -132,7 +132,7 @@ typedef struct FieldSpec {
 
 #define TAG_FIELD_DEFAULT_FLAGS (TagFieldFlags)(TagField_TrimSpace | TagField_RemoveAccents);
 #define TAG_FIELD_DEFAULT_HASH_SEP ','
-#define TAG_FIELD_DEFAULT_JSON_SEP '\0' // by default, JSON fields have no separetor
+#define TAG_FIELD_DEFAULT_JSON_SEP '\0' // by default, JSON fields have no separator
 
 #define FieldSpec_IsSortable(fs) ((fs)->options & FieldSpec_Sortable)
 #define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)

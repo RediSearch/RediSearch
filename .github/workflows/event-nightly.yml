@@ -25,7 +25,7 @@ jobs:
       test-config: QUICK=1
 
   coverage:
-    if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' }}
+    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
     uses: ./.github/workflows/flow-coverage.yml
     secrets: inherit
 
@@ -42,7 +42,7 @@ jobs:
   notify-failure:
     needs: [test-linux, test-macos, coverage, sanitize]
     if: failure()
-    runs-on: ${{ vars.RUNS_ON }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - name: Notify Failure
         uses: slackapi/slack-github-action@v1

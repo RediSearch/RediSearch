@@ -263,7 +263,7 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l);
 
 /* Convert a value to a number, either returning the actual numeric values or by parsing a string
 into a number. Return 1 if the value is a number or a numeric string and can be converted, or 0 if
-not. If possible, we put the actual value into teh double pointer */
+not. If possible, we put the actual value into the double pointer */
 int RSValue_ToNumber(const RSValue *v, double *d);
 
 #define RSVALUE_NULL_HASH 1337
@@ -410,7 +410,9 @@ typedef enum {
 /* Based on the value type, serialize the value into redis client response */
 int RSValue_SendReply(RedisModule_Reply *reply, const RSValue *v, SendReplyFlags flags);
 
-void RSValue_Print(const RSValue *v);
+// Formats the parsed expression object into a string, obfuscating the values if needed based on the obfuscate boolean
+// The returned string must be freed by the caller using sdsfree
+sds RSValue_DumpSds(const RSValue *v, sds s, bool obfuscate);
 
 int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
 

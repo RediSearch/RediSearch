@@ -19,5 +19,10 @@ fi
 echo $OS
 
 source ${OS}.sh $MODE
+source install_cmake.sh $MODE
+source install_boost.sh 
+# Install Rust here since it's needed on all platforms and
+# the installer doesn't rely on any platform-specific tools (e.g. the package manager)
+source install_rust.sh
 
 git config --global --add safe.directory '*'
