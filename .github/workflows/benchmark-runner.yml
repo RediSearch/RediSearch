@@ -5,6 +5,14 @@ name: Run RediSearch Benchmarks
 on:
   workflow_dispatch:
     inputs:
+      architecture:
+        type: choice
+        options:
+          - all
+          - x86_64
+          - aarch64
+        description: 'Architecture to build on. Use "all" to build on all'
+        default: all
       extended:
         type: boolean
         description: 'Run extended benchmarks'
@@ -49,6 +57,7 @@ jobs:
       allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      architecture: ${{ inputs.architecture }}
 
   benchmark-vecsim-oss-standalone:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-standalone' }}
@@ -64,6 +73,7 @@ jobs:
       allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      architecture: ${{ inputs.architecture }}
 
   benchmark-search-oss-cluster-02-primaries:
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries' }}
@@ -79,6 +89,7 @@ jobs:
       allowed_setups: oss-cluster-02-primaries
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      architecture: ${{ inputs.architecture }}
 
   benchmark-search-oss-cluster-04-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-04-primaries') }}
@@ -94,6 +105,7 @@ jobs:
       allowed_setups: oss-cluster-04-primaries
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      architecture: ${{ inputs.architecture }}
 
   benchmark-search-oss-cluster-08-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-08-primaries') }}
@@ -109,6 +121,7 @@ jobs:
       allowed_setups: oss-cluster-08-primaries
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      architecture: ${{ inputs.architecture }}
 
   benchmark-search-oss-cluster-16-primaries:
     if: ${{ inputs.extended && (inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-16-primaries') }}
@@ -124,6 +137,7 @@ jobs:
       allowed_setups: oss-cluster-16-primaries
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      architecture: ${{ inputs.architecture }}
 
 
   benchmark-search-oss-cluster-20-primaries:
@@ -140,6 +154,7 @@ jobs:
       allowed_setups: oss-cluster-20-primaries
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      architecture: ${{ inputs.architecture }}
 
 
   benchmark-search-oss-cluster-24-primaries:
@@ -156,6 +171,7 @@ jobs:
       allowed_setups: oss-cluster-24-primaries
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      architecture: ${{ inputs.architecture }}
 
   benchmark-search-oss-standalone-profiler:
     if: ${{ inputs.profiler && (inputs.allowed_setup == '' || inputs.allowed_setup == 'standalone') }}
@@ -175,6 +191,7 @@ jobs:
       allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      architecture: ${{ inputs.architecture }}
 
 
   benchmark-vecsim-oss-standalone-profiler:
@@ -195,6 +212,7 @@ jobs:
       allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+      architecture: ${{ inputs.architecture }}
 
   notify-failure:
     needs:
