@@ -28,6 +28,11 @@
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
 
+#define REFCOUNT_INCR_MSG(caller, refcount) \
+  RS_DEBUG_LOG_FMT("%s: increased refCount to == %d", caller, refcount);
+#define REFCOUNT_DECR_MSG(caller, refcount) \
+  RS_DEBUG_LOG_FMT("%s: decreased refCount to == %d", caller, refcount);
+
 /* Currently a single cluster is supported */
 static MRCluster *cluster_g = NULL;
 static MRWorkQueue *rq_g = NULL;
@@ -508,23 +513,11 @@ void MRIteratorCallback_ResetTimedOut(MRIteratorCtx *ctx) {
   __atomic_store_n(&ctx->timedOut, false, __ATOMIC_RELAXED);
 }
 
-#define VERBOSE_REFCOUNT_INCR(caller, it) ({ \
-  uint8_t _refCount = MRIterator_IncreaseRefCount(it); \
-  RS_DEBUG_LOG_FMT("%s: increased refCount to == %d", caller, _refCount); \
-  _refCount; \
-})
-
-#define VERBOSE_REFCOUNT_DECR(caller, it) ({ \
-  uint8_t _refCount = MRIterator_DecreaseRefCount(it); \
-  RS_DEBUG_LOG_FMT("%s: decreased refCount to == %d", caller, _refCount); \
-  _refCount; \
-})
-
-int8_t MRIterator_IncreaseRefCount(MRIterator *it) {
+static inline int8_t MRIterator_IncreaseRefCount(MRIterator *it) {
   return  __atomic_add_fetch(&it->ctx.itRefCount, 1, __ATOMIC_ACQUIRE);
 }
 
-int8_t MRIterator_DecreaseRefCount(MRIterator *it) {
+static inline int8_t MRIterator_DecreaseRefCount(MRIterator *it) {
   return  __atomic_sub_fetch(&it->ctx.itRefCount, 1, __ATOMIC_ACQUIRE);
 }
 
@@ -614,7 +607,8 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
     // All reader have marked that they are done with the current command batch (decreased inProcess)
     // However, they may still hold the iterator reference.
     // We need to take a reference to the iterator for the next batch of commands.
-    int8_t refcount =  VERBOSE_REFCOUNT_INCR("MR_ManuallyTriggerNextIfNeeded", it);
+    int8_t refCount = MRIterator_IncreaseRefCount(it);
+    REFCOUNT_INCR_MSG("MR_ManuallyTriggerNextIfNeeded", refCount);
     RQ_Push(rq_g, iterManualNextCb, it);
     return true; // We may have more replies (and we surely will)
   }
@@ -678,7 +672,8 @@ static void MRIterator_Free(MRIterator *it) {
 }
 
 void MRIterator_Release(MRIterator *it) {
-  int8_t refcount = VERBOSE_REFCOUNT_DECR("MRIterator_Release", it);
+  int8_t refcount = MRIterator_DecreaseRefCount(it);
+  REFCOUNT_DECR_MSG("MRIterator_Release", refcount);
   RS_ASSERT(refcount >= 0);
   if (refcount > 0) return;
 
@@ -699,7 +694,8 @@ void MRIterator_Release(MRIterator *it) {
     }
     // Take a reference to the iterator for the next batch of commands.
     // The iterator will be released when DEL commands are done.
-    VERBOSE_REFCOUNT_INCR("MRIterator_Release", it);
+    refcount = MRIterator_IncreaseRefCount(it);
+    REFCOUNT_INCR_MSG("MRIterator_Release: triggering DEL on the shards' cursors", refcount);
     RQ_Push(rq_g, iterManualNextCb, it);
   } else {
     // No pending shards, so no remote resources to free.

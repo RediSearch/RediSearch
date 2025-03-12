@@ -20,11 +20,11 @@
 #ifndef ENABLE_ASSERT
 #define RS_LOG_ASSERT_FMT(condition, fmt, ...) // NOP
 #define RS_DEBUG_LOG_FMT(fmt, ...) // NOP
-#define RS_DEBUG_LOG(fmt) // NOP
+#define RS_DEBUG_LOG(str) // NOP
 #else
 #define RS_LOG_ASSERT_FMT(condition, fmt, ...) _RS_LOG_ASSERT_FMT(condition, fmt, __VA_ARGS__)
 #define RS_DEBUG_LOG_FMT(fmt, ...) RedisModule_Log(RSDummyContext, "debug", (fmt), __VA_ARGS__)
-#define RS_DEBUG_LOG(fmt) RedisModule_Log(RSDummyContext, "debug", (fmt))
+#define RS_DEBUG_LOG(str) RedisModule_Log(RSDummyContext, "debug", (str))
 #endif
 
 #define RS_LOG_ASSERT(condition, str) RS_LOG_ASSERT_FMT(condition, str "%s", "")
