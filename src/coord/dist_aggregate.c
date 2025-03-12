@@ -484,6 +484,7 @@ static void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
 
   if (nc->it) {
+    RS_DEBUG_LOG("rpnetFree: calling MRIterator_Release");
     MRIterator_Release(nc->it);
   }
 
