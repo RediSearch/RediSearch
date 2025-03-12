@@ -625,8 +625,6 @@ done_3:
       RedisModule_Reply_SimpleString(reply, QueryError_GetError(req->qiter.err));
     } else if (req->qiter.err->reachedMaxPrefixExpansions) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
-    } else if (req->sctx->spec && req->sctx->spec->scan_failed_OOM) {
-      RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
     }
     RedisModule_Reply_ArrayEnd(reply); // >warnings
 

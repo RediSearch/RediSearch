@@ -464,8 +464,3 @@ def test_stop_indexing_low_mem_verbosity():
 
   # Check info metric for amount of failed indexes
   con.info('modules')['search_OOM_indexing_failures_indexes_count'] == num_indexes_to_create
-
-  # Check resp3 warning for OOM
-  res = con.execute_command('ft.search', 'idx0','*')
-  print(res['warning'])
-  env.assertEqual(res['warning'][0], 'Index contains partial data due to OOM indexing failure')

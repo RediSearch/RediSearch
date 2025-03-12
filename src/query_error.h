@@ -69,7 +69,6 @@ extern "C" {
   X(QUERY_EALIASCONFLICT, "Alias conflicts with an existing index name")                                      \
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
-#define QUERY_WINDEXING_FAILURE "Index contains partial data due to OOM indexing failure"
 typedef enum {
   QUERY_OK = 0,
 
