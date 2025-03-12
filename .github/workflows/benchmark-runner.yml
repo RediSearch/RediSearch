@@ -214,27 +214,28 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
       architecture: ${{ inputs.architecture }}
 
-  notify-failure:
-    needs:
-      - benchmark-search-oss-standalone
-      - benchmark-vecsim-oss-standalone
-      - benchmark-search-oss-cluster-02-primaries
-      - benchmark-search-oss-cluster-04-primaries
-      - benchmark-search-oss-cluster-08-primaries
-      - benchmark-search-oss-cluster-16-primaries
-      - benchmark-search-oss-cluster-20-primaries
-      - benchmark-search-oss-cluster-24-primaries
-      - benchmark-search-oss-standalone-profiler
-      - benchmark-vecsim-oss-standalone-profiler
-    if: failure()
-    runs-on: ${{ vars.RUNS_ON }}
-    steps:
-      - name: Notify Failure
-        uses: slackapi/slack-github-action@v1
-        with:
-          payload: |
-            {
-              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
-            }
-        env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_BENCHMARK_FAILED }}
+  # Commented out for now, will be enabled when we finish the ARM tests
+  # notify-failure:
+  #   needs:
+  #     - benchmark-search-oss-standalone
+  #     - benchmark-vecsim-oss-standalone
+  #     - benchmark-search-oss-cluster-02-primaries
+  #     - benchmark-search-oss-cluster-04-primaries
+  #     - benchmark-search-oss-cluster-08-primaries
+  #     - benchmark-search-oss-cluster-16-primaries
+  #     - benchmark-search-oss-cluster-20-primaries
+  #     - benchmark-search-oss-cluster-24-primaries
+  #     - benchmark-search-oss-standalone-profiler
+  #     - benchmark-vecsim-oss-standalone-profiler
+  #   if: failure()
+  #   runs-on: ${{ vars.RUNS_ON }}
+  #   steps:
+  #     - name: Notify Failure
+  #       uses: slackapi/slack-github-action@v1
+  #       with:
+  #         payload: |
+  #           {
+  #             "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+  #           }
+  #       env:
+  #         SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_BENCHMARK_FAILED }}
