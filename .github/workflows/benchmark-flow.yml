@@ -38,8 +38,6 @@ on:
       benchmark_runner_group_total:
         type: number
         default: 1
-env:
-  BOOST_VERSION: ${{ vars.BOOST_VERSION }}
 
 jobs:
   benchmark-steps:
@@ -60,10 +58,6 @@ jobs:
           .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
           .install/test_deps/install_rust.sh
            echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
-      - name: Install Boost
-        working-directory: .install
-        run: ./install_boost.sh ${{ env.BOOST_VERSION }}
-
       - name: Get Redis
         uses: actions/checkout@v4
         with:

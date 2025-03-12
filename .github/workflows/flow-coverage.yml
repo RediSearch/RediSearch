@@ -15,8 +15,6 @@ on:
         description: 'Branch to use when building RedisJSON for tests'
 
 env:
-  REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
-  BOOST_VERSION: ${{ vars.BOOST_VERSION }}
   VERBOSE_UTESTS: 1
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
 
@@ -36,11 +34,6 @@ jobs:
       run: ./install_script.sh sudo
     - name: Setup common
       run: .install/test_deps/common_installations.sh sudo
-
-    - name: Install Boost
-      working-directory: .install
-      run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
-
     - name: Get Redis
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
