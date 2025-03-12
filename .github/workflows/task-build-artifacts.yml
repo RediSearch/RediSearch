@@ -47,10 +47,15 @@ jobs:
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
     steps:
       # Setup
-      - name: Pre-steps Dependencies
-        if: inputs.pre-steps-script
-        shell: $SHELL -l -eo pipefail {0}
+      # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
+      - name: Pre-steps Dependencies (Alpine)
+        if: inputs.pre-steps-script && inputs.container == 'alpine:3'
+        shell: sh -l -eo pipefail {0}
         run: ${{ inputs.pre-steps-script }}
+      - name: Pre-steps Dependencies (Non-Alpine)
+        if: inputs.pre-steps-script && inputs.container != 'alpine:3'
+        run: ${{ inputs.pre-steps-script }}
+
       - name: Get Installation Mode
         id: mode
         run: |
