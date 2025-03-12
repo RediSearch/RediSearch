@@ -116,27 +116,27 @@ jobs:
           if 'amazonlinux:2' in x86_platforms:
             x86_include.append({
               'OS': 'amazonlinux:2',
-              'pre-deps': "yum install -y tar gzip"})
+              'pre-deps': "yum install -y tar gzip git"})
           if 'amazonlinux:2' in arm_platforms:
             arm_include.append({
               'OS': 'amazonlinux:2',
-              'pre-deps': "yum install -y tar gzip"})
+              'pre-deps': "yum install -y tar gzip git"})
 
           # amazonlinux:2023 needs pre-checkout dependencies
           if 'amazonlinux:2023' in x86_platforms:
             x86_include.append({
               'OS': 'amazonlinux:2023',
-              'pre-deps': "dnf install -y tar gzip"})
+              'pre-deps': "dnf install -y tar gzip git"})
           if 'amazonlinux:2023' in arm_platforms:
             arm_include.append({
               'OS': 'amazonlinux:2023',
-              'pre-deps': "dnf install -y tar gzip"})
+              'pre-deps': "dnf install -y tar gzip git"})
 
           # mariner:2 needs pre-checkout dependencies
           if 'mcr.microsoft.com/cbl-mariner/base/core:2.0' in x86_platforms:
             x86_include.append({
               'OS': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
-              'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip"})
+              'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates"})
 
           # azurelinux:3 needs pre-checkout dependencies
           if 'mcr.microsoft.com/azurelinux/base/core:3.0' in x86_platforms:
@@ -152,11 +152,36 @@ jobs:
           if 'alpine:3' in x86_platforms:
             x86_include.append({
               'OS': 'alpine:3',
-              'pre-deps': "apk add bash"})
+              'pre-deps': "apk add bash git"})
           if 'alpine:3' in arm_platforms:
             arm_include.append({
               'OS': 'alpine:3',
-              'pre-deps': "sed -i 's/ID=alpine/ID=NotpineForGHA/g' /etc/os-release & apk add bash gcompat libstdc++ libgcc"})
+              'pre-deps': "sed -i 's/ID=alpine/ID=NotpineForGHA/g' /etc/os-release & apk add bash gcompat libstdc++ libgcc git"})
+
+            # Ubuntu and Debian distributions need git pre-checkout dependencies
+            debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'ubuntu:bionic', 'debian:bullseye', 'gcc:12-bookworm']
+            for os_name in debian_based_os:
+              if os_name in x86_platforms:
+                x86_include.append({
+                  'OS': os_name,
+                  'pre-deps': "apt update && apt install -y git"})
+              if os_name in arm_platforms:
+                arm_include.append({
+                  'OS': os_name,
+                  'pre-deps': "apt update && apt install -y git"})
+          
+            # rockylinux needs git pre-checkout dependencies
+            for rocky_version in ['rockylinux:8', 'rockylinux:9']:
+              if rocky_version in x86_platforms:
+                x86_include.append({
+                  'OS': rocky_version,
+                  'pre-deps': "yum update -y && yum install -y git"})
+              if rocky_version in arm_platforms:
+                arm_include.append({
+                  'OS': rocky_version,
+                  'pre-deps': "yum update -y && yum install -y git"})
+
+          
 
           # Serialize the platforms to a string
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:

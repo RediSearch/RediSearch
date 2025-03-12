@@ -51,4 +51,3 @@ fi
 
 $MODE yum install -y openssl11 openssl11-devel
 $MODE ln -s "$(which openssl11)" /usr/bin/openssl
-source install_cmake.sh $MODE
