@@ -306,8 +306,8 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .multiTextOffsetDelta = DEFAULT_MULTI_TEXT_SLOP,                           \
     .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,          \
     .prioritizeIntersectUnionChildren = false,                                 \
-    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,,                            \
-    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE                 \
+    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
+    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE,                \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT                       \
   }
 
