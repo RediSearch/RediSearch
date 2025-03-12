@@ -91,6 +91,10 @@ endif()
 include(${root}/build/libuv/libuv.cmake)
 include(${root}/build/hiredis/hiredis.cmake)
 include(${root}/build/boost/boost.cmake)
+if (BOOST_DIR STREQUAL "" OR NOT EXISTS ${BOOST_DIR})
+    message(FATAL_ERROR "BOOST_DIR is not defined or empty")
+endif()
+
 set(BOOST_ROOT ${BOOST_DIR})
 set(Boost_NO_WARN_NEW_VERSIONS ON)
 
