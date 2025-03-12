@@ -19,7 +19,7 @@ jobs:
     if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/task-test.yml
     with:
-      env: ${{ vars.RUNS_ON }}
+      env: 'ubuntu-latest'
       test-config: QUICK=1
       get-redis: unstable
       rejson-branch: '8.0'
@@ -43,8 +43,9 @@ jobs:
       test-config: QUICK=1
       san: address
       env: ubuntu-latest
-      container: ubuntu:jammy
-      rejson-branch: '8.0'
+      container: ubuntu:latest
+      rejson-branch: master
+      pre-steps-script: "apt update && apt install -y git" # ubuntus need to install git to support --recursive
 
   pr-validation:
     needs:

@@ -40,8 +40,6 @@ on:
         default: 50
 
 env:
-  BOOST_VERSION: ${{ vars.BOOST_VERSION }}
-  LLVM_VERSION: ${{vars.LLVM_VERSION}}
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
 
@@ -56,9 +54,15 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: Pre-steps Dependencies
-        if: inputs.pre-steps-script
+      # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
+      - name: Pre-steps Dependencies (Alpine)
+        if: inputs.pre-steps-script && inputs.container == 'alpine:3'
         shell: sh -l -eo pipefail {0}
+        run: ${{ inputs.pre-steps-script }}
+        
+      - name: Pre-steps Dependencies (Non-Alpine)
+        if: inputs.pre-steps-script && inputs.container != 'alpine:3'
+        shell: bash -l -eo pipefail {0}
         run: ${{ inputs.pre-steps-script }}
       - name: Get Installation Mode
         id: mode
@@ -74,39 +78,18 @@ jobs:
             fi
           done
           echo "supported=true" >> $GITHUB_OUTPUT
-      - name: Deps checkout (node20)
+      - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
         with:
-          path: setup
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            .install
-            tests/pytests/requirements.*
-      - name: Deps checkout (node20 not supported)
+          submodules: recursive
+      - name: Full checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
         run: |
           # Execute the logic based on the detected platform
           echo "Detected platform: ${{ inputs.container }}"
           case "${{ inputs.container }}" in
             ubuntu:bionic | amazonlinux:2 | alpine:3)
-              echo "Installing prerequisites for ${{ inputs.container }}..."
-
-              # Install git (platform-specific package management)
-              case "${{ inputs.container }}" in
-                ubuntu:bionic)
-                  apt update
-                  apt install -y git
-                  ;;
-                amazonlinux:2)
-                  yum update -y
-                  yum install -y git
-                  ;;
-                alpine:3)
-                  apk update
-                  apk add --no-cache git
-                  ;;
-              esac
 
               # Configure the safe directory
               git config --global --add safe.directory /__w/${{ github.repository }}
@@ -133,36 +116,25 @@ jobs:
               exit 1
               ;;
           esac
-      - name: Setup specific (node20)
-        if: steps.node20.outputs.supported == 'true'
-        working-directory: setup/.install
-        run: |
-          ./install_script.sh ${{ steps.mode.outputs.mode }}
-      - name: Setup specific (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
+      - name: Setup
         working-directory: .install
         run: |
           ./install_script.sh ${{ steps.mode.outputs.mode }}
-      - name: Install LLVM for sanitizer
-        if: inputs.san == 'address'
-        working-directory: setup/.install
-        run: |
-          ./test_deps/install_llvm.sh ${{ env.LLVM_VERSION }} ${{ steps.mode.outputs.mode }}
-      - name: Full checkout (node20)
-        if: steps.node20.outputs.supported == 'true'
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Full checkout (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
-        run: echo "Done already earlier."
       - name: Setup tests dependencies
         run: |
           .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
           .install/test_deps/install_rust.sh
-      - name: Install Boost
+      - name: Install LLVM for sanitizer
+        if: inputs.san == 'address'
         working-directory: .install
-        run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
+        run: |
+          ./install_llvm.sh ${{ steps.mode.outputs.mode }}
+          CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
+          CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
+          echo "Using LLVM version: $CLANG_VERSION"
+          echo "CC=$CLANG_BIN" >> $GITHUB_ENV
+          echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
+          echo "LD=$CLANG_BIN" >> $GITHUB_ENV
       - name: Get Redis (node20)
         if: ${{ steps.node20.outputs.supported == 'true' }}
         uses: actions/checkout@v4
@@ -183,13 +155,6 @@ jobs:
           # Checkout the REF
           git fetch origin ${{ inputs.get-redis }}
           git checkout ${{ inputs.get-redis }}
-      - name: verify CC and CXX
-        if: inputs.san == 'address'
-        run: |
-          echo "PATH=$HOME/.cargo/bin:$PATH" >> $GITHUB_ENV
-          echo "CC=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
-          echo "CXX=$(which clang++-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
-          echo "LD=$(which clang-${{env.LLVM_VERSION}})" >> $GITHUB_ENV
       - name: Build Redis
         working-directory: redis
         run: |
