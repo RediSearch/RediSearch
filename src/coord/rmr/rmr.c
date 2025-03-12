@@ -78,7 +78,7 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->mastersOnly = true; // default to masters only
   ret->redisCtx = ctx;
   ret->bc = bc;
-  RedisModule_Assert(ctx || bc);
+  RS_ASSERT(ctx || bc);
   ret->fn = NULL;
 
   return ret;
@@ -174,7 +174,7 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
       ctx->fn(ctx, ctx->numReplied, ctx->replies);
     } else {
       RedisModuleBlockedClient *bc = ctx->bc;
-      RedisModule_Assert(bc);
+      RS_ASSERT(bc);
       RedisModule_BlockedClientMeasureTimeEnd(bc);
       RedisModule_UnblockClient(bc, ctx);
     }
@@ -209,7 +209,7 @@ static void uvFanoutRequest(void *p) {
 
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->bc;
-    RedisModule_Assert(bc);
+    RS_ASSERT(bc);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
   }
@@ -223,7 +223,7 @@ static void uvMapRequest(void *p) {
 
   if (mrctx->numExpected == 0) {
     RedisModuleBlockedClient *bc = mrctx->bc;
-    RedisModule_Assert(bc);
+    RS_ASSERT(bc);
     RedisModule_BlockedClientMeasureTimeEnd(bc);
     RedisModule_UnblockClient(bc, mrctx);
   }
@@ -237,7 +237,7 @@ void MR_requestCompleted() {
  * reply to the reducer callback */
 int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool block) {
   if (block) {
-    RedisModule_Assert(!mrctx->bc);
+    RS_ASSERT(!mrctx->bc);
     mrctx->bc = RedisModule_BlockClient(
         mrctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
     RedisModule_BlockedClientMeasureTimeStart(mrctx->bc);
@@ -251,7 +251,7 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
 int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   ctx->reducer = reducer;
   ctx->cmd = cmd;
-  RedisModule_Assert(!ctx->bc);
+  RS_ASSERT(!ctx->bc);
   ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
   RedisModule_BlockedClientMeasureTimeStart(ctx->bc);
   RQ_Push(rq_g, uvMapRequest, ctx);
@@ -471,10 +471,13 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx) {
   return MRCluster_SendCommand(cluster_g, true, &ctx->cmd, mrIteratorRedisCB, ctx);
 }
 
-// Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible to other threads
+// Use after modifying `pending` (or any other variable of the iterator) to make sure it's visible
+// to other threads
 void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
   short inProcess = __atomic_sub_fetch(&ctx->it->ctx.inProcess, 1, __ATOMIC_RELEASE);
   if (!inProcess) {
+    // Assuming there is no race condition with the reader on unsafely changing the freeFlag.
+    MRChannel_Unblock(ctx->it->ctx.chan);
     MRIterator_Release(ctx->it);
     RQ_Done(rq_g);
   }
@@ -483,6 +486,10 @@ void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
 // Use before obtaining `pending` (or any other variable of the iterator) to make sure it's synchronized with other threads
 static short MRIteratorCallback_GetNumInProcess(MRIterator *it) {
   return __atomic_load_n(&it->ctx.inProcess, __ATOMIC_ACQUIRE);
+}
+
+short MRIterator_GetPending(MRIterator *it) {
+  return __atomic_load_n(&it->ctx.pending, __ATOMIC_ACQUIRE);
 }
 
 bool MRIteratorCallback_GetTimedOut(MRIteratorCtx *ctx) {
@@ -503,11 +510,7 @@ void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
   // Mark the command of the context as depleted (so we won't send another command to the shard)
   ctx->cmd.depleted = true;
   short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
-  if (pending <= 0) {
-    RS_LOG_ASSERT(pending >= 0, "Pending should not reach a negative value");
-    // Unblock the channel before calling `ProcessDone`, as it may trigger the freeing of the iterator
-    MRChannel_Unblock(ctx->it->ctx.chan);
-  }
+  RS_LOG_ASSERT(pending >= 0, "Pending should not reach a negative value");
   MRIteratorCallback_ProcessDone(ctx);
 }
 
@@ -563,6 +566,15 @@ void iterManualNextCb(void *p) {
   }
 }
 
+void iterManualNextReadCb(void *p) {
+  MRIterator *it = p;
+  // Unsafely changing the flag is ok since we run this callback from the RQ,
+  // i.e no race conditions with the shards.
+  it->ctx.freeFlag = false; // Give the writers their reference back
+
+  iterManualNextCb(p);
+}
+
 bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   // We currently trigger the next batch of commands only when no commands are in process,
   // regardless of the number of replies we have in the channel.
@@ -582,8 +594,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
   if (it->ctx.pending) {
     // We have more commands to send
     it->ctx.inProcess = it->ctx.pending;
-    it->ctx.freeFlag = false; // Give the writers their reference back
-    RQ_Push(rq_g, iterManualNextCb, it);
+    RQ_Push(rq_g, iterManualNextReadCb, it);
     return true; // We may have more replies (and we surely will)
   }
   // We have no pending commands and no more than channelThreshold replies to process.
@@ -660,7 +671,7 @@ void MRIterator_Release(MRIterator *it) {
         cmd->lens[1] = 3;
       }
     }
-    // Send the DEL commands without reseting the free flag,
+    // Send the DEL commands without resetting the free flag,
     // so we free the iterator after the DEL commands are done
     RQ_Push(rq_g, iterManualNextCb, it);
   } else {

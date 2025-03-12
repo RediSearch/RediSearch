@@ -4361,6 +4361,9 @@ def test_timeoutCoordSearch_NonStrict(env):
     if VALGRIND:
         unittest.SkipTest()
 
+    # Set the timeout policy to non-strict
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+
     # Create and populate an index
     n_docs_pershard = 1100
     n_docs = n_docs_pershard * env.shardsCount
@@ -4453,6 +4456,8 @@ def test_incompatibleIndex(env):
 
 
     def modify_index(conn, index_name, prefixes):
+        # Promote the connection to an internal one, such that we can execute internal (shard-local) commands
+        conn.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT')
         # Connect to a shard, and create an index with a different schema, but
         # the same name
         res = conn.execute_command('_FT.DROPINDEX', index_name)

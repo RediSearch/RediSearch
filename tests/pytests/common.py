@@ -816,3 +816,39 @@ def index_errors(env, idx = 'idx'):
     return to_dict(index_info(env, idx)['Index Errors'])
 def field_errors(env, idx = 'idx', fld_index = 0):
     return to_dict(to_dict(to_dict(index_info(env, idx)['field statistics'][fld_index]))['Index Errors'])
+
+def VerifyTimeoutWarningResp3(env, res, message="", depth=0):
+    env.assertTrue(res['warning'], message=message + " expected warning", depth=depth+1)
+    if (res['warning']):
+        env.assertContains("Timeout", res["warning"][0], message=message + " expected timeout warning", depth=depth+1)
+
+def runDebugQueryCommand(env, query_cmd, debug_params):
+    return env.cmd(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params))
+
+def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, internal_only=False):
+    debug_params = ['TIMEOUT_AFTER_N', timeout_res_count]
+    if internal_only:
+        debug_params.append("INTERNAL_ONLY")
+    return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def shardsConnections(env):
+  for s in range(1, env.shardsCount + 1):
+      yield env.getConnection(shardId=s)
+
+def waitForIndexFinishScan(env, idx = 'idx'):
+    while index_info(env, idx)['percent_indexed'] != '1':
+        time.sleep(0.1)
+
+def bgScanCommand():
+    return debug_cmd() + ' BG_SCAN_CONTROLLER'
+
+def getDebugScannerStatus(env, idx = 'idx'):
+    return env.cmd(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
+
+def checkDebugScannerError(env, idx = 'idx', expected_error = ''):
+    env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx).error() \
+        .contains(expected_error)
+
+def waitForIndexPauseScan(env, idx = 'idx'):
+    while getDebugScannerStatus(env, idx)!='PAUSED':
+        time.sleep(0.1)

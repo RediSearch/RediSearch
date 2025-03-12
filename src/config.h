@@ -151,6 +151,9 @@ typedef struct {
   int prioritizeIntersectUnionChildren;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
+
+  // Enable to execute unstable features
+  bool enableUnstableFeatures;
   // Limit the memory ration used until we stop indexing
   uint32_t indexingMemoryLimit;
 } RSConfig;
@@ -231,6 +234,8 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 
 void UpgradeDeprecatedMTConfigs();
 
+char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
+
 #define DEFAULT_BG_INDEX_SLEEP_GAP 100
 #define DEFAULT_DIALECT_VERSION 1
 #define DEFAULT_DOC_TABLE_SIZE 1000000
@@ -301,7 +306,8 @@ void UpgradeDeprecatedMTConfigs();
     .multiTextOffsetDelta = DEFAULT_MULTI_TEXT_SLOP,                           \
     .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,          \
     .prioritizeIntersectUnionChildren = false,                                 \
-    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                             \
+    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,,                            \
+    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE                 \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT                       \
   }
 
@@ -321,6 +327,9 @@ extern "C" {
 // RSGlobalConfig.IteratorsConfig parameters values into it.
 // The size of the memory @param config points to must be at least sizeof(IteratorsConfig)
 void iteratorsConfig_init(IteratorsConfig *config);
+
+void LogWarningDeprecatedFTConfig(RedisModuleCtx *ctx, const char *action,
+                                  const char *name);
 
 #ifdef __cplusplus
 }

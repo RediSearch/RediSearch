@@ -12,7 +12,6 @@
 #include "VecSim/vec_sim.h"
 #include "geometry/geometry_types.h"
 #include "info/index_error.h"
-#include "info/field_spec_info.h"
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \
@@ -133,7 +132,7 @@ typedef struct FieldSpec {
 
 #define TAG_FIELD_DEFAULT_FLAGS (TagFieldFlags)(TagField_TrimSpace | TagField_RemoveAccents);
 #define TAG_FIELD_DEFAULT_HASH_SEP ','
-#define TAG_FIELD_DEFAULT_JSON_SEP '\0' // by default, JSON fields have no separetor
+#define TAG_FIELD_DEFAULT_JSON_SEP '\0' // by default, JSON fields have no separator
 
 #define FieldSpec_IsSortable(fs) ((fs)->options & FieldSpec_Sortable)
 #define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)
@@ -152,7 +151,6 @@ void FieldSpec_Cleanup(FieldSpec* fs);
  */
 const char *FieldSpec_GetTypeNames(int idx);
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
 
 /**Adds an error message to the IndexError of the FieldSpec.
  * This function also updates the global field's type index error counter.

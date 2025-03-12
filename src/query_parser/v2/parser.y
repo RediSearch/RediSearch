@@ -132,13 +132,10 @@ static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode*
         } else {
             A = NewUnionNode();
             QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
             child = C;
         }
         // Handle child
         QueryNode_AddChild(A, child);
-        A->opts.fieldMask |= child->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
     return A;
 }
@@ -269,7 +266,7 @@ static inline char *toksep2(char **s, size_t *tokLen) {
 
 %type vector_attribute { SingleVectorQueryParam }
 // This destructor is commented out because it's not reachable: every vector_attribute that created
-// successfuly can successfuly be reduced to vector_attribute_list.
+// successfully can successfully be reduced to vector_attribute_list.
 // %destructor vector_attribute { rm_free((char*)($$.param.value)); rm_free((char*)($$.param.name)); }
 
 %type vector_attribute_list { VectorQueryParams }
@@ -313,7 +310,7 @@ star ::= STAR.
 
 star ::= LP star RP.
 
-// This rule switches from text contex to regular context.
+// This rule switches from text context to regular context.
 // In general, we want to stay in text context as long as we can (mostly for use of field modifiers).
 expr(A) ::= text_expr(B). [TEXTEXPR] {
   A = B;
@@ -550,7 +547,7 @@ text_expr(A) ::= EXACT(B) . [TERMLIST] {
     size_t tokLen = 0;
     char *tok = toksep2(&str, &tokLen);
     if(tokLen > 0) {
-      QueryNode *C = NewTokenNode(ctx, rm_strdupcase(tok, tokLen), -1);
+      QueryNode *C = NewTokenNode(ctx, rm_normalize(tok, tokLen), -1);
       QueryNode_AddChild(A, C);
     }
   }
@@ -566,7 +563,7 @@ text_expr(A) ::= QUOTE ATTRIBUTE(B) QUOTE. [TERMLIST] {
   char *s = rm_malloc(B.len + 1);
   *s = '$';
   memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_strdupcase(s, B.len + 1), -1);
+  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
   rm_free(s);
   A->opts.flags |= QueryNode_Verbatim;
 }
@@ -577,7 +574,7 @@ text_expr(A) ::= SQUOTE ATTRIBUTE(B) SQUOTE. [TERMLIST] {
   char *s = rm_malloc(B.len + 1);
   *s = '$';
   memcpy(s + 1, B.s, B.len);
-  A = NewTokenNode(ctx, rm_strdupcase(s, B.len + 1), -1);
+  A = NewTokenNode(ctx, rm_normalize(s, B.len + 1), -1);
   rm_free(s);
   A->opts.flags |= QueryNode_Verbatim;
 }
@@ -606,9 +603,7 @@ termlist(A) ::= param_term(B) param_term(C). [TERMLIST]  {
 
 termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
   A = B;
-  if (!(C.type == QT_TERM && StopWordList_Contains(ctx->opts->stopwords, C.s, C.len))) {
-    QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
-  }
+  QueryNode_AddChild(A, NewTokenNode_WithParams(ctx, &C));
 }
 
 /////////////////////////////////////////////////////////////////
@@ -1139,7 +1134,8 @@ vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
     A->vn.vq->field = C.fs;
-    RedisModule_Assert(-1 != (rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.tok.len, C.tok.s)));
+    int n_written = rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.tok.len, C.tok.s);
+    RS_ASSERT(n_written != -1);
   } else {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
     A = NULL;

@@ -15,7 +15,7 @@
 #define ISOFMT "%FT%TZ"
 #define ISOFMT_LEN sizeof(ISOFMT) - 1
 
-// TIME(propert, [fmt_string])
+// TIME(property, [fmt_string])
 static int timeFormat(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   const char *fmt = ISOFMT;
   if (argc == 2) {

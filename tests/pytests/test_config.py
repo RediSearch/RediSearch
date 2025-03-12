@@ -87,8 +87,8 @@ def testGetConfigOptions(env):
     check_config('_PRIORITIZE_INTERSECT_UNION_CHILDREN')
     check_config('MINSTEMLEN')
     check_config('OSS_GLOBAL_PASSWORD')
-    check_config('OSS_ACL_USERNAME')
     check_config('INDEX_CURSOR_LIMIT')
+    check_config('ENABLE_UNSTABLE_FEATURES')
     check_config('_INDEX_MEM_LIMIT')
 
 
@@ -117,6 +117,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
     env.expect(config_cmd(), 'set', '_INDEX_MEM_LIMIT', 1).equal('OK')
 
 
@@ -177,6 +178,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
+    env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
     env.assertEqual(res_dict['_INDEX_MEM_LIMIT'][0], '80')
 
 @skip(cluster=True)
@@ -228,6 +230,8 @@ def testInitConfig():
     _test_config_str('_FREE_RESOURCE_ON_THREAD', 'true', 'true')
     _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true', 'true')
     _test_config_str('_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'false', 'false')
+    _test_config_str('ENABLE_UNSTABLE_FEATURES', 'true', 'true')
+    _test_config_str('ENABLE_UNSTABLE_FEATURES', 'false', 'false')
 
 @skip(cluster=True)
 def test_command_name(env: Env):
@@ -391,42 +395,38 @@ def testInitConfigCoord():
     # We test `OSS_GLOBAL_PASSWORD` manually since the getter obfuscates the value
     _testOSSGlobalPasswordConfig()
 
-    _test_config_str('OSS_ACL_USERNAME', 'default')
-
 @skip(cluster=False)
 def testImmutableCoord(env):
     env.expect(config_cmd(), 'set', 'SEARCH_THREADS').error().contains(not_modifiable)
-    env.expect(config_cmd(), 'set', 'OSS_GLOBAL_PASSWORD').error().contains(not_modifiable)
-    env.expect(config_cmd(), 'set', 'OSS_ACL_USERNAME').error().contains(not_modifiable)
-
-@skip(cluster=False)
-def testSetACLUsername():
-    """Tests that the OSS_ACL_USERNAME configuration is set correctly on module
-    load
-    we also test that the client hangs when trying to authenticate with a
-    non-existing user. This is a BUG that should be fixed - see MOD-8071.
-    """
-
-    # Setting the `OSS_ACL_USERNAME` configuration without the `OSS_GLOBAL_PASSWORD`
-    # the configuration should not do anything since we don't try to authenticate.
-    _test_config_str('OSS_ACL_USERNAME', 'test')
-
-    # Set both the username and password. This should fail since we have no such
-    # user.
-    env = Env(moduleArgs='OSS_ACL_USERNAME test_user OSS_GLOBAL_PASSWORD 123456', noDefaultModuleArgs=True)
-
-    timeout = 3 # 3 seconds, more than enough for the an env to be up normally
-    try:
-        with TimeLimit(timeout):
-            env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
-            # Client hangs.
-            env.assertTrue(False)
-    except Exception as e:
-        env.assertEqual(str(e), 'Timeout: operation timeout exceeded')
 
 ################################################################################
 # Test CONFIG SET/GET numeric parameters
 ################################################################################
+
+def _grep_file_count(filename, pattern):
+    """
+    Grep a file for a given pattern using python.
+
+    Args:
+        filename (str): The path to the file to grep.
+        pattern (str): The pattern to search for.
+
+    Returns:
+        int: The number of lines that match the pattern.
+    """
+    try:
+        with open(filename, 'r') as f:
+            count = 0
+            for line in f:
+                if pattern in line:
+                    count += 1
+            return count
+    except FileNotFoundError:
+        print(f"Error: File not found: {filename}")
+        return 0
+    except Exception as e:
+        print(f"Error: {e}")
+        return 0
 
 def _removeModuleArgs(env: Env):
     """Remove modules and args from the environment (to test MODULE LOADEX)"""
@@ -484,10 +484,11 @@ numericConfigs = [
     # Cluster parameters
     ('search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True, True),
     ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False, True),
-
+    ('search-cursor-reply-threshold', 'CURSOR_REPLY_THRESHOLD', 1, 1, LLONG_MAX, False, True),
+    ('search-conn-per-shard', 'CONN_PER_SHARD', 0, 0, UINT32_MAX, False, True),
 ]
 
-@skip(redis_less_than='7.9.226')
+@skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeNumericParams():
     env = Env(noDefaultModuleArgs=True)
 
@@ -496,8 +497,18 @@ def testConfigAPIRunTimeNumericParams():
         env.expect('CONFIG', 'GET', configName).equal([configName, str(default)])
 
         # write using CONFIG SET, read using CONFIG GET/FT.CONFIG GET
-        env.expect('CONFIG', 'SET', configName, max).equal('OK')
-        env.expect('CONFIG', 'GET', configName).equal([configName, str(max)])
+        if ftConfigName == 'CONN_PER_SHARD':
+            # for CONN_PER_SHARD (search-conn-per-shard), we don't test the
+            # maximum, we test with a smaller value
+            max_conns = 16
+            expected = str(max_conns)
+            env.expect('CONFIG', 'SET', configName, max_conns).equal('OK')
+            env.expect('CONFIG', 'GET', configName).equal([configName, expected])
+        else:
+            env.expect('CONFIG', 'SET', configName, max).equal('OK')
+            expected = str(max)
+            env.expect('CONFIG', 'GET', configName).equal([configName, expected])
+
         if ftConfigName in ['MAXSEARCHRESULTS', 'MAXAGGREGATERESULTS']:
             # These configurations returns 'unlimited' when the value is the
             # maximum
@@ -505,7 +516,7 @@ def testConfigAPIRunTimeNumericParams():
                 .equal([[ftConfigName, 'unlimited']])
         else:
             env.expect(config_cmd(), 'GET', ftConfigName)\
-                .equal([[ftConfigName, str(max)]])
+                .equal([[ftConfigName, expected]])
 
         # Write using FT.CONFIG SET, read using CONFIG GET/FT.CONFIG GET
         env.expect(config_cmd(), 'SET', ftConfigName, min).ok()
@@ -524,8 +535,10 @@ def testConfigAPIRunTimeNumericParams():
         # test valid range limits
         env.expect('CONFIG', 'SET', configName, str(min)).equal('OK')
         env.expect('CONFIG', 'GET', configName).equal([configName, str(min)])
-        env.expect('CONFIG', 'SET', configName, str(max)).equal('OK')
-        env.expect('CONFIG', 'GET', configName).equal([configName, str(max)])
+
+        if ftConfigName != 'CONN_PER_SHARD':
+            env.expect('CONFIG', 'SET', configName, str(max)).equal('OK')
+            env.expect('CONFIG', 'GET', configName).equal([configName, str(max)])
 
     def _testImmutableNumericConfig(env, configName, ftConfigName, default):
         # Check default value
@@ -548,7 +561,7 @@ def testConfigAPIRunTimeNumericParams():
         else:
             _testNumericConfig(env, configName, ftConfigName, default, min, max)
 
-@skip(cluster=True, redis_less_than='7.9.226')
+@skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexNumericParams():
     env = Env(noDefaultModuleArgs=True)
 
@@ -598,17 +611,17 @@ def testModuleLoadexNumericParams():
         env.stop()
         os.unlink(rdbFilePath)
 
-        # Load module using CONFIG and module ARGS, the module ARGS should take
+        # Load module using CONFIG and module ARGS, the CONFIG args should take
         # precedence
         env.start()
         res = env.cmd('MODULE', 'LIST')
         env.assertEqual(res, [])
         res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                      'CONFIG', configName, minValue,
+                      'CONFIG', configName, configValue,
                       'ARGS', argName, argValue
         )
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
-        env.expect('CONFIG', 'GET', configName).equal([configName, argValue])
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, configValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
         env.stop()
         os.unlink(rdbFilePath)
 
@@ -643,7 +656,7 @@ def testModuleLoadexNumericParams():
         os.unlink(rdbFilePath)
 
 # Skip on ASAN since RedisModule_Unload is not fully implemented (MOD-7161)
-@skip(redis_less_than='7.9.226', asan=True)
+@skip(redis_less_than='7.9.227', asan=True)
 def testConfigAPILoadTimeNumericParams():
     env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
     redisearch_module_path = os.getenv('MODULE')
@@ -665,7 +678,7 @@ def testConfigAPILoadTimeNumericParams():
         env.assertTrue(env.isUp())
         env.stop()
 
-@skip(cluster=True, redis_less_than='7.9.226')
+@skip(cluster=True, redis_less_than='7.9.227')
 def testConfigFileNumericParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileNumericParams.conf'
@@ -694,7 +707,7 @@ def testConfigFileNumericParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, str(minValue)]])
 
-@skip(cluster=False, redis_less_than='7.9.226')
+@skip(cluster=False, redis_less_than='7.9.227')
 def testClusterConfigFileNumericParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testClusterConfigFileNumericParams.conf'
@@ -714,7 +727,7 @@ def testClusterConfigFileNumericParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, str(minValue)]])
 
-@skip(cluster=True, redis_less_than='7.9.226')
+@skip(cluster=True, redis_less_than='7.9.227')
 def testConfigFileAndArgsNumericParams():
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsNumericParams.conf'
@@ -730,7 +743,7 @@ def testConfigFileAndArgsNumericParams():
 
     moduleArgs = ''
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
-        moduleArgs += f'{argName} {minValue} '
+        moduleArgs += f'{argName} {maxValue} '
 
     env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
@@ -743,7 +756,7 @@ def testConfigFileAndArgsNumericParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, str(minValue)]])
 
-@skip(cluster=True, redis_less_than='7.9.226')
+@skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexNumericParamsLastWins():
     env = Env(noDefaultModuleArgs=True, module='', moduleArgs='')
     redisearch_module_path = os.getenv('MODULE')
@@ -763,7 +776,7 @@ def testModuleLoadexNumericParamsLastWins():
             ftMaxValue = str(maxValue)
 
 
-        # Test that the last value wins using MODULE LOADEX
+        # Test that the CONFIG value wins using MODULE LOADEX
         # Single CONFIG, multiple ARGS
         env.start()
         res = env.cmd('MODULE', 'LIST')
@@ -772,9 +785,9 @@ def testModuleLoadexNumericParamsLastWins():
                     'CONFIG', configName, str(minValue),
                     'ARGS', argName, str(default), argName, str(maxValue)).ok()
         res = env.cmd('CONFIG', 'GET', configName)
-        env.assertEqual(res, [configName, str(maxValue)])
+        env.assertEqual(res, [configName, str(minValue)])
         res = env.cmd(config_cmd(), 'GET', argName)
-        env.assertEqual(res, [[argName, ftMaxValue]])
+        env.assertEqual(res, [[argName, str(minValue)]])
         env.assertTrue(env.isUp())
         env.stop()
 
@@ -787,9 +800,9 @@ def testModuleLoadexNumericParamsLastWins():
                     'CONFIG', configName, str(maxValue),
                     'ARGS', argName, str(minValue)).ok()
         res = env.cmd('CONFIG', 'GET', configName)
-        env.assertEqual(res, [configName, str(minValue)])
+        env.assertEqual(res, [configName, str(maxValue)])
         res = env.cmd(config_cmd(), 'GET', argName)
-        env.assertEqual(res, [[argName, str(minValue)]])
+        env.assertEqual(res, [[argName, ftMaxValue]])
         env.assertTrue(env.isUp())
         env.stop()
 
@@ -820,10 +833,52 @@ def testModuleLoadexNumericParamsLastWins():
         env.assertTrue(env.isUp())
         env.stop()
 
+@skip(redis_less_than='7.9.227')
+def testNumericArgDeprecationMessage():
+    moduleArgs = ''
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        moduleArgs += f'{argName} {maxValue} '
+
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}`'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+@skip(redis_less_than='7.9.227')
+def testNumericFTConfigDeprecationMessage():
+    '''Test deprecation message of FT.CONFIG using numeric parameters'''
+    # create module arguments
+    env = Env(noDefaultModuleArgs=True)
+
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        if immutable:
+            continue
+        env.expect(config_cmd(), 'SET', argName, minValue).ok()
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, str(minValue)]])
+
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        if immutable:
+            continue
+        expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG SET {configName} instead'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+        expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG GET {configName} instead'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
 ################################################################################
 # Test CONFIG SET/GET enum parameters
 ################################################################################
-@skip(redis_less_than='7.9.226')
+@skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeEnumParams():
     env = Env(noDefaultModuleArgs=True)
 
@@ -844,7 +899,7 @@ def testConfigAPIRunTimeEnumParams():
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'invalid_value').error()\
             .contains('CONFIG SET failed')
 
-@skip(cluster=True, redis_less_than='7.9.226')
+@skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexEnumParams():
     env = Env(noDefaultModuleArgs=True)
 
@@ -886,20 +941,20 @@ def testModuleLoadexEnumParams():
     env.stop()
     os.unlink(rdbFilePath)
 
-    # Load module using CONFIG and module arguments, last value wins
+    # Load module using CONFIG and module arguments, CONFIG wins
     env.start()
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, [])
     res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                'CONFIG', configName, defaultValue,
-                'ARGS', argName, testValue
+                'CONFIG', configName, testValue,
+                'ARGS', argName, defaultValue
     )
     env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
     env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
     env.stop()
     os.unlink(rdbFilePath)
 
-@skip(redis_less_than='7.9.226')
+@skip(redis_less_than='7.9.227')
 def testConfigFileEnumParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileEnumParams.conf'
@@ -922,7 +977,7 @@ def testConfigFileEnumParams():
     res = env.cmd(config_cmd(), 'GET', argName)
     env.assertEqual(res, [[argName, testValue]])
 
-@skip(redis_less_than='7.9.226')
+@skip(redis_less_than='7.9.227')
 def testConfigFileAndArgsEnumParams():
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsEnumParams.conf'
@@ -930,8 +985,8 @@ def testConfigFileAndArgsEnumParams():
     # Test search-on-timeout
     configName = 'search-on-timeout'
     argName = 'ON_TIMEOUT'
-    testValue = 'fail'
-    moduleArgs = 'ON_TIMEOUT return'
+    testValue = 'return'
+    moduleArgs = 'ON_TIMEOUT fail'
 
     # create redis.conf file in /tmp
     if os.path.isfile(redisConfigFile):
@@ -940,12 +995,52 @@ def testConfigFileAndArgsEnumParams():
         f.write(f'{configName} {testValue}\n')
 
     # Start the server using the conf file and check each value,
-    # the module arguments should take precedence
+    # the conf file should take precedence
     env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
     res = env.cmd('CONFIG', 'GET', configName)
-    env.assertEqual(res, [configName, 'return'])
+    env.assertEqual(res, [configName, testValue])
     res = env.cmd(config_cmd(), 'GET', argName)
-    env.assertEqual(res, [[argName, 'return']])
+    env.assertEqual(res, [[argName, testValue]])
+
+@skip(redis_less_than='7.9.227')
+def testEnumArgDeprecationMessage():
+    # Test search-on-timeout deprecation message
+    configName = 'search-on-timeout'
+    argName = 'ON_TIMEOUT'
+    moduleArgs = 'ON_TIMEOUT fail'
+
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+    expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}`'
+    matchCount = _grep_file_count(logFilePath, expectedMessage)
+    env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+@skip(redis_less_than='7.9.227')
+def testEnumFTConfigDeprecationMessage():
+    '''Test deprecation message of FT.CONFIG using enum parameters'''
+    # create module arguments
+    env = Env(noDefaultModuleArgs=True)
+
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+
+    configName = 'search-on-timeout'
+    argName = 'ON_TIMEOUT'
+    argValue = 'fail'
+
+    env.expect(config_cmd(), 'SET', argName, argValue).ok()
+    env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
+
+    expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG SET {configName} instead'
+    matchCount = _grep_file_count(logFilePath, expectedMessage)
+    env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+    expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG GET {configName} instead'
+    matchCount = _grep_file_count(logFilePath, expectedMessage)
+    env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
 
 ################################################################################
 # Test CONFIG SET/GET string parameters
@@ -957,7 +1052,7 @@ stringConfigs = [
     ('search-friso-ini', 'FRISOINI', None, 'deps/cndict/friso.ini'),
 ]
 
-@skip(redis_less_than='7.9.226')
+@skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeStringParams():
     env = Env(noDefaultModuleArgs=True)
 
@@ -980,86 +1075,15 @@ def testConfigAPIRunTimeStringParams():
         _testImmutableStringConfig(env, configName, ftConfigName, ftDefault,
                                    testValue)
 
-
-@skip(cluster=False, redis_less_than='7.9.226')
-def testConfigAPIRunTimeOssGlobalPassword():
-    env = Env(noDefaultModuleArgs=True)
-    if env.env != 'oss-cluster':
-        env.skip()
-
-    env.expect('CONFIG', 'GET', 'search-oss-global-password')\
-        .equal(['search-oss-global-password', 'Password: *******'])
-
-    # Test fails since `search-oss-global-password` is immutable, it can only
-    # be set at load time
-    env.expect('CONFIG', 'SET', 'search-oss-global-password', '123')\
-        .error().contains('CONFIG SET failed')
-
-
-@skip(cluster=False, redis_less_than='7.9.226')
-def testConfigAPIRunTimeOssACLUser():
-    env = Env(noDefaultModuleArgs=True)
-    if env.env != 'oss-cluster':
-        env.skip()
-
-    env.expect('CONFIG', 'GET', 'search-oss-acl-username')\
-        .equal(['search-oss-acl-username', 'default'])
-
-    # Test fails since `search-oss-acl-username` is immutable, it can only
-    # be set at load time
-    env.expect('CONFIG', 'SET', 'search-oss-acl-username', 'myUser')\
-        .error().contains('CONFIG SET failed')
-
-
-@skip(cluster=False, redis_less_than='7.9.226')
-def testClusterConfigFileOssGlobalPassword():
-    # Test using only redis config file
-    redisConfigFile = '/tmp/testClusterConfigFileOssGlobalPassword.conf'
-
-    # create redis.conf file in /tmp
-    if os.path.isfile(redisConfigFile):
-        os.unlink(redisConfigFile)
-    with open(redisConfigFile, 'w') as f:
-        f.write('search-oss-global-password mySecretPassword\n')
-
-    # Start the server using the conf file
-    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
-    if env.env != 'oss-cluster':
-        env.skip()
-
-    env.expect('CONFIG', 'GET', 'search-oss-global-password')\
-        .equal(['search-oss-global-password', 'Password: *******'])
-
-
-@skip(cluster=False, redis_less_than='7.9.226')
-def testClusterConfigFileOssACLUser():
-    # Test using only redis config file
-    redisConfigFile = '/tmp/testClusterConfigFileOssACLUser.conf'
-
-    # create redis.conf file in /tmp
-    if os.path.isfile(redisConfigFile):
-        os.unlink(redisConfigFile)
-    with open(redisConfigFile, 'w') as f:
-        f.write('search-oss-acl-username myUserName\n')
-
-    # Start the server using the conf file
-    env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
-    if env.env != 'oss-cluster':
-        env.skip()
-
-    env.expect('CONFIG', 'GET', 'search-oss-acl-username')\
-        .equal(['search-oss-acl-username', 'myUserName'])
-    env.expect(config_cmd(), 'GET', 'OSS_ACL_USERNAME')\
-        .equal([['OSS_ACL_USERNAME', 'myUserName']])
-
-@skip(cluster=True, redis_less_than='7.9.226')
+@skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexStringParams():
     env = Env(noDefaultModuleArgs=True)
 
     # stop the server and remove the rdb file
     rdbFilePath = _getRDBFilePath(env)
     env.stop()
-    os.unlink(rdbFilePath)
+    if (os.path.exists(rdbFilePath)):
+        os.unlink(rdbFilePath)
 
     redisearch_module_path = env.envRunner.modulePath[0]
     basedir = os.path.dirname(redisearch_module_path)
@@ -1078,7 +1102,8 @@ def testModuleLoadexStringParams():
         env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
         env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
         env.stop()
-        os.unlink(rdbFilePath)
+        if (os.path.exists(rdbFilePath)):
+            os.unlink(rdbFilePath)
 
         # Test setting the parameter using ARGS
         env.start()
@@ -1090,23 +1115,25 @@ def testModuleLoadexStringParams():
         env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
         env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
         env.stop()
-        os.unlink(rdbFilePath)
+        if (os.path.exists(rdbFilePath)):
+            os.unlink(rdbFilePath)
 
-        # Load module using CONFIG and module arguments, the ARGS values should
+        # Load module using CONFIG and module arguments, the CONFIG values should
         # take precedence
         env.start()
         res = env.cmd('MODULE', 'LIST')
         env.assertEqual(res, [])
         res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
-                    'CONFIG', configName, 'invalid_value',
-                    'ARGS', argName, testValue
+                    'CONFIG', configName, testValue,
+                    'ARGS', argName, 'invalid_value'
         )
         env.expect(config_cmd(), 'GET', argName).equal([[argName, testValue]])
         env.expect('CONFIG', 'GET', configName).equal([configName, testValue])
         env.stop()
-        os.unlink(rdbFilePath)
+        if (os.path.exists(rdbFilePath)):
+            os.unlink(rdbFilePath)
 
-@skip(redis_less_than='7.9.226')
+@skip(redis_less_than='7.9.227')
 def testConfigFileStringParams():
     # Test using only redis config file
     redisConfigFile = '/tmp/testConfigFileStringParams.conf'
@@ -1142,7 +1169,7 @@ def testConfigFileStringParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, testValue]])
 
-@skip(cluster=True, redis_less_than='7.9.226')
+@skip(cluster=True, redis_less_than='7.9.227')
 def testConfigFileAndArgsStringParams():
     # Test using redis config file and module arguments
     redisConfigFile = '/tmp/testConfigFileAndArgsStringParams.conf'
@@ -1153,7 +1180,8 @@ def testConfigFileAndArgsStringParams():
     # stop the server and remove the rdb file
     rdbFilePath = _getRDBFilePath(env)
     env.stop()
-    os.unlink(rdbFilePath)
+    if (os.path.exists(rdbFilePath)):
+        os.unlink(rdbFilePath)
 
     # get module path
     env.assertEqual(len(env.envRunner.modulePath), 2)
@@ -1167,11 +1195,11 @@ def testConfigFileAndArgsStringParams():
     moduleArgs = ''
     with open(redisConfigFile, 'w') as f:
         for configName, argName, ftDefault, testValue in stringConfigs:
-            f.write(f'{configName} unusedValue\n')
             testValue = os.path.abspath(os.path.join(basedir, testValue))
+            f.write(f'{configName} {testValue}\n')
             if (moduleArgs != ''):
                 moduleArgs += ' '
-            moduleArgs += f'{argName} {testValue}'
+            moduleArgs += f'{argName} unusedValue'
 
     # create module arguments
     env.envRunner.moduleArgs.pop()
@@ -1190,6 +1218,39 @@ def testConfigFileAndArgsStringParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, testValue]])
 
+@skip(cluster=True, redis_less_than='7.9.227')
+def testStringArgDeprecationMessage():
+    '''Test deprecation message of module string arguments'''
+
+    env = Env()
+    # stop the server and remove the rdb file
+    rdbFilePath = _getRDBFilePath(env)
+    env.stop()
+    if (os.path.exists(rdbFilePath)):
+        os.unlink(rdbFilePath)
+
+    # get module path
+    env.assertEqual(len(env.envRunner.modulePath), 2)
+    env.assertEqual(len(env.envRunner.moduleArgs), 2)
+    redisearch_module_path = env.envRunner.modulePath[0]
+    basedir = os.path.dirname(redisearch_module_path)
+
+    # create module arguments
+    moduleArgs = ''
+    for configName, argName, ftDefaultValue, testValue in stringConfigs:
+        testValue = os.path.abspath(os.path.join(basedir, testValue))
+        moduleArgs += f'{argName} {testValue} '
+
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
+    env.assertTrue(env.isUp())
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+    for configName, argName, ftDefaultValue, testValue in stringConfigs:
+        expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}`'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
 ################################################################################
 # Test CONFIG SET/GET boolean parameters
 ################################################################################
@@ -1203,12 +1264,10 @@ booleanConfigs = [
     # ('search-partial-indexed-docs', 'PARTIAL_INDEXED_DOCS', 'no', True, False),
     ('search-_prioritize-intersect-union-children', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no', False, False),
     ('search-raw-docid-encoding', 'RAW_DOCID_ENCODING', 'no', True, False),
-    # # TODO: Confirm if we need to test search-_fork-gc-clean-numeric-empty-nodes,
-    # # because it will be deprecated in  8.0
-    # ('search-_fork-gc-clean-numeric-empty-nodes', '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'yes', False)
+    ('search-enable-unstable-features', 'ENABLE_UNSTABLE_FEATURES', 'no', False, False),
 ]
 
-@skip(redis_less_than='7.9.226')
+@skip(redis_less_than='7.9.227')
 def testConfigAPIRunTimeBooleanParams():
     env = Env(noDefaultModuleArgs=True)
 
@@ -1254,7 +1313,7 @@ def testConfigAPIRunTimeBooleanParams():
         else:
             _testBooleanConfig(env, configName, ftConfigName, defaultValue)
 
-@skip(cluster=True, redis_less_than='7.9.226')
+@skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexBooleanParams():
     env = Env(noDefaultModuleArgs=True)
 
@@ -1267,7 +1326,7 @@ def testModuleLoadexBooleanParams():
     _removeModuleArgs(env)
 
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
-        # ``search-partial-indexed-docs` has its own test because
+        # `search-partial-indexed-docs` has its own test because
         # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
         if configName == 'search-partial-indexed-docs':
             continue
@@ -1308,8 +1367,8 @@ def testModuleLoadexBooleanParams():
         env.stop()
         os.unlink(rdbFilePath)
 
-        # Load module using CONFIG and module arguments, the module argument
-        # takes precedence
+        # Load module using CONFIG and module arguments, the CONFIG takes
+        # precedence
         env.start()
         res = env.cmd('MODULE', 'LIST')
         env.assertEqual(res, [])
@@ -1317,8 +1376,8 @@ def testModuleLoadexBooleanParams():
         configValue = 'yes' if defaultValue == 'yes' else 'no'
         # use non-default value as argument value
         argValue = 'false' if defaultValue == 'yes' else 'true'
-        # expected value should be equivalent to the argValue
-        expectedConfigValue = 'yes' if argValue == 'true' else 'no'
+        # expected value should be equivalent to the configValue
+        expectedArgValue = 'true' if argValue == 'false' else 'false'
         if not isFlag:
             res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                         'CONFIG', configName, configValue,
@@ -1329,12 +1388,12 @@ def testModuleLoadexBooleanParams():
                         'CONFIG', configName, configValue,
                         'ARGS', argName
             )
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, argValue]])
-        env.expect('CONFIG', 'GET', configName).equal([configName, expectedConfigValue])
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, expectedArgValue]])
+        env.expect('CONFIG', 'GET', configName).equal([configName, configValue])
         env.stop()
         os.unlink(rdbFilePath)
 
-@skip(cluster=True, redis_less_than='7.9.226')
+@skip(cluster=True, redis_less_than='7.9.227')
 def testModuleLoadexSearchPartialIndexedDocs():
     '''Test `search-partial-indexed-docs` because
     `PARTIAL_INDEXED_DOCS` is set using a number but it returns a boolean'''
@@ -1378,7 +1437,7 @@ def testModuleLoadexSearchPartialIndexedDocs():
     env.stop()
     os.unlink(rdbFilePath)
 
-    # Load module using CONFIG and module ARGS, last value wins
+    # Load module using CONFIG and module ARGS, CONFIG wins
     env.start()
     res = env.cmd('MODULE', 'LIST')
     env.assertEqual(res, [])
@@ -1386,13 +1445,13 @@ def testModuleLoadexSearchPartialIndexedDocs():
                'CONFIG', 'search-partial-indexed-docs', 'no',
                'ARGS', 'PARTIAL_INDEXED_DOCS', 11).ok()
     env.expect(config_cmd(), 'GET', 'PARTIAL_INDEXED_DOCS')\
-        .equal([['PARTIAL_INDEXED_DOCS', 'true']])
+        .equal([['PARTIAL_INDEXED_DOCS', 'false']])
     env.expect('CONFIG', 'GET', 'search-partial-indexed-docs')\
-        .equal(['search-partial-indexed-docs', 'yes'])
+        .equal(['search-partial-indexed-docs', 'no'])
     env.stop()
     os.unlink(rdbFilePath)
 
-@skip(redis_less_than='7.9.226')
+@skip(redis_less_than='7.9.227')
 def testConfigFileBooleanParams():
     '''Test using only redis config file'''
     redisConfigFile = '/tmp/testConfigFileBooleanParams.conf'
@@ -1417,10 +1476,11 @@ def testConfigFileBooleanParams():
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, ftExpectedValue]])
 
-@skip(redis_less_than='7.9.226')
+@skip(redis_less_than='7.9.227')
 def testConfigFileAndArgsBooleanParams():
-    '''Test using redis config file and module arguments. The module arguments
-    should take precedence over the config file values'''
+    '''Test using redis config file and module arguments. The config file
+    should take precedence over the module arguments'''
+
     redisConfigFile = '/tmp/testConfigFileAndArgsBooleanParams.conf'
     # create redis.conf file in /tmp and add all the boolean parameters
     if os.path.isfile(redisConfigFile):
@@ -1445,12 +1505,119 @@ def testConfigFileAndArgsBooleanParams():
         # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
         if configName == 'search-partial-indexed-docs':
             continue
-        # the expected value is the opposite of the default value
-        configValue = 'yes' if defaultValue == 'no' else 'no'
-        ftExpectedValue = 'true' if defaultValue == 'no' else 'false'
+        # the expected value is the default value, taken from the config file
+        ftExpectedValue = 'true' if defaultValue == 'yes' else 'false'
         res = env.cmd('CONFIG', 'GET', configName)
-        env.assertEqual(res, [configName, configValue],
+        env.assertEqual(res, [configName, defaultValue],
                         message=f'configName: {configName}')
         res = env.cmd(config_cmd(), 'GET', argName)
         env.assertEqual(res, [[argName, ftExpectedValue]],
                         message=f'argName: {argName}')
+
+@skip(redis_less_than='7.9.227')
+def testBooleanArgDeprecationMessage():
+    '''Test deprecation message of module boolean arguments'''
+    # create module arguments
+    moduleArgs = ''
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        # use non-default value as argument value
+        ftDefaultValue = 'false' if defaultValue == 'yes' else 'true'
+        if isFlag:
+            moduleArgs += f'{argName} '
+        else:
+            moduleArgs += f'{argName} {ftDefaultValue} '
+
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}` instead'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+@skip(redis_less_than='7.9.227')
+def testDeprecatedModuleArgsMessage():
+    '''Test deprecation message of module arguments'''
+    # create module arguments using deprecated parameters
+    moduleArgs = 'WORKER_THREADS 3'
+    moduleArgs += ' MT_MODE MT_MODE_FULL'
+    moduleArgs += ' FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
+    moduleArgs += ' _FORK_GC_CLEAN_NUMERIC_EMPTY_NODES true'
+
+    env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+    for argName in ['WORKER_THREADS', 'MT_MODE',
+                    'FORK_GC_CLEAN_NUMERIC_EMPTY_NODES',
+                    '_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES'
+                    ]:
+        expectedMessage = f'`{argName}` was set, but module arguments are deprecated'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}')
+
+@skip(redis_less_than='7.9.227')
+def testBooleanFTConfigDeprecationMessage():
+    '''Test deprecation message of FT.CONFIG using boolean parameters'''
+    # create module arguments
+    env = Env(noDefaultModuleArgs=True)
+
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        if immutable:
+            continue
+        env.expect(config_cmd(), 'SET', argName, 'true').ok()
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, 'true']])
+
+    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        if immutable:
+            continue
+        expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG SET {configName} instead'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+        expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG GET {configName} instead'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
+
+@skip(redis_less_than='7.9.227')
+def testDeprecatedConfigParamMessage():
+    '''Test deprecation message of deprecated CONFIG parameters'''
+    env = Env(noDefaultModuleArgs=True)
+
+    logDir = env.cmd('config', 'get', 'dir')[1]
+    logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
+    logFilePath = os.path.join(logDir, logFileName)
+
+    deprecated_configs = [
+        # configName, testValue, isImmutable, isFlag
+        ('_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true', False, False),
+        ('FORK_GC_CLEAN_NUMERIC_EMPTY_NODES', 'true', False, True),
+        ('MT_MODE', 'MT_MODE_OFF', True, False),
+        ('WORKER_THREADS', '0', True, False)
+    ]
+
+    for ftConfigName, testValue, isImmutable, isFlag in deprecated_configs:
+        if not isImmutable:
+            if isFlag == True:
+                env.expect(config_cmd(), 'SET', ftConfigName).ok()
+            else:
+                env.expect(config_cmd(), 'SET', ftConfigName, testValue).ok()
+
+        env.expect(config_cmd(), 'GET', ftConfigName).equal([[ftConfigName, testValue]])
+
+    for ftConfigName, testValue, isImmutable, isFlag in deprecated_configs:
+        expectedMessage = f'FT.CONFIG is deprecated and its parameter `{ftConfigName}` is deprecated'
+        matchCount = _grep_file_count(logFilePath, expectedMessage)
+        if isImmutable:
+            # For immutable parameters, we only expect one match because we only
+            # call FT.CONFIG GET
+            expectedMatchCount = 1
+        else:
+            expectedMatchCount = 2
+        env.assertEqual(matchCount, expectedMatchCount,
+                        message=f'configName: {ftConfigName}')

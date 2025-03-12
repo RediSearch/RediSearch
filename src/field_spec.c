@@ -44,17 +44,8 @@ const char *FieldSpec_GetTypeNames(int idx) {
   case IXFLDPOS_GEOMETRY: return SPEC_GEOMETRY_STR;
 
   default:
-    RS_LOG_ASSERT(0, "oops");
-    break;
+    RS_ABORT_ALWAYS("oops");
   }
-}
-
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
-  FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, fs->path);
-  FieldSpecInfo_SetAttribute(&info, fs->name);
-  FieldSpecInfo_SetIndexError(&info, fs->indexError);
-  return info;
 }
 
 void FieldSpec_AddError(FieldSpec *fs, const char *error_message, RedisModuleString *key) {

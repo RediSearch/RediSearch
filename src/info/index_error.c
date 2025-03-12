@@ -9,6 +9,7 @@
 #include "reply_macros.h"
 #include "util/timeout.h"
 #include "util/strconv.h"
+#include "rmutil/rm_assert.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -114,7 +115,7 @@ struct timespec IndexError_LastErrorTime(const IndexError *error) {
     return error->last_error_time;
 }
 
-void IndexError_OpPlusEquals(IndexError *error, const IndexError *other) {
+void IndexError_Combine(IndexError *error, const IndexError *other) {
     if (!NA_rstr) initDefaultKey();
     // Condition is valid even if one or both errors are NA (`last_error_time` is 0).
     if (!rs_timer_ge(&error->last_error_time, &other->last_error_time)) {
@@ -164,31 +165,31 @@ IndexError IndexError_Deserialize(MRReply *reply) {
     IndexError error = IndexError_Init();
 
     // Validate the reply. It should be a map with 3 elements.
-    RedisModule_Assert(reply && (MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0)));
+    RS_ASSERT(reply && (MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0)));
     // Make sure the reply is a map, regardless of the protocol.
     MRReply_ArrayToMap(reply);
 
     MRReply *error_count = MRReply_MapElement(reply, IndexingFailure_String);
-    RedisModule_Assert(error_count);
-    RedisModule_Assert(MRReply_Type(error_count) == MR_REPLY_INTEGER);
+    RS_ASSERT(error_count);
+    RS_ASSERT(MRReply_Type(error_count) == MR_REPLY_INTEGER);
     IndexError_SetErrorCount(&error, MRReply_Integer(error_count));
 
     MRReply *last_error = MRReply_MapElement(reply, IndexingError_String);
-    RedisModule_Assert(last_error);
+    RS_ASSERT(last_error);
     // In hiredis with resp2 '+' is a status reply.
-    RedisModule_Assert(MRReply_Type(last_error) == MR_REPLY_STRING || MRReply_Type(last_error) == MR_REPLY_STATUS);
+    RS_ASSERT(MRReply_Type(last_error) == MR_REPLY_STRING || MRReply_Type(last_error) == MR_REPLY_STATUS);
     size_t error_len;
     const char *last_error_str = MRReply_String(last_error, &error_len);
 
     MRReply *key = MRReply_MapElement(reply, IndexingErrorKey_String);
-    RedisModule_Assert(key);
+    RS_ASSERT(key);
     // In hiredis with resp2 '+' is a status reply.
-    RedisModule_Assert(MRReply_Type(key) == MR_REPLY_STRING || MRReply_Type(key) == MR_REPLY_STATUS);
+    RS_ASSERT(MRReply_Type(key) == MR_REPLY_STRING || MRReply_Type(key) == MR_REPLY_STATUS);
     size_t key_len;
     const char *key_str = MRReply_String(key, &key_len);
     MRReply *last_error_time = MRReply_MapElement(reply, IndexingErrorTime_String);
-    RedisModule_Assert(last_error_time);
-    RedisModule_Assert(MRReply_Type(last_error_time) == MR_REPLY_ARRAY && MRReply_Length(last_error_time) == 2);
+    RS_ASSERT(last_error_time);
+    RS_ASSERT(MRReply_Type(last_error_time) == MR_REPLY_ARRAY && MRReply_Length(last_error_time) == 2);
     struct timespec ts = {MRReply_Integer(MRReply_ArrayElement(last_error_time, 0)),
                           MRReply_Integer(MRReply_ArrayElement(last_error_time, 1))};
     IndexError_SetErrorTime(&error, ts);

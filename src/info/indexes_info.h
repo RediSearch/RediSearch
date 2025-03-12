@@ -45,7 +45,7 @@ typedef struct {
   size_t total_active_queries;         // Total number of active queries (reads)
 } TotalIndexesInfo;
 
-// Retrunes an aggregated statistics of all the currently existing indexes
+// Returns an aggregated statistics of all the currently existing indexes
 TotalIndexesInfo IndexesInfo_TotalInfo();
 
 #ifdef __cplusplus

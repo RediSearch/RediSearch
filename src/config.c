@@ -23,6 +23,8 @@
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)
 
+#define DEFAULT_UNSTABLE_FEATURES_ENABLE false
+
 #define RS_MAX_CONFIG_TRIGGERS 1 // Increase this if you need more triggers
 RSConfigExternalTrigger RSGlobalConfigTriggers[RS_MAX_CONFIG_TRIGGERS];
 
@@ -31,7 +33,9 @@ typedef struct {
   const char *ConfigName;
 } configPair_t;
 
+// For deprecated FTConfigName, the ConfigName is an empty string
 configPair_t __configPairs[] = {
+  {"_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},
   {"_FREE_RESOURCE_ON_THREAD",        "search-_free-resource-on-thread"},
   {"_NUMERIC_COMPRESS",               "search-_numeric-compress"},
   {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
@@ -44,36 +48,40 @@ configPair_t __configPairs[] = {
   {"CURSOR_REPLY_THRESHOLD",          "search-cursor-reply-threshold"},
   {"DEFAULT_DIALECT",                 "search-default-dialect"},
   {"EXTLOAD",                         "search-ext-load"},
+  {"FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},
   {"FORK_GC_CLEAN_THRESHOLD",         "search-fork-gc-clean-threshold"},
   {"FORK_GC_RETRY_INTERVAL",          "search-fork-gc-retry-interval"},
   {"FORK_GC_RUN_INTERVAL",            "search-fork-gc-run-interval"},
-  {"FORKGC_SLEEP_BEFORE_EXIT",        "search-forkgc-sleep-before-exit"},
+  {"FORKGC_SLEEP_BEFORE_EXIT",        "search-fork-gc-sleep-before-exit"},
   {"FRISOINI",                        "search-friso-ini"},
-  {"GC_POLICY",                       "search-gc-policy"},
-  {"GCSCANSIZE",                      "search-gcscansize"},
+  {"GC_POLICY",                       ""},
+  {"GCSCANSIZE",                      "search-gc-scan-size"},
   {"INDEX_CURSOR_LIMIT",              "search-index-cursor-limit"},
   {"MAXAGGREGATERESULTS",             "search-max-aggregate-results"},
-  {"MAXDOCTABLESIZE",                 "search-maxdoctablesize"},
-  {"MAXPREFIXEXPANSIONS",             "search-maxprefixexpansions"},
-  {"MAXSEARCHRESULTS",                "search-maxsearchresults"},
+  {"MAXDOCTABLESIZE",                 "search-max-doctablesize"},
+  {"MAXPREFIXEXPANSIONS",             "search-max-prefix-expansions"},
+  {"MAXSEARCHRESULTS",                "search-max-search-results"},
   {"MIN_OPERATION_WORKERS",           "search-min-operation-workers"},
   {"MIN_PHONETIC_TERM_LEN",           "search-min-phonetic-term-len"},
-  {"MINPREFIX",                       "search-minprefix"},
-  {"MINSTEMLEN",                      "search-minstemlen"},
+  {"MINPREFIX",                       "search-min-prefix"},
+  {"MINSTEMLEN",                      "search-min-stem-len"},
+  {"MT_MODE",                         ""},
   {"NO_MEM_POOLS",                    "search-no-mem-pools"},
-  {"NOGC",                            "search-nogc"},
+  {"NOGC",                            "search-no-gc"},
   {"ON_TIMEOUT",                      "search-on-timeout"},
   {"MULTI_TEXT_SLOP",                 "search-multi-text-slop"},
   {"PARTIAL_INDEXED_DOCS",            "search-partial-indexed-docs"},
   {"RAW_DOCID_ENCODING",              "search-raw-docid-encoding"},
-  {"SEARCH_THREADS",                  "search-search-threads"},
+  {"SEARCH_THREADS",                  "search-threads"},
   {"TIERED_HNSW_BUFFER_LIMIT",        "search-tiered-hnsw-buffer-limit"},
   {"TIMEOUT",                         "search-timeout"},
   {"TOPOLOGY_VALIDATION_TIMEOUT",     "search-topology-validation-timeout"},
-  {"UNION_ITERATOR_HEAP",             "search-union_iterator-heap"},
+  {"UNION_ITERATOR_HEAP",             "search-union-iterator-heap"},
   {"VSS_MAX_RESIZE",                  "search-vss-max-resize"},
   {"WORKERS",                         "search-workers"},
   {"WORKERS_PRIORITY_BIAS_THRESHOLD", "search-workers-priority-bias-threshold"},
+  {"WORKER_THREADS",                  ""},
+  {"ENABLE_UNSTABLE_FEATURES",        "search-enable-unstable-features"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -143,6 +151,9 @@ int set_immutable_string_config(const char *name, RedisModuleString *val, void *
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
   char **ptr = (char **)privdata;
+  if (*ptr) {
+    rm_free(*ptr);
+  }
   size_t len;
   const char *ret = RedisModule_StringPtrLen(val, &len);
   *ptr = rm_strndup(ret, len);
@@ -156,6 +167,9 @@ CONFIG_SETTER(setExtLoad) {
     config->extLoad = NULL;
   }
   int acrc = AC_GetString(ac, &config->extLoad, NULL, 0);
+  if (acrc == AC_OK) {
+    config->extLoad = rm_strdup(config->extLoad);
+  }
   RETURN_STATUS(acrc);
 }
 
@@ -553,6 +567,9 @@ CONFIG_SETTER(setFrisoINI) {
     config->frisoIni = NULL;
   }
   int acrc = AC_GetString(ac, &config->frisoIni, NULL, 0);
+  if (acrc == AC_OK) {
+    config->frisoIni = rm_strdup(config->frisoIni);
+  }
   RETURN_STATUS(acrc);
 }
 CONFIG_GETTER(getFrisoINI) {
@@ -901,6 +918,10 @@ CONFIG_GETTER(getIndexCursorLimit) {
   return sdscatprintf(ss, "%lld", config->indexCursorLimit);
 }
 
+// ENABLE_UNSTABLE_FEATURES
+CONFIG_BOOLEAN_SETTER(set_EnableUnstableFeatures, enableUnstableFeatures)
+CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -913,6 +934,30 @@ static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *nam
     }
   }
   return NULL;
+}
+
+static void LogWarningDeprecatedModuleArgs(const char *name) {
+  const char *configName = FTConfigNameToConfigName(name);
+  if (configName != NULL && strlen(configName) > 0) {
+    RedisModule_Log(RSDummyContext, "warning",
+      "`%s` was set, but module arguments are deprecated, consider using CONFIG parameter `%s` instead",
+      name, configName);
+  } else {
+    RedisModule_Log(RSDummyContext, "warning",
+      "`%s` was set, but module arguments are deprecated", name);
+  }
+}
+
+void LogWarningDeprecatedFTConfig(RedisModuleCtx *ctx, const char *action,
+                                  const char *name) {
+  const char *configName = FTConfigNameToConfigName(name);
+  if (configName != NULL && strlen(configName) > 0) {
+    RedisModule_Log(ctx, "warning",
+      "FT.CONFIG is deprecated, please use CONFIG %s %s instead", action, configName);
+  } else {
+    RedisModule_Log(ctx, "warning",
+      "FT.CONFIG is deprecated and its parameter `%s` is deprecated", name);
+  }
 }
 
 int ReadConfig(RedisModuleString **argv, int argc, char **err) {
@@ -947,9 +992,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     }
     // Mark the option as having been modified
     curVar->flags |= RSCONFIGVAR_F_MODIFIED;
-    RedisModule_Log(RSDummyContext, "warning",
-      "`%s` was set, but module arguments are deprecated, consider using CONFIG parameter `%s`",
-      name, FTConfigNameToConfigName(name));
+    LogWarningDeprecatedModuleArgs(name);
   }
 
   return REDISMODULE_OK;
@@ -1068,7 +1111,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setGcScanSize,
          .getValue = getGcScanSize},
         {.name = "MIN_PHONETIC_TERM_LEN",
-         .helpText = "Minumum length of term to be considered for phonetic matching",
+         .helpText = "Minimum length of term to be considered for phonetic matching",
          .setValue = setMinPhoneticTermLen,
          .getValue = getMinPhoneticTermLen},
         {.name = "GC_POLICY",
@@ -1100,12 +1143,12 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = set_ForkGCCleanNumericEmptyNodes,
          .getValue = get_ForkGCCleanNumericEmptyNodes},
         {.name = "UNION_ITERATOR_HEAP",
-         .helpText = "minimum number of iterators in a union from which the interator will"
+         .helpText = "minimum number of iterators in a union from which the iterator will"
                      "switch to heap based implementation.",
          .setValue = setMinUnionIteratorHeap,
          .getValue = getMinUnionIteratorHeap},
         {.name = "CURSOR_MAX_IDLE",
-         .helpText = "max idle time allowed to be set for cursor, setting it hight might cause "
+         .helpText = "max idle time allowed to be set for cursor, setting it height might cause "
                      "high memory consumption.",
          .setValue = setCursorMaxIdle,
          .getValue = getCursorMaxIdle},
@@ -1152,7 +1195,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setNumericTreeMaxDepthRange,
          .getValue = getNumericTreeMaxDepthRange},
         {.name = "DEFAULT_DIALECT",
-         .helpText = "Set RediSearch default dialect version throught the lifetime of the server.",
+         .helpText = "Set RediSearch default dialect version through the lifetime of the server.",
          .setValue = setDefaultDialectVersion,
          .getValue = getDefaultDialectVersion},
         {.name = "VSS_MAX_RESIZE",
@@ -1182,6 +1225,10 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "overall estimated number of results instead.",
          .setValue = set_PrioritizeIntersectUnionChildren,
          .getValue = get_PrioritizeIntersectUnionChildren},
+         {.name = "ENABLE_UNSTABLE_FEATURES",
+         .helpText = "Enable unstable features.",
+         .setValue = set_EnableUnstableFeatures,
+         .getValue = get_EnableUnstableFeatures},
         {.name = "_INDEX_MEM_LIMIT",
          .helpText = "Set the maximum memory limit for the indexing. If the mermory exceeds this limit, documentw won't be indexed."
                       "The limit is percentage from the total memory available to the process. default is 80 percent.",
@@ -1257,6 +1304,27 @@ void UpgradeDeprecatedMTConfigs() {
       }
       break;
   }
+}
+
+char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName) {
+  RedisModuleCallReply *rep = RedisModule_Call(ctx, "config", "cc", "get", confName);
+  RS_ASSERT(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
+  if (RedisModule_CallReplyLength(rep) == 0){
+    RedisModule_FreeCallReply(rep);
+    return NULL;
+  }
+  RS_ASSERT(RedisModule_CallReplyLength(rep) == 2);
+  RedisModuleCallReply *valueRep = RedisModule_CallReplyArrayElement(rep, 1);
+  RS_ASSERT(RedisModule_CallReplyType(valueRep) == REDISMODULE_REPLY_STRING);
+  size_t len;
+  const char* valueRepCStr = RedisModule_CallReplyStringPtr(valueRep, &len);
+
+  char* res = rm_calloc(1, len + 1);
+  memcpy(res, valueRepCStr, len);
+
+  RedisModule_FreeCallReply(rep);
+
+  return res;
 }
 
 sds RSConfig_GetInfoString(const RSConfig *config) {
@@ -1393,7 +1461,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-_numeric-ranges-parents", 0,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
       NR_MAX_DEPTH_BALANCE, get_numeric_config,
       set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.numericTreeMaxDepthRange)
@@ -1412,7 +1480,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-default-dialect", DEFAULT_DIALECT_VERSION,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED,
+      REDISMODULE_CONFIG_UNPREFIXED,
       MIN_DIALECT_VERSION, MAX_DIALECT_VERSION,
       get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.dialectVersion)
@@ -1422,7 +1490,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig (
       ctx, "search-fork-gc-clean-threshold", DEFAULT_FORK_GC_CLEAN_THRESHOLD,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold)
     )
@@ -1431,7 +1499,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig (
       ctx, "search-fork-gc-retry-interval", DEFAULT_FORK_GC_RETRY_INTERVAL,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval)
     )
@@ -1440,7 +1508,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-fork-gc-run-interval", DEFAULT_FORK_GC_RUN_INTERVAL,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec)
     )
@@ -1449,7 +1517,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-fork-gc-sleep-before-exit", 0,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGcSleepBeforeExit)
     )
@@ -1467,7 +1535,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-index-cursor-limit", DEFAULT_INDEX_CURSOR_LIMIT,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.indexCursorLimit)
     )
@@ -1476,7 +1544,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-max-aggregate-results", DEFAULT_MAX_AGGREGATE_REQUEST_RESULTS,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
       MAX_AGGREGATE_REQUEST_RESULTS, get_numeric_config, set_numeric_config,
       NULL, (void *)&(RSGlobalConfig.maxAggregateResults)
     )
@@ -1485,7 +1553,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-max-prefix-expansions", DEFAULT_MAX_PREFIX_EXPANSIONS,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions)
     )
@@ -1503,7 +1571,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-cursor-max-idle", DEFAULT_MAX_CURSOR_IDLE,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.cursorMaxIdle)
     )
@@ -1512,7 +1580,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-max-search-results", DEFAULT_MAX_SEARCH_REQUEST_RESULTS,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
       MAX_SEARCH_REQUEST_RESULTS, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.maxSearchResults)
     )
@@ -1521,7 +1589,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-min-operation-workers", MIN_OPERATION_WORKERS,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
       MAX_WORKER_THREADS, get_min_operation_workers,
       set_min_operation_workers, NULL,
       (void *)&(RSGlobalConfig.minOperationWorkers)
@@ -1531,7 +1599,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-min-phonetic-term-len", DEFAULT_MIN_PHONETIC_TERM_LEN,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.minPhoneticTermLen)
     )
@@ -1540,7 +1608,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-min-prefix", DEFAULT_MIN_TERM_PREFIX,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.iteratorsConfigParams.minTermPrefix)
     )
@@ -1549,7 +1617,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-min-stem-len", DEFAULT_MIN_STEM_LENGTH,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 2,
+      REDISMODULE_CONFIG_UNPREFIXED, 2,
       UINT32_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.iteratorsConfigParams.minStemLength)
     )
@@ -1576,7 +1644,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-timeout", DEFAULT_QUERY_TIMEOUT_MS,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.queryTimeoutMS)
     )
@@ -1585,7 +1653,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-union-iterator-heap", DEFAULT_UNION_ITERATOR_HEAP,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap)
     )
@@ -1594,7 +1662,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-vss-max-resize", DEFAULT_VSS_MAX_RESIZE,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
       UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
       (void *)&(RSGlobalConfig.vssMaxResize)
     )
@@ -1603,7 +1671,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-workers", DEFAULT_WORKER_THREADS,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+      REDISMODULE_CONFIG_UNPREFIXED, 0,
       MAX_WORKER_THREADS, get_workers, set_workers, NULL,
       (void *)&RSGlobalConfig
     )
@@ -1652,7 +1720,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterEnumConfig(
       ctx, "search-on-timeout", TimeoutPolicy_Fail,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED,
+      REDISMODULE_CONFIG_UNPREFIXED,
       on_timeout_vals, on_timeout_enums, 2,
       get_on_timeout, set_on_timeout, NULL,
       (void*)&RSGlobalConfig.requestConfigParams.timeoutPolicy
@@ -1663,7 +1731,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterBoolConfig(
       ctx, "search-_free-resource-on-thread", 1,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED,
+      REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.freeResourcesThread)
     )
@@ -1672,7 +1740,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterBoolConfig(
       ctx, "search-_numeric-compress", 0,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED,
+      REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.numericCompress)
     )
@@ -1681,7 +1749,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterBoolConfig(
       ctx, "search-_print-profile-clock", 1,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED,
+      REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.printProfileClock)
     )
@@ -1690,21 +1758,11 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterBoolConfig(
       ctx, "search-_prioritize-intersect-union-children", 0,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED,
+      REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.prioritizeIntersectUnionChildren)
     )
   )
-
-  // TODO: Confirm if we need this, because it should be deprecated in 8.0
-  // RM_TRY(
-  //   RedisModule_RegisterBoolConfig(
-  //     ctx, "_fork-gc-clean-numeric-empty-nodes", 1,
-  //     REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED,
-  //     get_bool_config, set_bool_config, NULL,
-  //     (void *)&(RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes)
-  //   )
-  // )
 
   RM_TRY(
     RedisModule_RegisterBoolConfig(
@@ -1739,6 +1797,15 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.invertedIndexRawDocidEncoding)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterBoolConfig(
+      ctx, "search-enable-unstable-features", DEFAULT_UNSTABLE_FEATURES_ENABLE,
+      REDISMODULE_CONFIG_UNPREFIXED,
+      get_bool_config, set_bool_config, NULL,
+      (void *)&(RSGlobalConfig.enableUnstableFeatures)
     )
   )
 

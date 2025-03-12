@@ -50,7 +50,7 @@ typedef struct ForkGC {
   // current value of RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes
   // This value is updated during the periodic callback execution.
   int cleanNumericEmptyNodes;
-  // a variable to store a precentage of the progress of the child process, used to send heartbeats
+  // a variable to store a percentage of the progress of the child process, used to send heartbeats
   float progress;
 } ForkGC;
 
