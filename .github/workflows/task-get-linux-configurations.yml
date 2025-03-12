@@ -142,11 +142,11 @@ jobs:
           if 'mcr.microsoft.com/azurelinux/base/core:3.0' in x86_platforms:
             x86_include.append({
               'OS': 'mcr.microsoft.com/azurelinux/base/core:3.0',
-              'pre-deps': "tdnf install -y --noplugins tar git"})
+              'pre-deps': "tdnf install -y --noplugins tar git ca-certificates"})
           if 'mcr.microsoft.com/azurelinux/base/core:3.0' in arm_platforms:
             arm_include.append({
               'OS': 'mcr.microsoft.com/azurelinux/base/core:3.0',
-              'pre-deps': "tdnf install -y --noplugins tar git"})
+              'pre-deps': "tdnf install -y --noplugins tar git ca-certificates"})
 
           # alpine:3 needs pre-checkout dependencies
           if 'alpine:3' in x86_platforms:
