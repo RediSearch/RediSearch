@@ -142,11 +142,11 @@ jobs:
           if 'mcr.microsoft.com/azurelinux/base/core:3.0' in x86_platforms:
             x86_include.append({
               'OS': 'mcr.microsoft.com/azurelinux/base/core:3.0',
-              'pre-deps': "tdnf install -y --noplugins tar"})
+              'pre-deps': "tdnf install -y --noplugins tar git"})
           if 'mcr.microsoft.com/azurelinux/base/core:3.0' in arm_platforms:
             arm_include.append({
               'OS': 'mcr.microsoft.com/azurelinux/base/core:3.0',
-              'pre-deps': "tdnf install -y --noplugins tar"})
+              'pre-deps': "tdnf install -y --noplugins tar git"})
 
           # alpine:3 needs pre-checkout dependencies
           if 'alpine:3' in x86_platforms:
@@ -169,7 +169,7 @@ jobs:
                 arm_include.append({
                   'OS': os_name,
                   'pre-deps': "apt update && apt install -y git"})
-          
+
             # rockylinux needs git pre-checkout dependencies
             for rocky_version in ['rockylinux:8', 'rockylinux:9']:
               if rocky_version in x86_platforms:
@@ -181,7 +181,7 @@ jobs:
                   'OS': rocky_version,
                   'pre-deps': "yum update -y && yum install -y git"})
 
-          
+
 
           # Serialize the platforms to a string
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
