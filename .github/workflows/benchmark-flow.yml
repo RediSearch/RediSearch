@@ -34,8 +34,6 @@ on:
       benchmark_runner_group_total:
         type: number
         default: 1
-env:
-  BOOST_VERSION: ${{ vars.BOOST_VERSION || '1.83.0' }}
 
 jobs:
   benchmark-steps:
