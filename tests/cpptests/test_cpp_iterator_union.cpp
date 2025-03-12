@@ -18,6 +18,10 @@ protected:
     QueryIterator *ui_base;
 
     void SetUp() override {
+        ASSERT_EQ(RSGlobalConfig.iteratorsConfigParams.minUnionIterHeap, 20) <<
+            "If we ever change the default threshold for using heaps, we need to modify the tests "
+            "here so they still check both flat and heap alternatives.";
+
         auto [numChildren, quickExit, union_res] = GetParam();
         // Set resultSet to the expected union result
         resultSet = union_res;
@@ -52,7 +56,7 @@ TEST_P(UnionIteratorCommonTest, Read) {
     size_t i = 0;
     while ((rc = ui_base->Read(ui_base)) == ITERATOR_OK) {
         ASSERT_EQ(ui->base.current->docId, resultSet[i]);
-        ASSERT_EQ(ui->base.LastDocId, resultSet[i]);
+        ASSERT_EQ(ui->base.lastDocId, resultSet[i]);
         ASSERT_TRUE(ui->base.isValid);
         i++;
     }
@@ -65,7 +69,7 @@ TEST_P(UnionIteratorCommonTest, Read) {
     for (auto &child : docIds) {
         expected += child.size();
     }
-    ASSERT_EQ(ui->nExpected, expected);
+    ASSERT_EQ(ui->num_results_estimated, expected);
     ASSERT_EQ(ui_base->NumEstimated(ui_base), expected);
 }
 
@@ -79,40 +83,40 @@ TEST_P(UnionIteratorCommonTest, SkipTo) {
             ui_base->Rewind(ui_base);
             rc = ui_base->SkipTo(ui_base, i);
             ASSERT_EQ(rc, ITERATOR_NOTFOUND);
-            ASSERT_EQ(ui->base.LastDocId, id);
+            ASSERT_EQ(ui->base.lastDocId, id);
             ASSERT_EQ(ui->base.current->docId, id);
             i++;
         }
         ui_base->Rewind(ui_base);
         rc = ui_base->SkipTo(ui_base, id);
         ASSERT_EQ(rc, ITERATOR_OK);
-        ASSERT_EQ(ui->base.LastDocId, id);
+        ASSERT_EQ(ui->base.lastDocId, id);
         ASSERT_EQ(ui->base.current->docId, id);
         i++;
     }
     // Test reading after skipping to the last id
     ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_EOF);
-    ASSERT_EQ(ui_base->SkipTo(ui_base, ui_base->LastDocId + 1), ITERATOR_EOF);
+    ASSERT_EQ(ui_base->SkipTo(ui_base, ui_base->lastDocId + 1), ITERATOR_EOF);
     ASSERT_FALSE(ui->base.isValid);
 
     ui_base->Rewind(ui_base);
-    ASSERT_EQ(ui->base.LastDocId, 0);
+    ASSERT_EQ(ui->base.lastDocId, 0);
     ASSERT_TRUE(ui->base.isValid);
     // Test skipping to all ids that exist
     for (t_docId id : resultSet) {
         rc = ui_base->SkipTo(ui_base, id);
         ASSERT_EQ(rc, ITERATOR_OK);
-        ASSERT_EQ(ui->base.LastDocId, id);
+        ASSERT_EQ(ui->base.lastDocId, id);
         ASSERT_EQ(ui->base.current->docId, id);
     }
 
     // Test skipping to an id that exceeds the last id
     ui_base->Rewind(ui_base);
-    ASSERT_EQ(ui->base.LastDocId, 0);
+    ASSERT_EQ(ui->base.lastDocId, 0);
     ASSERT_TRUE(ui->base.isValid);
     rc = ui_base->SkipTo(ui_base, resultSet.back() + 1);
     ASSERT_EQ(rc, ITERATOR_EOF);
-    ASSERT_EQ(ui->base.LastDocId, 0); // we just rewound
+    ASSERT_EQ(ui->base.lastDocId, 0); // we just rewound
     ASSERT_FALSE(ui->base.isValid);
 }
 
@@ -123,10 +127,10 @@ TEST_P(UnionIteratorCommonTest, Rewind) {
         for (int j = 0; j <= i; j++) {
             ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
             ASSERT_EQ(ui->base.current->docId, resultSet[j]);
-            ASSERT_EQ(ui->base.LastDocId, resultSet[j]);
+            ASSERT_EQ(ui->base.lastDocId, resultSet[j]);
         }
         ui_base->Rewind(ui_base);
-        ASSERT_EQ(ui->base.LastDocId, 0);
+        ASSERT_EQ(ui->base.lastDocId, 0);
         ASSERT_TRUE(ui->base.isValid);
     }
 }
@@ -239,16 +243,16 @@ TEST_F(UnionIteratorSingleTest, ReuseResults) {
     ASSERT_EQ(ui_base->NumEstimated(ui_base), it1->docIds.size() + it2->docIds.size());
 
     ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
-    ASSERT_EQ(ui_base->LastDocId, 2);
-    ASSERT_EQ(it1->base.LastDocId, 3);
-    ASSERT_EQ(it2->base.LastDocId, 2);
+    ASSERT_EQ(ui_base->lastDocId, 2);
+    ASSERT_EQ(it1->base.lastDocId, 3);
+    ASSERT_EQ(it2->base.lastDocId, 2);
     ASSERT_EQ(it1->readCount, 1);
     ASSERT_EQ(it2->readCount, 1);
 
     ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_OK);
-    ASSERT_EQ(ui_base->LastDocId, 3);
-    ASSERT_EQ(it1->base.LastDocId, 3);
-    ASSERT_EQ(it2->base.LastDocId, 2);
+    ASSERT_EQ(ui_base->lastDocId, 3);
+    ASSERT_EQ(it1->base.lastDocId, 3);
+    ASSERT_EQ(it2->base.lastDocId, 2);
     ASSERT_EQ(it1->readCount, 1) << "it1 should not be read again";
     ASSERT_TRUE(it1->base.isValid);
     ASSERT_EQ(it2->readCount, 1) << "it2 should not be read again";

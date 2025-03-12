@@ -45,10 +45,10 @@ typedef struct QueryIterator {
   // Can the iterator yield more results?
   bool isValid;
 
-  /* the last docId read */
-  t_docId LastDocId;
+  // the last docId read. Initially should be 0.
+  t_docId lastDocId;
 
-  // Current result. Should always point to a valid current result, except when `LastDocId` is 0
+  // Current result. Should always point to a valid current result, except when `lastDocId` is 0
   RSIndexResult *current;
 
   // Used if the iterator yields some value.
@@ -60,28 +60,28 @@ typedef struct QueryIterator {
 
   /** Read the next entry from the iterator.
    *  On a successful read, the iterator must:
-   *  1. Set its `LastDocId` member to the new current result id
+   *  1. Set its `lastDocId` member to the new current result id
    *  2. Set its `current` pointer to its current result, for the caller to access if desired
    *  @returns ITERATOR_OK on normal operation, or any other `IteratorStatus` except `ITERATOR_NOTFOUND`
    */
   IteratorStatus (*Read)(struct QueryIterator *self);
 
   /** Skip to the next ID of the iterator, which is greater or equal to `docId`.
-   *  It is assumed that when `SkipTo` is called, `self->LastDocId < docId`.
+   *  It is assumed that when `SkipTo` is called, `self->lastDocId < docId`.
    *  On a successful read, the iterator must:
-   *  1. Set its `LastDocId` member to the new current result id
+   *  1. Set its `lastDocId` member to the new current result id
    *  2. Set its `current` pointer to its current result, for the caller to access if desired.
    *  A read is successful if the iterator has a valid result to yield.
    *  @returns ITERATOR_OK if the iterator has found `docId`.
    *  @returns ITERATOR_NOTFOUND if the iterator has only found a result greater than `docId`.
-   *  In any other case, `current` and `LastDocId` should be untouched, and the relevant IteratorStatus is returned.
+   *  In any other case, `current` and `lastDocId` should be untouched, and the relevant IteratorStatus is returned.
    */
   IteratorStatus (*SkipTo)(struct QueryIterator *self, t_docId docId);
 
   /* release the iterator's context and free everything needed */
   void (*Free)(struct QueryIterator *self);
 
-  /* Rewind the iterator to the beginning and reset its state */
+  /* Rewind the iterator to the beginning and reset its state (including `isValid` and `lastDocId`) */
   void (*Rewind)(struct QueryIterator *self);
 } QueryIterator;
 
