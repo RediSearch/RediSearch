@@ -18,6 +18,7 @@
 #include "dist_profile.h"
 #include "util/misc.h"
 #include "aggregate/aggregate_debug.h"
+#include "active_queries/thread_info.h"
 
 #include <err.h>
 
@@ -680,6 +681,7 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
 
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
+  CurrentThread_SetIndexSpec(sp->own_ref);
   r->qiter.err = status;
   r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
   r->initClock = clock();
@@ -763,6 +765,7 @@ static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *
   QueryError_ReplyAndClear(ctx, status);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   if (sp) {
+    CurrentThread_ClearIndexSpec();
     StrongRef_Release(*strong_ref);
   }
   SpecialCaseCtx_Free(knnCtx);
@@ -799,6 +802,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   SpecialCaseCtx_Free(knnCtx);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  CurrentThread_ClearIndexSpec();
   StrongRef_Release(strong_ref);
   RedisModule_EndReply(reply);
   return;
@@ -863,6 +867,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   SpecialCaseCtx_Free(knnCtx);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  CurrentThread_ClearIndexSpec();
   StrongRef_Release(strong_ref);
   RedisModule_EndReply(reply);
   return;

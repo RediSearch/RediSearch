@@ -10,6 +10,8 @@
 #include "cursor.h"
 #include "indexes_info.h"
 #include "util/units.h"
+#include "active_queries/active_queries.h"
+#include "active_queries/thread_info.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
@@ -24,6 +26,8 @@ static inline void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *
 static inline void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Dialects(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx);
+static inline void AddToInfo_ActiveQueries(RedisModuleInfoCtx *ctx);
+static inline void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx);
 /* ========================== MAIN FUNC ============================ */
 
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
@@ -71,6 +75,12 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
   // Run time configuration
   AddToInfo_RSConfig(ctx);
+
+  // Active threads
+  if (for_crash_report) {
+    AddToInfo_CurrentThread(ctx);
+    AddToInfo_ActiveQueries(ctx);
+  }
 }
 
 /* ========================== IMP ============================ */
@@ -269,4 +279,64 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
   RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length",
                                    RSGlobalConfig.minPhoneticTermLen);
+}
+
+void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
+  SpecInfo *specInfo = CurrentThread_TryGetSpecInfo();
+  RedisModule_InfoAddSection(ctx, "current_thread");
+  if (!specInfo) {
+    return;
+  }
+  if (specInfo) {
+    StrongRef strong = WeakRef_Promote(specInfo->specRef);
+    IndexSpec *spec = StrongRef_Get(strong);
+    if (!spec) {
+      RedisModule_InfoAddFieldCString(ctx, "index", specInfo->specName ? specInfo->specName : "n/a");
+    } else {
+      RedisModule_InfoAddFieldCString(ctx, "index", spec->name);
+      // output FT.INFO
+    }
+  }
+}
+
+static void AddQueriesToInfo(RedisModuleInfoCtx *ctx, ActiveQueries* activeQueries) {
+  if (!activeQueries) {
+    // we are not the main thread, simply return
+    return;
+  }
+  // Assumes no other thread is currently accessing the active-threads container
+  DLLIST_FOREACH(node, &(activeQueries->queries)) {
+    ActiveQueryNode *at = DLLIST_ITEM(node, ActiveQueryNode, llnode);
+    IndexSpec *sp = StrongRef_Get(at->spec);
+    // we have a strong ref so having a null pointer is not likely but would prefer not to crash in the signal handler
+    if (!sp) {
+		continue;
+    }
+
+    RedisModule_InfoAddFieldULongLong(ctx, (const char *)sp->name, (unsigned long long)at->start);
+  }
+}
+
+static void AddCursorsToInfo(RedisModuleInfoCtx *ctx, ActiveQueries* activeQueries) {
+  if (!activeQueries) {
+    // we are not the main thread, simply return
+    return;
+  }
+  DLLIST_FOREACH(node, &(activeQueries->cursors)) {
+    ActiveCursorNode *at = DLLIST_ITEM(node, ActiveCursorNode, llnode);
+    char buffer[21]; // max uint64_t text length is 20 in base 10, so 21 bytes should be enough
+    sprintf(buffer, "%lu", at->cursorId);
+    RedisModule_InfoAddFieldULongLong(ctx, buffer, (unsigned long long)at->start);
+  }
+}
+
+void AddToInfo_ActiveQueries(RedisModuleInfoCtx *ctx) {
+  ActiveQueries *activeQueries = GetActiveQueries();
+  RedisModule_InfoAddSection(ctx, "active_queries");
+  // If we are not the main thread then do not output the current queries
+  AddQueriesToInfo(ctx, activeQueries);
+
+  RedisModule_InfoAddSection(ctx, "active_cursors");
+  // Assumes no other thread is currently accessing the active-threads container
+  AddCursorsToInfo(ctx, activeQueries);
 }
