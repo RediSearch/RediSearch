@@ -144,7 +144,7 @@ set(FINAL_OBJECTS
 if (BUILD_COORDINATOR)
     if (BUILD_COORD_OSS)
         add_library(redisearch-oss STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c coord/src/rmr/reply.c)
-
+        target_link_libraries(redisearch-oss redisearch-hash)
         target_compile_definitions(redisearch-oss PRIVATE
             RS_NO_ONLOAD
             RS_NO_RMAPI
@@ -152,7 +152,7 @@ if (BUILD_COORDINATOR)
 
     elseif (BUILD_COORD_RLEC)
         add_library(redisearch-enterprise STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c coord/src/rmr/reply.c)
-
+        target_link_libraries(redisearch-enterprise redisearch-hash)
         target_compile_definitions(redisearch-enterprise PRIVATE
             RS_NO_ONLOAD
             RS_NO_RMAPI
