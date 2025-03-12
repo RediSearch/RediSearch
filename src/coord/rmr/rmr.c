@@ -536,7 +536,7 @@ void MRIteratorCallback_Done(MRIteratorCallbackCtx *ctx, int error) {
       ctx->cmd.depleted, ctx->it->ctx.pending, ctx->it->ctx.inProcess, ctx->it->ctx.itRefCount,
       MRChannel_Size(ctx->it->ctx.chan), ctx->cmd.targetSlot);
   ctx->cmd.depleted = true;
-  short pending = --ctx->it->ctx.pending;  // Decrease `pending` before decreasing `inProcess`
+  short pending = --ctx->it->ctx.pending; // Decrease `pending` before decreasing `inProcess`
   RS_ASSERT(pending >= 0);
   MRIteratorCallback_ProcessDone(ctx);
 }
