@@ -19,5 +19,4 @@ source /opt/rh/devtoolset-11/enable
 cp /opt/rh/devtoolset-11/enable /etc/profile.d/scl-devtoolset-11.sh
 
 $MODE yum install -y openssl11 openssl11-devel
-$MODE ln -s `which openssl11` /usr/bin/openssl
-source install_cmake.sh $MODE
+$MODE ln -s "$(which openssl11)" /usr/bin/openssl
