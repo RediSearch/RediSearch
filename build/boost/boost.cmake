@@ -1,16 +1,18 @@
 message(STATUS "BOOST_DIR: ${BOOST_DIR}")
 
-if(NOT BOOST_DIR STREQUAL "" AND EXISTS ${BOOST_DIR})
+if (DEFINED BOOST_DIR AND BOOST_DIR AND IS_DIRECTORY ${BOOST_DIR})
     message(STATUS "BOOST_DIR is not empty: ${BOOST_DIR}")
     include_directories(${BOOST_DIR})
 else()
-    message(STATUS "BOOST_DIR is not defined or empty")
+    message(STATUS "BOOST_DIR '${BOOST_DIR}' is not a valid boost directory path")
     # set(BOOST_INCLUDE_LIBRARIES boost geometry optional unordered)
     set(BOOST_ENABLE_CMAKE ON)
 
     message(STATUS "fetching boost")
 
     include(FetchContent)
+    # we want to see the progress of the git clone
+    Set(FETCHCONTENT_QUIET FALSE)
     FetchContent_Declare(
             Boost
             GIT_REPOSITORY https://github.com/boostorg/boost.git
