@@ -5,9 +5,6 @@ name: Run a Benchmark Flow
 on:
   workflow_call:
     inputs:
-      container:
-        type: string
-        default: redisfab/rmbuilder:6.2.7-x64-bullseye
       module_path:
         type: string
         default: >-
@@ -57,7 +54,6 @@ jobs:
         (inputs.architecture == 'aarch64' && (vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' )) ||
         (vars.RUNS_ON || 'ubuntu-latest')
       }}
-    container: ${{ inputs.container }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -91,7 +87,7 @@ jobs:
           ./deps/readies/bin/getpy3
           pip3 install --upgrade pip
           python3 -m pip install -r tests/benchmarks/requirements.txt
-          VERSION=0.14.8 ./deps/readies/bin/getterraform
+          VERSION=1.11.1 sudo ./deps/readies/bin/getterraform
       - name: Prepare ReJSON Module
         run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 
