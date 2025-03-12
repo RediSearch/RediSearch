@@ -68,7 +68,7 @@ static redisearch_thpool_t *cleanPool = NULL;
 extern DebugCTX globalDebugCtx;
 
 const char *DEBUG_INDEX_SCANNER_STATUS_STRS[DEBUG_INDEX_SCANNER_CODE_COUNT] = {
-    "NEW", "SCANNING", "DONE", "CANCELLED", "PAUSED", "RESUMED"
+    "NEW", "SCANNING", "DONE", "CANCELLED", "PAUSED", "RESUMED", "PAUSED_ON_OOM"
 };
 
 // Static assertion to ensure array size matches the number of statuses
@@ -2186,7 +2186,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
       StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
       IndexSpec *sp = StrongRef_Get(curr_run_ref);
       if (sp) {
-        sp->scan_failed_OOM = true;
+        sp->scan_failed_OOM = true;  // Assuming there is no other reason that the scanner is canceled *and* the index exists
         IndexSpec_SetIndexErrorMessage(sp, error, keyname);
         IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
         StrongRef_Release(curr_run_ref);
@@ -2284,6 +2284,28 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_ThreadSafeContextLock(ctx);
 
     if (scanner->cancelled) {
+
+      // Check for pause after OOM if OOM occured
+      if (scanner->isDebug) {
+        DebugIndexesScanner* dScanner = (DebugIndexesScanner*)scanner;
+        if (dScanner->pauseOnOOM) {
+            StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
+            IndexSpec *sp = StrongRef_Get(curr_run_ref);
+            if (sp) {
+              if (sp->scan_failed_OOM) {
+                globalDebugCtx.bgIndexing.pause = true;
+                RedisModule_ThreadSafeContextUnlock(ctx);
+                while (globalDebugCtx.bgIndexing.pause) { // volatile variable
+                  dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM;
+                  usleep(1000);
+                }
+                dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
+                RedisModule_ThreadSafeContextLock(ctx);
+              }
+            }
+        }
+      }
+
       if (scanner->global) {
         RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%ld)",
                         scanner->scannedKeys);
@@ -3324,6 +3346,7 @@ static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref) {
   dScanner->wasPaused = false;
   dScanner->status = DEBUG_INDEX_SCANNER_CODE_NEW;
   dScanner->base.isDebug = true;
+  dScanner->pauseOnOOM = globalDebugCtx.bgIndexing.pauseOnOOM;
 
   IndexSpec *spec = StrongRef_Get(global_ref);
   spec->scanner = (IndexesScanner*)dScanner;
