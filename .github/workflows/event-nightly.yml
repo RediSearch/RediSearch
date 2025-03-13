@@ -37,7 +37,8 @@ jobs:
       test-config: QUICK=1
       san: address
       env: ubuntu-latest
-      container: ubuntu:jammy
+      container: ubuntu:latest
+      pre-steps-script: "apt update && apt install -y git" # ubuntus need to install git to support --recursive
 
   notify-failure:
     needs: [test-linux, test-macos, coverage, sanitize]
