@@ -44,7 +44,6 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
   // command instead of a READ command (here we know it has more results)
   if (timedout && !cmd->forCursor) {
     newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
-    newCmd.depleted = true;
     // Mark that the last command was a DEL command
     newCmd.rootCommand = C_DEL;
   } else {
@@ -484,6 +483,7 @@ static void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
 
   if (nc->it) {
+    RS_DEBUG_LOG("rpnetFree: calling MRIterator_Release");
     MRIterator_Release(nc->it);
   }
 
