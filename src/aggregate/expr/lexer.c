@@ -28,7 +28,7 @@ void RSExprParser_ParseFree(void *p, void (*freeProc)(void *));
 
 
 
-/* #line 32 "lexer.c" */
+/* #line 27 "lexer.c" */
 static const char _expr_actions[] = {
 	0, 1, 0, 1, 1, 1, 2, 1,
 	9, 1, 10, 1, 11, 1, 12, 1,
@@ -181,7 +181,7 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
   const char* ts = ctx.raw;
   const char* te = ctx.raw + ctx.len;
 
-/* #line 185 "lexer.c" */
+/* #line 176 "lexer.c" */
 	{
 	cs = expr_start;
 	ts = 0;
@@ -198,7 +198,7 @@ RSExpr *RSExpr_Parse(const char *expr, size_t len, char **err) {
   const char* eof = pe;
 
 
-/* #line 202 "lexer.c" */
+/* #line 189 "lexer.c" */
 	{
 	int _klen;
 	unsigned int _trans;
@@ -219,7 +219,7 @@ _resume:
 /* #line 1 "NONE" */
 	{ts = p;}
 	break;
-/* #line 223 "lexer.c" */
+/* #line 208 "lexer.c" */
 		}
 	}
 
@@ -629,7 +629,7 @@ _eof_trans:
 	}
 	}
 	break;
-/* #line 633 "lexer.c" */
+/* #line 583 "lexer.c" */
 		}
 	}
 
@@ -642,7 +642,7 @@ _again:
 /* #line 1 "NONE" */
 	{ts = 0;}
 	break;
-/* #line 646 "lexer.c" */
+/* #line 594 "lexer.c" */
 		}
 	}
 
