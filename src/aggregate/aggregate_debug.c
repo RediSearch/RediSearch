@@ -33,11 +33,12 @@ AREQ_Debug *AREQ_Debug_New(RedisModuleString **argv, int argc, QueryError *statu
 
 // Return True if we are in a cluster environment running the coordinator
 static bool isClusterCoord(AREQ_Debug *debug_req) {
-  if ((GetNumShards_UnSafe() > 1) && !(debug_req->r.reqflags & QEXEC_F_INTERNAL)) {
-    return true;
-  }
-
+  #ifdef RS_COORDINATOR
+  bool internal = debug_req->r.reqflags & QEXEC_F_INTERNAL;
+  return !internal;
+  #else
   return false;
+  #endif
 }
 
 int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {

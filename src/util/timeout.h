@@ -71,7 +71,7 @@ static inline int TimedOut(struct timespec *timeout) {
 }
 
 // Check if time has been reached (run once every TIMEOUT_COUNTER_LIMIT calls)
-static inline int TimedOut_WithCounter(const struct timespec *timeout, size_t *counter) {
+static inline int TimedOut_WithCounter(struct timespec *timeout, size_t *counter) {
   if (RS_IsMock) return 0;
 
   if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == TIMEOUT_COUNTER_LIMIT) {

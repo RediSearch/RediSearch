@@ -669,7 +669,7 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
 }
 
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                         struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
+                         specialCaseCtx **knnCtx_ptr, QueryError *status) {
   r->qiter.err = status;
   r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
   r->initClock = clock();
@@ -685,7 +685,7 @@ static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString *
     // Check if we have KNN in the query string, and if so, parse the query string to see if it is
     // a KNN section in the query. IN that case, we treat this as a SORTBY+LIMIT step.
     if(strcasestr(r->query, "KNN")) {
-      specialCaseCtx *knnCtx = prepareOptionalTopKCase(r->query, argv, argc, dialect, status);
+      specialCaseCtx *knnCtx = prepareOptionalTopKCase(r->query, argv, argc, status);
       *knnCtx_ptr = knnCtx;
       if (QueryError_HasError(status)) {
         return REDISMODULE_ERR;
@@ -750,7 +750,7 @@ static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Rep
 }
 
 static void DistAggregateCleanups(RedisModuleCtx *ctx, specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply, QueryError *status) {
-  assert(QueryError_HasError(status));
+  assert(QueryError_HasError(status)); // TODO: change!!! to RS_ASSERT once merged with 2.10
   QueryError_ReplyAndClear(ctx, status);
   SpecialCaseCtx_Free(knnCtx);
   if (r) AREQ_Free(r);
@@ -768,7 +768,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   QueryError status = {0};
   specialCaseCtx *knnCtx = NULL;
 
-  if (prepareForExecution(r, ctx, argv, argc, cmdCtx, sp, &knnCtx, &status) != REDISMODULE_OK) {
+  if (prepareForExecution(r, ctx, argv, argc, &knnCtx, &status) != REDISMODULE_OK) {
     goto err;
   }
 
@@ -808,7 +808,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   AREQ_Debug_params debug_params = debug_req->debug_params;
 
   int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
-  if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, cmdCtx, sp, &knnCtx, &status) != REDISMODULE_OK) {
+  if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, &knnCtx, &status) != REDISMODULE_OK) {
     goto err;
   }
 

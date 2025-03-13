@@ -1170,7 +1170,7 @@ static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout) {
     // set timeout to now for the RP up the chain to handle
     static struct timespec now;
     clock_gettime(CLOCK_MONOTONIC_RAW, &now);
-    rp_timeout->parent->sctx->time.timeout = now;
+    rp_timeout->parent->sctx->timeout = now;
 
     // search upstream for rpidxNext to set timeout limiter
     ResultProcessor *cur = rp_timeout->upstream;

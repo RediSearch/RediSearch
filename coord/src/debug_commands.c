@@ -9,6 +9,7 @@
 #include "debug_commands.h"
 #include "debug_command_names.h"
 #include "coord/src/rmr/redis_cluster.h"
+#include "coord/src/coord_module.h"
 #include <assert.h>
 
 DEBUG_COMMAND(shardConnectionStates) {
@@ -41,11 +42,33 @@ DEBUG_COMMAND(clearTopology) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
+  // at least one debug_param should be provided
+  // (1)FT.DEBUG (2)FT.AGGREGATE (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  DistAggregateCommand(ctx, argv, argc);
+}
+
+DEBUG_COMMAND(DistSearchCommand_DebugWrapper) {
+  // at least one debug_param should be provided
+  // (1)FT.DEBUG (2)FT.SEARCH (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  DistSearchCommand(ctx, argv, argc);
+}
+
 DebugCommandType coordCommands[] = {
   {"SHARD_CONNECTION_STATES", shardConnectionStates},
   {"PAUSE_TOPOLOGY_UPDATER", pauseTopologyUpdater},
   {"RESUME_TOPOLOGY_UPDATER", resumeTopologyUpdater},
   {"CLEAR_PENDING_TOPOLOGY", clearTopology},
+  {"FT.AGGREGATE", DistAggregateCommand_DebugWrapper},
+  {"FT.SEARCH", DistSearchCommand_DebugWrapper},
   {NULL, NULL}
 };
 // Make sure the two arrays are of the same size (don't forget to update `debug_command_names.h`)

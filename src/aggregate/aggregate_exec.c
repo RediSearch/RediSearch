@@ -914,7 +914,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
   }
 #endif
 
-  if (parseProfile(r, execOptions, argv, argc, &status) != REDISMODULE_OK) {
+  if (parseProfile(r, execOptions, argv, argc, status) != REDISMODULE_OK) {
     return REDISMODULE_ERR;
   }
 
