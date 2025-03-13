@@ -59,7 +59,8 @@
 #include "info/global_stats.h"
 #include "util/units.h"
 #include "aggregate/aggregate_debug.h"
-#include "active_queries/thread_info.h"
+#include "info/info_redis/threads/current_thread.h"
+#include "info/info_redis/threads/main_thread.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                  \
   do {                                                                         \
@@ -1199,7 +1200,7 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   GetRedisVersion(ctx);
 
   // Prepare thread local storage for storing active queries/cursors
-  int error = ThreadLocalStorage_Init();
+  int error = MainThread_InitBlockedQueries();
   if (error) {
     RedisModule_Log(ctx, "warning", "Failed to initialize thread local data, error: %d", error);
     return REDISMODULE_ERR;
@@ -1419,7 +1420,7 @@ void RediSearch_CleanupModule(void) {
 
   // At this point, the thread local storage is no longer needed, since all threads
   // finished their work.
-  ThreadLocalStorage_Destroy();
+  MainThread_DestroyBlockedQueries();
 
   if (legacySpecDict) {
     dictRelease(legacySpecDict);

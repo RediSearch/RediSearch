@@ -26,7 +26,7 @@
 #include "suffix.h"
 #include "resp3.h"
 #include "info/global_stats.h"
-#include "active_queries/thread_info.h"
+#include "info/info_redis/threads/current_thread.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0

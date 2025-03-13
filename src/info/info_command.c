@@ -16,7 +16,7 @@
 #include "info/global_stats.h"
 #include "util/units.h"
 #include "field_spec_info.h"
-#include "active_queries/thread_info.h"
+#include "info/info_redis/threads/current_thread.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
 

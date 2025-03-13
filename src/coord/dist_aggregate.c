@@ -18,7 +18,7 @@
 #include "dist_profile.h"
 #include "util/misc.h"
 #include "aggregate/aggregate_debug.h"
-#include "active_queries/thread_info.h"
+#include "info/info_redis/threads/current_thread.h"
 
 #include <err.h>
 

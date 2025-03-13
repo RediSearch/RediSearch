@@ -129,9 +129,11 @@ file(GLOB SOURCES
     "src/util/*.c"
     "src/trie/*.c"
     "src/info/*.c"
+    "src/info/info_redis/*.c"
+    "src/info/info_redis/threads/*.c"
+    "src/info/info_redis/types/*.c"
     "src/module-init/*.c"
     "src/obfuscation/*.c"
-    "src/active_queries/*.c"
 
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"

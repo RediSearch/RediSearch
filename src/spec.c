@@ -33,7 +33,7 @@
 #include "util/workers.h"
 #include "info/global_stats.h"
 #include "debug_commands.h"
-#include "active_queries/thread_info.h"
+#include "info/info_redis/threads/current_thread.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 

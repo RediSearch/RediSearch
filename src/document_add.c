@@ -8,7 +8,7 @@
 #include "err.h"
 #include "util/logging.h"
 #include "rmutil/rm_assert.h"
-#include "active_queries/thread_info.h"
+#include "info/info_redis/threads/current_thread.h"
 
 // Forward declaration.
 bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp);

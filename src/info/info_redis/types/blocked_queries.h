@@ -27,16 +27,16 @@ extern "C" {
 typedef struct {
   DLLIST_node llnode; // Node in the doubly-linked list
   StrongRef spec;     // IndexSpec strong ref
-  QueryAST *ast;      // The query AST
   time_t start;       // Time node was added into list
-} ActiveQueryNode;
+} BlockedQueryNode;
 
 typedef struct {
   DLLIST_node llnode; // Node in the doubly-linked list
+  WeakRef spec;       // IndexSpec weak ref
   uint64_t cursorId;  // cursor id
   size_t count;       // cursor count
   time_t start;       // Time node was added into list
-} ActiveCursorNode;
+} BlockedCursorNode;
 
 /**
  * @brief Represents a list of active queries.
@@ -48,7 +48,7 @@ typedef struct {
 typedef struct ActiveQueries {
   DLLIST queries;
   DLLIST cursors;
-} ActiveQueries;
+} BlockedQueries;
 
 /**
  * @brief Initializes the active queries data structure.
@@ -56,19 +56,19 @@ typedef struct ActiveQueries {
  * This function allocates memory for the `ActiveQueries` structure and
  * initializes the doubly-linked list for storing `ActiveQueries` objects.
  */
-ActiveQueries* ActiveQueries_Init();
+BlockedQueries* BlockedQueries_Init();
 
 /**
  * @brief Frees the active queries data structure.
  *
  * This function destroys the doubly-linked lists and frees the active queries pointer
  */
-void ActiveQueries_Free(ActiveQueries*);
+void BlockedQueries_Free(BlockedQueries*);
 
-ActiveQueryNode* ActiveQueries_AddQuery(ActiveQueries* list, StrongRef spec, QueryAST* ast);
-ActiveCursorNode* ActiveQueries_AddCursor(ActiveQueries* list, uint64_t cursorId, size_t count);
-void ActiveQueries_RemoveQuery(ActiveQueryNode* node);
-void ActiveQueries_RemoveCursor(ActiveCursorNode* node);
+BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* list, StrongRef spec, QueryAST* ast);
+BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* list, WeakRef spec, uint64_t cursorId, size_t count);
+void BlockedQueries_RemoveQuery(BlockedQueryNode* node);
+void BlockedQueries_RemoveCursor(BlockedCursorNode* node);
 
 #ifdef __cplusplus
 }

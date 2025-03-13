@@ -20,8 +20,8 @@
 #include "query_error.h"
 #include "info/global_stats.h"
 #include "aggregate_debug.h"
-#include "active_queries/block_client.h"
-#include "active_queries/thread_info.h"
+#include "info/info_redis/block_client.h"
+#include "info/info_redis/threads/current_thread.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -1128,13 +1128,8 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 }
 
-static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, bool bg) {
-  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, bool bg) {
 
-  if (cursor == NULL) {
-    RedisModule_Reply_Error(reply, "Cursor not found");
-    return;
-  }
   QueryError status = {0};
   AREQ *req = cursor->execState;
   req->qiter.err = &status;
@@ -1184,14 +1179,14 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
 
 typedef struct {
   RedisModuleBlockedClient *bc;
-  uint64_t cid;
+  Cursor *cursor;
   size_t count;
 } CursorReadCtx;
 
 static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  cursorRead(reply, cr_ctx->cid, cr_ctx->count, true);
+  cursorRead(reply, cr_ctx->cursor, cr_ctx->count, true);
   RedisModule_EndReply(reply);
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
@@ -1241,15 +1236,23 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return REDISMODULE_OK;
       }
     }
+
+    Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+    if (cursor == NULL) {
+      RedisModule_ReplyWithErrorFormat(ctx, "Cursor %d not found", cid);
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
+    }
+
     // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
     if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
       CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
-      cr_ctx->bc = BlockCursorClient(ctx, cid, count, 0);
-      cr_ctx->cid = cid;
+      cr_ctx->bc = BlockCursorClient(ctx, cursor, count, 0);
+      cr_ctx->cursor = cursor;
       cr_ctx->count = count;
       workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
     } else {
-      cursorRead(reply, cid, count, false);
+      cursorRead(reply, cursor, count, false);
     }
   } else if (strcasecmp(cmd, "DEL") == 0) {
     int rc = Cursors_Purge(GetGlobalCursor(cid), cid);
