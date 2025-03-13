@@ -54,9 +54,7 @@ jobs:
       test-config: QUICK=1
       san: address
       env: ubuntu-latest
-      # container: ubuntu:latest
       rejson-branch: master
-      # pre-steps-script: "apt update && apt install -y git" # ubuntus need to install git to support --recursive
 
   pr-validation:
     needs:
