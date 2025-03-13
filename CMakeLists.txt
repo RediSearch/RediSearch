@@ -33,15 +33,17 @@ set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 # Define compiler setup function
 function(setup_cc_options)
   # Common compiler flags
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wno-unused-function -Wno-unused-variable -fPIC" PARENT_SCOPE)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wno-unused-function -Wno-unused-variable -fPIC -std=c++20" PARENT_SCOPE)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unused-function -Wno-unused-variable -fPIC -fno-strict-aliasing -Wno-sign-compare -Werror=incompatible-pointer-types" PARENT_SCOPE)
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-function -Wno-unused-variable -fPIC -std=c++20 -Wno-sign-compare" PARENT_SCOPE)
   
-  # Release/Debug specific flags
-  set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O2" PARENT_SCOPE)
-  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2" PARENT_SCOPE)
-  set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g" PARENT_SCOPE)
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -g" PARENT_SCOPE)
-  
+  # Release/Debug/Profile specific flags
+  set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3" PARENT_SCOPE)
+  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3" PARENT_SCOPE)
+  set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+  set(CMAKE_C_FLAGS_PROFILE "${CMAKE_C_FLAGS_PROFILE} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
+  set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_PROFILE} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
+
   # Initialize basic flags needed for builds
   set(CMAKE_LD_FLAGS "" PARENT_SCOPE)
   set(CMAKE_LD_LIBS "" PARENT_SCOPE)
@@ -194,9 +196,14 @@ if(APPLE)
     endif()
     
     set(SSL_LIBS ${OPENSSL_LIBRARIES})
+    set(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS} -dynamiclib")
 else()
     set(SSL_LIBS crypto crypt ssl)
+    set(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS} -shared -Bsymbolic -Bsymbolic-functions")
 endif()
+
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
 # On debug artifacts, enable assertions
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR ENABLE_ASSERT)
