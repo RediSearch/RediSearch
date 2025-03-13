@@ -18,7 +18,8 @@ struct RLookupKey; // Forward declaration
 #define INDEXREAD_NOTFOUND 2
 #define INDEXREAD_TIMEOUT 3
 
-enum iteratorType {
+#ifndef MICRO_BENCHMARKS
+enum IteratorType {
   READ_ITERATOR,
   HYBRID_ITERATOR,
   UNION_ITERATOR,
@@ -33,6 +34,7 @@ enum iteratorType {
   OPTIMUS_ITERATOR,
   MAX_ITERATOR,
 };
+#endif
 
 /* An abstract interface used by readers / intersectors / unioners etc.
 Basically query execution creates a tree of iterators that activate each other
@@ -49,7 +51,7 @@ typedef struct indexIterator {
   // Cached value - used if Current() is not set
   RSIndexResult *current;
 
-  enum iteratorType type;
+  enum IteratorType type;
 
   // Used if the iterator yields some value.
   // Consider placing in a union with an array of keys, if a field want to yield multiple metrics
