@@ -1,5 +1,5 @@
 [workspace]
-members = ["trie_rs"]
+members = ["low_memory_thin_vec", "trie_rs"]
 resolver = "3"
 
 [workspace.lints.clippy]
