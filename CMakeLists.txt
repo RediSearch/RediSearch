@@ -91,7 +91,7 @@ endif()
 include(${root}/build/libuv/libuv.cmake)
 include(${root}/build/hiredis/hiredis.cmake)
 include(${root}/build/boost/boost.cmake)
-if (NOT DEFINED BOOST_DIR OR NOT BOOST_DIR OR NOT IS_DIRECTORY ${BOOST_DIR})
+if (NOT IS_DIRECTORY ${BOOST_DIR})
     message(FATAL_ERROR "BOOST_DIR is not defined or does not point to a valid directory ${BOOST_DIR}")
 endif()
 
