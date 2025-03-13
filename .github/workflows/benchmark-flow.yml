@@ -51,8 +51,8 @@ jobs:
     name: "Benchmark ${{ inputs.allowed_envs }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }} "
     runs-on: >-
       ${{
-        (inputs.architecture == 'aarch64' && (vars.RUNS_ON_ARM || ubuntu22-arm64-2-8 )) ||
-        (vars.RUNS_ON || ubuntu-22.04)
+        ( inputs.architecture == 'aarch64' && (vars.RUNS_ON_ARM || 'ubuntu22-arm64-2-8' ) ) ||
+        ( vars.RUNS_ON || 'ubuntu-22.04' )
       }}
     defaults:
       run:
