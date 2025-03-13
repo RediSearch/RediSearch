@@ -297,11 +297,11 @@ QueryNode *NewTagNode(const FieldSpec *field) {
   return ret;
 }
 
-QueryNode *NewNumericNode(QueryParam *p) {
+QueryNode *NewNumericNode(QueryParam *p, const FieldSpec *fs) {
   QueryNode *ret = NewQueryNode(QN_NUMERIC);
-  // Move data and params pointers
   ret->nn.nf = p->nf;
   ret->params = p->params;
+  ret->nn.nf->fieldSpec = fs;
   p->nf = NULL;
   p->params = NULL;
   rm_free(p);
@@ -928,13 +928,9 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
 
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
   RS_LOG_ASSERT(node->type == QN_NUMERIC, "query node type should be numeric")
-  FieldFilterContext filterCtx = {
-      .field = {
-          .isFieldMask = false,
-          .value = {.index= node->nn.nf->field->index}
-      },
-      .predicate = FIELD_EXPIRATION_DEFAULT
-  };
+
+  const FieldSpec *fs = node->nn.nf->fieldSpec;
+  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   return NewNumericFilterIterator(q->sctx, node->nn.nf, q->conc, INDEXFLD_T_NUMERIC, q->config, &filterCtx);
 }
 
@@ -1743,7 +1739,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_NUMERIC: {
         if (n->nn.nf->min > n->nn.nf->max) {
           QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric range (min > max): @%s:[%f %f]",
-                                 n->nn.nf->field->name, n->nn.nf->min, n->nn.nf->max);
+                                 n->nn.nf->fieldSpec->name, n->nn.nf->min, n->nn.nf->max);
           res = REDISMODULE_ERR;
         }
       }
@@ -1931,7 +1927,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_NUMERIC: {
       const NumericFilter *f = qs->nn.nf;
       s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->inclusiveMin ? "<=" : "<",
-                       f->field->name, f->inclusiveMax ? "<=" : "<", f->max);
+                       f->fieldSpec->name, f->inclusiveMax ? "<=" : "<", f->max);
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");
@@ -1947,7 +1943,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       break;
     case QN_GEO:
 
-      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", qs->gn.gf->field->name, qs->gn.gf->lon,
+      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", qs->gn.gf->fieldSpec->name, qs->gn.gf->lon,
                        qs->gn.gf->lat, qs->gn.gf->radius,
                        GeoDistance_ToString(qs->gn.gf->unitType));
       break;
