@@ -86,11 +86,13 @@ static inline IteratorStatus UI_Skip_Full_Flat(QueryIterator *base, const t_docI
       IteratorStatus rc = cur->SkipTo(cur, nextId);
       if (rc == ITERATOR_OK) {
         UI_AddChild(ui, cur);
+      } else if (rc == ITERATOR_NOTFOUND) {
+        // No match. Finish the loop iteration normally
       } else if (rc == ITERATOR_EOF) {
         UI_RemoveExhausted(ui, i);
         i--;
         continue;
-      } else if (rc != ITERATOR_NOTFOUND) {
+      } else {
         return rc;
       }
     } else if (cur->lastDocId == nextId) {
@@ -126,13 +128,16 @@ static inline IteratorStatus UI_Read_Full_Flat(QueryIterator *base) {
   AggregateResult_Reset(ui->base.current);
   for (int i = 0; i < ui->num; i++) {
     QueryIterator *cur = ui->its[i];
+    RS_ASSERT(cur->lastDocId >= lastId);
     if (cur->lastDocId == lastId) {
       IteratorStatus rc = cur->Read(cur);
-      if (rc == ITERATOR_EOF) {
+      if (rc == ITERATOR_OK) {
+        // Finish the loop iteration normally
+      } else if (rc == ITERATOR_EOF) {
         UI_RemoveExhausted(ui, i);
         i--;
         continue;
-      } else if (rc != ITERATOR_OK) {
+      } else {
         return rc;
       }
     }
@@ -164,11 +169,13 @@ static inline IteratorStatus UI_Skip_Quick_Flat(QueryIterator *base, const t_doc
       if (rc == ITERATOR_OK) {
         UI_QuickSet(ui, cur);
         return ITERATOR_OK;
+      } else if (rc == ITERATOR_NOTFOUND) {
+        // No match. Finish the loop iteration normally
       } else if (rc == ITERATOR_EOF) {
         UI_RemoveExhausted(ui, i);
         i--;
         continue;
-      } else if (rc != ITERATOR_NOTFOUND) {
+      } else {
         return rc;
       }
     } else if (cur->lastDocId == nextId) {
@@ -220,7 +227,7 @@ static inline IteratorStatus UI_Skip_Full_Heap(QueryIterator *base, const t_docI
 
   if (cur) {
     ui->base.lastDocId = cur->lastDocId;
-    heap_cb_root(hp, (HeapCallback)UI_AddChild, ui);
+    heap_cb_root(hp, (HeapCallback)UI_AddChild, ui); // Collect all matching children
     return nextId == cur->lastDocId ? ITERATOR_OK : ITERATOR_NOTFOUND;
   }
   QITER_SET_EOF(base);
@@ -247,8 +254,9 @@ static inline IteratorStatus UI_Read_Full_Heap(QueryIterator *base) {
   }
 
   if (cur) {
+    RS_ASSERT(cur->lastDocId > base->lastDocId);
     ui->base.lastDocId = cur->lastDocId;
-    heap_cb_root(hp, (HeapCallback)UI_AddChild, ui);
+    heap_cb_root(hp, (HeapCallback)UI_AddChild, ui); // Collect all matching children
     return ITERATOR_OK;
   }
   QITER_SET_EOF(base);
