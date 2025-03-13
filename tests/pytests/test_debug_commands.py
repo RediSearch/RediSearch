@@ -562,6 +562,26 @@ def testDebugScannerStatus(env: Env):
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').error()\
     .contains('wrong number of arguments')
 
+    # Test OOM pause
+    # Insert more docs to ensure un-flakey test
+    extra_docs = 90
+    for i in range(num_docs,extra_docs+num_docs):
+        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+
+    # Remove previous debug scanner settings
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'false').ok()
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 0).ok()
+    env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', 0).ok()
+    # Set OOM pause
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+    # Set tight memory limit to trigger OOM
+    set_tight_maxmemory_for_oom(env)
+    # Create an index and expect OOM pause
+    env.expect('FT.CREATE', 'idx_oom', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndexStatus(env, 'PAUSED_ON_OOM','idx_oom')
+    # Resume indexing
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+
 class TestQueryDebugCommands(object):
     def __init__(self):
         # Set the module default behaviour to non strict timeout policy, as this is the main focus of this test suite
@@ -866,3 +886,52 @@ class TestQueryDebugCommands(object):
         def listResults(res):
             return [{res[i]: res[i + 1]} for i in range(1, len(res[1:]), 2)]
         self.Resp2("SEARCH", ['SORTBY', 'n'], listResults)
+
+@skip(cluster=True)
+def testPauseOnOOM(env: Env):
+    num_docs = 100
+    for i in range(num_docs):
+        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+
+    # Check error handling
+    # Giving invalid argument
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'notAbool').error()\
+    .contains("Invalid argument for 'SET_PAUSE_ON_OOM'")
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM').error()\
+    .contains('wrong number of arguments')
+
+    # Set pause on OOM
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+    # Set pause after quarter of the docs were scanned
+    num_docs_scanned = num_docs//4
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+
+    # Baseline failed scans due to OOM
+    failed_idx_oom = env.cmd('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndexPauseScan(env, 'idx')
+
+    # At this point num_docs_scanned were scanned
+    # Now we set the tight memory limit
+    set_tight_maxmemory_for_oom(env)
+    # After we resume, an OOM should trigger
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+
+    # At this point, the index should be paused on OOM
+    # Wait for INFO metric "OOM_indexing_failures_indexes_count" to increment
+    # Note: While there are other ways to check if OOM occurred, this is the most direct way,
+    #       as the metric is based directly on the spec field "scan_failed_OOM"
+    while (env.cmd('INFO', 'modules')['search_OOM_indexing_failures_indexes_count'])!=(failed_idx_oom+1):
+        time.sleep(0.1)
+
+    # At this point, we are certain an OOM occurred, but the index scanning should be paused
+    # We can verify this (without using the scanner status to maintain independency) by checking "indexing" entry in ft.info
+    idx_info = index_info(env, 'idx')
+    env.assertEqual(idx_info['indexing'], 1)
+    # The percent index should be close to 0.25 as we set the tight memory limit after 25% of the docs were scanned
+    env.assertAlmostEqual(float(idx_info['percent_indexed']), 0.25, delta=0.05)
+
+    # Resume indexing for the sake of completeness
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
