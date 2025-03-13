@@ -55,14 +55,8 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
-        run: ${{ inputs.pre-steps-script }}
-        
-      - name: Pre-steps Dependencies (Non-Alpine)
-        if: inputs.pre-steps-script && inputs.container != 'alpine:3'
-        shell: bash -l -eo pipefail {0}
         run: ${{ inputs.pre-steps-script }}
       - name: Get Installation Mode
         id: mode
@@ -147,11 +141,11 @@ jobs:
         run: |
           REPO_URL="https://github.com/redis/redis.git"
           DEST_DIR="redis"  # Directory to clone into
-          
+
           # Clone the repository (shallow clone without tags)
           git clone $REPO_URL $DEST_DIR
           cd $DEST_DIR
-          
+
           # Checkout the REF
           git fetch origin ${{ inputs.get-redis }}
           git checkout ${{ inputs.get-redis }}
