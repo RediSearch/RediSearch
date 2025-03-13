@@ -22,13 +22,6 @@ on:
             ( inputs.architecture == 'aarch64' && 'bin/linux-arm64v8-release/RedisJSON/master/rejson.so' ) ||
             'bin/linux-x64-release/RedisJSON/master/rejson.so'
           }}
-      rejson_binroot:
-        type: string
-        default: >-
-          ${{
-            ( inputs.architecture == 'aarch64' && './bin/linux-arm64v8-release' ) ||
-            'bin/linux-x64-release/'
-          }}
       profile_env:
         type: number # for default of 0
       benchmark_glob:
@@ -91,7 +84,7 @@ jobs:
           python3 -m pip install -r tests/benchmarks/requirements.txt
           VERSION=1.11.1 sudo ./deps/readies/bin/getterraform
       - name: Prepare ReJSON Module
-        run: REJSON_BRANCH=${{ inputs.rejson_branch }} BINROOT=${{ inputs.rejson_binroot }} ./tests/deps/setup_rejson.sh
+        run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         timeout-minutes: 240 # timeout for the step
@@ -128,6 +121,7 @@ jobs:
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
               --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
               --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+              --architecture ${{ inputs.architecture }}
       - name: Generate Pull Request Performance info
         if: github.event.number
         env:
@@ -142,3 +136,4 @@ jobs:
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
               --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
               --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+              --architecture ${{ inputs.architecture }}
