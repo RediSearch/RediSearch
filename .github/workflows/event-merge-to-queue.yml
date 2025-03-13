@@ -56,8 +56,6 @@ jobs:
       test-config: '' # run all tests
       san: address
       env: ubuntu-latest
-      container: ubuntu:jammy
-      pre-steps-script: "apt update && apt install -y git"
 
   pr-validation:
     needs:
