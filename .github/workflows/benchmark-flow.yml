@@ -68,16 +68,10 @@ jobs:
           ./install_script.sh ${{ steps.mode.outputs.mode }} sudo
       - name: Setup tests dependencies
         run: |
-          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
-      - name: Get Redis
-        uses: actions/checkout@v4
-        with:
-          repository: redis/redis
-          ref: unstable
-          path: redis
-      - name: Build Redis
-        working-directory: redis
-        run: make install
+          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }} sudo
+      - name: Install Boost
+        working-directory: .install
+        run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
       - name: Build RediSearch
         run: make build
             PROFILE=${{ inputs.profile_env }}
