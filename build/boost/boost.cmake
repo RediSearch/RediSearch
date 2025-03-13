@@ -1,7 +1,7 @@
 message(STATUS "BOOST_DIR: ${BOOST_DIR}")
 
 if (DEFINED BOOST_DIR AND BOOST_DIR AND IS_DIRECTORY ${BOOST_DIR})
-    message(STATUS "BOOST_DIR is not empty: ${BOOST_DIR}")
+    message(STATUS "BOOST_DIR points to a valid directory: ${BOOST_DIR}")
 else()
     message(STATUS "BOOST_DIR '${BOOST_DIR}' is not a valid boost directory path")
     set(BOOST_INCLUDE_LIBRARIES geometry optional unordered smart_ptr)
