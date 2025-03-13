@@ -1,26 +1,26 @@
 message(STATUS "BOOST_DIR: ${BOOST_DIR}")
 
-if(NOT BOOST_DIR STREQUAL "" AND EXISTS ${BOOST_DIR})
-    message(STATUS "BOOST_DIR is not empty: ${BOOST_DIR}")
-    include_directories(${BOOST_DIR})
+if (IS_DIRECTORY ${BOOST_DIR})
+    message(STATUS "BOOST_DIR points to a valid directory: ${BOOST_DIR}")
 else()
-    message(STATUS "BOOST_DIR is not defined or empty")
-    # set(BOOST_INCLUDE_LIBRARIES boost geometry optional unordered)
+    message(STATUS "BOOST_DIR '${BOOST_DIR}' is not a valid boost directory path")
     set(BOOST_ENABLE_CMAKE ON)
 
     message(STATUS "fetching boost")
 
     include(FetchContent)
+    # we want to see the progress of the download, so we set FETCHCONTENT_QUIET to false
+    Set(FETCHCONTENT_QUIET FALSE)
     FetchContent_Declare(
             Boost
-            GIT_REPOSITORY https://github.com/boostorg/boost.git
-            GIT_TAG boost-1.84.0
-            GIT_PROGRESS TRUE
-            GIT_SHALLOW TRUE
+            URL https://archives.boost.io/release/1.84.0/source/boost_1_84_0.tar.gz
+            USES_TERMINAL_DOWNLOAD TRUE
+            DOWNLOAD_NO_EXTRACT FALSE
     )
     FetchContent_MakeAvailable(Boost)
 
     message(STATUS "boost fetched")
     message(STATUS "boost source dir: ${boost_SOURCE_DIR}")
     message(STATUS "boost binary dir: ${boost_BINARY_DIR}")
+    set(BOOST_DIR ${boost_SOURCE_DIR})
 endif()
