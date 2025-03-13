@@ -32,7 +32,7 @@ typedef struct {
 
 typedef struct {
   DLLIST_node llnode; // Node in the doubly-linked list
-  WeakRef spec;       // IndexSpec weak ref
+  StrongRef spec;     // IndexSpec strong ref
   uint64_t cursorId;  // cursor id
   size_t count;       // cursor count
   time_t start;       // Time node was added into list

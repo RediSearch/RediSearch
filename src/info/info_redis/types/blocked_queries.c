@@ -36,7 +36,9 @@ BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* blockedQueries, Strong
 
 BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* blockedQueries, WeakRef spec, uint64_t cursorId, size_t count) {
   BlockedCursorNode* blockedCursorNode = rm_calloc(1, sizeof(BlockedCursorNode));
-  blockedCursorNode->spec = WeakRef_Clone(spec);
+  if (spec.rm) {
+    blockedCursorNode->spec = WeakRef_Promote(spec);
+  }
   blockedCursorNode->cursorId = cursorId;
   blockedCursorNode->count = count;
   blockedCursorNode->start = time(NULL);

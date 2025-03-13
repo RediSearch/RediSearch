@@ -20,11 +20,8 @@ static void FreeQueryNode(RedisModuleCtx* ctx, void *node) {
 
 static void FreeCursorNode(RedisModuleCtx* ctx, void *node) {
   BlockedCursorNode *cursorNode = node;
-  // cursor can be null if the cursor did not have a spec
-  if (cursorNode) {
-    BlockedQueries_RemoveCursor(cursorNode);
-    rm_free(cursorNode);
-  }
+  BlockedQueries_RemoveCursor(cursorNode);
+  rm_free(cursorNode);
 }
 
 RedisModuleBlockedClient *BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec_ref, AREQ* req, int timeoutMS) {
@@ -46,10 +43,7 @@ RedisModuleBlockedClient *BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec_r
 RedisModuleBlockedClient *BlockCursorClient(RedisModuleCtx *ctx, Cursor *cursor, size_t count, int timeoutMS) {
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-  BlockedCursorNode *node = NULL;
-  if (cursor_HasSpecWeakRef(cursor)) {
-    node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref, cursor->id, count);
-  }
+  BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref, cursor->id, count);
   // Prepare context for the worker thread
   // Since we are still in the main thread, and we already validated the
   // spec's existence, it is safe to directly get the strong reference from the spec

@@ -327,13 +327,11 @@ static void AddCursorsToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
   }
   DLLIST_FOREACH(node, &(activeQueries->cursors)) {
     BlockedCursorNode *at = DLLIST_ITEM(node, BlockedCursorNode, llnode);
-    StrongRef specRef = WeakRef_Promote(at->spec);
-    IndexSpec *spec = StrongRef_Get(specRef);
-    if (!spec) {
-      continue;
-    }
-    RedisModule_InfoBeginDictField(ctx, spec->name);
-    RedisModule_InfoAddFieldULongLong(ctx, "id", at->cursorId);
+    IndexSpec *spec = StrongRef_Get(at->spec);
+    char buffer[21]; // 20 is the max length of a uint64_t
+    sprintf(buffer, "%zu", at->cursorId);
+    RedisModule_InfoBeginDictField(ctx, buffer);
+    RedisModule_InfoAddFieldCString(ctx, "index", spec ? spec->name : "n/a");
     RedisModule_InfoAddFieldULongLong(ctx, "started-at", at->start);
     RedisModule_InfoEndDictField(ctx);
   }
