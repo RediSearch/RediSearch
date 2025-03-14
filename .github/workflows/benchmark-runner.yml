@@ -31,6 +31,9 @@ on:
         description: 'branch to use for rejson'
   workflow_call:
     inputs:
+      architecture:
+        type: string
+        default: aarch64  # arm64v8 by default for testing
       extended:
         type: boolean
         default: false
