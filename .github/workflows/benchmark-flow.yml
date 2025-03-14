@@ -7,13 +7,21 @@ on:
     inputs:
       module_path:
         type: string
-        default: bin/linux-x64-release/search-community/redisearch.so
+        default: >-
+          ${{
+            ( inputs.architecture == 'aarch64' && 'bin/linux-arm64v8-release/search-community/redisearch.so' ) ||
+            'bin/linux-x64-release/search-community/redisearch.so'
+          }}
       rejson_branch:
         type: string
         default: master
       rejson_module_path:
         type: string
-        default: bin/linux-x64-release/RedisJSON/master/rejson.so
+        default: >-
+          ${{
+            ( inputs.architecture == 'aarch64' && 'bin/linux-arm64v8-release/RedisJSON/master/rejson.so' ) ||
+            'bin/linux-x64-release/RedisJSON/master/rejson.so'
+          }}
       profile_env:
         type: number # for default of 0
       benchmark_glob:
@@ -34,11 +42,18 @@ on:
       benchmark_runner_group_total:
         type: number
         default: 1
+      architecture:
+        type: string
+        default: x86_64
 
 jobs:
   benchmark-steps:
     name: "Benchmark ${{ inputs.allowed_envs }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }} "
-    runs-on: ubuntu-22.04  # Temporary hard coded until we resolve the issues with ubuntu-latest(24)
+    runs-on: >-
+      ${{
+        ( inputs.architecture == 'aarch64' && (vars.RUNS_ON_ARM || 'ubuntu22-arm64-2-8' ) ) ||
+        ( vars.RUNS_ON || 'ubuntu-22.04' )
+      }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -106,6 +121,7 @@ jobs:
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
               --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
               --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+              --architecture ${{ inputs.architecture }}
       - name: Generate Pull Request Performance info
         if: github.event.number
         env:
@@ -120,3 +136,4 @@ jobs:
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
               --redistimeseries_port ${{ secrets.PERFORMANCE_RTS_PORT }}
               --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}'
+              --architecture ${{ inputs.architecture }}
