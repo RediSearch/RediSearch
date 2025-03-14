@@ -53,3 +53,5 @@ jobs:
         disable_search: true
         fail_ci_if_error: true # Fail on upload errors
         token: ${{ secrets.CODECOV_TOKEN }}
+        verbose: true # optional (default = false)
+        gcov_include: "./bin/linux-x64-debug-cov/search-community/src/*"
