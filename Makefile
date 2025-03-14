@@ -593,6 +593,7 @@ coverage:
 #	$(SHOW)$(MAKE) unit-tests COV=1
 	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
 	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
+
 #   COVERAGE_COLLECT
 	$(SHOW) echo "Collecting coverage data ..."
 	$(SHOW) lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) \
@@ -600,6 +601,7 @@ coverage:
 	$(SHOW) lcov -o $(COV_INFO).1 -r $(COV_INFO) $(COV_EXCLUDE) \
 	--rc lcov_branch_coverage=1 ;\
 	$(SHOW) mv $(COV_INFO).1 $(COV_INFO)
+
 #   COVERAGE_REPORT
 	$(SHOW) echo "Generating coverage report ..."
 	$(SHOW) lcov -l $(COV_INFO) --rc lcov_branch_coverage=1
@@ -607,6 +609,12 @@ coverage:
 	--title "RediSearch Coverage" --show-details --legend --highlight \
 	--ignore-errors source
 	$(SHOW) echo "Coverage info at $$(realpath $(COV_DIR))/index.html"
+
+#   GENERATE GCOV FILES
+	$(SHOW) echo "Generating GCOV files ..."
+	$(SHOW) find $(BINROOT) -name "*.gcda" | xargs dirname | sort | uniq | \
+	xargs -I{} sh -c 'cd {} && gcov *.o'
+	$(SHOW) echo "GCOV files generated in their respective build directories"
 
 .PHONY: coverage
 
