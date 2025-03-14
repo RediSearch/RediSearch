@@ -397,8 +397,8 @@ def testKeyTableInfo(env):
     env.cmd('FT.CREATE', 'idx', 'PREFIX', 1, 'b:', 'SCHEMA', 'txt', 'TEXT')
 
     d = index_info(env, 'idx')
-    key_table_size = float(d['key_table_size_mb'])
-    env.assertEqual(key_table_size, 0)
+    expected_size = float(d['key_table_size_mb'])
+    env.assertEqual(expected_size, 0)
 
     # Add and delete keys, size should remain the same as the initial size
     conn.execute_command('HSET', 'b:1', 'txt', '1')
@@ -408,29 +408,36 @@ def testKeyTableInfo(env):
     conn.execute_command('DEL', 'b:1') # Term node with a single child
     conn.execute_command('DEL', 'b:15')
     d = index_info(env, 'idx')
-    env.assertEqual(float(d['key_table_size_mb']), key_table_size)
+    new_size = float(d['key_table_size_mb'])
+    env.assertEqual(new_size, expected_size)
 
     # Delete a node with children, should not affect the key table size, it
     # only affects the cardinality of the trie
-    d = index_info(env, 'idx')
     conn.execute_command('HSET', 'b:1', 'txt', '1')
     conn.execute_command('HSET', 'b:10', 'txt', '10')
     conn.execute_command('HSET', 'b:15', 'txt', '15')
-    key_table_size = float(d['key_table_size_mb'])
+    d = index_info(env, 'idx')
+    expected_size = float(d['key_table_size_mb'])
     conn.execute_command('DEL', 'b:1')
-    env.assertEqual(float(d['key_table_size_mb']), key_table_size)
-    
+    d = index_info(env, 'idx')
+    new_size = float(d['key_table_size_mb'])
+    env.assertEqual(new_size, expected_size)
+
     # update a key, should not affect the key table size
     conn.execute_command('HSET', 'b:1', 'txt', '1')
-    conn.execute_command('HSET', 'b:10', 'txt', '10')
-    conn.execute_command('HSET', 'b:15', 'txt', '15')
-    key_table_size = float(d['key_table_size_mb'])
+    waitForIndex(env, 'idx')
+    d = index_info(env, 'idx')
+    expected_size = float(d['key_table_size_mb'])
     conn.execute_command('HSET', 'b:1', 'txt', 'x')
     conn.execute_command('HSET', 'b:1', 'txt', 'y')
     conn.execute_command('HSET', 'b:1', 'txt', 'z')
-    env.assertEqual(float(d['key_table_size_mb']), key_table_size)
+    d = index_info(env, 'idx')
+    new_size = float(d['key_table_size_mb'])
+    env.assertEqual(new_size, expected_size)
 
     # Delete unexisting key, should not affect the key table size
     conn.execute_command('DEL', 'b:20')
     conn.execute_command('DEL', 'b:25')
-    env.assertEqual(float(d['key_table_size_mb']), key_table_size)
+    d = index_info(env, 'idx')
+    new_size = float(d['key_table_size_mb'])
+    env.assertEqual(new_size, expected_size)
