@@ -31,8 +31,7 @@ For installing the prerequisites you can take the following approaches:
 
     ```bash
     cd ./install
-    ./install_script.sh sudo
-    ./install_boost.sh 1.83.0
+    ./install_script.sh sudo  
     ```
     Note that this will install various packages on your system using the native package manager (sudo is not required in a Docker environment). 
 
@@ -79,8 +78,7 @@ To run the python behavioral tests you need to install the following dependencie
 if you don't want to install those manually, you can use the CI installation scripts to install the dependencies.
 
 ```bash
-.install/test_deps/common_installations.sh 
-.install/test_deps/install_rust.sh
+.install/test_deps/common_installations.sh
 ```
 Note those scripts will create a python virtual environment called `venv` and install the required dependencies in it.
 

@@ -34,7 +34,7 @@ function(setup_cc_options)
   # Common compiler flags
   set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -Werror=incompatible-pointer-types -Werror=implicit-function-declaration -fcommon" PARENT_SCOPE)
   set(CMAKE_CXX_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -std=c++20" PARENT_SCOPE)
-  
+
   # Release/Debug/Profile specific flags
   set(CMAKE_C_FLAGS_RELEASE "-O3" PARENT_SCOPE)
   set(CMAKE_CXX_FLAGS_RELEASE "-O3" PARENT_SCOPE)
@@ -186,12 +186,12 @@ if(APPLE)
     # Find OpenSSL on macOS
     find_package(OpenSSL REQUIRED)
     include_directories(${OPENSSL_INCLUDE_DIR})
-    
+
     if(DEFINED LIBSSL_DIR)
         include_directories(${LIBSSL_DIR}/include)
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L${LIBSSL_DIR}/lib")
     endif()
-    
+
     set(SSL_LIBS ${OPENSSL_LIBRARIES})
     set(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS} -dynamiclib")
 else()
@@ -215,6 +215,13 @@ endif()
 
 # Keep the include for hiredis
 include(${root}/build/hiredis/hiredis.cmake)
+include(${root}/build/boost/boost.cmake)
+if (NOT IS_DIRECTORY ${BOOST_DIR})
+    message(FATAL_ERROR "BOOST_DIR is not defined or does not point to a valid directory ${BOOST_DIR}")
+endif()
+
+set(BOOST_ROOT ${BOOST_DIR})
+set(Boost_NO_WARN_NEW_VERSIONS ON)
 
 include_directories(
     ${root}/src
@@ -243,6 +250,7 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
+add_subdirectory(src/util/hash)
 add_subdirectory(src/coord)
 
 #----------------------------------------------------------------------------------------------
@@ -292,8 +300,8 @@ if(BUILD_STATIC)
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch redisearch-geometry VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
-    
+    target_link_libraries(redisearch redisearch-geometry redisearch-hash VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
+
     # Link Rust library if available
     if(EXISTS "${binroot}/redisearch_rs/libtrie_rs.a")
         target_link_libraries(redisearch ${binroot}/redisearch_rs/libtrie_rs.a)
@@ -309,6 +317,7 @@ else() # OSS RediSearch
     setup_shared_object_target(redisearch "")
     target_link_libraries(redisearch
             redisearch-geometry
+            redisearch-hash
             VectorSimilarity
             redisearch-coord
             uv_a  # Changed from uv to uv_a (the static library target name)
@@ -316,7 +325,7 @@ else() # OSS RediSearch
             ${SSL_LIBS}
             ${REDISEARCH_LIBS}
             ${CMAKE_LD_LIBS})
-    
+
     # Link Rust library if available
     if(EXISTS "${binroot}/redisearch_rs/libtrie_rs.a")
         target_link_libraries(redisearch ${binroot}/redisearch_rs/libtrie_rs.a)
