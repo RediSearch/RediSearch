@@ -13,7 +13,7 @@ run_command() {
 # Set the default variables
 CURR_DIR=`pwd`
 ROOT=${ROOT:=$CURR_DIR}  # unless ROOT is set, assume it is the current directory
-BINROOT=${BINROOT:=${ROOT}/bin/linux-x64-release}
+BINROOT=${BINROOT:=${ROOT}/bin/linux-x86_64-release}
 
 JSON_BRANCH=${REJSON_BRANCH:-master}
 JSON_REPO_URL="https://github.com/RedisJSON/RedisJSON.git"

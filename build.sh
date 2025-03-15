@@ -77,6 +77,12 @@ parse_arguments() {
       QUICK=*)
         QUICK="${arg#*=}"
         ;;
+      SA=*)
+        SA="${arg#*=}"
+        ;;
+      REDIS_STANDALONE=*)
+        REDIS_STANDALONE="${arg#*=}"
+        ;;
       *)
         # Pass all other arguments directly to CMake
         CMAKE_ARGS="$CMAKE_ARGS -D${arg}"
@@ -406,7 +412,19 @@ run_python_tests() {
   # Set up environment variables required by runtests.sh
   export MODULE="$(realpath "$MODULE_PATH")"
   export BINROOT="$BINROOT"
+  export FULL_VARIANT="$FULL_VARIANT"
   export BINDIR="$BINDIR"
+  export REJSON="${REJSON:-1}"
+  export REJSON_BRANCH="${REJSON_BRANCH:-master}"
+  export REJSON_PATH="${REJSON_PATH:-}"
+  export REJSON_ARGS="${REJSON_ARGS:-}"
+  export TEST="${TEST:-}"
+  export FORCE="${FORCE:-}"
+  export PARALLEL="${PARALLEL:-1}"
+  export LOG_LEVEL="${LOG_LEVEL:-debug}"
+  export TEST_TIMEOUT="${TEST_TIMEOUT:-}"
+  export REDIS_STANDALONE="${REDIS_STANDALONE:-}"
+  export SA="${SA:-1}"
   
   # Set up test filter if provided
   if [[ -n "$TEST_FILTER" ]]; then
@@ -430,7 +448,7 @@ run_python_tests() {
   TESTS_SCRIPT="$ROOT/tests/pytests/runtests.sh"
   echo "Running Python tests with module at: $MODULE"
   
-  # Run the tests from the ROOT directory
+  # Run the tests from the ROOT directory with the requested params
   cd "$ROOT"
   $TESTS_SCRIPT
   

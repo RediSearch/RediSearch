@@ -24,8 +24,7 @@ if(POLICY CMP0077)
 endif()
 
 # Initialize build flags
-set(CMAKE_LD_FLAGS "")
-set(CMAKE_LD_LIBS "")
+set(CMAKE_LD_FLAGS "-pthread -shared -Bsymbolic -Bsymbolic-functions")
 
 # Always use .so extension even on macOS
 set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
@@ -33,20 +32,19 @@ set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 # Define compiler setup function
 function(setup_cc_options)
   # Common compiler flags
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-unused-function -Wno-unused-variable -fPIC -fno-strict-aliasing -Wno-sign-compare -Werror=incompatible-pointer-types" PARENT_SCOPE)
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-unused-function -Wno-unused-variable -fPIC -std=c++20 -Wno-sign-compare" PARENT_SCOPE)
+  set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -Werror=incompatible-pointer-types -Werror=implicit-function-declaration -fcommon" PARENT_SCOPE)
+  set(CMAKE_CXX_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -std=c++20" PARENT_SCOPE)
   
   # Release/Debug/Profile specific flags
-  set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3" PARENT_SCOPE)
-  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3" PARENT_SCOPE)
-  set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
-  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
-  set(CMAKE_C_FLAGS_PROFILE "${CMAKE_C_FLAGS_PROFILE} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
-  set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_PROFILE} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
-
+  set(CMAKE_C_FLAGS_RELEASE "-O3" PARENT_SCOPE)
+  set(CMAKE_CXX_FLAGS_RELEASE "-O3" PARENT_SCOPE)
+  set(CMAKE_C_FLAGS_DEBUG "-O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+  set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+  set(CMAKE_C_FLAGS_PROFILE "-O2 -fno-omit-frame-pointer" PARENT_SCOPE)
+  set(CMAKE_CXX_FLAGS_PROFILE "-O2 -fno-omit-frame-pointer" PARENT_SCOPE)
   # Initialize basic flags needed for builds
-  set(CMAKE_LD_FLAGS "" PARENT_SCOPE)
-  set(CMAKE_LD_LIBS "" PARENT_SCOPE)
+  set(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS}" PARENT_SCOPE)
+  set(CMAKE_LD_LIBS "${CMAKE_LD_LIBS}" PARENT_SCOPE)
 endfunction()
 
 # Define shared object setup function
@@ -79,7 +77,6 @@ option(BUILD_SEARCH_UNIT_TESTS "Build unit tests" OFF)
 option(BUILD_LITE "Build lite version" OFF)
 option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
 option(ENABLE_ASSERT "Enable assertions" OFF)
-
 # For cpu_features::list_cpu_features coming from VecSim
 option(BUILD_TESTING "Enable test rule" OFF)
 
