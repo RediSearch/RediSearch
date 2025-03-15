@@ -11,12 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  docs-only: # Check whether the PR is only modifying docs
-    uses: ./.github/workflows/task-check-docs.yml
 
   lint:
-    needs: [docs-only]
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/task-lint.yml
     with:
       env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
@@ -26,8 +22,6 @@ jobs:
     uses: ./.github/workflows/task-spellcheck.yml
 
   basic-test:
-    needs: [docs-only]
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/task-test.yml
     with:
       env: 'ubuntu-latest'
@@ -37,11 +31,9 @@ jobs:
     secrets: inherit
 
   coverage:
-    needs: docs-only
     if: >
       (
         vars.ENABLE_CODE_COVERAGE != 'false' &&
-        needs.docs-only.outputs.only-docs-changed == 'false' &&
         (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:coverage'))
       )
     uses: ./.github/workflows/flow-coverage.yml
@@ -50,10 +42,8 @@ jobs:
     secrets: inherit
 
   sanitize:
-    needs: [docs-only]
     if: >
       (
-        needs.docs-only.outputs.only-docs-changed == 'false' &&
         (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize'))
       )
     secrets: inherit
