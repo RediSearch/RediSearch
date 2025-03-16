@@ -15,7 +15,7 @@
 #include "query.h"
 #include <err.h>
 
-#define MAX_NAME_LEN 128
+#define MAX_NAME_LEN 1024
 
 /* The registry for query expanders. Initialized by Extensions_Init() */
 static TrieMap *queryExpanders_g = NULL;
@@ -50,8 +50,10 @@ void Extensions_Free() {
   }
 }
 
-/* Register a scoring function by its alias. privdata is an optional pointer to a user defined
- * struct. ff is a free function releasing any resources allocated at the end of query execution */
+/* Register a scoring function by its alias. privdata is an optional pointer to
+ * a user defined struct. ff is a free function releasing any resources
+ * allocated at the end of query execution.
+ * The alias is upper-cased, such that we can later support case insensitivity. */
 int Ext_RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFreeFunction ff,
                                 void *privdata) {
   if (func == NULL || scorers_g == NULL) {
@@ -61,6 +63,9 @@ int Ext_RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFre
   ctx->privdata = privdata;
   ctx->ff = ff;
   ctx->sf = func;
+
+  // Transform the name to upper case for case insensitivity.
+  char *upperName = char_tolower;
 
   /* Make sure that two scorers are never registered under the same name */
   size_t len = strlen(alias);
