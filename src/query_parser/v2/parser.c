@@ -2358,7 +2358,8 @@ yylhsminor.yy47 = yymsp[0].minor.yy47;
     yymsp[0].minor.yy0.type = QT_PARAM_VEC;
     yylhsminor.yy47 = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
     yylhsminor.yy47->vn.vq->property = rm_strndup(yymsp[-1].minor.yy0.s, yymsp[-1].minor.yy0.len);
-    RedisModule_Assert(-1 != (rm_asprintf(&yylhsminor.yy47->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy0.len, yymsp[-1].minor.yy0.s)));
+    int n_written = rm_asprintf(&yylhsminor.yy47->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy0.len, yymsp[-1].minor.yy0.s);
+    RS_ASSERT(n_written != -1);
   } else {
     reportSyntaxError(ctx->status, &yymsp[-3].minor.yy0, "Syntax error: Expecting Vector Similarity command");
     yylhsminor.yy47 = NULL;

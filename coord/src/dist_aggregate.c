@@ -277,7 +277,7 @@ static int getNextReply(RPNet *nc) {
   nc->current.root = root;
   nc->current.rows = rows;
 
-  assert(   !nc->current.rows
+  RS_ASSERT(!nc->current.rows
          || MRReply_Type(nc->current.rows) == MR_REPLY_ARRAY
          || MRReply_Type(nc->current.rows) == MR_REPLY_MAP);
   return 1;
@@ -591,7 +591,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
     rpProfile = RPProfile_New(&rpRoot->base, &r->qiter);
   }
 
-  assert(!r->qiter.rootProc);
+  RS_ASSERT(!r->qiter.rootProc);
   // Get the deepest-most root:
   int found = 0;
   for (ResultProcessor *rp = r->qiter.endProc; rp; rp = rp->upstream) {
@@ -750,7 +750,7 @@ static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Rep
 }
 
 static void DistAggregateCleanups(RedisModuleCtx *ctx, specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply, QueryError *status) {
-  assert(QueryError_HasError(status)); // TODO: change!!! to RS_ASSERT once merged with 2.10
+  RS_ASSERT(QueryError_HasError(status));
   QueryError_ReplyAndClear(ctx, status);
   SpecialCaseCtx_Free(knnCtx);
   if (r) AREQ_Free(r);

@@ -8,6 +8,7 @@
 #include "resp3.h"
 #include "info/field_spec_info.h"
 #include "../src/reply_macros.h"
+#include "rmutil/rm_assert.h"
 
 // Type of field returned in INFO
 typedef enum {
@@ -164,8 +165,8 @@ static void convertField(InfoValue *dst, MRReply *src, InfoFieldType type) {
 // Extract an array of FieldSpecInfo from MRReply
 void handleFieldStatistics(InfoFields *fields, MRReply *src, QueryError *error) {
   // Input validations
-  RedisModule_Assert(src && fields);
-  RedisModule_Assert(MRReply_Type(src) == MR_REPLY_ARRAY);
+  RS_ASSERT(src && fields);
+  RS_ASSERT(MRReply_Type(src) == MR_REPLY_ARRAY);
 
   size_t len = MRReply_Length(src);
   if (!fields->fieldSpecInfo_arr) {
