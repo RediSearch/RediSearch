@@ -103,6 +103,7 @@ TEST_F(ExtTest, testScorerRegistration) {
   std::string ucScorer(SCORER_NAME);
   std::transform(ucScorer.begin(), ucScorer.end(), ucScorer.begin(), toupper);
   ASSERT_TRUE(NULL != Extensions_GetScoringFunction(&scxp, ucScorer.c_str())) << ucScorer.c_str();
+  ASSERT_TRUE(NULL == Extensions_GetScoringFunction(&scxp, "notExistingScorer"));
 }
 
 TEST_F(ExtTest, testDynamicLoading) {
