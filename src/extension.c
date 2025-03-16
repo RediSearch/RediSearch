@@ -23,6 +23,43 @@ static TrieMap *queryExpanders_g = NULL;
 /* The registry for scorers. Initialized by Extensions_Init() */
 static TrieMap *scorers_g = NULL;
 
+/**
+ * @brief Converts a string to uppercase.
+ *
+ * This function takes an input string and converts all its characters to uppercase.
+ * The converted string is stored in the output buffer. The function ensures that
+ * the output string is null-terminated.
+ *
+ * @param[in] in The input string to be converted to uppercase.
+ * @param[out] out The output buffer where the uppercase string will be stored.
+ * @param[in] inLen The length of the input string. If inLen is less than 0, the function
+ *                  calculates the length of the input string using strlen().
+ * @param[in] maxLen The maximum length of the output buffer. The function will not write
+ *                   more than maxLen characters to the output buffer, including the null terminator.
+ *
+ * @note The output buffer must be large enough to hold the converted string and the null terminator.
+ *       If the input string is longer than maxLen, only the first maxLen-1 characters will be converted
+ *       and stored in the output buffer, followed by a null terminator.
+ *
+ * @example
+ * @code
+ * char input[] = "Hello, World!";
+ * char output[50];
+ * str_toUpper(input, output, strlen(input), sizeof(output));
+ * printf("Uppercase: %s\n", output); // Output: "HELLO, WORLD!"
+ * @endcode
+ */
+static inline void str_toUpper(const char *in, char *out, size_t inLen, size_t maxLen) {
+  if (inLen < 0) {
+    inLen = strlen(in);
+  }
+  size_t i = 0;
+  for (; i < inLen && i < maxLen; i++) {
+    out[i] = toupper(in[i]);
+  }
+  out[i] = '\0';
+}
+
 /* Init the extension system - currently just create the regsistries */
 void Extensions_Init() {
   if (!queryExpanders_g) {
@@ -65,16 +102,17 @@ int Ext_RegisterScoringFunction(const char *alias, RSScoringFunction func, RSFre
   ctx->sf = func;
 
   // Transform the name to upper case for case insensitivity.
-  char *upperName = char_tolower;
+  size_t inLen = strlen(alias);
+  char upperAlias[MAX_NAME_LEN];
+  str_toUpper(alias, upperAlias, inLen, MAX_NAME_LEN);
 
   /* Make sure that two scorers are never registered under the same name */
-  size_t len = strlen(alias);
-  if (TrieMap_Find(scorers_g, alias, len) != TRIEMAP_NOTFOUND) {
+  if (TrieMap_Find(scorers_g, upperAlias, inLen) != TRIEMAP_NOTFOUND) {
     rm_free(ctx);
     return REDISEARCH_ERR;
   }
 
-  TrieMap_Add(scorers_g, alias, len, ctx, NULL);
+  TrieMap_Add(scorers_g, upperAlias, inLen, ctx, NULL);
   return REDISEARCH_OK;
 }
 
@@ -146,10 +184,7 @@ ExtScoringFunctionCtx *Extensions_GetScoringFunction(ScoringFunctionArgs *fnargs
   // Transform the name to upper case for case insensitivity.
   char upperName[MAX_NAME_LEN];
   size_t inLen = strlen(name);
-  for (size_t i = 0; i < inLen && i < MAX_NAME_LEN; i++) {
-    upperName[i] = toupper(name[i]);
-  }
-  upperName[inLen] = '\0';
+  str_toUpper(name, upperName, inLen, MAX_NAME_LEN);
 
 /* lookup the scorer by name (case sensitive) */
 ExtScoringFunctionCtx *p = TrieMap_Find(scorers_g, upperName, inLen);

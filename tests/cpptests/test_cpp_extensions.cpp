@@ -70,7 +70,7 @@ int myRegisterFunc(RSExtensionCtx *ctx) {
   return REDISEARCH_OK;
 }
 
-TEST_F(ExtTest, testRegistration) {
+TEST_F(ExtTest, testExpanderRegistration) {
   numFreed = 0;
 
   RSQueryExpanderCtx qexp;
@@ -81,12 +81,17 @@ TEST_F(ExtTest, testRegistration) {
   ASSERT_TRUE(qexp.privdata == qx->privdata);
   qx->ff(qx->privdata);
   ASSERT_EQ(1, numFreed);
-  // verify case sensitivity and null on not-found
 
+  // verify case sensitivity and null on not-found
   std::string ucExpander(EXPANDER_NAME);
   std::transform(ucExpander.begin(), ucExpander.end(), ucExpander.begin(), toupper);
   ASSERT_TRUE(NULL == Extensions_GetQueryExpander(&qexp, ucExpander.c_str()));
+}
 
+TEST_F(ExtTest, testScorerRegistration) {
+  numFreed = 0;
+
+  // The scorer returns NULL on not-found, but is case-insensitive
   ScoringFunctionArgs scxp;
   ExtScoringFunctionCtx *sx = Extensions_GetScoringFunction(&scxp, SCORER_NAME);
   ASSERT_TRUE(sx != NULL);
@@ -94,10 +99,10 @@ TEST_F(ExtTest, testRegistration) {
   ASSERT_TRUE(sx->ff == myFreeFunc);
   ASSERT_TRUE(sx->sf == myScorer);
   sx->ff(sx->privdata);
-  ASSERT_EQ(2, numFreed);
+  ASSERT_EQ(1, numFreed);
   std::string ucScorer(SCORER_NAME);
   std::transform(ucScorer.begin(), ucScorer.end(), ucScorer.begin(), toupper);
-  ASSERT_TRUE(NULL == Extensions_GetScoringFunction(&scxp, ucScorer.c_str()));
+  ASSERT_TRUE(NULL != Extensions_GetScoringFunction(&scxp, ucScorer.c_str())) << ucScorer.c_str();
 }
 
 TEST_F(ExtTest, testDynamicLoading) {
