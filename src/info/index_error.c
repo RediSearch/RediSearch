@@ -75,7 +75,7 @@ void IndexError_Clear(IndexError error) {
     }
 }
 
-void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_timestamp, bool withBgIndexingStatus) {
+void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_timestamp, bool indexErrorsOnly) {
     RedisModule_Reply_Map(reply);
     REPLY_KVINT(IndexingFailure_String, IndexError_ErrorCount(error));
     REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastError(error));
@@ -89,7 +89,7 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
     }
 
     // Should only be displayed in "Index Errors", and not in, for example, "Field Statistics".
-    if (withBgIndexingStatus)
+    if (indexErrorsOnly)
         REPLY_KVSTR_SAFE(BackgroundIndexingOOMfailure_String, IndexError_HasBackgroundIndexingOOMFailure(error) ? outOfMemoryFailure  : OK);
 
     RedisModule_Reply_MapEnd(reply);

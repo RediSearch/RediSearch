@@ -1,5 +1,7 @@
-from common import getConnectionByEnv, index_info, to_dict, skip, waitForIndex, Env
-
+from common import getConnectionByEnv, index_info, to_dict, skip, waitForIndex, Env, \
+    bgScanCommand, waitForIndexPauseScan, getDebugScannerStatus, set_tight_maxmemory_for_oom, waitForIndexStatus, \
+    waitForIndexFinishScan, config_cmd, forceInvokeGC
+import time
 
 
 # String constants for the info command output.
@@ -416,51 +418,139 @@ def test_multiple_index_failures_json(env):
 
 @skip(cluster=True)
 def test_stop_background_indexing_on_low_mem(env):
-  con = getConnectionByEnv(env)
-  # Insert document that will be indexed later
-  con.hset('doc1', 't', 'hello')
-  # Set the maxmemory to a value that will cause the background indexing to fail.
-  used_memory = con.info('memory')['used_memory']
-  con.config_set('maxmemory',  int(used_memory * 1.1))
+    num_docs = 1000
+    for i in range(num_docs):
+        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
-  # Create an index with a text field. The background indexing should fail.
-  env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
-  # Check that the index has no documents.
-  info = index_info(env)
-  env.assertEqual(info['num_docs'], 0)
-  global_index_errors = get_global_index_errors_dict(info)
-  expected_error_dict = {
-    indexing_failures_str: 1,
-    last_indexing_error_key_str: 'doc1',
-    last_indexing_error_str: 'Used memory is more than 80% of max memory, cancelling the scan',
-    bg_index_status_str : 'OOM failure'
-  }
-  env.assertEqual(global_index_errors, expected_error_dict)
+    # Set pause on OOM
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+    # Set pause after quarter of the docs were scanned
+    num_docs_scanned = num_docs//4
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndexPauseScan(env, 'idx')
+
+    # At this point num_docs_scanned were scanned
+    # Now we set the tight memory limit
+    set_tight_maxmemory_for_oom(env)
+    # After we resume, an OOM should trigger
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+    # Wait for OOM
+    waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
+    # Resume the indexing
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+    # Wait for the indexing to finish
+    waitForIndexFinishScan(env, 'idx')
+    # Verify that only num_docs_scanned were indexed
+    docs_in_index = index_info(env)['num_docs']
+    env.assertEqual(docs_in_index, num_docs_scanned)
+    # Verify that used_memory is close to 80% (default) of maxmemory
+    used_memory = env.cmd('INFO', 'MEMORY')['used_memory']
+    max_memory = env.cmd('INFO', 'MEMORY')['maxmemory']
+    memory_ratio = used_memory / max_memory
+    env.assertAlmostEqual(memory_ratio, 0.8, delta=0.1)
 
 @skip(cluster=True)
-def test_stop_indexing_low_mem_verbosity():
-  env = Env(protocol=3)
-  con = getConnectionByEnv(env)
-  con.hset('doc1', 't', 'hello')
-  used_memory = con.info('memory')['used_memory']
-  con.config_set('maxmemory',  int(used_memory * 1.1))
-  num_indexes_to_create = 10
-  for i in range(num_indexes_to_create):
-    env.expect('ft.create', f'idx{i}', 'SCHEMA', 't', 'text').ok()
-    used_memory = con.info('memory')['used_memory']
-    con.config_set('maxmemory',  int(used_memory * 1.1))
+def test_stop_indexing_low_mem_verbosity(env):
+  # Create OOM
+  num_docs = 10
+  for i in range(num_docs):
+      env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+  # Set pause on OOM
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+  # Set pause before scanning
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 1).ok()
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+  # Wait for pause before scanning
+  waitForIndexPauseScan(env, 'idx')
+  # Set tight memory limit
+  set_tight_maxmemory_for_oom(env)
+  # Resume indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+  # Wait for OOM
+  waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
+  # Resume the indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+  # Wait for the indexing to finish
+  waitForIndexFinishScan(env, 'idx')
 
-  # Check ft.info for the last index error
-  info = index_info(env,idx='idx0')
-  env.assertEqual(info['num_docs'], 0)
-  global_index_errors = get_global_index_errors_dict(info)
-  expected_error_dict = {
-    indexing_failures_str: 1,
-    last_indexing_error_key_str: 'doc1',
-    last_indexing_error_str: 'Used memory is more than 80% of max memory, cancelling the scan',
-    bg_index_status_str : 'OOM failure'
-  }
-  env.assertEqual(global_index_errors, expected_error_dict)
+  # Verify ft info
+  info = index_info(env)
+  error_dict = to_dict(info["Index Errors"])
+  bgIndexingStatusStr = "background indexing status"
+  OOMfailureStr = "OOM failure"
+  env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
 
-  # Check info metric for amount of failed indexes
-  con.info('modules')['search_OOM_indexing_failures_indexes_count'] == num_indexes_to_create
+  # Verify info metric
+  # Only one index was created
+  index_oom_count = env.cmd('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+  env.assertEqual(index_oom_count, 1)
+
+@skip(cluster=True)
+def test_delete_during_bg_indexing(env):
+  # Test deleting an index while it is being indexed in the background
+  n_docs = 1000
+  for i in range(n_docs):
+    env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
+  # Set GC to delete everything immediately
+  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+   # Set pause before indexing
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+  # Create an index with a text field.
+  env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
+  waitForIndexStatus(env, 'NEW')
+  # Delete the index
+  env.expect('ft.drop', 'idx').ok()
+  # Resume indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
+  # Check that the index does not exist
+  env.expect('ft._list').equal([])
+
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'false').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', n_docs//2).ok()
+
+  env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
+  waitForIndexPauseScan(env, 'idx')
+  # Delete the index
+  env.expect('ft.drop', 'idx').ok()
+  # Resume indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
+  # Check that the index does not exist
+  env.expect('ft._list').equal([])
+
+def test_delete_docs_during_bg_indexing(env):
+  # Test deleting docs while they are being indexed in the background
+  n_docs = 1000
+  for i in range(n_docs):
+    env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
+
+  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '1').ok()
+  env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '1').ok()
+
+  # Set pause after half of the docs were scanned
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', n_docs//2).ok()
+  # Create an index with a text field.
+  env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
+  waitForIndexPauseScan(env, 'idx')
+  # Set tight memory limit
+  set_tight_maxmemory_for_oom(env)
+  # Delete the 100 first docs
+  for i in range(n_docs//10):
+    env.expect('DEL', f'doc{i}').equal(1)
+  time.sleep(10)
+  # Resume indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
+  # Wait for the indexing to finish
+  waitForIndexFinishScan(env, 'idx')
+  # Verify OOM status
+  info = index_info(env)
+  error_dict = to_dict(info["Index Errors"])
+  bgIndexingStatusStr = "background indexing status"
+  OOMfailureStr = "OOM failure"
+  env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
+  # Verify that close to n_docs//2 + 100 docs were indexed
+  docs_in_index = info['num_docs']
+  env.assertAlmostEqual(docs_in_index, 600, delta=10)

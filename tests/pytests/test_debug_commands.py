@@ -516,7 +516,7 @@ def testPauseBeforeScan(env: Env):
     env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
 
     env.expect('FT.CREATE', 'idx2', 'SCHEMA', 'name', 'TEXT').ok()
-    env.assertEqual(getDebugScannerStatus(env, 'idx2'), 'NEW')
+    waitForIndexStatus(env, 'NEW', 'idx2')
 
     idx_info = index_info(env, 'idx2')
     env.assertEqual(idx_info['indexing'], 1)
@@ -542,7 +542,7 @@ def testDebugScannerStatus(env: Env):
     env.expect(bgScanCommand(), 'SET_MAX_SCANNED_DOCS', max_scanned).ok()
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-    env.assertEqual(getDebugScannerStatus(env, 'idx'), 'NEW')
+    waitForIndexStatus(env, 'NEW')
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
     waitForIndexPauseScan(env, 'idx')
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
