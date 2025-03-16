@@ -196,7 +196,6 @@ if(APPLE)
     set(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS} -dynamiclib")
 else()
     set(SSL_LIBS crypto crypt ssl)
-    set(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS} -shared -Bsymbolic -Bsymbolic-functions")
 endif()
 
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
@@ -209,9 +208,6 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 # Include external dependencies
-
-# Remove the include for external libuv
-# include(${root}/build/libuv/libuv.cmake)
 
 # Keep the include for hiredis
 include(${root}/build/hiredis/hiredis.cmake)
