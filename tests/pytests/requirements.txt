@@ -1,6 +1,6 @@
 packaging >= 20.8
 gevent
-deepdiff <= 3.8.0
+deepdiff <= 8.3.0
 redis ~= 5.0.8
 RLTest >= 0.7.11
 numpy >= 1.21.6
