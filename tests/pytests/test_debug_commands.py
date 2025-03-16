@@ -53,9 +53,7 @@ class TestDebugCommands(object):
             "DELETE_LOCAL_CURSORS",
             "DUMP_HNSW",
             'FT.AGGREGATE',
-            '_FT.AGGREGATE',
             'FT.SEARCH',
-            '_FT.SEARCH',
         ]
         if MT_BUILD:
             help_list.append('WORKERS')

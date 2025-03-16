@@ -462,7 +462,7 @@ def testTimeoutPartialWithEmptyResults(env):
 
     timeout_res_count = 0
     cursor_count = 5
-    res, cursor = env.cmd('_ft.debug', 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'count',
+    res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'count',
                           cursor_count, 'TIMEOUT_AFTER_N', timeout_res_count, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3)
     VerifyTimeoutWarningResp3(env, res)
 

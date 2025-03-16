@@ -44,7 +44,7 @@ def TestLimitWithCursor():
 
     # query with timeout
     timeout_res_count = num_docs // 4
-    res, cursor = env.cmd('_ft.debug', 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', num_docs, 'LIMIT', 0, num_docs, 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', num_docs, 'LIMIT', 0, num_docs, 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
     total_res = len(res["results"])
 
     while (cursor):
