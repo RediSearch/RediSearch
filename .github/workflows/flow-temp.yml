@@ -30,7 +30,6 @@ jobs:
 
   test-rocky8:
     needs: [ get-latest-redis-tag]
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
