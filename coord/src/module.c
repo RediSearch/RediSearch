@@ -1665,7 +1665,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   // Coord callback
   ConcurrentCmdHandler dist_callback = RSExecDistAggregate;
-  bool isDebug = (RMUtil_ArgIndex("FT.DEBUG", argv, 1) != -1);
+  bool isDebug = (RMUtil_ArgIndex("_FT.DEBUG", argv, 1) != -1);
   if (isDebug) {
     argv++;
     argc--;
@@ -2197,7 +2197,7 @@ static int DEBUG_FlatSearchCommandHandler(RedisModuleBlockedClient *bc, int prot
     return REDISMODULE_OK;
   }
 
-  MRCommand cmd = MR_NewCommandFromRedisStrings(argc, argv);
+  MRCommand cmd = MR_NewCommandFromRedisStrings(base_argc, argv);
   prepareCommand(&cmd, req, protocol, argv, argc);
 
   MRCommand_Insert(&cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);

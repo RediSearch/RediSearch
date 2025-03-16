@@ -563,6 +563,7 @@ class TestQueryDebugCommands(object):
         self.SearchDebug()
 
     def testSearchDebug_MT(self):
+        skipTest(noWorkers=True)
         self.env.expect(config_cmd(), 'SET', 'WORKERS', 4).ok()
         self.SearchDebug()
         self.env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
@@ -629,6 +630,7 @@ class TestQueryDebugCommands(object):
         self.AggregateDebug()
 
     def testAggregateDebug_MT(self):
+        skipTest(noWorkers=True)
         self.env.expect(config_cmd(), 'SET', 'WORKERS', 4).ok()
         self.AggregateDebug()
         self.env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()

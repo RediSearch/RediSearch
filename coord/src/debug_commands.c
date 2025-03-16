@@ -44,7 +44,7 @@ DEBUG_COMMAND(clearTopology) {
 
 DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
   // at least one debug_param should be provided
-  // (1)FT.DEBUG (2)FT.AGGREGATE (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  // (1)_FT.DEBUG (2)FT.AGGREGATE (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
   if (argc < 7) {
     return RedisModule_WrongArity(ctx);
   }
@@ -54,7 +54,7 @@ DEBUG_COMMAND(DistAggregateCommand_DebugWrapper) {
 
 DEBUG_COMMAND(DistSearchCommand_DebugWrapper) {
   // at least one debug_param should be provided
-  // (1)FT.DEBUG (2)FT.SEARCH (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  // (1)_FT.DEBUG (2)FT.SEARCH (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
   if (argc < 7) {
     return RedisModule_WrongArity(ctx);
   }

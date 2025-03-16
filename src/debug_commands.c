@@ -22,6 +22,13 @@
 #include "cursor.h"
 #include "module.h"
 #include "aggregate/aggregate_debug.h"
+#ifdef RS_COORDINATOR
+#ifndef RS_CLUSTER_ENTERPRISE
+#define RS_CLUSTER_OSS
+#endif
+#endif
+
+#include "commands.h"
 
 #define GET_SEARCH_CTX(name)                                        \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
@@ -1237,7 +1244,7 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
 
 DEBUG_COMMAND(RSSearchCommandShard) {
   // at least one debug_param should be provided
-  // (1)_FT.DEBUG (2)FT.SEARCH (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  // (1)FT.DEBUG (2)FT.SEARCH (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
   if (argc < 7) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1248,7 +1255,7 @@ DEBUG_COMMAND(RSSearchCommandShard) {
 
 DEBUG_COMMAND(RSAggregateCommandShard) {
   // at least one debug_param should be provided
-  // (1)_FT.DEBUG (2)FT.AGGREGATE (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  // (1)FT.DEBUG (2)FT.AGGREGATE (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
   if (argc < 7) {
     return RedisModule_WrongArity(ctx);
   }
@@ -1285,16 +1292,14 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_INFO", VecsimInfo},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DUMP_HNSW", dumpHNSWData},
-#ifdef MT_BUILD
-                               {"WORKERS", WorkerThreadsSwitch},
-#endif
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
-                               {"FT.AGGREGATE", RSAggregateCommandShard},
-                               {"_FT.AGGREGATE", RSAggregateCommandShard}, // internal use only, in SA use FT.AGGREGATE
-                               {"FT.SEARCH", RSSearchCommandShard},
-                               {"_FT.SEARCH", RSSearchCommandShard}, // internal use only, in SA use FT.SEARCH
+                               {RS_AGGREGATE_CMD, RSAggregateCommandShard},
+                               {RS_SEARCH_CMD, RSSearchCommandShard},
+#ifdef MT_BUILD
+                               {"WORKERS", WorkerThreadsSwitch},
+#endif
                                {NULL, NULL}};
 
 int DebugHelpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
