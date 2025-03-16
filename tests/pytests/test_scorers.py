@@ -545,6 +545,10 @@ def testLowerCaseScorerNames(env: Env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
     conn.execute_command('HSET', 'doc1', 'title', 'hello')
 
-    for scorer in ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'BM25STD', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE']:
+    for upper_case_scorer in ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'BM25STD', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE']:
+        lower_case_scorer = upper_case_scorer.lower()
         # No error should be encountered in these commands
-        conn.execute_command('FT.SEARCH', 'idx', 'hello', 'SCORER', scorer)
+        env.assertEqual(
+            conn.execute_command('FT.SEARCH', 'idx', 'hello', 'SCORER', upper_case_scorer),
+            conn.execute_command('FT.SEARCH', 'idx', 'hello', 'SCORER', lower_case_scorer)
+        )
