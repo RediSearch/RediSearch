@@ -18,8 +18,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
 int IsMaster();
 int IsEnterprise();
 
-size_t GetNumShards_UnSafe();
-
 void GetFormattedRedisVersion(char *buf, size_t len);
 void GetFormattedRedisEnterpriseVersion(char *buf, size_t len);
 
