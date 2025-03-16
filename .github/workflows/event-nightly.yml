@@ -37,7 +37,6 @@ jobs:
       test-config: QUICK=1
       san: address
       env: ubuntu-latest
-      container: ubuntu:jammy
 
   notify-failure:
     needs: [test-linux, test-macos, coverage, sanitize]

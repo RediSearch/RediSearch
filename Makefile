@@ -51,6 +51,11 @@ make test          # run all tests
   SA=1|0               # alias for REDIS_STANDALONE
   TEST=name            # run specified test
 
+make lint          # run linters and exit with an error if warnings are found
+make fmt           # format the source files using the appropriate auto-formatter
+  CHECK=1              # don't modify the source files, but exit with an error if
+                       # running the auto-formatter would result in changes
+
 make pytest        # run python tests (tests/pytests)
   REDIS_STANDALONE=1|0 # test with standalone/cluster Redis
   SA=1|0               # alias for REDIS_STANDALONE
@@ -427,7 +432,7 @@ endif
 
 test: unit-tests pytest rust-tests
 
-unit-tests:
+unit-tests: rust-tests
 	$(SHOW)BINROOT=$(BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
 rust-tests:
@@ -452,6 +457,26 @@ vecsim-bench:
 	$(SHOW)$(BINROOT)/search/tests/cpptests/rsbench
 
 .PHONY: test unit-tests pytest rust-tests c_tests cpp_tests vecsim-bench
+
+#----------------------------------------------------------------------------------------------
+
+lint:
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo clippy -- -D warnings
+
+.PHONY: lint
+
+#----------------------------------------------------------------------------------------------
+
+ifeq ($(CHECK),1)
+RUSTFMT_FLAGS="--check"
+else
+RUSTFMT_FLAGS=""
+endif
+
+fmt:
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo fmt -- $(RUSTFMT_FLAGS)
+
+.PHONY: fmt
 
 #----------------------------------------------------------------------------------------------
 

@@ -1575,8 +1575,8 @@ static YYACTIONTYPE yy_reduce(
     // we keep the capitalization as is
     yylhsminor.yy75 = NewGeofilterNode(yymsp[0].minor.yy62);
     if (ctx->sctx->spec) {
-        yylhsminor.yy75->gn.gf->spec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-        if (!yylhsminor.yy75->gn.gf->spec) {
+        yylhsminor.yy75->gn.gf->fieldSpec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+        if (!yylhsminor.yy75->gn.gf->fieldSpec) {
             QueryNode_Free(yylhsminor.yy75);
             yylhsminor.yy75 = NULL;
         }

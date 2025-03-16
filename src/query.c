@@ -1945,7 +1945,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     case QN_GEO:
-      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", qs->gn.gf->spec->name, qs->gn.gf->lon,
+      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", qs->gn.gf->fieldSpec->name, qs->gn.gf->lon,
                        qs->gn.gf->lat, qs->gn.gf->radius,
                        GeoDistance_ToString(qs->gn.gf->unitType));
       break;

@@ -555,8 +555,8 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
     A = NewGeofilterNode(C);
     if (ctx->sctx->spec) {
-        A->gn.gf->spec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
-        if (!A->gn.gf->spec) {
+        A->gn.gf->fieldSpec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
+        if (!A->gn.gf->fieldSpec) {
             QueryNode_Free(A);
             A = NULL;
         }

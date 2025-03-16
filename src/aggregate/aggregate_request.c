@@ -19,6 +19,7 @@
 #include "util/timeout.h"
 #include "query_optimizer.h"
 #include "resp3.h"
+#include "obfuscation/hidden.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -1005,12 +1006,11 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
           continue; // Keep the filter entry in the legacy filters array for AREQ_Free()
         }
       }
-      if (filter->field) {
-        // Need to free the hidden string since we pass the base pointer to the query AST
-        // And we are about to zero out the filter in the legacy filters
-        HiddenString_Free(filter->field, false);
-        filter->field = NULL;
-      }
+      RS_ASSERT(filter->field);
+      // Need to free the hidden string since we pass the base pointer to the query AST
+      // And we are about to zero out the filter in the legacy filters
+      HiddenString_Free(filter->field, false);
+      filter->field = NULL;
       QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = &filter->base};
       QAST_SetGlobalFilters(ast, &legacyFilterOpts);
       opts->legacy.filters[ii] = NULL;  // so AREQ_Free() doesn't free the filters themselves, which
@@ -1022,7 +1022,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       LegacyGeoFilter *gf = opts->legacy.geo_filters[ii];
 
       const FieldSpec *fs = IndexSpec_GetField(sctx->spec, HiddenString_GetUnsafe(gf->field, NULL));
-      gf->base.spec = fs;
+      gf->base.fieldSpec = fs;
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         if (dialect != 1) {
           const char *generalError = fs ? "Field is not a geo field" : "Unknown Field";
@@ -1034,12 +1034,11 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
           QAST_SetGlobalFilters(ast, &legacyOpts);
         }
       } else {
-        if (gf->field) {
-          // Need to free the hidden string since we pass the base pointer to the query AST
-          // And we are about to zero out the filter in the legacy filters
-          HiddenString_Free(gf->field, false);
-          gf->field = NULL;
-        }
+        RS_ASSERT(gf->field);
+        // Need to free the hidden string since we pass the base pointer to the query AST
+        // And we are about to zero out the filter in the legacy filters
+        HiddenString_Free(gf->field, false);
+        gf->field = NULL;
         QAST_GlobalFilterOptions legacyOpts = {.geo = &gf->base};
         QAST_SetGlobalFilters(ast, &legacyOpts);
         opts->legacy.geo_filters[ii] = NULL;  // so AREQ_Free() doesn't free the filter itself, which is now owned

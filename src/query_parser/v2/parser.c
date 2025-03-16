@@ -2268,7 +2268,7 @@ static YYACTIONTYPE yy_reduce(
     QueryParam_Free(yymsp[0].minor.yy62);
   } else if (yymsp[0].minor.yy62) {
     // we keep the capitalization as is
-    yymsp[0].minor.yy62->gf->spec = yymsp[-2].minor.yy150.fs;
+    yymsp[0].minor.yy62->gf->fieldSpec = yymsp[-2].minor.yy150.fs;
     yylhsminor.yy3 = NewGeofilterNode(yymsp[0].minor.yy62);
   }
 }
