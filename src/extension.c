@@ -15,6 +15,8 @@
 #include "query.h"
 #include <err.h>
 
+#define MAX_NAME_LEN 128
+
 /* The registry for query expanders. Initialized by Extensions_Init() */
 static TrieMap *queryExpanders_g = NULL;
 
@@ -136,8 +138,16 @@ ExtScoringFunctionCtx *Extensions_GetScoringFunction(ScoringFunctionArgs *fnargs
 
   if (!scorers_g) return NULL;
 
-  /* lookup the scorer by name (case sensitive) */
-  ExtScoringFunctionCtx *p = TrieMap_Find(scorers_g, (char *)name, strlen(name));
+  // Transform the name to upper case for case insensitivity.
+  char upperName[MAX_NAME_LEN];
+  size_t inLen = strlen(name);
+  for (size_t i = 0; i < inLen && i < MAX_NAME_LEN; i++) {
+    upperName[i] = toupper(name[i]);
+  }
+  upperName[inLen] = '\0';
+
+/* lookup the scorer by name (case sensitive) */
+ExtScoringFunctionCtx *p = TrieMap_Find(scorers_g, upperName, inLen);
   if (p && (void *)p != TRIEMAP_NOTFOUND) {
     /* if no ctx was given, we just return the scorer */
     if (fnargs) {

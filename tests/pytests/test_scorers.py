@@ -537,3 +537,14 @@ def testBM25STDScoreWithWeight(env: Env):
 def testBM25ScoreWithWeight(env: Env):
     scorer_with_weight_test(env, 'BM25')
 
+def testLowerCaseScorerNames(env: Env):
+    """Tests that lower-case scorer names are valid as well as upper-case ones"""
+
+    conn = env.getClusterConnectionIfNeeded()
+
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    conn.execute_command('HSET', 'doc1', 'title', 'hello')
+
+    for scorer in ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'BM25STD', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE']:
+        # No error should be encountered in these commands
+        conn.execute_command('FT.SEARCH', 'idx', 'hello', 'SCORER', scorer)
