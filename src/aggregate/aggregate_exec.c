@@ -576,11 +576,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     // TODO: Move this to after the results section, so that we can report the
     // correct number of returned results.
     // <total_results>
-    if (ShouldReplyWithTimeoutError(rc, req)) {
-      RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
-    } else {
-      RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
-    }
+    RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
 
     // <format>
     if (req->reqflags & QEXEC_FORMAT_EXPAND) {
