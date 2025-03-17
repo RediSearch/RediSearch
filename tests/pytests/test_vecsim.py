@@ -495,7 +495,7 @@ def test_index_errors():
     env.assertEqual(index_errors(env)['indexing failures'], error_count)
     env.assertEqual(index_errors(env)['last indexing error'], 'N/A')
     env.assertEqual(index_errors(env)['last indexing error key'], 'N/A')
-    env.assertEqual(field_errors(env), index_errors(env))
+    assertEqual_dicts_on_intersection(field_errors(env), index_errors(env))
 
     for i in range(0, 5, 2):
         conn.execute_command('HSET', i, 'v', create_np_array_typed([0]).tobytes())
@@ -504,7 +504,7 @@ def test_index_errors():
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
         env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 4 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i))
-        env.assertEqual(cur_index_errors, field_errors(env))
+        assertEqual_dicts_on_intersection(cur_index_errors, field_errors(env))
 
         conn.execute_command('HSET', i + 1, 'v', create_np_array_typed([0, 0, 0]).tobytes())
         error_count += 1
@@ -512,7 +512,7 @@ def test_index_errors():
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
         env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 12 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i + 1))
-        env.assertEqual(cur_index_errors, field_errors(env))
+        assertEqual_dicts_on_intersection(cur_index_errors, field_errors(env))
 
 
 def test_search_errors():
@@ -2429,7 +2429,7 @@ def test_switch_write_mode_multiple_indexes(env):
     if bg_indexing == 0:
         prefix = "::warning title=Bad scenario in test_vecsim:test_switch_write_mode_multiple_indexes::" if GHA else ''
         print(f"{prefix}All vectors were done reindex before switching back to in-place mode")
-        
+
 def test_max_knn_k():
     env = Env(moduleArgs='DEFAULT_DIALECT 3')
     conn = getConnectionByEnv(env)

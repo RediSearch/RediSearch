@@ -32,7 +32,8 @@ def test_vector_index_failures(env):
     expected_error_dict = {
                             indexing_failures_str: 1,
                             last_indexing_error_str: 'Could not add vector with blob size 4 (expected size 8)',
-                            last_indexing_error_key_str: 'doc{1}'
+                            last_indexing_error_key_str: 'doc{1}',
+                            'background indexing status': 'OK'
                           }
 
     field_spec_dict = get_field_stats_dict(info)
@@ -63,7 +64,8 @@ def test_numeric_index_failures(env):
     expected_error_dict = {
                             indexing_failures_str: 1,
                             last_indexing_error_str: 'Invalid numeric value: \'aaaa\'',
-                            last_indexing_error_key_str: 'doc{1}'
+                            last_indexing_error_key_str: 'doc{1}',
+                            'background indexing status': 'OK'
                           }
 
 
@@ -91,7 +93,8 @@ def test_alter_failures(env):
       indexing_failures_str: 0,
       last_indexing_error_str: 'N/A',
       last_indexing_error_key_str: 'N/A',
-  }
+      'background indexing status': 'OK'
+      }
 
   # No error was encountered
   env.assertEqual(to_dict(info["Index Errors"]), expected_error_dict)
@@ -114,8 +117,9 @@ def test_alter_failures(env):
   expected_error_dict = {
       indexing_failures_str: 1,
       last_indexing_error_str: f"Invalid numeric value: \'meow\'",
-      last_indexing_error_key_str: 'doc'
-  }
+      last_indexing_error_key_str: 'doc',
+      'background indexing status': 'OK'
+      }
 
   env.assertEqual(to_dict(info["Index Errors"]), expected_error_dict)
 
@@ -150,8 +154,9 @@ def test_mixed_index_failures(env):
     expected_error_dict = {
                             indexing_failures_str: 1,
                             last_indexing_error_str: 'Invalid numeric value: \'aaaa\'',
-                            last_indexing_error_key_str: 'doc{1}'
-                          }
+                            last_indexing_error_key_str: 'doc{1}',
+                            'background indexing status': 'OK'
+                            }
 
     field_spec_dict = get_field_stats_dict(info, 0)
     error_dict = to_dict(field_spec_dict["Index Errors"])
@@ -178,8 +183,9 @@ def test_mixed_index_failures(env):
     expected_error_dict = {
                             indexing_failures_str: 1,
                             last_indexing_error_str: 'Could not add vector with blob size 4 (expected size 8)',
-                            last_indexing_error_key_str: 'doc{1}'
-                          }
+                            last_indexing_error_key_str: 'doc{1}',
+                            'background indexing status': 'OK'
+                            }
 
     field_spec_dict = get_field_stats_dict(info, 1)
     error_dict = to_dict(field_spec_dict["Index Errors"])
@@ -210,8 +216,9 @@ def test_geo_index_failures(env):
     expected_error_dict = {
                             indexing_failures_str: 1,
                             last_indexing_error_str: 'Invalid geo string',
-                            last_indexing_error_key_str: 'doc{1}'
-                          }
+                            last_indexing_error_key_str: 'doc{1}',
+                            'background indexing status': 'OK'
+                            }
 
     field_spec_dict = get_field_stats_dict(info)
     error_dict = to_dict(field_spec_dict["Index Errors"])
@@ -237,8 +244,9 @@ def test_geo_index_failures(env):
   expected_error_dict = {
                           indexing_failures_str: 1,
                           last_indexing_error_str: 'Invalid geo coordinates: 1000.000000, 1000.000000',
-                          last_indexing_error_key_str: 'doc{1}'
-                        }
+                          last_indexing_error_key_str: 'doc{1}',
+                          'background indexing status': 'OK'
+                          }
 
   for _ in env.reloadingIterator():
     info = index_info(env)
@@ -311,8 +319,9 @@ def test_multiple_index_failures(env):
         expected_error_dict = {
             indexing_failures_str: 1,
             last_indexing_error_str: f"Invalid numeric value: '{index_to_errors_strings[idx]}'",
-            last_indexing_error_key_str: 'doc'
-        }
+            last_indexing_error_key_str: 'doc',
+            'background indexing status': 'OK'
+            }
 
         # Both indices contain one error for the same document.
         error_dict = to_dict(info["Index Errors"])
@@ -356,8 +365,9 @@ def test_vector_indexing_with_json(env):
     expected_error_dict = {
                             indexing_failures_str: 1,
                             last_indexing_error_str: 'Invalid vector length. Expected 2, got 3',
-                            last_indexing_error_key_str: 'doc{1}'
-                          }
+                            last_indexing_error_key_str: 'doc{1}',
+                            'background indexing status': 'OK'
+                            }
 
     field_spec_dict = get_field_stats_dict(info)
     field_error_dict = to_dict(field_spec_dict["Index Errors"])
@@ -383,7 +393,8 @@ def test_multiple_index_failures_json(env):
           expected_error_dict = {
               indexing_failures_str: 1,
               last_indexing_error_str: f"Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field",
-              last_indexing_error_key_str: 'doc'
+              last_indexing_error_key_str: 'doc',
+              'background indexing status': 'OK'
           }
 
           # Both indices contain one error for the same document.
