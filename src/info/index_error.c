@@ -22,7 +22,6 @@ char* const IndexingErrorKey_String = "last indexing error key";
 char* const IndexingErrorTime_String = "last indexing error time";
 char* const BackgroundIndexingOOMfailure_String = "background indexing status";
 char* const outOfMemoryFailure = "OOM failure";
-
 RedisModuleString* NA_rstr = NULL;
 
 static void initDefaultKey() {
@@ -56,12 +55,10 @@ void IndexError_AddError(IndexError *error, const char *error_message, RedisModu
     clock_gettime(CLOCK_MONOTONIC_RAW, &error->last_error_time);
 }
 
-void IndexError_RaiseBackgroundIndexFailureFlag(IndexError *error)
-{
+void IndexError_RaiseBackgroundIndexFailureFlag(IndexError *error) {
     // Change the background_indexing_OOM_failure flag to true.
     error->background_indexing_OOM_failure = true;
 }
-
 
 void IndexError_Clear(IndexError error) {
     if (!NA_rstr) initDefaultKey();
@@ -87,7 +84,6 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
         RedisModule_Reply_LongLong(reply, ts.tv_nsec);
         REPLY_ARRAY_END;
     }
-
     // Should only be displayed in "Index Errors", and not in, for example, "Field Statistics".
     if (indexErrorsOnly)
         REPLY_KVSTR_SAFE(BackgroundIndexingOOMfailure_String, IndexError_HasBackgroundIndexingOOMFailure(error) ? outOfMemoryFailure  : OK);
@@ -156,8 +152,7 @@ void IndexError_SetErrorTime(IndexError *error, struct timespec error_time) {
     error->last_error_time = error_time;
 }
 
-bool IndexError_HasBackgroundIndexingOOMFailure(const IndexError *error)
-{
+bool IndexError_HasBackgroundIndexingOOMFailure(const IndexError *error) {
     return error->background_indexing_OOM_failure;
 }
 

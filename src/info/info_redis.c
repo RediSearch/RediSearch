@@ -227,7 +227,6 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   // highest number of failures out of all specs
   RedisModule_InfoAddFieldDouble(ctx, "errors_for_index_with_max_failures", total_info->max_indexing_failures);
   RedisModule_InfoAddFieldDouble(ctx, "OOM_indexing_failures_indexes_count", total_info->background_indexing_failures_OOM);
-
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {

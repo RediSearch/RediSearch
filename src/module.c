@@ -60,7 +60,7 @@
 #include "util/units.h"
 #include "aggregate/aggregate_debug.h"
 
-#define VERIFY_ACL(ctx, idxR, checkOOM)                                                                               \
+#define VERIFY_ACL(ctx, idxR, checkOOM)                                                                     \
   do {                                                                                                      \
     const char *idxName = RedisModule_StringPtrLen(idxR, NULL);                                             \
     IndexLoadOptions lopts =                                                                                \

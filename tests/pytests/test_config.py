@@ -91,8 +91,6 @@ def testGetConfigOptions(env):
     check_config('ENABLE_UNSTABLE_FEATURES')
     check_config('_INDEX_MEM_LIMIT')
 
-
-
 @skip(cluster=True)
 def testSetConfigOptions(env):
 
