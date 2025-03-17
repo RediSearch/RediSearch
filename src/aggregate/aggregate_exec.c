@@ -1239,7 +1239,7 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
     if (cursor == NULL) {
-      RedisModule_ReplyWithErrorFormat(ctx, "Cursor %d not found", cid);
+      RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
       RedisModule_EndReply(reply);
       return REDISMODULE_OK;
     }
