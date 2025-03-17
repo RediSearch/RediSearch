@@ -19,6 +19,7 @@
 #include "util/timeout.h"
 #include "query_optimizer.h"
 #include "resp3.h"
+#include "obfuscation/hidden.h"
 
 extern RSConfig RSGlobalConfig;
 
@@ -453,13 +454,13 @@ err:
 static int parseQueryLegacyArgs(ArgsCursor *ac, RSSearchOptions *options, bool *hasEmptyFilterValue, QueryError *status) {
   if (AC_AdvanceIfMatch(ac, "FILTER")) {
     // Numeric filter
-    NumericFilter **curpp = array_ensure_tail(&options->legacy.filters, NumericFilter *);
+    LegacyNumericFilter **curpp = array_ensure_tail(&options->legacy.filters, LegacyNumericFilter *);
     *curpp = NumericFilter_LegacyParse(ac, hasEmptyFilterValue, status);
     if (!*curpp) {
       return ARG_ERROR;
     }
   } else if (AC_AdvanceIfMatch(ac, "GEOFILTER")) {
-    GeoFilter *cur_gf = rm_new(*cur_gf);
+    LegacyGeoFilter *cur_gf = rm_new(*cur_gf);
     array_ensure_append_1(options->legacy.geo_filters, cur_gf);
     if (GeoFilter_LegacyParse(cur_gf, ac, hasEmptyFilterValue, status) != REDISMODULE_OK) {
       return ARG_ERROR;
@@ -984,15 +985,17 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   /** The following blocks will set filter options on the entire query */
   if (opts->legacy.filters) {
     for (size_t ii = 0; ii < array_len(opts->legacy.filters); ++ii) {
-      NumericFilter *filter = opts->legacy.filters[ii];
-      const char *fieldName = (const char *)filter->field;
-      filter->field = IndexSpec_GetField(sctx->spec, fieldName);
-      if (!filter->field || !FIELD_IS(filter->field, INDEXFLD_T_NUMERIC)) {
+      LegacyNumericFilter *filter = opts->legacy.filters[ii];
+
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, HiddenString_GetUnsafe(filter->field, NULL));
+      filter->base.fieldSpec = fs;
+      if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         if (dialect != 1) {
-          if (!filter->field) {
-            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
+          const HiddenString *fieldName = filter->field;
+          if (fs) {
+            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field is not a numeric field, field: %s", HiddenString_GetUnsafe(fieldName, NULL));
           } else {
-            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field '%s' is not a numeric field", fieldName);
+            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Unknown Field '%s'", HiddenString_GetUnsafe(fieldName, NULL));
           }
           return REDISMODULE_ERR;
         } else {
@@ -1002,7 +1005,12 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
           continue; // Keep the filter entry in the legacy filters array for AREQ_Free()
         }
       }
-      QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = filter};
+      RS_ASSERT(filter->field);
+      // Need to free the hidden string since we pass the base pointer to the query AST
+      // And we are about to zero out the filter in the legacy filters
+      HiddenString_Free(filter->field, false);
+      filter->field = NULL;
+      QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = &filter->base};
       QAST_SetGlobalFilters(ast, &legacyFilterOpts);
       opts->legacy.filters[ii] = NULL;  // so AREQ_Free() doesn't free the filters themselves, which
                                         // are now owned by the query object
@@ -1010,16 +1018,14 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   }
   if (opts->legacy.geo_filters) {
     for (size_t ii = 0; ii < array_len(opts->legacy.geo_filters); ++ii) {
-      GeoFilter *gf = opts->legacy.geo_filters[ii];
-      const char *fieldName = (const char *)gf->field;
-      gf->field = IndexSpec_GetField(sctx->spec, fieldName);
-      if (!gf->field || !FIELD_IS(gf->field, INDEXFLD_T_GEO)) {
+      LegacyGeoFilter *gf = opts->legacy.geo_filters[ii];
+
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, HiddenString_GetUnsafe(gf->field, NULL));
+      gf->base.fieldSpec = fs;
+      if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         if (dialect != 1) {
-          if (!gf->field) {
-            QueryError_SetErrorFmt(status, QUERY_ENOPROPKEY, "Unknown Field '%s'", fieldName);
-          } else {
-            QueryError_SetErrorFmt(status, QUERY_EINVAL, "Field '%s' is not a geo field", fieldName);
-          }
+          const char *generalError = fs ? "Field is not a geo field, field: %s" : "Unknown Field, field: %s";
+          QueryError_SetErrorFmt(status, QUERY_EINVAL, generalError, HiddenString_GetUnsafe(gf->field, NULL));
           return REDISMODULE_ERR;
         } else {
           // On DIALECT 1, we keep the legacy behavior of having an empty iterator when the field is invalid
@@ -1027,7 +1033,12 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
           QAST_SetGlobalFilters(ast, &legacyOpts);
         }
       } else {
-        QAST_GlobalFilterOptions legacyOpts = {.geo = gf};
+        RS_ASSERT(gf->field);
+        // Need to free the hidden string since we pass the base pointer to the query AST
+        // And we are about to zero out the filter in the legacy filters
+        HiddenString_Free(gf->field, false);
+        gf->field = NULL;
+        QAST_GlobalFilterOptions legacyOpts = {.geo = &gf->base};
         QAST_SetGlobalFilters(ast, &legacyOpts);
         opts->legacy.geo_filters[ii] = NULL;  // so AREQ_Free() doesn't free the filter itself, which is now owned
                                               // by the query object
@@ -1734,15 +1745,15 @@ void AREQ_Free(AREQ *req) {
   }
   if (req->searchopts.legacy.filters) {
     for (size_t ii = 0; ii < array_len(req->searchopts.legacy.filters); ++ii) {
-      NumericFilter *nf = req->searchopts.legacy.filters[ii];
+      LegacyNumericFilter *nf = req->searchopts.legacy.filters[ii];
       if (nf) {
-        NumericFilter_Free(req->searchopts.legacy.filters[ii]);
+        LegacyNumericFilter_Free(req->searchopts.legacy.filters[ii]);
       }
     }
     array_free(req->searchopts.legacy.filters);
   }
   if (req->searchopts.legacy.geo_filters) {
-    array_foreach(req->searchopts.legacy.geo_filters, gf, if (gf) GeoFilter_Free(gf));
+    array_foreach(req->searchopts.legacy.geo_filters, gf, if (gf) LegacyGeoFilter_Free(gf));
     array_free(req->searchopts.legacy.geo_filters);
   }
   rm_free(req->searchopts.inids);
