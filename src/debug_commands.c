@@ -20,6 +20,15 @@
 #include "suffix.h"
 #include "util/workers.h"
 #include "cursor.h"
+#include "module.h"
+#include "aggregate/aggregate_debug.h"
+#ifdef RS_COORDINATOR
+#ifndef RS_CLUSTER_ENTERPRISE
+#define RS_CLUSTER_OSS
+#endif
+#endif
+
+#include "commands.h"
 
 #define GET_SEARCH_CTX(name)                                        \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
@@ -1234,6 +1243,27 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
 }
 #endif
 
+DEBUG_COMMAND(RSSearchCommandShard) {
+  // at least one debug_param should be provided
+  // (1)FT.DEBUG (2)FT.SEARCH (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  // skip _FT.DEBUG
+  return DEBUG_RSSearchCommand(ctx, ++argv, --argc);
+}
+
+DEBUG_COMMAND(RSAggregateCommandShard) {
+  // at least one debug_param should be provided
+  // (1)FT.DEBUG (2)FT.AGGREGATE (3)<index> (4)<query> [query_options] (5)[debug_params] (6)DEBUG_PARAMS_COUNT (7)<debug_params_count>
+  if (argc < 7) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1263,6 +1293,11 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_INFO", VecsimInfo},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DUMP_HNSW", dumpHNSWData},
+                               /**
+                                * The following commands are for debugging distributed search/aggregation.
+                                */
+                               {RS_AGGREGATE_CMD, RSAggregateCommandShard},
+                               {RS_SEARCH_CMD, RSSearchCommandShard},
 #ifdef MT_BUILD
                                {"WORKERS", WorkerThreadsSwitch},
 #endif

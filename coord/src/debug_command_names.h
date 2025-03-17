@@ -14,5 +14,7 @@ static const char *coordCommandsNames[] = {
   "PAUSE_TOPOLOGY_UPDATER",
   "RESUME_TOPOLOGY_UPDATER",
   "CLEAR_PENDING_TOPOLOGY",
+  "FT.AGGREGATE",
+  "FT.SEARCH",
   NULL
 };
