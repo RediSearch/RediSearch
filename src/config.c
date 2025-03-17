@@ -443,7 +443,6 @@ CONFIG_GETTER(getIndexingMemoryLimit) {
   return sdscatprintf(ss, "%u", config->indexingMemoryLimit);
 }
 
-
 /************************************ DEPRECATION CANDIDATES *************************************/
 
 enum MTMode {
