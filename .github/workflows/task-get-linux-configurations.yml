@@ -10,10 +10,13 @@ env:
                     'rockylinux:9',
                     'debian:bullseye',
                     'amazonlinux:2',
-                    'mcr.microsoft.com/cbl-mariner/base/core:2.0']"
-  ALL_ARM_IMAGES: "['ubuntu:jammy',
+                    'mcr.microsoft.com/cbl-mariner/base/core:2.0',
+                    'mcr.microsoft.com/azurelinux/base/core:3.0']"
+  ALL_ARM_IMAGES: "['ubuntu:noble',
+                    'ubuntu:jammy',
                     'ubuntu:focal',
-                    'ubuntu:bionic']"
+                    'ubuntu:bionic',
+                    'mcr.microsoft.com/azurelinux/base/core:3.0']"
 
 on:
   workflow_call:
@@ -60,7 +63,10 @@ jobs:
           def needs_arch(arch):
             return requested_arch in ['all', arch]
 
-          naming = {'mariner:2': 'mcr.microsoft.com/cbl-mariner/base/core:2.0'}
+          naming = {
+            'mariner:2': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
+            'azurelinux:3': 'mcr.microsoft.com/azurelinux/base/core:3.0',
+          }
 
           # Normalize the platform name
           requested_platform = naming.get(requested_platform, requested_platform)
@@ -109,6 +115,16 @@ jobs:
             x86_include.append({
               'OS': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
               'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates"})
+
+          # azurelinux:3 needs pre-checkout dependencies
+          if 'mcr.microsoft.com/azurelinux/base/core:3.0' in x86_platforms:
+            x86_include.append({
+              'OS': 'mcr.microsoft.com/azurelinux/base/core:3.0',
+              'pre-deps': "tdnf install -y --noplugins tar git ca-certificates"})
+          if 'mcr.microsoft.com/azurelinux/base/core:3.0' in arm_platforms:
+            arm_include.append({
+              'OS': 'mcr.microsoft.com/azurelinux/base/core:3.0',
+              'pre-deps': "tdnf install -y --noplugins tar git ca-certificates"})
 
           # Ubuntu and Debian distributions need git pre-checkout dependencies
           debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'ubuntu:bionic', 'debian:bullseye', 'gcc:12-bookworm']
