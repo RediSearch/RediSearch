@@ -10,16 +10,16 @@
 //!   -----               |              ----
 //!                       |
 //!  +---------------+    |
-//!  | ptr (8 bytes) | ------->  Header +------------+
-//!  +---------------+    |             | 3 (len)    |
-//!                       |             | 4 (cap)    |
-//!                       |             | (padding)  |
-//!                       |             +------------+
-//!                       |      Data   | 12         |
-//!                       |             | 151        |
-//!                       |             | 2          |
-//!                       |             | (unused)   |
-//!                       |             +------------+
+//!  | ptr (8 bytes) | ------->  Header +----------------------+
+//!  +---------------+    |             | 3 (len)     (2 bytes)|
+//!                       |             | 4 (cap)     (2 bytes)|
+//!                       |             | (padding)   (4 bytes)|
+//!                       |             +----------------------+
+//!                       |      Data   | 12          (8 bytes)|
+//!                       |             | 151         (8 bytes)|
+//!                       |             | 2           (8 bytes)|
+//!                       |             | (unused)    (8 bytes)|
+//!                       |             +----------------------+
 //! ```
 //!
 //! It's pointer-sized on the stack, compared to `Vec<T>` which has 3 pointer-sized fields:
@@ -28,18 +28,18 @@
 //!    Stack              |      Heap
 //!    -----              |      ----
 //!                       |
-//!   +---------------+   |      +------------+
-//!   | ptr (8 bytes) | -------> | 12         |
-//!   | len (8 bytes) |   |      | 151        |
-//!   | cap (8 bytes) |   |      | 2          |
-//!   +---------------+   |      | (unused)   |
-//!                       |      +------------+
+//!   +---------------+   |      +--------------------+
+//!   | ptr (8 bytes) | -------> | 12        (8 bytes)|
+//!   | len (8 bytes) |   |      | 151       (8 bytes)|
+//!   | cap (8 bytes) |   |      | 2         (8 bytes)|
+//!   +---------------+   |      | (unused)  (8 bytes)|
+//!                       |      +--------------------+
 //! ```
 //!
 //! # Memory footprint
 //!
-//! The memory footprint of LMThinVecs is lower than `Vec<T>` ; notably in cases where space is reserved for
-//! a non-existence `LowMemoryThinVec<T>`. So `Vec<LowMemoryThinVec<T>>` and `Option<LowMemoryThinVec<T>>::None` will waste less
+//! The memory footprint of `LowMemoryThinVec<T>` is smaller than `Vec<T>` ; notably in cases where space is reserved for
+//! the non-existence of `LowMemoryThinVec<T>`. So `Vec<LowMemoryThinVec<T>>` and `Option<LowMemoryThinVec<T>>::None` will waste less
 //! space. Being pointer-sized also means it can be passed/stored in registers.
 //!
 //! Of course, any actually constructed `LowMemoryThinVec` will theoretically have a bigger allocation, but
@@ -977,7 +977,7 @@ impl<T> LowMemoryThinVec<T> {
         }
         // Ensure the new capacity is at least double, to guarantee exponential growth.
         let double_cap = if old_cap == 0 {
-            // skip to 4 because tiny ThinVecs are dumb; but not if that would cause overflow
+            // skip to 4 because tiny vecs are dumb; but not if that would cause overflow
             if mem::size_of::<T>() > (!0) / 8 { 1 } else { 4 }
         } else {
             old_cap.saturating_mul(2)
