@@ -22,6 +22,10 @@ activate_venv() {
 
 # Tool required to compute test coverage for Rust code
 cargo install cargo-llvm-cov --locked
+# Make sure `miri` is fully operational before running tests with it.
+# See https://github.com/rust-lang/miri/blob/master/README.md#running-miri-on-ci
+# for more details.
+cargo +nightly miri setup
 
 python3 -m venv venv
 activate_venv
