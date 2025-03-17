@@ -1602,7 +1602,7 @@ def test_warning_maxprefixexpansions():
          n_warnings += 1
   env.assertEqual(n_warnings, 1)
 
-# TODO: `total_results` is currenlty not  on cluster - to be fixed in MOD-9094
+# TODO: `total_results` is currently not  on cluster - to be fixed in MOD-9094
 @skip(cluster=True)
 def test_totalResults_aggregate():
   """Tests that the `total_results` field on `FT.AGGREGATE` is correct when
