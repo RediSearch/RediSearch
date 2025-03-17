@@ -14,6 +14,7 @@
 #include "config.h"
 #include "rlookup.h"
 #include "util/dict.h"
+#include "obfuscation/hidden.h"
 
 typedef enum {
   // No summaries
@@ -105,8 +106,8 @@ typedef struct {
 
   /** Legacy options */
   struct {
-    NumericFilter **filters;
-    GeoFilter **geo_filters;
+    LegacyNumericFilter **filters;
+    LegacyGeoFilter **geo_filters;
     const char **infields;
     size_t ninfields;
   } legacy;
