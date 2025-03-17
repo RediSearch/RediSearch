@@ -16,12 +16,7 @@ concurrency:
 # TODO: Use RedisJSON's `${{ vars.DEFAULT_REDISJSON_REF }}` branch when testing on nightly
 
 jobs:
-  docs-only: # Check whether the PR is only modifying docs
-    uses: ./.github/workflows/task-check-docs.yml
-
   test-linux:
-    needs: [docs-only]
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
@@ -29,8 +24,6 @@ jobs:
       rejson-branch: '8.0'
 
   test-macos:
-    needs: [docs-only]
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
@@ -38,16 +31,13 @@ jobs:
       rejson-branch: '8.0'
 
   coverage:
-    needs: docs-only
-    if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' && needs.docs-only.outputs.only-docs-changed == 'false' }}
+    if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' }}
     uses: ./.github/workflows/flow-coverage.yml
     secrets: inherit
     with:
       rejson-branch: '8.0'
 
   sanitize:
-    needs: [docs-only]
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
@@ -59,7 +49,6 @@ jobs:
 
   pr-validation:
     needs:
-      - docs-only # if the setup jobs fail, the rest of the jobs will be skipped, and we will exit with a failure
       - test-linux
       - test-macos
       - coverage
