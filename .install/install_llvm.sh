@@ -22,4 +22,4 @@ else
     $MODE ./llvm.sh $VERSION
 fi
 
-export LLVM_VERSION=$VERSION
+echo $VERSION
