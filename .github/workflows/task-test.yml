@@ -58,9 +58,6 @@ jobs:
       - name: Pre-steps Dependencies
         if: inputs.pre-steps-script
         run: ${{ inputs.pre-steps-script }}
-      - name: Pre-steps Dependencies (Non-Alpine)
-        if: inputs.pre-steps-script && inputs.container != 'alpine:3'
-        run: ${{ inputs.pre-steps-script }}
 
       - name: Get Installation Mode
         id: mode
@@ -87,7 +84,7 @@ jobs:
           # Execute the logic based on the detected platform
           echo "Detected platform: ${{ inputs.container }}"
           case "${{ inputs.container }}" in
-            ubuntu:bionic | amazonlinux:2 | alpine:3)
+            ubuntu:bionic | amazonlinux:2)
 
               # Configure the safe directory
               git config --global --add safe.directory /__w/${{ github.repository }}
@@ -127,12 +124,11 @@ jobs:
         if: inputs.san == 'address'
         working-directory: .install
         run: |
-          ./install_llvm.sh ${{ steps.mode.outputs.mode }}
-          CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-[0-9]*" 2>/dev/null | sort -V | tail -1)
-          CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
-          echo "Using LLVM version: $CLANG_VERSION"
+          . ./install_llvm.sh ${{ steps.mode.outputs.mode }}
+          CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-$LLVM_VERSION" 2>/dev/null)
+          echo "Using LLVM version: $LLVM_VERSION"
           echo "CC=$CLANG_BIN" >> $GITHUB_ENV
-          echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
+          echo "CXX=$(dirname $CLANG_BIN)/clang++-$LLVM_VERSION" >> $GITHUB_ENV
           echo "LD=$CLANG_BIN" >> $GITHUB_ENV
       - name: Get Redis (node20)
         if: ${{ steps.node20.outputs.supported == 'true' }}
@@ -146,11 +142,11 @@ jobs:
         run: |
           REPO_URL="https://github.com/redis/redis.git"
           DEST_DIR="redis"  # Directory to clone into
-          
+
           # Clone the repository (shallow clone without tags)
           git clone $REPO_URL $DEST_DIR
           cd $DEST_DIR
-          
+
           # Checkout the REF
           git fetch origin ${{ inputs.get-redis }}
           git checkout ${{ inputs.get-redis }}
