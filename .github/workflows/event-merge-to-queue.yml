@@ -44,6 +44,7 @@ jobs:
 
   # Should only run on with latest Redis tag
   test-macos:
+    needs: [get-latest-7-2-redis-tag]
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
