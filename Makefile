@@ -444,8 +444,20 @@ test: unit-tests pytest rust-tests
 unit-tests: rust-tests
 	$(SHOW)BINROOT=$(BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
+RUST_TEST_OPTIONS=--all-features --profile=$(RUST_PROFILE)
+ifeq ($(COV),1)
+# We use the `nightly` compiler in order to include doc tests in the coverage computation.
+# See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
+RUST_TEST_RUNNER=cargo +nightly llvm-cov
+RUST_TEST_OPTIONS+=--doctests \
+	--codecov \
+	--output-path="$(ROOT)/bin/$(FULL_VARIANT)/rust_cov.info"
+else
+RUST_TEST_RUNNER=cargo
+endif
+
 rust-tests:
-	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo test --profile="$(RUST_PROFILE)" $(TEST_NAME)
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && $(RUST_TEST_RUNNER) test $(RUST_TEST_OPTIONS) $(TEST_NAME)
 
 pytest:
 	@printf "\n-------------- Running python flow test ------------------\n"

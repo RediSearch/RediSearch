@@ -20,6 +20,9 @@ activate_venv() {
 	fi
 }
 
+# Tool required to compute test coverage for Rust code
+cargo install cargo-llvm-cov --locked
+
 python3 -m venv venv
 activate_venv
 source venv/bin/activate
