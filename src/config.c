@@ -35,7 +35,7 @@ typedef struct {
 
 // For deprecated FTConfigName, the ConfigName is an empty string
 configPair_t __configPairs[] = {
-    {"_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},אקדא
+  {"_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},
   {"_FREE_RESOURCE_ON_THREAD",        "search-_free-resource-on-thread"},
   {"_NUMERIC_COMPRESS",               "search-_numeric-compress"},
   {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
