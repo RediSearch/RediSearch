@@ -2174,7 +2174,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (RSGlobalConfig.indexingMemoryLimit && (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit)) {
       // const char* percentSign = "%%";
       // rm_asprintf(&error, "Used memory is more than %u%s of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit,percentSign);
-      rm_asprintf(&error, "Used memory is more than %u%% of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit);
+      rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit);
       RedisModule_Log(ctx, "warning", error);
       scanner->cancelled = true;
   }
