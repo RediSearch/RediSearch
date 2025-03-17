@@ -69,7 +69,6 @@ jobs:
       test-config: '' # run all tests
       san: address
       env: ubuntu-latest
-      container: ubuntu:jammy
 
   pr-validation:
     needs:

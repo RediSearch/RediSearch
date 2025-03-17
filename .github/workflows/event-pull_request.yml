@@ -28,7 +28,11 @@ jobs:
     secrets: inherit
 
   coverage:
-    if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' && !github.event.pull_request.draft }}
+    if: >
+      (
+        vars.ENABLE_CODE_COVERAGE != 'false' &&
+        (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:coverage'))
+      )
     uses: ./.github/workflows/flow-coverage.yml
     with:
       rejson-branch: '2.8'
@@ -36,7 +40,10 @@ jobs:
 
   sanitize:
     needs: [get-latest-redis-tag]
-    if: ${{ !github.event.pull_request.draft }}
+    if: >
+      (
+        (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize'))
+      )
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
@@ -44,7 +51,6 @@ jobs:
       test-config: QUICK=1
       san: address
       env: ubuntu-latest
-      container: ubuntu:jammy
       rejson-branch: '2.8'
 
   pr-validation:
