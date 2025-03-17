@@ -755,6 +755,9 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
+  if (sp->scan_failed_OOM) {
+    return RedisModule_ReplyWithErrorFormat(ctx, "%s: Index background scan failed due to OOM", ixname);
+  }
 
   if (!checkEnterpriseACL(ctx, sp)) {
     return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
