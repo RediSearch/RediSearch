@@ -21,3 +21,5 @@ else
     chmod +x llvm.sh
     $MODE ./llvm.sh $VERSION
 fi
+
+export LLVM_VERSION=$VERSION
