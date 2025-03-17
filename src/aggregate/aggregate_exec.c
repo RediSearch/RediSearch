@@ -867,6 +867,11 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "%s: no such index", indexname);
     goto done;
   }
+  // Check for OOM
+  if (sctx->spec->scan_failed_OOM) {
+    QueryError_SetErrorFmt(status, QUERY_INDEXBGOOMFAIL, "%s: Index background scan failed due to OOM", indexname);
+    goto done;
+  }
 
   rc = AREQ_ApplyContext(*r, sctx, status);
   thctx = NULL;
