@@ -6,3 +6,4 @@ RLTest >= 0.7.11
 numpy >= 1.21.6
 scipy >= 1.7.3
 faker
+pytz
