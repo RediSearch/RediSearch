@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Source the profile update utility
-source "$(dirname "$0")/macos_update_profile.sh"
+source "$(dirname  -- "$( readlink -f -- "$0"; )")/macos_update_profile.sh"
 
 OS_TYPE=$(uname -s)
 VERSION=17
@@ -22,4 +22,4 @@ else
     $MODE ./llvm.sh $VERSION
 fi
 
-echo $VERSION
+export LLVM_VERSION=$VERSION
