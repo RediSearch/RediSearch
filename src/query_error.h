@@ -70,6 +70,7 @@ extern "C" {
   X(QUERY_INDEXBGOOMFAIL, "Index background scan failed due to OOM")                            \
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
+
 typedef enum {
   QUERY_OK = 0,
 

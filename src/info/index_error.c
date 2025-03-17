@@ -206,6 +206,5 @@ IndexError IndexError_Deserialize(MRReply *reply) {
         IndexError_RaiseBackgroundIndexFailureFlag(&error);
     }
 
-
     return error;
 }

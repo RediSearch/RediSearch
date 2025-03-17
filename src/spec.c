@@ -425,7 +425,6 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   return res;
 }
 
-
 void IndexSpec_SetIndexErrorMessage(IndexSpec *sp, const char *error, RedisModuleString *key) {
   RedisModule_Assert(sp);
   RedisModule_Assert(error);
