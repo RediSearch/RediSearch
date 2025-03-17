@@ -105,4 +105,6 @@ int MRIteratorCallback_ResendCommand(MRIteratorCallbackCtx *ctx, MRCommand *cmd)
 
 MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
 
+short MRIterator_GetPending(MRIterator *it);
+
 void MRIterator_Release(MRIterator *it);

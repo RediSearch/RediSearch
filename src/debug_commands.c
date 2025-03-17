@@ -18,6 +18,7 @@
 #include "suffix.h"
 #include "util/workers.h"
 #include "cursor.h"
+#include "aggregate/aggregate_debug.h"
 
 #define DUMP_PHONETIC_HASH "DUMP_PHONETIC_HASH"
 
@@ -1156,6 +1157,24 @@ DEBUG_COMMAND(WorkerThreadsSwitch) {
 }
 #endif
 
+DEBUG_COMMAND(RSSearchCommandShard) {
+  // at least one debug_param should be provided
+  // (1)FT.SEARCH (2)<index> (3)<query> [query_options] (4)[debug_params] (5)DEBUG_PARAMS_COUNT (6)<debug_params_count>
+  if (argc < 6) {
+    return RedisModule_WrongArity(ctx);
+  }
+  return DEBUG_RSSearchCommand(ctx, argv, argc);
+}
+
+DEBUG_COMMAND(RSAggregateCommandShard) {
+  // at least one debug_param should be provided
+  // (1)FT.AGGREGATE (2)<index> (3)<query> [query_options] (4)[debug_params] (5)DEBUG_PARAMS_COUNT (6)<debug_params_count>
+  if (argc < 6) {
+    return RedisModule_WrongArity(ctx);
+  }
+  return DEBUG_RSAggregateCommand(ctx, argv, argc);
+}
+
 typedef struct DebugCommandType {
   char *name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -1189,6 +1208,11 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
+                               /**
+                                * The following commands are for debugging search/aggregation.
+                                */
+                               {"FT.AGGREGATE", RSAggregateCommandShard},
+                               {"FT.SEARCH", RSSearchCommandShard},
 #ifdef MT_BUILD
                                {"WORKER_THREADS", WorkerThreadsSwitch},
 #endif
@@ -1215,7 +1239,9 @@ int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   for (DebugCommandType *c = &commands[0]; c->name != NULL; c++) {
     if (strcasecmp(c->name, subCommand) == 0) {
-      return c->callback(ctx, argv + 2, argc - 2);
+      size_t skip_args = 2;
+      if (strncasecmp("FT.", subCommand, 3) == 0) skip_args = 1; // skip only FT.DEBUG
+      return c->callback(ctx, argv + skip_args, argc - skip_args);
     }
   }
 

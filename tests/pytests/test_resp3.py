@@ -628,7 +628,7 @@ def test_profile_crash_mod5323():
         r.execute_command("HSET", "4", "t", "helowa")
     waitForIndex(env, 'idx')
 
-    res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT")
+    res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT") # codespell:ignore hel
     exp = {
       'warning': [],
       'attributes': [],
@@ -940,11 +940,11 @@ def testExpandJson():
   env.assertEqual(res, exp_string_default_dialect)
 
   # Default FORMAT is STRING
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'RETURN', *load_args, 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'STRING', 'RETURN', *load_args, 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
@@ -959,7 +959,7 @@ def testExpandJson():
   del exp_string['results'][1]['id']
 
   # Default FORMAT is STRING
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC', 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
@@ -971,7 +971,7 @@ def testExpandJson():
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND', 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC')
   env.assertEqual(res, exp_expand)
 
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'STRING', 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC', 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
@@ -1476,25 +1476,27 @@ def test_error_with_partial_results():
   for i in range(num_docs):
       conn.execute_command('HSET', f'doc{i}', 't', str(i))
 
+  def run_maybe_timed_out_query(cmd):
+    # In cluster mode we can't use FT.DEBUG to force timeouts precisely,
+    # so we use a small timeout value (1ms) with a large result set.
+    # This approach doesn't guarantee timeouts, but will likely trigger them.
+    query = [f"FT.{cmd}", "idx", "*", 'LIMIT', 0, num_docs, "TIMEOUT", "1"]
+    if env.isCluster():
+        res = conn.execute_command(*query)
+        env.assertGreaterEqual(len(res['results']), 0)
+        # If we received fewer results than documents, we should see a timeout warning        if len(res['results']) < num_docs:
+        VerifyTimeoutWarningResp3(env, res, message=f"{cmd} query got {len(res['results'])} < {num_docs},")
+    else: # SA supports FT.DEBUG <query>!
+      res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_res_count=3)
+      env.assertGreater(len(res['results']), 0)
+      # Assert that we got a warning
+      VerifyTimeoutWarningResp3(env, res)
+
   # `FT.AGGREGATE`
-  res = conn.execute_command(
-    'FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '1'
-  )
-
-  # Assert that we got results
-  env.assertGreater(len(res['results']), 0)
-
-  # Assert that we got a warning
-  env.assertEqual(len(res['warning']), 1)
-  env.assertEqual(res['warning'][0], 'Timeout limit was reached')
+  run_maybe_timed_out_query("AGGREGATE")
 
   # `FT.SEARCH`
-  res = conn.execute_command(
-    'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
-  )
-
-  env.assertEqual(len(res['warning']), 1)
-  env.assertEqual(res['warning'][0], 'Timeout limit was reached')
+  run_maybe_timed_out_query("SEARCH")
 
 def test_warning_maxprefixexpansions():
   env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
@@ -1521,7 +1523,7 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}])
   env.assertEqual(res['warning'], [])
   # TAG
-  res = env.cmd('FT.SEARCH', 'idx', '@t2:{fo*}', 'nocontent')
+  res = env.cmd('FT.SEARCH', 'idx', '@t2:{fo*}', 'nocontent') # codespell:ignore
   env.assertEqual(res['total_results'], 1)
   env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}])
   env.assertEqual(res['warning'], [])
@@ -1536,7 +1538,7 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['results'], [{'extra_attributes': {'t': 'foo', 't2': 'foo'}, 'values': []}])
   env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
   # TAG
-  res = env.cmd('FT.AGGREGATE', 'idx', '@t2:{fo*}', 'load', '*')
+  res = env.cmd('FT.AGGREGATE', 'idx', '@t2:{fo*}', 'load', '*') # codespell:ignore fo
   env.assertEqual(res['total_results'], 1)
   env.assertEqual(res['results'], [{'extra_attributes': {'t': 'foo', 't2': 'foo'}, 'values': []}])
   env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
