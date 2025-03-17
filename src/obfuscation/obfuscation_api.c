@@ -12,15 +12,15 @@ void Obfuscate_Index(const Sha1 *hash, char* buffer) {
 }
 
 void Obfuscate_Field(t_uniqueId fieldId, char* buffer) {
-  sprintf(buffer, "Field@%zu", fieldId);
+  sprintf(buffer, "Field@%lu", fieldId);
 }
 
 void Obfuscate_FieldPath(t_uniqueId fieldId, char* buffer) {
-  sprintf(buffer, "FieldPath@%zu", fieldId);
+  sprintf(buffer, "FieldPath@%lu", fieldId);
 }
 
 void Obfuscate_Document(t_uniqueId docId, char* buffer) {
-  sprintf(buffer, "Document@%zu", docId);
+  sprintf(buffer, "Document@%lu", docId);
 }
 
 void Obfuscate_KeyWithTime(struct timespec spec, char* buffer) {
