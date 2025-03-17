@@ -1230,7 +1230,7 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     if (!ff) {
       // No such reducer!
       Grouper_Free(grp);
-      QueryError_SetWithoutUserDataFmt(err, QUERY_ENOREDUCER, "No such reducer: %s", pr->name);
+      QueryError_SetWithUserDataFmt(err, QUERY_ENOREDUCER, "No such reducer", ": %s", pr->name);
       return NULL;
     }
     Reducer *rr = ff(&options);
