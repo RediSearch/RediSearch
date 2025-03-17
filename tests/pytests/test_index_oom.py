@@ -218,5 +218,5 @@ def test_oom_query_error(env):
 
   # Verify ft info possible
   env.expect('FT.INFO', idx_name).noError()
-  # Verify ft drop possbile
+  # Verify ft drop possible
   env.expect('FT.DROP', idx_name).ok()

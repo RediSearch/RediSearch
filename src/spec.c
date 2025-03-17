@@ -2284,7 +2284,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
 
     if (scanner->cancelled) {
 
-      // Check for pause after OOM if OOM occured
+      // Check for pause after OOM if OOM occurred
       if (scanner->isDebug) {
         DebugIndexesScanner* dScanner = (DebugIndexesScanner*)scanner;
         if (dScanner->pauseOnOOM) {

@@ -35,7 +35,7 @@ typedef struct {
 
 // For deprecated FTConfigName, the ConfigName is an empty string
 configPair_t __configPairs[] = {
-  {"_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},
+    {"_FORK_GC_CLEAN_NUMERIC_EMPTY_NODES", ""},אקדא
   {"_FREE_RESOURCE_ON_THREAD",        "search-_free-resource-on-thread"},
   {"_NUMERIC_COMPRESS",               "search-_numeric-compress"},
   {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
@@ -1222,7 +1222,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = set_EnableUnstableFeatures,
          .getValue = get_EnableUnstableFeatures},
         {.name = "_INDEX_MEM_LIMIT",
-         .helpText = "Set the maximum memory limit for the indexing. If the mermory exceeds this limit, documentw won't be indexed."
+         .helpText = "Set the maximum memory limit for the indexing. If the memory exceeds this limit, documentw won't be indexed."
                       "The limit is percentage from the total memory available to the process. default is 80 percent.",
          .setValue = setIndexingMemoryLimit,
          .getValue = getIndexingMemoryLimit},
