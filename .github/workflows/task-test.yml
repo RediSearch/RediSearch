@@ -40,7 +40,7 @@ on:
         default: 50
 
 env:
-  REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}a9adbf32 (Simplify install script (#5726))
+  REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
 
@@ -83,7 +83,18 @@ jobs:
           # Execute the logic based on the detected platform
           echo "Detected platform: ${{ inputs.container }}"
           case "${{ inputs.container }}" in
-            ubuntu:bionic | amazonlinux:2 | alpine:3)
+            ubuntu:bionic | amazonlinux:2 | centos:7)
+
+              if [[ ${{ inputs.container }} == centos:7 ]]; then
+                  # http://mirror.centos.org/centos/7/ is deprecated, so we have to disable mirrorlists
+                  # and change the baseurl in the repo file to the working mirror (from mirror.centos.org to vault.centos.org)
+                  for file in /etc/yum.repos.d/*.repo; do
+                    sed -i 's/^mirrorlist=/#mirrorlist=/g' $file
+                    sed -i 's/^#[[:space:]]*baseurl=http:\/\/mirror/baseurl=http:\/\/vault/g' $file
+                  done
+                  yum update -y
+                  yum install -y git
+              fi
 
               # Configure the safe directory
               git config --global --add safe.directory /__w/${{ github.repository }}
@@ -124,10 +135,9 @@ jobs:
         run: |
           . ./install_llvm.sh ${{ steps.mode.outputs.mode }}
           CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-$LLVM_VERSION" 2>/dev/null)
-          CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
-          echo "Using LLVM version: $CLANG_VERSION"
+          echo "Using LLVM version: $LLVM_VERSION"
           echo "CC=$CLANG_BIN" >> $GITHUB_ENV
-          echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
+          echo "CXX=$(dirname $CLANG_BIN)/clang++-$LLVM_VERSION" >> $GITHUB_ENV
           echo "LD=$CLANG_BIN" >> $GITHUB_ENV
       - name: Get Redis (node20)
         if: ${{ steps.node20.outputs.supported == 'true' }}
