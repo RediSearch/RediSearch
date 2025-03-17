@@ -1,9 +1,9 @@
 packaging >= 20.8
 gevent
 deepdiff <= 8.3.0
+redis >= 5.1.0
 RLTest >= 0.7.14
 numpy >= 1.21.6
 scipy >= 1.7.3
 faker
 distro
-redis ~= 5.0.8
