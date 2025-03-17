@@ -292,6 +292,8 @@ void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
   if (specInfo) {
     StrongRef strong = WeakRef_Promote(specInfo->specRef);
     IndexSpec *spec = StrongRef_Get(strong);
+    // spec can be null if the spec was deleted,
+    // e.g in gc thread: it manages to take a strong ref but the invalidation flag was later turned on and no more strong refs can be taken
     if (!spec) {
       RedisModule_InfoAddFieldCString(ctx, "index", specInfo->specName ? specInfo->specName : "n/a");
     } else {
@@ -312,7 +314,7 @@ static void AddQueriesToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
     IndexSpec *sp = StrongRef_Get(at->spec);
     // we have a strong ref so having a null pointer is not likely but would prefer not to crash in the signal handler
     if (!sp) {
-		continue;
+	  continue;
     }
     RedisModule_InfoBeginDictField(ctx, sp->name);
     RedisModule_InfoAddFieldULongLong(ctx, "started-at", (unsigned long long)at->start);

@@ -1575,7 +1575,7 @@ void IndexSpec_Free(IndexSpec *spec) {
 
 // Assumes this is called from the main thread with no competing threads
 // Also assumes that the spec is existing in the global dictionary, so
-// we use the global reference as our guard and access the spec dierctly.
+// we use the global reference as our guard and access the spec directly.
 // This function consumes the Strong reference it gets
 void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
