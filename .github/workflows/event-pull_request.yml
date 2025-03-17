@@ -18,6 +18,7 @@ jobs:
       prefix: '7.4'
 
   basic-test:
+    needs: [get-latest-redis-tag]
     uses: ./.github/workflows/task-test.yml
     with:
       env: ubuntu-latest
