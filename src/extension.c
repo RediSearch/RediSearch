@@ -15,7 +15,7 @@
 #include "query.h"
 #include <err.h>
 
-#define MAX_NAME_LEN 1024
+#define MAX_NAME_LEN 1025
 
 /* The registry for query expanders. Initialized by Extensions_Init() */
 static TrieMap *queryExpanders_g = NULL;
@@ -32,8 +32,7 @@ static TrieMap *scorers_g = NULL;
  *
  * @param[in] in The input string to be converted to uppercase.
  * @param[out] out The output buffer where the uppercase string will be stored.
- * @param[in] inLen The length of the input string. If inLen is less than 0, the function
- *                  calculates the length of the input string using strlen().
+ * @param[in] inLen The length of the input string.
  * @param[in] maxLen The maximum length of the output buffer. The function will not write
  *                   more than maxLen characters to the output buffer, including the null terminator.
  *
@@ -50,9 +49,6 @@ static TrieMap *scorers_g = NULL;
  * @endcode
  */
 static inline void str_toUpper(const char *in, char *out, size_t inLen, size_t maxLen) {
-  if (inLen < 0) {
-    inLen = strlen(in);
-  }
   size_t i = 0;
   for (; i < inLen && i < maxLen; i++) {
     out[i] = toupper(in[i]);
