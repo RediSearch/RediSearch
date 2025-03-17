@@ -323,23 +323,6 @@ fn test_extend() {
     assert_eq!(count_x, 1);
 }
 
-/* TODO: implement extend for Iter<&Copy>
-    #[test]
-    fn test_extend_ref() {
-        let mut v = low_memory_thin_vec![1, 2];
-        v.extend(&[3, 4, 5]);
-
-        assert_eq!(v.len(), 5);
-        assert_eq!(v, [1, 2, 3, 4, 5]);
-
-        let w = low_memory_thin_vec![6, 7];
-        v.extend(&w);
-
-        assert_eq!(v.len(), 7);
-        assert_eq!(v, [1, 2, 3, 4, 5, 6, 7]);
-    }
-*/
-
 #[test]
 fn test_slice_from_mut() {
     let mut values = low_memory_thin_vec![1, 2, 3, 4, 5];
@@ -505,6 +488,25 @@ fn test_zip_unzip() {
     assert_eq!((1, 4), (left[0], right[0]));
     assert_eq!((2, 5), (left[1], right[1]));
     assert_eq!((3, 6), (left[2], right[2]));
+}
+
+#[test]
+fn test_remove() {
+    let mut v = low_memory_thin_vec![1, 2, 3];
+    let mut i = v.remove(1);
+    assert_eq!(i, 2);
+    assert_eq!(v, low_memory_thin_vec![1, 3]);
+
+    i = v.remove(0);
+    assert_eq!(i, 1);
+    assert_eq!(v, low_memory_thin_vec![3]);
+}
+
+#[test]
+#[should_panic]
+fn test_remove_out_of_bounds() {
+    let mut v = low_memory_thin_vec![1, 2, 3];
+    v.remove(3);
 }
 
 #[test]
