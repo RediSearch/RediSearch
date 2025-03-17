@@ -18,6 +18,7 @@ on:
           - amazonlinux:2
           - amazonlinux:2023
           - mariner:2
+          - azurelinux:3
           - alpine:3
           - macos
         description: 'Platform to build on. Use "all" to build on all'
