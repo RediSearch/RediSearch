@@ -228,7 +228,7 @@ def test_coord_profile():
       'Results': {
         'attributes': [],
         'warning': [],
-        'total_results': 1,
+        'total_results': 2,
         'format': 'STRING',
         'results': [
           {'extra_attributes': {}, 'values': []},
