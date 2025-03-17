@@ -9,12 +9,14 @@ env:
                     'rockylinux:8',
                     'debian:bullseye',
                     'amazonlinux:2',
-                    'mcr.microsoft.com/cbl-mariner/base/core:2.0'
-                    ]"
-                    # TODO: Add back 'rockylinux:9' when RedisJSON 2.4 supports it
+                    'mcr.microsoft.com/cbl-mariner/base/core:2.0',
+                    'mcr.microsoft.com/azurelinux/base/core:3.0',
+                  ]"
   ALL_ARM_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal',
-                    'ubuntu:bionic']"
+                    'ubuntu:bionic',
+                    'mcr.microsoft.com/azurelinux/base/core:3.0',
+                  ]"
 
 on:
   workflow_call:
@@ -61,7 +63,10 @@ jobs:
           def needs_arch(arch):
             return requested_arch in ['all', arch]
 
-          naming = {'mariner:2': 'mcr.microsoft.com/cbl-mariner/base/core:2.0'}
+          naming = {
+            'mariner:2': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
+            'azurelinux:3': 'mcr.microsoft.com/azurelinux/base/core:3.0',
+          }
 
           # Normalize the platform name
           requested_platform = naming.get(requested_platform, requested_platform)
