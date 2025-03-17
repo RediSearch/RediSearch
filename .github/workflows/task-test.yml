@@ -122,7 +122,7 @@ jobs:
         if: inputs.san == 'address'
         working-directory: .install
         run: |
-          . install_llvm.sh ${{ steps.mode.outputs.mode }}
+          source ./install_llvm.sh ${{ steps.mode.outputs.mode }}
           CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-$LLVM_VERSION" 2>/dev/null | sort -V | tail -1)
           CLANG_VERSION=$(basename $CLANG_BIN | sed 's/clang-//')
           echo "Using LLVM version: $CLANG_VERSION"
