@@ -131,6 +131,8 @@ jobs:
               --defaults_filename ./tests/benchmarks/defaults.yml
               --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }}
               --baseline-branch ${{ github.event.pull_request.base.ref }}
+              --baseline_architecture ${{ inputs.architecture }}
+              --comparison_architecture ${{ inputs.architecture }}
               --auto-approve
               --pull-request ${{ github.event.number }}
               --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }}
