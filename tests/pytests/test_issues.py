@@ -10,7 +10,6 @@ def test_1282(env):
   # optional search for new word would crash server
   env.expect('FT.SEARCH idx', '~foo').equal([1, 'doc1', ['txt1', 'foo']])
   env.expect('FT.SEARCH idx', '~bar ~foo').equal([1, 'doc1', ['txt1', 'foo']])
-  env.assertEqual(1,2)
 
 def test_1304(env):
   env.expect('FT.CREATE idx SCHEMA txt1 TEXT').equal('OK')

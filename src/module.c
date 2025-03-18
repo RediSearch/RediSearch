@@ -329,8 +329,6 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  int *a = rm_malloc(1);
-  printf("%d\n", *a);
   VERIFY_ACL(ctx, argv[1])
 
   QueryError status = {0};
