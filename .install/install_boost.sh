@@ -7,7 +7,7 @@ BOOST_DIR="boost" # here we search for the boost cached installation if exists. 
 
 if [[ -d ${BOOST_DIR} ]]; then
     echo "Boost cache directory present, skipping installation"
-    return 0
+    exit 0
 fi
 
 wget https://archives.boost.io/release/${VERSION}/source/${BOOST_NAME}.tar.gz -O ${BOOST_NAME}.tar.gz
