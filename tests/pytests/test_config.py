@@ -546,7 +546,7 @@ def testConfigAPIRunTimeNumericParams():
 
         # Check that the value is immutable
         env.expect('CONFIG', 'SET', configName, str(default)).error()\
-            .contains('CONFIG SET failed',message = configName)
+            .contains('CONFIG SET failed')
 
     # Test numeric parameters
     for configName, ftConfigName, default, min, max, immutable, clusterConfig in numericConfigs:
