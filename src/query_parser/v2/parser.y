@@ -60,8 +60,8 @@
 }
 
 %syntax_error {
-  QueryError_SetWithoutUserDataFmt(ctx->status, QUERY_ESYNTAX,
-    "Syntax error at offset %d near %.*s",
+  QueryError_SetWithUserDataFmt(ctx->status, QUERY_ESYNTAX,
+    "Syntax error", " at offset %d near %.*s",
     TOKEN.pos, TOKEN.len, TOKEN.s);
 }
 
