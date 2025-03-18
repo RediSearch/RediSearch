@@ -17,12 +17,8 @@ jobs:
     with:
       repo: redis/redis
 
-  docs-only: # Check whether the PR is only modifying docs
-    uses: ./.github/workflows/task-check-docs.yml
-
   # test-linux:
-  #   needs: [docs-only, get-latest-redis-tag]
-  #   if: needs.docs-only.outputs.only-docs-changed == 'false'
+  #   needs: [get-latest-redis-tag]
   #   uses: ./.github/workflows/flow-linux-platforms.yml
   #   secrets: inherit
   #   with:
@@ -31,8 +27,7 @@ jobs:
   #     test-config: "TEST=test:test_with_tls"
 
   test-ubuntu16:
-    needs: [docs-only, get-latest-redis-tag]
-    if: needs.docs-only.outputs.only-docs-changed == 'false'
+    needs: [get-latest-redis-tag]
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
