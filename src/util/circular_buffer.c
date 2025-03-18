@@ -223,12 +223,12 @@ void *CircularBuffer_Read(CircularBuffer cb, void *item) {
 size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance){
   RS_ASSERT(cb != NULL);
   RS_ASSERT(dst != NULL);
-  // make sure there's data to return
+
   if (unlikely(CircularBuffer_Empty(cb))) {
     return 0;
   }
 
-  // calculate the offset_idx of the read pointer
+  // Calculate the starting position for reading
   size_t item_count = cb->item_count;
   uint64_t write = cb->write;
   uint write_idx = write / cb->item_size;
@@ -245,7 +245,7 @@ size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance){
   //                     ^
   //                     W
 
-  // copy item from buffer to output
+  // Copy the buffer content to the destination
   void* read = cb->data + read_idx * cb->item_size;
   // Buffer = [.,.,.,.,.,.,.]
   memcpy(dst, read, first_chunk);
@@ -257,11 +257,10 @@ size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance){
 
 
   if (advance) {
-    // move read pointer to the current write position
+    // Move read pointer to the current write position and update buffer item count
     cb->item_count = 0;
     cb->read = cb->data + cb->write;
   }
-  // update buffer item count
   return item_count;
 }
 
