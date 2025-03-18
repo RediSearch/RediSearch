@@ -143,7 +143,7 @@ pub struct LowMemoryThinVec<T> {
     //
     // ```rust,ignore
     // enum HeaderRef {
-    //     Singleton(&'static Header), // -> pointing at `EMPTY_HEADER`
+    //     Singleton, // -> pointing at `EMPTY_HEADER`
     //     Allocated(&Header), // -> pointing at the beginning of the allocated buffer
     // }
     // ```
@@ -1182,6 +1182,7 @@ impl<T> LowMemoryThinVec<T> {
         );
         if self.has_allocation() {
             let old_cap = self.capacity();
+            let new_layout = allocation_layout::<T>(new_cap);
             // SAFETY:
             // - `self.ptr` was allocated via the same global allocator.
             // - We're using the correct layout for the old capacity.
@@ -1193,19 +1194,19 @@ impl<T> LowMemoryThinVec<T> {
                 realloc(
                     self.ptr.as_ptr() as *mut u8,
                     allocation_layout::<T>(old_cap),
-                    allocation_size::<T>(new_cap),
+                    new_layout.size(),
                 ) as *mut Header
             };
 
             let Some(ptr) = NonNull::new(ptr) else {
-                handle_alloc_error(allocation_layout::<T>(new_cap))
+                handle_alloc_error(new_layout)
             };
+            self.ptr = ptr;
             // SAFETY:
             // - We're not in the singleton case.
             // - The new capacity matches the size of the allocation
             //   that backs the new pointer.
             unsafe {
-                self.ptr = ptr;
                 self.header_mut().set_capacity(new_cap);
             }
         } else {

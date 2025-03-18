@@ -42,15 +42,6 @@ pub(crate) const fn allocation_alignment<T>() -> usize {
     allocation_layout::<T>(1).align()
 }
 
-/// Gets the size for the allocation owned by `LowMemoryThinVec<T>`, given its required capacity.
-///
-/// # Panics
-///
-/// This will panic if isize::MAX is overflowed at any point.
-pub(crate) const fn allocation_size<T>(cap: usize) -> usize {
-    allocation_layout::<T>(cap).size()
-}
-
 /// Gets the padding that must be inserted between the end of the header field
 /// and the start of the elements array to ensure proper alignment.
 ///
