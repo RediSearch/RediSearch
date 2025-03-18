@@ -1027,6 +1027,7 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
 
   // a union stage with one child is the same as the child, so we just return it
   if (QueryNode_NumChildren(qn) == 1) {
+    qn->children[0]->opts.fieldMask &= qn->opts.fieldMask;
     return Query_EvalNode(q, qn->children[0]);
   }
 
