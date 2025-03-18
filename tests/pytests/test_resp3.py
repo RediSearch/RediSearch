@@ -1351,7 +1351,8 @@ def test_ft_info():
         'Index Errors': {
               'indexing failures': 0,
               'last indexing error': 'N/A',
-              'last indexing error key': 'N/A'
+              'last indexing error key': 'N/A',
+              'background indexing status': 'OK'
         }
       }
 

@@ -1673,7 +1673,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     RedisModule_RegisterNumericConfig(
       ctx, "search-workers-priority-bias-threshold",
       DEFAULT_HIGH_PRIORITY_BIAS_THRESHOLD,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+      REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.highPriorityBiasNum)
     )
