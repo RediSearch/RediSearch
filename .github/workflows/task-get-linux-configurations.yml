@@ -112,7 +112,7 @@ jobs:
               'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates"})
 
           # Ubuntu and Debian distributions need git pre-checkout dependencies
-          debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'ubuntu:bionic', 'debian:bullseye', 'gcc:12-bookworm']
+          debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'ubuntu:bionic', 'ubuntu:xenial', 'debian:bullseye', 'gcc:12-bookworm']
           for os_name in debian_based_os:
             if os_name in x86_platforms:
               x86_include.append({

@@ -86,24 +86,18 @@ jobs:
           case "${{ inputs.container }}" in
             ubuntu:xenial | ubuntu:bionic | centos:7 | amazonlinux:2)
 
-              echo "Installing prerequisites for ${{ inputs.container }}..."
-              # Install git (platform-specific package management)
-              case "${{ inputs.container }}" in
-                ubuntu:xenial)
-                  apt update
-                  apt install -y git
-                  ;;
-                centos:7)
-                  # http://mirror.centos.org/centos/7/ is deprecated, so we have to disable mirrorlists
-                  # and change the baseurl in the repo file to the working mirror (from mirror.centos.org to vault.centos.org)
-                  for file in /etc/yum.repos.d/*.repo; do
-                    sed -i 's/^mirrorlist=/#mirrorlist=/g' $file
-                    sed -i 's/^#[[:space:]]*baseurl=http:\/\/mirror/baseurl=http:\/\/vault/g' $file
-                  done
-                  yum update -y
-                  yum install -y git
-                  ;;
-              esac
+              if [[ ${{ inputs.container }} == centos:7 ]]; then
+                # Install git (platform-specific package management)
+                echo "Installing prerequisites for ${{ inputs.container }}..."
+                # http://mirror.centos.org/centos/7/ is deprecated, so we have to disable mirrorlists
+                # and change the baseurl in the repo file to the working mirror (from mirror.centos.org to vault.centos.org)
+                for file in /etc/yum.repos.d/*.repo; do
+                  sed -i 's/^mirrorlist=/#mirrorlist=/g' $file
+                  sed -i 's/^#[[:space:]]*baseurl=http:\/\/mirror/baseurl=http:\/\/vault/g' $file
+                done
+                yum update -y
+                yum install -y git
+              fi
 
               # Configure the safe directory
               git config --global --add safe.directory /__w/${{ github.repository }}
