@@ -207,42 +207,57 @@ void *CircularBuffer_Read(CircularBuffer cb, void *item) {
   return read;
 }
 
-// Read all items from buffer.
-// dst must be large enough to hold all items in the buffer.
+// Read all items from the buffer (item_count), ignoring the current read pointer position.
 // This function is not thread-safe.
-// This function pops the oldest item from the buffer.
+// assuming the buffer looks like this:
+// assuming the buffer looks like this:
+// [., ., ., A, B, C, ., ., .]
+//                    ^
+//                    W
+// item_count = 3
+// CircularBuffer_ReadAll will read A, B, C
+/**
+ * @param dst Destination buffer. Must be large enough to hold all items in the buffer.
+ * @param advance If true, advance the read pointer to the write pointer.
+ */
 size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance){
-  RedisModule_Assert(cb != NULL);
-
+  RS_ASSERT(cb != NULL);
+  RS_ASSERT(dst != NULL);
   // make sure there's data to return
   if (unlikely(CircularBuffer_Empty(cb))) {
     return 0;
   }
 
-  //calculate the offset_idx of the read pointer
+  // calculate the offset_idx of the read pointer
   size_t item_count = cb->item_count;
   uint64_t write = cb->write;
-  uint idx = write / cb->item_size;
-  int read_idx = idx - item_count;
+  uint write_idx = write / cb->item_size;
+  int read_idx = write_idx - item_count;
+  // Adjusts read_idx to handle negative values by wrapping around the circular buffer.
   read_idx = (read_idx >= 0) ? read_idx : (cb->item_cap + read_idx);
+
 
   size_t first_chunk = (read_idx + item_count <= cb->item_cap) ? item_count : (cb->item_cap - read_idx);
   size_t second_chunk = item_count - first_chunk;
   first_chunk *= cb->item_size;
   second_chunk *= cb->item_size;
+  // For example: [e,f,g,.,.,.,a,b,c,d] -> first_chunk = [a,b,c,d] , second_chunk = [e,f,g]
+  //                     ^
+  //                     W
 
   // copy item from buffer to output
   void* read = cb->data + read_idx * cb->item_size;
-  if (dst != NULL) {
-    memcpy(dst, read, first_chunk);
-    if (second_chunk > 0) {
-      memcpy(dst + first_chunk, cb->data, second_chunk);
-    }
+  // Buffer = [.,.,.,.,.,.,.]
+  memcpy(dst, read, first_chunk);
+  // Buffer = [a,b,c,d,.,.,.]
+  if (second_chunk > 0) {
+    memcpy(dst + first_chunk, cb->data, second_chunk);
+  // Buffer = [a,b,c,d,e,f,g]
   }
 
+
   if (advance) {
-    // advance read position
-    // circle back if read reached the end of the buffer
+    // move read pointer to the current write position
     cb->item_count = 0;
     cb->read = cb->data + cb->write;
   }
