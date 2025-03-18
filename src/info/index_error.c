@@ -200,8 +200,8 @@ IndexError IndexError_Deserialize(MRReply *reply) {
     }
 
     MRReply *oomFailure = MRReply_MapElement(reply, BackgroundIndexingOOMfailure_String);
-    RedisModule_Assert(oomFailure);
-    RedisModule_Assert(MRReply_Type(oomFailure) == MR_REPLY_STATUS);
+    RS_ASSERT(oomFailure);
+    RS_ASSERT(MRReply_Type(oomFailure) == MR_REPLY_STRING || MRReply_Type(oomFailure) == MR_REPLY_STATUS);
     if (MRReply_StringEquals(oomFailure, outOfMemoryFailure, 1)) {
         IndexError_RaiseBackgroundIndexFailureFlag(&error);
     }
