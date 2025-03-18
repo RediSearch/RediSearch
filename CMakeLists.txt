@@ -25,6 +25,8 @@ endif()
 
 # Initialize build flags
 set(CMAKE_LD_FLAGS "-pthread -shared -Bsymbolic -Bsymbolic-functions")
+set(CMAKE_LD_LIBS "c m dl pthread")  # todo: alon - wip, see if that helps test linkage issue
+
 
 # Always use .so extension even on macOS
 set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")

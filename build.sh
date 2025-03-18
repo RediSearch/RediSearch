@@ -137,6 +137,8 @@ setup_build_environment() {
   ARCH=$(uname -m)
   if [[ "$ARCH" == "arm64" ]]; then
     ARCH="arm64v8"
+  elif [[ "$ARCH" == "x86_64" ]]; then
+    ARCH="x64"
   fi
 
   # Create full variant string for the build directory
