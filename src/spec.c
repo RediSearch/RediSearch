@@ -2301,6 +2301,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
                 dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
                 RedisModule_ThreadSafeContextLock(ctx);
               }
+              StrongRef_Release(curr_run_ref);
             }
         }
       }
