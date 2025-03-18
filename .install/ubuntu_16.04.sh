@@ -36,5 +36,3 @@ $MODE apt-key adv --keyserver keyserver.ubuntu.com --recv-keys E1DD270288B4E6030
 $MODE apt-get update
 $MODE apt install -yqq gcc-9 g++-9 git
 $MODE update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 60 --slave /usr/bin/g++ g++ /usr/bin/g++-9
-cd -
-source install_cmake.sh $MODE

@@ -64,17 +64,13 @@ jobs:
             fi
           done
           echo "supported=true" >> $GITHUB_OUTPUT
-      - name: Deps checkout (node20)
+      - name: checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
         with:
-          path: setup
+          submodules: recursive
           ref: ${{ env.REF }}
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            .install
-            tests/pytests/requirements.txt
-      - name: Deps checkout (node20 not supported)
+      - name: checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
         run: |
           # Execute the logic based on the detected platform
@@ -83,28 +79,18 @@ jobs:
             ubuntu:xenial | ubuntu:bionic | centos:7 | amazonlinux:2)
               echo "Installing prerequisites for ${{ inputs.container }}..."
 
-              # Install git (platform-specific package management)
-              case "${{ inputs.container }}" in
-                ubuntu:xenial | ubuntu:bionic)
-                  apt update
-                  apt install -y git
-                  ;;
-                amazonlinux:2)
-                  yum update -y
-                  yum install -y git
-                  ;;
-                centos:7)
-                  # http://mirror.centos.org/centos/7/ is deprecated, so we have to disable mirrorlists
-                  # and change the baseurl in the repo file to the working mirror (from mirror.centos.org to vault.centos.org)
-                  for file in /etc/yum.repos.d/*.repo; do
-                    sed -i 's/^mirrorlist=/#mirrorlist=/g' $file
-                    sed -i 's/^#[[:space:]]*baseurl=http:\/\/mirror/baseurl=http:\/\/vault/g' $file
-                  done
-
-                  yum update -y
-                  yum install -y git
-                  ;;
-              esac
+              if [[ ${{ inputs.container }} == centos:7 ]]; then
+                # Install git (platform-specific package management)
+                echo "Installing prerequisites for ${{ inputs.container }}..."
+                # http://mirror.centos.org/centos/7/ is deprecated, so we have to disable mirrorlists
+                # and change the baseurl in the repo file to the working mirror (from mirror.centos.org to vault.centos.org)
+                for file in /etc/yum.repos.d/*.repo; do
+                  sed -i 's/^mirrorlist=/#mirrorlist=/g' $file
+                  sed -i 's/^#[[:space:]]*baseurl=http:\/\/mirror/baseurl=http:\/\/vault/g' $file
+                done
+                yum update -y
+                yum install -y git
+              fi
 
               # Configure the safe directory
               git config --global --add safe.directory /__w/${{ github.repository }}
@@ -117,8 +103,8 @@ jobs:
               git remote add origin "$REPO_URL"
 
               # Fetch and checkout ref
-              git fetch origin "${{ github.ref }}" || {
-                echo "Failed to fetch ref: '${{ github.ref }}'";
+              git fetch origin "${{ env.REF }}" || {
+                echo "Failed to fetch ref: '${{ env.REF }}'";
                 exit 1;
               }
               git checkout FETCH_HEAD  # Check out the fetched ref
@@ -131,37 +117,17 @@ jobs:
               exit 1
               ;;
           esac
-      - name: Setup specific (node20)
-        if: steps.node20.outputs.supported == 'true'
-        working-directory: setup/.install
-        run: |
-          ./install_script.sh ${{ steps.mode.outputs.mode }}
-      - name: Setup specific (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
+      - name: Setup
         working-directory: .install
-        run: |
-          ./install_script.sh ${{ steps.mode.outputs.mode }}
-      - name: Install aws cli (node20)
-        if: steps.node20.outputs.supported == 'true'
-        working-directory: setup/.install
-        run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
-      - name: Install aws cli (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
+        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Install aws cli
         working-directory: .install
         run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
-      - name: Full checkout (node20)
-        if: steps.node20.outputs.supported == 'true'
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-          ref: ${{ env.REF }}
-      - name: Full checkout (node20 not supported)
-        if: steps.node20.outputs.supported == 'false'
-        run: echo "Done already earlier."
-      - name: Setup common
+      - name: Setup test dependencies
         run: .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
         run: pip install -q -r .install/build_package_requirments.txt
+
       # Get Redis
       - name: Get Redis (node20)
         if: steps.node20.outputs.supported == 'true'

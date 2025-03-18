@@ -99,13 +99,42 @@ jobs:
           if x86_platforms.count('amazonlinux:2') > 0:
             x86_include.append({
               'OS': 'amazonlinux:2',
-              'pre-deps': "yum install -y tar gzip"})
+              'pre-deps': "yum install -y tar gzip git"})
+          if 'amazonlinux:2' in arm_platforms:
+            arm_include.append({
+              'OS': 'amazonlinux:2',
+              'pre-deps': "yum install -y tar gzip git"})
 
           # mariner:2 needs pre-checkout dependencies
           if x86_platforms.count('mcr.microsoft.com/cbl-mariner/base/core:2.0') > 0:
             x86_include.append({
               'OS': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
-              'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip"})
+              'pre-deps': "tdnf install -y --noplugins --skipsignature tar gzip git ca-certificates"})
+
+          # Ubuntu and Debian distributions need git pre-checkout dependencies
+          debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'ubuntu:bionic', 'ubuntu:xenial', 'debian:bullseye', 'gcc:12-bookworm']
+          for os_name in debian_based_os:
+            if os_name in x86_platforms:
+              x86_include.append({
+                'OS': os_name,
+                'pre-deps': "apt update && apt install -y git"})
+            if os_name in arm_platforms:
+              arm_include.append({
+                'OS': os_name,
+                'pre-deps': "apt update && apt install -y git"})
+
+          # rockylinux needs git pre-checkout dependencies
+          for rocky_version in ['rockylinux:8', 'rockylinux:9']:
+            if rocky_version in x86_platforms:
+              x86_include.append({
+                'OS': rocky_version,
+                'pre-deps': "yum update -y && yum install -y git"})
+            if rocky_version in arm_platforms:
+              arm_include.append({
+                'OS': rocky_version,
+                'pre-deps': "yum update -y && yum install -y git"})
+
+
 
           # Serialize the platforms to a string
           with open(os.environ['GITHUB_OUTPUT'], 'a') as fh:
