@@ -18,5 +18,7 @@ fi
 echo $OS
 
 source ${OS}.sh $MODE
+source install_cmake.sh $MODE
+source install_boost.sh 
 
 git config --global --add safe.directory '*'
