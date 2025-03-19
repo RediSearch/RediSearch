@@ -1468,25 +1468,24 @@ where
     }
 }
 
-macro_rules! array_impls {
-    ($($N:expr)*) => {$(
-        impl<A, B> PartialEq<[B; $N]> for LowMemoryThinVec<A> where A: PartialEq<B> {
-            #[inline]
-            fn eq(&self, other: &[B; $N]) -> bool { self.as_slice() == other.as_slice() }
-        }
-
-        impl<'a, A, B> PartialEq<&'a [B; $N]> for LowMemoryThinVec<A> where A: PartialEq<B> {
-            #[inline]
-            fn eq(&self, other: &&'a [B; $N]) -> bool { self.as_slice() == other.as_slice() }
-        }
-    )*}
+impl<const N: usize, A, B> PartialEq<[B; N]> for LowMemoryThinVec<A>
+where
+    A: PartialEq<B>,
+{
+    #[inline]
+    fn eq(&self, other: &[B; N]) -> bool {
+        self.as_slice() == other.as_slice()
+    }
 }
 
-array_impls! {
-    0  1  2  3  4  5  6  7  8  9
-    10 11 12 13 14 15 16 17 18 19
-    20 21 22 23 24 25 26 27 28 29
-    30 31 32
+impl<'a, const N: usize, A, B> PartialEq<&'a [B; N]> for LowMemoryThinVec<A>
+where
+    A: PartialEq<B>,
+{
+    #[inline]
+    fn eq(&self, other: &&'a [B; N]) -> bool {
+        self.as_slice() == other.as_slice()
+    }
 }
 
 impl<T> Eq for LowMemoryThinVec<T> where T: Eq {}
