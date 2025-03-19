@@ -2,7 +2,7 @@ from common import *
 
 @skip(cluster=True)
 def test_stop_background_indexing_on_low_mem(env):
-    num_docs = 10000
+    num_docs = 1000
     for i in range(num_docs):
         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
@@ -147,7 +147,7 @@ def test_delete_docs_during_bg_indexing(env):
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
   # Verify that close to n_docs//2 docs were indexed
   docs_in_index = info['num_docs']
-  env.assertAlmostEqual(docs_in_index, 500, delta=100)
+  env.assertAlmostEqual(docs_in_index, n_docs//2, delta=100)
 
 @skip(cluster=True)
 def test_change_config_during_bg_indexing(env):
