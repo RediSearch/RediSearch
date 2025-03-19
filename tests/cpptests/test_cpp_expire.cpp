@@ -9,6 +9,7 @@
 #include "module.h"
 #include "version.h"
 #include "tag_index.h"
+#include "info/info_redis/threads/current_thread.h"
 
 #include <vector>
 #include <array>
@@ -26,6 +27,7 @@ TEST_F(ExpireTest, testSkipTo) {
   RMCK::ArgvList args(ctx, "FT.CREATE", "expire_idx", "ON", "HASH", "SKIPINITIALSCAN",
                       "SCHEMA", "t1", "TAG");
   IndexSpec *spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
+  CurrentThread_SetIndexSpec(spec->own_ref);
   ASSERT_NE(spec, nullptr);
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, "t1", 2);
   ASSERT_NE(fs, nullptr);
@@ -75,7 +77,7 @@ TEST_F(ExpireTest, testSkipTo) {
   }
   it->Free(it);
   SearchCtx_Free(sctx);
-  IndexSpec_RemoveFromGlobals(spec->own_ref);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, true);
   args.clear();
   RedisModule_FreeThreadSafeContext(ctx);
 }
