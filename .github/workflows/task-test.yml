@@ -45,6 +45,7 @@ env:
   # Setting RUSTFLAGS here to ensure that all `cargo` invocations use the same
   # flags, and therefore reuse the same intermediate build artifacts.
   RUSTFLAGS: "-D warnings"
+  RUST_PROFILE: "optimised_test"
 
 jobs:
   common-flow:
@@ -166,7 +167,7 @@ jobs:
         # We also remove invalid characters from the name.
         id: artifact-names
         run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
-          echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
+          echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }} ${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }}- Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Build
         env:

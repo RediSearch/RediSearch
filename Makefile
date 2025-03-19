@@ -35,6 +35,10 @@ make build          # compile and link
   					  # Can be left empty if boost is located in the standard system includes path.
   VERBOSE_UTESTS=1    # enable logging in cpp tests
   REDIS_VER=		  # Hint the redis version to run against so we choose the appropriate build params.
+  RUST_PROFILE=       # Which Rust profile should be used to build (default: release)
+                      # All custom profiles are defined in `src/redisearch_rs/Cargo.toml`.
+                      # If both `RUST_PROFILE` and `DEBUG` are set, `RUST_PROFILE` takes precedence
+                      # for the Rust code.
 
 make parsers       # build parsers code
 make clean         # remove build artifacts
@@ -170,10 +174,12 @@ REDISEARCH_RS_DIR=$(ROOT)/src/redisearch_rs
 export REDISEARCH_RS_TARGET_DIR=$(ROOT)/bin/redisearch_rs/
 export REDISEARCH_RS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT)/redisearch_rs/
 
+ifeq ($(RUST_PROFILE),)
 ifeq ($(DEBUG),1)
-export RUST_BUILD_MODE=
+RUST_PROFILE=dev
 else
-export RUST_BUILD_MODE=--release
+RUST_PROFILE=release
+endif
 endif
 
 HIREDIS_DIR=$(ROOT)/deps/hiredis
@@ -318,16 +324,19 @@ $(LIBUV):
 	@echo Building libuv...
 	$(SHOW)$(MAKE) --no-print-directory -C build/libuv DEBUG=''
 
-ifeq ($(DEBUG),1)
+# Annoying Rust trivia: the artifact directory name always matches the profile name
+# with the exception of the `dev` profile, where it's instead called `debug`
+# for historical reasons.
+ifeq ($(RUST_PROFILE),dev)
 RUST_ARTIFACT_SUBDIR=debug
 else
-RUST_ARTIFACT_SUBDIR=release
+RUST_ARTIFACT_SUBDIR=$(RUST_PROFILE)
 endif
 
 redisearch_rs:
 	@echo Building redisearch_rs..
 	$(SHOW)mkdir -p $(REDISEARCH_RS_TARGET_DIR)
-	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo build $(RUST_BUILD_MODE)
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo build --profile="$(RUST_PROFILE)"
 	$(SHOW)mkdir -p $(REDISEARCH_RS_BINDIR)
 	$(SHOW)cp $(REDISEARCH_RS_TARGET_DIR)/$(RUST_ARTIFACT_SUBDIR)/*.a $(REDISEARCH_RS_BINDIR)
 
@@ -435,8 +444,20 @@ test: unit-tests pytest rust-tests
 unit-tests: rust-tests
 	$(SHOW)BINROOT=$(BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
+RUST_TEST_OPTIONS=--all-features --profile=$(RUST_PROFILE)
+ifeq ($(COV),1)
+# We use the `nightly` compiler in order to include doc tests in the coverage computation.
+# See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
+RUST_TEST_RUNNER=cargo +nightly llvm-cov
+RUST_TEST_OPTIONS+=--doctests \
+	--codecov \
+	--output-path="$(ROOT)/bin/$(FULL_VARIANT)/rust_cov.info"
+else
+RUST_TEST_RUNNER=cargo
+endif
+
 rust-tests:
-	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo test $(RUST_BUILD_MODE) $(TEST_NAME)
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && $(RUST_TEST_RUNNER) test $(RUST_TEST_OPTIONS) $(TEST_NAME)
 
 pytest:
 	@printf "\n-------------- Running python flow test ------------------\n"

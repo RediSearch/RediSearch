@@ -28,3 +28,18 @@ multiple_unsafe_ops_per_block = "warn"
 version = "0.0.1"
 edition = "2024"
 license = "Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1)"
+
+[workspace.dependencies]
+libc = "0.2.170"
+
+# A profile for fast test execution that doesn't sacrifice
+# runtime checks and debuggability.
+[profile.optimised_test]
+# Like `release`, but:
+inherits = "release"
+# - Emit debug symbols
+debug = true
+# - Enable debug assertions
+debug-assertions = true
+# - Enable runtime overflow checks
+overflow-checks = true
