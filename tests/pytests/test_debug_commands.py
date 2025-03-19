@@ -465,12 +465,6 @@ class TestQueryDebugCommands(object):
     def testSearchDebug(self):
         self.SearchDebug()
 
-    def testSearchDebug_MT(self):
-        skipTest(noWorkers=True)
-        self.env.expect(config_cmd(), 'SET', 'WORKERS', 4).ok()
-        self.SearchDebug()
-        self.env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
-
     def AggregateDebug(self):
         env = self.env
         self.setBasicDebugQuery("AGGREGATE")
@@ -523,12 +517,6 @@ class TestQueryDebugCommands(object):
 
     def testAggregateDebug(self):
         self.AggregateDebug()
-
-    def testAggregateDebug_MT(self):
-        skipTest(noWorkers=True)
-        self.env.expect(config_cmd(), 'SET', 'WORKERS', 4).ok()
-        self.AggregateDebug()
-        self.env.expect(config_cmd(), 'SET', 'WORKERS', 0).ok()
 
     # compare results of regular query and debug query
     def Sanity(self, cmd, query_params):
