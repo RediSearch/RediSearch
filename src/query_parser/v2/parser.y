@@ -150,13 +150,13 @@ static void setup_trace(QueryParseCtx *ctx) {
 
 static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ESYNTAX,
-      "%s at offset %d near %.*s", msg, tok->pos, tok->len, tok->s);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+      " at offset %d near %.*s", tok->pos, tok->len, tok->s);
   } else if (tok->type == QT_NUMERIC) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ESYNTAX,
-      "%s at offset %d near %f", msg, tok->pos, tok->numval);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+      " at offset %d near %f", tok->pos, tok->numval);
   } else {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ESYNTAX, msg, " at offset %d", tok->pos);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg, " at offset %d", tok->pos);
   }
 }
 
