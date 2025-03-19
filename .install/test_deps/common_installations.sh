@@ -20,6 +20,21 @@ activate_venv() {
 	fi
 }
 
+# --allow-downgrade:
+#   Allow `rustup` to install an older `nightly` if the latest one
+#   is missing one of the components we need.
+# llvm-tools-preview:
+#   Required by `cargo-llvm-cov` for test coverage
+# miri:
+#   Required to run `cargo miri test` for UB detection
+# rust-src:
+#   Required to build RedisJSON with address sanitizer
+rustup toolchain install nightly \
+    --allow-downgrade \
+    --component llvm-tools-preview \
+    --component miri \
+    --component rust-src
+
 # Tool required to compute test coverage for Rust code
 cargo install cargo-llvm-cov --locked
 # Make sure `miri` is fully operational before running tests with it.
