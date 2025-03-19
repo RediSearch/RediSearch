@@ -210,8 +210,18 @@ impl<T> LowMemoryThinVec<T> {
     /// Creates a new empty LowMemoryThinVec.
     ///
     /// This will not allocate.
-    pub fn new() -> LowMemoryThinVec<T> {
-        LowMemoryThinVec::with_capacity(0)
+    pub const fn new() -> LowMemoryThinVec<T> {
+        // SAFETY:
+        // The pointer is not null since it comes from a (static) reference.
+        let ptr = unsafe {
+            // TODO: Use [NonNull::from_ref](https://doc.rust-lang.org/std/ptr/struct.NonNull.html#method.from_ref)
+            //   when it stabilizes
+            NonNull::new_unchecked(&EMPTY_HEADER as *const Header as *mut Header)
+        };
+        LowMemoryThinVec {
+            ptr,
+            _phantom: PhantomData,
+        }
     }
 
     /// Constructs a new, empty `LowMemoryThinVec<T>` with at least the specified capacity.
@@ -266,14 +276,14 @@ impl<T> LowMemoryThinVec<T> {
     /// let vec_units = LowMemoryThinVec::<()>::with_capacity(10);
     /// ```
     pub fn with_capacity(cap: usize) -> LowMemoryThinVec<T> {
-        let ptr = if cap == 0 {
-            NonNull::from(&EMPTY_HEADER)
+        if cap == 0 {
+            LowMemoryThinVec::new()
         } else {
-            allocate_for_capacity::<T>(cap)
-        };
-        LowMemoryThinVec {
-            ptr,
-            _phantom: PhantomData,
+            let ptr = allocate_for_capacity::<T>(cap);
+            LowMemoryThinVec {
+                ptr,
+                _phantom: PhantomData,
+            }
         }
     }
 
