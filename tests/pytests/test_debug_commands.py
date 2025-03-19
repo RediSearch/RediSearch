@@ -345,11 +345,6 @@ class TestQueryDebugCommands(object):
         else:
             self.env.assertFalse(res['warning'], depth=depth+1, message=message + " unexpected warning")
 
-    def verifyResultsResp3(self, res, expected_results_count, message, should_timeout=True, depth=0):
-        env = self.env
-        env.assertEqual(len(res["results"]), expected_results_count, depth=depth+1, message=message + " unexpected results count")
-        self.verifyWarning(res, message, should_timeout=should_timeout, depth=depth+1)
-
     def verifyResultsResp2(self, res, expected_results_count, message, depth=0):
         env = self.env
         env.assertEqual(len(res[1:] / 2), expected_results_count, depth=depth+1, message=message + " unexpected results count")
@@ -358,7 +353,7 @@ class TestQueryDebugCommands(object):
         env = self.env
         debug_params = ['TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2]
         res = env.cmd(*query, 'LIMIT', 0, limit, *debug_params)
-        self.verifyResultsResp3(res, expected_res_count, message=message + " QueryWithLimit:", should_timeout=should_timeout, depth=depth+1)
+        verifyResultsResp3(env, res, expected_res_count, message=message + " QueryWithLimit:", should_timeout=should_timeout)
 
         return res
 
@@ -403,7 +398,7 @@ class TestQueryDebugCommands(object):
         debug_params = ['TIMEOUT_AFTER_N', 'DEBUG_PARAMS_COUNT', 1]
         expectError(debug_params, 'TIMEOUT_AFTER_N: Expected an argument, but none provided')
 
-    def QueryDebug(self):
+    def QueryDebug(self, message=""):
         env = self.env
         basic_debug_query = self.basic_debug_query
 
@@ -422,7 +417,7 @@ class TestQueryDebugCommands(object):
         # ft.<cmd> idx * TIMEOUT_AFTER_N 0 -> expect empty result
         debug_params = ['TIMEOUT_AFTER_N', 0, 'DEBUG_PARAMS_COUNT', 2]
         res = env.cmd(*basic_debug_query, *debug_params)
-        self.verifyResultsResp3(res, 0, "QueryDebug:")
+        verifyResultsResp3(env, res, 0, message + " QueryDebug:")
 
     def QueryWithSorter(self, limit=2, sortby_params=[], depth=0):
         # For queries with sorter, the LIMIT determines the heap size.
@@ -431,7 +426,7 @@ class TestQueryDebugCommands(object):
 
         # Therefore, as opposed to queries without sorter and LIMIT < TIMEOUT_AFTER_N,
         # we will get LIMIT results *and* TIMEOUT warning.
-        res = self.QueryWithLimit([*self.basic_debug_query, *sortby_params], timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=True, depth=depth+1)
+        res = self.QueryWithLimit([*self.basic_debug_query, *sortby_params], timeout_res_count=10, limit=limit, expected_res_count=limit, should_timeout=True, depth=depth+1, message="QueryWithSorter:")
         res_values = [doc_content['extra_attributes']['n'] for doc_content in res["results"]]
         self.env.assertTrue(res_values == sorted(res_values), depth=depth+1, message="QueryWithSorter: expected sorted results")
         self.env.assertTrue(len(res_values) == len(set(res_values)), depth=depth+1, message="QueryWithSorter: expected unique results")
@@ -450,7 +445,7 @@ class TestQueryDebugCommands(object):
     def SearchDebug(self):
         self.setBasicDebugQuery("SEARCH")
         basic_debug_query = self.basic_debug_query
-        self.QueryDebug()
+        self.QueryDebug(message="SearchDebug:")
 
         timeout_res_count = 4
 
@@ -480,7 +475,7 @@ class TestQueryDebugCommands(object):
         env = self.env
         self.setBasicDebugQuery("AGGREGATE")
         basic_debug_query = self.basic_debug_query
-        self.QueryDebug()
+        self.QueryDebug(message="AggregateDebug:")
 
         # EOF will be reached before the timeout counter
         limit = 2
@@ -495,7 +490,7 @@ class TestQueryDebugCommands(object):
         debug_params = ["TIMEOUT_AFTER_N", timeout_res_count, "DEBUG_PARAMS_COUNT", 2]
         cursor_query = [*basic_debug_query, 'WITHCURSOR', 'COUNT', cursor_count]
         res, cursor = env.cmd(*cursor_query, 'LIMIT', 0, limit, *debug_params)
-        self.verifyResultsResp3(res, timeout_res_count, "AggregateDebug with cursor:")
+        verifyResultsResp3(env, res, timeout_res_count, "AggregateDebug with cursor:")
 
         iter = 0
         total_returned = len(res['results'])
@@ -513,7 +508,7 @@ class TestQueryDebugCommands(object):
                 should_timeout = False
 
             if check_res:
-                self.verifyResultsResp3(res, expected_results_per_iter, f"AggregateDebug with cursor: iter: {iter}, total_returned: {total_returned}", should_timeout=should_timeout)
+                verifyResultsResp3(env, res, expected_results_per_iter, f"AggregateDebug with cursor: iter: {iter}, total_returned: {total_returned}", should_timeout=should_timeout)
             iter += 1
         env.assertEqual(total_returned, self.num_docs, message=f"AggregateDebug with cursor: depletion took {iter} iterations")
 
@@ -522,7 +517,7 @@ class TestQueryDebugCommands(object):
         cursor_query = [*basic_debug_query, 'WITHCURSOR', 'COUNT', cursor_count]
         res, cursor = env.cmd(*cursor_query, 'LIMIT', 0, limit, *debug_params)
         should_timeout = False
-        self.verifyResultsResp3(res, cursor_count, should_timeout=should_timeout, message="AggregateDebug with cursor count lower than timeout_res_count:")
+        verifyResultsResp3(env, res, cursor_count, should_timeout=should_timeout, message="AggregateDebug with cursor count lower than timeout_res_count:")
 
         self.StrictPolicy()
 
@@ -546,7 +541,7 @@ class TestQueryDebugCommands(object):
         # expect that the first timeout_res_count of the regular query will be the same as the debug query
         regular_res = env.cmd(*query)
         debug_res = env.cmd(debug_cmd(), *query, *debug_params)
-        self.verifyResultsResp3(debug_res, timeout_res_count, f"{cmd} Sanity: compare regular and debug results", should_timeout=True)
+        verifyResultsResp3(env, debug_res, timeout_res_count, f"{cmd} Sanity: compare regular and debug results", should_timeout=True)
 
         for i in range(timeout_res_count):
             env.assertEqual(regular_res["results"][i], debug_res["results"][i], message=f"Sanity: compare regular and debug results at index {i}")

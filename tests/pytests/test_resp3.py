@@ -1480,17 +1480,19 @@ def test_error_with_partial_results():
     # In cluster mode we can't use FT.DEBUG to force timeouts precisely,
     # so we use a small timeout value (1ms) with a large result set.
     # This approach doesn't guarantee timeouts, but will likely trigger them.
-    query = [f"FT.{cmd}", "idx", "*", 'LIMIT', 0, num_docs, "TIMEOUT", "1"]
+    query = [f"FT.{cmd}", "idx", "*", 'LIMIT', 0, num_docs]
     if env.isCluster():
-        res = conn.execute_command(*query)
+        res = conn.execute_command(*query, "TIMEOUT", "1")
         env.assertGreaterEqual(len(res['results']), 0)
-        # If we received fewer results than documents, we should see a timeout warning        if len(res['results']) < num_docs:
-        VerifyTimeoutWarningResp3(env, res, message=f"{cmd} query got {len(res['results'])} < {num_docs},")
+        # If we received fewer results than documents, we should see a timeout warning
+        if len(res['results']) < num_docs:
+          VerifyTimeoutWarningResp3(env, res, message=f"{cmd} query got {len(res['results'])} < {num_docs},")
+        else:
+          env.debugPrint(f"{cmd} query did not time out, got {len(res['results'])} results", force=True)
     else: # SA supports FT.DEBUG <query>!
-      res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_res_count=3)
-      env.assertGreater(len(res['results']), 0)
-      # Assert that we got a warning
-      VerifyTimeoutWarningResp3(env, res)
+      timeout_res_count = 3
+      res = runDebugQueryCommandTimeoutAfterN(env, query, timeout_res_count=timeout_res_count)
+      verifyResultsResp3(env, res, expected_results_count=timeout_res_count, should_timeout=True)
 
   # `FT.AGGREGATE`
   run_maybe_timed_out_query("AGGREGATE")

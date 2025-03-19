@@ -1103,7 +1103,8 @@ static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout) {
     }
 
     if (cur) { // This is a shard pipeline
-     // TODO: LOG
+      RPIndexIterator *rp_index = (RPIndexIterator *)cur;
+      rp_index->timeoutLimiter = TIMEOUT_COUNTER_LIMIT - 1;
     }
 }
 
