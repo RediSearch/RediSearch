@@ -21,6 +21,7 @@ typedef struct IndexError {
     char *last_error;       // Last error message.
     RedisModuleString *key; // Key of the document that caused the error.
     struct timespec last_error_time; // Time of the last error.
+    bool background_indexing_OOM_failure; // Background indexing OOM failure occurred.
 } IndexError;
 
 // Global constant to place an index error object in maps/dictionaries.
@@ -49,7 +50,7 @@ void IndexError_Clear(IndexError error);
 
 // IO and cluster traits
 // Reply the index errors to the client.
-void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_time);
+void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_time, bool withBgIndexingStatus);
 
 #include "coord/rmr/reply.h"
 
@@ -57,7 +58,13 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
 // This is used when merging errors from different shards in a cluster.
 void IndexError_Combine(IndexError *error, const IndexError *other);
 
-IndexError IndexError_Deserialize(MRReply *reply);
+IndexError IndexError_Deserialize(MRReply *reply, bool withOOMstatus);
+
+// Change the background_indexing_OOM_failure flag to true.
+void IndexError_RaiseBackgroundIndexFailureFlag(IndexError *error);
+
+// Get the background_indexing_OOM_failure flag.
+bool IndexError_HasBackgroundIndexingOOMFailure(const IndexError *error);
 
 #ifdef __cplusplus
 }

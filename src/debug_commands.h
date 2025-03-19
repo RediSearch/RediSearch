@@ -26,6 +26,7 @@ typedef struct BgIndexingDebugCtx {
   int maxDocsTBscannedPause; // Number of documents to be scanned before pausing
   bool pauseBeforeScan; // Whether to pause before scanning
   volatile atomic_bool pause; // Volatile atomic bool to wait for the resume command
+  bool pauseOnOOM; // Whether to pause on OOM
 } BgIndexingDebugCtx;
 
 // General debug context

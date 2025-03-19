@@ -849,6 +849,19 @@ def checkDebugScannerError(env, idx = 'idx', expected_error = ''):
     env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx).error() \
         .contains(expected_error)
 
-def waitForIndexPauseScan(env, idx = 'idx'):
-    while getDebugScannerStatus(env, idx)!='PAUSED':
+def set_tight_maxmemory_for_oom(env, memory_limit_per = 0.8):
+    # Get current memory consumption value
+    memory_usage = env.cmd('INFO', 'MEMORY')['used_memory']
+    # Set memory limit to less then memory limit
+    env.expect('config', 'set', 'maxmemory', int(memory_usage*(1/(memory_limit_per-0.01)))).ok()
+
+def waitForIndexStatus(env,status, idx = 'idx'):
+    while getDebugScannerStatus(env, idx)!=status:
         time.sleep(0.1)
+
+def waitForIndexPauseScan(env,idx = 'idx'):
+    waitForIndexStatus(env,'PAUSED', idx)
+def assertEqual_dicts_on_intersection(env, d1, d2, message=None):
+    for k in d1:
+        if k in d2:
+            env.assertEqual(d1[k], d2[k], message=message)

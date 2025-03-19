@@ -41,6 +41,7 @@ configPair_t __configPairs[] = {
   {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
   {"_PRINT_PROFILE_CLOCK",            "search-_print-profile-clock"},
   {"_PRIORITIZE_INTERSECT_UNION_CHILDREN", "search-_prioritize-intersect-union-children"},
+  {"_INDEX_MEM_LIMIT",                "search-_stop-indexing-memory-limit"},
   {"BG_INDEX_SLEEP_GAP",              "search-bg-index-sleep-gap"},
   {"CONN_PER_SHARD",                  "search-conn-per-shard"},
   {"CURSOR_MAX_IDLE",                 "search-cursor-max-idle"},
@@ -419,6 +420,27 @@ int set_min_operation_workers(const char *name,
 long long get_min_operation_workers(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long) (*(size_t *)privdata);
+}
+
+static inline int errorMemoryLimitG100(QueryError *status) {
+  QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Memory limit for indexing cannot be greater then 100");
+  return REDISMODULE_ERR;
+}
+// SET MEMORY LIMIT PERCENTAGE
+CONFIG_SETTER(setIndexingMemoryLimit) {
+  uint32_t newLimit;
+  int acrc = AC_GetU32(ac, &newLimit, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newLimit > 100) {
+    return errorMemoryLimitG100(status);
+  }
+  config->indexingMemoryLimit = newLimit;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getIndexingMemoryLimit) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->indexingMemoryLimit);
 }
 
 /************************************ DEPRECATION CANDIDATES *************************************/
@@ -1199,6 +1221,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Enable unstable features.",
          .setValue = set_EnableUnstableFeatures,
          .getValue = get_EnableUnstableFeatures},
+        {.name = "_INDEX_MEM_LIMIT",
+         .helpText = "Set the maximum memory limit for the indexing. If the memory exceeds this limit, documentw won't be indexed."
+                      "The limit is percentage from the total memory available to the process. default is 80 percent.",
+         .setValue = setIndexingMemoryLimit,
+         .getValue = getIndexingMemoryLimit},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -1649,6 +1676,16 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED, 0,
       LLONG_MAX, get_numeric_config, set_numeric_config, NULL,
       (void *)&(RSGlobalConfig.highPriorityBiasNum)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-_stop-indexing-memory-limit",
+      DEFAULT_INDEXING_MEMORY_LIMIT,
+      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+      100, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.indexingMemoryLimit)
     )
   )
 

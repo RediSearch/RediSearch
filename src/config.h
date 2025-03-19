@@ -154,6 +154,8 @@ typedef struct {
 
   // Enable to execute unstable features
   bool enableUnstableFeatures;
+  // Limit the memory ration used until we stop indexing
+  uint32_t indexingMemoryLimit;
 } RSConfig;
 
 typedef enum {
@@ -262,6 +264,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 #define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
+#define DEFAULT_INDEXING_MEMORY_LIMIT 80
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
@@ -304,7 +307,8 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,          \
     .prioritizeIntersectUnionChildren = false,                                 \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
-    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE                 \
+    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE,                \
+    .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT                       \
   }
 
 #define REDIS_ARRAY_LIMIT 7

@@ -14,11 +14,14 @@
 extern RedisModuleCtx *RSDummyContext;
 
 char* const NA = "N/A";
+char* const OK = "OK";
 char* const IndexError_ObjectName = "Index Errors";
 char* const IndexingFailure_String = "indexing failures";
 char* const IndexingError_String = "last indexing error";
 char* const IndexingErrorKey_String = "last indexing error key";
 char* const IndexingErrorTime_String = "last indexing error time";
+char* const BackgroundIndexingOOMfailure_String = "background indexing status";
+char* const outOfMemoryFailure = "OOM failure";
 RedisModuleString* NA_rstr = NULL;
 
 static void initDefaultKey() {
@@ -52,6 +55,11 @@ void IndexError_AddError(IndexError *error, const char *error_message, RedisModu
     clock_gettime(CLOCK_MONOTONIC_RAW, &error->last_error_time);
 }
 
+void IndexError_RaiseBackgroundIndexFailureFlag(IndexError *error) {
+    // Change the background_indexing_OOM_failure flag to true.
+    error->background_indexing_OOM_failure = true;
+}
+
 void IndexError_Clear(IndexError error) {
     if (!NA_rstr) initDefaultKey();
     if (error.last_error != NA && error.last_error != NULL) {
@@ -64,7 +72,7 @@ void IndexError_Clear(IndexError error) {
     }
 }
 
-void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_timestamp) {
+void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_timestamp, bool withOOMstatus) {
     RedisModule_Reply_Map(reply);
     REPLY_KVINT(IndexingFailure_String, IndexError_ErrorCount(error));
     REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastError(error));
@@ -76,6 +84,10 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
         RedisModule_Reply_LongLong(reply, ts.tv_nsec);
         REPLY_ARRAY_END;
     }
+    // Should only be displayed in "Index Errors", and not in, for example, "Field Statistics".
+    if (withOOMstatus)
+        REPLY_KVSTR_SAFE(BackgroundIndexingOOMfailure_String, IndexError_HasBackgroundIndexingOOMFailure(error) ? outOfMemoryFailure  : OK);
+
     RedisModule_Reply_MapEnd(reply);
 }
 
@@ -113,6 +125,8 @@ void IndexError_Combine(IndexError *error, const IndexError *other) {
     }
     // Currently `error` is not a shared object, so we don't need to use atomic add.
     error->error_count += other->error_count;
+    error->background_indexing_OOM_failure |= other->background_indexing_OOM_failure;
+
 }
 
 // Setters
@@ -140,7 +154,11 @@ void IndexError_SetErrorTime(IndexError *error, struct timespec error_time) {
     error->last_error_time = error_time;
 }
 
-IndexError IndexError_Deserialize(MRReply *reply) {
+bool IndexError_HasBackgroundIndexingOOMFailure(const IndexError *error) {
+    return error->background_indexing_OOM_failure;
+}
+
+IndexError IndexError_Deserialize(MRReply *reply, bool withOOMstatus) {
     IndexError error = IndexError_Init();
 
     // Validate the reply. It should be a map with 3 elements.
@@ -166,7 +184,6 @@ IndexError IndexError_Deserialize(MRReply *reply) {
     RS_ASSERT(MRReply_Type(key) == MR_REPLY_STRING || MRReply_Type(key) == MR_REPLY_STATUS);
     size_t key_len;
     const char *key_str = MRReply_String(key, &key_len);
-
     MRReply *last_error_time = MRReply_MapElement(reply, IndexingErrorTime_String);
     RS_ASSERT(last_error_time);
     RS_ASSERT(MRReply_Type(last_error_time) == MR_REPLY_ARRAY && MRReply_Length(last_error_time) == 2);
@@ -182,6 +199,14 @@ IndexError IndexError_Deserialize(MRReply *reply) {
         if (!NA_rstr) initDefaultKey();
         IndexError_SetLastError(&error, NA);
         IndexError_SetKey(&error, RedisModule_HoldString(RSDummyContext, NA_rstr));
+    }
+    if (withOOMstatus) {
+        MRReply *oomFailure = MRReply_MapElement(reply, BackgroundIndexingOOMfailure_String);
+        RS_ASSERT(oomFailure);
+        RS_ASSERT(MRReply_Type(oomFailure) == MR_REPLY_STRING || MRReply_Type(oomFailure) == MR_REPLY_STATUS);
+        if (MRReply_StringEquals(oomFailure, outOfMemoryFailure, 1)) {
+            IndexError_RaiseBackgroundIndexFailureFlag(&error);
+        }
     }
 
     return error;
