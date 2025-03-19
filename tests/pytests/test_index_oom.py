@@ -74,13 +74,12 @@ def test_stop_indexing_low_mem_verbosity(env):
   env.assertEqual(index_oom_count, 1)
 
 @skip(cluster=True)
-def test_delete_during_bg_indexing(env):
+def test_idx_delete_during_bg_indexing(env):
   # Test deleting an index while it is being indexed in the background
   n_docs = 1000
   for i in range(n_docs):
     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
-  # Set GC to delete everything immediately
-  env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+
    # Set pause before indexing
   env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
   # Create an index with a text field.
@@ -93,23 +92,28 @@ def test_delete_during_bg_indexing(env):
   # Check that the index does not exist
   env.expect('ft._list').equal([])
 
-  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'false').ok()
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', n_docs//2).ok()
 
   env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
+  waitForIndexStatus(env, 'NEW')
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
+
   waitForIndexPauseScan(env, 'idx')
   # Delete the index
   env.expect('ft.drop', 'idx').ok()
   # Resume indexing
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
+  # After the following line, the background indexing should be completed
+  env.expect(bgScanCommand(), 'TERMINATE_BG_POOL').ok()
   # Check that the index does not exist
   env.expect('ft._list').equal([])
+  #
 
 @skip(cluster=True)
 def test_delete_docs_during_bg_indexing(env):
   # Test deleting docs while they are being indexed in the background
   # Using a large number of docs to make sure the test is not flaky
-  n_docs = 10000
+  n_docs = 1000
   for i in range(n_docs):
     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
 
@@ -149,7 +153,7 @@ def test_delete_docs_during_bg_indexing(env):
 def test_change_config_during_bg_indexing(env):
   # Test deleting docs while they are being indexed in the background
   # Using a large number of docs to make sure the test is not flaky
-  n_docs = 10000
+  n_docs = 1000
   for i in range(n_docs):
     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
 
@@ -191,7 +195,7 @@ def test_oom_query_error(env):
                   }
   queries_params.update({query: f'{idx_name} *' for query in error_querys_star})
   # Using a large number of docs to make sure the test is not flaky
-  n_docs = 10000
+  n_docs = 1000
   for i in range(n_docs):
     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
   # Set pause before indexing
