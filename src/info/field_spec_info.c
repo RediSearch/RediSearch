@@ -143,7 +143,7 @@ FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
 
     MRReply *error = MRReply_MapElement(reply, IndexError_ObjectName);
     RS_ASSERT(error);
-    info.error = IndexError_Deserialize(error);
+    info.error = IndexError_Deserialize(error, false);
     // attribute used to determine field type
     info.stats = FieldStats_Deserialize(info.attribute, reply);
 

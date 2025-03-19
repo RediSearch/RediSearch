@@ -195,7 +195,7 @@ static void handleIndexError(InfoFields *fields, MRReply *src) {
   if (!IndexError_LastError(&fields->indexError)) {
     fields->indexError = IndexError_Init();
   }
-  IndexError indexError = IndexError_Deserialize(src);
+  IndexError indexError = IndexError_Deserialize(src, true);
   IndexError_Combine(&fields->indexError, &indexError);
   IndexError_Clear(indexError); // Free Resources
 }

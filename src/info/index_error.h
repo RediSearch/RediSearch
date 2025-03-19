@@ -58,7 +58,7 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
 // This is used when merging errors from different shards in a cluster.
 void IndexError_Combine(IndexError *error, const IndexError *other);
 
-IndexError IndexError_Deserialize(MRReply *reply);
+IndexError IndexError_Deserialize(MRReply *reply, bool withOOMstatus);
 
 // Change the background_indexing_OOM_failure flag to true.
 void IndexError_RaiseBackgroundIndexFailureFlag(IndexError *error);

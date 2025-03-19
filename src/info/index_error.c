@@ -72,7 +72,7 @@ void IndexError_Clear(IndexError error) {
     }
 }
 
-void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_timestamp, bool indexErrorsOnly) {
+void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_timestamp, bool withOOMstatus) {
     RedisModule_Reply_Map(reply);
     REPLY_KVINT(IndexingFailure_String, IndexError_ErrorCount(error));
     REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastError(error));
@@ -85,7 +85,7 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
         REPLY_ARRAY_END;
     }
     // Should only be displayed in "Index Errors", and not in, for example, "Field Statistics".
-    if (indexErrorsOnly)
+    if (withOOMstatus)
         REPLY_KVSTR_SAFE(BackgroundIndexingOOMfailure_String, IndexError_HasBackgroundIndexingOOMFailure(error) ? outOfMemoryFailure  : OK);
 
     RedisModule_Reply_MapEnd(reply);
@@ -158,7 +158,7 @@ bool IndexError_HasBackgroundIndexingOOMFailure(const IndexError *error) {
     return error->background_indexing_OOM_failure;
 }
 
-IndexError IndexError_Deserialize(MRReply *reply) {
+IndexError IndexError_Deserialize(MRReply *reply, bool withOOMstatus) {
     IndexError error = IndexError_Init();
 
     // Validate the reply. It should be a map with 3 elements.
@@ -200,12 +200,13 @@ IndexError IndexError_Deserialize(MRReply *reply) {
         IndexError_SetLastError(&error, NA);
         IndexError_SetKey(&error, RedisModule_HoldString(RSDummyContext, NA_rstr));
     }
-
-    MRReply *oomFailure = MRReply_MapElement(reply, BackgroundIndexingOOMfailure_String);
-    RS_ASSERT(oomFailure);
-    RS_ASSERT(MRReply_Type(oomFailure) == MR_REPLY_STRING || MRReply_Type(oomFailure) == MR_REPLY_STATUS);
-    if (MRReply_StringEquals(oomFailure, outOfMemoryFailure, 1)) {
-        IndexError_RaiseBackgroundIndexFailureFlag(&error);
+    if (withOOMstatus) {
+        MRReply *oomFailure = MRReply_MapElement(reply, BackgroundIndexingOOMfailure_String);
+        RS_ASSERT(oomFailure);
+        RS_ASSERT(MRReply_Type(oomFailure) == MR_REPLY_STRING || MRReply_Type(oomFailure) == MR_REPLY_STATUS);
+        if (MRReply_StringEquals(oomFailure, outOfMemoryFailure, 1)) {
+            IndexError_RaiseBackgroundIndexFailureFlag(&error);
+        }
     }
 
     return error;
