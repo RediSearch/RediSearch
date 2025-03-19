@@ -18,15 +18,33 @@ fn test_drop_empty() {
 }
 
 #[test]
+fn test_alloc() {
+    let mut v = LowMemoryThinVec::new();
+    assert!(!v.has_allocated());
+    v.push(1);
+    assert!(v.has_allocated());
+    v.pop();
+    assert!(v.has_allocated());
+    v.shrink_to_fit();
+    assert!(!v.has_allocated());
+    v.reserve(64);
+    assert!(v.has_allocated());
+    v = LowMemoryThinVec::with_capacity(64);
+    assert!(v.has_allocated());
+    v = LowMemoryThinVec::with_capacity(0);
+    assert!(!v.has_allocated());
+}
+
+#[test]
 fn test_clone() {
     let mut v = LowMemoryThinVec::<i32>::new();
-    assert!(!v.has_capacity());
+    assert!(!v.has_allocated());
     v.push(0);
     v.pop();
-    assert!(v.has_capacity());
+    assert!(v.has_allocated());
 
     let v2 = v.clone();
-    assert!(!v2.has_capacity());
+    assert!(!v2.has_allocated());
 }
 
 #[test]

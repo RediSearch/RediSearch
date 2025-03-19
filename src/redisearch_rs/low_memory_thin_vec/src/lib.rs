@@ -383,8 +383,10 @@ impl<T> LowMemoryThinVec<T> {
         self.header_ref().capacity()
     }
 
-    /// Returns `true` if the vector has the capacity to hold any element.
-    pub fn has_capacity(&self) -> bool {
+    /// Returns `true` if the vector has allocated any memory via the global
+    /// allocator.
+    #[inline]
+    pub fn has_allocated(&self) -> bool {
         !self.is_singleton()
     }
 
@@ -1180,7 +1182,7 @@ impl<T> LowMemoryThinVec<T> {
             new_cap >= self.len(),
             "New capacity is smaller than the current length"
         );
-        if self.has_allocation() {
+        if self.has_allocated() {
             let old_cap = self.capacity();
             let new_layout = allocation_layout::<T>(new_cap);
             // SAFETY:
@@ -1219,11 +1221,6 @@ impl<T> LowMemoryThinVec<T> {
     #[inline]
     fn is_singleton(&self) -> bool {
         self.ptr.as_ptr() as *const Header == &EMPTY_HEADER
-    }
-
-    #[inline]
-    fn has_allocation(&self) -> bool {
-        !self.is_singleton()
     }
 }
 
@@ -2010,24 +2007,6 @@ mod tests {
         assert_eq!(w, z);
         // they should be disjoint in memory.
         assert!(w.as_ptr() != z.as_ptr())
-    }
-
-    #[test]
-    fn test_alloc() {
-        let mut v = LowMemoryThinVec::new();
-        assert!(!v.has_allocation());
-        v.push(1);
-        assert!(v.has_allocation());
-        v.pop();
-        assert!(v.has_allocation());
-        v.shrink_to_fit();
-        assert!(!v.has_allocation());
-        v.reserve(64);
-        assert!(v.has_allocation());
-        v = LowMemoryThinVec::with_capacity(64);
-        assert!(v.has_allocation());
-        v = LowMemoryThinVec::with_capacity(0);
-        assert!(!v.has_allocation());
     }
 
     #[test]
