@@ -210,7 +210,6 @@ void *CircularBuffer_Read(CircularBuffer cb, void *item) {
 // Read all items from the buffer (item_count), ignoring the current read pointer position.
 // This function is not thread-safe.
 // assuming the buffer looks like this:
-// assuming the buffer looks like this:
 // [., ., ., A, B, C, ., ., .]
 //                    ^
 //                    W
@@ -244,6 +243,7 @@ size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance){
   // For example: [e,f,g,.,.,.,a,b,c,d] -> first_chunk = [a,b,c,d] , second_chunk = [e,f,g]
   //                     ^
   //                     W
+  // item_count = 7
 
   // Copy the buffer content to the destination
   void* read = cb->data + read_idx * cb->item_size;
