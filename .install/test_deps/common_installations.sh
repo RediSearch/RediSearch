@@ -10,6 +10,7 @@ activate_venv() {
 		echo "source venv/bin/activate" >> ~/.zshrc
 	else
 		echo "source $PWD/venv/bin/activate" >> ~/.bash_profile
+		echo "source $PWD/venv/bin/activate" >> ~/.bashrc
 		# Adding the virtual environment activation script to the shell profile
 		# causes $PATH issues on platforms like Debian and Alpine,
 		# shadowing the pre-existing source command to make `cargo` available.
@@ -18,6 +19,9 @@ activate_venv() {
 		echo '. "$HOME/.cargo/env"' >> ~/.bash_profile
 	fi
 }
+
+# Tool required to compute test coverage for Rust code
+cargo install cargo-llvm-cov --locked
 
 python3 -m venv venv
 activate_venv
