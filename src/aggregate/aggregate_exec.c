@@ -447,9 +447,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     }
 
     // Set `resultsLen` to be the expected number of results in the response.
-    if (ShouldReplyWithTimeoutError(rc, req)) {
-      resultsLen = 1;
-    } else if (rc == RS_RESULT_ERROR) {
+    if (rc == RS_RESULT_ERROR) {
       resultsLen = 2;
     } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
                req->optimizer->type != Q_OPT_NO_SORTER) {
@@ -573,15 +571,6 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     RedisModule_ReplyKV_Array(reply, "attributes");
     RedisModule_Reply_ArrayEnd(reply);
 
-    // TODO: Move this to after the results section, so that we can report the
-    // correct number of returned results.
-    // <total_results>
-    if (ShouldReplyWithTimeoutError(rc, req)) {
-      RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
-    } else {
-      RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
-    }
-
     // <format>
     if (req->reqflags & QEXEC_FORMAT_EXPAND) {
       RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
@@ -618,6 +607,9 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
 done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
+
+    // <total_results>
+    RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
 
     // <error>
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings

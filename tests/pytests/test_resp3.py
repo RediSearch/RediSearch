@@ -228,7 +228,7 @@ def test_coord_profile():
       'Results': {
         'attributes': [],
         'warning': [],
-        'total_results': 1,
+        'total_results': 2,
         'format': 'STRING',
         'results': [
           {'extra_attributes': {}, 'values': []},
@@ -1601,3 +1601,33 @@ def test_warning_maxprefixexpansions():
     if shard['Warning']== 'Max prefix expansions limit was reached':
          n_warnings += 1
   env.assertEqual(n_warnings, 1)
+
+# TODO: `total_results` is currently not  on cluster - to be fixed in MOD-9094
+@skip(cluster=True)
+def test_totalResults_aggregate():
+  """Tests that the `total_results` field on `FT.AGGREGATE` is correct when
+  using the RESP3 protocol"""
+
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+  conn = env.getClusterConnectionIfNeeded()
+
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  # Populate the index
+  n_docs = 15 * env.shardsCount
+  for i in range(n_docs):
+      conn.execute_command('HSET', f'doc{i}', 't', str(i))
+
+  # Test that the `total_results` field is correct
+  res = env.cmd('FT.AGGREGATE', 'idx', '*')
+  env.assertEqual(res['total_results'], n_docs)
+
+  # Test the `total_results` field for a cursor
+  res, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '5')
+  while cid:
+    env.assertEqual(res['total_results'], 5)
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+
+  # Cursor is depleted.
+  env.assertEqual(res['total_results'], 0)
