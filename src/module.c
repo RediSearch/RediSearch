@@ -1355,7 +1355,6 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-void ReindexPool_ThreadPoolDestroy();
 extern dict *legacySpecDict, *legacySpecRules;
 
 void RediSearch_CleanupModule(void) {
