@@ -935,3 +935,18 @@ def testPauseOnOOM(env: Env):
 
     # Resume indexing for the sake of completeness
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+
+def test_terminate_bg_pool(env):
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'TERMINATE_BG_POOL','ExtraARG').error()\
+    .contains('wrong number of arguments')
+    # Test OK returned only after scan complete
+    # Insert 1000 docs
+    num_docs = 1000
+    for i in range(num_docs):
+        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    env.expect(bgScanCommand(), 'TERMINATE_BG_POOL').ok()
+    # Check if the scan is finished
+    env.assertEqual(index_info(env, 'idx')['indexing'], 0)
