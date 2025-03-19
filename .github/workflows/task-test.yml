@@ -168,7 +168,7 @@ jobs:
         # We also remove invalid characters from the name.
         id: artifact-names
         run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
-          echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }}, Redis ${{ inputs.get-redis || 'unstable' }}" | \
+          echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }} ${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }}- Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
 
       - name: Build Standalone
