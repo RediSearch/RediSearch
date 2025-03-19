@@ -9,7 +9,7 @@ pub(crate) struct Header {
 pub(crate) type SizeType = u16;
 
 /// The maximum capacity of a `LowMemoryThinVec`.
-pub(crate) const MAX_CAP: usize = u16::MAX as usize;
+pub(crate) const MAX_CAP: usize = SizeType::MAX as usize;
 
 #[inline(always)]
 /// Convert a `usize` to a [`SizeType`], panicking if the value is too large to fit.
