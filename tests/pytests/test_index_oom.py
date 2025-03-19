@@ -2,7 +2,7 @@ from common import *
 
 @skip(cluster=True)
 def test_stop_background_indexing_on_low_mem(env):
-    num_docs = 1000
+    num_docs = 10000
     for i in range(num_docs):
         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
@@ -76,7 +76,7 @@ def test_stop_indexing_low_mem_verbosity(env):
 @skip(cluster=True)
 def test_idx_delete_during_bg_indexing(env):
   # Test deleting an index while it is being indexed in the background
-  n_docs = 1000
+  n_docs = 10000
   for i in range(n_docs):
     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
 
@@ -113,7 +113,7 @@ def test_idx_delete_during_bg_indexing(env):
 def test_delete_docs_during_bg_indexing(env):
   # Test deleting docs while they are being indexed in the background
   # Using a large number of docs to make sure the test is not flaky
-  n_docs = 1000
+  n_docs = 10000
   for i in range(n_docs):
     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
 
@@ -153,7 +153,7 @@ def test_delete_docs_during_bg_indexing(env):
 def test_change_config_during_bg_indexing(env):
   # Test deleting docs while they are being indexed in the background
   # Using a large number of docs to make sure the test is not flaky
-  n_docs = 1000
+  n_docs = 10000
   for i in range(n_docs):
     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
 
@@ -195,7 +195,7 @@ def test_oom_query_error(env):
                   }
   queries_params.update({query: f'{idx_name} *' for query in error_querys_star})
   # Using a large number of docs to make sure the test is not flaky
-  n_docs = 1000
+  n_docs = 10000
   for i in range(n_docs):
     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
   # Set pause before indexing

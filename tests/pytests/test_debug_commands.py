@@ -936,6 +936,7 @@ def testPauseOnOOM(env: Env):
     # Resume indexing for the sake of completeness
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
 
+@skip(cluster=True)
 def test_terminate_bg_pool(env):
     # Giving wrong arity
     env.expect(bgScanCommand(), 'TERMINATE_BG_POOL','ExtraARG').error()\
