@@ -125,6 +125,8 @@ void IndexError_Combine(IndexError *error, const IndexError *other) {
     }
     // Currently `error` is not a shared object, so we don't need to use atomic add.
     error->error_count += other->error_count;
+    error->background_indexing_OOM_failure |= other->background_indexing_OOM_failure;
+
 }
 
 // Setters
