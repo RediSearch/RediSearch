@@ -139,7 +139,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
 
     if (ii == fmtsz - 1) {
       // ... %"
-      QERR_MKBADARGS(ctx->err, "Bad format string!");
+      QueryError_SetError(ctx->err, QUERY_EPARSEARGS, "Bad format string!");
       goto error;
     }
 
@@ -155,7 +155,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
     }
 
     if (argix == argc) {
-      QERR_MKBADARGS(ctx->err, "Not enough arguments for format");
+      QueryError_SetError(ctx->err, QUERY_EPARSEARGS, "Not enough arguments for format");
       goto error;
     }
 
@@ -183,7 +183,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
         out = sdscatlen(out, str, sz);
       }
     } else {
-      QERR_MKBADARGS(ctx->err, "Unknown format specifier passed");
+      QueryError_SetError(ctx->err, QUERY_EPARSEARGS, "Unknown format specifier passed");
       goto error;
     }
   }

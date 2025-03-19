@@ -31,7 +31,7 @@ int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
   errno = 0;
   *target = strtod(s, &endptr);
   if (*endptr != '\0' || *target == HUGE_VAL || *target == -HUGE_VAL) {
-    QERR_MKBADARGS_FMT(status, isMin ? "Bad lower range" : "Bad upper range", ": %s", s);
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, isMin ? "Bad lower range" : "Bad upper range", ": %s", s);
     return REDISMODULE_ERR;
   }
   if(sign == -1) {
@@ -58,7 +58,7 @@ int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
  */
 LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status) {
   if (AC_NumRemaining(ac) < 3) {
-    QERR_MKBADARGS(status, "FILTER requires 3 arguments");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "FILTER requires 3 arguments");
     return NULL;
   }
 
