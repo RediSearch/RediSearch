@@ -47,7 +47,7 @@ pub(crate) const fn allocation_alignment<T>() -> usize {
 ///
 /// # Performance
 ///
-/// This will value will be computed at compile time for any `T` that may end up being used in our
+/// This value will be computed at compile time for any `T` that may end up being used in our
 /// program as a type for the elements within `LowMemoryThinVec<T>`, since the function is `const`
 /// and takes no runtime arguments.
 pub(crate) const fn header_field_padding<T>() -> usize {
