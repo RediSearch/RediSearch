@@ -565,6 +565,23 @@ fn test_vec_truncate_fail() {
 }
 
 #[test]
+#[should_panic]
+fn test_vec_clear_fail() {
+    struct BadElem(i32);
+    impl Drop for BadElem {
+        fn drop(&mut self) {
+            let BadElem(ref mut x) = *self;
+            if *x == 0xbadbeef {
+                panic!("BadElem panic: 0xbadbeef")
+            }
+        }
+    }
+
+    let mut v = low_memory_thin_vec![BadElem(1), BadElem(2), BadElem(0xbadbeef), BadElem(4)];
+    v.clear();
+}
+
+#[test]
 fn test_index() {
     let vec = low_memory_thin_vec![1, 2, 3];
     assert!(vec[1] == 2);

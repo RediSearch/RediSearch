@@ -907,6 +907,18 @@ impl<T> LowMemoryThinVec<T> {
     /// assert!(v.is_empty());
     /// ```
     pub fn clear(&mut self) {
+        let elements: *mut [T] = self.as_mut_slice();
+
+        // We first set the length to 0 to avoid dropping elements
+        // twice if an element's `Drop` implementation panics.
+        //
+        // SAFETY:
+        // 0 is always within capacity and there are no elements
+        // to initialize.
+        unsafe {
+            self.set_len(0); // could be the singleton
+        }
+
         // Drop the elements to ensure any resource they own is released.
         // Failing to do so could lead to memory leaks or other resource leaks.
         //
@@ -915,13 +927,7 @@ impl<T> LowMemoryThinVec<T> {
         // - We have exclusive access to the element, the pointer
         //   comes from `&mut self`.
         unsafe {
-            ptr::drop_in_place(self.as_mut_slice());
-        }
-        // SAFETY:
-        // 0 is always within capacity and there are no elements
-        // to initialize.
-        unsafe {
-            self.set_len(0); // could be the singleton
+            ptr::drop_in_place(elements);
         }
     }
 
