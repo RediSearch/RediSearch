@@ -990,7 +990,11 @@ impl<T> LowMemoryThinVec<T> {
         // Ensure the new capacity is at least double, to guarantee exponential growth.
         let double_cap = if old_cap == 0 {
             // skip to 4 because tiny vecs are dumb; but not if that would cause overflow
-            if mem::size_of::<T>() > (!0) / 8 { 1 } else { 4 }
+            if mem::size_of::<T>() > usize::MAX / 8 {
+                1
+            } else {
+                4
+            }
         } else {
             old_cap.saturating_mul(2)
         };
