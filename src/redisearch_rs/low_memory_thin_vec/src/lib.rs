@@ -1316,9 +1316,7 @@ impl<T: Clone> LowMemoryThinVec<T> {
 impl<T> Drop for LowMemoryThinVec<T> {
     #[inline]
     fn drop(&mut self) {
-        #[cold]
-        #[inline(never)]
-        fn drop_non_singleton<T>(this: &mut LowMemoryThinVec<T>) {
+        if !self.is_singleton() {
             // First deallocate all elements, since they may
             // need own other resources that must be freed.
             // If we don't do this first, we may leak memory.
@@ -1326,7 +1324,7 @@ impl<T> Drop for LowMemoryThinVec<T> {
             // - The pointer is valid and unaliased, since it comes from a `&mut` reference.
             // - We're inside a `Drop` implementation.
             unsafe {
-                ptr::drop_in_place(&mut this[..]);
+                ptr::drop_in_place(self.as_mut_slice());
             }
 
             // SAFETY:
@@ -1335,14 +1333,10 @@ impl<T> Drop for LowMemoryThinVec<T> {
             //   we're using to deallocate it.
             unsafe {
                 dealloc(
-                    this.ptr.as_ptr() as *mut u8,
-                    allocation_layout::<T>(this.capacity()),
+                    self.ptr.as_ptr() as *mut u8,
+                    allocation_layout::<T>(self.capacity()),
                 )
             }
-        }
-
-        if !self.is_singleton() {
-            drop_non_singleton(self);
         }
     }
 }
