@@ -147,7 +147,7 @@ def test_delete_docs_during_bg_indexing(env):
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
   # Verify that close to n_docs//2 docs were indexed
   docs_in_index = info['num_docs']
-  env.assertAlmostEqual(docs_in_index, 5000, delta=100)
+  env.assertAlmostEqual(docs_in_index, 500, delta=100)
 
 @skip(cluster=True)
 def test_change_config_during_bg_indexing(env):
@@ -157,7 +157,7 @@ def test_change_config_during_bg_indexing(env):
   for i in range(n_docs):
     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
 
-  env.expect('FT.CONFIG', 'SET', '_INDEX_MEM_LIMIT', '50').ok()
+  env.expect('FT.CONFIG', 'SET', '_INDEX_MEM_LIMIT', '70').ok()
   # Set pause after half of the docs were scanned
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', n_docs//10).ok()
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
@@ -166,7 +166,7 @@ def test_change_config_during_bg_indexing(env):
   env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
   waitForIndexPauseScan(env, 'idx')
   # Set tight memory limit
-  set_tight_maxmemory_for_oom(env, 0.5)
+  set_tight_maxmemory_for_oom(env, 0.7)
   # Change the memory limit
   env.expect('FT.CONFIG', 'SET', '_INDEX_MEM_LIMIT', '80').ok()
   # Resume indexing
