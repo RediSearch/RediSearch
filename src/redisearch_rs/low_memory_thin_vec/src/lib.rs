@@ -905,7 +905,7 @@ impl<T> LowMemoryThinVec<T> {
         // - We have exclusive access to the element, the pointer
         //   comes from `&mut self`.
         unsafe {
-            ptr::drop_in_place(&mut self[..]);
+            ptr::drop_in_place(self.as_mut_slice());
         }
         // SAFETY:
         // 0 is always within capacity and there are no elements
@@ -1095,7 +1095,7 @@ impl<T> LowMemoryThinVec<T> {
         let len = self.len();
         let mut del = 0;
         {
-            let v = &mut self[..];
+            let v = self.as_mut_slice();
 
             for i in 0..len {
                 if !f(&mut v[i]) {
@@ -1378,7 +1378,7 @@ impl<T> Extend<T> for LowMemoryThinVec<T> {
 
 impl<T: fmt::Debug> fmt::Debug for LowMemoryThinVec<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Debug::fmt(&**self, f)
+        fmt::Debug::fmt(self.as_slice(), f)
     }
 }
 
@@ -1390,7 +1390,7 @@ where
     where
         H: Hasher,
     {
-        self[..].hash(state);
+        self.as_slice().hash(state);
     }
 }
 
@@ -1400,7 +1400,7 @@ where
 {
     #[inline]
     fn partial_cmp(&self, other: &LowMemoryThinVec<T>) -> Option<Ordering> {
-        self[..].partial_cmp(&other[..])
+        self.as_slice().partial_cmp(other.as_slice())
     }
 }
 
@@ -1410,7 +1410,7 @@ where
 {
     #[inline]
     fn cmp(&self, other: &LowMemoryThinVec<T>) -> Ordering {
-        self[..].cmp(&other[..])
+        self.as_slice().cmp(other.as_slice())
     }
 }
 
@@ -1420,7 +1420,7 @@ where
 {
     #[inline]
     fn eq(&self, other: &LowMemoryThinVec<B>) -> bool {
-        self[..] == other[..]
+        self.as_slice() == other.as_slice()
     }
 }
 
@@ -1430,7 +1430,7 @@ where
 {
     #[inline]
     fn eq(&self, other: &Vec<B>) -> bool {
-        self[..] == other[..]
+        self.as_slice() == other.as_slice()
     }
 }
 
@@ -1440,7 +1440,7 @@ where
 {
     #[inline]
     fn eq(&self, other: &[B]) -> bool {
-        self[..] == other[..]
+        self.as_slice() == other
     }
 }
 
@@ -1450,7 +1450,7 @@ where
 {
     #[inline]
     fn eq(&self, other: &&'a [B]) -> bool {
-        self[..] == other[..]
+        &self.as_slice() == other
     }
 }
 
@@ -1458,12 +1458,12 @@ macro_rules! array_impls {
     ($($N:expr)*) => {$(
         impl<A, B> PartialEq<[B; $N]> for LowMemoryThinVec<A> where A: PartialEq<B> {
             #[inline]
-            fn eq(&self, other: &[B; $N]) -> bool { self[..] == other[..] }
+            fn eq(&self, other: &[B; $N]) -> bool { self.as_slice() == other.as_slice() }
         }
 
         impl<'a, A, B> PartialEq<&'a [B; $N]> for LowMemoryThinVec<A> where A: PartialEq<B> {
             #[inline]
-            fn eq(&self, other: &&'a [B; $N]) -> bool { self[..] == other[..] }
+            fn eq(&self, other: &&'a [B; $N]) -> bool { self.as_slice() == other.as_slice() }
         }
     )*}
 }
