@@ -5,16 +5,13 @@ use std::alloc::Layout;
 /// Gets the layout of the allocated memory for a `LowMemoryThinVec<T>` with the given capacity.
 pub(crate) const fn allocation_layout<T>(cap: usize) -> Layout {
     let mut vec = Layout::new::<Header>();
-    let elements = match Layout::array::<T>(cap) {
-        Ok(elements) => elements,
-        Err(_) => {
-            // The panic message must be known at compile-time if we want `allocation_layout` to be a `const fn`.
-            // Therefore we can't capture the error (nor the faulty capacity value) in the panic message.
-            panic!(
-                "The size of the array of elements within `LowMemoryThinVec<T>` would exceed `isize::MAX`, \
-                which is the maximum size that can be allocated."
-            )
-        }
+    let Ok(elements) = Layout::array::<T>(cap) else {
+        // The panic message must be known at compile-time if we want `allocation_layout` to be a `const fn`.
+        // Therefore we can't capture the error (nor the faulty capacity value) in the panic message.
+        panic!(
+            "The size of the array of elements within `LowMemoryThinVec<T>` would exceed `isize::MAX`, \
+                        which is the maximum size that can be allocated."
+        )
     };
     vec = match vec.extend(elements) {
         Ok((layout, _)) => layout,
