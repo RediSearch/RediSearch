@@ -84,6 +84,7 @@ make unit-tests    # run unit tests (C and C++)
 make c-tests       # run C tests (from tests/ctests)
 make cpp-tests     # run C++ tests (from tests/cpptests)
 make rust-tests    # run Rust tests (from src/redisearch_rs)
+  RUN_MIRI=0|1           # run the Rust test suite again through miri to catch undefined behavior (default: 0)
 make vecsim-bench  # run VecSim micro-benchmark
 
 make callgrind     # produce a call graph
@@ -458,6 +459,10 @@ endif
 
 rust-tests:
 	$(SHOW)cd $(REDISEARCH_RS_DIR) && $(RUST_TEST_RUNNER) test $(RUST_TEST_OPTIONS) $(TEST_NAME)
+ifeq ($(RUN_MIRI),1)
+	@printf "\n-------------- Running rust tests through miri ------------------\n"
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo +nightly miri test $(TEST_NAME)
+endif
 
 pytest:
 	@printf "\n-------------- Running python flow test ------------------\n"
