@@ -701,6 +701,10 @@ void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
 size_t CleanInProgressOrPending();
 
+// Expose reindexpool for debug
+void ReindexPool_ThreadPoolDestroy();
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 #ifdef __cplusplus
