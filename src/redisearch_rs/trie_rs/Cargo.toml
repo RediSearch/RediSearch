@@ -16,3 +16,9 @@ redis_allocator = []
 
 [dependencies]
 libc.workspace = true
+low_memory_thin_vec = { path = "../low_memory_thin_vec" }
+
+[dev-dependencies]
+insta = "1.42.2"
+proptest = { version = "1.6.0", default-features = false, features = ["std"] }
+proptest-derive = { version = "0.5.1", default-features = false }
