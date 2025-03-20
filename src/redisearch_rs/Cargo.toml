@@ -30,6 +30,8 @@ edition = "2024"
 license = "Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1)"
 
 [workspace.dependencies]
+low_memory_thin_vec = { path = "./low_memory_thin_vec" }
+
 insta = "1.42.2"
 libc = "0.2.170"
 proptest = { version = "1.6.0", default-features = false }
