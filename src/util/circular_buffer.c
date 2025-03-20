@@ -232,7 +232,7 @@ size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance){
   uint64_t write = cb->write;
   uint write_idx = write / cb->item_size;
   int read_idx;
-  if (write_idx - item_count > 0) {
+  if (write_idx - item_count >= 0) {
     read_idx = write_idx - item_count;
   } else {// Adjusts read_idx to handle negative values by wrapping around the circular buffer.
     read_idx = cb->item_cap + write_idx - item_count;
