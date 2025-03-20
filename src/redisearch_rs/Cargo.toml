@@ -31,6 +31,7 @@ license = "Redis Source Available License 2.0 (RSALv2) or the Server Side Public
 
 [workspace.dependencies]
 libc = "0.2.170"
+redis-module = "2.0.7"
 
 # A profile for fast test execution that doesn't sacrifice
 # runtime checks and debuggability.

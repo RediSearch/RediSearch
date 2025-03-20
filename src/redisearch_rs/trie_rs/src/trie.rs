@@ -20,18 +20,12 @@ impl<T: fmt::Debug> TrieMap<T> {
     /// Insert a key-value pair into the trie.
     /// Returns the previous value associated with the key if it was present.
     pub fn insert(&mut self, key: &[c_char], data: T) -> Option<T> {
-        match &mut self.root {
-            None => {
-                // If there's no root yet, simply create a new node and make it the root
-                self.root = Some(Node {
-                    children: ChildRefs::new(),
-                    data: Some(data),
-                    label: LowMemoryThinVec::from_slice(key),
-                });
-                None
-            }
-            Some(root) => root.insert(key, data),
-        }
+        let mut old_data = None;
+        self.insert_with(key, |curr_data| {
+            old_data = curr_data;
+            data
+        });
+        old_data
     }
 
     /// Remove an entry from the trie.
@@ -67,6 +61,26 @@ impl<T: fmt::Debug> TrieMap<T> {
     /// Returns `None` if the no entry for the key is present.
     pub fn find(&self, key: &[c_char]) -> Option<&T> {
         self.root.as_ref().and_then(|n| n.find(key))
+    }
+
+    /// Insert an entry into the trie. The value is obtained by calling the
+    /// provided callback function. If the key already exists, the existing
+    /// value is passed to the callback, otherwise `None` is passed.
+    pub fn insert_with<F>(&mut self, key: &[c_char], f: F)
+    where
+        F: FnOnce(Option<T>) -> T,
+    {
+        match &mut self.root {
+            None => {
+                let data = f(None);
+                self.root = Some(Node {
+                    children: ChildRefs::new(),
+                    data: Some(data),
+                    label: LowMemoryThinVec::from_slice(key),
+                });
+            }
+            Some(root) => root.insert_or_replace_with(key, f),
+        }
     }
 
     /// Get the memory usage of the trie in bytes.
@@ -111,13 +125,23 @@ struct Node<Data> {
 }
 
 impl<Data: fmt::Debug> Node<Data> {
-    pub fn insert(&mut self, key: &[c_char], data: Data) -> Option<Data> {
+    /// Inserts a new key-value pair into the trie.
+    ///
+    /// If the key already exists, the current value is passede to provided function,
+    /// and replaced with the value returned by that function.
+    fn insert_or_replace_with<F>(&mut self, key: &[c_char], f: F)
+    where
+        F: FnOnce(Option<Data>) -> Data,
+    {
         if let Some(suffix) = key.strip_prefix(self.label.as_slice()) {
             let Some(first_byte) = suffix.first() else {
                 // Suffix is empty, so the key and the node label are equal.
                 // Replace the data attached to the current node
                 // with the new data.
-                return std::mem::replace(&mut self.data, Some(data));
+                let current = self.data.take();
+                let new = f(current);
+                self.data.replace(new);
+                return;
             };
 
             // Suffix is not empty, therefore the insertion needs to happen
@@ -134,7 +158,7 @@ impl<Data: fmt::Debug> Node<Data> {
             // case that we handled just above.
             // Otherwise the behaviour will depend on the label of the relevant
             // pre-existing child node.
-            return child.insert(suffix, data);
+            return child.insert_or_replace_with(suffix, f);
         }
 
         if self.label.as_slice().starts_with(key) {
@@ -166,8 +190,8 @@ impl<Data: fmt::Debug> Node<Data> {
             //                    ke (B)
             // ```
             self.split(key.len());
-            self.data = Some(data);
-            return None;
+            self.data = Some(f(None));
+            return;
         }
 
         // In this case, only part of the key matches the current node's label.
@@ -199,7 +223,7 @@ impl<Data: fmt::Debug> Node<Data> {
             // and add a new child to the empty root.
             let new_child = Node {
                 children: ChildRefs::default(),
-                data: Some(data),
+                data: Some(f(None)),
                 label: LowMemoryThinVec::from_slice(key),
             };
             let children = ChildRefs(low_memory_thin_vec![ChildRef {
@@ -214,7 +238,7 @@ impl<Data: fmt::Debug> Node<Data> {
             let old_root = std::mem::replace(self, new_root);
             self.children
                 .find_or_insert(old_root.label[0], move || old_root);
-            return None;
+            return;
         }
 
         // In this case, the node and the key do share a common prefix.
@@ -232,7 +256,7 @@ impl<Data: fmt::Debug> Node<Data> {
 
         let new_child = Node {
             children: ChildRefs::default(),
-            data: Some(data),
+            data: Some(f(None)),
             label: child_suffix,
         };
 
@@ -250,7 +274,6 @@ impl<Data: fmt::Debug> Node<Data> {
 
         self.children
             .find_or_insert(old_parent.label[0], move || old_parent);
-        None
     }
 
     /// Remove a child from the node.
