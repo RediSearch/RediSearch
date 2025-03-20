@@ -21,6 +21,6 @@ low_memory_thin_vec = { path = "../low_memory_thin_vec" }
 redis-module = { workspace = true, optional = true }
 
 [dev-dependencies]
-insta = "1.42.2"
-proptest = { version = "1.6.0", default-features = false, features = ["std"] }
-proptest-derive = { version = "0.5.1", default-features = false }
+insta.workspace = true
+proptest = { workspace = true, features = ["std"] }
+proptest-derive.workspace = true
