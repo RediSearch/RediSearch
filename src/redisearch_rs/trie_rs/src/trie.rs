@@ -614,7 +614,8 @@ mod test {
     }
 
     /// Forwards to `insta::assert_debug_snapshot!`,
-    /// but is disabled in Miri.
+    /// but is disabled in Miri, as snapshot testing
+    /// involves file I/O, which is not supported in Miri.
     macro_rules! assert_debug_snapshot {
         ($($arg:tt)*) => {
             #[cfg(not(miri))]

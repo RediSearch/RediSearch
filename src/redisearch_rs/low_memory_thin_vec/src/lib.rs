@@ -1386,8 +1386,9 @@ impl<T: Copy + std::fmt::Debug> LowMemoryThinVec<T> {
 
         // SAFETY:
         // `prefix` cannot be a reference to a slice in `self`,
-        // as that would violate borrowing rules. Therefore, we can safely
-        // memcpy the elements from `prefix` to start of the buffer.
+        // as that would violate borrowing rules. Furthermore, `T` is bound to `Copy`
+        // and therefore can simply be copied byte-for-byte and does not implement `Drop`.
+        // Therefore, we can safely memcpy the elements from `prefix` to start of the buffer.
         unsafe {
             std::ptr::copy_nonoverlapping(prefix.as_ptr(), self.data_raw(), prefix_len);
         }
