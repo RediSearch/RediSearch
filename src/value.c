@@ -480,7 +480,7 @@ static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *q
     if (!qerr) return 0;
 
     const char *s = RSValue_StringPtrLen(v, NULL);
-    QueryError_SetErrorFmt(qerr, QUERY_ENOTNUMERIC, "Error converting string '%s' to number", s);
+    QueryError_SetWithUserDataFmt(qerr, QUERY_ENOTNUMERIC, "Error converting string", " '%s' to number", s);
     return 0;
   }
 

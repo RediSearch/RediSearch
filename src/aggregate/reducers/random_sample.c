@@ -72,7 +72,7 @@ Reducer *RDCRRandomSample_New(const ReducerOptions *options) {
     return NULL;
   }
   if (samplesize > MAX_SAMPLE_SIZE) {
-    QERR_MKBADARGS_FMT(options->status, "Sample size too large");
+    QueryError_SetError(options->status, QUERY_EPARSEARGS, "Sample size too large");
     rm_free(ret);
     return NULL;
   }
