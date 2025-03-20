@@ -2962,7 +2962,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
     LegacySchemaRulesArgs_Free(ctx);
 
     if (hasLegacyIndexes) {
-      Indexes_ScanAndReindex(); // Dvirdu: Is this still relevant?
+      Indexes_ScanAndReindex();
     }
     workersThreadPool_OnEventEnd(true);
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
