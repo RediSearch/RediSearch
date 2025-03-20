@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include <vector>
+#include <algorithm>
 #include <stdexcept>
 
 extern "C" {
