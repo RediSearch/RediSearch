@@ -319,7 +319,7 @@ void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* er
   RSError* ourErr = err;
   if (QueryError_HasError(&aCtx->status)) {
     if (ourErr->s) {
-      *ourErr->s = rm_strdup(QueryError_GetError(&aCtx->status));
+      *ourErr->s = rm_strdup(QueryError_GetUserError(&aCtx->status));
     }
     ourErr->hasErr = aCtx->status.code;
   }
@@ -625,7 +625,7 @@ end:
       it = NULL;
     }
     if (error) {
-      *error = rm_strdup(QueryError_GetError(&status));
+      *error = rm_strdup(QueryError_GetUserError(&status));
     }
   }
   QueryError_ClearError(&status);
