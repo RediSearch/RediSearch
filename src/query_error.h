@@ -130,13 +130,6 @@ void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, c
     REDISMODULE_OK;                                                  \
   })
 
-#define QueryError_ReplyNoIndex(rctx, ixname)                                        \
-  {                                                                                  \
-    QueryError qidx__tmp = {0};                                                      \
-    QueryError_SetErrorFmt(&qidx__tmp, QUERY_ENOINDEX, "%s: No such index", ixname); \
-    QueryError_ReplyAndClear(rctx, &qidx__tmp);                                      \
-  }
-
 /**
  * Sets the current error from the current argument within the args cursor
  * @param err the error object
