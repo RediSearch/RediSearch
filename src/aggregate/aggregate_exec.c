@@ -15,8 +15,17 @@
 #include "commands.h"
 #include "profile.h"
 #include "info/global_stats.h"
+#include "aggregate_debug.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
+
+typedef enum {
+  EXEC_NO_FLAGS = 0x00,
+  EXEC_WITH_PROFILE = 0x01,
+  EXEC_WITH_PROFILE_LIMITED = 0x02,
+  EXEC_DEBUG = 0x04,
+} ExecOptions;
+
 static void runCursor(RedisModuleCtx *outputCtx, Cursor *cursor, size_t num);
 
 /**
@@ -285,7 +294,6 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
         RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Fail) {
       RedisModule_ReplyWithSimpleString(outctx, "Timeout limit was reached");
     } else {
-      rc = RS_RESULT_OK;
       RedisModule_ReplyWithLongLong(outctx, req->qiter.totalResults);
     }
   } else if (rc == RS_RESULT_ERROR) {
@@ -316,8 +324,12 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   }
 
 done:
+
   SearchResult_Destroy(&r);
-  if (rc != RS_RESULT_OK) {
+  bool cursor_done =
+      (rc != RS_RESULT_OK &&
+       !(rc == RS_RESULT_TIMEDOUT && RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Return));
+  if (cursor_done) {
     req->stateflags |= QEXEC_S_ITERDONE;
   }
   if (req->sctx) {
@@ -400,6 +412,13 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     (*r)->pipelineBuildTime = hires_clock_since_msec(&parseClock);
   }
 
+  if (IsDebug(*r)) {
+    rc = parseAndCompileDebug((AREQ_Debug *)(*r), status);
+    if (rc != REDISMODULE_OK) {
+      return rc;
+    }
+  }
+
 done:
   if (rc != REDISMODULE_OK && *r) {
     AREQ_Free(*r);
@@ -411,12 +430,8 @@ done:
   return rc;
 }
 
-#define NO_PROFILE 0
-#define PROFILE_FULL 1
-#define PROFILE_LIMITED 2
-
-static int parseProfile(AREQ *r, int withProfile, RedisModuleString **argv, int argc, QueryError *status) {
-  if (withProfile != NO_PROFILE) {
+static int parseProfile(AREQ *r, int execOptions, RedisModuleString **argv, int argc, QueryError *status) {
+  if (execOptions & EXEC_WITH_PROFILE) {
 
     // WithCursor is disabled on the shards for external use but is available internally to the coordinator
     #ifndef RS_COORDINATOR
@@ -427,7 +442,7 @@ static int parseProfile(AREQ *r, int withProfile, RedisModuleString **argv, int 
     #endif
 
     r->reqflags |= QEXEC_F_PROFILE;
-    if (withProfile == PROFILE_LIMITED) {
+    if (execOptions & EXEC_WITH_PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
     }
     hires_clock_get(&r->initClock);
@@ -435,8 +450,48 @@ static int parseProfile(AREQ *r, int withProfile, RedisModuleString **argv, int 
   return REDISMODULE_OK;
 }
 
+static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                          CommandType type, int execOptions, QueryError *status) {
+  AREQ *r = *r_ptr;
+  #ifdef RS_COORDINATOR
+    // If we got here, we know `argv[0]` is a valid registered command name.
+    // If it starts with an underscore, it is an internal command.
+    if (RedisModule_StringPtrLen(argv[0], NULL)[0] == '_') {
+      r->reqflags |= QEXEC_F_INTERNAL;
+    }
+  #endif
+
+  if (parseProfile(r, execOptions, argv, argc, status) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+
+  if (buildRequest(ctx, argv, argc, type, status, r_ptr) != REDISMODULE_OK) {
+    return REDISMODULE_ERR;
+  }
+
+  SET_DIALECT(r->sctx->spec->used_dialects, r->dialectVersion);
+  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, r->dialectVersion);
+
+  return REDISMODULE_OK;
+}
+
+static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
+  if (r->reqflags & QEXEC_F_IS_CURSOR) {
+    int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, status, false);
+    if (rc != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
+    }
+  } else {
+    if (IsProfile(r)) {
+      RedisModule_ReplyWithArray(ctx, 2);
+    }
+    AREQ_Execute(r, ctx);
+  }
+  return REDISMODULE_OK;
+}
+
 static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                             CommandType type, int withProfile) {
+                             CommandType type, int execOptions) {
   // Index name is argv[1]
   if (argc < 2) {
     return RedisModule_WrongArity(ctx);
@@ -446,36 +501,14 @@ static int execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   AREQ *r = AREQ_New();
   QueryError status = {0};
 
-#ifdef RS_COORDINATOR
-  // If we got here, we know `argv[0]` is a valid registered command name.
-  // If it starts with an underscore, it is an internal command.
-  if (RedisModule_StringPtrLen(argv[0], NULL)[0] == '_') {
-    r->reqflags |= QEXEC_F_INTERNAL;
-  }
-#endif
-
-  if (parseProfile(r, withProfile, argv, argc, &status) != REDISMODULE_OK) {
+  if (prepareRequest(&r, ctx, argv, argc, type, execOptions, &status) != REDISMODULE_OK) {
     goto error;
   }
 
-  if (buildRequest(ctx, argv, argc, type, &status, &r) != REDISMODULE_OK) {
+  if (buildPipelineAndExecute(r, ctx, &status) != REDISMODULE_OK) {
     goto error;
   }
 
-  SET_DIALECT(r->sctx->spec->used_dialects, r->dialectVersion);
-  SET_DIALECT(RSGlobalStats.totalStats.used_dialects, r->dialectVersion);
-
-  if (r->reqflags & QEXEC_F_IS_CURSOR) {
-    int rc = AREQ_StartCursor(r, ctx, r->sctx->spec->name, &status, false);
-    if (rc != REDISMODULE_OK) {
-      goto error;
-    }
-  } else {
-    if (IsProfile(r)) {
-      RedisModule_ReplyWithArray(ctx, 2);
-    }
-    AREQ_Execute(r, ctx);
-  }
   return REDISMODULE_OK;
 
 error:
@@ -486,10 +519,10 @@ error:
 }
 
 int RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE, NO_PROFILE);
+  return execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE, EXEC_NO_FLAGS);
 }
 int RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, NO_PROFILE);
+  return execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, EXEC_NO_FLAGS);
 }
 
 #define PROFILE_1ST_PARAM 2
@@ -511,7 +544,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   CommandType cmdType;
   int curArg = PROFILE_1ST_PARAM;
-  int withProfile = PROFILE_FULL;
+  int withProfile = EXEC_WITH_PROFILE;
 
   // Check the command type
   const char *cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
@@ -526,7 +559,7 @@ int RSProfileCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
   if (strcasecmp(cmd, "LIMITED") == 0) {
-    withProfile = PROFILE_LIMITED;
+    withProfile |= EXEC_WITH_PROFILE_LIMITED;
     cmd = RedisModule_StringPtrLen(argv[curArg++], NULL);
   }
 
@@ -690,4 +723,55 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
 void Cursor_FreeExecState(void *p) {
   AREQ_Free((AREQ *)p);
+}
+
+/* ======================= DEBUG ONLY ======================= */
+
+// FT.DEBUG FT.AGGREGATE idx * <DEBUG_TYPE> <DEBUG_TYPE_ARGS> <DEBUG_TYPE> <DEBUG_TYPE_ARGS> ... DEBUG_PARAMS_COUNT 2
+// Example:
+// FT.AGGREGATE idx * TIMEOUT_AFTER_N 3 DEBUG_PARAMS_COUNT 2
+static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                             CommandType type, int execOptions) {
+  // Index name is argv[1]
+  if (argc < 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  AREQ *r = NULL;
+  // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
+  // when AREQ_Free is called
+  QueryError status = {0};
+  AREQ_Debug *debug_req = AREQ_Debug_New(argv, argc, &status);
+  if (!debug_req) {
+    goto error;
+  }
+  r = &debug_req->r;
+  AREQ_Debug_params debug_params = debug_req->debug_params;
+
+  int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
+  // Parse the query, not including debug params
+  if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, execOptions, &status) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  if (buildPipelineAndExecute(r, ctx, &status) != REDISMODULE_OK) {
+    goto error;
+  }
+
+  return REDISMODULE_OK;
+
+error:
+  if (r) {
+    AREQ_Free(r);
+  }
+  return QueryError_ReplyAndClear(ctx, &status);
+}
+
+/**DEBUG COMMANDS - not for production! */
+int DEBUG_RSAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return DEBUG_execCommandCommon(ctx, argv, argc, COMMAND_AGGREGATE, EXEC_DEBUG);
+}
+
+int DEBUG_RSSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  return DEBUG_execCommandCommon(ctx, argv, argc, COMMAND_SEARCH, EXEC_DEBUG);
 }

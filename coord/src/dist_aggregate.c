@@ -142,14 +142,18 @@ typedef struct {
   int shardsProfileIdx;
 } RPNet;
 
+static void RPNet_resetCurrent(RPNet *nc) {
+    nc->current.root = NULL;
+    nc->current.rows = NULL;
+}
+
 static int getNextReply(RPNet *nc) {
   if (nc->cmd.forCursor) {
     // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
     // TODO: could be replaced with a query specific configuration
     if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
       // No more replies
-      nc->current.root = NULL;
-      nc->current.rows = NULL;
+      RPNet_resetCurrent(nc);
       return 0;
     }
   }
@@ -157,9 +161,8 @@ static int getNextReply(RPNet *nc) {
   MRReply *root = MRIterator_Next(nc->it);
   if (root == NULL) {
     // No more replies
-    nc->current.root = NULL;
-    nc->current.rows = NULL;
-    return 0;
+    RPNet_resetCurrent(nc);
+    return MRIterator_GetPending(nc->it);
   }
 
   MRReply *rows = MRReply_ArrayElement(root, 0);
@@ -193,7 +196,7 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
     } else {
       MRReply_Free(nc->current.root);
     }
-    nc->current.root = nc->current.rows = NULL;
+    RPNet_resetCurrent(nc);
   }
 
   // get the next reply from the channel
