@@ -22,6 +22,10 @@
 #include "cursor.h"
 #include "module.h"
 #include "aggregate/aggregate_debug.h"
+#include "reply.h"
+#include "reply_macros.h"
+#include "obfuscation/obfuscation_api.h"
+#include "info/info_command.h"
 
 DebugCTX globalDebugCtx = {0};
 
@@ -1611,6 +1615,14 @@ DEBUG_COMMAND(bgScanController) {
 
 }
 
+DEBUG_COMMAND(getHideUserDataFromLogs) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  const long long value = RSGlobalConfig.hideUserDataFromLog;
+  return RedisModule_ReplyWithLongLong(ctx, value);
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1643,6 +1655,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"SET_MONITOR_EXPIRATION", setMonitorExpiration},
                                {"WORKERS", WorkerThreadsSwitch},
                                {"BG_SCAN_CONTROLLER", bgScanController},
+                               {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
