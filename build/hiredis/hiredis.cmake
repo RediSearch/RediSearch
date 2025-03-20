@@ -10,4 +10,6 @@ if (APPLE)
 	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
 endif()
 
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-Bsymbolic,-Bsymbolic-functions")
+
 set(HIREDIS_LIBS hiredis hiredis_ssl)
