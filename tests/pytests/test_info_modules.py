@@ -71,6 +71,13 @@ def testInfoModulesBasic(env):
   env.assertEqual(configInfo['search_minimal_term_prefix'], '2')
   env.assertEqual(configInfo['search_gc_scan_size'], '100')
 
+  garbage_collector_info = info['search_garbage_collector']
+  env.assertEqual(garbage_collector_info['search_gc_bytes_collected'], '0')
+  env.assertEqual(garbage_collector_info['search_gc_total_cycles'], '0')
+  env.assertEqual(garbage_collector_info['search_gc_total_ms_run'], '0')
+  env.assertEqual(garbage_collector_info['search_gc_total_docs_not_collected'], '0')
+  env.assertEqual(garbage_collector_info['search_gc_marked_deleted_vectors'], '0')
+
   # idx1Info = info['search_info_' + idx1]
   # env.assertTrue('search_stop_words' in idx1Info)
   # env.assertTrue('search_field_4' in idx1Info)
