@@ -528,8 +528,8 @@ def test_redis_info_modules_vecsim():
 
 @skip(cluster=True)
 def test_indexes_logically_deleted_docs(env):
-  # Set these values to manually control the GC, ensuring that the GC will not run automatically since the run intervall
-  # is > 8h (5 mintues is the hard limit for a test).
+  # Set these values to manually control the GC, ensuring that the GC will not run automatically since the run interval
+  # is > 8h (5 minutes is the hard limit for a test).
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
   env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
   set_doc = lambda doc_id: env.expect('HSET', doc_id, 'text', 'some text', 'tag', 'tag1', 'num', 1)
@@ -558,7 +558,7 @@ def test_indexes_logically_deleted_docs(env):
   env.assertEqual(get_logically_deleted_docs(), 3)
 
   # Drop first index, expect that the deleted documents in this index will not be accounted anymore when releasing the GC.
-  # We run in a transaction, to ensure that the GC will not run until the "dropindex" commmand is executed from
+  # We run in a transaction, to ensure that the GC will not run until the "dropindex" command is executed from
   # the main thread (otherwise, we would have released the main thread between the commands and the GC could run before
   # the dropindex command. Though it won't impact correctness, we fail to test the desired scenario)
   env.expect('MULTI').ok()
