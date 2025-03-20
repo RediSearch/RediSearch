@@ -63,7 +63,7 @@ struct TEvalCtx : ExprEval {
   }
 
   const char *error() const {
-    return QueryError_GetError(&status_s);
+    return QueryError_GetUserError(&status_s);
   }
 
   operator bool() const {
@@ -146,7 +146,7 @@ TEST_F(ExprTest, testGetFields) {
   const char *e = "@foo + sqrt(@bar) / @baz + ' '";
   QueryError status = {QueryErrorCode(0)};
   RSExpr *root = ExprAST_Parse(e, strlen(e), &status);
-  ASSERT_TRUE(root) << "Failed to parse query " << e << " " << QueryError_GetError(&status);
+  ASSERT_TRUE(root) << "Failed to parse query " << e << " " << QueryError_GetUserError(&status);
   RLookup lk;
 
   RLookup_Init(&lk, NULL);
@@ -177,7 +177,7 @@ struct EvalResult {
   std::string errmsg;
 
   static EvalResult failure(const QueryError *status = NULL) {
-    return EvalResult{0, false, status ? QueryError_GetError(status) : ""};
+    return EvalResult{0, false, status ? QueryError_GetUserError(status) : ""};
   }
 
   static EvalResult ok(double rv) {

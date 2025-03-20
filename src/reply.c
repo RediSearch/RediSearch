@@ -257,7 +257,7 @@ int RedisModule_Reply_Error(RedisModule_Reply *reply, const char *error) {
 }
 
 void RedisModule_Reply_QueryError(RedisModule_Reply *reply, QueryError *error) {
-  RedisModule_Reply_Error(reply, QueryError_GetError(error));
+  RedisModule_Reply_Error(reply, QueryError_GetUserError(error));
 }
 
 int RedisModule_Reply_Map(RedisModule_Reply *reply) {

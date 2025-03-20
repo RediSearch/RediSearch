@@ -25,35 +25,35 @@ int GeoFilter_Parse(GeoFilter *gf, ArgsCursor *ac, QueryError *status) {
   gf->unitType = GEO_DISTANCE_KM;
 
   if (AC_NumRemaining(ac) < 5) {
-    QERR_MKBADARGS_FMT(status, "GEOFILTER requires 5 arguments");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "GEOFILTER requires 5 arguments");
     return REDISMODULE_ERR;
   }
 
   int rv;
   if ((rv = AC_GetString(ac, &gf->property, NULL, 0)) != AC_OK) {
-    QERR_MKBADARGS_AC(status, "<geo property>", rv);
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for <geo property>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   } else {
     gf->property = rm_strdup(gf->property);
   }
   if ((rv = AC_GetDouble(ac, &gf->lon, 0) != AC_OK)) {
-    QERR_MKBADARGS_AC(status, "<lon>", rv);
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for <lon>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
 
   if ((rv = AC_GetDouble(ac, &gf->lat, 0)) != AC_OK) {
-    QERR_MKBADARGS_AC(status, "<lat>", rv);
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for <lat>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
 
   if ((rv = AC_GetDouble(ac, &gf->radius, 0)) != AC_OK) {
-    QERR_MKBADARGS_AC(status, "<radius>", rv);
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for <radius>: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
 
   const char *unitstr = AC_GetStringNC(ac, NULL);
   if ((gf->unitType = GeoDistance_Parse(unitstr)) == GEO_DISTANCE_INVALID) {
-    QERR_MKBADARGS_FMT(status, "Unknown distance unit %s", unitstr);
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown distance unit", " %s", unitstr);
     return REDISMODULE_ERR;
   }
 

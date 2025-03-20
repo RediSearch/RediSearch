@@ -186,7 +186,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
       *(char**)param->target = rm_calloc(1, val_len + 1);
       memcpy(*(char**)param->target, val, val_len);
       if (param->target_len) *param->target_len = val_len;
-      return 1;    
+      return 1;
 
     case PARAM_TERM_CASE:
       *(char**)param->target = rm_strdup(val);
@@ -196,7 +196,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     case PARAM_NUMERIC:
     case PARAM_GEO_COORD:
       if (!ParseDouble(val, (double*)param->target, param->sign)) {
-        QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
+        QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
         val, param->name);
         return -1;
       }
@@ -204,7 +204,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
 
     case PARAM_SIZE:
       if (!ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
-        QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
+        QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
         val, param->name);
         return -1;
       }
@@ -238,7 +238,7 @@ int parseParams (dict **destParams, ArgsCursor *ac, QueryError *status) {
   ArgsCursor paramsArgs = {0};
   int rv = AC_GetVarArgs(ac, &paramsArgs);
   if (rv != AC_OK) {
-    QERR_MKBADARGS_AC(status, "PARAMS", rv);
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for PARAMS: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
   if (*destParams) {

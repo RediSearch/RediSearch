@@ -379,7 +379,7 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
 
   // Global index error stats
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-  IndexError_Reply(&fields->indexError, reply, 0);
+  IndexError_Reply(&fields->indexError, reply, 0, false);
 
   if (fields->fieldSpecInfo_arr) {
     RedisModule_ReplyKV_Array(reply, "field statistics"); //Field statistics
@@ -441,7 +441,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
     MR_ReplyWithMRReply(reply, firstError);
   } else if (QueryError_HasError(&error)) {
     // Reply with error
-    RedisModule_Reply_Error(reply, QueryError_GetError(&error));
+    RedisModule_Reply_Error(reply, QueryError_GetUserError(&error));
   } else {
     generateFieldsReply(&fields, reply);
   }
