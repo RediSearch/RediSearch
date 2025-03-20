@@ -218,7 +218,8 @@ def test_oom_query_error(env):
 
   for query,param in queries_params.items():
     parsed_query = f'FT.{query} {param}'
-    env.expect(parsed_query).error().equal(f'{idx_name}: Index background scan failed due to OOM')
+    env.expect(parsed_query).error().equal(f'{idx_name}: \
+    Index background scan failed due to OOM. Queries cannot be executed on an incomplete index.')
 
   # Verify ft info possible
   env.expect('FT.INFO', idx_name).noError()
