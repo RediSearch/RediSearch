@@ -7,7 +7,6 @@
 #define REDISMODULE_MAIN
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
 #include <time.h>
@@ -43,7 +42,6 @@
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
 #include "reply.h"
-#include "reply_macros.h"
 #include "resp3.h"
 #include "coord/rmr/rmr.h"
 #include "hiredis/async.h"
@@ -59,6 +57,7 @@
 #include "coord/info_command.h"
 #include "info/global_stats.h"
 #include "util/units.h"
+#include "fast_float/fast_float_strtod.h"
 #include "aggregate/aggregate_debug.h"
 
 #define VERIFY_ACL(ctx, idxR)                                                  \
@@ -2042,7 +2041,7 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
   if (res->sortKey) {
     if (res->sortKey[0] == '#') {
       char *endptr;
-      res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
+      res->sortKeyNum = fast_float_strtod(res->sortKey + 1, &endptr);
       RS_ASSERT(endptr == res->sortKey + res->sortKeyLen);
     }
     // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
@@ -2113,7 +2112,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
       if (res->sortKey) {
         if (res->sortKey[0] == '#') {
           char *endptr;
-          res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
+          res->sortKeyNum = fast_float_strtod(res->sortKey + 1, &endptr);
           RS_ASSERT(endptr == res->sortKey + res->sortKeyLen);
         }
         // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
@@ -2219,7 +2218,7 @@ static int cmp_scored_results(const void *p1, const void *p2, const void *udata)
 static double parseNumeric(const char *str, const char *sortKey) {
     RS_ASSERT(str[0] == '#');
     char *eptr;
-    double d = strtod(str + 1, &eptr);
+    double d = fast_float_strtod(str + 1, &eptr);
     RS_ASSERT(eptr != sortKey + 1 && *eptr == 0);
     return d;
 }
@@ -3084,7 +3083,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // Reply with error
-    return RedisModule_ReplyWithErrorFormat(ctx, "No index exists with provided name %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
   }
 
   bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);
@@ -3299,7 +3298,7 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   for (uint i = 0; i < array_len(prefixes); i++) {
     size_t len;
     const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
-    MRCommand_Insert(&cmd, arg_pos++, prefix, len);
+    MRCommand_Insert(cmd, arg_pos++, prefix, len);
   }
 
   // Return spec references, no longer needed
@@ -3403,7 +3402,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // Reply with error
-    return RedisModule_ReplyWithErrorFormat(ctx, "No index exists with provided name %s", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
   }
 
   bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);

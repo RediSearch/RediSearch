@@ -13,5 +13,3 @@ echo "Cargo binary location: $(which cargo)"
 
 # Update to the latest stable toolchain
 rustup update
-# Include `rust-src` component to build RedisJSON with address sanitizer
-rustup toolchain install nightly -c rust-src

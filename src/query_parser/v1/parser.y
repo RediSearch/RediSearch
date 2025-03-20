@@ -32,8 +32,8 @@
 %name RSQueryParser_v1_
 
 %syntax_error {
-    QueryError_SetWithoutUserDataFmt(ctx->status, QUERY_ESYNTAX,
-        "Syntax error at offset %d near %.*s",
+    QueryError_SetWithUserDataFmt(ctx->status, QUERY_ESYNTAX,
+        "Syntax error", " at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
 }
 
@@ -555,8 +555,8 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
     A = NewGeofilterNode(C);
     if (ctx->sctx->spec) {
-        A->gn.gf->spec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
-        if (!A->gn.gf->spec) {
+        A->gn.gf->fieldSpec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
+        if (!A->gn.gf->fieldSpec) {
             QueryNode_Free(A);
             A = NULL;
         }

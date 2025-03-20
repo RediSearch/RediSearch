@@ -16,7 +16,7 @@
 **
 ** The "lemon" program processes an LALR(1) input grammar file, then uses
 ** this template to construct a parser.  The "lemon" program inserts text
-** at each "%%" line.  Also, any "P-a-r-s-e" identifier prefix (without the
+** at each "%%" line.  Also, any "P-a-r-s-e" identifer prefix (without the
 ** interstitial "-" characters) contained in this template is changed into
 ** the value of the %name directive from the grammar.  Otherwise, the content
 ** of this template is copied straight through into the generate parser
@@ -109,13 +109,13 @@ static void setup_trace(QueryParseCtx *ctx) {
 
 static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ESYNTAX,
-      "%s at offset %d near %.*s", msg, tok->pos, tok->len, tok->s);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+      " at offset %d near %.*s", tok->pos, tok->len, tok->s);
   } else if (tok->type == QT_NUMERIC) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ESYNTAX,
-      "%s at offset %d near %f", msg, tok->pos, tok->numval);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+      " at offset %d near %f", tok->pos, tok->numval);
   } else {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ESYNTAX, msg, " at offset %d", tok->pos);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg, " at offset %d", tok->pos);
   }
 }
 
@@ -2268,7 +2268,7 @@ static YYACTIONTYPE yy_reduce(
     QueryParam_Free(yymsp[0].minor.yy62);
   } else if (yymsp[0].minor.yy62) {
     // we keep the capitalization as is
-    yymsp[0].minor.yy62->gf->spec = yymsp[-2].minor.yy150.fs;
+    yymsp[0].minor.yy62->gf->fieldSpec = yymsp[-2].minor.yy150.fs;
     yylhsminor.yy3 = NewGeofilterNode(yymsp[0].minor.yy62);
   }
 }
@@ -2672,8 +2672,8 @@ static void yy_syntax_error(
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 
-  QueryError_SetWithoutUserDataFmt(ctx->status, QUERY_ESYNTAX,
-    "Syntax error at offset %d near %.*s",
+  QueryError_SetWithUserDataFmt(ctx->status, QUERY_ESYNTAX,
+    "Syntax error", " at offset %d near %.*s",
     TOKEN.pos, TOKEN.len, TOKEN.s);
 /************ End %syntax_error code ******************************************/
   RSQueryParser_v2_ARG_STORE /* Suppress warning about unused %extra_argument variable */

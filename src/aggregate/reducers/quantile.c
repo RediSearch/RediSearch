@@ -66,7 +66,7 @@ Reducer *RDCRQuantile_New(const ReducerOptions *options) {
     goto error;
   }
   if (!(r->pct >= 0 && r->pct <= 1.0)) {
-    QERR_MKBADARGS(options->status, "Percentage must be between 0.0 and 1.0");
+    QueryError_SetError(options->status, QUERY_EPARSEARGS, "Percentage must be between 0.0 and 1.0");
     goto error;
   }
 
@@ -77,7 +77,7 @@ Reducer *RDCRQuantile_New(const ReducerOptions *options) {
       goto error;
     }
     if (r->resolution < 1 || r->resolution > MAX_SAMPLE_SIZE) {
-      QERR_MKBADARGS(options->status, "Invalid resolution");
+      QueryError_SetError(options->status, QUERY_EPARSEARGS, "Invalid resolution");
       goto error;
     }
   }

@@ -51,11 +51,6 @@ void FieldSpecInfo_Clear(FieldSpecInfo *info) {
 void AggregatedFieldSpecInfo_Clear(AggregatedFieldSpecInfo *info) {
     info->identifier = NULL;
     info->attribute = NULL;
-}
-
-void AggregatedFieldSpecInfo_Clear(AggregatedFieldSpecInfo *info) {
-    info->identifier = NULL;
-    info->attribute = NULL;
     IndexError_Clear(info->error);
 }
 

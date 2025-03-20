@@ -415,7 +415,7 @@ QueryNode* RediSearch_CreateGeoNode(RefManager* rm, const char* field, double la
   flt->lon = lon;
   flt->radius = radius;
   flt->numericFilters = NULL;
-  flt->spec = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), field, strlen(field));
+  flt->fieldSpec = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), field, strlen(field));
   flt->unitType = (GeoDistance)unitType;
 
   ret->gn.gf = flt;
