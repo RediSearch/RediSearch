@@ -87,6 +87,10 @@ def test_param_errors(env):
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'm').error().equal('No such parameter `rapido`')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT').error().equal('No such parameter `rapido`')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $rapido $units]', 'NOCONTENT', 'PARAMS', '4', 'rapido', 'bad', 'units', 'm').error().equal('Invalid numeric value (bad) for parameter `rapido`')
+    env.expect('FT.SEARCH', 'idx', '@g:[1.2 3.4 $radius km]', 'NOCONTENT', 'PARAMS', '2', 'radius', '1e1000').error().equal('Invalid numeric value (1e1000) for parameter `radius`')
+    env.expect('FT.SEARCH', 'idx', '@g:[1.2 3.4 $radius km]', 'NOCONTENT', 'PARAMS', '2', 'radius', '-1e1000').error().equal('Invalid numeric value (-1e1000) for parameter `radius`')
+    env.expect('FT.SEARCH', 'idx', '@g:[1.2 3.4 $radius km]', 'NOCONTENT', 'PARAMS', '2', 'radius', '1e-1000').error().equal('Invalid numeric value (1e-1000) for parameter `radius`')
+    env.expect('FT.SEARCH', 'idx', '@g:[1.2 3.4 $radius km]', 'NOCONTENT', 'PARAMS', '2', 'radius', '-1e-1000').error().equal('Invalid numeric value (-1e-1000) for parameter `radius`')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 200 100]', 'NOCONTENT').error().contains('Invalid GeoFilter unit')
     env.expect('FT.SEARCH', 'idx', '@g:[29.69465 34.95126 $radius $units]', 'NOCONTENT', 'PARAMS', '4', 'radius', '500', 'units', 'badm').error().contains('Invalid GeoFilter unit')
     env.expect('FT.SEARCH', 'idx', '@num:[$min $max]', 'NOCONTENT', 'PARAMS', '4', 'min', '102', 'max', '-inf').error().contains('Bad upper range')
@@ -726,7 +730,7 @@ def unf(env, is_sortable_unf):
         if is_sortable_unf:
             first = ['key1', [*sort_output_fields[0], *loaded_fields[0]]]
             second = ['key2', [*sort_output_fields[1], *loaded_fields[1]]]
-        # Otherwise, the indexed value is formated the original and ameow < meow
+        # Otherwise, the indexed value is formatted the original and ameow < meow
         else :
             first = ['key2', [*sort_output_fields[1], *loaded_fields[1]]]
             second = ['key1', [*sort_output_fields[0], *loaded_fields[0]]]
