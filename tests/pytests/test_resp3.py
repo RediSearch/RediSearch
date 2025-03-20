@@ -1256,8 +1256,8 @@ def test_ft_info():
          nodes = float(res['cluster_known_nodes'])
 
       # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
-      #              = 72 + (1000 * 16) = 16072 bytes
-      initial_doc_table_size_mb = 16072 / (1024 * 1024)
+      #              = 64 + (1000 * 16) = 16064 bytes
+      initial_doc_table_size_mb = 16064 / (1024 * 1024)
       total_index_memory_sz_mb = initial_doc_table_size_mb
 
       res = order_dict(r.execute_command('ft.info', 'idx'))
