@@ -41,7 +41,7 @@ configPair_t __configPairs[] = {
   {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
   {"_PRINT_PROFILE_CLOCK",            "search-_print-profile-clock"},
   {"_PRIORITIZE_INTERSECT_UNION_CHILDREN", "search-_prioritize-intersect-union-children"},
-  {"_INDEX_MEM_LIMIT",                "search-_stop-indexing-memory-limit"},
+  {"_INDEX_MEM_PERCENT",                "search-_stop-indexing-memory-percent"},
   {"BG_INDEX_SLEEP_GAP",              "search-bg-index-sleep-gap"},
   {"CONN_PER_SHARD",                  "search-conn-per-shard"},
   {"CURSOR_MAX_IDLE",                 "search-cursor-max-idle"},
@@ -1221,7 +1221,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "Enable unstable features.",
          .setValue = set_EnableUnstableFeatures,
          .getValue = get_EnableUnstableFeatures},
-        {.name = "_INDEX_MEM_LIMIT",
+        {.name = "_INDEX_MEM_PERCENT",
          .helpText = "Set the memory usage threshold (as a percentage of maxmemory) at which background indexing will stop. Once this limit is reached,"
                       " any queries on the affected index will result in an error or failure. The default is 80 percent.",
          .setValue = setIndexingMemoryLimit,
@@ -1681,7 +1681,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-_stop-indexing-memory-limit",
+      ctx, "search-_stop-indexing-memory-percent",
       DEFAULT_INDEXING_MEMORY_LIMIT,
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
       100, get_uint_numeric_config, set_uint_numeric_config, NULL,

@@ -157,7 +157,7 @@ def test_change_config_during_bg_indexing(env):
   for i in range(n_docs):
     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
 
-  env.expect('FT.CONFIG', 'SET', '_INDEX_MEM_LIMIT', '70').ok()
+  env.expect('FT.CONFIG', 'SET', '_INDEX_MEM_PERCENT', '70').ok()
   # Set pause after half of the docs were scanned
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', n_docs//10).ok()
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
@@ -168,7 +168,7 @@ def test_change_config_during_bg_indexing(env):
   # Set tight memory limit
   set_tight_maxmemory_for_oom(env, 0.7)
   # Change the memory limit
-  env.expect('FT.CONFIG', 'SET', '_INDEX_MEM_LIMIT', '80').ok()
+  env.expect('FT.CONFIG', 'SET', '_INDEX_MEM_PERCENT', '80').ok()
   # Resume indexing
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
 
