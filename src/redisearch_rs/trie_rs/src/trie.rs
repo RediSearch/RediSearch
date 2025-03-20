@@ -854,6 +854,7 @@ mod test {
     }
 
     #[derive(proptest_derive::Arbitrary, Debug)]
+    #[cfg(not(miri))]
     /// Enum representing operations that can be performed on a trie.
     /// Used for in the proptest below.
     enum TrieOperation<Data> {
@@ -861,6 +862,9 @@ mod test {
         Remove(Vec<c_char>),
     }
 
+    // Disable the proptest when testing with Miri,
+    // as proptest accesses the file system, which is not supported Miri
+    #[cfg(not(miri))]
     proptest! {
         #[test]
         /// Check whether the trie behaves like a [`std::collections::BTreeMap<Vec<c_char>, _>`]
