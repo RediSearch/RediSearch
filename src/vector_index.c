@@ -243,8 +243,30 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
     case VecSimAlgo_BF: return VECSIM_ALGORITHM_BF;
     case VecSimAlgo_HNSWLIB: return VECSIM_ALGORITHM_HNSW;
     case VecSimAlgo_TIERED: return VECSIM_ALGORITHM_TIERED;
+    case VecSimAlgo_SVS: return VECSIM_ALGORITHM_SVS;
   }
   return NULL;
+}
+
+const char *VecSimQuantBits_ToString(VecSimQuantBits quantBits) {
+    switch (quantBits) {
+        case VecSimQuant_NONE: return VECSIM_QUANT_BITS_NONE;
+        case VecSimQuant_4: return VECSIM_QUANT_BITS_4;
+        case VecSimQuant_8: return VECSIM_QUANT_BITS_8;
+        case VecSimQuant_4x4: return VECSIM_QUANT_BITS_4X4;
+        case VecSimQuant_4x8: return VECSIM_QUANT_BITS_4X8;
+    }
+    return NULL;
+}
+
+const char *VecSimSearchHistory_ToString(VecSimOptionBool option) {
+    if (option == VecSimOption_ENABLE)
+        return VECSIM_USE_SEARCH_HISTORY_ON;
+    else if (option == VecSimOption_DISABLE)
+        return VECSIM_USE_SEARCH_HISTORY_OFF;
+    else if (option == VecSimOption_DEFAULT)
+	return VECSIM_USE_SEARCH_HISTORY_DEFAULT;
+    return NULL;
 }
 
 void VecSim_RdbSave(RedisModuleIO *rdb, VecSimParams *vecsimParams) {
