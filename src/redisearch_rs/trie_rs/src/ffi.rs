@@ -82,7 +82,7 @@ type TrieMapIterator_NextFunc = Option<
 enum TrieMapIterator {}
 
 /// Opaque type TrieMapResultBuf. Holds the results of [`TrieMap_FindPrefixes`].
-enum TrieMapResultBuf {}
+struct TrieMapResultBuf(low_memory_thin_vec::LowMemoryThinVec<*mut c_void>);
 
 /// Free the [`TrieMapResultBuf`] and its contents.
 ///
@@ -98,7 +98,13 @@ enum TrieMapResultBuf {}
 #[unsafe(no_mangle)]
 unsafe extern "C" fn TrieMapResultBuf_Free(buf: *mut TrieMapResultBuf) {
     debug_assert!(!buf.is_null(), "buf cannot be NULL");
-    todo!()
+
+    // SAFETY:
+    // As per the safety invariants of this function:
+    // - `buf` is not NULL
+    // - `buf` points to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`]
+    let mut buf = unsafe { Box::from_raw(buf) };
+    buf.0.clear();
 }
 
 /// Get the data from the TrieMapResultBuf as an array of values.
@@ -115,7 +121,36 @@ unsafe extern "C" fn TrieMapResultBuf_Free(buf: *mut TrieMapResultBuf) {
 #[unsafe(no_mangle)]
 unsafe extern "C" fn TrieMapResultBuf_Data(buf: *mut TrieMapResultBuf) -> *mut *mut c_void {
     debug_assert!(!buf.is_null(), "buf cannot be NULL");
-    todo!()
+
+    // SAFETY:
+    // As per the safety invariants of this function:
+    // - `buf` is not NULL
+    // - `buf` points to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`]
+    let TrieMapResultBuf(data) = unsafe { &mut *buf };
+    data.as_mut_ptr()
+}
+
+/// Get the length of the TrieMapResultBuf.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+///
+/// C equivalent:
+/// ```c
+/// size_t TrieMapResultBuf_Len(TrieMapResultBuf *buf);
+/// ```
+#[unsafe(no_mangle)]
+unsafe extern "C" fn TrieMapResultBuf_Len(buf: *mut TrieMapResultBuf) -> usize {
+    debug_assert!(!buf.is_null(), "buf cannot be NULL");
+
+    // SAFETY:
+    // As per the safety invariants of this function:
+    // - `buf` is not NULL
+    // - `buf` points to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`]
+    let TrieMapResultBuf(data) = unsafe { &*buf };
+    data.len()
 }
 
 /// Create a new [`TrieMap`]. Returns an opaque pointer to the newly created trie.
