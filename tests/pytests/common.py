@@ -861,7 +861,8 @@ def waitForIndexStatus(env,status, idx = 'idx'):
 
 def waitForIndexPauseScan(env,idx = 'idx'):
     waitForIndexStatus(env,'PAUSED', idx)
-def assertEqual_dicts_on_intersection(env, d1, d2, message=None):
+
+def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
     for k in d1:
         if k in d2:
-            env.assertEqual(d1[k], d2[k], message=message)
+            env.assertEqual(d1[k], d2[k], message=message, depth=depth+1)

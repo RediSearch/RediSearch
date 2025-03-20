@@ -97,7 +97,7 @@ def test_alter_failures(env):
       indexing_failures_str: 0,
       last_indexing_error_str: 'N/A',
       last_indexing_error_key_str: 'N/A',
-      'background indexing status': 'OK'
+      'background indexing status': 'OK',
       }
 
   # No error was encountered
@@ -122,7 +122,7 @@ def test_alter_failures(env):
       indexing_failures_str: 1,
       last_indexing_error_str: f"Invalid numeric value: \'meow\'",
       last_indexing_error_key_str: 'doc',
-      'background indexing status': 'OK'
+      'background indexing status': 'OK',
       }
 
   env.assertEqual(to_dict(info["Index Errors"]), expected_error_dict)
@@ -320,7 +320,7 @@ def test_multiple_index_failures(env):
             indexing_failures_str: 1,
             last_indexing_error_str: f"Invalid numeric value: '{index_to_errors_strings[idx]}'",
             last_indexing_error_key_str: 'doc',
-            'background indexing status': 'OK'
+            'background indexing status': 'OK',
             }
 
         # Both indices contain one error for the same document.
@@ -393,7 +393,7 @@ def test_multiple_index_failures_json(env):
               indexing_failures_str: 1,
               last_indexing_error_str: f"Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field",
               last_indexing_error_key_str: 'doc',
-              'background indexing status': 'OK'
+              'background indexing status': 'OK',
           }
 
           # Both indices contain one error for the same document.

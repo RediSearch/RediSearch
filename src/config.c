@@ -423,7 +423,7 @@ long long get_min_operation_workers(const char *name, void *privdata) {
 }
 
 static inline int errorMemoryLimitG100(QueryError *status) {
-  QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Memory limit for indexing cannot be greater then 100");
+  QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Memory limit for indexing cannot be greater then 100%%");
   return REDISMODULE_ERR;
 }
 // SET MEMORY LIMIT PERCENTAGE
@@ -1222,7 +1222,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = set_EnableUnstableFeatures,
          .getValue = get_EnableUnstableFeatures},
         {.name = "_INDEX_MEM_LIMIT",
-         .helpText = "Set the maximum memory limit for the indexing. If the memory exceeds this limit, documentw won't be indexed."
+         .helpText = "Set the stop indexing used memory percentage for the background indexing. If the memory exceeds this threshold, documents won't be indexed."
                       "The limit is percentage from the total memory available to the process. default is 80 percent.",
          .setValue = setIndexingMemoryLimit,
          .getValue = getIndexingMemoryLimit},

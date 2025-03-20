@@ -130,7 +130,7 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 2 ** 13 + 1).contains('Number of worker threads cannot exceed')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', '_INDEX_MEM_LIMIT', -1).contains('Value is outside acceptable bounds')
-    env.expect(config_cmd(), 'set', '_INDEX_MEM_LIMIT', 101).contains('Memory limit for indexing cannot be greater then 100')
+    env.expect(config_cmd(), 'set', '_INDEX_MEM_LIMIT', 101).contains('Memory limit for indexing cannot be greater then 100%')
 
 
 @skip(cluster=True)
