@@ -115,15 +115,6 @@ void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, cons
  */
 void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
 
-/** Convenience macro to set an error of a 'bad argument' with the name of the argument */
-#define QERR_MKBADARGS_FMT(status, message, fmt, ...) \
-  QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, message, fmt, ##__VA_ARGS__)
-
-#define QERR_MKBADARGS_WITHOUT_USER_DATA_FMT(status, fmt, ...) \
-  QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, fmt, ##__VA_ARGS__)
-
-#define QERR_MKBADARGS(status, message) \
-  QueryError_SetError(status, QUERY_EPARSEARGS, message)
 
 /** Convenience macro to extract the error string of the argument parser */
 #define QERR_MKBADARGS_AC(status, name, rv)                                          \

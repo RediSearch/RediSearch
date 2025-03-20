@@ -8,7 +8,7 @@ def testFlushall(env):
 
     env.flush()
 
-    env.expect('FT.SEARCH', 'idx', '*').equal('No index exists with provided name idx')
+    env.expect('FT.SEARCH', 'idx', '*').equal('No such index idx')
     env.expect('KEYS', '*').equal([])
 
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()

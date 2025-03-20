@@ -104,7 +104,8 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
       }
       // Argument not found, that's ok. We'll handle it below
     } else {
-      QueryError_SetWithUserDataFmt(status, QUERY_EADDARGS, errArg->name, ": %s", AC_Strerror(rv));
+      char message[1024];
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EADDARGS, "Parsing error for document option %s: %s", errArg->name, AC_Strerror(rv));
       return REDISMODULE_ERR;
     }
   }

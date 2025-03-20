@@ -16,7 +16,7 @@
 **
 ** The "lemon" program processes an LALR(1) input grammar file, then uses
 ** this template to construct a parser.  The "lemon" program inserts text
-** at each "%%" line.  Also, any "P-a-r-s-e" identifier prefix (without the
+** at each "%%" line.  Also, any "P-a-r-s-e" identifer prefix (without the
 ** interstitial "-" characters) contained in this template is changed into
 ** the value of the %name directive from the grammar.  Otherwise, the content
 ** of this template is copied straight through into the generate parser
@@ -1575,8 +1575,8 @@ static YYACTIONTYPE yy_reduce(
     // we keep the capitalization as is
     yylhsminor.yy75 = NewGeofilterNode(yymsp[0].minor.yy62);
     if (ctx->sctx->spec) {
-        yylhsminor.yy75->gn.gf->spec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
-        if (!yylhsminor.yy75->gn.gf->spec) {
+        yylhsminor.yy75->gn.gf->fieldSpec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, yymsp[-2].minor.yy0.s, yymsp[-2].minor.yy0.len);
+        if (!yylhsminor.yy75->gn.gf->fieldSpec) {
             QueryNode_Free(yylhsminor.yy75);
             yylhsminor.yy75 = NULL;
         }
@@ -1678,8 +1678,8 @@ static void yy_syntax_error(
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 
-    QueryError_SetWithoutUserDataFmt(ctx->status, QUERY_ESYNTAX,
-        "Syntax error at offset %d near %.*s",
+    QueryError_SetWithUserDataFmt(ctx->status, QUERY_ESYNTAX,
+        "Syntax error", " at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
 /************ End %syntax_error code ******************************************/
   RSQueryParser_v1_ARG_STORE /* Suppress warning about unused %extra_argument variable */

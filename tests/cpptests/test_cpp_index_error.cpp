@@ -26,5 +26,4 @@ TEST_F(IndexErrorTest, testBasic) {
   RedisModule_FreeString(NULL, lastErrorKey);
   IndexError_Clear(error);
   RedisModule_FreeString(NULL, key);
-
 }
