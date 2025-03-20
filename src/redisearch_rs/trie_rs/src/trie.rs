@@ -1,4 +1,4 @@
-use std::{ffi::c_char, fmt};
+use std::{cmp::Ordering, ffi::c_char, fmt};
 
 use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
 
@@ -254,26 +254,47 @@ impl<Data: fmt::Debug> Node<Data> {
             l
         };
 
+        let new_parent = Node {
+            children: ChildRefs::default(),
+            data: None,
+            label: shared_prefix,
+        };
+        let mut old_parent = std::mem::replace(self, new_parent);
+
         let new_child = Node {
             children: ChildRefs::default(),
             data: Some(f(None)),
             label: child_suffix,
         };
-
-        let new_parent = Node {
-            children: ChildRefs(low_memory_thin_vec![ChildRef {
-                first_byte: new_child.label[0],
-                node: new_child
-            }]),
-            data: None,
-            label: shared_prefix,
-        };
-
-        let mut old_parent = std::mem::replace(self, new_parent);
         old_parent.label = old_parent_suffix;
 
-        self.children
-            .find_or_insert(old_parent.label[0], move || old_parent);
+        let old_parent_first_byte = old_parent.label[0];
+        let old_parent_ref = ChildRef {
+            first_byte: old_parent_first_byte,
+            node: old_parent,
+        };
+        let new_child_first_byte = new_child.label[0];
+        let new_child_ref = ChildRef {
+            first_byte: new_child_first_byte,
+            node: new_child,
+        };
+
+        let children = match old_parent_first_byte.cmp(&new_child_first_byte) {
+            Ordering::Less => {
+                low_memory_thin_vec![old_parent_ref, new_child_ref]
+            }
+            Ordering::Greater => {
+                low_memory_thin_vec![new_child_ref, old_parent_ref]
+            }
+            Ordering::Equal => {
+                unreachable!(
+                    "The shared prefix has already been stripped,\
+                    therefore the first byte of the suffixes must be different."
+                )
+            }
+        };
+
+        self.children = ChildRefs(children);
     }
 
     /// Remove a child from the node.
