@@ -19,6 +19,7 @@
 #define GEO_FIELD_NAME "geo"
 #define TAG_FIELD_NAME1 "tag1"
 #define TAG_FIELD_NAME2 "tag2"
+#define INITIAL_DOC_TABLE_SIZE 1000
 
 class LLApiTest : public ::testing::Test {
   virtual void SetUp() {
@@ -1266,10 +1267,12 @@ TEST_F(LLApiTest, testInfo) {
   ASSERT_EQ(info.fields[4].types, (RSFLDTYPE_FULLTEXT | RSFLDTYPE_NUMERIC |
                                     RSFLDTYPE_TAG | RSFLDTYPE_GEO));
 
+  size_t doc_table_size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain));
+
   // common stats
   ASSERT_EQ(info.numDocuments, 2);
   ASSERT_EQ(info.maxDocId, 2);
-  ASSERT_EQ(info.docTableSize, 140);
+  ASSERT_EQ(info.docTableSize, 140 + doc_table_size);
   ASSERT_EQ(info.sortablesSize, 48);
   ASSERT_EQ(info.docTrieSize, 87);
   ASSERT_EQ(info.numTerms, 5);
@@ -1351,7 +1354,8 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
   RediSearch_CreateTextField(index, FIELD_NAME_1);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 0);
+  size_t doc_table_size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain));
+  EXPECT_EQ(RediSearch_MemUsage(index), doc_table_size);
 
   // adding document to the index
   RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
@@ -1362,7 +1366,7 @@ TEST_F(LLApiTest, testInfoSize) {
   // The numeric range tree overhead was added to RediSearch_MemUsage when this test was already exist.
   // I'm not sure how the hardcoded memory value was calculated, so I preferred to better define the
   // additional memory so from now on it will be easier to track the expected memory.
-  size_t additional_overhead = sizeof(NumericRangeTree);
+  size_t additional_overhead = sizeof(NumericRangeTree) + doc_table_size;
 
   EXPECT_EQ(RediSearch_MemUsage(index), 335 + additional_overhead);
 

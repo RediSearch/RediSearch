@@ -66,10 +66,10 @@ typedef struct {
 typedef struct {
   size_t size;
   t_docId maxSize;          // the maximum size this table is allowed to grow to
-  t_docId maxDocId;
-  size_t cap;
-  size_t memsize;
-  size_t sortablesSize;
+  t_docId maxDocId;         // the maximum docId assigned
+  size_t cap;               // current capacity of buckets
+  size_t memsize;           // total memory size occupied by the table
+  size_t sortablesSize;     // total memory size occupied by the sortables
 
   DMDChain *buckets;
   DocIdMap dim;             // Mapping between document name to internal id
