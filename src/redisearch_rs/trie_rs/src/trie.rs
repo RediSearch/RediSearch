@@ -282,6 +282,7 @@ impl<Data: fmt::Debug> Node<Data> {
         // Find the index of child whose label starts with the first byte of the key,
         // as well as the child itself.
         // If the we find none, there's nothing to remove.
+        // Note that `key.first()?` will cause this function to return None if the key is empty.
         let child_index = self.children.index_of(*key.first()?)?;
         let child = &mut self.children.0[child_index].node;
 
@@ -290,13 +291,14 @@ impl<Data: fmt::Debug> Node<Data> {
             let data = child.data.take();
 
             let child_is_leaf = child.children.is_empty();
-            // If there's a single grandchild,
-            // we merge the grandchild into the child.
-            child.merge_child();
 
             if child_is_leaf {
                 // If the child is a leaf, we remove the child node itself.
                 self.children.remove(child_index);
+            } else {
+                // If there's a single grandchild,
+                // we merge the grandchild into the child.
+                child.merge_child();
             }
 
             return data;
