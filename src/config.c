@@ -1222,8 +1222,8 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = set_EnableUnstableFeatures,
          .getValue = get_EnableUnstableFeatures},
         {.name = "_INDEX_MEM_LIMIT",
-         .helpText = "Set the stop indexing used memory percentage for the background indexing. If the memory exceeds this threshold, documents won't be indexed."
-                      "The limit is percentage from the total memory available to the process. default is 80 percent.",
+         .helpText = "Set the memory usage threshold (as a percentage of maxmemory) at which background indexing will stop. Once this limit is reached,"
+                      " any queries on the affected index will result in an error or failure. The default is 80 percent.",
          .setValue = setIndexingMemoryLimit,
          .getValue = getIndexingMemoryLimit},
         {.name = NULL}}};
