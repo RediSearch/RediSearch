@@ -152,12 +152,8 @@ type TrieMapReplaceFunc =
 /// Add a new string to a trie. Returns 1 if the key is new to the trie or 0 if
 /// it already existed.
 ///
-/// If value is given, it is saved as a payload inside the trie node.
-/// If the key already exists, we replace the old value with the new value, using
-/// free() to free the old value.
-///
-/// If cb is given, instead of replacing and freeing, we call the callback with
-/// the old and new value, and the function should return the value to set in the
+/// If `cb` is given, instead of replacing and freeing the value using `rm_free`,
+/// we call the callback with the old and new value, and the function should return the value to set in the
 /// node, and take care of freeing any unwanted pointers. The returned value
 /// can be NULL and doesn't have to be either the old or new value.
 ///
@@ -168,6 +164,9 @@ type TrieMapReplaceFunc =
 ///  - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
 ///  - `len` can be 0. If so, `str` is regarded as an empty string.
 ///  - `value` holds a pointer to the value of the record, which can be NULL
+///  - `cb` must not free the value it returns
+///  - The Redis allocator must be initialized before calling this function,
+///    and `RedisModule_Free` must not get mutated while running this function.
 ///
 /// C equivalent:
 /// ```c
@@ -202,21 +201,35 @@ unsafe extern "C" fn TrieMap_Add(
         &[]
     };
 
-    let value = match cb {
-        Some(cb) => {
-            if let Some(old) = trie.find(key) {
-                // SAFETY: The following line is sound if the cb implementation
-                // does not introduce undefined behavior.
-                unsafe { cb(*old, value) }
+    let mut was_vacant = true;
+    trie.insert_with(key, |old| {
+        if let Some(old_value) = old {
+            was_vacant = false;
+            if let Some(cb) = cb {
+                // SAFETY: The safety requirements of this function
+                // require `cb` has the correct signature and does
+                // not free the value it returns.
+                unsafe { cb(old_value, value) }
             } else {
+                // SAFETY:
+                // The safety requirements of this function
+                // require the caller to ensure that the Redis allocator is initialized,
+                // and that `RedisModule_Free` does not get mutated while running this function.
+                let rm_free = unsafe {
+                    redis_module::raw::RedisModule_Free.expect("Redis allocator not available")
+                };
+                // SAFETY:
+                // The safety requirements of this function
+                // require the caller to ensure that the Redis allocator is properly initialized.
+                unsafe { rm_free(old_value) };
                 value
             }
+        } else {
+            value
         }
-        None => value,
-    };
+    });
 
-    let was_vacant = trie.insert(key, value).is_none();
-    was_vacant as _
+    if was_vacant { 1 } else { 0 }
 }
 
 /// Find the entry with a given string and length, and return its value, even if
