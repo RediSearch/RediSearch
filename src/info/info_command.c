@@ -45,7 +45,6 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, const IndexSpec *sp
 
   REPLY_KVSTR("key_type", DocumentType_ToString(rule->type));
 
-
   int num_prefixes = array_len(rule->prefixes);
   if (num_prefixes) {
     RedisModule_ReplyKV_Array(reply, "prefixes");

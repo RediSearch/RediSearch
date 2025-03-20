@@ -32,8 +32,15 @@ typedef struct NumericFilter {
   size_t offset;            // record number of documents in iterated ranges. used to skip them
 } NumericFilter;
 
+// LegacyNumericFilter is a numeric filter that is used in the legacy query syntax
+// it is a wrapper around the NumericFilter struct
+// it is used to parse the legacy query syntax and convert it to the new query syntax
+// When parsing the legacy filters we do not have the index spec and we only have the field name
+// For that reason during the parsing phase the base.fieldSpec will be NULL
+// We will fill the fieldSpec during the apply context phase where we will use the field name to find the field spec
+// This struct was added in order to fix previous behaviour where the string pointer was stored inside the field spec pointer
 typedef struct LegacyNumericFilter {
-  NumericFilter base; // the numeric filter base details
+  NumericFilter base;     // the numeric filter base details
   HiddenString *field;    // the numeric field name
 } LegacyNumericFilter;
 

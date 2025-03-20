@@ -5,9 +5,6 @@ name: Run a Benchmark Flow
 on:
   workflow_call:
     inputs:
-      container:
-        type: string
-        default: redisfab/rmbuilder:6.2.7-x64-bullseye
       module_path:
         type: string
         default: bin/linux-x64-release/search-community/redisearch.so
@@ -37,14 +34,11 @@ on:
       benchmark_runner_group_total:
         type: number
         default: 1
-env:
-  BOOST_VERSION: ${{ vars.BOOST_VERSION || '1.83.0' }}
 
 jobs:
   benchmark-steps:
     name: "Benchmark ${{ inputs.allowed_envs }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }} "
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-    container: ${{ inputs.container }}
+    runs-on: ubuntu-22.04  # Temporary hard coded until we resolve the issues with ubuntu-latest(24)
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
@@ -56,23 +50,14 @@ jobs:
       - name: Setup specific  # assuming node20 supported
         working-directory: .install
         run: |
-          ./install_script.sh ${{ steps.mode.outputs.mode }}
+          ./install_script.sh ${{ steps.mode.outputs.mode }} sudo
       - name: Setup tests dependencies
         run: |
-          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
+          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }} sudo
       - name: Install Boost
         working-directory: .install
-        run: ./install_boost.sh ${{ env.BOOST_VERSION }}
+        run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
 
-      - name: Get Redis
-        uses: actions/checkout@v4
-        with:
-          repository: redis/redis
-          ref: unstable
-          path: redis
-      - name: Build Redis
-        working-directory: redis
-        run: make install
       - name: Build RediSearch
         run: make build
             PROFILE=${{ inputs.profile_env }}
@@ -82,7 +67,7 @@ jobs:
           ./deps/readies/bin/getpy3
           pip3 install --upgrade pip
           python3 -m pip install -r tests/benchmarks/requirements.txt
-          VERSION=0.14.8 ./deps/readies/bin/getterraform
+          VERSION=1.11.1 sudo ./deps/readies/bin/getterraform
       - name: Prepare ReJSON Module
         run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 

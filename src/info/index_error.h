@@ -38,6 +38,9 @@ IndexError IndexError_Init();
 void IndexError_AddError(IndexError *error, ConstErrorMessage withoutUserData, ConstErrorMessage withUserData, RedisModuleString *key);
 
 // Adds a query error to the index error using IndexError_AddError
+// IndexError_AddError is more abstract and is not explicitly tied to a query
+// This function wraps around it and ties it a bit with the query error object
+// it will pass obfuscated data for the withoutUserData and pass non-obfuscated data for the withUserData arguments
 static inline void IndexError_AddQueryError(IndexError *error, const QueryError* queryError, RedisModuleString *key) {
     IndexError_AddError(error, QueryError_GetDisplayableError(queryError, true), QueryError_GetDisplayableError(queryError, false), key);
 }

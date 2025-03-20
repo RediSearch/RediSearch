@@ -248,7 +248,7 @@ int parseParams (dict **destParams, ArgsCursor *ac, QueryError *status) {
   ArgsCursor paramsArgs = {0};
   int rv = AC_GetVarArgs(ac, &paramsArgs);
   if (rv != AC_OK) {
-    QERR_MKBADARGS_AC(status, "PARAMS", rv);
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for PARAMS: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
   if (*destParams) {

@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lints]
+workspace = true
+
 [lib]
 crate-type = ["staticlib"]
 
@@ -12,3 +15,4 @@ default = ["redis_allocator"]
 redis_allocator = []
 
 [dependencies]
+libc.workspace = true
