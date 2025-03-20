@@ -55,13 +55,13 @@
 %stack_size 256
 
 %stack_overflow {
-  QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
+  QueryError_SetError(ctx->status, QUERY_ESYNTAX,
     "Parser stack overflow. Try moving nested parentheses more to the left");
 }
 
 %syntax_error {
-  QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
-    "Syntax error at offset %d near %.*s",
+  QueryError_SetWithUserDataFmt(ctx->status, QUERY_ESYNTAX,
+    "Syntax error", " at offset %d near %.*s",
     TOKEN.pos, TOKEN.len, TOKEN.s);
 }
 
@@ -150,13 +150,13 @@ static void setup_trace(QueryParseCtx *ctx) {
 
 static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
-    QueryError_SetErrorFmt(status, QUERY_ESYNTAX,
-      "%s at offset %d near %.*s", msg, tok->pos, tok->len, tok->s);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+      " at offset %d near %.*s", tok->pos, tok->len, tok->s);
   } else if (tok->type == QT_NUMERIC) {
-    QueryError_SetErrorFmt(status, QUERY_ESYNTAX,
-      "%s at offset %d near %f", msg, tok->pos, tok->numval);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+      " at offset %d near %f", tok->pos, tok->numval);
   } else {
-    QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "%s at offset %d", msg, tok->pos);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg, " at offset %d", tok->pos);
   }
 }
 
@@ -830,8 +830,7 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
     QueryParam_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    C->nf->field = B.fs;
-    A = NewNumericNode(C);
+    A = NewNumericNode(C, B.fs);
   }
 }
 
@@ -885,8 +884,7 @@ expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-    qp->nf->field = B.fs;
-    QueryNode* E = NewNumericNode(qp);
+    QueryNode* E = NewNumericNode(qp, B.fs);
     A = NewNotNode(E);
   }
 }
@@ -897,8 +895,7 @@ expr(A) ::= modifier(B) EQUALS param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-    qp->nf->field = B.fs;
-    A = NewNumericNode(qp);
+    A = NewNumericNode(qp, B.fs);
   }
 }
 
@@ -908,8 +905,7 @@ expr(A) ::= modifier(B) GT param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 0, 1);
-    qp->nf->field = B.fs;
-    A = NewNumericNode(qp);
+    A = NewNumericNode(qp, B.fs);
   }
 }
 
@@ -919,8 +915,7 @@ expr(A) ::= modifier(B) GE param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 1, 1);
-    qp->nf->field = B.fs;
-    A = NewNumericNode(qp);
+    A = NewNumericNode(qp, B.fs);
   }
 }
 
@@ -930,8 +925,7 @@ expr(A) ::= modifier(B) LT param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 0);
-    qp->nf->field = B.fs;
-    A = NewNumericNode(qp);
+    A = NewNumericNode(qp, B.fs);
   }
 }
 
@@ -941,8 +935,7 @@ expr(A) ::= modifier(B) LE param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
-    qp->nf->field = B.fs;
-    A = NewNumericNode(qp);
+    A = NewNumericNode(qp, B.fs);
   }
 }
 
@@ -957,7 +950,7 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     QueryParam_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    C->gf->field = B.fs;
+    C->gf->fieldSpec = B.fs;
     A = NewGeofilterNode(C);
   }
 }

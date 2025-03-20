@@ -303,7 +303,7 @@ void RediSearch_DocumentAddFieldNumber(Document* d, const char* fieldname, doubl
   }
 }
 
-int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname,
+int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldName,
                                     double lat, double lon, unsigned as) {
   if (lat > GEO_LAT_MAX || lat < GEO_LAT_MIN || lon > GEO_LONG_MAX || lon < GEO_LONG_MIN) {
     // out of range
@@ -311,11 +311,11 @@ int RediSearch_DocumentAddFieldGeo(Document* d, const char* fieldname,
   }
 
   if (as == RSFLDTYPE_GEO) {
-    Document_AddGeoField(d, fieldname, lon, lat, as);
+    Document_AddGeoField(d, fieldName, lon, lat, as);
   } else {
     char buf[24];
     size_t len = sprintf(buf, "%.6lf,%.6lf", lon, lat);
-    Document_AddFieldC(d, fieldname, buf, len, as);
+    Document_AddFieldC(d, fieldName, buf, len, as);
   }
 
   return REDISMODULE_OK;
@@ -330,7 +330,7 @@ void RediSearch_AddDocDone(RSAddDocumentCtx* aCtx, RedisModuleCtx* ctx, void* er
   RSError* ourErr = err;
   if (QueryError_HasError(&aCtx->status)) {
     if (ourErr->s) {
-      *ourErr->s = rm_strdup(QueryError_GetError(&aCtx->status));
+      *ourErr->s = rm_strdup(QueryError_GetUserError(&aCtx->status));
     }
     ourErr->hasErr = aCtx->status.code;
   }
@@ -401,9 +401,10 @@ QueryNode* RediSearch_CreateTagTokenNode(RefManager* rm, const char* token) {
 QueryNode* RediSearch_CreateNumericNode(RefManager* rm, const char* field, double max, double min,
                                         int includeMax, int includeMin) {
   QueryNode* ret = NewQueryNode(QN_NUMERIC);
-  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax, true);
-  ret->nn.nf->field = IndexSpec_GetField(__RefManager_Get_Object(rm), field);
-  ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, strlen(field));
+  const size_t len = strlen(field);
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), field, len);
+  ret->nn.nf = NewNumericFilter(min, max, includeMin, includeMax, true, fs);
+  ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, len);
   return ret;
 }
 
@@ -417,7 +418,7 @@ QueryNode* RediSearch_CreateGeoNode(RefManager* rm, const char* field, double la
   flt->lon = lon;
   flt->radius = radius;
   flt->numericFilters = NULL;
-  flt->field = IndexSpec_GetField(__RefManager_Get_Object(rm), field);
+  flt->fieldSpec = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), field, strlen(field));
   flt->unitType = (GeoDistance)unitType;
 
   ret->gn.gf = flt;
@@ -516,8 +517,9 @@ QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* fieldNam
 
 QueryNode* RediSearch_CreateTagNode(RefManager* rm, const char* field) {
   QueryNode* ret = NewQueryNode(QN_TAG);
-  ret->tag.fs = IndexSpec_GetField(__RefManager_Get_Object(rm), field);
-  ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, strlen(field));
+  size_t len = strlen(field);
+  ret->tag.fs = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), field, len);
+  ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), field, len);
   return ret;
 }
 
@@ -643,7 +645,7 @@ end:
       it = NULL;
     }
     if (error) {
-      *error = rm_strdup(QueryError_GetError(&status));
+      *error = rm_strdup(QueryError_GetUserError(&status));
     }
   }
   QueryError_ClearError(&status);
@@ -805,6 +807,10 @@ int RediSearch_ExportCapi(RedisModuleCtx* ctx) {
 }
 
 void RediSearch_SetCriteriaTesterThreshold(size_t num) {
+}
+
+const char *RediSearch_HiddenStringGet(const HiddenString* value) {
+  return HiddenString_GetUnsafe(value, NULL);
 }
 
 int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len) {

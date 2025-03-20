@@ -54,7 +54,7 @@ class QASTCXX : public QueryAST {
   }
 
   const char *getError() const {
-    return QueryError_GetError(&m_status);
+    return QueryError_GetUserError(&m_status);
   }
 
   ~QASTCXX() {
@@ -95,9 +95,9 @@ TEST_F(QueryTest, testParser_delta) {
   QueryError err = {QueryErrorCode(0)};
   StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
   ctx.spec = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
-  // wildcard with parentheses are avalible from version 2
+  // wildcard with parentheses are available from version 2
   assertInvalidQuery_v(1, "(*)");
   assertValidQuery_v(2, "(*)");
 
@@ -148,7 +148,7 @@ TEST_F(QueryTest, testParser_v1) {
   QueryError err = {QueryErrorCode(0)};
   StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
   ctx.spec = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   int version = 1;
 
   // test some valid queries
@@ -345,7 +345,7 @@ TEST_F(QueryTest, testParser_v2) {
   QueryError err = {QueryErrorCode(0)};
   StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
   ctx.spec = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   int version = 2;
 
   // test some valid queries
@@ -712,7 +712,7 @@ TEST_F(QueryTest, testGeoQuery_v1) {
 
   QueryNode *gn = n->children[1];
   ASSERT_EQ(gn->type, QN_GEO);
-  ASSERT_STREQ(gn->gn.gf->field->name, "loc");
+  ASSERT_STREQ(gn->gn.gf->fieldSpec->name, "loc");
   ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
@@ -738,7 +738,7 @@ TEST_F(QueryTest, testGeoQuery_v2) {
 
   QueryNode *gn = n->children[2];
   ASSERT_EQ(gn->type, QN_GEO);
-  ASSERT_STREQ(gn->gn.gf->field->name, "loc");
+  ASSERT_STREQ(gn->gn.gf->fieldSpec->name, "loc");
   ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
