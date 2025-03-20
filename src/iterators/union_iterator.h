@@ -15,7 +15,6 @@ extern "C" {
 typedef struct {
   QueryIterator base;
   heap_t *heap_min_id;
-  size_t num_results_estimated;
   /**
    * We maintain two iterator arrays. One is the original iterator list, and
    * the other is the list of currently active iterators. When an iterator
@@ -23,10 +22,10 @@ typedef struct {
    * the `its_orig` list, for the purpose of supporting things like Rewind() and
    * Free()
    */
-  QueryIterator **its;
-  QueryIterator **its_orig;
-  uint32_t num;
-  uint32_t num_orig;
+  QueryIterator **its;      // child iterator array, might change/shuffle throughout the query execution
+  QueryIterator **its_orig; // "const" copy of child iterator array, used to rewind and free the iterator
+  uint32_t num;             // number of non-depleted child iterators
+  uint32_t num_orig;        // the length of `its_orig`
 
   // type of query node UNION,GEO,NUMERIC...
   QueryNodeType type;

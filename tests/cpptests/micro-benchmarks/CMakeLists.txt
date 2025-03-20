@@ -19,10 +19,6 @@ set(BENCHMARK_ENABLE_TESTING OFF)
 FetchContent_MakeAvailable(googlebench)
 include_directories("${googlebench_SOURCE_DIR}/include")
 
-if (NOT TEST_MODULE)
-    set(TEST_MODULE redisearch)
-endif()
-
-file(GLOB BENCHMARK_SOURCES "benchmark_*_iterator.cpp")
-add_executable(micro_bench_iterators ${BENCHMARK_SOURCES} ../index_utils.cpp )
-target_link_libraries(micro_bench_iterators ${TEST_MODULE} redismock benchmark::benchmark)
+file(GLOB BENCHMARK_ITER_SOURCES "benchmark_*_iterator.cpp")
+add_executable(micro_bench_iterators ${BENCHMARK_ITER_SOURCES} ../index_utils.cpp )
+target_link_libraries(micro_bench_iterators redisearch redismock benchmark::benchmark)

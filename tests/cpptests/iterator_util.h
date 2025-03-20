@@ -29,7 +29,7 @@ private:
 
     static void setBase(QueryIterator *base) {
         base->type = READ_ITERATOR;
-        base->isValid = true;
+        base->atEOF = false;
         base->lastDocId = 0;
         base->current = NewVirtualResult(1, RS_FIELDMASK_ALL);
         base->NumEstimated = MockIterator_NumEstimated;
@@ -42,8 +42,8 @@ public:
     // Public API
     IteratorStatus Read() {
         readCount++;
-        if (nextIndex >= docIds.size() || !base.isValid) {
-            base.isValid = false;
+        if (nextIndex >= docIds.size() || base.atEOF) {
+            base.atEOF = true;
             return whenDone;
         }
         base.lastDocId = base.current->docId = docIds[nextIndex++];
@@ -55,7 +55,7 @@ public:
         if (base.lastDocId >= docId) {
             throw std::invalid_argument("SkipTo: requested to skip backwards");
         }
-        if (!base.isValid) {
+        if (base.atEOF) {
             return whenDone;
         }
         while (nextIndex < docIds.size() && docIds[nextIndex] < docId) {
@@ -75,7 +75,7 @@ public:
         nextIndex = 0;
         readCount = 0;
         base.lastDocId = base.current->docId = 0;
-        base.isValid = true;
+        base.atEOF = false;
     }
 
     ~MockIterator() noexcept {
@@ -88,10 +88,9 @@ public:
         : MockIterator(ITERATOR_EOF, std::forward<Args>(args)...) {}
 
     template<typename... Args>
-    MockIterator(IteratorStatus st, Args&&... args)
-        : whenDone(st), nextIndex(0), readCount(0) {
+    MockIterator(IteratorStatus st, Args&&... ids_args)
+        : docIds({ids_args...}), whenDone(st), nextIndex(0), readCount(0) {
         setBase(&base);
-        docIds = {args...};
         std::sort(docIds.begin(), docIds.end());
         std::unique(docIds.begin(), docIds.end());
     }

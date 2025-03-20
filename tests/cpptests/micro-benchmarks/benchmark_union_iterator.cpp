@@ -57,6 +57,8 @@ public:
     }
 };
 bool BM_UnionIterator::initialized = false;
+// Translation - exponential range from 2 to 20 (double each time), then 25, 50, 75, and 100.
+// This is the number of child iterators in each scenario
 #define UNION_SCENARIOS() RangeMultiplier(2)->Range(2, 20)->DenseRange(25, 100, 25)
 
 BENCHMARK_DEFINE_F(BM_UnionIterator, ReadFull)(benchmark::State &state) {

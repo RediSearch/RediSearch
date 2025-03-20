@@ -43,17 +43,13 @@ typedef struct QueryIterator {
   enum IteratorType type;
 
   // Can the iterator yield more results?
-  bool isValid;
+  bool atEOF;
 
   // the last docId read. Initially should be 0.
   t_docId lastDocId;
 
   // Current result. Should always point to a valid current result, except when `lastDocId` is 0
   RSIndexResult *current;
-
-  // Used if the iterator yields some value.
-  // Consider placing in a union with an array of keys, if a field want to yield multiple metrics
-  struct RLookupKey *ownKey;
 
   /** Return an upper-bound estimation for the number of results the iterator is going to yield */
   size_t (*NumEstimated)(struct QueryIterator *self);
@@ -81,35 +77,9 @@ typedef struct QueryIterator {
   /* release the iterator's context and free everything needed */
   void (*Free)(struct QueryIterator *self);
 
-  /* Rewind the iterator to the beginning and reset its state (including `isValid` and `lastDocId`) */
+  /* Rewind the iterator to the beginning and reset its state (including `atEOF` and `lastDocId`) */
   void (*Rewind)(struct QueryIterator *self);
 } QueryIterator;
-
-#define QITER_AT_EOF(ii) (!(ii)->isValid)
-#define QITER_SET_EOF(ii) ((ii)->isValid = false)
-#define QITER_CLEAR_EOF(ii) ((ii)->isValid = true)
-
-static IteratorStatus EOI_Read(QueryIterator *self) {
-  return ITERATOR_EOF;
-}
-static IteratorStatus EOI_SkipTo(QueryIterator *self, t_docId docId) {
-  return ITERATOR_EOF;
-}
-static size_t EOI_NumEstimated(QueryIterator *self) {
-  return 0;
-}
-static void EOI_Free(QueryIterator *self) {}
-static void EOI_Rewind(QueryIterator *self) {}
-
-static inline void QueryIterator_Abort(QueryIterator *it) {
-  it->isValid = false;
-  // Replace the Read, SkipTo, NumEstimated, and Rewind functions with no-ops to prevent further use.
-  // We don't touch Free to allow freeing the iterator as intended.
-  it->Read = EOI_Read;
-  it->SkipTo = EOI_SkipTo;
-  it->NumEstimated = EOI_NumEstimated;
-  it->Rewind = EOI_Rewind;
-}
 
 // Scaffold for the iterator API. TODO: Remove this when the old API is removed
 #define IT_V2(api_name) api_name##_V2

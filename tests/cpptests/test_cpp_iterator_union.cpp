@@ -57,11 +57,11 @@ TEST_P(UnionIteratorCommonTest, Read) {
     while ((rc = ui_base->Read(ui_base)) == ITERATOR_OK) {
         ASSERT_EQ(ui->base.current->docId, resultSet[i]);
         ASSERT_EQ(ui->base.lastDocId, resultSet[i]);
-        ASSERT_TRUE(ui->base.isValid);
+        ASSERT_FALSE(ui->base.atEOF);
         i++;
     }
     ASSERT_EQ(rc, ITERATOR_EOF);
-    ASSERT_FALSE(ui->base.isValid);
+    ASSERT_TRUE(ui->base.atEOF);
     ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_EOF); // Reading after EOF should return EOF
     ASSERT_EQ(i, resultSet.size()) << "Expected to read " << resultSet.size() << " documents";
 
@@ -69,7 +69,6 @@ TEST_P(UnionIteratorCommonTest, Read) {
     for (auto &child : docIds) {
         expected += child.size();
     }
-    ASSERT_EQ(ui->num_results_estimated, expected);
     ASSERT_EQ(ui_base->NumEstimated(ui_base), expected);
 }
 
@@ -97,11 +96,11 @@ TEST_P(UnionIteratorCommonTest, SkipTo) {
     // Test reading after skipping to the last id
     ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_EOF);
     ASSERT_EQ(ui_base->SkipTo(ui_base, ui_base->lastDocId + 1), ITERATOR_EOF);
-    ASSERT_FALSE(ui->base.isValid);
+    ASSERT_TRUE(ui->base.atEOF);
 
     ui_base->Rewind(ui_base);
     ASSERT_EQ(ui->base.lastDocId, 0);
-    ASSERT_TRUE(ui->base.isValid);
+    ASSERT_FALSE(ui->base.atEOF);
     // Test skipping to all ids that exist
     for (t_docId id : resultSet) {
         rc = ui_base->SkipTo(ui_base, id);
@@ -113,11 +112,11 @@ TEST_P(UnionIteratorCommonTest, SkipTo) {
     // Test skipping to an id that exceeds the last id
     ui_base->Rewind(ui_base);
     ASSERT_EQ(ui->base.lastDocId, 0);
-    ASSERT_TRUE(ui->base.isValid);
+    ASSERT_FALSE(ui->base.atEOF);
     rc = ui_base->SkipTo(ui_base, resultSet.back() + 1);
     ASSERT_EQ(rc, ITERATOR_EOF);
     ASSERT_EQ(ui->base.lastDocId, 0); // we just rewound
-    ASSERT_FALSE(ui->base.isValid);
+    ASSERT_TRUE(ui->base.atEOF);
 }
 
 TEST_P(UnionIteratorCommonTest, Rewind) {
@@ -131,10 +130,14 @@ TEST_P(UnionIteratorCommonTest, Rewind) {
         }
         ui_base->Rewind(ui_base);
         ASSERT_EQ(ui->base.lastDocId, 0);
-        ASSERT_TRUE(ui->base.isValid);
+        ASSERT_FALSE(ui->base.atEOF);
     }
 }
 
+// Parameters for the tests above. We run all the combinations of:
+// 1. number of child iterators in {2, 5, 25}
+// 2. quick mode (true/false)
+// 3. expected result set, one of the 3 given lists below
 INSTANTIATE_TEST_SUITE_P(UnionIteratorP, UnionIteratorCommonTest, ::testing::Combine(
     ::testing::Values(2, 5, 25),
     ::testing::Bool(),
@@ -210,18 +213,25 @@ protected:
     }
 };
 
+// Run the test in the case where the first child times out
 TEST_P(UnionIteratorEdgesTest, TimeoutFirstChild) {
     TimeoutChildTest(0);
 }
 
+// Run the test in the case where some middle child times out
 TEST_P(UnionIteratorEdgesTest, TimeoutMidChild) {
     TimeoutChildTest(std::get<0>(GetParam()) / 2);
 }
 
+// Run the test in the case where the last child times out
 TEST_P(UnionIteratorEdgesTest, TimeoutLastChild) {
     TimeoutChildTest(std::get<0>(GetParam()) - 1);
 }
 
+// Parameters for the tests above. We run all the combinations of:
+// 1. number of child iterators in {2, 5, 25}
+// 2. quick mode (true/false)
+// 3. sparse/dense result set (we may get different behavior if we have sequential ids to return)
 INSTANTIATE_TEST_SUITE_P(UnionIteratorEdgesP, UnionIteratorEdgesTest, ::testing::Combine(
     ::testing::Values(2, 5, 25),
     ::testing::Bool(),
@@ -254,15 +264,15 @@ TEST_F(UnionIteratorSingleTest, ReuseResults) {
     ASSERT_EQ(it1->base.lastDocId, 3);
     ASSERT_EQ(it2->base.lastDocId, 2);
     ASSERT_EQ(it1->readCount, 1) << "it1 should not be read again";
-    ASSERT_TRUE(it1->base.isValid);
+    ASSERT_FALSE(it1->base.atEOF);
     ASSERT_EQ(it2->readCount, 1) << "it2 should not be read again";
-    ASSERT_TRUE(it2->base.isValid);
+    ASSERT_FALSE(it2->base.atEOF);
 
     ASSERT_EQ(ui_base->Read(ui_base), ITERATOR_EOF);
     ASSERT_EQ(it1->readCount, 2) << "it1 should be read again";
-    ASSERT_FALSE(it1->base.isValid);
+    ASSERT_TRUE(it1->base.atEOF);
     ASSERT_EQ(it2->readCount, 2) << "it2 should be read again";
-    ASSERT_FALSE(it2->base.isValid);
+    ASSERT_TRUE(it2->base.atEOF);
 
     ui_base->Free(ui_base);
 }
