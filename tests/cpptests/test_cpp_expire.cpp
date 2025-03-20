@@ -49,7 +49,7 @@ TEST_F(ExpireTest, testSkipTo) {
   RedisModule_FreeString(ctx, hset_args[1]);
   RedisModule_FreeString(ctx, hset_args[2]);
 
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->name, true);
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, HiddenString_GetUnsafe(spec->specName, NULL), true);
   const auto epoch = std::chrono::system_clock::now().time_since_epoch();
   const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(epoch);
   const auto remaining = epoch - seconds;

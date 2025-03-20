@@ -49,13 +49,23 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, const IndexSpec *sp
   if (num_prefixes) {
     RedisModule_ReplyKV_Array(reply, "prefixes");
     for (int i = 0; i < num_prefixes; ++i) {
-      REPLY_SIMPLE_SAFE(rule->prefixes[i]);
+      const char* prefix = HiddenUnicodeString_GetUnsafe(rule->prefixes[i], NULL);
+      if (obfuscate) {
+        REPLY_SIMPLE_SAFE(Obfuscate_Text(prefix));
+      } else {
+        REPLY_SIMPLE_SAFE(prefix);
+      }
     }
     RedisModule_Reply_ArrayEnd(reply);
   }
 
   if (rule->filter_exp_str) {
-    REPLY_KVSTR_SAFE("filter", rule->filter_exp_str);
+    const char *filter = HiddenString_GetUnsafe(rule->filter_exp_str, NULL);
+    if (obfuscate) {
+      REPLY_KVSTR_SAFE("filter", Obfuscate_Text(filter));
+    } else {
+      REPLY_KVSTR_SAFE("filter", filter);
+    }
   }
 
   if (rule->lang_default) {
@@ -107,10 +117,13 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_Reply_Map(reply); // >>field
 
-    REPLY_KVSTR_SAFE("identifier", sp->fields[i].path);
-    REPLY_KVSTR_SAFE("attribute", sp->fields[i].name);
-
     const FieldSpec *fs = &sp->fields[i];
+    char *path = FieldSpec_FormatPath(fs, obfuscate);
+    char *name = FieldSpec_FormatName(fs, obfuscate);
+    REPLY_KVSTR("identifier", path);
+    REPLY_KVSTR("attribute", name);
+    rm_free(path);
+    rm_free(name);
 
     // RediSearch_api - No coverage
     if (fs->options & FieldSpec_Dynamic) {
