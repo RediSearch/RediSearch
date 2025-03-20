@@ -231,10 +231,12 @@ size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance){
   size_t item_count = cb->item_count;
   uint64_t write = cb->write;
   uint write_idx = write / cb->item_size;
-  int read_idx = write_idx - item_count;
-  // Adjusts read_idx to handle negative values by wrapping around the circular buffer.
-  read_idx = (read_idx >= 0) ? read_idx : (cb->item_cap + read_idx);
-
+  int read_idx;
+  if (write_idx - item_count > 0) {
+    read_idx = write_idx - item_count;
+  } else {// Adjusts read_idx to handle negative values by wrapping around the circular buffer.
+    read_idx = cb->item_cap + write_idx - item_count;
+  }
 
   size_t first_chunk = (read_idx + item_count <= cb->item_cap) ? item_count : (cb->item_cap - read_idx);
   size_t second_chunk = item_count - first_chunk;
