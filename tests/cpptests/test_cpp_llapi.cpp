@@ -1320,33 +1320,32 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TEXT", RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  // The numeric range tree overhead was added to RediSearch_MemUsage when this test was already exist.
   // I'm not sure how the hardcoded memory value was calculated, so I preferred to better define the
   // additional memory so from now on it will be easier to track the expected memory.
-  size_t additional_overhead = sizeof(NumericRangeTree) + doc_table_size;
+  size_t additional_overhead = doc_table_size;
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 335 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 147 + additional_overhead);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 322);
+  EXPECT_EQ(RediSearch_MemUsage(index), 322 + additional_overhead);
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 194);
+  EXPECT_EQ(RediSearch_MemUsage(index), 194 + additional_overhead);
   RSGlobalConfig.forkGcCleanThreshold = 0;
   index->gc->callbacks.periodicCallback(RSDummyContext, index->gc->gcCtx);
-  EXPECT_EQ(RediSearch_MemUsage(index), 148);
+  EXPECT_EQ(RediSearch_MemUsage(index), 148 + additional_overhead);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 49);
+  EXPECT_EQ(RediSearch_MemUsage(index), 49 + additional_overhead);
   index->gc->callbacks.periodicCallback(RSDummyContext, index->gc->gcCtx);
-  EXPECT_EQ(RediSearch_MemUsage(index), 2);
+  EXPECT_EQ(RediSearch_MemUsage(index), 2 + additional_overhead);
   // we have 2 left over b/c of the offset vector size which we cannot clean
   // since the data is not maintained
 
