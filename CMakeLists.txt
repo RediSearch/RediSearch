@@ -233,6 +233,7 @@ add_subdirectory(deps/rmutil)
 add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
+add_subdirectory(deps/fast_float)
 
 # Configure libuv options
 set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
@@ -270,6 +271,7 @@ file(GLOB SOURCES
     "deps/libnu/*.c"
     "deps/miniz/*.c"
     "deps/base64/*.c"
+    "deps/fast_float/*.c"
     "deps/thpool/*.c"
     "deps/triemap/*.c"
     "deps/geohash/*.c")
@@ -282,6 +284,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
     $<TARGET_OBJECTS:metaphone>
+    $<TARGET_OBJECTS:fast_float_strtod>
     $<TARGET_OBJECTS:redisearch-coord>
 )
 

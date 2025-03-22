@@ -20,7 +20,17 @@ echo $OS
 
 source ${OS}.sh $MODE
 source install_cmake.sh $MODE
-source install_boost.sh 
+
+# run in a subshell to let this script continue if install_boost.sh calls exit 0
+(source ./install_boost.sh)
+BOOST_EXIT_CODE=$?
+
+# propagate the exit code
+if [[ $BOOST_EXIT_CODE -ne 0 ]]; then
+    echo "Boost installation failed with exit code $BOOST_EXIT_CODE, stopping the script."
+    exit $BOOST_EXIT_CODE
+fi
+
 # Install Rust here since it's needed on all platforms and
 # the installer doesn't rely on any platform-specific tools (e.g. the package manager)
 source install_rust.sh
