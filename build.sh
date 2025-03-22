@@ -240,6 +240,35 @@ run_cmake() {
 }
 
 #-----------------------------------------------------------------------------
+# Function: build_redisearch_rs
+# Build the redisearch_rs target explicitly
+#-----------------------------------------------------------------------------
+build_redisearch_rs() {
+  echo "Building redisearch_rs..."
+  REDISEARCH_RS_DIR="$ROOT/src/redisearch_rs"
+  REDISEARCH_RS_TARGET_DIR="$ROOT/bin/redisearch_rs"
+  REDISEARCH_RS_BINDIR="$BINDIR/redisearch_rs"
+
+  # Determine Rust build mode
+  if [[ "$DEBUG" == "1" ]]; then
+    RUST_BUILD_MODE=""
+    RUST_ARTIFACT_SUBDIR="debug"
+  else
+    RUST_BUILD_MODE="--release"
+    RUST_ARTIFACT_SUBDIR="release"
+  fi
+
+  # Build using cargo
+  mkdir -p "$REDISEARCH_RS_TARGET_DIR"
+  cd "$REDISEARCH_RS_DIR"
+  cargo build $RUST_BUILD_MODE
+
+  # Copy artifacts to the target directory
+  mkdir -p "$REDISEARCH_RS_BINDIR"
+  cp "$REDISEARCH_RS_TARGET_DIR/$RUST_ARTIFACT_SUBDIR"/*.a "$REDISEARCH_RS_BINDIR"
+}
+
+#-----------------------------------------------------------------------------
 # Function: build_project
 # Build the RediSearch project using Make
 #-----------------------------------------------------------------------------
@@ -252,9 +281,11 @@ build_project() {
   else
     NPROC=4  # Default if we can't determine
   fi
-
   echo "Building RediSearch with $NPROC parallel jobs..."
   make -j "$NPROC"
+
+  # Build redisearch_rs explicitly
+  build_redisearch_rs
 
   # Build test dependencies if needed
   build_test_dependencies
