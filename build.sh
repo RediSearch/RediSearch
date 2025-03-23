@@ -119,7 +119,7 @@ setup_test_configuration() {
 setup_build_environment() {
   # Determine build flavor
   if [ "$SAN" == "address" ]; then
-    FLAVOR="asan"
+    FLAVOR="debug-asan"
   elif [[ "$DEBUG" == "1" ]]; then
     FLAVOR="debug"
   else
@@ -191,6 +191,7 @@ prepare_cmake_arguments() {
 
   if [[ -n "$SAN" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSAN=$SAN"
+    DEBUG="1"
   fi
 
   # Set build type
