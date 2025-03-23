@@ -1269,9 +1269,6 @@ DEBUG_COMMAND(RSAggregateCommandShard) {
 }
 
 DEBUG_COMMAND(getHideUserDataFromLogs) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
   const long long value = RSGlobalConfig.hideUserDataFromLog;
   return RedisModule_ReplyWithLongLong(ctx, value);
 }
