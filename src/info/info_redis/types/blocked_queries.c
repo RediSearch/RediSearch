@@ -16,7 +16,7 @@ BlockedQueries *BlockedQueries_Init() {
 }
 
 void BlockedQueries_Free(BlockedQueries *blockedQueries) {
-  // Assert that the list is empty
+  // Assert that the lists are empty
   RS_LOG_ASSERT((blockedQueries->queries.prev == blockedQueries->queries.next) &&
                 (blockedQueries->queries.next == &blockedQueries->queries),
                 "Active queries list is not empty");

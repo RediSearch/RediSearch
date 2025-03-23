@@ -317,7 +317,7 @@ static void AddQueriesToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
 	  continue;
     }
     RedisModule_InfoBeginDictField(ctx, sp->name);
-    RedisModule_InfoAddFieldULongLong(ctx, "started-at", (unsigned long long)at->start);
+    RedisModule_InfoAddFieldULongLong(ctx, "started_at", (unsigned long long)at->start);
     RedisModule_InfoEndDictField(ctx);
   }
 }
@@ -334,7 +334,7 @@ static void AddCursorsToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
     sprintf(buffer, "%zu", at->cursorId);
     RedisModule_InfoBeginDictField(ctx, buffer);
     RedisModule_InfoAddFieldCString(ctx, "index", spec ? spec->name : "n/a");
-    RedisModule_InfoAddFieldULongLong(ctx, "started-at", at->start);
+    RedisModule_InfoAddFieldULongLong(ctx, "started_at", at->start);
     RedisModule_InfoEndDictField(ctx);
   }
 }
