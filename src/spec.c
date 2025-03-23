@@ -1546,7 +1546,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free spec name
   HiddenString_Free(spec->specName, true);
   rm_free(spec->obfuscatedName);
-  rm_free(spec->obfuscatedName);
   // Free suffix trie
   if (spec->suffix) {
     TrieType_Free(spec->suffix);
