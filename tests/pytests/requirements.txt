@@ -7,4 +7,3 @@ numpy >= 1.21.6
 scipy >= 1.7.3
 faker
 distro
-pytz

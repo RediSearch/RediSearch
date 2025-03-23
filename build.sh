@@ -118,7 +118,9 @@ setup_test_configuration() {
 #-----------------------------------------------------------------------------
 setup_build_environment() {
   # Determine build flavor
-  if [[ "$DEBUG" == "1" ]]; then
+  if [ "$SAN" == "address" ]; then
+    FLAVOR="asan"
+  elif [[ "$DEBUG" == "1" ]]; then
     FLAVOR="debug"
   else
     FLAVOR="release"
