@@ -68,12 +68,12 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   if (rv != AC_OK) {
     if (rv == AC_ERR_ENOENT) {
       // Argument not recognized
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Unrecognized argument: %s",
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unrecognized argument", ": %s",
                              AC_GetStringNC(&ac, NULL));
     } else if (errSpec) {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "%s: %s", errSpec->name, AC_Strerror(rv));
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Error parsing arguments for index", " %s: %s", errSpec->name, AC_Strerror(rv));
     } else {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Error parsing arguments: %s",
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Error parsing arguments", ": %s",
                              AC_Strerror(rv));
     }
     return REDISMODULE_ERR;

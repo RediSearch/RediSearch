@@ -334,6 +334,41 @@ void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
   RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 
+#define HIDE_USER_DATA_FROM_LOGS "hide-user-data-from-log"
+
+bool getHideUserDataFromLogs() {
+  char *value = getRedisConfigValue(RSDummyContext, HIDE_USER_DATA_FROM_LOGS);
+  RedisModule_Assert(value);
+  const bool hideUserData = !strcasecmp(value, "yes");
+  rm_free(value);
+  return hideUserData;
+}
+
+void onUpdatedHideUserDataFromLogs(RedisModuleCtx *ctx) {
+  RSGlobalConfig.hideUserDataFromLog = getHideUserDataFromLogs();
+  if (RSGlobalConfig.hideUserDataFromLog) {
+    RedisModule_Log(ctx, "notice", "Hide user data from search logs is now enabled, "
+                   "search entity names (such as indexes and fields) in the logs will now be obfuscated");
+  } else {
+    RedisModule_Log(ctx, "notice", "Hide user data from search logs is now disabled, "
+                   "search entity names (such as indexes and fields) in the logs will now be visible");
+  }
+}
+
+void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t event, void *data) {
+  if (eid.id != REDISMODULE_EVENT_CONFIG ||
+      event != REDISMODULE_SUBEVENT_CONFIG_CHANGE) {
+    return;
+  }
+  RedisModuleConfigChangeV1 *ei = data;
+  for (unsigned int i = 0; i < ei->num_changes; i++) {
+    const char *conf = ei->config_names[i];
+    if (!strcmp(conf, HIDE_USER_DATA_FROM_LOGS)) {
+      onUpdatedHideUserDataFromLogs(ctx);
+    }
+  }
+}
+
 void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
   RedisModule_SubscribeToKeyspaceEvents(ctx,
     REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
@@ -344,18 +379,21 @@ void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
 
   // we do not need to scan after rdb load, i.e, there is not danger of losing results
   // after resharding, its safe to filter keys which are not in our slot range.
-  if (RedisModule_SubscribeToServerEvent && RedisModule_ShardingGetKeySlot) {
+  if (RedisModule_ShardingGetKeySlot) {
     // we have server events support, lets subscribe to relevan events.
     RedisModule_Log(ctx, "notice", "%s", "Subscribe to sharding events");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
   }
 
-  if (RedisModule_SubscribeToServerEvent && getenv("RS_GLOBAL_DTORS")) {
+  if (getenv("RS_GLOBAL_DTORS")) {
     // clear resources when the server exits
     // used only with sanitizer or valgrind
     RedisModule_Log(ctx, "notice", "%s", "Subscribe to clear resources on shutdown");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown, ShutdownEvent);
   }
+
+  RedisModule_Log(ctx, "notice", "%s", "Subscribe to config changes");
+  RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Config, ConfigChangedCallback);
 }
 
 void Initialize_CommandFilter(RedisModuleCtx *ctx) {

@@ -127,7 +127,7 @@ def searchMultiTagCategory(env):
     for idx in ['idx_category_arr', 'idx_category_arr_author_flat']:
         env.debugPrint(idx, force=TEST_DEBUG)
 
-        # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
+        # Use toSortedFlatList when scores are not distinct (to succeed also with coordinaotr)
         res = env.cmd('FT.SEARCH', idx, '@category:{database}', 'NOCONTENT')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:1', 'doc:2']), message="A " + idx)
 
@@ -146,7 +146,7 @@ def searchMultiTagAuthor(env):
     for idx in ['idx_author_flat']:
         env.expect('FT.SEARCH', idx, '@author:{Donald\ Knuth}', 'NOCONTENT').equal([1, 'doc:1'])
 
-        # Use toSortedFlatList when scores are not distinct (to succedd also with coordinaotr)
+        # Use toSortedFlatList when scores are not distinct (to succeed also with coordinaotr)
         res = env.cmd('FT.SEARCH', idx, '@author:{Brendan*}', 'NOCONTENT')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([2, 'doc:2', 'doc:3']))
 

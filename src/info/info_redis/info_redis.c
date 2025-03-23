@@ -214,7 +214,7 @@ void AddToInfo_Cursors(RedisModuleInfoCtx *ctx) {
 }
 
 void AddToInfo_GC(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info) {
-  RedisModule_InfoAddSection(ctx, "garbage collector");
+  RedisModule_InfoAddSection(ctx, "garbage_collector");
   InfoGCStats stats = total_info->gc_stats;
   RedisModule_InfoAddFieldDouble(ctx, "gc_bytes_collected", stats.totalCollectedBytes);
   RedisModule_InfoAddFieldDouble(ctx, "gc_total_cycles", stats.totalCycles);
