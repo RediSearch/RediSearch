@@ -34,6 +34,7 @@
 #include "util/workers.h"
 #include "info/global_stats.h"
 #include "debug_commands.h"
+#include "obfuscation/obfuscation_api.h"
 #include "util/hash/hash.h"
 #include "reply_macros.h"
 
@@ -474,7 +475,6 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // Add the spec to the global spec dictionary
   dictAdd(specDict_g, name, spec_ref.rm);
-
   // Start the garbage collector
   IndexSpec_StartGC(ctx, spec_ref, sp);
 
@@ -1546,6 +1546,7 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
   // Free spec name
   HiddenString_Free(spec->specName, true);
   rm_free(spec->obfuscatedName);
+  rm_free(spec->obfuscatedName);
   // Free suffix trie
   if (spec->suffix) {
     TrieType_Free(spec->suffix);
@@ -2146,8 +2147,8 @@ static IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
   // scan already in progress?
   if (spec->scanner) {
     // cancel ongoing scan, keep on_progress indicator on
-    const char* name = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
     IndexesScanner_Cancel(spec->scanner);
+    const char* name = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
     RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted", name);
   }
   spec->scanner = scanner;
@@ -2577,6 +2578,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   RefManager *oldSpec = dictFetchValue(specDict_g, specName);
   if (oldSpec) {
     // spec already exists lets just free this one
+    HiddenString_Free(specName, true);
     RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
     return REDISMODULE_OK;
   }
@@ -2678,7 +2680,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   for (int i = 0; i < sp->numFields; i++) {
     FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
   }
-
   return REDISMODULE_OK;
 
 cleanup:
@@ -2766,11 +2767,11 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
     }
   }
 
-  const char *name = IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog);
+  const char *formattedIndexName = IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog);
   SchemaRuleArgs *rule_args = dictFetchValue(legacySpecRules, sp->specName);
   if (!rule_args) {
     RedisModule_LogIOError(rdb, "warning",
-                           "Could not find upgrade definition for legacy index '%s'", name);
+                           "Could not find upgrade definition for legacy index '%s'", formattedIndexName);
     StrongRef_Release(spec_ref);
     return NULL;
   }
@@ -2783,7 +2784,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   if (!sp->rule) {
     RedisModule_LogIOError(rdb, "warning", "Failed creating rule for legacy index '%s', error='%s'",
-                           name, QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
+                           formattedIndexName, QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
     StrongRef_Release(spec_ref);
     return NULL;
   }
