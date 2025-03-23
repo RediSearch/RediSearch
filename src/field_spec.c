@@ -48,7 +48,7 @@ const char *FieldSpec_GetTypeNames(int idx) {
   }
 }
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate) {
   FieldSpecInfo info = {0};
   FieldSpecInfo_SetIdentifier(&info, fs->path);
   FieldSpecInfo_SetAttribute(&info, fs->name);

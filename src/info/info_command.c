@@ -15,8 +15,9 @@
 #include "reply_macros.h"
 #include "info/global_stats.h"
 #include "util/units.h"
+#include "obfuscation/obfuscation_api.h"
 
-static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
+static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
 
 #define ADD_NEGATIVE_OPTION(flag, str)               \
   do {                                               \
@@ -36,7 +37,7 @@ static void renderIndexOptions(RedisModule_Reply *reply, IndexSpec *sp) {
   RedisModule_Reply_ArrayEnd(reply);
 }
 
-static void renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
+static void renderIndexDefinitions(RedisModule_Reply *reply, const IndexSpec *sp, bool obfuscate) {
   SchemaRule *rule = sp->rule;
 
   RedisModule_ReplyKV_Map(reply, "index_definition"); // index_definition
@@ -79,27 +80,19 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, IndexSpec *sp) {
   RedisModule_Reply_MapEnd(reply); // index_definition
 }
 
-/* FT.INFO {index}
- *  Provide info and stats about an index
- */
-int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc < 2) return RedisModule_WrongArity(ctx);
-
-  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
-  IndexSpec *sp = StrongRef_Get(ref);
-  if (!sp) {
-    return RedisModule_ReplyWithError(ctx, "Unknown index name");
-  }
-
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  bool has_map = RedisModule_HasMap(reply);
+void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool obfuscate, bool withTimes) {
+  const bool has_map = RedisModule_HasMap(reply);
 
   RedisModule_Reply_Map(reply); // top
 
-  REPLY_KVSTR_SAFE("index_name", sp->name);
+  // Safe to access the spec directly since it is was already validated as a strong reference by the caller
+  const IndexSpec *sp = sctx->spec;
+  IndexSpec *specForOpeningIndexes = sctx->spec;
+  const char* specName = IndexSpec_FormatName(sp, obfuscate);
+  REPLY_KVSTR_SAFE("index_name", specName);
 
   renderIndexOptions(reply, sp);
-  renderIndexDefinitions(reply, sp);
+  renderIndexDefinitions(reply, sp, obfuscate);
 
   RedisModule_ReplyKV_Array(reply, "attributes"); // >attrbutes
   size_t geom_idx_sz = 0;
@@ -145,7 +138,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
     if (FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
       REPLY_KVSTR("coord_system", GeometryCoordsToName(fs->geometryOpts.geometryCoords));
-      const GeometryIndex *idx = OpenGeometryIndex(sp, fs, DONT_CREATE_INDEX);
+      const GeometryIndex *idx = OpenGeometryIndex(specForOpeningIndexes, fs, DONT_CREATE_INDEX);
       if (idx) {
         const GeometryApi *api = GeometryApi_Get(idx);
         geom_idx_sz += api->report(idx);
@@ -214,15 +207,14 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   RedisModule_Reply_ArrayEnd(reply); // >attributes
 
   // Lock the spec
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  RedisSearchCtx_LockSpecRead(&sctx);
+  RedisSearchCtx_LockSpecRead(sctx);
 
   REPLY_KVINT("num_docs", sp->stats.numDocuments);
   REPLY_KVINT("max_doc_id", sp->docs.maxDocId);
   REPLY_KVINT("num_terms", sp->stats.numTerms);
   REPLY_KVINT("num_records", sp->stats.numRecords);
   REPLY_KVNUM("inverted_sz_mb", sp->stats.invertedSize / (float)0x100000);
-  REPLY_KVNUM("vector_index_sz_mb", IndexSpec_VectorIndexSize(sp) / (float)0x100000);
+  REPLY_KVNUM("vector_index_sz_mb", IndexSpec_VectorIndexSize(specForOpeningIndexes) / (float)0x100000);
   REPLY_KVINT("total_inverted_index_blocks", TotalIIBlocks);
 
   REPLY_KVNUM("offset_vectors_sz_mb", sp->stats.offsetVecsSize / (float)0x100000);
@@ -236,7 +228,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVNUM("tag_overhead_sz_mb", tags_overhead / (float)0x100000);
   size_t text_overhead = IndexSpec_collect_text_overhead(sp);
   REPLY_KVNUM("text_overhead_sz_mb", text_overhead / (float)0x100000);
-  REPLY_KVNUM("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(sp, dt_tm_size,
+  REPLY_KVNUM("total_index_memory_sz_mb", IndexSpec_TotalMemUsage(specForOpeningIndexes, dt_tm_size,
     tags_overhead, text_overhead) / (float)0x100000);
   REPLY_KVNUM("geoshapes_sz_mb", geom_idx_sz / (float)0x100000);
   REPLY_KVNUM("records_per_doc_avg",
@@ -254,7 +246,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_KVINT("indexing", !!global_spec_scanner || sp->scan_in_progress);
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
-  double percent_indexed = IndexesScanner_IndexedPercent(ctx, scanner, sp);
+  double percent_indexed = IndexesScanner_IndexedPercent(sctx->redisCtx, scanner, sp);
   REPLY_KVNUM("percent_indexed", percent_indexed);
 
   REPLY_KVINT("number_of_uses", sp->counter);
@@ -270,7 +262,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   Cursors_RenderStats(&g_CursorsList, &g_CursorsListCoord, sp, reply);
 
   // Unlock spec
-  RedisSearchCtx_UnlockSpec(&sctx);
+  RedisSearchCtx_UnlockSpec(sctx);
 
   if (sp->flags & Index_HasCustomStopwords) {
     ReplyWithStopWordsList(reply, sp->stopwords);
@@ -286,19 +278,69 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   REPLY_MAP_END;
 
   // Global index error stats
-  bool with_times = (argc > 2 && !strcmp(RedisModule_StringPtrLen(argv[2], NULL), WITH_INDEX_ERROR_TIME));
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-  IndexError_Reply(&sp->stats.indexError, reply, with_times, false);
+  IndexError_Reply(&sp->stats.indexError, reply, withTimes, obfuscate);
 
   REPLY_KVARRAY("field statistics"); // Field statistics
   for (int i = 0; i < sp->numFields; i++) {
     const FieldSpec *fs = &sp->fields[i];
-    FieldSpecInfo info = FieldSpec_GetInfo(fs);
-    FieldSpecInfo_Reply(&info, reply, with_times);
+    FieldSpecInfo info = FieldSpec_GetInfo(fs, obfuscate);
+    FieldSpecInfo_Reply(&info, reply, withTimes, obfuscate);
+    FieldSpecInfo_Clear(&info);
   }
   REPLY_ARRAY_END; // >Field statistics
 
   RedisModule_Reply_MapEnd(reply); // top
-  RedisModule_EndReply(reply);
+}
+
+/* FT.INFO {index}
+ *  Provide info and stats about an index
+ */
+int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc < 2) return RedisModule_WrongArity(ctx);
+
+  StrongRef ref = IndexSpec_LoadUnsafe(ctx, RedisModule_StringPtrLen(argv[1], NULL));
+  IndexSpec *sp = StrongRef_Get(ref);
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+  const bool with_times = (argc > 2 && !strcmp(RedisModule_StringPtrLen(argv[2], NULL), WITH_INDEX_ERROR_TIME));
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+  fillReplyWithIndexInfo(&sctx, &_reply, false, with_times);
+  RedisModule_EndReply(&_reply);
+  return REDISMODULE_OK;
+}
+
+// Lookup indexes based on am obfuscated name in O(n) time
+// Output the info for all the indexes whose obfuscated name matches
+// This function might use an optimization at a later date to not run in O(n) time
+int IndexObfuscatedInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
+  if (argc < 3) return RedisModule_WrongArity(ctx);
+  const char *nameOrAll = RedisModule_StringPtrLen(argv[2], NULL);
+  const bool everything = !strcasecmp(nameOrAll, "ALL");
+  dictIterator *iter = dictGetIterator(specDict_g);
+  dictEntry *entry = NULL;
+  bool found = false;
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+  RedisModule_Reply_Array(&_reply);
+  while ((entry = dictNext(iter))) {
+    StrongRef ref = dictGetRef(entry);
+    IndexSpec *sp = StrongRef_Get(ref);
+    if (sp && (everything || !strcasecmp(sp->obfuscatedName, nameOrAll))) {
+      RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+      fillReplyWithIndexInfo(&sctx, &_reply, true, true);
+      found = true;
+    } else if (found) {
+      // we are out of the bucket for the obfuscated name, can do this small optimization
+      break;
+    }
+  }
+  RedisModule_Reply_ArrayEnd(&_reply);
+  RedisModule_EndReply(&_reply);
+  dictReleaseIterator(iter);
+  if (!found) {
+    return RedisModule_ReplyWithError(ctx, "Unknown obfuscated index name");
+  }
   return REDISMODULE_OK;
 }
