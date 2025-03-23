@@ -681,7 +681,6 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
 
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
                          IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
-  CurrentThread_SetIndexSpec(sp->own_ref);
   r->qiter.err = status;
   r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
   r->initClock = clock();
@@ -765,8 +764,7 @@ static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *
   QueryError_ReplyAndClear(ctx, status);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   if (sp) {
-    CurrentThread_ClearIndexSpec();
-    StrongRef_Release(*strong_ref);
+    IndexSpecRef_Release(*strong_ref);
   }
   SpecialCaseCtx_Free(knnCtx);
   if (r) AREQ_Free(r);
@@ -785,7 +783,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   specialCaseCtx *knnCtx = NULL;
 
   // Check if the index still exists, and promote the ref accordingly
-  StrongRef strong_ref = WeakRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
     QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
@@ -802,8 +800,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
 
   SpecialCaseCtx_Free(knnCtx);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  CurrentThread_ClearIndexSpec();
-  StrongRef_Release(strong_ref);
+  IndexSpecRef_Release(strong_ref);
   RedisModule_EndReply(reply);
   return;
 
@@ -834,7 +831,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   r = &debug_req->r;
   AREQ_Debug_params debug_params = debug_req->debug_params;
   // Check if the index still exists, and promote the ref accordingly
-  StrongRef strong_ref = WeakRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
   sp = StrongRef_Get(strong_ref);
   if (!sp) {
     QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
@@ -867,8 +864,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   SpecialCaseCtx_Free(knnCtx);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  CurrentThread_ClearIndexSpec();
-  StrongRef_Release(strong_ref);
+  IndexSpecRef_Release(strong_ref);
   RedisModule_EndReply(reply);
   return;
 

@@ -3333,7 +3333,7 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   }
 
   // Append the prefixes of the index to the command
-  StrongRef strong_ref = WeakRef_Promote(spec_ref);
+  StrongRef strong_ref = IndexSpecRef_Promote(spec_ref);
   IndexSpec *sp = StrongRef_Get(strong_ref);
   if (!sp) {
     MRCommand_Free(cmd);
@@ -3356,7 +3356,7 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   }
 
   // Return spec references, no longer needed
-  StrongRef_Release(strong_ref);
+  IndexSpecRef_Release(strong_ref);
   WeakRef_Release(spec_ref);
 
 

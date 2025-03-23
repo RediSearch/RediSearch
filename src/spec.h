@@ -694,6 +694,9 @@ size_t CleanInProgressOrPending();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+StrongRef IndexSpecRef_Promote(WeakRef ref);
+void IndexSpecRef_Release(StrongRef ref);
+
 #ifdef __cplusplus
 }
 #endif

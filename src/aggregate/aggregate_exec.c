@@ -722,7 +722,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
   QueryError status = {0}, detailed_status = {0};
 
-  StrongRef execution_ref = WeakRef_Promote(BCRctx->spec_ref);
+  StrongRef execution_ref = IndexSpecRef_Promote(BCRctx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
     // Notify the client that the query was aborted
@@ -732,9 +732,6 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     blockedClientReqCtx_destroy(BCRctx);
     return;
   }
-
-  // Register the thread to the active-threads container
-  CurrentThread_SetIndexSpec(execution_ref);
 
   // Cursors are created with a thread-safe context, so we don't want to replace it
   if (!(req->reqflags & QEXEC_F_IS_CURSOR)) {
@@ -771,8 +768,7 @@ error:
 cleanup:
   // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
   RedisModule_FreeThreadSafeContext(outctx);
-  CurrentThread_ClearIndexSpec();
-  StrongRef_Release(execution_ref);
+  IndexSpecRef_Release(execution_ref);
   blockedClientReqCtx_destroy(BCRctx);
 }
 
@@ -1131,16 +1127,13 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
   bool has_spec = cursor_HasSpecWeakRef(cursor);
   // If the cursor is associated with a spec, e.g a coordinator ctx.
   if (has_spec) {
-    execution_ref = WeakRef_Promote(cursor->spec_ref);
+    execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
       RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
       return;
     }
-
-    // Register the thread to the active-threads container (BG, main)
-    CurrentThread_SetIndexSpec(execution_ref);
 
     if (HasLoader(req)) { // Quick check if the cursor has loaders.
       bool isSetForBackground = req->reqflags & QEXEC_F_RUN_IN_BACKGROUND;
@@ -1164,8 +1157,7 @@ static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, b
 
   runCursor(reply, cursor, count);
   if (has_spec) {
-    CurrentThread_ClearIndexSpec();
-    StrongRef_Release(execution_ref);
+    IndexSpecRef_Release(execution_ref);
   }
 }
 

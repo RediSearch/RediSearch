@@ -2188,17 +2188,15 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (scanner->global) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL);
   } else {
-    StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
+    StrongRef curr_run_ref = IndexSpecRef_Promote(scanner->spec_ref);
     IndexSpec *sp = StrongRef_Get(curr_run_ref);
     if (sp) {
       // This check is performed without locking the spec, but it's ok since we locked the GIL
       // So the main thread is not running and the GC is not touching the relevant data
-      CurrentThread_SetIndexSpec(curr_run_ref);
       if (SchemaRule_ShouldIndex(sp, keyname, type)) {
         IndexSpec_UpdateDoc(sp, ctx, keyname, type);
       }
-      CurrentThread_ClearIndexSpec();
-      StrongRef_Release(curr_run_ref);
+      IndexSpecRef_Release(curr_run_ref);
     } else {
       // spec was deleted, cancel scan
       scanner->cancelled = true;
@@ -3328,4 +3326,21 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
   }
 
   Indexes_ScanProc(ctx, keyname, key, &(dScanner->base));
+}
+
+StrongRef IndexSpecRef_Promote(WeakRef ref) {
+  StrongRef strong = WeakRef_Promote(ref);
+  IndexSpec *spec = StrongRef_Get(strong);
+  if (spec) {
+    CurrentThread_SetIndexSpec(strong);
+  }
+  return strong;
+}
+
+void IndexSpecRef_Release(StrongRef ref) {
+  IndexSpec *spec = StrongRef_Get(ref);
+  if (spec) {
+    CurrentThread_ClearIndexSpec();
+  }
+  StrongRef_Release(ref);
 }
