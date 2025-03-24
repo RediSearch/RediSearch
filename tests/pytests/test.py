@@ -4355,6 +4355,35 @@ def test_with_tls():
 
     common_with_auth(env)
 
+def test_with_tls_and_non_tls_ports():
+    """Tests that the coordinator-shard connections are using the correct
+    protocol (TLS and non-TLS) according to the redis `tls-cluster` configuratoin"""
+
+    cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+    env = Env(useTLS=True,         # Sets the ports to be non-TLS ports.
+              tlsCertFile=cert_file,
+              tlsKeyFile=key_file,
+              tlsCaCertFile=ca_cert_file,
+              tlsPassphrase=passphrase)
+
+    # Upon setting `tls-cluster` to `no`, we should still be able to succeed
+    # connecting the coordinator to the shards, just not in TLS mode.
+
+    # Set the `tls-port` to some port for each shard
+    for i in range(env.shardsCount):
+        conn = env.getConnection(i)
+        res = conn.execute_command('CONFIG', 'SET', 'port', env.envRunner.shards[i].port + 1500)
+        print(f'res: {res}')
+
+    print('before', env.cmd('CLUSTER', 'SLOTS'))
+
+    env.cmd('CONFIG', 'SET', 'tls-cluster', 'no')
+    run_command_on_all_shards(env, 'SEARCH.CLUSTERREFRESH')
+
+    print('after', env.cmd('CLUSTER', 'SLOTS'))
+
+    common_with_auth(env)
+
 @skip(asan=True, cluster=False)
 def test_timeoutCoordSearch_NonStrict(env):
     """Tests edge-cases for the `TIMEOUT` parameter for the coordinator's
