@@ -699,7 +699,7 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
   }
 
   /* Register BM25 scorer - STANDARD VARIATION */
-  if (ctx->RegisterScoringFunction(BM25_STD_NORMALIZED_SCORER_NAME, BM25StdNormScorer, NULL, NULL) == REDISEARCH_ERR) {
+  if (ctx->RegisterScoringFunction(BM25_STD_NORMALIZED_TANH_SCORER_NAME, BM25StdNormScorer, NULL, NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 
