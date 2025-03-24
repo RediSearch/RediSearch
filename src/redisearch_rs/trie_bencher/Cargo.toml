@@ -1,0 +1,23 @@
+[package]
+name = "trie_bencher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bench]]
+name = "operations"
+harness = false
+
+[dependencies]
+trie_rs.workspace = true
+fs-err.workspace = true
+radix_trie.workspace = true
+criterion.workspace = true
+ureq.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+bindgen.workspace = true
+
+[lints]
+workspace = true
