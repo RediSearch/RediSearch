@@ -11,7 +11,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     let contents = fs_err::read_to_string(file_path).unwrap();
 
     let mut bencher = OperationBencher::new(c, contents.clone());
-    bencher.load_group();
+    bencher.load_group(contents);
     bencher.insert_group("colder", "Insert (leaf)");
     bencher.insert_group("fan", "Insert (split with 2 children)");
     bencher.insert_group("effo", "Insert (split with no children)");
