@@ -2,6 +2,8 @@ use std::{cmp::Ordering, ffi::c_char, fmt};
 
 use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
 
+use crate::iter::{IntoValues, Iter};
+
 #[derive(Default, Clone, PartialEq, Eq)]
 /// A trie data structure that maps keys of type `&[c_char]` to values.
 /// The node labels and children are stored in a [`LowMemoryThinVec`],
@@ -97,6 +99,11 @@ impl<T> TrieMap<T> {
     pub fn iter(&self) -> Iter<'_, T> {
         Iter::new(self.root.as_ref())
     }
+
+    /// Get a consuming iterator over the values in the map in order of keys.
+    pub fn into_values(self) -> IntoValues<T> {
+        IntoValues::new(self.root)
+    }
 }
 
 impl<T: fmt::Debug> fmt::Debug for TrieMap<T> {
@@ -110,22 +117,22 @@ impl<T: fmt::Debug> fmt::Debug for TrieMap<T> {
 
 /// A trie data structure that maps labels comprised of [`c_char`] sequences to values.
 #[derive(Clone, PartialEq, Eq)]
-struct Node<Data> {
+pub(crate) struct Node<Data> {
     /// The children of this node.
-    children: ChildRefs<Data>,
+    pub children: ChildRefs<Data>,
     /// Optional data attached to the key leading to this node.
     ///
     /// # Invariants
     ///
     /// - Data may not be `None` for leaf nodes.
     ///
-    data: Option<Data>,
+    pub data: Option<Data>,
     /// The portion of the key attached to this node.
     ///
     /// # Invariants
     ///
     /// - `label` can only be empty for the root node.
-    label: LowMemoryThinVec<c_char>,
+    pub label: LowMemoryThinVec<c_char>,
 }
 
 impl<Data> Node<Data> {
@@ -527,7 +534,7 @@ impl<Data: fmt::Debug> fmt::Debug for Node<Data> {
 ///   to allow fast binary searches when traversing the trie.
 /// - There are no children with the same first byte.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ChildRefs<Data>(LowMemoryThinVec<ChildRef<Data>>);
+pub(crate) struct ChildRefs<Data>(pub LowMemoryThinVec<ChildRef<Data>>);
 
 impl<Data> Default for ChildRefs<Data> {
     fn default() -> Self {
@@ -600,63 +607,11 @@ impl<Data> ChildRefs<Data> {
 
 /// The reference to the child node held inside its parent node.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ChildRef<Data> {
+pub(crate) struct ChildRef<Data> {
     /// The first byte of the value that this child node holds.
-    first_byte: c_char,
-    /// The reference to the actual child node.
-    node: Node<Data>,
-}
-
-/// Iterates over the entries of a [`TrieMap`] in lexicographical order
-/// of the keys.
-pub struct Iter<'tm, Data> {
-    /// Stack of nodes and whether they have been visited.
-    stack: Vec<(&'tm Node<Data>, bool)>,
-    /// Labels of the parent nodes, used to reconstruct the key.
-    prefixes: Vec<&'tm [c_char]>,
-}
-
-impl<'tm, Data> Iter<'tm, Data> {
-    /// Creates a new iterator over the entries of a [`TrieMap`].
-    fn new(root: Option<&'tm Node<Data>>) -> Self {
-        Self {
-            stack: root.into_iter().map(|node| (node, false)).collect(),
-            prefixes: Vec::new(),
-        }
-    }
-}
-
-impl<'tm, Data> Iterator for Iter<'tm, Data> {
-    type Item = (Vec<c_char>, &'tm Data);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let (node, was_visited) = self.stack.pop()?;
-
-        if !was_visited {
-            let data = node.data.as_ref();
-            self.stack.push((node, true));
-
-            for child in node.children.0.iter().rev() {
-                self.stack.push((&child.node, false));
-            }
-
-            self.prefixes.push(&node.label);
-            if let Some(data) = data {
-                // Combine the labels of the parent nodes and the current node,
-                // thereby reconstructing the key.
-                let label = self
-                    .prefixes
-                    .iter()
-                    .flat_map(|p| p.iter())
-                    .copied()
-                    .collect();
-                return Some((label, data));
-            }
-        } else {
-            self.prefixes.pop();
-        }
-        self.next()
-    }
+    pub first_byte: c_char,
+    /// The actual child node.
+    pub node: Node<Data>,
 }
 
 #[cfg(test)]
