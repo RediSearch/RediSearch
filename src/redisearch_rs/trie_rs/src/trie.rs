@@ -89,6 +89,10 @@ impl<T> TrieMap<T> {
         std::mem::size_of::<Self>() + self.root.as_ref().map(|r| r.mem_usage()).unwrap_or(0)
     }
 
+    pub fn num_nodes(&self) -> usize {
+        1 + self.root.as_ref().map_or(0, |r| r.num_nodes())
+    }
+
     /// Get an iterator over the map entries in order of keys.
     pub fn iter(&self) -> Iter<'_, T> {
         Iter::new(self.root.as_ref())
@@ -460,6 +464,16 @@ impl<Data> Node<Data> {
                 .0
                 .iter()
                 .map(|c| c.node.mem_usage())
+                .sum::<usize>()
+    }
+
+    pub fn num_nodes(&self) -> usize {
+        self.children.0.len()
+            + self
+                .children
+                .0
+                .iter()
+                .map(|c| c.node.num_nodes())
                 .sum::<usize>()
     }
 

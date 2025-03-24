@@ -274,7 +274,7 @@ TEST_F(FGCTestTag, testRemoveLastBlockWhileUpdate) {
 }
 
 /**
- * Modify the last block, but don't delete it entirly. While the fork is running,
+ * Modify the last block, but don't delete it entirely. While the fork is running,
  * fill up the last block and add more blocks.
  * Make sur eno modifications are applied.
  * */
