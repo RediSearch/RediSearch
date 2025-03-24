@@ -524,13 +524,12 @@ static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char*
   char* clusterTls = NULL;
   char* tlsPort = NULL;
 
+  // If `tls-cluster` is not set to `yes`, we do not connect to the other nodes
+  // with TLS.
   clusterTls = getRedisConfigValue(ctx, "tls-cluster");
   if (!clusterTls || strcmp(clusterTls, "yes")) {
-    tlsPort = getRedisConfigValue(ctx, "tls-port");
-    if (!tlsPort || !strcmp(tlsPort, "0")) {
-      ret = 0;
-      goto done;
-    }
+    ret = 0;
+    goto done;
   }
 
   *client_key = getRedisConfigValue(ctx, "tls-key-file");
