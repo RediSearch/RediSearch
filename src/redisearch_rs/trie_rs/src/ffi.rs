@@ -5,6 +5,9 @@ use std::{
     slice,
 };
 
+use iter_types::TrieMapIteratorImpl;
+use lending_iterator::LendingIterator;
+
 /// Holds the length of a key string in the trie.
 ///
 /// C equivalent:
@@ -79,7 +82,7 @@ type TrieMapIterator_NextFunc = Option<
 >;
 
 /// Opaque type TrieMapIterator. Obtained from calling [`TrieMap_Iterate`].
-enum TrieMapIterator {}
+struct TrieMapIterator<'tm>(TrieMapIteratorImpl<'tm>);
 
 /// Opaque type TrieMapResultBuf. Holds the results of [`TrieMap_FindPrefixes`].
 struct TrieMapResultBuf(low_memory_thin_vec::LowMemoryThinVec<*mut c_void>);
@@ -361,8 +364,32 @@ unsafe extern "C" fn TrieMap_FindPrefixes(
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
     }
 
-    let _unused = results;
-    todo!()
+    // SAFETY: The safety requirements of this function
+    // state the caller is to ensure that the pointer `t` is
+    // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
+    // If that invariant is upheld, then the following line is sound.
+    let TrieMap(trie) = unsafe { &mut *t };
+
+    let prefix = if len > 0 {
+        // SAFETY: The safety requirements of this function
+        // state the caller is to ensure that the pointer `str` is
+        // a valid pointer to a string of length `len` and cannot be NULL.
+        // If that invariant is upheld, then the following line is sound.
+        unsafe { std::slice::from_raw_parts(str, len as usize) }
+    } else {
+        &[]
+    };
+
+    let iter = trie.values_prefix(prefix).copied();
+
+    let res = low_memory_thin_vec::LowMemoryThinVec::from_iter(iter);
+    let len = res.len();
+    unsafe {
+        *results = TrieMapResultBuf(res);
+    };
+
+    len.try_into()
+        .expect("Number of results did not fit into a `c_int`")
 }
 
 /// Mark a node as deleted. It also optimizes the trie by merging nodes if
@@ -399,11 +426,15 @@ unsafe extern "C" fn TrieMap_Delete(
     // If that invariant is upheld, then the following line is sound.
     let TrieMap(trie) = unsafe { &mut *t };
 
-    // SAFETY: The safety requirements of this function
-    // state the caller is to ensure that the pointer `str` is
-    // a valid pointer to a string of length `len` and cannot be NULL.
-    // If that invariant is upheld, then the following line is sound.
-    let key = unsafe { std::slice::from_raw_parts(str, len as usize) };
+    let key = if len > 0 {
+        // SAFETY: The safety requirements of this function
+        // state the caller is to ensure that the pointer `str` is
+        // a valid pointer to a string of length `len` and cannot be NULL.
+        // If that invariant is upheld, then the following line is sound.
+        unsafe { std::slice::from_raw_parts(str, len as usize) }
+    } else {
+        &[]
+    };
 
     trie.remove(key)
         .map(|val| {
@@ -496,25 +527,63 @@ unsafe extern "C" fn TrieMap_MemUsage(t: *mut TrieMap) -> usize {
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+/// - `t` must not be freed while the iterator lives.
 ///
 /// C equivalent:
 /// ```c
 /// TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix, tm_len_t prefixLen);
 /// ```
 #[unsafe(no_mangle)]
-unsafe extern "C" fn TrieMap_Iterate(
+unsafe extern "C" fn TrieMap_Iterate<'tm>(
     t: *mut TrieMap,
     prefix: *const c_char,
     prefix_len: tm_len_t,
     iter_mode: tm_iter_mode,
-) -> *mut TrieMapIterator {
+) -> *mut TrieMapIterator<'tm> {
     debug_assert!(!t.is_null(), "t cannot be NULL");
-    if prefix_len > 0 {
-        debug_assert!(!prefix.is_null(), "prefix cannot be NULL if prefix_len > 0");
-    }
 
-    let _unused = (t, prefix, prefix_len, iter_mode);
-    todo!()
+    let pattern = if prefix_len > 0 {
+        debug_assert!(!prefix.is_null(), "prefix cannot be NULL if prefix_len > 0");
+        unsafe { std::slice::from_raw_parts(prefix, prefix_len as usize) }
+    } else {
+        &[]
+    };
+
+    let TrieMap(trie) = unsafe { &*t };
+
+    let iter = match iter_mode {
+        tm_iter_mode::TM_PREFIX_MODE => TrieMapIteratorImpl::Prefix(trie.iter_prefix(pattern)),
+        tm_iter_mode::TM_CONTAINS_MODE => TrieMapIteratorImpl::Contains(LendingIterator::filter(
+            trie.iter(),
+            Box::new(move |(key, _)| {
+                if key.len() < pattern.len() {
+                    return false;
+                }
+                if *key == pattern {
+                    return true;
+                }
+
+                for window in key.windows(pattern.len()) {
+                    if window == pattern {
+                        return true;
+                    }
+                }
+
+                false
+            }),
+        )),
+        tm_iter_mode::TM_SUFFIX_MODE => TrieMapIteratorImpl::Suffix(LendingIterator::filter(
+            trie.iter(),
+            Box::new(|(k, _)| k.ends_with(pattern)),
+        )),
+        tm_iter_mode::TM_WILDCARD_MODE => todo!(),
+        tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE => todo!(),
+    };
+
+    let iter = TrieMapIterator(iter);
+    let iter = Box::new(iter);
+
+    Box::into_raw(iter)
 }
 
 /// Set timeout limit used for affix queries. This timeout is checked in
@@ -551,8 +620,9 @@ unsafe extern "C" fn TrieMapIterator_SetTimeout(it: *mut TrieMapIterator, timeou
 unsafe extern "C" fn TrieMapIterator_Free(it: *mut TrieMapIterator) {
     debug_assert!(!it.is_null(), "it cannot be NULL");
 
-    let _unused = it;
-    todo!()
+    unsafe {
+        let _ = Box::from_raw(it);
+    };
 }
 
 /// Iterate to the next matching entry in the trie. Returns 1 if we can continue,
@@ -561,7 +631,9 @@ unsafe extern "C" fn TrieMapIterator_Free(it: *mut TrieMapIterator) {
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// - `it` must point to a valid TrieMapIterator obtained from [`TrieMap_Iterate`] and cannot be NULL.
-/// - `ptr` must point to a valid pointer to a C string, which will be set to the current key.
+/// - `ptr` must point to a valid pointer to a C string, which will be set to the current key. This
+///   pointer is invalidated upon calling [`TrieMapIterator_Next`], [`TrieMapIterator_NextContains`],
+///     or [`TrieMapIterator_NextWildcard`] again.
 /// - `len` must point to a valid `tm_len_t` which will be set to the length of the current key.
 /// - `value` must point to a valid pointer, which will be set to the value of the current key.
 ///
@@ -581,7 +653,22 @@ unsafe extern "C" fn TrieMapIterator_Next(
     debug_assert!(!len.is_null(), "len cannot be NULL");
     debug_assert!(!value.is_null(), "value cannot be NULL");
 
-    todo!()
+    let TrieMapIterator(iter) = unsafe { &mut *it };
+    let Some((k, v)) = LendingIterator::next(iter) else {
+        return 0;
+    };
+
+    unsafe {
+        *ptr = k.as_ptr() as *mut c_char;
+    }
+    unsafe {
+        *len = k.len() as tm_len_t;
+    }
+    unsafe {
+        *value = *v;
+    }
+
+    return 1;
 }
 
 /// Iterate to the next matching entry in the trie. Returns 1 if we can continue,
@@ -589,11 +676,7 @@ unsafe extern "C" fn TrieMapIterator_Next(
 /// Used by Contains and Suffix queries.
 ///
 /// # Safety
-/// The following invariants must be upheld when calling this function:
-/// - `it` must point to a valid TrieMapIterator obtained from [`TrieMap_Iterate`] and cannot be NULL.
-/// - `ptr` must point to a valid pointer to a C string, which will be set to the current key.
-/// - `len` must point to a valid `tm_len_t` which will be set to the length of the current key.
-/// - `value` must point to a valid pointer, which will be set to the value of the current key.
+/// See [`TrieMapIterator_Next`]
 ///
 ///  C equivalent:
 /// ```c
@@ -606,12 +689,7 @@ unsafe extern "C" fn TrieMapIterator_NextContains(
     len: *mut tm_len_t,
     value: *mut *mut c_void,
 ) -> c_int {
-    debug_assert!(!it.is_null(), "it cannot be NULL");
-    debug_assert!(!ptr.is_null(), "ptr cannot be NULL");
-    debug_assert!(!len.is_null(), "len cannot be NULL");
-    debug_assert!(!value.is_null(), "value cannot be NULL");
-
-    todo!()
+    unsafe { TrieMapIterator_Next(it, ptr, len, value) }
 }
 
 /// Iterate to the next matching entry in the trie. Returns 1 if we can continue,
@@ -619,11 +697,7 @@ unsafe extern "C" fn TrieMapIterator_NextContains(
 /// Used by Wildcard queries.
 ///
 /// # Safety
-/// The following invariants must be upheld when calling this function:
-/// - `it` must point to a valid TrieMapIterator obtained from [`TrieMap_Iterate`] and cannot be NULL.
-/// - `ptr` must point to a valid pointer to a C string, which will be set to the current key.
-/// - `len` must point to a valid `tm_len_t` which will be set to the length of the current key.
-/// - `value` must point to a valid pointer, which will be set to the value of the current key.
+/// See [`TrieMapIterator_Next`]
 ///
 /// C equivalent:
 /// ```c
@@ -636,12 +710,7 @@ unsafe extern "C" fn TrieMapIterator_NextWildcard(
     len: *mut tm_len_t,
     value: *mut *mut c_void,
 ) -> c_int {
-    debug_assert!(!it.is_null(), "it cannot be NULL");
-    debug_assert!(!ptr.is_null(), "ptr cannot be NULL");
-    debug_assert!(!len.is_null(), "len cannot be NULL");
-    debug_assert!(!value.is_null(), "value cannot be NULL");
-
-    todo!()
+    unsafe { TrieMapIterator_Next(it, ptr, len, value) }
 }
 
 /// Iterate the trie for all the suffixes of a given prefix. This returns an
@@ -720,4 +789,34 @@ unsafe extern "C" fn TrieMap_RandomValueByPrefix(
     }
     let _unused = (t, prefix, pflen);
     todo!()
+}
+
+mod iter_types {
+    use lending_iterator::{lending_iterator::adapters::Filter, prelude::*};
+    use std::ffi::{c_char, c_void};
+
+    type BoxedPredicate = Box<dyn Fn(&(&[i8], &*mut c_void)) -> bool>;
+
+    pub enum TrieMapIteratorImpl<'tm> {
+        Prefix(crate::iter::Iter<'tm, *mut c_void>),
+        Contains(Filter<crate::iter::Iter<'tm, *mut c_void>, BoxedPredicate>),
+        Suffix(Filter<crate::iter::Iter<'tm, *mut c_void>, BoxedPredicate>),
+    }
+
+    #[gat]
+    #[allow(clippy::needless_lifetimes)]
+    impl<'tm> LendingIterator for TrieMapIteratorImpl<'tm> {
+        type Item<'next>
+        where
+            Self: 'next,
+        = (&'next [c_char], &'tm *mut c_void);
+
+        fn next(&mut self) -> Option<Self::Item<'_>> {
+            match self {
+                TrieMapIteratorImpl::Prefix(iter) => LendingIterator::next(iter),
+                TrieMapIteratorImpl::Contains(iter) => LendingIterator::next(iter),
+                TrieMapIteratorImpl::Suffix(iter) => LendingIterator::next(iter),
+            }
+        }
+    }
 }

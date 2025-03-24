@@ -2,7 +2,7 @@ use std::{cmp::Ordering, ffi::c_char, fmt};
 
 use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
 
-use crate::iter::{IntoValues, Iter};
+use crate::iter::{IntoValues, Iter, Values};
 
 #[derive(Default, Clone, PartialEq, Eq)]
 /// A trie data structure that maps keys of type `&[c_char]` to values.
@@ -65,6 +65,12 @@ impl<T> TrieMap<T> {
         self.root.as_ref().and_then(|n| n.find(key))
     }
 
+    /// Get a reference to the node associated with a key.
+    /// Returns `None` if the no entry for the key is present.
+    pub(crate) fn find_node(&self, key: &[c_char]) -> Option<&Node<T>> {
+        self.root.as_ref().and_then(|n| n.find_node(key))
+    }
+
     /// Insert an entry into the trie. The value is obtained by calling the
     /// provided callback function. If the key already exists, the existing
     /// value is passed to the callback, otherwise `None` is passed.
@@ -94,6 +100,20 @@ impl<T> TrieMap<T> {
     /// Get an iterator over the map entries in order of keys.
     pub fn iter(&self) -> Iter<'_, T> {
         Iter::new(self.root.as_ref())
+    }
+
+    /// Get an iterator over the map entries with keys that start
+    /// with the given prefix, in order of keys.
+    pub fn iter_prefix(&self, prefix: &[c_char]) -> Iter<'_, T> {
+        Iter::new(self.root.as_ref().and_then(|root| root.find_node(prefix)))
+    }
+    
+    pub fn values(&self) -> Values<'_, T> {
+        Values::new(self.root.as_ref())
+    }
+    
+    pub fn values_prefix(&self, prefix: &[c_char]) -> Values<'_, T> {
+        Values::new(self.root.as_ref().and_then(|root| root.find_node(prefix)))
     }
 
     /// Get a consuming iterator over the values in the map in order of keys.
@@ -451,12 +471,18 @@ impl<Data> Node<Data> {
     /// Get a reference to the value associated with a key.
     /// Returns `None` if the key is not present.
     fn find(&self, key: &[c_char]) -> Option<&Data> {
+        self.find_node(key)?.data.as_ref()
+    }
+
+    /// Get a reference to the node associated with a key.
+    /// Returns `None` if the key is not present.
+    fn find_node(&self, key: &[c_char]) -> Option<&Node<Data>> {
         let suffix = key.strip_prefix(self.label.as_slice())?;
         let Some(first_byte) = suffix.first() else {
             // The suffix is empty, so the key and the label are equal.
-            return self.data.as_ref();
+            return Some(self);
         };
-        self.children.find(*first_byte)?.find(suffix)
+        self.children.find(*first_byte)?.find_node(suffix)
     }
 
     fn mem_usage(&self) -> usize {

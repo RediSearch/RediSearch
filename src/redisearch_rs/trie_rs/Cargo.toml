@@ -11,11 +11,12 @@ workspace = true
 crate-type = ["staticlib"]
 
 [features]
-default = ["redis_allocator"]
+default = ["redis_allocator", "ffi"]
 redis_allocator = ["dep:redis-module"]
 ffi = ["redis_allocator"]
 
 [dependencies]
+lending-iterator.workspace = true
 libc.workspace = true
 low_memory_thin_vec.workspace = true
 redis-module = { workspace = true, optional = true }
