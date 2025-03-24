@@ -7,6 +7,8 @@ use std::{
     ffi::c_void,
 };
 
+use crate::ffi::{mstime_t, RedisModuleCtx, RedisModuleTimerID, RedisModuleTimerProc};
+
 #[unsafe(no_mangle)]
 pub static mut RedisModule_Alloc: ::std::option::Option<
     unsafe extern "C" fn(bytes: usize) -> *mut ::std::os::raw::c_void,
@@ -81,3 +83,13 @@ extern "C" fn calloc_shim(nmemb: usize, size: usize) -> *mut ::std::os::raw::c_v
         ptr as *mut c_void
     }
 }
+
+#[unsafe(no_mangle)]
+pub static mut RedisModule_CreateTimer: ::std::option::Option<
+    unsafe extern "C" fn(
+        ctx: *mut RedisModuleCtx,
+        period: mstime_t,
+        callback: RedisModuleTimerProc,
+        data: *mut ::std::os::raw::c_void,
+    ) -> RedisModuleTimerID,
+> = None;

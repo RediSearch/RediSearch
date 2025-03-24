@@ -1,9 +1,17 @@
-use crate::{CTrieMap, RustRadixTrie, RustTrieMap, str2c_char};
-use criterion::{BatchSize, BenchmarkGroup, Criterion, measurement::Measurement};
+use crate::{
+    CTrieMap, RustRadixTrie, RustTrieMap,
+    ffi::{
+        TrieMap_Iterate, TrieMapIterator_Next, TrieMapIterator_NextContains,
+        tm_iter_mode_TM_CONTAINS_MODE, tm_len_t,
+    },
+    str2c_char,
+};
+use criterion::{BatchSize, BenchmarkGroup, Criterion, black_box, measurement::Measurement};
+use lending_iterator::LendingIterator;
 use std::{
     ffi::{CString, c_char, c_void},
-    hint::black_box,
     ptr::NonNull,
+    rc::Rc,
 };
 
 /// A helper struct for benchmarking operations on different trie map implementations.
@@ -124,6 +132,117 @@ impl<'a> OperationBencher<'a> {
             )
         });
         group.finish();
+    }
+
+    pub fn iterate_prefix_group(&mut self) {
+        let mut group = self.c.benchmark_group("Iterate prefix");
+        let pattern = str2c_char("a");
+        // Ensure the Rust benchmark doesn't drop
+        // the map as the C one doesn't either
+        let rust_map = Rc::new(self.rust_map.clone());
+        group.bench_function("Rust", |b| {
+            b.iter_batched(
+                || rust_map.clone(),
+                |map| {
+                    map.lending_iter_prefix(&pattern).for_each(|entry| {
+                        black_box(entry);
+                    });
+                },
+                BatchSize::LargeInput,
+            );
+        });
+
+        group.bench_function("C", |b| {
+            b.iter_batched(
+                || self.c_map,
+                |c_map| {
+                    let it = unsafe {
+                        TrieMap_Iterate(c_map, pattern.as_ptr(), pattern.len() as tm_len_t)
+                    };
+                    let mut char: *mut c_char = std::ptr::null_mut();
+                    let mut len: tm_len_t = 0;
+                    let mut value: *mut c_void = std::ptr::null_mut();
+
+                    while let 1 = unsafe {
+                        TrieMapIterator_NextContains(
+                            it,
+                            &mut char as *mut *mut c_char,
+                            &mut len as *mut tm_len_t,
+                            &mut value as *mut *mut c_void,
+                        )
+                    } {
+                        black_box(char);
+                        black_box(len);
+                        black_box(value);
+                    }
+
+                    unsafe { crate::ffi::TrieMapIterator_Free(it) };
+                },
+                BatchSize::LargeInput,
+            );
+        });
+    }
+
+    pub fn iterate_contains_group(&mut self) {
+        let mut group = self.c.benchmark_group("Iterate contains");
+        let pattern = str2c_char("e");
+
+        // Ensure the Rust benchmark doesn't drop
+        // the map as the C one doesn't either
+        let rust_map = Rc::new(self.rust_map.clone());
+
+        group.bench_function("Rust", |b| {
+            b.iter_batched(
+                || rust_map.clone(),
+                |map| {
+                    let pat: &[u8] = unsafe { std::mem::transmute(&*pattern) };
+                    let finder = memchr::memmem::Finder::new(pat);
+                    map.lending_iter()
+                        .filter(|(k, _)| {
+                            let k: &[u8] = unsafe { std::mem::transmute(*k) };
+                            finder.find(k).is_some()
+                        })
+                        .for_each(|entry| {
+                            black_box(entry);
+                        });
+                },
+                BatchSize::LargeInput,
+            );
+        });
+
+        group.bench_function("C", |b| {
+            b.iter_batched(
+                || self.c_map,
+                |c_map| {
+                    let it = unsafe {
+                        TrieMap_Iterate(c_map, pattern.as_ptr(), pattern.len() as tm_len_t)
+                    };
+
+                    unsafe {
+                        (*it).mode = tm_iter_mode_TM_CONTAINS_MODE;
+                    }
+
+                    let mut char: *mut c_char = std::ptr::null_mut();
+                    let mut len: tm_len_t = 0;
+                    let mut value: *mut c_void = std::ptr::null_mut();
+
+                    while let 1 = unsafe {
+                        TrieMapIterator_NextContains(
+                            it,
+                            &mut char as *mut *mut c_char,
+                            &mut len as *mut tm_len_t,
+                            &mut value as *mut *mut c_void,
+                        )
+                    } {
+                        black_box(char);
+                        black_box(len);
+                        black_box(value);
+                    }
+                    unsafe { crate::ffi::TrieMapIterator_Free(it) };
+                },
+                BatchSize::LargeInput,
+            );
+        });
     }
 }
 

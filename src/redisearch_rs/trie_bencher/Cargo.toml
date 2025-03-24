@@ -3,14 +3,26 @@ name = "trie_bencher"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+[lib]
+bench = false
+
+[[bin]]
+name = "trie_bencher"
+bench = false
 
 [[bench]]
 name = "operations"
 harness = false
 
+[[bench]]
+name = "iter"
+harness = false
+
 [dependencies]
 trie_rs.workspace = true
 fs-err.workspace = true
+lending-iterator.workspace = true
+memchr.workspace = true
 radix_trie.workspace = true
 criterion.workspace = true
 ureq.workspace = true
