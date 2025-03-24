@@ -4338,13 +4338,15 @@ def common_with_auth(env: Env):
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'n').equal(expected_res)
 
 def test_with_password():
-    mypass = '42MySecretPassword$'
+    mypass = '42MySecretPassword$'  # Hard-coded in `sbin/get-test-certs.sh` as default password
     args = f'OSS_GLOBAL_PASSWORD {mypass}' if CLUSTER else None
     env = Env(moduleArgs=args, password=mypass)
     common_with_auth(env)
 
 def test_with_tls():
     cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+    # Upon setting `useTLS` to `True`, RLTest also sets the `tls-cluster` config
+    # to `yes`. This results in the coordinator-shard connections being TLS as well.
     env = Env(useTLS=True,
               tlsCertFile=cert_file,
               tlsKeyFile=key_file,
