@@ -444,6 +444,9 @@ unsafe extern "C" fn TrieMap_Delete(
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+/// - `func` must either be NULL or a valid pointer to a function of type [`freeCB`].
+/// - The Redis allocator must be initialized before calling this function,
+///    and `RedisModule_Free` must not get mutated while running this function.
 ///
 /// C equivalent:
 /// ```c
@@ -459,9 +462,26 @@ unsafe extern "C" fn TrieMap_Free(t: *mut TrieMap, func: freeCB) {
     // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
     // If that invariant is upheld, then the following line is sound.
     let trie = unsafe { Box::from_raw(t) };
-    if let Some(func) = func {
-        let _unused = (func, trie);
-        todo!("Iterate over all nodes and free them by calling `func` given the data.");
+    let values = trie.0.into_values();
+
+    let free = func.unwrap_or_else(|| {
+        // SAFETY:
+        // The safety requirements of this function
+        // require the caller to ensure that the Redis allocator is initialized,
+        // and that `RedisModule_Free` does not get mutated while running this function.
+        unsafe { redis_module::raw::RedisModule_Free.expect("Redis allocator not available") }
+    });
+
+    // Iterate over all values and free them by calling `func` given the data.
+    for value in values {
+        // SAFETY:
+        // `free` either refers to `RedisModule_Free` or a custom function provided by the caller.
+        // In the former case, the safety requirements of this function
+        // require the caller to ensure that the Redis allocator is initialized,
+        // and that `RedisModule_Free` does not get mutated while running this function.
+        // In the latter case, the caller is responsible for ensuring that the provided function
+        // is safe to call with the given data.
+        unsafe { free(value) }
     }
 }
 
