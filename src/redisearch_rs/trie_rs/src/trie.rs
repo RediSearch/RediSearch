@@ -11,7 +11,7 @@ pub struct TrieMap<T> {
     root: Option<Node<T>>,
 }
 
-impl<T: fmt::Debug> TrieMap<T> {
+impl<T> TrieMap<T> {
     /// Create a new [`TrieMap`].
     pub fn new() -> Self {
         Self { root: None }
@@ -124,7 +124,7 @@ struct Node<Data> {
     label: LowMemoryThinVec<c_char>,
 }
 
-impl<Data: fmt::Debug> Node<Data> {
+impl<Data> Node<Data> {
     /// Inserts a new key-value pair into the trie.
     ///
     /// If the key already exists, the current value is passede to provided function,
@@ -340,10 +340,7 @@ impl<Data: fmt::Debug> Node<Data> {
     /// childreninto `self`. Depending on the spare capacity of `self`s label
     /// and that of the child, we either extend `self`s label with the child's label,
     /// or vice versa.
-    fn merge_child(&mut self)
-    where
-        Data: fmt::Debug,
-    {
+    fn merge_child(&mut self) {
         if self.data.is_some() {
             return;
         }
@@ -586,7 +583,7 @@ impl<'tm, Data> Iter<'tm, Data> {
     }
 }
 
-impl<'tm, Data: fmt::Debug> Iterator for Iter<'tm, Data> {
+impl<'tm, Data> Iterator for Iter<'tm, Data> {
     type Item = (Vec<c_char>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
