@@ -58,7 +58,7 @@ TEST_F(ExpireTest, testSkipTo) {
   sctx->time.current.tv_nsec = std::chrono::duration_cast<std::chrono::nanoseconds>(remaining).count();
 
   RedisModuleString *kstr = IndexSpec_GetFormattedKey(spec, fs, INDEXFLD_T_TAG);
-  TagIndex *idx = TagIndex_Open(sctx, kstr, DONT_CREATE_INDEX);
+  TagIndex *idx = TagIndex_Open(sctx->spec, kstr, DONT_CREATE_INDEX);
   ASSERT_NE(idx, nullptr);
   IndexIterator *it = TagIndex_OpenReader(idx, sctx, "one", strlen("one"), 1.0, 0);
   ASSERT_EQ(it->LastDocId(it->ctx), 1);
