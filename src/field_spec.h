@@ -13,6 +13,7 @@
 #include "geometry/geometry_types.h"
 #include "info/index_error.h"
 #include "info/field_spec_info.h"
+#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \
@@ -89,8 +90,8 @@ Each field has a unique id that's a power of two, so we can filter fields
 by a bit mask.
 */
 typedef struct FieldSpec {
-  char *name;
-  char *path;
+  HiddenString *fieldName;
+  HiddenString *fieldPath;
   FieldType types : 8;
   FieldSpecOptions options : 16;
 
@@ -152,6 +153,8 @@ void FieldSpec_Cleanup(FieldSpec* fs);
 const char *FieldSpec_GetTypeNames(int idx);
 
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
+char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate);
+char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate);
 
 /**Adds an error message to the IndexError of the FieldSpec.
  * This function also updates the global field's type index error counter.

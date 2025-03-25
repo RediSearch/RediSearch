@@ -21,6 +21,8 @@ AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Init() {
 }
 
 void FieldSpecInfo_Clear(FieldSpecInfo *info) {
+    rm_free(info->identifier);
+    rm_free(info->attribute);
     info->identifier = NULL;
     info->attribute = NULL;
 }
@@ -53,8 +55,8 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *info, IndexError error) {
 void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate) {
     RedisModule_Reply_Map(reply);
 
-    REPLY_KVSTR_SAFE("identifier", info->identifier);
-    REPLY_KVSTR_SAFE("attribute", info->attribute);
+    REPLY_KVSTR("identifier", info->identifier);
+    REPLY_KVSTR("attribute", info->attribute);
     // Set the error as a new object.
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
     IndexError_Reply(&info->error, reply, withTimestamp, obfuscate);

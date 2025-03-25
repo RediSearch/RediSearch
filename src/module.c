@@ -314,17 +314,17 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   size_t len;
   const char *field = RedisModule_StringPtrLen(argv[2], &len);
-  const FieldSpec *sp = IndexSpec_GetField(sctx->spec, field, len);
-  if (!sp) {
+  const FieldSpec *fs = IndexSpec_GetField(sctx->spec, field, len);
+  if (!fs) {
     RedisModule_ReplyWithError(ctx, "No such field");
     goto cleanup;
   }
-  if (!FIELD_IS(sp, INDEXFLD_T_TAG)) {
+  if (!FIELD_IS(fs, INDEXFLD_T_TAG)) {
     RedisModule_ReplyWithError(ctx, "Not a tag field");
     goto cleanup;
   }
 
-  RedisModuleString *rstr = TagIndex_FormatName(sctx->spec, field);
+  RedisModuleString *rstr = TagIndex_FormatName(sctx->spec, fs->fieldName);
   TagIndex *idx = TagIndex_Open(sctx->spec, rstr, DONT_CREATE_INDEX);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
@@ -401,8 +401,11 @@ int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
     return RedisModule_WrongArity(ctx);
   }
 
-  const char *specName = RedisModule_StringPtrLen(argv[1], NULL);
-  if (dictFetchValue(specDict_g, specName)) {
+  const char *rawSpecName = RedisModule_StringPtrLen(argv[1], NULL);
+  HiddenString *specName = NewHiddenString(rawSpecName, strlen(rawSpecName), false);
+  const bool found = dictFetchValue(specDict_g, specName);
+  HiddenString_Free(specName, false);
+  if (found) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
 
@@ -694,12 +697,16 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return REDISMODULE_ERR;
   }
 
-  const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
+  const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
+  HiddenString *alias = NewHiddenString(rawAlias, length, false);
   StrongRef alias_ref = IndexAlias_Get(alias);
+  HiddenString_Free(alias, false);
+  int rc = REDISMODULE_OK;
   if (!skipIfExists || !StrongRef_Equals(alias_ref, ref)) {
-    return IndexAlias_Add(alias, ref, 0, error);
+    rc = IndexAlias_Add(alias, ref, 0, error);
   }
-  return REDISMODULE_OK;
+  HiddenString_Free(alias, false);
+  return rc;
 }
 
 static int AliasAddCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
@@ -738,7 +745,11 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   }
 
   QueryError status = {0};
-  if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), ref, 0, &status) != REDISMODULE_OK) {
+  const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
+  HiddenString *alias = NewHiddenString(rawAlias, length, false);
+  const int rc = IndexAlias_Del(alias, ref, 0, &status);
+  HiddenString_Free(alias, false);
+  if (rc != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
     RedisModule_Replicate(ctx, RS_ALIASDEL_IF_EX, "v", argv + 1, (size_t)argc - 1);
@@ -769,24 +780,30 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
                             .flags = INDEXSPEC_LOAD_KEY_RSTRING};
   StrongRef Orig_ref = IndexSpec_LoadUnsafeEx(ctx, &lOpts);
   IndexSpec *spOrig = StrongRef_Get(Orig_ref);
+  size_t length = 0;
+  const char* rawAlias = RedisModule_StringPtrLen(argv[1], &length);
+  HiddenString *alias = NewHiddenString(rawAlias, length, false);
   if (spOrig) {
-    if (IndexAlias_Del(RedisModule_StringPtrLen(argv[1], NULL), Orig_ref, 0, &status) != REDISMODULE_OK) {
+    if (IndexAlias_Del(alias, Orig_ref, 0, &status) != REDISMODULE_OK) {
+      HiddenString_Free(alias, false);
       return QueryError_ReplyAndClear(ctx, &status);
     }
   }
+  int rc = 0;
   if (aliasAddCommon(ctx, argv, argc, &status, false) != REDISMODULE_OK) {
     // Add back the previous index.. this shouldn't fail
     if (spOrig) {
       QueryError e2 = {0};
-      const char *alias = RedisModule_StringPtrLen(argv[1], NULL);
       IndexAlias_Add(alias, Orig_ref, 0, &e2);
       QueryError_ClearError(&e2);
     }
-    return QueryError_ReplyAndClear(ctx, &status);
+    rc = QueryError_ReplyAndClear(ctx, &status);
   } else {
     RedisModule_ReplicateVerbatim(ctx);
-    return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    rc = RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
+  HiddenString_Free(alias, false);
+  return rc;
 }
 
 int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {

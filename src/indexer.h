@@ -43,20 +43,12 @@ typedef struct FieldIndexerData {
 
 } FieldIndexerData;
 
-typedef struct DocumentIndexer {
-  ConcurrentSearchCtx concCtx;     // GIL locking. This is repopulated with the relevant key data
-  RedisModuleCtx *redisCtx;        // Context for keeping the spec key
-  RedisModuleString *specKeyName;  // Cached, used for opening/closing the spec key.
-} DocumentIndexer;
-
-void Indexer_Free(DocumentIndexer *indexer);
-DocumentIndexer *NewIndexer(IndexSpec *spec);
 
 /**
  * Add a document to the indexing queue. If successful, the indexer now takes
  * ownership of the document context (until it DocumentAddCtx_Finish).
  */
-int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx);
+int IndexDocument(RSAddDocumentCtx *aCtx);
 
 /**
  * Function to preprocess field data. This should do as much stateless processing
