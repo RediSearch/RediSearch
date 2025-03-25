@@ -125,6 +125,7 @@ jobs:
       - name: Build
         env:
           ENABLE_ASSERT: 1
+        working-directory: RediSearch
         run: make
       - name: Fail flow if tests failed
         if: steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
