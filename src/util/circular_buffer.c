@@ -220,18 +220,18 @@ void *CircularBuffer_Read(CircularBuffer cb, void *item) {
  * @param advance If true, advance the read pointer to the write pointer.
  */
 size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance){
-  RS_ASSERT(cb != NULL);
-  RS_ASSERT(dst != NULL);
+  RedisModule_Assert(cb != NULL);
+  RedisModule_Assert(dst != NULL);
 
   if (unlikely(CircularBuffer_Empty(cb))) {
     return 0;
   }
 
   // Calculate the starting position for reading
-  size_t item_count = cb->item_count;
-  uint64_t write = cb->write;
-  uint write_idx = write / cb->item_size;
-  int read_idx;
+  int64_t item_count = (int64_t)atomic_load(&cb->item_count);
+  int64_t write = (int64_t)atomic_load(&cb->write);
+  int64_t write_idx = write / cb->item_size;
+  int64_t read_idx;
   if (write_idx - item_count >= 0) {
     read_idx = write_idx - item_count;
   } else {// Adjusts read_idx to handle negative values by wrapping around the circular buffer.
