@@ -10,10 +10,27 @@ run_command() {
   fi
 }
 
+# Get the OS type, considering only macOS and Linux
+OS_TYPE=$(uname -s)
+if [[ $OS_TYPE = 'Darwin' ]]
+then
+    OS='macos'
+else
+    OS='linux'
+fi
+
+# Get the architecture, considering only arm64 and x64
+ARCH=$(uname -m)
+if [[ $ARCH == 'aarch64' ]]; then
+    ARCH='arm64v8'
+else
+    ARCH='x64'
+fi
+
 # Set the default variables
 CURR_DIR=`pwd`
 ROOT=${ROOT:=$CURR_DIR}  # unless ROOT is set, assume it is the current directory
-BINROOT=${BINROOT:=${ROOT}/bin/linux-x64-release}
+BINROOT=${BINROOT:=${ROOT}/bin/${OS}-${ARCH}-release}
 
 JSON_BRANCH=${REJSON_BRANCH:-master}
 JSON_REPO_URL="https://github.com/RedisJSON/RedisJSON.git"
