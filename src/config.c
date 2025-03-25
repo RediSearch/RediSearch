@@ -423,7 +423,7 @@ long long get_min_operation_workers(const char *name, void *privdata) {
 }
 
 static inline int errorMemoryLimitG100(QueryError *status) {
-  QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Memory limit for indexing cannot be greater then 100%%");
+  QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Memory limit for indexing cannot be greater then 100%%");
   return REDISMODULE_ERR;
 }
 // SET MEMORY LIMIT PERCENTAGE

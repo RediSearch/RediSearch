@@ -167,7 +167,7 @@ AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply
 
     MRReply *error = MRReply_MapElement(reply, IndexError_ObjectName);
     RS_ASSERT(error);
-    info.error = IndexError_Deserialize(error, false);
+    info.error = IndexError_Deserialize(error, INDEX_ERROR_WITHOUT_OOM_STATUS);
     // attribute used to determine field type
     info.stats = FieldStats_Deserialize(info.attribute, reply);
 

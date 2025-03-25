@@ -440,10 +440,12 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   return res;
 }
 
-void IndexSpec_SetIndexErrorMessage(IndexSpec *sp, const char *error, RedisModuleString *key) {
+void IndexSpec_SetIndexErrorMessage(IndexSpec *sp, const char *error, bool withUserData, RedisModuleString *key) {
   RedisModule_Assert(sp);
   RedisModule_Assert(error);
-  IndexError_AddError(&sp->stats.indexError, error, key);
+  const char* error_withUserData = withUserData ? error : NULL;
+  const char* error_withoutUserData = withUserData ? NULL : error;
+  IndexError_AddError(&sp->stats.indexError, error_withoutUserData, error_withUserData, key);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -2195,13 +2197,14 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
       IndexSpec *sp = StrongRef_Get(curr_run_ref);
       if (sp) {
         sp->scan_failed_OOM = true;  // Assuming there is no other reason that the scanner is canceled *and* the index exists
-        IndexSpec_SetIndexErrorMessage(sp, error, keyname);
+        // Error message does not contain user data, so passing false to SetIndexErrorMessage
+        IndexSpec_SetIndexErrorMessage(sp, error, false, keyname);
         IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
         StrongRef_Release(curr_run_ref);
       } else {
         // spec was deleted
         RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (index deleted)",
-                      scanner->spec_name);
+                      scanner->spec_name_for_logs);
         }
       }
     rm_free(error);
@@ -2320,7 +2323,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
                         scanner->scannedKeys);
       } else {
         RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (scanned=%ld)",
-                    scanner->spec_name, scanner->scannedKeys);
+                    scanner->spec_name_for_logs, scanner->scannedKeys);
         goto end;
       }
     }

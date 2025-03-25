@@ -692,7 +692,7 @@ char *IndexSpec_FormatObfuscatedName(const char *specName, size_t len);
  * @param error error message
  * @param key the key that caused the error
  */
-void IndexSpec_SetIndexErrorMessage(IndexSpec *sp, const char *error, RedisModuleString *key);
+void IndexSpec_SetIndexErrorMessage(IndexSpec *sp, const char *error, bool withUserData, RedisModuleString *key);
 
 //---------------------------------------------------------------------------------------------
 

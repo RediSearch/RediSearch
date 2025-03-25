@@ -861,7 +861,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
   }
   // Check for OOM
   if (sctx->spec->scan_failed_OOM) {
-    QueryError_SetErrorFmt(status, QUERY_INDEXBGOOMFAIL,
+    QueryError_SetWithUserDataFmt(status, QUERY_INDEXBGOOMFAIL,
       "%s: Index background scan failed due to OOM. Queries cannot be executed on an incomplete index.",
       indexname);
     goto done;
