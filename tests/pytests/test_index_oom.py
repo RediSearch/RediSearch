@@ -20,11 +20,11 @@ def test_stop_background_indexing_on_low_mem(env):
     # Now we set the tight memory limit
     set_tight_maxmemory_for_oom(env)
     # After we resume, an OOM should trigger
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
     # Wait for OOM
     waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
     # Resume the indexing
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
     # Wait for the indexing to finish
     waitForIndexFinishScan(env, 'idx')
     # Verify that only num_docs_scanned were indexed
@@ -53,11 +53,11 @@ def test_stop_indexing_low_mem_verbosity(env):
   # Set tight memory limit
   set_tight_maxmemory_for_oom(env)
   # Resume indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for OOM
   waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
   # Resume the indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for the indexing to finish
   waitForIndexFinishScan(env, 'idx')
 
@@ -88,7 +88,7 @@ def test_idx_delete_during_bg_indexing(env):
   # Delete the index
   env.expect('ft.drop', 'idx').ok()
   # Resume indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Check that the index does not exist
   env.expect('ft._list').equal([])
 
@@ -96,13 +96,13 @@ def test_idx_delete_during_bg_indexing(env):
 
   env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
   waitForIndexStatus(env, 'NEW')
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
   waitForIndexPauseScan(env, 'idx')
   # Delete the index
   env.expect('ft.drop', 'idx').ok()
   # Resume indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # After the following line, the background indexing should be completed
   env.expect(bgScanCommand(), 'TERMINATE_BG_POOL').ok()
   # Check that the index does not exist
@@ -133,10 +133,10 @@ def test_delete_docs_during_bg_indexing(env):
     env.expect('DEL', f'doc{i}').equal(1)
   forceInvokeGC(env)
   # Resume indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
   # Resume the indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for the indexing to finish
   waitForIndexFinishScan(env, 'idx')
   # Verify OOM status
@@ -157,7 +157,7 @@ def test_change_config_during_bg_indexing(env):
   for i in range(n_docs):
     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
 
-  env.expect('FT.CONFIG', 'SET', '_INDEX_MEM_PERCENT', '70').ok()
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '70').ok()
   # Set pause after half of the docs were scanned
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', n_docs//10).ok()
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
@@ -168,13 +168,13 @@ def test_change_config_during_bg_indexing(env):
   # Set tight memory limit
   set_tight_maxmemory_for_oom(env, 0.7)
   # Change the memory limit
-  env.expect('FT.CONFIG', 'SET', '_INDEX_MEM_PERCENT', '80').ok()
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
   # Resume indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
   waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
   # Resume the indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for the indexing to finish
   # Wait for the indexing to finish
   waitForIndexFinishScan(env, 'idx')
@@ -208,11 +208,11 @@ def test_oom_query_error(env):
   # Set tight memory limit
   set_tight_maxmemory_for_oom(env)
   # Resume indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for OOM
   waitForIndexStatus(env, 'PAUSED_ON_OOM', idx_name)
   # Resume the indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for the indexing to finish
   waitForIndexFinishScan(env, idx_name)
 

@@ -86,7 +86,7 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
     }
     // Should only be displayed in "Index Errors", and not in, for example, "Field Statistics".
     if (withOOMstatus)
-        REPLY_KVSTR_SAFE(BackgroundIndexingOOMfailure_String, IndexError_HasBackgroundIndexingOOMFailure(error) ? outOfMemoryFailure  : OK);
+        REPLY_KVSTR_SAFE(BackgroundIndexingOOMfailure_String, IndexError_HasBackgroundIndexingOOMFailure(error) ? outOfMemoryFailure : OK);
 
     RedisModule_Reply_MapEnd(reply);
 }

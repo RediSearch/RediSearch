@@ -476,15 +476,12 @@ def testPauseOnScannedDocs(env: Env):
     env.assertEqual(idx_info['percent_indexed'], f'{pause_on_scanned/num_docs}')
 
     # Check resume error handling
-    # Giving invalid argument
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'notTrue').error()\
-    .contains("Invalid argument for 'SET_BG_INDEX_RESUME'")
     # Giving wrong arity
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').error()\
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').error()\
     .contains('wrong number of arguments')
 
     # Resume indexing
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
     waitForIndexFinishScan(env, 'idx2')
     # Get count of indexed documents
     docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
@@ -523,7 +520,7 @@ def testPauseBeforeScan(env: Env):
     # If is indexing, but debug scanner status is NEW, it means that the scanner is paused before scan
 
     # Resume indexing
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
     waitForIndexFinishScan(env, 'idx2')
     # Get count of indexed documents
     docs_in_index = env.cmd('FT.SEARCH', 'idx2', '*')[0]
@@ -543,9 +540,9 @@ def testDebugScannerStatus(env: Env):
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     waitForIndexStatus(env, 'NEW')
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
     waitForIndexPauseScan(env, 'idx')
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME', 'true').ok()
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
     waitForIndexFinishScan(env, 'idx')
     # When scan is done, the scanner is freed
     checkDebugScannerError(env, 'idx', 'Scanner is not initialized')
@@ -558,9 +555,6 @@ def testDebugScannerStatus(env: Env):
     # Giving invalid argument to debug scanner control command
     env.expect(bgScanCommand(), 'NOT_A_COMMAND', 'notTrue').error()\
     .contains("Invalid command for 'BG_SCAN_CONTROLLER'")
-    # Giving wrong arity
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').error()\
-    .contains('wrong number of arguments')
 
     # Test OOM pause
     # Insert more docs to ensure un-flakey test
@@ -580,7 +574,7 @@ def testDebugScannerStatus(env: Env):
     env.expect('FT.CREATE', 'idx_oom', 'SCHEMA', 'name', 'TEXT').ok()
     waitForIndexStatus(env, 'PAUSED_ON_OOM','idx_oom')
     # Resume indexing
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
 class TestQueryDebugCommands(object):
     def __init__(self):
@@ -917,7 +911,7 @@ def testPauseOnOOM(env: Env):
     # Now we set the tight memory limit
     set_tight_maxmemory_for_oom(env)
     # After we resume, an OOM should trigger
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
     # At this point, the index should be paused on OOM
     # Wait for INFO metric "OOM_indexing_failures_indexes_count" to increment
@@ -934,7 +928,7 @@ def testPauseOnOOM(env: Env):
     env.assertAlmostEqual(float(idx_info['percent_indexed']), 0.25, delta=0.05)
 
     # Resume indexing for the sake of completeness
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME','true').ok()
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
 @skip(cluster=True)
 def test_terminate_bg_pool(env):

@@ -149,13 +149,13 @@ typedef struct {
   // If set, we use an optimization that sorts the children of an intersection iterator in a way
   // where union iterators are being factorize by the number of their own children.
   int prioritizeIntersectUnionChildren;
+  // Limit the memory ration used until we stop indexing
+  uint8_t indexingMemoryLimit;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
 
   // Enable to execute unstable features
   bool enableUnstableFeatures;
-  // Limit the memory ration used until we stop indexing
-  uint32_t indexingMemoryLimit;
 } RSConfig;
 
 typedef enum {
@@ -308,7 +308,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .prioritizeIntersectUnionChildren = false,                                 \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
     .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE,                \
-    .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT                       \
+    .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \
   }
 
 #define REDIS_ARRAY_LIMIT 7
