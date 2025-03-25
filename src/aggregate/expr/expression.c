@@ -252,7 +252,7 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
       expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!expr->property.lookupObj) {
         QueryError_SetWithUserDataFmt(err, QUERY_ENOPROPKEY, "Property", " `%s` not loaded nor in pipeline",
-                               expr->property.key);
+                               HiddenString_GetUnsafe(expr->property.key, NULL));
         return EXPR_EVAL_ERR;
       }
       break;

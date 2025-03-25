@@ -3301,7 +3301,7 @@ static int prepareCommand(MRCommand *cmd, searchRequestCtx *req, RedisModuleBloc
   for (uint i = 0; i < array_len(prefixes); i++) {
     size_t len;
     const char* prefix = HiddenUnicodeString_GetUnsafe(prefixes[i], &len);
-    MRCommand_Insert(&cmd, arg_pos++, prefix, len);
+    MRCommand_Insert(cmd, arg_pos++, prefix, len);
   }
 
   // Return spec references, no longer needed

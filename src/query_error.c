@@ -86,7 +86,7 @@ void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, cons
   status->message = message;
 }
 
-void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *message, const char *fmt, ...) {
+void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {
   if (status->code != QUERY_OK) {
     return;
   }
@@ -97,10 +97,9 @@ void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, c
   rm_vasprintf(&formatted, fmt, ap);
   va_end(ap);
 
-  rm_asprintf(&status->detail, "%s%s", message, formatted);
-  rm_free(formatted);
+  status->detail = formatted;
   status->code = code;
-  status->message = message;
+  status->message = status->detail;
 }
 
 void QueryError_SetUserDataAgnosticErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {

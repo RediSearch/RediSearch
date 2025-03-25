@@ -120,7 +120,9 @@ TEST_F(ExprTest, testDump) {
   };
   for (auto& [expr, pair] : exprToDump) {
     QueryError status = {QueryErrorCode(0)};
-    RSExpr *root = ExprAST_Parse(expr, strlen(expr), &status);
+    HiddenString *hidden = NewHiddenString(expr, strlen(expr), false);
+    RSExpr *root = ExprAST_Parse(hidden, &status);
+    HiddenString_Free(hidden);
     if (!root) {
       FAIL() << "Could not parse expression " << expr;
     }

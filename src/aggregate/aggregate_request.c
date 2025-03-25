@@ -1010,7 +1010,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
     for (size_t ii = 0; ii < array_len(opts->legacy.filters); ++ii) {
       LegacyNumericFilter *filter = opts->legacy.filters[ii];
 
-      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, HiddenString_GetUnsafe(filter->field, NULL));
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, filter->field);
       filter->base.fieldSpec = fs;
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         if (dialect != 1) {
@@ -1031,7 +1031,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       RS_ASSERT(filter->field);
       // Need to free the hidden string since we pass the base pointer to the query AST
       // And we are about to zero out the filter in the legacy filters
-      HiddenString_Free(filter->field, false);
+      HiddenString_Free(filter->field);
       filter->field = NULL;
       QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = &filter->base};
       QAST_SetGlobalFilters(ast, &legacyFilterOpts);
@@ -1043,7 +1043,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
     for (size_t ii = 0; ii < array_len(opts->legacy.geo_filters); ++ii) {
       LegacyGeoFilter *gf = opts->legacy.geo_filters[ii];
 
-      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, HiddenString_GetUnsafe(gf->field, NULL));
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, gf->field);
       gf->base.fieldSpec = fs;
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         if (dialect != 1) {
@@ -1059,7 +1059,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
         RS_ASSERT(gf->field);
         // Need to free the hidden string since we pass the base pointer to the query AST
         // And we are about to zero out the filter in the legacy filters
-        HiddenString_Free(gf->field, false);
+        HiddenString_Free(gf->field);
         gf->field = NULL;
         QAST_GlobalFilterOptions legacyOpts = {.geo = &gf->base};
         QAST_SetGlobalFilters(ast, &legacyOpts);
@@ -1317,13 +1317,13 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
   MetricRequest *requests = req->ast.metricRequests;
   for (size_t i = 0; i < array_len(requests); i++) {
     HiddenString *name = requests[i].metric_name;
-    if (IndexSpec_GetFieldWithLength(req->sctx->spec, name, name_len)) {
+    if (IndexSpec_GetField(req->sctx->spec, name)) {
       QueryError_SetWithUserDataFmt(status, QUERY_EINDEXEXISTS, "Property", " `%s` already exists in schema", HiddenString_GetUnsafe(name, NULL));
       return NULL;
     }
     RLookupKey *key = RLookup_GetKey(rl, requests[i].metric_name, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
     if (!key) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", name);
+      QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", HiddenString_GetUnsafe(name, NULL));
       return NULL;
     }
 

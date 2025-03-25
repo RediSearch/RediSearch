@@ -93,7 +93,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
     aCtx->fspecs[i] = *fs;
     if (dedupe[fs->index]) {
-      QueryError_SetWithUserDataFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert field twice", ": '%s'", fs->name);
+      QueryError_SetWithUserDataFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert field twice", ": '%s'", HiddenString_GetUnsafe(fs->fieldName, NULL));
       return -1;
     }
 
@@ -111,7 +111,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
       // Verify the flags:
       if ((f->indexAs & fs->types) != f->indexAs) {
         QueryError_SetWithUserDataFmt(&aCtx->status, QUERY_EUNSUPPTYPE,
-                               "Tried to index field as a type that is not specified in schema", ": %s", fs->name);
+                               "Tried to index field as a type that is not specified in schema", ": %s", HiddenString_GetUnsafe(fs->fieldName, NULL));
         return -1;
       }
     }

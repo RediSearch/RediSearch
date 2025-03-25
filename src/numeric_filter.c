@@ -96,14 +96,11 @@ LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFil
 }
 
 void NumericFilter_Free(NumericFilter *nf) {
-  if (!nf->field.resolved && nf->field.u.name) {
-    HiddenString_Free(nf->field.u.name);
-  }
   rm_free(nf);
 }
 
 void LegacyNumericFilter_Free(LegacyNumericFilter *nf) {
-  HiddenString_Free(nf->field, false);
+  HiddenString_Free(nf->field);
   rm_free(nf);
 }
 

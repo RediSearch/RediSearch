@@ -210,10 +210,13 @@ sds RSExpr_DumpSds(const RSExpr *e, sds s, bool obfuscate) {
       s = sdscat(s, ")");
       break;
     case RSExpr_Property:
-      if (obfuscate) {
-        s = sdscatfmt(s, "@%s", Obfuscate_Text(e->property.key));
-      } else {
-        s = sdscatfmt(s, "@%s", e->property.key);
+      {
+        const char *property = HiddenString_GetUnsafe(e->property.key, NULL);
+        if (obfuscate) {
+          s = sdscatfmt(s, "@%s", Obfuscate_Text(property));
+        } else {
+          s = sdscatfmt(s, "@%s", property);
+        }
       }
       break;
     case RSExpr_Inverted:

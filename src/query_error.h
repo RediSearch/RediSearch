@@ -107,13 +107,7 @@ void QueryError_SetError(QueryError *status, QueryErrorCode code, const char *me
 void QueryError_SetCode(QueryError *status, QueryErrorCode code);
 
 /** Set the error code using a custom-formatted string */
-void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, const char* message, const char* message, const char *fmt, ...);
-
-/**
- * Set the error code using a custom-formatted string
- * Only use this function if you are certain that no user data is leaked in the format string
- */
-void QueryError_SetUserDataAgnosticErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...);
+void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, const char* message, const char *fmt, ...);
 
 /**
  * Set the error code using a custom-formatted string
@@ -188,9 +182,6 @@ static inline int QueryError_HasError(const QueryError *status) {
 }
 
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code);
-
-#define ADD_QUERY_ERROR(name, err, query_ptr, key) \
-name ## _AddError(err, QueryError_GetDisplayableError(query_ptr, true), QueryError_GetDisplayableError(query_ptr, false), key);
 
 #ifdef __cplusplus
 }

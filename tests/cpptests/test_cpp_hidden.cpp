@@ -47,28 +47,6 @@ TEST_F(HiddenTest, testHiddenCompare) {
   HiddenString_Free(lower);
 }
 
-TEST_F(HiddenTest, testHiddenUnicodeCompare) {
-  sds expected = sdsnew("¥£€$®a");
-  HiddenUnicodeString *first = NewHiddenUnicodeString(expected);
-  const char *internalExpected = HiddenUnicodeString_GetUnsafe(first, NULL);
-  sds unicode = sdsnew("¥£€$®A");
-  HiddenUnicodeString *second = NewHiddenUnicodeString(unicode);
-  const char *internalUnicode = HiddenUnicodeString_GetUnsafe(second, NULL);
-  ASSERT_NE(expected, internalExpected);
-  ASSERT_NE(unicode, internalUnicode);
-
-  // Compare Hidden with Hidden
-  ASSERT_NE(HiddenUnicodeString_Compare(first, second), 0);
-  // Compare Hidden with sds
-  ASSERT_EQ(HiddenUnicodeString_CompareC(first, expected), 0);
-  ASSERT_NE(HiddenUnicodeString_CompareC(first, unicode), 0);
-
-  HiddenUnicodeString_Free(first);
-  HiddenUnicodeString_Free(second);
-  sdsfree(expected);
-  sdsfree(unicode);
-}
-
 // Test unicode strings comparison
 // The unicode string should get duplicated inside the hidden string ctor
 // So underlying pointers should differ

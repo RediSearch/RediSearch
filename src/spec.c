@@ -416,15 +416,7 @@ size_t IndexSpec_collect_text_overhead(const IndexSpec *sp) {
 }
 
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
-    return obfuscate ? sp->obfuscatedName : sp->name;
-}
-
-char *IndexSpec_FormatObfuscatedName(const char *value, size_t len) {
-  Sha1 sha1;
-  Sha1_Compute(value, len, &sha1);
-  char buffer[MAX_OBFUSCATED_INDEX_NAME];
-  Obfuscate_Index(&sha1, buffer);
-  return rm_strdup(buffer);
+    return obfuscate ? sp->obfuscatedName : HiddenString_GetUnsafe(sp->specName, NULL);
 }
 
 size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t tags_overhead, size_t text_overhead) {
@@ -439,10 +431,6 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
   res += sp->stats.offsetVecsSize;
   res += sp->stats.termsSize;
   return res;
-}
-
-const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate) {
-    return obfuscate ? sp->obfuscatedName : HiddenString_GetUnsafe(sp->specName, NULL);
 }
 
 char *IndexSpec_FormatObfuscatedName(const HiddenString *specName) {
@@ -794,7 +782,7 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
     numParam++;
   }
   if (expNumParam > numParam) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Expected", " %d parameters but got %d", expNumParam * 2, numParam * 2);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
     return 0;
   }
   if (!mandtype) {
@@ -1099,7 +1087,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
   while (!AC_IsAtEnd(ac)) {
     if (sp->numFields == SPEC_MAX_FIELDS) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Schema is limited", " to %d fields",
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Schema is limited to %d fields",
                              SPEC_MAX_FIELDS);
       goto reset;
     }
@@ -1139,7 +1127,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
     if (FIELD_IS(fs, INDEXFLD_T_FULLTEXT) && FieldSpec_IsIndexable(fs)) {
       int textId = IndexSpec_CreateTextId(sp, fs->index);
       if (textId < 0) {
-        QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Schema is limited", " to %d TEXT fields",
+        QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Schema is limited to %d TEXT fields",
                                SPEC_MAX_FIELD_ID);
         goto reset;
       }
@@ -1551,7 +1539,6 @@ static void IndexSpec_FreeUnlinkedData(IndexSpec *spec) {
     HiddenString_Free(spec->specName);
   }
   rm_free(spec->obfuscatedName);
-  rm_free(spec->obfuscatedName);
   // Free suffix trie
   if (spec->suffix) {
     TrieType_Free(spec->suffix);
@@ -1794,7 +1781,6 @@ IndexSpec *NewIndexSpec(const HiddenString *name) {
   sp->flags = INDEX_DEFAULT_FLAGS;
   sp->specName = name;
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(name);
-  sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->name, sp->nameLen);
   sp->docs = DocTable_New(INITIAL_DOC_TABLE_SIZE);
   sp->stopwords = DefaultStopWordList();
   sp->terms = NewTrie(NULL, Trie_Sort_Lex);
@@ -2152,7 +2138,7 @@ static IndexesScanner *IndexesScanner_New(StrongRef global_ref) {
     // cancel ongoing scan, keep on_progress indicator on
     const char* name = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
     IndexesScanner_Cancel(spec->scanner);
-    const char* name = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted", name);
+    RedisModule_Log(RSDummyContext, "notice", "Scanning index %s in background: cancelled and restarted", name);
   }
   spec->scanner = scanner;
   spec->scan_in_progress = true;
@@ -2578,7 +2564,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   size_t len = strlen(rawName);
   HiddenString* specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
-  RefManager *oldSpec = dictFetchValue(specDict_g, name);
+  RefManager *oldSpec = dictFetchValue(specDict_g, specName);
   if (oldSpec) {
     // spec already exists lets just free this one
     HiddenString_Free(specName);
@@ -2709,7 +2695,6 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
 
   sp->specName = NewHiddenString(legacyName, strlen(legacyName), true);
   sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->specName);
-  sp->obfuscatedName = IndexSpec_FormatObfuscatedName(sp->name, sp->nameLen);
   RedisModule_Free(legacyName);
   sp->flags = (IndexFlags)RedisModule_LoadUnsigned(rdb);
   if (encver < INDEX_MIN_NOFREQ_VERSION) {
@@ -2771,7 +2756,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   }
 
   const char *formattedIndexName = IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog);
-  SchemaRuleArgs *rule_args = dictFetchValue(legacySpecRules, sp->name);
+  SchemaRuleArgs *rule_args = dictFetchValue(legacySpecRules, sp->specName);
   if (!rule_args) {
     RedisModule_LogIOError(rdb, "warning",
                            "Could not find upgrade definition for legacy index '%s'", formattedIndexName);

@@ -1744,7 +1744,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_NUMERIC: {
         if (n->nn.nf->min > n->nn.nf->max) {
           QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid numeric range (min > max)", ": @%s:[%f %f]",
-                                 HiddenString_GetUnsafe(n->nn.nf->fieldSpec->name, NULL), n->nn.nf->min, n->nn.nf->max);
+                                 HiddenString_GetUnsafe(n->nn.nf->fieldSpec->fieldName, NULL), n->nn.nf->min, n->nn.nf->max);
           res = REDISMODULE_ERR;
         }
       }
@@ -1932,7 +1932,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_NUMERIC: {
       const NumericFilter *f = qs->nn.nf;
       s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->inclusiveMin ? "<=" : "<",
-                       HiddenString_GetUnsafe(f->fieldSpec->name, NULL), f->inclusiveMax ? "<=" : "<", f->max);
+                       HiddenString_GetUnsafe(f->fieldSpec->fieldName, NULL), f->inclusiveMax ? "<=" : "<", f->max);
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");
@@ -1947,7 +1947,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     case QN_GEO:
-      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", HiddenString_GetUnsafe(qs->gn.gf->fieldSpec->name, NULL), qs->gn.gf->lon,
+      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", HiddenString_GetUnsafe(qs->gn.gf->fieldSpec->fieldName, NULL), qs->gn.gf->lon,
                        qs->gn.gf->lat, qs->gn.gf->radius,
                        GeoDistance_ToString(qs->gn.gf->unitType));
       break;
