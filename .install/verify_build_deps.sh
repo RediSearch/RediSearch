@@ -95,19 +95,20 @@ if [ ${#missing_deps_with_scripts[@]} -gt 0 ] || [ ${#missing_deps_apt[@]} -gt 0
 
   echo -e "\n${YELLOW}WARNING: Build may fail without these dependencies.${NC}"
 
-  # Check if running in Docker - if so, don't exit
-  if is_docker; then
-    echo -e "\n${YELLOW}Running in Docker environment - continuing despite missing dependencies.${NC}"
-    exit_code=0
-  else
-    exit_code=1
-  fi
+#   # Check if running in Docker - if so, don't exit
+#   if is_docker; then
+#     echo -e "\n${YELLOW}Running in Docker environment - continuing despite missing dependencies.${NC}"
+#     exit_code=0
+#   else
+#     exit_code=1
+#   fi
 else
   echo -e "\n${GREEN}All dependencies are installed.${NC}"
   exit_code=0
 fi
 
 # # Return the status code but don't exit in Docker
-# if ! is_docker; then
+# if ! is_docker ; then
 #   exit $exit_code
 # fi
+exit $exit_code
