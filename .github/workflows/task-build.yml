@@ -44,6 +44,7 @@ jobs:
           git submodule update --init --recursive
       - name: verify
         id: verify_deps
+        working-directory: RediSearch
         run: |
           .install/verify_build_deps.sh
       - name: Full checkout (node20)
