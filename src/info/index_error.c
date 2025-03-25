@@ -100,7 +100,7 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
       REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastError(error));
     }
     REPLY_KVRSTR(IndexingErrorKey_String, lastErrorKey);
-    RedisModule_FreeString(RSDummyContext, lastErrorKey);
+RedisModule_FreeString(RSDummyContext, lastErrorKey);
     if (withTimestamp) {
         struct timespec ts = IndexError_LastErrorTime(error);
         REPLY_KVARRAY(IndexingErrorTime_String);

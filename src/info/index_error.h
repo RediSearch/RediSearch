@@ -13,6 +13,9 @@
 
 #define WITH_INDEX_ERROR_TIME "_WITH_INDEX_ERROR_TIME"
 
+#define INDEX_ERROR_WITH_OOM_STATUS true
+#define INDEX_ERROR_WITHOUT_OOM_STATUS !INDEX_ERROR_WITH_OOM_STATUS
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -69,7 +72,7 @@ void IndexError_Clear(IndexError error);
 
 // IO and cluster traits
 // Reply the index errors to the client.
-void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate, bool withBgIndexingStatus);
+void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate, bool withOOMstatus);
 
 #include "coord/rmr/reply.h"
 

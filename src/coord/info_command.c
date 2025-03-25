@@ -378,7 +378,7 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
 
   // Global index error stats
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-  IndexError_Reply(&fields->indexError, reply, 0, obfuscate, true);
+  IndexError_Reply(&fields->indexError, reply, 0, obfuscate, INDEX_ERROR_WITH_OOM_STATUS);
 
   if (fields->fieldSpecInfo_arr) {
     RedisModule_ReplyKV_Array(reply, "field statistics"); //Field statistics
