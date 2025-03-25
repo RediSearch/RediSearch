@@ -71,8 +71,9 @@ TEST_F(AggTest, testBasic) {
     //   RSValue *vv = RLookup_GetItem(kk, &res.rowdata);
     //   if (vv != NULL) {
     //     std::cerr << "  " << kk->name << ": ";
-    //     RSValue_Print(vv);
-    //     std::cerr << std::endl;
+    //     sds s = RSValue_DumpSds(vv);
+    //     std::cerr << s << std::endl;
+    //     sdsfree(s)
     //   }
     // }
     SearchResult_Clear(&res);
@@ -176,7 +177,6 @@ TEST_F(AggTest, testGroupBy) {
   QITR_PushRP(&qitr, gp);
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
-    // RLookupRow_Dump(&res.rowdata);
     SearchResult_Clear(&res);
   }
   SearchResult_Destroy(&res);
@@ -231,7 +231,6 @@ TEST_F(AggTest, testGroupSplit) {
   QITR_PushRP(&qitr, gp);
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
-    // RLookupRow_Dump(&res.rowdata);
     RSValue *rv = RLookup_GetItem(val_out, &res.rowdata);
     ASSERT_FALSE(NULL == rv);
     ASSERT_FALSE(RSValue_IsNull(rv));

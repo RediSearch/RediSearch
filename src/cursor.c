@@ -212,7 +212,7 @@ Cursor *Cursors_Reserve(CursorList *cl, StrongRef global_spec_ref, unsigned inte
     /** Collect idle cursors now */
     Cursors_GCInternal(cl, 0);
     if (spec->activeCursors >= RSGlobalConfig.indexCursorLimit) {
-      QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ELIMIT, "INDEX_CURSOR_LIMIT of %lld has been reached for an index", RSGlobalConfig.indexCursorLimit);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "INDEX_CURSOR_LIMIT of %lld has been reached for an index", RSGlobalConfig.indexCursorLimit);
       goto done;
     }
   }

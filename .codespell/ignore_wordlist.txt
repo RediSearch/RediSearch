@@ -6,6 +6,7 @@ ths
 anId
 nd
 te
-curEnt
+curent
 childRes
-specField
+specfield
+runn

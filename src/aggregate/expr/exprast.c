@@ -6,6 +6,7 @@
 
 #include "exprast.h"
 #include <ctype.h>
+#include "obfuscation/obfuscation_api.h"
 #include "obfuscation/format.h"
 
 #define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
@@ -176,57 +177,63 @@ void RSExpr_GetProperties(RSExpr *e, HiddenString ***props) {
   }
 }
 
-void RSExpr_Print(const RSExpr *e, bool obfuscate) {
+sds RSExpr_DumpSds(const RSExpr *e, sds s, bool obfuscate) {
   if (!e) {
-    printf("NULL");
-    return;
+    return sdscat(s, "NULL");
   }
   switch (e->t) {
     case RSExpr_Literal:
-      RSValue_Print(&e->literal);
+      s = RSValue_DumpSds(&e->literal, s, obfuscate);
       break;
     case RSExpr_Function:
-      printf("%s(", e->func.name);
+      s = sdscatfmt(s, "%s(", e->func.name);
       for (size_t i = 0; e->func.args != NULL && i < e->func.args->len; i++) {
-        RSExpr_Print(e->func.args->args[i], obfuscate);
-        if (i < e->func.args->len - 1) printf(", ");
+        s = RSExpr_DumpSds(e->func.args->args[i], s, obfuscate);
+        if (i < e->func.args->len - 1) s = sdscat(s, ", ");
       }
-      printf(")");
+      s = sdscat(s, ")");
       break;
     case RSExpr_Op:
-      printf("(");
-      RSExpr_Print(e->op.left, obfuscate);
-      printf(" %c ", e->op.op);
-      RSExpr_Print(e->op.right, obfuscate);
-      printf(")");
+      s = sdscat(s, "(");
+      s = RSExpr_DumpSds(e->op.left, s, obfuscate);
+      const char buffer[2] = {e->op.op, 0};
+      s = sdscatfmt(s, " %s ", buffer);
+      s = RSExpr_DumpSds(e->op.right, s, obfuscate);
+      s = sdscat(s, ")");
       break;
 
     case RSExpr_Predicate:
-      printf("(");
-      RSExpr_Print(e->pred.left, obfuscate);
-      printf(" %s ", getRSConditionStrings(e->pred.cond));
-      RSExpr_Print(e->pred.right, obfuscate);
-      printf(")");
-
+      s = sdscat(s, "(");
+      s = RSExpr_DumpSds(e->pred.left, s, obfuscate);
+      s = sdscatfmt(s, " %s ", getRSConditionStrings(e->pred.cond));
+      s = RSExpr_DumpSds(e->pred.right, s, obfuscate);
+      s = sdscat(s, ")");
       break;
     case RSExpr_Property:
-      {
-        printf("@%s", FormatHiddenText(e->property.key, obfuscate));
+      if (obfuscate) {
+        s = sdscatfmt(s, "@%s", Obfuscate_Text(e->property.key));
+      } else {
+        s = sdscatfmt(s, "@%s", e->property.key);
       }
       break;
     case RSExpr_Inverted:
-      printf("!");
-      RSExpr_Print(e->inverted.child, obfuscate);
+      s = sdscat(s, "!");
+      s = RSExpr_DumpSds(e->inverted.child, s, obfuscate);
       break;
   }
+  return s;
 }
 
 void ExprAST_Free(RSExpr *e) {
   RSExpr_Free(e);
 }
 
-void ExprAST_Print(const RSExpr *e, bool obfuscate) {
-  RSExpr_Print(e, obfuscate);
+char *ExprAST_Dump(const RSExpr *e, bool obfuscate) {
+  sds s = sdsempty();
+  s = RSExpr_DumpSds(e, s, obfuscate);
+  char *ret = rm_strdup(s);
+  sdsfree(s);
+  return ret;
 }
 
 RSExpr *ExprAST_Parse(const HiddenString* expr, QueryError *status) {

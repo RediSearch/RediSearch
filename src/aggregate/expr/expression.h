@@ -70,8 +70,7 @@ static const char *getRSConditionStrings(RSCondition type) {
   case RSCondition_And: return "&&";
   case RSCondition_Or: return "||";
   default:
-    RS_LOG_ASSERT(0, "oops");
-    break;
+    RS_ABORT_ALWAYS("oops");
   }
 }
 
@@ -165,7 +164,7 @@ int ExprAST_GetLookupKeys(RSExpr *root, RLookup *lookup, QueryError *err);
 int ExprEval_Eval(ExprEval *evaluator, RSValue *result);
 
 void ExprAST_Free(RSExpr *expr);
-void ExprAST_Print(const RSExpr *expr, bool obfuscate);
+char *ExprAST_Dump(const RSExpr *expr, bool obfuscate);
 RSExpr *ExprAST_Parse(const HiddenString* expr, QueryError *status);
 
 /* Parse an expression string, returning a prased expression tree on success. On failure (syntax

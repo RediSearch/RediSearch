@@ -136,7 +136,7 @@ static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *
       return RSValue_BoolTest(l) || RSValue_BoolTest(r);
 
     default:
-      RS_LOG_ASSERT(0, "invalid RSCondition");
+      RS_ABORT("invalid RSCondition");
       return 0;
   }
 }
@@ -203,7 +203,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
   if (!value) {
     if (eval->err) {
-      QERR_MK_USING_HIDDEN_NAME(eval->err, QUERY_ENOPROPVAL, "Could not lookup the value for a parameter name, consider using EXISTS if applicable", " for %s", e->lookupObj->name);
+      QueryError_SetWithUserDataFmt(eval->err, QUERY_ENOPROPVAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", HiddenString_GetUnsafe(e->lookupObj->name, NULL));
     }
     res->t = RSValue_Null;
     return EXPR_EVAL_NULL;
@@ -240,7 +240,7 @@ int ExprEval_Eval(ExprEval *evaluator, RSValue *result) {
 int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
 #define RECURSE(v)                                                                                 \
   if (!v) {                                                                                        \
-    QueryError_SetErrorFmt(err, QUERY_EEXPR, "Missing (or badly formatted) value for", " %s", #v); \
+    QueryError_SetWithUserDataFmt(err, QUERY_EEXPR, "Missing (or badly formatted) value for", " %s", #v); \
     return EXPR_EVAL_ERR;                                                                          \
   }                                                                                                \
   if (ExprAST_GetLookupKeys(v, lookup, err) != EXPR_EVAL_OK) {                                     \
@@ -251,7 +251,8 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
     case RSExpr_Property:
       expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!expr->property.lookupObj) {
-        QERR_MK_USING_HIDDEN_NAME(err, QUERY_ENOPROPKEY, "Property", " `%s` not loaded nor in pipeline", expr->property.key);
+        QueryError_SetWithUserDataFmt(err, QUERY_ENOPROPKEY, "Property", " `%s` not loaded nor in pipeline",
+                               expr->property.key);
         return EXPR_EVAL_ERR;
       }
       break;
@@ -515,7 +516,7 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
       RedisModule_Reply_SimpleStringf(reply, "%s - Inverted", typeStr);
       break;
     default:
-      RS_LOG_ASSERT(0, "error");
+      RS_ABORT("error");
       break;
   }
 }

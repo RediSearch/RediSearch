@@ -294,8 +294,15 @@ TEST_F(IndexTest, testGetEncoderAndDecoders) {
 
     // invalid flags combination
     default:
-      ASSERT_ANY_THROW(InvertedIndex_GetDecoder(IndexFlags(curFlags)));
-      ASSERT_ANY_THROW(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
+      // TODO: We currently test only with sanitizer since the sanitizer is
+      // running in debug mode always, while the regular tests are running in
+      // release mode.
+      #ifdef __SANITIZE_ADDRESS__
+        ASSERT_ANY_THROW(InvertedIndex_GetDecoder(IndexFlags(curFlags)));
+        ASSERT_ANY_THROW(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
+      #else
+        continue;
+      #endif
     }
   }
 }
@@ -303,7 +310,7 @@ TEST_F(IndexTest, testGetEncoderAndDecoders) {
 TEST_F(IndexTest, testReadIterator) {
   InvertedIndex *idx = createPopulateTermsInvIndex(10, 1);
 
-  IndexReader *r1 = NewTermIndexReader(idx);  //
+  IndexReader *r1 = NewTermIndexReader(idx);
 
   RSIndexResult *h = NULL;
 
@@ -1031,7 +1038,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
 
   float query[] = {(float)n, (float)n, (float)n, (float)n};
   RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
-  VecSimQueryParams queryParams;
+  VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = n;
   VecSimQueryReply *results =
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
@@ -1454,12 +1461,14 @@ TEST_F(IndexTest, testIndexFlags) {
 TEST_F(IndexTest, testDocTable) {
   char buf[16];
   DocTable dt = NewDocTable(10, 10);
+  size_t doc_table_size = sizeof(DocTable) + (10 * sizeof(DMDChain));
+  ASSERT_EQ(doc_table_size, (int)dt.memsize);
   t_docId did = 0;
   // N is set to 100 and the max cap of the doc table is 10 so we surely will
   // get overflow and check that everything works correctly
   int N = 100;
   for (int i = 0; i < N; i++) {
-    size_t nkey = sprintf(buf, "doc_%d", i);
+    size_t nkey = snprintf(buf, sizeof(buf), "doc_%d", i);
     RSDocumentMetadata *dmd = DocTable_Put(&dt, buf, nkey, (double)i, Document_DefaultFlags, buf, strlen(buf), DocumentType_Hash);
     t_docId nd = dmd->id;
     DMD_Return(dmd);
@@ -1470,10 +1479,10 @@ TEST_F(IndexTest, testDocTable) {
   ASSERT_EQ(N + 1, dt.size);
   ASSERT_EQ(N, dt.maxDocId);
 #ifdef __x86_64__
-  ASSERT_EQ(10180, (int)dt.memsize);
+  ASSERT_EQ(10180 + doc_table_size, (int)dt.memsize);
 #endif
   for (int i = 0; i < N; i++) {
-    sprintf(buf, "doc_%d", i);
+    snprintf(buf, sizeof(buf), "doc_%d", i);
     const sds key = DocTable_GetKey(&dt, i + 1, NULL);
     ASSERT_STREQ(key, buf);
     sdsfree(key);
@@ -1506,7 +1515,7 @@ TEST_F(IndexTest, testDocTable) {
   RSDocumentMetadata *dmd = DocTable_Put(&dt, "Hello", 5, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   t_docId strDocId = dmd->id;
   ASSERT_TRUE(0 != strDocId);
-  ASSERT_EQ(71, (int)dt.memsize);
+  ASSERT_EQ(71 + doc_table_size, (int)dt.memsize);
 
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};
@@ -1515,7 +1524,7 @@ TEST_F(IndexTest, testDocTable) {
   DMD_Return(dmd);
   dmd = DocTable_Put(&dt, binBuf, binBufLen, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   ASSERT_TRUE(dmd);
-  ASSERT_EQ(148, (int)dt.memsize);
+  ASSERT_EQ(148 + doc_table_size, (int)dt.memsize);
   ASSERT_NE(dmd->id, strDocId);
   ASSERT_EQ(dmd->id, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));

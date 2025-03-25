@@ -7,9 +7,9 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 source $HOME/.cargo/env
 
 # Verify Cargo is in path
-echo $PATH
+cargo -vV
+# Print where `cargo` is located for debugging purposes
+echo "Cargo binary location: $(which cargo)"
 
+# Update to the latest stable toolchain
 rustup update
-rustup update nightly
-# for RedisJSON build with address sanitizer
-rustup component add rust-src --toolchain nightly

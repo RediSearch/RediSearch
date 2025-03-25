@@ -51,6 +51,11 @@ void FieldSpecInfo_Clear(FieldSpecInfo *info) {
 void AggregatedFieldSpecInfo_Clear(AggregatedFieldSpecInfo *info) {
     info->identifier = NULL;
     info->attribute = NULL;
+}
+
+void AggregatedFieldSpecInfo_Clear(AggregatedFieldSpecInfo *info) {
+    info->identifier = NULL;
+    info->attribute = NULL;
     IndexError_Clear(info->error);
 }
 
@@ -91,7 +96,7 @@ static FieldSpecStats FieldStats_Deserialize(const char* type, const MRReply* re
 // IO and cluster traits
 
 void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply){
-    assert(stats);
+    RS_ASSERT(stats);
 
     switch (stats->type) {
         case INDEXFLD_T_VECTOR:
@@ -134,8 +139,8 @@ void AggregatedFieldSpecInfo_Reply(const AggregatedFieldSpecInfo *info, RedisMod
 
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
 void AggregatedFieldSpecInfo_Combine(AggregatedFieldSpecInfo *info, const AggregatedFieldSpecInfo *other) {
-    RedisModule_Assert(info);
-    RedisModule_Assert(other);
+    RS_ASSERT(info);
+    RS_ASSERT(other);
     if (!info->identifier) {
         info->identifier = other->identifier;
     }
@@ -149,26 +154,26 @@ void AggregatedFieldSpecInfo_Combine(AggregatedFieldSpecInfo *info, const Aggreg
 // Deserializes a FieldSpecInfo from a MRReply.
 AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply) {
     AggregatedFieldSpecInfo info = AggregatedFieldSpecInfo_Init();
-    RedisModule_Assert(reply);
+    RS_ASSERT(reply);
     // Validate the reply type - array or map.
-    RedisModule_Assert(MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0));
+    RS_ASSERT(MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0));
     // Make sure the reply is a map, regardless of the protocol.
     MRReply_ArrayToMap((MRReply*)reply);
 
     MRReply *identifier = MRReply_MapElement(reply, "identifier");
-    RedisModule_Assert(identifier);
+    RS_ASSERT(identifier);
     // In hiredis with resp2 '+' is a status reply.
-    RedisModule_Assert(MRReply_Type(identifier) == MR_REPLY_STRING || MRReply_Type(identifier) == MR_REPLY_STATUS);
+    RS_ASSERT(MRReply_Type(identifier) == MR_REPLY_STRING || MRReply_Type(identifier) == MR_REPLY_STATUS);
     info.identifier = MRReply_String(identifier, NULL);
 
     MRReply *attribute = MRReply_MapElement(reply, "attribute");
-    RedisModule_Assert(attribute);
+    RS_ASSERT(attribute);
     // In hiredis with resp2 '+' is a status reply.
-    RedisModule_Assert(MRReply_Type(attribute) == MR_REPLY_STRING || MRReply_Type(attribute) == MR_REPLY_STATUS);
+    RS_ASSERT(MRReply_Type(attribute) == MR_REPLY_STRING || MRReply_Type(attribute) == MR_REPLY_STATUS);
     info.attribute = MRReply_String(attribute, NULL);
 
     MRReply *error = MRReply_MapElement(reply, IndexError_ObjectName);
-    RedisModule_Assert(error);
+    RS_ASSERT(error);
     info.error = IndexError_Deserialize(error);
     // attribute used to determine field type
     info.stats = FieldStats_Deserialize(info.attribute, reply);

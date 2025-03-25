@@ -11,6 +11,9 @@ extern "C" {
 
 class HiddenTest : public ::testing::Test {};
 
+// Test HiddenString ownership mechanism
+// if we take ownership either in creation or later on
+// the buffer pointer should be different than the original
 TEST_F(HiddenTest, testHiddenOwnership) {
   const char *expected = "Text";
   size_t length = 0;
@@ -25,6 +28,8 @@ TEST_F(HiddenTest, testHiddenOwnership) {
   HiddenString_Free(name);
 }
 
+// Test the comparison functions for hidden strings
+// both for case insensitive and case sensitive
 TEST_F(HiddenTest, testHiddenCompare) {
   const char *expected = "Text";
   HiddenString *first = NewHiddenString(expected, strlen(expected), true);
@@ -64,6 +69,35 @@ TEST_F(HiddenTest, testHiddenUnicodeCompare) {
   sdsfree(unicode);
 }
 
+// Test unicode strings comparison
+// The unicode string should get duplicated inside the hidden string ctor
+// So underlying pointers should differ
+// Besides that the two string are equal except for the last character
+// If we compare them case insensitive they should be equal, case sensitive not
+TEST_F(HiddenTest, testHiddenUnicodeCompare) {
+  sds expected = sdsnew("¥£€$®a");
+  HiddenUnicodeString *first = NewHiddenUnicodeString(expected);
+  const char *internalExpected = HiddenUnicodeString_GetUnsafe(first, NULL);
+  sds unicode = sdsnew("¥£€$®A");
+  HiddenUnicodeString *second = NewHiddenUnicodeString(unicode);
+  const char *internalUnicode = HiddenUnicodeString_GetUnsafe(second, NULL);
+  ASSERT_NE(expected, internalExpected);
+  ASSERT_NE(unicode, internalUnicode);
+
+  // Compare Hidden with Hidden
+  ASSERT_NE(HiddenUnicodeString_Compare(first, second), 0);
+  // Compare Hidden with sds
+  ASSERT_EQ(HiddenUnicodeString_CompareC(first, expected), 0);
+  ASSERT_NE(HiddenUnicodeString_CompareC(first, unicode), 0);
+
+  HiddenUnicodeString_Free(first);
+  HiddenUnicodeString_Free(second);
+  sdsfree(expected);
+  sdsfree(unicode);
+}
+
+// Test hidden string duplication
+// Duplicate the string and make sure it is the same as the original
 TEST_F(HiddenTest, testHiddenDuplicate) {
   const char *expected = "Text";
   HiddenString *name = NewHiddenString(expected, strlen(expected), true);

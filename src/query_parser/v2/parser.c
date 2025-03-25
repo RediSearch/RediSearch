@@ -109,13 +109,13 @@ static void setup_trace(QueryParseCtx *ctx) {
 
 static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
-    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX,
-      "%s at offset %d near %.*s", msg, tok->pos, tok->len, tok->s);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+      " at offset %d near %.*s", tok->pos, tok->len, tok->s);
   } else if (tok->type == QT_NUMERIC) {
-    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX,
-      "%s at offset %d near %f", msg, tok->pos, tok->numval);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+      " at offset %d near %f", tok->pos, tok->numval);
   } else {
-    QueryError_SetUserDataAgnosticErrorFmt(status, QUERY_ESYNTAX, msg, " at offset %d", tok->pos);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg, " at offset %d", tok->pos);
   }
 }
 
@@ -2268,8 +2268,7 @@ static YYACTIONTYPE yy_reduce(
     QueryParam_Free(yymsp[0].minor.yy62);
   } else if (yymsp[0].minor.yy62) {
     // we keep the capitalization as is
-    yymsp[0].minor.yy62->gf->field.u.spec = yymsp[-2].minor.yy150.fs;
-    yymsp[0].minor.yy62->gf->field.resolved = true;
+    yymsp[0].minor.yy62->gf->fieldSpec = yymsp[-2].minor.yy150.fs;
     yylhsminor.yy3 = NewGeofilterNode(yymsp[0].minor.yy62);
   }
 }
@@ -2430,7 +2429,8 @@ static YYACTIONTYPE yy_reduce(
     yymsp[0].minor.yy0.type = QT_PARAM_VEC;
     yylhsminor.yy3 = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &yymsp[-2].minor.yy0, &yymsp[0].minor.yy0);
     yylhsminor.yy3->vn.vq->field = yymsp[-1].minor.yy150.fs;
-    RedisModule_Assert(-1 != (rm_asprintf(&yylhsminor.yy3->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy150.tok.len, yymsp[-1].minor.yy150.tok.s)));
+    int n_written = rm_asprintf(&yylhsminor.yy3->vn.vq->scoreField, "__%.*s_score", yymsp[-1].minor.yy150.tok.len, yymsp[-1].minor.yy150.tok.s);
+    RS_ASSERT(n_written != -1);
   } else {
     reportSyntaxError(ctx->status, &yymsp[-3].minor.yy0, "Syntax error: Expecting Vector Similarity command");
     yylhsminor.yy3 = NULL;
@@ -2672,8 +2672,8 @@ static void yy_syntax_error(
 #define TOKEN yyminor
 /************ Begin %syntax_error code ****************************************/
 
-  QueryError_SetUserDataAgnosticErrorFmt(ctx->status, QUERY_ESYNTAX,
-    "Syntax error at offset %d near %.*s",
+  QueryError_SetWithUserDataFmt(ctx->status, QUERY_ESYNTAX,
+    "Syntax error", " at offset %d near %.*s",
     TOKEN.pos, TOKEN.len, TOKEN.s);
 /************ End %syntax_error code ******************************************/
   RSQueryParser_v2_ARG_STORE /* Suppress warning about unused %extra_argument variable */

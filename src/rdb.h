@@ -23,7 +23,7 @@ do {                                                                \
     }                                                               \
     cleanup_exp;                                                    \
   }                                                                 \
-  RedisModule_Assert(oldbuf);                                       \
+  RS_ASSERT(oldbuf);                                                \
   RedisModule_Assert(tmp_len);                                      \
   ptr = allocate_exp(oldbuf, tmp_len);                              \
   RedisModule_Free(oldbuf);                                         \

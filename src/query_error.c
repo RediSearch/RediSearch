@@ -23,7 +23,7 @@ void QueryError_FmtUnknownArg(QueryError *err, ArgsCursor *ac, const char *name)
     n = strlen(s);
   }
 
-  QueryError_SetErrorFmt(err, QUERY_EPARSEARGS, "Unknown argument", " `%.*s` at position %lu for %s",
+  QueryError_SetWithUserDataFmt(err, QUERY_EPARSEARGS, "Unknown argument", " `%.*s` at position %lu for %s",
                          (int)n, s, ac->offset, name);
 }
 
@@ -69,7 +69,24 @@ void QueryError_ClearError(QueryError *err) {
   err->code = QUERY_OK;
 }
 
-void QueryError_SetErrorFmt(QueryError *status, QueryErrorCode code, const char *message, const char *fmt, ...) {
+void QueryError_SetWithUserDataFmt(QueryError *status, QueryErrorCode code, const char *message, const char *fmt, ...) {
+  if (status->code != QUERY_OK) {
+    return;
+  }
+
+  char *formatted = NULL;
+  va_list ap;
+  va_start(ap, fmt);
+  rm_vasprintf(&formatted, fmt, ap);
+  va_end(ap);
+
+  rm_asprintf(&status->detail, "%s%s", message, formatted);
+  rm_free(formatted);
+  status->code = code;
+  status->message = message;
+}
+
+void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, const char *message, const char *fmt, ...) {
   if (status->code != QUERY_OK) {
     return;
   }

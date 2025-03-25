@@ -99,12 +99,12 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
         break;
 
       } else {
-        QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Unknown keyword", " `%.*s` provided", (int)narg, s);
+        QueryError_SetWithUserDataFmt(status, QUERY_EADDARGS, "Unknown keyword", " `%.*s` provided", (int)narg, s);
         return REDISMODULE_ERR;
       }
       // Argument not found, that's ok. We'll handle it below
     } else {
-      QueryError_SetErrorFmt(status, QUERY_EADDARGS, errArg->name, ": %s", AC_Strerror(rv));
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EADDARGS, "Parsing error for document option %s: %s", errArg->name, AC_Strerror(rv));
       return REDISMODULE_ERR;
     }
   }

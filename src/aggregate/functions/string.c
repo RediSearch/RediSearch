@@ -110,7 +110,7 @@ int func_to_number(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   if (!RSValue_ToNumber(&argv[0], &n)) {
     size_t sz = 0;
     const char *p = RSValue_StringPtrLen(&argv[0], &sz);
-    QueryError_SetErrorFmt(ctx->err, QUERY_EPARSEARGS, "to_number: cannot convert string", " '%s'", p);
+    QueryError_SetWithUserDataFmt(ctx->err, QUERY_EPARSEARGS, "to_number: cannot convert string", " '%s'", p);
     return EXPR_EVAL_ERR;
   }
 
@@ -139,7 +139,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
 
     if (ii == fmtsz - 1) {
       // ... %"
-      QERR_MKBADARGS(ctx->err, "Bad format string!");
+      QueryError_SetError(ctx->err, QUERY_EPARSEARGS, "Bad format string!");
       goto error;
     }
 
@@ -155,7 +155,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
     }
 
     if (argix == argc) {
-      QERR_MKBADARGS(ctx->err, "Not enough arguments for format");
+      QueryError_SetError(ctx->err, QUERY_EPARSEARGS, "Not enough arguments for format");
       goto error;
     }
 
@@ -183,7 +183,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
         out = sdscatlen(out, str, sz);
       }
     } else {
-      QERR_MKBADARGS(ctx->err, "Unknown format specifier passed");
+      QueryError_SetError(ctx->err, QUERY_EPARSEARGS, "Unknown format specifier passed");
       goto error;
     }
   }
@@ -196,7 +196,7 @@ static int stringfunc_format(ExprEval *ctx, RSValue *argv, size_t argc, RSValue 
   return EXPR_EVAL_OK;
 
 error:
-  assert(QueryError_HasError(ctx->err));
+  RS_ASSERT(QueryError_HasError(ctx->err));
   sdsfree(out);
   RSValue_MakeReference(result, RS_NullVal());
   return EXPR_EVAL_ERR;

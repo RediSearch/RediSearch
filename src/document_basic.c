@@ -132,13 +132,13 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
   int rv = REDISMODULE_ERR;
   // This is possible if the key has expired for example in previous redis API calls in this notification flow.
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key does not exist or is not a hash", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
+    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Key does not exist or is not a hash", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
 
   size_t nitems = sctx->spec->numFields;
   SchemaRule *rule = spec->rule;
-  assert(rule);
+  RS_ASSERT(rule);
   RedisModuleString *payload_rms = NULL;
   Document_MakeStringsOwner(doc); // TODO: necessary?
   const char *keyname = (const char *)RedisModule_StringPtrLen(doc->docKey, NULL);
@@ -210,7 +210,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
 
   RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   if (!k) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key does not exist", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
+    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Key does not exist", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
 

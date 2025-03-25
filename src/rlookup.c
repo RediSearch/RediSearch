@@ -248,7 +248,7 @@ RLookupKey *RLookup_GetKey_FirstLoad(RLookup *lookup, HiddenString *name, Hidden
 }
 
 RLookupKey *RLookup_GetKey(RLookup *lookup, HiddenString *name, RLookupMode mode, uint32_t flags) {
-  assert(mode != RLOOKUP_M_LOAD);
+  RS_ASSERT(mode != RLOOKUP_M_LOAD);
   RLookupKey *key = RLookup_FindKey(lookup, name);
   return RLookup_GetKey_common(lookup, key, name, NULL, mode, flags);
 }
@@ -355,22 +355,24 @@ void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
   RLookupRow_Wipe(src);
 }
 
-void RLookupRow_Dump(const RLookupRow *rr) {
-  printf("Row @%p\n", rr);
+sds RLookupRow_DumpSds(const RLookupRow *rr, bool obfuscate) {
+  sds s = sdsempty();
+  s = sdscatfmt(s, "Row @%p\n", rr);
   if (rr->dyn) {
-    printf("  DYN @%p\n", rr->dyn);
+    s = sdscatfmt(s, "  DYN @%p\n", rr->dyn);
     for (size_t ii = 0; ii < array_len(rr->dyn); ++ii) {
-      printf("  [%lu]: %p\n", ii, rr->dyn[ii]);
+      s = sdscatfmt(s, "  [%lu]: %p\n", ii, rr->dyn[ii]);
       if (rr->dyn[ii]) {
-        printf("    ");
-        RSValue_Print(rr->dyn[ii]);
-        printf("\n");
+        s = sdscat(s, "    ");
+        s = RSValue_DumpSds(rr->dyn[ii], s, obfuscate);
+        s = sdscat(s, "\n");
       }
     }
   }
   if (rr->sv) {
-    printf("  SV @%p\n", rr->sv);
+    s = sdscatfmt(s, "  SV @%p\n", rr->sv);
   }
+  return s;
 }
 
 static void RLookupKey_Cleanup(RLookupKey *k) {
@@ -448,7 +450,8 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
     case JSONType__EOF:
       break;
   }
-  RS_LOG_ASSERT(0, "Cannot get here");
+  RS_ABORT("Cannot get here");
+  return NULL;
 }
 
 // {"a":1, "b":[2, 3, {"c": "foo"}, 4], "d": null}
@@ -468,12 +471,12 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       RedisJSON value;
       pairs = rm_malloc(sizeof(RSValue*) * len * 2);
       for (; (value = japi->nextKeyValue(iter, &keyName)); ++i) {
-        assert(i < len);
+        RS_ASSERT(i < len);
         pairs[RSVALUE_MAP_KEYPOS(i)] = RS_StealRedisStringVal(keyName);
         pairs[RSVALUE_MAP_VALUEPOS(i)] = jsonValToValueExpanded(ctx, value);
       }
       japi->freeKeyValuesIter(iter);
-      assert(i == len && !value);
+      RS_ASSERT(i == len && !value);
     }
     ret = RSValue_NewMap(pairs, len);
   } else if (type == JSONType_Array) {

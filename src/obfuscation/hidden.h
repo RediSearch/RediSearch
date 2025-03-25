@@ -22,6 +22,7 @@ typedef struct HiddenString HiddenString;
 // HiddenString_Free must be called for the object to release it
 HiddenString *NewHiddenString(const char *name, size_t length, bool takeOwnership);
 // Frees a hidden string, if takeOwnership is true, the buffer is freed as well
+// Frees a hidden string, if takeOwnership is true, the buffer is freed as well
 void HiddenString_Free(const HiddenString *value);
 
 // Comparison functions
