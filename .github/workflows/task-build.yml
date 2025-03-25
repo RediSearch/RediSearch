@@ -40,6 +40,12 @@ jobs:
         id: clone # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
           git clone https://github.com/RediSearch/RediSearch.git
+          cd RediSearch
+          git submodule update --init --recursive
+      - name: verify
+        id: verify_deps
+        run: |
+          .install/verify_build_deps.sh
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
