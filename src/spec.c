@@ -2167,20 +2167,16 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (scanner->cancelled) {
     return;
   }
-  char* error;
   // Get the memory limit and memory usage
   setMemoryInfo(ctx);
   // Check if we need to cancel the scan due to memory limit, if memory limit is set to 0, we don't check it
   if (RSGlobalConfig.indexingMemoryLimit && (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit)) {
-      // const char* percentSign = "%%";
-      // rm_asprintf(&error, "Used memory is more than %u%s of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit,percentSign);
-      rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit);
+    char* error;
+    rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit);
       RedisModule_Log(ctx, "warning", error);
-      scanner->cancelled = true;
-  }
+    scanner->cancelled = true;
 
- if(scanner->cancelled) {
-    // We need to report the error message besides the log, so we can show it in FT.INFO
+      // We need to report the error message besides the log, so we can show it in FT.INFO
     if(!scanner->global) {
       StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
       IndexSpec *sp = StrongRef_Get(curr_run_ref);
@@ -2193,8 +2189,8 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
         // spec was deleted
         RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (index deleted)",
                       scanner->spec_name);
+        }
       }
-    }
     rm_free(error);
     return;
   }
