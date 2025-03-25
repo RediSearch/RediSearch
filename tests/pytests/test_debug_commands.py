@@ -52,6 +52,7 @@ class TestDebugCommands(object):
             "VECSIM_INFO",
             "DELETE_LOCAL_CURSORS",
             "DUMP_HNSW",
+            'GET_HIDE_USER_DATA_FROM_LOGS',
             'FT.AGGREGATE',
             'FT.SEARCH',
         ]
@@ -60,7 +61,7 @@ class TestDebugCommands(object):
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
-        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS']
+        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'GET_HIDE_USER_DATA_FROM_LOGS',]
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
@@ -392,7 +393,6 @@ def testHNSWdump_badParams(env: Env):
     env.expect(debug_cmd(), 'DUMP_HNSW', 'idx','v').error() \
         .contains("Can't open vector index")
 
-
 class TestQueryDebugCommands(object):
     def __init__(self):
         # Set the module default behaviour to non strict timeout policy, as this is the main focus of this test suite
@@ -699,3 +699,17 @@ class TestQueryDebugCommands(object):
         def listResults(res):
             return [{res[i]: res[i + 1]} for i in range(1, len(res[1:]), 2)]
         self.Resp2("SEARCH", ['SORTBY', 'n'], listResults)
+
+# For now allowing access to the value through the debug command
+# Maybe in the future it should be accessible through the FT.CONFIG command and the test move to test_config.py
+# Didn't want to "break" the API by adding a new config parameter
+def test_hideUserDataFromLogs(env):
+    env.skipOnCluster()
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
+    env.assertEqual(value, 0)
+    env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'yes').ok()
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
+    env.assertEqual(value, 1)
+    env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'no').ok()
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
+    env.assertEqual(value, 0)

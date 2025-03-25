@@ -142,9 +142,10 @@ typedef struct {
   int prioritizeIntersectUnionChildren;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
-
   // Enable to execute unstable features
   bool enableUnstableFeatures;
+  // Control user data obfuscation in logs
+  bool hideUserDataFromLog;
 } RSConfig;
 
 typedef enum {
@@ -284,7 +285,8 @@ void UpgradeDeprecatedMTConfigs();
     .numBGIndexingIterationsBeforeSleep = 100,                                  \
     .prioritizeIntersectUnionChildren = false,                                  \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                             \
-    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE                  \
+    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE ,                \
+    .hideUserDataFromLog = false                                               \
   }
 
 #define REDIS_ARRAY_LIMIT 7

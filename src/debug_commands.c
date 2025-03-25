@@ -22,6 +22,10 @@
 #include "cursor.h"
 #include "module.h"
 #include "aggregate/aggregate_debug.h"
+#include "reply.h"
+#include "reply_macros.h"
+#include "obfuscation/obfuscation_api.h"
+#include "info/info_command.h"
 #ifdef RS_COORDINATOR
 #ifndef RS_CLUSTER_ENTERPRISE
 #define RS_CLUSTER_OSS
@@ -1264,6 +1268,11 @@ DEBUG_COMMAND(RSAggregateCommandShard) {
   return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
 }
 
+DEBUG_COMMAND(getHideUserDataFromLogs) {
+  const long long value = RSGlobalConfig.hideUserDataFromLog;
+  return RedisModule_ReplyWithLongLong(ctx, value);
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1293,6 +1302,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_INFO", VecsimInfo},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DUMP_HNSW", dumpHNSWData},
+                               {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
