@@ -156,7 +156,11 @@ FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
 /**Adds an error message to the IndexError of the FieldSpec.
  * This function also updates the global field's type index error counter.
  */
-void FieldSpec_AddError(FieldSpec *, const char *error_message, RedisModuleString *key);
+void FieldSpec_AddError(FieldSpec *, ConstErrorMessage withoutUserData, ConstErrorMessage withUserData, RedisModuleString *key);
+
+static inline void FieldSpec_AddQueryError(FieldSpec *fs, const QueryError *queryError, RedisModuleString *key) {
+  FieldSpec_AddError(fs, QueryError_GetDisplayableError(queryError, true), QueryError_GetDisplayableError(queryError, false), key);
+}
 
 size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);
 

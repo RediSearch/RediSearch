@@ -14,7 +14,7 @@
   static int mathfunc_##f(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,           \
                           QueryError *error) {                                                   \
     if (argc != 1) {                                                                             \
-      QueryError_SetErrorFmt(error, QUERY_EPARSEARGS, "Invalid number of arguments for %s", #f); \
+      QueryError_SetWithoutUserDataFmt(error, QUERY_EPARSEARGS, "Invalid number of arguments for %s", #f); \
       return EXPR_EVAL_ERR;                                                                      \
     }                                                                                            \
     double d;                                                                                    \
