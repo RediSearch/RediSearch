@@ -68,6 +68,7 @@ jobs:
         id: install_rust
         working-directory: RediSearch
         run: |
+          apt install -y curl
           source .install/install_rust.sh
       - name: verify
         id: verify_deps3
