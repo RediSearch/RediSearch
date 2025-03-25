@@ -71,8 +71,8 @@
       return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idxName);                           \
     }                                                                                                       \
     if (checkOOM && sp->scan_failed_OOM) {                                                                  \
-      return RedisModule_ReplyWithErrorFormat(ctx, "%s: Index background scan failed due to OOM.            \
-                                           Queries cannot be executed on an incomplete index.", idxName);   \
+      return RedisModule_ReplyWithErrorFormat(ctx, "%s: Index background scan failed due to OOM."           \
+                                           " Queries cannot be executed on an incomplete index.", idxName );\
     }                                                                                                       \
     if (!ACLUserMayAccessIndex(ctx, sp)) {                                                                  \
       return RedisModule_ReplyWithError(ctx, NOPERM_ERR);                                                   \
