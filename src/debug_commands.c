@@ -533,7 +533,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const TagIndex *tagIndex = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+  const TagIndex *tagIndex = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
 
   // Field was not initialized yet
   if (!tagIndex) {
@@ -606,7 +606,7 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
       goto end;
     }
-    const TagIndex *idx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+    const TagIndex *idx = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
 
     // Field was not initialized yet
     if (!idx) {
@@ -1067,7 +1067,7 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+  const TagIndex *idx = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
 
   // Field was not initialized yet
   if (!idx) {
@@ -1156,7 +1156,7 @@ static void replyDocFlags(const char *name, const RSDocumentMetadata *dmd, Redis
 }
 
 static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
-                            RedisSearchCtx *sctx, RedisModule_Reply *reply) {
+                            RedisSearchCtx *sctx, bool obfuscate, RedisModule_Reply *reply) {
   RSSortingVector *sv = dmd->sortVector;
   RedisModule_ReplyKV_Array(reply, name);
   for (size_t ii = 0; ii < sv->len; ++ii) {
@@ -1168,7 +1168,14 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
 
       RedisModule_Reply_CString(reply, "field");
       const FieldSpec *fs = IndexSpec_GetFieldBySortingIndex(sctx->spec, ii);
-      RedisModule_Reply_Stringf(reply, "%s AS %s", fs ? fs->path : "!!!", fs ? fs->name : "???");
+
+      if (!fs) {
+        RedisModule_Reply_CString(reply, "!!! AS ???");
+      } else if (!fs->path) {
+        RedisModule_Reply_CString(reply, fs->name);
+      } else {
+        RedisModule_Reply_Stringf(reply, "%s AS %s", fs->path, fs->name);
+      }
 
       RedisModule_Reply_CString(reply, "value");
       RSValue_SendReply(reply, sv->values[ii], 0);
@@ -1178,13 +1185,13 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
 }
 
 /**
- * FT.DEBUG DOC_INFO <index> <doc>
+ * FT.DEBUG DOC_INFO <index> <doc> [OBFUSCATE/REVEAL]
  */
 DEBUG_COMMAND(DocInfo) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  if (argc < 4) {
+  if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2]);
@@ -1193,6 +1200,14 @@ DEBUG_COMMAND(DocInfo) {
   if (!dmd) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
+  }
+
+  const char *obfuscateOrReveal = RedisModule_StringPtrLen(argv[4], NULL);
+  const bool reveal = !strcasecmp(obfuscateOrReveal, "REVEAL");
+  const bool obfuscate = !strcasecmp(obfuscateOrReveal, "OBFUSCATE");
+  if (!reveal && !obfuscate) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Invalid argument. Expected REVEAL or OBFUSCATE as the last argument");
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
@@ -1205,7 +1220,7 @@ DEBUG_COMMAND(DocInfo) {
     RedisModule_ReplyKV_LongLong(reply, "max_freq", dmd->maxFreq);
     RedisModule_ReplyKV_LongLong(reply, "refcount", dmd->ref_count - 1); // TODO: should include the refcount of the command call?
     if (dmd->sortVector) {
-      replySortVector("sortables", dmd, sctx, reply);
+      replySortVector("sortables", dmd, sctx, obfuscate, reply);
     }
   RedisModule_Reply_MapEnd(reply);
 
@@ -1614,6 +1629,14 @@ DEBUG_COMMAND(bgScanController) {
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'BG_SCAN_CONTROLLER'");
 
 }
+DEBUG_COMMAND(ListIndexesSwitch) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+  Indexes_List(&_reply, true);
+  return REDISMODULE_OK;
+}
 
 DEBUG_COMMAND(getHideUserDataFromLogs) {
   if (!debugCommandsEnabled(ctx)) {
@@ -1655,6 +1678,8 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"DUMP_HNSW", dumpHNSWData},
                                {"WORKERS", WorkerThreadsSwitch},
                                {"BG_SCAN_CONTROLLER", bgScanController},
+                               {"INDEXES", ListIndexesSwitch},
+                               {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.

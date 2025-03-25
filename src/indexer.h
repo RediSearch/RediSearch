@@ -47,7 +47,6 @@ typedef struct DocumentIndexer {
   ConcurrentSearchCtx concCtx;     // GIL locking. This is repopulated with the relevant key data
   RedisModuleCtx *redisCtx;        // Context for keeping the spec key
   RedisModuleString *specKeyName;  // Cached, used for opening/closing the spec key.
-  uint64_t specId;                 // Unique spec ID. Used to verify we haven't been replaced
 } DocumentIndexer;
 
 void Indexer_Free(DocumentIndexer *indexer);
