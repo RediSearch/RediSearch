@@ -1681,7 +1681,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-_stop-indexing-memory-percent",
+      ctx, "search-_bg_index_mem_pct_thr",
       DEFAULT_INDEXING_MEMORY_LIMIT,
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
       100, get_uint_numeric_config, set_uint_numeric_config, NULL,
