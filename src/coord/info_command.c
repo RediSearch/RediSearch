@@ -8,7 +8,6 @@
 #include "resp3.h"
 #include "info/field_spec_info.h"
 #include "../src/reply_macros.h"
-#include "../src/util/hash/hash.h"
 
 // Type of field returned in INFO
 typedef enum {
