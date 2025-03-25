@@ -41,8 +41,8 @@ jobs:
         run: |
           git clone https://github.com/RediSearch/RediSearch.git
           cd RediSearch
-          git submodule update --init --recursive
           git checkout meiravg_verify_build_deps
+          git submodule update --init --recursive
       - name: verify
         id: verify_deps
         working-directory: RediSearch
