@@ -58,7 +58,7 @@ jobs:
           update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 60 --slave /usr/bin/g++ g++ /usr/bin/g++-12
           update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-12 60
       - name: verify
-        id: verify_deps
+        id: verify_deps2
         working-directory: RediSearch
         run: |
           echo $PWD
@@ -70,7 +70,7 @@ jobs:
         run: |
           source .install/install_rust.sh
       - name: verify
-        id: verify_deps
+        id: verify_deps3
         working-directory: RediSearch
         run: |
           echo $PWD
