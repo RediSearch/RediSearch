@@ -9,6 +9,7 @@
 #include "rmutil/util.h"
 #include "rmutil/vector.h"
 #include "query_param.h"
+#include "fast_float/fast_float_strtod.h"
 
 int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
                       int sign, QueryError *status) {
@@ -29,9 +30,9 @@ int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
   }
   char *endptr = NULL;
   errno = 0;
-  *target = strtod(s, &endptr);
+  *target = fast_float_strtod(s, &endptr);
   if (*endptr != '\0' || *target == HUGE_VAL || *target == -HUGE_VAL) {
-    QERR_MKBADARGS_FMT(status, "Bad %s range: %s", isMin ? "lower" : "upper", s);
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, isMin ? "Bad lower range" : "Bad upper range", ": %s", s);
     return REDISMODULE_ERR;
   }
   if(sign == -1) {
@@ -58,7 +59,7 @@ int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
  */
 LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status) {
   if (AC_NumRemaining(ac) < 3) {
-    QERR_MKBADARGS_FMT(status, "FILTER requires 3 arguments");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "FILTER requires 3 arguments");
     return NULL;
   }
 

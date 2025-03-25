@@ -13,15 +13,3 @@ echo "Cargo binary location: $(which cargo)"
 
 # Update to the latest stable toolchain
 rustup update
-
-# --allow-downgrade:
-#   Allow `rustup` to install an older `nightly` if the latest one
-#   is missing one of the components we need.
-# llvm-tools-preview:
-#   Required by `cargo-llvm-cov` for test coverage
-# rust-src:
-#   Required to build RedisJSON with address sanitizer
-rustup toolchain install nightly \
-    --allow-downgrade \
-    --component llvm-tools-preview \
-    --component rust-src

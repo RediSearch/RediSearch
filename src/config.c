@@ -227,7 +227,7 @@ CONFIG_SETTER(setMinStemLen) {
   unsigned int minStemLen;
   int acrc = AC_GetUnsigned(ac, &minStemLen, AC_F_GE1);
   if (minStemLen < MIN_MIN_STEM_LENGTH) {
-    QueryError_SetErrorFmt(status, MIN_MIN_STEM_LENGTH, "Minimum stem length cannot be lower than %u", MIN_MIN_STEM_LENGTH);
+    QueryError_SetWithoutUserDataFmt(status, MIN_MIN_STEM_LENGTH, "Minimum stem length cannot be lower than %u", MIN_MIN_STEM_LENGTH);
     return REDISMODULE_ERR;
   }
   config->iteratorsConfigParams.minStemLength = minStemLen;
@@ -343,7 +343,7 @@ CONFIG_GETTER(getTimeout) {
 #endif
 
 static inline int errorTooManyThreads(QueryError *status) {
-  QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
+  QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
   return REDISMODULE_ERR;
 }
 
@@ -462,7 +462,7 @@ CONFIG_SETTER(setDeprWorkThreads) {
   int acrc = AC_GetSize(ac, &newNumThreads, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (newNumThreads > MAX_WORKER_THREADS) {
-    QueryError_SetErrorFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Number of worker threads cannot exceed %d", MAX_WORKER_THREADS);
     return REDISMODULE_ERR;
   }
   numWorkerThreads_config = newNumThreads;
@@ -747,7 +747,7 @@ CONFIG_SETTER(setDefaultDialectVersion) {
   unsigned int dialectVersion;
   int acrc = AC_GetUnsigned(ac, &dialectVersion, AC_F_GE1);
   if (dialectVersion > MAX_DIALECT_VERSION) {
-    QueryError_SetErrorFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
+    QueryError_SetWithoutUserDataFmt(status, MAX_DIALECT_VERSION, "Default dialect version cannot be higher than %u", MAX_DIALECT_VERSION);
     return REDISMODULE_ERR;
   }
   config->requestConfigParams.dialectVersion = dialectVersion;
@@ -978,7 +978,7 @@ int ReadConfig(RedisModuleString **argv, int argc, char **err) {
     // If we don't have a coordinator or this configuration has no trigger, this value
     // is meaningless and should be ignored
     if (curVar->setValue(&RSGlobalConfig, &ac, curVar->triggerId, &status) != REDISMODULE_OK) {
-      *err = rm_strdup(QueryError_GetError(&status));
+      *err = rm_strdup(QueryError_GetUserError(&status));
       QueryError_ClearError(&status);
       return REDISMODULE_ERR;
     }

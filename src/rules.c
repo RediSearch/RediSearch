@@ -9,6 +9,7 @@
 #include "aggregate/expr/exprast.h"
 #include "json.h"
 #include "rdb.h"
+#include "fast_float/fast_float_strtod.h"
 
 TrieMap *SchemaPrefixes_g;
 
@@ -34,7 +35,7 @@ int DocumentType_Parse(const char *type_str, DocumentType *type, QueryError *sta
     *type = DocumentType_Json;
     return REDISMODULE_OK;
   }
-  QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Invalid rule type: %s", type_str);
+  QueryError_SetWithUserDataFmt(status, QUERY_EADDARGS, "Invalid rule type", ": %s", type_str);
   return REDISMODULE_ERR;
 }
 
@@ -90,7 +91,7 @@ SchemaRule *SchemaRule_Create(SchemaRuleArgs *args, StrongRef ref, QueryError *s
   if (args->score_default) {
     double score;
     char *endptr = {0};
-    score = strtod(args->score_default, &endptr);
+    score = fast_float_strtod(args->score_default, &endptr);
     if (args->score_default == endptr || score < 0 || score > 1) {
       QueryError_SetError(status, QUERY_EADDARGS, "Invalid score");
       goto error;

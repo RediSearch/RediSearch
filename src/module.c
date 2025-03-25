@@ -7,7 +7,6 @@
 #define REDISMODULE_MAIN
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
 #include <time.h>
@@ -58,6 +57,7 @@
 #include "coord/info_command.h"
 #include "info/global_stats.h"
 #include "util/units.h"
+#include "fast_float/fast_float_strtod.h"
 #include "aggregate/aggregate_debug.h"
 
 #define VERIFY_ACL(ctx, idxR, checkOOM)                                                                     \
@@ -238,7 +238,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     ArgsCursor_InitRString(&ac, argv+dialectArgIndex, argc-dialectArgIndex);
     QueryError status = {0};
     if(parseDialect(&dialect, &ac, &status) != REDISMODULE_OK) {
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+      RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
       QueryError_ClearError(&status);
       return REDISMODULE_OK;
     }
@@ -257,7 +257,7 @@ int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   int rc = QAST_Parse(&qast, sctx, &opts, rawQuery, len, dialect, &status);
 
   if (rc != REDISMODULE_OK) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     goto end;
   }
 
@@ -439,8 +439,8 @@ int TagValsCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     goto cleanup;
   }
 
-  RedisModuleString *rstr = TagIndex_FormatName(sctx, field);
-  TagIndex *idx = TagIndex_Open(sctx, rstr, DONT_CREATE_INDEX);
+  RedisModuleString *rstr = TagIndex_FormatName(sctx->spec, field);
+  TagIndex *idx = TagIndex_Open(sctx->spec, rstr, DONT_CREATE_INDEX);
   RedisModule_FreeString(ctx, rstr);
   if (!idx) {
     RedisModule_ReplyWithSetOrArray(ctx, 0);
@@ -495,7 +495,7 @@ int CreateIndexCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
 
   IndexSpec *sp = IndexSpec_CreateNew(ctx, argv, argc, &status);
   if (sp == NULL) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
     return REDISMODULE_OK;
   }
@@ -999,28 +999,12 @@ int ConfigCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 }
 
 int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (argc != 1) {
+  if (argc > 2) {
     return RedisModule_WrongArity(ctx);
   }
 
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  RedisModule_Reply_Set(reply);
-    dictIterator *iter = dictGetIterator(specDict_g);
-    dictEntry *entry = NULL;
-    while ((entry = dictNext(iter))) {
-      StrongRef ref = dictGetRef(entry);
-      IndexSpec *sp = StrongRef_Get(ref);
-      if (isUnsafeForSimpleString(sp->name)) {
-        char *escaped = escapeSimpleString(sp->name);
-        RedisModule_Reply_SimpleString(reply, escaped);
-        rm_free(escaped);
-      } else {
-        RedisModule_Reply_SimpleString(reply, sp->name);
-      }
-    }
-    dictReleaseIterator(iter);
-  RedisModule_Reply_SetEnd(reply);
-  RedisModule_EndReply(reply);
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+  Indexes_List(&_reply, false);
   return REDISMODULE_OK;
 }
 
@@ -1775,7 +1759,7 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
     QueryVectorNode queryVectorNode = queryNode->vn;
     size_t k = queryVectorNode.vq->knn.k;
     if (k > MAX_KNN_K) {
-      QueryError_SetErrorFmt(status, QUERY_ELIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
       goto cleanup;
     }
     specialCaseCtx *ctx = SpecialCaseCtx_New();
@@ -2055,7 +2039,7 @@ searchResult *newResult_resp2(searchResult *cached, MRReply *arr, int j, searchR
   if (res->sortKey) {
     if (res->sortKey[0] == '#') {
       char *endptr;
-      res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
+      res->sortKeyNum = fast_float_strtod(res->sortKey + 1, &endptr);
       RS_ASSERT(endptr == res->sortKey + res->sortKeyLen);
     }
     // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
@@ -2126,7 +2110,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
       if (res->sortKey) {
         if (res->sortKey[0] == '#') {
           char *endptr;
-          res->sortKeyNum = strtod(res->sortKey + 1, &endptr);
+          res->sortKeyNum = fast_float_strtod(res->sortKey + 1, &endptr);
           RS_ASSERT(endptr == res->sortKey + res->sortKeyLen);
         }
         // fprintf(stderr, "Sort key string '%s', num '%f\n", res->sortKey, res->sortKeyNum);
@@ -2232,7 +2216,7 @@ static int cmp_scored_results(const void *p1, const void *p2, const void *udata)
 static double parseNumeric(const char *str, const char *sortKey) {
     RS_ASSERT(str[0] == '#');
     char *eptr;
-    double d = strtod(str + 1, &eptr);
+    double d = fast_float_strtod(str + 1, &eptr);
     RS_ASSERT(eptr != sortKey + 1 && *eptr == 0);
     return d;
 }
@@ -3097,7 +3081,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // Reply with error
-    return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
   }
   if (sp->scan_failed_OOM) {
     return RedisModule_ReplyWithErrorFormat(ctx,
@@ -3419,7 +3403,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
     // Reply with error
-    return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
+    return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
   }
   if (sp->scan_failed_OOM) {
     return RedisModule_ReplyWithErrorFormat(ctx,

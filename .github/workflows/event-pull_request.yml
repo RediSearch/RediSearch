@@ -54,6 +54,7 @@ jobs:
       san: address
       env: ubuntu-latest
       rejson-branch: master
+      run_miri: true
 
   pr-validation:
     needs:

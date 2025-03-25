@@ -10,6 +10,8 @@
 #include "util/timeout.h"
 #include "util/strconv.h"
 #include "rmutil/rm_assert.h"
+#include "obfuscation/obfuscation_api.h"
+#include "query_error.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
@@ -32,22 +34,32 @@ static void initDefaultKey() {
 IndexError IndexError_Init() {
     if (!NA_rstr) initDefaultKey();
     IndexError error = {0}; // Initialize all fields to 0.
-    error.last_error = NA;  // Last error message set to NA.
+    error.last_error_without_user_data = NA;  // Last error message set to NA.
+    error.last_error_with_user_data = NA;  // Last error message set to NA.
     // Key of the document that caused the error set to NA.
     error.key = RedisModule_HoldString(RSDummyContext, NA_rstr);
     return error;
 }
-void IndexError_AddError(IndexError *error, const char *error_message, RedisModuleString *key) {
+
+static inline void IndexError_ClearLastError(IndexError *error) {
+    if (error->last_error_without_user_data != NA) {
+        rm_free(error->last_error_without_user_data);
+    }
+    if (error->last_error_with_user_data != NA) {
+        rm_free(error->last_error_with_user_data);
+    }
+}
+
+void IndexError_AddError(IndexError *error, ConstErrorMessage withoutUserData, ConstErrorMessage withUserData, RedisModuleString *key) {
     if (!NA_rstr) initDefaultKey();
-    if (!error_message) {
+    if (!withoutUserData || !withUserData) {
         RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING,
                         "Index error occurred but no index error message was set.");
     }
-    if (error->last_error != NA) {
-        rm_free(error->last_error);
-    }
+    IndexError_ClearLastError(error);
     RedisModule_FreeString(RSDummyContext, error->key);
-    error->last_error = error_message ? rm_strdup(error_message) : NA; // Don't strdup NULL.
+    error->last_error_without_user_data = withoutUserData ? rm_strdup(withoutUserData) : NA; // Don't strdup NULL.
+    error->last_error_with_user_data = withUserData ? rm_strdup(withUserData) : NA; // Don't strdup NULL.
     error->key = RedisModule_HoldString(RSDummyContext, key);
     RedisModule_TrimStringAllocation(error->key);
     // Atomically increment the error_count by 1, since this might be called when spec is unlocked.
@@ -62,9 +74,13 @@ void IndexError_RaiseBackgroundIndexFailureFlag(IndexError *error) {
 
 void IndexError_Clear(IndexError error) {
     if (!NA_rstr) initDefaultKey();
-    if (error.last_error != NA && error.last_error != NULL) {
-        rm_free(error.last_error);
-        error.last_error = NA;
+    if (error.last_error_without_user_data != NA && error.last_error_without_user_data != NULL) {
+        rm_free(error.last_error_without_user_data);
+        error.last_error_without_user_data = NA;
+    }
+    if (error.last_error_with_user_data != NA && error.last_error_with_user_data != NULL) {
+      rm_free(error.last_error_with_user_data);
+      error.last_error_with_user_data = NA;
     }
     if (error.key != NA_rstr) {
         RedisModule_FreeString(RSDummyContext, error.key);
@@ -72,12 +88,20 @@ void IndexError_Clear(IndexError error) {
     }
 }
 
-void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_timestamp, bool withOOMstatus) {
+void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate, bool withOOMstatus) {
     RedisModule_Reply_Map(reply);
     REPLY_KVINT(IndexingFailure_String, IndexError_ErrorCount(error));
-    REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastError(error));
-    REPLY_KVRSTR(IndexingErrorKey_String, IndexError_LastErrorKey(error));
-    if (with_timestamp) {
+    RedisModuleString *lastErrorKey = NULL;
+    if (obfuscate) {
+      lastErrorKey = IndexError_LastErrorKeyObfuscated(error);
+      REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastErrorObfuscated(error));
+    } else {
+      lastErrorKey = IndexError_LastErrorKey(error);
+      REPLY_KVSTR_SAFE(IndexingError_String, IndexError_LastError(error));
+    }
+    REPLY_KVRSTR(IndexingErrorKey_String, lastErrorKey);
+    RedisModule_FreeString(RSDummyContext, lastErrorKey);
+    if (withTimestamp) {
         struct timespec ts = IndexError_LastErrorTime(error);
         REPLY_KVARRAY(IndexingErrorTime_String);
         RedisModule_Reply_LongLong(reply, ts.tv_sec);
@@ -98,12 +122,30 @@ size_t IndexError_ErrorCount(const IndexError *error) {
 
 // Returns the last error message in the IndexError.
 const char *IndexError_LastError(const IndexError *error) {
-    return error->last_error;
+    return error->last_error_with_user_data;
+}
+
+const char *IndexError_LastErrorObfuscated(const IndexError *error) {
+  return error->last_error_without_user_data;
 }
 
 // Returns the key of the document that caused the error.
-const RedisModuleString *IndexError_LastErrorKey(const IndexError *error) {
-    return error->key;
+RedisModuleString *IndexError_LastErrorKey(const IndexError *error) {
+  // We use hold string so the caller can always call free string regardless which clause of the if was reached
+  return RedisModule_HoldString(RSDummyContext, error->key);
+}
+
+RedisModuleString *IndexError_LastErrorKeyObfuscated(const IndexError *error) {
+  if (error->key == NA_rstr) {
+    return RedisModule_HoldString(RSDummyContext, error->key);
+  } else {
+    char documentName[MAX_OBFUSCATED_KEY_NAME];
+    // When a document indexing error occurs we will not assign the document with an id
+    // There is nothing for us to pass around between the shard and the coordinator
+    // We use the last error time to obfuscate the document name
+    Obfuscate_KeyWithTime(error->last_error_time, documentName);
+    return RedisModule_CreateString(RSDummyContext, documentName, strlen(documentName));
+  }
 }
 
 // Returns the last error time in the IndexError.
@@ -117,9 +159,10 @@ void IndexError_Combine(IndexError *error, const IndexError *other) {
     if (!rs_timer_ge(&error->last_error_time, &other->last_error_time)) {
         // Prefer the other error.
         // copy/add error count later.
-        if (error->last_error != NA) rm_free(error->last_error);
+        IndexError_ClearLastError(error);
         RedisModule_FreeString(RSDummyContext, error->key);
-        error->last_error = rm_strdup(other->last_error);
+        error->last_error_without_user_data = rm_strdup(other->last_error_without_user_data);
+        error->last_error_with_user_data = rm_strdup(other->last_error_with_user_data);
         error->key = RedisModule_HoldString(RSDummyContext, other->key);
         error->last_error_time = other->last_error_time;
     }
@@ -137,11 +180,10 @@ void IndexError_SetErrorCount(IndexError *error, size_t error_count) {
 
 // Set the last_error of the IndexError.
 void IndexError_SetLastError(IndexError *error, const char *last_error) {
-    if (error->last_error != NA) {
-        rm_free(error->last_error);
-    }
+    IndexError_ClearLastError(error);
     // Don't strdup NULL.
-    error->last_error = (last_error != NULL && last_error != NA) ? rm_strdup(last_error) : NA;
+    error->last_error_without_user_data = (last_error != NULL && last_error != NA) ? rm_strdup(last_error) : NA;
+    error->last_error_with_user_data = (last_error != NULL && last_error != NA) ? rm_strdup(last_error) : NA;
 }
 
 // Set the key of the IndexError. The key should be owned by the error already.
