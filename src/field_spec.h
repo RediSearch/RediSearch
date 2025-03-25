@@ -151,7 +151,7 @@ void FieldSpec_Cleanup(FieldSpec* fs);
  */
 const char *FieldSpec_GetTypeNames(int idx);
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate);
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
 
 /**Adds an error message to the IndexError of the FieldSpec.
  * This function also updates the global field's type index error counter.
