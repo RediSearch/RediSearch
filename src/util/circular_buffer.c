@@ -228,11 +228,11 @@ size_t CircularBuffer_ReadAll(CircularBuffer cb, void *dst, bool advance){
   }
 
   // Calculate the starting position for reading
-  int64_t item_count = (int64_t)atomic_load(&cb->item_count);
-  int64_t write = (int64_t)atomic_load(&cb->write);
-  int64_t write_idx = write / cb->item_size;
-  int64_t read_idx;
-  if (write_idx - item_count >= 0) {
+  uint64_t item_count = (int64_t)atomic_load(&cb->item_count);
+  uint64_t write = (int64_t)atomic_load(&cb->write);
+  uint64_t write_idx = write / cb->item_size;
+  uint64_t read_idx;
+  if (write_idx >= item_count) {
     read_idx = write_idx - item_count;
   } else {// Adjusts read_idx to handle negative values by wrapping around the circular buffer.
     read_idx = cb->item_cap + write_idx - item_count;
