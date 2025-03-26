@@ -4355,6 +4355,7 @@ def test_with_tls():
 
     common_with_auth(env)
 
+@skip(cluster=False)
 def test_with_tls_and_non_tls_ports():
     """Tests that the coordinator-shard connections are using the correct
     protocol (TLS and non-TLS) according to the redis `tls-cluster` configuratoin"""
@@ -4368,19 +4369,7 @@ def test_with_tls_and_non_tls_ports():
 
     # Upon setting `tls-cluster` to `no`, we should still be able to succeed
     # connecting the coordinator to the shards, just not in TLS mode.
-
-    # Set the `tls-port` to some port for each shard
-    for i in range(env.shardsCount):
-        conn = env.getConnection(i)
-        res = conn.execute_command('CONFIG', 'SET', 'port', env.envRunner.shards[i].port + 1500)
-        print(f'res: {res}')
-
-    print('before', env.cmd('CLUSTER', 'SLOTS'))
-
-    env.cmd('CONFIG', 'SET', 'tls-cluster', 'no')
-    run_command_on_all_shards(env, 'SEARCH.CLUSTERREFRESH')
-
-    print('after', env.cmd('CLUSTER', 'SLOTS'))
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
 
     common_with_auth(env)
 
