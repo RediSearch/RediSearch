@@ -4358,14 +4358,15 @@ def test_with_tls():
 @skip(cluster=False)
 def test_with_tls_and_non_tls_ports():
     """Tests that the coordinator-shard connections are using the correct
-    protocol (TLS and non-TLS) according to the redis `tls-cluster` configuratoin"""
+    protocol (TLS vs. non-TLS) according to the redis `tls-cluster` configuratoin"""
 
     cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
-    env = Env(useTLS=True,         # Sets the ports to be non-TLS ports.
+    env = Env(useTLS=True,
               tlsCertFile=cert_file,
               tlsKeyFile=key_file,
               tlsCaCertFile=ca_cert_file,
-              tlsPassphrase=passphrase)
+              tlsPassphrase=passphrase,
+              dualTLS=True)        # Sets the ports to be both TLS and regular ports.
 
     # Upon setting `tls-cluster` to `no`, we should still be able to succeed
     # connecting the coordinator to the shards, just not in TLS mode.
