@@ -102,18 +102,6 @@ void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, c
   status->message = status->detail;
 }
 
-void QueryError_SetUserDataAgnosticErrorFmt(QueryError *status, QueryErrorCode code, const char *fmt, ...) {
-  if (status->code != QUERY_OK) {
-    return;
-  }
-  va_list ap;
-  va_start(ap, fmt);
-  rm_vasprintf(&status->detail, fmt, ap);
-  va_end(ap);
-  status->code = code;
-  status->message = status->detail;
-}
-
 void QueryError_MaybeSetCode(QueryError *status, QueryErrorCode code) {
   // Set the code if not previously set. This should be used by code which makes
   // use of the ::detail field, and is a placeholder for something like:

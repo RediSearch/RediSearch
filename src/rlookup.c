@@ -84,7 +84,6 @@ const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const HiddenString 
 
 static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
   key->flags |= RLOOKUP_F_DOCSRC | RLOOKUP_F_SCHEMASRC;
-  // TODO: Rlookup should also use hidden string
   size_t pathLen = 0;
   if (key->path != fs->fieldPath) {
     HiddenString_Free(key->path);
