@@ -138,11 +138,6 @@ typedef struct {
 } Field;
 
 #define FIELD_NAME(f) ((f).resolved ? (f).u.spec->fieldName : (f).u.name)
-
-typedef struct IndexSpec IndexSpec;
-const FieldSpec *FieldSpec_Resolve(Field *f, const IndexSpec *spec);
-const FieldSpec *FieldSpec_Resolved(const Field *f);
-
 #define FIELD_IS(f, t) (((f)->types) & (t))
 #define FIELD_CHKIDX(fmask, ix) (fmask & ix)
 
