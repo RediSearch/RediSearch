@@ -378,6 +378,18 @@ unsafe extern "C" fn TrieMap_Delete(
                 // either NULL or a valid pointer to a function of type `freeCB.
                 // If that invariant is upheld, then the following line is sound.
                 unsafe { f(val) }
+            } else {
+                // SAFETY:
+                // The safety requirements of this function
+                // require the caller to ensure that the Redis allocator is initialized,
+                // and that `RedisModule_Free` does not get mutated while running this function.
+                let rm_free = unsafe {
+                    redis_module::raw::RedisModule_Free.expect("Redis allocator not available")
+                };
+                // SAFETY:
+                // The safety requirements of this function
+                // require the caller to ensure that the Redis allocator is properly initialized.
+                unsafe { rm_free(old_value) };
             }
             1
         })

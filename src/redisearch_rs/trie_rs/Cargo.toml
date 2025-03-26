@@ -18,6 +18,7 @@ ffi = ["redis_allocator"]
 [dependencies]
 libc.workspace = true
 low_memory_thin_vec.workspace = true
+bilge.workspace = true
 redis-module = { workspace = true, optional = true }
 
 [dev-dependencies]

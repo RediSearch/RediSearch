@@ -2,6 +2,7 @@
 pub mod ffi;
 
 pub mod trie;
+pub(crate) mod node;
 
 /// Registers the Redis module allocator
 /// as the global allocator for the application.

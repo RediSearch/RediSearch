@@ -35,6 +35,7 @@ low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 trie_rs = { path = "./trie_rs" }
 
 bindgen = "0.71.1"
+bilge = "0.2.0"
 cc = "1"
 criterion = { version = "0.5", features = ["html_reports"] }
 fs-err = "3.1.0"
