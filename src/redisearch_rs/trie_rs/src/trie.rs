@@ -43,7 +43,7 @@ impl<T> TrieMap<T> {
                 return self.root.take().and_then(|n| n.data);
             } else {
                 let data = root.data.take();
-                root.merge_child();
+                root.merge_child_if_possible();
                 return data;
             }
         }
@@ -53,7 +53,7 @@ impl<T> TrieMap<T> {
         let suffix = key.strip_prefix(root.label.as_slice())?;
         let data = root.remove_child(suffix);
         // After removing the child, we attempt to merge the child into the root.
-        root.merge_child();
+        root.merge_child_if_possible();
         data
     }
 
@@ -242,43 +242,68 @@ impl<Data> Node<Data> {
         }
 
         // In this case, the node and the key do share a common prefix.
+        // That shared prefix is `&key[..equal_up_to].
         //
         // Create a new node that uses the shared prefix as its label.
         // The prefix is then stripped from both the current label and the
         // new key; the resulting suffixes are used as labels for the new child nodes.
+
+        // Note: we will be swapping the old parent with the new parent.
+        // Before the swap, `self` points to the old parent. After the swap,
+        // `self` points to the new parent.
+
+        // The label of the old parent, stripped of the shared prefix.
+        // We'll assign the old parent this label once we swap out the old parent with the new one.
         let old_parent_suffix = LowMemoryThinVec::from_slice(&self.label[equal_up_to..]);
-        let child_suffix = LowMemoryThinVec::from_slice(&key[equal_up_to..]);
-        let shared_prefix = {
+
+        // The label of the new child node that is to be inserted, which is the key stripped of the shared prefix.
+        let newly_inserted_child_suffix = LowMemoryThinVec::from_slice(&key[equal_up_to..]);
+
+        // The label of the new parent node, which is the shared prefix.
+        let new_parent_label = {
             let mut l = std::mem::take(&mut self.label);
             l.truncate(equal_up_to);
             l
         };
 
+        // The new parent node, which holds the shared prefix as label,
+        // and will be swapped with the old parent.
         let new_parent = Node {
             children: ChildRefs::default(),
             data: None,
-            label: shared_prefix,
+            label: new_parent_label,
         };
+
+        // Swap the old parent with the new parent.
+        // After this statement, `self` refers to the new parent node.
         let mut old_parent = std::mem::replace(self, new_parent);
 
-        let new_child = Node {
+        // The new child node, which holds the key suffix as label,
+        // and will be inserted as a child of the new parent.
+        let newly_inserted_child = Node {
             children: ChildRefs::default(),
             data: Some(f(None)),
-            label: child_suffix,
+            label: newly_inserted_child_suffix,
         };
+        // Set the old parent's label to the old parent's suffix,
+        // i.e. its original label stripped of the shared prefix.
         old_parent.label = old_parent_suffix;
 
+        // Create ChildRefs for the old parent and the new child,
+        // so that they can be inserted into the new parent's children.
         let old_parent_first_byte = old_parent.label[0];
         let old_parent_ref = ChildRef {
             first_byte: old_parent_first_byte,
             node: old_parent,
         };
-        let new_child_first_byte = new_child.label[0];
+        let new_child_first_byte = newly_inserted_child.label[0];
         let new_child_ref = ChildRef {
             first_byte: new_child_first_byte,
-            node: new_child,
+            node: newly_inserted_child,
         };
-
+        // Build the children vector for the new parent,
+        // which will hold the old parentt as well as the
+        // newly inserted child.
         let children = match old_parent_first_byte.cmp(&new_child_first_byte) {
             Ordering::Less => {
                 low_memory_thin_vec![old_parent_ref, new_child_ref]
@@ -294,6 +319,7 @@ impl<Data> Node<Data> {
             }
         };
 
+        // Assign the children vector to the new parent.
         self.children = ChildRefs(children);
     }
 
@@ -319,7 +345,7 @@ impl<Data> Node<Data> {
             } else {
                 // If there's a single grandchild,
                 // we merge the grandchild into the child.
-                child.merge_child();
+                child.merge_child_if_possible();
             }
 
             return data;
@@ -331,7 +357,7 @@ impl<Data> Node<Data> {
         debug_assert!(!suffix.is_empty());
 
         let data = child.remove_child(suffix);
-        child.merge_child();
+        child.merge_child_if_possible();
         data
     }
 
@@ -340,7 +366,7 @@ impl<Data> Node<Data> {
     /// childreninto `self`. Depending on the spare capacity of `self`s label
     /// and that of the child, we either extend `self`s label with the child's label,
     /// or vice versa.
-    fn merge_child(&mut self) {
+    fn merge_child_if_possible(&mut self) {
         if self.data.is_some() {
             return;
         }
