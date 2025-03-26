@@ -441,8 +441,8 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
 }
 
 void IndexSpec_SetIndexErrorMessage(IndexSpec *sp, const char *error, bool withUserData, RedisModuleString *key) {
-  RedisModule_Assert(sp);
-  RedisModule_Assert(error);
+  RS_ASSERT(sp);
+  RS_ASSERT(error);
   const char* error_withUserData = withUserData ? error : NULL;
   const char* error_withoutUserData = withUserData ? NULL : error;
   IndexError_AddError(&sp->stats.indexError, error_withoutUserData, error_withUserData, key);

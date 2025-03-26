@@ -41,7 +41,7 @@ configPair_t __configPairs[] = {
   {"_NUMERIC_RANGES_PARENTS",         "search-_numeric-ranges-parents"},
   {"_PRINT_PROFILE_CLOCK",            "search-_print-profile-clock"},
   {"_PRIORITIZE_INTERSECT_UNION_CHILDREN", "search-_prioritize-intersect-union-children"},
-  {"_BG_INDEX_MEM_PCT_THR",           "search-_bg_index_mem_pct_thr"},
+  {"_BG_INDEX_MEM_PCT_THR",           "search-_bg-index-mem-pct-thr"},
   {"BG_INDEX_SLEEP_GAP",              "search-bg-index-sleep-gap"},
   {"CONN_PER_SHARD",                  "search-conn-per-shard"},
   {"CURSOR_MAX_IDLE",                 "search-cursor-max-idle"},
@@ -1681,7 +1681,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-_bg_index_mem_pct_thr",
+      ctx, "search-_bg-index-mem-pct-thr",
       DEFAULT_INDEXING_MEMORY_LIMIT,
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
       100, get_uint_numeric_config, set_uint_numeric_config, NULL,

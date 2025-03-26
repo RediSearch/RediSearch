@@ -1649,6 +1649,7 @@ DEBUG_COMMAND(terminateBgPool) {
   }
 
   ReindexPool_ThreadPoolDestroy();
+  // We do not create a new thread pool here, as it will automatically be created on the next background indexing job
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
