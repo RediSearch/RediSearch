@@ -4358,7 +4358,7 @@ def test_with_tls():
 @skip(cluster=False)
 def test_with_tls_and_non_tls_ports():
     """Tests that the coordinator-shard connections are using the correct
-    protocol (TLS vs. non-TLS) according to the redis `tls-cluster` configuratoin"""
+    protocol (TLS vs. non-TLS) according to the redis `tls-cluster` configuration."""
 
     cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
     env = Env(useTLS=True,
