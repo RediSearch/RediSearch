@@ -486,8 +486,9 @@ QueryNode* RediSearch_CreateLexRangeNode(RefManager* rm, const char* fieldName, 
     ret->lxrng.includeEnd = includeEnd;
   }
   if (fieldName) {
-    ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
-    const FieldSpec* fs = IndexSpec_GetField(__RefManager_Get_Object(rm), fieldName);
+    size_t len = strlen(fieldName);
+    ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, len);
+    const FieldSpec* fs = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), fieldName, len);
     ret->opts.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
   }
   return ret;
@@ -505,8 +506,9 @@ QueryNode* RediSearch_CreateTagLexRangeNode(RefManager* rm, const char* fieldNam
     ret->lxrng.includeEnd = includeEnd;
   }
   if (fieldName) {
-    ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, strlen(fieldName));
-    const FieldSpec* fs = IndexSpec_GetField(__RefManager_Get_Object(rm), fieldName);
+    size_t len = strlen(fieldName);
+    ret->opts.fieldMask = IndexSpec_GetFieldBit(__RefManager_Get_Object(rm), fieldName, len);
+    const FieldSpec* fs = IndexSpec_GetFieldWithLength(__RefManager_Get_Object(rm), fieldName, len);
     ret->opts.fieldIndex = fs ? fs->index : RS_INVALID_FIELD_INDEX;
   }
   return ret;
