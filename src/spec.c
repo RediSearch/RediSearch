@@ -3379,9 +3379,6 @@ StrongRef IndexSpecRef_Promote(WeakRef ref) {
 }
 
 void IndexSpecRef_Release(StrongRef ref) {
-  IndexSpec *spec = StrongRef_Get(ref);
-  if (spec) {
-    CurrentThread_ClearIndexSpec();
-  }
+  CurrentThread_ClearIndexSpec();
   StrongRef_Release(ref);
 }

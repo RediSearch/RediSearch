@@ -705,7 +705,12 @@ size_t CleanInProgressOrPending();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
+// Tries to promote a WeakRef of a spec to a StrongRef
+// If a strong reference was obtained then we also set the current thread's active spec
 StrongRef IndexSpecRef_Promote(WeakRef ref);
+// Releases a strong reference to a spec
+// Must only be called if the spec was promoted successfully
+// Will also clear the current thread's active spec
 void IndexSpecRef_Release(StrongRef ref);
 
 #ifdef __cplusplus
