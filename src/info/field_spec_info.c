@@ -42,6 +42,8 @@ AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Init() {
 }
 
 void FieldSpecInfo_Clear(FieldSpecInfo *info) {
+    rm_free(info->identifier);
+    rm_free(info->attribute);
     info->identifier = NULL;
     info->attribute = NULL;
 }
@@ -107,8 +109,8 @@ void FieldSpecStats_Reply(const FieldSpecStats* stats, RedisModule_Reply *reply)
 void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate) {
     RedisModule_Reply_Map(reply);
 
-    REPLY_KVSTR_SAFE("identifier", info->identifier);
-    REPLY_KVSTR_SAFE("attribute", info->attribute);
+    REPLY_KVSTR("identifier", info->identifier);
+    REPLY_KVSTR("attribute", info->attribute);
     // Set the error as a new object.
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
     IndexError_Reply(&info->error, reply, withTimestamp, obfuscate, INDEX_ERROR_WITHOUT_OOM_STATUS);
@@ -229,8 +231,8 @@ FieldSpecStats IndexSpec_GetFieldStats(const FieldSpec *fs, IndexSpec *sp){
 // Get the information of the field `fs` in the index `sp`.
 FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, IndexSpec *sp, bool obfuscate) {
   FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, fs->path);
-  FieldSpecInfo_SetAttribute(&info, fs->name);
+  FieldSpecInfo_SetIdentifier(&info, FieldSpec_FormatPath(fs, obfuscate));
+  FieldSpecInfo_SetAttribute(&info, FieldSpec_FormatName(fs, obfuscate));
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
   FieldSpecInfo_SetStats(&info, IndexSpec_GetFieldStats(fs, sp));
   return info;

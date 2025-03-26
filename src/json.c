@@ -53,9 +53,9 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-JSONPath pathParse(const char *path, RedisModuleString **err_msg) {
+JSONPath pathParse(const HiddenString* path, RedisModuleString **err_msg) {
   if (japi_ver >= 2) {
-    return japi->pathParse(path, RSDummyContext, err_msg);
+    return japi->pathParse(HiddenString_GetUnsafe(path, NULL), RSDummyContext, err_msg);
   } else {
     *err_msg = NULL;
     return NULL;
@@ -671,9 +671,9 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
   return rv;
 }
 
-void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const char *path, const char *fieldName, const char *indexName) {
+void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const HiddenString *path, const HiddenString *fieldName, const HiddenString *indexName) {
   QueryError_SetWithUserDataFmt(status, QUERY_EINVALPATH,
                          "Invalid JSONPath", " '%s' in attribute '%s' in index '%s'",
-                         path, fieldName, indexName);
+                         HiddenString_GetUnsafe(path, NULL), HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
   RedisModule_FreeString(RSDummyContext, err_msg);
 }

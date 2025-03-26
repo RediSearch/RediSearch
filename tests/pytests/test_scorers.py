@@ -59,7 +59,7 @@ def testScoreIndex(env):
         [24, 'doc24', 480.0, 'doc23', 460.0, 'doc22', 440.0, 'doc21', 420.0, 'doc20', 400.0],
         [24, 'doc1', 0.99, 'doc2', 0.97, 'doc3', 0.96, 'doc4', 0.94, 'doc5', 0.93],
     ]
-    scorers = ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'BM25STD', 'BM25STD.NORM', 'DISMAX', 'DOCSCORE']
+    scorers = ['TFIDF', 'TFIDF.DOCNORM', 'BM25', 'BM25STD', 'BM25STD.TANH', 'DISMAX', 'DOCSCORE']
     expected_results = results_cluster if env.shardsCount > 1 else results_single
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
@@ -370,8 +370,8 @@ def testBM25Normalized():
     # Search for `hello world` and get the scores using the BM25STD scorer
     res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD')
 
-    # Search for the same query and get the scores using the BM25STD.NORM scorer
-    norm_res_search = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+    # Search for the same query and get the scores using the BM25STD.TANH scorer
+    norm_res_search = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.TANH')
     env.assertEqual(len(res), len(norm_res_search))
     norm_scores = []
     for i in range(1, len(res), 2):
@@ -382,7 +382,7 @@ def testBM25Normalized():
         # Save the score to make sure the aggregate command returns the same results
         norm_scores.append(round(float(norm_res_search[i+1]), 5))
 
-    norm_res_aggregate = env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM', 'SORTBY', '2', '@__score', 'DESC')
+    norm_res_aggregate = env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.TANH', 'SORTBY', '2', '@__score', 'DESC')
     for i, res in enumerate(norm_res_aggregate[1:]):
       # Check that the order and the scores are the same
       env.assertEqual(round(float(res[1]), 5), norm_scores[i])
@@ -397,8 +397,8 @@ def testNormalizedBM25ScorerExplanation():
     # Prepare the index
     _prepare_index(env, 'idx')
 
-    # Search for the same query and get the scores using the BM25STD.NORM scorer
-    norm_res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+    # Search for the same query and get the scores using the BM25STD.TANH scorer
+    norm_res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25STD.TANH')
 
     env.assertEqual(
         norm_res[2][1],
@@ -437,7 +437,7 @@ def testNormalizedBM25ScorerExplanation():
     )
 
     # Test using weights
-    norm_res = env.cmd('FT.SEARCH', 'idx', '(hello world) => {$weight: 0.25}', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+    norm_res = env.cmd('FT.SEARCH', 'idx', '(hello world) => {$weight: 0.25}', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25STD.TANH')
 
     env.assertEqual(
         norm_res[2][1],
@@ -503,8 +503,8 @@ def testBM25NormalizedScoreField():
     expected_scores = [2448.07635, 26.70629, 2.93769]
     env.assertEqual([round(float(x), 5) for x in res[2::2]], expected_scores)
 
-    # Search for the same query and get the scores using the BM25STD.NORM scorer
-    norm_res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+    # Search for the same query and get the scores using the BM25STD.TANH scorer
+    norm_res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.TANH')
     # Order of results
     env.assertEqual(norm_res[1::2], ['doc3{tag}', 'doc2{tag}', 'doc1{tag}'])
     # Scores
