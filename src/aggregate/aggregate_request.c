@@ -1029,7 +1029,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     if (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
       return REDISMODULE_ERR;
-    } else if (!strcmp(opts->scorerName, BM25_STD_NORMALIZED_SCORER_NAME) && !RSGlobalConfig.enableUnstableFeatures) {
+    } else if (!strcmp(opts->scorerName, BM25_STD_NORMALIZED_TANH_SCORER_NAME) && !RSGlobalConfig.enableUnstableFeatures) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Scorer %s not available when `ENABLE_UNSTABLE_FEATURES` is off", opts->scorerName);
       return REDISMODULE_ERR;
     }
