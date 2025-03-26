@@ -1259,7 +1259,7 @@ static int periodicCb(void *privdata) {
   }
 
   if (gc->deletedDocsFromLastRun < RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold) {
-    StrongRef_Release(early_check);
+    IndexSpecRef_Release(early_check);
     return 1;
   }
 
