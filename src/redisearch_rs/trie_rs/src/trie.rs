@@ -137,194 +137,164 @@ impl<Data> Node<Data> {
     where
         F: FnOnce(Option<Data>) -> Data,
     {
-        if let Some(suffix) = key.strip_prefix(self.label.as_slice()) {
-            let Some(first_byte) = suffix.first() else {
-                // Suffix is empty, so the key and the node label are equal.
-                // Replace the data attached to the current node
-                // with the new data.
-                let current = self.data.take();
-                let new = f(current);
-                self.data.replace(new);
-                return;
-            };
-
-            // Suffix is not empty, therefore the insertion needs to happen
-            // in a child (or grandchild) of the current node.
-            // `find_or_insert` will determine if it becomes a new direct
-            // child or if we already have a child with the same first byte.
-            let child = self.children.find_or_insert(*first_byte, || Node {
-                children: ChildRefs::new(),
-                data: None,
-                label: LowMemoryThinVec::from_slice(suffix),
-            });
-            // In both cases, we recurse.
-            // If we added a new direct child, we'll end up in the equality
-            // case that we handled just above.
-            // Otherwise the behaviour will depend on the label of the relevant
-            // pre-existing child node.
-            return child.insert_or_replace_with(suffix, f);
-        }
-
-        if self.label.as_slice().starts_with(key) {
-            // The key we want to insert is a strict prefix of the current node's label.
-            // Therefore we need to insert a new _parent_ node.
-            //
-            // .split(index)
-            // .split(prefix, suffix)
-            //
-            // # Case 1: No children for the current node
-            //
-            // Add `bike` with data `B` to a trie with `biker`, where `biker` has data `A`.
-            // ```text
-            // biker (A)  ->   bike (B)
-            //                /
-            //               r (A)
-            // ```
-
-            // # Case 2: Current node has children
-            //
-            // Add `b` to a trie with `bi` and `bike`.
-            // `b` has data `C`, `bi` has data `A`, `bike` has data `B`.
-            //
-            // ```text
-            // bi (A)   ->    b (C)
-            //   \             \
-            //    ke (B)        i (A)
-            //                   \
-            //                    ke (B)
-            // ```
-            self.split(key.len());
-            self.data = Some(f(None));
-            return;
-        }
-
-        // In this case, only part of the key matches the current node's label.
-        // Add `bis` (D) to a trie with `bike` (A), `biker` (B) and `bikes` (C).
-        //
-        // ```text
-        //     bike (A)   ->      bi (-)
-        //     /  \             /       \
-        // r (B)   s (C)      ke (A)     s (D)
-        //                   /     \
-        //                 r (B)   s (C)
-        // ```
-        let Some((equal_up_to, _)) = self
+        match self
             .label
             .iter()
             .zip(key.iter())
             .enumerate()
             .find(|(_, (c1, c2))| c1 != c2)
-        else {
-            unreachable!("We know that neither is a prefix of the other at this point")
-        };
+        {
+            Some((0, _)) => {
+                // The node's label and the key don't share a common prefix.
+                // This can only happen if the current node is the root node of the trie.
+                //
+                // Create a new root node with an empty label,
+                // insert the old root as a child of the new root,
+                // and add a new child to the empty root.
+                let new_child = Node {
+                    children: ChildRefs::default(),
+                    data: Some(f(None)),
+                    label: LowMemoryThinVec::from_slice(key),
+                };
+                let children = ChildRefs(low_memory_thin_vec![ChildRef {
+                    first_byte: new_child.label[0],
+                    node: new_child
+                }]);
+                let new_root = Node {
+                    children,
+                    data: None,
+                    label: LowMemoryThinVec::new(),
+                };
+                let old_root = std::mem::replace(self, new_root);
+                self.children
+                    .find_or_insert(old_root.label[0], move || old_root);
+            }
+            Some((equal_up_to, _)) => {
+                // In this case, only part of the key matches the current node's label.
+                // Add `bis` (D) to a trie with `bike` (A), `biker` (B) and `bikes` (C).
+                //
+                // ```text
+                //     bike (A)   ->      bi (-)
+                //     /  \             /       \
+                // r (B)   s (C)      ke (A)     s (D)
+                //                   /     \
+                //                 r (B)   s (C)
+                // ```
+                //
+                // Create a new node that uses the shared prefix as its label.
+                // The prefix is then stripped from both the current label and the
+                // new key; the resulting suffixes are used as labels for the new child nodes.
+                let old_parent_suffix = LowMemoryThinVec::from_slice(&self.label[equal_up_to..]);
+                let child_suffix = LowMemoryThinVec::from_slice(&key[equal_up_to..]);
+                let shared_prefix = {
+                    let mut l = std::mem::take(&mut self.label);
+                    l.truncate(equal_up_to);
+                    l
+                };
 
-        if equal_up_to == 0 {
-            // The node's label and the key don't share a common prefix.
-            // This can only happen if the current node is the root node of the trie.
-            //
-            // Create a new root node with an empty label,
-            // insert the old root as a child of the new root,
-            // and add a new child to the empty root.
-            let new_child = Node {
-                children: ChildRefs::default(),
-                data: Some(f(None)),
-                label: LowMemoryThinVec::from_slice(key),
-            };
-            let children = ChildRefs(low_memory_thin_vec![ChildRef {
-                first_byte: new_child.label[0],
-                node: new_child
-            }]);
-            let new_root = Node {
-                children,
-                data: None,
-                label: LowMemoryThinVec::new(),
-            };
-            let old_root = std::mem::replace(self, new_root);
-            self.children
-                .find_or_insert(old_root.label[0], move || old_root);
-            return;
+                let new_parent = Node {
+                    children: ChildRefs::default(),
+                    data: None,
+                    label: shared_prefix,
+                };
+                let mut old_parent = std::mem::replace(self, new_parent);
+
+                let new_child = Node {
+                    children: ChildRefs::default(),
+                    data: Some(f(None)),
+                    label: child_suffix,
+                };
+                old_parent.label = old_parent_suffix;
+
+                let old_parent_first_byte = old_parent.label[0];
+                let old_parent_ref = ChildRef {
+                    first_byte: old_parent_first_byte,
+                    node: old_parent,
+                };
+                let new_child_first_byte = new_child.label[0];
+                let new_child_ref = ChildRef {
+                    first_byte: new_child_first_byte,
+                    node: new_child,
+                };
+
+                let children = match old_parent_first_byte.cmp(&new_child_first_byte) {
+                    Ordering::Less => {
+                        low_memory_thin_vec![old_parent_ref, new_child_ref]
+                    }
+                    Ordering::Greater => {
+                        low_memory_thin_vec![new_child_ref, old_parent_ref]
+                    }
+                    Ordering::Equal => {
+                        unreachable!(
+                            "The shared prefix has already been stripped,\
+                                therefore the first byte of the suffixes must be different."
+                        )
+                    }
+                };
+                self.children = ChildRefs(children);
+            }
+            None => {
+                match key.len().cmp(&self.label.len()) {
+                    Ordering::Less => {
+                        // The key we want to insert is a strict prefix of the current node's label.
+                        // Therefore we need to insert a new _parent_ node.
+                        //
+                        // .split(index)
+                        // .split(prefix, suffix)
+                        //
+                        // # Case 1: No children for the current node
+                        //
+                        // Add `bike` with data `B` to a trie with `biker`, where `biker` has data `A`.
+                        // ```text
+                        // biker (A)  ->   bike (B)
+                        //                /
+                        //               r (A)
+                        // ```
+
+                        // # Case 2: Current node has children
+                        //
+                        // Add `b` to a trie with `bi` and `bike`.
+                        // `b` has data `C`, `bi` has data `A`, `bike` has data `B`.
+                        //
+                        // ```text
+                        // bi (A)   ->    b (C)
+                        //   \             \
+                        //    ke (B)        i (A)
+                        //                   \
+                        //                    ke (B)
+                        // ```
+                        self.split(key.len());
+                        self.data = Some(f(None));
+                    }
+                    Ordering::Equal => {
+                        // Suffix is empty, so the key and the node label are equal.
+                        // Replace the data attached to the current node
+                        // with the new data.
+                        let current = self.data.take();
+                        let new = f(current);
+                        self.data.replace(new);
+                    }
+                    Ordering::Greater => {
+                        // Suffix is not empty, therefore the insertion needs to happen
+                        // in a child (or grandchild) of the current node.
+                        // `find_or_insert` will determine if it becomes a new direct
+                        // child or if we already have a child with the same first byte.
+                        let suffix = &key[self.label.len()..];
+                        let child = self.children.find_or_insert(suffix[0], || Node {
+                            children: ChildRefs::new(),
+                            data: None,
+                            label: LowMemoryThinVec::from_slice(suffix),
+                        });
+                        // In both cases, we recurse.
+                        // If we added a new direct child, we'll end up in the equality
+                        // case that we handled just above.
+                        // Otherwise the behaviour will depend on the label of the relevant
+                        // pre-existing child node.
+                        child.insert_or_replace_with(suffix, f);
+                    }
+                }
+            }
         }
-
-        // In this case, the node and the key do share a common prefix.
-        // That shared prefix is `&key[..equal_up_to].
-        //
-        // Create a new node that uses the shared prefix as its label.
-        // The prefix is then stripped from both the current label and the
-        // new key; the resulting suffixes are used as labels for the new child nodes.
-
-        // Note: we will be swapping the old parent with the new parent.
-        // Before the swap, `self` points to the old parent. After the swap,
-        // `self` points to the new parent.
-
-        // The label of the old parent, stripped of the shared prefix.
-        // We'll assign the old parent this label once we swap out the old parent with the new one.
-        let old_parent_suffix = LowMemoryThinVec::from_slice(&self.label[equal_up_to..]);
-
-        // The label of the new child node that is to be inserted, which is the key stripped of the shared prefix.
-        let newly_inserted_child_suffix = LowMemoryThinVec::from_slice(&key[equal_up_to..]);
-
-        // The label of the new parent node, which is the shared prefix.
-        let new_parent_label = {
-            let mut l = std::mem::take(&mut self.label);
-            l.truncate(equal_up_to);
-            l
-        };
-
-        // The new parent node, which holds the shared prefix as label,
-        // and will be swapped with the old parent.
-        let new_parent = Node {
-            children: ChildRefs::default(),
-            data: None,
-            label: new_parent_label,
-        };
-
-        // Swap the old parent with the new parent.
-        // After this statement, `self` refers to the new parent node.
-        let mut old_parent = std::mem::replace(self, new_parent);
-
-        // The new child node, which holds the key suffix as label,
-        // and will be inserted as a child of the new parent.
-        let newly_inserted_child = Node {
-            children: ChildRefs::default(),
-            data: Some(f(None)),
-            label: newly_inserted_child_suffix,
-        };
-        // Set the old parent's label to the old parent's suffix,
-        // i.e. its original label stripped of the shared prefix.
-        old_parent.label = old_parent_suffix;
-
-        // Create ChildRefs for the old parent and the new child,
-        // so that they can be inserted into the new parent's children.
-        let old_parent_first_byte = old_parent.label[0];
-        let old_parent_ref = ChildRef {
-            first_byte: old_parent_first_byte,
-            node: old_parent,
-        };
-        let new_child_first_byte = newly_inserted_child.label[0];
-        let new_child_ref = ChildRef {
-            first_byte: new_child_first_byte,
-            node: newly_inserted_child,
-        };
-        // Build the children vector for the new parent,
-        // which will hold the old parentt as well as the
-        // newly inserted child.
-        let children = match old_parent_first_byte.cmp(&new_child_first_byte) {
-            Ordering::Less => {
-                low_memory_thin_vec![old_parent_ref, new_child_ref]
-            }
-            Ordering::Greater => {
-                low_memory_thin_vec![new_child_ref, old_parent_ref]
-            }
-            Ordering::Equal => {
-                unreachable!(
-                    "The shared prefix has already been stripped,\
-                    therefore the first byte of the suffixes must be different."
-                )
-            }
-        };
-
-        // Assign the children vector to the new parent.
-        self.children = ChildRefs(children);
     }
 
     /// Remove a child from the node.
