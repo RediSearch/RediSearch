@@ -287,13 +287,13 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
 }
 
 /* Format the key name for a tag index */
-RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) {
-  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field);
+RedisModuleString *TagIndex_FormatName(const IndexSpec *spec, const HiddenString* field) {
+  return RedisModule_CreateStringPrintf(RSDummyContext, TAG_INDEX_KEY_FMT, HiddenString_GetUnsafe(spec->specName, NULL), HiddenString_GetUnsafe(field, NULL));
 }
 
 /* Open the tag index */
-TagIndex *TagIndex_Open(const RedisSearchCtx *ctx, RedisModuleString *key, bool create_if_missing) {
-  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, key);
+TagIndex *TagIndex_Open(const IndexSpec *spec, RedisModuleString *key, bool create_if_missing) {
+  KeysDictValue *kdv = dictFetchValue(spec->keysDict, key);
   if (kdv) {
     return kdv->p;
   }
@@ -303,7 +303,7 @@ TagIndex *TagIndex_Open(const RedisSearchCtx *ctx, RedisModuleString *key, bool 
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->p = NewTagIndex();
   kdv->dtor = TagIndex_Free;
-  dictAdd(ctx->spec->keysDict, key, kdv);
+  dictAdd(spec->keysDict, key, kdv);
   return kdv->p;
 }
 
@@ -401,12 +401,11 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
+size_t TagIndex_GetOverhead(const IndexSpec *sp, FieldSpec *fs) {
   size_t overhead = 0;
   TagIndex *idx = NULL;
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
-  RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->name);
-  idx = TagIndex_Open(&sctx, keyName, DONT_CREATE_INDEX);
+  RedisModuleString *keyName = TagIndex_FormatName(sp, fs->fieldName);
+  idx = TagIndex_Open(sp, keyName, DONT_CREATE_INDEX);
   RedisModule_FreeString(RSDummyContext, keyName);
   if (idx) {
     overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize

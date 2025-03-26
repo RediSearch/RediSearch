@@ -27,6 +27,8 @@
 #include "resp3.h"
 #include "info/global_stats.h"
 #include "info/info_redis/threads/current_thread.h"
+#include "obfuscation/obfuscation_api.h"
+#include "obfuscation/hidden.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -394,7 +396,7 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 
     NumericRangeNode *currNode = NULL;
     tagNumHeader header = {.type = RSFLDTYPE_NUMERIC,
-                           .field = numericFields[i]->name,
+                           .field = HiddenString_GetUnsafe(numericFields[i]->fieldName, NULL),
                            .uniqueId = rt->uniqueId};
 
     numCbCtx nctx;
@@ -449,13 +451,13 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
   if (array_len(tagFields) != 0) {
     for (int i = 0; i < array_len(tagFields); ++i) {
       RedisModuleString *keyName = IndexSpec_GetFormattedKey(sctx->spec, tagFields[i], INDEXFLD_T_TAG);
-      TagIndex *tagIdx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+      TagIndex *tagIdx = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
       if (!tagIdx) {
         continue;
       }
 
       tagNumHeader header = {.type = RSFLDTYPE_TAG,
-                             .field = tagFields[i]->name,
+                             .field = HiddenString_GetUnsafe(tagFields[i]->fieldName, NULL),
                              .uniqueId = tagIdx->uniqueId};
 
       TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values, "", 0);
@@ -490,10 +492,12 @@ static void FGC_childCollectMissingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
   dictIterator* iter = dictGetIterator(spec->missingFieldDict);
   dictEntry* entry = NULL;
   while ((entry = dictNext(iter))) {
-    const char *fieldName = dictGetKey(entry);
+    const HiddenString *hiddenFieldName = dictGetKey(entry);
     InvertedIndex *idx = dictGetVal(entry);
     if(idx) {
-      struct iovec iov = {.iov_base = (void *)fieldName, strlen(fieldName)};
+      size_t length;
+      const char* fieldName = HiddenString_GetUnsafe(hiddenFieldName, &length);
+      struct iovec iov = {.iov_base = (void *)fieldName, length};
       FGC_childRepairInvidx(gc, sctx, idx, sendHeaderString, &iov, NULL);
       FGC_reportProgress(gc);
     }
@@ -519,7 +523,8 @@ static void FGC_childCollectExistingDocs(ForkGC *gc, RedisSearchCtx *sctx) {
 
 static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(gc->ctx, spec);
-  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes start", sctx.spec->name);
+  const char* indexName = IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog);
+  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes start", indexName);
   FGC_setProgress(gc, 0);
   FGC_childCollectTerms(gc, &sctx);
   FGC_setProgress(gc, 0.2);
@@ -531,7 +536,7 @@ static void FGC_childScanIndexes(ForkGC *gc, IndexSpec *spec) {
   FGC_setProgress(gc, 0.8);
   FGC_childCollectExistingDocs(gc, &sctx);
   FGC_setProgress(gc, 1);
-  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes end", sctx.spec->name);
+  RedisModule_Log(sctx.redisCtx, "debug", "ForkGC in index %s - child scanning indexes end", indexName);
 }
 
 typedef struct {
@@ -871,9 +876,11 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
         info.nbytesCollected += inv_idx_size;
       }
     }
+
     if (!Trie_Delete(sctx->spec->terms, term, len)) {
-      RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting the term '%s' from"
-                      " trie in index '%s' failed", term, sctx->spec->name);
+      const char* name = IndexSpec_FormatName(sctx->spec, RSGlobalConfig.hideUserDataFromLog);
+      RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting a term '%s' from"
+                      " trie in index '%s' failed", RSGlobalConfig.hideUserDataFromLog ? Obfuscate_Text(term) : term, name);
     }
     sctx->spec->stats.numTerms--;
     sctx->spec->stats.termsSize -= len;
@@ -937,7 +944,7 @@ static FGCError FGC_parentHandleNumeric(ForkGC *gc) {
     RedisSearchCtx_LockSpecWrite(sctx);
 
     if (!initialized) {
-      fs = IndexSpec_GetField(sctx->spec, fieldName);
+      fs = IndexSpec_GetFieldWithLength(sctx->spec, fieldName, fieldNameLen);
       keyName = IndexSpec_GetFormattedKey(sctx->spec, fs, fs->types);
       rt = openNumericKeysDict(sctx->spec, keyName, DONT_CREATE_INDEX);
       initialized = true;
@@ -1043,7 +1050,7 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
     RedisSearchCtx_LockSpecWrite(sctx);
 
     keyName = IndexSpec_GetFormattedKeyByName(sctx->spec, fieldName, INDEXFLD_T_TAG);
-    tagIdx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+    tagIdx = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
 
     if (tagIdx->uniqueId != tagUniqueId) {
       status = FGC_CHILD_ERROR;
@@ -1090,23 +1097,24 @@ static FGCError FGC_parentHandleTags(ForkGC *gc) {
 static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   FGCError status = FGC_COLLECTED;
   size_t fieldNameLen;
-  char *fieldName = NULL;
+  char *rawFieldName = NULL;
 
-  if (FGC_recvBuffer(gc, (void **)&fieldName, &fieldNameLen) != REDISMODULE_OK) {
+  if (FGC_recvBuffer(gc, (void **)&rawFieldName, &fieldNameLen) != REDISMODULE_OK) {
     return FGC_CHILD_ERROR;
   }
 
-  if (fieldName == RECV_BUFFER_EMPTY) {
+  if (rawFieldName == RECV_BUFFER_EMPTY) {
     return FGC_DONE;
   }
 
   InvIdxBuffers idxbufs = {0};
   MSG_IndexInfo info = {0};
   if (FGC_recvInvIdx(gc, &idxbufs, &info) != REDISMODULE_OK) {
-    rm_free(fieldName);
+    rm_free(rawFieldName);
     return FGC_CHILD_ERROR;
   }
 
+  HiddenString *fieldName = NewHiddenString(rawFieldName, fieldNameLen, false);
   StrongRef spec_ref = IndexSpecRef_Promote(gc->index);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (!sp) {
@@ -1118,7 +1126,6 @@ static FGCError FGC_parentHandleMissingDocs(ForkGC *gc) {
   RedisSearchCtx *sctx = &sctx_;
 
   RedisSearchCtx_LockSpecWrite(sctx);
-
   InvertedIndex *idx = dictFetchValue(sctx->spec->missingFieldDict, fieldName);
 
   if (idx == NULL) {
@@ -1143,7 +1150,8 @@ cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     IndexSpecRef_Release(spec_ref);
   }
-  rm_free(fieldName);
+  HiddenString_Free(fieldName, false);
+  rm_free(rawFieldName);
   if (status != FGC_COLLECTED) {
     freeInvIdx(&idxbufs, &info);
   }

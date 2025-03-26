@@ -788,18 +788,16 @@ static void freeFilterStep(PLN_BaseStep *bstp) {
   if (fstp->parsedExpr) {
     ExprAST_Free(fstp->parsedExpr);
   }
-  if (fstp->shouldFreeRaw) {
-    rm_free((char *)fstp->rawExpr);
-  }
+  HiddenString_Free(fstp->expr, true);
   rm_free((void *)fstp->base.alias);
   rm_free(bstp);
 }
 
-PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, int mode) {
+PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString* expr, int mode) {
   PLN_MapFilterStep *stp = rm_calloc(1, sizeof(*stp));
   stp->base.dtor = freeFilterStep;
   stp->base.type = mode;
-  stp->rawExpr = expr;
+  stp->expr = HiddenString_Duplicate(expr);
   return stp;
 }
 
@@ -813,7 +811,9 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
     return REDISMODULE_ERR;
   }
 
-  PLN_MapFilterStep *stp = PLNMapFilterStep_New(expr, isApply ? PLN_T_APPLY : PLN_T_FILTER);
+  HiddenString* expression = NewHiddenString(expr, exprLen, false);
+  PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, isApply ? PLN_T_APPLY : PLN_T_FILTER);
+  HiddenString_Free(expression, false);
   AGPLN_AddStep(&req->ap, &stp->base);
 
   if (isApply) {
@@ -988,7 +988,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
     for (size_t ii = 0; ii < array_len(opts->legacy.filters); ++ii) {
       LegacyNumericFilter *filter = opts->legacy.filters[ii];
 
-      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, HiddenString_GetUnsafe(filter->field, NULL));
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, filter->field);
       filter->base.fieldSpec = fs;
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
         if (dialect != 1) {
@@ -1021,7 +1021,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
     for (size_t ii = 0; ii < array_len(opts->legacy.geo_filters); ++ii) {
       LegacyGeoFilter *gf = opts->legacy.geo_filters[ii];
 
-      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, HiddenString_GetUnsafe(gf->field, NULL));
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, gf->field);
       gf->base.fieldSpec = fs;
       if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
         if (dialect != 1) {
@@ -1071,7 +1071,7 @@ static bool IsIndexCoherent(AREQ *req) {
   sds *args = req->args;
   long long n_prefixes = strtol(args[req->prefixesOffset + 1], NULL, 10);
 
-  arrayof(sds) spec_prefixes = req->sctx->spec->rule->prefixes;
+  arrayof(HiddenUnicodeString*) spec_prefixes = req->sctx->spec->rule->prefixes;
   if (n_prefixes != array_len(spec_prefixes)) {
     return false;
   }
@@ -1081,7 +1081,8 @@ static bool IsIndexCoherent(AREQ *req) {
   // The first argument is at req->prefixesOffset + 2
   uint base_idx = req->prefixesOffset + 2;
   for (uint i = 0; i < n_prefixes; i++) {
-    if (sdscmp(spec_prefixes[i], args[base_idx + i]) != 0) {
+    sds arg = args[base_idx + i];
+    if (HiddenUnicodeString_CompareC(spec_prefixes[i], arg) != 0) {
       // Unmatching prefixes
       return false;
     }
@@ -1294,7 +1295,7 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
 static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryError *status) {
   MetricRequest *requests = req->ast.metricRequests;
   for (size_t i = 0; i < array_len(requests); i++) {
-    char *name = requests[i].metric_name;
+    const char *name = requests[i].metric_name;
     size_t name_len = strlen(name);
     if (IndexSpec_GetFieldWithLength(req->sctx->spec, name, name_len)) {
       QueryError_SetWithUserDataFmt(status, QUERY_EINDEXEXISTS, "Property", " `%s` already exists in schema", name);
@@ -1583,7 +1584,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
       case PLN_T_APPLY:
       case PLN_T_FILTER: {
         PLN_MapFilterStep *mstp = (PLN_MapFilterStep *)stp;
-        mstp->parsedExpr = ExprAST_Parse(mstp->rawExpr, strlen(mstp->rawExpr), status);
+        mstp->parsedExpr = ExprAST_Parse(mstp->expr, status);
         if (!mstp->parsedExpr) {
           goto error;
         }

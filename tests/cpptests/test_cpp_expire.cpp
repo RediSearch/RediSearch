@@ -51,7 +51,7 @@ TEST_F(ExpireTest, testSkipTo) {
   RedisModule_FreeString(ctx, hset_args[1]);
   RedisModule_FreeString(ctx, hset_args[2]);
 
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->name, true);
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, HiddenString_GetUnsafe(spec->specName, NULL), true);
   const auto epoch = std::chrono::system_clock::now().time_since_epoch();
   const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(epoch);
   const auto remaining = epoch - seconds;
@@ -60,7 +60,7 @@ TEST_F(ExpireTest, testSkipTo) {
   sctx->time.current.tv_nsec = std::chrono::duration_cast<std::chrono::nanoseconds>(remaining).count();
 
   RedisModuleString *kstr = IndexSpec_GetFormattedKey(spec, fs, INDEXFLD_T_TAG);
-  TagIndex *idx = TagIndex_Open(sctx, kstr, DONT_CREATE_INDEX);
+  TagIndex *idx = TagIndex_Open(sctx->spec, kstr, DONT_CREATE_INDEX);
   ASSERT_NE(idx, nullptr);
   IndexIterator *it = TagIndex_OpenReader(idx, sctx, "one", strlen("one"), 1.0, 0);
   ASSERT_EQ(it->LastDocId(it->ctx), 1);

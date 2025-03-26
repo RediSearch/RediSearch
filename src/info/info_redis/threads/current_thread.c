@@ -1,5 +1,6 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "spec.h"
+#include "config.h"
 
 // TLS key for a spec information
 static pthread_key_t specInfoKey;
@@ -32,7 +33,7 @@ void CurrentThread_SetIndexSpec(StrongRef specRef) {
   info->specRef = StrongRef_Demote(specRef);
   // we duplicate the name in case we won't be able to access the weak ref
   const IndexSpec *spec = StrongRef_Get(specRef);
-  info->specName = rm_strdup(spec->name);
+  info->specName = rm_strdup(IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
 }
 
 void CurrentThread_ClearIndexSpec() {

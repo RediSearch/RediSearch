@@ -315,9 +315,9 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   }
   array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
   std::string ss = std::string("(@") + localSumSumAlias + "/@" + localCountSumAlias + ")";
-  char *expr = rm_strdup(ss.c_str());
+  HiddenString *expr = NewHiddenString(ss.c_str(), ss.length(), false);
   PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);
-  applyStep->shouldFreeRaw = 1;
+  HiddenString_Free(expr, false);
   applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't because reducers
                              // are not allowed to override aliases
   applyStep->base.alias = rm_strdup(src->alias);
@@ -389,7 +389,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         if (!hadArrange) {
           // Step 1: parse the filter expression and extract the required keys
           PLN_MapFilterStep *fstp = (PLN_MapFilterStep *)current;
-          RSExpr *tmpExpr = ExprAST_Parse(fstp->rawExpr, strlen(fstp->rawExpr), status);
+          RSExpr *tmpExpr = ExprAST_Parse(fstp->expr, status);
           if (tmpExpr == NULL) {
             goto error;
           }

@@ -297,7 +297,7 @@ void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
     if (!spec) {
       RedisModule_InfoAddFieldCString(ctx, "index", specInfo->specName ? specInfo->specName : "n/a");
     } else {
-      RedisModule_InfoAddFieldCString(ctx, "index", spec->name);
+      RedisModule_InfoAddFieldCString(ctx, "index", IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
       // output FT.INFO
     }
   }
@@ -316,7 +316,7 @@ static void AddQueriesToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
     if (!sp) {
 	  continue;
     }
-    RedisModule_InfoBeginDictField(ctx, sp->name);
+    RedisModule_InfoBeginDictField(ctx, IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
     RedisModule_InfoAddFieldULongLong(ctx, "started_at", (unsigned long long)at->start);
     RedisModule_InfoEndDictField(ctx);
   }
@@ -333,7 +333,7 @@ static void AddCursorsToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQuer
     char buffer[21]; // 20 is the max length of a uint64_t
     sprintf(buffer, "%zu", at->cursorId);
     RedisModule_InfoBeginDictField(ctx, buffer);
-    RedisModule_InfoAddFieldCString(ctx, "index", spec ? spec->name : "n/a");
+    RedisModule_InfoAddFieldCString(ctx, "index", spec ? IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog) : "n/a");
     RedisModule_InfoAddFieldULongLong(ctx, "started_at", at->start);
     RedisModule_InfoEndDictField(ctx);
   }

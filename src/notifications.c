@@ -377,6 +377,9 @@ void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
     REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE,
     HashNotificationCallback);
 
+  // RedisModule_SubscribeToServerEvent should exist since redis 6.0
+  // We can assume it is always present
+
   // we do not need to scan after rdb load, i.e, there is not danger of losing results
   // after resharding, its safe to filter keys which are not in our slot range.
   if (RedisModule_ShardingGetKeySlot) {
