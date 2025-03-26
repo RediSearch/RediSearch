@@ -701,7 +701,6 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
   HiddenString *alias = NewHiddenString(rawAlias, length, false);
   StrongRef alias_ref = IndexAlias_Get(alias);
-  HiddenString_Free(alias, false);
   int rc = REDISMODULE_OK;
   if (!skipIfExists || !StrongRef_Equals(alias_ref, ref)) {
     rc = IndexAlias_Add(alias, ref, 0, error);
