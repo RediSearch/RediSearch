@@ -39,6 +39,7 @@ DocTable NewDocTable(size_t cap, size_t max_size) {
       .dim = NewDocIdMap(),
   };
   ret.buckets = rm_calloc(cap, sizeof(*ret.buckets));
+  ret.memsize = cap * sizeof(*ret.buckets) + sizeof(DocTable);
   return ret;
 }
 
@@ -125,6 +126,7 @@ static inline void DocTable_Set(DocTable *t, t_docId docId, RSDocumentMetadata *
     t->cap = MIN(t->cap, t->maxSize);  // make sure we do not excised maxSize
     t->cap = MAX(t->cap, bucket + 1);  // docs[bucket] needs to be valid, so t->cap > bucket
     t->buckets = rm_realloc(t->buckets, t->cap * sizeof(DMDChain));
+    t->memsize += (t->cap - oldcap) * sizeof(DMDChain);
 
     // We clear new extra allocation to Null all list pointers
     size_t memsetSize = (t->cap - oldcap) * sizeof(DMDChain);
@@ -160,6 +162,7 @@ int DocTable_SetPayload(DocTable *t, RSDocumentMetadata *dmd, const char *data, 
     t->memsize -= dmd->payload->len;
   } else {
     dmd->payload = rm_malloc(sizeof(RSPayload));
+    t->memsize += sizeof(RSPayload);
   }
   /* Copy it... */
   dmd->payload->data = rm_calloc(1, len + 1);
@@ -382,8 +385,10 @@ int DocTable_Replace(DocTable *t, const char *from_str, size_t from_len, const c
   DocIdMap_Delete(&t->dim, from_str, from_len);
   DocIdMap_Put(&t->dim, to_str, to_len, id);
   RSDocumentMetadata *dmd = DocTable_GetOwn(t, id);
+  t->memsize -= sdsAllocSize(dmd->keyPtr);
   sdsfree(dmd->keyPtr);
   dmd->keyPtr = sdsnewlen(to_str, to_len);
+  t->memsize += sdsAllocSize(dmd->keyPtr);
   return REDISMODULE_OK;
 }
 
@@ -406,9 +411,11 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
      * could still be accessed for simple queries (e.g. get, exist). Ensure
      * we don't have to rely on Set/Put to ensure the doc table array.
      */
+    t->memsize -= t->cap * sizeof(DMDChain);
     t->cap = t->maxSize;
     rm_free(t->buckets);
     t->buckets = rm_calloc(t->cap, sizeof(*t->buckets));
+    t->memsize += t->cap * sizeof(DMDChain);
   }
 
   for (size_t i = 1; i < t->size; i++) {
