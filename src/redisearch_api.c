@@ -786,6 +786,10 @@ int RediSearch_ExportCapi(RedisModuleCtx* ctx) {
 void RediSearch_SetCriteriaTesterThreshold(size_t num) {
 }
 
+const char *RediSearch_HiddenStringGet(const HiddenString* value) {
+  return HiddenString_GetUnsafe(value, NULL);
+}
+
 int RediSearch_StopwordsList_Contains(RSIndex* idx, const char *term, size_t len) {
   IndexSpec *sp = __RefManager_Get_Object(idx);
   return StopWordList_Contains(sp->stopwords, term, len);

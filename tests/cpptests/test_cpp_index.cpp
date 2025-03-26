@@ -1281,7 +1281,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), bar);
   ASSERT_EQ(f->options, FieldSpec_Sortable | FieldSpec_UNF); // UNF is set implicitly for sortable numerics
   ASSERT_TRUE(f->sortIdx == 1);
-  ASSERT_TRUE(IndexSpec_GetField(s, "fooz", 4) == NULL);
+  ASSERT_TRUE(IndexSpec_GetFieldWithLength(s, "fooz", 4) == NULL);
 
   f = IndexSpec_GetFieldWithLength(s, name, strlen(name));
   ASSERT_TRUE(f != NULL);

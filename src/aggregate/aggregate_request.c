@@ -1187,7 +1187,7 @@ static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryErro
   for (size_t i = 0; i < array_len(requests); i++) {
     const char *name = requests[i].metric_name;
     size_t name_len = strlen(name);
-    if (IndexSpec_GetField(req->sctx->spec, name, name_len)) {
+    if (IndexSpec_GetFieldWithLength(req->sctx->spec, name, name_len)) {
       QueryError_SetWithUserDataFmt(status, QUERY_EINDEXEXISTS, "Property", " `%s` already exists in schema", name);
       return NULL;
     }

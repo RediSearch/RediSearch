@@ -258,12 +258,12 @@ static void writeMissingFieldDocs(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) 
       found_df = true;
     } else {
       for (size_t j = last_ind; j < aCtx->doc->numFields; j++) {
-        if (!HiddenString_CompareC(fs->fieldName, doc->fields[j].fieldName))) {
+        if (!HiddenString_Compare(fs->fieldName, doc->fields[j].docFieldName)) {
           found_df = true;
           last_ind++;
           break;
         }
-        dictAdd(df_fields_dict, (void *)doc->fields[j].fieldName, NULL);
+        dictAdd(df_fields_dict, (void *)doc->fields[j].docFieldName, NULL);
         last_ind++;
       }
     }

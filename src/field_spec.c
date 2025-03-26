@@ -4,6 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
+#include "spec.h"
 #include "field_spec.h"
 #include "indexer.h"
 #include "rmalloc.h"
@@ -49,10 +50,10 @@ const char *FieldSpec_GetTypeNames(int idx) {
   }
 }
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs) {
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate) {
   FieldSpecInfo info = {0};
-  FieldSpecInfo_SetIdentifier(&info, fs->path);
-  FieldSpecInfo_SetAttribute(&info, fs->name);
+  FieldSpecInfo_SetIdentifier(&info, FieldSpec_FormatPath(fs, obfuscate));
+  FieldSpecInfo_SetAttribute(&info, FieldSpec_FormatName(fs, obfuscate));
   FieldSpecInfo_SetIndexError(&info, fs->indexError);
   return info;
 }

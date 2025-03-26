@@ -152,7 +152,7 @@ void FieldSpec_Cleanup(FieldSpec* fs);
  */
 const char *FieldSpec_GetTypeNames(int idx);
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
+FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs, bool obfuscate);
 char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate);
 char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate);
 

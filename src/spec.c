@@ -121,7 +121,7 @@ const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenString *n
 
 // Assuming the spec is properly locked before calling this function.
 t_fieldMask IndexSpec_GetFieldBit(IndexSpec *spec, const char *name, size_t len) {
-  const FieldSpec *fs = IndexSpec_GetField(spec, name, len);
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, name, len);
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_FULLTEXT) || !FieldSpec_IsIndexable(fs)) return 0;
 
   return FIELD_BIT(fs);
@@ -1137,7 +1137,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
       fieldPath = NULL;
     }
 
-    if (IndexSpec_GetField(sp, fieldName, namelen)) {
+    if (IndexSpec_GetFieldWithLength(sp, fieldName, namelen)) {
       QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Duplicate field in schema", " - %s", fieldName);
       goto reset;
     }

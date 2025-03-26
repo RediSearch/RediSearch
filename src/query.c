@@ -947,7 +947,7 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
 
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->nn.nf->fieldName, strlen(node->nn.nf->fieldName));
+      IndexSpec_GetFieldWithLength(q->sctx->spec, node->nn.nf->fieldName, strlen(node->nn.nf->fieldName));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_NUMERIC)) {
     return NULL;
   }
@@ -962,7 +962,7 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
   }
 
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->gn.gf->property, strlen(node->gn.gf->property));
+      IndexSpec_GetFieldWithLength(q->sctx->spec, node->gn.gf->property, strlen(node->gn.gf->property));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEO)) {
     return NULL;
   }
@@ -972,7 +972,7 @@ static IndexIterator *Query_EvalGeofilterNode(QueryEvalCtx *q, QueryNode *node,
 static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
 
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, node->gmn.geomq->attr, strlen(node->gmn.geomq->attr));
+      IndexSpec_GetFieldWithLength(q->sctx->spec, node->gmn.geomq->attr, strlen(node->gmn.geomq->attr));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_GEOMETRY)) {
     return NULL;
   }
@@ -1004,10 +1004,8 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     if (qn->vn.vq->scoreField) {
       // Since the KNN syntax allows specifying the distance field in two ways (...=>[KNN ... AS <dist_field>] and
       // ...=>[KNN ...]=>{$YIELD_DISTANCE_AS:<dist_field>), we validate that we got it only once.
-      size_t len;
-      const char *fieldName = HiddenString_GetUnsafe(qn->vn.vq->field->fieldName, &len);
-      char default_score_field[len + 9];  // buffer for __<field>_score
-      sprintf(default_score_field, "__%s_score", fieldName);
+      char default_score_field[strlen(qn->vn.vq->property) + 9];  // buffer for __<field>_score
+      sprintf(default_score_field, "__%s_score", qn->vn.vq->property);
       // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
       if (strcasecmp(qn->vn.vq->scoreField, default_score_field) != 0) {
         QueryError_SetWithUserDataFmt(q->status, QUERY_EDUPFIELD,
@@ -1031,7 +1029,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   // If the field is not found or not a vector field, return NULL
   // We check this after registering the metric request, so we won't reply with a misleading syntax error.
   const FieldSpec *fs =
-      IndexSpec_GetField(q->sctx->spec, qn->vn.vq->property, strlen(qn->vn.vq->property));
+      IndexSpec_GetFieldWithLength(q->sctx->spec, qn->vn.vq->property, strlen(qn->vn.vq->property));
   if (!fs || !FIELD_IS(fs, INDEXFLD_T_VECTOR)) {
     return NULL;
   }
@@ -1428,7 +1426,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
     return NULL;
   }
   QueryTagNode *node = &qn->tag;
-  const FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, node->fieldName, strlen(node->fieldName));
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(q->sctx->spec, node->fieldName, strlen(node->fieldName));
   if (!fs) {
     return NULL;
   }
@@ -1485,9 +1483,9 @@ done:
 }
 
 static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
-  const FieldSpec *fs = IndexSpec_GetField(q->sctx->spec, qn->miss.fieldName, qn->miss.len);
+  const FieldSpec *fs = IndexSpec_GetFieldWithLength(q->sctx->spec, qn->miss.fieldName, qn->miss.len);
   if (!fs) {
-    // Field does not exist
+    // Field does not existF
     return NULL;
   }
   if (!FieldSpec_IndexesMissing(fs)) {
@@ -1774,7 +1772,7 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
     case QN_TAG:
       {
         opts->flags |= QueryNode_IsTag;
-        const FieldSpec *fs = IndexSpec_GetField(spec, n->tag.fieldName, n->tag.len);
+        const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, n->tag.fieldName, n->tag.len);
         if (fs && FieldSpec_IndexesEmpty(fs)) {
           opts->flags |= QueryNode_IndexesEmpty;
         }
@@ -1974,7 +1972,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_NUMERIC: {
       const NumericFilter *f = qs->nn.nf;
       s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->inclusiveMin ? "<=" : "<",
-                       HiddenString_GetUnsafe(f->fieldName, NULL), f->inclusiveMax ? "<=" : "<", f->max);
+                       f->fieldName, f->inclusiveMax ? "<=" : "<", f->max);
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");
@@ -1983,13 +1981,13 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     case QN_TAG:
-      s = sdscatprintf(s, "TAG:@%.*s {\n", (int)qs->tag.len, HiddenString_GetUnsafe(qs->tag.fieldName, NULL));
+      s = sdscatprintf(s, "TAG:@%.*s {\n", (int)qs->tag.len, qs->tag.fieldName);
       s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
       s = sdscat(s, "}");
       break;
     case QN_GEO:
-      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", HiddenString_GetUnsafe(qs->gn.gf->property, NULL), qs->gn.gf->lon,
+      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", qs->gn.gf->property, qs->gn.gf->lon,
                        qs->gn.gf->lat, qs->gn.gf->radius,
                        GeoDistance_ToString(qs->gn.gf->unitType));
       break;
@@ -2036,7 +2034,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           break;
         }
       } // switch (qs->vn.vq->type). Next is a common part for both types.
-      s = sdscatprintf(s, "in vector index associated with field @%s", HiddenString_GetUnsafe(qs->vn.vq->property, NULL));
+      s = sdscatprintf(s, "in vector index associated with field @%s", qs->vn.vq->property);
       for (size_t i = 0; i < array_len(qs->vn.vq->params.params); i++) {
         s = sdscatprintf(s, ", %s = ", qs->vn.vq->params.params[i].name);
         s = sdscatlen(s, qs->vn.vq->params.params[i].value, qs->vn.vq->params.params[i].valLen);
@@ -2062,7 +2060,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscatprintf(s, "GEOSHAPE{%d %s}", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
       break;
     case QN_MISSING:
-      s = sdscatprintf(s, "ISMISSING{%.*s}", (int)qs->miss.len, HiddenString_GetUnsafe(qs->miss.fieldName, NULL));
+      s = sdscatprintf(s, "ISMISSING{%.*s}", (int)qs->miss.len, qs->miss.fieldName);
       break;
   }
 
