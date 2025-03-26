@@ -1394,7 +1394,7 @@ def testErrorStatsResp2():
             'FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@n',
             'REDUCE', 'count', '0', 'AS', 'count', 'SORTBY', '2', '@n', 'DESC')
         res = conn.execute_command('info', 'errorstats')
-        env.assertEqual(res, {'errorstat_ERR': {'count': 1 + (i * 2)}})
+        env.assertEqual(res, {'errorstat_ERR': {'count': (i * 2)}})
 
 @skip(cluster=False)
 def testErrorStatsResp3():
