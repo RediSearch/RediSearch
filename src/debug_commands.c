@@ -1215,7 +1215,6 @@ DEBUG_COMMAND(DocInfo) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Invalid argument. Expected REVEAL or OBFUSCATE as the last argument");
   }
-
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
 
   RedisModule_Reply_Map(reply);

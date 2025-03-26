@@ -1156,6 +1156,7 @@ cleanup:
   }
   HiddenString_Free(fieldName);
   rm_free(rawFieldName);
+  rm_free(rawFieldName);
   if (status != FGC_COLLECTED) {
     freeInvIdx(&idxbufs, &info);
   }

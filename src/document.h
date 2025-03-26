@@ -55,7 +55,7 @@ typedef enum {
 } FieldVarType;
 
 typedef struct DocumentField {
-  HiddenString *docFieldName;
+  const HiddenString *docFieldName;
   union {
     // TODO: consider removing RMS altogether
     RedisModuleString *text;
