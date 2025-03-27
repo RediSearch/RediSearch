@@ -41,8 +41,10 @@ on:
 jobs:
   benchmark-steps:
     name: "Benchmark ${{ inputs.allowed_envs }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }} "
-    runs-on: ${{ vars.RUNS_ON }}
-    container: ${{ inputs.container }}
+    runs-on: ubuntu-24.04  # We need the os to be a match to the base image used in the benchmarks.
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
