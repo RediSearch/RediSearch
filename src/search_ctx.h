@@ -41,7 +41,6 @@ typedef struct RedisSearchCtx {
   RedisModuleCtx *redisCtx;
   RedisModuleKey *key_;
   IndexSpec *spec;
-  uint64_t specId;  // Unique id of the spec; used when refreshing
   SearchTime time;
   unsigned int apiVersion; // API Version to allow for backward compatibility / alternative functionality
   unsigned int expanded; // Reply format

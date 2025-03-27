@@ -11,6 +11,7 @@
 #include "module.h"
 #include "query_error.h"
 #include "rmutil/rm_assert.h"
+#include "fast_float/fast_float_strtod.h"
 #include "obfuscation/obfuscation_api.h"
 
 ///////////////////////////////////////////////////////////////
@@ -249,7 +250,7 @@ RSValue *RSValue_ParseNumber(const char *p, size_t l) {
 
   char *e;
   errno = 0;
-  double d = strtod(p, &e);
+  double d = fast_float_strtod(p, &e);
   if ((errno == ERANGE && (d == HUGE_VAL || d == -HUGE_VAL)) || (errno != 0 && d == 0) ||
       *e != '\0') {
     return NULL;
@@ -297,7 +298,7 @@ int RSValue_ToNumber(const RSValue *v, double *d) {
   if (p) {
     char *e;
     errno = 0;
-    *d = strtod(p, &e);
+    *d = fast_float_strtod(p, &e);
     if ((errno == ERANGE && (*d == HUGE_VAL || *d == -HUGE_VAL)) || (errno != 0 && *d == 0) ||
         *e != '\0') {
       return 0;
@@ -479,7 +480,7 @@ static inline int convert_to_number(const RSValue *v, RSValue *vn, QueryError *q
     if (!qerr) return 0;
 
     const char *s = RSValue_StringPtrLen(v, NULL);
-    QueryError_SetErrorFmt(qerr, QUERY_ENOTNUMERIC, "Error converting string '%s' to number", s);
+    QueryError_SetWithUserDataFmt(qerr, QUERY_ENOTNUMERIC, "Error converting string", " '%s' to number", s);
     return 0;
   }
 

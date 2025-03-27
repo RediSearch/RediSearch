@@ -249,7 +249,7 @@ def testFlush(env):
 
     conn.execute_command('hset', 'thing:bar', 'name', 'foo')
 
-    env.expect('ft.search', 'things', 'foo').equal('things: no such index')
+    env.expect('ft.search', 'things', 'foo').equal('No such index things')
 
 def testNotExist(env):
     conn = getConnectionByEnv(env)

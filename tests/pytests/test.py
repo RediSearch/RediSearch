@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 
-from common import *
 import redis
-from hotels import hotels
 import random
 import time
 import unittest
+from common import *
+from hotels import hotels
 
 def testAddErrors(env):
     env.expect('ft.create idx ON HASH schema foo text bar numeric sortable').equal('OK')
@@ -1445,7 +1445,7 @@ def testFieldSelectors(env):
     env.expect(
         'ft.create', 'idx', 'ON', 'HASH', 'PREFIX', 1, 'doc',
         'schema', 'TiTle', 'text', 'BoDy', 'text', "יוניקוד", 'text', 'field.with,punct', 'text').ok()
-    #todo: document as breaking change, ft.add fields name are not case insentive
+    #todo: document as breaking change, ft.add fields name are not case insensitive
     env.expect('ft.add', 'idx', 'doc1', 1, 'fields',
                'TiTle', 'hello world', 'BoDy', 'foo bar', 'יוניקוד', 'unicode', 'field.with,punct', 'punt').ok()
     env.expect('ft.add', 'idx', 'doc2', 0.5, 'fields',
@@ -1727,7 +1727,7 @@ def testPayload(env):
 @skip(cluster=True)
 def testGarbageCollector(env):
     if env.moduleArgs is not None and 'GC_POLICY FORK' in env.moduleArgs:
-        # this test is not relevent for fork gc cause its not cleaning the last block
+        # this test is not relevant for fork gc cause its not cleaning the last block
         env.skip()
 
     N = 100
@@ -2318,7 +2318,7 @@ def testAlterIndex(env):
     env.expect('FT.ALTER', 'idx', 'f2', 'TEXT').error()
 
 def testAlterValidation(env):
-    # Test that constraints for ALTER comand
+    # Test that constraints for ALTER command
     env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'SCHEMA', 'f0', 'TEXT')
     for x in range(1, 32):
         env.cmd('FT.ALTER', 'idx1', 'SCHEMA', 'ADD', f'f{x}', 'TEXT')
@@ -3079,7 +3079,7 @@ def testWithWithRawIds(env):
     env.expect('ft.search', 'idx', '*', 'WITHRAWIDS').equal([1, 'doc1', 1, ['test', 'foo']])
 
 # todo: unskip once fix on coordinator
-#       the coordinator do not return erro on unexisting index.
+#       the coordinator do not return error on a non existing index.
 @skip(cluster=True)
 def testUnkownIndex(env):
     env.expect('ft.aggregate').error()
@@ -3500,7 +3500,7 @@ def testFieldsCaseSensetive(env):
     run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC f TEXT t TAG g GEO')
 
-    # make sure text fields are case sesitive
+    # make sure text fields are case sensitive
     conn.execute_command('hset', 'doc1', 'F', 'test')
     conn.execute_command('hset', 'doc2', 'f', 'test')
     env.expect('ft.search idx @f:test').equal([1, 'doc2', ['f', 'test']])
@@ -3510,7 +3510,7 @@ def testFieldsCaseSensetive(env):
     else:
         res.error().contains("Unknown field at offset 0 near F")
 
-    # make sure numeric fields are case sesitive
+    # make sure numeric fields are case sensitive
     conn.execute_command('hset', 'doc3', 'N', '1.0')
     conn.execute_command('hset', 'doc4', 'n', '1.0')
     env.expect('ft.search', 'idx', '@n:[0 2]').equal([1, 'doc4', ['n', '1.0']])
@@ -3520,7 +3520,7 @@ def testFieldsCaseSensetive(env):
     else:
         res.error().contains("Unknown field at offset 0 near N")
 
-    # make sure tag fields are case sesitive
+    # make sure tag fields are case sensitive
     conn.execute_command('hset', 'doc5', 'T', 'tag')
     conn.execute_command('hset', 'doc6', 't', 'tag')
     env.expect('ft.search', 'idx', '@t:{tag}').equal([1, 'doc6', ['t', 'tag']])
@@ -3530,7 +3530,7 @@ def testFieldsCaseSensetive(env):
     else:
         res.error().contains("Unknown field at offset 0 near T")
 
-    # make sure geo fields are case sesitive
+    # make sure geo fields are case sensitive
     conn.execute_command('hset', 'doc8', 'G', '-113.524,53.5244')
     conn.execute_command('hset', 'doc9', 'g', '-113.524,53.5244')
     env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1, 'doc9', ['g', '-113.524,53.5244']])
@@ -3578,7 +3578,7 @@ def testSortedFieldsCaseSensetive(env):
     run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE f TEXT SORTABLE t TAG SORTABLE g GEO SORTABLE')
 
-    # make sure text fields are case sesitive
+    # make sure text fields are case sensitive
     conn.execute_command('hset', 'doc1', 'F', 'test')
     conn.execute_command('hset', 'doc2', 'f', 'test')
     env.expect('ft.search idx @f:test').equal([1, 'doc2', ['f', 'test']])
@@ -3588,7 +3588,7 @@ def testSortedFieldsCaseSensetive(env):
     else:
         res.error().contains("Unknown field at offset 0 near F")
 
-    # make sure numeric fields are case sesitive
+    # make sure numeric fields are case sensitive
     conn.execute_command('hset', 'doc3', 'N', '1.0')
     conn.execute_command('hset', 'doc4', 'n', '1.0')
     env.expect('ft.search', 'idx', '@n:[0 2]').equal([1, 'doc4', ['n', '1.0']])
@@ -3598,7 +3598,7 @@ def testSortedFieldsCaseSensetive(env):
     else:
         res.error().contains("Unknown field at offset 0 near N")
 
-    # make sure tag fields are case sesitive
+    # make sure tag fields are case sensitive
     conn.execute_command('hset', 'doc5', 'T', 'tag')
     conn.execute_command('hset', 'doc6', 't', 'tag')
     env.expect('ft.search', 'idx', '@t:{tag}').equal([1, 'doc6', ['t', 'tag']])
@@ -3608,7 +3608,7 @@ def testSortedFieldsCaseSensetive(env):
     else:
         res.error().contains("Unknown field at offset 0 near T")
 
-    # make sure geo fields are case sesitive
+    # make sure geo fields are case sensitive
     conn.execute_command('hset', 'doc8', 'G', '-113.524,53.5244')
     conn.execute_command('hset', 'doc9', 'g', '-113.524,53.5244')
     env.expect('ft.search', 'idx', '@g:[-113.52 53.52 20 mi]').equal([1, 'doc9', ['g', '-113.524,53.5244']])
@@ -4013,10 +4013,10 @@ def test_missing_schema(env):
 
     env.expect('FT.CREATE', 'idx1', 'SCHEMA', 'foo', 'TEXT').equal('OK')
     env.expect('FT.CREATE', 'idx2', 'TEMPORARY', 1000, 'foo', 'bar').error().contains('Unknown argument `foo`')
-    # make sure the index succeecfully index new docs
+    # make sure the index successfully index new docs
     conn.execute_command('HSET', 'doc1', 'foo', 'bar')
     env.expect('FT.SEARCH', 'idx1', '*').equal([1, 'doc1', ['foo', 'bar']] )
-    env.expect('FT.SEARCH', 'idx2', '*').error().equal('idx2: no such index')
+    env.expect('FT.SEARCH', 'idx2', '*').error().equal('No such index idx2')
 
 
 @skip(cluster=False) # this test is only relevant on cluster
@@ -4040,7 +4040,7 @@ def cluster_set_test(env: Env):
             env.assertTrue(False, message=str(e))
 
     def prepare_env(env):
-        # set validation timeout to 5ms so occasionaly we will fail to validate the cluster,
+        # set validation timeout to 5ms so occasionally we will fail to validate the cluster,
         # this is to test the timeout logic, and help us with ipv6 addresses in containers
         # where the ipv6 address is not available by default
         env.cmd(config_cmd(), 'SET', 'TOPOLOGY_VALIDATION_TIMEOUT', 5)
@@ -4220,7 +4220,7 @@ def test_cluster_set_errors(env: Env):
         '[::1:234'
     ]
     for addr in invalid_addresses:
-        # Test withouth unix socket
+        # Test without unix socket
         env.expect('SEARCH.CLUSTERSET',
                    'MYID',
                    '1',
@@ -4338,18 +4338,39 @@ def common_with_auth(env: Env):
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'n').equal(expected_res)
 
 def test_with_password():
-    mypass = '42MySecretPassword$'
+    mypass = '42MySecretPassword$'  # Hard-coded in `sbin/get-test-certs.sh` as default password
     args = f'OSS_GLOBAL_PASSWORD {mypass}' if CLUSTER else None
     env = Env(moduleArgs=args, password=mypass)
     common_with_auth(env)
 
 def test_with_tls():
     cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+    # Upon setting `useTLS` to `True`, RLTest also sets the `tls-cluster` config
+    # to `yes`. This results in the coordinator-shard connections being TLS as well.
     env = Env(useTLS=True,
               tlsCertFile=cert_file,
               tlsKeyFile=key_file,
               tlsCaCertFile=ca_cert_file,
               tlsPassphrase=passphrase)
+
+    common_with_auth(env)
+
+@skip(cluster=False)
+def test_with_tls_and_non_tls_ports():
+    """Tests that the coordinator-shard connections are using the correct
+    protocol (TLS vs. non-TLS) according to the redis `tls-cluster` configuration."""
+
+    cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+    env = Env(useTLS=True,
+              tlsCertFile=cert_file,
+              tlsKeyFile=key_file,
+              tlsCaCertFile=ca_cert_file,
+              tlsPassphrase=passphrase,
+              dualTLS=True)        # Sets the ports to be both TLS and regular ports.
+
+    # Upon setting `tls-cluster` to `no`, we should still be able to succeed
+    # connecting the coordinator to the shards, just not in TLS mode.
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
 
     common_with_auth(env)
 
@@ -4536,9 +4557,9 @@ def testLegacyFilters(env: Env):
     expected_error(env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'not_in_schema', geo_pivot, 0, 5, 'km', 'NOCONTENT'))
 
     # Test field mismatch in numeric filter
-    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'g', '10', '20', 'NOCONTENT'), "Field 'g' is not a numeric field")
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'g', '10', '20', 'NOCONTENT'), "Field is not a numeric field, field: g")
     # Test field mismatch in geo filter
-    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'n', geo_pivot, 0, 5, 'km', 'NOCONTENT'), "Field 'n' is not a geo field")
+    expected_error(env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'n', geo_pivot, 0, 5, 'km', 'NOCONTENT'), "Field is not a geo field, field: n")
 
     # Test bad numeric filter with multiple filters
     expected_error(env.expect('FT.SEARCH', 'idx', '*', 'FILTER', 'not_in_schema', '10', '20', 'FILTER', 'n', '10', '20', 'NOCONTENT'))

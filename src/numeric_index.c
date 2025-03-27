@@ -522,9 +522,8 @@ IndexIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTre
 RedisModuleType *NumericIndexType = NULL;
 #define NUMERICINDEX_KEY_FMT "nm:%s/%s"
 
-RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const char *field) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, ctx->spec->name,
-                                        field);
+RedisModuleString *fmtRedisNumericIndexKey(const RedisSearchCtx *ctx, const HiddenString *field) {
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, NUMERICINDEX_KEY_FMT, HiddenString_GetUnsafe(ctx->spec->specName, NULL), HiddenString_GetUnsafe(field, NULL));
 }
 
 NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyName,
@@ -547,7 +546,8 @@ NumericRangeTree *openNumericKeysDict(IndexSpec* spec, RedisModuleString *keyNam
 struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const NumericFilter *flt,
                                                ConcurrentSearchCtx *csx, FieldType forType, IteratorsConfig *config,
                                                const FieldFilterContext* filterCtx) {
-  RedisModuleString *s = IndexSpec_GetFormattedKey(ctx->spec, flt->field, forType);
+  const FieldSpec *fs = flt->fieldSpec;
+  RedisModuleString *s = IndexSpec_GetFormattedKey(ctx->spec, fs, forType);
   if (!s) {
     return NULL;
   }
@@ -578,7 +578,7 @@ struct indexIterator *NewNumericFilterIterator(const RedisSearchCtx *ctx, const 
     uc->lastRevId = t->revisionId;
     uc->it = it;
     uc->sp = ctx->spec;
-    uc->field = flt->field;
+    uc->field = fs;
     ConcurrentSearch_AddKey(csx, NumericRangeIterator_OnReopen, uc, rm_free);
   }
   return it;

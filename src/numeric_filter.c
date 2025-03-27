@@ -9,6 +9,7 @@
 #include "rmutil/util.h"
 #include "rmutil/vector.h"
 #include "query_param.h"
+#include "fast_float/fast_float_strtod.h"
 
 int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
                       int sign, QueryError *status) {
@@ -29,9 +30,9 @@ int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
   }
   char *endptr = NULL;
   errno = 0;
-  *target = strtod(s, &endptr);
+  *target = fast_float_strtod(s, &endptr);
   if (*endptr != '\0' || *target == HUGE_VAL || *target == -HUGE_VAL) {
-    QERR_MKBADARGS_FMT(status, "Bad %s range: %s", isMin ? "lower" : "upper", s);
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, isMin ? "Bad lower range" : "Bad upper range", ": %s", s);
     return REDISMODULE_ERR;
   }
   if(sign == -1) {
@@ -56,29 +57,30 @@ int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
  *  Returns a numeric filter on success, NULL if there was a problem with the
  * arguments
  */
-NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status) {
+LegacyNumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status) {
   if (AC_NumRemaining(ac) < 3) {
-    QERR_MKBADARGS_FMT(status, "FILTER requires 3 arguments");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "FILTER requires 3 arguments");
     return NULL;
   }
 
-  NumericFilter *nf = rm_calloc(1, sizeof(*nf));
+  LegacyNumericFilter *nf = rm_calloc(1, sizeof(*nf));
 
   // make sure we have an index spec for this filter and it's indeed numeric
-  nf->inclusiveMax = 1;
-  nf->inclusiveMin = 1;
-  nf->min = 0;
-  nf->max = 0;
+  nf->base.inclusiveMax = 1;
+  nf->base.inclusiveMin = 1;
+  nf->base.min = 0;
+  nf->base.max = 0;
   // Store the field name at the field spec pointer, to validate later
-  nf->field = (const FieldSpec*)AC_GetStringNC(ac, NULL);
+  const char *fieldName = AC_GetStringNC(ac, NULL);
+  nf->field = NewHiddenString(fieldName, strlen(fieldName), false);
 
   // Parse the min range
   const char *s = AC_GetStringNC(ac, NULL);
   if (!*s) {
     *hasEmptyFilterValue = true;
   }
-  if (parseDoubleRange(s, &nf->inclusiveMin, &nf->min, 1, 1, status) != REDISMODULE_OK) {
-    NumericFilter_Free(nf);
+  if (parseDoubleRange(s, &nf->base.inclusiveMin, &nf->base.min, 1, 1, status) != REDISMODULE_OK) {
+    LegacyNumericFilter_Free(nf);
     return NULL;
   }
 
@@ -86,8 +88,8 @@ NumericFilter *NumericFilter_LegacyParse(ArgsCursor *ac, bool *hasEmptyFilterVal
   if (!*s) {
     *hasEmptyFilterValue = true;
   }
-  if (parseDoubleRange(s, &nf->inclusiveMax, &nf->max, 0, 1, status) != REDISMODULE_OK) {
-    NumericFilter_Free(nf);
+  if (parseDoubleRange(s, &nf->base.inclusiveMax, &nf->base.max, 0, 1, status) != REDISMODULE_OK) {
+    LegacyNumericFilter_Free(nf);
     return NULL;
   }
   return nf;
@@ -97,13 +99,18 @@ void NumericFilter_Free(NumericFilter *nf) {
   rm_free(nf);
 }
 
+void LegacyNumericFilter_Free(LegacyNumericFilter *nf) {
+  HiddenString_Free(nf->field, false);
+  rm_free(nf);
+}
+
 NumericFilter *NewNumericFilter(double min, double max, int inclusiveMin, int inclusiveMax,
-                                bool asc) {
+                                bool asc, const FieldSpec *fs) {
   NumericFilter *f = rm_malloc(sizeof(NumericFilter));
 
   f->min = min;
   f->max = max;
-  f->field = NULL;
+  f->fieldSpec = fs;
   f->inclusiveMax = inclusiveMax;
   f->inclusiveMin = inclusiveMin;
   f->geoFilter = NULL;

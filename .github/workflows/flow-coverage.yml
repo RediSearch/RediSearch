@@ -15,7 +15,6 @@ on:
         description: 'Branch to use when building RedisJSON for tests'
 
 env:
-  BOOST_VERSION: ${{ vars.BOOST_VERSION || '1.83.0' }}
   VERBOSE_UTESTS: 1
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
 
@@ -35,11 +34,6 @@ jobs:
       run: ./install_script.sh sudo
     - name: Setup common
       run: .install/test_deps/common_installations.sh sudo
-
-    - name: Install Boost
-      working-directory: .install
-      run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
-
     - name: Get Redis
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,7 +43,7 @@ jobs:
     - name: Upload coverage
       uses: codecov/codecov-action@v5
       with:
-        files: bin/linux-x64-debug-cov/cov.info
+        files: bin/linux-x64-debug-cov/cov.info,bin/linux-x64-debug-cov/rust_cov.info
         disable_search: true
         fail_ci_if_error: true # Fail on upload errors
         token: ${{ secrets.CODECOV_TOKEN }}

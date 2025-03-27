@@ -44,7 +44,6 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
   // command instead of a READ command (here we know it has more results)
   if (timedout && !cmd->forCursor) {
     newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
-    newCmd.depleted = true;
     // Mark that the last command was a DEL command
     newCmd.rootCommand = C_DEL;
   } else {
@@ -484,6 +483,7 @@ static void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
 
   if (nc->it) {
+    RS_DEBUG_LOG("rpnetFree: calling MRIterator_Release");
     MRIterator_Release(nc->it);
   }
 
@@ -541,12 +541,12 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 
   // Add the index prefixes to the command, for validation in the shard
   array_append(tmparr, "_INDEX_PREFIXES");
-  arrayof(sds) prefixes = sp->rule->prefixes;
+  arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
   char *n_prefixes;
   rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
   array_append(tmparr, n_prefixes);
   for (uint i = 0; i < array_len(prefixes); i++) {
-    array_append(tmparr, (const char *)prefixes[i]);
+    array_append(tmparr, HiddenUnicodeString_GetUnsafe(prefixes[i], NULL));
   }
 
   int argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
@@ -679,7 +679,7 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
 }
 
 static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                         struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
+                         IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
   r->qiter.err = status;
   r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
   r->initClock = clock();
@@ -789,7 +789,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto err;
   }
 
-  if (prepareForExecution(r, ctx, argv, argc, cmdCtx, sp, &knnCtx, &status) != REDISMODULE_OK) {
+  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, &status) != REDISMODULE_OK) {
     goto err;
   }
 
@@ -838,7 +838,7 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 
   int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
-  if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, cmdCtx, sp, &knnCtx, &status) != REDISMODULE_OK) {
+  if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, sp, &knnCtx, &status) != REDISMODULE_OK) {
     goto err;
   }
 
