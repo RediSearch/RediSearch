@@ -62,6 +62,11 @@ declare -A install_scripts=(
 # Print header
 echo -e "\n===== Build Dependencies Checker =====\n"
 
+# Function to check if a command is available
+check_command() {
+  command -v "$1" &> /dev/null
+}
+
 # Function to check if a package is installed (Ubuntu/Debian)
 check_package_deb() {
   dpkg -l | grep -q " $1 " || dpkg -l | grep -q " $1:"
