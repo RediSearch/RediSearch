@@ -13,9 +13,9 @@ on:
 
 jobs:
 
-  test-jammy:
+  test-all:
     uses: ./.github/workflows/flow-build.yml
     secrets: inherit
     with:
-      platform: "ubuntu:jammy"
+      platform: "all"
       architecture: "x86_64"
