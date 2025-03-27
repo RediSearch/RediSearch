@@ -26,6 +26,13 @@ impl<Data> Node<Data> {
         todo!()
     }
 
+    pub fn label(&self) -> &[c_char] {
+        match self.cast_ref() {
+            Either::Left(n) => n.label(),
+            Either::Right(n) => n.label(),
+        }
+    }
+
     pub fn cast(self) -> Either<leaf::LeafNode<Data>, branching::BranchingNode<Data>> {
         match unsafe { self.ptr.as_ref() }.kind() {
             header::NodeKind::Leaf => {

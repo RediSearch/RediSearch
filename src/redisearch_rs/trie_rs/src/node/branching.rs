@@ -1,3 +1,4 @@
+use super::leaf::LeafNode;
 use super::Node;
 use super::header::AllocationHeader;
 use std::alloc::*;
@@ -21,6 +22,33 @@ impl<Data> BranchingNode<Data> {
     // todo: open to discuss, do we always know all children or do we need a form of "not yet initalized"?
     // and is slice the way to go?
     pub fn new(label: &[c_char], children: &[&Node<Data>]) -> Self {
+        let reval = Self::new_impl(label, children.len());
+
+        // copy children and set first bytes
+        for (idx, child) in children.iter().enumerate() {
+            reval.children_first_bytes()[idx] = child.label()[0];
+            reval.children()[idx] = child;
+        }
+        
+        reval
+    }
+
+    pub fn new_for_grow(label: &[c_char], left: &[&Node<Data>], new_node: &Node<Data>, right: &[Node<Data>]) {
+        let reval = Self::new_impl(label, children.len());
+
+        // tod
+        //let it = left.
+
+        // copy children and set first bytes
+        for (idx, child) in children.iter().enumerate() {
+            reval.children_first_bytes()[idx] = child.label()[0];
+            reval.children()[idx] = child;
+        }
+
+        reval
+    }
+
+    fn new_impl(label: &[c_char], num_children: u8) -> Self {
         Self(Node {
             ptr: Self::allocate(label, children),
             _phantom: PhantomData,
@@ -61,17 +89,22 @@ impl<Data> BranchingNode<Data> {
     /// grows the branching node by one element
     ///
     fn grow(&mut self, new_child: Node<Data>) {
-        match new_child.cast() {
-            super::Either::Left(lnode) => {
-                // allocate branching node
-                // todo: replace self with branching node
-            },
-            super::Either::Right(bnode) => {
-                // allocate branching node with num_children+1
-                // find right place for new_child
-                // copy old childs and place new child
-                // todo: replace self with new branching node
-            },
+        if new_child.label().is_empty() { todo!() }
+
+        // find right place for new_child
+        let insert_index = match self.children_first_bytes().binary_search(&new_child.label()[0]) {
+            Ok(_found) => unreachable!("we assume that we call grow for first level children and that this child does not exist"),
+            Err(idx) => idx
+        };
+
+        // copy old childs and place new child
+        let new_children_slice = 
+
+        // allocate branching node with num_children+1
+        let new_branch = Self::new(self.label(), new_children_slice);
+
+        // replace self with new branching node
+        
         }
     }
 
@@ -227,7 +260,7 @@ impl<Data> BranchLayout<Data> {
         };
 
         // array of children pointers
-        let Ok(c_ptr_array) = Layout::array::<&mut Data>(num_children as usize) else {
+        let Ok(c_ptr_array) = Layout::array::<&mut Node<Data>>(num_children as usize) else {
             panic!("Boom")
         };
         let Ok((layout, children_offset)) = layout.extend(c_ptr_array) else {
