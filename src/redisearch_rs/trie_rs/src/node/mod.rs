@@ -1,22 +1,18 @@
-use std::{ffi::c_char, marker::PhantomData, ptr::NonNull};
+use std::{ffi::c_char, marker::PhantomData};
 
 use branching::BranchingNode;
-use header::AllocationHeader;
-use leaf::LeafNode;
+use header::{AllocationHeader, AllocationHeader};
 mod branching;
 mod header;
 mod layout;
 mod leaf;
 
-static NA: NewAllocationHeader = NewAllocationHeader {  }
+static mut SENTINEL_HEADER: AllocationHeader = AllocationHeader::sentinel();
 
 pub struct Node<Data> {
     ptr: std::ptr::NonNull<AllocationHeader>,
     _phantom: PhantomData<Data>,
 }
-
-static BS: () = ();
-static SENTINEL: NonNull<()> = 
 
 pub enum Either<L, R> {
     Left(L),
@@ -24,6 +20,27 @@ pub enum Either<L, R> {
 }
 
 impl<Data> Node<Data> {
+    fn sentinel() -> Self {
+        Node {
+            ptr: unsafe {std::ptr::NonNull::new_unchecked(&mut SENTINEL_HEADER as *mut AllocationHeader)},
+            _phantom: PhantomData,
+        }
+    }
+
+    fn sentinel_leaf() -> Self {
+        // SAFETY: All good, repr(transparent) to the rescue.
+        unsafe {
+            std::mem::transmute(Self::sentinel())
+        }
+    }
+
+    fn sentinel_branching() -> BranchingNode<Data> {
+        // SAFETY: All good, repr(transparent) to the rescue.
+        unsafe {
+            std::mem::transmute(Self::sentinel())
+        }
+    }
+
     /// Create a new leaf node.
     pub fn leaf(label: &[c_char], data: Data) -> Self {
         leaf::LeafNode::new(data, label).into()
@@ -38,10 +55,7 @@ impl<Data> Node<Data> {
             Either::Left(leaf) => {
                 let leaf = std::mem::replace(
                     leaf,
-                    Node {
-                        ptr: std::ptr::NonNull::dangling(),
-                        _phantom: PhantomData,
-                    },
+                    Node::<Data>::sentinel().into(),
                 );
 
                 let new_parent:  BranchingNode<Data> = leaf.add_child(child);
@@ -50,10 +64,7 @@ impl<Data> Node<Data> {
             Either::Right(_self) => {
                 let old_parent  = std::mem::replace(
                     _self,
-                    Node {
-                        ptr: std::ptr::NonNull::dangling(),
-                        _phantom: PhantomData,
-                    },
+                    Node::<Data>::sentinel().into(),
                 );
 
                 let new_parent = old_parent.grow(child, child_label);

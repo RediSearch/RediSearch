@@ -1,5 +1,5 @@
 //! Utilities for computing the layout of allocations.
-use super::{header::AllocationHeader, BranchingNode, leaf::LeafNode, Node};
+use super::{header::AllocationHeader, BranchingNode, Node};
 use std::alloc::Layout;
 use std::ffi::c_char;
 
