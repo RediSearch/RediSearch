@@ -96,6 +96,7 @@ jobs:
               gcc_ver=10
               ;;
             debian:* | ubuntu:*)
+            apt install -y gcc g++
               gcc_ver=""
               ;;
             rocky*)
