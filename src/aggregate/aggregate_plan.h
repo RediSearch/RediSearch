@@ -11,6 +11,7 @@
 #include <search_options.h>
 #include <aggregate/expr/expression.h>
 #include <util/dllist.h>
+#include <obfuscation/hidden.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -82,9 +83,8 @@ typedef struct {
 
 typedef struct {
   PLN_BaseStep base;
-  const char *rawExpr;
+  HiddenString *expr;
   RSExpr *parsedExpr;
-  bool shouldFreeRaw;  // Whether we own the raw expression, used on coordinator only
   bool noOverride;     // Whether we should override the alias if it exists. We allow it by default
 } PLN_MapFilterStep;
 
@@ -141,7 +141,7 @@ PLN_GroupStep *PLNGroupStep_New(const char **props, size_t nprops);
 int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
                             QueryError *status);
 
-PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, int mode);
+PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString *expr, int mode);
 
 #ifdef __cplusplus
 typedef PLN_GroupStep::PLN_Reducer PLN_Reducer;

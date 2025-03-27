@@ -26,7 +26,7 @@ VecSimIndex *openVectorIndex(IndexSpec *spec, RedisModuleString *keyName, bool c
   const char *fieldStr = RedisModule_StringPtrLen(keyName, &fieldLen);
   FieldSpec *fieldSpec = NULL;
   for (int i = 0; i < spec->numFields; ++i) {
-    if (!strcasecmp(fieldStr, spec->fields[i].name)) {
+    if (!HiddenString_CaseInsensitiveCompareC(spec->fields[i].fieldName, fieldStr, fieldLen)) {
       fieldSpec = &spec->fields[i];
       break;
     }
@@ -289,7 +289,7 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
   if (REDISMODULE_OK != rv) {
     size_t old_block_size = 0;
     size_t old_initial_cap = 0;
-    RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: %s", QueryError_GetDisplayableError(&status, false));
+    RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
     // We change the initial size and block size to default and try again.
     switch (vecsimParams->algo) {
       case VecSimAlgo_BF:
@@ -337,7 +337,7 @@ static int VecSimIndex_validate_Rdb_parameters(RedisModuleIO *rdb, VecSimParams 
     }
     // If the second validation failed, we fail.
     if (REDISMODULE_OK != rv) {
-      RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: second load with default parameters failed! %s", QueryError_GetDisplayableError(&status, false));
+      RedisModule_LogIOError(rdb, REDISMODULE_LOGLEVEL_WARNING, "ERROR: second load with default parameters failed! %s", QueryError_GetDisplayableError(&status, RSGlobalConfig.hideUserDataFromLog));
     }
   }
   QueryError_ClearError(&status);

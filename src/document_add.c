@@ -172,7 +172,10 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   // handle update condition, only if the document exists
   if (exists && opts->evalExpr) {
     int res = 0;
-    if (Document_EvalExpression(sctx, name, opts->evalExpr, &res, status) == REDISMODULE_OK) {
+    HiddenString* expr = NewHiddenString(opts->evalExpr, strlen(opts->evalExpr), false);
+    const int rc = Document_EvalExpression(sctx, name, expr, &res, status);
+    HiddenString_Free(expr, false);
+    if (rc == REDISMODULE_OK) {
       if (res == 0) {
         QueryError_SetError(status, QUERY_EDOCNOTADDED, NULL);
         goto done;

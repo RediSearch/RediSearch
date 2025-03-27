@@ -24,6 +24,7 @@
 #include "aggregate/expr/expression.h"
 #include "rmutil/rm_assert.h"
 #include "redis_index.h"
+#include "obfuscation/obfuscation_api.h"
 #include "fast_float/fast_float_strtod.h"
 
 // Memory pool for RSAddDocumentContext contexts
@@ -44,13 +45,15 @@ static void freeDocumentContext(void *p) {
 
   rm_free(aCtx->fspecs);
   rm_free(aCtx->fdatas);
-  rm_free(aCtx->specName);
+  if (aCtx->specName) {
+    HiddenString_Free(aCtx->specName, true);
+  }
   rm_free(aCtx);
 }
 
 #define DUP_FIELD_ERRSTR "Requested to index field twice"
 
-#define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].name != NULL)
+#define FIELD_IS_VALID(aCtx, ix) ((aCtx)->fspecs[ix].fieldName != NULL)
 #define FIELD_IS_NULL(aCtx, ix) ((aCtx)->fdatas[ix].isNull)
 
 static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
@@ -77,17 +80,17 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
 
   for (size_t i = 0; i < doc->numFields; i++) {
     DocumentField *f = doc->fields + i;
-    const FieldSpec *fs = IndexSpec_GetField(sp, f->name);
+    const FieldSpec *fs = IndexSpec_GetField(sp, f->docFieldName);
     if (!fs || (isSpecHash(sp) && !f->text)) {
-      aCtx->fspecs[i].name = NULL;
-      aCtx->fspecs[i].path = NULL;
+      aCtx->fspecs[i].fieldName = NULL;
+      aCtx->fspecs[i].fieldPath = NULL;
       aCtx->fspecs[i].types = 0;
       continue;
     }
 
     aCtx->fspecs[i] = *fs;
     if (dedupe[fs->index]) {
-      QueryError_SetWithUserDataFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert field twice", ": '%s'", fs->name);
+      QueryError_SetWithUserDataFmt(&aCtx->status, QUERY_EDUPFIELD, "Tried to insert field twice", ": '%s'", HiddenString_GetUnsafe(fs->fieldName, NULL));
       return -1;
     }
 
@@ -105,7 +108,7 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
       // Verify the flags:
       if ((f->indexAs & fs->types) != f->indexAs) {
         QueryError_SetWithUserDataFmt(&aCtx->status, QUERY_EUNSUPPTYPE,
-                               "Tried to index field as a type that is not specified in schema", ": %s", fs->name);
+                               "Tried to index field as a type that is not specified in schema", ": %s", HiddenString_GetUnsafe(fs->fieldName, NULL));
         return -1;
       }
     }
@@ -179,20 +182,11 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->sctx = NULL;
   aCtx->next = NULL;
   aCtx->specFlags = sp->flags;
-  aCtx->indexer = sp->indexer;
   aCtx->spec = sp;
   aCtx->oldMd = NULL;
   if (aCtx->specFlags & Index_Async) {
-    size_t len = sp->nameLen + 1;
-    if (aCtx->specName == NULL) {
-      aCtx->specName = rm_malloc(len);
-    } else if (len > aCtx->specNameLen) {
-      aCtx->specName = rm_realloc(aCtx->specName, len);
-      aCtx->specNameLen = len;
-    }
-    strncpy(aCtx->specName, sp->name, len);
+    HiddenString_Clone(sp->specName, &aCtx->specName);
   }
-  RS_LOG_ASSERT(sp->indexer, "No indexer");
 
   // Assign the document:
   aCtx->doc = doc;
@@ -246,17 +240,6 @@ void AddDocumentCtx_Finish(RSAddDocumentCtx *aCtx) {
 
 // How many bytes in a document to warrant it being tokenized in a separate thread
 #define SELF_EXEC_THRESHOLD 1024
-
-// LCOV_EXCL_START debug
-void Document_Dump(const Document *doc) {
-  printf("Document Key: %s. ID=%" PRIu64 "\n", RedisModule_StringPtrLen(doc->docKey, NULL),
-         doc->docId);
-  for (size_t ii = 0; ii < doc->numFields; ++ii) {
-    printf("  [%lu]: %s => %s\n", ii, doc->fields[ii].name,
-           RedisModule_StringPtrLen(doc->fields[ii].text, NULL));
-  }
-}
-// LCOV_EXCL_STOP
 
 static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx);
 
@@ -834,7 +817,7 @@ int Document_AddToIndexes(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
     }
   }
 
-  if (Indexer_Add(aCtx->indexer, aCtx) != 0) {
+  if (IndexDocument(aCtx) != 0) {
     ourRv = REDISMODULE_ERR;
     goto cleanup;
   }
@@ -860,7 +843,7 @@ cleanup:
  * of it internally
  *
  * Returns  REDISMODULE_ERR on failure, OK otherwise*/
-int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
+int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const HiddenString *expr,
                             int *result, QueryError *status) {
 
   int rc = REDISMODULE_ERR;
@@ -874,7 +857,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
   }
 
   // Try to parser the expression first, fail if we can't
-  if (!(e = ExprAST_Parse(expr, strlen(expr), status)) || QueryError_HasError(status)) {
+  if (!(e = ExprAST_Parse(expr, status)) || QueryError_HasError(status)) {
     goto done;
   }
 
@@ -943,7 +926,7 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
     // Update sortables if needed
     for (int i = 0; i < doc->numFields; i++) {
       DocumentField *f = &doc->fields[i];
-      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->name);
+      const FieldSpec *fs = IndexSpec_GetField(sctx->spec, f->docFieldName);
       if (fs == NULL || !FieldSpec_IsSortable(fs)) {
         continue;
       }
@@ -997,7 +980,7 @@ DocumentField *Document_GetField(Document *d, const char *fieldName) {
   if (!d || !fieldName) return NULL;
 
   for (int i = 0; i < d->numFields; i++) {
-    if (!strcasecmp(d->fields[i].name, fieldName)) {
+    if (!HiddenString_CaseInsensitiveCompareC(d->fields[i].docFieldName, fieldName, strlen(fieldName))) {
       return &d->fields[i];
     }
   }
