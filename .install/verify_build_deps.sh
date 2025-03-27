@@ -63,7 +63,7 @@ elif [[ "$OS" == "rocky" ]]; then
   done
 elif [[ "$OS" == "amzn" ]]; then
   for key in "${!amzn_dependencies[@]}"; do
-    dependencies["$key"]="${rocky_dependencies[$key]}"
+    dependencies["$key"]="${amzn_dependencies[$key]}"
   done
 else
   echo -e "${RED}Unsupported operating system.${NC}"
@@ -119,7 +119,7 @@ for dep in "${!dependencies[@]}"; do
   elif [[ "$verify_method" == "package" ]]; then
     if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]] && check_package_deb "$dep"; then
       echo -e "${GREEN}✓${NC}"
-    elif [[ "$OS" == "rocky" ]] && check_package_rpm "$dep"; then
+    elif [[ "$OS" == "rocky" ||  "$OS" == "amzn" ]] && check_package_rpm "$dep"; then
       echo -e "${GREEN}✓${NC}"
     else
       echo -e "${RED}✗${NC}"
