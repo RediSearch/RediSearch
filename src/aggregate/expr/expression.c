@@ -203,7 +203,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
   if (!value) {
     if (eval->err) {
-      QueryError_SetWithUserDataFmt(eval->err, QUERY_ENOPROPVAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", e->lookupObj->name);
+      QueryError_SetWithUserDataFmt(eval->err, QUERY_ENOPROPVAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", HiddenString_GetUnsafe(e->lookupObj->name, NULL));
     }
     res->t = RSValue_Null;
     return EXPR_EVAL_NULL;
@@ -252,7 +252,7 @@ int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
       expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!expr->property.lookupObj) {
         QueryError_SetWithUserDataFmt(err, QUERY_ENOPROPKEY, "Property", " `%s` not loaded nor in pipeline",
-                               expr->property.key);
+                               HiddenString_GetUnsafe(expr->property.key, NULL));
         return EXPR_EVAL_ERR;
       }
       break;
@@ -481,7 +481,7 @@ ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup)
   return RPEvaluator_NewCommon(ast, lookup, NULL, 1);
 }
 
-void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const ResultProcessor *rp) {
+void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const ResultProcessor *rp, bool obfuscate) {
   if (title) {
     RedisModule_Reply_SimpleString(reply, title);
   }
@@ -501,7 +501,7 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
       RedisModule_Reply_SimpleStringf(reply, "%s - Literal %s", typeStr, literal);
       break;
     case RSExpr_Property:
-      RedisModule_Reply_SimpleStringf(reply, "%s - Property %s", typeStr, expr->property.key);
+      RedisModule_Reply_SimpleStringf(reply, "%s - Property %s", typeStr, HiddenString_GetUnsafe(expr->property.key, NULL));
       break;
     case RSExpr_Op:
       RedisModule_Reply_SimpleStringf(reply, "%s - Operator %c", typeStr, expr->op.op);

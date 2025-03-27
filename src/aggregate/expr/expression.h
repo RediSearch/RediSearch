@@ -96,7 +96,7 @@ typedef struct {
 } RSFunctionExpr;
 
 typedef struct {
-  const char *key;
+  HiddenString *key;
   const RLookupKey *lookupObj;
 } RSLookupExpr;
 
@@ -212,7 +212,7 @@ ResultProcessor *RPEvaluator_NewFilter(const RSExpr *ast, const RLookup *lookup)
 /**
  * Reply with a string which describes the result processor.
  */
-void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const ResultProcessor *rp);
+void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const ResultProcessor *rp, bool obfuscate);
 
 #ifdef __cplusplus
 }

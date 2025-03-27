@@ -82,9 +82,7 @@ void Document_MakeStringsOwner(Document *d) {
 
   for (size_t ii = 0; ii < d->numFields; ++ii) {
     DocumentField *f = d->fields + ii;
-    const HiddenString* oldName = f->docFieldName;
-    f->docFieldName = HiddenString_Duplicate(f->docFieldName);
-    HiddenString_Free(oldName, false);
+    HiddenString_TakeOwnership(f->docFieldName);
     if (f->text && f->unionType == FLD_VAR_T_RMS) {
       RedisModuleString *oldText = f->text;
       f->text = RedisModule_CreateStringFromString(RSDummyContext, oldText);
@@ -176,7 +174,10 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     }
 
     size_t oix = doc->numFields++;
-    doc->fields[oix].docFieldName = HiddenString_Duplicate(field->fieldName);
+    if (doc->fields[oix].docFieldName) {
+      HiddenString_Free(doc->fields[oix].docFieldName);
+    }
+    doc->fields[oix].docFieldName = HiddenString_Retain(field->fieldName);
     // on crdt the return value might be the underline value, we must copy it!!!
     doc->fields[oix].text = RedisModule_CreateStringFromString(sctx->redisCtx, v);
     doc->fields[oix].unionType = FLD_VAR_T_RMS;
@@ -249,7 +250,10 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
     }
 
     size_t oix = doc->numFields++;
-    doc->fields[oix].docFieldName = HiddenString_Duplicate(field->fieldName);
+    if (doc->fields[oix].docFieldName) {
+      HiddenString_Free(doc->fields[oix].docFieldName);
+    }
+    doc->fields[oix].docFieldName = HiddenString_Retain(field->fieldName);
 
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
@@ -425,7 +429,7 @@ void ClearOwnedField(DocumentField *field) {
 void Document_Clear(Document *d) {
   for (size_t ii = 0; ii < d->numFields; ++ii) {
     DocumentField *field = &d->fields[ii];
-    HiddenString_Free(field->docFieldName, d->flags & DOCUMENT_F_OWNSTRINGS);
+    HiddenString_Free(field->docFieldName);
     if (d->flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
       ClearOwnedField(field);
     }

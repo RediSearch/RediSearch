@@ -104,7 +104,6 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
       }
       // Argument not found, that's ok. We'll handle it below
     } else {
-      char message[1024];
       QueryError_SetWithoutUserDataFmt(status, QUERY_EADDARGS, "Parsing error for document option %s: %s", errArg->name, AC_Strerror(rv));
       return REDISMODULE_ERR;
     }
@@ -174,7 +173,7 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
     int res = 0;
     HiddenString* expr = NewHiddenString(opts->evalExpr, strlen(opts->evalExpr), false);
     const int rc = Document_EvalExpression(sctx, name, expr, &res, status);
-    HiddenString_Free(expr, false);
+    HiddenString_Free(expr);
     if (rc == REDISMODULE_OK) {
       if (res == 0) {
         QueryError_SetError(status, QUERY_EDOCNOTADDED, NULL);

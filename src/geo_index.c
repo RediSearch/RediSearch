@@ -92,7 +92,7 @@ void GeoFilter_Free(GeoFilter *gf) {
 
 void LegacyGeoFilter_Free(LegacyGeoFilter *gf) {
   if (gf->field) {
-    HiddenString_Free(gf->field, false);
+    HiddenString_Free(gf->field);
   }
   GeoFilter_Free(&gf->base);
 }
@@ -140,7 +140,7 @@ IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *g
   // check input parameters are valid
   if (gf->radius <= 0 ||
       gf->lon > GEO_LONG_MAX || gf->lon < GEO_LONG_MIN ||
-      gf->lat > GEO_LAT_MAX || gf->lat < GEO_LAT_MIN) {
+      gf->lat > GEO_LAT_MAX || gf->lat < GEO_LAT_MIN || !gf->fieldSpec) {
     return NULL;
   }
 

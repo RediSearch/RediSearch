@@ -42,6 +42,7 @@
 #include "rejson_api.h"
 #include "geometry/geometry_api.h"
 #include "reply.h"
+#include "reply_macros.h"
 #include "resp3.h"
 #include "coord/rmr/rmr.h"
 #include "hiredis/async.h"
@@ -513,7 +514,7 @@ int CreateIndexIfNotExistsCommand(RedisModuleCtx *ctx, RedisModuleString **argv,
   const char *rawSpecName = RedisModule_StringPtrLen(argv[1], NULL);
   HiddenString *specName = NewHiddenString(rawSpecName, strlen(rawSpecName), false);
   const bool found = dictFetchValue(specDict_g, specName);
-  HiddenString_Free(specName, false);
+  HiddenString_Free(specName);
   if (found) {
     return RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
@@ -836,7 +837,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   const char *rawAlias = RedisModule_StringPtrLen(argv[1], &length);
   HiddenString *alias = NewHiddenString(rawAlias, length, false);
   if (dictFetchValue(specDict_g, alias)) {
-    HiddenString_Free(alias, false);
+    HiddenString_Free(alias);
     QueryError_SetCode(error, QUERY_EALIASCONFLICT);
     return REDISMODULE_ERR;
   }
@@ -845,7 +846,7 @@ static int aliasAddCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   if (!skipIfExists || !StrongRef_Equals(alias_ref, ref)) {
     rc = IndexAlias_Add(alias, ref, 0, error);
   }
-  HiddenString_Free(alias, false);
+  HiddenString_Free(alias);
   return rc;
 }
 
@@ -894,7 +895,7 @@ static int AliasDelCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int ar
   HiddenString *alias = NewHiddenString(rawAlias, length, false);
   QueryError status = {0};
   const int rc = IndexAlias_Del(alias, ref, 0, &status);
-  HiddenString_Free(alias, false);
+  HiddenString_Free(alias);
   if (rc != REDISMODULE_OK) {
     return QueryError_ReplyAndClear(ctx, &status);
   } else {
@@ -932,10 +933,10 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (spOrig) {
     // On Enterprise, we validate ACL permission to the index
     if (!checkEnterpriseACL(ctx, spOrig)) {
-      HiddenString_Free(alias, false);
+      HiddenString_Free(alias);
       return RedisModule_ReplyWithError(ctx, NOPERM_ERR);
     } else if (IndexAlias_Del(alias, Orig_ref, 0, &status) != REDISMODULE_OK) {
-      HiddenString_Free(alias, false);
+      HiddenString_Free(alias);
       return QueryError_ReplyAndClear(ctx, &status);
     }
   }
@@ -952,7 +953,7 @@ static int AliasUpdateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int
     RedisModule_ReplicateVerbatim(ctx);
     rc = RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
-  HiddenString_Free(alias, false);
+  HiddenString_Free(alias);
   return rc;
 }
 
@@ -1003,6 +1004,8 @@ int IndexList(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (argc > 2) {
     return RedisModule_WrongArity(ctx);
   }
+
+  const bool obfuscate = argc == 2 && RMUtil_StringEqualsCaseC(argv[1], "OBFUSCATE");
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx);
   Indexes_List(&_reply, false);

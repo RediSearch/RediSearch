@@ -28,6 +28,7 @@
 #include "info/global_stats.h"
 #include "obfuscation/obfuscation_api.h"
 #include "obfuscation/hidden.h"
+#include "obfuscation/format.h"
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
@@ -339,7 +340,7 @@ static void countRemain(const RSIndexResult *r, const IndexBlock *blk, void *arg
 
 typedef struct {
   int type;
-  const char *field;
+  HiddenString *field;
   const void *curPtr;
   char *tagValue;
   size_t tagLen;
@@ -351,7 +352,8 @@ static void sendNumericTagHeader(ForkGC *fgc, void *arg) {
   tagNumHeader *info = arg;
   if (!info->sentFieldName) {
     info->sentFieldName = 1;
-    FGC_sendBuffer(fgc, info->field, strlen(info->field));
+    const char* field = HiddenString_GetUnsafe(info->field, NULL);
+    FGC_sendBuffer(fgc, field, strlen(field));
     FGC_sendFixed(fgc, &info->uniqueId, sizeof info->uniqueId);
   }
   FGC_SEND_VAR(fgc, info->curPtr);
@@ -395,7 +397,7 @@ static void FGC_childCollectNumeric(ForkGC *gc, RedisSearchCtx *sctx) {
 
     NumericRangeNode *currNode = NULL;
     tagNumHeader header = {.type = RSFLDTYPE_NUMERIC,
-                           .field = HiddenString_GetUnsafe(numericFields[i]->fieldName, NULL),
+                           .field = numericFields[i]->fieldName,
                            .uniqueId = rt->uniqueId};
 
     numCbCtx nctx;
@@ -456,7 +458,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
       }
 
       tagNumHeader header = {.type = RSFLDTYPE_TAG,
-                             .field = HiddenString_GetUnsafe(tagFields[i]->fieldName, NULL),
+                             .field = tagFields[i]->fieldName,
                              .uniqueId = tagIdx->uniqueId};
 
       TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values, "", 0);
@@ -877,9 +879,12 @@ static FGCError FGC_parentHandleTerms(ForkGC *gc) {
     }
 
     if (!Trie_Delete(sctx->spec->terms, term, len)) {
-      const char* name = IndexSpec_FormatName(sctx->spec, RSGlobalConfig.hideUserDataFromLog);
+      HiddenString *hiddenTerm = NewHiddenString(term, len, false);
+      const char* nameForLogging = IndexSpec_FormatName(sctx->spec, RSGlobalConfig.hideUserDataFromLog);
+      const char* termForLogging = FormatHiddenText(hiddenTerm, RSGlobalConfig.hideUserDataFromLog);
       RedisModule_Log(sctx->redisCtx, "warning", "RedisSearch fork GC: deleting a term '%s' from"
-                      " trie in index '%s' failed", RSGlobalConfig.hideUserDataFromLog ? Obfuscate_Text(term) : term, name);
+                      " trie in index '%s' failed", termForLogging, nameForLogging);
+      HiddenString_Free(hiddenTerm);
     }
     sctx->spec->stats.numTerms--;
     sctx->spec->stats.termsSize -= len;
@@ -1149,7 +1154,8 @@ cleanup:
     RedisSearchCtx_UnlockSpec(sctx);
     StrongRef_Release(spec_ref);
   }
-  HiddenString_Free(fieldName, false);
+  HiddenString_Free(fieldName);
+  rm_free(rawFieldName);
   rm_free(rawFieldName);
   if (status != FGC_COLLECTED) {
     freeInvIdx(&idxbufs, &info);

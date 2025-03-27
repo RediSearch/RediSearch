@@ -90,10 +90,14 @@ void QueryError_SetWithoutUserDataFmt(QueryError *status, QueryErrorCode code, c
   if (status->code != QUERY_OK) {
     return;
   }
+
+  char *formatted = NULL;
   va_list ap;
   va_start(ap, fmt);
-  rm_vasprintf(&status->detail, fmt, ap);
+  rm_vasprintf(&formatted, fmt, ap);
   va_end(ap);
+
+  status->detail = formatted;
   status->code = code;
   status->message = status->detail;
 }

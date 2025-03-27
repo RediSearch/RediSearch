@@ -11,6 +11,7 @@
 #include "redismock/util.h"
 #include "spec.h"
 #include "document.h"
+#include <memory>
 
 #define __ignore__(X) \
     do { \
@@ -70,5 +71,16 @@ IndexSpec *createIndex(RedisModuleCtx *ctx, const char *name, Ts... args) {
 
 std::vector<std::string> search(RSIndex *index, RSQueryNode *qn);
 std::vector<std::string> search(RSIndex *index, const char *s);
+
+struct HiddenStringDeleter {
+  void operator()(HiddenString *value) {
+    HiddenString_Free(value);
+  }
+};
+
+template <size_t n>
+static std::unique_ptr<HiddenString, HiddenStringDeleter> MakeHiddenString(const char (&name)[n]) {
+  return std::unique_ptr<HiddenString, HiddenStringDeleter>(NewHiddenString(name, n - 1, false));
+}
 
 }  // namespace RS

@@ -100,7 +100,7 @@ void NumericFilter_Free(NumericFilter *nf) {
 }
 
 void LegacyNumericFilter_Free(LegacyNumericFilter *nf) {
-  HiddenString_Free(nf->field, false);
+  HiddenString_Free(nf->field);
   rm_free(nf);
 }
 

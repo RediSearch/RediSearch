@@ -43,8 +43,8 @@ typedef struct {
 
 typedef struct {
   // path AS name
-  const char *path;
-  const char *name;
+  HiddenString *path;
+  HiddenString *name;
 
   /* Lookup key associated with field */
   const RLookupKey *lookupKey;
