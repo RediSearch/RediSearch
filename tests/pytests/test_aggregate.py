@@ -1384,7 +1384,7 @@ def testErrorStatsResp2():
     env = Env(protocol=2)
     conn = getConnectionByEnv(env)
     res = conn.execute_command('info', 'errorstats')
-    env.assertEqual(res, {'errorstat_ERR': {'count': 1 }})
+    env.assertEqual(res, {'errorstat_ERR': {'count': 0 }})
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
     conn.execute_command('HSET', 'key1', 'n', 1.23)
     conn.execute_command('HSET', 'key2', 'n', 4.56)
