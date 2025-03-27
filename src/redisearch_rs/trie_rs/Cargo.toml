@@ -12,7 +12,15 @@ crate-type = ["staticlib"]
 
 [features]
 default = ["redis_allocator"]
-redis_allocator = []
+redis_allocator = ["dep:redis-module"]
+ffi = ["redis_allocator"]
 
 [dependencies]
 libc.workspace = true
+low_memory_thin_vec.workspace = true
+redis-module = { workspace = true, optional = true }
+
+[dev-dependencies]
+insta.workspace = true
+proptest = { workspace = true, features = ["std"] }
+proptest-derive.workspace = true
