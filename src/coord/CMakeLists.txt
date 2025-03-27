@@ -1,8 +1,7 @@
 cmake_minimum_required(VERSION 3.13)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
-include(${root}/deps/readies/cmake/main)
-
+# Removed readies dependency
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/../.. ABSOLUTE)
 
 #----------------------------------------------------------------------------------------------
@@ -27,7 +26,9 @@ add_compile_definitions(
 	_GNU_SOURCE
 	REDIS_MODULE_TARGET)
 
-setup_cc_options()
+# No need to call setup_cc_options() here as it's already called in the main CMakeLists.txt
+# The compiler flags set there are propagated to this subdirectory
+
 #----------------------------------------------------------------------------------------------
 
 include_directories(
