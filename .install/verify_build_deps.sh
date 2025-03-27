@@ -49,7 +49,7 @@ for key in "${!common_dependencies[@]}"; do
 done
 
 # Add OS-specific dependencies
-if [[ "$OS" == "ubuntu" ]]; then
+if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
   for key in "${!ubuntu_dependencies[@]}"; do
     dependencies["$key"]="${ubuntu_dependencies[$key]}"
   done
