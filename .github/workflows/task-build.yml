@@ -56,7 +56,7 @@ jobs:
         run: |
           case "${{ inputs.container }}" in
             ubuntu:* | debian:*)
-              apt update && apt install -y make python3 cmake libssl-dev
+              apt update && apt install -y curl make python3 cmake libssl-dev
               ;;
             rockylinux:* | amazonlinux:* | mariner:* | azurelinux:*)
               dnf install -y make python3 cmake openssl-devel
@@ -79,11 +79,29 @@ jobs:
         id: install_rust
         working-directory: RediSearch
         run: |
-          apt install -y curl
           source .install/install_rust.sh
-          apt install -y gcc-12 g++-12
-          update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 60 --slave /usr/bin/g++ g++ /usr/bin/g++-12
-          update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-12 60
+          case "${{ inputs.container }}" in
+            ubuntu:jammy | ubuntu:noble)
+              gcc_ver=12
+              ;;
+            ubuntu:focal | ubuntu:bionic)
+              gcc_ver=10
+              ;;
+            debian:* | ubuntu:*)
+              gcc_ver=""
+              ;;
+            *)
+              gcc_ver=""
+              ;;
+          esac
+
+          if [ -n "$gcc_ver" ]; then
+              apt install -y gcc-$gcc_ver g++-$gcc_ver
+              update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-$gcc_ver 60 --slave /usr/bin/g++ g++ /usr/bin/g++-$gcc_ver
+              update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-$gcc_ver 60
+          else
+              apt install -y gcc g++
+          fi
       - name: verify
         id: verify_deps3
         working-directory: RediSearch
