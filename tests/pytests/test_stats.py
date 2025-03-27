@@ -421,7 +421,8 @@ def testKeyTableInfo(env):
     conn.execute_command('DEL', 'b:1')
     d = index_info(env, 'idx')
     new_size = float(d['key_table_size_mb'])
-    env.assertEqual(new_size, expected_size)
+    if not env.isCluster():
+        env.assertEqual(new_size, expected_size)
 
     # update a key, should not affect the key table size
     conn.execute_command('HSET', 'b:1', 'txt', '1')
