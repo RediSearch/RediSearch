@@ -27,13 +27,15 @@ impl<Data> BranchingNode<Data> {
         // copy children and set first bytes
         for (idx, child) in children.iter().enumerate() {
             reval.children_first_bytes()[idx] = child.label()[0];
-            reval.children()[idx] = child;
+            
+            // use memcpy unsafe
+            // reval.children()[idx] = child;
         }
         
         reval
     }
 
-    pub fn new_for_grow(label: &[c_char], left: &[&Node<Data>], new_node: &Node<Data>, right: &[Node<Data>]) {
+    pub fn new_for_grow(label: &[c_char], left: &[Node<Data>], new_node: Node<Data>, right: &[Node<Data>]) {
         let reval = Self::new_impl(label, children.len());
 
         // tod
@@ -54,6 +56,10 @@ impl<Data> BranchingNode<Data> {
             _phantom: PhantomData,
         })
     }
+
+    pub fn shrink(&mut self, child_index: usize) -> Node<Data> {
+        todo!("replace self with a smaller branching node")
+    } 
 
     fn header(&self) -> &AllocationHeader {
         unsafe { self.0.ptr.as_ref() }
@@ -88,7 +94,7 @@ impl<Data> BranchingNode<Data> {
 
     /// grows the branching node by one element
     ///
-    fn grow(&mut self, new_child: Node<Data>) {
+    fn grow(self, new_child: Node<Data>) -> Self {
         if new_child.label().is_empty() { todo!() }
 
         // find right place for new_child
@@ -98,15 +104,29 @@ impl<Data> BranchingNode<Data> {
         };
 
         // copy old childs and place new child
-        let new_children_slice = 
+        let left_slice = todo!();
+        let right_slice = todo!();
 
         // allocate branching node with num_children+1
-        let new_branch = Self::new(self.label(), new_children_slice);
+        let new_branch = Self::new_for_grow(label, left_slice, new_child, right_slice);
 
         // replace self with new branching node
-        
+        // set old parent's numChilren to 0
+        // drop old parent
+        todo!("return new parent")
         }
     }
+
+
+    fn into_parts(self) -> (Box<[c_char]>, Box<[Node<Data>]>){
+        let label = self.label().to_vec().into_boxed_slice();
+        let children = unsafe {
+            Box::from_raw(self.layout().children_ptr(self.0.ptr).as_ptr())
+        };
+        self.num_children = 0;
+        (label, children)
+    }
+
 
     /// removes the children at the given index
     ///
@@ -127,7 +147,10 @@ impl<Data> BranchingNode<Data> {
     /// # Panics
     ///
     /// Panics if the label length is greater than u15::MAX.
-    fn allocate(label: &[c_char], children: &[&Node<Data>]) -> NonNull<AllocationHeader> {
+    /// 
+    /// # Safety
+    /// - The caller must ensure that the children are not dropped.
+    unsafe fn allocate(label: &[c_char], children: &[&Node<Data>]) -> NonNull<AllocationHeader> {
         // TODO: Check *here* that we're smaller than u15::MAX.
         let label_len: u16 = label.len().try_into().unwrap();
         let layout = BranchLayout::<Data>::new(label_len, children.len() as u8);
@@ -178,6 +201,11 @@ impl<Data> BranchingNode<Data> {
             super::Either::Left(leaf) => leaf.label().iter().copied().next(),
             super::Either::Right(node) => node.label().iter().copied().next(),
         }).collect();
+ 
+        for (idx, opt_i8) in children.iter().map(|e| e.label().iter()).copied().enumurate().next() {
+        }
+
+        std::mem::forget(children);// do not drop the children cause they have been moved into the new allocation
 
         // todo: how do we handle the "option"
         let first_bytes_ptr = todo!();
@@ -197,7 +225,8 @@ impl<Data> BranchingNode<Data> {
 impl<Data> Drop for BranchingNode<Data> {
     #[inline]
     fn drop(&mut self) {
-        // todo: dealloc children?
+        // 1. iterate over children
+        //   drop each chi
         unsafe {
             dealloc(self.0.ptr.as_ptr() as *mut u8, self.layout().layout);
         }
@@ -299,5 +328,34 @@ impl<Data> BranchLayout<Data> {
 
     pub const fn label_ptr(&self, header_ptr: NonNull<AllocationHeader>) -> NonNull<c_char> {
         unsafe { header_ptr.byte_offset(self.label_offset as isize) }.cast()
+    }
+}
+
+pub struct TempNodeParts<Data> {
+    node: Node<Data>
+}
+
+
+pub struct BranchingNodeParts<Data> {
+    children: Box<[Node<Data>]>,
+    children_first_bytes: Box<[c_char]>,
+}
+
+impl<Data> BranchingNode<Data> {
+    fn into_parts(self) -> BranchingNodeParts<Data> {
+        let children = Box::new(self.children.clone());
+        let chilren_first_bytes = Box::new(self.children_first_bytes.clone());
+        self.set_num_children(0);
+        BranchingNodeParts { children, children_first_bytes }
+    }
+
+    fn children() -> &[Node<Data>] {
+
+    }
+}
+
+impl<Data> std::mem::Drop for BranchLayout<Data> {
+    fn drop(&mut self) {
+        
     }
 }

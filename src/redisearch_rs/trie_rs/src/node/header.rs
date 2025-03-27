@@ -10,6 +10,15 @@ pub(crate) struct AllocationHeader {
     kind_: u1,
 }
 
+#[repr(C)]
+pub(crate) struct NewAllocationHeader {
+    /// The length of the label stored inside this node.
+    label_len: u16,
+    /// The kind of node you are working with—either a leaf
+    /// or a branching node.
+    flag: u8,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum NodeKind {
     Leaf,

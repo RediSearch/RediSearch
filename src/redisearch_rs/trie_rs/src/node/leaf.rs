@@ -56,6 +56,8 @@ impl<Data> LeafNode<Data> {
         }
     }
 
+    pub(crate) fn add_child(&mut self) {}
+
     /// # Panics
     ///
     /// Panics if the label length is greater than u15::MAX.

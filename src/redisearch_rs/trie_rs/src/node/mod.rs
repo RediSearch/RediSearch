@@ -1,19 +1,26 @@
-use std::{ffi::c_char, marker::PhantomData};
+use std::{ffi::c_char, marker::PhantomData, ptr::NonNull};
 
+use branching::BranchingNode;
 use header::AllocationHeader;
-mod header;
+use leaf::LeafNode;
 mod branching;
+mod header;
 mod layout;
 mod leaf;
+
+static NA: NewAllocationHeader = NewAllocationHeader {  }
 
 pub struct Node<Data> {
     ptr: std::ptr::NonNull<AllocationHeader>,
     _phantom: PhantomData<Data>,
 }
 
+static BS: () = ();
+static SENTINEL: NonNull<()> = 
+
 pub enum Either<L, R> {
     Left(L),
-    Right(R)
+    Right(R),
 }
 
 impl<Data> Node<Data> {
@@ -26,6 +33,63 @@ impl<Data> Node<Data> {
         todo!()
     }
 
+    fn grow(&mut self, child: Node<Data>) {
+        let new_parent = match self.cast_mut() {
+            Either::Left(leaf) => {
+                let leaf = std::mem::replace(
+                    leaf,
+                    Node {
+                        ptr: std::ptr::NonNull::dangling(),
+                        _phantom: PhantomData,
+                    },
+                );
+
+                let new_parent:  BranchingNode<Data> = leaf.add_child(child);
+                new_parent.upcast() // transform into Node<Data>
+            }
+            Either::Right(_self) => {
+                let old_parent  = std::mem::replace(
+                    _self,
+                    Node {
+                        ptr: std::ptr::NonNull::dangling(),
+                        _phantom: PhantomData,
+                    },
+                );
+
+                let new_parent = old_parent.grow(child, child_label);
+
+                new_parent.upcast() // transform into Node<Data>
+            }
+        };
+
+        // change new_parent drop flag 
+        std::mem::replace(self, new_parent);
+        // hcnage self drop flag
+    }
+
+    fn shrink(&mut self, child_index: usize) -> Node<Data> {
+        let Either::Right(branching) = self.cast_mut() else {
+            unreachable!("self is always going to be a branching node")
+        };
+
+        if branching.num_children() >= 1 {
+            unreachable!()
+        } else if branching.num_children() == 2 {
+            // switch to leaf, merge self.label with new_leaf's label
+            let new_leaf = branching[!child_index];
+            let removed_leaf = branching[child_index];
+            std::mem::replace(self, new_leaf);
+            removed_leaf
+        } else {
+            // just shrink
+            branching.shrink(child_index)
+        }
+    }
+
+    pub fn tree<I: Iterator<Item = (&[c_char], Data)>>() -> Self {
+        todo!("later for optimization")
+    }
+
     pub fn label(&self) -> &[c_char] {
         match self.cast_ref() {
             Either::Left(n) => n.label(),
@@ -35,34 +99,24 @@ impl<Data> Node<Data> {
 
     pub fn cast(self) -> Either<leaf::LeafNode<Data>, branching::BranchingNode<Data>> {
         match unsafe { self.ptr.as_ref() }.kind() {
-            header::NodeKind::Leaf => {
-                Either::Left(unsafe { std::mem::transmute(self) })
-            },
-            header::NodeKind::Branching => {
-                Either::Right(unsafe { std::mem::transmute(self)})
-            }
+            header::NodeKind::Leaf => Either::Left(unsafe { std::mem::transmute(self) }),
+            header::NodeKind::Branching => Either::Right(unsafe { std::mem::transmute(self) }),
         }
     }
 
     pub fn cast_ref(&self) -> Either<&leaf::LeafNode<Data>, &branching::BranchingNode<Data>> {
         match unsafe { self.ptr.as_ref() }.kind() {
-            header::NodeKind::Leaf => {
-                Either::Left(unsafe { std::mem::transmute(self) })
-            },
-            header::NodeKind::Branching => {
-                Either::Right(unsafe { std::mem::transmute(self)})
-            }
+            header::NodeKind::Leaf => Either::Left(unsafe { std::mem::transmute(self) }),
+            header::NodeKind::Branching => Either::Right(unsafe { std::mem::transmute(self) }),
         }
     }
 
-    pub fn cast_mut(&mut self) -> Either<&mut leaf::LeafNode<Data>, &mut branching::BranchingNode<Data>> {
+    pub fn cast_mut(
+        &mut self,
+    ) -> Either<&mut leaf::LeafNode<Data>, &mut branching::BranchingNode<Data>> {
         match unsafe { self.ptr.as_ref() }.kind() {
-            header::NodeKind::Leaf => {
-                Either::Left(unsafe { std::mem::transmute(self) })
-            },
-            header::NodeKind::Branching => {
-                Either::Right(unsafe { std::mem::transmute(self)})
-            }
+            header::NodeKind::Leaf => Either::Left(unsafe { std::mem::transmute(self) }),
+            header::NodeKind::Branching => Either::Right(unsafe { std::mem::transmute(self) }),
         }
     }
 
@@ -80,7 +134,10 @@ impl<Data> Node<Data> {
     /// Finds the parent of the node matching the given key, along with the index
     /// of that node in the list of chilren of the parent node.
     /// todo naming
-    pub fn find_node_parent_mut(&mut self, key: &[c_char]) -> (&mut Node<Data>, Result<usize, usize>, &[c_char]) {
+    pub fn find_node_parent_mut(
+        &mut self,
+        key: &[c_char],
+    ) -> (&mut Node<Data>, Result<usize, usize>, &[c_char]) {
         // if self is a leaf, then return None
 
         // if self is a branching node, then find the child node that corresponds to the first byte of the key
@@ -95,15 +152,15 @@ impl<Data> Node<Data> {
 
     pub fn add_child(&mut self, key: &[c_char], data: Data) -> Option<Data> {
         // Adding 'bis' then 'bikers' to the trie
-        // ```text 
+        // ```text
         //          ""                                ""                               ""
         //      /    |                            /        \                       /       \
         //   "" (F) "bike"        ->          "" (F)      "bi"            ->   "" (F)      "bi"
         //        /    |    \                           /       \                          /       \
         //  "" (A)  "r" (B)  "s" (C)              "ke"          "s" (D)              "ke"          "s" (D)
-        //                                     /    |    \                        /    |    \   
-        //                               "" (A)  "r" (B)  "s" (C)             "" (A)  "r"       "s" (C)     
-        //                                                                           /  \ 
+        //                                     /    |    \                        /    |    \
+        //                               "" (A)  "r" (B)  "s" (C)             "" (A)  "r"       "s" (C)
+        //                                                                           /  \
         //                                                                      "" (B)  "s" (E)
         // ```
 
@@ -119,17 +176,16 @@ impl<Data> Node<Data> {
 
         let (parent, index_or_insert_at, child_label) = self.find_node_parent_mut(key);
 
-
-        // parent.label always shares a prefix of child_label 
+        // parent.label always shares a prefix of child_label
         //    if parent.label == child_label && parent.is_branching()
-        //        add a (value-child) to the parent 
+        //        add a (value-child) to the parent
         //    else if parent.label == child_label && parent.is_leaf_node() --> we have a replace
         //         replace data!
         //    else split the parent at the length of the shared prefix
         //       if parent.is_leaf_node()
         //          replace parent with a branching node with the shared prefix as a label,
         //               add to it a node with an empty label and one with child_label
-        //       else 
+        //       else
         //          create a new branching node to be the parent, with capacity for one more child
         //          create a new child node with the child label and the data we want
         //          copy over the old children and the new child
