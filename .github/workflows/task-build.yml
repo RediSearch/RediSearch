@@ -98,6 +98,10 @@ jobs:
             debian:* | ubuntu:*)
               gcc_ver=""
               ;;
+            rocky*)
+              dnf install -y gcc-toolset-13-gcc gcc-toolset-13-gcc-c++
+              gcc_ver=""
+              ;;
             *)
               gcc_ver=""
               ;;
@@ -108,7 +112,7 @@ jobs:
               update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-$gcc_ver 60 --slave /usr/bin/g++ g++ /usr/bin/g++-$gcc_ver
               update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-$gcc_ver 60
           else
-              apt install -y gcc g++
+              echo "Skipping GCC installation"
           fi
       - name: verify
         id: verify_deps3
