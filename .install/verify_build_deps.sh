@@ -105,7 +105,7 @@ for dep in "${!dependencies[@]}"; do
   if [[ "$verify_method" == "command" ]] && check_command "$dep"; then
     echo -e "${GREEN}✓${NC}"
   elif [[ "$verify_method" == "package" ]]; then
-    if [[ "$OS" == "ubuntu" ]] && check_package_deb "$dep"; then
+    if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]] && check_package_deb "$dep"; then
       echo -e "${GREEN}✓${NC}"
     elif [[ "$OS" == "rocky" ]] && check_package_rpm "$dep"; then
       echo -e "${GREEN}✓${NC}"
