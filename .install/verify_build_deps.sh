@@ -40,6 +40,10 @@ declare -A rocky_dependencies=(
   ["openssl-devel"]="package" # Verify using rpm -q
 )
 
+declare -A amzn_dependencies=(
+  ["openssl11-devel"]="package" # Verify using rpm -q
+)
+
 # Merge common and OS-specific dependencies
 declare -A dependencies
 
@@ -55,6 +59,10 @@ if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
   done
 elif [[ "$OS" == "rocky" ]]; then
   for key in "${!rocky_dependencies[@]}"; do
+    dependencies["$key"]="${rocky_dependencies[$key]}"
+  done
+elif [[ "$OS" == "amzn" ]]; then
+  for key in "${!amzn_dependencies[@]}"; do
     dependencies["$key"]="${rocky_dependencies[$key]}"
   done
 else
@@ -135,19 +143,6 @@ if [ ${#missing_deps_with_scripts[@]} -gt 0 ] || [ ${#missing_deps_apt[@]} -gt 0
     for dep in "${missing_deps_with_scripts[@]}"; do
       script_path=${install_scripts[$dep]}
       echo -e "${BLUE}For $dep:${NC} $script_path"
-    done
-  fi
-
-  # Then suggest apt-get or dnf/yum for the rest
-  if [ ${#missing_deps_apt[@]} -gt 0 ]; then
-    echo -e "\n${BLUE}For other dependencies, run:${NC}"
-    if [[ "$OS" == "ubuntu"  || "$OS" == "debian" ]]; then
-      echo -e "sudo apt install \\"
-    elif [[ "$OS" == "rocky" ]]; then
-      echo -e "sudo dnf install \\"
-    fi
-    for dep in "${missing_deps_apt[@]}"; do
-      echo -e "  $dep \\"
     done
   fi
 
