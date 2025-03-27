@@ -54,9 +54,7 @@ jobs:
         id: install_deps
         working-directory: RediSearch
         run: |
-          apt install -y make  python3 gcc-12 g++-12 cmake libssl-dev
-          update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 60 --slave /usr/bin/g++ g++ /usr/bin/g++-12
-          update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-12 60
+          apt install -y make  python3 cmake libssl-dev
       - name: verify
         id: verify_deps2
         working-directory: RediSearch
@@ -65,11 +63,14 @@ jobs:
           git branch
           .install/verify_build_deps.sh
       - name: install rust
-        id: install_rust
+        id: install_rust and gcc
         working-directory: RediSearch
         run: |
           apt install -y curl
           source .install/install_rust.sh
+          gcc-12 g++-12
+          update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 60 --slave /usr/bin/g++ g++ /usr/bin/g++-12
+          update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-12 60
       - name: verify
         id: verify_deps3
         working-directory: RediSearch
