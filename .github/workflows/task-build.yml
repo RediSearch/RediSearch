@@ -54,20 +54,28 @@ jobs:
         id: install_deps
         working-directory: RediSearch
         run: |
-          case "${{ inputs.container }}" in
-            ubuntu:* | debian:*)
-              apt update && apt install -y curl make python3 cmake libssl-dev
-              ;;
-            rockylinux:* | amazonlinux:* | mariner:* | azurelinux:*)
-              dnf install -y make python3 cmake openssl-devel
-              ;;
-            alpine:*)
-              apk add --no-cache make python3 cmake openssl
-              ;;
-            *)
-              exit 1
-              ;;
-          esac
+          # Detect the OS from /etc/os-release
+          if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            case "$ID" in
+              ubuntu | debian)
+                apt update && apt install -y curl make python3 cmake libssl-dev
+                ;;
+              rockylinux | amazonlinux | mariner | azurelinux)
+                dnf install -y make python3 cmake openssl-devel
+                ;;
+              alpine)
+                apk add --no-cache make python3 cmake openssl
+                ;;
+              *)
+                echo "Unsupported operating system: $ID"
+                exit 1
+                ;;
+            esac
+          else
+            echo "Unable to detect the operating system."
+            exit 1
+          fi
       - name: verify
         id: verify_deps2
         working-directory: RediSearch
