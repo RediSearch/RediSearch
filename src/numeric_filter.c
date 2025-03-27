@@ -9,6 +9,7 @@
 #include "rmutil/util.h"
 #include "rmutil/vector.h"
 #include "query_param.h"
+#include "fast_float/fast_float_strtod.h"
 
 int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
                       int sign, QueryError *status) {
@@ -29,7 +30,7 @@ int parseDoubleRange(const char *s, bool *inclusive, double *target, int isMin,
   }
   char *endptr = NULL;
   errno = 0;
-  *target = strtod(s, &endptr);
+  *target = fast_float_strtod(s, &endptr);
   if (*endptr != '\0' || *target == HUGE_VAL || *target == -HUGE_VAL) {
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, isMin ? "Bad lower range" : "Bad upper range", ": %s", s);
     return REDISMODULE_ERR;

@@ -25,6 +25,7 @@
 #include "rmutil/rm_assert.h"
 #include "redis_index.h"
 #include "obfuscation/obfuscation_api.h"
+#include "fast_float/fast_float_strtod.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -465,7 +466,7 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
       {
         char *end;
         fdata->isMulti = 0;
-        fdata->numeric = strtod(field->strval, &end);
+        fdata->numeric = fast_float_strtod(field->strval, &end);
         if (*end) {
           QueryError_SetCode(status, QUERY_ENOTNUMERIC);
           return -1;
