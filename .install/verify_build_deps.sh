@@ -141,7 +141,7 @@ if [ ${#missing_deps_with_scripts[@]} -gt 0 ] || [ ${#missing_deps_apt[@]} -gt 0
   # Then suggest apt-get or dnf/yum for the rest
   if [ ${#missing_deps_apt[@]} -gt 0 ]; then
     echo -e "\n${BLUE}For other dependencies, run:${NC}"
-    if [[ "$OS" == "ubuntu" ]]; then
+    if [[ "$OS" == "ubuntu"  || "$OS" == "debian" ]]; then
       echo -e "sudo apt install \\"
     elif [[ "$OS" == "rocky" ]]; then
       echo -e "sudo dnf install \\"
