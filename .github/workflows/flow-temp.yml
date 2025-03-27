@@ -19,3 +19,4 @@ jobs:
     with:
       platform: "all"
       architecture: "x86_64"
+      fail-fast: false
