@@ -61,7 +61,7 @@ jobs:
               ubuntu | debian)
                 apt update && apt install -y curl make python3 cmake libssl-dev
                 ;;
-              rockylinux | amazonlinux | mariner | azurelinux)
+              rocky | amazonlinux | mariner | azurelinux)
                 dnf install -y make python3 cmake openssl-devel
                 ;;
               alpine)
