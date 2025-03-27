@@ -54,7 +54,20 @@ jobs:
         id: install_deps
         working-directory: RediSearch
         run: |
-          apt install -y make python3 cmake libssl-dev
+          case "${{ inputs.container }}" in
+            ubuntu:* | debian:*)
+              apt update && apt install -y make python3 cmake libssl-dev
+              ;;
+            rockylinux:* | amazonlinux:* | mariner:* | azurelinux:*)
+              dnf install -y make python3 cmake openssl-devel
+              ;;
+            alpine:*)
+              apk add --no-cache make python3 cmake openssl
+              ;;
+            *)
+              exit 1
+              ;;
+          esac
       - name: verify
         id: verify_deps2
         working-directory: RediSearch
