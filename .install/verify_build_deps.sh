@@ -42,12 +42,21 @@ declare -A rocky_dependencies=(
 
 # Merge common and OS-specific dependencies
 declare -A dependencies
-dependencies=("${common_dependencies[@]}") # Start with common dependencies
 
+# Add common dependencies
+for key in "${!common_dependencies[@]}"; do
+  dependencies["$key"]="${common_dependencies[$key]}"
+done
+
+# Add OS-specific dependencies
 if [[ "$OS" == "ubuntu" ]]; then
-  dependencies+=("${ubuntu_dependencies[@]}")
+  for key in "${!ubuntu_dependencies[@]}"; do
+    dependencies["$key"]="${ubuntu_dependencies[$key]}"
+  done
 elif [[ "$OS" == "rocky" ]]; then
-  dependencies+=("${rocky_dependencies[@]}")
+  for key in "${!rocky_dependencies[@]}"; do
+    dependencies["$key"]="${rocky_dependencies[$key]}"
+  done
 else
   echo -e "${RED}Unsupported operating system.${NC}"
   exit 1
