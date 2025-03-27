@@ -89,9 +89,13 @@ check_package_deb() {
   dpkg -l | grep -q " $1 " || dpkg -l | grep -q " $1:"
 }
 
-# Function to check if a package is installed (Rocky/RHEL)
+# Function to check if a package is installed (Rocky/RHEL or Amazon Linux)
 check_package_rpm() {
-  rpm -q "$1" &> /dev/null
+  if [[ "$OS" == "amzn" ]]; then
+    yum list installed "$1" &> /dev/null
+  else
+    rpm -q "$1" &> /dev/null
+  fi
 }
 
 # Function to check if running in a Docker container
