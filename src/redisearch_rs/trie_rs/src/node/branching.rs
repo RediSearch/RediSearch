@@ -3,15 +3,14 @@ use super::header::AllocationHeader;
 use std::alloc::*;
 use std::ffi::c_char;
 use std::marker::PhantomData;
-use std::process::id;
 use std::ptr::NonNull;
 
 #[repr(transparent)]
-struct BranchingNode<Data>(Node<Data>);
+pub(crate) struct BranchingNode<Data>(Node<Data>);
 
 impl<Data> From<BranchingNode<Data>> for Node<Data> {
     fn from(v: BranchingNode<Data>) -> Self {
-        /// SAFETY: All good, repr(transparent) to the rescue.
+        // SAFETY: All good, repr(transparent) to the rescue.
         unsafe {
             std::mem::transmute(v)
         }
@@ -19,9 +18,11 @@ impl<Data> From<BranchingNode<Data>> for Node<Data> {
 }
 
 impl<Data> BranchingNode<Data> {
-    pub fn new(data: Data, label: &[c_char]) -> Self {
+    // todo: open to discuss, do we always know all children or do we need a form of "not yet initalized"?
+    // and is slice the way to go?
+    pub fn new(label: &[c_char], children: &[&Node<Data>]) -> Self {
         Self(Node {
-            ptr: Self::allocate(data, label),
+            ptr: Self::allocate(label, children),
             _phantom: PhantomData,
         })
     }
@@ -60,27 +61,43 @@ impl<Data> BranchingNode<Data> {
     /// grows the branching node by one element
     ///
     fn grow(&mut self, new_child: Node<Data>) {
-        
+        match new_child.cast() {
+            super::Either::Left(lnode) => {
+                // allocate branching node
+                // todo: replace self with branching node
+            },
+            super::Either::Right(bnode) => {
+                // allocate branching node with num_children+1
+                // find right place for new_child
+                // copy old childs and place new child
+                // todo: replace self with new branching node
+            },
+        }
     }
 
     /// removes the children at the given index
     ///
     /// Moves out the Some(Node) or None if the index is out of bouce
-    fn remove(&mut self, idx: usize) -> Option<Node<Data>> {
+    /// 
+    fn remove(&mut self, idx: usize) -> Option<NonNull<Node<Data>>> {
         if idx >= self.num_children() as usize {
             return None;
         }
 
-        todo!()
+        let to_remove = self.children()[idx];
+
+        // todo: replace self, better at higher level? I think C defered deletion in some case?
+
+        Some(to_remove)
     }
 
     /// # Panics
     ///
     /// Panics if the label length is greater than u15::MAX.
-    fn allocate(data: Data, label: &[c_char], num_children: u8) -> NonNull<AllocationHeader> {
+    fn allocate(label: &[c_char], children: &[&Node<Data>]) -> NonNull<AllocationHeader> {
         // TODO: Check *here* that we're smaller than u15::MAX.
         let label_len: u16 = label.len().try_into().unwrap();
-        let layout = BranchLayout::<Data>::new(label_len, num_children);
+        let layout = BranchLayout::<Data>::new(label_len, children.len() as u8);
         let buffer_ptr = {
             debug_assert!(layout.layout.size() > 0);
             // SAFETY:
@@ -101,7 +118,7 @@ impl<Data> BranchingNode<Data> {
         //   since the allocation was performed against a type layout
         //   that begins with a header field.
         unsafe {
-            buffer_ptr.write(AllocationHeader::leaf(label_len));
+            buffer_ptr.write(AllocationHeader::branching(label_len));
         }
 
         unsafe {
@@ -111,9 +128,35 @@ impl<Data> BranchingNode<Data> {
                 label.len(),
             );
         }
+
+
+        /*
+            I just realized that with our two types of nodes we run into the following problem:
+
+            1. We added empty labels: ""
+            2. Therefore we have to adapt the first_bytes representation to handle the empty case
+            3. I think we don't have space for it, because of the border-case of a branching node with 256 children
+
+            We may find a "magic encoding" but only if not all 256 bytes are used.
+
+            Rare edge case but still.
+         */
+        let vec: Vec<Option<i8>> = children.iter().map(|e| match e.cast_ref() {
+            super::Either::Left(leaf) => leaf.label().iter().copied().next(),
+            super::Either::Right(node) => node.label().iter().copied().next(),
+        }).collect();
+
+        // todo: how do we handle the "option"
+        let first_bytes_ptr = todo!();
+
         unsafe {
-            layout.data_ptr(buffer_ptr).write(data);
+            std::ptr::copy_nonoverlapping(
+                first_bytes_ptr,
+                layout.child_first_bytes_ptr(buffer_ptr).as_ptr(),
+                children.len(),
+            );
         }
+
         buffer_ptr
     }
 }
@@ -121,9 +164,7 @@ impl<Data> BranchingNode<Data> {
 impl<Data> Drop for BranchingNode<Data> {
     #[inline]
     fn drop(&mut self) {
-        unsafe {
-            std::ptr::drop_in_place(self.data_mut());
-        }
+        // todo: dealloc children?
         unsafe {
             dealloc(self.0.ptr.as_ptr() as *mut u8, self.layout().layout);
         }

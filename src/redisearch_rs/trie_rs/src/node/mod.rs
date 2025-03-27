@@ -26,13 +26,35 @@ impl<Data> Node<Data> {
         todo!()
     }
 
-    pub fn cast(self) -> Either<leaf::LeafNode<Data>, BranchingNode<Data>> {
+    pub fn cast(self) -> Either<leaf::LeafNode<Data>, branching::BranchingNode<Data>> {
         match unsafe { self.ptr.as_ref() }.kind() {
             header::NodeKind::Leaf => {
                 Either::Left(unsafe { std::mem::transmute(self) })
             },
             header::NodeKind::Branching => {
-                todo!()
+                Either::Right(unsafe { std::mem::transmute(self)})
+            }
+        }
+    }
+
+    pub fn cast_ref(&self) -> Either<&leaf::LeafNode<Data>, &branching::BranchingNode<Data>> {
+        match unsafe { self.ptr.as_ref() }.kind() {
+            header::NodeKind::Leaf => {
+                Either::Left(unsafe { std::mem::transmute(self) })
+            },
+            header::NodeKind::Branching => {
+                Either::Right(unsafe { std::mem::transmute(self)})
+            }
+        }
+    }
+
+    pub fn cast_mut(&mut self) -> Either<&mut leaf::LeafNode<Data>, &mut branching::BranchingNode<Data>> {
+        match unsafe { self.ptr.as_ref() }.kind() {
+            header::NodeKind::Leaf => {
+                Either::Left(unsafe { std::mem::transmute(self) })
+            },
+            header::NodeKind::Branching => {
+                Either::Right(unsafe { std::mem::transmute(self)})
             }
         }
     }
