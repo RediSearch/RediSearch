@@ -54,7 +54,7 @@ jobs:
         id: install_deps
         working-directory: RediSearch
         run: |
-          apt install -y make  python3 cmake libssl-dev
+          apt install -y make python3 cmake libssl-dev
       - name: verify
         id: verify_deps2
         working-directory: RediSearch
@@ -62,8 +62,8 @@ jobs:
           echo $PWD
           git branch
           .install/verify_build_deps.sh
-      - name: install rust
-        id: install_rust and gcc
+      - name: install rust  and gcc
+        id: install_rust
         working-directory: RediSearch
         run: |
           apt install -y curl
