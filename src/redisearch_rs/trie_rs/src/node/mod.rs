@@ -1,10 +1,11 @@
 use std::{ffi::c_char, marker::PhantomData};
 
 use branching::BranchingNode;
-use header::{AllocationHeader, AllocationHeader};
+use header::{AllocationHeader};
+use leaf::LeafNode;
 mod branching;
 mod header;
-mod layout;
+// mod layout;
 mod leaf;
 
 static mut SENTINEL_HEADER: AllocationHeader = AllocationHeader::sentinel();
@@ -27,7 +28,7 @@ impl<Data> Node<Data> {
         }
     }
 
-    fn sentinel_leaf() -> Self {
+    fn sentinel_leaf() -> LeafNode<Data> {
         // SAFETY: All good, repr(transparent) to the rescue.
         unsafe {
             std::mem::transmute(Self::sentinel())
@@ -50,32 +51,28 @@ impl<Data> Node<Data> {
         todo!()
     }
 
-    fn grow(&mut self, child: Node<Data>) {
-        let new_parent = match self.cast_mut() {
+    fn grow(&mut self, child_label: &[c_char], child_data: Data, index_or_insert_at: Result<usize, usize>) {
+        let new_parent: Node<Data> = match self.cast_mut() {
             Either::Left(leaf) => {
                 let leaf = std::mem::replace(
                     leaf,
-                    Node::<Data>::sentinel().into(),
+                    Node::<Data>::sentinel_leaf(),
                 );
 
                 let new_parent:  BranchingNode<Data> = leaf.add_child(child);
-                new_parent.upcast() // transform into Node<Data>
+                new_parent.into() // transform into Node<Data>
             }
             Either::Right(_self) => {
                 let old_parent  = std::mem::replace(
                     _self,
-                    Node::<Data>::sentinel().into(),
+                    Node::<Data>::sentinel_branching(),
                 );
 
-                let new_parent = old_parent.grow(child, child_label);
+                let new_parent: BranchingNode<Data> = _self.grow(child_label, child_data, index_or_insert_at);
 
-                new_parent.upcast() // transform into Node<Data>
+                new_parent.into() // transform into Node<Data>
             }
         };
-
-        // change new_parent drop flag 
-        std::mem::replace(self, new_parent);
-        // hcnage self drop flag
     }
 
     fn shrink(&mut self, child_index: usize) -> Node<Data> {
@@ -186,6 +183,11 @@ impl<Data> Node<Data> {
         // *self = new branching
 
         let (parent, index_or_insert_at, child_label) = self.find_node_parent_mut(key);
+
+        match parent.cast_mut() {
+            Either::Left(leaf) => todo!(),
+            Either::Right(branching) => branching.grow(child_label, data, index_or_insert_at),
+        }
 
         // parent.label always shares a prefix of child_label
         //    if parent.label == child_label && parent.is_branching()

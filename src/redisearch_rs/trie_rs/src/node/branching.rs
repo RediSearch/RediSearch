@@ -1,8 +1,8 @@
 use crate::node::header::NodeDropState;
 
-use super::leaf::LeafNode;
-use super::Node;
 use super::header::AllocationHeader;
+use super::leaf::LeafNode;
+use super::{Either, Node};
 use std::alloc::*;
 use std::ffi::c_char;
 use std::marker::PhantomData;
@@ -14,144 +14,223 @@ pub(crate) struct BranchingNode<Data>(Node<Data>);
 impl<Data> From<BranchingNode<Data>> for Node<Data> {
     fn from(v: BranchingNode<Data>) -> Self {
         // SAFETY: All good, repr(transparent) to the rescue.
-        unsafe {
-            std::mem::transmute(v)
-        }
+        unsafe { std::mem::transmute(v) }
     }
 }
 
 impl<Data> BranchingNode<Data> {
-    // todo: open to discuss, do we always know all children or do we need a form of "not yet initalized"?
-    // and is slice the way to go?
-    pub fn new(label: &[c_char], children: &[&Node<Data>]) -> Self {
-        let reval = Self::new_impl(label, children.len() as u8);
-
-        // copy children and set first bytes
-        for (idx, child) in children.iter().enumerate() {
-            //reval.children_first_bytes()[idx] = child.label()[0];
-            
-            // use memcpy unsafe
-            // reval.children()[idx] = child;
-        }
-        
-        reval
-    }
-
-    pub fn new_for_grow(label: &[c_char], left: &[Node<Data>], new_node: Node<Data>, right: &[Node<Data>]) -> Self {
-        let num_children = (left.len() + right.len() + 1) as u8;
-        let reval = Self::new_impl(label, num_children);
-
-        // tod
-        //let it = left.
-
-        // copy children and set first bytes
-        for (idx, child) in children.iter().enumerate() {
-            reval.children_first_bytes()[idx] = child.label()[0];
-            reval.children()[idx] = child;
-        }
-
-        reval
-    }
-
-    fn new_impl(label: &[c_char], num_children: u8) -> Self {
-        //Self(Node {
-        //    ptr: Self::allocate(label, children),
-        //    _phantom: PhantomData,
-        //})
-        todo!()
-    }
-
     pub fn shrink(&mut self, child_index: usize) -> Node<Data> {
         todo!("replace self with a smaller branching node")
-    } 
+    }
 
     fn header(&self) -> &AllocationHeader {
         unsafe { self.0.ptr.as_ref() }
     }
 
-    fn layout_rt(&self) -> BranchLayout<Data> {
+    fn header_mut(&mut self) -> &mut AllocationHeader {
+        unsafe { self.0.ptr.as_mut() }
+    }
+
+    fn layout(&self) -> BranchLayout<Data> {
         BranchLayout::new(self.label_len(), self.num_children())
     }
 
+    /// Get the length of the label
     pub fn label_len(&self) -> u16 {
         self.header().len()
     }
 
-    pub fn num_children(&self) -> u8 {
-        unsafe {*self.layout_rt().num_children_ptr(self.0.ptr).as_ref() }
+    /// Returns the number of children, including the empty-labeled child if it exists.
+    pub fn num_children(&self) -> u16 {
+        unsafe {
+            *StaticBranchLayout::new(self.label_len())
+                .num_non_empty_labeled_children_ptr(self.0.ptr)
+                .as_ref() as u16
+                + self.has_empty_labeled_child() as u16
+        }
+    }
+
+    /// Check whether the branching node has an empty-labeled child.
+    fn has_empty_labeled_child(&self) -> bool {
+        self.header().has_empty_labeled_child()
     }
 
     pub fn label(&self) -> &[c_char] {
-        let label_ptr = self.layout_rt().label_ptr(self.0.ptr);
+        let label_ptr = self.layout().label_ptr(self.0.ptr);
         unsafe { std::slice::from_raw_parts(label_ptr.as_ptr(), self.label_len() as usize) }
     }
-    
+
+    /// Gets the first bytes of the labels of the non-empty-labeled children.
     pub fn children_first_bytes(&self) -> &[c_char] {
-        let children_first_bytes_ptr = self.layout_rt().child_first_bytes_ptr(self.0.ptr);
-        unsafe {std::slice::from_raw_parts(children_first_bytes_ptr.as_ptr(), self.num_children() as usize)}
+        let children_first_bytes_ptr = self.layout().child_first_bytes_ptr(self.0.ptr);
+        unsafe {
+            std::slice::from_raw_parts(
+                children_first_bytes_ptr.as_ptr(),
+                self.num_children() as usize,
+            )
+        }
     }
 
-    pub fn children(&self) -> &[NonNull<Node<Data>>] {
-        let children = self.layout_rt().children_ptr(self.0.ptr);
-        unsafe {std::slice::from_raw_parts(children.as_ptr(), self.num_children() as usize)}
+    /// Get the children of the branching node.
+    /// The empty-labeled child, if any, is located at the end of the slice.
+    pub fn children(&self) -> &[Node<Data>] {
+        let children = self.layout().children_ptr(self.0.ptr);
+        unsafe {
+            std::slice::from_raw_parts(children.as_ptr() as *const _, self.num_children() as usize)
+        }
+    }
+
+    /// Get mutable access to the children of the branching node.
+    /// The empty-labeled child, if any, is located at the end of the slice.
+    pub fn children_mut(&mut self) -> &mut [Node<Data>] {
+        let children = self.layout().children_ptr(self.0.ptr);
+        unsafe { std::slice::from_raw_parts_mut(children.as_ptr(), self.num_children() as usize) }
     }
 
     /// grows the branching node by one element
-    ///
-    pub fn grow(&mut self, new_child: Node<Data>) {
-        if new_child.label().is_empty() { todo!() }
+    pub fn grow(
+        &mut self,
+        child_label: &[c_char],
+        child_data: Data,
+        found_or_insert_at: Result<usize, usize>,
+    ) -> Option<Data> {
+        if child_label.is_empty() {
+            // the child exists and it is a branching node
+            if self.has_empty_labeled_child() {
+                // we replace its data because that's always a leaf
+                let Either::Left(leaf) = self.children_mut().last_mut().unwrap().cast_mut() else {
+                    unreachable!(
+                        "The empty labeled  child must be a leaf, otherwise it should have been merged"
+                    );
+                };
+                let old_data = std::mem::replace(leaf.data_mut(), child_data);
 
-        // find right place for new_child
-        let insert_index = match self.children_first_bytes().binary_search(&new_child.label()[0]) {
-            Ok(_found) => unreachable!("we assume that we call grow for first level children and that this child does not exist"),
-            Err(idx) => idx
-        };
+                return Some(old_data);
+            } else {
+                let new_child: LeafNode<Data> = LeafNode::new(child_data, child_label);
+                let self_children = self.children();
 
-        // copy old childs and place new child
-        let left_slice = todo!();
-        let right_slice = todo!();
+                // Safety: pinky promise we're gonna mark the old node as drop shallow
+                let mut new_branch =
+                    unsafe { Self::allocate(child_label, self_children, new_child.into(), &[]) };
 
-        // calculate new label
-        let label = todo!();
+                // ye olde switcheroo
+                std::mem::swap(&mut new_branch, self);
 
-        // allocate branching node with num_children+1
-        let mut new_branch = Self::new_for_grow(label, left_slice, new_child, right_slice);
+                // Ensure the children that got moved to the newly created node are not dropped.
+                new_branch
+                    .header_mut()
+                    .set_drop_state(NodeDropState::DropShallow);
+            }
 
-        // swap with self
-        std::mem::swap(self, &mut new_branch);
+            return None;
+        }
 
-        // SAFETY:
-        // ensure right drop implementation is used.
-        // todo: wrap in zero
-        unsafe { new_branch.0.ptr.as_mut().set_drop_state(NodeDropState::DropShallow); }
+        match found_or_insert_at {
+            Ok(child_index) => {
+                let cur_child = &mut self.children_mut()[child_index];
+                match cur_child.cast_mut() {
+                    super::Either::Left(leaf) => {
+                        // Replace the leaf's data.
+                        let old_data = std::mem::replace(leaf.data_mut(), child_data);
+                        Some(old_data)
+                    }
+                    super::Either::Right(brn) => {
+                        // Add an empty-labled child to the branching node.
+                        brn.grow(&[], child_data, found_or_insert_at);
+                        None
+                    }
+                }
+            }
+            Err(insert_index) => {
+                // copy old childs and place new child
+                let left_slice = &self.children()[..insert_index];
+                let right_slice = &self.children()[insert_index..];
+
+                let shared_prefix_len = self
+                    .label()
+                    .iter()
+                    .zip(child_label)
+                    .enumerate()
+                    .find(|(_, (c1, c2))| c1 != c2)
+                    .map(|(i, _)| i)
+                    .unwrap_or(0);
+
+                // calculate label of the new branching node, which is the shared prefix
+                let new_brnch_label = &self.label()[..shared_prefix_len];
+
+                // The label of new_child is its original label stripped of the shared prefix
+                let new_child_label = &child_label[shared_prefix_len..];
+                // do somehting we don't want to reallocate the new_child
+                let new_child: LeafNode<Data> = LeafNode::new(child_data, new_child_label);
+
+                // allocate branching node with num_children+1
+                let mut new_branch = unsafe {
+                    Self::allocate(new_brnch_label, left_slice, new_child.into(), right_slice)
+                };
+
+                // swap with self
+                std::mem::swap(self, &mut new_branch);
+
+                // SAFETY:
+                // ensure right drop implementation is used.
+                // todo: wrap in zero
+                unsafe {
+                    new_branch
+                        .0
+                        .ptr
+                        .as_mut()
+                        .set_drop_state(NodeDropState::DropShallow);
+                }
+                None
+            }
+        }
     }
 
     /// removes the children at the given index
     ///
     /// Moves out the Some(Node) or None if the index is out of bouce
-    /// 
+    ///
     fn remove(&mut self, idx: usize) -> Option<NonNull<Node<Data>>> {
         if idx >= self.num_children() as usize {
             return None;
         }
 
-        let to_remove = self.children()[idx];
+        let to_remove = &self.children()[idx];
 
         // todo: replace self, better at higher level? I think C defered deletion in some case?
 
-        Some(to_remove)
+        // Some(to_remove)
+        todo!()
     }
 
     /// # Panics
     ///
     /// Panics if the label length is greater than u15::MAX.
-    /// 
+    ///
+    /// # Invariant
+    /// - The empty-labeled child, if any, is the last element of the children slice.
+    ///
     /// # Safety
     /// - The caller must ensure that the children are not dropped.
-    unsafe fn allocate(label: &[c_char], children: &[&Node<Data>]) -> NonNull<AllocationHeader> {
+    unsafe fn allocate(
+        label: &[c_char],
+        left: &[Node<Data>],
+        new_node: Node<Data>,
+        right: &[Node<Data>],
+    ) -> Self {
         // TODO: Check *here* that we're smaller than u15::MAX.
         let label_len: u16 = label.len().try_into().unwrap();
-        let layout = BranchLayout::<Data>::new(label_len, children.len() as u8);
+
+        let has_empty_labeled_child = right.last().map_or_else(
+            || new_node.label().is_empty(),
+            |right_last| right_last.label().is_empty(),
+        );
+
+        let num_children_total = left.len() + 1 + right.len();
+        let num_non_empty_labeled_children = num_children_total - has_empty_labeled_child as usize;
+
+        let layout = BranchLayout::<Data>::new(label_len, num_children_total as u16);
         let buffer_ptr = {
             debug_assert!(layout.layout.size() > 0);
             // SAFETY:
@@ -160,12 +239,17 @@ impl<Data> BranchingNode<Data> {
             unsafe { alloc(layout.layout) as *mut AllocationHeader }
         };
 
-        let Some(buffer_ptr) = NonNull::new(buffer_ptr) else {
+        let Some(mut buffer_ptr) = NonNull::new(buffer_ptr) else {
             // The allocation failed!
             handle_alloc_error(layout.layout)
         };
-
         // Initialize the allocated buffer with valid values.
+
+        unsafe {
+            buffer_ptr
+                .as_mut()
+                .mark_as_empty_labeled_child(has_empty_labeled_child);
+        }
 
         // SAFETY:
         // - The destination and the value are properly aligned,
@@ -183,37 +267,74 @@ impl<Data> BranchingNode<Data> {
             );
         }
 
-        /*
-            I just realized that with our two types of nodes we run into the following problem:
-
-            1. We added empty labels: ""
-            2. Therefore we have to adapt the first_bytes representation to handle the empty case
-            3. I think we don't have space for it, because of the border-case of a branching node with 256 children
-
-            We may find a "magic encoding" but only if not all 256 bytes are used.
-
-            Rare edge case but still.
-         */
-        let vec: Vec<Option<i8>> = children.iter().map(|e| match e.cast_ref() {
-            super::Either::Left(leaf) => leaf.label().iter().copied().next(),
-            super::Either::Right(node) => node.label().iter().copied().next(),
-        }).collect();
- 
-        for (idx, opt_i8) in children.iter().map(|e| e.label().iter()).copied().enumurate().next() {
-        }
-
-        // todo: how do we handle the "option"
-        let first_bytes_ptr = todo!();
-
+        // Set the number of children in the buffer.
         unsafe {
-            std::ptr::copy_nonoverlapping(
-                first_bytes_ptr,
-                layout.child_first_bytes_ptr(buffer_ptr).as_ptr(),
-                children.len(),
-            );
+            layout
+                .num_non_empty_labeled_children_ptr(buffer_ptr)
+                .as_ptr()
+                .write(num_non_empty_labeled_children as u8);
         }
 
-        buffer_ptr
+        // Copy the first bytes of the non-empty-labeled children's labels.
+        for (idx, child) in left
+            .iter()
+            .chain(std::iter::once(&new_node))
+            .chain(right.iter())
+            .enumerate()
+            .take(num_non_empty_labeled_children)
+        {
+            if let Some(first_byte) = child.label().first() {
+                unsafe {
+                    layout
+                        .child_first_bytes_ptr(buffer_ptr)
+                        .as_ptr()
+                        .add(idx)
+                        .write(*first_byte)
+                };
+            } else {
+                unreachable!(
+                    "The empty labeled child, if any, should be at the end and if so,\
+                it should be skipped due to num_child_first_bytes being 1 less than children.len()"
+                );
+            }
+        }
+
+        // memcpy the children, including the non-empty labeled child
+        if !left.is_empty() {
+            // copy the left children to children.add(offset)
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    left.as_ptr(),
+                    layout.children_ptr(buffer_ptr).as_ptr(),
+                    left.len(),
+                );
+            }
+        }
+        // copy new child to children.add(offset)
+        let offset = left.len();
+        unsafe {
+            layout
+                .children_ptr(buffer_ptr)
+                .as_ptr()
+                .add(offset)
+                .write(new_node);
+        }
+        // Copy the right children to children.add(offset + 1)
+        let offset = offset + 1;
+        if !right.is_empty() {
+            unsafe {
+                std::ptr::copy_nonoverlapping(
+                    right.as_ptr(),
+                    layout.children_ptr(buffer_ptr).add(offset).as_ptr(),
+                    right.len(),
+                );
+            }
+        }
+
+        BranchingNode(Node {
+            ptr: buffer_ptr,
+            _phantom: PhantomData,
+        })
     }
 }
 
@@ -230,7 +351,7 @@ impl<Data> Drop for BranchingNode<Data> {
         }
 
         unsafe {
-            dealloc(self.0.ptr.as_ptr() as *mut u8, self.layout_rt().layout);
+            dealloc(self.0.ptr.as_ptr() as *mut u8, self.layout().layout);
         }
     }
 }
@@ -242,7 +363,7 @@ impl<Data> Drop for BranchingNode<Data> {
 /// u8               (numChildren)
 /// [c_char; len]    (label)
 /// [c_char; numChildren]  (first bytes of children's labels)
-/// padding if sum % 8 == 0 { 0 } else { 8 - sum % 8 } 
+/// padding if sum % 8 == 0 { 0 } else { 8 - sum % 8 }
 /// \[NonNull<Node>; numChildren]
 ///
 struct BranchLayout<Data> {
@@ -250,8 +371,8 @@ struct BranchLayout<Data> {
     layout: Layout,
 
     /// The offset at which the number of children is located within the allocated block.
-    num_children_offset: usize,
-    
+    num_non_empty_labeled_children_offset: usize,
+
     /// The offset at which the label is located within the allocated block.
     label_offset: usize,
 
@@ -260,20 +381,64 @@ struct BranchLayout<Data> {
 
     /// The offset at which the child node pointers are located within the allocated block.
     children_offset: usize,
-    
+
     _phantom: PhantomData<Data>,
 }
 
-impl<Data> BranchLayout<Data> {
-    /// Gets the layout of the allocated memory for a [`LeafNode`] with the given capacity.
-    pub const fn new(label_len: u16, num_children: u8) -> Self {
+struct StaticBranchLayout {
+    /// The layout of the allocated buffer.
+    layout: Layout,
+
+    /// The offset at which the number of children is located within the allocated block.
+    num_children_offset: usize,
+
+    /// The offset at which the label is located within the allocated block.
+    label_offset: usize,
+}
+
+impl StaticBranchLayout {
+    pub const fn new(label_len: u16) -> Self {
         let layout = Layout::new::<AllocationHeader>();
 
         // number of children
         let Ok((layout, num_children_offset)) = layout.extend(Layout::new::<u8>()) else {
             unreachable!()
         };
-        
+
+        // label part of array
+        let Ok(c_char_array) = Layout::array::<c_char>(label_len as usize) else {
+            panic!("Boom")
+        };
+        let Ok((layout, label_offset)) = layout.extend(c_char_array) else {
+            unreachable!()
+        };
+
+        Self {
+            layout: layout.pad_to_align(),
+            num_children_offset,
+            label_offset,
+        }
+    }
+
+    pub const fn num_non_empty_labeled_children_ptr(
+        &self,
+        header_ptr: NonNull<AllocationHeader>,
+    ) -> NonNull<u8> {
+        unsafe { header_ptr.byte_offset(self.num_children_offset as isize) }.cast()
+    }
+}
+
+impl<Data> BranchLayout<Data> {
+    /// Gets the layout of the allocated memory for a [`LeafNode`] with the given capacity.
+    /// num_children is u16, as it may have more than 255 children with the empty labeled children
+    pub const fn new(label_len: u16, num_children: u16) -> Self {
+        let layout = Layout::new::<AllocationHeader>();
+
+        // number of children
+        let Ok((layout, num_children_offset)) = layout.extend(Layout::new::<u8>()) else {
+            unreachable!()
+        };
+
         // label part of array
         let Ok(c_char_array) = Layout::array::<c_char>((label_len) as usize) else {
             panic!("Boom")
@@ -300,7 +465,7 @@ impl<Data> BranchLayout<Data> {
 
         Self {
             layout: layout.pad_to_align(),
-            num_children_offset,
+            num_non_empty_labeled_children_offset: num_children_offset,
             children_first_bytes_offset,
             label_offset,
             children_offset,
@@ -313,18 +478,22 @@ impl<Data> BranchLayout<Data> {
         Self::new(1, 1).layout.align()
     }
 
-    pub const fn num_children_ptr(&self, header_ptr: NonNull<AllocationHeader>) -> NonNull<u8> {
-        unsafe { header_ptr.byte_offset(self.num_children_offset as isize) }.cast()
+    pub const fn num_non_empty_labeled_children_ptr(
+        &self,
+        header_ptr: NonNull<AllocationHeader>,
+    ) -> NonNull<u8> {
+        unsafe { header_ptr.byte_offset(self.num_non_empty_labeled_children_offset as isize) }
+            .cast()
     }
 
-    pub const fn child_first_bytes_ptr(&self, header_ptr: NonNull<AllocationHeader>) -> NonNull<c_char> {
+    pub const fn child_first_bytes_ptr(
+        &self,
+        header_ptr: NonNull<AllocationHeader>,
+    ) -> NonNull<c_char> {
         unsafe { header_ptr.byte_offset(self.children_first_bytes_offset as isize) }.cast()
     }
 
-    pub const fn children_ptr(
-        &self,
-        header_ptr: NonNull<AllocationHeader>,
-    ) -> NonNull<NonNull<Node<Data>>> {
+    pub const fn children_ptr(&self, header_ptr: NonNull<AllocationHeader>) -> NonNull<Node<Data>> {
         unsafe { header_ptr.byte_offset(self.children_offset as isize) }.cast()
     }
 
