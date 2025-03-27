@@ -1862,8 +1862,8 @@ def testNoStem(env):
         res = conn.execute_command('ft.search', 'idx', '@body|name:candies')
         env.assertEqual(1, res[0])
 
-        # 3 results are returned because 'body' field is stemming 'candy' 
-        # but 'name' field is not stemming  
+        # 3 results are returned because 'body' field is stemming 'candy'
+        # but 'name' field is not stemming
         res = conn.execute_command(
             'ft.search', 'idx','@body|name:(candy|cherry)', 'dialect', 2)
         env.assertEqual(3, res[0])
@@ -1888,7 +1888,7 @@ def testNoStem(env):
   @body:candi(expanded)
 }
 '''[1:])
-        
+
         # Test explaincli with modifier list fields, all fields expanded
         env.expect('ft.explain', 'idx', '@body|body2:candy').equal(r'''
 @body|body2:UNION {
@@ -1897,12 +1897,12 @@ def testNoStem(env):
   @body|body2:candi(expanded)
 }
 '''[1:])
-        
+
         # Test explaincli single field with NOSTEM
         env.expect('ft.explain', 'idx', '@name:candy').equal(r'''
 @name:candy
 '''[1:])
-        
+
         # Test explaincli with modifier list NOSTEM fields
         env.expect('ft.explain', 'idx', '@name|name2:candy').equal(r'''
 @name|name2:candy
@@ -1916,7 +1916,7 @@ def testNoStem(env):
   @body:candi(expanded)
 }
 '''[1:])
-        
+
         env.expect('ft.explain', 'idx', '@name2|body|name:candy').equal(r'''
 @body|name|name2:UNION {
   @body|name|name2:candy
@@ -1924,7 +1924,7 @@ def testNoStem(env):
   @body:candi(expanded)
 }
 '''[1:])
-        
+
         env.expect('ft.explain', 'idx', '@body2|body|name:candy').equal(r'''
 @body|name|body2:UNION {
   @body|name|body2:candy
@@ -1932,7 +1932,7 @@ def testNoStem(env):
   @body|body2:candi(expanded)
 }
 '''[1:])
-        
+
         env.expect('ft.explain', 'idx', '@body2|body|name|name2:candy').equal(r'''
 @body|name|body2|name2:UNION {
   @body|name|body2|name2:candy
@@ -4055,19 +4055,40 @@ def common_with_auth(env: Env):
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'n').equal(expected_res)
 
 def test_with_password():
-    mypass = '42MySecretPassword$'
+    mypass = '42MySecretPassword$'  # Hard-coded in `sbin/get-test-certs.sh` as default password
     args = f'OSS_GLOBAL_PASSWORD {mypass}' if COORD else None
     env = Env(moduleArgs=args, password=mypass)
     common_with_auth(env)
 
 def test_with_tls():
     cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+    # Upon setting `useTLS` to `True`, RLTest also sets the `tls-cluster` config
+    # to `yes`. This results in the coordinator-shard connections being TLS as well.
     env = Env(useTLS=True,
               tlsCertFile=cert_file,
               tlsKeyFile=key_file,
               tlsCaCertFile=ca_cert_file,
               tlsPassphrase=passphrase)
 
+    common_with_auth(env)
+
+@skip(cluster=False)
+def test_with_tls_and_non_tls_ports():
+    """Tests that the coordinator-shard connections are using the correct
+    protocol (TLS vs. non-TLS) according to the redis `tls-cluster` configuration."""
+
+    cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+    env = Env(useTLS=True,
+              tlsCertFile=cert_file,
+              tlsKeyFile=key_file,
+              tlsCaCertFile=ca_cert_file,
+              tlsPassphrase=passphrase,
+              dualTLS=True)        # Sets the ports to be both TLS and regular ports.
+
+    # Upon setting `tls-cluster` to `no`, we should still be able to succeed
+    # connecting the coordinator to the shards, just not in TLS mode.
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+    time.sleep(2)
     common_with_auth(env)
 
 @skip(cluster=True)

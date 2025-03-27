@@ -64,5 +64,3 @@ void SetMyPartition(MRClusterTopology *ct, MRClusterShard *myShard);
 
 char *writeTaggedId(const char *key, size_t keyLen, const char *tag, size_t tagLen,
                     size_t *taggedLen);
-
-int checkTLS(char** client_key, char** client_cert, char** ca_cert, char** key_pass);
