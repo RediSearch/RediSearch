@@ -65,9 +65,8 @@ void AGPLN_Prepend(AGGPlan *pln, PLN_BaseStep *newstp) {
   dllist_prepend(&pln->steps, &newstp->llnodePln);
 }
 
-void AGPLN_PopStep(AGGPlan *pln, PLN_BaseStep *step) {
+void AGPLN_PopStep(PLN_BaseStep *step) {
   dllist_delete(&step->llnodePln);
-  (void)pln;
 }
 
 static void rootStepDtor(PLN_BaseStep *bstp) {

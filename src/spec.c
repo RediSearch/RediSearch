@@ -34,6 +34,7 @@
 #include "util/workers.h"
 #include "info/global_stats.h"
 #include "debug_commands.h"
+#include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
 #include "util/hash/hash.h"
 #include "reply_macros.h"
@@ -1364,7 +1365,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
 
 failure:  // on failure free the spec fields array and return an error
   spec->flags &= ~Index_Temporary;
-  IndexSpec_RemoveFromGlobals(spec_ref);
+  IndexSpec_RemoveFromGlobals(spec_ref, false);
   return INVALID_STRONG_REF;
 }
 
@@ -1604,9 +1605,9 @@ void IndexSpec_Free(IndexSpec *spec) {
 
 // Assumes this is called from the main thread with no competing threads
 // Also assumes that the spec is existing in the global dictionary, so
-// we use the global reference as our guard and access the spec dierctly.
+// we use the global reference as our guard and access the spec directly.
 // This function consumes the Strong reference it gets
-void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
+void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
 
   // Remove spec from global index list
@@ -1643,6 +1644,11 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   // Nullify the spec's quick access to the strong ref. (doesn't decrement references count).
   spec->own_ref = (StrongRef){0};
 
+  if (removeActive) {
+    // Remove thread from active-threads container
+    CurrentThread_ClearIndexSpec();
+  }
+
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
   StrongRef_Invalidate(spec_ref);
   StrongRef_Release(spec_ref);
@@ -1668,7 +1674,7 @@ void Indexes_Free(dict *d) {
   dictReleaseIterator(iter);
 
   for (size_t i = 0; i < array_len(specs); ++i) {
-    IndexSpec_RemoveFromGlobals(specs[i]);
+    IndexSpec_RemoveFromGlobals(specs[i], false);
   }
   array_free(specs);
 }
@@ -2214,7 +2220,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (scanner->global) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL);
   } else {
-    StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
+    StrongRef curr_run_ref = IndexSpecRef_Promote(scanner->spec_ref);
     IndexSpec *sp = StrongRef_Get(curr_run_ref);
     if (sp) {
       // This check is performed without locking the spec, but it's ok since we locked the GIL
@@ -2222,7 +2228,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
       if (SchemaRule_ShouldIndex(sp, keyname, type)) {
         IndexSpec_UpdateDoc(sp, ctx, keyname, type);
       }
-      StrongRef_Release(curr_run_ref);
+      IndexSpecRef_Release(curr_run_ref);
     } else {
       // spec was deleted, cancel scan
       scanner->cancelled = true;
@@ -3301,8 +3307,10 @@ void Indexes_List(RedisModule_Reply* reply, bool obfuscate) {
   while ((entry = dictNext(iter))) {
     StrongRef ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(ref);
+    CurrentThread_SetIndexSpec(ref);
     const char *specName = IndexSpec_FormatName(sp, obfuscate);
     REPLY_SIMPLE_SAFE(specName);
+    CurrentThread_ClearIndexSpec();
   }
   dictReleaseIterator(iter);
   RedisModule_Reply_SetEnd(reply);
@@ -3359,4 +3367,18 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
   }
 
   Indexes_ScanProc(ctx, keyname, key, &(dScanner->base));
+}
+
+StrongRef IndexSpecRef_Promote(WeakRef ref) {
+  StrongRef strong = WeakRef_Promote(ref);
+  IndexSpec *spec = StrongRef_Get(strong);
+  if (spec) {
+    CurrentThread_SetIndexSpec(strong);
+  }
+  return strong;
+}
+
+void IndexSpecRef_Release(StrongRef ref) {
+  CurrentThread_ClearIndexSpec();
+  StrongRef_Release(ref);
 }
