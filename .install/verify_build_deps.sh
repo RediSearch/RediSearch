@@ -8,17 +8,50 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Define required dependencies with their verification methods
-declare -A dependencies=(
+# Function to detect the operating system
+detect_os() {
+  if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    echo "$ID"
+  else
+    echo "unknown"
+  fi
+}
+
+# Detect the OS
+OS=$(detect_os)
+
+# Define common dependencies
+declare -A common_dependencies=(
   ["make"]="command"       # Verify using command -v
   ["gcc"]="command"        # Verify using command -v
   ["g++"]="command"        # Verify using command -v
   ["python3"]="command"    # Verify using command -v
   ["cmake"]="command"      # Verify using command -v
-  ["libssl-dev"]="package" # Verify using dpkg -l
   ["cargo"]="command"      # Verify using command -v
-  ["meow"]="command"      # Verify using command -v
 )
+
+# Define OS-specific dependencies
+declare -A ubuntu_dependencies=(
+  ["libssl-dev"]="package" # Verify using dpkg -l
+)
+
+declare -A rocky_dependencies=(
+  ["openssl-devel"]="package" # Verify using rpm -q
+)
+
+# Merge common and OS-specific dependencies
+declare -A dependencies
+dependencies=("${common_dependencies[@]}") # Start with common dependencies
+
+if [[ "$OS" == "ubuntu" ]]; then
+  dependencies+=("${ubuntu_dependencies[@]}")
+elif [[ "$OS" == "rocky" ]]; then
+  dependencies+=("${rocky_dependencies[@]}")
+else
+  echo -e "${RED}Unsupported operating system.${NC}"
+  exit 1
+fi
 
 # Define installation scripts for specific dependencies
 declare -A install_scripts=(
@@ -29,14 +62,14 @@ declare -A install_scripts=(
 # Print header
 echo -e "\n===== Build Dependencies Checker =====\n"
 
-# Function to check if a command is available
-check_command() {
-  command -v "$1" &> /dev/null
+# Function to check if a package is installed (Ubuntu/Debian)
+check_package_deb() {
+  dpkg -l | grep -q " $1 " || dpkg -l | grep -q " $1:"
 }
 
-# Function to check if a package is installed
-check_package() {
-  dpkg -l | grep -q " $1 " || dpkg -l | grep -q " $1:"
+# Function to check if a package is installed (Rocky/RHEL)
+check_package_rpm() {
+  rpm -q "$1" &> /dev/null
 }
 
 # Function to check if running in a Docker container
@@ -57,8 +90,15 @@ for dep in "${!dependencies[@]}"; do
   # Check based on verification method
   if [[ "$verify_method" == "command" ]] && check_command "$dep"; then
     echo -e "${GREEN}✓${NC}"
-  elif [[ "$verify_method" == "package" ]] && check_package "$dep"; then
-    echo -e "${GREEN}✓${NC}"
+  elif [[ "$verify_method" == "package" ]]; then
+    if [[ "$OS" == "ubuntu" ]] && check_package_deb "$dep"; then
+      echo -e "${GREEN}✓${NC}"
+    elif [[ "$OS" == "rocky" ]] && check_package_rpm "$dep"; then
+      echo -e "${GREEN}✓${NC}"
+    else
+      echo -e "${RED}✗${NC}"
+      missing_deps_apt+=("$dep")
+    fi
   else
     echo -e "${RED}✗${NC}"
 
@@ -84,31 +124,39 @@ if [ ${#missing_deps_with_scripts[@]} -gt 0 ] || [ ${#missing_deps_apt[@]} -gt 0
     done
   fi
 
-  # Then suggest apt-get for the rest
+  # Then suggest apt-get or dnf/yum for the rest
   if [ ${#missing_deps_apt[@]} -gt 0 ]; then
     echo -e "\n${BLUE}For other dependencies, run:${NC}"
-    echo -e "sudo apt install \\"
+    if [[ "$OS" == "ubuntu" ]]; then
+      echo -e "sudo apt install \\"
+    elif [[ "$OS" == "rocky" ]]; then
+      echo -e "sudo dnf install \\"
+    fi
     for dep in "${missing_deps_apt[@]}"; do
       echo -e "  $dep \\"
     done
   fi
 
+  # Suggest using the all-in-one installation script
+  echo -e "\n${YELLOW}Alternatively, you can run the following script to install all dependencies:${NC}"
+  echo -e "${BLUE}.install/install_script.sh${NC}"
+
   echo -e "\n${YELLOW}WARNING: Build may fail without these dependencies.${NC}"
 
-#   # Check if running in Docker - if so, don't exit
-#   if is_docker; then
-#     echo -e "\n${YELLOW}Running in Docker environment - continuing despite missing dependencies.${NC}"
-#     exit_code=0
-#   else
-#     exit_code=1
-#   fi
+  # Check if running in Docker - if so, don't exit
+  if is_docker; then
+    echo -e "\n${YELLOW}Running in Docker environment - continuing despite missing dependencies.${NC}"
+    exit_code=0
+  else
+    exit_code=1
+  fi
 else
   echo -e "\n${GREEN}All dependencies are installed.${NC}"
   exit_code=0
 fi
 
-# # Return the status code but don't exit in Docker
-# if ! is_docker ; then
-#   exit $exit_code
-# fi
+# Return the status code but don't exit in Docker
+if ! is_docker ; then
+  exit $exit_code
+fi
 exit $exit_code
