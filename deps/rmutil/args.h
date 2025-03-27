@@ -85,6 +85,7 @@ int AC_GetDouble(ArgsCursor *ac, double *d, int flags);
 int AC_GetU32(ArgsCursor *ac, uint32_t *u, int flags);
 int AC_GetU64(ArgsCursor *ac, uint64_t *u, int flags);
 int AC_GetSize(ArgsCursor *ac, size_t *sz, int flags);
+int AC_GetU8(ArgsCursor *ac, uint8_t *u, int flags);
 
 // Returns 1 if the cursors are at an equal state (same number of args left, same args), 0 otherwise.
 // Comparison is case sensitive and done directly on the strings. This function is not suitable for comparing numbers.

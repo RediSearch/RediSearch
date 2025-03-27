@@ -129,7 +129,7 @@ typedef enum {
     DEBUG_INDEX_SCANNER_CODE_CANCELLED,
     DEBUG_INDEX_SCANNER_CODE_PAUSED,
     DEBUG_INDEX_SCANNER_CODE_RESUMED,
-
+    DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM,
     //Insert new codes here (before COUNT)
     DEBUG_INDEX_SCANNER_CODE_COUNT  // Helps with array size checks
     //Do not add new codes after COUNT
@@ -311,7 +311,7 @@ typedef struct IndexSpec {
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
   bool scan_in_progress;
-  bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
+  bool scan_failed_OOM; // background indexing failed due to Out Of Memory
   bool monitorDocumentExpiration;
   bool monitorFieldExpiration;
 
@@ -644,6 +644,7 @@ typedef struct DebugIndexesScanner {
   int maxDocsTBscanned;
   int maxDocsTBscannedPause;
   bool wasPaused;
+  bool pauseOnOOM;
   int status;
 } DebugIndexesScanner;
 
@@ -684,6 +685,15 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
 char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
+/**
+ * @brief Sets an error message in the index spec
+ *
+ * @param sp spec
+ * @param error error message
+ * @param key the key that caused the error
+ */
+void IndexSpec_SetIndexErrorMessage(IndexSpec *sp, const char *error, bool withUserData, RedisModuleString *key);
+
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);
@@ -701,6 +711,10 @@ void Indexes_List(RedisModule_Reply* reply, bool obfuscate);
 void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
 size_t CleanInProgressOrPending();
+
+// Expose reindexpool for debug
+void ReindexPool_ThreadPoolDestroy();
+
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

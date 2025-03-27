@@ -149,6 +149,8 @@ typedef struct {
   // If set, we use an optimization that sorts the children of an intersection iterator in a way
   // where union iterators are being factorize by the number of their own children.
   int prioritizeIntersectUnionChildren;
+  // Limit the memory ration used until we stop indexing
+  uint8_t indexingMemoryLimit;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
   // Enable to execute unstable features
@@ -263,6 +265,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 #define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
+#define DEFAULT_INDEXING_MEMORY_LIMIT 80
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
@@ -306,7 +309,8 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .prioritizeIntersectUnionChildren = false,                                 \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
     .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE,                \
-    .hideUserDataFromLog = false                                               \
+    .hideUserDataFromLog = false                              ,                \
+    .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \
   }
 
 #define REDIS_ARRAY_LIMIT 7
