@@ -63,8 +63,7 @@ jobs:
                 ;;
               rocky | amazonlinux | mariner | amzn)
                 if [ "${{ inputs.container }}" == "amazonlinux:2" ]; then
-                  cd .install
-                  ./install_script
+                  .install/install_script
                 else
                   dnf install -y make python3 cmake openssl-devel
                 fi
