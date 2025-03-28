@@ -61,15 +61,16 @@ jobs:
               ubuntu | debian)
                 apt update && apt install -y curl make python3 cmake libssl-dev
                 ;;
-              rocky | amazonlinux | mariner )
-                dnf install -y make python3 cmake openssl-devel
+              rocky | amazonlinux | mariner | amzn)
+                if [ "${{ inputs.container }}" == "amazonlinux:2" ]; then
+                  cd .install
+                  ./install_script
+                else
+                  dnf install -y make python3 cmake openssl-devel
+                fi
                 ;;
               alpine)
                 apk add --no-cache make python3 cmake openssl
-                ;;
-              amzn)
-                cd .install
-                install_script
                 ;;
               *)
                 echo "Unsupported operating system: $ID"
