@@ -40,9 +40,9 @@ declare -A rocky_dependencies=(
   ["openssl-devel"]="package" # Verify using rpm -q
 )
 
-declare -A amzn_dependencies=(
-  ["openssl11-devel"]="package" # Verify using rpm -q
-)
+# declare -A amzn_dependencies=(
+#   ["openssl-devel"]="package" # Verify using rpm -q
+# )
 
 # Merge common and OS-specific dependencies
 declare -A dependencies
@@ -57,14 +57,14 @@ if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
   for key in "${!ubuntu_dependencies[@]}"; do
     dependencies["$key"]="${ubuntu_dependencies[$key]}"
   done
-elif [[ "$OS" == "rocky" ]]; then
+elif [[ "$OS" == "rocky" || "$OS" == "amzn" ]]; then
   for key in "${!rocky_dependencies[@]}"; do
     dependencies["$key"]="${rocky_dependencies[$key]}"
   done
-elif [[ "$OS" == "amzn" ]]; then
-  for key in "${!amzn_dependencies[@]}"; do
-    dependencies["$key"]="${amzn_dependencies[$key]}"
-  done
+# elif [[ "$OS" == "amzn" ]]; then
+#   for key in "${!amzn_dependencies[@]}"; do
+#     dependencies["$key"]="${amzn_dependencies[$key]}"
+#   done
 else
   echo -e "${RED}Unsupported operating system.${NC}"
   exit 1
