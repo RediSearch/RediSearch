@@ -1,0 +1,191 @@
+name: Common Flow for Tests
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        default: "${{ vars.RUNS_ON }}"
+        type: string
+      container:
+        type: string
+      pre-steps-script:
+        type: string
+        description: 'Script to run before any other steps (extremely basic dependency needs only)'
+
+jobs:
+  common-flow:
+    name: Build ${{ inputs.container || inputs.env }}
+    runs-on: ${{ inputs.env }}
+    container: ${{ inputs.container || null }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
+      - name: Pre-steps Dependencies (Alpine)
+        if: inputs.pre-steps-script && inputs.container == 'alpine:3'
+        shell: sh -l -eo pipefail {0}
+        run: ${{ inputs.pre-steps-script }}
+      - name: Pre-steps Dependencies (Non-Alpine)
+        if: inputs.pre-steps-script && inputs.container != 'alpine:3'
+        run: ${{ inputs.pre-steps-script }}
+
+      - name: Get Installation Mode
+        id: mode
+        run: |
+          [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
+      - name: Cclone repo
+        id: clone # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
+        run: |
+          git clone https://github.com/RediSearch/RediSearch.git
+          cd RediSearch
+          git checkout meiravg_verify_build_deps
+          git submodule update --init --recursive
+      - name: verify
+        id: verify_deps
+        working-directory: RediSearch
+        run: |
+          echo $PWD
+          git branch
+          .install/verify_build_deps.sh
+      - name: install deps
+        id: install_deps
+        working-directory: RediSearch
+        run: |
+          # Detect the OS from /etc/os-release
+          if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            case "$ID" in
+              ubuntu | debian)
+                apt update && apt install -y curl make python3 cmake libssl-dev
+                ;;
+              rocky | amazonlinux | mariner | amzn)
+                if [ "${{ inputs.container }}" == "amazonlinux:2" ]; then
+                  cd .install
+                  ./install_script.sh
+                else
+                  dnf install -y make python3 cmake openssl-devel
+                fi
+                ;;
+              alpine)
+                apk add --no-cache make python3 cmake openssl
+                ;;
+              *)
+                echo "Unsupported operating system: $ID"
+                exit 1
+                ;;
+            esac
+          else
+            echo "Unable to detect the operating system."
+            exit 1
+          fi
+      - name: verify
+        id: verify_deps2
+        working-directory: RediSearch
+        run: |
+          echo $PWD
+          git branch
+          .install/verify_build_deps.sh
+      - name: install rust  and gcc
+        id: install_rust
+        working-directory: RediSearch
+        run: |
+          source .install/install_rust.sh
+          case "${{ inputs.container }}" in
+            ubuntu:jammy | ubuntu:noble)
+              gcc_ver=12
+              ;;
+            ubuntu:focal | ubuntu:bionic)
+              gcc_ver=10
+              ;;
+            debian:* | ubuntu:*)
+              apt install -y gcc g++
+              gcc_ver=""
+              ;;
+            amazonlinux:20*)
+              dnf install -y gcc g++
+              gcc_ver=""
+              ;;
+            rocky*)
+              dnf install -y gcc-toolset-13-gcc gcc-toolset-13-gcc-c++
+              cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
+              gcc_ver=""
+              ;;
+            *)
+              gcc_ver=""
+              ;;
+          esac
+
+          if [ -n "$gcc_ver" ]; then
+              apt install -y gcc-$gcc_ver g++-$gcc_ver
+              update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-$gcc_ver 60 --slave /usr/bin/g++ g++ /usr/bin/g++-$gcc_ver
+              update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-$gcc_ver 60
+          else
+              echo "Skipping GCC installation"
+          fi
+      - name: verify
+        id: verify_deps3
+        working-directory: RediSearch
+        run: |
+          echo $PWD
+          git branch
+          .install/verify_build_deps.sh
+      - name: Full checkout (node20)
+        if: steps.node20.outputs.supported == 'true'
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Full checkout (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
+        run: |
+          # Execute the logic based on the detected platform
+          echo "Detected platform: ${{ inputs.container }}"
+          case "${{ inputs.container }}" in
+            ubuntu:bionic | amazonlinux:2 | alpine:3)
+
+              # Configure the safe directory
+              git config --global --add safe.directory /__w/${{ github.repository }}
+
+              # Checkout
+              REPO_URL="https://github.com/${{ github.repository }}.git"
+
+              # Initialize a Git repository
+              git init
+              git remote add origin "$REPO_URL"
+
+              # Fetch and checkout ref
+              git fetch origin "${{ github.ref }}" || {
+                echo "Failed to fetch ref: '${{ github.ref }}'";
+                exit 1;
+              }
+              git checkout FETCH_HEAD  # Check out the fetched ref
+
+              # Update submodules
+              git submodule update --init --recursive
+              ;;
+            *)
+              echo "Unsupported platform: '${{ inputs.container }}'"
+              exit 1
+              ;;
+          esac
+      # - name: Setup
+      #   working-directory: .install
+      #   run: |
+      #     ./install_script.sh ${{ steps.mode.outputs.mode }}
+      # - name: Setup tests dependencies
+      #   run: |
+      #     .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
+      - name: Build
+        env:
+          ENABLE_ASSERT: 1
+        working-directory: RediSearch
+        run: make
+      - name: Fail flow if tests failed
+        if: steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
+        run: |
+          echo "Unit Tests: ${{ steps.unit_tests.outcome }}"
+          echo "Standalone: ${{ steps.standalone_tests.outcome }}"
+          echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
+          exit 1
