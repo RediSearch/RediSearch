@@ -104,7 +104,7 @@ jobs:
               apt install -y gcc g++
               gcc_ver=""
               ;;
-            amzn:20*)
+            amazonlinux:20*)
               dnf install -y gcc g++
               gcc_ver=""
               ;;
