@@ -12,7 +12,15 @@ NC='\033[0m' # No Color
 detect_os() {
   if [ -f /etc/os-release ]; then
     . /etc/os-release
-    echo "$ID"
+    if [[ "$ID" == "amzn" ]]; then
+      if [[ "$VERSION_ID" == "2" ]]; then
+        echo "amzn2"
+      elif [[ "$VERSION_ID" == "2023" ]]; then
+        echo "amzn2023"
+      fi
+    else
+      echo "$ID"
+    fi
   else
     echo "unknown"
   fi
@@ -40,9 +48,13 @@ declare -A rocky_dependencies=(
   ["openssl-devel"]="package" # Verify using rpm -q
 )
 
-# declare -A amzn_dependencies=(
-#   ["openssl-devel"]="package" # Verify using rpm -q
-# )
+declare -A amzn2_dependencies=(
+  ["openssl11-devel"]="package" # Amazon Linux 2 uses openssl11-devel
+)
+
+declare -A amzn2023_dependencies=(
+  ["openssl-devel"]="package" # Amazon Linux 2023 uses openssl-devel (same as Rocky)
+)
 
 # Merge common and OS-specific dependencies
 declare -A dependencies
@@ -57,14 +69,18 @@ if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]]; then
   for key in "${!ubuntu_dependencies[@]}"; do
     dependencies["$key"]="${ubuntu_dependencies[$key]}"
   done
-elif [[ "$OS" == "rocky" || "$OS" == "amzn" ]]; then
+elif [[ "$OS" == "rocky" ]]; then
   for key in "${!rocky_dependencies[@]}"; do
     dependencies["$key"]="${rocky_dependencies[$key]}"
   done
-# elif [[ "$OS" == "amzn" ]]; then
-#   for key in "${!amzn_dependencies[@]}"; do
-#     dependencies["$key"]="${amzn_dependencies[$key]}"
-#   done
+elif [[ "$OS" == "amzn2" ]]; then
+  for key in "${!amzn2_dependencies[@]}"; do
+    dependencies["$key"]="${amzn2_dependencies[$key]}"
+  done
+elif [[ "$OS" == "amzn2023" ]]; then
+  for key in "${!amzn2023_dependencies[@]}"; do
+    dependencies["$key"]="${amzn2023_dependencies[$key]}"
+  done
 else
   echo -e "${RED}Unsupported operating system.${NC}"
   exit 1
@@ -90,9 +106,11 @@ check_package_deb() {
 }
 
 # Function to check if a package is installed (Rocky/RHEL or Amazon Linux)
-check_package_rpm() {
-  if [[ "$OS" == "amzn" ]]; then
+check_package_rhel() {
+  if [[ "$OS" == "amzn2" ]]; then
     yum list installed "$1" &> /dev/null
+  elif [[ "$OS" == "amzn2023" ]]; then
+    dnf list installed "$1" &> /dev/null
   else
     rpm -q "$1" &> /dev/null
   fi
@@ -119,7 +137,7 @@ for dep in "${!dependencies[@]}"; do
   elif [[ "$verify_method" == "package" ]]; then
     if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]] && check_package_deb "$dep"; then
       echo -e "${GREEN}✓${NC}"
-    elif [[ "$OS" == "rocky" ||  "$OS" == "amzn" ]] && check_package_rpm "$dep"; then
+    elif [[ "$OS" == "rocky" || "$OS" == "amzn2" || "$OS" == "amzn2023" ]] && check_package_rhel "$dep"; then
       echo -e "${GREEN}✓${NC}"
     else
       echo -e "${RED}✗${NC}"
