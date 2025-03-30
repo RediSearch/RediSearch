@@ -822,7 +822,7 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult 
   // success while no population of the result was done.
   // So if the last rc was `RS_RESULT_OK`, we need to continue activating the
   // pipeline.
-  if (rc == RS_RESULT_OK && !res->dmd) {
+  if (rc == RS_RESULT_OK) {
     return self->base_loader.base.Next(&self->base_loader.base, res);
   }
   return rc;
@@ -848,12 +848,11 @@ static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_outp
   SearchResult *curr_res = GetNextResult(self);
 
   if (curr_res) {
-    SetResult(curr_res, result_output);
-  }
-  if (!curr_res || rp->parent->resultLimit <= 1) {
+    SetResult( curr_res, result_output);
+    return RS_RESULT_OK;
+  } else {
     return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
   }
-  return RS_RESULT_OK;
 }
 
 /*********************************************************************************/
