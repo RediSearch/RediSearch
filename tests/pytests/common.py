@@ -812,6 +812,10 @@ def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, interna
         debug_params.append("INTERNAL_ONLY")
     return runDebugQueryCommand(env, query_cmd, debug_params)
 
+def runDebugQueryCommandAndCrash(env, query_cmd):
+    debug_params = ['CRASH']
+    return env.expect(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)).error()
+
 def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):
       yield env.getConnection(shardId=s)
