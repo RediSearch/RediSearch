@@ -81,7 +81,7 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
     // If we can't load keys, or the key we loaded is not in the schema, we fail.
     if (!options->loadKeys || !((*out)->flags & RLOOKUP_F_SCHEMASRC)) {
       QueryError_SetWithUserDataFmt(options->status, QUERY_ENOPROPKEY, "Property is not present in document or pipeline", ": `%s`", s);
-      return 0;
+      rc = 0;
     }
   }
   HiddenString_Free(name);
