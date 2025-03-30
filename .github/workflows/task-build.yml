@@ -108,7 +108,7 @@ jobs:
               gcc_ver=""
               ;;
             amazonlinux:20*)
-              dnf install -y gcc g++
+              dnf install -y gcc
               gcc_ver=""
               ;;
             alpine*)
