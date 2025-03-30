@@ -1,9 +1,9 @@
-packaging >= 20.8
-gevent
-deepdiff <= 8.3.0
-redis >= 5.1.0
-RLTest >= 0.7.16
-numpy >= 1.21.6
-scipy >= 1.7.3
-faker
-distro
+packaging == 20.8
+gevent == 24.11.1
+deepdiff == 8.3.0
+redis == 5.1.0
+RLTest == 0.7.16
+numpy == 1.21.6
+scipy == 1.7.3
+faker == 37.1.0
+distro == 1.9.0
