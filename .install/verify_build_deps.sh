@@ -57,7 +57,7 @@ declare -A amzn2023_dependencies=(
 )
 
 declare -A alpine_dependencies=(
-  ["openssl-devel"]="package"
+  ["openssl-dev"]="package"
   ["bsd-compat-headers"]="package"
 )
 
