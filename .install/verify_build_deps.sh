@@ -1,5 +1,5 @@
 #!/bin/bash
-# filepath: /home/ubuntu/RediSearch/scripts/check_build_deps.sh
+
 set -e
 # Set colors for output
 GREEN='\033[0;32m'
@@ -222,8 +222,9 @@ if [ ${#missing_deps_with_scripts[@]} -gt 0 ] || [ ${#missing_deps_apt[@]} -gt 0
   fi
 
   # Suggest using the all-in-one installation script
-  echo -e "\n${YELLOW}Alternatively, you can run the following script to install all dependencies:${NC}"
-  echo -e "${BLUE}.install/install_script.sh${NC}"
+  echo -e "\n${YELLOW}Alternatively, you can run the following command to install all dependencies:${NC}"
+  mode=$(is_docker && echo "" || echo "sudo")
+  echo -e "${BLUE}.install/install_script.sh${NC} ${mode}"
 
   echo -e "\n${YELLOW}WARNING: Build may fail without these dependencies.${NC}"
 
