@@ -467,19 +467,19 @@ static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char*
   // with TLS on OSS-cluster. On Enterprise, we always want to connect with TLS
   // when the tls-port is set to a non-zero value, since this is the port we
   // get from the proxy.
-  clusterTls = getRedisConfigValue(ctx, "tls-cluster");
+  clusterTls = getConfigValue(ctx, "tls-cluster");
   if (!clusterTls || strcmp(clusterTls, "yes")) {
-    tlsPort = getRedisConfigValue(ctx, "tls-port");
+    tlsPort = getConfigValue(ctx, "tls-port");
     if (!IsEnterprise() || !tlsPort || !strcmp(tlsPort, "0")) {
       ret = 0;
       goto done;
     }
   }
 
-  *client_key = getRedisConfigValue(ctx, "tls-key-file");
-  *client_cert = getRedisConfigValue(ctx, "tls-cert-file");
-  *ca_cert = getRedisConfigValue(ctx, "tls-ca-cert-file");
-  *key_pass = getRedisConfigValue(ctx, "tls-key-file-pass");
+  *client_key = getConfigValue(ctx, "tls-key-file");
+  *client_cert = getConfigValue(ctx, "tls-cert-file");
+  *ca_cert = getConfigValue(ctx, "tls-ca-cert-file");
+  *key_pass = getConfigValue(ctx, "tls-key-file-pass");
 
   if (!*client_key || !*client_cert || !*ca_cert){
     ret = 0;
