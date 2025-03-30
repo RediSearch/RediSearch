@@ -56,6 +56,10 @@ declare -A amzn2023_dependencies=(
   ["openssl-devel"]="package" # Amazon Linux 2023 uses openssl-devel (same as Rocky)
 )
 
+declare -A alpine_dependencies=(
+  ["openssl-devel"]="package" # Amazon Linux 2023 uses openssl-devel (same as Rocky)
+)
+
 # Merge common and OS-specific dependencies
 declare -A dependencies
 
@@ -80,6 +84,10 @@ elif [[ "$OS" == "amzn2" ]]; then
 elif [[ "$OS" == "amzn2023" ]]; then
   for key in "${!amzn2023_dependencies[@]}"; do
     dependencies["$key"]="${amzn2023_dependencies[$key]}"
+  done
+elif [[ "$OS" == "alpine" ]]; then
+  for key in "${!apline_dependencies[@]}"; do
+    dependencies["$key"]="${apline_dependencies[$key]}"
   done
 else
   echo -e "${RED}Unsupported operating system.${NC}"
@@ -116,6 +124,10 @@ check_package_rhel() {
   fi
 }
 
+check_package_alpine() {
+  apk info "$1" &> /dev/null
+}
+
 # Function to check if running in a Docker container
 is_docker() {
   [ -f /.dockerenv ] || grep -q docker /proc/1/cgroup 2>/dev/null
@@ -138,6 +150,8 @@ for dep in "${!dependencies[@]}"; do
     if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]] && check_package_deb "$dep"; then
       echo -e "${GREEN}✓${NC}"
     elif [[ "$OS" == "rocky" || "$OS" == "amzn2" || "$OS" == "amzn2023" ]] && check_package_rhel "$dep"; then
+      echo -e "${GREEN}✓${NC}"
+    elif [[ "$OS" == "alpine" ]] && check_package_alpine "$dep"; then
       echo -e "${GREEN}✓${NC}"
     else
       echo -e "${RED}✗${NC}"
