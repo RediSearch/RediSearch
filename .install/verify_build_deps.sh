@@ -63,6 +63,8 @@ declare -A alpine_dependencies=(
 
 declare -A mariner_dependencies=(
   ["openssl-devel"]="package"
+  ["binutils"]="package"
+  ["glibc-devel"]="package"
 )
 
 # Merge common and OS-specific dependencies
