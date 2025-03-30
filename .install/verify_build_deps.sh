@@ -126,7 +126,7 @@ check_package_rhel() {
 }
 
 check_package_alpine() {
-  apk info "$1" &> /dev/null
+  apk info -e "$1" &> /dev/null
 }
 
 # Function to check if running in a Docker container
