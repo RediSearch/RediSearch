@@ -86,7 +86,7 @@ def test_idx_delete_during_bg_indexing(env):
   env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
   waitForIndexStatus(env, 'NEW')
   # Delete the index
-  env.expect('ft.drop', 'idx').ok()
+  env.expect('ft.dropindex', 'idx').ok()
   # Resume indexing
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Check that the index does not exist
@@ -100,14 +100,13 @@ def test_idx_delete_during_bg_indexing(env):
 
   waitForIndexPauseScan(env, 'idx')
   # Delete the index
-  env.expect('ft.drop', 'idx').ok()
+  env.expect('ft.dropindex', 'idx').ok()
   # Resume indexing
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # After the following line, the background indexing should be completed
   env.expect(bgScanCommand(), 'TERMINATE_BG_POOL').ok()
   # Check that the index does not exist
   env.expect('ft._list').equal([])
-  #
 
 @skip(cluster=True)
 def test_delete_docs_during_bg_indexing(env):
@@ -223,5 +222,5 @@ def test_oom_query_error(env):
 
   # Verify ft info possible
   env.expect('FT.INFO', idx_name).noError()
-  # Verify ft drop possible
-  env.expect('FT.DROP', idx_name).ok()
+  # Verify ft dropindex possible
+  env.expect('FT.DROPINDEX', idx_name).ok()

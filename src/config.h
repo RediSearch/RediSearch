@@ -149,7 +149,7 @@ typedef struct {
   // If set, we use an optimization that sorts the children of an intersection iterator in a way
   // where union iterators are being factorize by the number of their own children.
   int prioritizeIntersectUnionChildren;
-  // Limit the memory ration used until we stop indexing
+  // The maximum ratio between current memory and max memory for which background indexing is allowed
   uint8_t indexingMemoryLimit;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
