@@ -264,7 +264,6 @@ if [ ${#missing_deps_with_scripts[@]} -gt 0 ] || [ ${#missing_deps_apt[@]} -gt 0
   echo -e "\n${YELLOW}WARNING: Build may fail without these dependencies.${NC}"
 
   exit 1
-  fi
 else
   echo -e "\n${GREEN}All dependencies are installed.${NC}"
   exit 0
