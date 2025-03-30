@@ -8,6 +8,7 @@
 #include "err.h"
 #include "util/logging.h"
 #include "rmutil/rm_assert.h"
+#include "info/info_redis/threads/current_thread.h"
 
 // Forward declaration.
 bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp);
@@ -253,6 +254,8 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     goto cleanup;
   }
 
+  CurrentThread_SetIndexSpec(ref);
+
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   rv = RS_AddDocument(&sctx, argv[2], &opts, &status);
   if (rv != REDISMODULE_OK) {
@@ -270,6 +273,8 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     // RS 2.0 - HSET replicates using `!v`
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
+
+  CurrentThread_ClearIndexSpec();
 
 cleanup:
   QueryError_ClearError(&status);
