@@ -18,5 +18,5 @@ jobs:
     secrets: inherit
     with:
       platform: "all"
-      architecture: "x86_64"
+      architecture: "all"
       fail-fast: false
