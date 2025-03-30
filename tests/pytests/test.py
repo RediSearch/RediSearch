@@ -4381,7 +4381,7 @@ def test_with_tls_and_non_tls_ports():
 
     # Get the TLS ports
     tls_ports = get_ports(env)
-    # The non-TLS ports are the TLS ports + 1500
+    # The non-TLS ports are the TLS ports + 1500 (hard-coded in RLTest)
     expected_ports = [port + 1500 for port in tls_ports]
 
     # Upon setting `tls-cluster` to `no`, we should still be able to succeed
