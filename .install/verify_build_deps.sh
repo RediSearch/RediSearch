@@ -139,6 +139,10 @@ check_package_alpine() {
   apk info -e "$1" &> /dev/null
 }
 
+check_package_mariner() {
+  tdnf list installed "$1" &> /dev/null
+}
+
 # Function to check if running in a Docker container
 is_docker() {
   [ -f /.dockerenv ] || grep -q docker /proc/1/cgroup 2>/dev/null
@@ -163,6 +167,8 @@ for dep in "${!dependencies[@]}"; do
     elif [[ "$OS" == "rocky" || "$OS" == "amzn2" || "$OS" == "amzn2023" ]] && check_package_rhel "$dep"; then
       echo -e "${GREEN}✓${NC}"
     elif [[ "$OS" == "alpine" ]] && check_package_alpine "$dep"; then
+      echo -e "${GREEN}✓${NC}"
+    elif [[ "$OS" == "mariner" ]] && check_package_mariner "$dep"; then
       echo -e "${GREEN}✓${NC}"
     else
       echo -e "${RED}✗${NC}"
