@@ -496,7 +496,7 @@ def TimeoutWarningInProfile(env):
 
 @skip(cluster=True)
 def testFailOnTimeout_nonStrict(env):
-  TimeoutWarningInProfile(env)
+  TimeoutWarningInProfile(Env(moduleArgs="ON_TIMEOUT RETURN"))
 
 @skip(cluster=True)
 def testFailOnTimeout_strict():
