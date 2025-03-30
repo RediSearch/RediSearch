@@ -79,15 +79,19 @@ typedef struct {
   struct timespec initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
   struct timespec GILTime;  //milliseconds
 
-  // the minimal score applicable for a result. It can be used to optimize the scorers
+  // the minimal score applicable for a result. It can be used to optimize the
+  // scorers
   double minScore;
 
-  // the total results found in the query, incremented by the root processors and decremented by
-  // others who might disqualify results
+  // the total results found in the query, incremented by the root processors
+  // and decremented by others who might disqualify results
   uint32_t totalResults;
 
-  // the number of results we requested to return at the current chunk. This value may be used by
-  // processors to optimize their work and to signal RP in the upstream their limit.
+  // the number of results we requested to return at the current chunk.
+  // This value is meant to be used by the RP to limit the number of results
+  // returned by its upstream RP ONLY.
+  // It should be restored after using it for local aggregation etc., as done in
+  // the Safe-Loader, Sorter, and Pager.
   uint32_t resultLimit;
 
   // Object which contains the error
