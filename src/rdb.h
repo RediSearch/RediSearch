@@ -13,19 +13,19 @@ void Discard_Globals_Backup();
 
 // For rdb short read
 
-#define LoadStringBufferAlloc_IOErrors(rdb, ptr, len, exclude_null_delimiter_from_len, cleanup_exp)  \
+#define LoadStringBufferAlloc_IOErrors(rdb, ptr, allocate_exp, cleanup_exp)  \
 do {                                                                \
   size_t tmp_len;                                                   \
-  size_t *tmp_len_ptr = len ? len : &tmp_len;                       \
-  char *oldbuf = RedisModule_LoadStringBuffer(rdb, tmp_len_ptr);    \
+  char *oldbuf = RedisModule_LoadStringBuffer(rdb, &tmp_len);       \
   if (RedisModule_IsIOError(rdb)) {                                 \
+    if (oldbuf) {                                                   \
+      RedisModule_Free(oldbuf);                                     \
+    }                                                               \
     cleanup_exp;                                                    \
   }                                                                 \
   RS_ASSERT(oldbuf);                                                \
-  RedisModule_Assert(*tmp_len_ptr);                                 \
-  ptr = rm_malloc(*tmp_len_ptr);                                    \
-  memcpy(ptr, oldbuf, *tmp_len_ptr);                                \
-  *tmp_len_ptr -= exclude_null_delimiter_from_len;                  \
+  RedisModule_Assert(tmp_len);                                      \
+  ptr = allocate_exp(oldbuf, tmp_len);                              \
   RedisModule_Free(oldbuf);                                         \
 } while (0)
 

@@ -62,6 +62,12 @@ static void ReturnedField_Free(ReturnedField *field) {
   rm_free(field->highlightSettings.openTag);
   rm_free(field->highlightSettings.closeTag);
   rm_free(field->summarizeSettings.separator);
+  if (field->name) {
+    HiddenString_Free(field->name);
+  }
+  if (field->path) {
+    HiddenString_Free(field->path);
+  }
 }
 
 void FieldList_Free(FieldList *fields) {
@@ -75,7 +81,7 @@ void FieldList_Free(FieldList *fields) {
 ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, const char *path) {
   size_t foundIndex = -1;
   for (size_t ii = 0; ii < fields->numFields; ++ii) {
-    if (!strcmp(fields->fields[ii].name, name)) {
+    if (!HiddenString_CompareC(fields->fields[ii].name, name, strlen(name))) {
       return fields->fields + ii;
     }
   }
@@ -83,8 +89,8 @@ ReturnedField *FieldList_GetCreateField(FieldList *fields, const char *name, con
   fields->fields = rm_realloc(fields->fields, sizeof(*fields->fields) * ++fields->numFields);
   ReturnedField *ret = fields->fields + (fields->numFields - 1);
   memset(ret, 0, sizeof *ret);
-  ret->name = name;
-  ret->path = path ? path : name;
+  ret->name = NewHiddenString(name, strlen(name), false);
+  ret->path = path ? NewHiddenString(path, strlen(path), false) : HiddenString_Retain(ret->name);
   return ret;
 }
 
@@ -127,7 +133,7 @@ static int parseCursorSettings(AREQ *req, ArgsCursor *ac, QueryError *status) {
   return REDISMODULE_OK;
 }
 
-static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
+static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status) {
 
   ArgsCursor args = {0};
   int rv = AC_GetVarArgs(ac, &args);
@@ -150,8 +156,12 @@ static int parseRequiredFields(AREQ *req, ArgsCursor *ac, QueryError *status){
     array_append(requiredFields, s);
   }
 
-  req->requiredFields = requiredFields;
-
+  HiddenString** hiddenFields = array_new(HiddenString*, requiredFieldNum);
+  for (size_t i=0; i < requiredFieldNum; i++) {
+    array_append(hiddenFields, NewHiddenString(requiredFields[i], strlen(requiredFields[i]), false));
+  }
+  array_free(requiredFields);
+  req->requiredFields = hiddenFields;
   return REDISMODULE_OK;
 }
 
@@ -632,7 +642,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
   return REDISMODULE_OK;
 }
 
-static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCursor *args) {
+static HiddenString *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCursor *args) {
 
   sds out = sdsnew("__generated_alias");
   out = sdscat(out, func);
@@ -657,7 +667,7 @@ static char *getReducerAlias(PLN_GroupStep *g, const char *func, const ArgsCurso
   sdstolower(out);
 
   // duplicate everything. yeah this is lame but this function is not in a tight loop
-  char *dup = rm_strndup(out, sdslen(out));
+  HiddenString *dup = NewHiddenString(out, sdslen(out), true);
   sdsfree(out);
   return dup;
 }
@@ -668,9 +678,13 @@ static void groupStepFree(PLN_BaseStep *base) {
     size_t nreducers = array_len(g->reducers);
     for (size_t ii = 0; ii < nreducers; ++ii) {
       PLN_Reducer *gr = g->reducers + ii;
-      rm_free(gr->alias);
+      HiddenString_Free(gr->alias);
     }
     array_free(g->reducers);
+  }
+  if (g->propertiesOwned) {
+    array_free_ex(g->properties, HiddenString_Free(*(HiddenString**)ptr));
+    g->propertiesOwned = false;
   }
 
   RLookup_Cleanup(&g->lookup);
@@ -721,9 +735,9 @@ int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *a
   if (alias == NULL) {
     gr->alias = getReducerAlias(gstp, name, &gr->args);
   } else {
-    gr->alias = rm_strdup(alias);
+    gr->alias = NewHiddenString(alias, strlen(alias), true);
   }
-  gr->isHidden = 0; // By default, reducers are not hidden
+  gr->hideReducer = 0; // By default, reducers are not hidden
   return REDISMODULE_OK;
 
 error:
@@ -735,10 +749,10 @@ static void genericStepFree(PLN_BaseStep *p) {
   rm_free(p);
 }
 
-PLN_GroupStep *PLNGroupStep_New(const char **properties, size_t nproperties) {
+PLN_GroupStep *PLNGroupStep_New(HiddenString **properties, size_t nproperties, bool owner) {
   PLN_GroupStep *gstp = rm_calloc(1, sizeof(*gstp));
   gstp->properties = properties;
-  gstp->nproperties = nproperties;
+  gstp->propertiesOwned = owner;
   gstp->base.dtor = groupStepFree;
   gstp->base.getLookup = groupStepGetLookup;
   gstp->base.type = PLN_T_GROUP;
@@ -763,8 +777,16 @@ static int parseGroupby(AREQ *req, ArgsCursor *ac, QueryError *status) {
     }
   }
 
+  HiddenString** properties = array_new(HiddenString*, groupArgs.argc);
+  for (size_t ii = 0; ii < groupArgs.argc; ++ii) {
+    // Account for the leading '@', note it is verified above that the first character is @
+    const int atLength = 1;
+    HiddenString* property = NewHiddenString(groupArgs.objs[ii] + atLength, strlen(groupArgs.objs[ii]) - atLength, false);
+    array_append(properties, property);
+  }
+
   // Number of fields.. now let's see the reducers
-  PLN_GroupStep *gstp = PLNGroupStep_New((const char **)groupArgs.objs, groupArgs.argc);
+  PLN_GroupStep *gstp = PLNGroupStep_New(properties, groupArgs.argc, true);
   AGPLN_AddStep(&req->ap, &gstp->base);
 
   while (AC_AdvanceIfMatch(ac, "REDUCE")) {
@@ -788,8 +810,10 @@ static void freeFilterStep(PLN_BaseStep *bstp) {
   if (fstp->parsedExpr) {
     ExprAST_Free(fstp->parsedExpr);
   }
-  HiddenString_Free(fstp->expr, true);
-  rm_free((void *)fstp->base.alias);
+  HiddenString_Free(fstp->expr);
+  if (fstp->base.alias) {
+    HiddenString_Free(fstp->base.alias);
+  }
   rm_free(bstp);
 }
 
@@ -797,7 +821,7 @@ PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString* expr, int mode) {
   PLN_MapFilterStep *stp = rm_calloc(1, sizeof(*stp));
   stp->base.dtor = freeFilterStep;
   stp->base.type = mode;
-  stp->expr = HiddenString_Duplicate(expr);
+  stp->expr = expr;
   return stp;
 }
 
@@ -811,9 +835,7 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
     return REDISMODULE_ERR;
   }
 
-  HiddenString* expression = NewHiddenString(expr, exprLen, false);
-  PLN_MapFilterStep *stp = PLNMapFilterStep_New(expression, isApply ? PLN_T_APPLY : PLN_T_FILTER);
-  HiddenString_Free(expression, false);
+  PLN_MapFilterStep *stp = PLNMapFilterStep_New(NewHiddenString(expr, exprLen, false), isApply ? PLN_T_APPLY : PLN_T_FILTER);
   AGPLN_AddStep(&req->ap, &stp->base);
 
   if (isApply) {
@@ -824,9 +846,9 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
         QueryError_SetError(status, QUERY_EPARSEARGS, "AS needs argument");
         goto error;
       }
-      stp->base.alias = rm_strndup(alias, aliasLen);
+      stp->base.alias = NewHiddenString(alias, aliasLen, true);
     } else {
-      stp->base.alias = rm_strndup(expr, exprLen);
+      stp->base.alias = NewHiddenString(expr, exprLen, true);
     }
   }
   return REDISMODULE_OK;
@@ -1009,7 +1031,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
       RS_ASSERT(filter->field);
       // Need to free the hidden string since we pass the base pointer to the query AST
       // And we are about to zero out the filter in the legacy filters
-      HiddenString_Free(filter->field, false);
+      HiddenString_Free(filter->field);
       filter->field = NULL;
       QAST_GlobalFilterOptions legacyFilterOpts = {.numeric = &filter->base};
       QAST_SetGlobalFilters(ast, &legacyFilterOpts);
@@ -1037,7 +1059,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
         RS_ASSERT(gf->field);
         // Need to free the hidden string since we pass the base pointer to the query AST
         // And we are about to zero out the filter in the legacy filters
-        HiddenString_Free(gf->field, false);
+        HiddenString_Free(gf->field);
         gf->field = NULL;
         QAST_GlobalFilterOptions legacyOpts = {.geo = &gf->base};
         QAST_SetGlobalFilters(ast, &legacyOpts);
@@ -1195,32 +1217,31 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
 
 static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
                                      const RLookupKey ***loadKeys, QueryError *err) {
-  const RLookupKey *srckeys[gstp->nproperties], *dstkeys[gstp->nproperties];
-  for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-    const char *fldname = gstp->properties[ii] + 1;  // account for the @-
-    size_t fldname_len = strlen(fldname);
-    srckeys[ii] = RLookup_GetKeyEx(srclookup, fldname, fldname_len, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
+  const size_t nproperties = array_len(gstp->properties);
+  const RLookupKey *srckeys[nproperties], *dstkeys[nproperties];
+  for (size_t ii = 0; ii < nproperties; ++ii) {
+    srckeys[ii] = RLookup_GetKey(srclookup, gstp->properties[ii], RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
     if (!srckeys[ii]) {
       if (loadKeys) {
         // We failed to get the key for reading, so we know getting it for loading will succeed.
-        srckeys[ii] = RLookup_GetKey_LoadEx(srclookup, fldname, fldname_len, fldname, RLOOKUP_F_NOFLAGS);
+        srckeys[ii] = RLookup_GetKey_Load(srclookup, gstp->properties[ii], gstp->properties[ii], RLOOKUP_F_NOFLAGS);
         *loadKeys = array_ensure_append_1(*loadKeys, srckeys[ii]);
       }
       // We currently allow implicit loading only for known fields from the schema.
       // If we can't load keys, or the key we loaded is not in the schema, we fail.
       if (!loadKeys || !(srckeys[ii]->flags & RLOOKUP_F_SCHEMASRC)) {
-        QueryError_SetWithUserDataFmt(err, QUERY_ENOPROPKEY, "No such property", " `%s`", fldname);
+        QueryError_SetWithUserDataFmt(err, QUERY_ENOPROPKEY, "No such property", " `%s`", HiddenString_GetUnsafe(gstp->properties[ii], NULL));
         return NULL;
       }
     }
-    dstkeys[ii] = RLookup_GetKeyEx(&gstp->lookup, fldname, fldname_len, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+    dstkeys[ii] = RLookup_GetKey(&gstp->lookup, gstp->properties[ii], RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
     if (!dstkeys[ii]) {
-      QueryError_SetWithUserDataFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", fldname);
+      QueryError_SetWithUserDataFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", HiddenString_GetUnsafe(gstp->properties[ii], NULL));
       return NULL;
     }
   }
 
-  Grouper *grp = Grouper_New(srckeys, dstkeys, gstp->nproperties);
+  Grouper *grp = Grouper_New(srckeys, dstkeys, array_len(gstp->properties));
 
   size_t nreducers = array_len(gstp->reducers);
   for (size_t ii = 0; ii < nreducers; ++ii) {
@@ -1241,13 +1262,13 @@ static ResultProcessor *buildGroupRP(PLN_GroupStep *gstp, RLookup *srclookup,
     }
 
     // Set the destination key for the grouper!
-    uint32_t flags = pr->isHidden ? RLOOKUP_F_HIDDEN : RLOOKUP_F_NOFLAGS;
+    uint32_t flags = pr->hideReducer ? RLOOKUP_F_HIDDEN : RLOOKUP_F_NOFLAGS;
     RLookupKey *dstkey = RLookup_GetKey(&gstp->lookup, pr->alias, RLOOKUP_M_WRITE, flags);
     // Adding the reducer before validating the key, so we free the reducer if the key is invalid
     Grouper_AddReducer(grp, rr, dstkey);
     if (!dstkey) {
       Grouper_Free(grp);
-      QueryError_SetWithUserDataFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", pr->alias);
+      QueryError_SetWithUserDataFmt(err, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", HiddenString_GetUnsafe(pr->alias, NULL));
       return NULL;
     }
   }
@@ -1295,15 +1316,14 @@ static ResultProcessor *getGroupRP(AREQ *req, PLN_GroupStep *gstp, ResultProcess
 static ResultProcessor *getAdditionalMetricsRP(AREQ *req, RLookup *rl, QueryError *status) {
   MetricRequest *requests = req->ast.metricRequests;
   for (size_t i = 0; i < array_len(requests); i++) {
-    const char *name = requests[i].metric_name;
-    size_t name_len = strlen(name);
-    if (IndexSpec_GetFieldWithLength(req->sctx->spec, name, name_len)) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EINDEXEXISTS, "Property", " `%s` already exists in schema", name);
+    HiddenString *name = requests[i].metric_name;
+    if (IndexSpec_GetField(req->sctx->spec, name)) {
+      QueryError_SetWithUserDataFmt(status, QUERY_EINDEXEXISTS, "Property", " `%s` already exists in schema", HiddenString_GetUnsafe(name, NULL));
       return NULL;
     }
-    RLookupKey *key = RLookup_GetKeyEx(rl, name, name_len, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+    RLookupKey *key = RLookup_GetKey(rl, requests[i].metric_name, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
     if (!key) {
-      QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", name);
+      QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", HiddenString_GetUnsafe(name, NULL));
       return NULL;
     }
 
@@ -1356,20 +1376,23 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
 
       for (size_t ii = 0; ii < nkeys; ++ii) {
         const char *keystr = astp->sortKeys[ii];
-        RLookupKey *sortkey = RLookup_GetKey(lk, keystr, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
+        HiddenString *key = NewHiddenString(keystr, strlen(keystr), false);
+        RLookupKey *sortkey = RLookup_GetKey(lk, key, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
         if (!sortkey) {
           // if the key is not sortable, and also not loaded by another result processor,
           // add it to the loadkeys list.
           // We failed to get the key for reading, so we can't fail to get it for loading.
-          sortkey = RLookup_GetKey_Load(lk, keystr, keystr, RLOOKUP_F_NOFLAGS);
+          sortkey = RLookup_GetKey_Load(lk, key, key, RLOOKUP_F_NOFLAGS);
           // We currently allow implicit loading only for known fields from the schema.
           // If the key we loaded is not in the schema, we fail.
           if (!(sortkey->flags & RLOOKUP_F_SCHEMASRC)) {
+            HiddenString_Free(key);
             QueryError_SetWithUserDataFmt(status, QUERY_ENOPROPKEY, "Property", " `%s` not loaded nor in schema", keystr);
             goto end;
           }
           *array_ensure_tail(&loadKeys, const RLookupKey *) = sortkey;
         }
+        HiddenString_Free(key);
         sortkeys[ii] = sortkey;
       }
       if (loadKeys) {
@@ -1417,7 +1440,9 @@ static ResultProcessor *getScorerRP(AREQ *req, RLookup *rl) {
   scargs.qdatalen = req->ast.udatalen;
   const RLookupKey *scoreKey = NULL;
   if (HasScoreInPipeline(req)) {
-    scoreKey = RLookup_GetKey(rl, UNDERSCORE_SCORE, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+    HiddenString *scoreName = NewHiddenString(UNDERSCORE_SCORE, strlen(UNDERSCORE_SCORE), false);
+    scoreKey = RLookup_GetKey(rl, scoreName, RLOOKUP_M_WRITE, RLOOKUP_F_NAMEALLOC);
+    HiddenString_Free(scoreName);
   }
   ResultProcessor *rp = RPScorer_New(fns, &scargs, scoreKey);
   return rp;
@@ -1521,10 +1546,10 @@ int buildOutputPipeline(AREQ *req, uint32_t loadFlags, QueryError *status, bool 
       }
       RLookupKey *kk = RLookup_GetKey(lookup, ff->name, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!kk) {
-        QueryError_SetWithUserDataFmt(status, QUERY_ENOPROPKEY, "No such property", " `%s`", ff->name);
+        QueryError_SetWithUserDataFmt(status, QUERY_ENOPROPKEY, "No such property", " `%s`", HiddenString_GetUnsafe(ff->name, NULL));
         goto error;
       } else if (!(kk->flags & RLOOKUP_F_SCHEMASRC)) {
-        QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Property", " `%s` is not in schema", ff->name);
+        QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Property", " `%s` is not in schema", HiddenString_GetUnsafe(ff->name, NULL));
         goto error;
       }
       ff->lookupKey = kk;
@@ -1600,7 +1625,7 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
           RLookupKey *dstkey = RLookup_GetKey(curLookup, stp->alias, RLOOKUP_M_WRITE, flags);
           if (!dstkey) {
             // Can only happen if we're in noOverride mode
-            QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", stp->alias);
+            QueryError_SetWithUserDataFmt(status, QUERY_EDUPFIELD, "Property", " `%s` specified more than once", HiddenString_GetUnsafe(stp->alias, NULL));
             goto error;
           }
           rp = RPEvaluator_NewProjector(mstp->parsedExpr, curLookup, dstkey);
@@ -1642,7 +1667,11 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
             name = path;
           }
 
-          RLookupKey *kk = RLookup_GetKey_LoadEx(curLookup, name, name_len, path, loadFlags);
+          HiddenString *hiddenName = NewHiddenString(name, name_len, false);
+          HiddenString *hiddenPath = NewHiddenString(path, strlen(path), false);
+          RLookupKey *kk = RLookup_GetKey_Load(curLookup, hiddenName, hiddenPath, loadFlags);
+          HiddenString_Free(hiddenName);
+          HiddenString_Free(hiddenPath);
           // We only get a NULL return if the key already exists, which means
           // that we don't need to retrieve it again.
           if (kk) {
@@ -1767,6 +1796,7 @@ void AREQ_Free(AREQ *req) {
     RedisModule_FreeThreadSafeContext(thctx);
   }
   if(req->requiredFields) {
+    array_foreach(req->requiredFields, hidden, HiddenString_Free(hidden));
     array_free(req->requiredFields);
   }
   rm_free(req->args);

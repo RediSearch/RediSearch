@@ -55,7 +55,7 @@ typedef enum {
 } FieldVarType;
 
 typedef struct DocumentField {
-  const HiddenString *docFieldName;
+  HiddenString *docFieldName;
   union {
     // TODO: consider removing RMS altogether
     RedisModuleString *text;
@@ -264,7 +264,7 @@ typedef struct RSAddDocumentCtx {
   RedisSearchCtx *sctx;
 
   IndexSpec *spec;
-  HiddenString *specName;
+  const HiddenString *specName;
   size_t specNameLen;
 
   // Forward index. This contains all the terms found in the document

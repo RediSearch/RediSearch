@@ -24,8 +24,8 @@ TEST_F(HiddenTest, testHiddenOwnership) {
   ASSERT_NE(HiddenString_GetUnsafe(name, NULL), expected);
   HiddenString_TakeOwnership(view);
   ASSERT_NE(HiddenString_GetUnsafe(view, NULL), expected);
-  HiddenString_Free(view, true);
-  HiddenString_Free(name, true);
+  HiddenString_Free(view);
+  HiddenString_Free(name);
 }
 
 // Test the comparison functions for hidden strings
@@ -42,9 +42,9 @@ TEST_F(HiddenTest, testHiddenCompare) {
   ASSERT_EQ(HiddenString_CaseInsensitiveCompareC(first, lowerCase, strlen(lowerCase)), 0);
   ASSERT_EQ(HiddenString_CaseInsensitiveCompare(first, lower), 0);
   ASSERT_NE(HiddenString_CaseInsensitiveCompareC(first, lowerCase, strlen(lowerCase) + 1), 0);
-  HiddenString_Free(first, true);
-  HiddenString_Free(second, true);
-  HiddenString_Free(lower, true);
+  HiddenString_Free(first);
+  HiddenString_Free(second);
+  HiddenString_Free(lower);
 }
 
 // Test unicode strings comparison
@@ -79,28 +79,28 @@ TEST_F(HiddenTest, testHiddenUnicodeCompare) {
 TEST_F(HiddenTest, testHiddenDuplicate) {
   const char *expected = "Text";
   HiddenString *name = NewHiddenString(expected, strlen(expected), true);
-  HiddenString *clone = HiddenString_Duplicate(name);
+  HiddenString *clone = HiddenString_Retain(name);
   ASSERT_EQ(HiddenString_Compare(name, clone), 0);
-  HiddenString_Free(name, true);
-  HiddenString_Free(clone, true);
+  HiddenString_Free(name);
+  HiddenString_Free(clone);
 }
 
-void testCloning(HiddenString *first, HiddenString *second) {
-  HiddenString *clone = NULL;
-  HiddenString_Clone(first, &clone);
+void testRetention(HiddenString *first, HiddenString *second) {
+  HiddenString *clone = HiddenString_Retain(first);
   size_t firstLength = 0;
   HiddenString_GetUnsafe(first, &firstLength);
 
   size_t length = 0;
   HiddenString_GetUnsafe(clone, &length);
   ASSERT_EQ(length, firstLength);
-  HiddenString_Clone(second, &clone);
+  HiddenString_Free(clone);
+  clone = HiddenString_Retain(second);
   HiddenString_GetUnsafe(clone, &length);
 
   size_t secondLength = 0;
   HiddenString_GetUnsafe(second, &secondLength);
   ASSERT_EQ(length, secondLength);
-  HiddenString_Free(clone, true);
+  HiddenString_Free(clone);
 }
 
 TEST_F(HiddenTest, testHiddenClone) {
@@ -109,10 +109,10 @@ TEST_F(HiddenTest, testHiddenClone) {
 
   HiddenString *l = NewHiddenString(longText, strlen(longText), true);
   HiddenString *s = NewHiddenString(shortText, strlen(shortText), true);
-  testCloning(l, s);
-  testCloning(s, l);
-  HiddenString_Free(l, true);
-  HiddenString_Free(s, true);
+  testRetention(l, s);
+  testRetention(s, l);
+  HiddenString_Free(l);
+  HiddenString_Free(s);
 }
 
 TEST_F(HiddenTest, testHiddenCreateString) {
@@ -123,7 +123,7 @@ TEST_F(HiddenTest, testHiddenCreateString) {
     ASSERT_EQ(strlen(expected), strlen(text));
     ASSERT_EQ(strncmp(text, expected, strlen(expected)), 0);
     RedisModule_FreeString(NULL, string);
-    HiddenString_Free(name, true);
+    HiddenString_Free(name);
 }
 
 TEST_F(HiddenTest, testHiddenDropFromKeySpace) {
@@ -145,6 +145,6 @@ TEST_F(HiddenTest, testHiddenDropFromKeySpace) {
     HiddenString_DropFromKeySpace(ctx, key, name);
     ASSERT_EQ(RedisModule_Call(ctx, "GET", "ss", redisKey), noReply);
     RedisModule_FreeString(ctx, redisKey);
-    HiddenString_Free(name, true);
+    HiddenString_Free(name);
     RedisModule_FreeThreadSafeContext(ctx);
 }

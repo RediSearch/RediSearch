@@ -26,7 +26,7 @@ RSExpr *RS_NewFunc(RSFunctionInfo *cb, RSArgList *args);
 RSExpr *RS_NewProp(const char *str, size_t len);
 RSExpr *RS_NewPredicate(RSCondition cond, RSExpr *left, RSExpr *right);
 RSExpr *RS_NewInverted(RSExpr *child);
-void RSExpr_GetProperties(RSExpr *e, char ***props);
+void RSExpr_GetProperties(RSExpr *e, HiddenString ***props);
 
 #ifdef __cplusplus
 }

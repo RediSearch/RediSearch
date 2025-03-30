@@ -69,20 +69,23 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   if (*s == '@') {
     s++;
   }
-  *out = RLookup_GetKey(options->srclookup, s, RLOOKUP_M_READ, RLOOKUP_F_HIDDEN);
+  HiddenString *name = NewHiddenString(s, strlen(s), false);
+  *out = RLookup_GetKey(options->srclookup, name, RLOOKUP_M_READ, RLOOKUP_F_HIDDEN);
+  int rc = 1;
   if (!*out) {
     if (options->loadKeys) {
-      *out = RLookup_GetKey_Load(options->srclookup, s, s, RLOOKUP_F_HIDDEN);
+      *out = RLookup_GetKey_Load(options->srclookup, name, name, RLOOKUP_F_HIDDEN);
       *options->loadKeys = array_ensure_append_1(*options->loadKeys, *out);
     }
     // We currently allow implicit loading only for known fields from the schema.
     // If we can't load keys, or the key we loaded is not in the schema, we fail.
     if (!options->loadKeys || !((*out)->flags & RLOOKUP_F_SCHEMASRC)) {
       QueryError_SetWithUserDataFmt(options->status, QUERY_ENOPROPKEY, "Property is not present in document or pipeline", ": `%s`", s);
-      return 0;
+      rc = 0;
     }
   }
-  return 1;
+  HiddenString_Free(name);
+  return rc;
 }
 
 int ReducerOpts_EnsureArgsConsumed(const ReducerOptions *options) {

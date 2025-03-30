@@ -14,12 +14,12 @@
 
 void FieldSpec_Cleanup(FieldSpec* fs) {
   // if `AS` was not used, name and path are pointing at the same string
-  if (fs->fieldPath && fs->fieldName != fs->fieldPath) {
-    HiddenString_Free(fs->fieldPath, true);
+  if (fs->fieldPath) {
+    HiddenString_Free(fs->fieldPath);
+    fs->fieldPath = NULL;
   }
-  fs->fieldPath = NULL;
   if (fs->fieldName) {
-    HiddenString_Free(fs->fieldName, true);
+    HiddenString_Free(fs->fieldName);
     fs->fieldName = NULL;
   }
 
@@ -58,7 +58,7 @@ size_t FieldSpec_GetIndexErrorCount(const FieldSpec *fs) {
   return IndexError_ErrorCount(&fs->indexError);
 }
 
-static char *FormatFieldNameOrPath(t_uniqueId fieldId, HiddenString* name, void (*callback)(t_uniqueId, char*), bool obfuscate) {
+static char *FormatFieldNameOrPath(t_uniqueId fieldId, HiddenString* name, const char* (*callback)(t_uniqueId, char*), bool obfuscate) {
   char obfuscated[MAX(MAX_OBFUSCATED_FIELD_NAME, MAX_OBFUSCATED_PATH_NAME)];
   const char* value = obfuscated;
   if (obfuscate) {

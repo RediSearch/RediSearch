@@ -432,6 +432,9 @@ void HybridIterator_Free(struct indexIterator *self) {
   if (it->returnedResults) {   // Iterator is in one of the hybrid modes.
     array_free_ex(it->returnedResults, IndexResult_Free(*(RSIndexResult **)ptr));
   }
+  if (it->scoreField) {
+    HiddenString_Free(it->scoreField);
+  }
   IndexResult_Free(it->base.current);
   VecSimQueryReply_Free(it->reply);
   VecSimQueryReply_IteratorFree(it->iter);
@@ -457,12 +460,12 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->indexMetric = hParams.spaceMetric;
   hi->query = hParams.query;
   hi->runtimeParams = hParams.qParams;
-  hi->scoreField = hParams.vectorScoreField;
   hi->base.isValid = 1;
   hi->reply = NULL;
   hi->iter = NULL;
   hi->topResults = NULL;
   hi->returnedResults = NULL;
+  hi->scoreField = NULL;
   hi->numIterations = 0;
   hi->canTrimDeepResults = hParams.canTrimDeepResults;
   hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = 0 };
@@ -497,6 +500,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
         hi->searchMode = VECSIM_HYBRID_BATCHES;
       }
     }
+    hi->scoreField = NewHiddenString(hParams.vectorScoreField, strlen(hParams.vectorScoreField), false);
     hi->topResults = mmh_init_with_size(hParams.query.k, cmpVecSimResByScore, NULL, (mmh_free_func)IndexResult_Free);
     hi->returnedResults = array_new(RSIndexResult *, hParams.query.k);
   }

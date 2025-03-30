@@ -10,7 +10,7 @@
 #include <sstream>
 #include <algorithm>
 
-static char *getLastAlias(const PLN_GroupStep *gstp) {
+static HiddenString *getLastAlias(const PLN_GroupStep *gstp) {
   return gstp->reducers[array_len(gstp->reducers) - 1].alias;
 }
 
@@ -19,6 +19,14 @@ static const char *stripAtPrefix(const char *s) {
     s++;
   }
   return s;
+}
+
+static const char* makeCString(const char* s) {
+  return s;
+}
+
+static const char* makeCString(HiddenString* hs) {
+  return HiddenString_GetUnsafe(hs, NULL);
 }
 
 struct ReducerDistCtx {
@@ -48,7 +56,7 @@ struct ReducerDistCtx {
     return args;
   }
 
-  bool add(PLN_GroupStep *gstp, const char *name, const char **alias, QueryError *status, ArgsCursor *cargs) {
+  bool basicAdd(PLN_GroupStep *gstp, const char *name, HiddenString **alias, QueryError *status, ArgsCursor *cargs) {
     if (PLNGroupStep_AddReducer(gstp, name, cargs, status) != REDISMODULE_OK) {
       return false;
     }
@@ -59,19 +67,20 @@ struct ReducerDistCtx {
   }
 
   template <typename... T>
-  bool add(PLN_GroupStep *gstp, const char *name, const char **alias, QueryError *status,
+  bool add(PLN_GroupStep *gstp, const char *name, HiddenString **alias, QueryError *status,
            T... uargs) {
-    ArgsCursorCXX args(uargs...);
+    ArgsCursorCXX args(makeCString(uargs)...);
     ArgsCursor *cargs = copyArgs(&args);
-    return add(gstp, name, alias, status, cargs);
+    return basicAdd(gstp, name, alias, status, cargs);
   }
 
   template <typename... T>
-  bool addLocal(const char *name, QueryError *status, T... uargs) {
-    return add(localGroup, name, NULL, status, uargs...);
+  bool addLocal(const char *name, QueryError *status, const char* first, T... uargs) {
+    return add(localGroup, name, NULL, status, first, uargs...);
   }
+
   template <typename... T>
-  bool addRemote(const char *name, const char **alias, QueryError *status, T... uargs) {
+  bool addRemote(const char *name, HiddenString **alias, QueryError *status, T... uargs) {
     ArgsCursorCXX args(uargs...);
     ArgsCursor tmp = args;
     // Check if the reducer already exists in the remote group. This may happen NOT AS SYNTAX ERROR if the client
@@ -83,7 +92,7 @@ struct ReducerDistCtx {
       return true;
     } else {
       ArgsCursor *cargs = copyArgs(&args);
-      return add(remoteGroup, name, alias, status, cargs);
+      return basicAdd(remoteGroup, name, alias, status, cargs);
     }
   }
 
@@ -99,8 +108,9 @@ reducerDistributionFunc getDistributionFunc(const char *key);
 static void distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep *step,
                                 PLN_DistributeStep *dstp, QueryError *status) {
   PLN_GroupStep *gr = (PLN_GroupStep *)step;
-  PLN_GroupStep *grLocal = PLNGroupStep_New(gr->properties, gr->nproperties);
-  PLN_GroupStep *grRemote = PLNGroupStep_New(gr->properties, gr->nproperties);
+  const size_t nproperties = array_len(gr->properties);
+  PLN_GroupStep *grLocal = PLNGroupStep_New(gr->properties, nproperties, false);
+  PLN_GroupStep *grRemote = PLNGroupStep_New(gr->properties, nproperties, false);
 
   size_t nreducers = array_len(gr->reducers);
   grLocal->reducers = array_new(PLN_Reducer, nreducers);
@@ -207,7 +217,7 @@ static int distributeCount(ReducerDistCtx *rdctx, QueryError *status) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Count accepts 0 values only");
     return REDISMODULE_ERR;
   }
-  const char *countAlias;
+  HiddenString *countAlias;
   if (!rdctx->addRemote("COUNT", &countAlias, status, "0")) {
     return REDISMODULE_ERR;
   }
@@ -224,7 +234,7 @@ static int distributeSingleArgSelf(ReducerDistCtx *rdctx, QueryError *status) {
   PLN_Reducer *src = rdctx->srcReducer;
   CHECK_ARG_COUNT(1);
 
-  const char *alias;
+  HiddenString *alias;
   if (!rdctx->addRemote(src->name, &alias, status, "1", rdctx->srcarg(0))) {
     return REDISMODULE_ERR;
   }
@@ -244,7 +254,7 @@ static int distributeSingleArgSelf(ReducerDistCtx *rdctx, QueryError *status) {
 static int distributeQuantile(ReducerDistCtx *rdctx, QueryError *status) {
   PLN_Reducer *src = rdctx->srcReducer;
   CHECK_ARG_COUNT(2);
-  const char *alias = NULL;
+  HiddenString *alias = NULL;
 
   if (!rdctx->addRemote("RANDOM_SAMPLE", &alias, status, "2", rdctx->srcarg(0),
                         RANDOM_SAMPLE_SIZE_STR)) {
@@ -261,7 +271,7 @@ static int distributeQuantile(ReducerDistCtx *rdctx, QueryError *status) {
 /* Distribute STDDEV into remote RANDOM_SAMPLE and local STDDEV */
 static int distributeStdDev(ReducerDistCtx *rdctx, QueryError *status) {
   PLN_Reducer *src = rdctx->srcReducer;
-  const char *alias = NULL;
+  HiddenString *alias = NULL;
   CHECK_ARG_COUNT(1);
   if (!rdctx->addRemote("RANDOM_SAMPLE", &alias, status, "2", rdctx->srcarg(0),
                         RANDOM_SAMPLE_SIZE_STR)) {
@@ -277,7 +287,7 @@ static int distributeStdDev(ReducerDistCtx *rdctx, QueryError *status) {
 static int distributeCountDistinctish(ReducerDistCtx *rdctx, QueryError *status) {
   PLN_Reducer *src = rdctx->srcReducer;
   CHECK_ARG_COUNT(1);
-  const char *alias;
+  HiddenString *alias;
   if (!rdctx->addRemote("HLL", &alias, status, "1", rdctx->srcarg(0))) {
     return REDISMODULE_ERR;
   }
@@ -293,34 +303,34 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   CHECK_ARG_COUNT(1);
 
   // COUNT to know how many results
-  const char *remoteCountAlias;
+  HiddenString *remoteCountAlias;
   if (!rdctx->addRemote("COUNT", &remoteCountAlias, status, "0")) {
     return REDISMODULE_ERR;
   }
 
-  const char *remoteSumAlias;
+  HiddenString *remoteSumAlias;
   if (!rdctx->addRemote("SUM", &remoteSumAlias, status, "1", rdctx->srcarg(0))) {
     return REDISMODULE_ERR;
   }
 
   // These are the two numbers, the sum and the count...
-  const char *localCountSumAlias;
-  const char *localSumSumAlias;
+  HiddenString *localCountSumAlias;
+  HiddenString *localSumSumAlias;
   if (!rdctx->add(local, "SUM", &localCountSumAlias, status, "1", remoteCountAlias)) {
     return REDISMODULE_ERR;
   }
-  array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
+  array_tail(rdctx->localGroup->reducers).hideReducer = 1; // Don't show this in the output
   if (!rdctx->add(local, "SUM", &localSumSumAlias, status, "1", remoteSumAlias)) {
     return REDISMODULE_ERR;
   }
-  array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
-  std::string ss = std::string("(@") + localSumSumAlias + "/@" + localCountSumAlias + ")";
-  HiddenString *expr = NewHiddenString(ss.c_str(), ss.length(), false);
-  PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);
-  HiddenString_Free(expr, false);
+  array_tail(rdctx->localGroup->reducers).hideReducer = 1; // Don't show this in the output
+  std::stringstream stream;
+  stream << "(@" << HiddenString_GetUnsafe(localSumSumAlias, NULL) << "/@" << HiddenString_GetUnsafe(localCountSumAlias, NULL) << ")";
+  std::string ss = stream.str();
+  PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(NewHiddenString(ss.c_str(), ss.length(), true), PLN_T_APPLY);
   applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't because reducers
                              // are not allowed to override aliases
-  applyStep->base.alias = rm_strdup(src->alias);
+  applyStep->base.alias = HiddenString_Retain(src->alias);
 
   RS_ASSERT(rdctx->currentLocal);
   AGPLN_AddAfter(rdctx->localPlan, rdctx->currentLocal, &applyStep->base);
@@ -416,7 +426,9 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
             const char **argv = (const char**)rm_malloc(sizeof(*argv) * filter_keys.rowlen);
             size_t argc = 0;
             for (RLookupKey *kk = filter_keys.head; kk != NULL; kk = kk->next) {
-              argv[argc++] = rm_strndup(kk->name, kk->name_len);
+              size_t nameLen = 0;
+              const char* unsafeName = HiddenString_GetUnsafe(kk->name, &nameLen);
+              argv[argc++] = rm_strndup(unsafeName, nameLen);
             }
             ArgsCursor_InitCString(&load->args, argv, argc);
             AGPLN_AddStep(remote, &load->base);
@@ -510,15 +522,16 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
         PLN_LoadStep *lstp = (PLN_LoadStep *)cur;
         for (size_t ii = 0; ii < AC_NumArgs(&lstp->args); ++ii) {
           const char *s = stripAtPrefix(AC_StringArg(&lstp->args, ii));
-          RLookup_GetKey(lookup, s, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+          HiddenString *prop = NewHiddenString(s, strlen(s), false);
+          RLookup_GetKey(lookup, prop, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+          HiddenString_Free(prop);
         }
         break;
       }
       case PLN_T_GROUP: {
         PLN_GroupStep *gstp = (PLN_GroupStep *)cur;
-        for (size_t ii = 0; ii < gstp->nproperties; ++ii) {
-          const char *propname = stripAtPrefix(gstp->properties[ii]);
-          RLookup_GetKey(lookup, propname, RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+        for (size_t ii = 0; ii < array_len(gstp->properties); ++ii) {
+          RLookup_GetKey(lookup, gstp->properties[ii], RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
         }
         for (size_t ii = 0; ii < array_len(gstp->reducers); ++ii) {
           PLN_Reducer *r = gstp->reducers + ii;
@@ -576,7 +589,9 @@ int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError
     rm_asprintf(&ldsze, "%lu", (unsigned long)loadFields.size());
     ser_args.push_back(ldsze);
     for (auto kk : loadFields) {
-      ser_args.push_back(rm_strndup(kk->name, kk->name_len));
+      size_t nameLen = 0;
+      const char *unsafeName = HiddenString_GetUnsafe(kk->name, &nameLen);
+      ser_args.push_back(rm_strndup(unsafeName, nameLen));
     }
   }
 

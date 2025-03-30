@@ -298,15 +298,6 @@ static int getNextReply(RPNet *nc) {
   return 1;
 }
 
-static const RLookupKey *keyForField(RPNet *nc, const char *s) {
-  for (const RLookupKey *kk = nc->lookup->head; kk; kk = kk->next) {
-    if (!strcmp(kk->name, s)) {
-      return kk;
-    }
-  }
-  return NULL;
-}
-
 void processResultFormat(uint32_t *flags, MRReply *map) {
   // Logic of which format to use is done by the shards
   MRReply *format = MRReply_MapElement(map, "format");

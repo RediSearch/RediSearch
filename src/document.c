@@ -45,9 +45,6 @@ static void freeDocumentContext(void *p) {
 
   rm_free(aCtx->fspecs);
   rm_free(aCtx->fdatas);
-  if (aCtx->specName) {
-    HiddenString_Free(aCtx->specName, true);
-  }
   rm_free(aCtx);
 }
 
@@ -82,8 +79,14 @@ static int AddDocumentCtx_SetDocument(RSAddDocumentCtx *aCtx, IndexSpec *sp) {
     DocumentField *f = doc->fields + i;
     const FieldSpec *fs = IndexSpec_GetField(sp, f->docFieldName);
     if (!fs || (isSpecHash(sp) && !f->text)) {
-      aCtx->fspecs[i].fieldName = NULL;
-      aCtx->fspecs[i].fieldPath = NULL;
+      if (aCtx->fspecs[i].fieldName) {
+        HiddenString_Free(aCtx->fspecs[i].fieldName);
+        aCtx->fspecs[i].fieldName = NULL;
+      }
+      if (aCtx->fspecs[i].fieldPath) {
+        HiddenString_Free(aCtx->fspecs[i].fieldPath);
+        aCtx->fspecs[i].fieldPath = NULL;
+      }
       aCtx->fspecs[i].types = 0;
       continue;
     }
@@ -181,11 +184,14 @@ RSAddDocumentCtx *NewAddDocumentCtx(IndexSpec *sp, Document *doc, QueryError *st
   aCtx->docFlags = 0;
   aCtx->sctx = NULL;
   aCtx->next = NULL;
+  if ((aCtx->specFlags & Index_Async) && aCtx->specName) {
+    aCtx->specName = NULL;
+  }
   aCtx->specFlags = sp->flags;
   aCtx->spec = sp;
   aCtx->oldMd = NULL;
   if (aCtx->specFlags & Index_Async) {
-    HiddenString_Clone(sp->specName, &aCtx->specName);
+    aCtx->specName = sp->specName; // we do not retain the spec name, we rely on spec being alive for the duration of the ctx.
   }
 
   // Assign the document:
@@ -658,8 +664,8 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       break;
     case FLD_VAR_T_BLOB_ARRAY:
     case FLD_VAR_T_NUM:
+    case FLD_VAR_T_GEOMETRY:
       RS_ABORT_ALWAYS("Unsupported field type for GEO index");
-      break;
   }
 
   const char *str = NULL;

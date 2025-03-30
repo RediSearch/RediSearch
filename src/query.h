@@ -28,7 +28,7 @@ extern "C" {
 
 // Holds a yieldable field name, and the address to write the RLookupKey pointer later.
 typedef struct MetricRequest{
-  const char *metric_name;
+  HiddenString *metric_name;
   RLookupKey **key_ptr;
 } MetricRequest;
 

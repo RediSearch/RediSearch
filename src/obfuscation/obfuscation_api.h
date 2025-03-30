@@ -18,16 +18,16 @@
 
 // Writes into buffer the obfuscated name of the index, based on the sha input.
 // Assumes buffer size is at least MAX_OBFUSCATED_INDEX_NAME
-void Obfuscate_Index(const Sha1 *sha, char *buffer);
+void Obfuscate_Index(const Sha1 *sha, char *buffer);// Writes into buffer the obfuscated name of the field, based on the field id.
+// Assumes buffer size is at least MAX_OBFUSCATED_FIELD_NAME
 
 // Writes into buffer the obfuscated name of the field, based on the field id.
 // Assumes buffer size is at least MAX_OBFUSCATED_FIELD_NAME
-void Obfuscate_Field(t_uniqueId fieldId, char *buffer);
-
+const char* Obfuscate_Field(t_uniqueId fieldId, char *buffer);// Writes into buffer the obfuscated name of the field path, based on the field id.
+// Assumes buffer size is at least MAX_OBFUSCATED_PATH_NAME
 // Writes into buffer the obfuscated name of the field path, based on the field id.
 // Assumes buffer size is at least MAX_OBFUSCATED_PATH_NAME
-void Obfuscate_FieldPath(t_uniqueId fieldId, char *buffer);
-
+const char* Obfuscate_FieldPath(t_uniqueId fieldId, char *buffer);
 // Writes into buffer the obfuscated name of the document, based on the doc id.
 // Assumes buffer size is at least MAX_OBFUSCATED_DOCUMENT_NAME
 void Obfuscate_Document(t_uniqueId docId, char *buffer);

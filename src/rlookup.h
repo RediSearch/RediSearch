@@ -14,6 +14,7 @@
 #include "value.h"
 #include "sortable.h"
 #include "util/arr.h"
+#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -72,9 +73,9 @@ typedef struct RLookupKey {
 
   /** Path and name of this field
    *  path AS name */
-  const char *path;
-  const char *name;
-  size_t name_len;
+  HiddenString *path;
+  HiddenString *name;
+  t_uniqueId uniqueId;
 
   /** Pointer to next field in the list */
   struct RLookupKey *next;
@@ -201,7 +202,7 @@ typedef enum {
 #define RLOOKUP_GET_KEY_FLAGS (RLOOKUP_F_NAMEALLOC | RLOOKUP_F_OVERRIDE | RLOOKUP_F_HIDDEN | RLOOKUP_F_EXPLICITRETURN | \
                                RLOOKUP_F_FORCE_LOAD)
 // Flags do not persist to the key, they are just options to GetKey()
-#define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)
+#define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD | RLOOKUP_F_NAMEALLOC)
 
 /**
  * Get a RLookup key for a given name. The behavior of this function depends on
@@ -213,15 +214,19 @@ typedef enum {
  *
  * 2. On WRITE mode, a key is created and returned only if it's NOT in the lookup table, unless the override flag is set.
  */
-RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, RLookupMode mode, uint32_t flags);
-RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t name_len, RLookupMode mode, uint32_t flags);
+RLookupKey *RLookup_GetKey(RLookup *lookup, HiddenString *name, RLookupMode mode, uint32_t flags);
+
  /**
  * 3. On LOAD mode, a key is created and returned only if it's NOT in the lookup table (unless the override flag is set),
  *    and it is not already loaded. It will override an existing key if it was created for read out of a sortable field,
  *    and the field was normalized. A sortable un-normalized field counts as loaded.
  */
-RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name, uint32_t flags);
-RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len, const char *field_name, uint32_t flags);
+RLookupKey *RLookup_GetKey_Load(RLookup *lookup, HiddenString *name, HiddenString *field_name, uint32_t flags);
+/**
+* Searches for an existing key in the lookup table. If the key is not found, it will be created.
+* If it is found we will verify that it isn't used by the query and that the name can be used
+*/
+RLookupKey *RLookup_GetKey_FirstLoad(RLookup *lookup, HiddenString *name, HiddenString *field_name, uint32_t flags);
 
 /**
  * Get the amount of visible fields is the RLookup
@@ -396,7 +401,7 @@ int jsonIterToValue(RedisModuleCtx *ctx, JSONResultsIterator iter, unsigned int 
 /**
  * Search an index field by its name in the lookup table spec cache.
  */
-const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name);
+const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const HiddenString* name);
 
 #ifdef __cplusplus
 }

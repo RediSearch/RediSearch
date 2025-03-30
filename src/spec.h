@@ -283,7 +283,7 @@ typedef struct {
 typedef struct InvertedIndex InvertedIndex;
 
 typedef struct IndexSpec {
-  const HiddenString *specName;         // Index private name
+  const HiddenString *specName;   // Index private name
   char *obfuscatedName;           // Index hashed name
   FieldSpec *fields;              // Fields in the index schema
   int16_t numFields;              // Number of fields

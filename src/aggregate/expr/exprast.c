@@ -7,6 +7,7 @@
 #include "exprast.h"
 #include <ctype.h>
 #include "obfuscation/obfuscation_api.h"
+#include "obfuscation/format.h"
 
 #define arglist_sizeof(l) (sizeof(RSArgList) + ((l) * sizeof(RSExpr *)))
 
@@ -104,7 +105,7 @@ RSExpr *RS_NewFunc(RSFunctionInfo *cb, RSArgList *args) {
 
 RSExpr *RS_NewProp(const char *str, size_t len) {
   RSExpr *e = newExpr(RSExpr_Property);
-  e->property.key = rm_strndup(str, len);
+  e->property.key = NewHiddenString(str, len, true);
   e->property.lookupObj = NULL;
   return e;
 }
@@ -141,7 +142,7 @@ void RSExpr_Free(RSExpr *e) {
       RSExpr_Free(e->pred.right);
       break;
     case RSExpr_Property:
-      rm_free((char *)e->property.key);
+      HiddenString_Free(e->property.key);
       break;
     case RSExpr_Inverted:
       RSExpr_Free(e->inverted.child);
@@ -150,11 +151,11 @@ void RSExpr_Free(RSExpr *e) {
 }
 
 // Extract all field names from an RSExpr tree recursively
-void RSExpr_GetProperties(RSExpr *e, char ***props) {
+void RSExpr_GetProperties(RSExpr *e, HiddenString ***props) {
   if (!e) return;
   switch (e->t) {
     case RSExpr_Property:
-      array_append(*props, rm_strdup(e->property.key));
+      array_append(*props, HiddenString_Retain(e->property.key));
       break;
     case RSExpr_Literal:
       break;
@@ -209,10 +210,13 @@ sds RSExpr_DumpSds(const RSExpr *e, sds s, bool obfuscate) {
       s = sdscat(s, ")");
       break;
     case RSExpr_Property:
-      if (obfuscate) {
-        s = sdscatfmt(s, "@%s", Obfuscate_Text(e->property.key));
-      } else {
-        s = sdscatfmt(s, "@%s", e->property.key);
+      {
+        const char *property = HiddenString_GetUnsafe(e->property.key, NULL);
+        if (obfuscate) {
+          s = sdscatfmt(s, "@%s", Obfuscate_Text(property));
+        } else {
+          s = sdscatfmt(s, "@%s", property);
+        }
       }
       break;
     case RSExpr_Inverted:
@@ -239,9 +243,9 @@ RSExpr *ExprAST_Parse(const HiddenString* expr, QueryError *status) {
   char *errtmp = NULL;
   RS_LOG_ASSERT(!QueryError_HasError(status), "Query has error")
 
-  size_t len;
-  const char* raw = HiddenString_GetUnsafe(expr, &len);
-  RSExpr *ret = RSExpr_Parse(raw, len, &errtmp);
+  size_t length = 0;
+  const char* raw = HiddenString_GetUnsafe(expr, &length);
+  RSExpr *ret = RSExpr_Parse(raw, length, &errtmp);
   if (!ret) {
     QueryError_SetError(status, QUERY_EEXPR, errtmp);
   }
