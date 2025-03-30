@@ -41,23 +41,24 @@ declare -A common_dependencies=(
 
 # Define OS-specific dependencies
 declare -A ubuntu_dependencies=(
-  ["libssl-dev"]="package" # Verify using dpkg -l
+  ["libssl-dev"]="package"
 )
 
 declare -A rocky_dependencies=(
-  ["openssl-devel"]="package" # Verify using rpm -q
+  ["openssl-devel"]="package"
 )
 
 declare -A amzn2_dependencies=(
-  ["openssl11-devel"]="package" # Amazon Linux 2 uses openssl11-devel
+  ["openssl11-devel"]="package"
 )
 
 declare -A amzn2023_dependencies=(
-  ["openssl-devel"]="package" # Amazon Linux 2023 uses openssl-devel (same as Rocky)
+  ["openssl-devel"]="package"
 )
 
 declare -A alpine_dependencies=(
-  ["openssl-devel"]="package" # Amazon Linux 2023 uses openssl-devel (same as Rocky)
+  ["openssl-devel"]="package"
+  ["bsd-compat-headers"]="package"
 )
 
 # Merge common and OS-specific dependencies
