@@ -97,7 +97,7 @@ fi
 
 # Define installation scripts for specific dependencies
 declare -A install_scripts=(
-  ["cargo"]="./install/install_rust.sh"
+  ["cargo"]=".install/install_rust.sh"
   # Add more installation scripts as needed
 )
 
