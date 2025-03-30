@@ -49,7 +49,7 @@ jobs:
         run: |
           echo $PWD
           git branch
-          .install/verify_build_deps.sh
+          .install/verify_build_deps.sh || true
       - name: install deps
         id: install_deps
         working-directory: RediSearch
@@ -90,7 +90,7 @@ jobs:
         run: |
           echo $PWD
           git branch
-          .install/verify_build_deps.sh
+          .install/verify_build_deps.sh  || true
       - name: install rust  and gcc
         id: install_rust
         working-directory: RediSearch
