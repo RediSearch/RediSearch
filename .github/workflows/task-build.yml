@@ -70,7 +70,7 @@ jobs:
                 fi
                 ;;
               mariner)
-                tdnf install -y make python3 cmake openssl-devel binutils kernel-headers
+                tdnf install -y make python3 cmake openssl-devel binutils kernel-headers glibc-devel
                 ;;
               alpine)
                 apk add --no-cache make python3 cmake openssl-dev curl
