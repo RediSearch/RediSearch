@@ -1388,10 +1388,10 @@ static ResultProcessor *getArrangeRP(AREQ *req, AGGPlan *pln, const PLN_BaseStep
   }
 
   if (astp->offset || (astp->limit && !rp)) {
-    rp = RPPager_New(astp->offset, astp->limit, &req->qiter);
+    rp = RPPager_New(astp->offset, astp->limit);
     up = pushRP(req, rp, up);
   } else if (IsSearch(req) && IsOptimized(req) && !rp) {
-    rp = RPPager_New(0, maxResults, &req->qiter);
+    rp = RPPager_New(0, maxResults);
     up = pushRP(req, rp, up);
   }
 
