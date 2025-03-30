@@ -70,7 +70,7 @@ jobs:
                 fi
                 ;;
               alpine)
-                apk add --no-cache make python3 cmake openssl
+                apk add --no-cache make python3 cmake openssl curl
                 ;;
               *)
                 echo "Unsupported operating system: $ID"
@@ -106,6 +106,10 @@ jobs:
               ;;
             amazonlinux:20*)
               dnf install -y gcc g++
+              gcc_ver=""
+              ;;
+            alpine*)
+              apk --no-cache add gcc g++
               gcc_ver=""
               ;;
             rocky*)
