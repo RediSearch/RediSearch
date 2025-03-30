@@ -115,6 +115,8 @@ def test_delete_docs_during_bg_indexing(env):
   n_docs = 10000
   for i in range(n_docs):
     env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
+  # Set delta to 100
+  delta = n_docs//100
 
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
   env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
@@ -122,31 +124,50 @@ def test_delete_docs_during_bg_indexing(env):
 
   # Set pause after half of the docs were scanned
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', n_docs//2).ok()
-  # Create an index with a text field.
-  env.expect('ft.create', 'idx', 'SCHEMA', 't', 'text').ok()
-  waitForIndexPauseScan(env, 'idx')
-  # Set tight memory limit
-  set_tight_maxmemory_for_oom(env)
-  # Delete the 1000 first docs
-  for i in range(n_docs//10):
-    env.expect('DEL', f'doc{i}').equal(1)
-  forceInvokeGC(env)
-  # Resume indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-  waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
-  # Resume the indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-  # Wait for the indexing to finish
-  waitForIndexFinishScan(env, 'idx')
-  # Verify OOM status
-  info = index_info(env)
-  error_dict = to_dict(info["Index Errors"])
-  bgIndexingStatusStr = "background indexing status"
-  OOMfailureStr = "OOM failure"
-  env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
-  # Verify that close to n_docs//2 docs were indexed
-  docs_in_index = info['num_docs']
-  env.assertAlmostEqual(docs_in_index, n_docs//2, delta=100)
+
+  # Check 2 scenarios:
+  # 1. Delete docs before resuming indexing (idx1)
+  # 2. Delete docs after resuming indexing (idx2)
+  # Either way, the indexing should be paused on OOM
+  # and the number of indexed docs should be close to n_docs//2
+  for idx_str in ['idx1', 'idx2']:
+    # Create an index with a text field.
+    env.expect('ft.create', idx_str, 'SCHEMA', 't', 'text').ok()
+    waitForIndexPauseScan(env, idx_str)
+    # Set tight memory limit
+    set_tight_maxmemory_for_oom(env)
+    # Delete the 1000 first docs
+    if idx_str == 'idx2':
+      env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    for i in range(n_docs//10):
+      env.expect('DEL', f'doc{i}').equal(1)
+    forceInvokeGC(env, idx = idx_str)
+    # Resume indexing
+    if idx_str == 'idx1':
+      env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    waitForIndexStatus(env, 'PAUSED_ON_OOM', idx_str)
+    # Resume the indexing
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    # Wait for the indexing to finish
+    waitForIndexFinishScan(env, idx_str)
+    # Verify OOM status
+    info = index_info(env,idx = idx_str)
+    error_dict = to_dict(info["Index Errors"])
+    bgIndexingStatusStr = "background indexing status"
+    OOMfailureStr = "OOM failure"
+    env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
+    # Verify that close to n_docs//2 docs were indexed
+    docs_in_index = info['num_docs']
+    env.assertAlmostEqual(docs_in_index, n_docs//2, delta=delta)
+
+    # prepare next iteration
+    # remove OOM limit
+    set_loose_maxmemory_for_oom(env)
+    # restore deleted docs
+    for i in range(n_docs//10):
+      env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
+    # Increase delta to 1000 because we are not sure how many docs were deleted
+    delta = n_docs//10
 
 @skip(cluster=True)
 def test_change_config_during_bg_indexing(env):

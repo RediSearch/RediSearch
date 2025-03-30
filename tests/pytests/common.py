@@ -855,6 +855,12 @@ def set_tight_maxmemory_for_oom(env, memory_limit_per = 0.8):
     # Set memory limit to less then memory limit
     env.expect('config', 'set', 'maxmemory', int(memory_usage*(1/(memory_limit_per-0.01)))).ok()
 
+def set_loose_maxmemory_for_oom(env, coef = 10):
+    # Get current memory consumption value
+    memory_usage = env.cmd('INFO', 'MEMORY')['used_memory']
+    # Set memory limit to less then memory limit
+    env.expect('config', 'set', 'maxmemory', coef*memory_usage).ok()
+
 def waitForIndexStatus(env, status, idx='idx'):
     while getDebugScannerStatus(env, idx) != status:
         time.sleep(0.1)
