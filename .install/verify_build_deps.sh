@@ -61,6 +61,10 @@ declare -A alpine_dependencies=(
   ["bsd-compat-headers"]="package"
 )
 
+declare -A mariner_dependencies=(
+  ["openssl-devel"]="package"
+)
+
 # Merge common and OS-specific dependencies
 declare -A dependencies
 
@@ -89,6 +93,10 @@ elif [[ "$OS" == "amzn2023" ]]; then
 elif [[ "$OS" == "alpine" ]]; then
   for key in "${!alpine_dependencies[@]}"; do
     dependencies["$key"]="${alpine_dependencies[$key]}"
+  done
+elif [[ "$OS" == "mariner" ]]; then
+  for key in "${!mariner_dependencies[@]}"; do
+    dependencies["$key"]="${mariner_dependencies[$key]}"
   done
 else
   echo -e "${RED}Unsupported operating system.${NC}"
