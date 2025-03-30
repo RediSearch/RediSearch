@@ -43,10 +43,10 @@ declare -A os_package_checkers=(
   ["debian"]="check_package_dpkg"
   ["rocky"]="check_package_rpm"
   ["amzn2"]="check_package_yum"
-  ["amzn2023"]="check_package_dnf"
+  # ["amzn2023"]="check_package_dnf"
   ["alpine"]="check_package_apk"
   ["mariner"]="check_package_tdnf"
-  # ["azurelinux"]="check_package_tdnf"
+  ["azurelinux"]="check_package_tdnf"
 )
 
 # Early bailout if the OS is not supported
