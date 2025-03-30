@@ -87,8 +87,8 @@ elif [[ "$OS" == "amzn2023" ]]; then
     dependencies["$key"]="${amzn2023_dependencies[$key]}"
   done
 elif [[ "$OS" == "alpine" ]]; then
-  for key in "${!apline_dependencies[@]}"; do
-    dependencies["$key"]="${apline_dependencies[$key]}"
+  for key in "${!alpine_dependencies[@]}"; do
+    dependencies["$key"]="${alpine_dependencies[$key]}"
   done
 else
   echo -e "${RED}Unsupported operating system.${NC}"
