@@ -70,7 +70,7 @@ jobs:
                 fi
                 ;;
               alpine)
-                apk add --no-cache make python3 cmake openssl curl
+                apk add --no-cache make python3 cmake openssl-dev curl
                 ;;
               *)
                 echo "Unsupported operating system: $ID"
