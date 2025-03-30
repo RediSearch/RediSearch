@@ -1,8 +1,9 @@
 #!/bin/bash
+set -e
 cd .install
-./install_script.sh
+source ./install_script.sh
 cd ../
-./.install/test_deps/common_installations.sh
+source ./.install/test_deps/common_installations.sh
 cd ../
 git clone https://github.com/Redis/Redis.git
 cd Redis
