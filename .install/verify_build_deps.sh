@@ -8,6 +8,10 @@ BLUE='\033[0;34m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
+# ============================================
+# OS Detection
+# ============================================
+
 # Function to detect the operating system
 detect_os() {
   if [ -f /etc/os-release ]; then
@@ -28,6 +32,68 @@ detect_os() {
 
 # Detect the OS
 OS=$(detect_os)
+
+# ============================================
+# Package Checker Functions
+# ============================================
+
+# This also serves as the list of supported OSes
+declare -A os_package_checkers=(
+  ["ubuntu"]="check_package_dpkg"
+  ["debian"]="check_package_dpkg"
+  ["rocky"]="check_package_rpm"
+  ["amzn2"]="check_package_yum"
+  ["amzn2023"]="check_package_dnf"
+  ["alpine"]="check_package_apk"
+  ["mariner"]="check_package_tdnf"
+  # ["azurelinux"]="check_package_tdnf"
+)
+
+# Early bailout if the OS is not supported
+if [[ -z "${os_package_checkers[$OS]}" ]]; then
+  echo -e "${YELLOW}Error: Unsupported operating system: $OS.${NC}"
+  echo -e "${YELLOW}Abort dependency check.${NC}"
+  exit 1
+fi
+
+# Function to check if a command is available
+check_command() {
+  command -v "$1" &> /dev/null
+}
+
+# ubuntu and debian
+check_package_dpkg() {
+  dpkg -l | grep -q " $1 " || dpkg -l | grep -q " $1:"
+}
+
+# rhel
+check_package_rpm() {
+  rpm -q "$1" &> /dev/null
+}
+
+# amzn2
+check_package_yum() {
+  yum list installed "$1" &> /dev/null
+}
+
+# amzn2023
+check_package_dnf() {
+  dnf list installed "$1" &> /dev/null
+}
+
+# alpine
+check_package_apk() {
+  apk info -e "$1" &> /dev/null
+}
+
+# mariner and azure linux
+check_package_tdnf() {
+  tdnf list installed "$1" &> /dev/null
+}
+
+# ============================================
+# OS-Specific Dependencies
+# ============================================
 
 # Define common dependencies
 declare -A common_dependencies=(
@@ -68,51 +134,9 @@ declare -A microsoft_dependencies=(
   ["kernel-headers"]="package"
 )
 
-declare -A os_package_checkers=(
-  ["ubuntu"]="check_package_dpkg"
-  ["debian"]="check_package_dpkg"
-  ["rocky"]="check_package_rpm"
-  ["amzn2"]="check_package_yum"
-  ["amzn2023"]="check_package_dnf"
-  ["alpine"]="check_package_apk"
-  ["mariner"]="check_package_tdnf"
-  # ["azurelinux"]="check_package_tdnf"
-)
-
-# Function to check if a command is available
-check_command() {
-  command -v "$1" &> /dev/null
-}
-
-# ubuntu and debian
-check_package_dpkg() {
-  dpkg -l | grep -q " $1 " || dpkg -l | grep -q " $1:"
-}
-
-# rhel
-check_package_rpm() {
-  rpm -q "$1" &> /dev/null
-}
-
-# amzn2
-check_package_yum() {
-  yum list installed "$1" &> /dev/null
-}
-
-# amzn2023
-check_package_dnf() {
-  dnf list installed "$1" &> /dev/null
-}
-
-# alpine
-check_package_apk() {
-  apk info -e "$1" &> /dev/null
-}
-
-# mariner and azure linux
-check_package_tdnf() {
-  tdnf list installed "$1" &> /dev/null
-}
+# ============================================
+# Merge Dependencies
+# ============================================
 
 # Merge common and OS-specific dependencies
 declare -A dependencies
@@ -148,15 +172,22 @@ elif [[ "$OS" == "mariner" || "$OS" == "azurelinux" ]]; then
     dependencies["$key"]="${microsoft_dependencies[$key]}"
   done
 else
-  echo -e "${RED}Unsupported operating system.${NC}"
-  exit 1
+  echo -e "${YELLOW}Warning: OS '$OS' does not have special dependencies.${NC}"
 fi
+
+# ============================================
+# Installation Scripts
+# ============================================
 
 # Define installation scripts for specific dependencies
 declare -A install_scripts=(
   ["cargo"]=".install/install_rust.sh"
   # Add more installation scripts as needed
 )
+
+# ============================================
+# Dependency Verification
+# ============================================
 
 # Print header
 echo -e "\n===== Build Dependencies Checker =====\n"
@@ -207,6 +238,10 @@ for dep in "${!dependencies[@]}"; do
     fi
   fi
 done
+
+# ============================================
+# Missing Dependencies Handling
+# ============================================
 
 # Print installation instructions if there are missing dependencies
 if [ ${#missing_deps_with_scripts[@]} -gt 0 ] || [ ${#missing_deps_apt[@]} -gt 0 ]; then
