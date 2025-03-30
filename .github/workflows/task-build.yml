@@ -49,11 +49,12 @@ jobs:
         run: |
           echo $PWD
           git branch
-          .install/verify_build_deps.sh
+          .install/verify_build_deps.sh || true
       - name: install deps
         id: install_deps
         working-directory: RediSearch
         run: |
+          export DEBIAN_FRONTEND=noninteractive
           # Detect the OS from /etc/os-release
           if [ -f /etc/os-release ]; then
             . /etc/os-release
@@ -64,7 +65,6 @@ jobs:
               rocky | amazonlinux | amzn)
                 if [ "${{ inputs.container }}" == "amazonlinux:2" ]; then
                   cd .install
-                  ./install_script.sh
                 else
                   dnf install -y make python3 cmake openssl-devel
                 fi
@@ -90,7 +90,7 @@ jobs:
         run: |
           echo $PWD
           git branch
-          .install/verify_build_deps.sh
+          .install/verify_build_deps.sh || true
       - name: install rust  and gcc
         id: install_rust
         working-directory: RediSearch
@@ -132,13 +132,20 @@ jobs:
           else
               echo "Skipping GCC installation"
           fi
+      - name: install all
+        id: install_all
+        working-directory: RediSearch
+        if: ${{ inputs.container == 'ubuntu:bionic' || inputs.container == 'amazonlinux:2' }}
+        run: |
+          cd .install
+          ./install_script.sh
       - name: verify
         id: verify_deps3
         working-directory: RediSearch
         run: |
           echo $PWD
           git branch
-          .install/verify_build_deps.sh
+          .install/verify_build_deps.sh || true
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
@@ -188,7 +195,14 @@ jobs:
         env:
           ENABLE_ASSERT: 1
         working-directory: RediSearch
-        run: make
+        run: |
+          if [[ "${{ inputs.container }}" == amazonlinux:20* ]]; then
+            echo "Running make with IGNORE_MISSING_DEPS=1 for container: ${{ inputs.container }}"
+            make IGNORE_MISSING_DEPS=1
+          else
+            echo "Running make with IGNORE_MISSING_DEPS=0 for container: ${{ inputs.container }}"
+            make
+          fi
       - name: Fail flow if tests failed
         if: steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
         run: |

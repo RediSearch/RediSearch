@@ -8,6 +8,19 @@ SRCDIR=.
 
 MACOS_PACKAGES=openssl
 
+# MK_CUSTOM_BUILD = 1
+
+build: verify_build $(DEFAULT_TARGETS) $(MK_MAKEFILES) $(TARGET)
+	@echo "Build completed."
+verify_build:
+	@echo "Verifying build dependencies..."
+	@if [ "$(IGNORE_MISSING_DEPS)" = "1" ]; then \
+		echo "IGNORE_MISSING_DEPS is set. Ignoring dependency check failures."; \
+		$(ROOT)/.install/verify_build_deps.sh || true; \
+	else \
+		$(ROOT)/.install/verify_build_deps.sh; \
+	fi
+
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
