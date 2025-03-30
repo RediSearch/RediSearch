@@ -248,7 +248,7 @@ protected:
   }
 
   void TearDown() override {
-    IndexSpec_RemoveFromGlobals({index});
+    IndexSpec_RemoveFromGlobals({index}, false);
   }
 };
 
