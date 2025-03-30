@@ -109,7 +109,7 @@ jobs:
               gcc_ver=""
               ;;
             alpine*)
-              apk --no-cache add gcc g++
+              apk --no-cache add gcc g++ bsd-compat-headers
               gcc_ver=""
               ;;
             rocky*)
