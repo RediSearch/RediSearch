@@ -65,6 +65,7 @@ declare -A mariner_dependencies=(
   ["openssl-devel"]="package"
   ["binutils"]="package"
   ["glibc-devel"]="package"
+  ["kernel-headers"]="package"
 )
 
 # Merge common and OS-specific dependencies

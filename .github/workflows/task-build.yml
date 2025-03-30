@@ -61,12 +61,16 @@ jobs:
               ubuntu | debian)
                 apt update && apt install -y curl make python3 cmake libssl-dev
                 ;;
-              rocky | amazonlinux | mariner | amzn)
+              rocky | amazonlinux | amzn)
                 if [ "${{ inputs.container }}" == "amazonlinux:2" ]; then
                   cd .install
                   ./install_script.sh
                 else
                   dnf install -y make python3 cmake openssl-devel
+                fi
+                ;;
+              mariner)
+                tdnf install -y make python3 cmake openssl-devel binutils kernel-headers
                 fi
                 ;;
               alpine)
