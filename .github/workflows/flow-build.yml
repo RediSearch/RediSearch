@@ -81,7 +81,7 @@ jobs:
         OS: ${{ fromJson(needs.get-required-envs.outputs.platforms_arm) }}
         include: ${{ fromJson(needs.get-required-envs.outputs.include_arm) }}
       fail-fast: ${{ inputs.fail-fast }}
-    uses:  ./.github/workflows/task-test.yml
+    uses:  ./.github/workflows/task-build.yml
     secrets: inherit
     with:
       env: ${{ vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' }}
