@@ -685,15 +685,6 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
 char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
-/**
- * @brief Sets an error message in the index spec
- *
- * @param sp spec
- * @param error error message
- * @param key the key that caused the error
- */
-void IndexSpec_SetIndexErrorMessage(IndexSpec *sp, const char *error, bool withUserData, RedisModuleString *key);
-
 //---------------------------------------------------------------------------------------------
 
 void Indexes_Init(RedisModuleCtx *ctx);

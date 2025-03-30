@@ -452,14 +452,6 @@ static bool checkIfSpecExists(const char *rawSpecName) {
   return found;
 }
 
-void IndexSpec_SetIndexErrorMessage(IndexSpec *sp, const char *error, bool withUserData, RedisModuleString *key) {
-  RS_ASSERT(sp);
-  RS_ASSERT(error);
-  const char* error_withUserData = withUserData ? error : NULL;
-  const char* error_withoutUserData = withUserData ? NULL : error;
-  IndexError_AddError(&sp->stats.indexError, error_withoutUserData, error_withUserData, key);
-}
-
 //---------------------------------------------------------------------------------------------
 
 /* Create a new index spec from a redis command */
@@ -2218,8 +2210,8 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
       IndexSpec *sp = StrongRef_Get(curr_run_ref);
       if (sp) {
         sp->scan_failed_OOM = true;  // Assuming there is no other reason that the scanner is canceled *and* the index exists
-        // Error message does not contain user data, so passing false to SetIndexErrorMessage
-        IndexSpec_SetIndexErrorMessage(sp, error, false, keyname);
+        // Error message does not contain user data
+        IndexError_AddError(&sp->stats.indexError, NULL, error, keyname);
         IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
         StrongRef_Release(curr_run_ref);
       } else {
