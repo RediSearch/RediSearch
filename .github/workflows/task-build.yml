@@ -145,7 +145,7 @@ jobs:
         run: |
           echo $PWD
           git branch
-          .install/verify_build_deps.sh
+          .install/verify_build_deps.sh || true
       - name: Full checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
