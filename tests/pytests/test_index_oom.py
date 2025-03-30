@@ -220,6 +220,12 @@ def test_oom_query_error(env):
     env.expect(parsed_query).error().equal(f'{idx_name}: '
     'Index background scan failed due to OOM. Queries cannot be executed on an incomplete index.')
 
+  # Test FT.DEBUG FT.SEARCH/AGGREGATE command
+  for query_type in ['SEARCH', 'AGGREGATE']:
+    parsed_query = f'_FT.DEBUG FT.{query_type} {idx_name} * TIMEOUT_AFTER_N 3 DEBUG_PARAMS_COUNT 2 '
+    env.expect(parsed_query).error().equal(f'{idx_name}: '
+    'Index background scan failed due to OOM. Queries cannot be executed on an incomplete index.')
+
   # Verify ft info possible
   env.expect('FT.INFO', idx_name).noError()
   # Verify ft dropindex possible
