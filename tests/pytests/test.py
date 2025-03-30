@@ -4377,7 +4377,7 @@ def test_with_tls_and_non_tls_ports():
     # Upon setting `tls-cluster` to `no`, we should still be able to succeed
     # connecting the coordinator to the shards, just not in TLS mode.
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
-
+    time.sleep(2)
     common_with_auth(env)
 
 @skip(asan=True, cluster=False)
