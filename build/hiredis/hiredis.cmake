@@ -1,5 +1,5 @@
 
-set(BUILD_SHARED_LIBS OFF)
+option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 set(ENABLE_SSL ON CACHE BOOL "Build hiredis with ssl")
 option(DISABLE_TESTS "If tests should be compiled or not" ON)
 
