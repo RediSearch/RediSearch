@@ -61,12 +61,58 @@ declare -A alpine_dependencies=(
   ["bsd-compat-headers"]="package"
 )
 
-declare -A mariner_dependencies=(
+declare -A microsoft_dependencies=(
   ["openssl-devel"]="package"
   ["binutils"]="package"
   ["glibc-devel"]="package"
   ["kernel-headers"]="package"
 )
+
+declare -A os_package_checkers=(
+  ["ubuntu"]="check_package_dpkg"
+  ["debian"]="check_package_dpkg"
+  ["rocky"]="check_package_rpm"
+  ["amzn2"]="check_package_yum"
+  ["amzn2023"]="check_package_dnf"
+  ["alpine"]="check_package_apk"
+  ["mariner"]="check_package_tdnf"
+  # ["azurelinux"]="check_package_tdnf"
+)
+
+# Function to check if a command is available
+check_command() {
+  command -v "$1" &> /dev/null
+}
+
+# ubuntu and debian
+check_package_dpkg() {
+  dpkg -l | grep -q " $1 " || dpkg -l | grep -q " $1:"
+}
+
+# rhel
+check_package_rpm() {
+  rpm -q "$1" &> /dev/null
+}
+
+# amzn2
+check_package_yum() {
+  yum list installed "$1" &> /dev/null
+}
+
+# amzn2023
+check_package_dnf() {
+  dnf list installed "$1" &> /dev/null
+}
+
+# alpine
+check_package_apk() {
+  apk info -e "$1" &> /dev/null
+}
+
+# mariner and azure linux
+check_package_tdnf() {
+  tdnf list installed "$1" &> /dev/null
+}
 
 # Merge common and OS-specific dependencies
 declare -A dependencies
@@ -97,9 +143,9 @@ elif [[ "$OS" == "alpine" ]]; then
   for key in "${!alpine_dependencies[@]}"; do
     dependencies["$key"]="${alpine_dependencies[$key]}"
   done
-elif [[ "$OS" == "mariner" ]]; then
-  for key in "${!mariner_dependencies[@]}"; do
-    dependencies["$key"]="${mariner_dependencies[$key]}"
+elif [[ "$OS" == "mariner" || "$OS" == "azurelinux" ]]; then
+  for key in "${!microsoft_dependencies[@]}"; do
+    dependencies["$key"]="${microsoft_dependencies[$key]}"
   done
 else
   echo -e "${RED}Unsupported operating system.${NC}"
@@ -114,35 +160,6 @@ declare -A install_scripts=(
 
 # Print header
 echo -e "\n===== Build Dependencies Checker =====\n"
-
-# Function to check if a command is available
-check_command() {
-  command -v "$1" &> /dev/null
-}
-
-# Function to check if a package is installed (Ubuntu/Debian)
-check_package_deb() {
-  dpkg -l | grep -q " $1 " || dpkg -l | grep -q " $1:"
-}
-
-# Function to check if a package is installed (Rocky/RHEL or Amazon Linux)
-check_package_rhel() {
-  if [[ "$OS" == "amzn2" ]]; then
-    yum list installed "$1" &> /dev/null
-  elif [[ "$OS" == "amzn2023" ]]; then
-    dnf list installed "$1" &> /dev/null
-  else
-    rpm -q "$1" &> /dev/null
-  fi
-}
-
-check_package_alpine() {
-  apk info -e "$1" &> /dev/null
-}
-
-check_package_mariner() {
-  tdnf list installed "$1" &> /dev/null
-}
 
 # Function to check if running in a Docker container
 is_docker() {
@@ -163,13 +180,17 @@ for dep in "${!dependencies[@]}"; do
   if [[ "$verify_method" == "command" ]] && check_command "$dep"; then
     echo -e "${GREEN}✓${NC}"
   elif [[ "$verify_method" == "package" ]]; then
-    if [[ "$OS" == "ubuntu" || "$OS" == "debian" ]] && check_package_deb "$dep"; then
-      echo -e "${GREEN}✓${NC}"
-    elif [[ "$OS" == "rocky" || "$OS" == "amzn2" || "$OS" == "amzn2023" ]] && check_package_rhel "$dep"; then
-      echo -e "${GREEN}✓${NC}"
-    elif [[ "$OS" == "alpine" ]] && check_package_alpine "$dep"; then
-      echo -e "${GREEN}✓${NC}"
-    elif [[ "$OS" == "mariner" ]] && check_package_mariner "$dep"; then
+    # Lookup the package checker for the current OS
+    package_checker=${os_package_checkers["$OS"]}
+
+    # Ensure the package checker is defined
+    if [[ -z "$package_checker" ]]; then
+      echo -e "${RED}Error: No package checker defined for OS '$OS'.${NC}"
+      exit 1
+    fi
+
+    # Call the package checker dynamically
+    if $package_checker "$dep"; then
       echo -e "${GREEN}✓${NC}"
     else
       echo -e "${RED}✗${NC}"
