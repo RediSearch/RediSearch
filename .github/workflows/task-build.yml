@@ -101,7 +101,7 @@ jobs:
               gcc_ver=12
               ;;
             ubuntu:focal | ubuntu:bionic)
-              gcc_ver=10
+              gcc_ver=""
               ;;
             debian:* | ubuntu:*)
               apt install -y gcc g++
@@ -135,7 +135,7 @@ jobs:
       - name: install all
         id: install_all
         working-directory: RediSearch
-        if: ${{ inputs.container == 'ubuntu:bionic' || inputs.container == 'amazonlinux:2' }}
+        if: ${{ inputs.container == 'ubuntu:bionic' || inputs.container == 'amazonlinux:2'|| inputs.container == 'ubuntu:focal' }}
         run: |
           cd .install
           ./install_script.sh
