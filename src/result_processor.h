@@ -225,7 +225,7 @@ ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys
 
 ResultProcessor *RPSorter_NewByScore(size_t maxresults);
 
-ResultProcessor *RPPager_New(size_t offset, size_t limit);
+ResultProcessor *RPPager_New(size_t offset, size_t limit, QueryIterator *qiter);
 
 /*******************************************************************************************************************
  *  Loading Processor

@@ -582,10 +582,6 @@ static int rppagerNext_Limit(ResultProcessor *base, SearchResult *r) {
 static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
   RPPager *self = (RPPager *)base;
 
-  // Currently a pager is never called more than offset+limit times.
-  // We limit the entire pipeline to offset+limit (upstream and downstream).
-  uint32_t limit = MIN(self->remaining, base->parent->resultLimit);
-  base->parent->resultLimit = self->offset + limit;
   // If we've not reached the offset
   while (self->offset) {
     int rc = base->upstream->Next(base->upstream, r);
@@ -606,10 +602,16 @@ static void rppagerFree(ResultProcessor *base) {
 }
 
 /* Create a new pager. The offset and limit are taken from the user request */
-ResultProcessor *RPPager_New(size_t offset, size_t limit) {
+ResultProcessor *RPPager_New(size_t offset, size_t limit, QueryIterator *qiter) {
   RPPager *ret = rm_calloc(1, sizeof(*ret));
   ret->offset = offset;
   ret->remaining = limit;
+
+  // Currently a pager is never called more than offset+limit times.
+  // We limit the entire pipeline to offset+limit (upstream and downstream).
+  uint32_t pipeline_limit = MIN(limit, qiter->resultLimit);
+  qiter->resultLimit = offset + pipeline_limit;
+
   ret->base.type = RP_PAGER_LIMITER;
   ret->base.Next = rppagerNext_Skip;
   ret->base.Free = rppagerFree;
@@ -812,6 +814,9 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self) {
 
   int rc = self->last_buffered_rc;
   self->last_buffered_rc = RS_RESULT_OK;
+  // We CANNOT return `RS_RESULT_OK` HERE, since it will be interpreted as a
+  // success while no population of the result was done.
+  RS_LOG_ASSERT(rc != RS_RESULT_OK, "Returning RS_RESULT_OK from a safe loader on unpopulated result!");
   return rc;
 }
 
