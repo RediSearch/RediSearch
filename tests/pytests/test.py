@@ -4366,13 +4366,29 @@ def test_with_tls_and_non_tls_ports():
               tlsKeyFile=key_file,
               tlsCaCertFile=ca_cert_file,
               tlsPassphrase=passphrase,
-              dualTLS=True)        # Sets the ports to be both TLS and regular ports.
+              dualTLS=True)        # Sets the ports to be both TLS and regular ports (in tls-ports + 1500).
+
+    # Initialize the cluster topology updated in RediSearch
+    env.expect('FT.CREATE', 'tmp_idx', 'SCHEMA', 'n', 'NUMERIC').ok()
+    env.expect('FT.DROPINDEX', 'tmp_idx').ok()
+
+    def get_ports(env):
+        ports = []
+        cluster_info = env.execute_command('SEARCH.CLUSTERINFO')
+        for slot in cluster_info[cluster_info.index('slots') + 1:]:
+            ports.append(slot[2][2])
+        return ports
+
+    # Get the TLS ports
+    tls_ports = get_ports(env)
+    # The non-TLS ports are the TLS ports + 1500
+    expected_ports = [port + 1500 for port in tls_ports]
 
     # Upon setting `tls-cluster` to `no`, we should still be able to succeed
     # connecting the coordinator to the shards, just not in TLS mode.
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
-    time.sleep(2)   # Wait a bit for the new topology to kick in (inter-node
-                    # connections to be non-tls).
+    while get_ports(env) != expected_ports:
+        time.sleep(0.1)
 
     common_with_auth(env)
 
