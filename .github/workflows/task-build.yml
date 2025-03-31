@@ -91,53 +91,18 @@ jobs:
           echo $PWD
           git branch
           .install/verify_build_deps.sh  || true
-      - name: install rust  and gcc
-        id: install_rust
-        working-directory: RediSearch
-        run: |
-          source .install/install_rust.sh
-          case "${{ inputs.container }}" in
-            ubuntu:jammy | ubuntu:noble)
-              gcc_ver=12
-              ;;
-            ubuntu:focal | ubuntu:bionic)
-              gcc_ver=""
-              ;;
-            debian:* | ubuntu:*)
-              apt install -y gcc g++
-              gcc_ver=""
-              ;;
-            amazonlinux:20*)
-              dnf install -y gcc
-              gcc_ver=""
-              ;;
-            alpine*)
-              apk --no-cache add gcc g++ bsd-compat-headers
-              gcc_ver=""
-              ;;
-            rocky*)
-              dnf install -y gcc-toolset-13-gcc gcc-toolset-13-gcc-c++
-              cp /opt/rh/gcc-toolset-13/enable /etc/profile.d/gcc-toolset-13.sh
-              gcc_ver=""
-              ;;
-            *)
-              gcc_ver=""
-              ;;
-          esac
-
-          if [ -n "$gcc_ver" ]; then
-              apt install -y gcc-$gcc_ver g++-$gcc_ver
-              update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-$gcc_ver 60 --slave /usr/bin/g++ g++ /usr/bin/g++-$gcc_ver
-              update-alternatives --install /usr/bin/gcov gcov /usr/bin/gcov-$gcc_ver 60
-          else
-              echo "Skipping GCC installation"
-          fi
       - name: install all
         id: install_all
         working-directory: RediSearch
         run: |
-          cd .install
-          ./install_script.sh
+          case "${{ inputs.container }}" in
+            ubuntu:jammy | ubuntu:noble)
+              ;;
+            *)
+              cd .install
+              ./install_script.sh
+              ;;
+          esac
       - name: verify
         id: verify_deps3
         working-directory: RediSearch
@@ -183,19 +148,19 @@ jobs:
               exit 1
               ;;
           esac
-      # - name: Setup
-      #   working-directory: .install
-      #   run: |
-      #     ./install_script.sh ${{ steps.mode.outputs.mode }}
-      # - name: Setup tests dependencies
-      #   run: |
-      #     .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: Build
         env:
           ENABLE_ASSERT: 1
         working-directory: RediSearch
         run: |
-          make
+          case "${{ inputs.container }}" in
+            ubuntu:noble)
+              make IGNORE_MISSING_DEPS=1
+              ;;
+            *)
+              make
+              ;;
+          esac
       - name: Fail flow if tests failed
         if: steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
         run: |
