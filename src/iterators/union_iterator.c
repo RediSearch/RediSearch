@@ -8,7 +8,11 @@
 
 static inline int cmpLastDocId(const void *e1, const void *e2, const void *udata) {
   const QueryIterator *it1 = e1, *it2 = e2;
-  return (int64_t)(it2->lastDocId - it1->lastDocId);
+  if (it1->lastDocId < it2->lastDocId)
+    return 1;
+  if (it1->lastDocId > it2->lastDocId)
+    return -1;
+  return 0;
 }
 
 static inline void resetMinIdHeap(UnionIterator *ui) {
