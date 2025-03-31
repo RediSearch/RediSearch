@@ -8,7 +8,7 @@ git clone --recursive https://github.com/RediSearch/RediSearch.git
 
 ## Installing prerequisites
 
-## Build dependencies
+### Build dependencies
 To build and test RediSearch you need to install several packages, depending on the underlying OS. The following OSes are supported and tested in our CI:
 
 Ubuntu 18.04
@@ -35,10 +35,10 @@ For installing the prerequisites you can take the following approaches:
     ```
     Note that this will install various packages on your system using the native package manager (sudo is not required in a Docker environment). 
 
-## Redis
+### Redis
 You will not be able to run and test your code without Redis, since you need to load the module. You can build it from source and install it as described in [redis GitHub page](https://github.com/redis/redis).
 
-#### RedisJSON
+### RedisJSON
 Some of our behavioral tests require RedisJSON to be present. Our testing framework will clone and build RedisJSON for you.
 
 
