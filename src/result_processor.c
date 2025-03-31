@@ -582,15 +582,25 @@ static int rppagerNext_Limit(ResultProcessor *base, SearchResult *r) {
 static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
   RPPager *self = (RPPager *)base;
 
+  // Currently a pager is never called more than offset+limit times.
+  // We limit the entire pipeline to offset+limit (upstream and downstream).
+  uint32_t limit = MIN(self->remaining, base->parent->resultLimit);
+  // Save the previous limit, so that it will seem untouched to the downstream
+  uint32_t downstreamLimit = base->parent->resultLimit;
+  base->parent->resultLimit = self->offset + limit;
+
   // If we've not reached the offset
   while (self->offset) {
     int rc = base->upstream->Next(base->upstream, r);
     if (rc != RS_RESULT_OK) {
       return rc;
     }
+    base->parent->resultLimit--;
     self->offset--;
     SearchResult_Clear(r);
   }
+
+  base->parent->resultLimit = downstreamLimit;
 
   base->Next = rppagerNext_Limit; // switch to second phase
   return base->Next(base, r);
@@ -865,6 +875,7 @@ static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
     currBlock = InsertResult(self, &resToBuffer, currBlock);
 
     memset(&resToBuffer, 0, sizeof(SearchResult));
+
   }
   rp->parent->resultLimit = bufferLimit; // Restore the result limit
 
