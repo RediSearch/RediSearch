@@ -19,39 +19,6 @@ impl<Data> From<BranchingNode<Data>> for Node<Data> {
 }
 
 impl<Data> BranchingNode<Data> {
-    /// Creates a binary branch with the given chldren
-    /// 
-    /// 
-    pub(crate) fn new_binary_branch(
-        label: &[c_char], 
-        child1: &Node<Data>, 
-        child2: &Node<Data>) -> Self {
-        
-        // 1. adapt children labels
-
-        // 2. check if there is an empty label:
-        let has_empty_labeled = todo!();
-        if has_empty_labeled {
-            // select child1 or 2
-            let empty_labeled_child = todo!();
-
-            // ... 
-        }
-
-        // 3. if there was no empty labled child:
-        let is_1_before_2 = todo!();
-
-
-        let (left_slice, new_node) = if is_1_before_2 {
-            (&[*child1], *child2)
-        } else {
-            (&[*child2], *child1)
-        };
-
-        // Safety: We ensured the right order of the data
-        unsafe { Self::allocate(label, left_slice, new_node, &[]) }
-    }
-
     pub fn shrink(&mut self, child_index: usize) -> Node<Data> {
         todo!("replace self with a smaller branching node")
     }
@@ -121,7 +88,7 @@ impl<Data> BranchingNode<Data> {
     }
 
     /// Delete helper
-    pub(crate) unsafe fn swap_ensure_shallow_del(
+    pub(crate) fn swap_ensure_shallow_del(
         mut temporary_creation: BranchingNode<Data>,
         self_ref: &mut Node<Data>,
     ) {
@@ -144,7 +111,6 @@ impl<Data> BranchingNode<Data> {
         child_data: Data,
         found_or_insert_at: Result<usize, usize>,
     ) -> Option<Data> {
-
         // case 1-x: we add an empty labeled value-node
         if child_label.is_empty() {
             // case 1-1: the child already exists - remark: and this is a branching node
@@ -164,21 +130,11 @@ impl<Data> BranchingNode<Data> {
                 let self_children = self.children();
 
                 // Safety: We mark the old node as drop shallow and actually drop it after reallocation
-                unsafe { 
-                    let new_branch = Self::allocate(child_label, self_children, new_child.into(), &[]);
+                unsafe {
+                    let new_branch =
+                        Self::allocate(child_label, self_children, new_child.into(), &[]);
                     Self::swap_ensure_shallow_del(new_branch, &mut self.0);
                 };
-
-                /*
-                
-                // ye olde switcheroo
-                std::mem::swap(&mut new_branch, self);
-
-                // Safety: Ensure the children that got moved to the newly created node are not dropped.
-                new_branch
-                    .header_mut()
-                    .set_drop_state(NodeDropState::DropShallow);
-                */
             }
 
             return None;
@@ -190,15 +146,14 @@ impl<Data> BranchingNode<Data> {
             Ok(child_index) => {
                 let cur_child = &mut self.children_mut()[child_index];
                 match cur_child.cast_mut() {
-                // case 2-1-1: it's a leaf node -> We replace the data
+                    // case 2-1-1: it's a leaf node -> We replace the data
                     super::Either::Left(leaf) => {
                         // Replace the leaf's data.
                         // TODO: that leaks the old data, remember me on the requirement of the free callback.
                         let old_data = std::mem::replace(leaf.data_mut(), child_data);
                         Some(old_data)
                     }
-                // case 2-1-2: we found a branching node -> recursively grow with empty-labeld child
-                // TODO: example: 'bike' and 'biss' with branch parent 'bi', we add 'bill'
+                    // case 2-1-2: we found a branching node -> recursively grow with empty-labeld child
                     super::Either::Right(brn) => {
                         // Add an empty-labled child to the branching node.
                         brn.grow(&[], child_data, found_or_insert_at);
@@ -212,14 +167,7 @@ impl<Data> BranchingNode<Data> {
                 let left_slice = &self.children()[..insert_index];
                 let right_slice = &self.children()[insert_index..];
 
-                let shared_prefix_len = self
-                    .label()
-                    .iter()
-                    .zip(child_label)
-                    .enumerate()
-                    .find(|(_, (c1, c2))| c1 != c2)
-                    .map(|(i, _)| i)
-                    .unwrap_or(0);
+                let shared_prefix_len = self.0.get_shared_prefix_len(child_label);
 
                 // calculate label of the new branching node, which is the shared prefix
                 let new_brnch_label = &self.label()[..shared_prefix_len];
@@ -230,23 +178,12 @@ impl<Data> BranchingNode<Data> {
                 let new_child: LeafNode<Data> = LeafNode::new(child_data, new_child_label);
 
                 // allocate branching node with num_children+1
-                let mut new_branch = unsafe {
+                // Safety: create new branch and swap with self, ensuring shallow delete
+                let new_branch = unsafe {
                     Self::allocate(new_brnch_label, left_slice, new_child.into(), right_slice)
                 };
+                BranchingNode::swap_ensure_shallow_del(new_branch, &mut self.0);
 
-                // swap with self
-                std::mem::swap(self, &mut new_branch);
-
-                // SAFETY:
-                // ensure right drop implementation is used.
-                // todo: wrap in zero
-                unsafe {
-                    new_branch
-                        .0
-                        .ptr
-                        .as_mut()
-                        .set_drop_state(NodeDropState::DropShallow);
-                }
                 None
             }
         }
@@ -278,7 +215,7 @@ impl<Data> BranchingNode<Data> {
     ///
     /// # Safety
     /// - The caller must ensure that moved children are not dropped.
-    unsafe fn allocate(
+    pub(crate) unsafe fn allocate(
         label: &[c_char],
         left: &[Node<Data>],
         new_node: Node<Data>,

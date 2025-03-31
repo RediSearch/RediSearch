@@ -1,18 +1,21 @@
-use super::branching::BranchingNode;
 use super::Node;
-use std::ptr::NonNull;
+use super::branching::BranchingNode;
+use super::header::AllocationHeader;
 use std::alloc::*;
 use std::ffi::c_char;
 use std::marker::PhantomData;
-use super::header::AllocationHeader;
+use std::ops::Deref;
+use std::ptr::NonNull;
 
 #[repr(transparent)]
 pub(crate) struct LeafNode<Data>(Node<Data>);
 
 impl<Data> From<LeafNode<Data>> for Node<Data> {
     fn from(v: LeafNode<Data>) -> Self {
-        /// SAFETY: All good, repr(transparent) to the rescue.
-        unsafe { std::mem::transmute(v) }
+        // SAFETY: All good, repr(transparent) to the rescue.
+        unsafe {
+            std::mem::transmute(v)
+        }
     }
 }
 
@@ -28,6 +31,11 @@ impl<Data> LeafNode<Data> {
         unsafe { self.0.ptr.as_ref() }
     }
 
+
+    fn header_mut(&mut self) -> &mut AllocationHeader {
+        unsafe { self.0.ptr.as_mut() }
+    }
+
     fn layout(&self) -> LeafLayout<Data> {
         LeafLayout::new(self.label_len())
     }
@@ -38,48 +46,69 @@ impl<Data> LeafNode<Data> {
 
     pub(crate) fn label(&self) -> &[c_char] {
         let label_ptr = self.layout().label_ptr(self.0.ptr);
-        unsafe {
-            std::slice::from_raw_parts(label_ptr.as_ptr(), self.label_len() as usize)
-        }
+        unsafe { std::slice::from_raw_parts(label_ptr.as_ptr(), self.label_len() as usize) }
     }
 
     pub(crate) fn data(&self) -> &Data {
         let data_ptr = self.layout().data_ptr(self.0.ptr);
-        unsafe {
-            data_ptr.as_ref()
-        }
+        unsafe { data_ptr.as_ref() }
     }
 
     pub(crate) fn data_mut(&mut self) -> &mut Data {
         let mut data_ptr = self.layout().data_ptr(self.0.ptr);
-        unsafe {
-            data_ptr.as_mut()
-        }
+        unsafe { data_ptr.as_mut() }
     }
 
     /// Adds a child to the leaf node
-    /// 
+    ///
     /// - label: the postfix label o of the child
     /// - data: the data of the child
-    /// 
+    ///
+    /// Preconditions:
+    /// - self is leaf (case 1)
+    /// - child_label cannot be empty (handled in case 1.1)
+    ///
     /// Safety:
     /// Changes self to branching node --> the caller needs
     /// to be aware of that and ensure that it's reference is not
     /// used a a leaf node.
-    /// 
+    ///
     /// Returns the newly crated branching node
-    pub(crate) unsafe fn add_child(
-        &mut self,
-        label: &[c_char],
-        child_data: Data) 
-    {
-        // only one case, caller needs to check if this.value needs replacement
-        let child2 = LeafNode::new(child_data, label);
-        let new_branch = BranchingNode::new_binary_branch(label, &self.0, &child2.0);
+    pub(crate) unsafe fn add_child(&mut self, child_label: &[c_char], child_data: Data) {
+        debug_assert!(
+            !child_label.is_empty(),
+            "Child cannot have an empty label. (case 1.1)"
+        );
+        debug_assert!(
+            !self.label().is_empty(),
+            "The parent node cannot have an empty label, otherwise we should \
+            be growing the parent branching node instead"
+        );
 
-        unsafe {
-            BranchingNode::swap_ensure_shallow_del(new_branch, &mut self.0);
+    
+
+        // only one case, caller needs to check if this.value needs replacement
+
+        //let label = unsafe { std::slice::from_raw_parts(self.layout().label_ptr(self.0.ptr), self.label_len() as usize) };
+        let (label_ref, data) = self.parts();
+        let adapt_child_that_was_there = LeafNode::new(data, &[]);
+        // unsafe access of label:
+        let new_child = LeafNode::new(child_data, child_label);
+        // Safety: We ensured the right order of the data
+        
+        let branching = unsafe {
+            BranchingNode::allocate(
+                &label_ref,
+                &[],
+                new_child.into(),
+                &[adapt_child_that_was_there.into()],
+            )
         };
+        // 
+        unsafe {
+            BranchingNode::swap_ensure_shallow_del(branching, &mut self.0);
+        }
+
     }
 
     /// # Panics
@@ -96,7 +125,7 @@ impl<Data> LeafNode<Data> {
             // non-zero size (2 bytes).
             unsafe { alloc(layout.layout) as *mut AllocationHeader }
         };
-    
+
         let Some(buffer_ptr) = NonNull::new(buffer_ptr) else {
             // The allocation failed!
             handle_alloc_error(layout.layout)
@@ -113,18 +142,36 @@ impl<Data> LeafNode<Data> {
         }
 
         unsafe {
-            std::ptr::copy_nonoverlapping(label.as_ptr(), layout.label_ptr(buffer_ptr).as_ptr(), label.len());
+            std::ptr::copy_nonoverlapping(
+                label.as_ptr(),
+                layout.label_ptr(buffer_ptr).as_ptr(),
+                label.len(),
+            );
         }
         unsafe {
             layout.data_ptr(buffer_ptr).write(data);
         }
         buffer_ptr
     }
+
+    fn into_data(self) -> Data {
+        unsafe { self.layout().data_ptr(self.0.ptr).as_ptr().read() }
+        
+        // todo make sure data doesn't get dropped
+    }
+
+    fn parts(&mut self) -> (&[c_char], Data) {
+        self.header_mut().set_drop_state(super::header::NodeDropState::DropShallow);
+        let data = unsafe { self.layout().data_ptr(self.0.ptr).as_ptr().read() };
+        (self.label(), data)
+    }
 }
 
 impl<Data> Drop for LeafNode<Data> {
     #[inline]
     fn drop(&mut self) {
+        // todo: check if we need to drop shallow
+
         unsafe {
             std::ptr::drop_in_place(self.data_mut());
         }
@@ -142,7 +189,7 @@ struct LeafLayout<Data> {
     label_offset: usize,
     /// The offset at which the data is located within the allocated block.
     data_offset: usize,
-    _phantom: PhantomData<Data>
+    _phantom: PhantomData<Data>,
 }
 
 impl<Data> LeafLayout<Data> {
@@ -152,7 +199,9 @@ impl<Data> LeafLayout<Data> {
         let Ok(c_char_array) = Layout::array::<c_char>(label_len as usize) else {
             panic!("Boom")
         };
-        let Ok((layout, label_offset)) = layout.extend(c_char_array) else { unreachable!() };
+        let Ok((layout, label_offset)) = layout.extend(c_char_array) else {
+            unreachable!()
+        };
         let Ok((layout, data_offset)) = layout.extend(Layout::new::<Data>()) else {
             // The panic message must be known at compile-time if we want `allocation_layout` to be a `const fn`.
             // Therefore we can't capture the error (nor the faulty capacity value) in the panic message.
@@ -165,7 +214,7 @@ impl<Data> LeafLayout<Data> {
             layout: layout.pad_to_align(),
             data_offset,
             label_offset,
-            _phantom: PhantomData
+            _phantom: PhantomData,
         }
     }
 
