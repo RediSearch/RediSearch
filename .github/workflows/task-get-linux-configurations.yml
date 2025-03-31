@@ -12,8 +12,7 @@ env:
                     'amazonlinux:2',
                     'mcr.microsoft.com/cbl-mariner/base/core:2.0',
                     'mcr.microsoft.com/azurelinux/base/core:3.0']"
-  ALL_ARM_IMAGES: "['ubuntu:noble',
-                    'ubuntu:jammy',
+  ALL_ARM_IMAGES: "['ubuntu:jammy',
                     'ubuntu:focal',
                     'ubuntu:bionic',
                     'mcr.microsoft.com/azurelinux/base/core:3.0']"
