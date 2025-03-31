@@ -12,12 +12,12 @@ pub(crate) struct AllocationHeader {
     flag_terminal_or_branching: u1,
 
     /// used by internal unsafe code to determine the correct drop impl, see [NodeDropState]
-    flag_drop_state: u2,
+    flag_drop_state: u1,
 
     /// indicates if there is an empty labeled child
     flag_has_empty_labeled_child: u1,
 
-    reserved: u4,
+    reserved: u5,
 
 }
 
@@ -31,15 +31,13 @@ pub(crate) enum NodeKind {
 pub(crate) enum NodeDropState {
     DropRecursive,
     DropShallow,
-    DropSentinel,
 }
 
-impl From<NodeDropState> for u2 {
+impl From<NodeDropState> for u1 {
     fn from(v: NodeDropState) -> Self {
         match v {
             NodeDropState::DropRecursive => DROP_RECURSIVE,
             NodeDropState::DropShallow => DROP_SHALLOW,
-            NodeDropState::DropSentinel => DROP_SENTINEL,
         }
     }
 }
@@ -47,9 +45,8 @@ impl From<NodeDropState> for u2 {
 const LEAF: u1 = u1::new(0b0);
 const BRANCHING: u1 = u1::new(0b1);
 
-const DROP_SHALLOW: u2 = u2::new(0b00);
-const DROP_RECURSIVE: u2 = u2::new(0b01);
-const DROP_SENTINEL: u2 = u2::new(0b10);
+const DROP_SHALLOW: u1 = u1::new(0b0);
+const DROP_RECURSIVE: u1 = u1::new(0b1);
 
 pub(crate) enum NodeHasEmptyLabeledChild {
     NoEmptyLabeledChild,
@@ -81,13 +78,6 @@ impl AllocationHeader {
         Self::new(label_len, BRANCHING, DROP_RECURSIVE, NO_EMPTY_LABELED_CHILD)
     }
 
-    pub const fn sentinel() -> Self {
-        //Self::new(0.try_into().expect("We know that zero is in rage"), LEAF, DROP_SENTINEL)
-        Self {
-            value: u24::new(0b_0000_0000_0000_0000_0100_0000),
-        }
-    }
-
     /// The node kind, as an enum.
     pub fn kind(&self) -> NodeKind {
         if self.flag_terminal_or_branching() == BRANCHING {
@@ -101,11 +91,9 @@ impl AllocationHeader {
     pub fn drop_state(&self) -> NodeDropState {
         if self.flag_drop_state() == DROP_RECURSIVE {
             NodeDropState::DropRecursive
-        } else if self.flag_drop_state() == DROP_SHALLOW {
-            NodeDropState::DropShallow
         } else {
-            NodeDropState::DropSentinel
-        }
+            NodeDropState::DropShallow
+        } 
     }
 
     pub fn set_drop_state(&mut self, new_state: NodeDropState) {

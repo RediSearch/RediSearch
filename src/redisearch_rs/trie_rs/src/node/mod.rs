@@ -1,14 +1,11 @@
 use std::{ffi::c_char, marker::PhantomData};
 
 use branching::BranchingNode;
-use header::{AllocationHeader};
-use leaf::LeafNode;
+use header::{AllocationHeader, NodeKind};
 mod branching;
 mod header;
 // mod layout;
 mod leaf;
-
-static mut SENTINEL_HEADER: AllocationHeader = AllocationHeader::sentinel();
 
 pub struct Node<Data> {
     ptr: std::ptr::NonNull<AllocationHeader>,
@@ -21,58 +18,50 @@ pub enum Either<L, R> {
 }
 
 impl<Data> Node<Data> {
-    fn sentinel() -> Self {
-        Node {
-            ptr: unsafe {std::ptr::NonNull::new_unchecked(&mut SENTINEL_HEADER as *mut AllocationHeader)},
-            _phantom: PhantomData,
-        }
-    }
-
-    fn sentinel_leaf() -> LeafNode<Data> {
-        // SAFETY: All good, repr(transparent) to the rescue.
-        unsafe {
-            std::mem::transmute(Self::sentinel())
-        }
-    }
-
-    fn sentinel_branching() -> BranchingNode<Data> {
-        // SAFETY: All good, repr(transparent) to the rescue.
-        unsafe {
-            std::mem::transmute(Self::sentinel())
-        }
-    }
-
     /// Create a new leaf node.
     pub fn leaf(label: &[c_char], data: Data) -> Self {
         leaf::LeafNode::new(data, label).into()
     }
 
-    pub fn branching(num_children: u8, label: &[c_char]) -> Self {
+    pub fn branching(label: &[c_char], children: &[Node<Data>]) -> Self {
+        
         todo!()
     }
 
-    fn grow(&mut self, child_label: &[c_char], child_data: Data, index_or_insert_at: Result<usize, usize>) {
-        let new_parent: Node<Data> = match self.cast_mut() {
+    /// Grows this node by one children
+    /// 
+    /// - child_label: the label of the new child
+    /// - child_data: the data of the new child
+    /// - index_or_insert: a Result with the semantic of [std::slice::binary_search]
+    /// 
+    /// Internally this uses implementation of [crate::node::branching] and [crate::node::leaf] and ensures
+    /// the shallow drop if neccessary
+    fn grow(
+        &mut self, 
+        child_label: &[c_char], 
+        child_data: Data, 
+        index_or_insert_at: Result<usize, usize>
+    ) -> Option<Data> {
+        match self.cast_mut() {
             Either::Left(leaf) => {
-                let leaf = std::mem::replace(
-                    leaf,
-                    Node::<Data>::sentinel_leaf(),
-                );
-
-                let new_parent:  BranchingNode<Data> = leaf.add_child(child);
-                new_parent.into() // transform into Node<Data>
+                // case 1-1: We grow an empty labeled child
+                if child_label.is_empty() {
+                    let old_data = std::mem::replace(leaf.data_mut(), child_data);
+                    Some(old_data)
+                } else {
+                    // Safety: self changes from leaf to branching, that's ok as we leave the method
+                    //          here and callers only know the upcast type.
+                    unsafe {
+                        leaf.add_child(child_label, child_data);
+                        None
+                    }
+                }
             }
             Either::Right(_self) => {
-                let old_parent  = std::mem::replace(
-                    _self,
-                    Node::<Data>::sentinel_branching(),
-                );
-
-                let new_parent: BranchingNode<Data> = _self.grow(child_label, child_data, index_or_insert_at);
-
-                new_parent.into() // transform into Node<Data>
+                let opt_data = _self.grow(child_label, child_data, index_or_insert_at);
+                opt_data
             }
-        };
+        }
     }
 
     fn shrink(&mut self, child_index: usize) -> Node<Data> {
@@ -84,19 +73,22 @@ impl<Data> Node<Data> {
             unreachable!()
         } else if branching.num_children() == 2 {
             // switch to leaf, merge self.label with new_leaf's label
-            let new_leaf = branching[!child_index];
-            let removed_leaf = branching[child_index];
-            std::mem::replace(self, new_leaf);
-            removed_leaf
+            todo!();
+            //let new_leaf = branching[!child_index];
+            //let removed_leaf = branching[child_index];
+            //std::mem::replace(self, new_leaf);
+            //removed_leaf
         } else {
             // just shrink
             branching.shrink(child_index)
         }
     }
 
+    /*
     pub fn tree<I: Iterator<Item = (&[c_char], Data)>>() -> Self {
         todo!("later for optimization")
     }
+    */
 
     pub fn label(&self) -> &[c_char] {
         match self.cast_ref() {
@@ -107,15 +99,15 @@ impl<Data> Node<Data> {
 
     pub fn cast(self) -> Either<leaf::LeafNode<Data>, branching::BranchingNode<Data>> {
         match unsafe { self.ptr.as_ref() }.kind() {
-            header::NodeKind::Leaf => Either::Left(unsafe { std::mem::transmute(self) }),
-            header::NodeKind::Branching => Either::Right(unsafe { std::mem::transmute(self) }),
+            NodeKind::Leaf => Either::Left(unsafe { std::mem::transmute(self) }),
+            NodeKind::Branching => Either::Right(unsafe { std::mem::transmute(self) }),
         }
     }
 
     pub fn cast_ref(&self) -> Either<&leaf::LeafNode<Data>, &branching::BranchingNode<Data>> {
         match unsafe { self.ptr.as_ref() }.kind() {
-            header::NodeKind::Leaf => Either::Left(unsafe { std::mem::transmute(self) }),
-            header::NodeKind::Branching => Either::Right(unsafe { std::mem::transmute(self) }),
+            NodeKind::Leaf => Either::Left(unsafe { std::mem::transmute(self) }),
+            NodeKind::Branching => Either::Right(unsafe { std::mem::transmute(self) }),
         }
     }
 
@@ -123,20 +115,19 @@ impl<Data> Node<Data> {
         &mut self,
     ) -> Either<&mut leaf::LeafNode<Data>, &mut branching::BranchingNode<Data>> {
         match unsafe { self.ptr.as_ref() }.kind() {
-            header::NodeKind::Leaf => Either::Left(unsafe { std::mem::transmute(self) }),
-            header::NodeKind::Branching => Either::Right(unsafe { std::mem::transmute(self) }),
+            NodeKind::Leaf => Either::Left(unsafe { std::mem::transmute(self) }),
+            NodeKind::Branching => Either::Right(unsafe { std::mem::transmute(self) }),
         }
     }
 
     pub fn is_leaf(&self) -> bool {
         let header = unsafe { self.ptr.as_ref() };
-        todo!()
-
-        // todo! use msb of len_and_type to determine if leaf or branching
+        header.kind() == NodeKind::Leaf
     }
 
     pub fn is_branching(&self) -> bool {
-        todo!()
+        let header = unsafe { self.ptr.as_ref() };
+        header.kind() == NodeKind::Branching
     }
 
     /// Finds the parent of the node matching the given key, along with the index
@@ -147,6 +138,7 @@ impl<Data> Node<Data> {
         key: &[c_char],
     ) -> (&mut Node<Data>, Result<usize, usize>, &[c_char]) {
         // if self is a leaf, then return None
+        //if self.is_leaf() { return None; }
 
         // if self is a branching node, then find the child node that corresponds to the first byte of the key
         //  if that node exactly matches the key, then self is the parent of the node we're looking for
@@ -183,11 +175,7 @@ impl<Data> Node<Data> {
         // *self = new branching
 
         let (parent, index_or_insert_at, child_label) = self.find_node_parent_mut(key);
-
-        match parent.cast_mut() {
-            Either::Left(leaf) => todo!(),
-            Either::Right(branching) => branching.grow(child_label, data, index_or_insert_at),
-        }
+        parent.grow(child_label, data, index_or_insert_at)
 
         // parent.label always shares a prefix of child_label
         //    if parent.label == child_label && parent.is_branching()
@@ -203,8 +191,6 @@ impl<Data> Node<Data> {
         //          create a new child node with the child label and the data we want
         //          copy over the old children and the new child
         //          replace old branching node with new one
-
-        todo!()
     }
 
     pub fn remove_child(&mut self, key: &[c_char]) -> Option<Data> {
@@ -226,10 +212,4 @@ impl<Data> Node<Data> {
     fn children(&self) -> impl Iterator<Item = Node<Data>> {
         [].into_iter()
     }
-}
-
-#[repr(u8)]
-enum NodeKind {
-    Leaf = 0,
-    Branching = 1,
 }

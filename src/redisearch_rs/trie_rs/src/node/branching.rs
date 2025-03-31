@@ -19,6 +19,39 @@ impl<Data> From<BranchingNode<Data>> for Node<Data> {
 }
 
 impl<Data> BranchingNode<Data> {
+    /// Creates a binary branch with the given chldren
+    /// 
+    /// 
+    pub(crate) fn new_binary_branch(
+        label: &[c_char], 
+        child1: &Node<Data>, 
+        child2: &Node<Data>) -> Self {
+        
+        // 1. adapt children labels
+
+        // 2. check if there is an empty label:
+        let has_empty_labeled = todo!();
+        if has_empty_labeled {
+            // select child1 or 2
+            let empty_labeled_child = todo!();
+
+            // ... 
+        }
+
+        // 3. if there was no empty labled child:
+        let is_1_before_2 = todo!();
+
+
+        let (left_slice, new_node) = if is_1_before_2 {
+            (&[*child1], *child2)
+        } else {
+            (&[*child2], *child1)
+        };
+
+        // Safety: We ensured the right order of the data
+        unsafe { Self::allocate(label, left_slice, new_node, &[]) }
+    }
+
     pub fn shrink(&mut self, child_index: usize) -> Node<Data> {
         todo!("replace self with a smaller branching node")
     }
@@ -87,6 +120,23 @@ impl<Data> BranchingNode<Data> {
         unsafe { std::slice::from_raw_parts_mut(children.as_ptr(), self.num_children() as usize) }
     }
 
+    /// Delete helper
+    pub(crate) unsafe fn swap_ensure_shallow_del(
+        mut temporary_creation: BranchingNode<Data>,
+        self_ref: &mut Node<Data>,
+    ) {
+        // ye olde switcheroo
+        std::mem::swap(&mut temporary_creation.0, self_ref);
+
+        // Safety: Ensure the children that got moved to the newly created node are not dropped.
+        temporary_creation
+            .header_mut()
+            .set_drop_state(NodeDropState::DropShallow);
+
+        // Let's be real explicit:
+        drop(temporary_creation);
+    }
+
     /// grows the branching node by one element
     pub fn grow(
         &mut self,
@@ -94,8 +144,10 @@ impl<Data> BranchingNode<Data> {
         child_data: Data,
         found_or_insert_at: Result<usize, usize>,
     ) -> Option<Data> {
+
+        // case 1-x: we add an empty labeled value-node
         if child_label.is_empty() {
-            // the child exists and it is a branching node
+            // case 1-1: the child already exists - remark: and this is a branching node
             if self.has_empty_labeled_child() {
                 // we replace its data because that's always a leaf
                 let Either::Left(leaf) = self.children_mut().last_mut().unwrap().cast_mut() else {
@@ -106,35 +158,47 @@ impl<Data> BranchingNode<Data> {
                 let old_data = std::mem::replace(leaf.data_mut(), child_data);
 
                 return Some(old_data);
+            // case 1-2: The child does not exist yet: create empty labeled leaf and realloc this (branching) node
             } else {
                 let new_child: LeafNode<Data> = LeafNode::new(child_data, child_label);
                 let self_children = self.children();
 
-                // Safety: pinky promise we're gonna mark the old node as drop shallow
-                let mut new_branch =
-                    unsafe { Self::allocate(child_label, self_children, new_child.into(), &[]) };
+                // Safety: We mark the old node as drop shallow and actually drop it after reallocation
+                unsafe { 
+                    let new_branch = Self::allocate(child_label, self_children, new_child.into(), &[]);
+                    Self::swap_ensure_shallow_del(new_branch, &mut self.0);
+                };
 
+                /*
+                
                 // ye olde switcheroo
                 std::mem::swap(&mut new_branch, self);
 
-                // Ensure the children that got moved to the newly created node are not dropped.
+                // Safety: Ensure the children that got moved to the newly created node are not dropped.
                 new_branch
                     .header_mut()
                     .set_drop_state(NodeDropState::DropShallow);
+                */
             }
 
             return None;
         }
 
+        // case 2-x-y: we add a labeled child
         match found_or_insert_at {
+            // case 2-1-y: a child node with the same prefix already exists:
             Ok(child_index) => {
                 let cur_child = &mut self.children_mut()[child_index];
                 match cur_child.cast_mut() {
+                // case 2-1-1: it's a leaf node -> We replace the data
                     super::Either::Left(leaf) => {
                         // Replace the leaf's data.
+                        // TODO: that leaks the old data, remember me on the requirement of the free callback.
                         let old_data = std::mem::replace(leaf.data_mut(), child_data);
                         Some(old_data)
                     }
+                // case 2-1-2: we found a branching node -> recursively grow with empty-labeld child
+                // TODO: example: 'bike' and 'biss' with branch parent 'bi', we add 'bill'
                     super::Either::Right(brn) => {
                         // Add an empty-labled child to the branching node.
                         brn.grow(&[], child_data, found_or_insert_at);
@@ -142,6 +206,7 @@ impl<Data> BranchingNode<Data> {
                     }
                 }
             }
+            // case 2-2-1: the shared prefix is not a child of this (branching) node.
             Err(insert_index) => {
                 // copy old childs and place new child
                 let left_slice = &self.children()[..insert_index];
@@ -206,13 +271,13 @@ impl<Data> BranchingNode<Data> {
 
     /// # Panics
     ///
-    /// Panics if the label length is greater than u15::MAX.
+    /// Panics if the label length is greater than u16::MAX.
     ///
     /// # Invariant
     /// - The empty-labeled child, if any, is the last element of the children slice.
     ///
     /// # Safety
-    /// - The caller must ensure that the children are not dropped.
+    /// - The caller must ensure that moved children are not dropped.
     unsafe fn allocate(
         label: &[c_char],
         left: &[Node<Data>],
@@ -341,12 +406,8 @@ impl<Data> BranchingNode<Data> {
 impl<Data> Drop for BranchingNode<Data> {
     #[inline]
     fn drop(&mut self) {
-        if self.header().drop_state() == NodeDropState::DropSentinel {
-            return;
-        }
-        //~
-
         if self.header().drop_state() == NodeDropState::DropRecursive {
+            // how do we know about the right callback, here? store it in self?
             todo!("Delete children")
         }
 

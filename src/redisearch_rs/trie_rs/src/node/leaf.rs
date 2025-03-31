@@ -1,3 +1,4 @@
+use super::branching::BranchingNode;
 use super::Node;
 use std::ptr::NonNull;
 use std::alloc::*;
@@ -56,7 +57,30 @@ impl<Data> LeafNode<Data> {
         }
     }
 
-    pub(crate) fn add_child(&mut self) {}
+    /// Adds a child to the leaf node
+    /// 
+    /// - label: the postfix label o of the child
+    /// - data: the data of the child
+    /// 
+    /// Safety:
+    /// Changes self to branching node --> the caller needs
+    /// to be aware of that and ensure that it's reference is not
+    /// used a a leaf node.
+    /// 
+    /// Returns the newly crated branching node
+    pub(crate) unsafe fn add_child(
+        &mut self,
+        label: &[c_char],
+        child_data: Data) 
+    {
+        // only one case, caller needs to check if this.value needs replacement
+        let child2 = LeafNode::new(child_data, label);
+        let new_branch = BranchingNode::new_binary_branch(label, &self.0, &child2.0);
+
+        unsafe {
+            BranchingNode::swap_ensure_shallow_del(new_branch, &mut self.0);
+        };
+    }
 
     /// # Panics
     ///
