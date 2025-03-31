@@ -364,11 +364,18 @@ unsafe extern "C" fn TrieMap_Delete(
     // If that invariant is upheld, then the following line is sound.
     let TrieMap(trie) = unsafe { &mut *t };
 
-    // SAFETY: The safety requirements of this function
-    // state the caller is to ensure that the pointer `str` is
-    // a valid pointer to a string of length `len` and cannot be NULL.
-    // If that invariant is upheld, then the following line is sound.
-    let key = unsafe { std::slice::from_raw_parts(str, len as usize) };
+    let key = if len > 0 {
+        // SAFETY: The safety requirements of this function
+        // state the caller is to ensure that the pointer `str` is
+        // a valid pointer to a C string, with a length of `len` bytes.
+        // If that invariant is upheld, then the following line is sound.
+        unsafe { slice::from_raw_parts(str, len as usize) }
+    } else {
+        // `str` is allowed to be NULL if len is 0,
+        // but `slice::from_raw_parts` requires a non-null pointer.
+        // Therefore, we use an empty slice instead.
+        &[]
+    };
 
     trie.remove(key)
         .map(|val| {
