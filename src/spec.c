@@ -3012,9 +3012,17 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
+  QueryError status = {0};
+
+  if(spec->scan_failed_OOM) {
+    QueryError_SetWithoutUserDataFmt(&status, QUERY_INDEXBGOOMFAIL, "Index background scan failed due to OOM. New documents will not be indexed.");
+    IndexError_AddQueryError(&spec->stats.indexError, &status, key);
+    QueryError_ClearError(&status);
+    return REDISMODULE_ERR;
+  }
+
   clock_t startDocTime = clock();
 
-  QueryError status = {0};
   Document doc = {0};
   Document_Init(&doc, key, DEFAULT_SCORE, DEFAULT_LANGUAGE, type);
   // if a key does not exit, is not a hash or has no fields in index schema
