@@ -21,8 +21,7 @@ jobs:
       architecture: "all"
       fail-fast: false
 
-  test-alpine:
-    needs: [get-latest-redis-tag]
+test-alpine-3:
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
