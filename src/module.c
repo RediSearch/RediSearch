@@ -2064,7 +2064,7 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
   if (!result_id || !MRReply_Type(result_id) == MR_REPLY_STRING) {
     // We crash in development env, and return NULL (such that an error is raised)
     // in production.
-    RS_ABORT("Expected id to exist, and be a string");
+    RS_LOG_ASSERT_FMT(false, "Expected id %d to exist, and be a string", j);
     res->id = NULL;
     return res;
   }

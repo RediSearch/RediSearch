@@ -848,7 +848,7 @@ static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_outp
   SearchResult *curr_res = GetNextResult(self);
 
   if (curr_res) {
-    SetResult( curr_res, result_output);
+    SetResult(curr_res, result_output);
     return RS_RESULT_OK;
   } else {
     return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
@@ -858,6 +858,7 @@ static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_outp
 /*********************************************************************************/
 
 static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
+  RS_LOG_ASSERT(rp->parent->resultLimit > 0, "Result limit should be greater than 0");
   RPSafeLoader *self = (RPSafeLoader *)rp;
 
   // Keep fetching results from the upstream result processor until EOF is reached
