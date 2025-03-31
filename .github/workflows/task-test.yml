@@ -200,7 +200,7 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           SA: 1
-          REJSON: ${{ inputs.rejson }}
+          REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: ./build.sh RUN_PYTEST=1 ${{ inputs.test-config }}
@@ -214,7 +214,7 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           SA: 0
-          REJSON: ${{ inputs.rejson }}
+          REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: ./build.sh RUN_PYTEST=1 ${{ inputs.test-config }}
