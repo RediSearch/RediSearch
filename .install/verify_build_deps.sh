@@ -12,6 +12,12 @@ NC='\033[0m' # No Color
 # OS Detection
 # ============================================
 
+# Check if the OS is macOS (Darwin)
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  echo -e "${YELLOW}Dependency check is not supported for macOS.${NC}"
+  exit 0
+fi
+
 # Function to detect the operating system
 detect_os() {
   if [ -f /etc/os-release ]; then
