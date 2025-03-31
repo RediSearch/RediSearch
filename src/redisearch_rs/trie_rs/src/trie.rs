@@ -127,7 +127,7 @@ struct Node<Data> {
 impl<Data> Node<Data> {
     /// Inserts a new key-value pair into the trie.
     ///
-    /// If the key already exists, the current value is passede to provided function,
+    /// If the key already exists, the current value is passed to provided function,
     /// and replaced with the value returned by that function.
     fn insert_or_replace_with<F>(&mut self, key: &[c_char], f: F)
     where
@@ -145,7 +145,7 @@ impl<Data> Node<Data> {
             };
 
             // Suffix is not empty, therefore the insertion needs to happen
-            // in a child (or grandchild) of the current node.
+            // in a descendant of the current node.
             // `find_or_insert` will determine if it becomes a new direct
             // child or if we already have a child with the same first byte.
             let child = self.children.find_or_insert(*first_byte, || Node {
@@ -328,7 +328,7 @@ impl<Data> Node<Data> {
     fn remove_child(&mut self, key: &[c_char]) -> Option<Data> {
         // Find the index of child whose label starts with the first byte of the key,
         // as well as the child itself.
-        // If the we find none, there's nothing to remove.
+        // If we find none, there's nothing to remove.
         // Note that `key.first()?` will cause this function to return None if the key is empty.
         let child_index = self.children.index_of(*key.first()?)?;
         let child = &mut self.children.0[child_index].node;
