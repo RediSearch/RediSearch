@@ -92,6 +92,49 @@ check_package_tdnf() {
 }
 
 # ============================================
+# Minimal Version Check Functions
+# ============================================
+
+# Define dependencies that need version checking
+declare -A version_checks=(
+  ["gcc"]="get_compiler_version check_gcc_min_version 100"
+  ["g++"]="get_compiler_version check_gpp_min_version 100"
+)
+
+# Function to get the version of a compiler
+get_compiler_version() {
+  local program=$1
+  "$program" -dumpversion 2>/dev/null || echo "unknown"
+}
+
+check_compiler_min_version() {
+  local program=$1
+  local min_version=$2
+  local actual_version=$(get_compiler_version "$program")
+
+  # Extract major version number
+  local actual_major=$(echo "$actual_version" | cut -d. -f1)
+
+  # Compare major versions
+  if [[ $actual_major -ge $min_version ]]; then
+    return 0  # Version requirement met
+  else
+    return 1  # Version requirement not met
+  fi
+}
+
+# Specialized version check functions
+check_gcc_min_version() {
+  local min_version=$1
+  check_compiler_min_version "gcc" "$min_version"
+}
+
+check_gpp_min_version() {
+  local min_version=$1
+  check_compiler_min_version "g++" "$min_version"
+}
+
+# ============================================
 # OS-Specific Dependencies
 # ============================================
 
@@ -103,6 +146,7 @@ declare -A common_dependencies=(
   ["python3"]="command"    # Verify using command -v
   ["cmake"]="command"      # Verify using command -v
   ["cargo"]="command"      # Verify using command -v
+  ["meow"]="package"      # Verify using command -v
 )
 
 # Define OS-specific dependencies
@@ -176,30 +220,14 @@ else
 fi
 
 # ============================================
-# Installation Scripts
-# ============================================
-
-# Define installation scripts for specific dependencies
-declare -A install_scripts=(
-  ["cargo"]=".install/install_rust.sh"
-  # Add more installation scripts as needed
-)
-
-# ============================================
 # Dependency Verification
 # ============================================
 
 # Print header
 echo -e "\n===== Build Dependencies Checker =====\n"
 
-# Function to check if running in a Docker container
-is_docker() {
-  [ -f /.dockerenv ] || grep -q docker /proc/1/cgroup 2>/dev/null
-}
-
 # Arrays to store missing dependencies
-missing_deps_with_scripts=()
-missing_deps_apt=()
+missing_deps=false
 
 # Check each dependency
 for dep in "${!dependencies[@]}"; do
@@ -208,34 +236,45 @@ for dep in "${!dependencies[@]}"; do
   verify_method=${dependencies[$dep]}
 
   # Check based on verification method
-  if [[ "$verify_method" == "command" ]] && check_command "$dep"; then
-    echo -e "${GREEN}✓${NC}"
+  if [[ "$verify_method" == "command" ]]; then
+    # missing dep
+    if ! check_command "$dep"; then
+      echo -e "${RED}✗${NC}"
+      missing_deps=true
+    else
+      # dep exist, check if version verification is needed
+      if [[ -n "${version_checks[$dep]}" ]]; then
+        # Extract version check function and minimum version
+        read -r get_version check_func min_version <<< "${version_checks[$dep]}"
+
+        # Run the check function but don't capture output yet
+        if $check_func "$min_version"; then
+          echo -e "${GREEN}✓${NC}"
+        else
+          # Capture the actual version output from the function
+          actual_version=$($get_version "$dep")
+          echo -e "${YELLOW}✗ (need version >= $min_version, found version $actual_version)${NC}"
+          missing_deps=true
+        fi
+      else
+        # No version check needed
+        echo -e "${GREEN}✓${NC}"
+      fi
+    fi
   elif [[ "$verify_method" == "package" ]]; then
     # Lookup the package checker for the current OS
     package_checker=${os_package_checkers["$OS"]}
-
-    # Ensure the package checker is defined
-    if [[ -z "$package_checker" ]]; then
-      echo -e "${RED}Error: No package checker defined for OS '$OS'.${NC}"
-      exit 1
-    fi
 
     # Call the package checker dynamically
     if $package_checker "$dep"; then
       echo -e "${GREEN}✓${NC}"
     else
       echo -e "${RED}✗${NC}"
-      missing_deps_apt+=("$dep")
+      missing_deps=true
     fi
-  else
-    echo -e "${RED}✗${NC}"
-
-    # Check if we have an installation script for this dependency
-    if [[ -n "${install_scripts[$dep]}" ]]; then
-      missing_deps_with_scripts+=("$dep")
-    else
-      missing_deps_apt+=("$dep")
-    fi
+  else # no method is defined for this dependency
+    echo -e "${YELLOW} (no method defined)${NC}"
+    missing_deps=true
   fi
 done
 
@@ -244,27 +283,20 @@ done
 # ============================================
 
 # Print installation instructions if there are missing dependencies
-if [ ${#missing_deps_with_scripts[@]} -gt 0 ] || [ ${#missing_deps_apt[@]} -gt 0 ]; then
-  echo -e "\n${RED}Missing dependencies:${NC}"
-
-  # First suggest installation scripts
-  if [ ${#missing_deps_with_scripts[@]} -gt 0 ]; then
-    echo -e "\n${BLUE}Run the following installation scripts:${NC}"
-    for dep in "${missing_deps_with_scripts[@]}"; do
-      script_path=${install_scripts[$dep]}
-      echo -e "${BLUE}For $dep:${NC} $script_path"
-    done
-  fi
-
-  # Suggest using the all-in-one installation script
-  echo -e "\n${YELLOW}Alternatively, you can run the following command to install all dependencies:${NC}"
-  mode=$(is_docker && echo "" || echo "sudo")
-  echo -e "${BLUE}.install/install_script.sh${NC} ${mode}"
-
-  echo -e "\n${YELLOW}WARNING: Build may fail without these dependencies.${NC}"
-
-  exit 1
+if $missing_deps; then
+  echo -e "\n${YELLOW}WARNING: Some dependencies are missing or do not meet the required version. \nBuild may fail without these dependencies.${NC}"
+  exit_code=1
 else
-  echo -e "\n${GREEN}All dependencies are installed.${NC}"
-  exit 0
+  echo -e "\n${GREEN}All required dependencies are met.${NC}"
+  exit_code=0
 fi
+
+# Suggest using the all-in-one installation script
+echo -e "\n\033[0;36mTo install or inspect dependencies, check the following script:\033[0m"
+is_docker() {
+  [ -f /.dockerenv ] || grep -q docker /proc/1/cgroup 2>/dev/null
+}
+mode=$(is_docker && echo "" || echo "sudo")
+echo -e "cd .install && ./install_script.sh ${mode}"
+
+exit $exit_code
