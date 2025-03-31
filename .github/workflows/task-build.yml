@@ -54,12 +54,12 @@ jobs:
         id: install_deps
         working-directory: RediSearch
         run: |
-          export DEBIAN_FRONTEND=noninteractive
           # Detect the OS from /etc/os-release
           if [ -f /etc/os-release ]; then
             . /etc/os-release
             case "$ID" in
               ubuntu | debian)
+              export DEBIAN_FRONTEND=noninteractive
                 apt update && apt install -y curl make python3 cmake libssl-dev
                 ;;
               rocky | amazonlinux | amzn)
