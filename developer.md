@@ -22,31 +22,31 @@ To build and test RediSearch you need to install several packages, depending on 
 * Amazon linux 2
 * Amazon linux 2023
 * Mariner 2.0
+* Azure linux 3
 * MacOS
 * Alpine linux 3
 
 For installing the prerequisites you can take the following approaches:
-1. Install the dependencies manually - check our install script at ".install/install_script.sh" for the list of dependencies. The script is designed to be run in a Docker environment, so you can use it as a reference for installing the dependencies manually.  In general, the common installations are:
+1. Install the dependencies manually - check our install script at ".install/install_script.sh" for the list of dependencies. In general, the common installations are:
    - `rust` (latest stable version)
    - `cmake >= 3.25.1`
-   - `boost == 1.84.0`
+   - `boost == 1.84.0` you can skip this dependency so our CMake script will have it for you, but this has build time penalty.
    - `build-essential` (on Debian/Ubuntu) or equivalent build tools on other systems
    - `python3` and `python3-pip` (for running tests)
    - `openssl-devel` / `libssl-dev` (for secure connections)
 
-   Required compiler versions for specific operating systems:
-   - Ubuntu 18.04: GCC 9 (not default, installed via PPA)
-   - Ubuntu 20.04: GCC 10 (not default, installed via PPA)
+   - Ubuntu 18.04: GCC 10 (not default, installed via PPA)
+   - Ubuntu 20.04: GCC 12 (not default, installed via PPA)
    - Ubuntu 22.04: Default GCC is sufficient
    - Ubuntu 24.04: Default GCC is sufficient
-   - Debian 11: GCC 10 (not default, installed from testing repositories)
+   - Debian 11: Default GCC is sufficient
    - Debian 12: Default GCC is sufficient
-   - Rocky Linux 8: GCC 10 (not default, installed via devtoolset-10)
-   - Rocky Linux 9: Default GCC is sufficient
-   - Amazon Linux 2: GCC 10 (not default, installed via Amazon's SCL)
+   - Rocky Linux 8: GCC 13 (not default, installed via devtoolset-13)
+   - Rocky Linux 9: GCC 13 (not default, installed via devtoolset-13)
+   - Amazon Linux 2: GCC 11 (not default, installed via Amazon's SCL)
    - Amazon Linux 2023: Default GCC is sufficient
    - Mariner 2.0: Default GCC is sufficient
-   - MacOS: Uses Clang via Xcode Command Line Tools
+   - MacOS: Install clang-18 via brew
    - Alpine Linux 3: Default GCC is sufficient
 
 - you can find the dependencies in each OS script under the [`.install`](.install) directory.
@@ -57,7 +57,7 @@ For installing the prerequisites you can take the following approaches:
     cd .install
     ./install_script.sh sudo  
     ```
-    Note that this will install various packages on your system using the native package manager (sudo is not required in a Docker environment). 
+    Note that this will install various packages on your system using the native package manager (sudo is not required in a Docker environment and the script will fail calling it so). 
 
 ### Redis
 You will not be able to run and test your code without Redis, since you need to load the module. You can build it from source and install it as described in [redis GitHub page](https://github.com/redis/redis).
