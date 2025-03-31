@@ -135,7 +135,6 @@ jobs:
       - name: install all
         id: install_all
         working-directory: RediSearch
-        if: ${{ inputs.container == 'ubuntu:bionic' || inputs.container == 'amazonlinux:2'|| inputs.container == 'ubuntu:focal' }}
         run: |
           cd .install
           ./install_script.sh
