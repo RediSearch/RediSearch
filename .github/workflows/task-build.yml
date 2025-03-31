@@ -196,7 +196,7 @@ jobs:
           ENABLE_ASSERT: 1
         working-directory: RediSearch
         run: |
-          if [[ "${{ inputs.container }}" == amazonlinux:20* ]]; then
+          if [[ "${{ inputs.container }}" == amazonlinux:20* || "${{ inputs.container }}" == ubuntu:no* ]]; then
             echo "Running make with IGNORE_MISSING_DEPS=1 for container: ${{ inputs.container }}"
             make IGNORE_MISSING_DEPS=1
           else
