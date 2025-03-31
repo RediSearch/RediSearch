@@ -11,26 +11,50 @@ git clone --recursive https://github.com/RediSearch/RediSearch.git
 ### Build dependencies
 To build and test RediSearch you need to install several packages, depending on the underlying OS. The following OSes are supported and tested in our CI:
 
-Ubuntu 18.04
-Ubuntu 20.04
-Ubuntu 22.04
-Ubuntu 24.04
-Debian linux 11
-Debian linux 12
-Rocky linux 8
-Rocky linux 9
-Amazon linux 2
-Amazon linux 2023
-Mariner 2.0
-MacOS
-Alpine linux 3
+* Ubuntu 18.04
+* Ubuntu 20.04
+* Ubuntu 22.04
+* Ubuntu 24.04
+* Debian linux 11
+* Debian linux 12
+* Rocky linux 8
+* Rocky linux 9
+* Amazon linux 2
+* Amazon linux 2023
+* Mariner 2.0
+* MacOS
+* Alpine linux 3
 
 For installing the prerequisites you can take the following approaches:
-1. Install the dependencies manually - you can find the dependencies in each OS script under the [`.install`](.install) directory.
+1. Install the dependencies manually - check our install script at ".install/install_script.sh" for the list of dependencies. The script is designed to be run in a Docker environment, so you can use it as a reference for installing the dependencies manually.  In general, the common installations are:
+   - `rust` (latest stable version)
+   - `cmake >= 3.25.1`
+   - `boost == 1.84.0`
+   - `build-essential` (on Debian/Ubuntu) or equivalent build tools on other systems
+   - `python3` and `python3-pip` (for running tests)
+   - `openssl-devel` / `libssl-dev` (for secure connections)
+
+   Required compiler versions for specific operating systems:
+   - Ubuntu 18.04: GCC 9 (not default, installed via PPA)
+   - Ubuntu 20.04: GCC 10 (not default, installed via PPA)
+   - Ubuntu 22.04: Default GCC is sufficient
+   - Ubuntu 24.04: Default GCC is sufficient
+   - Debian 11: GCC 10 (not default, installed from testing repositories)
+   - Debian 12: Default GCC is sufficient
+   - Rocky Linux 8: GCC 10 (not default, installed via devtoolset-10)
+   - Rocky Linux 9: Default GCC is sufficient
+   - Amazon Linux 2: GCC 10 (not default, installed via Amazon's SCL)
+   - Amazon Linux 2023: Default GCC is sufficient
+   - Mariner 2.0: Default GCC is sufficient
+   - MacOS: Uses Clang via Xcode Command Line Tools
+   - Alpine Linux 3: Default GCC is sufficient
+
+- you can find the dependencies in each OS script under the [`.install`](.install) directory.
+ 
 2. Use our CI installation scripts to install the dependencies - you can find the scripts under the [`.install`](.install) directory.
 
     ```bash
-    cd ./install
+    cd .install
     ./install_script.sh sudo  
     ```
     Note that this will install various packages on your system using the native package manager (sudo is not required in a Docker environment). 
