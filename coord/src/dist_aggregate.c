@@ -753,10 +753,6 @@ static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Rep
 static void DistAggregateCleanups(RedisModuleCtx *ctx, specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply, QueryError *status) {
   RS_ASSERT(QueryError_HasError(status));
   QueryError_ReplyAndClear(ctx, status);
-  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  if (sp) {
-    IndexSpecRef_Release(*strong_ref);
-  }
   SpecialCaseCtx_Free(knnCtx);
   if (r) AREQ_Free(r);
   RedisModule_EndReply(reply);
@@ -772,15 +768,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   AREQ *r = AREQ_New();
   QueryError status = {0};
   specialCaseCtx *knnCtx = NULL;
-
-  // Check if the index still exists, and promote the ref accordingly
-  StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  IndexSpec *sp = StrongRef_Get(strong_ref);
-  if (!sp) {
-    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
-    goto err;
-  }
-
   if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, &status) != REDISMODULE_OK) {
     goto err;
   }
@@ -790,8 +777,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   SpecialCaseCtx_Free(knnCtx);
-  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  IndexSpecRef_Release(strong_ref);
   RedisModule_EndReply(reply);
   return;
 
@@ -821,14 +806,6 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // CMD, index, expr, args...
   r = &debug_req->r;
   AREQ_Debug_params debug_params = debug_req->debug_params;
-  // Check if the index still exists, and promote the ref accordingly
-  StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  sp = StrongRef_Get(strong_ref);
-  if (!sp) {
-    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
-    goto err;
-  }
-
   int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, &knnCtx, &status) != REDISMODULE_OK) {
     goto err;
@@ -854,8 +831,6 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   }
 
   SpecialCaseCtx_Free(knnCtx);
-  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  IndexSpecRef_Release(strong_ref);
   RedisModule_EndReply(reply);
   return;
 
