@@ -20,3 +20,15 @@ jobs:
       platform: "all"
       architecture: "all"
       fail-fast: false
+
+  test-alpine:3:
+    needs: [get-latest-redis-tag]
+    uses: ./.github/workflows/flow-linux-platforms.yml
+    secrets: inherit
+    with:
+      coordinator: true
+      redis-ref: unstable
+      test-config: QUICK=1
+      fail-fast: false
+      platform: "alpine:3"
+      architecture: "all"
