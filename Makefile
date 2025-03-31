@@ -8,8 +8,6 @@ SRCDIR=.
 
 MACOS_PACKAGES=openssl
 
-# MK_CUSTOM_BUILD = 1
-
 build: verify_build $(DEFAULT_TARGETS) $(MK_MAKEFILES) $(TARGET)
 	@echo "Build completed."
 verify_build:
