@@ -195,13 +195,7 @@ jobs:
           ENABLE_ASSERT: 1
         working-directory: RediSearch
         run: |
-          if [[ "${{ inputs.container }}" == amazonlinux:20* || "${{ inputs.container }}" == ubuntu:no* ]]; then
-            echo "Running make with IGNORE_MISSING_DEPS=1 for container: ${{ inputs.container }}"
-            make IGNORE_MISSING_DEPS=1
-          else
-            echo "Running make with IGNORE_MISSING_DEPS=0 for container: ${{ inputs.container }}"
-            make
-          fi
+          make
       - name: Fail flow if tests failed
         if: steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
         run: |
