@@ -96,9 +96,10 @@ check_package_tdnf() {
 # ============================================
 
 # Define dependencies that need version checking
+# [<dep>] = "<get_version_function> <check_function> <min_version>"
 declare -A version_checks=(
-  ["gcc"]="get_compiler_version check_gcc_min_version 100"
-  ["g++"]="get_compiler_version check_gpp_min_version 100"
+  ["gcc"]="get_compiler_version check_gcc_min_version 10"
+  ["g++"]="get_compiler_version check_gpp_min_version 10"
 )
 
 # Function to get the version of a compiler
@@ -146,7 +147,6 @@ declare -A common_dependencies=(
   ["python3"]="command"    # Verify using command -v
   ["cmake"]="command"      # Verify using command -v
   ["cargo"]="command"      # Verify using command -v
-  ["meow"]="package"      # Verify using command -v
 )
 
 # Define OS-specific dependencies

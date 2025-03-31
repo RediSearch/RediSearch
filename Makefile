@@ -14,12 +14,16 @@ build: verify_build $(DEFAULT_TARGETS) $(MK_MAKEFILES) $(TARGET)
 	@echo "Build completed."
 verify_build:
 	@echo "Verifying build dependencies..."
-	@if [ "$(IGNORE_MISSING_DEPS)" = "1" ]; then \
-		echo "IGNORE_MISSING_DEPS is set. Ignoring dependency check failures."; \
-		$(ROOT)/.install/verify_build_deps.sh || true; \
-	else \
-		$(ROOT)/.install/verify_build_deps.sh; \
-	fi
+	@if ! $(ROOT)/.install/verify_build_deps.sh; then \
+		if [ "$(IGNORE_MISSING_DEPS)" = "1" ]; then \
+			echo -e "\033[0;33mIGNORE_MISSING_DEPS is set. Ignoring dependency check failure.\033[0m"; \
+		else \
+            echo ""; \
+			echo -e "\033[0;31mDependency check failed. You can bypass this check by running:\033[0m"; \
+			echo -e "\033[0;31m\033[1mmake IGNORE_MISSING_DEPS=1 ...\033[0m"; \
+            exit 1; \
+        fi; \
+    fi
 
 include deps/readies/mk/main
 
