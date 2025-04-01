@@ -230,7 +230,7 @@ static double inline CalculateBM25Std(float b, float k1, double idf, double f, i
 /* recursively calculate score for each token, summing up sub tokens */
 static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
                             const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) {
-  static const float b = 0.5f;
+  static const float b = 0.75f;
   static const float k1 = 1.2f;
   double f = (double)r->freq;
   double ret = 0;
