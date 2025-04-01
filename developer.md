@@ -11,37 +11,62 @@ We have provided a dev container based on `ubuntu:latest` docker image with all 
 If you would like to build it on your machine without a docker, proceed to the next sections.
 ## Installing prerequisites
 
-## Build dependencies
+### Build dependencies
 To build and test RediSearch you need to install several packages, depending on the underlying OS. The following OSes are supported and tested in our CI:
 
-Ubuntu 18.04
-Ubuntu 20.04
-Ubuntu 22.04
-Ubuntu 24.04
-Debian linux 11
-Debian linux 12
-Rocky linux 8
-Rocky linux 9
-Amazon linux 2
-Amazon linux 2023
-Mariner 2.0
-MacOS
-Alpine linux 3
+* Ubuntu 18.04
+* Ubuntu 20.04
+* Ubuntu 22.04
+* Ubuntu 24.04
+* Debian linux 11
+* Debian linux 12
+* Rocky linux 8
+* Rocky linux 9
+* Amazon linux 2
+* Amazon linux 2023
+* Mariner 2.0
+* Azure linux 3
+* MacOS
+* Alpine linux 3
 
 For installing the prerequisites you can take the following approaches:
-1. Install the dependencies manually - you can find the dependencies in each OS script under the [`.install`](.install) directory.
+1. Install the dependencies manually - check our install script at ".install/install_script.sh" for the list of dependencies. In general, the common installations are:
+   - `rust` (latest stable version)
+   - `cmake >= 3.25.1`
+   - `boost == 1.84.0` you can skip this dependency so our CMake script will have it for you, but this has build time penalty.
+   - `build-essential` (on Debian/Ubuntu) or equivalent build tools on other systems
+   - `python3` and `python3-pip` (for running tests)
+   - `openssl-devel` / `libssl-dev` (for secure connections)
+
+   - Ubuntu 18.04: GCC 10 (not default, installed via PPA)
+   - Ubuntu 20.04: GCC 10 (not default, installed via PPA)
+   - Ubuntu 22.04: GCC 12 (not default, PPA not required)
+   - Ubuntu 24.04: Default GCC is sufficient
+   - Debian 11: Default GCC is sufficient
+   - Debian 12: Default GCC is sufficient
+   - Rocky Linux 8: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
+   - Rocky Linux 9: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
+   - Amazon Linux 2: GCC 11 (not default, installed via Amazon's SCL)
+   - Amazon Linux 2023: Default GCC is sufficient
+   - Mariner 2.0: Default GCC is sufficient
+    - Azure Linux 3: Default GCC is sufficient
+   - MacOS: Install clang-18 via brew
+   - Alpine Linux 3: Default GCC is sufficient
+
+- you can find the dependencies in each OS script under the [`.install`](.install) directory.
+ 
 2. Use our CI installation scripts to install the dependencies - you can find the scripts under the [`.install`](.install) directory.
 
     ```bash
-    cd ./install
+    cd .install
     ./install_script.sh sudo  
     ```
-    Note that this will install various packages on your system using the native package manager (sudo is not required in a Docker environment). 
+    Note that this will install various packages on your system using the native package manager (sudo is not required in a Docker environment and the script will fail calling it so). 
 
-## Redis
+### Redis
 You will not be able to run and test your code without Redis, since you need to load the module. You can build it from source and install it as described in [redis GitHub page](https://github.com/redis/redis).
 
-#### RedisJSON
+### RedisJSON
 Some of our behavioral tests require RedisJSON to be present. Our testing framework will clone and build RedisJSON for you.
 
 
