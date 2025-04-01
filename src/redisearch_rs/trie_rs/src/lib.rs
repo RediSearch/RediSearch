@@ -3,7 +3,7 @@ pub mod ffi;
 
 pub mod trie;
 pub(crate) mod node;
-
+pub mod trie_new;
 
 
 /// Registers the Redis module allocator

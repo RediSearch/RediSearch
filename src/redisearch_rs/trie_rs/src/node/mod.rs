@@ -17,6 +17,7 @@ mod leaf;
 // N<D>: 8bytes ---> dyn Bytes Heap
 // BN: 8bytes ---> dyn Bytes Heap
 
+#[derive(Clone, PartialEq, Eq)]
 pub struct Node<Data> {
     ptr: std::ptr::NonNull<AllocationHeader>,
     _phantom: PhantomData<Data>,
@@ -51,6 +52,10 @@ impl<Data> Node<Data> {
         };
 
         bnode.into()
+    }
+
+    pub fn root() -> Self {
+        branching::BranchingNode::create_root().into()
     }
 
     pub fn get_shared_prefix_len(&self, rh_label: &[c_char]) -> usize {

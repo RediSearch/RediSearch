@@ -13,6 +13,7 @@ pub mod ffi;
 mod redis_allocator;
 
 // Convenient aliases for the trie types that are being benchmarked.
+pub type RustNewTrie = trie_rs::trie_new::TrieMap<NonNull<c_void>>;
 pub type RustTrieMap = trie_rs::trie::TrieMap<NonNull<c_void>>;
 pub type RustRadixTrie = radix_trie::Trie<Vec<u8>, NonNull<c_void>>;
 pub type CTrieMap = crate::ffi::TrieMap;
