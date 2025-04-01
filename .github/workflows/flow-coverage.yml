@@ -39,11 +39,22 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: ./deps/readies/bin/getredis --with-github-token --branch unstable
     - name: Build and test
-      run: make coverage QUICK=1 SHOW=1 REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
+      run: make coverage-unit QUICK=1 SHOW=1 REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
     - name: Upload coverage
       uses: codecov/codecov-action@v5
       with:
         files: bin/linux-x64-debug-cov/cov.info,bin/linux-x64-debug-cov/rust_cov.info
         disable_search: true
+        flags: unit
+        fail_ci_if_error: true # Fail on upload errors
+        token: ${{ secrets.CODECOV_TOKEN }}
+    - name: Build and test flow
+      run: make coverage-flow QUICK=1 SHOW=1 REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
+    - name: Upload coverage
+      uses: codecov/codecov-action@v5
+      with:
+        files: bin/linux-x64-debug-cov/cov.info,bin/linux-x64-debug-cov/rust_cov.info
+        disable_search: true
+        flags: flow
         fail_ci_if_error: true # Fail on upload errors
         token: ${{ secrets.CODECOV_TOKEN }}
