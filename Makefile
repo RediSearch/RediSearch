@@ -525,7 +525,7 @@ cpp-tests:
 vecsim-bench:
 	$(SHOW)$(BINROOT)/search/tests/cpptests/rsbench
 
-.PHONY: test unit-tests pytest rust-tests c_tests cpp_tests vecsim-bench
+
 
 #----------------------------------------------------------------------------------------------
 
