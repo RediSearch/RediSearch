@@ -1,0 +1,128 @@
+name: Rust Benchmarks
+
+on:
+    pull_request:
+      paths:
+        - 'src/redisearch_rs/**/*.rs'
+        - '**/*.toml'  # Cargo files
+        - 'src/redisearch_rs/.cargo/**'
+
+    workflow_dispatch:
+      inputs:
+        force_run:
+          type: boolean
+          description: 'Also run if there are no changes in Rust code'
+          default: false
+        
+    workflow_call:
+      inputs:
+        force_run:
+          type: boolean
+          description: 'Also run if there are no changes in Rust code'
+          default: false
+        skip_checkout_build:
+          type: boolean
+          description: 'Skip checkout and build steps (use when calling from another workflow)'
+          default: false
+
+jobs:
+  check-changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      should_run: ${{ steps.filter.outputs.rust_any_changed || inputs.force_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for all branches and tags
+      
+      - name: Check for Rust file changes
+        id: filter
+        uses: dorny/paths-filter@v2
+        with:
+          filters: |
+            rust_any_changed:
+              - 'src/redisearch_rs/**/*.rs'
+              - '**/*.toml'  # Cargo files
+              - 'src/redisearch_rs/.cargo/**'
+  benchmarks:
+    runs-on: ubuntu-24.04
+    env:
+      RUST_BACKTRACE: full
+    steps:
+      # Refactor the following steps in own yaml?!
+      - name: Checkout
+        if: ${{ !inputs.skip_checkout_build }}
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup specific  # assuming node20 supported
+        if: ${{ !inputs.skip_checkout_build }}  
+        working-directory: .install
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }} sudo
+      - name: Setup tests dependencies
+        if: ${{ !inputs.skip_checkout_build }}
+        run: |
+          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }} sudo
+      - name: Install Boost
+        if: ${{ !inputs.skip_checkout_build }}
+        working-directory: .install
+        run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
+
+      - name: Build RediSearch
+        if: ${{ !inputs.skip_checkout_build }}
+        run: make build
+            PROFILE=${{ inputs.profile_env }}
+            SHOW=1
+      - name: Prepare automation
+        if: ${{ !inputs.skip_checkout_build }}
+        run: |
+          ./deps/readies/bin/getpy3
+          pip3 install --upgrade pip
+          python3 -m pip install -r tests/benchmarks/requirements.txt
+          VERSION=1.11.1 sudo ./deps/readies/bin/getterraform
+      - name: Prepare ReJSON Module
+        if: ${{ !inputs.skip_checkout_build }}
+        run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
+      
+      - name: Get Latest Baseline
+        uses: actions/download-artifact@v4
+        with: 
+          name: rust-benchmark-results-master
+          path: bin/redisearch_rs/criterion
+        continue-on-error: true # Prevent failure if no baseline exists yet
+      - name: Check if Baseline Exists
+        id: check_baseline
+        run: |
+          if [ -d "bin/redisearch_rs/criterion" ]; then
+            echo "baseline_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "baseline_exists=false" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Run benchmark on PR with baseline from master
+        if: github.event_name == 'pull_request' && steps.check_baseline.outputs.baseline_exists == 'true'
+        run: cargo bench -- --baseline master
+        working-directory: "src/redisearch_rs/trie_bencher"
+      - name: Run benchmark on PR without baseline
+        if: github.event_name == 'pull_request' && steps.check_baseline.outputs.baseline_exists == 'false'
+        run: cargo bench
+        working-directory: "src/redisearch_rs/trie_bencher"
+      - name: Run benchmark on master
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push' && success() 
+        run: cargo bench -- --save-baseline master
+        working-directory: "src/redisearch_rs/trie_bencher"
+
+      - name: Upload rust baseline benchmarks for master
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push' && success() 
+        uses: actions/upload-artifact@v4
+        with:
+          name: "rust-benchmark-results-master"
+          path: "bin/redisearch_rs/criterion"
+      - name: Upload benchmarks for PR comparison
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: "rust-benchmark-results-pr-${{ github.event.pull_request.number }}"
+          path: "bin/redisearch_rs/criterion"    
