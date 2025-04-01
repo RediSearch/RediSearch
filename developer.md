@@ -36,16 +36,17 @@ For installing the prerequisites you can take the following approaches:
    - `openssl-devel` / `libssl-dev` (for secure connections)
 
    - Ubuntu 18.04: GCC 10 (not default, installed via PPA)
-   - Ubuntu 20.04: GCC 12 (not default, installed via PPA)
-   - Ubuntu 22.04: Default GCC is sufficient
+   - Ubuntu 20.04: GCC 10 (not default, installed via PPA)
+   - Ubuntu 22.04: GCC 12 (not default, PPA not required)
    - Ubuntu 24.04: Default GCC is sufficient
    - Debian 11: Default GCC is sufficient
    - Debian 12: Default GCC is sufficient
-   - Rocky Linux 8: GCC 13 (not default, installed via devtoolset-13)
-   - Rocky Linux 9: GCC 13 (not default, installed via devtoolset-13)
+   - Rocky Linux 8: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
+   - Rocky Linux 9: GCC 13 (not default, installed via gcc-toolset-13-gcc and gcc-toolset-13-gcc-c++)
    - Amazon Linux 2: GCC 11 (not default, installed via Amazon's SCL)
    - Amazon Linux 2023: Default GCC is sufficient
    - Mariner 2.0: Default GCC is sufficient
+    - Azure Linux 3: Default GCC is sufficient
    - MacOS: Install clang-18 via brew
    - Alpine Linux 3: Default GCC is sufficient
 
