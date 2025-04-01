@@ -19,6 +19,20 @@ impl<Data> From<LeafNode<Data>> for Node<Data> {
     }
 }
 
+impl<Data> AsRef<Node<Data>> for LeafNode<Data> {
+    fn as_ref(&self) -> &Node<Data> {
+        // SAFETY: All good, repr(transparent) to the rescue.
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl<Data> AsMut<Node<Data>> for LeafNode<Data> {
+    fn as_mut(&mut self) -> &mut Node<Data> {
+        // SAFETY: All good, repr(transparent) to the rescue.
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
 impl<Data> LeafNode<Data> {
     pub(crate) fn new(data: Data, label: &[c_char]) -> Self {
         Self(Node {
@@ -100,15 +114,12 @@ impl<Data> LeafNode<Data> {
             BranchingNode::allocate(
                 &label_ref,
                 &[],
-                new_child.into(),
+                Some(new_child.into()),
                 &[adapt_child_that_was_there.into()],
             )
         };
-        // 
-        unsafe {
-            BranchingNode::swap_ensure_shallow_del(branching, &mut self.0);
-        }
-
+        
+        BranchingNode::swap_ensure_shallow_del(branching, &mut self.0);
     }
 
     /// # Panics

@@ -630,17 +630,7 @@ impl<'tm, Data> Iterator for Iter<'tm, Data> {
 mod test {
 
     use super::*;
-
-    trait ToCCharArray<const N: usize> {
-        /// Convenience method to convert a byte array to a C-compatible character array.
-        fn c_chars(self) -> [c_char; N];
-    }
-
-    impl<const N: usize> ToCCharArray<N> for [u8; N] {
-        fn c_chars(self) -> [c_char; N] {
-            self.map(|b| b as c_char)
-        }
-    }
+    use crate::test::*;
 
     /// Forwards to `insta::assert_debug_snapshot!`,
     /// but is disabled in Miri, as snapshot testing

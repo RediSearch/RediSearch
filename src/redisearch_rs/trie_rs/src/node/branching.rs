@@ -18,8 +18,22 @@ impl<Data> From<BranchingNode<Data>> for Node<Data> {
     }
 }
 
+impl<Data> AsRef<Node<Data>> for BranchingNode<Data> {
+    fn as_ref(&self) -> &Node<Data> {
+        // SAFETY: All good, repr(transparent) to the rescue.
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
+impl<Data> AsMut<Node<Data>> for BranchingNode<Data> {
+    fn as_mut(&mut self) -> &mut Node<Data> {
+        // SAFETY: All good, repr(transparent) to the rescue.
+        unsafe { std::mem::transmute(self) }
+    }
+}
+
 impl<Data> BranchingNode<Data> {
-    pub fn shrink(&mut self, child_index: usize) -> Node<Data> {
+    pub fn shrink(&mut self, _child_index: usize) -> Node<Data> {
         todo!("replace self with a smaller branching node")
     }
 
@@ -132,7 +146,7 @@ impl<Data> BranchingNode<Data> {
                 // Safety: We mark the old node as drop shallow and actually drop it after reallocation
                 unsafe {
                     let new_branch =
-                        Self::allocate(child_label, self_children, new_child.into(), &[]);
+                        Self::allocate(child_label, self_children, Some(new_child.into()), &[]);
                     Self::swap_ensure_shallow_del(new_branch, &mut self.0);
                 };
             }
@@ -180,7 +194,7 @@ impl<Data> BranchingNode<Data> {
                 // allocate branching node with num_children+1
                 // Safety: create new branch and swap with self, ensuring shallow delete
                 let new_branch = unsafe {
-                    Self::allocate(new_brnch_label, left_slice, new_child.into(), right_slice)
+                    Self::allocate(new_brnch_label, left_slice, Some(new_child.into()), right_slice)
                 };
                 BranchingNode::swap_ensure_shallow_del(new_branch, &mut self.0);
 
@@ -198,7 +212,7 @@ impl<Data> BranchingNode<Data> {
             return None;
         }
 
-        let to_remove = &self.children()[idx];
+        let _to_remove = &self.children()[idx];
 
         // todo: replace self, better at higher level? I think C defered deletion in some case?
 
@@ -218,14 +232,14 @@ impl<Data> BranchingNode<Data> {
     pub(crate) unsafe fn allocate(
         label: &[c_char],
         left: &[Node<Data>],
-        new_node: Node<Data>,
+        new_node: Option<Node<Data>>,
         right: &[Node<Data>],
     ) -> Self {
         // TODO: Check *here* that we're smaller than u15::MAX.
         let label_len: u16 = label.len().try_into().unwrap();
 
         let has_empty_labeled_child = right.last().map_or_else(
-            || new_node.label().is_empty(),
+            || new_node.as_ref().map(|nn| nn.label().is_empty()).unwrap_or(false),
             |right_last| right_last.label().is_empty(),
         );
 
@@ -238,7 +252,7 @@ impl<Data> BranchingNode<Data> {
             // SAFETY:
             // `layout.size()` is greater than zero, since the header has a well-known
             // non-zero size (2 bytes).
-            unsafe { alloc(layout.layout) as *mut AllocationHeader }
+            unsafe { alloc_zeroed(layout.layout) as *mut AllocationHeader }
         };
 
         let Some(mut buffer_ptr) = NonNull::new(buffer_ptr) else {
@@ -247,18 +261,21 @@ impl<Data> BranchingNode<Data> {
         };
         // Initialize the allocated buffer with valid values.
 
-        unsafe {
-            buffer_ptr
-                .as_mut()
-                .mark_as_empty_labeled_child(has_empty_labeled_child);
-        }
-
         // SAFETY:
         // - The destination and the value are properly aligned,
         //   since the allocation was performed against a type layout
         //   that begins with a header field.
         unsafe {
             buffer_ptr.write(AllocationHeader::branching(label_len));
+        }
+
+        // SAFETY: 
+        // as the flags are in a valid state due to the call to branching we can now start
+        // to alter it. This only works if the header has been written.
+        unsafe {
+            buffer_ptr
+                .as_mut()
+                .mark_as_empty_labeled_child(has_empty_labeled_child);
         }
 
         unsafe {
@@ -277,28 +294,28 @@ impl<Data> BranchingNode<Data> {
                 .write(num_non_empty_labeled_children as u8);
         }
 
-        // Copy the first bytes of the non-empty-labeled children's labels.
-        for (idx, child) in left
-            .iter()
-            .chain(std::iter::once(&new_node))
-            .chain(right.iter())
-            .enumerate()
-            .take(num_non_empty_labeled_children)
-        {
-            if let Some(first_byte) = child.label().first() {
-                unsafe {
-                    layout
-                        .child_first_bytes_ptr(buffer_ptr)
-                        .as_ptr()
-                        .add(idx)
-                        .write(*first_byte)
-                };
-            } else {
-                unreachable!(
-                    "The empty labeled child, if any, should be at the end and if so,\
-                it should be skipped due to num_child_first_bytes being 1 less than children.len()"
-                );
-            }
+        if new_node.is_none() && left.is_empty() && right.is_empty() {
+            return BranchingNode(Node {
+                ptr: buffer_ptr,
+                _phantom: PhantomData,
+            });
+        }
+        //~
+        // if we're here we continue with copying the children
+
+
+        // And start by Copy the first bytes of the non-empty-labeled children's labels.
+        if let Some(new_node) = &new_node {
+            let iter = left
+                .iter()
+                .chain(std::iter::once(new_node))
+                .chain(right.iter());
+            BranchingNode::copy_first_bytes_children_based_on_iter(iter, num_non_empty_labeled_children, &layout, &buffer_ptr);
+        } else {
+            let iter = left
+                .iter()
+                .chain(right.iter());
+            BranchingNode::copy_first_bytes_children_based_on_iter(iter, num_non_empty_labeled_children, &layout, &buffer_ptr);
         }
 
         // memcpy the children, including the non-empty labeled child
@@ -313,16 +330,18 @@ impl<Data> BranchingNode<Data> {
             }
         }
         // copy new child to children.add(offset)
-        let offset = left.len();
-        unsafe {
-            layout
-                .children_ptr(buffer_ptr)
-                .as_ptr()
-                .add(offset)
-                .write(new_node);
+        let mut offset = left.len();
+        if let Some(new_node) = new_node {
+            unsafe {
+                layout
+                    .children_ptr(buffer_ptr)
+                    .as_ptr()
+                    .add(offset)
+                    .write(new_node);
+            }
+            // Copy the right children to children.add(offset + 1)
+            offset = offset + 1;
         }
-        // Copy the right children to children.add(offset + 1)
-        let offset = offset + 1;
         if !right.is_empty() {
             unsafe {
                 std::ptr::copy_nonoverlapping(
@@ -337,6 +356,32 @@ impl<Data> BranchingNode<Data> {
             ptr: buffer_ptr,
             _phantom: PhantomData,
         })
+    }
+
+    fn copy_first_bytes_children_based_on_iter<'a, Iter: Iterator<Item = &'a Node<Data>>>( 
+        iter: Iter,
+        num_non_empty_labeled_children: usize,
+        layout: &'a BranchLayout<Data>,
+        buffer_ptr: &'a NonNull<AllocationHeader> ) {
+        for (idx, child) in iter
+            .enumerate()
+            .take(num_non_empty_labeled_children)
+        {
+            if let Some(first_byte) = child.label().first() {
+                unsafe {
+                    layout
+                        .child_first_bytes_ptr(*buffer_ptr)
+                        .as_ptr()
+                        .add(idx)
+                        .write(*first_byte)
+                };
+            } else {
+                unreachable!(
+                    "The empty labeled child, if any, should be at the end and if so,\
+                it should be skipped due to num_child_first_bytes being 1 less than children.len()"
+                );
+            }
+        }
     }
 }
 
@@ -497,5 +542,18 @@ impl<Data> BranchLayout<Data> {
 
     pub const fn label_ptr(&self, header_ptr: NonNull<AllocationHeader>) -> NonNull<c_char> {
         unsafe { header_ptr.byte_offset(self.label_offset as isize) }.cast()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::test::*;
+    use super::*;
+
+    #[test]
+    fn root_alloc() {
+        let bn: BranchingNode<i32> = unsafe { BranchingNode::allocate(&b"".c_chars(), &[], None, &[])};
+        assert_eq!(bn.children().len(), 0);
+        assert_eq!(bn.children_first_bytes().len(), 0)
     }
 }
