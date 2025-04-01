@@ -9,6 +9,7 @@
 #include "module.h"
 #include "version.h"
 #include "tag_index.h"
+#include "info/info_redis/threads/current_thread.h"
 
 #include <vector>
 #include <array>
@@ -26,6 +27,7 @@ TEST_F(ExpireTest, testSkipTo) {
   RMCK::ArgvList args(ctx, "FT.CREATE", "expire_idx", "ON", "HASH", "SKIPINITIALSCAN",
                       "SCHEMA", "t1", "TAG");
   IndexSpec *spec = IndexSpec_CreateNew(ctx, args, args.size(), &qerr);
+  CurrentThread_SetIndexSpec(spec->own_ref);
   ASSERT_NE(spec, nullptr);
   const FieldSpec *fs = IndexSpec_GetFieldWithLength(spec, "t1", 2);
   ASSERT_NE(fs, nullptr);
@@ -49,7 +51,7 @@ TEST_F(ExpireTest, testSkipTo) {
   RedisModule_FreeString(ctx, hset_args[1]);
   RedisModule_FreeString(ctx, hset_args[2]);
 
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->name, true);
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, HiddenString_GetUnsafe(spec->specName, NULL), true);
   const auto epoch = std::chrono::system_clock::now().time_since_epoch();
   const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(epoch);
   const auto remaining = epoch - seconds;
@@ -58,7 +60,7 @@ TEST_F(ExpireTest, testSkipTo) {
   sctx->time.current.tv_nsec = std::chrono::duration_cast<std::chrono::nanoseconds>(remaining).count();
 
   RedisModuleString *kstr = IndexSpec_GetFormattedKey(spec, fs, INDEXFLD_T_TAG);
-  TagIndex *idx = TagIndex_Open(sctx, kstr, DONT_CREATE_INDEX);
+  TagIndex *idx = TagIndex_Open(sctx->spec, kstr, DONT_CREATE_INDEX);
   ASSERT_NE(idx, nullptr);
   IndexIterator *it = TagIndex_OpenReader(idx, sctx, "one", strlen("one"), 1.0, 0);
   ASSERT_EQ(it->LastDocId(it->ctx), 1);
@@ -75,7 +77,7 @@ TEST_F(ExpireTest, testSkipTo) {
   }
   it->Free(it);
   SearchCtx_Free(sctx);
-  IndexSpec_RemoveFromGlobals(spec->own_ref);
+  IndexSpec_RemoveFromGlobals(spec->own_ref, true);
   args.clear();
   RedisModule_FreeThreadSafeContext(ctx);
 }

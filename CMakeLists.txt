@@ -137,8 +137,11 @@ file(GLOB SOURCES
     "src/query_parser/v2/*.c"
     "src/util/*.c"
     "src/trie/*.c"
-    "src/info/*.c"
     "src/iterators/*.c"
+    "src/info/*.c"
+    "src/info/info_redis/*.c"
+    "src/info/info_redis/threads/*.c"
+    "src/info/info_redis/types/*.c"
     "src/module-init/*.c"
     "src/obfuscation/*.c"
 

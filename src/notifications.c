@@ -329,8 +329,9 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
 }
 
 void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
-  RedisModule_Log(ctx, "notice", "%s", "Clearing resources on shutdown");
+  RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
   RediSearch_CleanupModule();
+  RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 
 #define HIDE_USER_DATA_FROM_LOGS "hide-user-data-from-log"
@@ -375,6 +376,9 @@ void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
     REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
     REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE,
     HashNotificationCallback);
+
+  // RedisModule_SubscribeToServerEvent should exist since redis 6.0
+  // We can assume it is always present
 
   // we do not need to scan after rdb load, i.e, there is not danger of losing results
   // after resharding, its safe to filter keys which are not in our slot range.
