@@ -86,6 +86,8 @@ make cpp-tests     # run C++ tests (from tests/cpptests)
 make rust-tests    # run Rust tests (from src/redisearch_rs)
   RUN_MIRI=0|1           # run the Rust test suite again through miri to catch undefined behavior (default: 0)
 make vecsim-bench  # run VecSim micro-benchmark
+make crit-bench    # run Criterion micro-benchmark
+  SAVE_BASELINE=0|1      # save baseline results for future comparison
 
 make callgrind     # produce a call graph
   REDIS_ARGS="args"
@@ -485,7 +487,19 @@ cpp-tests:
 vecsim-bench:
 	$(SHOW)$(BINROOT)/search/tests/cpptests/rsbench
 
-.PHONY: test unit-tests pytest rust-tests c_tests cpp_tests vecsim-bench
+RUST_BENCH_OPTIONS="--all-features"
+RUST_BENCH_EXTRA_ARGS=""
+
+ifeq ($(SAVE_BASELINE), 1)
+RUST_BENCH_EXTRA_ARGS+="--save-baseline baseline"
+else
+RUST_BENCH_EXTRA_ARGS+="--save-baseline new"
+endif
+
+crit-bench:
+	$(SHOW)cd $(REDISEARCH_RS_DIR)/trie_bencher && cargo bench $(RUST_BENCH_OPTIONS) $(BENCH_NAME) -- $(RUST_BENCH_EXTRA_ARGS)
+
+.PHONY: test unit-tests pytest rust-tests c_tests cpp_tests vecsim-bench crit-bench
 
 #----------------------------------------------------------------------------------------------
 
