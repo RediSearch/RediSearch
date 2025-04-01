@@ -16,6 +16,7 @@ on:
           - debian:bullseye
           - amazonlinux:2
           - mariner:2
+          - azurelinux:3
           - macos
         description: 'Platform to build on. Use "all" to build on all'
         default: all
