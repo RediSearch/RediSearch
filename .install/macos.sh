@@ -10,6 +10,7 @@ fi
 
 export HOMEBREW_NO_AUTO_UPDATE=1
 
+brew pin cmake
 brew update
 brew install coreutils
 brew install make
