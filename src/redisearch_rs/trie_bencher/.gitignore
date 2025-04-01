@@ -1,0 +1,3 @@
+data/*
+!data/bench.txt
+!data/bench_trie.txt
