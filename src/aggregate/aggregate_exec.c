@@ -114,8 +114,15 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     RedisModule_Reply_Map(reply);
   }
 
-  if (dmd && (options & QEXEC_F_IS_SEARCH)) {
+  if (options & QEXEC_F_IS_SEARCH) {
     size_t n;
+    RS_LOG_ASSERT(dmd, "Document metadata NULL in result serialization.");
+    if (!dmd) {
+      // Empty results should not be serialized!
+      // We already crashed in development env. In production, log and continue
+      RedisModule_Log(req->sctx->redisCtx, "warning", "Document metadata NULL in result serialization.");
+      return 0;
+    }
     const char *s = DMD_KeyPtrLen(dmd, &n);
     if (has_map) {
       RedisModule_ReplyKV_StringBuffer(reply, "id", s, n);

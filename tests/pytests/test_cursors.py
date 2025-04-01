@@ -58,7 +58,6 @@ def testCursorsBG():
     env = Env(moduleArgs='WORKERS 1 _PRINT_PROFILE_CLOCK FALSE ON_TIMEOUT RETURN')
     testCursors(env)
 
-
 @skip(cluster=True)
 def testCursorsBGEdgeCasesSanity():
     env = Env(moduleArgs='WORKERS 1')
