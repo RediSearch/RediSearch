@@ -150,6 +150,9 @@ impl<Data> Node<Data> {
             // child or if we already have a child with the same first byte.
             let child = self.children.find_or_insert(*first_byte, || Node {
                 children: ChildRefs::new(),
+                // Data will be set when recursing, as we'll end up in the
+                // equality case handled just above, because this child's label
+                // is equal to the suffix.
                 data: None,
                 label: LowMemoryThinVec::from_slice(suffix),
             });
