@@ -210,14 +210,16 @@ impl<Data> Node<Data> {
         // case 2-3: leaf node label == suffix -> we replace that leaf node (how to encode via return value?)
         //
         // case 3-x-y: self is a branching node
-        // case-3-1-y: found a child candidate via first bytes, 
-        // case-3-1-1: child candidate shares only a prefix with key, e.g. 'aa' and 'ab' -> branch will merge after insertion
-        // case-3-1-2: child candidate label is full prefix of key -> recursion on that child
-        // case-3-2-1: didn't found a candidate via first bytes -> self is parent: decide where to insert via binary search 
+        // case-3-1-y: found a child candidate via first bytes
+        // case-3-1-1: child candidate is leaf -> return self as parent
+        // case-3-1-2: child candidate is branching and has a partial prefix, e.g. 'aa' and 'ab' -> recursion on candidate
+        // case-3-1-3: child candidate is branching and has a full prefix -> self is parent and candidate was searched
+        // case-3-2: didn't found a candidate via first bytes -> self is parent: decide where to insert via binary search 
         
         // case 1
         if key.is_empty() {
             debug_assert!(self.is_branching());
+            println!("case-1");
             return (self, Err(usize::MAX), &[]); //  we insert an empty labeled node at the end
         }
 
@@ -233,33 +235,34 @@ impl<Data> Node<Data> {
                     std::cmp::Ordering::Equal => Ok(0),     // replace this leaf
                     std::cmp::Ordering::Greater => Err(0),  // insert new after this leaf
                 };
-
+                println!("case-2");
                 (leaf.as_mut(), index_or_insert_at, suffix)
             }
             // case 3-x-y: self is branching:
             Either::Right(branching) => {
                 let search_result=  branching.children().binary_search_by(|e| e.label()[0].cmp(&key[0]));
+                println!("case-3");
                 match search_result {
                     Ok(found_at) => {
-                        let candidate = &mut branching.children_mut()[found_at];
+                        let candidate = &branching.children()[found_at];
                         let shared_candidate_suffix_len = get_shared_prefix_len(candidate.label(), suffix);
                         let candidate_suffix: &[c_char] = &suffix[shared_candidate_suffix_len..];
-                        candidate.find_node_parent_mut(candidate_suffix)
-                        //let t = candidate.find_node_parent_mut(candidate_suffix);
-                        //(self, t.1, t.2)
-                        
-                        // todo: ensure that 3-1-2 and 3-1-1 really differ
-                        /* 
-                        if shared_candidate_suffix_len == candidate.label().len() {
-                            // case 3-1-2: shares full prefix --> we found the parent
-                            
+                        if candidate.is_leaf() {
+                            println!("case-3-1-1");
+                            (branching.as_mut(), Ok(found_at), candidate_suffix)
+                        } else {
+                            if shared_candidate_suffix_len < candidate.label().len() {
+                                println!("case-3-1-2");
+                                branching.children_mut()[found_at].find_node_parent_mut(candidate_suffix)
+                            } else {
+                                // we know shared_candidate_suffix_len = candidate_label_len
+                                println!("case-3-1-3");
+                                (branching.as_mut(), Ok(found_at), candidate_suffix)
+                            }
                         }
-                        else {
-                            todo!()
-                        }
-                        */
                     },
                     Err(insert_at) => {
+                        println!("case-3-2");
                         (branching.as_mut(), Err(insert_at), suffix)
                     },
                 }
@@ -353,21 +356,18 @@ impl<Data> Node<Data> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test::*;
+    use crate::ToCCharArray;
 
     #[test]
     fn test_new_trie() {
         // create root node
         let mut node: Node<i32> = Node::branching(&b"".c_chars(), &[]);
+        node.add_child(&b"bike".c_chars(), 0);
+        println!("find now");
+        assert_eq!(node.find(&b"bike".c_chars()), Some(&0));
+        assert_eq!(node.find(&b"cool".c_chars()), None);
         
-        // the following crahses:
-        //node.add_child(&b"bike".c_chars(), 0);
-        //assert_eq!(node.find(&b"bike".c_chars()), Some(&0));
-
-        /*
-        assert_eq!(trie.find(&b"bike".c_chars()), Some(&0));
-        assert_eq!(trie.find(&b"cool".c_chars()), None);
-        assert_debug_snapshot!(trie, @r#""bike" (0)"#);
-        */
+        // todo: implement debug snapshot print
+        //assert_debug_snapshot!(trie, @r#""bike" (0)"#);
     }
 }

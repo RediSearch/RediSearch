@@ -1,4 +1,5 @@
 use crate::node::header::NodeDropState;
+use crate::ToCCharArray;
 
 use super::header::AllocationHeader;
 use super::leaf::LeafNode;
@@ -33,6 +34,10 @@ impl<Data> AsMut<Node<Data>> for BranchingNode<Data> {
 }
 
 impl<Data> BranchingNode<Data> {
+    pub fn create_root() -> Self {
+        unsafe { BranchingNode::allocate(&b"".c_chars(), &[], None, &[])}
+    }
+
     pub fn shrink(&mut self, _child_index: usize) -> Node<Data> {
         todo!("replace self with a smaller branching node")
     }
@@ -243,7 +248,7 @@ impl<Data> BranchingNode<Data> {
             |right_last| right_last.label().is_empty(),
         );
 
-        let num_children_total = left.len() + 1 + right.len();
+        let num_children_total = left.len() + new_node.is_some() as usize + right.len();
         let num_non_empty_labeled_children = num_children_total - has_empty_labeled_child as usize;
 
         let layout = BranchLayout::<Data>::new(label_len, num_children_total as u16);
@@ -390,7 +395,8 @@ impl<Data> Drop for BranchingNode<Data> {
     fn drop(&mut self) {
         if self.header().drop_state() == NodeDropState::DropRecursive {
             // how do we know about the right callback, here? store it in self?
-            todo!("Delete children")
+            //todo!("Delete children")
+            // todo: not leak
         }
 
         unsafe {
@@ -483,18 +489,18 @@ impl<Data> BranchLayout<Data> {
         };
 
         // label part of array
-        let Ok(c_char_array) = Layout::array::<c_char>((label_len) as usize) else {
+        let Ok(c_char_label_array) = Layout::array::<c_char>((label_len) as usize) else {
             panic!("Boom")
         };
-        let Ok((layout, label_offset)) = layout.extend(c_char_array) else {
+        let Ok((layout, label_offset)) = layout.extend(c_char_label_array) else {
             unreachable!()
         };
 
         // first byte part of array
-        let Ok(c_char_array) = Layout::array::<c_char>((label_len) as usize) else {
+        let Ok(c_char_first_bytes_array) = Layout::array::<c_char>((num_children) as usize) else {
             panic!("Boom")
         };
-        let Ok((layout, children_first_bytes_offset)) = layout.extend(c_char_array) else {
+        let Ok((layout, children_first_bytes_offset)) = layout.extend(c_char_first_bytes_array) else {
             unreachable!()
         };
 
@@ -547,13 +553,115 @@ impl<Data> BranchLayout<Data> {
 
 #[cfg(test)]
 mod test {
-    use crate::test::*;
+
+    use std::usize;
+
+    use crate::ToCCharArray;
     use super::*;
 
     #[test]
     fn root_alloc() {
-        let bn: BranchingNode<i32> = unsafe { BranchingNode::allocate(&b"".c_chars(), &[], None, &[])};
+        let bn: BranchingNode<i32> = BranchingNode::create_root();
         assert_eq!(bn.children().len(), 0);
         assert_eq!(bn.children_first_bytes().len(), 0)
+    }
+
+    #[test]
+    fn insert_labeled_leaf_into_root() {
+        // tests creating a leaf 
+        let mut root = BranchingNode::create_root();
+        root.grow(&b"a".c_chars(), 1, Err(0));
+
+        assert_eq!(root.children().len(), 1);
+        assert_eq!(root.children()[0].is_leaf(), true);
+        let leaf = match root.children()[0].cast_ref() {
+            Either::Left(l) => l,
+            Either::Right(_) => unreachable!(""),
+        };
+        assert_eq!(leaf.label(), &b"a".c_chars());
+        assert_eq!(*leaf.data(), 1);
+    }
+
+    #[test]
+    fn insert_empty_labeled_leaf_into_root() {
+        let mut root = BranchingNode::create_root();
+        root.grow(&b"".c_chars(), 2, Err(usize::MAX));
+
+        assert_eq!(root.children().len(), 1);
+        assert_eq!(root.children()[0].is_leaf(), true);
+        let leaf = match root.children()[0].cast_ref() {
+            Either::Left(l) => l,
+            Either::Right(_) => unreachable!(""),
+        };
+        assert_eq!(leaf.label(), &b"".c_chars());
+        assert_eq!(*leaf.data(), 2);
+
+    }
+
+    #[test]
+    fn insert_labeled_leaf_then_empty_labeled_leaf_into_root() {
+        let mut root = BranchingNode::create_root();
+        root.grow(&b"a".c_chars(), 1, Err(0));
+        root.grow(&b"".c_chars(), 2, Err(usize::MAX));
+
+        assert_eq!(root.children().len(), 2);
+        assert_eq!(root.children()[0].is_leaf(), true);
+        assert_eq!(root.children()[1].is_leaf(), true);
+        
+        let labeled_leaf = match root.children()[0].cast_ref() {
+            Either::Left(l) => l,
+            Either::Right(_) => unreachable!(""),
+        };
+        assert_eq!(labeled_leaf.label(), &b"a".c_chars());
+        assert_eq!(*labeled_leaf.data(), 1);
+
+        let empty_labeled_leaf = match root.children()[1].cast_ref() {
+            Either::Left(l) => l,
+            Either::Right(_) => unreachable!(""),
+        };
+        assert_eq!(empty_labeled_leaf.label(), &[].c_chars(), "empty_labeled_leaf.label()={:?}", empty_labeled_leaf.label());
+        assert_eq!(*empty_labeled_leaf.data(), 2);
+    }
+
+    #[test]
+    fn insert_a_then_aa_into_root() {
+        // we create a leaf first, then we create a branch with to leaves one empty labeled:
+        let mut root = BranchingNode::create_root();
+        root.grow(&b"a".c_chars(), 1, Err(0));
+        {
+            let tmp = match root.children_mut()[0].cast_mut() {
+                Either::Left(l) => l,
+                Either::Right(_) => unreachable!(""),
+            };
+
+            // Safety:
+            // tmp is of wrong type now, don't use it again thanks to anonymous block we wont.
+            unsafe { tmp.add_child(&b"a".c_chars(), 2); }
+        }
+
+        assert_eq!(root.children().len(), 1);
+        assert_eq!(root.children()[0].is_branching(), true);
+
+        let branch = match root.children_mut()[0].cast_mut() {
+            Either::Left(_) => unreachable!(""),
+            Either::Right(b) => b,
+        };
+        assert_eq!(branch.children().len(), 2);
+
+        // the "aa" key
+        let labeled_leaf = match branch.children()[0].cast_ref() {
+            Either::Left(l) => l,
+            Either::Right(_) => unreachable!(""),
+        };
+        assert_eq!(labeled_leaf.label(), &b"a".c_chars());
+        assert_eq!(*labeled_leaf.data(), 2);
+
+        // the "a" key
+        let empty_labeled_leaf = match branch.children()[1].cast_ref() {
+            Either::Left(l) => l,
+            Either::Right(_) => unreachable!(""),
+        };
+        assert_eq!(empty_labeled_leaf.label(), &[].c_chars(), "empty_labeled_leaf.label()={:?}", empty_labeled_leaf.label());
+        assert_eq!(*empty_labeled_leaf.data(), 1);
     }
 }

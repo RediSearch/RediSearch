@@ -14,19 +14,16 @@ pub(crate) mod node;
 static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
 
 
-#[cfg(test)]
-pub(crate) mod test {
-    use std::ffi::c_char;
+use std::ffi::c_char;
 
-    pub trait ToCCharArray<const N: usize> {
-        /// Convenience method to convert a byte array to a C-compatible character array.    
-        fn c_chars(self) -> [c_char; N];
-    }
+pub trait ToCCharArray<const N: usize> {
+    /// Convenience method to convert a byte array to a C-compatible character array.    
+    fn c_chars(self) -> [c_char; N];
+}
 
-    impl<const N: usize> ToCCharArray<N> for [u8; N] {
-        #![allow(dead_code)]
-        fn c_chars(self) -> [c_char; N] {
-            self.map(|b| b as c_char)
-        }
+impl<const N: usize> ToCCharArray<N> for [u8; N] {
+    #![allow(dead_code)]
+    fn c_chars(self) -> [c_char; N] {
+        self.map(|b| b as c_char)
     }
 }

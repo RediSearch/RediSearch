@@ -630,7 +630,7 @@ impl<'tm, Data> Iterator for Iter<'tm, Data> {
 mod test {
 
     use super::*;
-    use crate::test::*;
+    use crate::ToCCharArray;
 
     /// Forwards to `insta::assert_debug_snapshot!`,
     /// but is disabled in Miri, as snapshot testing

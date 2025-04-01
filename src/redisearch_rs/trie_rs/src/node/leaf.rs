@@ -242,3 +242,26 @@ impl<Data> LeafLayout<Data> {
         unsafe { header_ptr.byte_offset(self.label_offset as isize) }.cast()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::ToCCharArray;
+    use super::*;
+
+    #[test]
+    fn alloc_leafs_with_different_types() {
+        let leaf: LeafNode<i32> = LeafNode::new(0, &b"".c_chars());
+        assert_eq!(*leaf.data(), 0);
+
+        #[derive(Debug, Default, PartialEq, Eq)]
+        struct TestData {
+            a: i32,
+            b: i32,
+            c: i32,
+            d: i32,
+        }
+
+        let leaf = LeafNode::new(TestData::default(), &b"".c_chars());
+        assert_eq!(leaf.data(), &TestData::default())
+    }
+}
