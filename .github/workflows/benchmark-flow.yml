@@ -71,6 +71,12 @@ jobs:
       - name: Prepare ReJSON Module
         run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
 
+      - name: Run and Store Rust benchmarks
+        uses: ./.github/workflows/benchmark-rust.yml
+        with: 
+          force_run: false
+          skip_checkout_build: true
+
       - name: Run CI benchmarks on aws for envs ${{ inputs.allowed_envs }}
         timeout-minutes: 240 # timeout for the step
         working-directory: tests/benchmarks
