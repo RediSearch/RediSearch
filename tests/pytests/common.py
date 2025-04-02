@@ -859,11 +859,9 @@ def set_tight_maxmemory_for_oom(env, memory_limit_per = 0.8):
     # Set memory limit to less then memory limit
     env.expect('config', 'set', 'maxmemory', int(memory_usage*(1/(memory_limit_per-0.01)))).ok()
 
-def set_loose_maxmemory_for_oom(env, coef = 10):
-    # Get current memory consumption value
-    memory_usage = env.cmd('INFO', 'MEMORY')['used_memory']
-    # Set memory limit to less then memory limit
-    env.expect('config', 'set', 'maxmemory', coef*memory_usage).ok()
+def set_unlimited_maxmemory_for_oom(env):
+    env.expect('config', 'set', 'maxmemory', 0).ok()
+
 
 def waitForIndexStatus(env, status, idx='idx'):
     while getDebugScannerStatus(env, idx) != status:
@@ -903,22 +901,19 @@ def shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per = 0.8):
     memory_usage = env.getConnection(shardId).execute_command('INFO', 'MEMORY')['used_memory']
     # Set memory limit to less then memory limit
     res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', int(memory_usage*(1/(memory_limit_per-0.01))))
-    env.assertEqual(res, 'OK', message=f"Failed to set maxmemory on shard {shardId} to {int(memory_usage*(1/(memory_limit_per-0.01)))}")
+    env.assertEqual(res, 'OK')
 
 def allShards_set_tight_maxmemory_for_oom(env, memory_limit_per = 0.8):
     for shardId in range(1, env.shardsCount + 1):
         shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per)
 
-def shard_set_loose_maxmemory_for_oom(env, shardId, coef = 10):
-    # Get current memory consumption value
-    memory_usage = env.getConnection(shardId).execute_command('INFO', 'MEMORY')['used_memory']
-    # Set memory limit to less then memory limit
-    res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', coef*memory_usage)
-    env.assertEqual(res, 'OK', message=f"Failed to set maxmemory on shard {shardId} to {coef*memory_usage}")
+def shard_set_unlimited_maxmemory_for_oom(env, shardId):
+    res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', 0)
+    env.assertEqual(res, 'OK')
 
-def allShards_set_loose_maxmemory_for_oom(env, coef = 10):
+def allShards_set_unlimited_maxmemory_for_oom(env):
     for shardId in range(1, env.shardsCount + 1):
-        shard_set_loose_maxmemory_for_oom(env, shardId, coef)
+        shard_set_unlimited_maxmemory_for_oom(env, shardId)
 
 def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
     for k in d1:

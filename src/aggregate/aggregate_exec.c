@@ -863,7 +863,7 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     goto done;
   }
   // OOM should be checked before
-  RS_ASSERT(sctx->spec->scan_failed_OOM);
+  RS_ASSERT(!(sctx->spec->scan_failed_OOM));
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
@@ -1290,7 +1290,7 @@ static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (sp && sp->scan_failed_OOM) {
     return RedisModule_ReplyWithErrorFormat(ctx,
-      "%s: Index background scan failed due to OOM. Queries cannot be executed on an incomplete index.",
+      "Background scan for index %s failed due to OOM. Queries cannot be executed on an incomplete index.",
       idx);
   }
 

@@ -73,7 +73,7 @@
       return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idxName);                           \
     }                                                                                                       \
     if (checkOOM && sp->scan_failed_OOM) {                                                                  \
-      return RedisModule_ReplyWithErrorFormat(ctx, "%s: Index background scan failed due to OOM."           \
+      return RedisModule_ReplyWithErrorFormat(ctx, "Background scan for index %s failed due to OOM."        \
                                            " Queries cannot be executed on an incomplete index.", idxName );\
     }                                                                                                       \
     if (!ACLUserMayAccessIndex(ctx, sp)) {                                                                  \
@@ -729,8 +729,8 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   if (sp->scan_failed_OOM) {
     return RedisModule_ReplyWithErrorFormat(ctx,
-      "%s: Index background scan failed due to OOM. Queries cannot be executed on an incomplete index.",
-       idx);
+      "Background scan for index %s failed due to OOM. Queries cannot be executed on an incomplete index.",
+      idx);
   }
 
   // Verify ACL keys permission
@@ -790,7 +790,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   }
   if (sp->scan_failed_OOM) {
     return RedisModule_ReplyWithErrorFormat(ctx,
-      "%s: Index background scan failed due to OOM. Queries cannot be executed on an incomplete index.",
+      "Background scan for index %s failed due to OOM. Queries cannot be executed on an incomplete index.",
       ixname);
   }
 
@@ -3157,7 +3157,7 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
   if (sp->scan_failed_OOM) {
     return RedisModule_ReplyWithErrorFormat(ctx,
-      "%s: Index background scan failed due to OOM. Queries cannot be executed on an incomplete index.",
+      "Background scan for index %s failed due to OOM. Queries cannot be executed on an incomplete index.",
       idx);
   }
 
@@ -3481,7 +3481,7 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
   if (sp->scan_failed_OOM) {
     return RedisModule_ReplyWithErrorFormat(ctx,
-      "%s: Index background scan failed due to OOM. Queries cannot be executed on an incomplete index.",
+      "Background scan for index %s failed due to OOM. Queries cannot be executed on an incomplete index.",
       idx);
   }
 
