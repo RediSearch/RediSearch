@@ -137,6 +137,7 @@ file(GLOB SOURCES
     "src/query_parser/v2/*.c"
     "src/util/*.c"
     "src/trie/*.c"
+    "src/iterators/*.c"
     "src/info/*.c"
     "src/info/info_redis/*.c"
     "src/info/info_redis/threads/*.c"
@@ -224,6 +225,7 @@ if (BUILD_SEARCH_UNIT_TESTS)
 
     add_subdirectory(deps/googletest)
     add_subdirectory(tests/cpptests)
+    add_subdirectory(tests/cpptests/micro-benchmarks)
     add_subdirectory(tests/ctests)
     add_subdirectory(tests/ctests/ext-example example_extension)
     add_subdirectory(tests/ctests/coord_tests)
