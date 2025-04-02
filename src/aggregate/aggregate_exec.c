@@ -320,7 +320,10 @@ static size_t getResultsFactor(AREQ *req) {
 static SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
   SearchResult **results = array_new(SearchResult *, 8);
   SearchResult r = {0};
-  while (rp->parent->resultLimit-- && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+  while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+    // Decrement the result limit, now that we got a valid result.
+    rp->parent->resultLimit--;
+
     array_append(results, SearchResult_Copy(&r));
 
     // clean the search result
