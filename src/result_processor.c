@@ -1285,13 +1285,10 @@
   *******************************************************************************************************************/
  typedef struct {
    ResultProcessor base;
-   // Flag to track if we're in collecting phase (true) or returning phase (false)
-   bool isCollecting;
    // Stores the max value found (if needed in the future)
    double maxValue;
    SearchResult *pooledResult;
    arrayof(SearchResult *) pool;
-   bool timedOut;
    size_t index;
  } RPMaxCollector;
  
@@ -1306,11 +1303,23 @@
  static void rpMaxCollectorFree(ResultProcessor *base) {
    RPMaxCollector *self = (RPMaxCollector *)base;  
    array_free_ex(self->pool, SearchResult_Destroy);
+  //  array_free(self->pool);
    SearchResult_Destroy(self->pooledResult);
    rm_free(self->pooledResult);
    rm_free(self);
  }
 
+ static int rpMax_Yield(ResultProcessor *rp, SearchResult *r){
+   RPMaxCollector* rp_max = (RPMaxCollector*)rp; 
+   size_t length = array_len(rp_max->pool);
+   if (rp_max->index >= array_len(rp_max->pool)) {
+     // We've already yielded all results, return EOF
+     return RS_RESULT_EOF;
+   }
+   *r = *rp_max->pool[rp_max->index++];
+   return RS_RESULT_OK;
+ }
+  
 
 
 static int rpMaxNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
@@ -1320,7 +1329,8 @@ static int rpMaxNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
-    return rc;
+    rp->Next = rpMax_Yield;
+    return rp->Next(rp, r);
   } else if (rc != RS_RESULT_OK) {
     // whoops!
     return rc;
@@ -1334,8 +1344,9 @@ static int rpMaxNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
   return RESULT_QUEUED;
 }
- 
- static int rpMaxNext(ResultProcessor *rp, SearchResult *r) {
+
+
+static int rpMaxAccum(ResultProcessor *rp, SearchResult *r) {
   uint32_t chunkLimit = rp->parent->resultLimit;
   rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
   int rc;
@@ -1345,8 +1356,6 @@ static int rpMaxNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     // Do nothing.
   }
   rp->parent->resultLimit = chunkLimit; // restore the limit
-  RPMaxCollector* rp_max = (RPMaxCollector*)rp; 
-  *r = rp_max->pooledResult[rp_max->index++]; // copy the result to the output
   return rc;
 }
 
@@ -1357,11 +1366,10 @@ static int rpMaxNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   RPMaxCollector *ret = rm_calloc(1, sizeof(*ret));
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
   ret->pool = array_new(SearchResult*, 0);
-  ret->isCollecting = true;
-
-  ret->base.Next = rpMaxNext;
+  ret->base.Next = rpMaxAccum;
   ret->base.Free = rpMaxCollectorFree;
   ret->base.type = RP_MAX_COLLECTOR;
+  ret->index = 0;
   return &ret->base;
 }
 
