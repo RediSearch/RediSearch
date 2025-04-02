@@ -1,9 +1,9 @@
 use crate::ToCCharArray;
-use crate::node::header::NodeDropState;
+use crate::header::NodeDropState;
 
 use super::header::AllocationHeader;
 use super::leaf::LeafNode;
-use super::{Either, Node};
+use super::node::{Either, Node};
 use std::alloc::*;
 use std::ffi::c_char;
 use std::marker::PhantomData;
@@ -70,7 +70,7 @@ impl<Data> BranchingNode<Data> {
     }
 
     /// Check whether the branching node has an empty-labeled child.
-    fn has_empty_labeled_child(&self) -> bool {
+    pub(crate) fn has_empty_labeled_child(&self) -> bool {
         self.header().has_empty_labeled_child()
     }
 
@@ -185,14 +185,14 @@ impl<Data> BranchingNode<Data> {
                 let cur_child = &mut self.children_mut()[child_index];
                 match cur_child.cast_mut() {
                     // case 2-1-1: it's a leaf node -> We replace the data
-                    super::Either::Left(leaf) => {
+                    Either::Left(leaf) => {
                         // Replace the leaf's data.
                         // TODO: that leaks the old data, remember me on the requirement of the free callback.
                         let old_data = std::mem::replace(leaf.data_mut(), child_data);
                         Some(old_data)
                     }
                     // case 2-1-2: we found a branching node -> recursively grow with empty-labeld child
-                    super::Either::Right(brn) => {
+                    Either::Right(brn) => {
                         // Add an empty-labled child to the branching node.
                         brn.grow(&[], child_data, found_or_insert_at);
                         None

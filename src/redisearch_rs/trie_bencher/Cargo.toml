@@ -10,6 +10,7 @@ harness = false
 
 [dependencies]
 trie_rs.workspace = true
+trie2_rs.workspace = true
 fs-err.workspace = true
 radix_trie.workspace = true
 criterion.workspace = true

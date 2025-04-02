@@ -1,23 +1,17 @@
-#![allow(dead_code, unused_imports)]
-
+use std::fmt;
 use std::{ffi::c_char, marker::PhantomData, ops::Deref, ptr::NonNull, usize};
 
-use branching::BranchingNode;
-use header::{AllocationHeader, NodeKind};
-use leaf::LeafNode;
-//use proptest::bits::BitSetLike;
-mod branching;
-mod header;
-// mod layout;
-mod leaf;
+use crate::branching::BranchingNode;
+use crate::header::{AllocationHeader, NodeKind};
+use crate::leaf::LeafNode;
 
 // N<D>: 8bytes ---> dyn Bytes Heap
 // BN: 8bytes ---> dyn Bytes Heap
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Node<Data> {
-    ptr: std::ptr::NonNull<AllocationHeader>,
-    _phantom: PhantomData<Data>,
+    pub(crate) ptr: std::ptr::NonNull<AllocationHeader>,
+    pub(crate) _phantom: PhantomData<Data>,
 }
 
 pub enum Either<L, R> {
@@ -36,19 +30,19 @@ pub fn get_shared_prefix_len(lh_label: &[c_char], rh_label: &[c_char]) -> usize 
 
 impl<Data> Node<Data> {
     pub fn root() -> Self {
-        branching::BranchingNode::create_root().into()
+        BranchingNode::create_root().into()
     }
 
     /// Create a new leaf node.
     pub fn leaf(label: &[c_char], data: Data) -> Self {
-        leaf::LeafNode::new(data, label).into()
+        LeafNode::new(data, label).into()
     }
 
     /// Create a new branching node.
     pub fn branching(label: &[c_char], children: &[Node<Data>]) -> Self {
         // Safety:
         // We know there is a least one children which makes calling allocate save
-        let bnode = unsafe { branching::BranchingNode::allocate(label, children, None, &[]) };
+        let bnode = unsafe { BranchingNode::allocate(label, children, None, &[]) };
 
         bnode.into()
     }
@@ -170,23 +164,21 @@ impl<Data> Node<Data> {
         }
     }
 
-    pub fn cast(self) -> Either<leaf::LeafNode<Data>, branching::BranchingNode<Data>> {
+    pub fn cast(self) -> Either<LeafNode<Data>, BranchingNode<Data>> {
         match self.kind() {
             NodeKind::Leaf => Either::Left(unsafe { std::mem::transmute(self) }),
             NodeKind::Branching => Either::Right(unsafe { std::mem::transmute(self) }),
         }
     }
 
-    pub fn cast_ref(&self) -> Either<&leaf::LeafNode<Data>, &branching::BranchingNode<Data>> {
+    pub fn cast_ref(&self) -> Either<&LeafNode<Data>, &BranchingNode<Data>> {
         match self.kind() {
             NodeKind::Leaf => Either::Left(unsafe { std::mem::transmute(self) }),
             NodeKind::Branching => Either::Right(unsafe { std::mem::transmute(self) }),
         }
     }
 
-    pub fn cast_mut(
-        &mut self,
-    ) -> Either<&mut leaf::LeafNode<Data>, &mut branching::BranchingNode<Data>> {
+    pub fn cast_mut(&mut self) -> Either<&mut LeafNode<Data>, &mut BranchingNode<Data>> {
         match self.kind() {
             NodeKind::Leaf => Either::Left(unsafe { std::mem::transmute(self) }),
             NodeKind::Branching => Either::Right(unsafe { std::mem::transmute(self) }),
@@ -385,21 +377,40 @@ impl<Data> Node<Data> {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::ToCCharArray;
+impl<Data: fmt::Debug> fmt::Debug for Node<Data> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fn to_string_lossy(label: &[c_char]) -> String {
+            let slice = label.iter().map(|&c| c as u8).collect::<Vec<_>>();
+            String::from_utf8_lossy(&slice).into_owned()
+        }
 
-    #[test]
-    fn test_new_trie() {
-        // create root node
-        let mut node: Node<i32> = Node::branching(&b"".c_chars(), &[]);
-        node.add_child(&b"bike".c_chars(), 0);
-        println!("find now");
-        assert_eq!(node.find(&b"bike".c_chars()), Some(&0));
-        assert_eq!(node.find(&b"cool".c_chars()), None);
+        let mut stack = vec![(self, 0, 0)];
 
-        // todo: implement debug snapshot print
-        //assert_debug_snapshot!(trie, @r#""bike" (0)"#);
+        while let Some((next, white_indentation, line_indentation)) = stack.pop() {
+            let label_repr = to_string_lossy(next.label());
+            let data_repr = match next.cast_ref() {
+                Either::Left(leaf) => {
+                    format!("({:?})", leaf.data())
+                }
+                Either::Right(_) => "(-)".to_string(),
+            };
+
+            let prefix = if white_indentation == 0 && line_indentation == 0 {
+                "".to_string()
+            } else {
+                let whitespace = " ".repeat(white_indentation);
+                let line = "–".repeat(line_indentation);
+                format!("{whitespace}↳{line}")
+            };
+
+            writeln!(f, "{prefix}\"{label_repr}\" {data_repr}")?;
+
+            for node in next.children().iter().rev() {
+                let new_line_indentation = 4;
+                let white_indentation = white_indentation + line_indentation + 2;
+                stack.push((node, white_indentation, new_line_indentation));
+            }
+        }
+        Ok(())
     }
 }

@@ -1,6 +1,6 @@
-use super::Node;
 use super::branching::BranchingNode;
 use super::header::AllocationHeader;
+use super::node::Node;
 use std::alloc::*;
 use std::ffi::c_char;
 use std::marker::PhantomData;
@@ -13,9 +13,7 @@ pub(crate) struct LeafNode<Data>(Node<Data>);
 impl<Data> From<LeafNode<Data>> for Node<Data> {
     fn from(v: LeafNode<Data>) -> Self {
         // SAFETY: All good, repr(transparent) to the rescue.
-        unsafe {
-            std::mem::transmute(v)
-        }
+        unsafe { std::mem::transmute(v) }
     }
 }
 
@@ -44,7 +42,6 @@ impl<Data> LeafNode<Data> {
     fn header(&self) -> &AllocationHeader {
         unsafe { self.0.ptr.as_ref() }
     }
-
 
     fn header_mut(&mut self) -> &mut AllocationHeader {
         unsafe { self.0.ptr.as_mut() }
@@ -99,8 +96,6 @@ impl<Data> LeafNode<Data> {
             be growing the parent branching node instead"
         );
 
-    
-
         // only one case, caller needs to check if this.value needs replacement
 
         //let label = unsafe { std::slice::from_raw_parts(self.layout().label_ptr(self.0.ptr), self.label_len() as usize) };
@@ -109,7 +104,7 @@ impl<Data> LeafNode<Data> {
         // unsafe access of label:
         let new_child = LeafNode::new(child_data, child_label);
         // Safety: We ensured the right order of the data
-        
+
         let branching = unsafe {
             BranchingNode::allocate(
                 &label_ref,
@@ -118,7 +113,7 @@ impl<Data> LeafNode<Data> {
                 &[adapt_child_that_was_there.into()],
             )
         };
-        
+
         BranchingNode::swap_ensure_shallow_del(branching, &mut self.0);
     }
 
@@ -167,12 +162,13 @@ impl<Data> LeafNode<Data> {
 
     fn into_data(self) -> Data {
         unsafe { self.layout().data_ptr(self.0.ptr).as_ptr().read() }
-        
+
         // todo make sure data doesn't get dropped
     }
 
     fn parts(&mut self) -> (&[c_char], Data) {
-        self.header_mut().set_drop_state(super::header::NodeDropState::DropShallow);
+        self.header_mut()
+            .set_drop_state(super::header::NodeDropState::DropShallow);
         let data = unsafe { self.layout().data_ptr(self.0.ptr).as_ptr().read() };
         (self.label(), data)
     }
@@ -245,8 +241,8 @@ impl<Data> LeafLayout<Data> {
 
 #[cfg(test)]
 mod test {
-    use crate::ToCCharArray;
     use super::*;
+    use crate::ToCCharArray;
 
     #[test]
     fn alloc_leafs_with_different_types() {

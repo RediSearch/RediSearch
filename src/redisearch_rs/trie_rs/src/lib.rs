@@ -2,9 +2,6 @@
 pub mod ffi;
 
 pub mod trie;
-pub(crate) mod node;
-pub mod trie_new;
-
 
 /// Registers the Redis module allocator
 /// as the global allocator for the application.
@@ -13,11 +10,10 @@ pub mod trie_new;
 #[global_allocator]
 static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
 
-
 use std::ffi::c_char;
 
 pub trait ToCCharArray<const N: usize> {
-    /// Convenience method to convert a byte array to a C-compatible character array.    
+    /// Convenience method to convert a byte array to a C-compatible character array.
     fn c_chars(self) -> [c_char; N];
 }
 
