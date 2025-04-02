@@ -28,6 +28,7 @@ on:
 env:
   REF: ${{ inputs.sha || inputs.ref || github.sha }}  # Define fallbacks for ref to checkout
   BRANCH: ${{ inputs.ref || github.ref_name }}        # Define "branch" name for pack name (used in `make pack`)
+  BOOST_VERSION: ${{ vars.BOOST_VERSION }}
   AWS_ACCESS_KEY_ID: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
   AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
@@ -47,9 +48,8 @@ jobs:
       BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
     steps:
       # Setup
-      # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
-      - name: Pre-steps Dependencies (Alpine)
-        if: inputs.pre-steps-script && inputs.container == 'alpine:3'
+      - name: Pre-steps Dependencies
+        if: inputs.pre-steps-script
         shell: sh -l -eo pipefail {0}
         run: ${{ inputs.pre-steps-script }}
       - name: Pre-steps Dependencies (Non-Alpine)
@@ -64,7 +64,7 @@ jobs:
         run: |
           [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
       - name: Check if node20 is Supported
-        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
+        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for theses platforms
         run: |
           for platform in ubuntu:bionic amazonlinux:2 alpine:3; do
             if [[ "${{ inputs.container }}" == "$platform" ]]; then
@@ -73,19 +73,40 @@ jobs:
             fi
           done
           echo "supported=true" >> $GITHUB_OUTPUT
-      - name: checkout (node20)
+      - name: Deps checkout (node20)
         if: steps.node20.outputs.supported == 'true'
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          path: setup
           ref: ${{ env.REF }}
-      - name: checkout (node20 not supported)
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .install
+            tests/pytests/requirements.txt
+      - name: Deps checkout (node20 not supported)
         if: steps.node20.outputs.supported == 'false'
         run: |
           # Execute the logic based on the detected platform
           echo "Detected platform: ${{ inputs.container }}"
           case "${{ inputs.container }}" in
             ubuntu:bionic | amazonlinux:2 | alpine:3)
+              echo "Installing prerequisites for ${{ inputs.container }}..."
+
+              # Install git (platform-specific package management)
+              case "${{ inputs.container }}" in
+                ubuntu:bionic)
+                  apt update
+                  apt install -y git
+                  ;;
+                amazonlinux:2)
+                  yum update -y
+                  yum install -y git
+                  ;;
+                alpine:3)
+                  apk update
+                  apk add --no-cache git
+                  ;;
+              esac
 
               # Configure the safe directory
               git config --global --add safe.directory /__w/${{ github.repository }}
@@ -98,8 +119,8 @@ jobs:
               git remote add origin "$REPO_URL"
 
               # Fetch and checkout ref
-              git fetch origin "${{ env.REF }}" || {
-                echo "Failed to fetch ref: '${{ env.REF }}'";
+              git fetch origin "${{ github.ref }}" || {
+                echo "Failed to fetch ref: '${{ github.ref }}'";
                 exit 1;
               }
               git checkout FETCH_HEAD  # Check out the fetched ref
@@ -112,16 +133,41 @@ jobs:
               exit 1
               ;;
           esac
-      - name: Setup
+      - name: Setup specific (node20)
+        if: steps.node20.outputs.supported == 'true'
+        working-directory: setup/.install
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Setup specific (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
         working-directory: .install
-        run: ./install_script.sh ${{ steps.mode.outputs.mode }}
-      - name: Install aws cli
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }}
+      - name: Install aws cli (node20)
+        if: steps.node20.outputs.supported == 'true'
+        working-directory: setup/.install
+        run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
+      - name: Install aws cli (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
         working-directory: .install
         run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
-      - name: Setup test dependencies
-        run: .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
+      - name: Full checkout (node20)
+        if: steps.node20.outputs.supported == 'true'
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          ref: ${{ env.REF }}
+      - name: Full checkout (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
+        run: echo "Done already earlier."
+      - name: Setup common
+        run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
         run: pip install -q -r .install/build_package_requirments.txt
+
+      - name: Install Boost
+        working-directory: .install
+        run: ./install_boost.sh ${{ env.BOOST_VERSION }} ${{ steps.mode.outputs.mode }}
 
       # Get Redis
       - name: Get Redis (node20)
@@ -211,5 +257,43 @@ jobs:
           aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
           aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
           aws configure set region "$AWS_REGION"
+
       - name: Upload Artifacts
-        run: make upload-artifacts
+        run: |
+          echo "::group::Uploading artifacts to S3"
+          S3_URL="s3://redismodules"
+          # Artifact directory with snapshots
+          ARTIFACTS_DIR="bin/artifacts/snapshots"
+          PLATFORM="${{ runner.os }}-${{ inputs.container || inputs.env }}-$(uname -m)"
+          PLATFORM=$(echo "$PLATFORM" | sed 's/:/\-/g') # Replace colons with hyphens
+          
+          # Upload OSS artifacts
+          echo "Uploading redisearch-community artifacts..."
+          for file in $ARTIFACTS_DIR/redisearch-community.*${PLATFORM}*.zip; do
+            if [[ -f "$file" ]]; then
+              aws s3 cp "$file" "${S3_URL}/redisearch-oss/snapshots/" --acl public-read
+            fi
+          done
+          
+          # Upload enterprise artifacts
+          echo "Uploading redisearch artifacts..."
+          for file in $ARTIFACTS_DIR/redisearch.*${PLATFORM}*.zip; do
+            if [[ -f "$file" ]]; then
+              aws s3 cp "$file" "${S3_URL}/redisearch/snapshots/" --acl public-read
+            fi
+          done
+          
+          # Upload light artifacts
+          echo "Uploading redisearch-light artifacts..."
+          for file in $ARTIFACTS_DIR/redisearch-light.*${PLATFORM}*.zip; do
+            if [[ -f "$file" ]]; then
+              aws s3 cp "$file" "${S3_URL}/redisearch/snapshots/" --acl public-read
+            fi
+          done
+          
+          # List uploads for verification
+          echo "Listing uploaded artifacts:"
+          aws s3 ls "${S3_URL}/redisearch-oss/snapshots/" | grep "${PLATFORM}"
+          aws s3 ls "${S3_URL}/redisearch/snapshots/" | grep "${PLATFORM}"
+          
+          echo "::endgroup::"
