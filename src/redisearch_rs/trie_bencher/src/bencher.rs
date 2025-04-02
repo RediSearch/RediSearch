@@ -1,4 +1,4 @@
-use crate::{str2c_char, CTrieMap, RustNewTrie, RustRadixTrie, RustTrieMap};
+use crate::{CTrieMap, RustNewTrie, RustRadixTrie, RustTrieMap, str2c_char};
 use criterion::{BatchSize, BenchmarkGroup, Criterion, measurement::Measurement};
 use std::{
     ffi::{CString, c_char, c_void},
@@ -208,7 +208,6 @@ fn insert_rust_new_benchmark<M: Measurement>(
         )
     });
 }
-
 
 fn insert_radix_benchmark<M: Measurement>(
     c: &mut BenchmarkGroup<'_, M>,

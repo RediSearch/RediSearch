@@ -1,5 +1,5 @@
-use crate::node::header::NodeDropState;
 use crate::ToCCharArray;
+use crate::node::header::NodeDropState;
 
 use super::header::AllocationHeader;
 use super::leaf::LeafNode;
@@ -35,7 +35,7 @@ impl<Data> AsMut<Node<Data>> for BranchingNode<Data> {
 
 impl<Data> BranchingNode<Data> {
     pub fn create_root() -> Self {
-        unsafe { BranchingNode::allocate(&b"".c_chars(), &[], None, &[])}
+        unsafe { BranchingNode::allocate(&b"".c_chars(), &[], None, &[]) }
     }
 
     pub fn shrink(&mut self, _child_index: usize) -> Node<Data> {
@@ -72,6 +72,25 @@ impl<Data> BranchingNode<Data> {
     /// Check whether the branching node has an empty-labeled child.
     fn has_empty_labeled_child(&self) -> bool {
         self.header().has_empty_labeled_child()
+    }
+
+    /// Get a reference to the data associated to the label in this branching node,
+    /// if there is any.
+    ///
+    /// # Implementation notes
+    ///
+    /// The data isn't stored in this branching node directly. It belongs to one of
+    /// its children, with an empty label.
+    pub fn data(&self) -> Option<&Data> {
+        if !self.has_empty_labeled_child() {
+            return None;
+        }
+        self.children().last().map(|c| {
+            let Either::Left(leaf) = c.cast_ref() else {
+                unreachable!()
+            };
+            leaf.data()
+        })
     }
 
     pub fn label(&self) -> &[c_char] {
@@ -199,7 +218,12 @@ impl<Data> BranchingNode<Data> {
                 // allocate branching node with num_children+1
                 // Safety: create new branch and swap with self, ensuring shallow delete
                 let new_branch = unsafe {
-                    Self::allocate(new_brnch_label, left_slice, Some(new_child.into()), right_slice)
+                    Self::allocate(
+                        new_brnch_label,
+                        left_slice,
+                        Some(new_child.into()),
+                        right_slice,
+                    )
                 };
                 BranchingNode::swap_ensure_shallow_del(new_branch, &mut self.0);
 
@@ -244,7 +268,12 @@ impl<Data> BranchingNode<Data> {
         let label_len: u16 = label.len().try_into().unwrap();
 
         let has_empty_labeled_child = right.last().map_or_else(
-            || new_node.as_ref().map(|nn| nn.label().is_empty()).unwrap_or(false),
+            || {
+                new_node
+                    .as_ref()
+                    .map(|nn| nn.label().is_empty())
+                    .unwrap_or(false)
+            },
             |right_last| right_last.label().is_empty(),
         );
 
@@ -274,7 +303,7 @@ impl<Data> BranchingNode<Data> {
             buffer_ptr.write(AllocationHeader::branching(label_len));
         }
 
-        // SAFETY: 
+        // SAFETY:
         // as the flags are in a valid state due to the call to branching we can now start
         // to alter it. This only works if the header has been written.
         unsafe {
@@ -308,19 +337,26 @@ impl<Data> BranchingNode<Data> {
         //~
         // if we're here we continue with copying the children
 
-
         // And start by Copy the first bytes of the non-empty-labeled children's labels.
         if let Some(new_node) = &new_node {
             let iter = left
                 .iter()
                 .chain(std::iter::once(new_node))
                 .chain(right.iter());
-            BranchingNode::copy_first_bytes_children_based_on_iter(iter, num_non_empty_labeled_children, &layout, &buffer_ptr);
+            BranchingNode::copy_first_bytes_children_based_on_iter(
+                iter,
+                num_non_empty_labeled_children,
+                &layout,
+                &buffer_ptr,
+            );
         } else {
-            let iter = left
-                .iter()
-                .chain(right.iter());
-            BranchingNode::copy_first_bytes_children_based_on_iter(iter, num_non_empty_labeled_children, &layout, &buffer_ptr);
+            let iter = left.iter().chain(right.iter());
+            BranchingNode::copy_first_bytes_children_based_on_iter(
+                iter,
+                num_non_empty_labeled_children,
+                &layout,
+                &buffer_ptr,
+            );
         }
 
         // memcpy the children, including the non-empty labeled child
@@ -363,15 +399,13 @@ impl<Data> BranchingNode<Data> {
         })
     }
 
-    fn copy_first_bytes_children_based_on_iter<'a, Iter: Iterator<Item = &'a Node<Data>>>( 
+    fn copy_first_bytes_children_based_on_iter<'a, Iter: Iterator<Item = &'a Node<Data>>>(
         iter: Iter,
         num_non_empty_labeled_children: usize,
         layout: &'a BranchLayout<Data>,
-        buffer_ptr: &'a NonNull<AllocationHeader> ) {
-        for (idx, child) in iter
-            .enumerate()
-            .take(num_non_empty_labeled_children)
-        {
+        buffer_ptr: &'a NonNull<AllocationHeader>,
+    ) {
+        for (idx, child) in iter.enumerate().take(num_non_empty_labeled_children) {
             if let Some(first_byte) = child.label().first() {
                 unsafe {
                     layout
@@ -500,7 +534,8 @@ impl<Data> BranchLayout<Data> {
         let Ok(c_char_first_bytes_array) = Layout::array::<c_char>((num_children) as usize) else {
             panic!("Boom")
         };
-        let Ok((layout, children_first_bytes_offset)) = layout.extend(c_char_first_bytes_array) else {
+        let Ok((layout, children_first_bytes_offset)) = layout.extend(c_char_first_bytes_array)
+        else {
             unreachable!()
         };
 
@@ -556,8 +591,8 @@ mod test {
 
     use std::usize;
 
-    use crate::ToCCharArray;
     use super::*;
+    use crate::ToCCharArray;
 
     #[test]
     fn root_alloc() {
@@ -568,7 +603,7 @@ mod test {
 
     #[test]
     fn insert_labeled_leaf_into_root() {
-        // tests creating a leaf 
+        // tests creating a leaf
         let mut root = BranchingNode::create_root();
         root.grow(&b"a".c_chars(), 1, Err(0));
 
@@ -595,7 +630,6 @@ mod test {
         };
         assert_eq!(leaf.label(), &b"".c_chars());
         assert_eq!(*leaf.data(), 2);
-
     }
 
     #[test]
@@ -607,7 +641,7 @@ mod test {
         assert_eq!(root.children().len(), 2);
         assert_eq!(root.children()[0].is_leaf(), true);
         assert_eq!(root.children()[1].is_leaf(), true);
-        
+
         let labeled_leaf = match root.children()[0].cast_ref() {
             Either::Left(l) => l,
             Either::Right(_) => unreachable!(""),
@@ -619,7 +653,12 @@ mod test {
             Either::Left(l) => l,
             Either::Right(_) => unreachable!(""),
         };
-        assert_eq!(empty_labeled_leaf.label(), &[].c_chars(), "empty_labeled_leaf.label()={:?}", empty_labeled_leaf.label());
+        assert_eq!(
+            empty_labeled_leaf.label(),
+            &[].c_chars(),
+            "empty_labeled_leaf.label()={:?}",
+            empty_labeled_leaf.label()
+        );
         assert_eq!(*empty_labeled_leaf.data(), 2);
     }
 
@@ -636,7 +675,9 @@ mod test {
 
             // Safety:
             // tmp is of wrong type now, don't use it again thanks to anonymous block we wont.
-            unsafe { tmp.add_child(&b"a".c_chars(), 2); }
+            unsafe {
+                tmp.add_child(&b"a".c_chars(), 2);
+            }
         }
 
         assert_eq!(root.children().len(), 1);
@@ -661,7 +702,12 @@ mod test {
             Either::Left(l) => l,
             Either::Right(_) => unreachable!(""),
         };
-        assert_eq!(empty_labeled_leaf.label(), &[].c_chars(), "empty_labeled_leaf.label()={:?}", empty_labeled_leaf.label());
+        assert_eq!(
+            empty_labeled_leaf.label(),
+            &[].c_chars(),
+            "empty_labeled_leaf.label()={:?}",
+            empty_labeled_leaf.label()
+        );
         assert_eq!(*empty_labeled_leaf.data(), 1);
     }
 }

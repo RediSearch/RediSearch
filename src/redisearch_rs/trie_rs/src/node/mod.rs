@@ -1,8 +1,5 @@
-#![allow(
-    dead_code,
-    unused_imports
-    )]
-    
+#![allow(dead_code, unused_imports)]
+
 use std::{ffi::c_char, marker::PhantomData, ops::Deref, ptr::NonNull, usize};
 
 use branching::BranchingNode;
@@ -33,29 +30,51 @@ pub fn get_shared_prefix_len(lh_label: &[c_char], rh_label: &[c_char]) -> usize 
         .iter()
         .zip(rh_label)
         .enumerate()
-        .find(|(_, (c1, c2))| c1 != c2)
-        .map(|(i, _)| i)
+        .find_map(|(i, (c1, c2))| if c1 != c2 { Some(i) } else { None })
         .unwrap_or(0)
 }
 
 impl<Data> Node<Data> {
+    pub fn root() -> Self {
+        branching::BranchingNode::create_root().into()
+    }
+
     /// Create a new leaf node.
     pub fn leaf(label: &[c_char], data: Data) -> Self {
         leaf::LeafNode::new(data, label).into()
     }
 
+    /// Create a new branching node.
     pub fn branching(label: &[c_char], children: &[Node<Data>]) -> Self {
         // Safety:
         // We know there is a least one children which makes calling allocate save
-        let bnode = unsafe {
-            branching::BranchingNode::allocate(label, children, None, &[])
-        };
+        let bnode = unsafe { branching::BranchingNode::allocate(label, children, None, &[]) };
 
         bnode.into()
     }
 
-    pub fn root() -> Self {
-        branching::BranchingNode::create_root().into()
+    /// Get a reference to the allocation header.
+    ///
+    /// # Implementation notes
+    ///
+    /// The header is the only is the only portion of the allocated buffer
+    /// that can be safely accessed using [`Node`].
+    /// All other fields require casting first into either [`LeafNode`] or
+    /// [`BranchingNode`].
+    pub fn header(&self) -> &AllocationHeader {
+        unsafe { self.ptr.as_ref() }
+    }
+
+    pub fn kind(&self) -> NodeKind {
+        self.header().kind()
+    }
+
+    pub fn is_leaf(&self) -> bool {
+        self.kind() == NodeKind::Leaf
+    }
+
+    pub fn is_branching(&self) -> bool {
+        self.kind() == NodeKind::Branching
     }
 
     pub fn get_shared_prefix_len(&self, rh_label: &[c_char]) -> usize {
@@ -144,15 +163,22 @@ impl<Data> Node<Data> {
         }
     }
 
+    pub fn data(&self) -> Option<&Data> {
+        match self.cast_ref() {
+            Either::Left(n) => Some(n.data()),
+            Either::Right(n) => n.data(),
+        }
+    }
+
     pub fn cast(self) -> Either<leaf::LeafNode<Data>, branching::BranchingNode<Data>> {
-        match unsafe { self.ptr.as_ref() }.kind() {
+        match self.kind() {
             NodeKind::Leaf => Either::Left(unsafe { std::mem::transmute(self) }),
             NodeKind::Branching => Either::Right(unsafe { std::mem::transmute(self) }),
         }
     }
 
     pub fn cast_ref(&self) -> Either<&leaf::LeafNode<Data>, &branching::BranchingNode<Data>> {
-        match unsafe { self.ptr.as_ref() }.kind() {
+        match self.kind() {
             NodeKind::Leaf => Either::Left(unsafe { std::mem::transmute(self) }),
             NodeKind::Branching => Either::Right(unsafe { std::mem::transmute(self) }),
         }
@@ -161,35 +187,25 @@ impl<Data> Node<Data> {
     pub fn cast_mut(
         &mut self,
     ) -> Either<&mut leaf::LeafNode<Data>, &mut branching::BranchingNode<Data>> {
-        match unsafe { self.ptr.as_ref() }.kind() {
+        match self.kind() {
             NodeKind::Leaf => Either::Left(unsafe { std::mem::transmute(self) }),
             NodeKind::Branching => Either::Right(unsafe { std::mem::transmute(self) }),
         }
     }
 
-    pub fn is_leaf(&self) -> bool {
-        let header = unsafe { self.ptr.as_ref() };
-        header.kind() == NodeKind::Leaf
-    }
-
-    pub fn is_branching(&self) -> bool {
-        let header = unsafe { self.ptr.as_ref() };
-        header.kind() == NodeKind::Branching
-    }
-
-    pub fn find_node<'a>(&'a mut self, key: &[c_char]) -> Option<&'a Node<Data>> {
-        let find_state = self.find_node_parent_mut(&key);
-        match find_state.1 {
-            Ok(found) => Some(&find_state.0.children()[found]),
-            Err(_) => None
-        }
-    }
-
-    pub fn find<'a>(&'a mut self, key: &[c_char]) -> Option<&'a Data> {
-        let node = self.find_node(key)?;
-        match node.cast_ref() {
-            Either::Left(l) => Some(l.data()),
-            Either::Right(_) => None,
+    pub fn find<'a>(&'a self, mut key: &[c_char]) -> Option<&'a Data> {
+        let mut current = self;
+        loop {
+            key = key.strip_prefix(current.label())?;
+            let Some(first_byte) = key.first() else {
+                // The suffix is empty, so the key and the label are equal.
+                return current.data();
+            };
+            let child_index = current
+                .children_first_bytes()
+                .binary_search(first_byte)
+                .ok()?;
+            current = &current.children()[child_index];
         }
     }
 
@@ -197,10 +213,10 @@ impl<Data> Node<Data> {
     /// of that node in the list of chilren of the parent node.
     /// todo naming:
     /// examples: find "a", find "aaa"
-    /// 
+    ///
     //           ""
     //         /  |
-    //     ""(C) "aa" 
+    //     ""(C) "aa"
     //          /   \
     //      "aa" (A)  "" (B)
     fn find_node_parent_mut<'a>(
@@ -219,8 +235,8 @@ impl<Data> Node<Data> {
         // case-3-1-1: child candidate is leaf -> return self as parent
         // case-3-1-2: child candidate is branching and has a partial prefix, e.g. 'aa' and 'ab' -> recursion on candidate
         // case-3-1-3: child candidate is branching and has a full prefix -> self is parent and candidate was searched
-        // case-3-2: didn't found a candidate via first bytes -> self is parent: decide where to insert via binary search 
-        
+        // case-3-2: didn't found a candidate via first bytes -> self is parent: decide where to insert via binary search
+
         // case 1
         if key.is_empty() {
             debug_assert!(self.is_branching());
@@ -236,9 +252,9 @@ impl<Data> Node<Data> {
             // case 2-x self is leaf:
             Either::Left(leaf) => {
                 let index_or_insert_at = match leaf.label().cmp(suffix) {
-                    std::cmp::Ordering::Less => Err(1),     // insert new before this leaf
-                    std::cmp::Ordering::Equal => Ok(0),     // replace this leaf
-                    std::cmp::Ordering::Greater => Err(0),  // insert new after this leaf
+                    std::cmp::Ordering::Less => Err(1), // insert new before this leaf
+                    std::cmp::Ordering::Equal => Ok(0), // replace this leaf
+                    std::cmp::Ordering::Greater => Err(0), // insert new after this leaf
                 };
                 //println!("case-2");
                 (leaf.as_mut(), index_or_insert_at, suffix)
@@ -252,7 +268,8 @@ impl<Data> Node<Data> {
                 match search_result {
                     Ok(found_at) => {
                         let candidate = &branching.children()[found_at];
-                        let shared_candidate_suffix_len = get_shared_prefix_len(candidate.label(), suffix);
+                        let shared_candidate_suffix_len =
+                            get_shared_prefix_len(candidate.label(), suffix);
                         let candidate_suffix: &[c_char] = &suffix[shared_candidate_suffix_len..];
                         if candidate.is_leaf() {
                             //println!("case-3-1-1");
@@ -260,18 +277,19 @@ impl<Data> Node<Data> {
                         } else {
                             if shared_candidate_suffix_len < candidate.label().len() {
                                 //println!("case-3-1-2");
-                                branching.children_mut()[found_at].find_node_parent_mut(candidate_suffix)
+                                branching.children_mut()[found_at]
+                                    .find_node_parent_mut(candidate_suffix)
                             } else {
                                 // we know shared_candidate_suffix_len = candidate_label_len
                                 //println!("case-3-1-3");
                                 (branching.as_mut(), Ok(found_at), candidate_suffix)
                             }
                         }
-                    },
+                    }
                     Err(insert_at) => {
                         //println!("case-3-2");
                         (branching.as_mut(), Err(insert_at), suffix)
-                    },
+                    }
                 }
             }
         }
@@ -344,6 +362,13 @@ impl<Data> Node<Data> {
         }
     }
 
+    fn children_first_bytes(&self) -> &[c_char] {
+        match self.cast_ref() {
+            Either::Left(_) => return &[],
+            Either::Right(branching) => return branching.children_first_bytes(),
+        }
+    }
+
     pub fn children_iter(&self) -> impl Iterator<Item = &Node<Data>> {
         self.children().iter()
     }
@@ -373,7 +398,7 @@ mod test {
         println!("find now");
         assert_eq!(node.find(&b"bike".c_chars()), Some(&0));
         assert_eq!(node.find(&b"cool".c_chars()), None);
-        
+
         // todo: implement debug snapshot print
         //assert_debug_snapshot!(trie, @r#""bike" (0)"#);
     }
