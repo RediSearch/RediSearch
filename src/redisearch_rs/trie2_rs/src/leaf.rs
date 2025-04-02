@@ -108,9 +108,7 @@ impl<Data> LeafNode<Data> {
         let branching = unsafe {
             BranchingNode::allocate(
                 &label_ref,
-                &[],
-                Some(new_child.into()),
-                &[adapt_child_that_was_there.into()],
+                &[&[new_child.into()], &[adapt_child_that_was_there.into()]],
             )
         };
 

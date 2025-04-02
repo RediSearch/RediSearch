@@ -232,6 +232,11 @@ mod test {
         "###);
 
         trie.insert(&b"ab".c_chars(), 1);
+        assert_debug_snapshot!(trie, @r###"
+        "" (-)
+          ↳––––"a" (0)
+        "###);
+
         trie.insert(&b"abcd".c_chars(), 2);
         assert_debug_snapshot!(trie, @r#"
         "a" (0)

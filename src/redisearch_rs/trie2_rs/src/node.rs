@@ -42,7 +42,7 @@ impl<Data> Node<Data> {
     pub fn branching(label: &[c_char], children: &[Node<Data>]) -> Self {
         // Safety:
         // We know there is a least one children which makes calling allocate save
-        let bnode = unsafe { BranchingNode::allocate(label, children, None, &[]) };
+        let bnode = unsafe { BranchingNode::allocate(label, &[children]) };
 
         bnode.into()
     }
@@ -243,12 +243,15 @@ impl<Data> Node<Data> {
         match self.cast_mut() {
             // case 2-x self is leaf:
             Either::Left(leaf) => {
-                let index_or_insert_at = match leaf.label().cmp(suffix) {
-                    std::cmp::Ordering::Less => Err(1), // insert new before this leaf
-                    std::cmp::Ordering::Equal => Ok(0), // replace this leaf
-                    std::cmp::Ordering::Greater => Err(0), // insert new after this leaf
+                let index_or_insert_at = if suffix.is_empty() {
+                    // Replace this leaf
+                    Ok(0)
+                } else {
+                    // Insert after this leaf
+                    Err(0)
                 };
                 //println!("case-2");
+                println!("Suffix: {suffix:?}");
                 (leaf.as_mut(), index_or_insert_at, suffix)
             }
             // case 3-x-y: self is branching:

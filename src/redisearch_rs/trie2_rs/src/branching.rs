@@ -1,5 +1,5 @@
 use crate::ToCCharArray;
-use crate::header::NodeDropState;
+use crate::header::{HAS_EMPTY_LABELED_CHILD, NO_EMPTY_LABELED_CHILD, NodeDropState};
 
 use super::header::AllocationHeader;
 use super::leaf::LeafNode;
@@ -35,7 +35,7 @@ impl<Data> AsMut<Node<Data>> for BranchingNode<Data> {
 
 impl<Data> BranchingNode<Data> {
     pub fn create_root() -> Self {
-        unsafe { BranchingNode::allocate(&b"".c_chars(), &[], None, &[]) }
+        unsafe { BranchingNode::allocate(&b"".c_chars(), &[]) }
     }
 
     pub fn shrink(&mut self, _child_index: usize) -> Node<Data> {
@@ -170,7 +170,7 @@ impl<Data> BranchingNode<Data> {
                 // Safety: We mark the old node as drop shallow and actually drop it after reallocation
                 unsafe {
                     let new_branch =
-                        Self::allocate(child_label, self_children, Some(new_child.into()), &[]);
+                        Self::allocate(child_label, &[self_children, &[new_child.into()]]);
                     Self::swap_ensure_shallow_del(new_branch, &mut self.0);
                 };
             }
@@ -220,9 +220,7 @@ impl<Data> BranchingNode<Data> {
                 let new_branch = unsafe {
                     Self::allocate(
                         new_brnch_label,
-                        left_slice,
-                        Some(new_child.into()),
-                        right_slice,
+                        &[left_slice, &[new_child.into()], right_slice],
                     )
                 };
                 BranchingNode::swap_ensure_shallow_del(new_branch, &mut self.0);
@@ -258,26 +256,16 @@ impl<Data> BranchingNode<Data> {
     ///
     /// # Safety
     /// - The caller must ensure that moved children are not dropped.
-    pub(crate) unsafe fn allocate(
-        label: &[c_char],
-        left: &[Node<Data>],
-        new_node: Option<Node<Data>>,
-        right: &[Node<Data>],
-    ) -> Self {
+    pub(crate) unsafe fn allocate(label: &[c_char], children: &[&[Node<Data>]]) -> Self {
         // TODO: Check *here* that we're smaller than u15::MAX.
         let label_len: u16 = label.len().try_into().unwrap();
 
-        let has_empty_labeled_child = right.last().map_or_else(
-            || {
-                new_node
-                    .as_ref()
-                    .map(|nn| nn.label().is_empty())
-                    .unwrap_or(false)
-            },
-            |right_last| right_last.label().is_empty(),
-        );
+        let has_empty_labeled_child = children
+            .last()
+            .and_then(|last| last.last().map(|l| l.label().is_empty()))
+            .unwrap_or(false);
 
-        let num_children_total = left.len() + new_node.is_some() as usize + right.len();
+        let num_children_total: usize = children.iter().map(|c| c.len()).sum();
         let num_non_empty_labeled_children = num_children_total - has_empty_labeled_child as usize;
 
         let layout = BranchLayout::<Data>::new(label_len, num_children_total as u16);
@@ -289,7 +277,7 @@ impl<Data> BranchingNode<Data> {
             unsafe { alloc_zeroed(layout.layout) as *mut AllocationHeader }
         };
 
-        let Some(mut buffer_ptr) = NonNull::new(buffer_ptr) else {
+        let Some(buffer_ptr) = NonNull::new(buffer_ptr) else {
             // The allocation failed!
             handle_alloc_error(layout.layout)
         };
@@ -300,16 +288,14 @@ impl<Data> BranchingNode<Data> {
         //   since the allocation was performed against a type layout
         //   that begins with a header field.
         unsafe {
-            buffer_ptr.write(AllocationHeader::branching(label_len));
-        }
-
-        // SAFETY:
-        // as the flags are in a valid state due to the call to branching we can now start
-        // to alter it. This only works if the header has been written.
-        unsafe {
-            buffer_ptr
-                .as_mut()
-                .mark_as_empty_labeled_child(has_empty_labeled_child);
+            buffer_ptr.write(AllocationHeader::branching(
+                label_len,
+                if has_empty_labeled_child {
+                    HAS_EMPTY_LABELED_CHILD
+                } else {
+                    NO_EMPTY_LABELED_CHILD
+                },
+            ));
         }
 
         unsafe {
@@ -328,69 +314,23 @@ impl<Data> BranchingNode<Data> {
                 .write(num_non_empty_labeled_children as u8);
         }
 
-        if new_node.is_none() && left.is_empty() && right.is_empty() {
-            return BranchingNode(Node {
-                ptr: buffer_ptr,
-                _phantom: PhantomData,
-            });
-        }
-        //~
-        // if we're here we continue with copying the children
-
-        // And start by Copy the first bytes of the non-empty-labeled children's labels.
-        if let Some(new_node) = &new_node {
-            let iter = left
+        // And start by copying the first bytes of the non-empty-labeled children's labels.
+        BranchingNode::copy_first_bytes_children_based_on_iter(
+            children
                 .iter()
-                .chain(std::iter::once(new_node))
-                .chain(right.iter());
-            BranchingNode::copy_first_bytes_children_based_on_iter(
-                iter,
-                num_non_empty_labeled_children,
-                &layout,
-                &buffer_ptr,
-            );
-        } else {
-            let iter = left.iter().chain(right.iter());
-            BranchingNode::copy_first_bytes_children_based_on_iter(
-                iter,
-                num_non_empty_labeled_children,
-                &layout,
-                &buffer_ptr,
-            );
-        }
+                .flat_map(|c| c.iter())
+                .take(num_non_empty_labeled_children),
+            &layout,
+            &buffer_ptr,
+        );
 
-        // memcpy the children, including the non-empty labeled child
-        if !left.is_empty() {
+        let mut ptr = layout.children_ptr(buffer_ptr).as_ptr();
+        for subset in children.iter() {
             // copy the left children to children.add(offset)
             unsafe {
-                std::ptr::copy_nonoverlapping(
-                    left.as_ptr(),
-                    layout.children_ptr(buffer_ptr).as_ptr(),
-                    left.len(),
-                );
+                std::ptr::copy_nonoverlapping(subset.as_ptr(), ptr, subset.len());
             }
-        }
-        // copy new child to children.add(offset)
-        let mut offset = left.len();
-        if let Some(new_node) = new_node {
-            unsafe {
-                layout
-                    .children_ptr(buffer_ptr)
-                    .as_ptr()
-                    .add(offset)
-                    .write(new_node);
-            }
-            // Copy the right children to children.add(offset + 1)
-            offset = offset + 1;
-        }
-        if !right.is_empty() {
-            unsafe {
-                std::ptr::copy_nonoverlapping(
-                    right.as_ptr(),
-                    layout.children_ptr(buffer_ptr).add(offset).as_ptr(),
-                    right.len(),
-                );
-            }
+            ptr = unsafe { ptr.add(subset.len()) };
         }
 
         BranchingNode(Node {
@@ -400,20 +340,15 @@ impl<Data> BranchingNode<Data> {
     }
 
     fn copy_first_bytes_children_based_on_iter<'a, Iter: Iterator<Item = &'a Node<Data>>>(
-        iter: Iter,
-        num_non_empty_labeled_children: usize,
+        mut iter: Iter,
         layout: &'a BranchLayout<Data>,
         buffer_ptr: &'a NonNull<AllocationHeader>,
     ) {
-        for (idx, child) in iter.enumerate().take(num_non_empty_labeled_children) {
+        let mut next = layout.child_first_bytes_ptr(*buffer_ptr);
+        while let Some(child) = iter.next() {
             if let Some(first_byte) = child.label().first() {
-                unsafe {
-                    layout
-                        .child_first_bytes_ptr(*buffer_ptr)
-                        .as_ptr()
-                        .add(idx)
-                        .write(*first_byte)
-                };
+                unsafe { next.as_ptr().write(*first_byte) };
+                next = unsafe { next.add(1) };
             } else {
                 unreachable!(
                     "The empty labeled child, if any, should be at the end and if so,\

@@ -60,8 +60,8 @@ impl From<NodeHasEmptyLabeledChild> for u1 {
     }
 }
 
-const NO_EMPTY_LABELED_CHILD: u1 = u1::new(0b0);
-const HAS_EMPTY_LABELED_CHILD: u1 = u1::new(0b1);
+pub const NO_EMPTY_LABELED_CHILD: u1 = u1::new(0b0);
+pub const HAS_EMPTY_LABELED_CHILD: u1 = u1::new(0b1);
 
 impl AllocationHeader {
     /// Create the header for a new leaf node.
@@ -73,11 +73,11 @@ impl AllocationHeader {
     }
 
     /// Create the header for a new branching node.
-    pub fn branching(label_len: u16) -> Self {
+    pub fn branching(label_len: u16, empty_child: u1) -> Self {
         let label_len = label_len
             .try_into()
             .expect("The length of the label exceeds the maximum capacity of a single node");
-        Self::new(label_len, BRANCHING, DROP_RECURSIVE, NO_EMPTY_LABELED_CHILD)
+        Self::new(label_len, BRANCHING, DROP_RECURSIVE, empty_child)
     }
 
     /// The node kind, as an enum.
