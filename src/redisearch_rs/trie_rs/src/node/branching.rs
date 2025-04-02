@@ -4,7 +4,7 @@ use crate::ToCCharArray;
 use super::header::AllocationHeader;
 use super::leaf::LeafNode;
 use super::{Either, Node};
-use std::alloc::*;
+use std::{alloc::*, ptr};
 use std::ffi::c_char;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
@@ -38,8 +38,48 @@ impl<Data> BranchingNode<Data> {
         unsafe { BranchingNode::allocate(&b"".c_chars(), &[], None, &[])}
     }
 
-    pub fn shrink(&mut self, _child_index: usize) -> Node<Data> {
-        todo!("replace self with a smaller branching node")
+    /// shrinks the branching node by one leaf node, it ignores shrinking of branches
+    /// 
+    /// SAFETY:
+    /// The reference to self may change the type. Thus the caller must ensure that all following
+    /// code access self as the general [Node] type.
+    pub unsafe fn shrink_leaf(&mut self, child_index: usize) -> Option<Data> {
+        let old_child = &self.children()[child_index];
+        let Either::Left(_) = old_child.cast_ref() else {return None;};
+
+        let mut old_child  = Node::sentinel();
+        std::mem::swap(&mut self.children_mut()[child_index], &mut old_child);
+        // this cannot happen: hopefully the compiler is smart enough
+        let Either::Left(old_child) = old_child.cast() else {return None;};
+
+        if self.children().len() == 2 {
+            // case A: one child left after op --> change to leaf node
+            let keep_idx = !child_index;
+
+            // 1st get out replacing node
+            let mut replacing_node = Node::sentinel();
+            std::mem::swap(&mut replacing_node, &mut self.children_mut()[keep_idx]);
+
+            // 2nd 
+            std::mem::swap(&mut self.0, &mut replacing_node);
+
+            // Leaky: We won't leak as both children have been replaced with sentinel
+            drop(replacing_node); 
+        } else {
+            // case B: more children left --> create new branching node
+            
+            let left = &self.children()[..child_index-1];
+            let right = &self.children()[child_index+1..];
+            let mut new_branch_becomes_self = unsafe { BranchingNode::allocate(self.label(), left, None, right) };
+
+            std::mem::swap(&mut new_branch_becomes_self, self);
+
+            // Leaky: We won't leak as we use the shallow drop implementation
+            new_branch_becomes_self.header_mut().set_drop_state(NodeDropState::DropShallow);
+            drop(new_branch_becomes_self);
+        }
+        
+        Some(old_child.into_data())
     }
 
     fn header(&self) -> &AllocationHeader {
@@ -48,6 +88,10 @@ impl<Data> BranchingNode<Data> {
 
     fn header_mut(&mut self) -> &mut AllocationHeader {
         unsafe { self.0.ptr.as_mut() }
+    }
+
+    fn is_sentinel(&self) -> bool {
+        self.0.ptr.as_ptr() == 1 as *mut AllocationHeader
     }
 
     fn layout(&self) -> BranchLayout<Data> {
@@ -393,6 +437,9 @@ impl<Data> BranchingNode<Data> {
 impl<Data> Drop for BranchingNode<Data> {
     #[inline]
     fn drop(&mut self) {
+        if self.is_sentinel() {return ;};
+        //~
+
         if self.header().drop_state() == NodeDropState::DropRecursive {
             // how do we know about the right callback, here? store it in self?
             //todo!("Delete children")

@@ -1,6 +1,6 @@
 use super::Node;
 use super::branching::BranchingNode;
-use super::header::AllocationHeader;
+use super::header::{AllocationHeader, NodeDropState};
 use std::alloc::*;
 use std::ffi::c_char;
 use std::marker::PhantomData;
@@ -39,6 +39,10 @@ impl<Data> LeafNode<Data> {
             ptr: Self::allocate(data, label),
             _phantom: PhantomData,
         })
+    }
+
+    fn is_sentinel(&self) -> bool {
+        self.0.ptr.as_ptr() == 1 as *mut AllocationHeader
     }
 
     fn header(&self) -> &AllocationHeader {
@@ -165,10 +169,9 @@ impl<Data> LeafNode<Data> {
         buffer_ptr
     }
 
-    fn into_data(self) -> Data {
+    pub(super) fn into_data(mut self) -> Data {
+        self.header_mut().set_drop_state(super::header::NodeDropState::DropShallow);
         unsafe { self.layout().data_ptr(self.0.ptr).as_ptr().read() }
-        
-        // todo make sure data doesn't get dropped
     }
 
     fn parts(&mut self) -> (&[c_char], Data) {
@@ -181,11 +184,15 @@ impl<Data> LeafNode<Data> {
 impl<Data> Drop for LeafNode<Data> {
     #[inline]
     fn drop(&mut self) {
-        // todo: check if we need to drop shallow
+        if self.is_sentinel() {return ;};
+        //~
 
-        unsafe {
-            std::ptr::drop_in_place(self.data_mut());
+        if self.header().drop_state() == NodeDropState::DropRecursive {
+            unsafe {
+                std::ptr::drop_in_place(self.data_mut());
+            }
         }
+
         unsafe {
             dealloc(self.0.ptr.as_ptr() as *mut u8, self.layout().layout);
         }

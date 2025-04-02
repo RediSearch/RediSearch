@@ -12,12 +12,21 @@ pub(crate) struct AllocationHeader {
 
     /// used by internal unsafe code to determine the correct drop impl, see [NodeDropState]
     flag_drop_state: u1,
+    //flag_drop_state: u2,
+    
 
     /// indicates if there is an empty labeled child
     flag_has_empty_labeled_child: u1,
 
     reserved: u5,
+    //reserved: u4,
 }
+
+// todo: that does not work, because of how NonNull works, workaround is magic pointer value
+// advantage we don't need a bit field for the sentinel drop state but use the pointer value in a is_sentinel function
+pub(super) static SENTINEL_HEADER: AllocationHeader = AllocationHeader {
+    value: u24::new(0b0000_0100__0000_0000_0000_0000),
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum NodeKind {
@@ -29,13 +38,16 @@ pub(crate) enum NodeKind {
 pub(crate) enum NodeDropState {
     DropRecursive,
     DropShallow,
+//    DropSentinel,
 }
 
 impl From<NodeDropState> for u1 {
+//impl From<NodeDropState> for u2 {
     fn from(v: NodeDropState) -> Self {
         match v {
             NodeDropState::DropRecursive => DROP_RECURSIVE,
             NodeDropState::DropShallow => DROP_SHALLOW,
+//            NodeDropState::DropSentinel => DROP_SENTINEL,
         }
     }
 }
@@ -43,8 +55,14 @@ impl From<NodeDropState> for u1 {
 const LEAF: u1 = u1::new(0b0);
 const BRANCHING: u1 = u1::new(0b1);
 
-const DROP_SHALLOW: u1 = u1::new(0b0);
-const DROP_RECURSIVE: u1 = u1::new(0b1);
+const DROP_SHALLOW: u1 = u1::new(0b00);
+const DROP_RECURSIVE: u1 = u1::new(0b01);
+
+/*
+const DROP_SHALLOW: u2 = u2::new(0b00);
+const DROP_RECURSIVE: u2 = u2::new(0b01);
+const DROP_SENTINEL: u2 = u2::new(0b10);
+*/
 
 pub(crate) enum NodeHasEmptyLabeledChild {
     NoEmptyLabeledChild,
@@ -117,5 +135,18 @@ impl AllocationHeader {
     /// The length of the label associated with this node.
     pub fn len(&self) -> u16 {
         self.label_len().into()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::ToCCharArray;
+
+    #[test]
+    fn test_sentinel_header() {
+        assert_eq!(SENTINEL_HEADER.label_len(), 0);
+        //assert_eq!(SENTINEL_HEADER.has_empty_labeled_child(), false);
+        //assert_eq!(SENTINEL_HEADER.drop_state(), NodeDropState::DropSentinel);    
     }
 }

@@ -18,9 +18,8 @@ impl<T> TrieMap<T> {
         self.root.add_child(key, data)
     }
 
-    pub fn remove(&mut self, _key: &[c_char]) -> Option<T> {
-        // todo:
-        None
+    pub fn remove(&mut self, key: &[c_char]) -> Option<T> {
+        self.root.remove_child(key)
     }
 
     // todo: shouldn't be mutable

@@ -6,7 +6,7 @@
 use std::{ffi::c_char, marker::PhantomData, ops::Deref, ptr::NonNull, usize};
 
 use branching::BranchingNode;
-use header::{AllocationHeader, NodeKind};
+use header::{AllocationHeader, NodeKind, SENTINEL_HEADER};
 use leaf::LeafNode;
 //use proptest::bits::BitSetLike;
 mod branching;
@@ -53,6 +53,21 @@ impl<Data> Node<Data> {
 
         bnode.into()
     }
+
+    /* errors here
+    fn sentinel_based_on_static() -> Self {
+        let ptr = unsafe { &mut SENTINEL_HEADER as *mut AllocationHeader};
+        Node { ptr: unsafe { NonNull::new_unchecked(ptr) } , _phantom: PhantomData }
+    }
+    */
+
+    pub const fn sentinel() -> Self {
+        Node {
+            ptr: unsafe { NonNull::new_unchecked(1 as *mut AllocationHeader) }, // Fake non-null
+            _phantom: PhantomData,
+        }
+    }
+    
 
     pub fn root() -> Self {
         branching::BranchingNode::create_root().into()
@@ -111,26 +126,6 @@ impl<Data> Node<Data> {
         }
     }
 
-    fn shrink(&mut self, child_index: usize) -> Node<Data> {
-        let Either::Right(branching) = self.cast_mut() else {
-            unreachable!("self is always going to be a branching node")
-        };
-
-        if branching.num_children() >= 1 {
-            unreachable!()
-        } else if branching.num_children() == 2 {
-            // switch to leaf, merge self.label with new_leaf's label
-            todo!();
-            //let new_leaf = branching[!child_index];
-            //let removed_leaf = branching[child_index];
-            //std::mem::replace(self, new_leaf);
-            //removed_leaf
-        } else {
-            // just shrink
-            branching.shrink(child_index)
-        }
-    }
-
     /*
     pub fn tree<I: Iterator<Item = (&[c_char], Data)>>() -> Self {
         todo!("later for optimization")
@@ -175,6 +170,10 @@ impl<Data> Node<Data> {
     pub fn is_branching(&self) -> bool {
         let header = unsafe { self.ptr.as_ref() };
         header.kind() == NodeKind::Branching
+    }
+
+    fn is_sentinel(&self) -> bool {
+        self.ptr.as_ptr() == 1 as *mut AllocationHeader
     }
 
     pub fn find_node<'a>(&'a mut self, key: &[c_char]) -> Option<&'a Node<Data>> {
@@ -321,20 +320,24 @@ impl<Data> Node<Data> {
         //          replace old branching node with new one
     }
 
-    pub fn remove_child(&mut self, key: &[c_char]) -> Option<Data> {
-        let (_parent, _index_or_insert_at, _label) = self.find_node_parent_mut(key);
-        // if parent.child_first_bytes()[idx] != label[0] {
-        //     return None;
-        // }
+    pub(crate) fn remove_child(&mut self, key: &[c_char]) -> Option<Data> {
+        // assumption: this only removes leaf nodes, branches are ignored
+        let (parent, index_or_insert_at, _label) = self.find_node_parent_mut(key);
 
-        // take data from the child at parent.children[idx]
+        let Ok(found_at) = index_or_insert_at else { return None; };
+        let Either::Right(parent) = parent.cast_mut() 
+            else { unreachable!("root is a branch and we found the child so a leaf node cannot happen") };
 
-        // replace parent with a new node
-        // Depending on whether parent will a single child after removing
-        // the other one, it's gonna be a merged leaf node. If there are
-        // more than one child, it's gonna be a branching node with 1 fewer child.
+        unsafe { parent.shrink_leaf(found_at) }
+    }
 
-        todo!()
+    fn header(&self) -> &AllocationHeader {
+        unsafe { self.ptr.as_ref() }
+    }
+
+
+    fn header_mut(&mut self) -> &mut AllocationHeader {
+        unsafe { self.ptr.as_mut() }
     }
 
     fn children(&self) -> &[Node<Data>] {
@@ -359,6 +362,20 @@ impl<Data> Node<Data> {
         self.children_mut().iter_mut()
     }
 }
+
+// todo: how to ensure right drop get's called?
+/*
+impl<Data> Drop for Node<Data> {
+    #[inline]
+    fn drop(&mut self) {
+        if self.is_sentinel() {return ;};
+        match self.cast_mut() {
+            Either::Left(l) => drop(*l),
+            Either::Right(b) => drop(b),
+        }
+    }
+}
+*/
 
 #[cfg(test)]
 mod test {
