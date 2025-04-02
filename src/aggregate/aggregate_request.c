@@ -1454,6 +1454,8 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();
 
+  rp = RPMaxCollector_New();
+  PUSH_RP();
   // Load results metrics according to their RLookup key.
   // We need this RP only if metricRequests is not empty.
   if (req->ast.metricRequests) {
