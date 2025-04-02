@@ -66,17 +66,11 @@ pub const HAS_EMPTY_LABELED_CHILD: u1 = u1::new(0b1);
 impl AllocationHeader {
     /// Create the header for a new leaf node.
     pub fn leaf(label_len: u16) -> Self {
-        let label_len = label_len
-            .try_into()
-            .expect("The length of the label exceeds the maximum capacity of a single node");
         Self::new(label_len, LEAF, DROP_RECURSIVE, NO_EMPTY_LABELED_CHILD)
     }
 
     /// Create the header for a new branching node.
     pub fn branching(label_len: u16, empty_child: u1) -> Self {
-        let label_len = label_len
-            .try_into()
-            .expect("The length of the label exceeds the maximum capacity of a single node");
         Self::new(label_len, BRANCHING, DROP_RECURSIVE, empty_child)
     }
 

@@ -25,3 +25,8 @@ impl<const N: usize> ToCCharArray<N> for [u8; N] {
         self.map(|b| b as c_char)
     }
 }
+
+pub(crate) fn to_string_lossy(label: &[c_char]) -> String {
+    let slice = label.iter().map(|&c| c as u8).collect::<Vec<_>>();
+    String::from_utf8_lossy(&slice).into_owned()
+}

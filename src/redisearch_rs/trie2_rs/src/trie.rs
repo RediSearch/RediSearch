@@ -17,7 +17,7 @@ impl<T> TrieMap<T> {
     /// Insert a key-value pair into the trie.
     /// Returns the previous value associated with the key if it was present.
     pub fn insert(&mut self, key: &[c_char], data: T) -> Option<T> {
-        self.root.add_child(key, data)
+        self.root.insert(key, data)
     }
 
     /// Remove an entry from the trie.
@@ -129,65 +129,72 @@ mod test {
     }
 
     #[test]
-    fn test_trie() {
+    fn test_trie_insertions() {
         let mut trie = TrieMap::new();
         trie.insert(&b"bike".c_chars(), 0);
-        assert_eq!(trie.find(&b"bike".c_chars()), Some(&0));
-        assert_eq!(trie.find(&b"cool".c_chars()), None);
         assert_debug_snapshot!(trie, @r###"
         "" (-)
           ↳––––"bike" (0)
         "###);
+        assert_eq!(trie.find(&b"bike".c_chars()), Some(&0));
+        assert_eq!(trie.find(&b"cool".c_chars()), None);
 
         trie.insert(&b"biker".c_chars(), 1);
+        assert_debug_snapshot!(trie, @r###"
+        "" (-)
+          ↳––––"bike" (-)
+                ↳––––"r" (1)
+                ↳––––"" (0)
+        "###);
         assert_eq!(trie.find(&b"bike".c_chars()), Some(&0));
         assert_eq!(trie.find(&b"biker".c_chars()), Some(&1));
         assert_eq!(trie.find(&b"cool".c_chars()), None);
-        assert_debug_snapshot!(trie, @r#"
-        "bike" (0)
-          ↳––––"r" (1)
-        "#);
 
         trie.insert(&b"bis".c_chars(), 2);
+        assert_debug_snapshot!(trie, @r###"
+        "" (-)
+          ↳––––"bi" (-)
+                ↳––––"ke" (-)
+                      ↳––––"r" (1)
+                      ↳––––"" (0)
+                ↳––––"s" (2)
+        "###);
         assert_eq!(trie.find(&b"bike".c_chars()), Some(&0));
         assert_eq!(trie.find(&b"biker".c_chars()), Some(&1));
         assert_eq!(trie.find(&b"bis".c_chars()), Some(&2));
         assert_eq!(trie.find(&b"cool".c_chars()), None);
-        assert_debug_snapshot!(trie, @r#"
-        "bi" (-)
-          ↳––––"ke" (0)
-                ↳––––"r" (1)
-          ↳––––"s" (2)
-        "#);
 
         trie.insert(&b"cool".c_chars(), 3);
+        assert_debug_snapshot!(trie, @r###"
+        "" (-)
+          ↳––––"bi" (-)
+                ↳––––"ke" (-)
+                      ↳––––"r" (1)
+                      ↳––––"" (0)
+                ↳––––"s" (2)
+          ↳––––"cool" (3)
+        "###);
         assert_eq!(trie.find(&b"bike".c_chars()), Some(&0));
         assert_eq!(trie.find(&b"biker".c_chars()), Some(&1));
         assert_eq!(trie.find(&b"bis".c_chars()), Some(&2));
         assert_eq!(trie.find(&b"cool".c_chars()), Some(&3));
-        assert_debug_snapshot!(trie, @r#"
-        "" (-)
-          ↳––––"bi" (-)
-                ↳––––"ke" (0)
-                      ↳––––"r" (1)
-                ↳––––"s" (2)
-          ↳––––"cool" (3)
-        "#);
 
         trie.insert(&b"bi".c_chars(), 4);
+        assert_debug_snapshot!(trie, @r###"
+        "" (-)
+          ↳––––"bi" (-)
+                ↳––––"ke" (-)
+                      ↳––––"r" (1)
+                      ↳––––"" (0)
+                ↳––––"s" (2)
+                ↳––––"" (4)
+          ↳––––"cool" (3)
+        "###);
         assert_eq!(trie.find(&b"bike".c_chars()), Some(&0));
         assert_eq!(trie.find(&b"biker".c_chars()), Some(&1));
         assert_eq!(trie.find(&b"bis".c_chars()), Some(&2));
         assert_eq!(trie.find(&b"cool".c_chars()), Some(&3));
         assert_eq!(trie.find(&b"bi".c_chars()), Some(&4));
-        assert_debug_snapshot!(trie, @r#"
-        "" (-)
-          ↳––––"bi" (4)
-                ↳––––"ke" (0)
-                      ↳––––"r" (1)
-                ↳––––"s" (2)
-          ↳––––"cool" (3)
-        "#);
 
         // assert_eq!(trie.remove(&b"cool".c_chars()), Some(3));
         // assert_debug_snapshot!(trie, @r#"
@@ -234,15 +241,20 @@ mod test {
         trie.insert(&b"ab".c_chars(), 1);
         assert_debug_snapshot!(trie, @r###"
         "" (-)
-          ↳––––"a" (0)
+          ↳––––"a" (-)
+                ↳––––"b" (1)
+                ↳––––"" (0)
         "###);
 
         trie.insert(&b"abcd".c_chars(), 2);
-        assert_debug_snapshot!(trie, @r#"
-        "a" (0)
-          ↳––––"b" (1)
-                ↳––––"cd" (2)
-        "#);
+        assert_debug_snapshot!(trie, @r###"
+        "" (-)
+          ↳––––"a" (-)
+                ↳––––"b" (-)
+                      ↳––––"cd" (2)
+                      ↳––––"" (1)
+                ↳––––"" (0)
+        "###);
 
         // assert_eq!(trie.remove(&b"ab".c_chars()), Some(1));
         // assert_debug_snapshot!(trie, @r#"

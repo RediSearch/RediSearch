@@ -1,9 +1,11 @@
+use std::cmp::Ordering;
 use std::fmt;
 use std::{ffi::c_char, marker::PhantomData, ops::Deref, ptr::NonNull, usize};
 
 use crate::branching::BranchingNode;
 use crate::header::{AllocationHeader, NodeKind};
 use crate::leaf::LeafNode;
+use crate::to_string_lossy;
 
 // N<D>: 8bytes ---> dyn Bytes Heap
 // BN: 8bytes ---> dyn Bytes Heap
@@ -29,6 +31,12 @@ pub fn get_shared_prefix_len(lh_label: &[c_char], rh_label: &[c_char]) -> usize 
 }
 
 impl<Data> Node<Data> {
+    /// A node that can be used as a cheap placeholder whenever we need to temporarily
+    /// take ownership of a node from a `&mut` reference.
+    pub fn dummy_node() -> Self {
+        BranchingNode::create_root().into()
+    }
+
     pub fn root() -> Self {
         BranchingNode::create_root().into()
     }
@@ -144,6 +152,253 @@ impl<Data> Node<Data> {
         }
     }
 
+    pub fn insert(&mut self, mut key: &[c_char], data: Data) -> Option<Data> {
+        let mut current = self;
+        loop {
+            match current
+                .label()
+                .iter()
+                .zip(key.iter())
+                .enumerate()
+                .find_map(|(i, (c1, c2))| if c1 != c2 { Some(i) } else { None })
+            {
+                Some(0) => {
+                    let Self {
+                        ptr: current_ptr,
+                        _phantom,
+                    } = current;
+                    let old_root = Self {
+                        ptr: std::mem::replace(current_ptr, NonNull::dangling()),
+                        _phantom: Default::default(),
+                    };
+                    // The node's label and the key don't share a common prefix.
+                    // This can only happen if the current node is the root node of the trie.
+                    //
+                    // Create a new root node with an empty label,
+                    // insert the old root as a child of the new root,
+                    // and add a new child to the empty root.
+                    let new_leaf = Node::leaf(key, data);
+                    let children = if key < old_root.label() {
+                        [old_root, new_leaf]
+                    } else {
+                        [new_leaf, old_root]
+                    };
+                    let new_root: Node<_> =
+                        unsafe { BranchingNode::allocate(&[], &[&children]) }.into();
+                    let Self {
+                        ptr: new_root_ptr, ..
+                    } = new_root;
+                    *current_ptr = new_root_ptr;
+
+                    return None;
+                }
+                Some(equal_up_to) => {
+                    // In this case, only part of the key matches the current node's label.
+                    // Add `bis` (D) to a trie with `bike` (A), `biker` (B) and `bikes` (C).
+                    //
+                    // ```text
+                    //     bike (A)   ->      bi (-)
+                    //     /  \             /       \
+                    // r (B)   s (C)      ke (A)     s (D)
+                    //                   /     \
+                    //                 r (B)   s (C)
+                    // ```
+                    //
+                    // Create a new node that uses the shared prefix as its label.
+                    // The prefix is then stripped from both the current label and the
+                    // new key; the resulting suffixes are used as labels for the new child nodes.
+                    let Self {
+                        ptr: current_ptr,
+                        _phantom,
+                    } = current;
+                    let old_root = Self {
+                        ptr: std::mem::replace(current_ptr, NonNull::dangling()),
+                        _phantom: Default::default(),
+                    };
+                    let (shared_prefix, old_root_suffix) = old_root.label().split_at(equal_up_to);
+
+                    let new_child: Node<_> = Node::leaf(&key[equal_up_to..], data).into();
+                    let shortened_root = Node::branching(&old_root_suffix[..], old_root.children());
+
+                    let children = if new_child.label() < shortened_root.label() {
+                        &[new_child, shortened_root]
+                    } else {
+                        &[shortened_root, new_child]
+                    };
+
+                    let Self {
+                        ptr: new_root_ptr, ..
+                    } = Node::branching(shared_prefix, children);
+                    *current_ptr = new_root_ptr;
+
+                    return None;
+                }
+                None => {
+                    match key.len().cmp(&current.label().len()) {
+                        Ordering::Less => {
+                            // The key we want to insert is a strict prefix of the current node's label.
+                            // Therefore we need to insert a new _parent_ node.
+                            //
+                            // .split(index)
+                            // .split(prefix, suffix)
+                            //
+                            let Self {
+                                ptr: current_ptr,
+                                _phantom,
+                            } = current;
+                            let old_node = Self {
+                                ptr: std::mem::replace(current_ptr, NonNull::dangling()),
+                                _phantom: Default::default(),
+                            };
+
+                            let new_child: Node<Data> = match old_node.cast() {
+                                // # Case 1: No children for the current node
+                                //
+                                // Add `bike` with data `B` to a trie with `biker`, where `biker` has data `A`.
+                                // ```text
+                                // biker (A)  ->   bike (B)
+                                //                /
+                                //               r (A)
+                                // ```
+                                Either::Left(mut leaf) => {
+                                    leaf.truncate_label_prefix(key.len());
+                                    leaf.into()
+                                }
+                                // # Case 2: Current node has children
+                                //
+                                // Add `b` to a trie with `bi` and `bike`.
+                                // `b` has data `C`, `bi` has data `A`, `bike` has data `B`.
+                                //
+                                // ```text
+                                // bi (A)   ->    b (C)
+                                //   \             \
+                                //    ke (B)        i (A)
+                                //                   \
+                                //                    ke (B)
+                                // ```
+                                Either::Right(branching) => Node::branching(
+                                    &branching.label()[key.len()..],
+                                    branching.children(),
+                                ),
+                            };
+
+                            let Self {
+                                ptr: new_parent_ptr,
+                                ..
+                            } = Node::branching(key, &[new_child]);
+                            *current_ptr = new_parent_ptr;
+
+                            return None;
+                        }
+                        Ordering::Equal => {
+                            // Suffix is empty, so the key and the node label are equal.
+                            // Replace the data attached to the current node
+                            // with the new data.
+                            return match current.cast_mut() {
+                                Either::Left(leaf) => {
+                                    Some(std::mem::replace(leaf.data_mut(), data))
+                                }
+                                Either::Right(branching) => {
+                                    if branching.has_empty_labeled_child() {
+                                        let Some(child) = branching.children_mut().last_mut()
+                                        else {
+                                            unreachable!()
+                                        };
+                                        let Either::Left(child) = child.cast_mut() else {
+                                            unreachable!()
+                                        };
+                                        Some(std::mem::replace(child.data_mut(), data))
+                                    } else {
+                                        let new_leaf = Node::leaf(&[], data);
+                                        let new_branching = unsafe {
+                                            BranchingNode::allocate(
+                                                branching.label(),
+                                                &[branching.children(), &[new_leaf]],
+                                            )
+                                        }
+                                        .into();
+                                        let old = std::mem::replace(branching, new_branching);
+                                        // TODO: deallocate the buffer without dropping the children
+                                        std::mem::forget(old);
+                                        None
+                                    }
+                                }
+                            };
+                        }
+                        Ordering::Greater => {
+                            // Suffix is not empty, therefore the insertion needs to happen
+                            // in a child (or grandchild) of the current node.
+
+                            let suffix = &key[current.label().len()..];
+                            if current.is_branching() {
+                                match current.children_first_bytes().binary_search(&suffix[0]) {
+                                    Ok(i) => {
+                                        // We recurse!
+                                        current = &mut current.children_mut()[i];
+                                        key = suffix;
+                                        continue;
+                                    }
+                                    Err(i) => {
+                                        let new_child = Node::leaf(suffix, data);
+
+                                        let (children_with_labels, empty_labeled) =
+                                            if current.data().is_some() {
+                                                current
+                                                    .children()
+                                                    .split_at(current.children().len() - 1)
+                                            } else {
+                                                (current.children(), [].as_slice())
+                                            };
+
+                                        let (before, after) =
+                                            match children_with_labels.split_at_checked(i) {
+                                                Some((before, after)) => (before, after),
+                                                None => (children_with_labels, [].as_slice()),
+                                            };
+                                        let new_branching = unsafe {
+                                            BranchingNode::allocate(
+                                                current.label(),
+                                                &[before, &[new_child], after, empty_labeled],
+                                            )
+                                        }
+                                        .into();
+                                        *current = new_branching;
+                                        return None;
+                                    }
+                                }
+                            } else {
+                                let new_leaf = Node::leaf(suffix, data);
+                                let new_branching_label: Vec<_> = current.label().to_owned();
+                                {
+                                    let Either::Left(old_leaf) = current.cast_mut() else {
+                                        unreachable!()
+                                    };
+                                    old_leaf.truncate_label_prefix(old_leaf.label_len() as usize);
+                                }
+
+                                let Self {
+                                    ptr: current_ptr,
+                                    _phantom,
+                                } = current;
+                                let empty_labeled_child = Self {
+                                    ptr: std::mem::replace(current_ptr, NonNull::dangling()),
+                                    _phantom: Default::default(),
+                                };
+                                let here = &[new_leaf, empty_labeled_child];
+                                let Self {
+                                    ptr: new_branching_ptr,
+                                    _phantom,
+                                } = Node::branching(&new_branching_label, here);
+                                *current_ptr = new_branching_ptr;
+                                return None;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /*
     pub fn tree<I: Iterator<Item = (&[c_char], Data)>>() -> Self {
         todo!("later for optimization")
@@ -251,7 +506,6 @@ impl<Data> Node<Data> {
                     Err(0)
                 };
                 //println!("case-2");
-                println!("Suffix: {suffix:?}");
                 (leaf.as_mut(), index_or_insert_at, suffix)
             }
             // case 3-x-y: self is branching:
@@ -352,8 +606,8 @@ impl<Data> Node<Data> {
 
     fn children(&self) -> &[Node<Data>] {
         match self.cast_ref() {
-            Either::Left(_) => return &[],
-            Either::Right(branching) => return branching.children(),
+            Either::Left(_) => &[],
+            Either::Right(branching) => branching.children(),
         }
     }
 
@@ -382,11 +636,6 @@ impl<Data> Node<Data> {
 
 impl<Data: fmt::Debug> fmt::Debug for Node<Data> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fn to_string_lossy(label: &[c_char]) -> String {
-            let slice = label.iter().map(|&c| c as u8).collect::<Vec<_>>();
-            String::from_utf8_lossy(&slice).into_owned()
-        }
-
         let mut stack = vec![(self, 0, 0)];
 
         while let Some((next, white_indentation, line_indentation)) = stack.pop() {

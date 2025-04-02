@@ -115,6 +115,63 @@ impl<Data> LeafNode<Data> {
         BranchingNode::swap_ensure_shallow_del(branching, &mut self.0);
     }
 
+    /// Allocate a new leaf node to replace `self`.
+    ///
+    /// The new node will have `self.label[i..]` as its label and the same
+    /// data attached.
+    pub fn truncate_label_prefix(&mut self, truncate_up_to: usize) {
+        let label_len: u16 = (self.label().len() - truncate_up_to) as u16;
+        let layout = LeafLayout::<Data>::new(label_len);
+        let buffer_ptr = {
+            debug_assert!(layout.layout.size() > 0);
+            // SAFETY:
+            // `layout.size()` is greater than zero, since the header has a well-known
+            // non-zero size (2 bytes).
+            unsafe { alloc(layout.layout) as *mut AllocationHeader }
+        };
+
+        let Some(buffer_ptr) = NonNull::new(buffer_ptr) else {
+            // The allocation failed!
+            handle_alloc_error(layout.layout)
+        };
+
+        // Initialize the allocated buffer with valid values.
+
+        // SAFETY:
+        // - The destination and the value are properly aligned,
+        //   since the allocation was performed against a type layout
+        //   that begins with a header field.
+        unsafe {
+            buffer_ptr.write(AllocationHeader::leaf(label_len));
+        }
+
+        let old_layout = self.layout();
+
+        unsafe {
+            std::ptr::copy(
+                old_layout
+                    .label_ptr(self.0.ptr)
+                    .as_ptr()
+                    .add(truncate_up_to),
+                layout.label_ptr(buffer_ptr).as_ptr(),
+                label_len as usize,
+            );
+        }
+
+        unsafe {
+            std::ptr::copy(
+                old_layout.data_ptr(self.0.ptr).as_ptr().cast(),
+                layout.label_ptr(buffer_ptr).as_ptr(),
+                1,
+            );
+        }
+
+        let old_ptr = std::mem::replace(&mut self.0.ptr, buffer_ptr);
+        unsafe {
+            dealloc(old_ptr.as_ptr() as *mut u8, old_layout.layout);
+        }
+    }
+
     /// # Panics
     ///
     /// Panics if the label length is greater than u15::MAX.

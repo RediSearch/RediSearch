@@ -101,12 +101,8 @@ impl<Data> BranchingNode<Data> {
     /// Gets the first bytes of the labels of the non-empty-labeled children.
     pub fn children_first_bytes(&self) -> &[c_char] {
         let children_first_bytes_ptr = self.layout().child_first_bytes_ptr(self.0.ptr);
-        unsafe {
-            std::slice::from_raw_parts(
-                children_first_bytes_ptr.as_ptr(),
-                self.num_children() as usize,
-            )
-        }
+        let n = self.num_children() - (if self.has_empty_labeled_child() { 1 } else { 0 });
+        unsafe { std::slice::from_raw_parts(children_first_bytes_ptr.as_ptr(), n as usize) }
     }
 
     /// Get the children of the branching node.
@@ -156,7 +152,7 @@ impl<Data> BranchingNode<Data> {
                 // we replace its data because that's always a leaf
                 let Either::Left(leaf) = self.children_mut().last_mut().unwrap().cast_mut() else {
                     unreachable!(
-                        "The empty labeled  child must be a leaf, otherwise it should have been merged"
+                        "The empty labeled child must be a leaf, otherwise it should have been merged"
                     );
                 };
                 let old_data = std::mem::replace(leaf.data_mut(), child_data);
@@ -257,7 +253,6 @@ impl<Data> BranchingNode<Data> {
     /// # Safety
     /// - The caller must ensure that moved children are not dropped.
     pub(crate) unsafe fn allocate(label: &[c_char], children: &[&[Node<Data>]]) -> Self {
-        // TODO: Check *here* that we're smaller than u15::MAX.
         let label_len: u16 = label.len().try_into().unwrap();
 
         let has_empty_labeled_child = children
@@ -274,7 +269,7 @@ impl<Data> BranchingNode<Data> {
             // SAFETY:
             // `layout.size()` is greater than zero, since the header has a well-known
             // non-zero size (2 bytes).
-            unsafe { alloc_zeroed(layout.layout) as *mut AllocationHeader }
+            unsafe { alloc(layout.layout) as *mut AllocationHeader }
         };
 
         let Some(buffer_ptr) = NonNull::new(buffer_ptr) else {
@@ -315,6 +310,10 @@ impl<Data> BranchingNode<Data> {
         }
 
         // And start by copying the first bytes of the non-empty-labeled children's labels.
+        fn to_string_lossy(label: &[c_char]) -> String {
+            let slice = label.iter().map(|&c| c as u8).collect::<Vec<_>>();
+            String::from_utf8_lossy(&slice).into_owned()
+        }
         BranchingNode::copy_first_bytes_children_based_on_iter(
             children
                 .iter()
