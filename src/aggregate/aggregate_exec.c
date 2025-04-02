@@ -1299,9 +1299,9 @@ static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv
   StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);
   IndexSpec *sp = StrongRef_Get(spec_ref);
   if (sp && sp->scan_failed_OOM) {
-    return RedisModule_ReplyWithErrorFormat(ctx,
-      "Background scan for index %s failed due to OOM. Queries cannot be executed on an incomplete index.",
-      idx);
+    QueryError_SetWithUserDataFmt(&status, QUERY_INDEXBGOOMFAIL,
+      "Background scan for index ","%s failed due to OOM. Queries cannot be executed on an incomplete index.", idx);
+    goto error;
   }
 
   if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, execOptions, &status) != REDISMODULE_OK) {
