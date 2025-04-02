@@ -583,7 +583,10 @@ static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
   // Currently a pager is never called more than offset+limit times.
   // We limit the entire pipeline to offset+limit (upstream and downstream).
   uint32_t limit = MIN(self->remaining, base->parent->resultLimit);
+  // Save the previous limit, so that it will seem untouched to the downstream
+  uint32_t downstreamLimit = base->parent->resultLimit;
   base->parent->resultLimit = self->offset + limit;
+
   // If we've not reached the offset
   while (self->offset) {
     int rc = base->upstream->Next(base->upstream, r);
@@ -594,6 +597,8 @@ static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
     self->offset--;
     SearchResult_Clear(r);
   }
+
+  base->parent->resultLimit = downstreamLimit;
 
   base->Next = rppagerNext_Limit; // switch to second phase
   return base->Next(base, r);
@@ -608,6 +613,7 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   RPPager *ret = rm_calloc(1, sizeof(*ret));
   ret->offset = offset;
   ret->remaining = limit;
+
   ret->base.type = RP_PAGER_LIMITER;
   ret->base.Next = rppagerNext_Skip;
   ret->base.Free = rppagerFree;
@@ -798,7 +804,7 @@ static SearchResult *GetNextResult(RPSafeLoader *self) {
 
 static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res);  // Forward declaration
 
-static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self) {
+static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult *res) {
   // Reset the next function, in case we are in cursor mode
   if (self->becomePlainLoader) {
     self->base_loader.base.Next = rploaderNext;
@@ -810,6 +816,13 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self) {
 
   int rc = self->last_buffered_rc;
   self->last_buffered_rc = RS_RESULT_OK;
+  // We CANNOT return `RS_RESULT_OK` HERE, since it will be interpreted as a
+  // success while no population of the result was done.
+  // So if the last rc was `RS_RESULT_OK`, we need to continue activating the
+  // pipeline.
+  if (rc == RS_RESULT_OK) {
+    return self->base_loader.base.Next(&self->base_loader.base, res);
+  }
   return rc;
 }
 
@@ -834,16 +847,16 @@ static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_outp
 
   if (curr_res) {
     SetResult(curr_res, result_output);
+    return RS_RESULT_OK;
+  } else {
+    return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
   }
-  if (!curr_res || rp->parent->resultLimit <= 1) {
-    return rpSafeLoader_ResetAndReturnLastCode(self);
-  }
-  return RS_RESULT_OK;
 }
 
 /*********************************************************************************/
 
 static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
+  RS_LOG_ASSERT(rp->parent->resultLimit > 0, "Result limit should be greater than 0");
   RPSafeLoader *self = (RPSafeLoader *)rp;
 
   // Keep fetching results from the upstream result processor until EOF is reached
