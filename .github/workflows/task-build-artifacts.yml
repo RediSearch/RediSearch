@@ -154,7 +154,7 @@ jobs:
         if: steps.node20.outputs.supported == 'false'
         run: echo "Done already earlier."
       - name: Setup common
-        run: .install/common_installations.sh ${{ steps.mode.outputs.mode }}
+        run: .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
         run: pip install -q -r .install/build_package_requirments.txt
 
