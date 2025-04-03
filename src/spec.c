@@ -2217,7 +2217,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
       if (sp) {
         sp->scan_failed_OOM = true;  // Assuming there is no other reason that the scanner is canceled *and* the index exists
         // Error message does not contain user data
-        IndexError_AddError(&sp->stats.indexError, NULL, error, keyname);
+        IndexError_AddError(&sp->stats.indexError, error, error, keyname);
         IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
         StrongRef_Release(curr_run_ref);
       } else {
