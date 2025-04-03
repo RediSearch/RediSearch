@@ -4364,10 +4364,10 @@ def _test_MOD9174(env):
 
 def test_MOD9174_RESP2():
     """See further description in helper body"""
-    env = Env(moduleArgs='WORKERS 2', protocol=2)
+    env = Env(moduleArgs='WORKER_THREADS 2 MT_MODE MT_MODE_FULL DEFAULT_DIALECT 2', protocol=2)
     _test_MOD9174(env)
 
 def test_MOD9174_RESP3():
     """See further description in helper body"""
-    env = Env(moduleArgs='WORKERS 2', protocol=3)
+    env = Env(moduleArgs='MT_MODE MT_MODE_FULL WORKER_THREADS 2', protocol=3)
     _test_MOD9174(env)
