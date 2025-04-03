@@ -1454,8 +1454,6 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
   req->qiter.rootProc = req->qiter.endProc = rp;
   PUSH_RP();
 
-  rp = RPMaxCollector_New();
-  PUSH_RP();
   // Load results metrics according to their RLookup key.
   // We need this RP only if metricRequests is not empty.
   if (req->ast.metricRequests) {
@@ -1675,6 +1673,9 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     }
   }
 
+
+  rp = RPMaxCollector_New();
+  PUSH_RP();
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
   if (!hasArrange && IsSearch(req)) {
