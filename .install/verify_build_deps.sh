@@ -1,6 +1,5 @@
 #!/bin/bash
 
-set -e
 # Set colors for output
 GREEN='\033[0;32m'
 RED='\033[0;31m'
@@ -98,47 +97,90 @@ check_package_tdnf() {
 }
 
 # ============================================
-# Minimal Version Check Functions
+# Version Check Functions
 # ============================================
 
 # Define dependencies that need version checking
-# [<dep>] = "<get_version_function> <check_function> <min_version>"
+# Note: check function is called with the following parameters:
+# $1 - actual version
+# $2 - min version
+# $3 - max version
+
+# The check function should return:
+# 0 - version is ok
+# 1 - version is below minimum
+# 2 - version is above maximum
+
+# It is not mandatory to implement checks for both min and max
+# [<dep>] = "<get_version_function> <check_function> <min_version> <max_version>"
 declare -A version_checks=(
   ["gcc"]="get_compiler_version check_gcc_min_version 10"
   ["g++"]="get_compiler_version check_gpp_min_version 10"
+  ["cmake"]="get_cmake_version check_cmake_version 3.25 4.0"
 )
 
-# Function to get the version of a compiler
+# ==== Version Getters ====
+
 get_compiler_version() {
   local program=$1
   "$program" -dumpversion 2>/dev/null || echo "unknown"
 }
 
-check_compiler_min_version() {
-  local program=$1
-  local min_version=$2
-  local actual_version=$(get_compiler_version "$program")
-
-  # Extract major version number
-  local actual_major=$(echo "$actual_version" | cut -d. -f1)
-
-  # Compare major versions
-  if [[ $actual_major -ge $min_version ]]; then
-    return 0  # Version requirement met
-  else
-    return 1  # Version requirement not met
-  fi
+# extract the version in the format X.Y
+get_cmake_version() {
+  cmake --version | grep -oP 'cmake version \K[0-9.]+' | cut -d. -f1,2
 }
 
-# Specialized version check functions
+# ==== Version Checkers ====
+
+check_min_version() {
+    local actual_version="$1"
+    local min_version="$2"
+
+    # Sort the versions from min to max, expecting the first one to be the minimum
+    [ "$(printf '%s\n' "$min_version" "$actual_version" | sort -V | head -n 1)" = "$min_version" ]
+}
+
+check_max_version() {
+    local actual_version="$1"
+    local max_version="$2"
+
+    # Sort the versions from min to max, expecting the first one to be the actual_version
+    [ "$(printf '%s\n' "$max_version" "$actual_version" | sort -V | head -n 1)" = "$actual_version" ]
+}
+
+# ====  Specialized Checkers ====
+
 check_gcc_min_version() {
-  local min_version=$1
-  check_compiler_min_version "gcc" "$min_version"
+  local actual_version="$1"
+  local min_version="$2"
+  check_min_version "$actual_version" "$min_version"
 }
 
 check_gpp_min_version() {
-  local min_version=$1
-  check_compiler_min_version "g++" "$min_version"
+  local actual_version="$1"
+  local min_version="$2"
+  check_min_version "$actual_version" "$min_version"
+}
+
+check_cmake_version() {
+  local actual_version="$1"
+  local min_version="$2"
+  local max_version="$3"
+
+  # Verify that the version is in the range
+  check_min_version "$actual_version" "$min_version"
+  local min_check=$?  # Capture the return value of verify_version for the minimum check
+
+  check_max_version "$actual_version" "$max_version"
+  local max_check=$?  # Capture the return value of verify_version for the maximum check
+
+  if [[ $min_check -ne 0 ]]; then
+    return 1 # below min version
+  elif [[ $actual_version ==  $max_version || $max_check -ne 0 ]]; then
+    return 2 # exceeded max version
+  fi
+  return 0  # Version requirement met
 }
 
 # ============================================
@@ -251,16 +293,20 @@ for dep in "${!dependencies[@]}"; do
       # dep exist, check if version verification is needed
       if [[ -n "${version_checks[$dep]}" ]]; then
         # Extract version check function and minimum version
-        read -r get_version check_func min_version <<< "${version_checks[$dep]}"
+        read -r get_version check_func min_version max_version <<< "${version_checks[$dep]}"
 
-        # Run the check function but don't capture output yet
-        if $check_func "$min_version"; then
-          echo -e "${GREEN}✓${NC}"
-        else
-          # Capture the actual version output from the function
-          actual_version=$($get_version "$dep")
+        # Run the check function
+        actual_version=$($get_version "$dep")
+        $check_func $actual_version $min_version $max_version
+        result=$?
+        if [ "$result" -eq 1 ]; then # below min version
           echo -e "${YELLOW}✗ (need version >= $min_version, found version $actual_version)${NC}"
           missing_deps=true
+        elif [ "$result" -eq 2 ]; then # exceeded max version
+          echo -e "${YELLOW}✗ (need version < $max_version, found version $actual_version)${NC}"
+          missing_deps=true
+        else
+          echo -e "${GREEN}✓${NC}"
         fi
       else
         # No version check needed
