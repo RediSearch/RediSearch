@@ -3,6 +3,6 @@ gevent
 deepdiff <= 8.3.0
 conan
 redis ~= 5.0.8
-RLTest >= 0.7.11
+RLTest >= 0.7.16
 numpy >= 1.21.6
 scipy >= 1.7.3
