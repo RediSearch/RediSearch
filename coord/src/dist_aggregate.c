@@ -768,7 +768,7 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   AREQ *r = AREQ_New();
   QueryError status = {0};
   specialCaseCtx *knnCtx = NULL;
-  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, &status) != REDISMODULE_OK) {
+  if (prepareForExecution(r, ctx, argv, argc, &knnCtx, &status) != REDISMODULE_OK) {
     goto err;
   }
 
