@@ -601,15 +601,20 @@ COV_EXCLUDE_DIRS += \
 
 COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
-coverage:
+coverage-unit:
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(COVERAGE_RESET)
 	$(SHOW)$(MAKE) unit-tests COV=1
+	$(SHOW)$(COVERAGE_COLLECT_REPORT)
+
+coverage-flow:
+	$(SHOW)$(MAKE) build COV=1
+	$(SHOW)$(COVERAGE_RESET)
 	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
 	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
 	$(SHOW)$(COVERAGE_COLLECT_REPORT)
 
-.PHONY: coverage
+.PHONY: coverage-unit coverage-flow
 
 #----------------------------------------------------------------------------------------------
 
