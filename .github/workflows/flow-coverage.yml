@@ -17,6 +17,7 @@ on:
 env:
   VERBOSE_UTESTS: 1
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
+  COV: 1
 
 jobs:
   coverage:
