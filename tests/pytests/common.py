@@ -741,3 +741,7 @@ def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, interna
     if internal_only:
         debug_params.append("INTERNAL_ONLY")
     return runDebugQueryCommand(env, query_cmd, debug_params)
+
+def runDebugQueryCommandAndCrash(env, query_cmd):
+    debug_params = ['CRASH']
+    return env.expect(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)).error()
