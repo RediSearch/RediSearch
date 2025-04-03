@@ -46,7 +46,8 @@ def test_vector_index_failures(env):
     env.assertEqual(error_dict, expected_error_dict)
 
     error_dict = to_dict(info["Index Errors"])
-    env.assertEqual(error_dict, expected_error_dict | index_errors_unique_entries_dict)
+    env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict}
+)
 
 
 def test_numeric_index_failures(env):
@@ -79,7 +80,8 @@ def test_numeric_index_failures(env):
     env.assertEqual(error_dict, expected_error_dict)
 
     error_dict = to_dict(info["Index Errors"])
-    env.assertEqual(error_dict, expected_error_dict | index_errors_unique_entries_dict)
+    env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict}
+)
 
 def test_alter_failures(env):
   # Create an index
@@ -166,7 +168,8 @@ def test_mixed_index_failures(env):
     env.assertEqual(error_dict, expected_error_dict)
 
     error_dict = to_dict(info["Index Errors"])
-    env.assertEqual(error_dict, expected_error_dict | index_errors_unique_entries_dict)
+    env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict}
+)
 
   con.flushall()
   env.expect('ft.create', 'idx', 'SCHEMA', 'n', 'numeric', 'v', 'VECTOR', 'FLAT', 6, 'DIM', 2, 'TYPE', 'FLOAT32', 'DISTANCE_METRIC', 'COSINE').ok()
@@ -195,7 +198,8 @@ def test_mixed_index_failures(env):
     env.assertEqual(error_dict, expected_error_dict)
 
     error_dict = to_dict(info["Index Errors"])
-    env.assertEqual(error_dict, expected_error_dict | index_errors_unique_entries_dict)
+    env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict}
+)
 
 
 def test_geo_index_failures(env):
@@ -227,7 +231,8 @@ def test_geo_index_failures(env):
     env.assertEqual(error_dict, expected_error_dict)
 
     error_dict = to_dict(info["Index Errors"])
-    env.assertEqual(error_dict, expected_error_dict | index_errors_unique_entries_dict)
+    env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict}
+)
 
   con.flushall()
 
@@ -258,7 +263,8 @@ def test_geo_index_failures(env):
     env.assertEqual(error_dict, expected_error_dict)
 
     error_dict = to_dict(info["Index Errors"])
-    env.assertEqual(error_dict, expected_error_dict | index_errors_unique_entries_dict)
+    env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict}
+)
 
 
 # TODO: Talk with Omer about this test
@@ -373,7 +379,8 @@ def test_vector_indexing_with_json(env):
     env.assertEqual(field_error_dict, expected_error_dict)
 
     error_dict = to_dict(info["Index Errors"])
-    env.assertEqual(error_dict, expected_error_dict | index_errors_unique_entries_dict)
+    env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict}
+)
 
 @skip(no_json=True)
 def test_multiple_index_failures_json(env):
