@@ -4369,8 +4369,7 @@ def test_with_tls_and_non_tls_ports():
               dualTLS=True)        # Sets the ports to be both TLS and regular ports (in tls-ports + 1500).
 
     # Initialize the cluster topology updated in RediSearch
-    env.expect('FT.CREATE', 'tmp_idx', 'SCHEMA', 'n', 'NUMERIC').ok()
-    env.expect('FT.DROPINDEX', 'tmp_idx').ok()
+    verify_shard_init(env)
 
     def get_ports(env):
         ports = []
