@@ -14,59 +14,61 @@
 #include <stdbool.h>
 
 #ifdef __cplusplus
-extern "C" {      
-#endif      
+extern "C" {
+#endif
 
-#define QUERY_XERRS(X)                                                                          \
-  X(QUERY_EGENERIC, "Generic error evaluating the query")                                       \
-  X(QUERY_ESYNTAX, "Parsing/Syntax error for query string")                                     \
-  X(QUERY_EPARSEARGS, "Error parsing query/aggregation arguments")                              \
-  X(QUERY_EADDARGS, "Error parsing document indexing arguments")                                \
-  X(QUERY_EEXPR, "Parsing/Evaluating dynamic expression failed")                                \
-  X(QUERY_EKEYWORD, "Could not handle query keyword")                                           \
-  X(QUERY_ENORESULTS, "Query matches no results")                                               \
-  X(QUERY_EBADATTR, "Attribute not supported for term")                                         \
-  X(QUERY_EINVAL, "Could not validate the query nodes (bad attribute?)")                        \
-  X(QUERY_EBUILDPLAN, "Could not build plan from query")                                        \
-  X(QUERY_ECONSTRUCT_PIPELINE, "Could not construct query pipeline")                            \
-  X(QUERY_ENOREDUCER, "Missing reducer")                                                        \
-  X(QUERY_EREDUCER_GENERIC, "Generic reducer error")                                            \
-  X(QUERY_EAGGPLAN, "Could not plan aggregation request")                                       \
-  X(QUERY_ECURSORALLOC, "Could not allocate a cursor")                                          \
-  X(QUERY_EREDUCERINIT, "Could not initialize reducer")                                         \
-  X(QUERY_EQSTRING, "Bad query string")                                                         \
-  X(QUERY_ENOPROPKEY, "Property does not exist in schema")                                      \
-  X(QUERY_ENOPROPVAL, "Value was not found in result (not a hard error)")                       \
-  X(QUERY_ENODOC, "Document does not exist")                                                    \
-  X(QUERY_ENOOPTION, "Invalid option")                                                          \
-  X(QUERY_EREDISKEYTYPE, "Invalid Redis key")                                                   \
-  X(QUERY_EINVALPATH, "Invalid path")                                                           \
-  X(QUERY_EINDEXEXISTS, "Index already exists")                                                 \
-  X(QUERY_EBADOPTION, "Option not supported for current mode")                                  \
-  X(QUERY_EBADORDEROPTION, "Path with undefined ordering does not support slop/inorder")        \
-  X(QUERY_ELIMIT, "Limit exceeded")                                                             \
-  X(QUERY_ENOINDEX, "Index not found")                                                          \
-  X(QUERY_EDOCEXISTS, "Document already exists")                                                \
-  X(QUERY_EDOCNOTADDED, "Document was not added because condition was unmet")                   \
-  X(QUERY_EDUPFIELD, "Field was specified twice")                                               \
-  X(QUERY_EGEOFORMAT, "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"")                 \
-  X(QUERY_ENODISTRIBUTE, "Could not distribute the operation")                                  \
-  X(QUERY_EUNSUPPTYPE, "Unsupported index type")                                                \
-  X(QUERY_ENOTNUMERIC, "Could not convert value to a number")                                   \
-  X(QUERY_ETIMEDOUT, "Timeout limit was reached")                                               \
-  X(QUERY_ENOPARAM, "Parameter not found")                                                      \
-  X(QUERY_EDUPPARAM, "Parameter was specified twice")                                           \
-  X(QUERY_EBADVAL, "Invalid value was given")                                                   \
-  X(QUERY_ENHYBRID, "hybrid query attributes were sent for a non-hybrid query")                 \
-  X(QUERY_EHYBRIDNEXIST, "invalid hybrid policy was given")                                     \
-  X(QUERY_EADHOCWBATCHSIZE, "'batch size' is irrelevant for 'ADHOC_BF' policy")                 \
-  X(QUERY_EADHOCWEFRUNTIME, "'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")                 \
-  X(QUERY_ENRANGE, "range query attributes were sent for a non-range query")                    \
-  X(QUERY_EMISSING, "'ismissing' requires field to be defined with 'INDEXMISSING'")             \
-  X(QUERY_EMISSMATCH, "Index mismatch: Shard index is different than queried index")            \
-  X(QUERY_EUNKNOWNINDEX, "Unknown index name")                                                  \
-  X(QUERY_EDROPPEDBACKGROUND, "The index was dropped before the query could be executed")       \
-  X(QUERY_EALIASCONFLICT, "Alias conflicts with an existing index name")                        \
+#define QUERY_XERRS(X)                                                                           \
+  X(QUERY_EGENERIC, "Generic error evaluating the query")                                        \
+  X(QUERY_ESYNTAX, "Parsing/Syntax error for query string")                                      \
+  X(QUERY_EPARSEARGS, "Error parsing query/aggregation arguments")                               \
+  X(QUERY_EADDARGS, "Error parsing document indexing arguments")                                 \
+  X(QUERY_EEXPR, "Parsing/Evaluating dynamic expression failed")                                 \
+  X(QUERY_EKEYWORD, "Could not handle query keyword")                                            \
+  X(QUERY_ENORESULTS, "Query matches no results")                                                \
+  X(QUERY_EBADATTR, "Attribute not supported for term")                                          \
+  X(QUERY_EINVAL, "Could not validate the query nodes (bad attribute?)")                         \
+  X(QUERY_EBUILDPLAN, "Could not build plan from query")                                         \
+  X(QUERY_ECONSTRUCT_PIPELINE, "Could not construct query pipeline")                             \
+  X(QUERY_ENOREDUCER, "Missing reducer")                                                         \
+  X(QUERY_EREDUCER_GENERIC, "Generic reducer error")                                             \
+  X(QUERY_EAGGPLAN, "Could not plan aggregation request")                                        \
+  X(QUERY_ECURSORALLOC, "Could not allocate a cursor")                                           \
+  X(QUERY_EREDUCERINIT, "Could not initialize reducer")                                          \
+  X(QUERY_EQSTRING, "Bad query string")                                                          \
+  X(QUERY_ENOPROPKEY, "Property does not exist in schema")                                       \
+  X(QUERY_ENOPROPVAL, "Value was not found in result (not a hard error)")                        \
+  X(QUERY_ENODOC, "Document does not exist")                                                     \
+  X(QUERY_ENOOPTION, "Invalid option")                                                           \
+  X(QUERY_EREDISKEYTYPE, "Invalid Redis key")                                                    \
+  X(QUERY_EINVALPATH, "Invalid path")                                                            \
+  X(QUERY_EINDEXEXISTS, "Index already exists")                                                  \
+  X(QUERY_EBADOPTION, "Option not supported for current mode")                                   \
+  X(QUERY_EBADORDEROPTION, "Path with undefined ordering does not support slop/inorder")         \
+  X(QUERY_ELIMIT, "Limit exceeded")                                                              \
+  X(QUERY_ENOINDEX, "Index not found")                                                           \
+  X(QUERY_EDOCEXISTS, "Document already exists")                                                 \
+  X(QUERY_EDOCNOTADDED, "Document was not added because condition was unmet")                    \
+  X(QUERY_EDUPFIELD, "Field was specified twice")                                                \
+  X(QUERY_EGEOFORMAT, "Invalid lon/lat format. Use \"lon lat\" or \"lon,lat\"")                  \
+  X(QUERY_ENODISTRIBUTE, "Could not distribute the operation")                                   \
+  X(QUERY_EUNSUPPTYPE, "Unsupported index type")                                                 \
+  X(QUERY_ENOTNUMERIC, "Could not convert value to a number")                                    \
+  X(QUERY_ETIMEDOUT, "Timeout limit was reached")                                                \
+  X(QUERY_ENOPARAM, "Parameter not found")                                                       \
+  X(QUERY_EDUPPARAM, "Parameter was specified twice")                                            \
+  X(QUERY_EBADVAL, "Invalid value was given")                                                    \
+  X(QUERY_ENHYBRID, "hybrid query attributes were sent for a non-hybrid query")                  \
+  X(QUERY_EHYBRIDNEXIST, "invalid hybrid policy was given")                                      \
+  X(QUERY_EADHOCWBATCHSIZE, "'batch size' is irrelevant for 'ADHOC_BF' policy")                  \
+  X(QUERY_EADHOCWEFRUNTIME, "'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")                  \
+  X(QUERY_ENRANGE, "range query attributes were sent for a non-range query")                     \
+  X(QUERY_EMISSING, "'ismissing' requires field to be defined with 'INDEXMISSING'")              \
+  X(QUERY_EMISSMATCH, "Index mismatch: Shard index is different than queried index")             \
+  X(QUERY_EUNKNOWNINDEX, "Unknown index name")                                                   \
+  X(QUERY_EDROPPEDBACKGROUND, "The index was dropped before the query could be executed")        \
+  X(QUERY_EALIASCONFLICT, "Alias conflicts with an existing index name")                         \
+  X(QUERY_INDEXBGOOMFAIL, "Index background scan failed due to OOM. Queries cannot be executed on\
+     an incomplete index.")                                                                      \
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 
