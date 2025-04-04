@@ -395,13 +395,13 @@ def testUnstableFeaturesOffByDefault():
     # Add a document
     env.cmd('HSET', 'doc1', 'title', 'hello world')
 
-    # -------------------- BM25STD.NORM scorer --------------------
-    env.expect('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM') \
-        .error().contains('Scorer BM25STD.NORM not available when `ENABLE_UNSTABLE_FEATURES` is off')
+    # -------------------- BM25STD.TANH scorer --------------------
+    env.expect('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.TANH') \
+        .error().contains('Scorer BM25STD.TANH not available when `ENABLE_UNSTABLE_FEATURES` is off')
 
     env.cmd(config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
 
-    res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+    res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.TANH')
 
     # Check the score (only 1 doc..)
     env.assertEqual(round(float(res[2]), 5), 0.14286)
