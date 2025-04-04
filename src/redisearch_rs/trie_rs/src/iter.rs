@@ -16,10 +16,10 @@ pub struct Iter<'tm, Data> {
 
 impl<'tm, Data> Iter<'tm, Data> {
     /// Creates a new iterator over the entries of a [`crate::trie::TrieMap`].
-    pub(crate) fn new(root: Option<&'tm Node<Data>>) -> Self {
+    pub(crate) fn new(root: Option<&'tm Node<Data>>, prefix: impl Into<Vec<c_char>>) -> Self {
         Self {
             stack: root.into_iter().map(|node| (node, false)).collect(),
-            key: Vec::new(),
+            key: prefix.into(),
         }
     }
 

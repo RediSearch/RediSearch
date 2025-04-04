@@ -9,8 +9,6 @@ pub use corpus::download_or_read_corpus;
 
 mod bencher;
 mod corpus;
-pub mod ffi;
-mod redis_allocator;
 
 // Convenient aliases for the trie types that are being benchmarked.
 pub type RustTrieMap = trie_rs::trie::TrieMap<NonNull<c_void>>;

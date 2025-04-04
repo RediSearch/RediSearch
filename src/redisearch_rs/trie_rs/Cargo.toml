@@ -11,9 +11,10 @@ workspace = true
 crate-type = ["staticlib", "rlib"]
 
 [features]
-default = [] # TODO remove
+default = ["ffi"] # TODO remove
 redis_allocator = ["dep:redis-module"]
-ffi = ["redis_allocator"]
+test_allocator = ["dep:redis_module_test"] # TODO isolate ffi in different crate
+ffi = ["dep:memchr"]
 
 [dependencies]
 lending-iterator.workspace = true
@@ -21,6 +22,7 @@ libc.workspace = true
 low_memory_thin_vec.workspace = true
 memchr = { workspace = true, optional = true }
 redis-module = { workspace = true, optional = true }
+redis_module_test = { workspace = true, optional = true }
 
 [dev-dependencies]
 insta.workspace = true

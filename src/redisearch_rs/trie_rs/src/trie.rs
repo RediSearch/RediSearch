@@ -103,24 +103,31 @@ impl<T> TrieMap<T> {
 
     /// Get an iterator over the map entries in order of keys.
     pub fn iter(&self) -> Iter<'_, T> {
-        Iter::new(self.root.as_ref())
+        Iter::new(self.root.as_ref(), [])
     }
 
     /// Get an iterator over the map entries with keys that start
     /// with the given prefix, in order of keys.
     pub fn iter_prefix(&self, prefix: &[c_char]) -> Iter<'_, T> {
-        Iter::new(self.root.as_ref().and_then(|root| root.find_node(prefix)))
+        let root = self.root.as_ref().and_then(|root| root.find_node(prefix));
+        let root_label = root.map(|node| node.label.as_slice()).unwrap_or_default();
+        let prefix_init = prefix.strip_suffix(root_label).unwrap_or_default();
+
+        Iter::new(
+            self.root.as_ref().and_then(|root| root.find_node(prefix)),
+            prefix_init.to_vec(),
+        )
     }
 
     /// Get a lending iterator over the map entries in order of keys.
     pub fn lending_iter(&self) -> LendingIter<'_, T> {
-        Iter::new(self.root.as_ref()).into_lending_iter()
+        Iter::new(self.root.as_ref(), []).into_lending_iter()
     }
 
     /// Get a lending iterator over the map entries with keys that start
     /// with the given prefix, in order of keys.
     pub fn lending_iter_prefix(&self, prefix: &[c_char]) -> LendingIter<'_, T> {
-        Iter::new(self.root.as_ref().and_then(|root| root.find_node(prefix))).into_lending_iter()
+        self.iter_prefix(prefix).into_lending_iter()
     }
 
     pub fn values(&self) -> Values<'_, T> {
