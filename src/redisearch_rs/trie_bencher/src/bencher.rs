@@ -1,4 +1,4 @@
-use crate::{CTrieMap, RustNewTrie, RustRadixTrie, RustTrieMap, str2c_char};
+use crate::{CTrieMap, RustFaithfulTrie, RustNewTrie, RustRadixTrie, RustTrieMap, str2c_char};
 use criterion::{BatchSize, BenchmarkGroup, Criterion, measurement::Measurement};
 use std::{
     ffi::{CString, c_char, c_void},
@@ -11,6 +11,7 @@ pub struct OperationBencher<'a> {
     c: &'a mut Criterion,
     rust_map: RustTrieMap,
     rust_new: RustNewTrie,
+    rust_faithful: RustFaithfulTrie,
     _radix: RustRadixTrie,
     c_map: *mut CTrieMap,
 }
@@ -26,6 +27,7 @@ impl<'a> OperationBencher<'a> {
         let rust_map = rust_load(&c_char_words);
 
         let rust_new = rust_new_load(&c_char_words);
+        let rust_faithful = rust_faithful_load(&c_char_words);
 
         let u8_words = contents
             .split_whitespace()
@@ -48,6 +50,7 @@ impl<'a> OperationBencher<'a> {
             c,
             rust_map,
             rust_new,
+            rust_faithful,
             _radix: radix,
             c_map,
         }
@@ -60,6 +63,7 @@ impl<'a> OperationBencher<'a> {
         let mut group = self.c.benchmark_group(label);
         find_rust_benchmark(&mut group, self.rust_map.clone(), word);
         find_rust_new_benchmark(&mut group, self.rust_new.clone(), word);
+        find_rust_faithful_benchmark(&mut group, self.rust_faithful.clone(), word);
         //find_radix_benchmark(&mut group, self.radix.clone(), word);
         find_c_benchmark(&mut group, self.c_map, word);
         group.finish();
@@ -72,6 +76,7 @@ impl<'a> OperationBencher<'a> {
         let mut group = self.c.benchmark_group(label);
         insert_rust_benchmark(&mut group, self.rust_map.clone(), word);
         insert_rust_new_benchmark(&mut group, self.rust_new.clone(), word);
+        insert_rust_faithful_benchmark(&mut group, self.rust_faithful.clone(), word);
         //insert_radix_benchmark(&mut group, self.radix.clone(), word);
         insert_c_benchmark(&mut group, self.c_map, word);
         group.finish();
@@ -83,7 +88,8 @@ impl<'a> OperationBencher<'a> {
     pub fn remove_group(&mut self, word: &str, label: &str) {
         let mut group = self.c.benchmark_group(label);
         remove_rust_benchmark(&mut group, self.rust_map.clone(), word);
-        remove_rust_new_benchmark(&mut group, self.rust_new.clone(), word);
+        // remove_rust_new_benchmark(&mut group, self.rust_new.clone(), word);
+        remove_rust_faithful_benchmark(&mut group, self.rust_faithful.clone(), word);
         //remove_radix_benchmark(&mut group, self.radix.clone(), word);
         remove_c_benchmark(&mut group, self.c_map, word);
         group.finish();
@@ -173,6 +179,21 @@ fn find_rust_new_benchmark<M: Measurement>(
     });
 }
 
+fn find_rust_faithful_benchmark<M: Measurement>(
+    c: &mut BenchmarkGroup<'_, M>,
+    map: RustFaithfulTrie,
+    word: &str,
+) {
+    let rust_word = str2c_char(word);
+    c.bench_function("Rust Faithful", |b| {
+        b.iter_batched_ref(
+            || map.clone(),
+            |data| data.find(black_box(&rust_word)).is_some(),
+            BatchSize::LargeInput,
+        )
+    });
+}
+
 fn insert_rust_benchmark<M: Measurement>(
     c: &mut BenchmarkGroup<'_, M>,
     map: RustTrieMap,
@@ -198,6 +219,24 @@ fn insert_rust_new_benchmark<M: Measurement>(
 ) {
     let word = crate::str2c_char(word);
     c.bench_function("Rust New", |b| {
+        b.iter_batched_ref(
+            || map.clone(),
+            |data| {
+                data.insert(black_box(&word), black_box(NonNull::<c_void>::dangling()))
+                    .is_some()
+            },
+            BatchSize::LargeInput,
+        )
+    });
+}
+
+fn insert_rust_faithful_benchmark<M: Measurement>(
+    c: &mut BenchmarkGroup<'_, M>,
+    map: RustFaithfulTrie,
+    word: &str,
+) {
+    let word = crate::str2c_char(word);
+    c.bench_function("Rust Faithful", |b| {
         b.iter_batched_ref(
             || map.clone(),
             |data| {
@@ -317,6 +356,21 @@ fn remove_rust_new_benchmark<M: Measurement>(
     });
 }
 
+fn remove_rust_faithful_benchmark<M: Measurement>(
+    c: &mut BenchmarkGroup<'_, M>,
+    map: RustFaithfulTrie,
+    word: &str,
+) {
+    let rust_word = str2c_char(word);
+    c.bench_function("Rust Faithful", |b| {
+        b.iter_batched_ref(
+            || map.clone(),
+            |data| data.remove(black_box(&rust_word)).is_some(),
+            BatchSize::LargeInput,
+        )
+    });
+}
+
 fn remove_radix_benchmark<M: Measurement>(
     c: &mut BenchmarkGroup<'_, M>,
     map: RustRadixTrie,
@@ -368,6 +422,14 @@ fn rust_load(words: &[Box<[c_char]>]) -> RustTrieMap {
 
 fn rust_new_load(words: &[Box<[c_char]>]) -> RustNewTrie {
     let mut map = RustNewTrie::new();
+    for word in words {
+        map.insert(word, NonNull::<c_void>::dangling());
+    }
+    map
+}
+
+fn rust_faithful_load(words: &[Box<[c_char]>]) -> RustFaithfulTrie {
+    let mut map = RustFaithfulTrie::new();
     for word in words {
         map.insert(word, NonNull::<c_void>::dangling());
     }

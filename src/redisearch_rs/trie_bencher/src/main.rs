@@ -3,11 +3,12 @@ use std::{
     ffi::{CString, c_void},
     ptr::NonNull,
 };
-use trie_bencher::str2c_char;
+use trie_bencher::{RustFaithfulTrie, str2c_char};
 use trie_rs::trie::TrieMap;
 
 fn main() -> std::io::Result<()> {
     let mut map = TrieMap::new();
+    let mut faithful_map = RustFaithfulTrie::new();
     let cmap = unsafe { trie_bencher::ffi::NewTrieMap() };
     let contents = trie_bencher::download_or_read_corpus();
     let mut raw_size = 0;
@@ -25,6 +26,7 @@ fn main() -> std::io::Result<()> {
 
             // Rust insertion
             map.insert(&converted, value);
+            faithful_map.insert(&converted, value);
 
             // C insertion
             let converted = CString::new(word).expect("CString conversion failed");
@@ -47,13 +49,17 @@ fn main() -> std::io::Result<()> {
 - Raw text size: {:.3} MBs
 - Number of words (with duplicates): {n_words}
 - Number of unique words: {n_unique_words}
-- Rust -> {:.3} MBs
-          {} nodes
-- C    -> {:.3} MBs
-          {} nodes"#,
+- Rust (thinvec)  -> {:.3} MBs
+                     {} nodes
+- Rust (faithful) -> {:.3} MBs
+                     {} nodes
+- C               -> {:.3} MBs
+                     {} nodes"#,
         raw_size as f64 / 1024. / 1024.,
         map.mem_usage() as f64 / 1024. / 1024.,
         map.num_nodes(),
+        faithful_map.mem_usage() as f64 / 1024. / 1024.,
+        faithful_map.n_nodes(),
         unsafe { trie_bencher::ffi::TrieMap_MemUsage(cmap) as f64 / 1024. / 1024. },
         unsafe { (*cmap).size }
     );
