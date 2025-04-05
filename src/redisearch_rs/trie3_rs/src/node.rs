@@ -10,7 +10,11 @@ use std::{
     usize,
 };
 
-use crate::{header::NodeHeader, layout::NodeLayout, utils::to_string_lossy};
+use crate::{
+    header::NodeHeader,
+    layout::NodeLayout,
+    utils::{memchr_c_char, strip_prefix, to_string_lossy},
+};
 
 /// A node in a [`TrieMap`](crate::TrieMap).
 pub struct Node<Data> {
@@ -512,6 +516,7 @@ impl<Data> Node<Data> {
 /// Accessor methods.
 impl<Data> Node<Data> {
     /// Returns a reference to the header for this node.
+    #[inline]
     fn header(&self) -> &NodeHeader {
         unsafe { self.ptr.as_ref() }
     }
@@ -521,11 +526,13 @@ impl<Data> Node<Data> {
     }
 
     /// Returns the length of the label associated with this node.
+    #[inline]
     pub fn label_len(&self) -> u16 {
         self.header().label_len
     }
 
     /// Returns the number of children for this node.
+    #[inline]
     pub fn n_children(&self) -> u8 {
         self.header().n_children
     }
@@ -753,17 +760,27 @@ impl<Data> Node<Data> {
     pub fn find(&self, mut key: &[c_char]) -> Option<&Data> {
         let mut current = self;
         loop {
-            key = key.strip_prefix(current.label())?;
+            key = strip_prefix(key, current.label())?;
             let Some(first_byte) = key.first() else {
                 // The suffix is empty, so the key and the label are equal.
                 return current.data();
             };
-            let child_index = current
-                .children_first_bytes()
-                .binary_search(first_byte)
-                .ok()?;
-            current = &current.children()[child_index];
+            current = self.child_starting_with(*first_byte)?;
         }
+    }
+
+    /// Get a reference to the child node whose label starts with the given byte.
+    /// Returns `None` if there is no such child.
+    pub fn child_starting_with(&self, c: c_char) -> Option<&Node<Data>> {
+        let i = self.child_index_starting_with(c)?;
+        Some(unsafe { self.children().get_unchecked(i) })
+    }
+
+    /// Get the index of the child node whose label starts with the given byte.
+    /// Returns `None` if there is no such child.
+    #[inline]
+    pub fn child_index_starting_with(&self, c: c_char) -> Option<usize> {
+        memchr_c_char(c, self.children_first_bytes())
     }
 
     /// Remove a child from the node.
@@ -773,10 +790,7 @@ impl<Data> Node<Data> {
         // as well as the child itself.
         // If the we find none, there's nothing to remove.
         // Note that `key.first()?` will cause this function to return None if the key is empty.
-        let child_index = self
-            .children_first_bytes()
-            .binary_search(key.first()?)
-            .ok()?;
+        let child_index = self.child_index_starting_with(*key.first()?)?;
         let child = &mut self.children_mut()[child_index];
 
         let suffix = key.strip_prefix(child.label())?;

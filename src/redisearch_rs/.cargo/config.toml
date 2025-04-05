@@ -1,2 +1,3 @@
 [build]
 target-dir = "../../bin/redisearch_rs"
+rustflags = ["-C", "target-cpu=native"]

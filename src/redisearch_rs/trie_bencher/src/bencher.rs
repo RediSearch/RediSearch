@@ -61,8 +61,8 @@ impl<'a> OperationBencher<'a> {
     /// The benchmark group will be marked with the given label.
     pub fn find_group(&mut self, word: &str, label: &str) {
         let mut group = self.c.benchmark_group(label);
-        find_rust_benchmark(&mut group, self.rust_map.clone(), word);
-        find_rust_new_benchmark(&mut group, self.rust_new.clone(), word);
+        // find_rust_benchmark(&mut group, self.rust_map.clone(), word);
+        // find_rust_new_benchmark(&mut group, self.rust_new.clone(), word);
         find_rust_faithful_benchmark(&mut group, self.rust_faithful.clone(), word);
         //find_radix_benchmark(&mut group, self.radix.clone(), word);
         find_c_benchmark(&mut group, self.c_map, word);
