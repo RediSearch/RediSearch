@@ -338,7 +338,7 @@ const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char
 
   if (RSValue_IsString(value)) {
     return RSValue_StringPtrLen(value, lenp);
-  } else if (value->t == RSValue_Number) {
+  } else if (value && value->t == RSValue_Number) {
     // notice snprintf can return a negative number if the buffer is too small
     // since we capture it in size_t, we essentially make the negative number into a very large positive number
     // we assume buflen length cannot be bigger than that number
