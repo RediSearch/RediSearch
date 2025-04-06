@@ -977,7 +977,8 @@ static void RMCK_SendChildHeartbeat(double progress) {
 }
 
 static int RMCK_ExitFromChild(int retcode) {
-  _exit(retcode);
+  exit(retcode);
+  return 0;
 }
 
 static int RMCK_KillForkChild(int child_pid) {
