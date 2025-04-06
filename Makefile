@@ -604,7 +604,7 @@ COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 coverage-unit:
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)mkdir -p $(COV_DIR)
-	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o base.info
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
 	$(SHOW)$(MAKE) unit-tests COV=1
 	$(SHOW)lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/unit.info
 	$(SHOW)lcov -a $(BINROOT)/base.info -a $(BINROOT)/unit.info -o $(BINROOT)/unit.info.1
