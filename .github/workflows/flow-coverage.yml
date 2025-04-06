@@ -54,7 +54,7 @@ jobs:
     - name: Upload coverage
       uses: codecov/codecov-action@v5
       with:
-        files: bin/linux-x64-debug-cov/flow.info,bin/linux-x64-debug-cov/rust_cov.info
+        files: bin/linux-x64-debug-cov/flow.info
         disable_search: true
         flags: flow
         fail_ci_if_error: true # Fail on upload errors
