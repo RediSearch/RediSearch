@@ -331,6 +331,7 @@ const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
 
 // Combines PtrLen with ToString to convert any RSValue into a string buffer.
 // Returns NULL if buf is required, but is too small
+// buflen must not be bigger than INT32_MAX
 const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char *buf,
                                         size_t buflen) {
   value = RSValue_Dereference(value);
@@ -338,16 +339,25 @@ const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char
   if (RSValue_IsString(value)) {
     return RSValue_StringPtrLen(value, lenp);
   } else if (value->t == RSValue_Number) {
+    // notice snprintf can return a negative number if the buffer is too small
+    // since we capture it in size_t, we essentially make the negative number into a very large positive number
+    // we assume buflen length cannot be bigger than that number
     size_t n = snprintf(buf, buflen, "%f", value->numval);
     if (n >= buflen) {
-      *lenp = 0;
+      if (lenp) {
+        *lenp = 0;
+      }
       return "";
     }
-    *lenp = n;
+    if (lenp) {
+      *lenp = n;
+    }
     return buf;
   } else {
     // Array, Null, other types
-    *lenp = 0;
+    if (lenp) {
+      *lenp = 0;
+    }
     return "";
   }
 }
