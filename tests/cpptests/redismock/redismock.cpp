@@ -358,7 +358,7 @@ int RMCK_StringToLongLong(RedisModuleString *s, long long *l) {
 #define ENTRY_OK 1
 #define ENTRY_DONE 0
 #define ENTRY_ERROR -1
-// Retreives the hash value key and the following argument, and stores them in the provided pointers
+// Retrieves the hash value key and the following argument, and stores them in the provided pointers
 static int getNextEntry(va_list &ap, HashValue::Key &e, void **vpp) {
   void *kp = va_arg(ap, void *);
   if (!kp) {
