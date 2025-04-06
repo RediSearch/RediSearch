@@ -156,7 +156,7 @@ def testProfileAggregate(env):
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
                        'load', 1, 't',
                        'filter', '42',)
-  env.assertEqual(actual_res[1][5], expected_res)
+  env.assertEqual(actual_res[1][4], expected_res)
 
   expected_res = ['Result processors profile',
                   ['Type', 'Index', 'Counter', 2],
