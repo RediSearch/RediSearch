@@ -43,7 +43,7 @@ jobs:
               Please make sure you are NOT addressing multiple issues with one PR.
               Note this PR might be rejected due to its size.
             github_api_url: 'https://api.github.com'
-            files_to_ignore: '*.md .gitignore .github/workflows/*'
+            files_to_ignore: '*.md .gitignore'
 
 
   spellcheck:
