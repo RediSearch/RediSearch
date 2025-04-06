@@ -112,11 +112,11 @@ check_package_tdnf() {
 # 2 - version is above maximum
 
 # It is not mandatory to implement checks for both min and max
-# [<dep>] = "<get_version_function> <check_function> <min_version> <max_version>"
+# [<dep>] = "<get_version_function> <check_function> <min_version> [<max_version>]"
 declare -A version_checks=(
   ["gcc"]="get_compiler_version check_gcc_min_version 10"
   ["g++"]="get_compiler_version check_gpp_min_version 10"
-  ["cmake"]="get_cmake_version check_cmake_version 3.25 4.0"
+  ["cmake"]="get_cmake_version check_cmake_version 3.25"
 )
 
 # ==== Version Getters ====
@@ -166,21 +166,7 @@ check_gpp_min_version() {
 check_cmake_version() {
   local actual_version="$1"
   local min_version="$2"
-  local max_version="$3"
-
-  # Verify that the version is in the range
   check_min_version "$actual_version" "$min_version"
-  local min_check=$?  # Capture the return value of verify_version for the minimum check
-
-  check_max_version "$actual_version" "$max_version"
-  local max_check=$?  # Capture the return value of verify_version for the maximum check
-
-  if [[ $min_check -ne 0 ]]; then
-    return 1 # below min version
-  elif [[ $actual_version ==  $max_version || $max_check -ne 0 ]]; then
-    return 2 # exceeded max version
-  fi
-  return 0  # Version requirement met
 }
 
 # ============================================
