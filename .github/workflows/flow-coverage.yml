@@ -41,6 +41,8 @@ jobs:
       run: ./deps/readies/bin/getredis --with-github-token --branch unstable
     - name: Build and test flow
       run: make coverage-flow QUICK=1 SHOW=1 REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
+    - name: Build and test unit
+      run: make coverage-unit QUICK=1 SHOW=1 REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
     - name: Upload flow coverage
       uses: codecov/codecov-action@v5
       with:
@@ -49,8 +51,6 @@ jobs:
         flags: flow
         fail_ci_if_error: true # Fail on upload errors
         token: ${{ secrets.CODECOV_TOKEN }}
-    - name: Build and test unit
-      run: make coverage-unit QUICK=1 SHOW=1 REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
     - name: Upload union coverage
       uses: codecov/codecov-action@v5
       with:
