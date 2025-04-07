@@ -59,9 +59,7 @@ jobs:
         run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
 
       - name: Build RediSearch
-        run: make build
-            PROFILE=${{ inputs.profile_env }}
-            SHOW=1
+        run: ./build.sh ${{ inputs.profile_env && 'PROFILE' }}
       - name: Prepare automation
         run: |
           ./deps/readies/bin/getpy3

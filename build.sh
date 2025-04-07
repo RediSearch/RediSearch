@@ -39,23 +39,23 @@ parse_arguments() {
       COORD=*)
         COORD="${arg#*=}"
         ;;
-      DEBUG=*)
-        DEBUG="${arg#*=}"
+      DEBUG|debug)
+        DEBUG=1
         ;;
-      TESTS=*)
-        BUILD_TESTS="${arg#*=}"
+      TESTS|tests)
+        BUILD_TESTS=1
         ;;
-      RUN_TESTS=*)
-        RUN_ALL_TESTS="${arg#*=}"
+      RUN_TESTS|run_tests)
+        RUN_ALL_TESTS=1
         ;;
-      RUN_UNIT_TESTS=*)
-        RUN_UNIT_TESTS="${arg#*=}"
+      RUN_UNIT_TESTS|run_unit_tests)
+        RUN_UNIT_TESTS=1
         ;;
-      RUN_RUST_TESTS=*)
-        RUN_RUST_TESTS="${arg#*=}"
+      RUN_RUST_TESTS|run_rust_tests)
+        RUN_RUST_TESTS=1
         ;;
-      RUN_PYTEST=*)
-        RUN_PYTEST="${arg#*=}"
+      RUN_PYTEST|run_pytest)
+        RUN_PYTEST=1
         ;;
       TEST=*)
         TEST_FILTER="${arg#*=}"
@@ -63,23 +63,20 @@ parse_arguments() {
       SAN=*)
         SAN="${arg#*=}"
         ;;
-      FORCE=*)
-        FORCE="${arg#*=}"
+      FORCE|force)
+        FORCE=1
         ;;
-      VERBOSE=*)
-        VERBOSE="${arg#*=}"
+      VERBOSE|verbose)
+        VERBOSE=1
         ;;
-      QUICK=*)
-        QUICK="${arg#*=}"
+      QUICK|quick)
+        QUICK=1
         ;;
-      SA=*)
-        SA="${arg#*=}"
+      SA|sa)
+        SA=1
         ;;
-      REDIS_STANDALONE=*)
-        REDIS_STANDALONE="${arg#*=}"
-        ;;
-      PROFILE=*)
-        PROFILE="${arg#*=}"
+      REDIS_STANDALONE|redis_standalone)
+        REDIS_STANDALONE=1
         ;;
       *)
         # Pass all other arguments directly to CMake
@@ -120,7 +117,7 @@ setup_build_environment() {
     FLAVOR="debug-asan"
   elif [[ "$DEBUG" == "1" ]]; then
     FLAVOR="debug"
-  elif [[ "PROFILE" == "1" ]]; then
+  elif [[ "$PROFILE" == "1" ]]; then
     FLAVOR="release-profile"
   else
     FLAVOR="release"
