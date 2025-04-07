@@ -42,11 +42,14 @@ jobs:
         working-directory: RediSearch
         run: |
           brew install make
+          make --version
       - name: Build
         env:
           ENABLE_ASSERT: 1
         working-directory: RediSearch
-        run: make
+        run: |
+          make --version
+          make
       - name: verify
         id: verify_deps2
         working-directory: RediSearch
