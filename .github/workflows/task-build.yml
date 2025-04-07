@@ -32,6 +32,11 @@ jobs:
           echo $PWD
           git branch
           .install/verify_build_deps.sh || true
+      - name: Build
+        env:
+          ENABLE_ASSERT: 1
+        working-directory: RediSearch
+        run: make
       - name: install deps
         id: install_deps
         working-directory: RediSearch
