@@ -174,11 +174,11 @@ prepare_cmake_arguments() {
     DEBUG="1"
   fi
 
-  if [[ -n "$PROFILE" ]]; then
+  if [[ "$PROFILE" != 0 ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DPROFILE=$PROFILE"
     # We shouldn't run profile with debug - so we fail the build
     if [[ "$DEBUG" == "1" ]]; then
-      echo "Cannot run profile with debug/sanitizer"
+      echo "Error: Cannot run profile with debug/sanitizer"
       exit 1
     fi
   fi
