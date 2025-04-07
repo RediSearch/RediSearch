@@ -52,8 +52,8 @@ jobs:
     runs-on: >-
       ${{
         ( inputs.architecture == 'aarch64' && ( vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' ) ) ||
-        ( vars.RUNS_ON || 'ubuntu-24.04' ) # We need the os to be a match to the base image used in the benchmarks.
-      }}
+        ( vars.RUNS_ON || 'ubuntu-24.04' )
+      }}  # We need the os to be a match to the base image used in the benchmarks.
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
