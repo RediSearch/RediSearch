@@ -32,45 +32,16 @@ jobs:
           echo $PWD
           git branch
           .install/verify_build_deps.sh || true
+      - name: install deps
+        id: install_deps
+        working-directory: RediSearch
+        run: |
+          brew install make
       - name: Build
         env:
           ENABLE_ASSERT: 1
         working-directory: RediSearch
         run: make
-      - name: install deps
-        id: install_deps
-        working-directory: RediSearch
-        run: |
-          # Detect the OS from /etc/os-release
-          if [ -f /etc/os-release ]; then
-            . /etc/os-release
-            case "$ID" in
-              ubuntu | debian)
-              export DEBIAN_FRONTEND=noninteractive
-                apt update && apt install -y curl make python3 cmake libssl-dev
-                ;;
-              rocky | amazonlinux | amzn)
-                if [ "${{ inputs.container }}" == "amazonlinux:2" ]; then
-                  cd .install
-                else
-                  dnf install -y make python3 cmake openssl-devel
-                fi
-                ;;
-              mariner | azurelinux)
-                tdnf install -y make python3 cmake openssl-devel binutils kernel-headers glibc-devel
-                ;;
-              alpine)
-                apk add --no-cache make python3 cmake openssl-dev curl
-                ;;
-              *)
-                echo "Unsupported operating system: $ID"
-                exit 1
-                ;;
-            esac
-          else
-            echo "Unable to detect the operating system."
-            exit 1
-          fi
       - name: verify
         id: verify_deps2
         working-directory: RediSearch
