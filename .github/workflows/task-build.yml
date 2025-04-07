@@ -1,0 +1,147 @@
+name: Common Flow for Tests
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        default: "${{ vars.RUNS_ON }}"
+        type: string
+
+jobs:
+  common-flow:
+    name: Build ${{ inputs.env }}
+    runs-on: ${{ inputs.env }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
+      - name: Cclone repo
+        id: clone # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
+        run: |
+          git clone https://github.com/RediSearch/RediSearch.git
+          cd RediSearch
+          git checkout meiravg_build_deps_macos
+          git submodule update --init --recursive
+      - name: verify
+        id: verify_deps
+        working-directory: RediSearch
+        run: |
+          echo $PWD
+          git branch
+          .install/verify_build_deps.sh || true
+      - name: install deps
+        id: install_deps
+        working-directory: RediSearch
+        run: |
+          # Detect the OS from /etc/os-release
+          if [ -f /etc/os-release ]; then
+            . /etc/os-release
+            case "$ID" in
+              ubuntu | debian)
+              export DEBIAN_FRONTEND=noninteractive
+                apt update && apt install -y curl make python3 cmake libssl-dev
+                ;;
+              rocky | amazonlinux | amzn)
+                if [ "${{ inputs.container }}" == "amazonlinux:2" ]; then
+                  cd .install
+                else
+                  dnf install -y make python3 cmake openssl-devel
+                fi
+                ;;
+              mariner | azurelinux)
+                tdnf install -y make python3 cmake openssl-devel binutils kernel-headers glibc-devel
+                ;;
+              alpine)
+                apk add --no-cache make python3 cmake openssl-dev curl
+                ;;
+              *)
+                echo "Unsupported operating system: $ID"
+                exit 1
+                ;;
+            esac
+          else
+            echo "Unable to detect the operating system."
+            exit 1
+          fi
+      - name: verify
+        id: verify_deps2
+        working-directory: RediSearch
+        run: |
+          echo $PWD
+          git branch
+          .install/verify_build_deps.sh  || true
+      - name: install all
+        id: install_all
+        working-directory: RediSearch
+        run: |
+          case "${{ inputs.container }}" in
+            ubuntu:jammy | ubuntu:noble)
+              ;;
+            *)
+              cd .install
+              ./install_script.sh
+              ;;
+          esac
+      - name: verify
+        id: verify_deps3
+        working-directory: RediSearch
+        run: |
+          echo $PWD
+          git branch
+          .install/verify_build_deps.sh || true
+      - name: Full checkout (node20)
+        if: steps.node20.outputs.supported == 'true'
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Full checkout (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
+        run: |
+          # Execute the logic based on the detected platform
+          echo "Detected platform: ${{ inputs.container }}"
+          case "${{ inputs.container }}" in
+            ubuntu:bionic | amazonlinux:2 | alpine:3)
+              # Configure the safe directory
+              git config --global --add safe.directory /__w/${{ github.repository }}
+              # Checkout
+              REPO_URL="https://github.com/${{ github.repository }}.git"
+              # Initialize a Git repository
+              git init
+              git remote add origin "$REPO_URL"
+              # Fetch and checkout ref
+              git fetch origin "${{ github.ref }}" || {
+                echo "Failed to fetch ref: '${{ github.ref }}'";
+                exit 1;
+              }
+              git checkout FETCH_HEAD  # Check out the fetched ref
+              # Update submodules
+              git submodule update --init --recursive
+              ;;
+            *)
+              echo "Unsupported platform: '${{ inputs.container }}'"
+              exit 1
+              ;;
+          esac
+      - name: Build
+        env:
+          ENABLE_ASSERT: 1
+        working-directory: RediSearch
+        run: |
+          case "${{ inputs.container }}" in
+            ubuntu:noble)
+              make IGNORE_MISSING_DEPS=1
+              ;;
+            *)
+              make
+              ;;
+          esac
+      - name: Fail flow if tests failed
+        if: steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
+        run: |
+          echo "Unit Tests: ${{ steps.unit_tests.outcome }}"
+          echo "Standalone: ${{ steps.standalone_tests.outcome }}"
+          echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
+          exit 1
