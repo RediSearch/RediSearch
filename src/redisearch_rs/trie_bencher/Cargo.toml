@@ -15,6 +15,8 @@ fs-err.workspace = true
 radix_trie.workspace = true
 trie_rs.workspace = true
 ureq.workspace = true
+strum.workspace = true
+csv.workspace = true
 
 [build-dependencies]
 cc.workspace = true

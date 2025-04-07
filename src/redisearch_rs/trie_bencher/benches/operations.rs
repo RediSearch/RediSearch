@@ -1,17 +1,19 @@
 //! Benchmark the core operations provided by a trie map—insertions, deletions, and lookups.
 //!
 //! Refer to `data/bench_trie.txt` to visualize the structure of the trie that's being benchmarked.
-use std::path::PathBuf;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use trie_bencher::OperationBencher;
+use trie_bencher::{strvec2_raw_words, OperationBencher};
 
-fn criterion_benchmark(c: &mut Criterion) {
-    let file_path = PathBuf::from("data").join("bench.txt");
-    let contents = fs_err::read_to_string(file_path).unwrap();
+use trie_bencher::corpus::CorpusType;
 
-    let mut bencher = OperationBencher::new(c, contents.clone());
-    bencher.load_group(contents);
+fn criterion_benchmark_legacy(c: &mut Criterion) {
+    let corpus = CorpusType::GutenbergEbook;
+    let keys = corpus.create_keys(true);
+    let (c_char_words, words) = strvec2_raw_words(&keys);
+
+    let mut bencher = OperationBencher::new(c, c_char_words, words);
+    bencher.load_group("Gutenberg");
     bencher.insert_group("colder", "Insert (leaf)");
     bencher.insert_group("fan", "Insert (split with 2 children)");
     bencher.insert_group("effo", "Insert (split with no children)");
@@ -22,5 +24,25 @@ fn criterion_benchmark(c: &mut Criterion) {
     bencher.remove_group("along", "Remove leaf (no merge)");
 }
 
-criterion_group!(benches, criterion_benchmark);
-criterion_main!(benches);
+fn criterion_benchmark_redis_wiki_1k(c: &mut Criterion) {
+    let corpus = CorpusType::RedisBench1kWiki;
+    let keys = corpus.create_keys(true);
+    let (c_char_words, words) = strvec2_raw_words(&keys);
+
+    let mut bencher = OperationBencher::new(c, c_char_words, words);
+    
+    bencher.load_group("wiki_1k");
+    
+    bencher.insert_group("Abigail", "Insert Abigail");
+    bencher.insert_group("Zoo", "Insert (Zoo)");
+
+    bencher.find_group("Alabama", "Find Alambama");
+    bencher.find_group("Zoo", "Find Zoo (not there)");
+
+    bencher.remove_group("Alabama", "Remove Alabama");
+}
+
+criterion_group!(wiki_1k, criterion_benchmark_redis_wiki_1k);
+criterion_group!(benches, criterion_benchmark_legacy);
+criterion_main!(benches, wiki_1k);
+
