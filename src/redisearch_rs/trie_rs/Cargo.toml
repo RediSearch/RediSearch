@@ -18,7 +18,21 @@ ffi = ["redis_allocator"]
 [dependencies]
 libc.workspace = true
 low_memory_thin_vec.workspace = true
-redis-module = { workspace = true, optional = true }
+
+[target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
+# Statically link to the libclang on aarch64-unknown-linux-musl,
+# necessary on Alpine.
+# See https://github.com/rust-lang/rust-bindgen/issues/2360
+features = ["bindgen-static", "min-redis-compatibility-version-6-0"]
+workspace = true
+optional = true
+default-features = false
+
+
+[target.'cfg(not(all(target_env="musl", target_os="linux")))'.dependencies.redis-module]
+workspace = true
+optional = true
+default-features = true
 
 [dev-dependencies]
 insta.workspace = true

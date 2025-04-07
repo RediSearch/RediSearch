@@ -36,7 +36,13 @@ insta = "1.42.2"
 libc = "0.2.170"
 proptest = { version = "1.6.0", default-features = false }
 proptest-derive = { version = "0.5.1", default-features = false }
-redis-module = "2.0.7"
+
+
+[workspace.dependencies.redis-module]
+# Patched version. See https://github.com/RedisLabsModules/redismodule-rs/pull/413
+git = "https://github.com/hdoordt/redismodule-rs.git"
+branch = "static-link-libclang"
+default-features = false
 
 # A profile for fast test execution that doesn't sacrifice
 # runtime checks and debuggability.
