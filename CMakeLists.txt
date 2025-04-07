@@ -23,7 +23,8 @@ if(POLICY CMP0077)
   cmake_policy(SET CMP0077 NEW) # option() honors normal variables
 endif()
 
-# Initialize build flags
+# We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
+# the library's own definition, rather than to a definition in another shared library or the main executable.
 set(CMAKE_LD_FLAGS "-pthread -shared -Bsymbolic -Bsymbolic-functions")
 
 # Always use .so extension even on macOS
@@ -32,19 +33,21 @@ set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 # Define compiler setup function
 function(setup_cc_options)
   # Common compiler flags
-  set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -Werror=incompatible-pointer-types -Werror=implicit-function-declaration -fcommon" PARENT_SCOPE)
-  set(CMAKE_CXX_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -std=c++20" PARENT_SCOPE)
-
+  set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -Werror=incompatible-pointer-types -Werror=implicit-function-declaration -fcommon -funsigned-char" PARENT_SCOPE)
+  set(CMAKE_CXX_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
+  set(CMAKE_CXX_STANDARD 20)
   # Release/Debug/Profile specific flags
-  set(CMAKE_C_FLAGS_RELEASE "-O3" PARENT_SCOPE)
-  set(CMAKE_CXX_FLAGS_RELEASE "-O3" PARENT_SCOPE)
-  set(CMAKE_C_FLAGS_DEBUG "-O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
-  set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
-  set(CMAKE_C_FLAGS_PROFILE "-O2 -fno-omit-frame-pointer" PARENT_SCOPE)
-  set(CMAKE_CXX_FLAGS_PROFILE "-O2 -fno-omit-frame-pointer" PARENT_SCOPE)
-  # Initialize basic flags needed for builds
-  set(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS}" PARENT_SCOPE)
-  set(CMAKE_LD_LIBS "${CMAKE_LD_LIBS}" PARENT_SCOPE)
+  if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+  elseif(PROFILE)
+    set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
+  else()
+    # Default to Release flags
+    set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O3" PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O3" PARENT_SCOPE)
+  endif()
 endfunction()
 
 # Define shared object setup function
@@ -71,48 +74,29 @@ endfunction()
 
 #----------------------------------------------------------------------------------------------
 # Command line options with default values
-option(BUILD_STATIC "Build a static library" OFF)
 option(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 option(BUILD_SEARCH_UNIT_TESTS "Build unit tests" OFF)
-option(BUILD_LITE "Build lite version" OFF)
 option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
 option(ENABLE_ASSERT "Enable assertions" OFF)
-# For cpu_features::list_cpu_features coming from VecSim
-option(BUILD_TESTING "Enable test rule" OFF)
+option(MAX_WORKER_THREADS "Override them maximum parallel worker threads allowed in thread-pool" "")
+option(BOOST_DIR "Boost installation directory" "${root}/.install/boost")
+option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
 
-# Set default values for other build parameters if not specified
-if(NOT DEFINED COORD_TYPE)
-  set(COORD_TYPE "oss")
-endif()
-
-# Default values for other parameters
-if(NOT DEFINED MAX_WORKER_THREADS)
-  set(MAX_WORKER_THREADS "")
-endif()
-
-if(NOT DEFINED BOOST_DIR)
-  set(BOOST_DIR "${root}/.install/boost")
-endif()
 
 #----------------------------------------------------------------------------------------------
 # Configure output paths based on build configuration
+set(MODULE_NAME "search" CACHE STRING "Module name" FORCE)
+if(NOT DEFINED COORD_TYPE)
+    set(COORD_TYPE "oss")
+endif()
 if(COORD_TYPE STREQUAL "oss")
   set(BINDIR "${binroot}/search-community")
-  set(MODULE_NAME "search" CACHE STRING "Module name" FORCE)
 elseif(COORD_TYPE STREQUAL "rlec")
   set(BINDIR "${binroot}/search-enterprise")
-  set(MODULE_NAME "search" CACHE STRING "Module name" FORCE)
+  add_compile_definitions(PRIVATE RS_CLUSTER_ENTERPRISE)
+  set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "module-enterprise")
 else()
   message(FATAL_ERROR "Invalid COORD_TYPE (='${COORD_TYPE}'). Should be either 'oss' or 'rlec'")
-endif()
-
-if(BUILD_LITE)
-  set(BINDIR "${binroot}/search-lite")
-  set(MODULE_NAME "searchlight" CACHE STRING "Module name" FORCE)
-endif()
-
-if(BUILD_STATIC)
-  set(BINDIR "${binroot}/search-static")
 endif()
 
 #----------------------------------------------------------------------------------------------
@@ -162,19 +146,12 @@ execute_process(
 # ugly hack for cpu_features::list_cpu_features coming from VecSim
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
-# Set default signedness of char to unsigned
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -funsigned-char")
-
 add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""
     "GIT_SHA=\"${GIT_SHA}\""
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
-
-if(BUILD_LITE)
-    message(WARNING "Building artifact under the name searchlight for backward compatibility, but coordinator will be activated in clustered environment")
-endif()
 
 if(MAX_WORKER_THREADS)
     set_source_files_properties(src/config.c PROPERTIES COMPILE_DEFINITIONS MAX_WORKER_THREADS=${MAX_WORKER_THREADS})
@@ -214,8 +191,6 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 # Include external dependencies
-
-# Keep the include for hiredis
 include(${root}/build/hiredis/hiredis.cmake)
 include(${root}/build/boost/boost.cmake)
 if (NOT IS_DIRECTORY ${BOOST_DIR})
@@ -248,7 +223,6 @@ set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
 set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE) # Force static library
 add_subdirectory(deps/libuv)
 
-option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
@@ -299,58 +273,30 @@ set(FINAL_OBJECTS
 )
 
 #----------------------------------------------------------------------------------------------
-# Build configuration
-set(REDISEARCH_LIBS "")
+# Build the shared library
+add_library(redisearch SHARED ${FINAL_OBJECTS})
 
-if(BUILD_STATIC)
-    add_library(redisearch-static STATIC ${FINAL_OBJECTS})
-    add_library(redisearch SHARED ${FINAL_OBJECTS})
+set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
+setup_shared_object_target(redisearch "")
+target_link_libraries(redisearch
+        redisearch-geometry
+        redisearch-hash
+        VectorSimilarity
+        redisearch-coord
+        uv_a
+        ${HIREDIS_LIBS}
+        ${SSL_LIBS}
+        ${CMAKE_LD_LIBS})
 
-    set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
-    setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch redisearch-geometry redisearch-hash VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
-
-    # Link Rust library if available
-    if(EXISTS "${binroot}/redisearch_rs/libtrie_rs.a")
-        target_link_libraries(redisearch ${binroot}/redisearch_rs/libtrie_rs.a)
-    endif()
-
-    set(TEST_MODULE "redisearch-static")
-    set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
-
-else() # OSS RediSearch
-    add_library(redisearch SHARED ${FINAL_OBJECTS})
-
-    set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
-    setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch
-            redisearch-geometry
-            redisearch-hash
-            VectorSimilarity
-            redisearch-coord
-            uv_a  # Changed from uv to uv_a (the static library target name)
-            ${HIREDIS_LIBS}
-            ${SSL_LIBS}
-            ${REDISEARCH_LIBS}
-            ${CMAKE_LD_LIBS})
-
-    # Link Rust library if available
-    if(EXISTS "${binroot}/redisearch_rs/libtrie_rs.a")
-        target_link_libraries(redisearch ${binroot}/redisearch_rs/libtrie_rs.a)
-    endif()
-
-    extract_debug_symbols(redisearch)
-    add_dependencies(redisearch VectorSimilarity)
-    add_dependencies(redisearch uv_a)  # Changed from uv to uv_a (static library)
+# Link Rust library if available
+if(EXISTS "${binroot}/redisearch_rs/libtrie_rs.a")
+    target_link_libraries(redisearch ${binroot}/redisearch_rs/libtrie_rs.a)
 endif()
 
-# Configure output name based on COORD_TYPE
-if(COORD_TYPE STREQUAL "oss")
-    add_compile_definitions(PRIVATE)
-elseif(COORD_TYPE STREQUAL "rlec")
-    add_compile_definitions(PRIVATE RS_CLUSTER_ENTERPRISE)
-    set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "module-enterprise")
-endif()
+extract_debug_symbols(redisearch)
+add_dependencies(redisearch VectorSimilarity)
+add_dependencies(redisearch uv_a)
+
 
 #----------------------------------------------------------------------------------------------
 # Unit tests configuration

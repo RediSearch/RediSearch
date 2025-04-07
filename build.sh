@@ -17,7 +17,8 @@ BINROOT="$ROOT/bin"
 #-----------------------------------------------------------------------------
 COORD="oss"      # Coordinator type: oss or rlec
 DEBUG=0          # Debug build flag
-FORCE=0         # Force clean build flag
+PROFILE=0        # Profile build flag
+FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
 QUICK=0          # Quick test mode (subset of tests)
 
@@ -40,12 +41,6 @@ parse_arguments() {
         ;;
       DEBUG=*)
         DEBUG="${arg#*=}"
-        ;;
-      STATIC=*)
-        STATIC="${arg#*=}"
-        ;;
-      LITE=*)
-        LITE="${arg#*=}"
         ;;
       TESTS=*)
         BUILD_TESTS="${arg#*=}"
@@ -82,6 +77,9 @@ parse_arguments() {
         ;;
       REDIS_STANDALONE=*)
         REDIS_STANDALONE="${arg#*=}"
+        ;;
+      PROFILE=*)
+        PROFILE="${arg#*=}"
         ;;
       *)
         # Pass all other arguments directly to CMake
@@ -122,6 +120,8 @@ setup_build_environment() {
     FLAVOR="debug-asan"
   elif [[ "$DEBUG" == "1" ]]; then
     FLAVOR="debug"
+  elif [[ "PROFILE" == "1" ]]; then
+    FLAVOR="release-profile"
   else
     FLAVOR="release"
   fi
@@ -156,14 +156,6 @@ setup_build_environment() {
     exit 1
   fi
 
-  if [[ -n "$LITE" && "$LITE" == "1" ]]; then
-    OUTDIR="search-lite"
-  fi
-
-  if [[ -n "$STATIC" && "$STATIC" == "1" ]]; then
-    OUTDIR="search-static"
-  fi
-
   # Set the final BINDIR using the full variant path
   BINDIR="${BINROOT}/${FULL_VARIANT}/${OUTDIR}"
 }
@@ -176,15 +168,6 @@ prepare_cmake_arguments() {
   # Initialize with base arguments
   CMAKE_BASIC_ARGS="-DCOORD_TYPE=$COORD"
 
-  # Add configuration-specific arguments
-  if [[ -n "$STATIC" && "$STATIC" == "1" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_STATIC=ON"
-  fi
-
-  if [[ -n "$LITE" && "$LITE" == "1" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_LITE=ON"
-  fi
-
   if [[ "$BUILD_TESTS" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_SEARCH_UNIT_TESTS=ON"
   fi
@@ -194,11 +177,20 @@ prepare_cmake_arguments() {
     DEBUG="1"
   fi
 
+  if [[ -n "$PROFILE" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DPROFILE=$PROFILE"
+    # We shouldn't run profile with debug - so we fail the build
+    if [[ "$DEBUG" == "1" ]]; then
+      echo "Cannot run profile with debug/sanitizer"
+      exit 1
+    fi
+  fi
+
   # Set build type
   if [[ "$DEBUG" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_BUILD_TYPE=Debug"
   else
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_BUILD_TYPE=Release"
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_BUILD_TYPE=RelWithDebInfo"
   fi
 
   # Ensure output file is always .so even on macOS
