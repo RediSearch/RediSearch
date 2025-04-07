@@ -55,9 +55,8 @@ def testCursors(env):
     env.assertEqual(11, len(res))
 
 def testCursorsBG():
-    env = Env(moduleArgs='WORKERS 1 _PRINT_PROFILE_CLOCK FALSE ON_TIMEOUT RETURN')
+    env = Env(moduleArgs='WORKERS 1 _PRINT_PROFILE_CLOCK FALSE')
     testCursors(env)
-
 
 @skip(cluster=True)
 def testCursorsBGEdgeCasesSanity():
@@ -283,7 +282,7 @@ def CursorOnCoordinator(env: Env):
 
     env.expect(
         'FT.AGGREGATE', 'non-existing', '*', 'LOAD', '*', 'WITHCURSOR', 'COUNT', 1
-    ).error().contains('non-existing: no such index')
+    ).error().contains('No such index non-existing')
 
     # Verify we can read from the cursor all the results.
     # The coverage proves that the `_FT.CURSOR READ` command is sent to the shards only when more results are needed.

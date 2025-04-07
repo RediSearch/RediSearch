@@ -20,6 +20,8 @@
 #include "query_error.h"
 #include "info/global_stats.h"
 #include "aggregate_debug.h"
+#include "info/info_redis/block_client.h"
+#include "info/info_redis/threads/current_thread.h"
 
 typedef enum { COMMAND_AGGREGATE, COMMAND_SEARCH, COMMAND_EXPLAIN } CommandType;
 
@@ -112,8 +114,15 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     RedisModule_Reply_Map(reply);
   }
 
-  if (dmd && (options & QEXEC_F_IS_SEARCH)) {
+  if (options & QEXEC_F_IS_SEARCH) {
     size_t n;
+    RS_LOG_ASSERT(dmd, "Document metadata NULL in result serialization.");
+    if (!dmd) {
+      // Empty results should not be serialized!
+      // We already crashed in development env. In production, log and continue
+      RedisModule_Log(req->sctx->redisCtx, "warning", "Document metadata NULL in result serialization.");
+      return 0;
+    }
     const char *s = DMD_KeyPtrLen(dmd, &n);
     if (has_map) {
       RedisModule_ReplyKV_StringBuffer(reply, "id", s, n);
@@ -313,7 +322,10 @@ static size_t getResultsFactor(AREQ *req) {
 static SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
   SearchResult **results = array_new(SearchResult *, 8);
   SearchResult r = {0};
-  while (rp->parent->resultLimit-- && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+  while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+    // Decrement the result limit, now that we got a valid result.
+    rp->parent->resultLimit--;
+
     array_append(results, SearchResult_Copy(&r));
 
     // clean the search result
@@ -437,7 +449,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // If an error occurred, or a timeout in strict mode - return a simple error
     if (ShouldReplyWithError(rp, req)) {
-      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+      RedisModule_Reply_Error(reply, QueryError_GetUserError(req->qiter.err));
       cursor_done = true;
       goto done_2_err;
     } else if (ShouldReplyWithTimeoutError(rc, req)) {
@@ -447,9 +459,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     }
 
     // Set `resultsLen` to be the expected number of results in the response.
-    if (ShouldReplyWithTimeoutError(rc, req)) {
-      resultsLen = 1;
-    } else if (rc == RS_RESULT_ERROR) {
+    if (rc == RS_RESULT_ERROR) {
       resultsLen = 2;
     } else if (req->reqflags & QEXEC_F_IS_SEARCH && rc != RS_RESULT_TIMEDOUT &&
                req->optimizer->type != Q_OPT_NO_SORTER) {
@@ -546,7 +556,7 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &results, &r, &rc);
 
     if (ShouldReplyWithError(rp, req)) {
-      RedisModule_Reply_Error(reply, QueryError_GetError(req->qiter.err));
+      RedisModule_Reply_Error(reply, QueryError_GetUserError(req->qiter.err));
       cursor_done = true;
       goto done_3_err;
     } else if (ShouldReplyWithTimeoutError(rc, req)) {
@@ -572,15 +582,6 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
     // <attributes>
     RedisModule_ReplyKV_Array(reply, "attributes");
     RedisModule_Reply_ArrayEnd(reply);
-
-    // TODO: Move this to after the results section, so that we can report the
-    // correct number of returned results.
-    // <total_results>
-    if (ShouldReplyWithTimeoutError(rc, req)) {
-      RedisModule_ReplyKV_LongLong(reply, "total_results", 0);
-    } else {
-      RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
-    }
 
     // <format>
     if (req->reqflags & QEXEC_FORMAT_EXPAND) {
@@ -619,13 +620,16 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 done_3:
     RedisModule_Reply_ArrayEnd(reply); // >results
 
+    // <total_results>
+    RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
+
     // <error>
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
     if (rc == RS_RESULT_TIMEDOUT) {
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
     } else if (rc == RS_RESULT_ERROR) {
       // Non-fatal error
-      RedisModule_Reply_SimpleString(reply, QueryError_GetError(req->qiter.err));
+      RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(req->qiter.err));
     } else if (req->qiter.err->reachedMaxPrefixExpansions) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
@@ -728,7 +732,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   RedisModuleCtx *outctx = RedisModule_GetThreadSafeContext(BCRctx->blockedClient);
   QueryError status = {0}, detailed_status = {0};
 
-  StrongRef execution_ref = WeakRef_Promote(BCRctx->spec_ref);
+  StrongRef execution_ref = IndexSpecRef_Promote(BCRctx->spec_ref);
   if (!StrongRef_Get(execution_ref)) {
     // The index was dropped while the query was in the job queue.
     // Notify the client that the query was aborted
@@ -738,6 +742,7 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
     blockedClientReqCtx_destroy(BCRctx);
     return;
   }
+
   // Cursors are created with a thread-safe context, so we don't want to replace it
   if (!(req->reqflags & QEXEC_F_IS_CURSOR)) {
     req->sctx->redisCtx = outctx;
@@ -773,7 +778,7 @@ error:
 cleanup:
   // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
   RedisModule_FreeThreadSafeContext(outctx);
-  StrongRef_Release(execution_ref);
+  IndexSpecRef_Release(execution_ref);
   blockedClientReqCtx_destroy(BCRctx);
 }
 
@@ -864,14 +869,17 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
 
   sctx = NewSearchCtxC(ctx, indexname, true);
   if (!sctx) {
-    QueryError_SetErrorFmt(status, QUERY_ENOINDEX, "%s: no such index", indexname);
+    QueryError_SetWithUserDataFmt(status, QUERY_ENOINDEX, "No such index", " %s", indexname);
     goto done;
   }
+
+  CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
   rc = AREQ_ApplyContext(*r, sctx, status);
   thctx = NULL;
   // ctx is always assigned after ApplyContext
   if (rc != REDISMODULE_OK) {
+    CurrentThread_ClearIndexSpec();
     RS_LOG_ASSERT(QueryError_HasError(status), "Query has error");
   }
 
@@ -917,7 +925,7 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
     clock_gettime(CLOCK_MONOTONIC, &r->qiter.initTime);
   }
 
-  // This function also builds the RedisSearchCtx.
+  // This function also builds the RedisSearchCtx
   // It will search for the spec according the the name given in the argv array,
   // and ensure the spec is valid.
   if (buildRequest(ctx, argv, argc, type, status, r_ptr) != REDISMODULE_OK) {
@@ -932,14 +940,8 @@ static int prepareRequest(AREQ **r_ptr, RedisModuleCtx *ctx, RedisModuleString *
 
 static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *status) {
   if (RunInThread()) {
-    // Prepare context for the worker thread
-    // Since we are still in the main thread, and we already validated the
-    // spec's existence, it is safe to directly get the strong reference from the spec
-    // found in buildRequest.
     StrongRef spec_ref = IndexSpec_GetStrongRefUnsafe(r->sctx->spec);
-    RedisModuleBlockedClient *blockedClient = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-    // report block client start time
-    RedisModule_BlockedClientMeasureTimeStart(blockedClient);
+    RedisModuleBlockedClient* blockedClient = BlockQueryClient(ctx, spec_ref, r, 0);
     blockedClientReqCtx *BCRctx = blockedClientReqCtx_New(r, blockedClient, spec_ref);
     // Mark the request as thread safe, so that the pipeline will be built in a thread safe manner
     r->reqflags |= QEXEC_F_RUN_IN_BACKGROUND;
@@ -956,6 +958,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     RedisSearchCtx_LockSpecRead(r->sctx);
 
     if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
+      CurrentThread_ClearIndexSpec();
       return REDISMODULE_ERR;
     }
     if (r->reqflags & QEXEC_F_IS_CURSOR) {
@@ -967,6 +970,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       int rc = AREQ_StartCursor(r, reply, spec_ref, status, false);
       RedisModule_EndReply(reply);
       if (rc != REDISMODULE_OK) {
+        CurrentThread_ClearIndexSpec();
         return REDISMODULE_ERR;
       }
     } else {
@@ -974,6 +978,7 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
     }
   }
 
+  CurrentThread_ClearIndexSpec();
   return REDISMODULE_OK;
 }
 
@@ -1073,10 +1078,12 @@ char *RS_GetExplainOutput(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
   if (prepareExecutionPlan(r, status) != REDISMODULE_OK) {
     AREQ_Free(r);
+    CurrentThread_ClearIndexSpec();
     return NULL;
   }
   char *ret = QAST_DumpExplain(&r->ast, r->sctx->spec);
   AREQ_Free(r);
+  CurrentThread_ClearIndexSpec();
   return ret;
 }
 
@@ -1119,13 +1126,8 @@ static void runCursor(RedisModule_Reply *reply, Cursor *cursor, size_t num) {
   }
 }
 
-static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, bool bg) {
-  Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+static void cursorRead(RedisModule_Reply *reply, Cursor *cursor, size_t count, bool bg) {
 
-  if (cursor == NULL) {
-    RedisModule_Reply_Error(reply, "Cursor not found");
-    return;
-  }
   QueryError status = {0};
   AREQ *req = cursor->execState;
   req->qiter.err = &status;
@@ -1135,13 +1137,14 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
   bool has_spec = cursor_HasSpecWeakRef(cursor);
   // If the cursor is associated with a spec, e.g a coordinator ctx.
   if (has_spec) {
-    execution_ref = WeakRef_Promote(cursor->spec_ref);
+    execution_ref = IndexSpecRef_Promote(cursor->spec_ref);
     if (!StrongRef_Get(execution_ref)) {
       // The index was dropped while the cursor was idle.
       // Notify the client that the query was aborted.
       RedisModule_Reply_Error(reply, "The index was dropped while the cursor was idle");
       return;
     }
+
     if (HasLoader(req)) { // Quick check if the cursor has loaders.
       bool isSetForBackground = req->reqflags & QEXEC_F_RUN_IN_BACKGROUND;
       if (bg && !isSetForBackground) {
@@ -1164,20 +1167,20 @@ static void cursorRead(RedisModule_Reply *reply, uint64_t cid, size_t count, boo
 
   runCursor(reply, cursor, count);
   if (has_spec) {
-    StrongRef_Release(execution_ref);
+    IndexSpecRef_Release(execution_ref);
   }
 }
 
 typedef struct {
   RedisModuleBlockedClient *bc;
-  uint64_t cid;
+  Cursor *cursor;
   size_t count;
 } CursorReadCtx;
 
 static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(cr_ctx->bc);
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  cursorRead(reply, cr_ctx->cid, cr_ctx->count, true);
+  cursorRead(reply, cr_ctx->cursor, cr_ctx->count, true);
   RedisModule_EndReply(reply);
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
@@ -1227,16 +1230,23 @@ int RSCursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
         return REDISMODULE_OK;
       }
     }
+
+    Cursor *cursor = Cursors_TakeForExecution(GetGlobalCursor(cid), cid);
+    if (cursor == NULL) {
+      RedisModule_ReplyWithErrorFormat(ctx, "Cursor not found, id: %d", cid);
+      RedisModule_EndReply(reply);
+      return REDISMODULE_OK;
+    }
+
     // We have to check that we are not blocked yet from elsewhere (e.g. coordinator)
     if (RunInThread() && !RedisModule_GetBlockedClientHandle(ctx)) {
       CursorReadCtx *cr_ctx = rm_new(CursorReadCtx);
-      cr_ctx->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-      cr_ctx->cid = cid;
+      cr_ctx->bc = BlockCursorClient(ctx, cursor, count, 0);
+      cr_ctx->cursor = cursor;
       cr_ctx->count = count;
-      RedisModule_BlockedClientMeasureTimeStart(cr_ctx->bc);
       workersThreadPool_AddWork((redisearch_thpool_proc)cursorRead_ctx, cr_ctx);
     } else {
-      cursorRead(reply, cid, count, false);
+      cursorRead(reply, cursor, count, false);
     }
   } else if (strcasecmp(cmd, "DEL") == 0) {
     int rc = Cursors_Purge(GetGlobalCursor(cid), cid);

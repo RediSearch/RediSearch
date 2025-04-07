@@ -1,8 +1,8 @@
 packaging >= 20.8
 gevent
-deepdiff
+deepdiff <= 8.3.0
 redis >= 5.1.0
-RLTest >= 0.7.14
+RLTest >= 0.7.16
 numpy >= 1.21.6
 scipy >= 1.7.3
 faker

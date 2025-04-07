@@ -91,9 +91,12 @@ endif()
 include(${root}/build/libuv/libuv.cmake)
 include(${root}/build/hiredis/hiredis.cmake)
 include(${root}/build/boost/boost.cmake)
+if (NOT IS_DIRECTORY ${BOOST_DIR})
+    message(FATAL_ERROR "BOOST_DIR is not defined or does not point to a valid directory ${BOOST_DIR}")
+endif()
+
 set(BOOST_ROOT ${BOOST_DIR})
 set(Boost_NO_WARN_NEW_VERSIONS ON)
-
 
 include_directories(
     ${root}/src
@@ -110,6 +113,7 @@ add_subdirectory(deps/rmutil)
 add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
+add_subdirectory(deps/fast_float)
 
 option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
@@ -134,6 +138,9 @@ file(GLOB SOURCES
     "src/util/*.c"
     "src/trie/*.c"
     "src/info/*.c"
+    "src/info/info_redis/*.c"
+    "src/info/info_redis/threads/*.c"
+    "src/info/info_redis/types/*.c"
     "src/module-init/*.c"
     "src/obfuscation/*.c"
 
@@ -141,6 +148,7 @@ file(GLOB SOURCES
     "deps/libnu/*.c"
     "deps/miniz/*.c"
     "deps/base64/*.c"
+    "deps/fast_float/*.c"
     "deps/thpool/*.c"
     "deps/triemap/*.c"
     "deps/geohash/*.c")
@@ -153,6 +161,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:friso>
     $<TARGET_OBJECTS:snowball>
     $<TARGET_OBJECTS:metaphone>
+    $<TARGET_OBJECTS:fast_float_strtod>
     $<TARGET_OBJECTS:redisearch-coord>
 )
 
