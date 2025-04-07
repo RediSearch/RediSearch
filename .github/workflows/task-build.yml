@@ -32,6 +32,10 @@ jobs:
           echo $PWD
           git branch
           .install/verify_build_deps.sh || true
+      - name: disable make version warning in readies
+        working-directory: RediSearch
+        run: |
+          awk 'NR==6 {$0="#" $0} {print}' deps/readies/mk/main > deps/readies/mk/main.tmp && mv deps/readies/mk/main.tmp deps/readies/mk/main
       - name: install deps
         id: install_deps
         working-directory: RediSearch
