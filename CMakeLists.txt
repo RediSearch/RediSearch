@@ -197,6 +197,7 @@ if (NOT IS_DIRECTORY ${BOOST_DIR})
     message(FATAL_ERROR "BOOST_DIR is not defined or does not point to a valid directory ${BOOST_DIR}")
 endif()
 
+message(STATUS "BOOST_DIR: ${BOOST_DIR}")
 set(BOOST_ROOT ${BOOST_DIR})
 set(Boost_NO_WARN_NEW_VERSIONS ON)
 
