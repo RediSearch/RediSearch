@@ -1569,8 +1569,10 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   // Remove spec from global index list
   dictDelete(specDict_g, spec->name);
 
-  // Remove spec from global aliases list
-  IndexSpec_ClearAliases(spec_ref);
+  if (!spec->isDuplicate) {
+    // Remove spec from global aliases list
+    IndexSpec_ClearAliases(spec_ref);
+  }
 
   SchemaPrefixes_RemoveSpec(spec_ref);
 
@@ -2493,15 +2495,17 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   RedisModule_Free(rawName);
   RefManager *oldSpec = dictFetchValue(specDict_g, name);
   if (oldSpec) {
-    // spec already exists lets just free this one
-    rm_free(name);
+    // spec already exists, however we need to finish consuming the rdb so redis won't issue an error(expecting an eof but seeing remaining data)
+    // right now this can cause nasty side effects, to avoid them we will set isDuplicate to true
     RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
-    return REDISMODULE_OK;
   }
 
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
+  // setting isDuplicate to true will make sure index will not be removed from global
+  // cursor map and aliases.
+  sp->isDuplicate = oldSpec != NULL;
 
   // `indexError` must be initialized before attempting to free the spec
   sp->stats.indexError = IndexError_Init();
@@ -2590,9 +2594,19 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   sp->indexer = NewIndexer(sp);
 
   sp->scan_in_progress = false;
-  dictAdd(specDict_g, (void*)sp->name, spec_ref.rm);
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
+  if (sp->isDuplicate) {
+    // spec already exists lets just free this one
+    // Remove the new spec from the global prefixes dictionary.
+    // This is the only global structure that we added the new spec to at this point
+    SchemaPrefixes_RemoveSpec(spec_ref);
+    addPendingIndexDrop();
+    StrongRef_Release(spec_ref);
+    spec_ref = (StrongRef){oldSpec};
+  } else {
+    dictAdd(specDict_g, (void*)sp->name, spec_ref.rm);
+    for (int i = 0; i < sp->numFields; i++) {
+      FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
+    }
   }
   return REDISMODULE_OK;
 
