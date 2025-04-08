@@ -8,10 +8,10 @@ license.workspace = true
 workspace = true
 
 [lib]
-crate-type = ["staticlib"]
+crate-type = ["staticlib", "rlib"]
 
 [features]
-default = ["redis_allocator"]
+default = []
 redis_allocator = ["dep:redis-module"]
 ffi = ["redis_allocator"]
 
@@ -28,7 +28,6 @@ workspace = true
 optional = true
 default-features = false
 
-
 [target.'cfg(not(all(target_env="musl", target_os="linux")))'.dependencies.redis-module]
 workspace = true
 optional = true
@@ -38,3 +37,5 @@ default-features = true
 insta.workspace = true
 proptest = { workspace = true, features = ["std"] }
 proptest-derive.workspace = true
+trie_rs.workspace = true
+fs-err.workspace = true
