@@ -314,6 +314,7 @@ typedef struct IndexSpec {
   bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
   bool monitorDocumentExpiration;
   bool monitorFieldExpiration;
+  bool isDuplicate;               // Markes that this index is a duplicate of an existing one
 
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;
