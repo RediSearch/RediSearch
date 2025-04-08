@@ -523,6 +523,22 @@ size_t TrieMap_MemUsage(const TrieMap *t) {
                     sizeof(char *));         // == 8, string size rounded up to 8 bits due to padding
 }
 
+size_t TrieMapNode_ExactMemUsage(TrieMapNode *n) {
+  size_t total_size = __trieMapNode_Sizeof(n->numChildren, n->len);
+  for (tm_len_t i = 0; i < n->numChildren; i++) {
+    total_size += TrieMapNode_ExactMemUsage(__trieMapNode_children(n)[i]);
+  }
+  return total_size;
+}
+
+size_t TrieMap_ExactMemUsage(TrieMap *t) {
+  size_t total_size = sizeof(TrieMap);
+  if (t->root) {
+    total_size += TrieMapNode_ExactMemUsage(t->root);
+  }
+  return total_size;
+}
+
 void TrieMapNode_Free(TrieMapNode *n, freeCB func) {
   for (tm_len_t i = 0; i < n->numChildren; i++) {
     TrieMapNode *child = __trieMapNode_children(n)[i];

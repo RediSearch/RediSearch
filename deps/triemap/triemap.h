@@ -6,7 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
-
 #include "util/arr.h"
 #include "util/timeout.h"
 
@@ -96,6 +95,10 @@ int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, freeCB func);
 void TrieMap_Free(TrieMap *t, freeCB func);
 
 size_t TrieMap_MemUsage(const TrieMap *t);
+
+/* Traverse the trie and calculate the exact memory usage of each node.
+ * More expensive than TrieMap_MemUsage, but more accurate. */
+size_t TrieMap_ExactMemUsage(TrieMap *t);
 
 /**************  Iterator API  - not ported from the textual trie yet
  * ***********/

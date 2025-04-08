@@ -471,6 +471,9 @@ ifeq ($(COV),1)
 RUST_TEST_RUNNER=cargo +nightly llvm-cov
 RUST_TEST_OPTIONS+=--doctests \
 	--codecov \
+	--workspace \
+	--exclude="trie_bencher" \
+	--ignore-filename-regex="trie_bencher/*" \
 	--output-path="$(ROOT)/bin/$(FULL_VARIANT)/rust_cov.info"
 else
 RUST_TEST_RUNNER=cargo
