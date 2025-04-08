@@ -442,10 +442,13 @@ endif
 
 test: unit-tests pytest rust-tests
 
+# Temp hack - replace the arm artifact directory with aarch64 as it comes from build.sh since unit tests
+# access it directly (todo: refactor unit test flow completely)
+UPDATED_BINROOT:=$(subst arm64v8,aarch64,$(BINROOT))
 
-BINROOT = $(subst arm64v8,aarch64,$(BINROOT))
-unit-tests: rust-tests
-	$(SHOW)BINROOT=$(BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+unit-tests:
+	@echo "UPDATED_BINROOT: $(UPDATED_BINROOT)"
+	$(SHOW)BINROOT=$(UPDATED_BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
 RUST_TEST_OPTIONS=--all-features --profile=$(RUST_PROFILE)
 ifeq ($(COV),1)
