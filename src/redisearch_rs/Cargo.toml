@@ -41,7 +41,7 @@ proptest-derive = { version = "0.5.1", default-features = false }
 [workspace.dependencies.redis-module]
 # Patched version. See https://github.com/RedisLabsModules/redismodule-rs/pull/413
 git = "https://github.com/hdoordt/redismodule-rs.git"
-branch = "static-link-libclang"
+branch = "patches-redisearch"
 default-features = false
 
 # A profile for fast test execution that doesn't sacrifice
