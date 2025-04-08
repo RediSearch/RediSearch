@@ -1,4 +1,5 @@
 use std::{collections::BTreeSet, ptr::NonNull};
+use trie_bencher::corpus::CorpusType;
 use trie_bencher::{CTrieMap, RustTrieMap, str2c_char, str2c_input};
 
 fn main() {
@@ -13,7 +14,7 @@ fn main() {
 fn compute_and_report_memory_usage() {
     let mut map = RustTrieMap::new();
     let mut cmap = CTrieMap::new();
-    let contents = trie_bencher::download_or_read_corpus();
+    let contents = CorpusType::GutenbergEbook.download_or_read_corpus();
     let mut raw_size = 0;
     let mut n_words = 0;
     let mut unique_words = BTreeSet::new();

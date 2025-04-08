@@ -1,11 +1,15 @@
 use std::{collections::BTreeSet, io::Cursor, path::PathBuf};
 
-use crate::RustTrieMap;
-use crate::str2c_char;
+use crate::bencher::rust_load_from_keys;
 
-/// This enum allows easy switching between different corpora for benchmarking
+/// This enum allows easy switching between different corpora for benchmarking.
+///
+/// Users may call [CorpusType::download_or_read_corpus] to get the full content of the source files of a corpus or
+/// use the [CorpusType::create_keys] method that generates a [Vec<String>] containing the unique keys for trie construction. These
+/// must be further converted to the "legacy" string types: see [crate::strvec2_raw_words].
+///
 /// Information for remote files can be found in the folder: git_root/tests/benchmarks/
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, strum::EnumIter)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CorpusType {
     /// uses a corpus from the redis benchmarks that contains 1k rows in a csv file describing wikipedia articles as a line
     RedisBench1kWiki,
@@ -20,34 +24,37 @@ pub enum CorpusType {
 impl CorpusType {
     /// If the corpus has already been downloaded, read it from disk.
     /// Otherwise, download it from the internet and save it to disk.
+    /// In any case perform a crc32 check to notice changes in the corpus data.
     pub fn download_or_read_corpus(&self) -> String {
         let path = self.get_cached_path();
-        if std::fs::exists(&path).ok() != Some(true) {
+        let corpus = if std::fs::exists(&path).ok() != Some(true) {
             let corpus = download_corpus(self.get_url());
-            if let Some(stored_checksum) = self.get_checksum() {
-                let checksum = crc32fast::hash(corpus.as_bytes());
-                assert_eq!(
-                    checksum, stored_checksum,
-                    "The checksum of the downloaded corpus does not match the expected value. \
-                    This may impact the accuracy and relevance of the operations being benchmarked. \
-                    Review the diff before updating the expected checksum."
-                );
-            }
             fs_err::write(&path, corpus.as_bytes()).expect("Failed to write corpus to disk");
             corpus
         } else {
             fs_err::read_to_string(&path).expect("Failed to read corpus")
+        };
+
+        // check that the corpus hasn't been altered.
+        if let Some(stored_checksum) = self.get_checksum() {
+            let checksum = crc32fast::hash(corpus.as_bytes());
+            assert_eq!(
+                checksum, stored_checksum,
+                "The checksum of the downloaded corpus does not match the expected value. \
+                This may impact the accuracy and relevance of the operations being benchmarked. \
+                Review the diff before updating the expected checksum."
+            );
         }
+        corpus
     }
 
-    /// creates a vector of null terminated cstrs and a vector of "non-terminated" Clike strings
-    ///
-    /// contents a string slice containing the file content, may be CSV or txt depending on [CorpusType].
+    /// Creates a vector of keys for insertion into a trie,
+    /// may output the trie to a file using a pretty printer.
     pub fn create_keys(&self, output_pretty_print_trie: bool) -> Vec<String> {
         let corpus = self.download_or_read_corpus();
         let reval = match self {
             CorpusType::RedisBench1kWiki => self.create_keys_redis_wiki1k(&corpus),
-            CorpusType::RedisBench10kNumerics => todo!(),
+            CorpusType::RedisBench10kNumerics => self.create_keys_redis_wiki10k(&corpus),
             CorpusType::GutenbergEbook => self.create_keys_gutenberg(&corpus),
         };
         if output_pretty_print_trie {
@@ -56,7 +63,28 @@ impl CorpusType {
         reval
     }
 
+    fn create_keys_redis_wiki10k(&self, contents: &str) -> Vec<String> {
+        // we find the guid like doc id in column 5
+        let idx = 4;
+
+        // Prefix used for each title:
+        const _PREFIX: &str = "doc:single:";
+
+        let reader = Cursor::new(contents);
+        let mut rdr = csv::Reader::from_reader(reader);
+
+        // generate strings without prefix:
+        let strings = rdr
+            .records()
+            .into_iter()
+            .map(|e| e.unwrap().get(idx).unwrap()[_PREFIX.len()..].to_owned())
+            .collect::<Vec<_>>();
+
+        strings
+    }
+
     fn create_keys_gutenberg(&self, contents: &str) -> Vec<String> {
+        // use words in the text file as keys and ensure uniqueness of keys
         let unique_words = {
             let mut unique = BTreeSet::new();
             'outer: for line in contents.lines().skip(36) {
@@ -73,8 +101,6 @@ impl CorpusType {
     }
 
     fn create_keys_redis_wiki1k(&self, contents: &str) -> Vec<String> {
-        let reader = Cursor::new(contents);
-
         // we generate a trie based on the title
         let title_offset = 6;
 
@@ -85,6 +111,8 @@ impl CorpusType {
 
         // Prefix used for each title:
         const _PREFIX: &str = "Wikipedia\\: ";
+
+        let reader = Cursor::new(contents);
         let mut rdr = csv::Reader::from_reader(reader);
 
         // generate strings without prefix:
@@ -97,7 +125,7 @@ impl CorpusType {
         strings
     }
 
-    /// returns the url of the corpus
+    /// Returns the url of the corpus.
     fn get_url(&self) -> &str {
         match self {
             CorpusType::RedisBench1kWiki => {
@@ -110,10 +138,11 @@ impl CorpusType {
         }
     }
 
+    /// Returns the checksum for the downloaded files.
     fn get_checksum(&self) -> Option<u32> {
         match self {
             CorpusType::RedisBench1kWiki => Some(0x65ed64eb),
-            CorpusType::RedisBench10kNumerics => None,
+            CorpusType::RedisBench10kNumerics => Some(0x3c18690f),
             CorpusType::GutenbergEbook => Some(3817457071),
         }
     }
@@ -129,6 +158,7 @@ impl CorpusType {
         }
     }
 
+    /// returns a path in the data folder that shall be used to store the pretty printed version of the trie
     fn get_pretty_print_path(&self) -> PathBuf {
         let path = PathBuf::from("data");
         let filename = match self {
@@ -140,15 +170,12 @@ impl CorpusType {
     }
 }
 
-/// writes the output of the debug pretty print of a trie to a given file
+/// Writes the output of the debug pretty print of a trie to a given file.
 ///
-/// - keys: vector containing all keys of the trie
-/// - path: path to the file that shall be written with the pretty printed trie
-fn write_pretty_printed_file_of_trie(keys: &Vec<String>, path: &PathBuf) {
-    let mut trie = RustTrieMap::new();
-    for word in keys {
-        trie.insert(&str2c_char(word.as_str()), std::ptr::NonNull::dangling());
-    }
+/// - keys: Slice of Strings containing all keys of the trie.
+/// - path: Path to the file that shall be written with the pretty printed trie.
+fn write_pretty_printed_file_of_trie(keys: &[String], path: &PathBuf) {
+    let trie = rust_load_from_keys(keys);
     fs_err::write(path, format!("{trie:?}").as_bytes())
         .expect("Failed to write bench words debug to disk");
 }
