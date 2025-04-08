@@ -1,5 +1,5 @@
 use std::{collections::BTreeSet, ptr::NonNull};
-use trie_bencher::{CTrieMap, RustTrieMap, str2c_char, str2c_input};
+use trie_bencher::{str2c_char, str2c_input, CTrieMap, RustTrieMap};
 
 fn main() {
     compute_and_report_memory_usage();
@@ -63,7 +63,7 @@ fn compute_and_report_memory_usage() {
           {} nodes"#,
         raw_size as f64 / 1024. / 1024.,
         map.mem_usage() as f64 / 1024. / 1024.,
-        map.num_nodes(),
+        map.n_nodes(),
         cmap.mem_usage() as f64 / 1024. / 1024.,
         cmap.n_nodes()
     );

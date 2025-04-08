@@ -1,7 +1,16 @@
-#[cfg(feature = "ffi")]
-pub mod ffi;
+//! A trie map implementation with minimal memory footprint.
+//!
+//! Check [`TrieMap`]'s documentation for more details.
 
-pub mod trie;
+mod layout;
+mod node;
+mod trie;
+mod utils;
+
+#[cfg(feature = "ffi")]
+/// FFI bindings to invoke [`TrieMap`] methods from C code.
+pub mod ffi;
+pub use trie::{Iter, TrieMap};
 
 /// Registers the Redis module allocator
 /// as the global allocator for the application.

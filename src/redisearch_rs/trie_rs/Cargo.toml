@@ -17,7 +17,8 @@ ffi = ["redis_allocator"]
 
 [dependencies]
 libc.workspace = true
-low_memory_thin_vec.workspace = true
+memchr.workspace = true
+zerocopy = "0.8"
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,

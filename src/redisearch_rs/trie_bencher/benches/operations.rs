@@ -3,7 +3,7 @@
 //! Refer to `data/bench_trie.txt` to visualize the structure of the trie that's being benchmarked.
 use std::path::PathBuf;
 
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
 use trie_bencher::OperationBencher;
 
 fn criterion_benchmark(c: &mut Criterion) {
