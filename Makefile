@@ -442,6 +442,8 @@ endif
 
 test: unit-tests pytest rust-tests
 
+
+BINROOT = $(subst arm64v8,aarch64,$(BINROOT))
 unit-tests: rust-tests
 	$(SHOW)BINROOT=$(BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
