@@ -31,5 +31,4 @@ else()
     message(STATUS "boost source dir: ${boost_SOURCE_DIR}")
     message(STATUS "boost binary dir: ${boost_BINARY_DIR}")
     set(BOOST_DIR ${boost_SOURCE_DIR})
-    set(Boost_DIR ${boost_SOURCE_DIR})  # for mac?
 endif()

@@ -79,7 +79,6 @@ option(BUILD_SEARCH_UNIT_TESTS "Build unit tests" OFF)
 option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
 option(ENABLE_ASSERT "Enable assertions" OFF)
 option(MAX_WORKER_THREADS "Override them maximum parallel worker threads allowed in thread-pool" "")
-option(BOOST_DIR "Boost installation directory" "${root}/.install/boost")
 option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
 
 
@@ -192,6 +191,11 @@ endif()
 #----------------------------------------------------------------------------------------------
 # Include external dependencies
 include(${root}/build/hiredis/hiredis.cmake)
+
+if (NOT DEFINED BOOST_DIR)
+    set(BOOST_DIR "${root}/.install/boost")
+endif()
+
 include(${root}/build/boost/boost.cmake)
 if (NOT IS_DIRECTORY ${BOOST_DIR})
     message(FATAL_ERROR "BOOST_DIR is not defined or does not point to a valid directory ${BOOST_DIR}")
