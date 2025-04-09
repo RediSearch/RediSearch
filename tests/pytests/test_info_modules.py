@@ -477,8 +477,7 @@ def test_counting_queries_BG():
   test_counting_queries(env)
 
 # Todo: re-enable that once we have a mechanism for getting vector info with no performance impact
-# @skip(cluster=True, noWorkers=True)
-@skip()
+@skip(cluster=True, noWorkers=True)
 def test_redis_info_modules_vecsim():
   env = Env(moduleArgs='WORKERS 2')
   env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
@@ -493,7 +492,8 @@ def test_redis_info_modules_vecsim():
 
   info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
-  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['search_used_memory_vector_index'], 0)  # todo: change back after re-enabling vector info
+  # env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
   env.assertEqual(info['search_marked_deleted_vectors'], 0)
 
   env.expect(debug_cmd(), 'WORKERS', 'PAUSE').ok()
@@ -501,9 +501,14 @@ def test_redis_info_modules_vecsim():
 
   info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
-  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['search_used_memory_vector_index'], 0)
+  # todo: change back after re-enabling vector info
+  # env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
 
-  env.assertEqual(info['search_marked_deleted_vectors'], 2) # 2 vectors were marked as deleted (1 for each index)
+
+  env.assertEqual(info['search_marked_deleted_vectors'], 0) # 2 vectors were marked as deleted (1 for each index)
+  # todo: change back after re-enabling vector info
+  # env.assertEqual(info['search_marked_deleted_vectors'], 2) # 2 vectors were marked as deleted (1 for each index)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
   env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 1)
 
@@ -512,7 +517,9 @@ def test_redis_info_modules_vecsim():
 
   info = env.cmd('INFO', 'MODULES')
   field_infos = [to_dict(env.cmd(debug_cmd(), 'VECSIM_INFO', f'idx{i}', 'vec')) for i in range(1, 4)]
-  env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
+  env.assertEqual(info['search_used_memory_vector_index'], 0)
+  # todo: change back after re-enabling vector info
+  # env.assertEqual(info['search_used_memory_vector_index'], sum(field_info['MEMORY'] for field_info in field_infos))
   env.assertEqual(info['search_marked_deleted_vectors'], 0)
   env.assertEqual(to_dict(field_infos[0]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
   env.assertEqual(to_dict(field_infos[1]['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED'], 0)
