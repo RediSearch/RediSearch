@@ -3405,12 +3405,22 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
     dScanner->status = DEBUG_INDEX_SCANNER_CODE_CANCELLED;
   }
 
-  RedisModule_ThreadSafeContextUnlock(ctx);
-  while (globalDebugCtx.bgIndexing.pause) { // volatile variable
-    dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED;
-    usleep(1000);
+  // Check if we need to pause the scan before we release the GIL
+  if (globalDebugCtx.bgIndexing.pause)
+  {
+      // Warning: This section is highly unsafe. RM_Scan does not permit the callback
+      // function (i.e., this function) to release the GIL.
+      // If the key currently being scanned is deleted after the GIL is released,
+      // it can lead to a use-after-free and crash Redis.
+      RedisModule_Log(ctx, "warning", "RM_Scan callback function is releasing the GIL, which is unsafe.");
+
+      RedisModule_ThreadSafeContextUnlock(ctx);
+      while (globalDebugCtx.bgIndexing.pause) { // volatile variable
+        dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED;
+        usleep(1000);
+      }
+      RedisModule_ThreadSafeContextLock(ctx);
   }
-  RedisModule_ThreadSafeContextLock(ctx);
 
   if (dScanner->status == DEBUG_INDEX_SCANNER_CODE_PAUSED) {
     dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
