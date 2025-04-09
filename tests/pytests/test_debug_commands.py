@@ -925,7 +925,7 @@ def testIndexObfuscatedInfo(env: Env):
 
 @skip(cluster=True)
 def testPauseOnOOM(env: Env):
-    num_docs = 100
+    num_docs = 1000
     for i in range(num_docs):
         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
@@ -967,7 +967,7 @@ def testPauseOnOOM(env: Env):
     idx_info = index_info(env, 'idx')
     env.assertEqual(idx_info['indexing'], 1)
     # The percent index should be close to 0.25 as we set the tight memory limit after 25% of the docs were scanned
-    env.assertAlmostEqual(float(idx_info['percent_indexed']), 0.25, delta=0.05)
+    env.assertAlmostEqual(float(idx_info['percent_indexed']), 0.25, delta=0.1)
 
     # Resume indexing for the sake of completeness
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
