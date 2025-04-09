@@ -1,5 +1,5 @@
 #!/bin/bash
-version=4.0.0
+version=3.25.1
 processor=$(uname -m)
 OS_TYPE=$(uname -s)
 OS_NAME=$(grep '^NAME=' /etc/os-release | sed 's/"//g')
