@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""
+xtx.py - A minimal template renderer with {{VAR}} substitution from environment variables.
+
+USAGE:
+    python3 xtx.py -e VAR1 -e VAR2 [--strict] template_file
+
+    This substitutes all instances of {{VAR}} in the template file using values from the environment.
+    If --strict is used, it fails on any undefined variable.
+
+FEATURES:
+    - Missing variables are left as-is (unless --strict is passed).
+    - Only supports substitution via -e VAR from the environment.
+    - No external libraries used (pure Python).
+"""
+import os
+import re
+import sys
+import argparse
+
+parser = argparse.ArgumentParser(description="Minimal template renderer using {{VAR}} substitution.")
+parser.add_argument('-e', '--env', action='append', metavar='VAR', help='Read variable from environment')
+parser.add_argument('--strict', action='store_true', help='Fail on any undefined variable in the template')
+parser.add_argument('template', help='Path to template file')
+args = parser.parse_args()
+
+# Read the template
+try:
+    with open(args.template, 'r') as f:
+        template = f.read()
+except Exception as e:
+    print(f"error: failed to read template: {e}", file=sys.stderr)
+    sys.exit(1)
+
+# Regex to find {{ VAR }}
+pattern = re.compile(r'{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}')
+used_vars = set(match.group(1) for match in pattern.finditer(template))
+
+# Gather values from environment for requested variables
+vars = {}
+for var in args.env or []:
+    val = os.environ.get(var)
+    if val is not None:
+        vars[var] = val
+
+# --strict: fail on any missing variable used in the template
+if args.strict:
+    missing_vars = [var for var in used_vars if var not in vars]
+    if missing_vars:
+        print("error: the following variables are undefined:", file=sys.stderr)
+        for var in sorted(missing_vars):
+            print(f"  {var}", file=sys.stderr)
+        sys.exit(1)
+
+# Replace {{VAR}} with value or empty string if not defined (like Jinja2 DebugUndefined)
+def replace(match):
+    var = match.group(1)
+    return vars.get(var, "")
+
+output = pattern.sub(replace, template)
+print(output)

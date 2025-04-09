@@ -3,12 +3,11 @@
 PROGNAME="${BASH_SOURCE[0]}"
 HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
 ROOT=$(cd $HERE/.. && pwd)
-export READIES=$ROOT/deps/readies
-. $READIES/shibumi/defs
 
 SBIN=$ROOT/sbin
 
-GET_PLATFORM="$ROOT/get-platform"
+GET_PLATFORM="$SBIN/get-platform"
+XTX="$SBIN/xtx"
 
 export PYTHONWARNINGS=ignore
 
@@ -139,7 +138,7 @@ pack_ramp() {
 		RAMP_YAML="$ROOT/pack/ramp${_RAMP_VARIANT}.yml"
 	fi
 
-	python3 $READIES/bin/xtx \
+	python3 $XTX \
 		$xtx_vars \
 		-e NUMVER -e SEMVER \
 		$RAMP_YAML > /tmp/ramp.yml
