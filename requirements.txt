@@ -1,6 +1,4 @@
 redis
-numpy
-pandas
 matplotlib
 tqdm
-seaborn
+Faker
