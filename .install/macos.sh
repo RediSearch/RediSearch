@@ -19,7 +19,7 @@ brew update
 brew install make
 # brew install openssl
 brew install wget
-# "$(dirname "$0")/install_llvm.sh"
+"$(dirname "$0")/install_llvm.sh"
 
 # BREW_PREFIX=$(brew --prefix)
 # GNUBIN=$BREW_PREFIX/opt/make/libexec/gnubin
