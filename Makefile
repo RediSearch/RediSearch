@@ -546,7 +546,7 @@ bin/artifacts/$(RAMP.release): __force
 endif
 
 	@echo Packing module...
-	$(SHOW)$(PACK_ARGS) $(ROOT)/sbin/pack.sh $(TARGET)
+	$(SHOW)$(PACK_ARGS) JUST_PRINT=1 $(ROOT)/sbin/pack.sh $(TARGET)
 
 pack: bin/artifacts/$(RAMP.release)
 
