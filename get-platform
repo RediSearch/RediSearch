@@ -86,11 +86,14 @@ def get_macos_nick(version):
     "sonoma":       "23",
     "sequoia":      "24",
     }
+    macos_nicks = {v: k for k, v in macos_nicks.items()}
+
     major_minor = '.'.join(version.split('.')[:2])
     if major_minor.startswith("1."):
         return macos_nicks.get(major_minor, f"macos{major_minor}")
     major_minor = version.split('.')[0]
-    return macos_nicks.get(major_minor, f"macos{major_minor}")
+    nick = macos_nicks.get(major_minor, f"macos{major_minor}")
+    return nick
 
 def get_osnick(osinfo):
     """
