@@ -64,30 +64,30 @@ def read_os_release():
 def get_macos_nick(version):
     """Map macOS version to codename"""
     macos_nicks = {
-        "10.0": "cheetah",
-        "10.1": "puma",
-        "10.2": "jaguar",
-        "10.3": "panther",
-        "10.4": "tiger",
-        "10.5": "leopard",
-        "10.6": "snowleopard",
-        "10.7": "lion",
-        "10.8": "mountainlion",
-        "10.9": "mavericks",
-        "10.10": "yosemite",
-        "10.11": "elcapitan",
-        "10.12": "sierra",
-        "10.13": "highsierra",
-        "10.14": "mojave",
-        "10.15": "catalina",
-        "11": "bigsur",
-        "12": "monterey",
-        "13": "ventura",
-        "14": "sonoma",
-        "15": "sequoia"
+    "cheetah":      "1.3",
+    "puma":         "1.4",
+    "jaguar":       "6",
+    "panther":      "7",
+    "tiger":        "8",
+    "leopard":      "9",
+    "snowleopard":  "10",
+    "lion":         "11",
+    "mountainlion": "12",
+    "mavericks":    "13",
+    "yosemite":     "14",
+    "elcapitan":    "15",
+    "sierra":       "16",
+    "highsierra":   "17",
+    "mojave":       "18",
+    "catalina":     "19",
+    "bigsur":       "20",
+    "monterey":     "21",
+    "ventura":      "22",
+    "sonoma":       "23",
+    "sequoia":      "24",
     }
     major_minor = '.'.join(version.split('.')[:2])
-    if major_minor.startswith("10."):
+    if major_minor.startswith("1."):
         return macos_nicks.get(major_minor, f"macos{major_minor}")
     major_minor = version.split('.')[0]
     return macos_nicks.get(major_minor, f"macos{major_minor}")
@@ -99,7 +99,7 @@ def get_osnick(osinfo):
     """
     os_type = get_os()
     if os_type == 'darwin':
-        version = platform.mac_ver()[0]
+        version = platform.release()[0]
         return get_macos_nick(version)
 
     dist = osinfo.get("ID", "")
