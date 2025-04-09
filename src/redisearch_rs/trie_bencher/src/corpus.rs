@@ -70,7 +70,7 @@ impl CorpusType {
         let idx = 4;
 
         // Prefix used for each title:
-        const _PREFIX: &str = "doc:single:";
+        let prefix = "doc:single:";
 
         let reader = Cursor::new(contents);
         let mut rdr = csv::Reader::from_reader(reader);
@@ -79,7 +79,14 @@ impl CorpusType {
         let strings = rdr
             .records()
             .into_iter()
-            .map(|e| e.unwrap().get(idx).unwrap()[_PREFIX.len()..].to_owned())
+            .map(|e| {
+                e.unwrap()
+                    .get(idx)
+                    .unwrap()
+                    .strip_prefix(prefix)
+                    .expect(&format!("prefix in csv isn't {} anymore.", prefix))
+                    .to_owned()
+            })
             .collect::<Vec<_>>();
 
         strings
@@ -107,7 +114,7 @@ impl CorpusType {
         let title_offset = 6;
 
         // Prefix used for each title:
-        let prefix_len = "Wikipedia\\: ".len();
+        let prefix = "Wikipedia\\: ";
 
         let reader = Cursor::new(contents);
         let mut rdr = csv::Reader::from_reader(reader);
@@ -116,7 +123,14 @@ impl CorpusType {
         let strings = rdr
             .records()
             .into_iter()
-            .map(|e| e.unwrap().get(title_offset).unwrap()[prefix_len..].to_owned())
+            .map(|e| {
+                e.unwrap()
+                    .get(title_offset)
+                    .unwrap()
+                    .strip_prefix(prefix)
+                    .expect(&format!("prefix in csv isn't {} anymore.", prefix))
+                    .to_owned()
+            })
             .collect::<Vec<_>>();
 
         strings
