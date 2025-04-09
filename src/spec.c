@@ -2503,8 +2503,7 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
-  // setting isDuplicate to true will make sure index will not be removed from global
-  // cursor map and aliases.
+  // setting isDuplicate to true will make sure index will not be removed from aliases container.
   sp->isDuplicate = oldSpec != NULL;
 
   // `indexError` must be initialized before attempting to free the spec
