@@ -65,9 +65,8 @@ void AGPLN_Prepend(AGGPlan *pln, PLN_BaseStep *newstp) {
   dllist_prepend(&pln->steps, &newstp->llnodePln);
 }
 
-void AGPLN_PopStep(AGGPlan *pln, PLN_BaseStep *step) {
+void AGPLN_PopStep(PLN_BaseStep *step) {
   dllist_delete(&step->llnodePln);
-  (void)pln;
 }
 
 static void rootStepDtor(PLN_BaseStep *bstp) {
@@ -236,7 +235,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
     switch (stp->type) {
       case PLN_T_APPLY:
       case PLN_T_FILTER:
-        printf("  EXPR:%s\n", ((PLN_MapFilterStep *)stp)->rawExpr);
+        printf("  EXPR:%s\n", HiddenString_GetUnsafe(((PLN_MapFilterStep *)stp)->expr, NULL));
         if (stp->alias) {
           printf("  AS:%s\n", stp->alias);
         }
@@ -315,7 +314,7 @@ static void serializeMapFilter(myArgArray_t *arr, const PLN_BaseStep *stp) {
   } else {
     append_string(arr, "FILTER");
   }
-  append_string(arr, mstp->rawExpr);
+  append_string(arr, HiddenString_GetUnsafe(mstp->expr, NULL));
   if (stp->alias) {
     append_string(arr, "AS");
     append_string(arr, stp->alias);

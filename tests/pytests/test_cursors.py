@@ -55,9 +55,8 @@ def testCursors(env):
     env.assertEqual(11, len(res))
 
 def testCursorsBG():
-    env = Env(moduleArgs='WORKERS 1 _PRINT_PROFILE_CLOCK FALSE ON_TIMEOUT RETURN')
+    env = Env(moduleArgs='WORKERS 1 _PRINT_PROFILE_CLOCK FALSE')
     testCursors(env)
-
 
 @skip(cluster=True)
 def testCursorsBGEdgeCasesSanity():

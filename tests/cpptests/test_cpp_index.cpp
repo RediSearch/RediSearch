@@ -1210,7 +1210,7 @@ TEST_F(IndexTest, testIndexSpec) {
                         "sortable",  name,     "text",  "nostem"};
   QueryError err = {QUERY_OK};
   const char* spec_name = "idx";
-  StrongRef ref = IndexSpec_Parse(spec_name, args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC(spec_name, args, sizeof(args) / sizeof(const char *), &err);
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
@@ -1231,60 +1231,59 @@ TEST_F(IndexTest, testIndexSpec) {
   const char *obfuscatedName = IndexSpec_FormatName(s, true);
   ASSERT_STREQ(obfuscatedName, "Index@4e7f626df794f6491574a236f22c100c34ed804f");
 
-  const FieldSpec *f = IndexSpec_GetField(s, body);
+  const FieldSpec *f = IndexSpec_GetFieldWithLength(s, body, strlen(body));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_STREQ(f->name, body);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), body);
   ASSERT_EQ(f->ftWeight, 2.0);
   ASSERT_EQ(FIELD_BIT(f), 2);
   ASSERT_EQ(f->options, 0);
   ASSERT_EQ(f->sortIdx, -1);
 
-  f = IndexSpec_GetField(s, title);
+  f = IndexSpec_GetFieldWithLength(s, title, strlen(title));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_TRUE(strcmp(f->name, title) == 0);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), title);
   ASSERT_TRUE(f->ftWeight == 0.1);
   ASSERT_TRUE(FIELD_BIT(f) == 1);
   ASSERT_TRUE(f->options == 0);
   ASSERT_TRUE(f->sortIdx == -1);
 
-  f = IndexSpec_GetField(s, foo);
+  f = IndexSpec_GetFieldWithLength(s, foo, strlen(foo));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_TRUE(strcmp(f->name, foo) == 0);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), foo);
   ASSERT_TRUE(f->ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 4);
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 0);
 
-  f = IndexSpec_GetField(s, bar);
+  f = IndexSpec_GetFieldWithLength(s, bar, strlen(bar));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_NUMERIC));
 
-  ASSERT_TRUE(strcmp(f->name, bar) == 0);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), bar);
   ASSERT_EQ(f->options, FieldSpec_Sortable | FieldSpec_UNF); // UNF is set implicitly for sortable numerics
   ASSERT_TRUE(f->sortIdx == 1);
   ASSERT_TRUE(IndexSpec_GetFieldWithLength(s, "fooz", 4) == NULL);
 
-  f = IndexSpec_GetField(s, name);
+  f = IndexSpec_GetFieldWithLength(s, name, strlen(name));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_TRUE(strcmp(f->name, name) == 0);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), name);
   ASSERT_TRUE(f->ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 8);
   ASSERT_TRUE(f->options == FieldSpec_NoStemming);
   ASSERT_TRUE(f->sortIdx == -1);
-
   ASSERT_TRUE(s->numSortableFields == 2);
 
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 
   QueryError_ClearError(&err);
   const char *args2[] = {
       "NOOFFSETS", "NOFIELDS", "SCHEMA", title, "text",
   };
-  ref = IndexSpec_Parse("idx", args2, sizeof(args2) / sizeof(const char *), &err);
+  ref = IndexSpec_ParseC("idx", args2, sizeof(args2) / sizeof(const char *), &err);
   s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
@@ -1292,17 +1291,17 @@ TEST_F(IndexTest, testIndexSpec) {
 
   ASSERT_TRUE(!(s->flags & Index_StoreFieldFlags));
   ASSERT_TRUE(!(s->flags & Index_StoreTermOffsets));
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 
   // User-reported bug
   const char *args3[] = {"SCHEMA", "ha", "NUMERIC", "hb", "TEXT", "WEIGHT", "1", "NOSTEM"};
   QueryError_ClearError(&err);
-  ref = IndexSpec_Parse("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
+  ref = IndexSpec_ParseC("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
   s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(FieldSpec_IsNoStem(s->fields + 1));
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 }
 
 static void fillSchema(std::vector<char *> &args, size_t nfields) {
@@ -1345,12 +1344,12 @@ TEST_F(IndexTest, testHugeSpec) {
   fillSchema(args, N);
 
   QueryError err = {QUERY_OK};
-  StrongRef ref = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  StrongRef ref = IndexSpec_ParseC("idx", (const char **)&args[0], args.size(), &err);
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == N);
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
   freeSchemaArgs(args);
 
   // test too big a schema
@@ -1358,7 +1357,7 @@ TEST_F(IndexTest, testHugeSpec) {
   fillSchema(args, N);
 
   QueryError_ClearError(&err);
-  ref = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  ref = IndexSpec_ParseC("idx", (const char **)&args[0], args.size(), &err);
   s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));

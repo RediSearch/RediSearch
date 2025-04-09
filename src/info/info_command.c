@@ -16,6 +16,7 @@
 #include "info/global_stats.h"
 #include "util/units.h"
 #include "field_spec_info.h"
+#include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
@@ -49,13 +50,23 @@ static void renderIndexDefinitions(RedisModule_Reply *reply, const IndexSpec *sp
   if (num_prefixes) {
     RedisModule_ReplyKV_Array(reply, "prefixes");
     for (int i = 0; i < num_prefixes; ++i) {
-      REPLY_SIMPLE_SAFE(rule->prefixes[i]);
+      const char* prefix = HiddenUnicodeString_GetUnsafe(rule->prefixes[i], NULL);
+      if (obfuscate) {
+        REPLY_SIMPLE_SAFE(Obfuscate_Text(prefix));
+      } else {
+        REPLY_SIMPLE_SAFE(prefix);
+      }
     }
     RedisModule_Reply_ArrayEnd(reply);
   }
 
   if (rule->filter_exp_str) {
-    REPLY_KVSTR_SAFE("filter", rule->filter_exp_str);
+    const char *filter = HiddenString_GetUnsafe(rule->filter_exp_str, NULL);
+    if (obfuscate) {
+      REPLY_KVSTR_SAFE("filter", Obfuscate_Text(filter));
+    } else {
+      REPLY_KVSTR_SAFE("filter", filter);
+    }
   }
 
   if (rule->lang_default) {
@@ -107,10 +118,13 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_Reply_Map(reply); // >>field
 
-    REPLY_KVSTR_SAFE("identifier", sp->fields[i].path);
-    REPLY_KVSTR_SAFE("attribute", sp->fields[i].name);
-
     const FieldSpec *fs = &sp->fields[i];
+    char *path = FieldSpec_FormatPath(fs, obfuscate);
+    char *name = FieldSpec_FormatName(fs, obfuscate);
+    REPLY_KVSTR("identifier", path);
+    REPLY_KVSTR("attribute", name);
+    rm_free(path);
+    rm_free(name);
 
     // RediSearch_api - No coverage
     if (fs->options & FieldSpec_Dynamic) {
@@ -311,11 +325,13 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
+  CurrentThread_SetIndexSpec(sp->own_ref);
   const bool with_times = (argc > 2 && !strcmp(RedisModule_StringPtrLen(argv[2], NULL), WITH_INDEX_ERROR_TIME));
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisModule_Reply _reply = RedisModule_NewReply(ctx);
   fillReplyWithIndexInfo(&sctx, &_reply, false, with_times);
   RedisModule_EndReply(&_reply);
+  CurrentThread_ClearIndexSpec();
   return REDISMODULE_OK;
 }
 
@@ -338,8 +354,10 @@ int IndexObfuscatedInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     StrongRef ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(ref);
     if (sp && (everything || !strcasecmp(sp->obfuscatedName, nameOrAll))) {
+      CurrentThread_SetIndexSpec(sp->own_ref);
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
       fillReplyWithIndexInfo(&sctx, &_reply, true, true);
+      CurrentThread_ClearIndexSpec();
       found = true;
     } else if (found) {
       // we are out of the bucket for the obfuscated name, can do this small optimization

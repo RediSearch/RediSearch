@@ -25,6 +25,7 @@
 #include "rules.h"
 #include <pthread.h>
 #include "info/index_error.h"
+#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,7 +34,6 @@ extern "C" {
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 struct IndexesScanner;
-struct DocumentIndexer;
 
 // Initial capacity (in bytes) of a new block
 #define INDEX_BLOCK_INITIAL_CAP 6
@@ -283,8 +283,7 @@ typedef struct {
 typedef struct InvertedIndex InvertedIndex;
 
 typedef struct IndexSpec {
-  char *name;                     // Index name
-  size_t nameLen;                 // Index name length
+  const HiddenString *specName;         // Index private name
   char *obfuscatedName;           // Index hashed name
   FieldSpec *fields;              // Fields in the index schema
   int16_t numFields;              // Number of fields
@@ -305,7 +304,7 @@ typedef struct IndexSpec {
   GCContext *gc;                  // Garbage collection
 
   SynonymMap *smap;               // List of synonym
-  char **aliases;                 // Aliases to self-remove when the index is deleted
+  HiddenString **aliases;         // Aliases to self-remove when the index is deleted
 
   struct SchemaRule *rule;        // Contains schema rules for follow-the-hash/JSON
   struct IndexesScanner *scanner; // Scans new hash/JSON documents or rescan
@@ -315,8 +314,6 @@ typedef struct IndexSpec {
   bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
   bool monitorDocumentExpiration;
   bool monitorFieldExpiration;
-
-  struct DocumentIndexer *indexer;// Indexer of fields into inverted indexes
 
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;
@@ -439,8 +436,8 @@ void IndexSpecCache_Decref(IndexSpecCache *cache);
  * Get a field spec by field name. Case insensitive!
  * Return the field spec if found, NULL if not
  */
-const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char *name, size_t len);
-const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const char *name);
+const FieldSpec *IndexSpec_GetField(const IndexSpec *spec, const HiddenString *name);
+const FieldSpec *IndexSpec_GetFieldWithLength(const IndexSpec *spec, const char* name, size_t len);
 
 const char *IndexSpec_GetFieldNameByBit(const IndexSpec *sp, t_fieldMask id);
 
@@ -492,7 +489,7 @@ size_t IndexSpec_GetIndexErrorCount(const IndexSpec *sp);
  *
  * The format currently is <field> <weight>, <field> <weight> ...
  */
-StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, RedisModuleString *name,
+StrongRef IndexSpec_ParseRedisArgs(RedisModuleCtx *ctx, const HiddenString *name,
                                    RedisModuleString **argv, int argc, QueryError *status);
 
 arrayof(FieldSpec *) getFieldsByType(IndexSpec *spec, FieldType type);
@@ -509,7 +506,10 @@ void IndexSpec_StartGC(RedisModuleCtx *ctx, StrongRef spec_ref, IndexSpec *sp);
 void IndexSpec_StartGCFromSpec(StrongRef spec_ref, IndexSpec *sp, uint32_t gcPolicy);
 
 /* Same as above but with ordinary strings, to allow unit testing */
-StrongRef IndexSpec_Parse(const char *name, const char **argv, int argc, QueryError *status);
+StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc, QueryError *status);
+// Calls IndexSpec_Parse after wrapping name with a hidden string
+StrongRef IndexSpec_ParseC(const char *name, const char **argv, int argc, QueryError *status);
+
 FieldSpec *IndexSpec_CreateField(IndexSpec *sp, const char *name, const char *path);
 
 // This function locks the spec for writing. use it if you know the spec is not locked
@@ -600,8 +600,9 @@ StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec);
  * @brief Removes the spec from the global data structures
  *
  * @param ref a strong reference to the spec
+ * @param removeActive - should we call CurrentThread_ClearIndexSpec on the released spec
  */
-void IndexSpec_RemoveFromGlobals(StrongRef ref);
+void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive);
 
 /*
  * Free an indexSpec. For LLAPI
@@ -616,7 +617,7 @@ void IndexSpec_AddTerm(IndexSpec *sp, const char *term, size_t len);
 RedisModuleString *IndexSpec_GetFormattedKey(IndexSpec *sp, const FieldSpec *fs, FieldType forType);
 RedisModuleString *IndexSpec_GetFormattedKeyByName(IndexSpec *sp, const char *s, FieldType forType);
 
-IndexSpec *NewIndexSpec(const char *name);
+IndexSpec *NewIndexSpec(const HiddenString *name);
 int IndexSpec_AddField(IndexSpec *sp, FieldSpec *fs);
 int IndexSpec_RdbLoad(RedisModuleIO *rdb, int encver, int when);
 void IndexSpec_RdbSave(RedisModuleIO *rdb, int when);
@@ -682,7 +683,7 @@ size_t IndexSpec_TotalMemUsage(IndexSpec *sp, size_t doctable_tm_size, size_t ta
 * @return the formatted name of the index
 */
 const char *IndexSpec_FormatName(const IndexSpec *sp, bool obfuscate);
-char *IndexSpec_FormatObfuscatedName(const char *specName, size_t len);
+char *IndexSpec_FormatObfuscatedName(const HiddenString *specName);
 
 //---------------------------------------------------------------------------------------------
 
@@ -703,6 +704,14 @@ void CleanPool_ThreadPoolDestroy();
 size_t CleanInProgressOrPending();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
+
+// Tries to promote a WeakRef of a spec to a StrongRef
+// If a strong reference was obtained then we also set the current thread's active spec
+StrongRef IndexSpecRef_Promote(WeakRef ref);
+// Releases a strong reference to a spec
+// Must only be called if the spec was promoted successfully
+// Will also clear the current thread's active spec
+void IndexSpecRef_Release(StrongRef ref);
 
 #ifdef __cplusplus
 }

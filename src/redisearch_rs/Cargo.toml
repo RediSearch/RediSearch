@@ -1,5 +1,6 @@
 [workspace]
-members = ["low_memory_thin_vec", "trie_rs"]
+members = ["low_memory_thin_vec", "trie_bencher", "trie_rs"]
+default-members = ["trie_rs"]
 resolver = "3"
 
 [workspace.lints.clippy]
@@ -30,7 +31,26 @@ edition = "2024"
 license = "Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1)"
 
 [workspace.dependencies]
+low_memory_thin_vec = { path = "./low_memory_thin_vec" }
+trie_rs = { path = "./trie_rs" }
+
+bindgen = "0.71.1"
+cc = "1"
+crc32fast = "1.4.2"
+criterion = { version = "0.5", features = ["html_reports"] }
+fs-err = "3.1.0"
+insta = "1.42.2"
 libc = "0.2.170"
+proptest = { version = "1.6.0", default-features = false }
+proptest-derive = { version = "0.5.1", default-features = false }
+radix_trie = "0.2.1"
+ureq = "3.0.10"
+
+[workspace.dependencies.redis-module]
+# Patched version. See https://github.com/RedisLabsModules/redismodule-rs/pull/413
+git = "https://github.com/hdoordt/redismodule-rs.git"
+branch = "patches-redisearch"
+default-features = false
 
 # A profile for fast test execution that doesn't sacrifice
 # runtime checks and debuggability.
