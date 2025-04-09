@@ -42,7 +42,7 @@ fn criterion_benchmark_redis_wiki_1k(c: &mut Criterion) {
     bencher.find_group(c, "Zoo", "Find no match");
 
     // line 208 in redis_wiki1k_titles_bench.txt
-    bencher.remove_group(c, "Alabama", "Remove Node (with merge)");
+    bencher.remove_group(c, "Alabama", "Remove internal (with merge)");
 }
 
 fn criterion_benchmark_redis_wiki_10k(c: &mut Criterion) {

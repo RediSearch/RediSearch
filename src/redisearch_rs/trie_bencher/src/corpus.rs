@@ -58,7 +58,9 @@ impl CorpusType {
             CorpusType::GutenbergEbook => self.create_keys_gutenberg(&corpus),
         };
         if output_pretty_print_trie {
-            write_pretty_printed_file_of_trie(&reval, &self.get_pretty_print_path());
+            let trie = rust_load_from_keys(&reval);
+            fs_err::write(self.get_pretty_print_path(), format!("{trie:?}").as_bytes())
+                .expect("Failed to write bench words debug to disk");
         }
         reval
     }
@@ -104,13 +106,8 @@ impl CorpusType {
         // we generate a trie based on the title
         let title_offset = 6;
 
-        // further column offsets for documentation
-        let _id_offset = 4;
-        let _url_offset = 8;
-        let _abstract_offset = 10;
-
         // Prefix used for each title:
-        const _PREFIX: &str = "Wikipedia\\: ";
+        let prefix_len = "Wikipedia\\: ".len();
 
         let reader = Cursor::new(contents);
         let mut rdr = csv::Reader::from_reader(reader);
@@ -119,7 +116,7 @@ impl CorpusType {
         let strings = rdr
             .records()
             .into_iter()
-            .map(|e| e.unwrap().get(title_offset).unwrap()[_PREFIX.len()..].to_owned())
+            .map(|e| e.unwrap().get(title_offset).unwrap()[prefix_len..].to_owned())
             .collect::<Vec<_>>();
 
         strings
@@ -168,16 +165,6 @@ impl CorpusType {
         };
         path.join(filename)
     }
-}
-
-/// Writes the output of the debug pretty print of a trie to a given file.
-///
-/// - keys: Slice of Strings containing all keys of the trie.
-/// - path: Path to the file that shall be written with the pretty printed trie.
-fn write_pretty_printed_file_of_trie(keys: &[String], path: &PathBuf) {
-    let trie = rust_load_from_keys(keys);
-    fs_err::write(path, format!("{trie:?}").as_bytes())
-        .expect("Failed to write bench words debug to disk");
 }
 
 /// downloads a corpus from the specified URL returns its contents as a string
