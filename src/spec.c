@@ -2600,7 +2600,6 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     SchemaPrefixes_RemoveSpec(spec_ref);
     addPendingIndexDrop();
     StrongRef_Release(spec_ref);
-    spec_ref = (StrongRef){oldSpec};
   } else {
     dictAdd(specDict_g, (void*)sp->name, spec_ref.rm);
     for (int i = 0; i < sp->numFields; i++) {
