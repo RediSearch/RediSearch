@@ -99,7 +99,7 @@ def get_osnick(osinfo):
     """
     os_type = get_os()
     if os_type == 'darwin':
-        version = platform.release()[0]
+        version = platform.release()
         return get_macos_nick(version)
 
     dist = osinfo.get("ID", "")
