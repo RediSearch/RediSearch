@@ -34,11 +34,15 @@ set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 # Define compiler setup function
 function(setup_cc_options)
     if(APPLE)
-        set(CMAKE_C_COMPILER "/opt/homebrew/opt/llvm@18/bin/clang")
-        set(CMAKE_CXX_COMPILER "/opt/homebrew/opt/llvm@18/bin/clang++")
-    else()
-        set(CMAKE_C_COMPILER "gcc")
-        set(CMAKE_CXX_COMPILER "g++")
+        # Get the macOS SDK path using xcrun
+        execute_process(
+                COMMAND xcrun --show-sdk-path
+                OUTPUT_VARIABLE MACOS_SDK_PREFIX
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        # Use the SDK path in include and link directories
+        include_directories(${MACOS_SDK_PREFIX}/usr/include)
+        link_directories(${MACOS_SDK_PREFIX}/usr/lib)
     endif()
     # Common compiler flags
     set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -Werror=incompatible-pointer-types -Werror=implicit-function-declaration -fcommon -funsigned-char" PARENT_SCOPE)
