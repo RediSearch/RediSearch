@@ -1,4 +1,8 @@
-use std::{collections::BTreeSet, io::Cursor, path::PathBuf};
+use std::{
+    collections::BTreeSet,
+    io::Cursor,
+    path::{Path, PathBuf},
+};
 
 use crate::bencher::rust_load_from_keys;
 
@@ -29,6 +33,14 @@ impl CorpusType {
         let path = self.get_cached_path();
         let corpus = if std::fs::exists(&path).ok() != Some(true) {
             let corpus = download_corpus(self.get_url());
+            // ensure data folder exists
+            let cache_folder = PathBuf::from("data");
+            if !std::fs::exists(cache_folder)
+                .expect("Cannot check for existience of data folder (cache), check permissions")
+            {
+                std::fs::create_dir(PathBuf::from("data"))
+                    .expect("Failed to create data folder (cache)");
+            }
             fs_err::write(&path, corpus.as_bytes()).expect("Failed to write corpus to disk");
             corpus
         } else {
