@@ -41,8 +41,8 @@ jobs:
         id: install_deps
         working-directory: RediSearch
         run: |
-          brew install make
-          make --version
+          cd .install
+          ./install_script.sh sudo
       - name: Build
         env:
           ENABLE_ASSERT: 1
