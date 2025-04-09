@@ -495,7 +495,7 @@ def test_index_errors():
     env.assertEqual(index_errors(env)['indexing failures'], error_count)
     env.assertEqual(index_errors(env)['last indexing error'], 'N/A')
     env.assertEqual(index_errors(env)['last indexing error key'], 'N/A')
-    env.assertEqual(field_errors(env), index_errors(env))
+    assertEqual_dicts_on_intersection(env, field_errors(env), index_errors(env))
 
     for i in range(0, 5, 2):
         conn.execute_command('HSET', i, 'v', create_np_array_typed([0]).tobytes())
@@ -504,7 +504,7 @@ def test_index_errors():
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
         env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 4 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i))
-        env.assertEqual(cur_index_errors, field_errors(env))
+        assertEqual_dicts_on_intersection(env, cur_index_errors, field_errors(env))
 
         conn.execute_command('HSET', i + 1, 'v', create_np_array_typed([0, 0, 0]).tobytes())
         error_count += 1
@@ -512,7 +512,7 @@ def test_index_errors():
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
         env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 12 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i + 1))
-        env.assertEqual(cur_index_errors, field_errors(env))
+        assertEqual_dicts_on_intersection(env, cur_index_errors, field_errors(env))
 
 
 def test_search_errors():
@@ -2429,7 +2429,7 @@ def test_switch_write_mode_multiple_indexes(env):
     if bg_indexing == 0:
         prefix = "::warning title=Bad scenario in test_vecsim:test_switch_write_mode_multiple_indexes::" if GHA else ''
         print(f"{prefix}All vectors were done reindex before switching back to in-place mode")
-        
+
 def test_max_knn_k():
     env = Env(moduleArgs='DEFAULT_DIALECT 3')
     conn = getConnectionByEnv(env)
@@ -2461,18 +2461,18 @@ def test_vector_index_ptr_valid(env):
 
     res = conn.execute_command('HSET', 'doc', 'n', 0)
     env.assertEqual(res, 1)
-    # efore bug fix, the following command would cause a server crash due to null pointer access to the vector index that filed to be created.
+    # before bug fix, the following command would cause a server crash due to null pointer access to the vector index that filed to be created.
     res = conn.execute_command('HSET', 'doc', 'n', 1)
     env.assertEqual(res, 0)
 
-    # Sanity check - insert a vector, expect indexing faliure
+    # Sanity check - insert a vector, expect indexing failure
     res = conn.execute_command('HSET', 'doc1', 'v', create_np_array_typed([0]*dim,'FLOAT16').tobytes())
     env.assertEqual(res, 1)
 
     index_errors_dict = index_errors(env, 'idx')
     env.assertEqual(index_errors_dict['last indexing error'], "Could not open vector for indexing")
 
-    # Check FlushAll - before bug fix, the following command would cause a server crash due to the null pointer accsess
+    # Check FlushAll - before bug fix, the following command would cause a server crash due to the null pointer access
     # Server will reply OK but crash afterwards, so a PING is required to verify
     env.expect('FLUSHALL').noError()
     env.expect('PING').noError()

@@ -35,7 +35,7 @@ typedef struct {
   // Indexing Errors
   size_t indexing_failures;      // Total count of indexing errors
   size_t max_indexing_failures;  // Maximum number of indexing errors among all specs
-
+  size_t background_indexing_failures_OOM;  // Total count of background indexing errors due to OOM
   // Index
   size_t num_active_indexes;           // Number of active indexes
   size_t num_active_indexes_querying;  // Number of active read indexes
