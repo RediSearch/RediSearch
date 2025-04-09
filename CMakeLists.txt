@@ -11,6 +11,7 @@ elseif(UNIX)
 elseif(WIN32)
   set(OS "windows")
 endif()
+message(STATUS "OS detected: ${OS}")
 
 # CMake policies
 if(POLICY CMP0048)
@@ -33,8 +34,8 @@ set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 # Define compiler setup function
 function(setup_cc_options)
     if(APPLE)
-        set(CMAKE_C_COMPILER "clang")
-        set(CMAKE_CXX_COMPILER "clang++")
+        set(CMAKE_C_COMPILER "/opt/homebrew/opt/llvm@18/bin/clang")
+        set(CMAKE_CXX_COMPILER "/opt/homebrew/opt/llvm@18/bin/clang++")
     else()
         set(CMAKE_C_COMPILER "gcc")
         set(CMAKE_CXX_COMPILER "g++")
