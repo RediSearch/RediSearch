@@ -101,7 +101,7 @@ def get_osnick(osinfo):
     based on distro ID and version or codename field.
     """
     os_type = get_os()
-    if os_type == 'darwin':
+    if os_type == 'macos':
         version = platform.release()
         return get_macos_nick(version)
 
@@ -164,7 +164,7 @@ def main():
     if args.os:
         outputs.append(os_type)
     if args.version:
-        outputs.append(platform.mac_ver()[0] if os_type == 'darwin' else osinfo.get("VERSION_ID", "unknown"))
+        outputs.append(platform.mac_ver()[0] if os_type == 'macos' else osinfo.get("VERSION_ID", "unknown"))
     if args.arch:
         outputs.append(get_arch())
     if args.osnick:
