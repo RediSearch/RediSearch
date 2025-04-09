@@ -8,6 +8,8 @@ export READIES=$ROOT/deps/readies
 
 SBIN=$ROOT/sbin
 
+GET_PLATFORM="$ROOT/get-platform"
+
 export PYTHONWARNINGS=ignore
 
 cd $ROOT
@@ -56,33 +58,15 @@ OP=""
 
 # RLEC naming conventions
 
-ARCH=$($READIES/bin/platform --arch)
+ARCH=$($GET_PLATFORM --arch)
 [[ $ARCH == x64 ]] && ARCH=x86_64
 [[ $ARCH == arm64v8 ]] && ARCH=aarch64
 
-OS=$($READIES/bin/platform --os)
+OS=$($GET_PLATFORM --os)
 [[ $OS == linux ]] && OS=Linux
 
-OSNICK=$($READIES/bin/platform --osnick)
-[[ $OSNICK == trusty ]]  && OSNICK=ubuntu14.04
-[[ $OSNICK == xenial ]]  && OSNICK=ubuntu16.04
-[[ $OSNICK == bionic ]]  && OSNICK=ubuntu18.04
-[[ $OSNICK == focal ]]   && OSNICK=ubuntu20.04
-[[ $OSNICK == jammy ]]   && OSNICK=ubuntu22.04
-[[ $OSNICK == noble ]]   && OSNICK=ubuntu24.04
-[[ $OSNICK == centos7 ]] && OSNICK=rhel7
-[[ $OSNICK == centos8 ]] && OSNICK=rhel8
-[[ $OSNICK == centos9 ]] && OSNICK=rhel9
-[[ $OSNICK == ol8 ]]     && OSNICK=rhel8
-[[ $OSNICK == rocky8 ]]  && OSNICK=rhel8
-[[ $OSNICK == rocky9 ]]  && OSNICK=rhel9
-[[ $OSNICK == alpine3* ]]  && OSNICK=alpine3
+OSNICK=$($GET_PLATFORM --version-artifact)
 
-
-# Fix OSNICK for NotpineForGHA3 (alpine workaround to support arm64 GH Actions)
-if [[ $OSNICK == NotpineForGHA3* ]]; then
-	OSNICK=alpine3
-fi
 
 PLATFORM="$OS-$OSNICK-$ARCH"
 
