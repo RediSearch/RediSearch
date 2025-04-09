@@ -85,7 +85,7 @@ s3_upload_file() {
     local s3_dir="$2"
     [[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
     
-    echo "::group::S3_Uploading $file to $s3_dir"
+    echo "Uploading $file to $s3_dir"
     $OP aws s3 cp "$file" "$s3_dir" --acl public-read --no-progress
 
     # Verify the file was uploaded
@@ -93,11 +93,9 @@ s3_upload_file() {
     if $OP aws s3 ls "${s3_dir}${file_name}" > /dev/null 2>&1; then
         echo "File $file_name successfully uploaded to $s3_dir"
     else
-        eprint "Error: File $file_name was not found in $s3_dir after upload"
-        echo "::endgroup::"
+
         return 1
     fi
-    echo "::endgroup::"
 }
 
 s3_upload() {
@@ -134,6 +132,32 @@ s3_upload() {
 
 #----------------------------------------------------------------------------------------------
 # Main upload actions
-s3_upload "redisearch" "redisearch"
-s3_upload "redisearch-light" "redisearch"
-s3_upload "redisearch-community" "redisearch-oss"
+{
+    echo "::group::Uploading redisearch artifacts"
+    s3_upload "redisearch" "redisearch"
+    echo "::endgroup::"
+} || {
+    echo "::endgroup::"
+    eprint "Error occurred while uploading redisearch artifacts"
+    exit 1
+}
+
+{
+    echo "::group::Uploading redisearch-light artifacts"
+    s3_upload "redisearch-light" "redisearch"
+    echo "::endgroup::"
+} || {
+    echo "::endgroup::"
+    eprint "Error occurred while uploading redisearch-light artifacts"
+    exit 1
+}
+
+{
+    echo "::group::Uploading redisearch-community artifacts"
+    s3_upload "redisearch-community" "redisearch-oss"
+    echo "::endgroup::"
+} || {
+    echo "::endgroup::"
+    eprint "Error occurred while uploading redisearch-community artifacts"
+    exit 1
+}
