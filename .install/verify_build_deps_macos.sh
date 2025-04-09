@@ -12,12 +12,44 @@ NC='\033[0m' # No Color
 # ============================================
 # Define dependencies and their corresponding check methods
 mac_os_deps=("make" "python3" "cmake" "cargo" "clang" "openssl" "brew")
-mac_os_deps_types=("command" "command" "command" "command" "command" "command" "command")
+mac_os_deps_types=(
+    "check_command" # Check for "make"
+    "check_command" # Check for "python3"
+    "check_command" # Check for "cmake"
+    "check_command" # Check for "cargo"
+    "check_clang"   # Check for "clang"
+    "check_command" # Check for "openssl"
+    "check_command" # Check for "brew"
+)
 
 # Function to check if a command is available
 check_command() {
-  command -v "$1" &> /dev/null
+  local cmd=$1
+  printf "%-20s" "$cmd"
+
+  if ! command -v "$cmd" &>/dev/null; then
+    echo -e "${RED}✗${NC}"
+    missing_deps=true
+  else
+    echo -e "${GREEN}✓${NC}"
+  fi
 }
+
+check_clang() {
+    printf "%-20s" "clang"
+
+    if command -v clang &>/dev/null; then
+        clang_path=$(command -v clang)
+        if [[ "$clang_path" == *"brew"*"/llvm"* ]]; then
+            echo -e "${GREEN}✓${NC}"
+        else
+            echo -e "${YELLOW}✗ Expected LLVM Clang${NC}"
+        fi
+    else
+        echo -e "${RED}✗${NC}"
+    fi
+}
+
 
 # Check brew packages on macOS
 check_package() {
@@ -25,55 +57,15 @@ check_package() {
 }
 
 # ============================================
-# OS-Specific Dependencies
+# Main Loop
 # ============================================
-
 # Print header
 echo -e "\n===== Build Dependencies Checker =====\n"
 
 missing_deps=false
 
-# Common dependencies with their minimum versions where applicable
-check_dependency() {
-  local dep="$1"
-  local check_type="$2"
-  local min_version="$3"
-
-  printf "%-20s" "$dep"
-
-  if [ "$check_type" = "command" ]; then
-    if ! check_command "$dep"; then
-      echo -e "${RED}✗${NC}"
-      missing_deps=true
-    elif [ -n "$min_version" ]; then
-      # Check version if minimum is specified
-      if check_compiler_min_version "$dep" "$min_version"; then
-        echo -e "${GREEN}✓${NC}"
-      else
-        actual_version=$(get_compiler_version "$dep")
-        echo -e "${YELLOW}✗ (need version >= $min_version, found version $actual_version)${NC}"
-        missing_deps=true
-      fi
-    else
-      echo -e "${GREEN}✓${NC}"
-    fi
-  elif [ "$check_type" = "package" ]; then
-    if check_package "$dep"; then
-      echo -e "${GREEN}✓${NC}"
-    else
-      echo -e "${RED}✗${NC}"
-      missing_deps=true
-    fi
-  else
-    echo -e "${YELLOW} (no method defined)${NC}"
-    missing_deps=true
-  fi
-}
-
 for i in "${!mac_os_deps[@]}"; do
   dep="${mac_os_deps[$i]}"
-  check_type="${mac_os_deps_types[$i]}"
-
-  # Check if the dependency is installed
-  check_dependency "$dep" "$check_type"
+  check_function="${mac_os_deps_types[$i]}"
+  $check_function "$dep"
 done
