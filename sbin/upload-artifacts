@@ -7,8 +7,6 @@ HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
 ROOT=$(cd "$HERE/.." && pwd)
 GET_PLATFORM="$ROOT/sbin/get-platform"
 
-# Removed READIES dependency
-# Define a simple error printing function
 eprint() { >&2 echo "$@"; }
 
 print_help() {
