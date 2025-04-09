@@ -13,8 +13,8 @@ NC='\033[0m' # No Color
 
 # Check if the OS is macOS (Darwin)
 if [[ "$(uname -s)" == "Darwin" ]]; then
-  echo -e "${YELLOW}Dependency check is not supported for macOS.${NC}"
-  exit 0
+    source .install/verify_build_deps_macos.sh
+    exit $?
 fi
 
 # Function to detect the operating system
@@ -53,7 +53,7 @@ declare -A os_package_checkers=(
   ["mariner"]="check_package_tdnf"
   ["azurelinux"]="check_package_tdnf"
 )
-
+exit 1
 # Early bailout if the OS is not supported
 if [[ -z "${os_package_checkers[$OS]}" ]]; then
   echo -e "${YELLOW}Error: Unsupported operating system: $OS.${NC}"
