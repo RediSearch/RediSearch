@@ -58,7 +58,7 @@ jobs:
       - name: Enable dynamic linking to C runtime in Alpine
         if: inputs.container == 'alpine:3'
         run: echo RUST_DYN_CRT=1 >> $GITHUB_ENV
-        
+
       - name: Get Installation Mode
         id: mode
         run: |
