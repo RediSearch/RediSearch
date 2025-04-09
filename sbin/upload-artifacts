@@ -133,7 +133,18 @@ s3_upload_file() {
     local file="$1"
     local s3_dir="$2"
     [[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
+    
+    echo "Uploading $file to $s3_dir"
     aws s3 cp "$file" "$s3_dir" --acl public-read --no-progress
+
+    # Verify the file was uploaded
+    local file_name=$(basename "$file")
+    if aws s3 ls "${s3_dir}${file_name}" > /dev/null 2>&1; then
+        echo "File $file_name successfully uploaded to $s3_dir"
+    else
+        eprint "Error: File $file_name was not found in $s3_dir after upload"
+        return 1
+    fi
 }
 
 s3_ls() {
@@ -179,8 +190,7 @@ s3_upload() {
         echo "Uploading $file to $upload_dir"
         s3_upload_file "$file" "$upload_dir"
     done
-    echo "Upload complete for $upload_dir"
-    [[ $VERBOSE == 1 ]] && s3_ls "$upload_dir"
+    echo "Upload complete for $upload_dir/$file"
 }
 
 #----------------------------------------------------------------------------------------------
