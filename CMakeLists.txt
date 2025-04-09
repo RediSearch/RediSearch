@@ -43,6 +43,7 @@ function(setup_cc_options)
         # Use the SDK path in include and link directories
         include_directories(${MACOS_SDK_PREFIX}/usr/include)
         link_directories(${MACOS_SDK_PREFIX}/usr/lib)
+        set(CMAKE_OSX_DEPLOYMENT_TARGET 13.0)
     endif()
     # Common compiler flags
     set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -Werror=incompatible-pointer-types -Werror=implicit-function-declaration -fcommon -funsigned-char" PARENT_SCOPE)
