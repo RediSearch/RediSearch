@@ -34,16 +34,69 @@ jobs:
       run: ./install_script.sh sudo
     - name: Setup common
       run: .install/test_deps/common_installations.sh sudo
+
     - name: Get Redis
+      uses: actions/checkout@v4
+      with:
+        repository: redis/redis
+        path: redis
+    - name: Build Redis
+      working-directory: redis
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: ./deps/readies/bin/getredis --with-github-token --branch unstable
-    - name: Build and test
-      run: make coverage QUICK=1 SHOW=1 REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
-    - name: Upload coverage
+        REDIS_CFLAGS: -DCOVERAGE_TEST
+        BUILD_TLS: yes
+      run: make install
+
+    - name: Build RediSearch
+      env:
+        REDIS_VER: unstable
+        ENABLE_ASSERT: 1
+        REJSON_BRANCH: ${{ inputs.rejson-branch }}
+      run: ./build.sh TESTS=1
+
+        # COV_EXCLUDE_DIRS += \
+        # 	bin \
+        # 	deps \ # move owned code out of `deps`
+        # 	tests \
+        # 	coord/tests
+
+        # COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
+
+        # mkdir -p $(COV_DIR)
+        # lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
+        # lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
+        # $(MAKE) unit-tests COV=1
+        # lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/unit.info
+        # lcov -a $(BINROOT)/base.info -a $(BINROOT)/unit.info -o $(BINROOT)/unit.info.1
+        # lcov -o $(BINROOT)/unit.info.2 -r $(BINROOT)/unit.info.1 $(COV_EXCLUDE)
+        # mv $(BINROOT)/unit.info.2 $(BINROOT)/unit.info
+        # rm $(BINROOT)/unit.info.1
+
+        # mkdir -p $(COV_DIR)
+        # lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
+        # lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
+        # $(MAKE) pytest REDIS_STANDALONE=1 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
+        # $(MAKE) pytest REDIS_STANDALONE=0 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
+        # lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/flow.info
+        # lcov -a $(BINROOT)/base.info -a $(BINROOT)/flow.info -o $(BINROOT)/flow.info.1
+        # lcov -o $(BINROOT)/flow.info.2 -r $(BINROOT)/flow.info.1 $(COV_EXCLUDE)
+        # mv $(BINROOT)/flow.info.2 $(BINROOT)/flow.info
+        # rm $(BINROOT)/flow.info.1
+
+
+    - name: Upload flow coverage
       uses: codecov/codecov-action@v5
       with:
-        files: bin/linux-x64-debug-cov/cov.info,bin/linux-x64-debug-cov/rust_cov.info
+        files: bin/linux-x64-debug-cov/flow.info
         disable_search: true
+        flags: flow
+        fail_ci_if_error: true # Fail on upload errors
+        token: ${{ secrets.CODECOV_TOKEN }}
+    - name: Upload unit coverage
+      uses: codecov/codecov-action@v5
+      with:
+        files: bin/linux-x64-debug-cov/unit.info,bin/linux-x64-debug-cov/rust_cov.info
+        disable_search: true
+        flags: unit
         fail_ci_if_error: true # Fail on upload errors
         token: ${{ secrets.CODECOV_TOKEN }}
