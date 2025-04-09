@@ -40,10 +40,18 @@ jobs:
       run: ./install_script.sh sudo
     - name: Setup common
       run: .install/test_deps/common_installations.sh sudo
+
     - name: Get Redis
+      uses: actions/checkout@v4
+      with:
+        repository: redis/redis
+        path: redis
+    - name: Build Redis
+      working-directory: redis
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: ./deps/readies/bin/getredis --with-github-token --branch unstable
+        REDIS_CFLAGS: -DCOVERAGE_TEST
+        BUILD_TLS: yes
+      run: make install
 
     - name: Build
       run: make
