@@ -134,26 +134,18 @@ s3_upload_file() {
     local s3_dir="$2"
     [[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
     
-    echo "Uploading $file to $s3_dir"
-    aws s3 cp "$file" "$s3_dir" --acl public-read --no-progress
+    echo "::group::Uploading $file to $s3_dir"
+    $OP aws s3 cp "$file" "$s3_dir" --acl public-read --no-progress
 
     # Verify the file was uploaded
     local file_name=$(basename "$file")
-    if aws s3 ls "${s3_dir}${file_name}" > /dev/null 2>&1; then
+    if $OP aws s3 ls "${s3_dir}${file_name}" > /dev/null 2>&1; then
         echo "File $file_name successfully uploaded to $s3_dir"
     else
         eprint "Error: File $file_name was not found in $s3_dir after upload"
+        echo "::endgroup::"
         return 1
     fi
-}
-
-s3_ls() {
-    local s3_dir="$1"
-    echo "Listing S3 directory: $s3_dir"
-    [[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
-
-    echo "::group::S3 ls $s3_dir"
-    $OP aws s3 ls "$s3_dir"
     echo "::endgroup::"
 }
 
