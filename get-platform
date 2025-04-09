@@ -140,7 +140,7 @@ def map_version_artifact(osnick):
     }
 
     # Special mapping: any alpine3.x → alpine3
-    if osnick.startswith("alpine3"):
+    if osnick.startswith("alpine3") or osnick.startswith("NotpineForGHA3"):
         return "alpine3"
     return mappings.get(osnick, osnick)
 
