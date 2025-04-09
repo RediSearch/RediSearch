@@ -16,6 +16,7 @@ redis_allocator = ["dep:redis-module"]
 ffi = ["redis_allocator"]
 
 [dependencies]
+lending-iterator.workspace = true
 libc.workspace = true
 low_memory_thin_vec.workspace = true
 

@@ -2,7 +2,7 @@ use std::{cmp::Ordering, ffi::c_char, fmt};
 
 use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
 
-use crate::iter::{IntoValues, Iter};
+use crate::iter::{IntoValues, Iter, LendingIter, Values};
 
 #[derive(Default, Clone, PartialEq, Eq)]
 /// A trie data structure that maps keys of type `&[c_char]` to values.
@@ -97,10 +97,48 @@ impl<T> TrieMap<T> {
 
     /// Get an iterator over the map entries in order of keys.
     pub fn iter(&self) -> Iter<'_, T> {
-        Iter::new(self.root.as_ref())
+        Iter::new(self.root.as_ref(), [])
     }
 
-    /// Get a consuming iterator over the values in the map in order of keys.
+    /// Get an iterator over the map entries with keys that start
+    /// with the given prefix, in order of keys.
+    pub fn iter_prefix(&self, prefix: &[c_char]) -> Iter<'_, T> {
+        let buf = &mut vec![];
+        let Some((root, prefix_init)) = self
+            .root
+            .as_ref()
+            .and_then(|root| root.find_node_for_prefix(prefix, buf))
+        else {
+            return Iter::new(None, vec![]);
+        };
+
+        Iter::new(Some(root), prefix_init.to_vec())
+    }
+
+    /// Get a lending iterator over the map entries in order of keys.
+    pub fn lending_iter(&self) -> LendingIter<'_, T> {
+        Iter::new(self.root.as_ref(), []).into_lending_iter()
+    }
+
+    /// Get a lending iterator over the map entries with keys that start
+    /// with the given prefix, in order of keys.
+    pub fn lending_iter_prefix(&self, prefix: &[c_char]) -> LendingIter<'_, T> {
+        self.iter_prefix(prefix).into_lending_iter()
+    }
+
+    /// Get an iterator over the map values in order of corresponding keys
+    pub fn values(&self) -> Values<'_, T> {
+        Values::new(self.root.as_ref())
+    }
+
+    /// Get an iterator over the map values of which the keys
+    /// start with the given prefix, in order of keys.
+    pub fn values_prefix(&self, prefix: &[c_char]) -> Values<'_, T> {
+        Values::new(self.root.as_ref().and_then(|root| root.find_node(prefix)))
+    }
+
+    /// Get a consuming iterator over the values in the map
+    /// in order of corresponding keys.
     pub fn into_values(self) -> IntoValues<T> {
         IntoValues::new(self.root)
     }
@@ -458,12 +496,37 @@ impl<Data> Node<Data> {
     /// Get a reference to the value associated with a key.
     /// Returns `None` if the key is not present.
     fn find(&self, key: &[c_char]) -> Option<&Data> {
+        self.find_node(key)?.data.as_ref()
+    }
+
+    /// Get a reference to the node associated with a key.
+    /// Returns `None` if the key is not present.
+    fn find_node(&self, key: &[c_char]) -> Option<&Node<Data>> {
         let suffix = key.strip_prefix(self.label.as_slice())?;
         let Some(first_byte) = suffix.first() else {
             // The suffix is empty, so the key and the label are equal.
-            return self.data.as_ref();
+            return Some(self);
         };
-        self.children.find(*first_byte)?.find(suffix)
+        self.children.find(*first_byte)?.find_node(suffix)
+    }
+
+    /// Get a reference to the subtree associated with a key prefix.
+    /// Returns `None` if the key prefix is not present.
+    fn find_node_for_prefix<'l, 'k>(
+        &self,
+        key: &'l [c_char],
+        key_prefix: &'k mut Vec<c_char>,
+    ) -> Option<(&Node<Data>, &'k [c_char])> {
+        if self.label.starts_with(key) {
+            return Some((self, key_prefix.as_slice()));
+        }
+
+        let suffix = key.strip_prefix(self.label.as_slice())?;
+        let prefix_len = key.len() - suffix.len();
+        key_prefix.extend_from_slice(&key[..prefix_len]);
+        self.children
+            .find(*suffix.first()?)?
+            .find_node_for_prefix(suffix, key_prefix)
     }
 
     fn mem_usage(&self) -> usize {

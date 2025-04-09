@@ -1,31 +1,32 @@
-use std::{ffi::c_char, fmt};
+use std::ffi::c_char;
 
 use crate::trie::Node;
+use lending_iterator::prelude::*;
 
 /// Iterates over the entries of a [`crate::trie::TrieMap`] in lexicographical order
 /// of the keys.
-/// Can be instantiated by calling [`crate::trie::TrieMap::iter`].
+/// Can be instantiated by calling [`crate::trie::TrieMap::iter`]
+/// or [`crate::trie::TrieMap::iter_prefix`]
 pub struct Iter<'tm, Data> {
     /// Stack of nodes and whether they have been visited.
     stack: Vec<(&'tm Node<Data>, bool)>,
-    /// Labels of the parent nodes, used to reconstruct the key.
-    prefixes: Vec<&'tm [c_char]>,
+    /// Concatention of the labels of current node and its ancestors,
+    /// i.e. the key of the current node.
+    key: Vec<c_char>,
 }
 
 impl<'tm, Data> Iter<'tm, Data> {
     /// Creates a new iterator over the entries of a [`crate::trie::TrieMap`].
-    pub(crate) fn new(root: Option<&'tm Node<Data>>) -> Self {
+    pub(crate) fn new(root: Option<&'tm Node<Data>>, prefix: impl Into<Vec<c_char>>) -> Self {
         Self {
             stack: root.into_iter().map(|node| (node, false)).collect(),
-            prefixes: Vec::new(),
+            key: prefix.into(),
         }
     }
-}
 
-impl<'tm, Data> Iterator for Iter<'tm, Data> {
-    type Item = (Vec<c_char>, &'tm Data);
-
-    fn next(&mut self) -> Option<Self::Item> {
+    /// Advance this iterator to the next node, and set the
+    /// key to the one matching that node's entry
+    pub(crate) fn advance(&mut self) -> Option<&'tm Data> {
         let (node, was_visited) = self.stack.pop()?;
 
         if !was_visited {
@@ -36,21 +37,89 @@ impl<'tm, Data> Iterator for Iter<'tm, Data> {
                 self.stack.push((&child.node, false));
             }
 
-            self.prefixes.push(&node.label);
+            self.key.extend(&node.label);
             if let Some(data) = data {
-                // Combine the labels of the parent nodes and the current node,
-                // thereby reconstructing the key.
-                let label = self
-                    .prefixes
-                    .iter()
-                    .flat_map(|p| p.iter())
-                    .copied()
-                    .collect();
-                return Some((label, data));
+                return Some(data);
             }
         } else {
-            self.prefixes.pop();
+            self.key.drain((self.key.len() - node.label.len())..);
         }
+        self.advance()
+    }
+
+    /// Convert into a [`LendingIter`].
+    pub(crate) fn into_lending_iter(self) -> LendingIter<'tm, Data> {
+        LendingIter(self)
+    }
+}
+
+impl<'tm, Data> Iterator for Iter<'tm, Data> {
+    type Item = (Vec<c_char>, &'tm Data);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.advance().map(|d| (self.key.clone(), d))
+    }
+}
+
+/// A lending iterator over [`Node`]s. Allows for
+/// obtaining the entries, yielding the reconstructed
+/// key by reference.
+/// Can be instantiated by calling [`crate::trie::TrieMap::lending_iter`] or
+/// [`crate::trie::TrieMap::lending_iter_prefix`].
+pub struct LendingIter<'tm, Data>(Iter<'tm, Data>);
+
+// The [`LendingIterator`] trait allows us to obtain a reference to
+// the key corresponding to the value, which is stored in `Iter::prefixes`.
+// The [`Iterator`] trait does not allow for its `Item` to be a reference
+// to the Iterator itself.
+//
+// Why do we need a crate? Well: <https://sabrinajewson.org/blog/the-better-alternative-to-lifetime-gats>
+#[gat]
+// The 'tm lifetime parameter is not actually needless.
+#[allow(clippy::needless_lifetimes)]
+impl<'tm, Data> LendingIterator for LendingIter<'tm, Data> {
+    type Item<'next>
+    where
+        Self: 'next,
+    = (&'next [c_char], &'tm Data);
+
+    fn next(&mut self) -> Option<Self::Item<'_>> {
+        let item = self.0.advance()?;
+        Some((&self.0.key, item))
+    }
+}
+
+/// An iterator over the values of [`Node`]s in
+/// lexicographical order of the corresponding keys.
+/// Makes no attempt to reconstruct the keys.
+/// Can be instantiated by calling [`crate::trie::TrieMap::values`].
+pub struct Values<'tm, Data> {
+    stack: Vec<&'tm Node<Data>>,
+}
+
+impl<'tm, Data> Values<'tm, Data> {
+    /// Create a new [`Values`] iterator.
+    pub(crate) fn new(root: Option<&'tm Node<Data>>) -> Self {
+        Self {
+            stack: root.into_iter().collect(),
+        }
+    }
+}
+
+impl<'tm, Data> Iterator for Values<'tm, Data> {
+    type Item = &'tm Data;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let node = self.stack.pop()?;
+
+        for child in node.children.0.iter().rev() {
+            self.stack.push(&child.node);
+        }
+
+        if let Some(data) = node.data.as_ref() {
+            return Some(data);
+        }
+
         self.next()
     }
 }
@@ -88,33 +157,9 @@ impl<Data> Iterator for IntoValues<Data> {
     }
 }
 
-pub struct PatternIter<'tm, Data> {
-    pattern: String,
-    stack: Vec<(&'tm Node<Data>, bool)>,
-}
-
-impl<'tm, Data> Iterator for PatternIter<'tm, Data> {
-    type Item = &'tm Data;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
-    }
-}
-
-pub struct RangeIter<'tm, Data> {
-    stack: Vec<(&'tm Node<Data>, bool)>,
-}
-
-impl<'tm, Data> Iterator for RangeIter<'tm, Data> {
-    type Item = &'tm Data;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
-    }
-}
-
 #[cfg(test)]
 mod test {
+    #[cfg(not(miri))]
     proptest::proptest! {
         #[test]
         /// Test whether the [`super::Iter`] iterator yields the same results as the BTreeMap entries iterator.
