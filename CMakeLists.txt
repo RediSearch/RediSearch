@@ -104,6 +104,7 @@ include_directories(
     ${root}/src/redisearch_rs
     ${root}/deps/libuv/include
     ${root}/deps
+    ${root}/deps/triemap
     ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
     ${BOOST_DIR}
@@ -114,6 +115,7 @@ add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
 add_subdirectory(deps/fast_float)
+add_subdirectory(deps/triemap)
 
 option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
@@ -150,12 +152,12 @@ file(GLOB SOURCES
     "deps/base64/*.c"
     "deps/fast_float/*.c"
     "deps/thpool/*.c"
-    "deps/triemap/*.c"
     "deps/geohash/*.c")
 
 add_library(rscore OBJECT ${SOURCES})
 
 set(FINAL_OBJECTS
+    $<TARGET_OBJECTS:trie>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
@@ -173,7 +175,7 @@ if (BUILD_STATIC)
 
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
-    target_link_libraries(redisearch redisearch-geometry redisearch-hash VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch redisearch-geometry redisearch-hash VectorSimilarity trie ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
     target_link_libraries(redisearch ${binroot}/redisearch_rs/libtrie_rs.a)
 
     set(TEST_MODULE "redisearch-static")
@@ -189,6 +191,7 @@ else() # OSS RediSearch
             redisearch-hash
             VectorSimilarity
             redisearch-coord
+            trie
             ${LIBUV_LIBS}
             ${HIREDIS_LIBS}
             ${SSL_LIBS}
