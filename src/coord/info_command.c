@@ -195,7 +195,7 @@ static void handleIndexError(InfoFields *fields, MRReply *src) {
   if (!IndexError_LastError(&fields->indexError)) {
     fields->indexError = IndexError_Init();
   }
-  IndexError indexError = IndexError_Deserialize(src);
+  IndexError indexError = IndexError_Deserialize(src, INDEX_ERROR_WITH_OOM_STATUS);
   IndexError_Combine(&fields->indexError, &indexError);
   IndexError_Clear(indexError); // Free Resources
 }
@@ -378,7 +378,7 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bo
 
   // Global index error stats
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-  IndexError_Reply(&fields->indexError, reply, 0, obfuscate);
+  IndexError_Reply(&fields->indexError, reply, 0, obfuscate, INDEX_ERROR_WITH_OOM_STATUS);
 
   if (fields->fieldSpecInfo_arr) {
     RedisModule_ReplyKV_Array(reply, "field statistics"); //Field statistics
