@@ -1,8 +1,4 @@
-use std::{
-    collections::BTreeSet,
-    io::Cursor,
-    path::{Path, PathBuf},
-};
+use std::{collections::BTreeSet, io::Cursor, path::PathBuf};
 
 use crate::bencher::rust_load_from_keys;
 
@@ -31,7 +27,7 @@ impl CorpusType {
     /// In any case perform a crc32 check to notice changes in the corpus data.
     pub fn download_or_read_corpus(&self) -> String {
         let path = self.get_cached_path();
-        let corpus = if std::fs::exists(&path).ok() != Some(true) {
+        let corpus = if let Ok(true) = std::fs::exists(&path) {
             let corpus = download_corpus(self.get_url());
             // ensure data folder exists
             let cache_folder = PathBuf::from("data");
@@ -62,6 +58,10 @@ impl CorpusType {
 
     /// Creates a vector of keys for insertion into a trie,
     /// may output the trie to a file using a pretty printer.
+    ///
+    /// The pretty printed version of the trie helps a developer to
+    /// explore the data, i.e. check what node would be inserted at
+    /// what depth.
     pub fn create_keys(&self, output_pretty_print_trie: bool) -> Vec<String> {
         let corpus = self.download_or_read_corpus();
         let reval = match self {
