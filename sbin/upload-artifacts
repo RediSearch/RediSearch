@@ -103,9 +103,9 @@ fi
 #----------------------------------------------------------------------------------------------
 # Navigate to artifacts directory
 cd "$ROOT/bin"
-SNAPSHOT_FOLDER="snapshot"
+SNAPSHOTS_FOLDER="snapshots"
 
-cd "artifacts/${SNAPSHOT_FOLDER}"
+cd "artifacts/${SNAPSHOTS_FOLDER}"
 if [[ $VERBOSE == 1 ]]; then
     if [[ $OSNICK == alpine3 ]]; then
         du -ah *
@@ -147,7 +147,7 @@ s3_upload() {
         return 1
     fi
     
-    local upload_dir="${S3_URL}/${product_name}/${SNAPSHOT_FOLDER}"
+    local upload_dir="${S3_URL}/${product_name}/${SNAPSHOTS_FOLDER}"
     local files file
     
     # print the current folder name
