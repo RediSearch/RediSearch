@@ -37,7 +37,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		PACKAGE_NAME=name   Package stem name
 
 		BRANCH=name         Branch name for snapshot packages
-		WITH_GITSHA=1       Append Git SHA to shapshot package names
+		WITH_GITSHA=1       Append Git SHA to snapshot package names
 		VARIANT=name        Build variant
 		RAMP_VARIANT=name   RAMP variant (e.g. ramp-{name}.yml)
 
