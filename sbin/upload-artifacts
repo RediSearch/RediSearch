@@ -11,24 +11,65 @@ eprint() { >&2 echo "$@"; }
 
 print_help() {
     cat <<-END
-Usage: upload-artifacts [--help|help] artifacts...
+Usage: upload-artifacts [OPTIONS] [artifacts...]
 
 Uploads packages to S3.
 
-Environment variables that can be set:
-  NOP=1         No operation (dry-run)
-  VERBOSE=1     Show artifact details
-  FORCE=1     Force upload even if not in CI
-  HELP=1        Show help
+Options:
+  --help, help        Show this help message and exit
+  --nop, -n           No operation (dry-run)
+  --verbose, -v       Show artifact details
+  --force, -f         Force upload even if not in CI
+
+Environment variables can also be set:
+  NOP=1               No operation (dry-run)
+  VERBOSE=1           Show artifact details
+  FORCE=1             Force upload even if not in CI
+  HELP=1              Show help
 END
 }
 
 #----------------------------------------------------------------------------------------------
 
-if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
+# Parse command line arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --help|help)
+                print_help
+                exit 0
+                ;;
+            --nop|-n)
+                NOP=1
+                ;;
+            --verbose|-v)
+                VERBOSE=1
+                ;;
+            --force|-f)
+                FORCE=1
+                ;;
+            *)
+                # Store remaining arguments for later processing
+                ARTIFACTS+=("$1")
+                ;;
+        esac
+        shift
+    done
+}
+
+# Initialize variables
+ARTIFACTS=()
+
+# Check for help flag in environment variable
+if [[ $HELP == 1 ]]; then
     print_help
     exit 0
 fi
+
+# Parse command line arguments
+parse_args "$@"
+
+# If no specific artifacts provided, we'll use defaults later
 
 ARCH=$($GET_PLATFORM --arch)
 [[ $ARCH == x64 ]] && ARCH=x86_64
