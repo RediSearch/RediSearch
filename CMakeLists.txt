@@ -8,8 +8,6 @@ if(APPLE)
   set(OS "macos")
 elseif(UNIX)
   set(OS "linux")
-elseif(WIN32)
-  set(OS "windows")
 endif()
 message(STATUS "OS detected: ${OS}")
 
@@ -34,16 +32,8 @@ set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 # Define compiler setup function
 function(setup_cc_options)
     if(APPLE)
-        # Get the macOS SDK path using xcrun
-        execute_process(
-                COMMAND xcrun --show-sdk-path
-                OUTPUT_VARIABLE MACOS_SDK_PREFIX
-                OUTPUT_STRIP_TRAILING_WHITESPACE
-        )
-        # Use the SDK path in include and link directories
-        include_directories(${MACOS_SDK_PREFIX}/usr/include)
-        link_directories(${MACOS_SDK_PREFIX}/usr/lib)
-        set(CMAKE_OSX_DEPLOYMENT_TARGET 13.0)
+        set(CC "clang")
+        set(CXX "clang++")
     endif()
     # Common compiler flags
     set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -Werror=incompatible-pointer-types -Werror=implicit-function-declaration -fcommon -funsigned-char" PARENT_SCOPE)
