@@ -31,7 +31,7 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		DEPS=0|1            Build dependencies files
 		SYM=0|1             Build debug symbols file
 		RELEASE=1           Generate "release" packages (artifacts/release/)
-		SNAPSHOT=1          Generate "shapshot" packages (artifacts/snapshot/)
+		SNAPSHOT=1          Generate "snapshot" packages (artifacts/snapshot/)
 
 		MODULE_NAME=name    Module name (default: redisearch)
 		PACKAGE_NAME=name   Package stem name
