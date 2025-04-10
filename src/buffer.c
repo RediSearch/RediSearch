@@ -57,6 +57,26 @@ void Buffer_Init(Buffer *b, size_t cap) {
   b->data = rm_malloc(cap);
 }
 
+/* Create a Buffer from an existing data */
+void Buffer_InitData(Buffer *b, char *data, size_t offset) {
+  // Capacity is 0 because we don't own the data.
+  b->cap = 0;
+  b->offset = offset;
+  b->data = data;
+}
+
+char *Buffer_GetData(Buffer *b) {
+  return b->data;
+}
+
+size_t Buffer_GetOffset(Buffer *b) {
+  return b->offset;
+}
+
+size_t Buffer_GetCapacity(Buffer *b) {
+  return b->cap;
+}
+
 Buffer *Buffer_Wrap(char *data, size_t len) {
   Buffer *buf = rm_malloc(sizeof(Buffer));
   buf->cap = len;

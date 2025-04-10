@@ -31,8 +31,8 @@ RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t field
 }
 
 void ByteOffsetWriter_Move(ByteOffsetWriter *w, RSByteOffsets *offsets) {
-  offsets->offsets.data = w->buf.data;
-  offsets->offsets.len = w->buf.offset;
+  offsets->offsets.data = Buffer_GetData(&w->buf);
+  offsets->offsets.len = Buffer_GetOffset(&w->buf);
   memset(&w->buf, 0, sizeof w->buf);
 }
 
@@ -94,9 +94,7 @@ int RSByteOffset_Iterate(const RSByteOffsets *offsets, uint32_t fieldId,
   // printf("Generating iterator for fieldId=%lu. BeginPos=%lu. EndPos=%lu\n", fieldId,
   //        offField->firstTokPos, offField->lastTokPos);
 
-  iter->buf.cap = 0;
-  iter->buf.data = offsets->offsets.data;
-  iter->buf.offset = offsets->offsets.len;
+  Buffer_InitData(&iter->buf, offsets->offsets.data, offsets->offsets.len);
   iter->rdr = NewBufferReader(&iter->buf);
   iter->curPos = 1;
   iter->endPos = offField->lastTokPos;

@@ -50,6 +50,11 @@ typedef struct {
 //++b->buf->offset;
 
 void Buffer_Init(Buffer *b, size_t cap);
+void Buffer_InitData(Buffer *b, char *data, size_t offset);
+char *Buffer_GetData(Buffer *b);
+size_t Buffer_GetOffset(Buffer *b);
+size_t Buffer_GetCapacity(Buffer *b);
+
 size_t Buffer_ReadByte(BufferReader *b, char *c);
 /**
 Read len bytes from the buffer into data. If offset + len are over capacity
