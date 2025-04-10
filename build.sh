@@ -197,7 +197,7 @@ prepare_cmake_arguments() {
   CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -UCMAKE_TOOLCHAIN_FILE"
 
   if [[ "$OS_NAME" == "macos" ]]; then
-    CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_C_COMPILER=/usr/local/opt/llvm@18/clang -DCMAKE_CXX_COMPILER=/usr/local/opt/llvm@18/clang++"
+    CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_C_COMPILER=/usr/local/opt/llvm@18/bin/clang -DCMAKE_CXX_COMPILER=/usr/local/opt/llvm@18/bin/clang++"
   fi
 }
 
