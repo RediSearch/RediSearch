@@ -3,7 +3,7 @@ set -e
 
 #-----------------------------------------------------------------------------
 # RediSearch Build Script
-# 
+#
 # This script handles building the RediSearch module and running tests.
 # It supports various build configurations and test types.
 #-----------------------------------------------------------------------------
@@ -220,7 +220,7 @@ run_cmake() {
   if [[ "$FORCE" == "1" || ! -f "$BINDIR/Makefile" ]]; then
     CMAKE_CMD="cmake $ROOT $CMAKE_BASIC_ARGS $CMAKE_ARGS"
     echo "$CMAKE_CMD"
-    
+
     # If verbose, dump all CMake variables before and after configuration
     if [[ "$VERBOSE" == "1" ]]; then
       echo "Running CMake with verbose output..."
@@ -292,12 +292,12 @@ build_test_dependencies() {
     # Ensure ext-example binary gets compiled
     if [[ -d "$ROOT/tests/ctests/ext-example" ]]; then
       echo "Building ext-example for unit tests..."
-      
+
       # Check if we're already in the build directory
       if [[ "$PWD" != "$BINDIR" ]]; then
         cd "$BINDIR"
       fi
-      
+
       # The example_extension target is created by CMake in the build directory
       # First check if the target exists in this build
       if grep -q "example_extension" Makefile 2>/dev/null || (make -q example_extension 2>/dev/null); then
@@ -306,7 +306,7 @@ build_test_dependencies() {
         # If the target doesn't exist, we need to ensure the test was properly configured
         echo "Warning: 'example_extension' target not found in Makefile"
         echo "Checking for extension binary..."
-        
+
         # Check if extension was already built by a previous run
         EXTENSION_PATH="$BINDIR/example_extension/libexample_extension.so"
         if [[ -f "$EXTENSION_PATH" ]]; then
@@ -316,7 +316,7 @@ build_test_dependencies() {
           echo "Try running 'make example_extension' manually in $BINDIR"
         fi
       fi
-      
+
       # Export extension path for tests
       EXTENSION_PATH="$BINDIR/example_extension/libexample_extension.so"
       if [[ -f "$EXTENSION_PATH" ]]; then
@@ -340,7 +340,7 @@ run_unit_tests() {
   fi
 
   echo "Running unit tests..."
-  
+
   # Set test environment variables if needed
   if [[ "$OS_NAME" == "macos" ]]; then
     echo "Running unit tests on macOS"
@@ -348,12 +348,12 @@ run_unit_tests() {
     # Uncomment if needed:
     # export DYLD_LIBRARY_PATH="$BINDIR:$DYLD_LIBRARY_PATH"
   fi
-  
+
   if [[ -n "$TEST_FILTER" ]]; then
     echo "Running tests matching: $TEST_FILTER"
     TEST_FILTER_ARG="--gtest_filter=$TEST_FILTER"
   fi
-  
+
   # Change to the build directory and run ctest with output on failure
   cd "$BINDIR"
   if [[ "$VERBOSE" == "1" ]]; then
@@ -361,7 +361,7 @@ run_unit_tests() {
   else
     ctest --output-on-failure $TEST_FILTER_ARG # Regular test output with failures shown
   fi
-  
+
   # Check test results
   UNIT_TEST_RESULT=$?
   if [[ $UNIT_TEST_RESULT -eq 0 ]]; then
@@ -382,17 +382,17 @@ run_rust_tests() {
   fi
 
   echo "Running Rust tests..."
-  
+
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
-  
+
   # Use the appropriate Rust build mode
   if [[ "$DEBUG" == "1" ]]; then
     RUST_MODE=""
   else
     RUST_MODE="--release"
   fi
-  
+
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
   if [[ -n "$TEST_FILTER" ]]; then
@@ -401,7 +401,7 @@ run_rust_tests() {
   else
     cargo test $RUST_MODE -- --nocapture
   fi
-  
+
   # Check test results
   RUST_TEST_RESULT=$?
   if [[ $RUST_TEST_RESULT -eq 0 ]]; then
@@ -422,18 +422,18 @@ run_python_tests() {
   fi
 
   echo "Running Python behavioral tests..."
-  
+
   # Locate the built module
   MODULE_PATH="$BINDIR/redisearch.so"
   if [[ ! -f "$MODULE_PATH" && -f "$BINDIR/module-enterprise.so" ]]; then
     MODULE_PATH="$BINDIR/module-enterprise.so"
   fi
-  
+
   if [[ ! -f "$MODULE_PATH" ]]; then
     echo "Error: Cannot find RediSearch module binary in $BINDIR"
     exit 1
   fi
-  
+
   # Set up environment variables required by runtests.sh
   export MODULE="$(realpath "$MODULE_PATH")"
   export BINROOT="$BINROOT"
@@ -450,33 +450,33 @@ run_python_tests() {
   export TEST_TIMEOUT="${TEST_TIMEOUT:-}"
   export REDIS_STANDALONE="${REDIS_STANDALONE:-}"
   export SA="${SA:-1}"
-  
+
   # Set up test filter if provided
   if [[ -n "$TEST_FILTER" ]]; then
     export TEST="$TEST_FILTER"
     echo "Running Python tests matching: $TEST_FILTER"
   fi
-  
+
   # Enable quick mode if requested (run only a subset of tests)
   if [[ "$QUICK" == "1" ]]; then
     echo "Running in QUICK mode - using a subset of tests"
     export QUICK=1
   fi
-  
+
   # Enable verbose mode if requested
   if [[ "$VERBOSE" == "1" ]]; then
     export VERBOSE=1
     export RLTEST_VERBOSE=1
   fi
-  
+
   # Use the runtests.sh script for Python tests
   TESTS_SCRIPT="$ROOT/tests/pytests/runtests.sh"
   echo "Running Python tests with module at: $MODULE"
-  
+
   # Run the tests from the ROOT directory with the requested params
   cd "$ROOT"
   $TESTS_SCRIPT
-  
+
   # Check test results
   PYTHON_TEST_RESULT=$?
   if [[ $PYTHON_TEST_RESULT -eq 0 ]]; then
@@ -493,15 +493,15 @@ run_python_tests() {
 #-----------------------------------------------------------------------------
 run_tests() {
   HAS_FAILURES=0
-  
+
   # Run each test type as requested
   run_unit_tests
   run_rust_tests
   run_python_tests
-  
+
   # Report build success
   echo "Build complete. Artifacts in $BINDIR"
-  
+
   # Exit with failure if any test suite failed
   if [[ "$HAS_FAILURES" == "1" ]]; then
     echo "One or more test suites had failures"
