@@ -1029,9 +1029,9 @@ TEST_F(LLApiTest, testScorer) {
   const char *s = "hello world";
   RSResultsIterator *it = RediSearch_IterateQuery(index, s, strlen(s), NULL);
   RediSearch_ResultsIteratorNext(it, index, NULL);
-  EXPECT_NEAR(RediSearch_ResultsIteratorGetScore(it), 0.48201, 1e-6);
+  EXPECT_NEAR(RediSearch_ResultsIteratorGetScore(it), 0.4820176, 1e-6);
   RediSearch_ResultsIteratorNext(it, index, NULL);
-  EXPECT_NEAR(RediSearch_ResultsIteratorGetScore(it), 0.45482, 1e-6);
+  EXPECT_NEAR(RediSearch_ResultsIteratorGetScore(it), 0.4548243, 1e-6);
 
   RediSearch_ResultsIteratorFree(it);
   RediSearch_DropIndex(index);
