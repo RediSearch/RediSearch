@@ -72,8 +72,6 @@ parse_args "$@"
 # If no specific artifacts provided, we'll use defaults later
 
 ARCH=$($GET_PLATFORM --arch)
-[[ $ARCH == x64 ]] && ARCH=x86_64
-[[ $ARCH == arm64v8 ]] && ARCH=aarch64
 
 OS=$($GET_PLATFORM --os)
 [[ $OS == linux ]] && OS=Linux
@@ -105,9 +103,9 @@ fi
 #----------------------------------------------------------------------------------------------
 # Navigate to artifacts directory
 cd "$ROOT/bin"
-MAYBE_SNAP="/snapshots"
+SNAPSHOT_FOLDER="snapshot"
 
-cd "artifacts${MAYBE_SNAP}"
+cd "artifacts/${SNAPSHOT_FOLDER}"
 if [[ $VERBOSE == 1 ]]; then
     if [[ $OSNICK == alpine3 ]]; then
         du -ah *
@@ -149,7 +147,7 @@ s3_upload() {
         return 1
     fi
     
-    local upload_dir="${S3_URL}/${product_name}${MAYBE_SNAP}"
+    local upload_dir="${S3_URL}/${product_name}/${SNAPSHOT_FOLDER}"
     local files file
     
     # print the current folder name
@@ -183,7 +181,5 @@ upload_product() {
     }
 }
 
-#----------------------------------------------------------------------------------------------
-upload_product "redisearch" "redisearch" "redisearch"
-upload_product "redisearch-light" "redisearch-light" "redisearch"
+# Main upload process
 upload_product "redisearch-community" "redisearch-community" "redisearch-oss"

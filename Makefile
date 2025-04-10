@@ -102,7 +102,6 @@ make pack             # create installation packages (default: 'redisearch-oss' 
 
 make upload-artifacts   # copy snapshot packages to S3
   OSNICK=nick             # copy snapshots for specific OSNICK
-make upload-release     # copy release packages to S3
 
 common options for upload operations:
   STAGING=1             # copy to staging lab area (for validation)
@@ -579,13 +578,10 @@ pack:
 
 endif # RAML_YAML
 
-upload-release:
-	$(SHOW)RELEASE=1 ./sbin/upload-artifacts
-
 upload-artifacts:
-	$(SHOW)SNAPSHOT=1 ./sbin/upload-artifacts
+	./sbin/upload-artifacts
 
-.PHONY: pack upload-artifacts upload-release
+.PHONY: pack upload-artifacts
 
 #----------------------------------------------------------------------------------------------
 ifeq ($(REMOTE),1)

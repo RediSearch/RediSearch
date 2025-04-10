@@ -4,9 +4,9 @@
 platform-lite: A lightweight, extensible Python script for platform detection.
 
 Supported flags:
-  --os                  : Print the OS name (linux, darwin, etc.)
+  --os                  : Print the OS name (Linux, darwin, etc.)
   --version             : Print the OS version (e.g., 20.04, 13.6.3)
-  --arch                : Print CPU architecture (e.g., x64, arm64v8)
+  --arch                : Print CPU architecture (e.g., x86_64, aarch64)
   --osnick              : Print a normalized OS codename (e.g., jammy, centos8, sonoma)
   --docker              : Print 1 if inside Docker, else 0 (Linux only)
   --docker-from-osnick  : Print only the osnick (for Docker tag generation)
@@ -15,8 +15,6 @@ Supported flags:
 
 import argparse
 import platform
-import os
-import re
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Lightweight platform info reporter.')
@@ -32,19 +30,19 @@ def parse_args():
     return parser.parse_args()
 
 def get_os():
-    """Return lowercase OS name (e.g. 'linux', 'darwin')"""
-    return platform.system().lower().replace('darwin', 'macos')
+    """Return lowercase OS name (e.g. 'Linux', 'darwin')"""
+    return platform.system().lower().replace('darwin', 'macos').replace('linux', 'Linux')
 
 def get_arch():
     """Return normalized architecture string"""
     arch = platform.machine().lower()
     return {
-        'x86_64': 'x64',
+        'x86_64': 'x86_64',
         'amd64': 'x64',
         'i386': 'x86',
         'i686': 'x86',
-        'aarch64': 'arm64v8',
-        'arm64': 'arm64v8',
+        'aarch64': 'aarch64',
+        'arm64': 'aarch64',
         'armv7l': 'arm32v7'
     }.get(arch, arch)
 
@@ -104,11 +102,10 @@ def get_osnick(osinfo):
     if os_type == 'macos':
         version = platform.release()
         return get_macos_nick(version)
-
+    
     dist = osinfo.get("ID", "")
     codename = osinfo.get("VERSION_CODENAME", "")
     ver = osinfo.get("VERSION_ID", "")
-
     if dist == "ubuntu":
         return codename or f"{dist}{ver}"
     if dist in ["centos", "ol", "rocky"]:
@@ -157,7 +154,7 @@ def main():
         return
 
     os_type = get_os()
-    osinfo = read_os_release() if os_type == 'linux' else {}
+    osinfo = read_os_release() if os_type == 'Linux' else {}
 
     outputs = []
 
