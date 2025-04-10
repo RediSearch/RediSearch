@@ -101,8 +101,6 @@ make pack             # create installation packages (default: 'redisearch-oss' 
   LITE=1                # pack RediSearchLight ('redisearch-light' package)
 
 make upload-artifacts   # copy snapshot packages to S3
-
-common options for upload operations:
   FORCE=1               # allow operation outside CI environment
   VERBOSE=1             # show more details
   NOP=1                 # do not copy, just print commands
