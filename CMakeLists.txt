@@ -33,11 +33,7 @@ setup_cc_options()
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
 message(STATUS "SAN: ${SAN}")
-if (CMAKE_CXX_STANDARD)
-    message(STATUS "The C++ standard being used is: C++${CMAKE_CXX_STANDARD}")
-else()
-    message(STATUS "The C++ standard is not explicitly set.")
-endif()
+
 # check if env sanitizers are set, and set ld_flags accordingly
 if (SAN)
     if (SAN STREQUAL "address")
@@ -77,6 +73,7 @@ if (DEBUG)
 endif()
 
 #----------------------------------------------------------------------------------------------
+set(CMAKE_CXX_STANDARD 20) # required to build googletest
 
 include_directories(
     ${root}/src
