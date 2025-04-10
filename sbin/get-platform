@@ -27,7 +27,6 @@ def parse_args():
     parser.add_argument('--docker', action='store_true', help='Running in a Docker container?')
     parser.add_argument('--docker-from-osnick', action='store_true', help='Guess Docker image from OS nickname')
     parser.add_argument('--version-artifact', action='store_true', help='Mapped version-artifact string')
-    parser.add_argument('--debug-version-artifact', metavar='OSNICK', help='Debug: Map given OSNICK to version-artifact')
 
     return parser.parse_args()
 
@@ -149,12 +148,6 @@ def map_version_artifact(osnick):
 
 def main():
     args = parse_args()
-
-    # Handle debug option first
-    if args.debug_version_artifact:
-        print(map_version_artifact(get_macos_nick(args.debug_version_artifact))
-)
-        return
 
     os_type = get_os()
     osinfo = read_os_release() if os_type == 'linux' else {}
