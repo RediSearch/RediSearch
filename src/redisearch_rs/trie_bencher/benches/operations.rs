@@ -39,7 +39,11 @@ fn criterion_benchmark_redis_wiki_1k(c: &mut Criterion) {
 
     // line 209 in redis_wiki1k_titles_bench.txt
     bencher.find_group(c, "Alabama River", "Find match (depth 5");
-    bencher.find_group(c, "Zoo", "Find no match");
+
+    // line 156 in redis_wiki1k_titles_bench.txt
+    bencher.find_group(c, "Afrikaans History", "Find no match (depth 5)");
+    // line 893 in redis_wiki1k_titles_bench.txt
+    bencher.find_group(c, "Zoo", "Find no match (depth 1)");
 
     // line 208 in redis_wiki1k_titles_bench.txt
     bencher.remove_group(c, "Alabama", "Remove internal (with merge)");
