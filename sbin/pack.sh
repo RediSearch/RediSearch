@@ -3,11 +3,18 @@
 PROGNAME="${BASH_SOURCE[0]}"
 HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
 ROOT=$(cd $HERE/.. && pwd)
-
 SBIN=$ROOT/sbin
 
 GET_PLATFORM="$SBIN/get-platform"
 XTX="$SBIN/xtx"
+SHIBUMI="$SBIN/shibumi"
+
+SHIBUMI="$SBIN/shibumi"
+
+realpath() { python3 "$SHIBUMI" --realpath "$@"; }
+runn() { python3 "$SHIBUMI" --runn "$@"; }
+eprint() { python3 "$SHIBUMI" --eprint "$@"; }
+
 
 export PYTHONWARNINGS=ignore
 

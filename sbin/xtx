@@ -1,18 +1,62 @@
 #!/usr/bin/env python3
 """
 xtx.py - A minimal template renderer with {{VAR}} substitution from environment variables.
+Replacing Readies xtx for pack.sh file.
+
+DESCRIPTION:
+    This script processes a template file and substitutes placeholders in the format {{VAR}}
+    with corresponding values from environment variables. It is useful for generating configuration
+    files or other templates dynamically based on the environment.
 
 USAGE:
     python3 xtx.py -e VAR1 -e VAR2 [--strict] template_file
 
-    This substitutes all instances of {{VAR}} in the template file using values from the environment.
-    If --strict is used, it fails on any undefined variable.
+    -e VAR: Specifies the environment variable(s) to use for substitution.
+    --strict: Ensures all placeholders in the template are defined in the environment.
+              If any are missing, the script will terminate with an error.
+    template_file: Path to the template file containing placeholders.
 
 FEATURES:
-    - Missing variables are left as-is (unless --strict is passed).
-    - Only supports substitution via -e VAR from the environment.
-    - No external libraries used (pure Python).
+    - Substitutes placeholders {{VAR}} with values from environment variables.
+    - Leaves placeholders unchanged if the corresponding environment variable is not defined
+      (unless --strict is used).
+    - Pure Python implementation with no external dependencies.
+
+EXAMPLES:
+    1. Template file (template.txt):
+        Hello, {{NAME}}!
+        Welcome to {{PLACE}}.
+
+    2. Environment variables:
+        export NAME="Alice"
+        export PLACE="Wonderland"
+
+    3. Command:
+        python3 xtx.py -e NAME -e PLACE template.txt
+
+    4. Output:
+        Hello, Alice!
+        Welcome to Wonderland.
+
+    5. Command with missing variable (without --strict):
+        python3 xtx.py -e NAME template.txt
+
+    6. Output:
+        Hello, Alice!
+        Welcome to {{PLACE}}.
+
+    7. Command with missing variable (with --strict):
+        python3 xtx.py -e NAME --strict template.txt
+
+    8. Output:
+        error: the following variables are undefined:
+          PLACE
+
+NOTES:
+    - Placeholders must match the pattern {{VAR}}, where VAR is a valid Python identifier.
+    - If --strict is not used, missing variables are replaced with an empty string.
 """
+
 import os
 import re
 import sys
