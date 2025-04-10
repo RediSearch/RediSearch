@@ -1,139 +1,179 @@
 #!/bin/bash
 
-PROGNAME="${BASH_SOURCE[0]}"
-HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
-ROOT=$(cd $HERE/.. && pwd)
-READIES=$ROOT/deps/readies
-. $READIES/shibumi/defs
 set -e
 
+PROGNAME="${BASH_SOURCE[0]}"
+HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
+ROOT=$(cd "$HERE/.." && pwd)
+GET_PLATFORM="$ROOT/sbin/get-platform"
+
+eprint() { >&2 echo "$@"; }
+
+print_help() {
+    cat <<-END
+Usage: upload-artifacts [OPTIONS] [artifacts...]
+
+Uploads packages to S3.
+
+Options:
+  --help, help        Show this help message and exit
+  --nop, -n           No operation (dry-run)
+  --verbose, -v       Show artifact details
+  --force, -f         Force upload even if not in CI
+
+Environment variables can also be set:
+  NOP=1               No operation (dry-run)
+  VERBOSE=1           Show artifact details
+  FORCE=1             Force upload even if not in CI
+  HELP=1              Show help
+END
+}
+
 #----------------------------------------------------------------------------------------------
 
-if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
-	cat <<-END
-		Upload packages to S3
+# Parse command line arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --help|help)
+                print_help
+                exit 0
+                ;;
+            --nop|-n)
+                NOP=1
+                ;;
+            --verbose|-v)
+                VERBOSE=1
+                ;;
+            --force|-f)
+                FORCE=1
+                ;;
+            *)
+                # Store remaining arguments for later processing
+                ARTIFACTS+=("$1")
+                ;;
+        esac
+        shift
+    done
+}
 
-		upload-artifacts [--help|help] artifacts...
+# Initialize variables
+ARTIFACTS=()
 
-		Argument variables:
-		SNAPSHOT=1    Upload snapshots (default)
-		OSNICK=nick   Operate on packages for given OSNICK (default: host)
-
-		RELEASE=1     Upload release artifacts
-		STAGING=1     Upload into staging area
-
-		FORCE=1       Allow uploading outside of CI
-		NOP=1         No operation
-		VERBOSE=1     Show artifacts details
-		HELP=1        Show help
-
-	END
-	exit 0
+# Check for help flag in environment variable
+if [[ $HELP == 1 ]]; then
+    print_help
+    exit 0
 fi
 
-#----------------------------------------------------------------------------------------------
+# Parse command line arguments
+parse_args "$@"
 
-ARCH=$(uname -m)
+# If no specific artifacts provided, we'll use defaults later
 
-[[ $ARCH == arm64 ]] && ARCH="aarch64"
-[[ $ARCH == x64 ]] && ARCH="x86_64"
+ARCH=$($GET_PLATFORM --arch)
 
-OS=$($READIES/bin/platform --os)
-[[ $OS == linux ]] && OS="Linux"
+OS=$($GET_PLATFORM --os)
+[[ $OS == linux ]] && OS=Linux
 
-[[ -z $OSNICK ]] && OSNICK=$($READIES/bin/platform --osnick)
-[[ $OSNICK == trusty ]]  && OSNICK=ubuntu14.04
-[[ $OSNICK == xenial ]]  && OSNICK=ubuntu16.04
-[[ $OSNICK == bionic ]]  && OSNICK=ubuntu18.04
-[[ $OSNICK == focal ]]   && OSNICK=ubuntu20.04
-[[ $OSNICK == jammy ]]   && OSNICK=ubuntu22.04
-[[ $OSNICK == centos7 ]] && OSNICK=rhel7
-[[ $OSNICK == centos8 ]] && OSNICK=rhel8
-[[ $OSNICK == centos9 ]] && OSNICK=rhel9
-[[ $OSNICK == ol8 ]]     && OSNICK=rhel8
-[[ $OSNICK == rocky8 ]]  && OSNICK=rhel8
-[[ $OSNICK == rocky9 ]]  && OSNICK=rhel9
-
+OSNICK=$($GET_PLATFORM --version-artifact)
 
 PLATFORM="$OS-$OSNICK-$ARCH"
-
-#----------------------------------------------------------------------------------------------
+echo "Detected OS: $OS"
+echo "Detected OSNICK: $OSNICK"
+echo "Detected ARCH: $ARCH"
+echo "Detected PLATFORM: $PLATFORM"
 
 OP=""
 [[ $NOP == 1 ]] && OP=echo
+S3_URL=s3://redismodules
 
-if [[ $STAGING == 1 ]]; then
-	S3_URL=s3://redismodules/lab/staging
-else
-	S3_URL=s3://redismodules
+
+if [[ -z $GITHUB_ACTIONS && $FORCE != 1 ]]; then
+    eprint "Cannot upload outside of GitHub Actions. Override with FORCE=1."
+    exit 1
 fi
 
-if [[ $FORCE != 1 ]]; then
-	# TODO: remove circle
-	if [[ -z $GITHUB_ACTIONS && -z $CIRCLECI ]]; then
-		eprint "Cannot upload outside of GitHub Actions. Override with FORCE=1."
-		exit 1
-	fi
-
-	if [[ -z $AWS_ACCESS_KEY_ID || -z $AWS_SECRET_ACCESS_KEY ]]; then
-		eprint "No credentials for S3 upload."
-		exit 1
-	fi
+if [[ -z $AWS_ACCESS_KEY_ID || -z $AWS_SECRET_ACCESS_KEY ]]; then
+	eprint "No credentials for S3 upload."
+	exit 1
 fi
 
-cd $ROOT/bin
 
-if [[ $SNAPSHOT == 1 ]]; then
-	MAYBE_SNAP=/snapshots
-else
-	MAYBE_SNAP=
-fi
+#----------------------------------------------------------------------------------------------
+# Navigate to artifacts directory
+cd "$ROOT/bin"
+SNAPSHOTS_FOLDER="snapshots"
 
-cd artifacts${MAYBE_SNAP}
+cd "artifacts/${SNAPSHOTS_FOLDER}"
 [[ $VERBOSE == 1 ]] && du -ah --apparent-size *
 
 #----------------------------------------------------------------------------------------------
+# S3 Upload Functions
 
 s3_upload_file() {
-	local file="$1"
-	local s3_dir="$2"
-	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
+    local file="$1"
+    local s3_dir="$2"
+    [[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
 
-	$OP aws s3 cp $file $s3_dir --acl public-read --no-progress
-}
+    echo "Uploading $file to $s3_dir"
+    $OP aws s3 cp "$file" "$s3_dir" --acl public-read --no-progress
 
-s3_ls() {
-	local s3_dir="$1"
-	[[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
-
-	[[ -n $GITHUB_ACTIONS ]] && echo "::group::S3 ls $s3_dir"
-	$OP aws s3 ls $s3_dir
-	[[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::"
+    # Verify the file was uploaded
+    local file_name=$(basename "$file")
+    if ! $OP aws s3 ls "${s3_dir}${file_name}" > /dev/null 2>&1; then
+        eprint "Failed to verify that $file_name was uploaded to $s3_dir"
+        return 1
+    fi
+    echo "Successfully uploaded $file_name to $s3_dir"
 }
 
 s3_upload() {
-	local prod_subdir="$PROD"
-	local prefix="$PREFIX"
-	local upload_dir="${S3_URL}/${prod_subdir}${MAYBE_SNAP}"
-	local file
-	if [[ $SNAPSHOT == 1 ]]; then
-		files=$(ls ${prefix}.*${PLATFORM}*.zip)
-		for file in $files; do
-			s3_upload_file $file $upload_dir
-		done
-	else
-		files=$(ls ${prefix}.*.zip)
-		for file in $files; do
-			s3_upload_file $file $upload_dir
-		done
-	fi
-	[[ $VERBOSE == 1 ]] && s3_ls $upload_dir
+    # Parameters:
+    #   $1: file_prefix - Prefix of files to upload (e.g., "redisearch")
+    #   $2: product_name - Product folder name in S3 (e.g., "redisearch")
+    local file_prefix="$1"
+    local product_name="$2"
 
-	return 0
+    if [[ -z "$file_prefix" || -z "$product_name" ]]; then
+        eprint "Error: Missing required parameters"
+        eprint "Usage: s3_upload <file_prefix> <product_name>"
+        return 1
+    fi
+
+    local upload_dir="${S3_URL}/${product_name}/${SNAPSHOTS_FOLDER}"
+    local files file
+
+    # print the current folder name
+    shopt -s nullglob
+    files=("${file_prefix}."*"${PLATFORM}"*.zip)
+    shopt -u nullglob
+    echo "Found files: ${files[@]}"
+    if [[ ${#files[@]} -eq 0 ]]; then
+        echo "      Warning: No files found matching pattern: ${file_prefix}.*${PLATFORM}*.zip"
+        return 0
+    fi
+
+    for file in "${files[@]}"; do
+        s3_upload_file "$file" "$upload_dir"
+    done
+    echo "All uploads complete to $upload_dir"
+}
+upload_product() {
+    local prefix="$1"
+    local product="$2"
+    local target="$3"
+
+    {
+        echo "::group::Uploading $prefix artifacts"
+        s3_upload "$prefix" "$target"
+        echo "::endgroup::"
+    } || {
+        echo "::endgroup::"
+        eprint "Error occurred while uploading $prefix artifacts"
+        exit 1
+    }
 }
 
-#----------------------------------------------------------------------------------------------
-
-PROD=redisearch PREFIX=redisearch s3_upload
-PROD=redisearch PREFIX=redisearch-light s3_upload
-PROD=redisearch-oss PREFIX=redisearch-oss s3_upload
+# Main upload process
+upload_product "redisearch-community" "redisearch-oss" "redisearch-community"
