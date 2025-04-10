@@ -21,6 +21,7 @@ PROFILE=0        # Profile build flag
 FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
 QUICK=0          # Quick test mode (subset of tests)
+COV=0
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0    # Build test binaries
@@ -58,6 +59,9 @@ parse_arguments() {
         ;;
       RUN_RUST_TESTS|run_rust_tests)
         RUN_RUST_TESTS=1
+        ;;
+      COV|cov|COVERAGE|coverage)
+        COV=1
         ;;
       RUN_PYTEST|run_pytest)
         RUN_PYTEST=1
@@ -176,6 +180,44 @@ setup_build_environment() {
 
   # Set the final BINDIR using the full variant path
   BINDIR="${BINROOT}/${FULL_VARIANT}/${OUTDIR}"
+}
+
+#-----------------------------------------------------------------------------
+# Function: prepare_coverage_capture
+# Run lcov preparations before testing for coverage
+#-----------------------------------------------------------------------------
+prepare_coverage_capture() {
+  mkdir -p $BINDIR # verify the path exists
+  lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
+  lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info
+}
+
+#-----------------------------------------------------------------------------
+# Function: capture_coverage
+# Capture coverage collected since `prepare_coverage_capture` was invoked
+#-----------------------------------------------------------------------------
+capture_coverage() {
+  NAME=${1:-cov} # Get output name. Defaults to `cov.info`
+
+  # Capture coverage collected while running tests previously
+  lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info
+
+  # Accumulate results with the baseline captured before the test
+  lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info
+
+  # Remove coverage for directories we don't want
+  lcov -o $BINROOT/tmp.info --remove $BINROOT/full.info \
+    "$ROOT/bin/*" \
+    "$ROOT/tests/*" \
+    "$ROOT/deps/*" \
+
+  # Extract back coverage for specific directories we want to keep
+  lcov --output-file $BINROOT/$NAME.info --extract $BINROOT/tmp.info \
+    "$ROOT/deps/triemap/*" \
+    "$ROOT/deps/thpool/*" \
+
+  # Clean up temporary files
+  rm $BINROOT/base.info $BINROOT/test.info $BINROOT/full.info $BINROOT/tmp.info
 }
 
 #-----------------------------------------------------------------------------
@@ -393,6 +435,10 @@ run_unit_tests() {
     export TEST="$TEST_FILTER"
   fi
 
+  if [[ $COV == 1 ]]; then
+    prepare_coverage_capture
+  fi
+
   # Set verbose mode if requested
   if [[ "$VERBOSE" == "1" ]]; then
     export VERBOSE=1
@@ -411,6 +457,9 @@ run_unit_tests() {
   UNIT_TEST_RESULT=$?
   if [[ $UNIT_TEST_RESULT -eq 0 ]]; then
     echo "All unit tests passed!"
+    if [[ $COV == 1 ]]; then
+      capture_coverage unit
+    fi
   else
     echo "Some unit tests failed. Check the test logs above for details."
     HAS_FAILURES=1
@@ -444,6 +493,9 @@ run_rust_tests() {
   RUST_TEST_RESULT=$?
   if [[ $RUST_TEST_RESULT -eq 0 ]]; then
     echo "All Rust tests passed!"
+    if [[ $COV == 1 ]]; then
+      capture_coverage rust
+    fi
   else
     echo "Some Rust tests failed. Check the test logs above for details."
     HAS_FAILURES=1
@@ -488,6 +540,7 @@ run_python_tests() {
   export TEST_TIMEOUT="${TEST_TIMEOUT:-}"
   export REDIS_STANDALONE="${REDIS_STANDALONE:-}"
   export SA="${SA:-1}"
+  export COV="$COV"
 
   # Set up test filter if provided
   if [[ -n "$TEST_FILTER" ]]; then
@@ -507,6 +560,10 @@ run_python_tests() {
     export RLTEST_VERBOSE=1
   fi
 
+  if [[ $COV == 1 ]]; then
+    prepare_coverage_capture
+  fi
+
   # Use the runtests.sh script for Python tests
   TESTS_SCRIPT="$ROOT/tests/pytests/runtests.sh"
   echo "Running Python tests with module at: $MODULE"
@@ -519,6 +576,9 @@ run_python_tests() {
   PYTHON_TEST_RESULT=$?
   if [[ $PYTHON_TEST_RESULT -eq 0 ]]; then
     echo "All Python tests passed!"
+    if [[ $COV == 1 ]]; then
+      capture_coverage flow
+    fi
   else
     echo "Some Python tests failed. Check the test logs above for details."
     HAS_FAILURES=1

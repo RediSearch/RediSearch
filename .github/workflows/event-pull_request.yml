@@ -42,7 +42,7 @@ jobs:
     needs: check-what-changed
     if: >
       (
-        (!github.event.pull_request.draft && needs.check-what-changed.outputs.RUST_CODE_CHANGED == 'true') || 
+        (!github.event.pull_request.draft && needs.check-what-changed.outputs.RUST_CODE_CHANGED == 'true') ||
         contains(github.event.pull_request.labels.*.name, 'enforce:micro-benchmarks')
       )
     uses: ./.github/workflows/flow-micro-benchmarks.yml
@@ -57,10 +57,11 @@ jobs:
           (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') ||
           contains(github.event.pull_request.labels.*.name, 'enforce:coverage')
       )
-    uses: ./.github/workflows/flow-coverage.yml
+    uses: ./.github/workflows/task-test.yml
     with:
       rejson-branch: master
-      quick: true
+      coverage: 1
+      test-config: QUICK=1
     secrets: inherit
 
   sanitize:

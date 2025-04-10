@@ -12,6 +12,8 @@ on:
         type: string
       san:
         type: string
+      coverage:
+        type: string
       run_miri:
         description: 'Whether to run Rust tests through miri to detect undefined behavior'
         type: boolean
@@ -46,6 +48,7 @@ on:
 env:
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
+  COV: ${{ inputs.coverage }}
   # Setting RUSTFLAGS here to ensure that all `cargo` invocations use the same
   # flags, and therefore reuse the same intermediate build artifacts.
   RUSTFLAGS: "-D warnings"
@@ -166,6 +169,10 @@ jobs:
 
       - name: Build Redis
         working-directory: redis
+        env:
+          SANITIZER: ${{ inputs.san }}
+          BUILD_TLS: yes
+          REDIS_CFLAGS: ${{ inputs.coverage && '-DCOVERAGE_TEST' || '' }}
         run: |
           ${{ steps.mode.outputs.mode }} SANITIZER=${{ inputs.san }} BUILD_TLS=yes make install
       - name: Set Artifact Names
@@ -173,7 +180,9 @@ jobs:
         # We also remove invalid characters from the name.
         id: artifact-names
         run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
-          echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }} ${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }}- Redis ${{ inputs.get-redis || 'unstable' }}" | \
+          echo "name=$(echo "${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }} \
+                             ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
+                             ${{ inputs.container || inputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Build
         env:
@@ -247,3 +256,22 @@ jobs:
           echo "Standalone: ${{ steps.standalone_tests.outcome }}"
           echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
           exit 1
+
+      - name: Upload flow coverage
+        if: inputs.coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/linux-x64-debug-cov/flow.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload unit coverage
+        if: inputs.coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/linux-x64-debug-cov/unit.info,bin/linux-x64-debug-cov/rust_cov.info
+          disable_search: true
+          flags: unit
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
