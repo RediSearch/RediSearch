@@ -88,12 +88,11 @@ s3_upload_file() {
 
     # Verify the file was uploaded
     local file_name=$(basename "$file")
-    if $OP aws s3 ls "${s3_dir}${file_name}" > /dev/null 2>&1; then
-        echo "File $file_name successfully uploaded to $s3_dir"
-    else
-
+    if ! $OP aws s3 ls "${s3_dir}${file_name}" > /dev/null 2>&1; then
+        eprint "Failed to verify that $file_name was uploaded to $s3_dir"
         return 1
     fi
+    echo "Successfully uploaded $file_name to $s3_dir"
 }
 
 s3_upload() {
@@ -114,7 +113,7 @@ s3_upload() {
     
     # print the current folder name
     shopt -s nullglob
-    files=(${file_prefix}.*${PLATFORM}*.zip)
+    files=("${file_prefix}."*"${PLATFORM}"*.zip)
     shopt -u nullglob
     echo "Found files: ${files[@]}"
     if [[ ${#files[@]} -eq 0 ]]; then
@@ -125,37 +124,25 @@ s3_upload() {
     for file in "${files[@]}"; do
         s3_upload_file "$file" "$upload_dir"
     done
-    echo "Upload complete for $upload_dir/$file"
+    echo "All uploads complete to $upload_dir"
+}
+upload_product() {
+    local prefix="$1"
+    local product="$2"
+    local target="$3"
+    
+    {
+        echo "::group::Uploading $prefix artifacts"
+        s3_upload "$prefix" "$target"
+        echo "::endgroup::"
+    } || {
+        echo "::endgroup::"
+        eprint "Error occurred while uploading $prefix artifacts"
+        exit 1
+    }
 }
 
 #----------------------------------------------------------------------------------------------
-# Main upload actions
-{
-    echo "::group::Uploading redisearch artifacts"
-    s3_upload "redisearch" "redisearch"
-    echo "::endgroup::"
-} || {
-    echo "::endgroup::"
-    eprint "Error occurred while uploading redisearch artifacts"
-    exit 1
-}
-
-{
-    echo "::group::Uploading redisearch-light artifacts"
-    s3_upload "redisearch-light" "redisearch"
-    echo "::endgroup::"
-} || {
-    echo "::endgroup::"
-    eprint "Error occurred while uploading redisearch-light artifacts"
-    exit 1
-}
-
-{
-    echo "::group::Uploading redisearch-community artifacts"
-    s3_upload "redisearch-community" "redisearch-oss"
-    echo "::endgroup::"
-} || {
-    echo "::endgroup::"
-    eprint "Error occurred while uploading redisearch-community artifacts"
-    exit 1
-}
+upload_product "redisearch" "redisearch" "redisearch"
+upload_product "redisearch-light" "redisearch-light" "redisearch"
+upload_product "redisearch-community" "redisearch-community" "redisearch-oss"
