@@ -18,7 +18,7 @@ Uploads packages to S3.
 Argument variables:
   NOP=1         No operation (dry-run)
   VERBOSE=1     Show artifact details
-  FORECE=1     Force upload even if not in CI
+  FORCE=1     Force upload even if not in CI
   HELP=1        Show help
 END
 }
