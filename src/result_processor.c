@@ -1313,7 +1313,8 @@
    RPMaxCollector* rp_max = (RPMaxCollector*)rp;
    size_t length = array_len(rp_max->pool);
    if (rp_max->index >= array_len(rp_max->pool)) {
-     // We've already yielded all results, return EOF
+      RedisModule_Log(RSDummyContext,"warning", "rp_max->index in EOF of rpMax_Yield is %d", rp_max->index);
+      // We've already yielded all results, return EOF
      return RS_RESULT_EOF;
    }
    *r = *rp_max->pool[rp_max->index++];
@@ -1353,10 +1354,9 @@ static int rpMaxAccum(ResultProcessor *rp, SearchResult *r) {
   int count = 0;
   while ((rc = rpMaxNext_innerLoop(rp, r)) == RESULT_QUEUED) {
     count++;
-    // printf("Accumulating :)");
-    // usleep(500);
     // Do nothing.
   }
+  RedisModule_Log(RSDummyContext,"warning", "count in the end of the loop is %d", count);
   rp->parent->resultLimit = chunkLimit; // restore the limit
   return rc;
 }
