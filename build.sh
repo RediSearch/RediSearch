@@ -135,7 +135,7 @@ setup_build_environment() {
   # Get architecture and convert arm64 to arm64v8
   ARCH=$(uname -m)
   if [[ "$ARCH" == "arm64" ]]; then
-    ARCH="arm64v8"
+    ARCH="aarch64"
   elif [[ "$ARCH" == "x86_64" ]]; then
     ARCH="x64"
   fi
@@ -195,6 +195,10 @@ prepare_cmake_arguments() {
 
   # Add caching flags to prevent using old configurations
   CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -UCMAKE_TOOLCHAIN_FILE"
+
+  if [[ "$OS_NAME" == "macos" ]]; then
+    CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_C_COMPILER=/usr/local/opt/llvm@18/clang -DCMAKE_CXX_COMPILER=/usr/local/opt/llvm@18/clang++"
+  fi
 }
 
 #-----------------------------------------------------------------------------
