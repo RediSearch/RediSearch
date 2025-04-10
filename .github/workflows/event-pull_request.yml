@@ -36,9 +36,11 @@ jobs:
         vars.ENABLE_CODE_COVERAGE != 'false' &&
         (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:coverage'))
       )
-    uses: ./.github/workflows/flow-coverage.yml
+    uses: ./.github/workflows/task-test.yml
     with:
       rejson-branch: master
+      coverage: 1
+      test-config: QUICK=1
     secrets: inherit
 
   sanitize:
