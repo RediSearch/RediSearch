@@ -101,10 +101,8 @@ make pack             # create installation packages (default: 'redisearch-oss' 
   LITE=1                # pack RediSearchLight ('redisearch-light' package)
 
 make upload-artifacts   # copy snapshot packages to S3
-  OSNICK=nick             # copy snapshots for specific OSNICK
 
 common options for upload operations:
-  STAGING=1             # copy to staging lab area (for validation)
   FORCE=1               # allow operation outside CI environment
   VERBOSE=1             # show more details
   NOP=1                 # do not copy, just print commands
