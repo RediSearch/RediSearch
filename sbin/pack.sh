@@ -9,8 +9,6 @@ GET_PLATFORM="$SBIN/get-platform"
 XTX="$SBIN/xtx"
 SHIBUMI="$SBIN/shibumi"
 
-SHIBUMI="$SBIN/shibumi"
-
 realpath() { python3 "$SHIBUMI" --realpath "$@"; }
 runn() { python3 "$SHIBUMI" --runn "$@"; }
 eprint() { python3 "$SHIBUMI" --eprint "$@"; }
