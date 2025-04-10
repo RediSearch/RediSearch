@@ -27,7 +27,7 @@ impl CorpusType {
     /// In any case perform a crc32 check to notice changes in the corpus data.
     pub fn download_or_read_corpus(&self) -> String {
         let path = self.get_cached_path();
-        let corpus = if let Ok(true) = std::fs::exists(&path) {
+        let corpus = if std::fs::exists(&path).ok() != Some(true) {
             let corpus = download_corpus(self.get_url());
             // ensure data folder exists
             let cache_folder = PathBuf::from("data");
