@@ -4,7 +4,7 @@
 source "$(dirname "$0")/macos_update_profile.sh"
 
 OS_TYPE=$(uname -s)
-VERSION=16
+VERSION=17
 MODE=$1
 
 if [[ $OS_TYPE == Darwin ]]; then
