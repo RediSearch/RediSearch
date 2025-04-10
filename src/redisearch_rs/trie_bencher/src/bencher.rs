@@ -28,7 +28,7 @@ pub struct OperationBencher {
 
 impl OperationBencher {
     pub fn new(prefix: String, keys: Vec<String>, measurement_time: Option<Duration>) -> Self {
-        let rust_map = rust_load_from_keys(&keys);
+        let rust_map = rust_load_from_terms(&keys);
         let measurement_time = measurement_time.unwrap_or_else(|| Duration::from_secs(5));
         Self {
             prefix,
@@ -121,7 +121,7 @@ fn insert_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, keys: &[Str
     let (c_word, c_len) = str2c_input(word);
     c.bench_function("C", |b| {
         b.iter_batched_ref(
-            || c_load_from_keys(keys),
+            || c_load_from_terms(keys),
             |data| data.insert(black_box(c_word), black_box(c_len)),
             BatchSize::LargeInput,
         )
@@ -130,7 +130,7 @@ fn insert_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, keys: &[Str
 
 fn find_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, keys: &[String], word: &str) {
     let (c_word, c_len) = str2c_input(word);
-    let map = c_load_from_keys(keys);
+    let map = c_load_from_terms(keys);
     c.bench_function("C", |b| {
         b.iter(|| map.find(black_box(c_word), black_box(c_len)))
     });
@@ -155,7 +155,7 @@ fn remove_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, keys: &[Str
     let (c_word, c_len) = str2c_input(word);
     c.bench_function("C", |b| {
         b.iter_batched_ref(
-            || c_load_from_keys(keys),
+            || c_load_from_terms(keys),
             |data| data.remove(black_box(c_word), black_box(c_len)),
             BatchSize::LargeInput,
         )
@@ -182,7 +182,7 @@ fn load_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, contents:
     });
 }
 
-pub fn rust_load_from_keys(keys: &[String]) -> RustTrieMap {
+pub fn rust_load_from_terms(keys: &[String]) -> RustTrieMap {
     let words = keys.iter().map(|s| str2c_char(s)).collect::<Vec<_>>();
     rust_load(&words)
 }
@@ -203,7 +203,7 @@ fn c_load(words: Vec<(*mut c_char, u16)>) -> CTrieMap {
     map
 }
 
-fn c_load_from_keys(contents: &[String]) -> CTrieMap {
+fn c_load_from_terms(contents: &[String]) -> CTrieMap {
     let words = contents.iter().map(|s| str2c_input(&s)).collect::<Vec<_>>();
     c_load(words)
 }

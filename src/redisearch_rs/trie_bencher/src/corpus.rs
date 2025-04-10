@@ -1,23 +1,32 @@
 use std::{collections::BTreeSet, io::Cursor, path::PathBuf};
 
-use crate::bencher::rust_load_from_keys;
+use crate::bencher::rust_load_from_terms;
 
 /// This enum allows easy switching between different corpora for benchmarking.
 ///
 /// Users may call [CorpusType::download_or_read_corpus] to get the full content of the source files of a corpus or
-/// use the [CorpusType::create_keys] method that generates a [Vec<String>] containing the unique keys for trie construction. These
-/// must be further converted to the "legacy" string types: see [crate::strvec2_raw_words].
-///
-/// Information for remote files can be found in the folder: git_root/tests/benchmarks/
+/// use the [CorpusType::create_terms] method that generates a [Vec<String>] containing the unique terms for trie construction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CorpusType {
-    /// uses a corpus from the redis benchmarks that contains 1k rows in a csv file describing wikipedia articles as a line
+    /// Uses a corpus from the redisearch benchmarks that contains 1k rows in a csv file describing wikipedia articles as a line.
+    ///
+    /// Uses the title of the wikipedia article as trie input.
+    ///
+    /// Used in benchmarks:
+    ///
+    /// - [search-ftsb-1K-enwiki_abstract-hashes-term-contains.yml](https://github.com/RediSearch/RediSearch/blob/master/tests/benchmarks/search-ftsb-1K-enwiki_abstract-hashes-term-contains.yml)
+    /// - [search-ftsb-1K-enwiki_abstract-hashes-term-suffix-witfhsuffixtrie.yml](https://github.com/RediSearch/RediSearch/blob/master/tests/benchmarks/search-ftsb-1K-enwiki_abstract-hashes-term-suffix-withsuffixtrie.yml)
+    /// - [search-ftsb-1K-enwiki_abstract-hashes-term-suffix.yml](https://github.com/RediSearch/RediSearch/blob/master/tests/benchmarks/search-ftsb-1K-enwiki_abstract-hashes-term-suffix.yml)
     RedisBench1kWiki,
 
-    /// uses a corpus from the redis benchmarks that contains 10k rows in a csv file describing wikipedia articles as a line
+    /// Uses a corpus from the redisearch benchmarks that contains 10k rows in a csv file describing document ids mapped to abriatary json values as a line.
+    ///
+    /// Uses doc id (document name)s from the redisearch benchmark as input for the trie instead of a `value`.
+    ///
+    /// Used in benchmark: [search-ftsb-10K-singlevalue-numeric-json.yml](https://github.com/RediSearch/RediSearch/blob/master/tests/benchmarks/search-ftsb-10K-singlevalue-numeric-json.yml)
     RedisBench10kNumerics,
 
-    /// legacy corpus from gutenberg.net called 1984.txt
+    /// legacy corpus from gutenberg.net called 1984.txt.
     GutenbergEbook,
 }
 
@@ -56,28 +65,31 @@ impl CorpusType {
         corpus
     }
 
-    /// Creates a vector of keys for insertion into a trie,
+    /// Creates a vector of terms for insertion into a trie,
     /// may output the trie to a file using a pretty printer.
     ///
     /// The pretty printed version of the trie helps a developer to
     /// explore the data, i.e. check what node would be inserted at
     /// what depth.
-    pub fn create_keys(&self, output_pretty_print_trie: bool) -> Vec<String> {
+    pub fn create_terms(&self, output_pretty_print_trie: bool) -> Vec<String> {
         let corpus = self.download_or_read_corpus();
         let reval = match self {
-            CorpusType::RedisBench1kWiki => self.create_keys_redis_wiki1k(&corpus),
-            CorpusType::RedisBench10kNumerics => self.create_keys_redis_wiki10k(&corpus),
-            CorpusType::GutenbergEbook => self.create_keys_gutenberg(&corpus),
+            CorpusType::RedisBench1kWiki => self.create_terms_redis_wiki1k(&corpus),
+            CorpusType::RedisBench10kNumerics => self.create_terms_redis_wiki10k(&corpus),
+            CorpusType::GutenbergEbook => self.create_terms_gutenberg(&corpus),
         };
         if output_pretty_print_trie {
-            let trie = rust_load_from_keys(&reval);
+            let trie = rust_load_from_terms(&reval);
             fs_err::write(self.get_pretty_print_path(), format!("{trie:?}").as_bytes())
                 .expect("Failed to write bench words debug to disk");
         }
         reval
     }
 
-    fn create_keys_redis_wiki10k(&self, contents: &str) -> Vec<String> {
+    /// Creates a vector of terms for insertion into a trie.
+    ///
+    /// Uses doc id (document name)s from the redisearch benchmark as input for the trie instead of a `value`.
+    fn create_terms_redis_wiki10k(&self, contents: &str) -> Vec<String> {
         // we find the guid like doc id in column 5
         let idx = 4;
 
@@ -104,7 +116,7 @@ impl CorpusType {
         strings
     }
 
-    fn create_keys_gutenberg(&self, contents: &str) -> Vec<String> {
+    fn create_terms_gutenberg(&self, contents: &str) -> Vec<String> {
         // use words in the text file as keys and ensure uniqueness of keys
         let unique_words = {
             let mut unique = BTreeSet::new();
@@ -121,8 +133,8 @@ impl CorpusType {
         unique_words
     }
 
-    fn create_keys_redis_wiki1k(&self, contents: &str) -> Vec<String> {
-        // we generate a trie based on the title
+    fn create_terms_redis_wiki1k(&self, contents: &str) -> Vec<String> {
+        // we generate a trie based on the title field
         let title_offset = 6;
 
         // Prefix used for each title:
@@ -149,6 +161,8 @@ impl CorpusType {
     }
 
     /// Returns the url of the corpus.
+    ///
+    /// Information for remote files can be found in the folder: git_root/tests/benchmarks/
     fn get_url(&self) -> &str {
         match self {
             CorpusType::RedisBench1kWiki => {
