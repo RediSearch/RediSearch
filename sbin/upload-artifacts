@@ -15,7 +15,7 @@ Usage: upload-artifacts [--help|help] artifacts...
 
 Uploads packages to S3.
 
-Argument variables:
+Environment variables that can be set:
   NOP=1         No operation (dry-run)
   VERBOSE=1     Show artifact details
   FORCE=1     Force upload even if not in CI
