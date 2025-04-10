@@ -21,3 +21,5 @@ else
     chmod +x llvm.sh
     $MODE ./llvm.sh $VERSION
 fi
+export LDFLAGS="-L/usr/local/opt/llvm@$VERSION/lib"
+export CPPFLAGS="-I/usr/local/opt/llvm@$VERSION/include"
