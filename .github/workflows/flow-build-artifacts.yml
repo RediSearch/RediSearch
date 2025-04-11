@@ -58,7 +58,7 @@ jobs:
         run: |
           from re import fullmatch
           ref = '${{ github.ref_name }}'
-          if bool(fullmatch('[0-9]+\.[0-9]+', ref)) or ref == 'master': # e.g. 2.8, 2.10, master
+          if bool(fullmatch(r'[0-9]+\.[0-9]+', ref)) or ref == 'master': # e.g. 2.8, 2.10, master
             if '${{ inputs.architecture }}' != 'all' or '${{ inputs.platform }}' != 'all':
               print("::error title=Invalid Request::"
                     "You can only build all configurations for master or a release branch")
