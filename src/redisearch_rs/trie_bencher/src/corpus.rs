@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, io::Cursor, path::PathBuf};
 
 use crate::bencher::rust_load_from_terms;
 
-/// This enum allows easy switching between different corpora for benchmarking.
+/// This enum defines different corpora for benchmarking.
 ///
 /// Users may call [CorpusType::download_or_read_corpus] to get the full content of the source files of a corpus or
 /// use the [CorpusType::create_terms] method that generates a [Vec<String>] containing the unique terms for trie construction.
@@ -26,7 +26,9 @@ pub enum CorpusType {
     /// Used in benchmark: [search-ftsb-10K-singlevalue-numeric-json.yml](https://github.com/RediSearch/RediSearch/blob/master/tests/benchmarks/search-ftsb-10K-singlevalue-numeric-json.yml)
     RedisBench10kNumerics,
 
-    /// legacy corpus from gutenberg.net called 1984.txt.
+    /// Small corpus of a book text from gutenberg.net.
+    ///
+    /// See https://gutenberg.net.au/ebooks01/0100021.txt
     GutenbergEbook,
 }
 
@@ -88,7 +90,7 @@ impl CorpusType {
 
     /// Creates a vector of terms for insertion into a trie.
     ///
-    /// Uses doc id (document name)s from the redisearch benchmark as input for the trie instead of a `value`.
+    /// Uses doc id (document name)s from the redis search benchmark as input for the trie instead of a `value`.
     fn create_terms_redis_wiki10k(&self, contents: &str) -> Vec<String> {
         // we find the guid like doc id in column 5
         let idx = 4;

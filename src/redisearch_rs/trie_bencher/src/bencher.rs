@@ -17,34 +17,99 @@ pub struct OperationBencher {
     /// A vector of strings that will be inserted into the trie map.
     keys: Vec<String>,
 
-    /// How long to run benchmarks for.
+    /// How long to run benchmarks overall, this differs significantly for benching immutable vs mutable operations because of the setup.
+    ///
     /// We need to customize this parameter when using large datasets that require a time-consuming set up
-    /// (e.g. an expensive clone of the triemap we are benching).
-    measurement_time: Duration,
+    /// (e.g. an expensive clone of the triemap we are benching, for the example with 10k entries).
+    measurement_times: CorpusMeasurementTime,
 
     /// The prefix added to the label of each benchmark group to identify which corpus was used.
     prefix: String,
 }
 
+/// A struct to hold the best `overall measurement times` in a group.
+///
+/// The benchmarking tool [Criterion] uses this to determine how long to run the benchmarks overall.
+/// The `measurement_time_immutable` is used for immutable operations (e.g. find),
+/// while the `measurement_time_mutable` is used for mutable operations (e.g. insert, remove).
+/// The `measurement_time_immutable` is set to 20% of the `measurement_time_mutable`.
+/// This is an approximation based on the assumption that immutable operations are 5 times faster than mutable operations.
+pub struct CorpusMeasurementTime {
+    /// Measurement time for immutable operations, e.g. find
+    measurement_time_immutable: Duration,
+
+    /// Measurement time for mutable operations, e.g. insert, remove
+    measurement_time_mutable: Duration,
+}
+
+impl CorpusMeasurementTime {
+    /// Creates a new [CorpusMeasurementTime] instance based on a mutable measurement time, assuming immutable operations are 5 times faster.
+    ///
+    /// This holds for the trie operations, but may not hold for other operations.
+    ///
+    /// This is an approximation based on the assumption that immutable operations are 5 times faster than mutable operations which has been seen
+    /// for find vs insert/remove in the benchmarks.
+    pub fn from_mutable_trie(mutable_measurement_time: Duration) -> Self {
+        Self {
+            measurement_time_immutable: mutable_measurement_time.mul_f32(0.2),
+            measurement_time_mutable: mutable_measurement_time,
+        }
+    }
+}
+
+impl Default for CorpusMeasurementTime {
+    fn default() -> Self {
+        Self {
+            measurement_time_immutable: Duration::from_secs(5),
+            measurement_time_mutable: Duration::from_secs(5),
+        }
+    }
+}
+
 impl OperationBencher {
-    pub fn new(prefix: String, keys: Vec<String>, measurement_time: Option<Duration>) -> Self {
-        let rust_map = rust_load_from_terms(&keys);
-        let measurement_time = measurement_time.unwrap_or_else(|| Duration::from_secs(5));
+    /// Creates a new `OperationBencher` instance with the given prefix and terms.
+    ///
+    /// - `prefix` is used to identify the corpus in the benchmark groups.
+    /// - `terms` are used to create a trie map in the setup routine of criterion.
+    /// - `mutable_measurement_time` is used to set the measurement time for mutable operations (insert, remove), for now it's also used to approximate the immutable measurement time.
+    ///
+    /// Use the provided mutable measurement time or default to 5 seconds which is the default in criterion.
+    /// For benching other operations than the trie, ensure to check the assumption from [CorpusMeasurementTime::from_mutable_trie].
+    pub fn new(
+        prefix: String,
+        terms: Vec<String>,
+        mutable_measurement_time: Option<Duration>,
+    ) -> Self {
+        let rust_map = rust_load_from_terms(&terms);
+
+        let measurement_time = mutable_measurement_time.unwrap_or(Duration::from_secs(5));
+        // approximate the immutable measurement time based on the mutable measurement time, only liable for trie operations.
+        let measurement_times = CorpusMeasurementTime::from_mutable_trie(measurement_time);
         Self {
             prefix,
             rust_map,
-            keys,
-            measurement_time,
+            keys: terms,
+            measurement_times: measurement_times,
         }
     }
 
-    fn benchmark_group<'a>(
+    fn benchmark_group_mutable<'a>(
         &self,
         c: &'a mut Criterion,
         label: &str,
     ) -> BenchmarkGroup<'a, WallTime> {
         let mut group = c.benchmark_group(format!("{}|{}", self.prefix, label));
-        group.measurement_time(self.measurement_time);
+        group.measurement_time(self.measurement_times.measurement_time_mutable);
+        group
+    }
+
+    fn benchmark_group_immutable<'a>(
+        &self,
+        c: &'a mut Criterion,
+        label: &str,
+    ) -> BenchmarkGroup<'a, WallTime> {
+        let mut group = c.benchmark_group(format!("{}|{}", self.prefix, label));
+        group.measurement_time(self.measurement_times.measurement_time_immutable);
         group
     }
 
@@ -52,7 +117,7 @@ impl OperationBencher {
     ///
     /// The benchmark group will be marked with the given label.
     pub fn find_group(&self, c: &mut Criterion, word: &str, label: &str) {
-        let mut group = self.benchmark_group(c, label);
+        let mut group = self.benchmark_group_immutable(c, label);
         find_rust_benchmark(&mut group, &self.rust_map, word);
         find_c_benchmark(&mut group, &self.keys, word);
         group.finish();
@@ -62,7 +127,7 @@ impl OperationBencher {
     ///
     /// The benchmark group will be marked with the given label.
     pub fn insert_group(&self, c: &mut Criterion, word: &str, label: &str) {
-        let mut group = self.benchmark_group(c, label);
+        let mut group = self.benchmark_group_mutable(c, label);
         insert_rust_benchmark(&mut group, self.rust_map.clone(), word);
         insert_c_benchmark(&mut group, &self.keys, word);
         group.finish();
@@ -72,7 +137,7 @@ impl OperationBencher {
     ///
     /// The benchmark group will be marked with the given label.
     pub fn remove_group(&self, c: &mut Criterion, word: &str, label: &str) {
-        let mut group = self.benchmark_group(c, label);
+        let mut group = self.benchmark_group_mutable(c, label);
         remove_rust_benchmark(&mut group, self.rust_map.clone(), word);
         remove_c_benchmark(&mut group, &self.keys, word);
         group.finish();
@@ -80,8 +145,7 @@ impl OperationBencher {
 
     /// Benchmark loading a corpus of words.
     pub fn load_group(&self, c: &mut Criterion) {
-        let mut group = self.benchmark_group(c, "Load");
-        group.measurement_time(self.measurement_time);
+        let mut group = self.benchmark_group_mutable(c, "Load");
         load_rust_benchmark(&mut group, &self.keys);
         load_c_benchmark(&mut group, &self.keys);
         group.finish();
