@@ -73,6 +73,7 @@ if (DEBUG)
 endif()
 
 #----------------------------------------------------------------------------------------------
+set(CMAKE_CXX_STANDARD 20) # required to build googletest
 
 include_directories(
     ${root}/src
