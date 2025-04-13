@@ -195,6 +195,10 @@ prepare_cmake_arguments() {
 
   # Add caching flags to prevent using old configurations
   CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -UCMAKE_TOOLCHAIN_FILE"
+
+  if [[ "$OS_NAME" == "macos" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=/opt/homebrew/opt/llvm18/bin/clang -DCMAKE_CXX_COMPILER=/opt/homebrew/opt/llvm18/clang++"
+  fi
 }
 
 #-----------------------------------------------------------------------------
