@@ -831,7 +831,7 @@ impl<Data> Node<Data> {
         //    for `self` and we haven't touched them (yet).
         unsafe {
             // We use the `old_ptr` here since we need to read the `old_n_children`th entry,
-            // which would be past the end of the array according to the new (shrinked) layout.
+            // which would be past the end of the array according to the new (shrunk) layout.
             old_ptr.children_first_bytes().shift_left(
                 i,
                 NonZeroUsize::new(1).unwrap(),

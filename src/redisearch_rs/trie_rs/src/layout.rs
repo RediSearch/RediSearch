@@ -334,7 +334,7 @@ impl<Data> PtrMetadata<Data> {
 ///
 /// # Invariants
 ///
-/// 1. [`Self::ptr`] points to a single allocation, perfomed via the global allocator.
+/// 1. [`Self::ptr`] points to a single allocation, performed via the global allocator.
 /// 2. The size of the allocation behind [`Self::ptr`] is equal or greater than the size dictated by [`Self::metadata`].
 /// 3. The alignment of the allocation behind [`Self::ptr`] matches the alignment dictated by [`Self::metadata`].
 ///
