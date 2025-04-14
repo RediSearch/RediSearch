@@ -63,11 +63,8 @@ OP=""
 # RLEC naming conventions
 
 ARCH=$($GET_PLATFORM --arch)
-[[ $ARCH == x64 ]] && ARCH=x86_64
-[[ $ARCH == arm64v8 ]] && ARCH=aarch64
 
 OS=$($GET_PLATFORM --os)
-[[ $OS == linux ]] && OS=Linux
 
 OSNICK=$($GET_PLATFORM --version-artifact)
 
@@ -140,7 +137,8 @@ pack_ramp() {
 	elif [[ -z $RAMP_VARIANT ]]; then
 		RAMP_YAML="$ROOT/pack/ramp.yml"
 	else
-		RAMP_YAML="$ROOT/pack/ramp${_RAMP_VARIANT}.yml"
+		# ${RAMP_VARIANT:+-$RAMP_VARIANT} adds a dash-prefixed variant only if RAMP_VARIANT is set and non-empty.
+		RAMP_YAML="$ROOT/pack/ramp${RAMP_VARIANT:+-$RAMP_VARIANT}.yml"
 	fi
 
 	python3 $XTX \
@@ -260,15 +258,13 @@ pack_deps() {
 
 #----------------------------------------------------------------------------------------------
 
+# NUMVER - Numeric module version (format: single integer like 20603)
+# Used for Redis module API version compatibility and internal versioning
 NUMVER="$(NUMERIC=1 $SBIN/getver)"
-SEMVER="$($SBIN/getver)"
 
-if [[ -n $VARIANT ]]; then
-	_VARIANT="-${VARIANT}"
-fi
-if [[ ! -z $RAMP_VARIANT ]]; then
-	_RAMP_VARIANT="-${RAMP_VARIANT}"
-fi
+# SEMVER - Semantic version (format: major.minor.patch like 2.6.3)
+# Used for human-readable package naming and release version identification
+SEMVER="$($SBIN/getver)"
 
 #----------------------------------------------------------------------------------------------
 
@@ -322,8 +318,6 @@ if [[ $JUST_PRINT == 1 ]]; then
 fi
 
 #----------------------------------------------------------------------------------------------
-
-mkdir -p $ARTDIR
 
 if [[ $DEPS == 1 && -n $DEP_NAMES ]]; then
 	# set up `debug` dep
