@@ -1904,7 +1904,7 @@ def test_range_query_basic():
     conn = getConnectionByEnv(env)
     dim = 4
     n = 99
-    id_diff = 47
+    id_diff = 46
 
     for data_type in VECSIM_DATA_TYPES:
         for index in VECSIM_ALGOS:
