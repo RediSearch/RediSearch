@@ -7,7 +7,7 @@ use std::{
     ffi::c_void,
 };
 
-use crate::ffi::{mstime_t, RedisModuleCtx, RedisModuleTimerID, RedisModuleTimerProc};
+use crate::ffi::{RedisModuleCtx, RedisModuleTimerID, RedisModuleTimerProc, mstime_t};
 
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
