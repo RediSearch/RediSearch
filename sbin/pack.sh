@@ -10,7 +10,6 @@ XTX="$SBIN/xtx"
 SHIBUMI="$SBIN/shibumi"
 
 realpath() { python3 "$SHIBUMI" --realpath "$@"; }
-runn() { python3 "$SHIBUMI" --runn "$@"; }
 eprint() { echo "$@" >&2; }
 
 
@@ -95,7 +94,7 @@ run_ramp_pack() {
 	local input="$1"
 	local output="$2"
 
-	runn @ <<-EOF
+	eval @ <<-EOF
 		$RAMP_CMD pack -m /tmp/ramp.yml \
 			$RAMP_ARGS \
 			-n $MODULE_NAME \
@@ -159,7 +158,7 @@ pack_ramp() {
 		cat /tmp/ramp.yml
 	fi
 
-	runn rm -f /tmp/ramp.fname $packfile
+	eval rm -f /tmp/ramp.fname $packfile
 
 	# Create main package
 	run_ramp_pack "$MODULE" "$packfile"
