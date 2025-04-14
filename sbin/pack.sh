@@ -93,6 +93,35 @@ RAMP_CMD="python3 -m RAMP.ramp"
 
 #----------------------------------------------------------------------------------------------
 
+run_ramp_pack() {
+	local input="$1"
+	local output="$2"
+
+	runn @ <<-EOF
+		$RAMP_CMD pack -m /tmp/ramp.yml \
+			$RAMP_ARGS \
+			-n $MODULE_NAME \
+			--verbose \
+			--debug \
+			--packname-file /tmp/ramp.fname \
+			-o "$output" \
+			"$input" \
+			>/tmp/ramp.err 2>&1 || true
+	EOF
+
+	if [[ $NOP != 1 ]]; then
+		if [[ ! -e "$output" ]]; then
+			eprint "Error generating RAMP file:"
+			>&2 cat /tmp/ramp.err
+			exit 1
+		else
+			local packname
+			packname="$(cat /tmp/ramp.fname)"
+			echo "# Created $(realpath "$packname")"
+		fi
+	fi
+}
+
 pack_ramp() {
 	cd $ROOT
 
@@ -117,7 +146,6 @@ pack_ramp() {
 	local packfile=$ARTDIR/$packdir/$fq_package
 	local packfile_debug=$ARTDIR/$packdir/$fq_package_debug
 
-	local xtx_vars=""
 
 	if [[ -n $RAMP_YAML ]]; then
 		RAMP_YAML="$(realpath $RAMP_YAML)"
@@ -128,10 +156,9 @@ pack_ramp() {
 		RAMP_YAML="$ROOT/pack/ramp${RAMP_VARIANT:+-$RAMP_VARIANT}.yml"
 	fi
 
-	python3 $XTX \
-		$xtx_vars \
-		-e NUMVER -e SEMVER \
-		$RAMP_YAML > /tmp/ramp.yml
+	# Generate ramp.yml
+	python3 "$XTX" -e NUMVER -e SEMVER "$RAMP_YAML" > /tmp/ramp.yml
+
 	if [[ $VERBOSE == 1 ]]; then
 		echo "# ramp.yml:"
 		cat /tmp/ramp.yml
@@ -139,57 +166,15 @@ pack_ramp() {
 
 	runn rm -f /tmp/ramp.fname $packfile
 
-	# ROOT is required so ramp will detect the right git commit
-	cd $ROOT
-	runn @ <<-EOF
-		$RAMP_CMD pack -m /tmp/ramp.yml \
-			$RAMP_ARGS \
-			-n $MODULE_NAME \
-			--verbose \
-			--debug \
-			--packname-file /tmp/ramp.fname \
-			-o $packfile \
-			$MODULE \
-			>/tmp/ramp.err 2>&1 || true
-		EOF
+	# Create main package
+	run_ramp_pack "$MODULE" "$packfile"
 
-	if [[ $NOP != 1 ]]; then
-		if [[ ! -e $packfile ]]; then
-			eprint "Error generating RAMP file:"
-			>&2 cat /tmp/ramp.err
-			exit 1
-		else
-			local packname=`cat /tmp/ramp.fname`
-			echo "# Created $(realpath $packname)"
-		fi
+	# Create debug package if exists
+	if [[ -f "$MODULE.debug" ]]; then
+		run_ramp_pack "$MODULE.debug" "$packfile_debug"
 	fi
 
-	if [[ -f $MODULE.debug ]]; then
-		runn @ <<-EOF
-			$RAMP_CMD pack -m /tmp/ramp.yml \
-				$RAMP_ARGS \
-				-n $MODULE_NAME \
-				--verbose \
-				--debug \
-				--packname-file /tmp/ramp.fname \
-				-o $packfile_debug \
-				$MODULE.debug \
-				>/tmp/ramp.err 2>&1 || true
-			EOF
-
-		if [[ $NOP != 1 ]]; then
-			if [[ ! -e $packfile_debug ]]; then
-				eprint "Error generating RAMP file:"
-				>&2 cat /tmp/ramp.err
-				exit 1
-			else
-				local packname=`cat /tmp/ramp.fname`
-				echo "# Created $(realpath $packname)"
-			fi
-		fi
-	fi
-
-	cd $ROOT
+	cd "$ROOT"
 }
 
 #----------------------------------------------------------------------------------------------
