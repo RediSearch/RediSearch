@@ -37,7 +37,7 @@ trie_rs = { path = "./trie_rs" }
 bindgen = "0.71.1"
 cc = "1"
 crc32fast = "1.4.2"
-criterion = { version = "0.5", features = ["csv_output", "html_reports"] }
+criterion = { version = "0.5", features = ["html_reports"] }
 csv = "1.3.1"
 fs-err = "3.1.0"
 insta = "1.42.2"
