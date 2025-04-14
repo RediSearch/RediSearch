@@ -944,6 +944,7 @@ def test_hybrid_query_with_geo():
     conn = getConnectionByEnv(env)
     dim = 2
     data_type = random.choice(VECSIM_DATA_TYPES)
+    data_type = 'FLOAT16'
     env.debugPrint(f"data_type for test {env.testName}: {data_type}", force=True)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
@@ -965,7 +966,7 @@ def test_hybrid_query_with_geo():
         expected_res.append(str(31-i))
         expected_res.append(['coordinate', str((31-i)/100)+","+str((31-i)/100)])
     env.expect('FT.SEARCH', 'idx', '(@coordinate:[0.0 0.0 50 km])=>[KNN 10 @v $vec_param]',
-                'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(), 'RETURN', 1, 'coordinate').equal(expected_res)
+                'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(), 'RETURN', 2, 'coordinate', '__v_score').equal(expected_res)
 
     # Expect that no results will pass the filter
     execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[KNN 10 @v $vec_param]', query_data, 'coordinate',
