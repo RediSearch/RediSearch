@@ -211,6 +211,7 @@ include_directories(
     ${root}/src/redisearch_rs
     ${root}/deps/libuv/include
     ${root}/deps
+    ${root}/deps/triemap
     ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
     ${BOOST_DIR}
@@ -221,6 +222,7 @@ add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
 add_subdirectory(deps/fast_float)
+add_subdirectory(deps/triemap)
 
 # Configure libuv options
 set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
@@ -262,12 +264,12 @@ file(GLOB SOURCES
     "deps/base64/*.c"
     "deps/fast_float/*.c"
     "deps/thpool/*.c"
-    "deps/triemap/*.c"
     "deps/geohash/*.c")
 
 add_library(rscore OBJECT ${SOURCES})
 
 set(FINAL_OBJECTS
+    $<TARGET_OBJECTS:trie>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
@@ -288,15 +290,11 @@ target_link_libraries(redisearch
         redisearch-hash
         VectorSimilarity
         redisearch-coord
+        trie
         uv_a
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
         ${CMAKE_LD_LIBS})
-
-# Link Rust library if available
-if(EXISTS "${binroot}/redisearch_rs/libtrie_rs.a")
-    target_link_libraries(redisearch ${binroot}/redisearch_rs/libtrie_rs.a)
-endif()
 
 extract_debug_symbols(redisearch)
 add_dependencies(redisearch VectorSimilarity)

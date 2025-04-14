@@ -1,6 +1,9 @@
 #![allow(non_camel_case_types, non_snake_case)]
 
-use std::ffi::{c_char, c_int, c_void};
+use std::{
+    ffi::{c_char, c_int, c_void},
+    slice,
+};
 
 /// Holds the length of a key string in the trie.
 ///
@@ -10,7 +13,7 @@ use std::ffi::{c_char, c_int, c_void};
 /// ```
 pub type tm_len_t = u16;
 
-/// This special pointer is returned when TrieMap_Find cannot find anything.
+/// This special pointer is returned when [`TrieMap_Find`] cannot find anything.
 ///
 /// C equivalent:
 /// ```c
@@ -46,7 +49,8 @@ enum tm_iter_mode {
 static TM_ITER_MODE_DEFAULT: tm_iter_mode = tm_iter_mode::TM_PREFIX_MODE;
 
 /// Opaque type TrieMap. Can be instantiated with [`NewTrieMap`].
-pub enum TrieMap {}
+#[repr(transparent)]
+struct TrieMap(crate::trie::TrieMap<*mut c_void>);
 
 /// Callback type for passing to [`TrieMap_IterateRange`].
 ///
@@ -124,7 +128,8 @@ unsafe extern "C" fn TrieMapResultBuf_Data(buf: *mut TrieMapResultBuf) -> *mut *
 /// ```
 #[unsafe(no_mangle)]
 unsafe extern "C" fn NewTrieMap() -> *mut TrieMap {
-    todo!()
+    let map = Box::new(TrieMap(crate::trie::TrieMap::new()));
+    Box::into_raw(map)
 }
 
 /// Callback type for passing to [`TrieMap_Delete`].
@@ -147,12 +152,8 @@ type TrieMapReplaceFunc =
 /// Add a new string to a trie. Returns 1 if the key is new to the trie or 0 if
 /// it already existed.
 ///
-/// If value is given, it is saved as a payload inside the trie node.
-/// If the key already exists, we replace the old value with the new value, using
-/// free() to free the old value.
-///
-/// If cb is given, instead of replacing and freeing, we call the callback with
-/// the old and new value, and the function should return the value to set in the
+/// If `cb` is given, instead of replacing and freeing the value using `rm_free`,
+/// we call the callback with the old and new value, and the function should return the value to set in the
 /// node, and take care of freeing any unwanted pointers. The returned value
 /// can be NULL and doesn't have to be either the old or new value.
 ///
@@ -163,6 +164,9 @@ type TrieMapReplaceFunc =
 ///  - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
 ///  - `len` can be 0. If so, `str` is regarded as an empty string.
 ///  - `value` holds a pointer to the value of the record, which can be NULL
+///  - `cb` must not free the value it returns
+///  - The Redis allocator must be initialized before calling this function,
+///    and `RedisModule_Free` must not get mutated while running this function.
 ///
 /// C equivalent:
 /// ```c
@@ -181,8 +185,51 @@ unsafe extern "C" fn TrieMap_Add(
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
     }
 
-    let _unused = (value, cb);
-    todo!()
+    // SAFETY: The safety requirements of this function
+    // require the caller to ensure that the pointer `t` is
+    // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
+    // If that invariant is upheld, then the following line is sound.
+    let TrieMap(trie) = unsafe { &mut *t };
+
+    let key = if len > 0 {
+        // SAFETY: The safety requirements of this function
+        // require the caller to ensure that the pointer `str` is
+        // a valid pointer to a C string, with a length of `len` bytes.
+        // If that invariant is upheld, then the following line is sound.
+        unsafe { slice::from_raw_parts(str, len as usize) }
+    } else {
+        &[]
+    };
+
+    let mut was_vacant = true;
+    trie.insert_with(key, |old| {
+        if let Some(old_value) = old {
+            was_vacant = false;
+            if let Some(cb) = cb {
+                // SAFETY: The safety requirements of this function
+                // require `cb` has the correct signature and does
+                // not free the value it returns.
+                unsafe { cb(old_value, value) }
+            } else {
+                // SAFETY:
+                // The safety requirements of this function
+                // require the caller to ensure that the Redis allocator is initialized,
+                // and that `RedisModule_Free` does not get mutated while running this function.
+                let rm_free = unsafe {
+                    redis_module::raw::RedisModule_Free.expect("Redis allocator not available")
+                };
+                // SAFETY:
+                // The safety requirements of this function
+                // require the caller to ensure that the Redis allocator is properly initialized.
+                unsafe { rm_free(old_value) };
+                value
+            }
+        } else {
+            value
+        }
+    });
+
+    if was_vacant { 1 } else { 0 }
 }
 
 /// Find the entry with a given string and length, and return its value, even if
@@ -200,6 +247,10 @@ unsafe extern "C" fn TrieMap_Add(
 /// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
 /// - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
 /// - `len` can be 0. If so, `str` is regarded as an empty string.
+/// - The value behind the returned pointer must not be destroyed by the caller.
+///   Use [`TrieMap_Delete`] to remove it instead.
+/// - In case [`TRIE_NOTFOUND`] is returned, the key does not exist in the trie,
+///   and the pointer must not be dereferenced.
 ///
 /// C equivalent:
 /// ```c
@@ -216,7 +267,36 @@ unsafe extern "C" fn TrieMap_Find(
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
     }
 
-    todo!()
+    // SAFETY: The safety requirements of this function
+    // state the caller is to ensure that the pointer `t` is
+    // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
+    // If that invariant is upheld, then the following line is sound.
+    let TrieMap(trie) = unsafe { &mut *t };
+
+    let key = if len > 0 {
+        // SAFETY: The safety requirements of this function
+        // state the caller is to ensure that the pointer `str` is
+        // a valid pointer to a C string, with a length of `len` bytes.
+        // If that invariant is upheld, then the following line is sound.
+        unsafe { slice::from_raw_parts(str, len as usize) }
+    } else {
+        // `str` is allowed to be NULL if len is 0,
+        // but `slice::from_raw_parts` requires a non-null pointer.
+        // Therefore, we use an empty slice instead.
+        &[]
+    };
+
+    // Static muts are footguns, but there's no real way around them given
+    // the intention to mimic the API of the original C implementation.
+    #[allow(static_mut_refs)]
+    // SAFETY: TRIEMAP_NOTFOUND is a pointer to a static mut `c_void`.
+    // It is only referred to by this function and is not available outside this module,
+    // except through the `extern void * TRIEMAP_NOTFOUND`.
+    // The caller is responsible for ensuring that the returned pointer is not dereferenced
+    // in case it is equal to TRIEMAP_NOTFOUND.
+    let value = *trie.find(key).unwrap_or(unsafe { &TRIEMAP_NOTFOUND });
+
+    value
 }
 
 /// Find nodes that have a given prefix. Results are placed in an array.
@@ -260,6 +340,7 @@ unsafe extern "C" fn TrieMap_FindPrefixes(
 /// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
 /// - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
 /// - `len` can be 0. If so, `str` is regarded as an empty string.
+/// - if `func` is not NULL, it must be a valid function pointer of the type [`freeCB`].
 ///
 /// C equivalent:
 /// ```c
@@ -277,8 +358,49 @@ unsafe extern "C" fn TrieMap_Delete(
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
     }
 
-    let _unused = func;
-    todo!()
+    // SAFETY: The safety requirements of this function
+    // state the caller is to ensure that the pointer `t` is
+    // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
+    // If that invariant is upheld, then the following line is sound.
+    let TrieMap(trie) = unsafe { &mut *t };
+
+    let key = if len > 0 {
+        // SAFETY: The safety requirements of this function
+        // state the caller is to ensure that the pointer `str` is
+        // a valid pointer to a C string, with a length of `len` bytes.
+        // If that invariant is upheld, then the following line is sound.
+        unsafe { slice::from_raw_parts(str, len as usize) }
+    } else {
+        // `str` is allowed to be NULL if len is 0,
+        // but `slice::from_raw_parts` requires a non-null pointer.
+        // Therefore, we use an empty slice instead.
+        &[]
+    };
+
+    trie.remove(key)
+        .map(|old_val| {
+            if let Some(f) = func {
+                // SAFETY: The safety requirements of this function
+                // require the caller to ensure that the pointer `func` is
+                // either NULL or a valid pointer to a function of type `freeCB.
+                // If that invariant is upheld, then the following line is sound.
+                unsafe { f(old_val) }
+            } else {
+                // SAFETY:
+                // The safety requirements of this function
+                // require the caller to ensure that the Redis allocator is initialized,
+                // and that `RedisModule_Free` does not get mutated while running this function.
+                let rm_free = unsafe {
+                    redis_module::raw::RedisModule_Free.expect("Redis allocator not available")
+                };
+                // SAFETY:
+                // The safety requirements of this function
+                // require the caller to ensure that the Redis allocator is properly initialized.
+                unsafe { rm_free(old_val) };
+            }
+            1
+        })
+        .unwrap_or(0)
 }
 
 /// Free the trie's root and all its children recursively. If freeCB is given, we
@@ -295,9 +417,17 @@ unsafe extern "C" fn TrieMap_Delete(
 #[unsafe(no_mangle)]
 unsafe extern "C" fn TrieMap_Free(t: *mut TrieMap, func: freeCB) {
     debug_assert!(!t.is_null(), "t cannot be NULL");
-
-    let _unused = func;
-    todo!()
+    // Reconstruct the original Box<TrieMap> which will take care of freeing the memory
+    // upon dropping.
+    // SAFETY: The safety requirements of this function
+    // state the caller is to ensure that the pointer `t` is
+    // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
+    // If that invariant is upheld, then the following line is sound.
+    let trie = unsafe { Box::from_raw(t) };
+    if let Some(func) = func {
+        let _unused = (func, trie);
+        todo!("Iterate over all nodes and free them by calling `func` given the data.");
+    }
 }
 
 /// Determines the amount of memory used by the trie in bytes.
@@ -314,8 +444,12 @@ unsafe extern "C" fn TrieMap_Free(t: *mut TrieMap, func: freeCB) {
 unsafe extern "C" fn TrieMap_MemUsage(t: *mut TrieMap) -> usize {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
-    let _unused = t;
-    todo!()
+    // SAFETY: The safety requirements of this function
+    // state the caller is to ensure that the pointer `t` is
+    // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
+    // If that invariant is upheld, then the following line is sound.
+    let TrieMap(trie) = unsafe { &*t };
+    trie.mem_usage()
 }
 
 /// Iterate the trie for all the suffixes of a given prefix. This returns an

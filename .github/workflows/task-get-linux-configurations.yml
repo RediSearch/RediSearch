@@ -156,7 +156,7 @@ jobs:
           if 'alpine:3' in arm_platforms:
             arm_include.append({
               'OS': 'alpine:3',
-              'pre-deps': "sed -i 's/ID=alpine/ID=NotpineForGHA/g' /etc/os-release & apk add bash gcompat libstdc++ libgcc git"})
+              'pre-deps': "apk add bash gcompat libstdc++ libgcc git"})
 
           # Ubuntu and Debian distributions need git pre-checkout dependencies
           debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'ubuntu:bionic', 'debian:bullseye', 'gcc:12-bookworm']
