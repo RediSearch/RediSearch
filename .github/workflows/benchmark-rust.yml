@@ -1,6 +1,12 @@
 name: Rust Benchmarks
 
 on:
+    pull_request:
+      paths:
+        - 'src/redisearch_rs/**/*.rs'
+        - '**/*.toml'  # Cargo files
+        - 'src/redisearch_rs/.cargo/**'
+
     workflow_dispatch:
       inputs:
         force_run:
@@ -20,6 +26,25 @@ on:
           default: false
 
 jobs:
+  check-changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      should_run: ${{ steps.filter.outputs.rust_any_changed || inputs.force_run }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for all branches and tags
+      
+      - name: Check for Rust file changes
+        id: filter
+        uses: dorny/paths-filter@v2
+        with:
+          filters: |
+            rust_any_changed:
+              - 'src/redisearch_rs/**/*.rs'
+              - '**/*.toml'  # Cargo files
+              - 'src/redisearch_rs/.cargo/**'
   benchmarks:
     runs-on: ubuntu-24.04
     env:
