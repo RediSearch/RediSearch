@@ -30,7 +30,7 @@ def parse_args():
     return parser.parse_args()
 
 def get_os():
-    """Return lowercase OS name (e.g. 'Linux', 'darwin')"""
+    """Return lowercase OS name (e.g. 'Linux', 'macos')"""
     return platform.system().lower().replace('darwin', 'macos').replace('linux', 'Linux')
 
 def get_arch():
