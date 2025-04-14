@@ -6,8 +6,6 @@ ROOT=$(cd $HERE/.. && pwd)
 SBIN=$ROOT/sbin
 
 GET_PLATFORM="$SBIN/get-platform"
-XTX="$SBIN/xtx"
-SHIBUMI="$SBIN/shibumi"
 
 realpath() {
   local target="$1"
@@ -155,9 +153,7 @@ pack_ramp() {
 		RAMP_YAML="$ROOT/pack/ramp${RAMP_VARIANT:+-$RAMP_VARIANT}.yml"
 	fi
 
-	# Generate ramp.yml
 	cat $RAMP_YAML > /tmp/ramp.yml
-
 
 	if [[ $VERBOSE == 1 ]]; then
 		echo "# ramp.yml:"
@@ -177,9 +173,6 @@ pack_ramp() {
 
 
 #----------------------------------------------------------------------------------------------
-# NUMVER - Numeric module version (format: single integer like 20603)
-# Used for Redis module API version compatibility and internal versioning
-NUMVER="$(NUMERIC=1 $SBIN/getver)"
 
 # SEMVER - Semantic version (format: major.minor.patch like 2.6.3)
 # Used for human-readable package naming and release version identification
