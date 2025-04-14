@@ -53,6 +53,7 @@ declare -A os_package_checkers=(
   ["mariner"]="check_package_tdnf"
   ["azurelinux"]="check_package_tdnf"
 )
+
 # Early bailout if the OS is not supported
 if [[ -z "${os_package_checkers[$OS]}" ]]; then
   echo -e "${YELLOW}Error: Unsupported operating system: $OS.${NC}"

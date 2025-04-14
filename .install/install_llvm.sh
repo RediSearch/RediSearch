@@ -4,14 +4,14 @@
 source "$(dirname "$0")/macos_update_profile.sh"
 
 OS_TYPE=$(uname -s)
-VERSION=17
+VERSION=18
 MODE=$1
 
 if [[ $OS_TYPE == Darwin ]]; then
     brew install llvm@$VERSION
     BREW_PREFIX=$(brew --prefix)
     LLVM="$BREW_PREFIX/opt/llvm@$VERSION/bin"
-    echo "LLVM path: $LLVM"
+
     # Update profiles with LLVM path
     [[ -f ~/.bash_profile ]] && update_profile ~/.bash_profile "$LLVM"
     [[ -f ~/.zshrc ]] && update_profile ~/.zshrc "$LLVM"
