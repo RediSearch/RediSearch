@@ -2,7 +2,6 @@
 //!
 //! Check [`TrieMap`]'s documentation for more details.
 
-mod layout;
 mod node;
 mod trie;
 mod utils;

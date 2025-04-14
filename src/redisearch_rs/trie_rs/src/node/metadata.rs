@@ -10,7 +10,7 @@ use std::{alloc::Layout, ffi::c_char, marker::PhantomData, num::NonZeroUsize, pt
 ///
 /// [`NodeHeader::layout`] can be used to compute the layout of
 /// the buffer allocated for a [`Node`].
-pub struct NodeHeader {
+pub(super) struct NodeHeader {
     /// The length of the label associated with this node.
     ///
     /// It can be 0, for the root node.
@@ -22,7 +22,7 @@ pub struct NodeHeader {
 impl NodeHeader {
     /// Computes the metadata (layout and field offsets) required to
     /// work with a [`Node`] of a given label length and number of children.
-    pub fn metadata<Data>(self) -> PtrMetadata<Data> {
+    pub(super) fn metadata<Data>(self) -> PtrMetadata<Data> {
         PtrMetadata::<Data>::compute(self)
     }
 }
@@ -115,22 +115,30 @@ pub(super) struct PtrMetadata<Data> {
     layout: Layout,
     /// The offset (in bytes) of the children first-bytes array,
     /// relative to the beginning of the allocated buffer.
-    pub(crate) children_first_bytes_offset: usize,
+    children_first_bytes_offset: usize,
     /// The offset (in bytes) of the children pointer array,
     /// relative to the beginning of the allocated buffer.
-    pub(crate) children_offset: usize,
+    children_offset: usize,
     /// The offset (in bytes) of the node value,
     /// relative to the beginning of the allocated buffer.
-    pub(crate) value_offset: usize,
+    value_offset: usize,
     // Capture the `Data` type to ensure we can refer to its size and
     // alignment in our offset calculations.
     _phantom: PhantomData<Data>,
     #[cfg(debug_assertions)]
     /// The length of the label associated with this node.
-    pub(crate) label_len: usize,
+    ///
+    /// This field is only used in builds with debug assertions enabled
+    /// to ensure that some of our invariants/safety preconditions
+    /// are indeed upheld.
+    label_len: usize,
     #[cfg(debug_assertions)]
     /// The number of children for this node.
-    pub(crate) n_children: usize,
+    ///
+    /// This field is only used in builds with debug assertions enabled
+    /// to ensure that some of our invariants/safety preconditions
+    /// are indeed upheld.
+    n_children: usize,
 }
 
 impl<Data> PtrMetadata<Data> {
@@ -144,9 +152,11 @@ impl<Data> PtrMetadata<Data> {
 
         // The offset doesn't depend on the actual number of children.
         let Ok(label) = Layout::array::<c_char>(1) else {
+            // `1 (array size)` is guaranteed to be less than `isize::MAX`.
             unreachable!()
         };
         let Ok((_, offset)) = layout.extend(label) else {
+            // `2 (header) + 1 (label)` is guaranteed to be less than `isize::MAX`.
             unreachable!()
         };
         offset
@@ -210,7 +220,7 @@ impl<Data> PtrMetadata<Data> {
     }
 
     /// Allocate a new buffer using [`Self::layout`] as its memory layout.
-    pub fn allocate(self) -> PtrWithMetadata<Data> {
+    pub(super) fn allocate(self) -> PtrWithMetadata<Data> {
         let ptr = {
             // SAFETY:
             // `layout.size()` is greater than zero, see 1. in [`AllocationInfo::layout`]
@@ -334,7 +344,7 @@ impl<Data> PtrMetadata<Data> {
 ///
 /// # Invariants
 ///
-/// 1. [`Self::ptr`] points to a single allocation, perfomed via the global allocator.
+/// 1. [`Self::ptr`] points to a single allocation, performed via the global allocator.
 /// 2. The size of the allocation behind [`Self::ptr`] is equal or greater than the size dictated by [`Self::metadata`].
 /// 3. The alignment of the allocation behind [`Self::ptr`] matches the alignment dictated by [`Self::metadata`].
 ///
@@ -346,7 +356,7 @@ impl<Data> PtrMetadata<Data> {
 /// We could require [`Self::ptr`] to point at an allocation whose size is **equal** to the size dictated by [`Self::metadata`].
 /// It'd be a stricter requirement, but we chose to weaken it to allow us to handle more scenarios (namely, reallocations) via
 /// the same abstraction.
-pub struct PtrWithMetadata<Data> {
+pub(super) struct PtrWithMetadata<Data> {
     ptr: NonNull<NodeHeader>,
     metadata: PtrMetadata<Data>,
 }
@@ -357,17 +367,12 @@ impl<Data> PtrWithMetadata<Data> {
     /// # Safety
     ///
     /// `ptr` must satisfy the safety invariants enumerated in [`Self`]'s documentation.
-    pub const unsafe fn new(ptr: NonNull<NodeHeader>, metadata: PtrMetadata<Data>) -> Self {
+    pub(super) const unsafe fn new(ptr: NonNull<NodeHeader>, metadata: PtrMetadata<Data>) -> Self {
         Self { ptr, metadata }
     }
 
     /// The pointer to the beginning of the allocated buffer.
-    pub fn ptr(&self) -> NonNull<NodeHeader> {
-        self.ptr
-    }
-
-    /// Returns a pointer to the header for this node.
-    pub fn header_ptr(&self) -> NonNull<NodeHeader> {
+    pub(super) fn ptr(&self) -> NonNull<NodeHeader> {
         self.ptr
     }
 
@@ -379,41 +384,28 @@ impl<Data> PtrWithMetadata<Data> {
     /// # Safety
     ///
     /// 1. You must have exclusive access to the buffer that [`Self::ptr`] points to.
-    pub unsafe fn write_header(&mut self, header: NodeHeader) {
+    pub(super) unsafe fn write_header(&mut self, header: NodeHeader) {
         // SAFETY:
         // - The data we are writing falls within the boundaries of a single allocated buffer,
         //   thanks to 1. and 2. in `Self`'s documentation.
         // - The caller guarantees that they have exclusive access to the buffer we are writing to.
         // - The pointer is well aligned for the header type, thanks to 3. in `Self`'s documentation.
-        unsafe { self.header_ptr().write(header) }
+        unsafe { self.ptr.write(header) }
     }
 
-    /// Manipulate the buffer allocated to store this node's label.
-    pub fn label(&self) -> LabelBuffer<Data> {
+    /// Manipulate the buffer portion related to this node's label.
+    pub(super) fn label(&self) -> LabelBuffer<Data> {
         LabelBuffer(self)
     }
 
-    /// Manipulate the buffer allocated to store this node's children first bytes.
-    pub fn children_first_bytes(&self) -> ChildrenFirstBytesBuffer<Data> {
+    /// Manipulate the buffer portion related to this node's children first bytes.
+    pub(super) fn children_first_bytes(&self) -> ChildrenFirstBytesBuffer<Data> {
         ChildrenFirstBytesBuffer(self)
     }
 
-    /// Returns a pointer to the first element of the child pointer array for this node.
-    pub fn children_ptr(&self) -> NonNull<Node<Data>> {
-        // SAFETY: This is safe because:
-        // 1. `self.ptr` was verified to be properly allocated with the correct layout
-        //    when this struct was created (see safety invariant #1).
-        // 2. The metadata's layout guarantees proper alignment for this field.
-        unsafe { self.metadata.children_ptr(self.ptr) }
-    }
-
-    /// Returns a pointer to the value stored in this node.
-    pub fn value_ptr(&self) -> NonNull<Option<Data>> {
-        // SAFETY: This is safe because:
-        // 1. `self.ptr` was verified to be properly allocated with the correct layout
-        //    when this struct was created (see safety invariant #1).
-        // 2. The metadata's layout guarantees proper alignment for this field.
-        unsafe { self.metadata.value_ptr(self.ptr) }
+    /// Manipulate the buffer portion related to this node's children.
+    pub(super) fn children(&self) -> ChildrenBuffer<Data> {
+        ChildrenBuffer(self)
     }
 
     /// Write a value to the expected offset.
@@ -424,13 +416,18 @@ impl<Data> PtrWithMetadata<Data> {
     /// # Safety
     ///
     /// 1. You must have exclusive access to the buffer that [`Self::ptr`] points to.
-    pub unsafe fn write_value(&mut self, value: Option<Data>) {
+    pub(super) unsafe fn write_value(&mut self, value: Option<Data>) {
+        // SAFETY: This is safe because:
+        // 1. `self.ptr` was verified to be properly allocated with the correct layout
+        //    when this struct was created (see safety invariant #1).
+        // 2. The metadata's layout guarantees proper alignment for this field.
+        let value_ptr = unsafe { self.metadata.value_ptr(self.ptr) };
         // SAFETY:
         // - The data we are writing falls within the boundaries of a single allocated buffer,
         //   thanks to 1. and 2. in `Self`'s documentation.
         // - The caller guarantees that they have exclusive access to the buffer we are writing to.
         // - The pointer is well aligned for the `Option<Data>` type, thanks to 3. in `Self`'s documentation.
-        unsafe { self.value_ptr().write(value) }
+        unsafe { value_ptr.write(value) }
     }
 
     /// Promote the non-null pointer to a well-formed [`Node`] instance.
@@ -438,7 +435,7 @@ impl<Data> PtrWithMetadata<Data> {
     /// # Safety
     ///
     /// 1. All fields must have been properly initialized.
-    pub unsafe fn assume_init(self) -> Node<Data> {
+    pub(super) unsafe fn assume_init(self) -> Node<Data> {
         Node {
             ptr: self.ptr,
             _phantom: PhantomData,
@@ -446,14 +443,14 @@ impl<Data> PtrWithMetadata<Data> {
     }
 
     /// Decompose `self` into its constituent parts.
-    pub fn into_parts(self) -> (NonNull<NodeHeader>, PtrMetadata<Data>) {
+    pub(super) fn into_parts(self) -> (NonNull<NodeHeader>, PtrMetadata<Data>) {
         (self.ptr, self.metadata)
     }
 }
 
 /// A struct that groups together methods to manipulate the buffer allocated
 /// to store this node's label.
-pub(crate) struct LabelBuffer<'a, Data>(&'a PtrWithMetadata<Data>);
+pub(super) struct LabelBuffer<'a, Data>(&'a PtrWithMetadata<Data>);
 
 impl<Data> LabelBuffer<'_, Data> {
     /// Returns a pointer to beginning of the label buffer.
@@ -476,7 +473,7 @@ impl<Data> LabelBuffer<'_, Data> {
     /// 1. The number of elements in `src` must be less than or equal to the capacity of the label buffer.
     /// 2. `src` and the label buffer must not overlap.
     /// 3. You have exclusive access to the label buffer.
-    pub unsafe fn copy_from_slice_nonoverlapping(&mut self, src: &[c_char]) {
+    pub(super) unsafe fn copy_from_slice_nonoverlapping(&mut self, src: &[c_char]) {
         #[cfg(debug_assertions)]
         {
             assert!(
@@ -519,7 +516,7 @@ impl<Data> LabelBuffer<'_, Data> {
     /// 1. `offset` + `n_elements` must not exceed the capacity of the label buffer.
     /// 2. You must have exclusive access to the label buffer.
     /// 3. The first `n_elements` elements in the buffer must be correctly initialized.
-    pub unsafe fn shift_right(&mut self, offset: usize, n_elements: usize) {
+    pub(super) unsafe fn shift_right(&mut self, offset: usize, n_elements: usize) {
         #[cfg(debug_assertions)]
         {
             assert!(
@@ -543,7 +540,7 @@ impl<Data> LabelBuffer<'_, Data> {
 
 /// A struct that groups together methods to manipulate the buffer allocated
 /// to store the first byte of the children of this node.
-pub(crate) struct ChildrenFirstBytesBuffer<'a, Data>(&'a PtrWithMetadata<Data>);
+pub(super) struct ChildrenFirstBytesBuffer<'a, Data>(&'a PtrWithMetadata<Data>);
 
 impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
     /// Returns a pointer to beginning of the children first-bytes buffer.
@@ -551,7 +548,7 @@ impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
     /// # Invariants
     ///
     /// 1. The returned pointer is well-aligned to write/read a slice of `c_char`s.
-    pub fn ptr(&self) -> NonNull<c_char> {
+    pub(super) fn ptr(&self) -> NonNull<c_char> {
         // SAFETY: This is safe because:
         // 1. `self.0.ptr` was verified to be properly allocated with the correct layout
         //    when this struct was created (see safety invariant #1 in `PtrWithMetadata`).
@@ -566,7 +563,7 @@ impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
     /// 1. The number of elements in `src` must be less than or equal to the capacity of the buffer.
     /// 2. `src` and the destination buffer must not overlap.
     /// 3. You have exclusive access to the children first-bytes buffer.
-    pub unsafe fn copy_from_slice_nonoverlapping(&mut self, src: &[c_char]) {
+    pub(super) unsafe fn copy_from_slice_nonoverlapping(&mut self, src: &[c_char]) {
         #[cfg(debug_assertions)]
         {
             assert!(
@@ -612,7 +609,7 @@ impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
     /// 1. `offset + by + n_elements` must not exceed the capacity of the buffer.
     /// 2. You must have exclusive access to the children first-bytes buffer.
     /// 3. The elements in `[offset + by..(offset + n_elements - 1) + by]` must be correctly initialized.
-    pub unsafe fn shift_left(&mut self, offset: usize, by: NonZeroUsize, n_elements: usize) {
+    pub(super) unsafe fn shift_left(&mut self, offset: usize, by: NonZeroUsize, n_elements: usize) {
         #[cfg(debug_assertions)]
         {
             assert!(
@@ -641,7 +638,7 @@ impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
     ///
     /// 1. The number of elements in `bytes` must be less than or equal to the capacity of the buffer.
     /// 2. You have exclusive access to the children first-bytes buffer.
-    pub unsafe fn write<const N: usize>(&mut self, bytes: [c_char; N]) {
+    pub(super) unsafe fn write<const N: usize>(&mut self, bytes: [c_char; N]) {
         #[cfg(debug_assertions)]
         {
             assert!(
@@ -653,5 +650,44 @@ impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
         // - The pointer is valid for writes of `N` elements, thanks to 1.
         // - The pointer is properly aligned, see 2. in [`ChildrenFirstBytesBuffer::ptr`].
         unsafe { self.ptr().cast().write(bytes) }
+    }
+}
+
+/// A struct that groups together methods to manipulate the buffer allocated
+/// to store the children of this node.
+pub(super) struct ChildrenBuffer<'a, Data>(&'a PtrWithMetadata<Data>);
+
+impl<Data> ChildrenBuffer<'_, Data> {
+    /// Returns a pointer to beginning of the children buffer.
+    ///
+    /// # Invariants
+    ///
+    /// 1. The returned pointer is well-aligned to write/read a slice of `NonNull<Node<Data>>`s.
+    pub(super) fn ptr(&self) -> NonNull<Node<Data>> {
+        // SAFETY: This is safe because:
+        // 1. `self.0.ptr` was verified to be properly allocated with the correct layout
+        //    when this struct was created (see safety invariant #1 in `PtrWithMetadata`).
+        // 2. The metadata's layout guarantees proper alignment for this field.
+        unsafe { self.0.metadata.children_ptr(self.0.ptr) }
+    }
+
+    /// Write the contents of `source` into the children buffer.
+    ///
+    /// # Safety
+    ///
+    /// 1. The number of elements in `source` must be less than or equal to the capacity of the buffer.
+    /// 2. You have exclusive access to the children buffer.
+    pub(super) unsafe fn write<const N: usize>(&mut self, source: [Node<Data>; N]) {
+        #[cfg(debug_assertions)]
+        {
+            assert!(
+                N <= self.0.metadata.n_children,
+                "The number of elements must be less than or equal to the number of children for this node."
+            );
+        }
+        // SAFETY:
+        // - The pointer is valid for writes of `N` elements, thanks to 1.
+        // - The pointer is properly aligned, see 2. in [`ChildrenBuffer::ptr`].
+        unsafe { self.ptr().cast().write(source) }
     }
 }

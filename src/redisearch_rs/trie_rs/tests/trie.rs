@@ -123,6 +123,8 @@ fn test_trie_insertions() {
     assert_eq!(trie.find(&b"cool".c_chars()), Some(&3));
     assert_eq!(trie.find(&b"bi".c_chars()), Some(&4));
 
+    assert_eq!(trie.n_nodes(), 6);
+
     assert_eq!(trie.remove(&b"cool".c_chars()), Some(3));
     assert_debug_snapshot!(trie, @r###"
         "bi" (4)
@@ -178,14 +180,22 @@ fn test_trie_with_non_copy_data() {
 }
 
 #[test]
-/// Verify that the cloned trie has an independent
+/// Verify that the cloned trie has an independent identical
 /// copy of the data—i.e. no double-free on drop.
 fn test_trie_clone() {
     let mut trie = TrieMap::new();
     trie.insert(&b";".c_chars(), NonNull::<c_void>::dangling());
-    assert_debug_snapshot!(trie, @r###"";" (0x1)"###);
+    trie.insert(&b";hey".c_chars(), NonNull::<c_void>::dangling());
+    assert_debug_snapshot!(trie, @r###"
+    ";" (0x1)
+      ↳h–––"hey" (0x1)
+    "###);
     let cloned = trie.clone();
-    assert_debug_snapshot!(cloned, @r###"";" (0x1)"###);
+    assert_debug_snapshot!(cloned, @r###"
+    ";" (0x1)
+      ↳h–––"hey" (0x1)
+    "###);
+    assert_eq!(trie, cloned);
 }
 
 #[test]
