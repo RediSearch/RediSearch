@@ -46,7 +46,7 @@ fn compute_and_report_memory_usage() {
         );
         let (c_word, c_len) = str2c_input(unique_word);
         assert!(
-            cmap.find(c_word, c_len) != unsafe { trie_bencher::ffi::TRIEMAP_NOTFOUND },
+            cmap.find(c_word, c_len) != unsafe { redis_module_test::ffi::TRIEMAP_NOTFOUND },
             "{unique_word} not found in C map"
         )
     }

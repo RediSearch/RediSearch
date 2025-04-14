@@ -9,8 +9,10 @@ name = "operations"
 harness = false
 
 [dependencies]
-crc32fast.workspace = true
+redis_module_test.workspace = true
+
 criterion.workspace = true
+crc32fast.workspace = true
 csv.workspace = true
 fs-err.workspace = true
 trie_rs.workspace = true
