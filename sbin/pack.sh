@@ -154,9 +154,6 @@ pack_ramp() {
 		RAMP_YAML="$ROOT/pack/ramp${RAMP_VARIANT:+-$RAMP_VARIANT}.yml"
 	fi
 
-	# Generate ramp.yml
-	python3 "$XTX" -e NUMVER -e SEMVER "$RAMP_YAML" > /tmp/ramp.yml
-
 	if [[ $VERBOSE == 1 ]]; then
 		echo "# ramp.yml:"
 		cat /tmp/ramp.yml
