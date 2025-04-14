@@ -1,5 +1,5 @@
 [workspace]
-members = ["low_memory_thin_vec", "trie_bencher", "trie_rs"]
+members = ["low_memory_thin_vec", "trie_bencher", "trie_rs", "wildcard"]
 default-members = ["trie_rs"]
 resolver = "3"
 
@@ -33,6 +33,7 @@ license = "Redis Source Available License 2.0 (RSALv2) or the Server Side Public
 [workspace.dependencies]
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 trie_rs = { path = "./trie_rs" }
+wildcard = { path = "./wildcard" }
 
 bindgen = "0.71.1"
 cc = "1"
