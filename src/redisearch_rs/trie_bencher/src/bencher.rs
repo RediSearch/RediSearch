@@ -1,8 +1,9 @@
-use crate::{CTrieMap, RustTrieMap, str2c_char, str2c_input};
+use crate::{CTrieMap, RustTrieMap};
 use criterion::{
     BatchSize, BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
+use redis_module_test::{str2c_char, str2c_input};
 use std::{
     ffi::{c_char, c_void},
     hint::black_box,
@@ -168,7 +169,7 @@ fn insert_rust_benchmark<M: Measurement>(
     map: RustTrieMap,
     word: &str,
 ) {
-    let word = crate::str2c_char(word);
+    let word = str2c_char(word);
     c.bench_function("Rust", |b| {
         b.iter_batched_ref(
             || map.clone(),
