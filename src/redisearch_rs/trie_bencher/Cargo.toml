@@ -9,9 +9,10 @@ name = "operations"
 harness = false
 
 [dependencies]
-fs-err.workspace = true
 crc32fast.workspace = true
 criterion.workspace = true
+csv.workspace = true
+fs-err.workspace = true
 trie_rs.workspace = true
 ureq.workspace = true
 

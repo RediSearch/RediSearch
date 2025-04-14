@@ -1,15 +1,14 @@
 //! Supporting types and functions for benchmarking trie operations.
 use std::{
-    ffi::{c_char, c_void, CString},
+    ffi::{CString, c_char, c_void},
     ptr::NonNull,
 };
 
 pub use bencher::OperationBencher;
-pub use corpus::download_or_read_corpus;
 
-mod bencher;
+pub mod bencher;
 mod c_map;
-mod corpus;
+pub mod corpus;
 pub mod ffi;
 mod redis_allocator;
 
