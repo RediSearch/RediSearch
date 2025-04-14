@@ -1740,6 +1740,7 @@ class TestTimeoutReached(object):
         for data_type in VECSIM_DATA_TYPES:
             # Create index and load vectors.
             n_vec = self.index_sizes['FLAT']
+            self.env.debugPrint(f"Testing {data_type} with FLAT. Loading {n_vec} vectors", force=True)
             query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, data_type)
             self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'FLAT', '8', 'TYPE', data_type,
                        'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
@@ -1750,6 +1751,7 @@ class TestTimeoutReached(object):
 
     def test_hnsw(self):
         for data_type in VECSIM_DATA_TYPES:
+            self.env.debugPrint(f"Testing {data_type} with HNSW", force=True)
             # Create index and load vectors.
             n_vec = self.index_sizes['HNSW']
             query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, data_type)

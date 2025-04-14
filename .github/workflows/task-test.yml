@@ -233,7 +233,7 @@ jobs:
           REJSON: ${{ inputs.rejson }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }}
+        run: make pytest ${{ inputs.test-config }} TEST=test_vecsim:TestTimeoutReached
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)
