@@ -28,3 +28,6 @@
 )]
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
+
+/// Rust implementation of `t_fieldMask` from `redisearch.h`
+pub type FieldMask = t_fieldMask;
