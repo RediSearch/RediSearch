@@ -12,8 +12,7 @@
 #include "util/block_alloc.h"
 #include "util/khtable.h"
 #include "util/mempool.h"
-#include "triemap.h"
-#include "varint.h"
+#include "redisearch_rs.h"
 #include "tokenize.h"
 #include "document.h"
 #include "inverted_index.h"
@@ -53,14 +52,14 @@ typedef struct ForwardIndex {
 
 typedef struct {
   const char *doc;
-  VarintVectorWriter *allOffsets;
+  ByteOffsetWriter *allOffsets;
   ForwardIndex *idx;
   t_fieldId fieldId;
   float fieldScore;
 } ForwardIndexTokenizerCtx;
 
 static inline void ForwardIndexTokenizerCtx_Init(ForwardIndexTokenizerCtx *ctx, ForwardIndex *idx,
-                                                 const char *doc, VarintVectorWriter *vvw,
+                                                 const char *doc, ByteOffsetWriter *vvw,
                                                  t_fieldId fieldId, float score) {
   ctx->idx = idx;
   ctx->fieldId = fieldId;

@@ -11,7 +11,7 @@
 #include <math.h>
 #include <ctype.h>
 
-#include "triemap.h"
+#include "redisearch_rs.h"
 #include "util/logging.h"
 #include "util/misc.h"
 #include "rmutil/vector.h"

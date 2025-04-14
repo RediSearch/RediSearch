@@ -9,7 +9,7 @@
 #ifndef __INDEX_RESULT_H__
 #define __INDEX_RESULT_H__
 
-#include "varint.h"
+#include "redisearch_rs.h"
 #include "redisearch.h"
 #include "rmalloc.h"
 #include "util/arr.h"

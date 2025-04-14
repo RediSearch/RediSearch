@@ -21,7 +21,7 @@
 #include "src/query_parser/tokenizer.h"
 #include "src/spec.h"
 #include "src/tokenize.h"
-#include "src/varint.h"
+#include "src/redisearch_rs/headers/redisearch_rs.h"
 #include "src/hybrid_reader.h"
 
 #include "rmutil/alloc.h"

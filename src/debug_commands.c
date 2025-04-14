@@ -20,7 +20,7 @@
 #include "gc.h"
 #include "module.h"
 #include "suffix.h"
-#include "triemap.h"
+#include "redisearch_rs.h"
 #include "util/workers.h"
 #include "cursor.h"
 #include "module.h"

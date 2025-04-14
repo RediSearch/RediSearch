@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "fork_gc.h"
-#include "triemap.h"
+#include "redisearch_rs.h"
 #include "util/arr.h"
 #include "search_ctx.h"
 #include "inverted_index.h"

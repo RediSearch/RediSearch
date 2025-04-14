@@ -13,6 +13,8 @@
 //! It exposes an FFI module for each workspace crate that must be consumed (directly) by the C code.
 pub mod trie;
 
+mod varint;
+
 /// Registers the Redis module allocator as the global allocator for the application.
 #[cfg(not(feature = "mock_allocator"))]
 #[global_allocator]

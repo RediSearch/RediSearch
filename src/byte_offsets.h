@@ -10,7 +10,7 @@
 #define BYTE_OFFSETS_H
 
 #include "redisearch.h"
-#include "varint.h"
+#include "redisearch_rs.h"
 #include "rmalloc.h"
 
 typedef struct __attribute__((packed)) RSByteOffsetMap {
@@ -51,20 +51,25 @@ RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t field
 void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b);
 RSByteOffsets *LoadByteOffsets(Buffer *buf);
 
-typedef VarintVectorWriter ByteOffsetWriter;
+typedef struct {
+  VarintVectorWriter *vw;
+} ByteOffsetWriter;
 
 void ByteOffsetWriter_Move(ByteOffsetWriter *w, RSByteOffsets *offsets);
 
 static inline void ByteOffsetWriter_Init(ByteOffsetWriter *w) {
-  VVW_Init(w, 16);
+  w->vw = NewVarintVectorWriter(16);
 }
 
 static inline void ByteOffsetWriter_Cleanup(ByteOffsetWriter *w) {
-  VVW_Cleanup(w);
+  if (w->vw != NULL) {
+    VVW_Free(w->vw);
+    w->vw = NULL;
+  }
 }
 
 static inline void ByteOffsetWriter_Write(ByteOffsetWriter *w, uint32_t offset) {
-  VVW_Write(w, offset);
+  VVW_Write(w->vw, offset);
 }
 
 /**

@@ -34,6 +34,8 @@ trie_rs = { workspace = true }
 redis_mock = { workspace = true, optional = true }
 wildcard = { workspace = true }
 buffer = { workspace = true }
+encode_decode = { workspace = true }
+ffi = { workspace = true }
 
 [dev-dependencies]
 redisearch_rs = { path = ".", features = ["mock_allocator"] }

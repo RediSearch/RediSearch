@@ -8,7 +8,7 @@
 */
 #define __REDISEARCH_STOPORWORDS_C__
 #include "stopwords.h"
-#include "triemap.h"
+#include "redisearch_rs.h"
 #include "rmalloc.h"
 #include "util/strconv.h"
 #include "rmutil/rm_assert.h"

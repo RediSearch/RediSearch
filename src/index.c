@@ -8,7 +8,7 @@
 */
 #include "forward_index.h"
 #include "index.h"
-#include "varint.h"
+#include "redisearch_rs.h"
 #include "spec.h"
 #include <math.h>
 #include <limits.h>

@@ -9,7 +9,7 @@
 #include <pthread.h>
 
 #include "redisearch.h"
-#include "varint.h"
+#include "redisearch_rs.h"
 #include "rmalloc.h"
 #include "util/mempool.h"
 #include <sys/param.h>

@@ -9,7 +9,7 @@
 #include "suffix.h"
 #include "rmutil/rm_assert.h"
 #include "config.h"
-#include "triemap.h"
+#include "redisearch_rs.h"
 #include "wildcard.h"
 
 #include <string.h>

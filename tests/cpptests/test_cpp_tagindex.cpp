@@ -8,7 +8,7 @@
 */
 
 #include "tag_index.h"
-#include "triemap.h"
+#include "redisearch_rs.h"
 #include "gtest/gtest.h"
 
 #include <vector>
