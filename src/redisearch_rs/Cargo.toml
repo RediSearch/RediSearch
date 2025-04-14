@@ -8,6 +8,7 @@ members = [
     "trie_bencher",
     "trie_rs",
     "wildcard",
+    "encode_decode",
 ]
 default-members = [
     "low_memory_thin_vec",
@@ -15,6 +16,7 @@ default-members = [
     "trie_rs",
     "redisearch_rs",
     "wildcard",
+    "encode_decode",
 ]
 resolver = "3"
 
@@ -50,6 +52,7 @@ low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }
 wildcard = { path = "./wildcard" }
+encode_decode = { path = "./encode_decode" }
 
 bindgen = "0.71.1"
 cc = "1"

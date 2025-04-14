@@ -28,6 +28,7 @@ trie = ["dep:trie_rs"]
 [dependencies]
 libc.workspace = true
 trie_rs = { workspace = true, optional = true }
+encode_decode = { workspace = true }
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,
