@@ -393,6 +393,29 @@ impl<T> LowMemoryThinVec<T> {
         self.header_ref().capacity()
     }
 
+    /// Returns the memory usage of the vector on the heap in bytes,
+    /// i.e. the size of the header and the elements, as well as any padding.
+    ///
+    /// Does not take into account any additional memory allocated by elements
+    /// of the vector. Returns 0 if the vector has no capacity.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use low_memory_thin_vec::LowMemoryThinVec;
+    ///
+    /// let vec: LowMemoryThinVec<i32> = LowMemoryThinVec::with_capacity(5);
+    /// assert_eq!(vec.mem_usage(), 24);
+    ///
+    /// assert_eq!(LowMemoryThinVec::<u64>::new().mem_usage(), 0);
+    /// ```
+    pub fn mem_usage(&self) -> usize {
+        if !self.has_allocated() {
+            return 0;
+        }
+        allocation_layout::<T>(self.capacity()).size()
+    }
+
     /// Returns `true` if the vector has allocated any memory via the global
     /// allocator.
     #[inline]
@@ -1287,6 +1310,22 @@ impl<T: Clone> LowMemoryThinVec<T> {
         }
     }
 
+    /// Creates a `LowMemoryThinVec` from a slice, cloning the elements.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use low_memory_thin_vec::LowMemoryThinVec;
+    ///
+    /// let vec = LowMemoryThinVec::from_slice(&[1, 2, 3]);
+    /// assert_eq!(vec, [1, 2, 3]);
+    /// ```
+    pub fn from_slice(slice: &[T]) -> Self {
+        let mut vec = LowMemoryThinVec::with_capacity(slice.len());
+        vec.extend_from_slice(slice);
+        vec
+    }
+
     /// Clones and appends all elements in a slice to the `LowMemoryThinVec`.
     ///
     /// Iterates over the slice `other`, clones each element, and then appends
@@ -1310,6 +1349,53 @@ impl<T: Clone> LowMemoryThinVec<T> {
     /// [`extend`]: LowMemoryThinVec::extend
     pub fn extend_from_slice(&mut self, other: &[T]) {
         self.extend(other.iter().cloned())
+    }
+}
+
+impl<T: Copy + std::fmt::Debug> LowMemoryThinVec<T> {
+    /// Reserves capacity to fit the given `prefix` slice,
+    /// moves the current elements back to make room for the prefix
+    /// and copies the prefix to the front of the vector.
+    pub fn prepend_with_slice(&mut self, prefix: &[T]) {
+        let prefix_len = prefix.len();
+        let self_len = self.len();
+        let new_len = prefix_len + self_len;
+        debug_assert!(new_len <= isize::MAX as usize);
+
+        if prefix.is_empty() {
+            return;
+        }
+
+        if self.is_empty() {
+            self.extend_from_slice(prefix);
+            return;
+        }
+
+        self.reserve(prefix_len);
+        {
+            // SAFETY:
+            // We reserved enough space for an additional `prefix_len`
+            // amount of elements.
+            let dst = unsafe { self.data_raw().add(prefix_len) };
+            // SAFETY:
+            // We have reserved enough space for `prefix_len` elements,
+            // so it is safe to copy the elements from the current vector to the
+            // newly reserved space.
+            unsafe { std::ptr::copy(self.data_raw(), dst, self_len) };
+        }
+
+        // SAFETY:
+        // `prefix` cannot be a reference to a slice in `self`,
+        // as that would violate borrowing rules. Furthermore, `T` is bound to `Copy`
+        // and therefore can simply be copied byte-for-byte and does not implement `Drop`.
+        // Therefore, we can safely memcpy the elements from `prefix` to start of the buffer.
+        unsafe {
+            std::ptr::copy_nonoverlapping(prefix.as_ptr(), self.data_raw(), prefix_len);
+        }
+        // SAFETY:
+        // We have reserved enough space for `prefix_len` elements,
+        // and all elements have been initialized.
+        unsafe { self.set_len(new_len) };
     }
 }
 
@@ -2038,5 +2124,15 @@ mod tests {
         v.resize(v.len(), 0);
         // No reallocation has taken place.
         assert_eq!(old_ptr, v.as_ptr());
+    }
+
+    #[test]
+    fn test_prepend_with_slice() {
+        let mut v = low_memory_thin_vec![4, 5, 6, 7];
+        v.prepend_with_slice(&[1, 2, 3]);
+        assert_eq!(v, [1, 2, 3, 4, 5, 6, 7]);
+
+        v.prepend_with_slice(&[-1, 0]);
+        assert_eq!(v, [-1, 0, 1, 2, 3, 4, 5, 6, 7]);
     }
 }
