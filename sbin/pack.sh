@@ -9,7 +9,16 @@ GET_PLATFORM="$SBIN/get-platform"
 XTX="$SBIN/xtx"
 SHIBUMI="$SBIN/shibumi"
 
-realpath() { python3 "$SHIBUMI" --realpath "$@"; }
+realpath() {
+  local target="$1"
+  if [ -z "$target" ]; then
+    return 1
+  fi
+  (
+    cd "$(dirname "$target")" || exit 1
+    echo "$(pwd -P)/$(basename "$target")"
+  )
+}
 eprint() { echo "$@" >&2; }
 
 
@@ -94,7 +103,7 @@ run_ramp_pack() {
 	local input="$1"
 	local output="$2"
 
-	eval @ <<-EOF
+	eval "$(cat <<-EOF
 		$RAMP_CMD pack -m /tmp/ramp.yml \
 			$RAMP_ARGS \
 			-n $MODULE_NAME \
@@ -105,17 +114,16 @@ run_ramp_pack() {
 			"$input" \
 			>/tmp/ramp.err 2>&1 || true
 	EOF
+	)"
 
-	if [[ $NOP != 1 ]]; then
-		if [[ ! -e "$output" ]]; then
-			eprint "Error generating RAMP file:"
-			>&2 cat /tmp/ramp.err
-			exit 1
-		else
-			local packname
-			packname="$(cat /tmp/ramp.fname)"
-			echo "# Created $(realpath "$packname")"
-		fi
+	if [[ ! -e "$output" ]]; then
+		eprint "Error generating RAMP file:"
+		>&2 cat /tmp/ramp.err
+		exit 1
+	else
+		local packname
+		packname="$(cat /tmp/ramp.fname)"
+		echo "# Created $(realpath "$packname")"
 	fi
 }
 
@@ -143,13 +151,11 @@ pack_ramp() {
 	local packfile=$ARTDIR/$packdir/$fq_package
 	local packfile_debug=$ARTDIR/$packdir/$fq_package_debug
 
-
 	if [[ -n $RAMP_YAML ]]; then
 		RAMP_YAML="$(realpath $RAMP_YAML)"
 	elif [[ -z $RAMP_VARIANT ]]; then
 		RAMP_YAML="$ROOT/pack/ramp.yml"
 	else
-		# ${RAMP_VARIANT:+-$RAMP_VARIANT} adds a dash-prefixed variant only if RAMP_VARIANT is set and non-empty.
 		RAMP_YAML="$ROOT/pack/ramp${RAMP_VARIANT:+-$RAMP_VARIANT}.yml"
 	fi
 
@@ -158,18 +164,17 @@ pack_ramp() {
 		cat /tmp/ramp.yml
 	fi
 
-	eval rm -f /tmp/ramp.fname $packfile
+	eval "rm -f /tmp/ramp.fname $packfile"
 
-	# Create main package
 	run_ramp_pack "$MODULE" "$packfile"
 
-	# Create debug package if exists
 	if [[ -f "$MODULE.debug" ]]; then
 		run_ramp_pack "$MODULE.debug" "$packfile_debug"
 	fi
 
 	cd "$ROOT"
 }
+
 
 #----------------------------------------------------------------------------------------------
 # NUMVER - Numeric module version (format: single integer like 20603)
