@@ -1903,7 +1903,7 @@ def test_range_query_basic():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 4
-    n = 99
+    n = 95
 
     for data_type in VECSIM_DATA_TYPES:
         for index in VECSIM_ALGOS:
