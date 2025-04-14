@@ -22,19 +22,11 @@ if(POLICY CMP0077)
   cmake_policy(SET CMP0077 NEW) # option() honors normal variables
 endif()
 
-# We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
-# the library's own definition, rather than to a definition in another shared library or the main executable.
-set(CMAKE_LD_FLAGS "-pthread -shared -Bsymbolic -Bsymbolic-functions")
-
 # Always use .so extension even on macOS
 set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 
 # Define compiler setup function
 function(setup_cc_options)
-    if(APPLE)
-        set(CC "clang" PARENT_SCOPE)
-        set(CXX "clang++" PARENT_SCOPE)
-    endif()
     message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
     # Common compiler flags
@@ -58,9 +50,13 @@ endfunction()
 # Define shared object setup function
 function(setup_shared_object_target target)
   if(APPLE)
-    set_target_properties(${target} PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
-    # Force .so extension on macOS instead of .dylib
-    set_target_properties(${target} PROPERTIES SUFFIX ".so")
+      set_target_properties(${target} PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+      # Force .so extension on macOS instead of .dylib
+      set_target_properties(${target} PROPERTIES SUFFIX ".so")
+  else()
+      # We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
+      # the library's own definition, rather than to a definition in another shared library or the main executable.
+      set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Bsymbolic -Bsymbolic-functions")
   endif()
   set_target_properties(${target} PROPERTIES PREFIX "")
 endfunction()
@@ -106,7 +102,6 @@ endif()
 #----------------------------------------------------------------------------------------------
 project(redisearch)
 
-#----------------------------------------------------------------------------------------------
 # Configure compiler options
 setup_cc_options()
 
