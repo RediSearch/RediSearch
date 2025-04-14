@@ -1938,7 +1938,7 @@ def test_range_query_basic():
                                        'RETURN', 0, 'LIMIT', 0, n)
             env.assertEqual(res[0], 49, message=msg)
             for i, doc_id in enumerate(res[1:]):
-                env.assertEqual(str(50 + i + 1), doc_id, message=msg)  # results should be sorted by id (by default)
+                env.assertEqual(str(n - 49 + i + 1), doc_id, message=msg)  # results should be sorted by id (by default)
 
             conn.flushall()
 
