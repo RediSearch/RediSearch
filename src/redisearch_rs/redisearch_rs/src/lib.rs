@@ -21,3 +21,5 @@ pub mod trie;
 /// Registers the Redis module allocator as the global allocator for the application.
 #[global_allocator]
 static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
+
+pub use encode_decode;
