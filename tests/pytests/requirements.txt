@@ -7,3 +7,4 @@ numpy == 2.2.4
 scipy == 1.15.2
 faker == 37.1.0
 distro == 1.9.0
+orderly-set == 5.3.0 # Remove pin once Python 3.8 is not used in CI
