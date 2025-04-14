@@ -98,7 +98,7 @@ run_ramp_pack() {
 	local output="$2"
 
 	eval "$(cat <<-EOF
-		$RAMP_CMD pack -m /tmp/ramp.yml \
+		$RAMP_CMD pack -m $RAMP_YAML \
 			$RAMP_ARGS \
 			-n $MODULE_NAME \
 			--verbose \
@@ -153,11 +153,8 @@ pack_ramp() {
 		RAMP_YAML="$ROOT/pack/ramp${RAMP_VARIANT:+-$RAMP_VARIANT}.yml"
 	fi
 
-	cat $RAMP_YAML > /tmp/ramp.yml
-
 	if [[ $VERBOSE == 1 ]]; then
 		echo "# ramp.yml:"
-		cat /tmp/ramp.yml
 	fi
 
 	eval "rm -f /tmp/ramp.fname $packfile"
