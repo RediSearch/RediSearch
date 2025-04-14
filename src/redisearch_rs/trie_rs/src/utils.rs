@@ -1,12 +1,5 @@
 use std::ffi::c_char;
 
-/// Convenience method to convert a `c_char` array into a `String`,
-/// dropping non-UTF-8 characters along the way.
-pub(crate) fn to_string_lossy(label: &[c_char]) -> String {
-    let slice = label.iter().map(|&c| c as u8).collect::<Vec<_>>();
-    String::from_utf8_lossy(&slice).into_owned()
-}
-
 /// Returns the index of the first occurrence of `target` in `slice`, or `None` if not found.
 #[inline(always)]
 pub(crate) fn memchr_c_char(target: c_char, slice: &[c_char]) -> Option<usize> {

@@ -2,7 +2,6 @@ use std::{
     alloc::{dealloc, handle_alloc_error, realloc},
     cmp::Ordering,
     ffi::c_char,
-    fmt,
     marker::PhantomData,
     mem::ManuallyDrop,
     num::NonZeroUsize,
@@ -11,7 +10,7 @@ use std::{
 
 use crate::{
     layout::{NodeHeader, PtrMetadata, PtrWithMetadata},
-    utils::{longest_common_prefix, memchr_c_char, strip_prefix, to_string_lossy},
+    utils::{longest_common_prefix, memchr_c_char, strip_prefix},
 };
 
 /// A node in a [`TrieMap`](crate::TrieMap).
@@ -1379,42 +1378,5 @@ impl<Data> Drop for Node<Data> {
         // - `layout` is the same layout that was used
         //   to allocate the buffer (see invariant 1. in [`Self::ptr`])
         unsafe { dealloc(self.ptr.as_ptr().cast(), layout) };
-    }
-}
-
-impl<Data: fmt::Debug> fmt::Debug for Node<Data> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut stack = vec![(0, self, 0, 0)];
-
-        while let Some((first_byte, next, white_indentation, line_indentation)) = stack.pop() {
-            let label_repr = crate::utils::to_string_lossy(next.label());
-            let data_repr = next
-                .data()
-                .as_ref()
-                .map_or("(-)".to_string(), |data| format!("({:?})", data));
-
-            let prefix = if white_indentation == 0 && line_indentation == 0 {
-                "".to_string()
-            } else {
-                let whitespace = " ".repeat(white_indentation);
-                let line = "–".repeat(line_indentation - 1);
-                let first_byte = to_string_lossy(&[first_byte]);
-                format!("{whitespace}↳{first_byte}{line}")
-            };
-
-            writeln!(f, "{prefix}\"{label_repr}\" {data_repr}")?;
-
-            for (child, first_byte) in next
-                .children()
-                .iter()
-                .zip(next.children_first_bytes())
-                .rev()
-            {
-                let new_line_indentation = 4;
-                let white_indentation = white_indentation + line_indentation + 2;
-                stack.push((*first_byte, child, white_indentation, new_line_indentation));
-            }
-        }
-        Ok(())
     }
 }

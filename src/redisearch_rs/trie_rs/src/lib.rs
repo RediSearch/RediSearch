@@ -4,6 +4,7 @@
 
 mod layout;
 mod node;
+mod traits;
 mod trie;
 mod utils;
 
