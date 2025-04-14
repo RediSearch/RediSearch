@@ -63,7 +63,6 @@ fi
 
 #----------------------------------------------------------------------------------------------
 
-OP=""
 [[ $NOP == 1 ]] && OP=echo
 
 # RLEC naming conventions
@@ -160,7 +159,8 @@ pack_ramp() {
 	fi
 
 	# Generate ramp.yml
-	python3 "$XTX" -e NUMVER -e SEMVER "$RAMP_YAML" > /tmp/ramp.yml
+	cat $RAMP_YAML > /tmp/ramp.yml
+
 
 	if [[ $VERBOSE == 1 ]]; then
 		echo "# ramp.yml:"
