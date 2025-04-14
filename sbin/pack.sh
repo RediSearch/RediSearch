@@ -97,18 +97,16 @@ run_ramp_pack() {
 	local input="$1"
 	local output="$2"
 
-	eval "$(cat <<-EOF
-		$RAMP_CMD pack -m $RAMP_YAML \
-			$RAMP_ARGS \
-			-n $MODULE_NAME \
-			--verbose \
-			--debug \
-			--packname-file /tmp/ramp.fname \
-			-o "$output" \
-			"$input" \
-			>/tmp/ramp.err 2>&1 || true
-	EOF
-	)"
+	$RAMP_CMD pack -m /tmp/ramp.yml \
+		$RAMP_ARGS \
+		-n "$MODULE_NAME" \
+		--verbose \
+		--debug \
+		--packname-file /tmp/ramp.fname \
+		-o "$output" \
+		"$input" \
+		>/tmp/ramp.err 2>&1 || true
+
 
 	if [[ ! -e "$output" ]]; then
 		eprint "Error generating RAMP file:"
@@ -157,7 +155,7 @@ pack_ramp() {
 		echo "# ramp.yml:"
 	fi
 
-	eval "rm -f /tmp/ramp.fname $packfile"
+	rm -f /tmp/ramp.fname $packfile
 
 	run_ramp_pack "$MODULE" "$packfile"
 
