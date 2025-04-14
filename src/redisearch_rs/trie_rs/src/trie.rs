@@ -134,7 +134,16 @@ impl<T> TrieMap<T> {
     /// Get an iterator over the map values of which the keys
     /// start with the given prefix, in order of keys.
     pub fn values_prefix(&self, prefix: &[c_char]) -> Values<'_, T> {
-        Values::new(self.root.as_ref().and_then(|root| root.find_node(prefix)))
+        let buf = &mut vec![];
+        let Some((root, _)) = self
+            .root
+            .as_ref()
+            .and_then(|root| root.find_node_for_prefix(prefix, buf))
+        else {
+            return Values::new(None);
+        };
+
+        Values::new(Some(root))
     }
 
     /// Get a consuming iterator over the values in the map

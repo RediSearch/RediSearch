@@ -1,4 +1,4 @@
-use std::ffi::{c_char, CString};
+use std::ffi::{CString, c_char};
 
 pub mod ffi {
     #![allow(non_upper_case_globals)]
@@ -16,7 +16,6 @@ pub mod ffi {
 }
 
 pub mod redis_allocator;
-
 
 /// Convert a string to a slice of `c_char`, allocated on the heap.
 pub fn str2c_char(input: &str) -> Box<[c_char]> {
