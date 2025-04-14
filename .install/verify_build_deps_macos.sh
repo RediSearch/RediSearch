@@ -40,7 +40,7 @@ check_clang() {
 
     if command -v clang &>/dev/null; then
         clang_path=$(command -v clang)
-        if [[ "$clang_path" == *"brew"*"/llvm"* ]]; then
+        if [[ "$clang_path" == *"/llvm"* ]]; then
             echo -e "${GREEN}✓${NC}"
         else
             echo -e "${YELLOW}✗ Expected LLVM Clang${NC}"
