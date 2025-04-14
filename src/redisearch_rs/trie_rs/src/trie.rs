@@ -512,9 +512,9 @@ impl<Data> Node<Data> {
 
     /// Get a reference to the subtree associated with a key prefix.
     /// Returns `None` if the key prefix is not present.
-    fn find_node_for_prefix<'l, 'k>(
+    fn find_node_for_prefix<'k>(
         &self,
-        key: &'l [c_char],
+        key: &[c_char],
         key_prefix: &'k mut Vec<c_char>,
     ) -> Option<(&Node<Data>, &'k [c_char])> {
         if self.label.starts_with(key) {
