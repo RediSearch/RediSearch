@@ -11,7 +11,7 @@ SHIBUMI="$SBIN/shibumi"
 
 realpath() { python3 "$SHIBUMI" --realpath "$@"; }
 runn() { python3 "$SHIBUMI" --runn "$@"; }
-eprint() { python3 "$SHIBUMI" --eprint "$@"; }
+eprint() { echo "$@" >&2; }
 
 
 export PYTHONWARNINGS=ignore
