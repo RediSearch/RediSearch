@@ -11,8 +11,8 @@ harness = false
 [dependencies]
 crc32fast.workspace = true
 criterion.workspace = true
+csv.workspace = true
 fs-err.workspace = true
-radix_trie.workspace = true
 trie_rs.workspace = true
 ureq.workspace = true
 
