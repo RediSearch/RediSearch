@@ -29,7 +29,6 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		Argument variables:
 		RAMP=0|1            Build RAMP package
 		DEPS=0|1            Build dependencies files
-		SYM=0|1             Build debug symbols file
 		RELEASE=1           Generate "release" packages (artifacts/release/)
 		SNAPSHOT=1          Generate "snapshot" packages (artifacts/snapshot/)
 
@@ -77,7 +76,6 @@ MODULE="$1"
 
 RAMP=${RAMP:-1}
 DEPS=${DEPS:-1}
-SYM=${SYM:-1}
 
 RELEASE=${RELEASE:-1}
 SNAPSHOT=${SNAPSHOT:-1}
@@ -114,7 +112,7 @@ pack_ramp() {
 	local fq_package=$stem.${verspec}.zip
 	local fq_package_debug=$stem_debug.${verspec}.zip
 
-	[[ ! -d $ARTDIR/$packdir ]] && mkdir -p $ARTDIR/$packdir
+	mkdir -p $ARTDIR/$packdir
 
 	local packfile=$ARTDIR/$packdir/$fq_package
 	local packfile_debug=$ARTDIR/$packdir/$fq_package_debug
@@ -194,7 +192,7 @@ pack_ramp() {
 	cd $ROOT
 }
 
-
+#----------------------------------------------------------------------------------------------
 # NUMVER - Numeric module version (format: single integer like 20603)
 # Used for Redis module API version compatibility and internal versioning
 NUMVER="$(NUMERIC=1 $SBIN/getver)"
@@ -203,7 +201,6 @@ NUMVER="$(NUMERIC=1 $SBIN/getver)"
 # Used for human-readable package naming and release version identification
 SEMVER="$($SBIN/getver)"
 
-#----------------------------------------------------------------------------------------------
 
 git_config_add_ifnx() {
 	local key="$1"
