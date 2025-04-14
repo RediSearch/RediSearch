@@ -91,8 +91,6 @@ ARTDIR=$(cd $ARTDIR && pwd)
 MODULE_NAME=${MODULE_NAME:-redisearch}
 PACKAGE_NAME=${PACKAGE_NAME:-redisearch-oss}
 
-DEP_NAMES=""
-
 RAMP_CMD="python3 -m RAMP.ramp"
 
 #----------------------------------------------------------------------------------------------
@@ -122,15 +120,6 @@ pack_ramp() {
 	local packfile_debug=$ARTDIR/$packdir/$fq_package_debug
 
 	local xtx_vars=""
-	for dep in $DEP_NAMES; do
-		eval "export NAME_${dep}=${PACKAGE_NAME}_${dep}"
-		local dep_fname="${PACKAGE_NAME}.${dep}.${PLATFORM}.${verspec}.tgz"
-		eval "export PATH_${dep}=${s3base}${dep_fname}"
-		local dep_sha256="$ARTDIR/$packdir/${dep_fname}.sha256"
-		eval "export SHA256_${dep}=$(cat $dep_sha256)"
-
-		xtx_vars+=" -e NAME_$dep -e PATH_$dep -e SHA256_$dep"
-	done
 
 	if [[ -n $RAMP_YAML ]]; then
 		RAMP_YAML="$(realpath $RAMP_YAML)"
@@ -298,10 +287,6 @@ SNAPSHOT_ramp=${PACKAGE_NAME}.$OS-$OSNICK-$ARCH.${BRANCH}${VARIANT}.zip
 
 RELEASE_deps=
 SNAPSHOT_deps=
-for dep in $DEP_NAMES; do
-	RELEASE_deps+=" ${PACKAGE_NAME}.${dep}.$OS-$OSNICK-$ARCH.$SEMVER${VARIANT}.tgz"
-	SNAPSHOT_deps+=" ${PACKAGE_NAME}.${dep}.$OS-$OSNICK-$ARCH.${BRANCH}${VARIANT}.tgz"
-done
 
 #----------------------------------------------------------------------------------------------
 
@@ -316,27 +301,6 @@ if [[ $JUST_PRINT == 1 ]]; then
 	fi
 	exit 0
 fi
-
-#----------------------------------------------------------------------------------------------
-
-if [[ $DEPS == 1 && -n $DEP_NAMES ]]; then
-	# set up `debug` dep
-	dirname "$(realpath "$MODULE")" > "$ARTDIR/debug.dir"
-	echo "$(basename "$(realpath "$MODULE")").debug" > "$ARTDIR/debug.files"
-	echo "" > $ARTDIR/debug.prefix
-
-	echo "# Building dependencies ..."
-
-	for dep in $DEP_NAMES; do
-		if [[ $OS != macos ]]; then
-			echo "# $dep ..."
-			pack_deps $dep
-		fi
-	done
-	echo "# Done."
-fi
-
-#----------------------------------------------------------------------------------------------
 
 cd $ROOT
 
