@@ -73,7 +73,7 @@ impl<Data: Clone> Clone for Node<Data> {
 
         // Clone the children
         {
-            let mut next_ptr = new_ptr.children_ptr();
+            let mut next_ptr = new_ptr.children().ptr();
             for child in self.children() {
                 // SAFETY:
                 // - The destination data is all contained within a single allocation.
@@ -244,14 +244,9 @@ impl<Data> Node<Data> {
         // Initialize the children array.
         //
         // SAFETY:
-        // - The destination range is all contained within a single allocation,
-        //   since the length of the children array we are writing matches the number of children
-        //   expected by the header of the node we allocated.
         // - We have exclusive access to the destination buffer, since it was allocated earlier in this function.
-        // - The destination pointer is well aligned, see 1. in [`PtrMetadata::children_ptr`]
-        unsafe {
-            new_ptr.children_ptr().cast().write(children);
-        };
+        // - The number of children matches the buffer capacity.
+        unsafe { new_ptr.children().write(children) };
 
         // Set the value.
         // SAFETY:
@@ -356,9 +351,10 @@ impl<Data> Node<Data> {
         // - The two buffers don't overlap. The destination buffer was freshly allocated
         //   earlier in this function.
         unsafe {
-            child_ptr
-                .children_ptr()
-                .copy_from_nonoverlapping(old_ptr.children_ptr(), child_header.n_children as usize)
+            child_ptr.children().ptr().copy_from_nonoverlapping(
+                old_ptr.children().ptr(),
+                child_header.n_children as usize,
+            )
         };
 
         // Move the value over.
@@ -432,10 +428,9 @@ impl<Data> Node<Data> {
             // - We have exclusive access to the destination buffer, since it was (re)allocated earlier in this function.
             unsafe { new_ptr.children_first_bytes().write(first_bytes) };
             // SAFETY:
-            // - The destination range is all contained within newly allocated buffer.
+            // - The number of children matches the buffer capacity.
             // - We have exclusive access to the destination buffer, since it was (re)allocated earlier in this function.
-            // - The destination pointer is well aligned, see 1. in [`PtrMetadata::children_ptr`]
-            unsafe { new_ptr.children_ptr().cast().write(children) };
+            unsafe { new_ptr.children().write(children) };
         } else {
             // We add the newly created child node to the node's children.
 
@@ -444,10 +439,9 @@ impl<Data> Node<Data> {
             // - We have exclusive access to the destination buffer, since it was (re)allocated earlier in this function.
             unsafe { new_ptr.children_first_bytes().write([child.label()[0]]) };
             // SAFETY:
-            // - The destination range is all contained within newly allocated buffer.
+            // - The number of children matches the buffer capacity.
             // - We have exclusive access to the destination buffer, since it was (re)allocated earlier in this function.
-            // - The destination pointer is well aligned, see 1. in [`PtrMetadata::children_ptr`]
-            unsafe { new_ptr.children_ptr().write(child) };
+            unsafe { new_ptr.children().write([child]) };
         }
 
         // After the split, the parent has no data attached, so we set the value
@@ -539,8 +533,9 @@ impl<Data> Node<Data> {
         //   elements we are copying.
         unsafe {
             new_ptr
-                .children_ptr()
-                .copy_from(old_ptr.children_ptr(), new_header.n_children as usize);
+                .children()
+                .ptr()
+                .copy_from(old_ptr.children().ptr(), new_header.n_children as usize);
         }
 
         // Copy the children first bytes.
@@ -672,11 +667,11 @@ impl<Data> Node<Data> {
                 // SAFETY:
                 // - The offsetted pointer is within bounds because the caller guarantees
                 //   that `i` is smaller than or equal to `old_n_children`.
-                let old_i_th = unsafe { old_ptr.children_ptr().add(i) };
+                let old_i_th = unsafe { old_ptr.children().ptr().add(i) };
                 // SAFETY:
                 // The offsetted pointer is within bounds because the caller guarantees
                 // that `i` is strictly smaller than `old_n_children` + 1.
-                let new_i_plus_1_th = unsafe { new_ptr.children_ptr().add(i + 1) };
+                let new_i_plus_1_th = unsafe { new_ptr.children().ptr().add(i + 1) };
                 // SAFETY:
                 // - The source range is within bounds because `i + (old_n_children - i)`
                 //   is the length of the old buffer.
@@ -693,7 +688,7 @@ impl<Data> Node<Data> {
                 // SAFETY:
                 // The offsetted pointer is within bounds because the caller guarantees
                 // that `i` is strictly smaller than `old_n_children` + 1.
-                let new_i = unsafe { new_ptr.children_ptr().add(i) };
+                let new_i = unsafe { new_ptr.children().ptr().add(i) };
                 // Insert the new child node in the newly created gap
                 // SAFETY:
                 // - The pointer is well-aligned.
@@ -709,7 +704,12 @@ impl<Data> Node<Data> {
             // - Both pointers are well-aligned.
             // - We have exclusive access to the destination buffer since it
             //   was (re)allocated earlier in this function.
-            unsafe { new_ptr.children_ptr().copy_from(old_ptr.children_ptr(), i) };
+            unsafe {
+                new_ptr
+                    .children()
+                    .ptr()
+                    .copy_from(old_ptr.children().ptr(), i)
+            };
         }
 
         // Children first bytes
@@ -852,13 +852,18 @@ impl<Data> Node<Data> {
             //    took ownership of `self`.
             // 3. All elements in the `[..i]` range are correctly initialized, since they were
             //    for `self` and we haven't touched them (yet).
-            unsafe { new_ptr.children_ptr().copy_from(old_ptr.children_ptr(), i) };
+            unsafe {
+                new_ptr
+                    .children()
+                    .ptr()
+                    .copy_from(old_ptr.children().ptr(), i)
+            };
 
             // Drop the child we are removing
             {
                 // SAFETY:
                 // - The caller guarantees that `i` is strictly smaller than `old_n_children`.
-                let old_i_th = unsafe { old_ptr.children_ptr().add(i) };
+                let old_i_th = unsafe { old_ptr.children().ptr().add(i) };
                 // SAFETY:
                 // - The pointer is well-aligned and points to a memory location that's correctly
                 //   initialized, since it was for `self` and we haven't touched it (yet).
@@ -873,11 +878,11 @@ impl<Data> Node<Data> {
                 // SAFETY:
                 // - `i + 1` is smaller than or equal to `old_n_children`, since the caller guarantees
                 //   that `i` is strictly smaller than `old_n_children`.
-                let i_th_ptr = unsafe { new_ptr.children_ptr().add(i) };
+                let i_th_ptr = unsafe { new_ptr.children().ptr().add(i) };
                 // SAFETY:
                 // - `i + 1` is smaller than or equal to `old_n_children`, since the caller guarantees
                 //   that `i` is strictly smaller than `old_n_children`.
-                let i_plus_1_ptr = unsafe { old_ptr.children_ptr().add(i + 1) };
+                let i_plus_1_ptr = unsafe { old_ptr.children().ptr().add(i + 1) };
                 // SAFETY:
                 // 1. `(i + 1) + (old_n_children - (i + 1)) = old_n_children`, so we're within bounds
                 //    for the source.
