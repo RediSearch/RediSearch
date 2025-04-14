@@ -1903,7 +1903,8 @@ def test_range_query_basic():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     conn = getConnectionByEnv(env)
     dim = 4
-    n = 95
+    n = 99
+    id_diff = 47
 
     for data_type in VECSIM_DATA_TYPES:
         for index in VECSIM_ALGOS:
@@ -1920,26 +1921,25 @@ def test_range_query_basic():
             # load vectors, where vector with id i is [i, i, ..., i]
             load_vectors_with_texts_into_redis(conn, 'v', dim, n, data_type)
 
-            # Expect to get the 49 docs with the highest ids.
-            dist_range = dim * 49**2
+            # Expect to get the `id_diff` docs with the highest ids.
+            dist_range = dim * id_diff**2
             query_data = create_np_array_typed([n+1]*dim, data_type)
             res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:$score_field}',
             'SORTBY', 'score', 'PARAMS', 6, 'vec_param', query_data.tobytes(), 'r', dist_range, 'score_field', 'score',
             'RETURN', 1, 'score', 'LIMIT', 0, n)
-            env.assertEqual(res[0], 49, message=msg)
+            env.assertEqual(res[0], id_diff, message=msg)
             for i, doc_id in enumerate(res[1::2]):
                 env.assertEqual(str(n-i), doc_id, message=msg)
-            for i, score in enumerate(res[2::2]):
-                env.assertEqual(['score', str(dim * (i+1)**2)], score, message=msg)
+            for i, score in enumerate(res[2::2], 1):
+                env.assertEqual(['score', str(dim * i**2)], score, message=msg)
 
             # Run again without score field
             res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]',
                                        'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', dist_range,
                                        'RETURN', 0, 'LIMIT', 0, n)
-            env.assertEqual(res[0], 49, message=msg)
-            for i, doc_id in enumerate(res[1:]):
-                env.assertEqual(str(n - 49 + i + 1), doc_id, message=msg)  # results should be sorted by id (by default)
-
+            env.assertEqual(res[0], id_diff, message=msg)
+            for expected_id, doc_id in enumerate(res[1:], n - id_diff + 1):
+                env.assertEqual(str(expected_id), doc_id, message=msg)  # results should be sorted by id (by default)
             conn.flushall()
 
 
