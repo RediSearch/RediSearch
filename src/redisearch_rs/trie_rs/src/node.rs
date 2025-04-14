@@ -1336,13 +1336,26 @@ impl<Data> Node<Data> {
 
     /// The memory usage of this node and his descendants, in bytes.
     pub fn mem_usage(&self) -> usize {
-        self.metadata().layout().size()
-            + self.children().iter().map(|c| c.mem_usage()).sum::<usize>()
+        let mut total_size = self.metadata().layout().size();
+        let mut stack: Vec<&Node<Data>> = self.children().iter().collect();
+
+        while let Some(node) = stack.pop() {
+            total_size += node.metadata().layout().size();
+            stack.extend(node.children().iter());
+        }
+
+        total_size
     }
 
-    /// The number of descendants of this node, plus 1.
-    pub fn n_nodes(&self) -> usize {
-        self.n_children() as usize + self.children().iter().map(|c| c.n_nodes()).sum::<usize>()
+    /// The number of descendants of this node.
+    pub fn n_descendants(&self) -> usize {
+        let mut stack: Vec<&Node<Data>> = self.children().iter().collect();
+        let mut n_descendants = self.n_children() as usize;
+        while let Some(node) = stack.pop() {
+            n_descendants += node.n_children() as usize;
+            stack.extend(node.children().iter());
+        }
+        n_descendants
     }
 }
 

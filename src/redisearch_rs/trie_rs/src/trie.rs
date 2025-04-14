@@ -102,7 +102,7 @@ impl<Data> TrieMap<Data> {
 
     /// Compute the number of nodes in the trie.
     pub fn n_nodes(&self) -> usize {
-        1 + self.root.as_ref().map_or(0, |r| r.n_nodes())
+        1 + self.root.as_ref().map_or(0, |r| r.n_descendants())
     }
 
     /// Iterate over the entries, in (lexicographical) key order.
