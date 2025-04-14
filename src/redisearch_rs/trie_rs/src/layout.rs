@@ -366,11 +366,6 @@ impl<Data> PtrWithMetadata<Data> {
         self.ptr
     }
 
-    /// Returns a pointer to the header for this node.
-    pub fn header_ptr(&self) -> NonNull<NodeHeader> {
-        self.ptr
-    }
-
     /// Write a header value to the expected offset.
     ///
     /// It will overwrite any value previously stored at the offset, without
@@ -385,7 +380,7 @@ impl<Data> PtrWithMetadata<Data> {
         //   thanks to 1. and 2. in `Self`'s documentation.
         // - The caller guarantees that they have exclusive access to the buffer we are writing to.
         // - The pointer is well aligned for the header type, thanks to 3. in `Self`'s documentation.
-        unsafe { self.header_ptr().write(header) }
+        unsafe { self.ptr.write(header) }
     }
 
     /// Manipulate the buffer allocated to store this node's label.
@@ -407,15 +402,6 @@ impl<Data> PtrWithMetadata<Data> {
         unsafe { self.metadata.children_ptr(self.ptr) }
     }
 
-    /// Returns a pointer to the value stored in this node.
-    pub fn value_ptr(&self) -> NonNull<Option<Data>> {
-        // SAFETY: This is safe because:
-        // 1. `self.ptr` was verified to be properly allocated with the correct layout
-        //    when this struct was created (see safety invariant #1).
-        // 2. The metadata's layout guarantees proper alignment for this field.
-        unsafe { self.metadata.value_ptr(self.ptr) }
-    }
-
     /// Write a value to the expected offset.
     ///
     /// It will overwrite any value previously stored at the offset, without
@@ -425,12 +411,17 @@ impl<Data> PtrWithMetadata<Data> {
     ///
     /// 1. You must have exclusive access to the buffer that [`Self::ptr`] points to.
     pub unsafe fn write_value(&mut self, value: Option<Data>) {
+        // SAFETY: This is safe because:
+        // 1. `self.ptr` was verified to be properly allocated with the correct layout
+        //    when this struct was created (see safety invariant #1).
+        // 2. The metadata's layout guarantees proper alignment for this field.
+        let value_ptr = unsafe { self.metadata.value_ptr(self.ptr) };
         // SAFETY:
         // - The data we are writing falls within the boundaries of a single allocated buffer,
         //   thanks to 1. and 2. in `Self`'s documentation.
         // - The caller guarantees that they have exclusive access to the buffer we are writing to.
         // - The pointer is well aligned for the `Option<Data>` type, thanks to 3. in `Self`'s documentation.
-        unsafe { self.value_ptr().write(value) }
+        unsafe { value_ptr.write(value) }
     }
 
     /// Promote the non-null pointer to a well-formed [`Node`] instance.
