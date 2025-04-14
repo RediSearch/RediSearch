@@ -103,15 +103,30 @@ jobs:
           
       - name: Run benchmark on PR with baseline from master
         if: github.event_name == 'pull_request' && steps.check_baseline.outputs.baseline_exists == 'true'
-        run: cargo bench -- --baseline master
+        run: |
+          ulimit -v 12582912
+          (while true; do ps -o pid,rss,%mem,%cpu,cmd | grep -E 'cargo|bench' | grep -v grep; sleep 5; done) &
+          MONITOR_PID=$!
+          cargo bench -- --baseline master
+          kill $MONITOR_PID
         working-directory: "src/redisearch_rs/trie_bencher"
       - name: Run benchmark on PR without baseline
         if: github.event_name == 'pull_request' && steps.check_baseline.outputs.baseline_exists == 'false'
-        run: cargo bench
+        run: |
+          ulimit -v 12582912
+          (while true; do ps -o pid,rss,%mem,%cpu,cmd | grep -E 'cargo|bench' | grep -v grep; sleep 5; done) &
+          MONITOR_PID=$!
+          cargo bench
+          kill $MONITOR_PID
         working-directory: "src/redisearch_rs/trie_bencher"
       - name: Run benchmark on master
         if: github.ref == 'refs/heads/master' && github.event_name == 'push' && success() 
-        run: cargo bench -- --save-baseline master
+        run: |
+          ulimit -v 12582912
+          (while true; do ps -o pid,rss,%mem,%cpu,cmd | grep -E 'cargo|bench' | grep -v grep; sleep 5; done) &
+          MONITOR_PID=$!
+          cargo bench -- --save-baseline master
+          kill $MONITOR_PID
         working-directory: "src/redisearch_rs/trie_bencher"
 
       - name: Upload rust baseline benchmarks for master
