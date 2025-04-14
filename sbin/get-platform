@@ -4,7 +4,7 @@
 platform-lite: A lightweight, extensible Python script for platform detection.
 
 Supported flags:
-  --os                  : Print the OS name (Linux, darwin, etc.)
+  --os                  : Print the OS name (Linux, macos, etc.)
   --version             : Print the OS version (e.g., 20.04, 13.6.3)
   --arch                : Print CPU architecture (e.g., x86_64, aarch64)
   --osnick              : Print a normalized OS codename (e.g., jammy, centos8, sonoma)
@@ -102,7 +102,7 @@ def get_osnick(osinfo):
     if os_type == 'macos':
         version = platform.release()
         return get_macos_nick(version)
-    
+
     dist = osinfo.get("ID", "")
     codename = osinfo.get("VERSION_CODENAME", "")
     ver = osinfo.get("VERSION_ID", "")
