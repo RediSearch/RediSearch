@@ -1,0 +1,46 @@
+on:
+    workflow_call:
+        inputs:
+          skip_checkout_build:
+            type: boolean
+            description: 'Skip checkout and build steps (use when calling from another workflow)'
+            default: false
+
+jobs:
+  build-redis:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        if: ${{ !inputs.skip_checkout_build }}
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup specific  # assuming node20 supported
+        if: ${{ !inputs.skip_checkout_build }}  
+        working-directory: .install
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }} sudo
+      - name: Setup tests dependencies
+        if: ${{ !inputs.skip_checkout_build }}
+        run: |
+          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }} sudo
+      - name: Install Boost
+        if: ${{ !inputs.skip_checkout_build }}
+        working-directory: .install
+        run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
+
+      - name: Build RediSearch
+        if: ${{ !inputs.skip_checkout_build }}
+        run: make build
+            PROFILE=${{ inputs.profile_env }}
+            SHOW=1
+      - name: Prepare automation
+        if: ${{ !inputs.skip_checkout_build }}
+        run: |
+          ./deps/readies/bin/getpy3
+          pip3 install --upgrade pip
+          python3 -m pip install -r tests/benchmarks/requirements.txt
+          VERSION=1.11.1 sudo ./deps/readies/bin/getterraform
+      - name: Prepare ReJSON Module
+        if: ${{ !inputs.skip_checkout_build }}
+        run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
