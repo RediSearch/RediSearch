@@ -36,10 +36,10 @@ fn main() {
         [redis_modules, src, deps]
     };
 
-    let headers = {
-        let buffer_h = root.join("src").join("buffer.h");
-        [buffer_h]
-    };
+    let headers = [
+        root.join("src").join("redisearch.h"),
+        root.join("src").join("buffer.h"),
+    ];
 
     let mut bindings = bindgen::Builder::default();
 

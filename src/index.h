@@ -15,7 +15,7 @@
 #include "index_iterator.h"
 #include "inverted_index.h"
 #include "redisearch.h"
-#include "varint.h"
+#include "redisearch_rs.h"
 #include "query_node.h"
 #include "reply.h"
 #include "query_ctx.h"

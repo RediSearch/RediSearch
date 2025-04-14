@@ -9,7 +9,7 @@
 #define QINT_API static
 #include "inverted_index.h"
 #include "math.h"
-#include "varint.h"
+#include "redisearch_rs.h"
 #include <stdio.h>
 #include <float.h>
 #include "rmalloc.h"

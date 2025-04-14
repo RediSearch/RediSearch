@@ -18,7 +18,7 @@
 #include "config.h"
 #include "redis_index.h"
 #include "tokenize.h"
-#include "triemap.h"
+#include "redisearch_rs.h"
 #include "util/logging.h"
 #include "extension.h"
 #include "ext/default.h"

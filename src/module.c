@@ -17,7 +17,7 @@
 #include "document.h"
 #include "tag_index.h"
 #include "index.h"
-#include "triemap.h"
+#include "redisearch_rs.h"
 #include "query.h"
 #include "redis_index.h"
 #include "redismodule.h"

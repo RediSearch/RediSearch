@@ -7,6 +7,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
+#include "../../buffer.h"
+#include "../../redisearch.h"
 
 /**
  * Used by [`TrieMapIterator`] to determine type of query.
@@ -28,6 +30,8 @@ typedef struct TrieMap TrieMap;
  * [`TrieMap_IterateWithFilter`].
  */
 typedef struct TrieMapIterator TrieMapIterator;
+
+typedef struct VarintVectorWriter VarintVectorWriter;
 
 /**
  * The length of a key string in the trie.
@@ -73,6 +77,8 @@ typedef struct LowMemoryThinVecCVoid TrieMapResultBuf;
  * Callback type for passing to [`TrieMap_IterateRange`].
  */
 typedef void (*TrieMapRangeCallback)(const char*, size_t, void*, void*);
+
+typedef t_fieldMask FieldMask;
 
 #ifdef __cplusplus
 extern "C" {
@@ -359,6 +365,44 @@ void TrieMap_IterateRange(struct TrieMap *trie,
                           bool includeMax,
                           TrieMapRangeCallback callback,
                           void *ctx);
+
+uint32_t ReadVarint(BufferReader *b);
+
+FieldMask ReadVarintFieldMask(BufferReader *b);
+
+uintptr_t WriteVarint(uint32_t value, BufferWriter *writer);
+
+uintptr_t WriteVarintFieldMask(FieldMask value, BufferWriter *writer);
+
+struct VarintVectorWriter *NewVarintVectorWriter(uintptr_t cap);
+
+/**
+ * Write an integer to the vector.
+ *
+ * # Parameters
+ *
+ * `w` a vector writer
+ * `i`` the integer we want to write
+ *
+ * # Return value
+ *
+ * The varint's actual size, if the operation is successful. 0 in case of failure.
+ */
+uintptr_t VVW_Write(struct VarintVectorWriter *writer, uint32_t value);
+
+const uint8_t *VVW_GetByteData(const struct VarintVectorWriter *writer);
+
+uintptr_t VVW_GetByteLength(const struct VarintVectorWriter *writer);
+
+uintptr_t VVW_GetCount(const struct VarintVectorWriter *writer);
+
+void VVW_Reset(struct VarintVectorWriter *writer);
+
+void VVW_Free(struct VarintVectorWriter *writer);
+
+uintptr_t VVW_Truncate(struct VarintVectorWriter *writer);
+
+uint8_t *VVW_TakeByteData(struct VarintVectorWriter *writer, uintptr_t *len);
 
 #ifdef __cplusplus
 }  // extern "C"

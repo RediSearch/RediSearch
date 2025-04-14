@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "index_result.h"
-#include "varint.h"
+#include "redisearch_rs.h"
 #include "rmalloc.h"
 #include <math.h>
 #include <sys/param.h>
