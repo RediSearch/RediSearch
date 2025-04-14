@@ -20,6 +20,8 @@ fn main() {
     };
 
     assert!(std::fs::exists(lib_dir.join("libtrie.a")).unwrap());
+    // ensure that undefined symbols are allowed - that's seems to be the case on macOS but not un Ubuntu in CI.
+    println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
     println!("cargo:rustc-link-lib=static=trie");
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!(
