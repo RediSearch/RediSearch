@@ -28,7 +28,6 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 
 		Argument variables:
 		RAMP=0|1            Build RAMP package
-		DEPS=0|1            Build dependencies files
 		RELEASE=1           Generate "release" packages (artifacts/release/)
 		SNAPSHOT=1          Generate "snapshot" packages (artifacts/snapshot/)
 
@@ -75,7 +74,6 @@ PLATFORM="$OS-$OSNICK-$ARCH"
 MODULE="$1"
 
 RAMP=${RAMP:-1}
-DEPS=${DEPS:-1}
 
 RELEASE=${RELEASE:-1}
 SNAPSHOT=${SNAPSHOT:-1}
@@ -215,19 +213,12 @@ fi
 RELEASE_ramp=${PACKAGE_NAME}.$OS-$OSNICK-$ARCH.$SEMVER${VARIANT}.zip
 SNAPSHOT_ramp=${PACKAGE_NAME}.$OS-$OSNICK-$ARCH.${BRANCH}${VARIANT}.zip
 
-RELEASE_deps=
-SNAPSHOT_deps=
-
 #----------------------------------------------------------------------------------------------
 
 if [[ $JUST_PRINT == 1 ]]; then
 	if [[ $RAMP == 1 ]]; then
 		[[ $RELEASE == 1 ]] && echo $RELEASE_ramp
 		[[ $SNAPSHOT == 1 ]] && echo $SNAPSHOT_ramp
-	fi
-	if [[ $DEPS == 1 ]]; then
-		[[ $RELEASE == 1 ]] && echo $RELEASE_deps
-		[[ $SNAPSHOT == 1 ]] && echo $SNAPSHOT_deps
 	fi
 	exit 0
 fi
