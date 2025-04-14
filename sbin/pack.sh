@@ -55,15 +55,12 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 		JUST_PRINT=1        Only print package names, do not generate
 		VERBOSE=1           Print commands
 		HELP=1              Show help
-		NOP=1               Print commands, do not execute
 
 	END
 	exit 0
 fi
 
 #----------------------------------------------------------------------------------------------
-
-[[ $NOP == 1 ]] && OP=echo
 
 # RLEC naming conventions
 
@@ -250,9 +247,9 @@ fi
 if [[ $VERBOSE == 1 ]]; then
 	echo "# Artifacts:"
 	if [[ $OSNICK == alpine3 ]]; then
-		$OP du -ah $ARTDIR
+		du -ah $ARTDIR
 	else
-		$OP du -ah --apparent-size $ARTDIR
+		du -ah --apparent-size $ARTDIR
 	fi
 fi
 
