@@ -64,7 +64,7 @@ fn criterion_benchmark_redis_wiki_10k(c: &mut Criterion) {
     let corpus = CorpusType::RedisBench10kNumerics;
     let terms = corpus.create_terms(true);
     let bencher =
-        OperationBencher::new("Wiki-10K".to_owned(), terms, Some(Duration::from_secs(10)));
+        OperationBencher::new("Wiki-10K".to_owned(), terms, Some(Duration::from_secs(20)));
 
     bencher.load_group(c);
 
