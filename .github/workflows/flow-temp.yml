@@ -12,10 +12,6 @@ on:
     branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  get-latest-redis-tag:
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
 
   # test-linux:
   #   needs: [get-latest-redis-tag]
