@@ -953,20 +953,20 @@ def test_hybrid_query_with_geo():
     index_size = 1000   # for this index size, ADHOC BF mode will always be selected by the heuristics.
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
-        vector = create_np_array_typed([i]*dim, data_type)
+        vector = create_np_array_typed([i/100]*dim, data_type)
         p.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', str(i/100)+","+str(i/100))
     p.execute()
     if not env.isCluster():
         env.assertEqual(get_vecsim_index_size(env, 'idx', 'v'), index_size)
 
-    query_data = create_np_array_typed([index_size]*dim, data_type)
+    query_data = create_np_array_typed([index_size/100]*dim, data_type)
     # Expect that ids 1-31 will pass the geo filter, and that the top 10 from these will return.
     expected_res = [10]
     for i in range(10):
         expected_res.append(str(31-i))
         expected_res.append(['coordinate', str((31-i)/100)+","+str((31-i)/100)])
     env.expect('FT.SEARCH', 'idx', '(@coordinate:[0.0 0.0 50 km])=>[KNN 10 @v $vec_param]',
-                'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(), 'RETURN', 2, 'coordinate', '__v_score').equal(expected_res)
+                'SORTBY', '__v_score', 'PARAMS', 2, 'vec_param', query_data.tobytes(), 'RETURN', 1, 'coordinate').equal(expected_res)
 
     # Expect that no results will pass the filter
     execute_hybrid_query(env, '(@coordinate:[-1.0 -1.0 1 m])=>[KNN 10 @v $vec_param]', query_data, 'coordinate',
