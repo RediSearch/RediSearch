@@ -92,8 +92,28 @@ jobs:
           name: rust-benchmark-results-master
           path: bin/redisearch_rs/criterion
         continue-on-error: true # Prevent failure if no baseline exists yet
-      - name: Run benchmark
+      - name: Check if Baseline Exists
+        id: check_baseline
+        run: |
+          if [ -d "bin/redisearch_rs/criterion" ]; then
+            echo "baseline_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "baseline_exists=false" >> $GITHUB_OUTPUT
+          fi
+          
+      - name: Run benchmark on PR with baseline from master
+        if: github.event_name == 'pull_request' && steps.check_baseline.outputs.baseline_exists == 'true'
+        run: cargo bench -- --baseline master
+        working-directory: "src/redisearch_rs/trie_bencher"
+      - name: Run benchmark on PR without baseline
+        if: github.event_name == 'pull_request' && steps.check_baseline.outputs.baseline_exists == 'false'
         run: cargo bench
+        working-directory: "src/redisearch_rs/trie_bencher"
+      - name: Run benchmark on master
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push' && success() 
+        run: cargo bench -- --save-baseline master
+        working-directory: "src/redisearch_rs/trie_bencher"
+
       - name: Upload rust baseline benchmarks for master
         if: github.ref == 'refs/heads/master' && github.event_name == 'push' && success() 
         uses: actions/upload-artifact@v4
