@@ -194,58 +194,6 @@ pack_ramp() {
 	cd $ROOT
 }
 
-#----------------------------------------------------------------------------------------------
-
-pack_deps() {
-	local dep="$1"
-
-	cd $ROOT
-
-	local stem=${PACKAGE_NAME}.${dep}.${PLATFORM}
-	local verspec=${SEMVER}${VARIANT}
-	local fq_package=$stem.${verspec}.tgz
-
-	local depdir=$(cat $ARTDIR/$dep.dir)
-	local tar_path=$ARTDIR/$fq_package
-	local dep_prefix_dir=$(cat $ARTDIR/$dep.prefix)
-
-	rm -f $tar_path
-	if [[ $NOP != 1 ]]; then
-		{ cd $depdir ;\
-		  cat $ARTDIR/$dep.files | \
-		  xargs tar -c --sort=name --owner=root:0 --group=root:0 --mtime='UTC 1970-01-01' \
-			--transform "s,^,$dep_prefix_dir," 2> /tmp/pack.err | \
-		  gzip -n - > $tar_path ; E=$?; } || true
-		if [[ ! -e $tar_path || -z $(tar tzf $tar_path) ]]; then
-			eprint "Count not create $tar_path. Aborting."
-			rm -f $tar_path
-			exit 1
-		fi
-	else
-		runn @ <<-EOF
-			cd $depdir
-			cat $ARTDIR/$dep.files | \
-			xargs tar -c --sort=name --owner=root:0 --group=root:0 --mtime='UTC 1970-01-01' \
-				--transform "s,^,$dep_prefix_dir," 2> /tmp/pack.err | \
-			gzip -n - > $tar_path ; E=$?; } || true
-			EOF
-	fi
-	runn @ <<-EOF
-		sha256sum $tar_path | gawk '{print $1}' > $tar_path.sha256
-		EOF
-
-	mkdir -p $ARTDIR/snapshots
-	cd $ARTDIR/snapshots
-	if [[ -n $BRANCH ]]; then
-		local snap_package=$stem.${BRANCH}${VARIANT}.tgz
-		runn ln -sf ../$fq_package $snap_package
-		runn ln -sf ../$fq_package.sha256 $snap_package.sha256
-	fi
-
-	cd $ROOT
-}
-
-#----------------------------------------------------------------------------------------------
 
 # NUMVER - Numeric module version (format: single integer like 20603)
 # Used for Redis module API version compatibility and internal versioning
