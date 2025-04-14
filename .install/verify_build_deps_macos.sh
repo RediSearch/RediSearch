@@ -50,12 +50,6 @@ check_clang() {
     fi
 }
 
-
-# Check brew packages on macOS
-check_package() {
-    brew list --formula | grep -q "^$package\$" || brew list --cask | grep -q "^$package\$"
-}
-
 # ============================================
 # Main Loop
 # ============================================
