@@ -190,14 +190,9 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *f
   if (!vecsim) {
     return stats;
   }
-  VecSimIndexInfo info = VecSimIndex_Info(vecsim);
-  stats.memory += info.commonInfo.memory;
-  if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
-    stats.marked_deleted += info.hnswInfo.numberOfMarkedDeletedNodes;
-  } else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
-            fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
-    stats.marked_deleted += info.tieredInfo.backendInfo.hnswInfo.numberOfMarkedDeletedNodes;
-  }
+  const VecSimIndexStatsInfo info = VecSimIndex_StatsInfo(vecsim);
+  stats.memory += info.memory;
+  stats.marked_deleted += info.numberOfMarkedDeleted;
   return stats;
 }
 
