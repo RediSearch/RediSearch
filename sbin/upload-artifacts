@@ -102,10 +102,8 @@ fi
 
 #----------------------------------------------------------------------------------------------
 # Navigate to artifacts directory
-cd "$ROOT/bin"
-SNAPSHOTS_FOLDER="snapshots"
+cd "$ROOT/bin/artifacts/snapshots"
 
-cd "artifacts/${SNAPSHOTS_FOLDER}"
 if [[ $VERBOSE == 1 ]]; then
     if [[ $OSNICK == alpine3 ]]; then
         du -ah *
@@ -122,7 +120,6 @@ s3_upload_file() {
     local s3_dir="$2"
     [[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
 
-    echo "Uploading $file to $s3_dir"
     $OP aws s3 cp "$file" "$s3_dir" --acl public-read --no-progress
 
     # Verify the file was uploaded
@@ -131,7 +128,6 @@ s3_upload_file() {
         eprint "Failed to verify that $file_name was uploaded to $s3_dir"
         return 1
     fi
-    echo "Successfully uploaded $file_name to $s3_dir"
 }
 
 s3_upload() {
@@ -147,7 +143,7 @@ s3_upload() {
         return 1
     fi
 
-    local upload_dir="${S3_URL}/${product_name}/${SNAPSHOTS_FOLDER}"
+    local upload_dir="${S3_URL}/${product_name}/snapshots"
     local files file
 
     # print the current folder name
