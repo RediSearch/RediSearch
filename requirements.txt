@@ -1,0 +1,4 @@
+redis
+matplotlib
+tqdm
+Faker

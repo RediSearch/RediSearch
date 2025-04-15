@@ -489,7 +489,7 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     // If the policy is `ON_TIMEOUT FAIL`, we already aggregated the results
     if (results != NULL) {
-      nelem += populateReplyWithResults(reply, results, req, &cv);
+      // nelem += populateReplyWithResults(reply, results, req, &cv);
       results = NULL;
       goto done_2;
     }
