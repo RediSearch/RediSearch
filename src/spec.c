@@ -941,7 +941,7 @@ size_t IndexSpec_VectorIndexSize(IndexSpec *sp) {
       if (!vecsim) {
         continue;
       }
-      total_memory += VecSimIndex_Info(vecsim).commonInfo.memory;
+      total_memory += VecSimIndex_StatsInfo(vecsim).memory;
     }
   }
   return total_memory;
@@ -957,14 +957,9 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp) {
       if (!vecsim) {
         continue;
       }
-      VecSimIndexInfo info = VecSimIndex_Info(vecsim);
-      stats.memory += info.commonInfo.memory;
-      if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
-        stats.marked_deleted += info.hnswInfo.numberOfMarkedDeletedNodes;
-      } else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
-                 fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
-        stats.marked_deleted += info.tieredInfo.backendInfo.hnswInfo.numberOfMarkedDeletedNodes;
-      }
+      VecSimIndexStatsInfo info = VecSimIndex_StatsInfo(vecsim);
+      stats.memory += info.memory;
+      stats.marked_deleted += info.numberOfMarkedDeleted;
     }
   }
   return stats;
@@ -2857,7 +2852,7 @@ void IndexSpec_DeleteDoc_Unsafe(IndexSpec *spec, RedisModuleCtx *ctx, RedisModul
     for (int i = 0; i < spec->numFields; ++i) {
       if (spec->fields[i].types == INDEXFLD_T_VECTOR) {
         RedisModuleString *rmskey = IndexSpec_GetFormattedKey(spec, spec->fields + i, INDEXFLD_T_VECTOR);
-        VecSimIndex *vecsim = openVectorIndex(spec, rmskey, DONT_CREATE_INDEX); 
+        VecSimIndex *vecsim = openVectorIndex(spec, rmskey, DONT_CREATE_INDEX);
         if(!vecsim)
           continue;
         VecSimIndex_DeleteVector(vecsim, id);
