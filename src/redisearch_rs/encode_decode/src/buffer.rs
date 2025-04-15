@@ -34,12 +34,15 @@ pub(crate) struct BufferWriter {
 
 impl BufferWriter {
     pub fn to_cursor(&mut self) -> std::io::Cursor<&mut [u8]> {
-        let buffer_slice = unsafe {
+        let (buffer_slice, pos) = unsafe {
             let buffer = &mut *self.buf;
-            std::slice::from_raw_parts_mut(buffer.data, buffer.cap)
+            let slice = std::slice::from_raw_parts_mut(buffer.data, buffer.cap);
+            let pos = buffer.data.offset_from(self.pos);
+
+            (slice, pos)
         };
         let mut cursor = std::io::Cursor::new(buffer_slice);
-        cursor.set_position(self.pos as u64);
+        cursor.set_position(pos as u64);
         cursor
     }
 }
