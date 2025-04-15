@@ -40,9 +40,8 @@ VecSimIndex *openVectorKeysDict(IndexSpec *spec, RedisModuleString *keyName,
   }
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->p = temp;
-  VecSimIndexInfo indexInfo = VecSimIndex_Info(kdv->p);
-  switch (indexInfo.algo)
-  {
+  VecSimIndexDebugInfo indexInfo = VecSimIndex_DebugInfo(kdv->p);
+  switch (indexInfo.algo) {
     case VecSimAlgo_BF:
       spec->stats.vectorIndexSize += indexInfo.bfInfo.memory;
       break;
@@ -95,7 +94,7 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
     return NULL;
   }
 
-  VecSimIndexInfo info = VecSimIndex_Info(vecsim);
+  VecSimIndexDebugInfo info = VecSimIndex_DebugInfo(vecsim);
   size_t dim = 0;
   VecSimType type = (VecSimType)0;
   VecSimMetric metric = (VecSimMetric)0;

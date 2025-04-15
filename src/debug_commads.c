@@ -958,10 +958,10 @@ DEBUG_COMMAND(VecsimInfo) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Vector index not found");
   }
-  VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
-  RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
-  while(VecSimInfoIterator_HasNextField(infoIter)) {
-    VecSim_InfoField* infoField = VecSimInfoIterator_NextField(infoIter);
+  VecSimDebugInfoIterator *infoIter = VecSimIndex_DebugInfoIterator(vecsimIndex);
+  RedisModule_ReplyWithArray(ctx, VecSimDebugInfoIterator_NumberOfFields(infoIter)*2);
+  while(VecSimDebugInfoIterator_HasNextField(infoIter)) {
+    VecSim_InfoField* infoField = VecSimDebugInfoIterator_NextField(infoIter);
     RedisModule_ReplyWithCString(ctx, infoField->fieldName);
     switch (infoField->fieldType) {
     case INFOFIELD_STRING:
@@ -980,7 +980,7 @@ DEBUG_COMMAND(VecsimInfo) {
       break;
     }
   }
-  VecSimInfoIterator_Free(infoIter);
+  VecSimDebugInfoIterator_Free(infoIter);
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
