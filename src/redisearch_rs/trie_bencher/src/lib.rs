@@ -32,7 +32,7 @@ pub fn str2u8(input: &str) -> Vec<u8> {
 /// Stores an input string for the C trie map.
 ///
 /// The String isn't null terminated therefore we store the length and
-/// implment the `Drop` trait to free the memory when the struct goes out of scope.
+/// implements the `Drop` trait to free the memory when the struct goes out of scope.
 ///
 /// This encapsulates the expected input shape for insertions and retrievals on [`CTrieMap`].
 pub struct StrCInput {
