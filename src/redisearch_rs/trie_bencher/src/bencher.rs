@@ -118,8 +118,8 @@ impl OperationBencher {
     /// The benchmark group will be marked with the given label.
     pub fn find_group(&self, c: &mut Criterion, word: &str, label: &str) {
         let mut group = self.benchmark_group_immutable(c, label);
-        find_rust_benchmark(&mut group, &self.rust_map, word);
-        find_c_benchmark(&mut group, &self.keys, word);
+        //find_rust_benchmark(&mut group, &self.rust_map, word);
+        //find_c_benchmark(&mut group, &self.keys, word);
         group.finish();
     }
 
@@ -128,7 +128,7 @@ impl OperationBencher {
     /// The benchmark group will be marked with the given label.
     pub fn insert_group(&self, c: &mut Criterion, word: &str, label: &str) {
         let mut group = self.benchmark_group_mutable(c, label);
-        insert_rust_benchmark(&mut group, self.rust_map.clone(), word);
+        //insert_rust_benchmark(&mut group, self.rust_map.clone(), word);
         insert_c_benchmark(&mut group, &self.keys, word);
         group.finish();
     }
@@ -138,16 +138,16 @@ impl OperationBencher {
     /// The benchmark group will be marked with the given label.
     pub fn remove_group(&self, c: &mut Criterion, word: &str, label: &str) {
         let mut group = self.benchmark_group_mutable(c, label);
-        remove_rust_benchmark(&mut group, self.rust_map.clone(), word);
-        remove_c_benchmark(&mut group, &self.keys, word);
+        //remove_rust_benchmark(&mut group, self.rust_map.clone(), word);
+        //remove_c_benchmark(&mut group, &self.keys, word);
         group.finish();
     }
 
     /// Benchmark loading a corpus of words.
     pub fn load_group(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group_mutable(c, "Load");
-        load_rust_benchmark(&mut group, &self.keys);
-        load_c_benchmark(&mut group, &self.keys);
+        //load_rust_benchmark(&mut group, &self.keys);
+        //load_c_benchmark(&mut group, &self.keys);
         group.finish();
     }
 }
@@ -181,20 +181,20 @@ fn insert_rust_benchmark<M: Measurement>(
     });
 }
 
-fn insert_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, keys: &[String], word: &str) {
+fn insert_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, terms: &[String], word: &str) {
     let (c_word, c_len) = str2c_input(word);
     c.bench_function("C", |b| {
         b.iter_batched_ref(
-            || c_load_from_terms(keys),
+            || c_load_from_terms(terms),
             |data| data.insert(black_box(c_word), black_box(c_len)),
-            BatchSize::LargeInput,
+            BatchSize::PerIteration,
         )
     });
 }
 
-fn find_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, keys: &[String], word: &str) {
+fn find_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, terms: &[String], word: &str) {
     let (c_word, c_len) = str2c_input(word);
-    let map = c_load_from_terms(keys);
+    let map = c_load_from_terms(terms);
     c.bench_function("C", |b| {
         b.iter(|| map.find(black_box(c_word), black_box(c_len)))
     });
