@@ -56,3 +56,12 @@ impl<Data: PartialEq> PartialEq for Node<Data> {
 }
 
 impl<Data: Eq> Eq for Node<Data> {}
+
+// SAFETY:
+// `Node` is semantically equivalent to a `HashMap<Vec<c_char>, Data>`, which is `Send`
+// if whatever it contains is `Send`.
+unsafe impl<Data: Send> Send for Node<Data> {}
+// SAFETY:
+// `Node` is semantically equivalent to a `HashMap<Vec<c_char>, Data>`, which is `Sync`
+// if whatever it contains is `Sync`.
+unsafe impl<Data: Sync> Sync for Node<Data> {}
