@@ -3,7 +3,7 @@ use crate::node::Node;
 use std::{alloc::dealloc, ffi::c_char, fmt};
 
 /// Convenience method to convert a `c_char` array into a `String`,
-/// dropping non-UTF-8 characters along the way.
+/// replacing non-UTF-8 characters with `�` along the way.
 pub(crate) fn to_string_lossy(label: &[c_char]) -> String {
     let slice = label.iter().map(|&c| c as u8).collect::<Vec<_>>();
     String::from_utf8_lossy(&slice).into_owned()

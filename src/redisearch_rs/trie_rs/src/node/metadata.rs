@@ -127,9 +127,17 @@ pub(super) struct PtrMetadata<Data> {
     _phantom: PhantomData<Data>,
     #[cfg(debug_assertions)]
     /// The length of the label associated with this node.
+    ///
+    /// This field is only used in builds with debug assertions enabled
+    /// to ensure that some of our invariants/safety preconditions
+    /// are indeed upheld.
     label_len: usize,
     #[cfg(debug_assertions)]
     /// The number of children for this node.
+    ///
+    /// This field is only used in builds with debug assertions enabled
+    /// to ensure that some of our invariants/safety preconditions
+    /// are indeed upheld.
     n_children: usize,
 }
 
