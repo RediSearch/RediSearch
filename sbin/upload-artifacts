@@ -121,7 +121,7 @@ s3_upload_file() {
     local file="$1"
     local s3_dir="$2"
     [[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
-    
+
     echo "Uploading $file to $s3_dir"
     $OP aws s3 cp "$file" "$s3_dir" --acl public-read --no-progress
 
@@ -140,16 +140,16 @@ s3_upload() {
     #   $2: product_name - Product folder name in S3 (e.g., "redisearch")
     local file_prefix="$1"
     local product_name="$2"
-    
+
     if [[ -z "$file_prefix" || -z "$product_name" ]]; then
         eprint "Error: Missing required parameters"
         eprint "Usage: s3_upload <file_prefix> <product_name>"
         return 1
     fi
-    
+
     local upload_dir="${S3_URL}/${product_name}/${SNAPSHOTS_FOLDER}"
     local files file
-    
+
     # print the current folder name
     shopt -s nullglob
     files=("${file_prefix}."*"${PLATFORM}"*.zip)
@@ -159,7 +159,7 @@ s3_upload() {
         echo "      Warning: No files found matching pattern: ${file_prefix}.*${PLATFORM}*.zip"
         return 0
     fi
-    
+
     for file in "${files[@]}"; do
         s3_upload_file "$file" "$upload_dir"
     done
@@ -167,9 +167,8 @@ s3_upload() {
 }
 upload_product() {
     local prefix="$1"
-    local product="$2"
-    local target="$3"
-    
+    local target="$2"
+
     {
         echo "::group::Uploading $prefix artifacts"
         s3_upload "$prefix" "$target"
@@ -182,4 +181,4 @@ upload_product() {
 }
 
 # Main upload process
-upload_product "redisearch-community" "redisearch-community" "redisearch-oss"
+upload_product "redisearch" "redisearch"
