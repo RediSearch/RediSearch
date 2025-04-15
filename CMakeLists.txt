@@ -11,17 +11,6 @@ elseif(UNIX)
 endif()
 message(STATUS "OS detected: ${OS}")
 
-# CMake policies
-if(POLICY CMP0048)
-  cmake_policy(SET CMP0048 NEW) # project() command manages VERSION variables
-endif()
-if(POLICY CMP0075)
-  cmake_policy(SET CMP0075 NEW) # Include file check macros honor CMAKE_REQUIRED_LIBRARIES
-endif()
-if(POLICY CMP0077)
-  cmake_policy(SET CMP0077 NEW) # option() honors normal variables
-endif()
-
 # Always use .so extension even on macOS
 set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
 
@@ -125,19 +114,11 @@ if (COV)
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
 endif()
 
-# Get Git version info
+# Get Git version info - to be printed in log upon loading the module
 execute_process(
   COMMAND git describe --abbrev=7 --always
   WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
   OUTPUT_VARIABLE GIT_VERSPEC
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  ERROR_QUIET
-)
-
-execute_process(
-  COMMAND git rev-parse HEAD
-  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-  OUTPUT_VARIABLE GIT_SHA
   OUTPUT_STRIP_TRAILING_WHITESPACE
   ERROR_QUIET
 )
@@ -148,7 +129,6 @@ set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""
-    "GIT_SHA=\"${GIT_SHA}\""
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
