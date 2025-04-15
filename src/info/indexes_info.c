@@ -35,11 +35,9 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     info.indexing_time += sp->stats.totalIndexTime;
 
     // Vector index stats
-    // TODO: enable this again once we can expose info in a way that will not cause performance
-    // penalty.
-    // VectorIndexStats vec_info = IndexSpec_GetVectorIndexStats(sp);
-    // info.fields_stats.total_vector_idx_mem += vec_info.memory;
-    // info.fields_stats.total_mark_deleted_vectors += vec_info.marked_deleted;
+    VectorIndexStats vec_info = IndexSpec_GetVectorIndexStats(sp);
+    info.fields_stats.total_vector_idx_mem += vec_info.memory;
+    info.fields_stats.total_mark_deleted_vectors += vec_info.marked_deleted;
 
     if (sp->gc) {
       ForkGCStats gcStats = ((ForkGC *)sp->gc->gcCtx)->stats;
