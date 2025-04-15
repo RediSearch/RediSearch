@@ -34,7 +34,6 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 
 		Argument variables:
 		RAMP=0|1            Build RAMP package
-		RELEASE=1           Generate "release" packages (artifacts/release/)
 		SNAPSHOT=1          Generate "snapshot" packages (artifacts/snapshot/)
 
 		MODULE_NAME=name    Module name (default: redisearch)
@@ -77,7 +76,6 @@ MODULE="$1"
 
 RAMP=${RAMP:-1}
 
-RELEASE=${RELEASE:-1}
 SNAPSHOT=${SNAPSHOT:-1}
 
 [[ -z $ARTDIR ]] && ARTDIR=bin/artifacts
@@ -199,14 +197,12 @@ fi
 
 #----------------------------------------------------------------------------------------------
 
-RELEASE_ramp=${PACKAGE_NAME}.$OS-$OSNICK-$ARCH.$SEMVER${VARIANT}.zip
 SNAPSHOT_ramp=${PACKAGE_NAME}.$OS-$OSNICK-$ARCH.${BRANCH}${VARIANT}.zip
 
 #----------------------------------------------------------------------------------------------
 
 if [[ $JUST_PRINT == 1 ]]; then
 	if [[ $RAMP == 1 ]]; then
-		[[ $RELEASE == 1 ]] && echo $RELEASE_ramp
 		[[ $SNAPSHOT == 1 ]] && echo $SNAPSHOT_ramp
 	fi
 	exit 0
@@ -226,7 +222,6 @@ if [[ $RAMP == 1 ]]; then
 	[[ ! -f $MODULE ]] && { eprint "$MODULE does not exist. Aborting."; exit 1; }
 	MODULE=$(realpath $MODULE)
 
-	[[ $RELEASE == 1 ]] && SNAPSHOT=0 pack_ramp
 	[[ $SNAPSHOT == 1 ]] && pack_ramp
 
 	echo "# Done."
