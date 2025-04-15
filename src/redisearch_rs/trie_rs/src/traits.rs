@@ -50,8 +50,8 @@ impl<Data: PartialEq> PartialEq for Node<Data> {
     fn eq(&self, other: &Self) -> bool {
         self.label() == other.label()
             && self.children_first_bytes() == other.children_first_bytes()
-            && self.children() == other.children()
             && self.data() == other.data()
+            && self.children() == other.children()
     }
 }
 
