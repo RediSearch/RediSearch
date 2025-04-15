@@ -13,8 +13,8 @@ NC='\033[0m' # No Color
 
 # Check if the OS is macOS (Darwin)
 if [[ "$(uname -s)" == "Darwin" ]]; then
-  echo -e "${YELLOW}Dependency check is not supported for macOS.${NC}"
-  exit 0
+    source .install/verify_build_deps_macos.sh
+    exit $?
 fi
 
 # Function to detect the operating system
