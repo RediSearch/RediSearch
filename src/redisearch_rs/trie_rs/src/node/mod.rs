@@ -1,6 +1,6 @@
+use metadata::{NodeHeader, PtrMetadata, PtrWithMetadata};
 use std::{
-    alloc::{dealloc, handle_alloc_error, realloc},
-    cmp::Ordering,
+    alloc::{handle_alloc_error, realloc},
     ffi::c_char,
     marker::PhantomData,
     mem::ManuallyDrop,
@@ -8,10 +8,10 @@ use std::{
     ptr::NonNull,
 };
 
-use crate::{
-    layout::{NodeHeader, PtrMetadata, PtrWithMetadata},
-    utils::{longest_common_prefix, memchr_c_char, strip_prefix},
-};
+mod accessors;
+mod metadata;
+mod trait_impls;
+mod trie_ops;
 
 /// A node in a [`TrieMap`](crate::TrieMap).
 ///
@@ -24,104 +24,18 @@ use crate::{
 ///
 /// Check out [`PtrMetadata`]'s documentation for more information as to _how_ the information
 /// above is stored in memory.
-pub struct Node<Data> {
+pub(crate) struct Node<Data> {
     /// # Safety invariants
     ///
     /// 1. The layout of the buffer behind this pointer matches the layout mandated by its header.
     /// 2. All node fields are correctly initialized.
     /// 3. The buffer behind this pointer was allocated using the global allocator.
-    pub(crate) ptr: std::ptr::NonNull<NodeHeader>,
-    pub(crate) _phantom: PhantomData<Data>,
-}
-
-impl<Data: Clone> Clone for Node<Data> {
-    fn clone(&self) -> Self {
-        // Allocate a new buffer with the same layout of the node we're cloning.
-        let mut new_ptr = self.metadata().allocate();
-
-        // SAFETY:
-        // - We have exclusive access to the buffer that `new_ptr` points to,
-        //   since it was allocated earlier in this function.
-        unsafe { new_ptr.write_header(*self.header()) };
-
-        // Copy the label.
-        //
-        // SAFETY:
-        // 1. The capacity of the label buffer matches the length of the label, since
-        //    we used the same header to compute the required layout.
-        // 2. The two buffers don't overlap. The destination buffer was freshly allocated
-        //    earlier in this function.
-        // 3. We have exclusive access to the destination buffer,
-        //    since it was allocated earlier in this function.
-        unsafe { new_ptr.label().copy_from_slice_nonoverlapping(self.label()) };
-
-        // Copy the children first bytes.
-        //
-        // SAFETY:
-        // 1. The capacity of the destination buffer matches the length of the source, since
-        //    we used the same header to compute the required layout.
-        // 2. The two buffers don't overlap. The destination buffer was freshly allocated
-        //    earlier in this function.
-        // 3. We have exclusive access to the destination buffer,
-        //    since it was allocated earlier in this function.
-        unsafe {
-            new_ptr
-                .children_first_bytes()
-                .copy_from_slice_nonoverlapping(self.children_first_bytes())
-        };
-
-        // Clone the children
-        {
-            let mut next_ptr = new_ptr.children().ptr();
-            for child in self.children() {
-                // SAFETY:
-                // - The destination data is all contained within a single allocation.
-                // - We have exclusive access to the destination buffer,
-                //   since it was allocated earlier in this function.
-                // - The destination pointer is well aligned, see 1. in [`PtrMetadata::child_ptr`]
-                unsafe { next_ptr.write(child.clone()) };
-                // SAFETY:
-                // - The offsetted pointer doesn't overflow `isize`, since it is within the bounds
-                //   of an allocation for a well-formed `Layout` instance.
-                // - The offsetted pointer is within the bounds of the allocation, thanks to
-                //   layout we used for the buffer.
-                unsafe { next_ptr = next_ptr.add(1) };
-            }
-        }
-
-        // Clone the value if present
-        // SAFETY:
-        // - We have exclusive access to the destination buffer,
-        //   since it was allocated earlier in this function.
-        unsafe { new_ptr.write_value(self.data().cloned()) };
-
-        // SAFETY:
-        // - All fields have been initialized.
-        unsafe { new_ptr.assume_init() }
-    }
+    ptr: std::ptr::NonNull<NodeHeader>,
+    _phantom: PhantomData<Data>,
 }
 
 /// Constructors.
 impl<Data> Node<Data> {
-    /// Downgrade the node to a pointer with metadata.
-    ///
-    /// Invoke this method if you need to manipulate the buffer
-    /// for this node in a way that no longer guarantees that
-    /// all node fields will be initialized.
-    ///
-    /// # Memory leaks
-    ///
-    /// The caller is responsible for freeing the buffer
-    /// that the pointer points to.
-    pub(crate) fn downgrade(self) -> PtrWithMetadata<Data> {
-        // We don't want the destructor to run, otherwise the buffer
-        // will be freed.
-        let self_ = ManuallyDrop::new(self);
-        // SAFETY:
-        // - The buffer size+alignment and the metadata match.
-        unsafe { PtrWithMetadata::new(self_.ptr, self_.metadata()) }
-    }
-
     /// Create a new node without children.
     ///
     /// # Panics
@@ -152,7 +66,7 @@ impl<Data> Node<Data> {
     /// # Safety
     ///
     /// The caller must ensure that all children have a non-empty label.
-    pub(crate) unsafe fn new_unchecked<const N: usize>(
+    unsafe fn new_unchecked<const N: usize>(
         label: &[c_char],
         children: [Node<Data>; N],
         value: Option<Data>,
@@ -257,6 +171,29 @@ impl<Data> Node<Data> {
         // - All fields have been initialized, we can now safely return the newly created node.
         unsafe { new_ptr.assume_init() }
     }
+}
+
+/// Operations that modify the label or the node's children, thus requiring
+/// new memory allocation (or re-allocations).
+impl<Data> Node<Data> {
+    /// Downgrade the node to a pointer with metadata.
+    ///
+    /// Invoke this method if you need to manipulate the buffer
+    /// for this node in a way that no longer guarantees that
+    /// all node fields will be initialized.
+    ///
+    /// # Memory leaks
+    ///
+    /// The caller is responsible for freeing the buffer
+    /// that the pointer points to.
+    fn downgrade(self) -> PtrWithMetadata<Data> {
+        // We don't want the destructor to run, otherwise the buffer
+        // will be freed.
+        let self_ = ManuallyDrop::new(self);
+        // SAFETY:
+        // - The buffer size+alignment and the metadata match.
+        unsafe { PtrWithMetadata::new(self_.ptr, self_.metadata()) }
+    }
 
     /// Splits the node label at the given offset, creating a new child node with the remaining label.
     /// `self` is then mutated in place to become the parent of the new child, as well as the parent
@@ -287,11 +224,7 @@ impl<Data> Node<Data> {
     /// # Safety
     ///
     /// The caller must ensure that the offset is within the bounds of the current label.
-    pub unsafe fn split_unchecked(
-        mut self,
-        offset: usize,
-        extra_child: Option<Node<Data>>,
-    ) -> Self {
+    unsafe fn split_unchecked(mut self, offset: usize, extra_child: Option<Node<Data>>) -> Self {
         debug_assert!(
             offset < self.label_len() as usize,
             "The label offset must be fully contained within the current label"
@@ -457,7 +390,7 @@ impl<Data> Node<Data> {
     /// Set the node label to `concat!(prefix, old_label)`.
     ///
     /// This version uses `realloc` for more efficient memory usage.
-    pub fn prepend(mut self, prefix: &[c_char]) -> Self {
+    fn prepend(mut self, prefix: &[c_char]) -> Self {
         debug_assert!(
             self.label_len() as usize + prefix.len() <= u16::MAX as usize,
             "The new label length exceeds u16::MAX, {}",
@@ -588,7 +521,7 @@ impl<Data> Node<Data> {
     /// # Safety
     ///
     /// `i` must be lower or equal than the current number of children.
-    pub unsafe fn add_child_unchecked(mut self, new_child: Node<Data>, i: usize) -> Self {
+    unsafe fn add_child_unchecked(mut self, new_child: Node<Data>, i: usize) -> Self {
         debug_assert!(
             i <= self.n_children() as usize,
             "Index out of bounds: {} > {}",
@@ -780,7 +713,7 @@ impl<Data> Node<Data> {
     /// # Safety
     ///
     /// `i` must be lower than the current number of children.
-    pub unsafe fn remove_child_unchecked(mut self, i: usize) -> Self {
+    unsafe fn remove_child_unchecked(mut self, i: usize) -> Self {
         debug_assert!(
             i < self.n_children() as usize,
             "Index out of bounds: {} >= {}",
@@ -940,443 +873,5 @@ impl<Data> Node<Data> {
             ptr: new_ptr,
             _phantom: Default::default(),
         }
-    }
-}
-
-/// Accessor methods.
-impl<Data> Node<Data> {
-    /// Returns a reference to the header for this node.
-    #[inline]
-    fn header(&self) -> &NodeHeader {
-        // SAFETY:
-        // - The header field is dereferenceable thanks to invariant 2. in [`Self::ptr`]'s documentation.
-        unsafe { self.ptr.as_ref() }
-    }
-
-    /// Returns the layout and field offsets for the allocated buffer backing this node.
-    fn metadata(&self) -> PtrMetadata<Data> {
-        self.header().metadata()
-    }
-
-    /// Returns the length of the label associated with this node.
-    #[inline]
-    pub fn label_len(&self) -> u16 {
-        self.header().label_len
-    }
-
-    /// Returns the number of children for this node.
-    #[inline]
-    pub fn n_children(&self) -> u8 {
-        self.header().n_children
-    }
-
-    /// Returns a reference to the label associated with this node.
-    pub fn label(&self) -> &[c_char] {
-        // SAFETY:
-        // - The layout satisfies the requirements thanks to invariant 1. in [`Self::ptr`]'s documentation.
-        let label_ptr = unsafe { PtrMetadata::<Data>::label_ptr(self.ptr) };
-        // SAFETY:
-        // - The label field is dereferenceable thanks to invariant 2. in [`Self::ptr`]'s documentation.
-        // - The length is correct thanks to invariant 1. in [`Self::ptr`]'s documentation.
-        unsafe { std::slice::from_raw_parts(label_ptr.as_ptr(), self.label_len() as usize) }
-    }
-
-    /// Returns a mutable reference to the data associated with this node, if any.
-    pub fn data_mut(&mut self) -> &mut Option<Data> {
-        // SAFETY:
-        // - The layout satisfies the requirements thanks to invariant 1. in [`Self::ptr`]'s documentation.
-        let mut data_ptr = unsafe { self.metadata().value_ptr(self.ptr) };
-        // SAFETY:
-        // - The data field is dereferenceable thanks to invariant 2. in [`Self::ptr`]'s documentation.
-        // - We have exclusive access to the data field since this method takes a mutable reference to `self`.
-        unsafe { data_ptr.as_mut() }
-    }
-
-    /// Returns a reference to the data associated with this node, if any.
-    pub fn data(&self) -> Option<&Data> {
-        // SAFETY:
-        // - The layout satisfies the requirements thanks to invariant 1. in [`Self::ptr`]'s documentation.
-        let data_ptr = unsafe { self.metadata().value_ptr(self.ptr) };
-        // SAFETY:
-        // - The data field is dereferenceable thanks to invariant 2. in [`Self::ptr`]'s documentation.
-        let data: &Option<Data> = unsafe { data_ptr.as_ref() };
-        data.as_ref()
-    }
-
-    /// Returns a reference to the children of this node.
-    ///
-    /// # Invariants
-    ///
-    /// The index of a child in this array matches the index of its first byte
-    /// in the array returned by [`Self::children_first_bytes`].
-    pub fn children(&self) -> &[Node<Data>] {
-        // SAFETY:
-        // - The layout satisfies the requirements thanks to invariant 1. in [`Self::ptr`]'s documentation.
-        let children_ptr = unsafe { self.metadata().children_ptr(self.ptr) };
-        // SAFETY:
-        // - The children field is dereferenceable thanks to invariant 2. in [`Self::ptr`]'s documentation.
-        // - The length is correct thanks to invariant 1. in [`Self::ptr`]'s documentation.
-        unsafe { std::slice::from_raw_parts(children_ptr.as_ptr(), self.n_children() as usize) }
-    }
-
-    /// Returns a mutable reference to the children of this node.
-    ///
-    /// # Invariants
-    ///
-    /// The index of a child in this array matches the index of its first byte
-    /// in the array returned by [`Self::children_first_bytes`].
-    pub fn children_mut(&mut self) -> &mut [Node<Data>] {
-        // SAFETY:
-        // - The layout satisfies the requirements thanks to invariant 1. in [`Self::ptr`]'s documentation.
-        let children_ptr = unsafe { self.metadata().children_ptr(self.ptr) };
-        // SAFETY:
-        // - The children field is dereferenceable thanks to invariant 2. in [`Self::ptr`]'s documentation.
-        // - The length is correct thanks to invariant 1. in [`Self::ptr`]'s documentation.
-        // - We have exclusive access to the children field since this method takes a mutable reference to `self`.
-        unsafe { std::slice::from_raw_parts_mut(children_ptr.as_ptr(), self.n_children() as usize) }
-    }
-
-    /// Returns a reference to the array containing the first byte of
-    /// each child of this node.
-    ///
-    /// # Invariants
-    ///
-    /// The index of a byte in this array matches the index of the child
-    /// it belongs to in the array returned by [`Self::children`].
-    pub fn children_first_bytes(&self) -> &[c_char] {
-        // SAFETY:
-        // - The layout satisfies the requirements thanks to invariant 1. in [`Self::ptr`]'s documentation.
-        let ptr = unsafe { self.metadata().child_first_bytes_ptr(self.ptr) };
-        // SAFETY:
-        // - The field is dereferenceable thanks to invariant 2. in [`Self::ptr`]'s documentation.
-        // - The length is correct thanks to invariant 1. in [`Self::ptr`]'s documentation.
-        unsafe { std::slice::from_raw_parts(ptr.as_ptr(), self.n_children() as usize) }
-    }
-}
-
-/// Trie operations.
-impl<Data> Node<Data> {
-    /// Inserts a new key-value pair into the trie.
-    ///
-    /// If the key already exists, the current value is passede to provided function,
-    /// and replaced with the value returned by that function.
-    pub fn insert_or_replace_with<F>(&mut self, mut key: &[c_char], f: F)
-    where
-        F: FnOnce(Option<Data>) -> Data,
-    {
-        fn placeholder<Data>() -> Node<Data> {
-            Node {
-                ptr: NonNull::dangling(),
-                _phantom: PhantomData,
-            }
-        }
-
-        let mut current = self;
-        loop {
-            match longest_common_prefix(current.label(), key) {
-                Some((0, ordering)) => {
-                    // The node's label and the key don't share a common prefix.
-                    // This can only happen if the current node is the root node of the trie.
-                    //
-                    // Create a new root node with an empty label,
-                    // insert the old root as a child of the new root,
-                    // and add a new child to the empty root.
-                    let old_root = std::mem::replace(current, placeholder());
-
-                    let new_child = Node::new_leaf(key, Some(f(None)));
-                    let children = if ordering == Ordering::Greater {
-                        [new_child, old_root]
-                    } else {
-                        [old_root, new_child]
-                    };
-                    // SAFETY:
-                    // - Both `key` and `current.label()` are at least one byte long,
-                    //   since `longest_common_prefix` found that their `0`th bytes differ.
-                    let new_root = unsafe { Node::new_unchecked(&[], children, None) };
-
-                    std::mem::forget(std::mem::replace(current, new_root));
-                    break;
-                }
-                Some((equal_up_to, _)) => {
-                    // In this case, only part of the key matches the current node's label.
-                    // Add `bis` (D) to a trie with `bike` (A), `biker` (B) and `bikes` (C).
-                    //
-                    // ```text
-                    //     bike (A)   ->      bi (-)
-                    //     /  \             /       \
-                    // r (B)   s (C)      ke (A)     s (D)
-                    //                   /     \
-                    //                 r (B)   s (C)
-                    // ```
-                    //
-                    // Create a new node that uses the shared prefix as its label.
-                    // The prefix is then stripped from both the current label and the
-                    // new key; the resulting suffixes are used as labels for the new child nodes.
-                    let old_root = std::mem::replace(current, placeholder());
-
-                    // SAFETY:
-                    // - `key` is at least `equal_up_to` bytes long, since `longest_common_prefix`
-                    //   found that its `equal_up_to` byte differed from the corresponding byte in
-                    //   the current label.
-                    let (_, new_child_suffix) = unsafe { key.split_at_unchecked(equal_up_to) };
-                    let new_child = Node::new_leaf(new_child_suffix, Some(f(None)));
-                    // SAFETY:
-                    // - `old_root.label()` is at least `equal_up_to` bytes long, since `longest_common_prefix`
-                    //   found that its `equal_up_to` byte differed from the corresponding byte in
-                    //   `key`.
-                    let new_root =
-                        unsafe { old_root.split_unchecked(equal_up_to, Some(new_child)) };
-
-                    std::mem::forget(std::mem::replace(current, new_root));
-                    break;
-                }
-                None => {
-                    match key.len().cmp(&(current.label_len() as usize)) {
-                        Ordering::Less => {
-                            // The key we want to insert is a strict prefix of the current node's label.
-                            // Therefore we need to insert a new _parent_ node.
-                            //
-                            // # Case 1: No children for the current node
-                            //
-                            // Add `bike` with data `B` to a trie with `biker`, where `biker` has data `A`.
-                            // ```text
-                            // biker (A)  ->   bike (B)
-                            //                /
-                            //               r (A)
-                            // ```
-
-                            // # Case 2: Current node has children
-                            //
-                            // Add `b` to a trie with `bi` and `bike`.
-                            // `b` has data `C`, `bi` has data `A`, `bike` has data `B`.
-                            //
-                            // ```text
-                            // bi (A)   ->    b (C)
-                            //   \             \
-                            //    ke (B)        i (A)
-                            //                   \
-                            //                    ke (B)
-                            // ```
-                            let old_root = std::mem::replace(current, placeholder());
-
-                            // SAFETY:
-                            // - In this branch, `old_root.label()` is strictly longer than `key`,
-                            //   so `key.len()` is in range for `old_root.label()`.
-                            let mut new_root = unsafe { old_root.split_unchecked(key.len(), None) };
-                            *new_root.data_mut() = Some(f(None));
-
-                            std::mem::forget(std::mem::replace(current, new_root));
-                            break;
-                        }
-                        Ordering::Equal => {
-                            // Suffix is empty, so the key and the node label are equal.
-                            // Replace the data attached to the current node
-                            // with the new data.
-                            let data = current.data_mut();
-                            let current_data = data.take();
-                            let new_data = f(current_data);
-                            *data = Some(new_data);
-                            break;
-                        }
-                        Ordering::Greater => {
-                            // Suffix is not empty, therefore the insertion needs to happen
-                            // in a child (or grandchild) of the current node.
-
-                            // SAFETY:
-                            // - In this branch, `key` is strictly longer than `current.label()`,
-                            //   so `current.label_len()` is in range for `key`.
-                            key = unsafe { key.get_unchecked(current.label_len() as usize..) };
-                            let first_byte = key[0];
-                            match current.child_index_starting_with(first_byte) {
-                                Some(i) => {
-                                    current =
-                                        // SAFETY:
-                                        // - The index returned by `child_index_starting_with` is
-                                        //   always in range for the children pointers array.
-                                        unsafe { current.children_mut().get_unchecked_mut(i) };
-                                    // Recursion!
-                                    continue;
-                                }
-                                None => {
-                                    let insertion_index = current
-                                        .children_first_bytes()
-                                        .binary_search(&first_byte)
-                                        // We know we won't find match at this point.
-                                        .unwrap_err();
-
-                                    let root = std::mem::replace(current, placeholder());
-                                    let new_child = Node::new_leaf(key, Some(f(None)));
-                                    // SAFETY:
-                                    // - The index returned by `binary_search` is
-                                    //   never greater than the length of the searched array.
-                                    let old_root = unsafe {
-                                        root.add_child_unchecked(new_child, insertion_index)
-                                    };
-
-                                    std::mem::forget(std::mem::replace(current, old_root));
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Get a reference to the value associated with a key.
-    /// Returns `None` if the key is not present.
-    pub fn find(&self, mut key: &[c_char]) -> Option<&Data> {
-        let mut current = self;
-        loop {
-            key = strip_prefix(key, current.label())?;
-            let Some(first_byte) = key.first() else {
-                // The suffix is empty, so the key and the label are equal.
-                return current.data();
-            };
-            current = current.child_starting_with(*first_byte)?;
-        }
-    }
-
-    /// Get a reference to the child node whose label starts with the given byte.
-    /// Returns `None` if there is no such child.
-    pub fn child_starting_with(&self, c: c_char) -> Option<&Node<Data>> {
-        let i = self.child_index_starting_with(c)?;
-        // SAFETY:
-        // Guaranteed by invariant 1. in [`Self::child_index_starting_with`].
-        Some(unsafe { self.children().get_unchecked(i) })
-    }
-
-    /// Get the index of the child node whose label starts with the given byte.
-    /// Returns `None` if there is no such child.
-    ///
-    /// # Invariants
-    ///
-    /// 1. The index returned by this function is guaranteed to be within
-    ///    the bounds of the children pointers array and the children
-    ///    first bytes array.
-    #[inline]
-    pub fn child_index_starting_with(&self, c: c_char) -> Option<usize> {
-        memchr_c_char(c, self.children_first_bytes())
-    }
-
-    /// Remove the descendant of this node that matches the given key, if any.
-    ///
-    /// Returns the data associated with the removed node, if any.
-    pub fn remove_descendant(&mut self, key: &[c_char]) -> Option<Data> {
-        // Find the index of child whose label starts with the first byte of the key,
-        // as well as the child itself.
-        // If the we find none, there's nothing to remove.
-        // Note that `key.first()?` will cause this function to return None if the key is empty.
-        let child_index = self.child_index_starting_with(*key.first()?)?;
-        let child = &mut self.children_mut()[child_index];
-
-        let suffix = strip_prefix(key, child.label())?;
-
-        if suffix.is_empty() {
-            // The child's label is equal to the key, so we remove the child.
-            let data = child.data_mut().take();
-
-            let is_leaf = child.n_children() == 0;
-            if is_leaf {
-                let mut current = std::mem::replace(
-                    self,
-                    Node {
-                        ptr: NonNull::dangling(),
-                        _phantom: PhantomData,
-                    },
-                );
-                // If the child is a leaf, we remove the child node itself.
-                // SAFETY:
-                // Guaranteed by invariant 1. in [`Self::child_index_starting_with`].
-                current = unsafe { current.remove_child_unchecked(child_index) };
-                std::mem::forget(std::mem::replace(self, current));
-            } else {
-                // If there's a single grandchild,
-                // we merge the grandchild into the child.
-                child.merge_child_if_possible();
-            }
-
-            data
-        } else {
-            let data = child.remove_descendant(suffix);
-            child.merge_child_if_possible();
-            data
-        }
-    }
-
-    /// If `self` has exactly one child, and `self` doesn't hold
-    /// any data, merge child into `self`, by moving the child's data and
-    /// children into `self`.
-    pub fn merge_child_if_possible(&mut self) {
-        if self.data().is_some() || self.n_children() != 1 {
-            return;
-        }
-        let old_child = std::mem::replace(
-            &mut self.children_mut()[0],
-            Node {
-                ptr: NonNull::dangling(),
-                _phantom: Default::default(),
-            },
-        );
-        let new_parent = old_child.prepend(self.label());
-        let old_self = ManuallyDrop::new(std::mem::replace(self, new_parent));
-        // There is no data and we removed the child, so we can
-        // just free the buffer and be done.
-        // SAFETY:
-        // - The pointer was allocated via the same global allocator
-        //    we are invoking via `dealloc` (see invariant 3. in [`Self::ptr`])
-        // - `old_self.metadata().layout()` is the same layout that was used
-        //   to allocate the buffer (see invariant 1. in [`Self::ptr`])
-        unsafe {
-            dealloc(old_self.ptr.as_ptr().cast(), old_self.metadata().layout());
-        }
-    }
-
-    /// The memory usage of this node and his descendants, in bytes.
-    pub fn mem_usage(&self) -> usize {
-        let mut total_size = self.metadata().layout().size();
-        let mut stack: Vec<&Node<Data>> = self.children().iter().collect();
-
-        while let Some(node) = stack.pop() {
-            total_size += node.metadata().layout().size();
-            stack.extend(node.children().iter());
-        }
-
-        total_size
-    }
-
-    /// The number of descendants of this node.
-    pub fn n_descendants(&self) -> usize {
-        let mut stack: Vec<&Node<Data>> = self.children().iter().collect();
-        let mut n_descendants = self.n_children() as usize;
-        while let Some(node) = stack.pop() {
-            n_descendants += node.n_children() as usize;
-            stack.extend(node.children().iter());
-        }
-        n_descendants
-    }
-}
-
-impl<Data> Drop for Node<Data> {
-    fn drop(&mut self) {
-        let layout = self.metadata().layout();
-        // SAFETY:
-        // - We have exclusive access to buffer.
-        // - The field is correctly initialized (see invariant 2. in [`Self::ptr`])
-        // - The pointer is valid since it comes from a reference.
-        unsafe { std::ptr::drop_in_place(self.data_mut()) };
-        // SAFETY:
-        // - We have exclusive access to buffer.
-        // - The field is correctly initialized (see invariant 2. in [`Self::ptr`])
-        // - The pointer is valid since it comes from a reference.
-        unsafe { std::ptr::drop_in_place(self.children_mut()) };
-
-        // SAFETY:
-        // - The pointer was allocated via the same global allocator
-        //    we are invoking via `dealloc` (see invariant 3. in [`Self::ptr`])
-        // - `layout` is the same layout that was used
-        //   to allocate the buffer (see invariant 1. in [`Self::ptr`])
-        unsafe { dealloc(self.ptr.as_ptr().cast(), layout) };
     }
 }
