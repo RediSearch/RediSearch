@@ -36,31 +36,41 @@ on:
         default: 1
 
 jobs:
-  benchmark-setup:
-    name: "Setup Benchmark Environment"
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Setup benchmark environment
-        uses: ./.github/workflows/benchmark-setup.yml
-  
-  run-rust-benchmarks:
-    needs: benchmark-setup
-    uses: ./.github/workflows/benchmark-rust.yml
-    with:
-      force_run: false
-      skip_checkout_build: true
-    
   benchmark-steps:
-    needs: benchmark-setup
     name: "Benchmark ${{ inputs.allowed_envs }} (${{ inputs.benchmark_runner_group_member_id }}/${{ inputs.benchmark_runner_group_total }}) filter=${{ inputs.benchmark_glob }} "
     runs-on: ubuntu-24.04  # We need the os to be a match to the base image used in the benchmarks.
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: Setup benchmark environment
-        uses: ./.github/workflows/benchmark-setup.yml
-      
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup specific  # assuming node20 supported
+        working-directory: .install
+        run: |
+          ./install_script.sh ${{ steps.mode.outputs.mode }} sudo
+      - name: Setup tests dependencies
+        run: |
+          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }} sudo
+      - name: Install Boost
+        working-directory: .install
+        run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
+
+      - name: Build RediSearch
+        run: make build
+            PROFILE=${{ inputs.profile_env }}
+            SHOW=1
+      - name: Prepare automation
+        run: |
+          ./deps/readies/bin/getpy3
+          pip3 install --upgrade pip
+          python3 -m pip install -r tests/benchmarks/requirements.txt
+          VERSION=1.11.1 sudo ./deps/readies/bin/getterraform
+      - name: Prepare ReJSON Module
+        run: REJSON_BRANCH=${{ inputs.rejson_branch }} ./tests/deps/setup_rejson.sh
+
       - name: Run and Store Rust benchmarks
         uses: ./.github/workflows/benchmark-rust.yml
         with: 
