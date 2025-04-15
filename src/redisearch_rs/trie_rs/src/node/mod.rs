@@ -173,6 +173,46 @@ impl<Data> Node<Data> {
     }
 }
 
+impl<Data> Node<Data> {
+    /// Apply a closure to the node, replacing it with the result.
+    ///
+    /// The closure is expected to take the node by value.
+    fn map<F>(&mut self, f: F)
+    where
+        F: FnOnce(Node<Data>) -> Node<Data>,
+    {
+        // To allow the closure to manipulate the node by value, we need
+        // to temporarily move it out of `self`.
+        // This forces us to provide a "placeholder" node, since `self`
+        // can't be left uninitialized.
+        // We use a node with a dangling pointer as placeholder: the pointer
+        // is well-aligned and not-null, but invoking _any_ node method on it
+        // will result in undefined behavior.
+        let placeholder = Node {
+            ptr: NonNull::dangling(),
+            _phantom: PhantomData,
+        };
+        let node = std::mem::replace(self, placeholder);
+        // In particular, we need to be absolutely sure that the placeholder
+        // node won't be dropped, since that would result in the dangling pointer
+        // being dereferenced.
+        // The main danger comes from the possibility of `f` panicking, which
+        // may trigger unwinding and thus cause the placeholder node to be dropped.
+        // To defend against this case, we wrap `self` in a `ManuallyDrop` to prevent
+        // it from being dropped prematurely even if `f` panics.
+        let careful = ManuallyDrop::new(self);
+
+        let new_node = f(node);
+
+        // After the closure has been executed, we can safely unwrap the `ManuallyDrop`
+        // and replace the original node with the new one.
+        let self_ = ManuallyDrop::into_inner(careful);
+        let placeholder = std::mem::replace(self_, new_node);
+        // We forget the placeholder to prevent it from being dropped.
+        std::mem::forget(placeholder);
+    }
+}
+
 /// Operations that modify the label or the node's children, thus requiring
 /// new memory allocation (or re-allocations).
 impl<Data> Node<Data> {

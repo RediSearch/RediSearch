@@ -15,13 +15,6 @@ impl<Data> Node<Data> {
     where
         F: FnOnce(Option<Data>) -> Data,
     {
-        fn placeholder<Data>() -> Node<Data> {
-            Node {
-                ptr: NonNull::dangling(),
-                _phantom: PhantomData,
-            }
-        }
-
         let mut current = self;
         loop {
             match longest_common_prefix(current.label(), key) {
@@ -32,20 +25,18 @@ impl<Data> Node<Data> {
                     // Create a new root node with an empty label,
                     // insert the old root as a child of the new root,
                     // and add a new child to the empty root.
-                    let old_root = std::mem::replace(current, placeholder());
-
-                    let new_child = Node::new_leaf(key, Some(f(None)));
-                    let children = if ordering == Ordering::Greater {
-                        [new_child, old_root]
-                    } else {
-                        [old_root, new_child]
-                    };
-                    // SAFETY:
-                    // - Both `key` and `current.label()` are at least one byte long,
-                    //   since `longest_common_prefix` found that their `0`th bytes differ.
-                    let new_root = unsafe { Node::new_unchecked(&[], children, None) };
-
-                    std::mem::forget(std::mem::replace(current, new_root));
+                    current.map(|old_root| {
+                        let new_child = Node::new_leaf(key, Some(f(None)));
+                        let children = if ordering == Ordering::Greater {
+                            [new_child, old_root]
+                        } else {
+                            [old_root, new_child]
+                        };
+                        // SAFETY:
+                        // - Both `key` and `current.label()` are at least one byte long,
+                        //   since `longest_common_prefix` found that their `0`th bytes differ.
+                        unsafe { Node::new_unchecked(&[], children, None) }
+                    });
                     break;
                 }
                 Some((equal_up_to, _)) => {
@@ -63,22 +54,19 @@ impl<Data> Node<Data> {
                     // Create a new node that uses the shared prefix as its label.
                     // The prefix is then stripped from both the current label and the
                     // new key; the resulting suffixes are used as labels for the new child nodes.
-                    let old_root = std::mem::replace(current, placeholder());
-
-                    // SAFETY:
-                    // - `key` is at least `equal_up_to` bytes long, since `longest_common_prefix`
-                    //   found that its `equal_up_to` byte differed from the corresponding byte in
-                    //   the current label.
-                    let (_, new_child_suffix) = unsafe { key.split_at_unchecked(equal_up_to) };
-                    let new_child = Node::new_leaf(new_child_suffix, Some(f(None)));
-                    // SAFETY:
-                    // - `old_root.label()` is at least `equal_up_to` bytes long, since `longest_common_prefix`
-                    //   found that its `equal_up_to` byte differed from the corresponding byte in
-                    //   `key`.
-                    let new_root =
-                        unsafe { old_root.split_unchecked(equal_up_to, Some(new_child)) };
-
-                    std::mem::forget(std::mem::replace(current, new_root));
+                    current.map(|old_root| {
+                        // SAFETY:
+                        // - `key` is at least `equal_up_to` bytes long, since `longest_common_prefix`
+                        //   found that its `equal_up_to` byte differed from the corresponding byte in
+                        //   the current label.
+                        let (_, new_child_suffix) = unsafe { key.split_at_unchecked(equal_up_to) };
+                        let new_child = Node::new_leaf(new_child_suffix, Some(f(None)));
+                        // SAFETY:
+                        // - `old_root.label()` is at least `equal_up_to` bytes long, since `longest_common_prefix`
+                        //   found that its `equal_up_to` byte differed from the corresponding byte in
+                        //   `key`.
+                        unsafe { old_root.split_unchecked(equal_up_to, Some(new_child)) }
+                    });
                     break;
                 }
                 None => {
@@ -108,15 +96,15 @@ impl<Data> Node<Data> {
                             //                   \
                             //                    ke (B)
                             // ```
-                            let old_root = std::mem::replace(current, placeholder());
-
-                            // SAFETY:
-                            // - In this branch, `old_root.label()` is strictly longer than `key`,
-                            //   so `key.len()` is in range for `old_root.label()`.
-                            let mut new_root = unsafe { old_root.split_unchecked(key.len(), None) };
-                            *new_root.data_mut() = Some(f(None));
-
-                            std::mem::forget(std::mem::replace(current, new_root));
+                            current.map(|old_root| {
+                                // SAFETY:
+                                // - In this branch, `old_root.label()` is strictly longer than `key`,
+                                //   so `key.len()` is in range for `old_root.label()`.
+                                let mut new_root =
+                                    unsafe { old_root.split_unchecked(key.len(), None) };
+                                *new_root.data_mut() = Some(f(None));
+                                new_root
+                            });
                             break;
                         }
                         Ordering::Equal => {
@@ -155,16 +143,15 @@ impl<Data> Node<Data> {
                                         // We know we won't find match at this point.
                                         .unwrap_err();
 
-                                    let root = std::mem::replace(current, placeholder());
-                                    let new_child = Node::new_leaf(key, Some(f(None)));
-                                    // SAFETY:
-                                    // - The index returned by `binary_search` is
-                                    //   never greater than the length of the searched array.
-                                    let old_root = unsafe {
-                                        root.add_child_unchecked(new_child, insertion_index)
-                                    };
-
-                                    std::mem::forget(std::mem::replace(current, old_root));
+                                    current.map(|root| {
+                                        let new_child = Node::new_leaf(key, Some(f(None)));
+                                        // SAFETY:
+                                        // - The index returned by `binary_search` is
+                                        //   never greater than the length of the searched array.
+                                        unsafe {
+                                            root.add_child_unchecked(new_child, insertion_index)
+                                        }
+                                    });
                                     break;
                                 }
                             }
