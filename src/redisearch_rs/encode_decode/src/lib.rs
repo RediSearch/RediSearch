@@ -1,4 +1,5 @@
 mod buffer;
+mod qint;
 mod varint;
 
 /// Rust implementation of `t_fieldMask` from `redisearch.h`
