@@ -152,9 +152,11 @@ impl<Data> PtrMetadata<Data> {
 
         // The offset doesn't depend on the actual number of children.
         let Ok(label) = Layout::array::<c_char>(1) else {
+            // `1 (array size)` is guaranteed to be less than `isize::MAX`.
             unreachable!()
         };
         let Ok((_, offset)) = layout.extend(label) else {
+            // `2 (header) + 1 (label)` is guaranteed to be less than `isize::MAX`.
             unreachable!()
         };
         offset
