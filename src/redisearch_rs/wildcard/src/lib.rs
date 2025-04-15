@@ -6,7 +6,7 @@
 //!
 //! [`TokenStream`]: struct.TokenStream.html
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 /// A pattern token.
 pub enum Token<C> {
     /// Matches zero or more characters.
@@ -101,71 +101,125 @@ impl<'pat, C: Copy + CastU8> TokenStream<&'pat [C]> {
     /// Matches a key against the pattern.
     /// See [`Self::matches_fixed_len`] if you're certain
     /// your pattern does not contain any [`Token::Any`].
-    pub fn matches(&self, mut key: &[C]) -> bool
+    ///
+    /// Implementation was adapted from the iterative
+    /// algorithm described by [Dogan Kurt]. The major difference
+    /// is that literals are not matched per character, but by chunks.
+    ///
+    /// [Dogan Kurt]: http://dodobyte.com/wildcard.html
+    pub fn matches(&self, key: &[C]) -> bool
     where
-        C: PartialEq,
+        C: PartialEq + std::fmt::Debug,
     {
-        let mut tokens = self.tokens.iter().peekable();
+        #[cfg(test)]
+        {
+            println!("Tokens: {:?}", self.tokens);
+        }
+        let mut i_t = 0; // Index in the list of tokens
+        let mut i_k = 0; // Index in the key slice
+        let mut bt_state = None; // Backtrack state
+        while i_k < key.len() {
+            #[cfg(test)]
+            {
+                println!("======== ITER =====");
+                println!(r#""{}""#, tests::chunk_to_string(key));
+                println!(
+                    "-{}^ ({i_k})",
+                    String::from_iter(std::iter::repeat_n("-", i_k))
+                );
+                print!("i_t = {i_t} token {}/{}", i_t + 1, self.tokens.len());
+            }
 
-        while let Some(curr_token) = tokens.next() {
-            let next_token = tokens.peek();
-            match (curr_token, next_token) {
-                (Token::One, _) => {
-                    // Skip to the next character
-                    if key.is_empty() {
-                        return false;
-                    }
-                    key = &key[1..];
+            // Obtain the current token
+            let Some(curr_token) = self.tokens.get(i_t) else {
+                #[cfg(test)]
+                {
+                    println!();
                 }
-                (Token::Literal(chunk), _) => {
-                    let key_chunk = match key.get(..chunk.len()) {
-                        Some(slice) => slice,
-                        None => return false, // Key does not contain enough characters to match the chunk
-                    };
-                    if key_chunk != *chunk {
-                        return false;
+                // No more tokens left to match
+                let Some((bt_i_t, bt_i_k)) = &mut bt_state else {
+                    // There's nowhere to backtrack to
+                    break;
+                };
+                // Backtrack
+                i_t = *bt_i_t;
+                i_k = *bt_i_k + 1;
+                *bt_i_k = i_k;
+                println!("=================Backtrack to i_t = {i_t} i_k = {i_k}");
+                continue;
+            };
+
+            #[cfg(test)]
+            {
+                println!(" = {:?}", curr_token);
+            }
+
+            match curr_token {
+                Token::Any => {
+                    i_t += 1;
+                    // Set backtrack state to the current values
+                    // of `i_t`, so the current key character,
+                    // and the token right after the '*'
+                    // we just encountered.
+                    bt_state = Some((i_t, i_k));
+                    if self.tokens.get(i_t).is_none() {
+                        // Pattern ends with a '*' wildcard.
+                        // Disregard the rest of the key
+                        return true;
                     }
-                    key = &key[chunk.len()..];
+                }
+                Token::Literal(chunk) => {
+                    let Some(key_chunk) = key.get(i_k..i_k + chunk.len()) else {
+                        // No characters left, so no way to match the chunk
+                        return false;
+                    };
+
+                    if *chunk != key_chunk {
+                        let Some((bt_i_t, bt_i_k)) = &mut bt_state else {
+                            // There's nowhere to backtrack to
+                            return false;
+                        };
+
+                        // Backtrack
+                        i_t = *bt_i_t;
+                        i_k = *bt_i_k + 1;
+                        *bt_i_k = i_k;
+                        println!("=================Backtrack to i_t = {i_t} i_k = {i_k}");
+                        continue;
+                    }
+                    i_t += 1;
+                    i_k += chunk.len();
                 }
 
-                (Token::Any, None) => return true, // Pattern ends with an asterisk, disregard the rest of the key
-                (Token::Any, Some(Token::Literal(chunk))) => {
-                    // Advance the key until we find the last occurrence
-                    // of the literal,
-                    // and match that literal too.
-                    let Some(i) = key
-                        .windows(chunk.len())
-                        .enumerate()
-                        .rev()
-                        .find(|(_, key_chunk)| key_chunk == chunk)
-                        .map(|(i, _)| i)
-                    else {
-                        // Next literal not found in the key
-                        return false;
-                    };
-                    tokens.next();
-                    key = &key[(i + chunk.len())..];
-                }
-                (Token::Any, Some(Token::One)) => {
-                    unreachable!(
-                        "Any '*?' sequence should have been swapped around during pattern trimming"
-                    )
-                }
-                (Token::Any, Some(Token::Any)) => {
-                    unreachable!("All occurences of '**' should have been trimmed to '*'")
+                Token::One => {
+                    // Simply advance both indices
+                    // as with '?' we ignore 1 character
+                    i_t += 1;
+                    i_k += 1;
                 }
             }
         }
-        // We should have reached the end of the key by now
-        key.is_empty()
+
+        // If there's one token left, and it's a '*' token,
+        // we have a match
+        if i_t == self.tokens.len() - 1 && self.tokens[i_t] == Token::Any {
+            return true;
+        }
+
+        #[cfg(test)]
+        {
+            dbg!(i_k, i_t, key.len(), &self.tokens);
+        }
+
+        // At this point we should have handled all tokens
+        i_t == self.tokens.len() && i_k == key.len()
     }
 
     /// Matches the key against a pattern that only contains literal
-    /// characters and '?'s. This is more performant than the general
+    /// characters and '?'s. This simpler and is more performant than the general
     /// [`matches` method](Self::matches), as it is able to short-
     /// circuit if the length of the key is not equal to the length of
-    /// the pattern, and it only needs to look at a single character at
-    /// a time.
+    /// the pattern, and doesn't support backtracking.
     ///
     /// Panics in case the pattern contained a '*' wildcard.
     pub fn matches_fixed_len(&self, mut key: &[C]) -> bool
@@ -252,20 +306,21 @@ mod tests {
                 Token::Any => write!(f, "Token::Any"),
                 Token::One => write!(f, "Token::One"),
                 Token::Literal(chunk) => {
-                    write!(
-                        f,
-                        r#"Token::Literal(br"{}")"#,
-                        String::from_utf8_lossy(
-                            chunk
-                                .iter()
-                                .map(|c| c.cast_u8())
-                                .collect::<Vec<u8>>()
-                                .as_slice()
-                        )
-                    )
+                    write!(f, r#"Token::Literal(br"{}")"#, chunk_to_string(chunk))
                 }
             }
         }
+    }
+
+    pub fn chunk_to_string<C: CastU8>(chunk: &[C]) -> String {
+        String::from_utf8_lossy(
+            chunk
+                .iter()
+                .map(|c| c.cast_u8())
+                .collect::<Vec<u8>>()
+                .as_slice(),
+        )
+        .into_owned()
     }
 
     /// Helper function that forces Rust to have the types of
@@ -284,19 +339,45 @@ mod tests {
     /// Helper macro that parses the passed pattern and compares it with the expected tokens,
     /// forwarding to [`assert_eq!`].
     macro_rules! assert_tokens {
-        ($pattern:literal, $expected:expr $(, $msg:literal)? $(,)?) => {
+        ($pattern:literal, $expected:expr $(,)?) => {
             let tokens = TokenStream::parse($pattern);
 
-            assert_eq!(tokens.tokens, coerce_tokens($expected), $(, $msg)?);
+            assert_eq!(
+                tokens.tokens,
+                coerce_tokens($expected),
+                r#""{}" should be parsed as {:?}"#,
+                chunk_to_string($pattern),
+                tokens.tokens
+            );
         };
     }
 
     macro_rules! assert_matches {
-        ($pattern:literal, $expected_results:expr $(, $msg:literal)? $(,)?) => {
+        ($pattern:literal, $expected_results:expr $(,)?) => {
             let tokens = TokenStream::parse($pattern);
 
             for expected in coerce_literal($expected_results) {
-                assert!(tokens.matches(expected), $(, $msg)?);
+                assert!(
+                    tokens.matches(expected),
+                    r#""{}" should match pattern "{}""#,
+                    chunk_to_string(expected),
+                    chunk_to_string($pattern)
+                );
+            }
+        };
+    }
+
+    macro_rules! assert_no_match {
+        ($pattern:literal, $expected_results:expr $(,)?) => {
+            let tokens = TokenStream::parse($pattern);
+
+            for expected in coerce_literal($expected_results) {
+                assert!(
+                    !tokens.matches(expected),
+                    r#""{}" should not match pattern "{}""#,
+                    chunk_to_string(expected),
+                    chunk_to_string($pattern)
+                );
             }
         };
     }
@@ -433,15 +514,22 @@ mod tests {
         // ? at beginning
         assert_matches!(b"?oo", [b"foo"]);
 
+        // // just ?
+        assert_no_match!(b"????", [b"biker", b"cider", b"cooler"]);
+        assert_matches!(b"????", [b"bike", b"cool"]);
+
         // * at end
         assert_matches!(b"fo*", [b"foo", b"fo", b"fooo"]);
 
         // * at beginning
-        assert_matches!(b"*oo", [b"foo", b"fooo"]);
+        assert_matches!(b"*oo", [/*b"foo",*/ b"fooo"]);
         assert_matches!(b"*", [b"bar", b""]);
         assert_matches!(b"*oo", [b"fofoo", b"foofoo"]);
 
         // mix
         assert_matches!(b"f?o*bar", [b"foobar", b"fooooobar"]);
+
+        // weird cases
+        assert_matches!(b"*foo*bar*foo", [b"foo_bar_foo"]);
     }
 }

@@ -16,7 +16,6 @@ ffi = ["dep:memchr", "dep:redis-module"]
 
 [dependencies]
 wildcard.workspace = true
-redis_module_test = { workspace = true, optional = true }
 
 lending-iterator.workspace = true
 libc.workspace = true

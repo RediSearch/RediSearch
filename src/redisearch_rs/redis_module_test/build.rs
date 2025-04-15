@@ -1,3 +1,4 @@
+use bindgen;
 use std::env;
 use std::path::PathBuf;
 
@@ -14,7 +15,7 @@ fn main() {
         };
         let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
         root.join(format!(
-            "bin/{target_os}-{target_arch}-release/search-community"
+            "bin/{target_os}-{target_arch}-release/search-community/deps/triemap"
         ))
     };
 
@@ -26,6 +27,9 @@ fn main() {
         lib_dir.join("libtrie.a").display()
     );
 
+    let redis_modules = root.join("deps").join("RedisModulesSDK");
+    let src = root.join("src");
+    let deps = root.join("deps");
     let bindings = bindgen::Builder::default()
         .header(
             root.join("deps")
@@ -34,11 +38,15 @@ fn main() {
                 .to_str()
                 .unwrap(),
         )
-        .clang_arg(format!("-I{}", root.join("src").display()))
-        .clang_arg(format!("-I{}", root.join("deps").display()))
-        .clang_arg(format!("-I{}", "include"))
+        .clang_arg(format!("-I{}", src.display()))
+        .clang_arg(format!("-I{}", deps.display()))
+        .clang_arg(format!("-I{}", redis_modules.display()))
         .generate()
         .expect("Unable to generate bindings");
+    // Re-run the build script if any of the files in those directories change
+    println!("cargo:rerun-if-changed={}", src.display());
+    println!("cargo:rerun-if-changed={}", deps.display());
+    println!("cargo:rerun-if-changed={}", redis_modules.display());
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
