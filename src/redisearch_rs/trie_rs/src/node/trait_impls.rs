@@ -135,7 +135,6 @@ impl<Data: Clone> Clone for Node<Data> {
 
 impl<Data> Drop for Node<Data> {
     fn drop(&mut self) {
-        println!("Trying to drop {}", self.ptr.addr());
         let layout = self.metadata().layout();
         // SAFETY:
         // - We have exclusive access to buffer.
