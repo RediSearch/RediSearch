@@ -1,4 +1,4 @@
-use crate::{CTrieMap, RustTrieMap, str2c_char, str2c_input};
+use crate::{CTrieMap, RustTrieMap, StrCInput, str2c_char};
 use criterion::{
     BatchSize, BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
@@ -181,22 +181,22 @@ fn insert_rust_benchmark<M: Measurement>(
     });
 }
 
-fn insert_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, keys: &[String], word: &str) {
-    let (c_word, c_len) = str2c_input(word);
+fn insert_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, terms: &[String], word: &str) {
+    let word = StrCInput::new(word);
     c.bench_function("C", |b| {
         b.iter_batched_ref(
-            || c_load_from_terms(keys),
-            |data| data.insert(black_box(c_word), black_box(c_len)),
-            BatchSize::LargeInput,
+            || c_load_from_terms(terms),
+            |data| data.insert(black_box(word.cstr_ptr), black_box(word.c_len)),
+            BatchSize::PerIteration,
         )
     });
 }
 
-fn find_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, keys: &[String], word: &str) {
-    let (c_word, c_len) = str2c_input(word);
-    let map = c_load_from_terms(keys);
+fn find_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, terms: &[String], word: &str) {
+    let word = StrCInput::new(word);
+    let map = c_load_from_terms(terms);
     c.bench_function("C", |b| {
-        b.iter(|| map.find(black_box(c_word), black_box(c_len)))
+        b.iter(|| map.find(black_box(word.cstr_ptr), black_box(word.c_len)))
     });
 }
 
@@ -216,11 +216,11 @@ fn remove_rust_benchmark<M: Measurement>(
 }
 
 fn remove_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, keys: &[String], word: &str) {
-    let (c_word, c_len) = str2c_input(word);
+    let word = StrCInput::new(word);
     c.bench_function("C", |b| {
         b.iter_batched_ref(
             || c_load_from_terms(keys),
-            |data| data.remove(black_box(c_word), black_box(c_len)),
+            |data| data.remove(black_box(word.cstr_ptr), black_box(word.c_len)),
             BatchSize::LargeInput,
         )
     });
@@ -239,7 +239,12 @@ fn load_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, keys: 
 fn load_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, contents: &[String]) {
     group.bench_function("C", |b| {
         b.iter_batched(
-            || contents.iter().map(|s| str2c_input(&s)).collect::<Vec<_>>(),
+            || {
+                contents
+                    .iter()
+                    .map(|s| StrCInput::new(&s))
+                    .collect::<Vec<_>>()
+            },
             |data| c_load(black_box(data)),
             BatchSize::LargeInput,
         )
@@ -259,15 +264,18 @@ fn rust_load(words: &[Box<[c_char]>]) -> RustTrieMap {
     map
 }
 
-fn c_load(words: Vec<(*mut c_char, u16)>) -> CTrieMap {
+fn c_load(words: Vec<StrCInput>) -> CTrieMap {
     let mut map = CTrieMap::new();
-    for (word, len) in words {
-        map.insert(word, len);
+    for word in words {
+        map.insert(word.cstr_ptr, word.c_len);
     }
     map
 }
 
 fn c_load_from_terms(contents: &[String]) -> CTrieMap {
-    let words = contents.iter().map(|s| str2c_input(&s)).collect::<Vec<_>>();
+    let words = contents
+        .iter()
+        .map(|s| StrCInput::new(&s))
+        .collect::<Vec<_>>();
     c_load(words)
 }

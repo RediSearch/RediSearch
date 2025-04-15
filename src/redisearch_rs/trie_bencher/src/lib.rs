@@ -1,5 +1,6 @@
 //! Supporting types and functions for benchmarking trie operations.
 use std::{
+    alloc::{Layout, dealloc},
     ffi::{CString, c_char, c_void},
     ptr::NonNull,
 };
@@ -28,12 +29,37 @@ pub fn str2u8(input: &str) -> Vec<u8> {
     c_string.as_bytes().iter().copied().collect()
 }
 
-/// Convert a string to a pointer to a `c_char` array.
-/// It also returns the length of the string.
+/// Stores an input string for the C trie map.
 ///
-/// This is the expected input shape for insertions and retrievals on [`CTrieMap`].
-pub fn str2c_input(input: &str) -> (*mut c_char, u16) {
-    let converted = CString::new(input).expect("CString conversion failed");
-    let len: u16 = converted.as_bytes().len().try_into().unwrap();
-    (converted.into_raw(), len)
+/// The String isn't null terminated therefore we store the length and
+/// implment the `Drop` trait to free the memory when the struct goes out of scope.
+///
+/// This encapsulates the expected input shape for insertions and retrievals on [`CTrieMap`].
+pub struct StrCInput {
+    pub cstr_ptr: *mut c_char,
+    pub c_len: u16,
+}
+
+impl StrCInput {
+    pub fn new(input: &str) -> Self {
+        let converted = CString::new(input).expect("CString conversion failed");
+        let len: u16 = converted.as_bytes().len().try_into().unwrap();
+        Self {
+            cstr_ptr: converted.into_raw() as *mut c_char,
+            c_len: len,
+        }
+    }
+}
+
+impl Drop for StrCInput {
+    fn drop(&mut self) {
+        // free the memory allocated for the C string
+        unsafe {
+            dealloc(
+                self.cstr_ptr as *mut u8,
+                Layout::from_size_align(self.c_len as usize, std::mem::align_of::<usize>())
+                    .unwrap(),
+            )
+        }
+    }
 }
