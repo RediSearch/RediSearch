@@ -2,9 +2,9 @@ import math
 from time import sleep
 
 from includes import *
-from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip, Env, debug_cmd
+from common import *
 
-SCORE_NORM_STRETCH_FACTOR = 1/4
+DEFAULT_SCORE_NORM_STRETCH_FACTOR = 4
 
 def testHammingScorer(env):
     conn = getConnectionByEnv(env)
@@ -355,7 +355,7 @@ def _prepare_index(env, idx):
     conn.execute_command('HSET', 'doc2{tag}', 'title', 'hello space world')
     conn.execute_command('HSET', 'doc3{tag}', 'title', 'hello more space world')
 
-def testBM25Normalized():
+def testNormalizedBM25Tanh():
     """
     Tests that the normalized BM25 scorer works as expected.
     We apply the stretched tanh function to the BM25 score, reaching a normalized
@@ -367,27 +367,39 @@ def testBM25Normalized():
     # Prepare the index
     _prepare_index(env, 'idx')
 
-    # Search for `hello world` and get the scores using the BM25STD scorer
-    res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD')
+    def testNormScore(env, stretch_factor):
+        # Search for `hello world` and get the scores using the BM25STD scorer
+        res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD')
 
-    # Search for the same query and get the scores using the BM25STD.TANH scorer
-    norm_res_search = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.TANH')
-    env.assertEqual(len(res), len(norm_res_search))
-    norm_scores = []
-    for i in range(1, len(res), 2):
-        # The same order should be kept
-        env.assertEqual(res[i], norm_res_search[i])
-        # The score should be normalized using the stretched tanh function
-        env.assertEqual(round(float(norm_res_search[i+1]), 5), round(math.tanh(float(res[i+1]) * SCORE_NORM_STRETCH_FACTOR), 5))
-        # Save the score to make sure the aggregate command returns the same results
-        norm_scores.append(round(float(norm_res_search[i+1]), 5))
+        # Search for the same query and get the scores using the BM25STD.TANH scorer
+        norm_res_search = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.TANH')
+        env.assertEqual(len(res), len(norm_res_search))
+        norm_scores = []
+        for i in range(1, len(res), 2):
+            # The same order should be kept
+            env.assertEqual(res[i], norm_res_search[i], message=str(stretch_factor))
+            # The score should be normalized using the stretched tanh function
+            env.assertEqual(round(float(norm_res_search[i+1]), 5), round(math.tanh(float(res[i+1]) * (1/stretch_factor)), 5), message=str(stretch_factor))
+            # Save the score to make sure the aggregate command returns the same results
+            norm_scores.append(round(float(norm_res_search[i+1]), 5))
 
-    norm_res_aggregate = env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.TANH', 'SORTBY', '2', '@__score', 'DESC')
-    for i, res in enumerate(norm_res_aggregate[1:]):
-      # Check that the order and the scores are the same
-      env.assertEqual(round(float(res[1]), 5), norm_scores[i])
+        norm_res_aggregate = env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.TANH', 'SORTBY', '2', '@__score', 'DESC')
+        for i, res in enumerate(norm_res_aggregate[1:]):
+            # Check that the order and the scores are the same
+            env.assertEqual(round(float(res[1]), 5), norm_scores[i])
 
-def testNormalizedBM25ScorerExplanation():
+    testNormScore(env, DEFAULT_SCORE_NORM_STRETCH_FACTOR)
+
+    # Do the same with a different stretch factor
+    stretch_factor = 20
+    env.assertEqual(
+        run_command_on_all_shards(env, "config", "set", "search-bm25std-tanh-stretch", str(stretch_factor)),
+        ["OK"] * env.shardsCount
+    )
+
+    testNormScore(env, stretch_factor)
+
+def testNormalizedBM25TanhScorerExplanation():
     """
     Tests that the normalized BM25STD scorer explanation is correct
     """
@@ -475,7 +487,7 @@ def testNormalizedBM25ScorerExplanation():
         ]]]
     )
 
-def testBM25NormalizedScoreField():
+def testNormalizedBM25TanhScoreField():
     """
     Tests that the normalized BM25 scorer works as expected when using a score
     field for the score.
@@ -508,7 +520,7 @@ def testBM25NormalizedScoreField():
     # Order of results
     env.assertEqual(norm_res[1::2], ['doc3{tag}', 'doc2{tag}', 'doc1{tag}'])
     # Scores
-    norm_expected_scores = [round(math.tanh(x * SCORE_NORM_STRETCH_FACTOR), 5) for x in expected_scores]
+    norm_expected_scores = [round(math.tanh(x * DEFAULT_SCORE_NORM_STRETCH_FACTOR), 5) for x in expected_scores]
     env.assertEqual([round(float(x), 5) for x in norm_res[2::2]], norm_expected_scores)
 
 def scorer_with_weight_test(env, scorer):
@@ -536,30 +548,3 @@ def testBM25STDScoreWithWeight(env: Env):
 
 def testBM25ScoreWithWeight(env: Env):
     scorer_with_weight_test(env, 'BM25')
-
-def testBM25STDTanhStretch(env):
-    """
-    Tests the BM25STD.TANH scorer with a custom stretch parameter (config param).
-    """
-    conn = getConnectionByEnv(env)
-
-    # Create an index
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'body', 'TEXT').ok()
-
-    # Add documents
-    conn.execute_command('HSET', 'doc1', 'title', 'Redis is fast', 'body', 'Redis is an in-memory database')
-    conn.execute_command('HSET', 'doc2', 'title', 'Search with Redis', 'body', 'RediSearch is a search engine')
-
-    # Query with BM25STD.TANH scorer and stretch parameter
-    res = env.cmd(
-        'FT.SEARCH', 'idx', 'Redis',
-        'SCORER', 'BM25STD.TANH',
-        'PARAMS', '2', 'stretch', '0.5',
-        'WITHSCORES', 'RETURN', '2', 'title', 'body'
-    )
-
-    # Validate results
-    env.assertEqual(res[0], 2)  # Ensure two documents are returned
-    env.assertIn('doc1', res)  # Check if doc1 is in the results
-    env.assertIn('doc2', res)  # Check if doc2 is in the results
-
