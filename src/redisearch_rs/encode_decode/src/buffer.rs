@@ -17,7 +17,7 @@ impl BufferReader {
     pub fn to_cursor(&mut self) -> std::io::Cursor<&[u8]> {
         let buffer_slice = unsafe {
             let buffer = &*self.buf;
-            std::slice::from_raw_parts(buffer.data, buffer.offset)
+            std::slice::from_raw_parts(buffer.data, buffer.cap)
         };
         let mut cursor = std::io::Cursor::new(buffer_slice);
         cursor.set_position(self.pos as u64);
