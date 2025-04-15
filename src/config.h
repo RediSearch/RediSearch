@@ -158,7 +158,7 @@ typedef struct {
   // Control user data obfuscation in logs
   bool hideUserDataFromLog;
   // Stretch factor for BM25STD.TANH scoring function
-  uint16_t BM25STD_TanhStretchFactor;
+  uint64_t BM25STD_TanhStretchFactor;
 } RSConfig;
 
 typedef enum {

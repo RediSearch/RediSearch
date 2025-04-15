@@ -446,8 +446,8 @@ CONFIG_GETTER(getIndexingMemoryLimit) {
 
 // BM25STD_TANH_STRETCH
 CONFIG_SETTER(setBM25StdTanhStretch) {
-  uint16_t newStretch;
-  int acrc = AC_GetU16(ac, &newStretch, 0);
+  uint64_t newStretch;
+  int acrc = AC_GetU64(ac, &newStretch, 0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (newStretch > BM25STD_TANH_STRETCH_MAX) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "BM25STD_TANH_STRETCH cannot exceed %d", BM25STD_TANH_STRETCH_MAX);
