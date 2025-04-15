@@ -1,19 +1,31 @@
 name: Rust Benchmarks
 
 on:
+    # Run on PRs that modify rust files
     pull_request:
       paths:
         - 'src/redisearch_rs/**/*.rs'
         - '**/*.toml'  # Cargo files
         - 'src/redisearch_rs/.cargo/**'
 
+    # Run when changes are pushed to master (including merged PRs)
+    push:
+      branches:
+        - master
+      paths:
+        - 'src/redisearch_rs/**/*.rs'
+        - '**/*.toml'  # Cargo files
+        - 'src/redisearch_rs/.cargo/**'
+
+    # Manual trigger
     workflow_dispatch:
       inputs:
         force_run:
           type: boolean
           description: 'Also run if there are no changes in Rust code'
           default: false
-        
+    
+    # For calling from other workflows
     workflow_call:
       inputs:
         force_run:
