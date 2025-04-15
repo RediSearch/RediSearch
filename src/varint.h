@@ -16,22 +16,10 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
 /* Read an encoded integer from the buffer. It is assumed that the buffer will not overflow */
 uint32_t ReadVarint(BufferReader *b);
-
-static inline t_fieldMask ReadVarintFieldMask(BufferReader *b) {
-
-  unsigned char c = BUFFER_READ_BYTE(b);
-
-  t_fieldMask val = c & 127;
-  while (c >> 7) {
-    ++val;
-    c = BUFFER_READ_BYTE(b);
-    val = (val << 7) | (c & 127);
-  }
-
-  return val;
-}
+t_fieldMask ReadVarintFieldMask(BufferReader *b);
 
 size_t WriteVarint(uint32_t value, BufferWriter *w);
 
