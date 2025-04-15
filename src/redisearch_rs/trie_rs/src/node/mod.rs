@@ -181,6 +181,56 @@ impl<Data> Node<Data> {
     where
         F: FnOnce(Node<Data>) -> Node<Data>,
     {
+        /// A guard that prevents the content of `target` from
+        /// being dropped when active.
+        struct DropGuard<'a, Data> {
+            target: &'a mut Node<Data>,
+            active: bool,
+        }
+
+        impl<'a, Data> DropGuard<'a, Data> {
+            /// Create a new active guard, returning the value of `target`
+            /// alongside the guard.
+            ///
+            /// `target` will be populated with a placeholder node,
+            /// which relies on a dangling pointer.
+            fn new(target: &'a mut Node<Data>) -> (Self, Node<Data>) {
+                let node = std::mem::replace(
+                    target,
+                    Node {
+                        ptr: NonNull::dangling(),
+                        _phantom: PhantomData,
+                    },
+                );
+                let guard = DropGuard {
+                    target,
+                    active: true,
+                };
+                (guard, node)
+            }
+
+            /// Disarms the guard, putting back a valid value into the `target` slot.
+            fn disarm(&mut self, node: Node<Data>) {
+                let placeholder = std::mem::replace(self.target, node);
+                std::mem::forget(placeholder);
+                self.active = false;
+            }
+        }
+
+        impl<'a, Data> Drop for DropGuard<'a, Data> {
+            fn drop(&mut self) {
+                if self.active {
+                    // The guard is active, so `target` is dangling pointer.
+                    // We don't want it to be dropped, so we replace it with
+                    // an actual node that's safe to drop.
+                    // This incurs a cost (i.e. the node allocation), but this code
+                    // path is only triggered when the `f` closure panics,
+                    // which should only happen in case of an implementation error.
+                    std::mem::forget(std::mem::replace(self.target, Node::new_leaf(&[], None)));
+                }
+            }
+        }
+
         // To allow the closure to manipulate the node by value, we need
         // to temporarily move it out of `self`.
         // This forces us to provide a "placeholder" node, since `self`
@@ -188,28 +238,19 @@ impl<Data> Node<Data> {
         // We use a node with a dangling pointer as placeholder: the pointer
         // is well-aligned and not-null, but invoking _any_ node method on it
         // will result in undefined behavior.
-        let placeholder = Node {
-            ptr: NonNull::dangling(),
-            _phantom: PhantomData,
-        };
-        let node = std::mem::replace(self, placeholder);
         // In particular, we need to be absolutely sure that the placeholder
         // node won't be dropped, since that would result in the dangling pointer
         // being dereferenced.
         // The main danger comes from the possibility of `f` panicking, which
         // may trigger unwinding and thus cause the placeholder node to be dropped.
-        // To defend against this case, we wrap `self` in a `ManuallyDrop` to prevent
-        // it from being dropped prematurely even if `f` panics.
-        let careful = ManuallyDrop::new(self);
-
+        // To defend against this case, we wrap `self` in a `DropGuard` to prevent
+        // it from being dropped prematurely in case `f` panics.
+        let (mut guard, node) = DropGuard::new(self);
         let new_node = f(node);
 
-        // After the closure has been executed, we can safely unwrap the `ManuallyDrop`
-        // and replace the original node with the new one.
-        let self_ = ManuallyDrop::into_inner(careful);
-        let placeholder = std::mem::replace(self_, new_node);
-        // We forget the placeholder to prevent it from being dropped.
-        std::mem::forget(placeholder);
+        // After the closure has been executed, we can safely disarm the guard
+        // by replacing the placeholder with the new node value.
+        guard.disarm(new_node);
     }
 }
 
@@ -913,5 +954,20 @@ impl<Data> Node<Data> {
             ptr: new_ptr,
             _phantom: Default::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[should_panic(expected = "The closure panicked")]
+    /// If the machinery we use in `map` is not working as expected,
+    /// this test will trigger the dereferencing of a dangling pointer,
+    /// which will in turn cause a SIGSEGV crash.
+    fn test_map_with_panicking_closure() {
+        let mut node = Node::<i32>::new_leaf(&[1, 2, 3], Some(42));
+        node.map(|_| panic!("The closure panicked"));
     }
 }
