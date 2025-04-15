@@ -3,6 +3,11 @@ use crate::buffer::BufferReader;
 use core::slice;
 use std::io::{Cursor, Read};
 
+//
+// The C API goes here. This part will hopefully all be removed once all users of `varint` API are
+// oxidized.
+//
+
 #[unsafe(no_mangle)]
 extern "C" fn ReadVarint(b: *mut BufferReader) -> u32 {
     let buffer_reader = unsafe { b.as_mut() }.unwrap();
@@ -19,6 +24,12 @@ extern "C" fn ReadVarint(b: *mut BufferReader) -> u32 {
     val
 }
 
+//
+// The Rust API goes here. This part will be used by the Rust code and will be used by the C code
+// above.
+//
+
+/// Read an encoded integer from the given reader.
 pub fn read<R>(mut read: R) -> std::io::Result<u32>
 where
     R: Read,
