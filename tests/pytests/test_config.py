@@ -3,6 +3,7 @@ from includes import *
 from common import *
 
 not_modifiable = 'Not modifiable at runtime'
+default_module_list = [['name', 'vectorset', 'ver', 1, 'path', '', 'args', []]]
 
 def _test_config_str(arg_name, arg_value, ret_value=None):
     if ret_value == None:
@@ -89,6 +90,7 @@ def testGetConfigOptions(env):
     check_config('OSS_GLOBAL_PASSWORD')
     check_config('INDEX_CURSOR_LIMIT')
     check_config('ENABLE_UNSTABLE_FEATURES')
+    check_config('_BG_INDEX_MEM_PCT_THR')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
@@ -115,6 +117,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 1).equal('OK')
 
 
 @skip(cluster=True)
@@ -127,6 +130,8 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', 'WORKERS',  2 ** 13 + 1).contains('Number of worker threads cannot exceed')
     env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 2 ** 13 + 1).contains('Number of worker threads cannot exceed')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', -1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', -1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 101).contains('Memory limit for indexing cannot be greater then 100%')
 
 
 @skip(cluster=True)
@@ -173,6 +178,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
+    env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '80')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -198,6 +204,7 @@ def testInitConfig():
     _test_config_num('BG_INDEX_SLEEP_GAP', 15)
     _test_config_num('MINSTEMLEN', 3)
     _test_config_num('INDEX_CURSOR_LIMIT', 128)
+    _test_config_num('_BG_INDEX_MEM_PCT_THR', 80)
 
 # True/False arguments
     _test_config_true_false('NOGC', 'true')
@@ -472,6 +479,7 @@ numericConfigs = [
     ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False, False),
     ('search-workers', 'WORKERS', 0, 0, 16, False, False),
     ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True, False),
+    ('search-_bg-index-mem-pct-thr', '_BG_INDEX_MEM_PCT_THR', 80, 0, 100, False, False),
     # Cluster parameters
     ('search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True, True),
     ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False, True),
@@ -581,7 +589,7 @@ def testModuleLoadexNumericParams():
         # Load module using module arguments
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                       'ARGS', argName, argValue
         )
@@ -593,7 +601,7 @@ def testModuleLoadexNumericParams():
         # Load module using CONFIG
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                       'CONFIG', configName, configValue
         )
@@ -606,7 +614,7 @@ def testModuleLoadexNumericParams():
         # precedence
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                       'CONFIG', configName, configValue,
                       'ARGS', argName, argValue
@@ -620,7 +628,7 @@ def testModuleLoadexNumericParams():
         # last value should take precedence
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                       'CONFIG', configName, minValue,
                       'CONFIG', configName, maxValue,
@@ -635,7 +643,7 @@ def testModuleLoadexNumericParams():
         # last value should take precedence
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                       'ARGS', argName, minValue,
                       argName, maxValue,
@@ -662,7 +670,7 @@ def testConfigAPILoadTimeNumericParams():
         # Test that the limits are enforced using MODULE LOADEX
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         env.expect('MODULE', 'LOADEX', redisearch_module_path,
                     'CONFIG', configName, str(maxValue + 1)).error()\
                     .contains('Error loading the extension')
@@ -771,7 +779,7 @@ def testModuleLoadexNumericParamsLastWins():
         # Single CONFIG, multiple ARGS
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         env.expect('MODULE', 'LOADEX', redisearch_module_path,
                     'CONFIG', configName, str(minValue),
                     'ARGS', argName, str(default), argName, str(maxValue)).ok()
@@ -785,7 +793,7 @@ def testModuleLoadexNumericParamsLastWins():
         # Multiple CONFIG, single ARGS
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         env.expect('MODULE', 'LOADEX', redisearch_module_path,
                     'CONFIG', configName, str(maxValue),
                     'CONFIG', configName, str(maxValue),
@@ -800,7 +808,7 @@ def testModuleLoadexNumericParamsLastWins():
         # Multiple CONFIG
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         env.expect('MODULE', 'LOADEX', redisearch_module_path,
                    'CONFIG', configName, str(minValue),
                    'CONFIG', configName, str(maxValue)).ok()
@@ -814,7 +822,7 @@ def testModuleLoadexNumericParamsLastWins():
         # Multiple ARGS
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         env.expect('MODULE', 'LOADEX', redisearch_module_path,
                    'ARGS', argName, str(default), argName, str(maxValue)).ok()
         res = env.cmd('CONFIG', 'GET', configName)
@@ -911,7 +919,7 @@ def testModuleLoadexEnumParams():
     # Test setting the parameter using CONFIG
     env.start()
     res = env.cmd('MODULE', 'LIST')
-    env.assertEqual(res, [])
+    env.assertEqual(res, default_module_list)
     res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                 'CONFIG', configName, testValue
     )
@@ -923,7 +931,7 @@ def testModuleLoadexEnumParams():
     # Test setting the parameter using ARGS
     env.start()
     res = env.cmd('MODULE', 'LIST')
-    env.assertEqual(res, [])
+    env.assertEqual(res, default_module_list)
     res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                 'ARGS', argName, testValue
     )
@@ -935,7 +943,7 @@ def testModuleLoadexEnumParams():
     # Load module using CONFIG and module arguments, CONFIG wins
     env.start()
     res = env.cmd('MODULE', 'LIST')
-    env.assertEqual(res, [])
+    env.assertEqual(res, default_module_list)
     res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                 'CONFIG', configName, testValue,
                 'ARGS', argName, defaultValue
@@ -1086,7 +1094,7 @@ def testModuleLoadexStringParams():
         # Test setting the parameter using CONFIG
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                     'CONFIG', configName, testValue
         )
@@ -1099,7 +1107,7 @@ def testModuleLoadexStringParams():
         # Test setting the parameter using ARGS
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                     'ARGS', argName, testValue
         )
@@ -1113,7 +1121,7 @@ def testModuleLoadexStringParams():
         # take precedence
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                     'CONFIG', configName, testValue,
                     'ARGS', argName, 'invalid_value'
@@ -1325,7 +1333,7 @@ def testModuleLoadexBooleanParams():
         # Load module using only CONFIG parameters
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         # use non-default value as config value
         configValue = 'yes' if defaultValue == 'no' else 'yes'
         expected = 'true' if configValue == 'yes' else 'false'
@@ -1340,7 +1348,7 @@ def testModuleLoadexBooleanParams():
         # Load module using module arguments
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         # use non-default value as argument value
         argValue = 'true' if defaultValue == 'no' else 'false'
         expected = 'yes' if argValue == 'true' else 'no'
@@ -1362,7 +1370,7 @@ def testModuleLoadexBooleanParams():
         # precedence
         env.start()
         res = env.cmd('MODULE', 'LIST')
-        env.assertEqual(res, [])
+        env.assertEqual(res, default_module_list)
         # use default value as config value
         configValue = 'yes' if defaultValue == 'yes' else 'no'
         # use non-default value as argument value
@@ -1405,7 +1413,7 @@ def testModuleLoadexSearchPartialIndexedDocs():
     # Load module using only CONFIG parameter
     env.start()
     res = env.cmd('MODULE', 'LIST')
-    env.assertEqual(res, [])
+    env.assertEqual(res, default_module_list)
     env.expect('MODULE', 'LOADEX', redisearch_module_path,
                'CONFIG', configName, 'yes').ok()
     env.expect(config_cmd(), 'GET', argName).equal([[argName, 'true']])
@@ -1416,7 +1424,7 @@ def testModuleLoadexSearchPartialIndexedDocs():
     # Load module using only module ARGS
     env.start()
     res = env.cmd('MODULE', 'LIST')
-    env.assertEqual(res, [])
+    env.assertEqual(res, default_module_list)
     # use non-default value as argument value
     res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
                 'ARGS', 'PARTIAL_INDEXED_DOCS', '1'
@@ -1431,7 +1439,7 @@ def testModuleLoadexSearchPartialIndexedDocs():
     # Load module using CONFIG and module ARGS, CONFIG wins
     env.start()
     res = env.cmd('MODULE', 'LIST')
-    env.assertEqual(res, [])
+    env.assertEqual(res, default_module_list)
     env.expect('MODULE', 'LOADEX', redisearch_module_path,
                'CONFIG', 'search-partial-indexed-docs', 'no',
                'ARGS', 'PARTIAL_INDEXED_DOCS', 11).ok()

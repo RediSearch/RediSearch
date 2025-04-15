@@ -114,8 +114,15 @@ static size_t serializeResult(AREQ *req, RedisModule_Reply *reply, const SearchR
     RedisModule_Reply_Map(reply);
   }
 
-  if (dmd && (options & QEXEC_F_IS_SEARCH)) {
+  if (options & QEXEC_F_IS_SEARCH) {
     size_t n;
+    RS_LOG_ASSERT(dmd, "Document metadata NULL in result serialization.");
+    if (!dmd) {
+      // Empty results should not be serialized!
+      // We already crashed in development env. In production, log and continue
+      RedisModule_Log(req->sctx->redisCtx, "warning", "Document metadata NULL in result serialization.");
+      return 0;
+    }
     const char *s = DMD_KeyPtrLen(dmd, &n);
     if (has_map) {
       RedisModule_ReplyKV_StringBuffer(reply, "id", s, n);
@@ -315,7 +322,10 @@ static size_t getResultsFactor(AREQ *req) {
 static SearchResult **AggregateResults(ResultProcessor *rp, int *rc) {
   SearchResult **results = array_new(SearchResult *, 8);
   SearchResult r = {0};
-  while (rp->parent->resultLimit-- && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+  while (rp->parent->resultLimit && (*rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+    // Decrement the result limit, now that we got a valid result.
+    rp->parent->resultLimit--;
+
     array_append(results, SearchResult_Copy(&r));
 
     // clean the search result
@@ -862,6 +872,8 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     QueryError_SetWithUserDataFmt(status, QUERY_ENOINDEX, "No such index", " %s", indexname);
     goto done;
   }
+  // OOM should be checked before
+  RS_ASSERT(!(sctx->spec->scan_failed_OOM));
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
@@ -1281,6 +1293,17 @@ static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv
 
   int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   // Parse the query, not including debug params
+
+  const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+  IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
+  StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  if (sp && sp->scan_failed_OOM) {
+    QueryError_SetWithUserDataFmt(&status, QUERY_INDEXBGOOMFAIL,
+      "Background scan for index ","%s failed due to OOM. Queries cannot be executed on an incomplete index.", idx);
+    goto error;
+  }
+
   if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, execOptions, &status) != REDISMODULE_OK) {
     goto error;
   }
