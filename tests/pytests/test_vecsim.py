@@ -944,7 +944,6 @@ def test_hybrid_query_with_geo():
     conn = getConnectionByEnv(env)
     dim = 2
     data_type = random.choice(VECSIM_DATA_TYPES)
-    data_type = 'FLOAT16'
     env.debugPrint(f"data_type for test {env.testName}: {data_type}", force=True)
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '8', 'TYPE', data_type,
