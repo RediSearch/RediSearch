@@ -6,6 +6,7 @@ fn main() {
     let root = git_root();
 
     // Construct the correct folder path based on OS and architecture
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let lib_dir = {
         let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
         let target_arch = match target_arch.as_str() {
@@ -13,7 +14,7 @@ fn main() {
             "x86_64" => "x64",
             _ => &target_arch,
         };
-        let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+        
         root.join(format!(
             "bin/{target_os}-{target_arch}-release/search-community/deps/triemap"
         ))
@@ -21,7 +22,9 @@ fn main() {
 
     assert!(std::fs::exists(lib_dir.join("libtrie.a")).unwrap());
     // ensure that undefined symbols are allowed - that's seems to be the case on macOS but not un Ubuntu in CI.
-    println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
+    if target_os != "macos" {
+        println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
+    }
     println!("cargo:rustc-link-lib=static=trie");
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!(
