@@ -1472,6 +1472,10 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
        (IsOptimized(req) ? HasScorer(req) : !hasQuerySortby(&req->ap)))) {
     rp = getScorerRP(req, first);
     PUSH_RP();
+    if (req->searchopts.scorerName && !strcmp(req->searchopts.scorerName, BM25_STD_NORMALIZED_MIN_MAX_SCORER_NAME)) {
+      rp = RPNormCollector_New();
+      PUSH_RP();
+    }
   }
 }
 
@@ -1674,8 +1678,6 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
   }
 
 
-  rp = RPNormCollector_New();
-  PUSH_RP();
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
   if (!hasArrange && IsSearch(req)) {
