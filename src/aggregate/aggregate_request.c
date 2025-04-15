@@ -1673,6 +1673,9 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     }
   }
 
+
+  rp = RPNormCollector_New();
+  PUSH_RP();
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
   if (!hasArrange && IsSearch(req)) {
