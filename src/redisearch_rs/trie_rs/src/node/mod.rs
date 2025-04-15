@@ -217,7 +217,7 @@ impl<Data> Node<Data> {
             }
         }
 
-        impl<'a, Data> Drop for DropGuard<'a, Data> {
+        impl<Data> Drop for DropGuard<'_, Data> {
             fn drop(&mut self) {
                 if self.active {
                     // The guard is active, so `target` is dangling pointer.
