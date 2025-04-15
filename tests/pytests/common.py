@@ -23,6 +23,7 @@ from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
 import subprocess
+import math
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
@@ -859,7 +860,7 @@ def set_tight_maxmemory_for_oom(env, memory_limit_per = 0.8):
     # Set memory limit to less then memory limit
     required_memory = memory_usage * (1/memory_limit_per)
     # Round up and add 1
-    new_memory = int(required_memory) + bool(required_memory%1) + 1
+    new_memory = math.ceil(required_memory) + 1
 
     env.expect('config', 'set', 'maxmemory',new_memory).ok()
 
@@ -906,7 +907,7 @@ def shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per = 0.8):
     # Set memory limit to less then memory limit
     required_memory = memory_usage * (1/memory_limit_per)
     # Round up and add 1
-    new_memory = int(required_memory) + bool(required_memory%1) + 1
+    new_memory = math.ceil(required_memory) + 1
     res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', new_memory)
     env.assertEqual(res, 'OK')
 
