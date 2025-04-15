@@ -157,6 +157,8 @@ typedef struct {
   bool enableUnstableFeatures;
   // Control user data obfuscation in logs
   bool hideUserDataFromLog;
+  // Stretch factor for BM25STD.TANH scoring function
+  uint16_t BM25STD_TanhStretchFactor;
 } RSConfig;
 
 typedef enum {
@@ -266,6 +268,9 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
 #define DEFAULT_INDEXING_MEMORY_LIMIT 80
+#define DEFAULT_BM25STD_TANH_STRETCH_FACTOR 4
+#define BM25STD_TANH_STRETCH_MAX 1000
+#define BM25STD_TANH_STRETCH_MIN 1
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
@@ -309,8 +314,9 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .prioritizeIntersectUnionChildren = false,                                 \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
     .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE,                \
-    .hideUserDataFromLog = false                              ,                \
+    .hideUserDataFromLog = false,                                              \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \
+    .BM25STD_TanhStretchFactor = DEFAULT_BM25STD_TANH_STRETCH_FACTOR,          \
   }
 
 #define REDIS_ARRAY_LIMIT 7

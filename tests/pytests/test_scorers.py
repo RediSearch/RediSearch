@@ -488,9 +488,9 @@ def testBM25NormalizedScoreField():
     # Create an index
     env.expect('FT.CREATE', 'idx', 'SCORE_FIELD', 'my_score_field', 'SCHEMA', 'title', 'TEXT').ok()
 
-    # We are going to search against
-    # We currently use a hash-tag such that all docs will reside on the same shard
-    # such that we will not get a score difference between the standalone and cluster modes
+    # We currently use a hash-tag such that all docs will reside on the same
+    # shard such that we will not get a score difference between the standalone
+    # and cluster modes
     conn.execute_command('HSET', 'doc1{tag}', 'title', 'hello world', 'my_score_field', 10)
     conn.execute_command('HSET', 'doc2{tag}', 'title', 'hello space world', 'my_score_field', 100)
     conn.execute_command('HSET', 'doc3{tag}', 'title', 'hello more space world', 'my_score_field', 10000)
@@ -536,4 +536,30 @@ def testBM25STDScoreWithWeight(env: Env):
 
 def testBM25ScoreWithWeight(env: Env):
     scorer_with_weight_test(env, 'BM25')
+
+def testBM25STDTanhStretch(env):
+    """
+    Tests the BM25STD.TANH scorer with a custom stretch parameter (config param).
+    """
+    conn = getConnectionByEnv(env)
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'body', 'TEXT').ok()
+
+    # Add documents
+    conn.execute_command('HSET', 'doc1', 'title', 'Redis is fast', 'body', 'Redis is an in-memory database')
+    conn.execute_command('HSET', 'doc2', 'title', 'Search with Redis', 'body', 'RediSearch is a search engine')
+
+    # Query with BM25STD.TANH scorer and stretch parameter
+    res = env.cmd(
+        'FT.SEARCH', 'idx', 'Redis',
+        'SCORER', 'BM25STD.TANH',
+        'PARAMS', '2', 'stretch', '0.5',
+        'WITHSCORES', 'RETURN', '2', 'title', 'body'
+    )
+
+    # Validate results
+    env.assertEqual(res[0], 2)  # Ensure two documents are returned
+    env.assertIn('doc1', res)  # Check if doc1 is in the results
+    env.assertIn('doc2', res)  # Check if doc2 is in the results
 
