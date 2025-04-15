@@ -14,7 +14,7 @@ fn main() {
             "x86_64" => "x64",
             _ => &target_arch,
         };
-        
+
         root.join(format!(
             "bin/{target_os}-{target_arch}-release/search-community/deps/triemap"
         ))
