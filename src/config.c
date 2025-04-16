@@ -19,6 +19,7 @@
 #include "util/dict.h"
 #include "resp3.h"
 #include "util/workers.h"
+#include <unistd.h>
 
 #define __STRINGIFY(x) #x
 #define STRINGIFY(x) __STRINGIFY(x)
@@ -339,7 +340,7 @@ CONFIG_GETTER(getTimeout) {
 // The number of worker threads should be proportional to the number of cores in the system at most,
 // otherwise no performance improvement will be achieved.
 #ifndef MAX_WORKER_THREADS
-#define MAX_WORKER_THREADS (1 << 4)
+#define MAX_WORKER_THREADS ((unsigned int)sysconf(_SC_NPROCESSORS_ONLN) > 0 ? (unsigned int)sysconf(_SC_NPROCESSORS_ONLN) : 16)
 #endif
 
 static inline int errorTooManyThreads(QueryError *status) {
