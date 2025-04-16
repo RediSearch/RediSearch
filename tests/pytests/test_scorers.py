@@ -608,7 +608,7 @@ def testNormalizedBM25TanhScoreField():
     # Order of results
     env.assertEqual(norm_res[1::2], ['doc3{tag}', 'doc2{tag}', 'doc1{tag}'])
     # Scores
-    norm_expected_scores = [round(math.tanh(x * DEFAULT_SCORE_NORM_STRETCH_FACTOR), 5) for x in expected_scores]
+    norm_expected_scores = [round(math.tanh(x * (1/DEFAULT_SCORE_NORM_STRETCH_FACTOR)), 5) for x in expected_scores]
     env.assertEqual([round(float(x), 5) for x in norm_res[2::2]], norm_expected_scores)
 
 def scorer_with_weight_test(env, scorer):
