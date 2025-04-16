@@ -69,7 +69,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_PAGER_LIMITER:
       case RP_HIGHLIGHTER:
       case RP_GROUP:
-      case RP_MIN_MAX_NORMALIZER:
+      case RP_NORMALIZER:
       case RP_NETWORK:
         printProfileType(RPTypeToString(rp->type));
         break;

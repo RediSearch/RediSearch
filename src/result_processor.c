@@ -1033,7 +1033,7 @@ void SetLoadersForMainThread(AREQ *r) {
 static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
                                     "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
                                     "Grouper", "Projector", "Filter",            "Profile",
-                                    "Network", "Metrics Applier", "Max collector"};
+                                    "Network", "Metrics Applier", "Normalizer"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -1291,11 +1291,11 @@ void PipelineAddCrash(struct AREQ *r) {
    double minValue;
    SearchResult *pooledResult;
    arrayof(SearchResult *) pool;
- } RPNormCollector;
+ } RPNormelizer;
 
 
- static void rpNormCollectorFree(ResultProcessor *base) {
-   RPNormCollector *self = (RPNormCollector *)base;
+ static void rpNormelizor_Free(ResultProcessor *base) {
+   RPNormelizer *self = (RPNormelizer *)base;
    array_free_ex(self->pool, SearchResult_Destroy);
   //  array_free(self->pool);
    SearchResult_Destroy(self->pooledResult);
@@ -1303,8 +1303,8 @@ void PipelineAddCrash(struct AREQ *r) {
    rm_free(self);
  }
 
- static int rpNorm_Yield(ResultProcessor *rp, SearchResult *r){
-   RPNormCollector* self = (RPNormCollector*)rp;
+ static int rpNormelizor_Yield(ResultProcessor *rp, SearchResult *r){
+   RPNormelizer* self = (RPNormelizer*)rp;
    size_t length = array_len(self->pool);
    if (array_len(self->pool) == 0) {
       // We've already yielded all results, return EOF
@@ -1315,14 +1315,14 @@ void PipelineAddCrash(struct AREQ *r) {
    return RS_RESULT_OK;
  }
 
-static int rpNormNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
-  RPNormCollector *self = (RPNormCollector *)rp;
+static int rpNormelizorNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
+  RPNormelizer *self = (RPNormelizer *)rp;
 
   // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
-    rp->Next = rpNorm_Yield;
+    rp->Next = rpNormelizor_Yield;
     return rp->Next(rp, r);
   } else if (rc != RS_RESULT_OK) {
     // whoops!
@@ -1341,8 +1341,8 @@ static int rpNormNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   return RESULT_QUEUED;
 }
 
-static int rpNormAccum(ResultProcessor *rp, SearchResult *r) {
-  RPNormCollector *self = (RPNormCollector *)rp;
+static int rpNormelizorAccum(ResultProcessor *rp, SearchResult *r) {
+  RPNormelizer *self = (RPNormelizer *)rp;
   uint32_t chunkLimit = rp->parent->resultLimit;
   rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
   int rc;
@@ -1354,13 +1354,13 @@ static int rpNormAccum(ResultProcessor *rp, SearchResult *r) {
 }
 
  /* Create a new Max Collector processor */
- ResultProcessor *RPNormCollector_New() {
-  RPNormCollector *ret = rm_calloc(1, sizeof(*ret));
+ ResultProcessor *RPNormelizor_New() {
+  RPNormelizer *ret = rm_calloc(1, sizeof(*ret));
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
   ret->pool = array_new(SearchResult*, 0);
-  ret->base.Next = rpNormAccum;
-  ret->base.Free = rpNormCollectorFree;
-  ret->base.type = RP_MAX_COLLECTOR;
+  ret->base.Next = rpNormelizorAccum;
+  ret->base.Free = rpNormelizor_Free;
+  ret->base.type = RP_NORMALIZER;
   //TODO: use inf/-inf values
   ret->maxValue = 0;
   ret->minValue = DBL_MAX;

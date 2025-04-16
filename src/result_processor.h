@@ -56,7 +56,7 @@ typedef enum {
   RP_PROFILE,
   RP_NETWORK,
   RP_METRICS,
-  RP_MIN_MAX_NORMALIZER,
+  RP_NORMALIZER,
   RP_TIMEOUT, // DEBUG ONLY
   RP_CRASH, // DEBUG ONLY
   RP_MAX,
@@ -306,7 +306,7 @@ void PipelineAddCrash(struct AREQ *r);
   * This processor depletes the result pipeline first, collecting the maximum value of something,
   * and then returns the maximum as a single result.
   *******************************************************************************************************************/
- ResultProcessor *RPNormCollector_New();
+ ResultProcessor *RPNormelizor_New();
 
 #ifdef __cplusplus
 }
