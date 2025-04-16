@@ -269,7 +269,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define MIN_OPERATION_WORKERS 4
 #define DEFAULT_INDEXING_MEMORY_LIMIT 80
 #define DEFAULT_BM25STD_TANH_STRETCH_FACTOR 4
-#define BM25STD_TANH_STRETCH_MAX 1000
+#define BM25STD_TANH_STRETCH_MAX 10000
 #define BM25STD_TANH_STRETCH_MIN 1
 
 // default configuration
