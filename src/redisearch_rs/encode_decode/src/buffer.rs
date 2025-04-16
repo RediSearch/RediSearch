@@ -34,12 +34,12 @@ pub(crate) struct BufferWriter {
     pub pos: *mut u8,
 }
 
-impl BufferWriter {
-    pub fn into_cursor(self) -> Cursor<Vec<u8>> {
+impl From<BufferWriter> for Cursor<Vec<u8>> {
+    fn from(writer: BufferWriter) -> Self {
         let (buffer_vec, pos) = unsafe {
-            let buffer = &mut *self.buf;
+            let buffer = &mut *writer.buf;
             let buffer_vec = Vec::from_raw_parts(buffer.data, buffer.offset, buffer.cap);
-            let pos = buffer.data.offset_from(self.pos);
+            let pos = buffer.data.offset_from(writer.pos);
 
             (buffer_vec, pos)
         };
