@@ -1,8 +1,5 @@
 //! Supporting types and functions for benchmarking trie operations.
-use std::{
-    ffi::c_void,
-    ptr::NonNull,
-};
+use std::{ffi::c_void, ptr::NonNull};
 
 pub use bencher::OperationBencher;
 

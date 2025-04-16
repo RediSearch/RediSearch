@@ -114,13 +114,8 @@ impl AsTrieTermView for CString {
 
 /// Convert a string to a slice of `c_char`, allocated on the heap, which is the expected input for [crate::RustTrieMap].
 pub fn str2boxed_c_char(input: &str) -> Box<[c_char]> {
-    input
-        .as_bytes()
-        .iter()
-        .map(|&b| b as c_char)
-        .collect()
+    input.as_bytes().iter().map(|&b| b as c_char).collect()
 }
-
 
 // ---
 // Here follow the generated bindings from the C library.

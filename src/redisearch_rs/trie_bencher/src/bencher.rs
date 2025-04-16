@@ -1,10 +1,13 @@
-use crate::{ffi::{str2boxed_c_char, ToCstr as _, AsTrieTermView as _}, CTrieMap, RustTrieMap};
+use crate::{
+    CTrieMap, RustTrieMap,
+    ffi::{AsTrieTermView as _, ToCstr as _, str2boxed_c_char},
+};
 use criterion::{
     BatchSize, BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
 use std::{
-    ffi::{c_char, c_void, CString},
+    ffi::{CString, c_char, c_void},
     hint::black_box,
     ptr::NonNull,
     time::Duration,
@@ -197,9 +200,7 @@ fn find_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, terms: &[Stri
     let word = word.to_cstr();
     let view = &word.as_view();
     let map = c_load_from_terms(terms);
-    c.bench_function("C", |b| {
-        b.iter(|| map.find(black_box(view)))
-    });
+    c.bench_function("C", |b| b.iter(|| map.find(black_box(view))));
 }
 
 fn remove_rust_benchmark<M: Measurement>(
@@ -242,12 +243,7 @@ fn load_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, keys: 
 fn load_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, contents: &[String]) {
     group.bench_function("C", |b| {
         b.iter_batched(
-            || {
-                contents
-                    .iter()
-                    .map(|s| s.to_cstr())
-                    .collect::<Vec<_>>()
-            },
+            || contents.iter().map(|s| s.to_cstr()).collect::<Vec<_>>(),
             |data| c_load(black_box(data)),
             BatchSize::LargeInput,
         )
@@ -276,9 +272,6 @@ fn c_load(words: Vec<CString>) -> CTrieMap {
 }
 
 fn c_load_from_terms(contents: &[String]) -> CTrieMap {
-    let words = contents
-        .iter()
-        .map(|s| s.to_cstr())
-        .collect::<Vec<_>>();
+    let words = contents.iter().map(|s| s.to_cstr()).collect::<Vec<_>>();
     c_load(words)
 }

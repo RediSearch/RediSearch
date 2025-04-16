@@ -150,12 +150,7 @@ extern "C" fn free_shim(ptr: *mut c_void) {
 
         // Safety:
         // 1. --> We know the pointer is valid because it was allocated by `alloc_shim`.
-        unsafe {
-            dealloc(
-                ptr,
-                Layout::from_size_align(size, ALIGNMENT).unwrap(),
-            )
-        }
+        unsafe { dealloc(ptr, Layout::from_size_align(size, ALIGNMENT).unwrap()) }
     }
 }
 
