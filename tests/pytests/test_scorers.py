@@ -387,6 +387,51 @@ def testBM25Normalized():
       # Check that the order and the scores are the same
       env.assertEqual(round(float(res[1]), 5), norm_scores[i])
 
+
+
+def testBM25NormMinMax():
+    """
+    Tests that the normalized BM25 scorer works as expected.
+    We apply the stretched tanh function to the BM25 score, reaching a normalized
+    value between 0 and 1.
+    """
+
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+
+    # Prepare the index
+    _prepare_index(env, 'idx')
+
+    # Search for `hello world` and get the scores using the BM25STD scorer
+    res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD')
+
+    # Search for the same query and get the scores using the BM25STD.NORM scorer
+    norm_res_search = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+
+    env.assertEqual(len(res), len(norm_res_search))
+
+    max_score  = max(map(float, res[2::2]))
+    min_score = min(map(float, res[2::2]))
+
+    norm_scores = []
+
+    for i in range(1, len(res), 2):
+        # The same order should be kept
+        env.assertEqual(res[i], norm_res_search[i])
+
+        env.assertGreaterEqual(float(norm_res_search[i+1]), 0)
+        env.assertLessEqual(float(norm_res_search[i+1]), 1)
+
+        # The score should be normalized using the stretched tanh function
+        env.assertEqual(round(float(norm_res_search[i+1]), 5), round((float(res[i+1])-min_score)/(max_score - min_score), 5))
+        # Save the score to make sure the aggregate command returns the same results
+        norm_scores.append(round(float(norm_res_search[i+1]), 5))
+
+    # norm_res_aggregate = env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM', 'SORTBY', '2', '@__score', 'DESC')
+    # for i, res in enumerate(norm_res_aggregate[1:]):
+    #   # Check that the order and the scores are the same
+    #   env.assertEqual(round(float(res[i]), 5), norm_scores[i])
+
+
 def testNormalizedBM25ScorerExplanation():
     """
     Tests that the normalized BM25STD scorer explanation is correct

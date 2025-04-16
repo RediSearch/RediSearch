@@ -674,3 +674,18 @@ def testPofileGILTime():
     env.assertGreaterEqual(float(total_GIL_time), float(rp_GIL_time))
   except Exception:
     print(f"::error title=GIL report test failure:: res: {res}")
+
+def testProfileBM25NormMinMax(env):
+  #create index
+  env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
+
+  # Populate db
+  with env.getClusterConnectionIfNeeded() as conn:
+    conn.execute_command('HSET', 'doc1', 't', 'hello world')
+    conn.execute_command('HSET', 'doc2', 't', 'hello space world')
+    conn.execute_command('HSET', 'doc3', 't', 'hello more space world')
+
+  aggregate_response = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello', 'ADDSCORES', 'SCORER', 'BM25STD.NORM')
+  env.assertTrue(recursive_contains(aggregate_response, "Normalizer"))
+  search_response = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'query', 'hello', 'WITHSCORES', 'SCORER', 'BM25STD.NORM')
+  env.assertTrue(recursive_contains(search_response, "Normalizer"))
