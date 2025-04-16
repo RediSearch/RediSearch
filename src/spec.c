@@ -840,12 +840,7 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp) {
       if (!vecsim) {
         continue;
       }
-      VecSimIndexInfo info = VecSimIndex_Info(vecsim);
-      if (info.algo == VecSimAlgo_BF) {
-        stats.memory += info.bfInfo.memory;
-      } else if (info.algo == VecSimAlgo_HNSWLIB) {
-        stats.memory += info.hnswInfo.memory;
-      }
+      stats.memory += VecSimIndex_StatsInfo(vecsim).memory;
     }
   }
   return stats;

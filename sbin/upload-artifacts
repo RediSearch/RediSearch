@@ -33,7 +33,9 @@ fi
 
 #----------------------------------------------------------------------------------------------
 
-ARCH=$($READIES/bin/platform --arch)
+ARCH=$(uname -m)
+
+[[ $ARCH == arm64 ]] && ARCH="aarch64"
 [[ $ARCH == x64 ]] && ARCH="x86_64"
 
 OS=$($READIES/bin/platform --os)
