@@ -63,15 +63,15 @@ impl<'pat, C: Copy + CastU8> TokenStream<&'pat [C]> {
                     // Replace all occurrences of `*?` with `?*` repetitively,
                     // e.g. `*??` becomes `??*`, `*?*?*` becomes `??*`.
                     loop {
-                        match pattern_iter.next().map(|(_, c)| c) {
+                        match pattern_iter.peek().map(|(_, c)| c) {
                             Some(b'?') => tokens.push(Token::One),
                             Some(b'*') => {}
                             _ => break,
                         }
+                        pattern_iter.next();
                     }
 
                     tokens.push(Token::Any);
-                    pattern_iter.next();
                 }
                 (b'*', _, false) => tokens.push(Token::Any),
                 (b'?', _, false) => tokens.push(Token::One),
@@ -111,31 +111,16 @@ impl<'pat, C: Copy + CastU8> TokenStream<&'pat [C]> {
     where
         C: PartialEq + std::fmt::Debug,
     {
-        #[cfg(test)]
-        {
-            println!("Tokens: {:?}", self.tokens);
+        if self.tokens.is_empty() {
+            return key.is_empty();
         }
+
         let mut i_t = 0; // Index in the list of tokens
         let mut i_k = 0; // Index in the key slice
         let mut bt_state = None; // Backtrack state
         while i_k < key.len() {
-            #[cfg(test)]
-            {
-                println!("======== ITER =====");
-                println!(r#""{}""#, tests::chunk_to_string(key));
-                println!(
-                    "-{}^ ({i_k})",
-                    String::from_iter(std::iter::repeat_n("-", i_k))
-                );
-                print!("i_t = {i_t} token {}/{}", i_t + 1, self.tokens.len());
-            }
-
             // Obtain the current token
             let Some(curr_token) = self.tokens.get(i_t) else {
-                #[cfg(test)]
-                {
-                    println!();
-                }
                 // No more tokens left to match
                 let Some((bt_i_t, bt_i_k)) = &mut bt_state else {
                     // There's nowhere to backtrack to
@@ -145,20 +130,15 @@ impl<'pat, C: Copy + CastU8> TokenStream<&'pat [C]> {
                 i_t = *bt_i_t;
                 i_k = *bt_i_k + 1;
                 *bt_i_k = i_k;
-                println!("=================Backtrack to i_t = {i_t} i_k = {i_k}");
                 continue;
             };
-
-            #[cfg(test)]
-            {
-                println!(" = {:?}", curr_token);
-            }
 
             match curr_token {
                 Token::Any => {
                     i_t += 1;
                     // Set backtrack state to the current values
-                    // of `i_t`, so the current key character,
+                    // of `i_t`, and `i_k`,
+                    // i.e. to the current key character,
                     // and the token right after the '*'
                     // we just encountered.
                     bt_state = Some((i_t, i_k));
@@ -184,7 +164,6 @@ impl<'pat, C: Copy + CastU8> TokenStream<&'pat [C]> {
                         i_t = *bt_i_t;
                         i_k = *bt_i_k + 1;
                         *bt_i_k = i_k;
-                        println!("=================Backtrack to i_t = {i_t} i_k = {i_k}");
                         continue;
                     }
                     i_t += 1;
@@ -204,11 +183,6 @@ impl<'pat, C: Copy + CastU8> TokenStream<&'pat [C]> {
         // we have a match
         if i_t == self.tokens.len() - 1 && self.tokens[i_t] == Token::Any {
             return true;
-        }
-
-        #[cfg(test)]
-        {
-            dbg!(i_k, i_t, key.len(), &self.tokens);
         }
 
         // At this point we should have handled all tokens
@@ -295,7 +269,7 @@ impl sealed::Sealed for u8 {}
 
 #[cfg(test)]
 mod tests {
-    use super::{CastU8, Token, TokenStream};
+    use super::*;
 
     impl<C: CastU8> std::fmt::Debug for Token<&[C]> {
         // `Debug` implementation that formats `Token::Literal` such that
@@ -353,33 +327,33 @@ mod tests {
     }
 
     macro_rules! assert_matches {
-        ($pattern:literal, $expected_results:expr $(,)?) => {
+        ($pattern:expr, $expected_results:expr $(,)?) => {{
             let tokens = TokenStream::parse($pattern);
 
             for expected in coerce_literal($expected_results) {
                 assert!(
                     tokens.matches(expected),
-                    r#""{}" should match pattern "{}""#,
+                    r#"{:?} should match pattern {:?}"#,
                     chunk_to_string(expected),
                     chunk_to_string($pattern)
                 );
             }
-        };
+        }};
     }
 
     macro_rules! assert_no_match {
-        ($pattern:literal, $expected_results:expr $(,)?) => {
+        ($pattern:expr, $expected_results:expr $(,)?) => {{
             let tokens = TokenStream::parse($pattern);
 
             for expected in coerce_literal($expected_results) {
                 assert!(
                     !tokens.matches(expected),
-                    r#""{}" should not match pattern "{}""#,
+                    r#"{:?} should not match pattern {:?}"#,
                     chunk_to_string(expected),
                     chunk_to_string($pattern)
                 );
             }
-        };
+        }};
     }
 
     #[test]
@@ -501,6 +475,8 @@ mod tests {
         assert_tokens!(br"foo\?*", [Literal(br"foo"), Literal(br"?"), Any]);
 
         assert_tokens!(br"foo\*?", [Literal(br"foo"), Literal(br"*"), One]);
+
+        assert_tokens!(b"*?A", [One, Any, Literal(b"A")]);
     }
 
     #[test]
@@ -522,7 +498,7 @@ mod tests {
         assert_matches!(b"fo*", [b"foo", b"fo", b"fooo"]);
 
         // * at beginning
-        assert_matches!(b"*oo", [/*b"foo",*/ b"fooo"]);
+        assert_matches!(b"*oo", [b"foo", b"fooo"]);
         assert_matches!(b"*", [b"bar", b""]);
         assert_matches!(b"*oo", [b"fofoo", b"foofoo"]);
 
@@ -531,5 +507,137 @@ mod tests {
 
         // weird cases
         assert_matches!(b"*foo*bar*foo", [b"foo_bar_foo"]);
+        assert_matches!(b"", [b""]);
+        assert_no_match!(b"", [b"foo"]);
+        assert_no_match!(b"*?A", [b"\0"])
+    }
+
+    #[cfg(not(miri))]
+    // Disable the proptests when testing with Miri,
+    // as proptest accesses the file system, which is not supported by Miri
+    mod propertytests {
+
+        //! Proptests for [`TokenStream`]
+        //! Adapted from the [`wildcard` crate][wildcard]
+        //!
+        //! [wildcard]: https://github.com/cloudflare/wildcard/blob/c560ef01dda595d038e2f46b91cd5804fccb00e0/src/lib.rs#L1170-L1432
+        use std::{fmt, ops::Range};
+
+        use proptest::{prelude::*, proptest};
+
+        use super::*;
+        #[derive(Clone)]
+        struct PatternAndKeys {
+            pattern: Box<[u8]>,
+            keys: Vec<Box<[u8]>>,
+        }
+
+        prop_compose! {
+            fn pattern_and_keys(
+                pat_len: Range<usize>,
+                key_len: Range<usize>,
+                num_keys: Range<usize>,
+            )(
+                pattern in pat_len.prop_flat_map(|len| proptest::string::string_regex(format!("([[:alpha:]]|[0-9]|\\*|\\?|\\\\){{{len}}}").as_str()).unwrap()),
+                keys in any_with::<Vec<Box<[u8]>>>(
+                    (
+                        num_keys.into(),
+                        (key_len.into(), ()),
+                    )
+                )
+            ) -> PatternAndKeys {
+                    let pattern = pattern.into_bytes().into_boxed_slice();
+                    PatternAndKeys { pattern, keys }
+            }
+        }
+
+        prop_compose! {
+            #[expect(clippy::double_parens)]
+            fn pattern_and_matching_keys(
+                pat_len: Range<usize>,
+                num_keys: Range<usize>,
+            )(
+                p_and_k in ((
+                    pat_len.prop_map(|pat_len| {
+                        proptest::string::string_regex(
+                            format!("([[:alpha:]]|[0-9]|\\*|\\?|\\\\){{{pat_len}}}").as_str())
+                                .unwrap()
+                    })
+                    .prop_flat_map(|pat| pat), num_keys)).prop_perturb(|(pat, num_keys), rng| {
+                    let pattern = pat.into_bytes().into_boxed_slice();
+                    let keys = generate_matching_keys(&pattern, num_keys, rng);
+                    PatternAndKeys { pattern, keys }
+                }))
+             -> PatternAndKeys {
+                 p_and_k
+            }
+        }
+
+        fn generate_matching_keys(
+            pattern: &[u8],
+            num_keys: usize,
+            rng: impl Rng,
+        ) -> Vec<Box<[u8]>> {
+            let rng = std::cell::RefCell::new(rng);
+            let tokens = TokenStream::parse(pattern);
+            let mut keys = Vec::new();
+            let mut chars = std::iter::repeat_with(|| rng.borrow_mut().r#gen());
+            for _ in 0..num_keys {
+                let mut key = Vec::new();
+
+                for token in tokens.tokens.iter() {
+                    match token {
+                        Token::Any => {
+                            let num_chars = rng.borrow_mut().gen_range(1..=10);
+                            for _ in 0..num_chars {
+                                key.push(chars.next().unwrap());
+                            }
+                        }
+                        Token::One => {
+                            key.push(chars.next().unwrap());
+                        }
+                        Token::Literal(c) => {
+                            key.extend_from_slice(c);
+                        }
+                    }
+                }
+                keys.push(key.into_boxed_slice())
+            }
+            keys
+        }
+
+        impl fmt::Debug for PatternAndKeys {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let pattern = chunk_to_string(&self.pattern);
+                let keys = Vec::from_iter(self.keys.iter().map(|k| chunk_to_string(k)));
+                f.debug_struct("PatternAndKeys")
+                    .field("pattern", &pattern)
+                    .field("keys", &keys)
+                    .finish()
+            }
+        }
+
+        proptest! {
+            #[test]
+            fn sanity_check_random(input in pattern_and_keys(1..10, 0..10, 1..100)) {
+                let Ok(wc_cf) = wildcard_cloudflare::Wildcard::new(&input.pattern) else {
+                    return Err(TestCaseError::Reject("Pattern rejected by reference implementation".into()));
+                };
+
+                for key in input.keys {
+                    match wc_cf.is_match(&key) {
+                        true => assert_matches!(&input.pattern, [&key]),
+                        false => assert_no_match!(&input.pattern, [&key]),
+                    }
+                }
+            }
+
+            #[test]
+            fn sanity_check_matching(input in pattern_and_matching_keys(5..20, 8..20)) {
+                for key in input.keys {
+                    assert_matches!(&input.pattern, [&key])
+                }
+            }
+        }
     }
 }

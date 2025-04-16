@@ -10,4 +10,4 @@ workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true, features = ["std"] }
-proptest-derive.workspace = true
+wildcard_cloudflare.workspace = true

@@ -51,6 +51,7 @@ proptest = { version = "1.6.0", default-features = false }
 proptest-derive = { version = "0.5.1", default-features = false }
 radix_trie = "0.2.1"
 ureq = "3.0.10"
+wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 
 
 [workspace.dependencies.redis-module]
