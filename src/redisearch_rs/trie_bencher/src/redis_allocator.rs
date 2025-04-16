@@ -35,10 +35,14 @@ pub static mut RedisModule_Calloc: ::std::option::Option<
 const HEADER_SIZE: usize = std::mem::size_of::<usize>();
 const ALIGNMENT: usize = std::mem::align_of::<usize>();
 
-/// Allocates memory for a given size and stores the size in the first 8 bytes of the allocated memory.
-/// This is a shim function that redirects redis allocations to Rust's `alloc` function, which uses malloc from libc.
-/// The size is increased by the size of the header to accommodate the size storage.
-/// The function returns a pointer to the allocated memory which is offset by the header size.
+/// Allocates the required memory.  
+///  
+/// The allocator includes an additional header to keep track of the requested size.  
+/// That size information will be required, later on, if reallocating or deallocating the  
+/// buffer that this function returns.  
+///  
+/// The pointer returned by this function points right after the header slot, which is  
+/// invisible to the caller.  
 ///
 /// Safety:
 /// 1. The caller must ensure that the size is non-zero.
@@ -50,8 +54,11 @@ unsafe fn generic_shim<F: FnOnce(usize) -> *mut c_void>(
 
     // Safety:
     // 1 --> We know size > 0
-    // A. ftor is called with size >= HEADER_SIZE + 1
-    let mem = allocation_func(size);
+    // A. allocation_fun is called with size >= HEADER_SIZE + 1
+    let mem: *mut c_void = allocation_func(size);
+    if mem == std::ptr::null_mut() {
+        panic!("Allocation failed, out of memory?");
+    }
 
     // Safety:
     // We know the memory is valid because we just allocated it.
@@ -64,16 +71,24 @@ unsafe fn generic_shim<F: FnOnce(usize) -> *mut c_void>(
     unsafe { mem.add(HEADER_SIZE) }
 }
 
-/// Allocates memory for a given size and stores the size in the first 8 bytes of the allocated memory.
-/// This is a shim function that redirects redis allocations to Rust's `alloc` function, which uses malloc from libc.
-/// The size is increased by the size of the header to accommodate the size storage.
-/// The function returns a pointer to the allocated memory which is offset by the header size.
+/// Allocates the required memory of `size` bytes for the caller usage. The caller must invoke `free_shim`
+/// to free the memory when it is no longer needed. 
+///  
+/// The allocator includes an additional header to keep track of the requested size.  
+/// That size information will be required, later on, if reallocating or deallocating the  
+/// buffer that this function returns.  
+/// 
+/// If the reallocation fails and the size is non-zero, it panics.
+///  
+/// The pointer returned by this function points right after the header slot, which is  
+/// invisible to the caller.
 ///
 /// Safety:
-/// 1. The caller must ensure that neither is non-zero as the behavior with size == 0 is implementation defined (either nullptr).
+/// 1. The caller must ensure that neither is non-zero as the behavior with size == 0 is implementation defined
 /// 2. See [generic_shim] for more details.
 ///
-/// If size is zero, the behavior is implementation defined (null pointer may be returned, or some non-null pointer may be returned that may not be used to access storage).
+/// If size is zero, the behavior is implementation defined (null pointer may be returned, 
+/// or some non-null pointer may be returned that shall not be dereferenced).
 extern "C" fn alloc_shim(size: usize) -> *mut c_void {
     #[cfg(debug_assertions)]
     {
@@ -94,11 +109,10 @@ extern "C" fn alloc_shim(size: usize) -> *mut c_void {
     }
 }
 
-/// Allocates memory for a given size and stores the size in the first 8 bytes of the allocated memory.
-/// This is a shim function that redirects redis allocations to Rust's `alloc` function, which uses malloc from libc.
-/// The size is increased by the size of the header to accommodate the size storage.
-/// The function returns a pointer to the allocated memory which is offset by the header size.
-/// The function behaves like [alloc_shim] but also initializes the allocated memory besides the size header to zero.
+/// Allocates the required memory of `size`*`count` bytes for the caller usage. The caller must invoke `free_shim`
+/// to free the memory when it is no longer needed. 
+/// 
+/// The function behaves like [alloc_shim] but besides the header slots initializes the allocated memory to zero.
 ///
 /// Safety:
 /// 1. The caller must ensure that neither size nor count is non-zero.
@@ -128,7 +142,7 @@ extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
     }
 }
 
-/// Frees the memory allocated by the `alloc_shim` function.
+/// Frees the memory allocated by the `alloc_shim`, `calloc_shim` or `realloc_shim` functions.
 /// It retrieves the original pointer by subtracting the header size from the given pointer.
 /// The function then retrieves the size from the first 8 bytes of the original pointer.
 /// Finally, it deallocates the memory using Rust's `dealloc` function, which uses free from libc.
@@ -154,11 +168,16 @@ extern "C" fn free_shim(ptr: *mut c_void) {
     }
 }
 
-/// Reallocates memory for a given pointer and size.
+/// Reallocates the required memory of `size` bytes for the caller usage. The `ptr` must be created
+/// via `alloc_shim`, `calloc_shim` or `realloc_shim` functions. The caller must invoke `free_shim`
+/// to free the memory when it is no longer needed. 
+/// 
 /// It retrieves the original pointer by subtracting the header size from the given pointer.
 /// The function then retrieves the size from the first 8 bytes of the original pointer.
-/// It reallocates the memory using Rust's `realloc` function, which uses realloc from libc.
-/// The function returns a pointer to the reallocated memory which is offset by the header size.
+///
+/// The pointer returned by this function points right after the header slot, which is  
+/// invisible to the caller.
+///
 /// If the pointer is null, it behaves like `alloc_shim`.
 /// If the reallocation fails and the size is non-zero, it panics.
 ///
@@ -185,27 +204,9 @@ extern "C" fn realloc_shim(ptr: *mut c_void, size: usize) -> *mut c_void {
     };
 
     let old_layout = Layout::from_size_align(old_size, ALIGNMENT).unwrap();
-    let new_size = size + HEADER_SIZE;
-
-    // Safety:
-    // A. We just adapted ptr to the begin of the allocated memory in the last unsafe block
-    // 1. + A --> We know ptr is valid and is now pointing to the address previously used by alloc
-    // 1. + A --> We know old_layout is valid because it used size from the size header
-    let new_ptr = unsafe { realloc(ptr, old_layout, new_size) };
-
-    // Safety:
-    // 2. --> We know new_ptr is valid because realloc returns a valid pointer or null
     unsafe {
-        *(new_ptr as *mut usize) = new_size;
+        generic_shim(size, |total_size| {
+            realloc(ptr, old_layout, total_size) as *mut c_void
+        })
     }
-
-    if new_ptr.is_null() && size > 0 {
-        // Handle allocation failure, if realloc returns null and the size is non-zero
-        panic!("Reallocation failed!");
-    }
-
-    // Safety:
-    // We just allocated new_ptr and prefixed it with the size header
-    // 2. --> We know there is at least one byte after the header
-    (unsafe { new_ptr.add(HEADER_SIZE) } as *mut c_void)
 }
