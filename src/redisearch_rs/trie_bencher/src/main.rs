@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, ptr::NonNull};
 use trie_bencher::corpus::CorpusType;
-use trie_bencher::{CTrieMap, RustTrieMap, StrCInput, str2c_char};
+use trie_bencher::{str2c_char, AsCstr as _, AsTrieInput as _, CTrieMap, RustTrieMap};
 
 fn main() {
     compute_and_report_memory_usage();
@@ -32,8 +32,9 @@ fn compute_and_report_memory_usage() {
             map.insert(&converted, value);
 
             // C insertion
-            let word = StrCInput::new(&word);
-            cmap.insert(word.cstr_ptr, word.c_len);
+            let word = word.as_cstr();
+            let view = word.as_trie_input();
+            cmap.insert(view.ptr(), view.len());
         }
     }
 
@@ -44,9 +45,10 @@ fn compute_and_report_memory_usage() {
             map.find(&converted).is_some(),
             "{unique_word} not found in Rust map"
         );
-        let word = StrCInput::new(unique_word);
+        let unique_word_c = unique_word.as_cstr();
+        let view = unique_word_c.as_trie_input();
         assert!(
-            cmap.find(word.cstr_ptr, word.c_len) != unsafe { trie_bencher::ffi::TRIEMAP_NOTFOUND },
+            cmap.find(view.ptr(), view.len()) != unsafe { trie_bencher::ffi::TRIEMAP_NOTFOUND },
             "{unique_word} not found in C map"
         )
     }
