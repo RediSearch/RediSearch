@@ -34,7 +34,6 @@ if [[ $1 == --help || $1 == help || $HELP == 1 ]]; then
 
 		Argument variables:
 		RAMP=0|1            Build RAMP package
-		SNAPSHOT=1          Generate "snapshot" packages (artifacts/snapshot/)
 
 		MODULE_NAME=name    Module name (default: redisearch)
 		PACKAGE_NAME=name   Package stem name
@@ -76,7 +75,6 @@ MODULE="$1"
 
 RAMP=${RAMP:-1}
 
-SNAPSHOT=${SNAPSHOT:-1}
 
 [[ -z $ARTDIR ]] && ARTDIR=bin/artifacts
 mkdir -p $ARTDIR $ARTDIR/snapshots
@@ -123,15 +121,9 @@ pack_ramp() {
 	local stem=${PACKAGE_NAME}.${PLATFORM}
 	local stem_debug=${PACKAGE_NAME}.debug.${PLATFORM}
 
-	if [[ $SNAPSHOT == 0 ]]; then
-		local verspec=${SEMVER}${VARIANT}
-		local packdir=.
-		local s3base=""
-	else
-		local verspec=${BRANCH}${VARIANT}
-		local packdir=snapshots
-		local s3base=snapshots/
-	fi
+	local verspec=${BRANCH}${VARIANT}
+	local packdir=snapshots
+	local s3base=snapshots/
 
 	local fq_package=$stem.${verspec}.zip
 	local fq_package_debug=$stem_debug.${verspec}.zip
@@ -203,7 +195,7 @@ SNAPSHOT_ramp=${PACKAGE_NAME}.$OS-$OSNICK-$ARCH.${BRANCH}${VARIANT}.zip
 
 if [[ $JUST_PRINT == 1 ]]; then
 	if [[ $RAMP == 1 ]]; then
-		[[ $SNAPSHOT == 1 ]] && echo $SNAPSHOT_ramp
+		echo $SNAPSHOT_ramp
 	fi
 	exit 0
 fi
@@ -222,7 +214,7 @@ if [[ $RAMP == 1 ]]; then
 	[[ ! -f $MODULE ]] && { eprint "$MODULE does not exist. Aborting."; exit 1; }
 	MODULE=$(realpath $MODULE)
 
-	[[ $SNAPSHOT == 1 ]] && pack_ramp
+	pack_ramp
 
 	echo "# Done."
 fi
