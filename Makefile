@@ -8,6 +8,22 @@ SRCDIR=.
 
 MACOS_PACKAGES=openssl
 
+IGNORE_MISSING_DEPS=1
+build: verify_build $(DEFAULT_TARGETS) $(MK_MAKEFILES) $(TARGET)
+	@echo "Build completed."
+verify_build:
+	@echo "Verifying build dependencies..."
+	@if ! $(ROOT)/.install/verify_build_deps.sh; then \
+		if [ "$(IGNORE_MISSING_DEPS)" = "1" ]; then \
+			echo -e "\033[0;33mIGNORE_MISSING_DEPS is set. Ignoring dependency check failure.\033[0m"; \
+		else \
+            echo ""; \
+			echo -e "\033[0;31mDependency check failed. You can bypass this check by running:\033[0m"; \
+			echo -e "\033[0;31m\033[1mmake IGNORE_MISSING_DEPS=1 ...\033[0m"; \
+            exit 1; \
+        fi; \
+    fi
+
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
@@ -39,6 +55,8 @@ make build          # compile and link
                       # All custom profiles are defined in `src/redisearch_rs/Cargo.toml`.
                       # If both `RUST_PROFILE` and `DEBUG` are set, `RUST_PROFILE` takes precedence
                       # for the Rust code.
+  RUST_DENY_WARNS=0   # Deny all Rust compiler warnings
+  RUST_DYN_CRT=0      # Link C runtime dynamically (default: 0)
 
 make parsers       # build parsers code
 make clean         # remove build artifacts
@@ -54,6 +72,8 @@ make test          # run all tests
   REDIS_STANDALONE=1|0 # test with standalone/cluster Redis
   SA=1|0               # alias for REDIS_STANDALONE
   TEST=name            # run specified test
+  RUST_DENY_WARNS=0   # Deny all Rust compiler warnings
+  RUST_DYN_CRT=0      # Link C runtime dynamically (default: 0)
 
 make lint          # run linters and exit with an error if warnings are found
 make fmt           # format the source files using the appropriate auto-formatter
@@ -84,7 +104,9 @@ make unit-tests    # run unit tests (C and C++)
 make c-tests       # run C tests (from tests/ctests)
 make cpp-tests     # run C++ tests (from tests/cpptests)
 make rust-tests    # run Rust tests (from src/redisearch_rs)
-  RUN_MIRI=0|1           # run the Rust test suite again through miri to catch undefined behavior (default: 0)
+  RUN_MIRI=0|1         # run the Rust test suite again through miri to catch undefined behavior (default: 0)
+  RUST_DENY_WARNS=0    # Deny all Rust compiler warnings
+  RUST_DYN_CRT=0       # Link C runtime dynamically (default: 0)
 make vecsim-bench  # run VecSim micro-benchmark
 
 make callgrind     # produce a call graph
@@ -95,11 +117,6 @@ make pack             # create installation packages (default: 'redisearch-oss' 
   LITE=1                # pack RediSearchLight ('redisearch-light' package)
 
 make upload-artifacts   # copy snapshot packages to S3
-  OSNICK=nick             # copy snapshots for specific OSNICK
-make upload-release     # copy release packages to S3
-
-common options for upload operations:
-  STAGING=1             # copy to staging lab area (for validation)
   FORCE=1               # allow operation outside CI environment
   VERBOSE=1             # show more details
   NOP=1                 # do not copy, just print commands
@@ -181,6 +198,18 @@ RUST_PROFILE=dev
 else
 RUST_PROFILE=release
 endif
+endif
+
+ifeq ($(RUST_DYN_CRT),1)
+# Disable statically linking the C runtime.
+# Default behaviour or ignored on most platforms,
+# but necessary on Alpine Linux.
+# See: https://doc.rust-lang.org/reference/linkage.html#r-link.crt
+RUSTFLAGS+=-C target-feature=-crt-static
+endif
+
+ifeq ($(RUST_DENY_WARNS),1)
+	RUSTFLAGS+=-D warnings
 endif
 
 HIREDIS_DIR=$(ROOT)/deps/hiredis
@@ -336,8 +365,9 @@ endif
 
 redisearch_rs:
 	@echo Building redisearch_rs..
+	$(SHOW)
 	$(SHOW)mkdir -p $(REDISEARCH_RS_TARGET_DIR)
-	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo build --profile="$(RUST_PROFILE)"
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && RUSTFLAGS="$(RUSTFLAGS)" cargo build --profile="$(RUST_PROFILE)"
 	$(SHOW)mkdir -p $(REDISEARCH_RS_BINDIR)
 	$(SHOW)cp $(REDISEARCH_RS_TARGET_DIR)/$(RUST_ARTIFACT_SUBDIR)/*.a $(REDISEARCH_RS_BINDIR)
 
@@ -452,16 +482,19 @@ ifeq ($(COV),1)
 RUST_TEST_RUNNER=cargo +nightly llvm-cov
 RUST_TEST_OPTIONS+=--doctests \
 	--codecov \
+	--workspace \
+	--exclude="trie_bencher" \
+	--ignore-filename-regex="trie_bencher/*" \
 	--output-path="$(ROOT)/bin/$(FULL_VARIANT)/rust_cov.info"
 else
 RUST_TEST_RUNNER=cargo
 endif
 
 rust-tests:
-	$(SHOW)cd $(REDISEARCH_RS_DIR) && $(RUST_TEST_RUNNER) test $(RUST_TEST_OPTIONS) $(TEST_NAME)
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && RUSTFLAGS="$(RUSTFLAGS)" $(RUST_TEST_RUNNER) test $(RUST_TEST_OPTIONS) $(TEST_NAME)
 ifeq ($(RUN_MIRI),1)
 	@printf "\n-------------- Running rust tests through miri ------------------\n"
-	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo +nightly miri test $(TEST_NAME)
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && RUSTFLAGS="$(RUSTFLAGS)" cargo +nightly miri test $(TEST_NAME)
 endif
 
 pytest:
@@ -557,13 +590,10 @@ pack:
 
 endif # RAML_YAML
 
-upload-release:
-	$(SHOW)RELEASE=1 ./sbin/upload-artifacts
-
 upload-artifacts:
-	$(SHOW)SNAPSHOT=1 ./sbin/upload-artifacts
+	./sbin/upload-artifacts
 
-.PHONY: pack upload-artifacts upload-release
+.PHONY: pack upload-artifacts
 
 #----------------------------------------------------------------------------------------------
 ifeq ($(REMOTE),1)
