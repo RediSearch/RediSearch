@@ -102,10 +102,8 @@ fi
 
 #----------------------------------------------------------------------------------------------
 # Navigate to artifacts directory
-cd "$ROOT/bin"
-SNAPSHOTS_FOLDER="snapshots"
 
-cd "artifacts/${SNAPSHOTS_FOLDER}"
+cd "$ROOT/bin/artifacts/snapshots"
 [[ $VERBOSE == 1 ]] && du -ah --apparent-size *
 
 #----------------------------------------------------------------------------------------------
@@ -116,7 +114,6 @@ s3_upload_file() {
     local s3_dir="$2"
     [[ $s3_dir != */ ]] && s3_dir="${s3_dir}/"
 
-    echo "Uploading $file to $s3_dir"
     $OP aws s3 cp "$file" "$s3_dir" --acl public-read --no-progress
 
     # Verify the file was uploaded
@@ -141,7 +138,7 @@ s3_upload() {
         return 1
     fi
 
-    local upload_dir="${S3_URL}/${product_name}/${SNAPSHOTS_FOLDER}"
+    local upload_dir="${S3_URL}/${product_name}/snapshots"
     local files file
 
     # print the current folder name
@@ -161,8 +158,7 @@ s3_upload() {
 }
 upload_product() {
     local prefix="$1"
-    local product="$2"
-    local target="$3"
+    local target="$2"
 
     {
         echo "::group::Uploading $prefix artifacts"
@@ -176,4 +172,6 @@ upload_product() {
 }
 
 # Main upload process
-upload_product "redisearch-community" "redisearch-oss" "redisearch-community"
+upload_product "redisearch-oss" "redisearch-oss"
+upload_product "redisearch" "redisearch"
+upload_product "redisearch" "redisearch-light"
