@@ -313,13 +313,13 @@ static double BM25StdTanhScorer(const ScoringFunctionArgs *ctx, const RSIndexRes
           dmd->score);
 
   // Normalize the score
-  double normalizedScore = tanhStretched(score, RSGlobalConfig.BM25STD_TanhStretchFactor);
+  double normalizedScore = tanhStretched(score, ctx->tanhFactor);
 
   // Modify the explanation to include the normalization
   strExpCreateParent(ctx, &scrExp);
   EXPLAIN(scrExp,
     "Final Normalized BM25 : tanh(stretch factor 1/%d * Final BM25 %.2f)",
-    RSGlobalConfig.BM25STD_TanhStretchFactor, score);
+    ctx->tanhFactor, score);
 
   return normalizedScore;
 }

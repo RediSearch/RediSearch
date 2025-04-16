@@ -82,7 +82,7 @@ configPair_t __configPairs[] = {
   {"WORKERS_PRIORITY_BIAS_THRESHOLD", "search-workers-priority-bias-threshold"},
   {"WORKER_THREADS",                  ""},
   {"ENABLE_UNSTABLE_FEATURES",        "search-enable-unstable-features"},
-  {"BM25STD_TANH_STRETCH",            "search-bm25std-tanh-stretch"},
+  {"BM25STD_TANH_FACTOR",             "search-bm25std-tanh-factor"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -444,24 +444,24 @@ CONFIG_GETTER(getIndexingMemoryLimit) {
   return sdscatprintf(ss, "%u", config->indexingMemoryLimit);
 }
 
-// BM25STD_TANH_STRETCH
-CONFIG_SETTER(setBM25StdTanhStretch) {
-  uint64_t newStretch;
-  int acrc = AC_GetU64(ac, &newStretch, AC_F_GE1);
+// BM25STD_TANH_FACTOR
+CONFIG_SETTER(setBM25StdTanhFactor) {
+  uint64_t newFactor;
+  int acrc = AC_GetU64(ac, &newFactor, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  if (newStretch > BM25STD_TANH_STRETCH_MAX) {
+  if (newFactor > BM25STD_TANH_FACTOR_MAX) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT,
-      "BM25STD_TANH_STRETCH must be between %d and %d inclusive",
-      BM25STD_TANH_STRETCH_MIN, BM25STD_TANH_STRETCH_MAX);
+      "BM25STD_TANH_FACTOR must be between %d and %d inclusive",
+      BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
     return REDISMODULE_ERR;
   }
-  config->BM25STD_TanhStretchFactor = newStretch;
+  config->requestConfigParams.BM25STD_TanhFactor = newFactor;
   return REDISMODULE_OK;
 }
 
-CONFIG_GETTER(getBM25StdTanhStretch) {
+CONFIG_GETTER(getBM25StdTanhFactor) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%ul", config->BM25STD_TanhStretchFactor);
+  return sdscatprintf(ss, "%U", config->requestConfigParams.BM25STD_TanhFactor);
 }
 
 /************************************ DEPRECATION CANDIDATES *************************************/
@@ -1252,12 +1252,12 @@ RSConfigOptions RSGlobalConfigOptions = {
                       " any queries on the affected index will result in an error. The default is 80 percent.",
          .setValue = setIndexingMemoryLimit,
          .getValue = getIndexingMemoryLimit},
-        {.name = "BM25STD_TANH_STRETCH",
+        {.name = "BM25STD_TANH_FACTOR",
           .helpText = "Set the BM25STD.TANH stretch factor. This is an integer value that divides the argument"
                       " of the tanh function that is used to normalize the score computed by the BM25STD scorer."
                       "The default value is 4.",
-          .setValue = setBM25StdTanhStretch,
-          .getValue = getBM25StdTanhStretch},
+          .setValue = setBM25StdTanhFactor,
+          .getValue = getBM25StdTanhFactor},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -1723,11 +1723,11 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-bm25std-tanh-stretch",
-      DEFAULT_BM25STD_TANH_STRETCH_FACTOR,
-      REDISMODULE_CONFIG_UNPREFIXED, BM25STD_TANH_STRETCH_MIN, BM25STD_TANH_STRETCH_MAX,
+      ctx, "search-bm25std-tanh-factor",
+      DEFAULT_BM25STD_TANH_FACTOR,
+      REDISMODULE_CONFIG_UNPREFIXED, BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX,
       get_uint_numeric_config, set_uint_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.BM25STD_TanhStretchFactor)
+      (void *)&(RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor)
     )
   )
 

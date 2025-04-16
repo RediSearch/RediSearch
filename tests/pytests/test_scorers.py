@@ -369,16 +369,21 @@ def testNormalizedBM25Tanh():
     # Prepare the index
     _prepare_index(env, 'idx')
 
-    def testNormScore(env, stretch_factor):
+    def testNormScore(env, stretch_factor, query_param=False):
         """
         Tests the normalized BM25 scorer with the given stretch factor.
         """
         # Search for `hello world` and get the scores using the BM25STD scorer
-        res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD')
+        search_cmd = ['FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD']
+        res = env.cmd(*search_cmd)
 
         # Search for the same query and get the scores using the BM25STD.TANH scorer
-        norm_res_search = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.TANH')
-        env.assertEqual(len(res), len(norm_res_search))
+        norm_search_cmd = ['FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.TANH']
+        # Add the query param if needed
+        if query_param:
+            norm_search_cmd += ['BM25STD_TANH_FACTOR', str(stretch_factor)]
+        norm_res_search = env.cmd(*norm_search_cmd)
+        env.assertEqual(len(res), len(norm_res_search), message=str(stretch_factor))
         norm_scores_raw = []
         norm_scores = []
         for i in range(1, len(res), 2):
@@ -390,10 +395,13 @@ def testNormalizedBM25Tanh():
             norm_scores.append(round(float(norm_res_search[i+1]), 5))
             norm_scores_raw.append(float(norm_res_search[i+1]))
 
-        norm_res_aggregate = env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.TANH', 'SORTBY', '2', '@__score', 'DESC')
-        for i, res in enumerate(norm_res_aggregate[1:]):
+        agg_cmd = ['FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.TANH', 'SORTBY', '2', '@__score', 'DESC']
+        if query_param:
+            agg_cmd += ['BM25STD_TANH_FACTOR', str(stretch_factor)]
+        norm_res_aggregate = env.cmd(*agg_cmd)
+        for i, single_res in enumerate(norm_res_aggregate[1:]):
             # Check that the order and the scores are the same
-            env.assertEqual(round(float(res[1]), 5), norm_scores[i])
+            env.assertEqual(round(float(single_res[1]), 5), norm_scores[i], message=str(stretch_factor))
 
         # The scores of the different documents should be different
         env.assertEqual(len(set(norm_scores_raw)), 3, message=str(stretch_factor))
@@ -403,18 +411,16 @@ def testNormalizedBM25Tanh():
     # Do the same with a different stretch factor
     stretch_factor = 20
     env.assertEqual(
-        run_command_on_all_shards(env, "config", "set", "search-bm25std-tanh-stretch", str(stretch_factor)),
-        ["OK"] * env.shardsCount
+        run_command_on_all_shards(env, "config", "set", "search-bm25std-tanh-factor", str(stretch_factor)),
+        ["OK"] * env.shardsCount,
+        message=str(stretch_factor)
     )
     testNormScore(env, stretch_factor)
 
-    # And with a very large stretch factor (the largest we currently allow)
+    # And with a very large stretch factor (the largest we currently allow), given
+    # as a query parameter
     stretch_factor = 10000
-    env.assertEqual(
-        run_command_on_all_shards(env, "config", "set", "search-bm25std-tanh-stretch", str(stretch_factor)),
-        ["OK"] * env.shardsCount
-    )
-    testNormScore(env, stretch_factor)
+    testNormScore(env, stretch_factor, query_param=True)
 
 def testNormalizedBM25TanhScorerExplanation():
     """
@@ -507,7 +513,7 @@ def testNormalizedBM25TanhScorerExplanation():
     # Normalize the score with a non-default stretch factor
     stretch_factor = 20
     env.assertEqual(
-        run_command_on_all_shards(env, "config", "set", "search-bm25std-tanh-stretch", str(stretch_factor)),
+        run_command_on_all_shards(env, "config", "set", "search-bm25std-tanh-factor", str(stretch_factor)),
         ["OK"] * env.shardsCount
     )
 
@@ -547,6 +553,43 @@ def testNormalizedBM25TanhScorerExplanation():
         ]]]
     )
 
+    # Normalize the score in the query
+    stretch_factor = 15
+    norm_res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'EXPLAINSCORE', 'NOCONTENT', 'SCORER', 'BM25STD.TANH', 'BM25STD_TANH_FACTOR', str(stretch_factor))
+    env.assertEqual(
+        norm_res[2][1],
+        ['Final Normalized BM25 : tanh(stretch factor 1/15 * Final BM25 0.29)',
+            [['Final BM25 : words BM25 0.29 * document score 1.00',
+            [['(Weight 1.00 * children BM25 0.29)',
+            ['hello: (0.15 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 2 / Average Doc Len 3.00)))',
+            'world: (0.15 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 2 / Average Doc Len 3.00)))'
+            ]
+            ]]
+        ]]]
+    )
+    env.assertEqual(
+        norm_res[4][1],
+        ['Final Normalized BM25 : tanh(stretch factor 1/15 * Final BM25 0.27)',
+            [['Final BM25 : words BM25 0.27 * document score 1.00',
+            [['(Weight 1.00 * children BM25 0.27)',
+            ['hello: (0.13 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 3.00)))',
+            'world: (0.13 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 3 / Average Doc Len 3.00)))'
+            ]
+            ]]
+        ]]]
+    )
+    env.assertEqual(
+        norm_res[6][1],
+        ['Final Normalized BM25 : tanh(stretch factor 1/15 * Final BM25 0.24)',
+            [['Final BM25 : words BM25 0.24 * document score 1.00',
+            [['(Weight 1.00 * children BM25 0.24)',
+            ['hello: (0.12 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 4 / Average Doc Len 3.00)))',
+            'world: (0.12 = Weight 1.00 * IDF 0.13 * (F 1.00 * (k1 1.2 + 1)) / (F 1.00 + k1 1.2 * (1 - b 0.5 + b 0.5 * Doc Len 4 / Average Doc Len 3.00)))'
+            ]
+            ]]
+        ]]]
+    )
+
 def testNormalizedBM25TanhValidations():
     """
     Tests the validations of the stretch factor of the BM25STD.TANH normalized
@@ -559,20 +602,20 @@ def testNormalizedBM25TanhValidations():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
 
     # Float
-    env.expect("CONFIG", "SET", "search-bm25std-tanh-stretch", "1.5").error().contains("argument couldn't be parsed into an integer")
-    env.expect(config_cmd(), "SET", "BM25STD_TANH_STRETCH", "1.5").error().contains("Could not convert argument to expected type")
+    env.expect("CONFIG", "SET", "search-bm25std-tanh-factor", "1.5").error().contains("argument couldn't be parsed into an integer")
+    env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "1.5").error().contains("Could not convert argument to expected type")
 
     # Below minimum value
-    env.expect("CONFIG", "SET", "search-bm25std-tanh-stretch", "-1").error().contains("argument must be between 1 and 10000 inclusive")
-    env.expect(config_cmd(), "SET", "BM25STD_TANH_STRETCH", "-1").error().contains("Value is outside acceptable bounds")
+    env.expect("CONFIG", "SET", "search-bm25std-tanh-factor", "-1").error().contains("argument must be between 1 and 10000 inclusive")
+    env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "-1").error().contains("Value is outside acceptable bounds")
 
     # Above max value
-    env.expect("CONFIG", "SET", "search-bm25std-tanh-stretch", "10001").error().contains("argument must be between 1 and 10000 inclusive")
-    env.expect(config_cmd(), "SET", "BM25STD_TANH_STRETCH", "10001").error().contains("BM25STD_TANH_STRETCH must be between 1 and 10000 inclusive")
+    env.expect("CONFIG", "SET", "search-bm25std-tanh-factor", "10001").error().contains("argument must be between 1 and 10000 inclusive")
+    env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "10001").error().contains("BM25STD_TANH_FACTOR must be between 1 and 10000 inclusive")
 
     # Valid value
-    env.expect("CONFIG", "SET", "search-bm25std-tanh-stretch", "25").ok()
-    env.expect(config_cmd(), "SET", "BM25STD_TANH_STRETCH", "25").ok()
+    env.expect("CONFIG", "SET", "search-bm25std-tanh-factor", "25").ok()
+    env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "25").ok()
 
 def testNormalizedBM25TanhScoreField():
     """

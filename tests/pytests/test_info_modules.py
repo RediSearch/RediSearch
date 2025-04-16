@@ -70,7 +70,7 @@ def testInfoModulesBasic(env):
   configInfo = info['search_runtime_configurations']
   env.assertEqual(configInfo['search_minimal_term_prefix'], '2')
   env.assertEqual(configInfo['search_gc_scan_size'], '100')
-  env.assertEqual(configInfo['search_bm25std_tanh_stretch'], '4')
+  env.assertEqual(configInfo['search_bm25std_tanh_factor'], '4')
 
   garbage_collector_info = info['search_garbage_collector']
   env.assertEqual(garbage_collector_info['search_gc_bytes_collected'], '0')
