@@ -461,7 +461,7 @@ CONFIG_SETTER(setBM25StdTanhFactor) {
 
 CONFIG_GETTER(getBM25StdTanhFactor) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%U", config->requestConfigParams.BM25STD_TanhFactor);
+  return sdscatprintf(ss, "%lu", config->requestConfigParams.BM25STD_TanhFactor);
 }
 
 /************************************ DEPRECATION CANDIDATES *************************************/
