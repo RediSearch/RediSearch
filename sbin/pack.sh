@@ -159,11 +159,6 @@ pack_ramp() {
 
 #----------------------------------------------------------------------------------------------
 
-# SEMVER - Semantic version (format: major.minor.patch like 2.6.3)
-# Used for human-readable package naming and release version identification
-SEMVER="$($SBIN/getver)"
-
-
 git_config_add_ifnx() {
 	local key="$1"
 	local val="$2"
@@ -177,7 +172,8 @@ if [[ -z $BRANCH ]]; then
 	BRANCH=$(git rev-parse --abbrev-ref HEAD)
 	# this happens of detached HEAD
 	if [[ $BRANCH == HEAD ]]; then
-		BRANCH="$SEMVER"
+		GIT_COMMIT=$(git rev-parse --short HEAD)
+		BRANCH="$GIT_COMMIT"
 	fi
 fi
 BRANCH=${BRANCH//[^A-Za-z0-9._-]/_}
