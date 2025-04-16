@@ -562,7 +562,7 @@ def testNormalizedBM25TanhValidations():
     env.expect("CONFIG", "SET", "search-bm25std-tanh-stretch", "1.5").error().contains("argument couldn't be parsed into an integer")
     env.expect(config_cmd(), "SET", "BM25STD_TANH_STRETCH", "1.5").error().contains("Could not convert argument to expected type")
 
-    # Below minimun value
+    # Below minimum value
     env.expect("CONFIG", "SET", "search-bm25std-tanh-stretch", "-1").error().contains("argument must be between 1 and 10000 inclusive")
     env.expect(config_cmd(), "SET", "BM25STD_TANH_STRETCH", "-1").error().contains("Value is outside acceptable bounds")
 
