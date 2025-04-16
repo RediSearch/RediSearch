@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, ptr::NonNull};
 use trie_bencher::corpus::CorpusType;
-use trie_bencher::{str2c_char, AsCstr as _, AsTrieInput as _, CTrieMap, RustTrieMap};
+use trie_bencher::{ffi::{ToCstr as _, AsTrieTermView as _, str2boxed_c_char}, CTrieMap, RustTrieMap};
 
 fn main() {
     compute_and_report_memory_usage();
@@ -20,7 +20,7 @@ fn compute_and_report_memory_usage() {
     let mut unique_words = BTreeSet::new();
     for line in contents.lines() {
         for word in line.split_whitespace() {
-            let converted = str2c_char(word);
+            let converted = str2boxed_c_char(word);
             raw_size += converted.len();
             n_words += 1;
             unique_words.insert(word.to_owned());
@@ -32,23 +32,19 @@ fn compute_and_report_memory_usage() {
             map.insert(&converted, value);
 
             // C insertion
-            let word = word.as_cstr();
-            let view = word.as_trie_input();
-            cmap.insert(view.ptr(), view.len());
+            cmap.insert(&word.to_cstr().as_view());
         }
     }
 
     // Sanity check
     for unique_word in &unique_words {
-        let converted = str2c_char(unique_word);
+        let converted = str2boxed_c_char(unique_word);
         assert!(
             map.find(&converted).is_some(),
             "{unique_word} not found in Rust map"
         );
-        let unique_word_c = unique_word.as_cstr();
-        let view = unique_word_c.as_trie_input();
         assert!(
-            cmap.find(view.ptr(), view.len()) != unsafe { trie_bencher::ffi::TRIEMAP_NOTFOUND },
+            cmap.find(&unique_word.to_cstr().as_view()) != unsafe { trie_bencher::ffi::TRIEMAP_NOTFOUND },
             "{unique_word} not found in C map"
         )
     }

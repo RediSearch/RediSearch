@@ -1,4 +1,4 @@
-use crate::{str2c_char, AsCstr as _, AsTrieInput, CTrieMap, RustTrieMap};
+use crate::{ffi::{str2boxed_c_char, ToCstr as _, AsTrieTermView as _}, CTrieMap, RustTrieMap};
 use criterion::{
     BatchSize, BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
@@ -157,7 +157,7 @@ fn find_rust_benchmark<M: Measurement>(
     map: &RustTrieMap,
     word: &str,
 ) {
-    let rust_word = str2c_char(word);
+    let rust_word = str2boxed_c_char(word);
     c.bench_function("Rust", |b| {
         b.iter(|| map.find(black_box(&rust_word)).is_some())
     });
@@ -168,7 +168,7 @@ fn insert_rust_benchmark<M: Measurement>(
     map: RustTrieMap,
     word: &str,
 ) {
-    let word = crate::str2c_char(word);
+    let word = str2boxed_c_char(word);
     c.bench_function("Rust", |b| {
         b.iter_batched_ref(
             || map.clone(),
@@ -182,23 +182,23 @@ fn insert_rust_benchmark<M: Measurement>(
 }
 
 fn insert_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, terms: &[String], word: &str) {
-    let word = word.as_cstr();
-    let view = word.as_trie_input();
+    let word = word.to_cstr();
+    let view = &word.as_view();
     c.bench_function("C", |b| {
         b.iter_batched_ref(
             || c_load_from_terms(terms),
-            |data| data.insert(black_box(view.ptr()), black_box(view.len())),
+            |data| data.insert(black_box(view)),
             BatchSize::PerIteration,
         )
     });
 }
 
 fn find_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, terms: &[String], word: &str) {
-    let word = word.as_cstr();
-    let view = word.as_trie_input();
+    let word = word.to_cstr();
+    let view = &word.as_view();
     let map = c_load_from_terms(terms);
     c.bench_function("C", |b| {
-        b.iter(|| map.find(black_box(view.ptr()), black_box(view.len())))
+        b.iter(|| map.find(black_box(view)))
     });
 }
 
@@ -207,7 +207,7 @@ fn remove_rust_benchmark<M: Measurement>(
     map: RustTrieMap,
     word: &str,
 ) {
-    let rust_word = str2c_char(word);
+    let rust_word = str2boxed_c_char(word);
     c.bench_function("Rust", |b| {
         b.iter_batched_ref(
             || map.clone(),
@@ -218,12 +218,12 @@ fn remove_rust_benchmark<M: Measurement>(
 }
 
 fn remove_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, keys: &[String], word: &str) {
-    let word = word.as_cstr();
-    let view = word.as_trie_input();
+    let word = word.to_cstr();
+    let view = &word.as_view();
     c.bench_function("C", |b| {
         b.iter_batched_ref(
             || c_load_from_terms(keys),
-            |data| data.remove(black_box(view.ptr()), black_box(view.len())),
+            |data| data.remove(black_box(view)),
             BatchSize::LargeInput,
         )
     });
@@ -232,7 +232,7 @@ fn remove_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, keys: &[Str
 fn load_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, keys: &[String]) {
     group.bench_function("Rust", |b| {
         b.iter_batched(
-            || keys.iter().map(|s| str2c_char(s)).collect::<Vec<_>>(),
+            || keys.iter().map(|s| str2boxed_c_char(s)).collect::<Vec<_>>(),
             |data| rust_load(black_box(&data)),
             BatchSize::LargeInput,
         )
@@ -245,7 +245,7 @@ fn load_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, contents:
             || {
                 contents
                     .iter()
-                    .map(|s| s.as_cstr())
+                    .map(|s| s.to_cstr())
                     .collect::<Vec<_>>()
             },
             |data| c_load(black_box(data)),
@@ -255,7 +255,7 @@ fn load_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, contents:
 }
 
 pub fn rust_load_from_terms(keys: &[String]) -> RustTrieMap {
-    let words = keys.iter().map(|s| str2c_char(s)).collect::<Vec<_>>();
+    let words = keys.iter().map(|s| str2boxed_c_char(s)).collect::<Vec<_>>();
     rust_load(&words)
 }
 
@@ -270,8 +270,7 @@ fn rust_load(words: &[Box<[c_char]>]) -> RustTrieMap {
 fn c_load(words: Vec<CString>) -> CTrieMap {
     let mut map = CTrieMap::new();
     for word in words {
-        let view = word.as_trie_input();
-        map.insert(view.ptr(), view.len());
+        map.insert(&word.as_view());
     }
     map
 }
@@ -279,7 +278,7 @@ fn c_load(words: Vec<CString>) -> CTrieMap {
 fn c_load_from_terms(contents: &[String]) -> CTrieMap {
     let words = contents
         .iter()
-        .map(|s| s.as_cstr())
+        .map(|s| s.to_cstr())
         .collect::<Vec<_>>();
     c_load(words)
 }
