@@ -149,9 +149,10 @@ else # COORD
 		BINDIR=$(BINROOT)/coord-oss
 		SRCDIR=coord
 		TARGET=$(BINDIR)/module-oss.so
-		PACKAGE_NAME=redisearch
-		MODULE_NAME=search
-		RAMP_YAML=
+		PACKAGE_NAME=redisearch-coord-oss
+		MODULE_NAME=search-coord-oss
+		RAMP_YAML=pack/ramp-coord-oss.yml
+		PACKAGE_S3_DIR=redisearch-oss
 
 	else ifeq ($(COORD),rlec) # RLEC Coordinator
 		BINDIR=$(BINROOT)/coord-rlec
