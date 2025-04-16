@@ -929,7 +929,7 @@ mod test {
     }
 
     // Disable the proptest when testing with Miri,
-    // as proptest accesses the file system, which is not supported Miri
+    // as proptest accesses the file system, which is not supported by Miri
     #[cfg(not(miri))]
     proptest::proptest! {
         #[test]
