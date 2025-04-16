@@ -13,8 +13,8 @@
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
- #include "util/minmax.h"
- #include <float.h>
+#include "util/minmax.h"
+#include <float.h>
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -1312,10 +1312,14 @@ void PipelineAddCrash(struct AREQ *r) {
      return RS_RESULT_EOF;
    }
    *r = *array_pop(self->pool);
+  //  double oldScore = r->score;
    r->score = (r->score - self->minValue) / (self->maxValue - self->minValue);
-  if (self->scoreKey) {
-    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
-  }
+   if (self->scoreKey) {
+     RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
+   }
+  //  EXPLAIN(r->scoreExplain,
+  //        "(Score: %.2f = (Original Score: %.2f - Min Score: %.2f) / (Max Score: %.2f - Min Score: %.2f))",
+  //        r->score, oldScore, self->minValue, self->maxValue, self->minValue);
    return RS_RESULT_OK;
  }
 
