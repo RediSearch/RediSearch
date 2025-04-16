@@ -93,7 +93,7 @@ run_ramp_pack() {
 	local input="$1"
 	local output="$2"
 
-	$RAMP_CMD pack -m /tmp/ramp.yml \
+	$RAMP_CMD pack -m $RAMP_YAML \
 		$RAMP_ARGS \
 		-n "$MODULE_NAME" \
 		--verbose \
