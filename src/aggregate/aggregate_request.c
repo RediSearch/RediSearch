@@ -1473,7 +1473,7 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
     rp = getScorerRP(req, first);
     PUSH_RP();
     if (req->searchopts.scorerName && !strcmp(req->searchopts.scorerName, BM25_STD_NORMALIZED_MIN_MAX_SCORER_NAME)) {
-      rp = RPNormCollector_New();
+      rp = RPNormelizor_New();
       PUSH_RP();
     }
   }

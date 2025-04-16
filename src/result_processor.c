@@ -1347,7 +1347,7 @@ static int rpNormelizorAccum(ResultProcessor *rp, SearchResult *r) {
   rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
   int rc;
   int count = 0;
-  while ((rc = rpNormNext_innerLoop(rp, r)) == RESULT_QUEUED) {}
+  while ((rc = rpNormelizorNext_innerLoop(rp, r)) == RESULT_QUEUED) {}
   RedisModule_Log(RSDummyContext,"warning", "count in the end of the loop is %d", count);
   rp->parent->resultLimit = chunkLimit; // restore the limit
   return rc;
