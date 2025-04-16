@@ -340,7 +340,7 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
       QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for BM25STD_TANH_FACTOR");
       return ARG_ERROR;
     }
-    if (AC_GetUnsigned(ac, &req->reqConfig.BM25STD_TanhFactor, AC_F_GE1) != AC_OK) {
+    if (AC_GetUnsignedLongLong(ac, &req->reqConfig.BM25STD_TanhFactor, AC_F_GE1) != AC_OK) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "BM25STD_TANH_FACTOR must be between %d and %d inclusive",
       BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
       return ARG_ERROR;
