@@ -5,309 +5,300 @@
  */
 
 
- #pragma once
+#pragma once
 
- #include "redisearch.h"
- #include "sortable.h"
- #include "value.h"
- #include "concurrent_ctx.h"
- #include "search_ctx.h"
- #include "index_iterator.h"
- #include "search_options.h"
- #include "rlookup.h"
- #include "extension.h"
- #include "score_explain.h"
+#include "redisearch.h"
+#include "sortable.h"
+#include "value.h"
+#include "concurrent_ctx.h"
+#include "search_ctx.h"
+#include "index_iterator.h"
+#include "search_options.h"
+#include "rlookup.h"
+#include "extension.h"
+#include "score_explain.h"
 
- #ifdef __cplusplus
- extern "C" {
- #endif
+#ifdef __cplusplus
+extern "C" {
+#endif
 
- /********************************************************************************
-  * Result Processor Chain
-  *
-  * We use a chain of result processors to sort, score, filter and page the results coming from the
-  * index.
-  *
-  * The index iterator tree is responsible for extracting results from the index, and the processor
-  * chain is responsible for processing those and preparing them for the users.
-  * The processors are exposing an iterator interface, adding values to SearchResult objects.
-  *
-  * SearchResult objects contain all the data needed for a search result - from docId and score, to
-  * the actual fields loaded from redis.
-  *
-  * Processors can add more fields, rewrite them, change the score, etc.
-  * The query plan builds the chain based on the request, and then the chain just processes the
-  * results.
-  *
-  ********************************************************************************/
+/********************************************************************************
+ * Result Processor Chain
+ *
+ * We use a chain of result processors to sort, score, filter and page the results coming from the
+ * index.
+ *
+ * The index iterator tree is responsible for extracting results from the index, and the processor
+ * chain is responsible for processing those and preparing them for the users.
+ * The processors are exposing an iterator interface, adding values to SearchResult objects.
+ *
+ * SearchResult objects contain all the data needed for a search result - from docId and score, to
+ * the actual fields loaded from redis.
+ *
+ * Processors can add more fields, rewrite them, change the score, etc.
+ * The query plan builds the chain based on the request, and then the chain just processes the
+ * results.
+ *
+ ********************************************************************************/
 
- typedef enum {
-   RP_INDEX,
-   RP_LOADER,
-   RP_SAFE_LOADER,
-   RP_SCORER,
-   RP_SORTER,
-   RP_COUNTER,
-   RP_PAGER_LIMITER,
-   RP_HIGHLIGHTER,
-   RP_GROUP,
-   RP_PROJECTOR,
-   RP_FILTER,
-   RP_PROFILE,
-   RP_NETWORK,
-   RP_METRICS,
-   RP_MIN_MAX_NORMALIZER,
-   RP_TIMEOUT, // DEBUG ONLY
-   RP_CRASH, // DEBUG ONLY
-   RP_MAX,
- } ResultProcessorType;
+typedef enum {
+  RP_INDEX,
+  RP_LOADER,
+  RP_SAFE_LOADER,
+  RP_SCORER,
+  RP_SORTER,
+  RP_COUNTER,
+  RP_PAGER_LIMITER,
+  RP_HIGHLIGHTER,
+  RP_GROUP,
+  RP_PROJECTOR,
+  RP_FILTER,
+  RP_PROFILE,
+  RP_NETWORK,
+  RP_METRICS,
+  RP_TIMEOUT, // DEBUG ONLY
+  RP_CRASH, // DEBUG ONLY
+  RP_MAX,
+} ResultProcessorType;
 
- struct ResultProcessor;
- struct RLookup;
+struct ResultProcessor;
+struct RLookup;
 
- typedef struct {
-   // First processor
-   struct ResultProcessor *rootProc;
+typedef struct {
+  // First processor
+  struct ResultProcessor *rootProc;
 
-   // Last processor
-   struct ResultProcessor *endProc;
+  // Last processor
+  struct ResultProcessor *endProc;
 
-   // Concurrent search context for thread switching
-   ConcurrentSearchCtx *conc;
+  // Concurrent search context for thread switching
+  ConcurrentSearchCtx *conc;
 
-   // Contains our spec
-   RedisSearchCtx *sctx;
+  // Contains our spec
+  RedisSearchCtx *sctx;
 
-   struct timespec initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
-   struct timespec GILTime;  //milliseconds
+  struct timespec initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
+  struct timespec GILTime;  //milliseconds
 
-   // the minimal score applicable for a result. It can be used to optimize the
-   // scorers
-   double minScore;
+  // the minimal score applicable for a result. It can be used to optimize the
+  // scorers
+  double minScore;
 
-   // the total results found in the query, incremented by the root processors
-   // and decremented by others who might disqualify results
-   uint32_t totalResults;
+  // the total results found in the query, incremented by the root processors
+  // and decremented by others who might disqualify results
+  uint32_t totalResults;
 
-   // the number of results we requested to return at the current chunk.
-   // This value is meant to be used by the RP to limit the number of results
-   // returned by its upstream RP ONLY.
-   // It should be restored after using it for local aggregation etc., as done in
-   // the Safe-Loader, Sorter, and Pager.
-   uint32_t resultLimit;
+  // the number of results we requested to return at the current chunk.
+  // This value is meant to be used by the RP to limit the number of results
+  // returned by its upstream RP ONLY.
+  // It should be restored after using it for local aggregation etc., as done in
+  // the Safe-Loader, Sorter, and Pager.
+  uint32_t resultLimit;
 
-   // Object which contains the error
-   QueryError *err;
+  // Object which contains the error
+  QueryError *err;
 
-   bool isProfile;
-   RSTimeoutPolicy timeoutPolicy;
- } QueryIterator, QueryProcessingCtx;
+  bool isProfile;
+  RSTimeoutPolicy timeoutPolicy;
+} QueryIterator, QueryProcessingCtx;
 
- IndexIterator *QITR_GetRootFilter(QueryIterator *it);
- void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
- void QITR_FreeChain(QueryIterator *qitr);
+IndexIterator *QITR_GetRootFilter(QueryIterator *it);
+void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
+void QITR_FreeChain(QueryIterator *qitr);
 
- /*
-  * SearchResult - the object all the processing chain is working on.
-  * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc,
-  * and a list of fields loaded by the chain
-  */
- typedef struct {
-   t_docId docId;
-
-   // not all results have score - TBD
-   double score;
-   RSScoreExplain *scoreExplain;
-
-   const RSDocumentMetadata *dmd;
-
-   // index result should cover what you need for highlighting,
-   // but we will add a method to duplicate index results to make
-   // them thread safe
-   RSIndexResult *indexResult;
-
-   // Row data. Use RLookup_* functions to access
-   RLookupRow rowdata;
-
-   uint8_t flags;
- } SearchResult;
-
- /* SearchResult flags */
- static const uint8_t Result_ExpiredDoc = 1 << 0;
-
- /* Result processor return codes */
-
- /** Possible return values from Next() */
- typedef enum {
-   // Result is filled with valid data
-   RS_RESULT_OK = 0,
-   // Result is empty, and the last result has already been returned.
-   RS_RESULT_EOF,
-   // Execution paused due to rate limiting (or manual pause from ext. thread??)
-   RS_RESULT_PAUSED,
-   // Execution halted because of timeout
-   RS_RESULT_TIMEDOUT,
-   // Aborted because of error. The QueryState (parent->status) should have
-   // more information.
-   RS_RESULT_ERROR,
-   // Not a return code per se, but a marker signifying the end of the 'public'
-   // return codes. Implementations can use this for extensions.
-   RS_RESULT_MAX
- } RPStatus;
-
- /**
-  * Result processor structure. This should be "Subclassed" by the actual
-  * implementations
-  */
- typedef struct ResultProcessor {
-   // Reference to the parent structure
-   QueryIterator *parent;
-
-   // Previous result processor in the chain
-   struct ResultProcessor *upstream;
-
-   // Type of result processor
-   ResultProcessorType type;
-
-   struct timespec GILTime;
-   /**
-    * Populates the result pointed to by `res`. The existing data of `res` is
-    * not read, so it is the responsibility of the caller to ensure that there
-    * are no refcount leaks in the structure.
-    *
-    * Users can use SearchResult_Clear() to reset the structure without freeing
-    * it.
-    *
-    * The populated structure (if RS_RESULT_OK is returned) does contain references
-    * to document data. Callers *MUST* ensure they are eventually freed.
-    */
-   int (*Next)(struct ResultProcessor *self, SearchResult *res);
-
-   /** Frees the processor and any internal data related to it. */
-   void (*Free)(struct ResultProcessor *self);
- } ResultProcessor;
-
- /**
-  * This function allocates a new SearchResult, copies the data from `src` to it,
-  * and returns it.
+/*
+ * SearchResult - the object all the processing chain is working on.
+ * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc,
+ * and a list of fields loaded by the chain
  */
- SearchResult *SearchResult_Copy(SearchResult *r);
+typedef struct {
+  t_docId docId;
 
- /**
-  * This function resets the search result, so that it may be reused again.
-  * Internal caches are reset but not freed
-  */
- void SearchResult_Clear(SearchResult *r);
+  // not all results have score - TBD
+  double score;
+  RSScoreExplain *scoreExplain;
 
- /**
-  * This function clears the search result, also freeing its internals. Internal
-  * caches are freed. Use this function if `r` will not be used again.
-  */
- void SearchResult_Destroy(SearchResult *r);
+  const RSDocumentMetadata *dmd;
 
- ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
+  // index result should cover what you need for highlighting,
+  // but we will add a method to duplicate index results to make
+  // them thread safe
+  RSIndexResult *indexResult;
 
- ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
-                               const ScoringFunctionArgs *fnargs,
-                               const RLookupKey *rlk);
+  // Row data. Use RLookup_* functions to access
+  RLookupRow rowdata;
 
- ResultProcessor *RPMetricsLoader_New();
+  uint8_t flags;
+} SearchResult;
 
- /** Functions abstracting the sortmap. Hides the bitwise logic */
- #define SORTASCMAP_INIT 0xFFFFFFFFFFFFFFFF
- #define SORTASCMAP_MAXFIELDS 8
- #define SORTASCMAP_SETASC(mm, pos) ((mm) |= (1LLU << (pos)))
- #define SORTASCMAP_SETDESC(mm, pos) ((mm) &= ~(1LLU << (pos)))
- #define SORTASCMAP_GETASC(mm, pos) ((mm) & (1LLU << (pos)))
- void SortAscMap_Dump(uint64_t v, size_t n);
+/* SearchResult flags */
+static const uint8_t Result_ExpiredDoc = 1 << 0;
 
- /**
-  * Creates a sorter result processor.
-  * @param keys is an array of RLookupkeys to sort by them,
-  * @param nkeys is the number of keys.
-  * keys will be freed by the arrange step dtor.
-  */
- ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascendingMap);
+/* Result processor return codes */
 
- ResultProcessor *RPSorter_NewByScore(size_t maxresults);
+/** Possible return values from Next() */
+typedef enum {
+  // Result is filled with valid data
+  RS_RESULT_OK = 0,
+  // Result is empty, and the last result has already been returned.
+  RS_RESULT_EOF,
+  // Execution paused due to rate limiting (or manual pause from ext. thread??)
+  RS_RESULT_PAUSED,
+  // Execution halted because of timeout
+  RS_RESULT_TIMEDOUT,
+  // Aborted because of error. The QueryState (parent->status) should have
+  // more information.
+  RS_RESULT_ERROR,
+  // Not a return code per se, but a marker signifying the end of the 'public'
+  // return codes. Implementations can use this for extensions.
+  RS_RESULT_MAX
+} RPStatus;
 
- ResultProcessor *RPPager_New(size_t offset, size_t limit);
+/**
+ * Result processor structure. This should be "Subclassed" by the actual
+ * implementations
+ */
+typedef struct ResultProcessor {
+  // Reference to the parent structure
+  QueryIterator *parent;
 
- /*******************************************************************************************************************
-  *  Loading Processor
-  *
-  * This processor simply takes the search results, and based on the request parameters, loads the
-  * relevant fields for the results that need to be displayed to the user, from redis.
-  *
-  * It fills the result objects' field map with values corresponding to the requested return fields
-  *
-  * On thread safe mode, the loader will buffer results, in an internal phase will lock redis and load the requested
-  * fields and then unlock redis, and then will yield the results to the next processor in the chain.
-  * On non thread safe mode (running the query from the main thread), the loader will load the requested fields
-  * for each result, one result at a time, and yield it to the next processor in the chain.
-  *
-  *******************************************************************************************************************/
- struct AREQ;
- ResultProcessor *RPLoader_New(struct AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad);
+  // Previous result processor in the chain
+  struct ResultProcessor *upstream;
 
- void SetLoadersForBG(struct AREQ *r);
- void SetLoadersForMainThread(struct AREQ *r);
+  // Type of result processor
+  ResultProcessorType type;
 
- /** Creates a new Highlight processor */
- ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
-                                    const RLookup *lookup);
+  struct timespec GILTime;
+  /**
+   * Populates the result pointed to by `res`. The existing data of `res` is
+   * not read, so it is the responsibility of the caller to ensure that there
+   * are no refcount leaks in the structure.
+   *
+   * Users can use SearchResult_Clear() to reset the structure without freeing
+   * it.
+   *
+   * The populated structure (if RS_RESULT_OK is returned) does contain references
+   * to document data. Callers *MUST* ensure they are eventually freed.
+   */
+  int (*Next)(struct ResultProcessor *self, SearchResult *res);
 
- void RP_DumpChain(const ResultProcessor *rp);
+  /** Frees the processor and any internal data related to it. */
+  void (*Free)(struct ResultProcessor *self);
+} ResultProcessor;
 
- /*******************************************************************************************************************
-  *  Profiling Processor
-  *
-  * This processor collects time and count info about the performance of its upstream RP.
-  *
-  *******************************************************************************************************************/
- ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
+/**
+ * This function allocates a new SearchResult, copies the data from `src` to it,
+ * and returns it.
+*/
+SearchResult *SearchResult_Copy(SearchResult *r);
+
+/**
+ * This function resets the search result, so that it may be reused again.
+ * Internal caches are reset but not freed
+ */
+void SearchResult_Clear(SearchResult *r);
+
+/**
+ * This function clears the search result, also freeing its internals. Internal
+ * caches are freed. Use this function if `r` will not be used again.
+ */
+void SearchResult_Destroy(SearchResult *r);
+
+ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
+
+ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
+                              const ScoringFunctionArgs *fnargs,
+                              const RLookupKey *rlk);
+
+ResultProcessor *RPMetricsLoader_New();
+
+/** Functions abstracting the sortmap. Hides the bitwise logic */
+#define SORTASCMAP_INIT 0xFFFFFFFFFFFFFFFF
+#define SORTASCMAP_MAXFIELDS 8
+#define SORTASCMAP_SETASC(mm, pos) ((mm) |= (1LLU << (pos)))
+#define SORTASCMAP_SETDESC(mm, pos) ((mm) &= ~(1LLU << (pos)))
+#define SORTASCMAP_GETASC(mm, pos) ((mm) & (1LLU << (pos)))
+void SortAscMap_Dump(uint64_t v, size_t n);
+
+/**
+ * Creates a sorter result processor.
+ * @param keys is an array of RLookupkeys to sort by them,
+ * @param nkeys is the number of keys.
+ * keys will be freed by the arrange step dtor.
+ */
+ResultProcessor *RPSorter_NewByFields(size_t maxresults, const RLookupKey **keys, size_t nkeys, uint64_t ascendingMap);
+
+ResultProcessor *RPSorter_NewByScore(size_t maxresults);
+
+ResultProcessor *RPPager_New(size_t offset, size_t limit);
+
+/*******************************************************************************************************************
+ *  Loading Processor
+ *
+ * This processor simply takes the search results, and based on the request parameters, loads the
+ * relevant fields for the results that need to be displayed to the user, from redis.
+ *
+ * It fills the result objects' field map with values corresponding to the requested return fields
+ *
+ * On thread safe mode, the loader will buffer results, in an internal phase will lock redis and load the requested
+ * fields and then unlock redis, and then will yield the results to the next processor in the chain.
+ * On non thread safe mode (running the query from the main thread), the loader will load the requested fields
+ * for each result, one result at a time, and yield it to the next processor in the chain.
+ *
+ *******************************************************************************************************************/
+struct AREQ;
+ResultProcessor *RPLoader_New(struct AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad);
+
+void SetLoadersForBG(struct AREQ *r);
+void SetLoadersForMainThread(struct AREQ *r);
+
+/** Creates a new Highlight processor */
+ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
+                                   const RLookup *lookup);
+
+void RP_DumpChain(const ResultProcessor *rp);
+
+/*******************************************************************************************************************
+ *  Profiling Processor
+ *
+ * This processor collects time and count info about the performance of its upstream RP.
+ *
+ *******************************************************************************************************************/
+ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
 
 
- /*******************************************************************************************************************
-  *  Counter Processor
-  *
-  * This processor counts the search results.
-  *
-  *******************************************************************************************************************/
- ResultProcessor *RPCounter_New();
+/*******************************************************************************************************************
+ *  Counter Processor
+ *
+ * This processor counts the search results.
+ *
+ *******************************************************************************************************************/
+ResultProcessor *RPCounter_New();
 
- clock_t RPProfile_GetClock(ResultProcessor *rp);
- uint64_t RPProfile_GetCount(ResultProcessor *rp);
+clock_t RPProfile_GetClock(ResultProcessor *rp);
+uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
- void Profile_AddRPs(QueryIterator *qiter);
+void Profile_AddRPs(QueryIterator *qiter);
 
- // Return string for RPType
- const char *RPTypeToString(ResultProcessorType type);
+// Return string for RPType
+const char *RPTypeToString(ResultProcessorType type);
 
- /*******************************************************************************************************************
-  *  Timeout Processor - DEBUG ONLY
-  *
-  * returns timeout after N results, N >= 0.
-  *******************************************************************************************************************/
- ResultProcessor *RPTimeoutAfterCount_New(size_t count);
- void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
+/*******************************************************************************************************************
+ *  Timeout Processor - DEBUG ONLY
+ *
+ * returns timeout after N results, N >= 0.
+ *******************************************************************************************************************/
+ResultProcessor *RPTimeoutAfterCount_New(size_t count);
+void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
 
- /*******************************************************************************************************************
-  *  Crash Processor - DEBUG ONLY
-  *
-  * crash the at the start of the query
-  *******************************************************************************************************************/
- ResultProcessor *RPCrash_New();
- void PipelineAddCrash(struct AREQ *r);
+/*******************************************************************************************************************
+ *  Crash Processor - DEBUG ONLY
+ *
+ * crash the at the start of the query
+ *******************************************************************************************************************/
+ResultProcessor *RPCrash_New();
+void PipelineAddCrash(struct AREQ *r);
 
- /*******************************************************************************************************************
-  *  Max Result Processor
-  *
-  * This processor depletes the result pipeline first, collecting the maximum value of something,
-  * and then returns the maximum as a single result.
-  *******************************************************************************************************************/
- ResultProcessor *RPNormCollector_New();
-
- #ifdef __cplusplus
- }
- #endif
+#ifdef __cplusplus
+}
+#endif
