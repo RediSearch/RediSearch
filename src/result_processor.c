@@ -1033,7 +1033,7 @@
  static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
                                       "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
                                       "Grouper", "Projector", "Filter",            "Profile",
-                                      "Network", "Metrics Applier", "Max collector"};
+                                      "Network", "Metrics Applier", "Min-Max Normalizer"};
 
  const char *RPTypeToString(ResultProcessorType type) {
    RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -1360,7 +1360,7 @@ static int rpNormAccum(ResultProcessor *rp, SearchResult *r) {
   ret->pool = array_new(SearchResult*, 0);
   ret->base.Next = rpNormAccum;
   ret->base.Free = rpNormCollectorFree;
-  ret->base.type = RP_MAX_COLLECTOR;
+  ret->base.type = RP_MIN_MAX_NORMALIZER;
   //TODO: use inf/-inf values
   ret->maxValue = 0;
   ret->minValue = DBL_MAX;

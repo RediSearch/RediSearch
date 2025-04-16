@@ -56,7 +56,7 @@
    RP_PROFILE,
    RP_NETWORK,
    RP_METRICS,
-   RP_MAX_COLLECTOR, // Our new MAX collector processor
+   RP_MIN_MAX_NORMALIZER,
    RP_TIMEOUT, // DEBUG ONLY
    RP_CRASH, // DEBUG ONLY
    RP_MAX,
