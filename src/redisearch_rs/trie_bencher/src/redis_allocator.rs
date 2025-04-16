@@ -137,8 +137,13 @@ extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
 extern "C" fn free_shim(ptr: *mut c_void) {
     if !ptr.is_null() {
         let ptr = ptr as *mut u8;
-        let ptr = unsafe { ptr.sub(HEADER_SIZE) };
-        let size = unsafe { *(ptr as *mut usize) };
+        // Safety:
+        // 1. --> We know the ptr is valid and has its size prefixed because it was allocated by `alloc_shim`.
+        let (ptr, size) = unsafe {
+            let ptr = ptr.sub(HEADER_SIZE);
+            let size = *(ptr as *mut usize);
+            (ptr, size)
+        };
 
         // Safety:
         // 1. --> We know the pointer is valid because it was allocated by `alloc_shim`.
@@ -200,7 +205,7 @@ extern "C" fn realloc_shim(ptr: *mut c_void, size: usize) -> *mut c_void {
     }
 
     // Safety:
-    // A we just allocated new_ptr and prefixed it with the size header
+    // We just allocated new_ptr and prefixed it with the size header
     // 2. --> We know there is at least one byte after the header
     (unsafe { new_ptr.add(HEADER_SIZE) } as *mut c_void)
 }
