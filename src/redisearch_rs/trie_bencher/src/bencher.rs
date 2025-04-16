@@ -89,7 +89,7 @@ impl OperationBencher {
             prefix,
             rust_map,
             keys: terms,
-            measurement_times: measurement_times,
+            measurement_times,
         }
     }
 
@@ -188,7 +188,7 @@ fn insert_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, terms: &[St
         b.iter_batched_ref(
             || c_load_from_terms(terms),
             |data| data.insert(black_box(view)),
-            BatchSize::PerIteration,
+            BatchSize::LargeInput,
         )
     });
 }

@@ -61,7 +61,7 @@ unsafe fn generic_shim<F: FnOnce(usize) -> *mut c_void>(
 
     // Safety:
     // 1. --> We know there is at least one byte after the header
-    unsafe { mem.add(HEADER_SIZE) as *mut c_void }
+    unsafe { mem.add(HEADER_SIZE) }
 }
 
 /// Allocates memory for a given size and stores the size in the first 8 bytes of the allocated memory.
@@ -71,7 +71,7 @@ unsafe fn generic_shim<F: FnOnce(usize) -> *mut c_void>(
 ///
 /// Safety:
 /// 1. The caller must ensure that neither is non-zero as the behavior with size == 0 is implementation defined (either nullptr).
-/// See [generic_shim] for more details.
+/// 2. See [generic_shim] for more details.
 ///
 /// If size is zero, the behavior is implementation defined (null pointer may be returned, or some non-null pointer may be returned that may not be used to access storage).
 extern "C" fn alloc_shim(size: usize) -> *mut c_void {
@@ -86,6 +86,7 @@ extern "C" fn alloc_shim(size: usize) -> *mut c_void {
     // Safety:
     // 1. --> We know size > 0
     // A. total_size = size + HEADER_SIZE (see [generic_shim])
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
     unsafe {
         generic_shim(size, |total_size| {
             alloc(Layout::from_size_align(total_size, ALIGNMENT).unwrap()) as *mut c_void
@@ -101,7 +102,7 @@ extern "C" fn alloc_shim(size: usize) -> *mut c_void {
 ///
 /// Safety:
 /// 1. The caller must ensure that neither size nor count is non-zero.
-/// See [generic_shim] for more details.
+/// 2. See [generic_shim] for more details.
 extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
     #[cfg(debug_assertions)]
     {
@@ -119,6 +120,7 @@ extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
     // Safety:
     // 1. --> We know count > 0, size > 0 --> size_without_header > 0
     // A. total_size = size_without_header + HEADER_SIZE (see [generic_shim])
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
     unsafe {
         generic_shim(size_without_header, |total_size| {
             alloc_zeroed(Layout::from_size_align(total_size, ALIGNMENT).unwrap()) as *mut c_void
@@ -139,6 +141,7 @@ extern "C" fn free_shim(ptr: *mut c_void) {
         let ptr = ptr as *mut u8;
         // Safety:
         // 1. --> We know the ptr is valid and has its size prefixed because it was allocated by `alloc_shim`.
+        #[allow(clippy::multiple_unsafe_ops_per_block)]
         let (ptr, size) = unsafe {
             let ptr = ptr.sub(HEADER_SIZE);
             let size = *(ptr as *mut usize);
@@ -149,7 +152,7 @@ extern "C" fn free_shim(ptr: *mut c_void) {
         // 1. --> We know the pointer is valid because it was allocated by `alloc_shim`.
         unsafe {
             dealloc(
-                ptr as *mut u8,
+                ptr,
                 Layout::from_size_align(size, ALIGNMENT).unwrap(),
             )
         }
@@ -169,6 +172,7 @@ extern "C" fn free_shim(ptr: *mut c_void) {
 /// 2. The caller must ensure that the size is non-zero if the pointer is not null.
 extern "C" fn realloc_shim(ptr: *mut c_void, size: usize) -> *mut c_void {
     if ptr.is_null() {
+        #[allow(clippy::multiple_unsafe_ops_per_block)]
         // Safety:
         // 1. --> We know size > 0
         return unsafe { RedisModule_Alloc.unwrap()(size) };
@@ -178,6 +182,7 @@ extern "C" fn realloc_shim(ptr: *mut c_void, size: usize) -> *mut c_void {
 
     // Safety:
     // 1. --> We know the ptr is valid and has its size prefixed because it was allocated by `alloc_shim`.
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
     let (ptr, old_size) = unsafe {
         let ptr = ptr.sub(HEADER_SIZE);
         let old_size = *(ptr as *mut usize);

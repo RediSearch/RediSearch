@@ -1,13 +1,15 @@
-///! This module provides FFI bindings for the C trie functions encapsulated in the [CTrieMap] implementation.
-///!
-///! It adds the [TrieInputView] struct, which provides a view into a `CString` used by [CTrieMap].
-///! It also provides the [ToCstr] and [AsTrieView] traits to convert to a `CString` and provide a view on the raw contents of a `CString`.
+//! This module provides FFI bindings for the C trie functions encapsulated in the [CTrieMap] implementation.
+//!
+//! It adds the [TrieInputView] struct, which provides a view into a `CString` used by [CTrieMap].
+//! It also provides the [ToCstr] and [AsTrieView] traits to convert to a `CString` and provide a view on the raw contents of a `CString`.
 use std::ffi::{CString, c_char, c_void};
 
 #[repr(transparent)]
 /// A thin wrapper around the C TrieMap implementation to ensure that the map is properly initialized and cleaned up.
 pub struct CTrieMap(*mut crate::ffi::TrieMap);
 
+#[allow(clippy::undocumented_unsafe_blocks)]
+#[allow(clippy::new_without_default)]
 impl CTrieMap {
     pub fn new() -> Self {
         Self(unsafe { crate::ffi::NewTrieMap() })
@@ -45,6 +47,7 @@ impl CTrieMap {
 
 impl Drop for CTrieMap {
     fn drop(&mut self) {
+        // Safety: The C library is responsible for freeing the memory.
         unsafe {
             crate::ffi::TrieMap_Free(self.0, Some(do_not_free));
         }
@@ -61,12 +64,13 @@ unsafe extern "C" fn do_not_free(_val: *mut c_void) {
     // We're using the null pointer as value, so we don't want to free it.
 }
 
+#[allow(clippy::len_without_is_empty)]
 /// Provides a view for a trie term into a CString used for passing to C trie functions in [CTrieMap].
 pub struct TrieTermView<'a> {
     data: &'a CString,
 }
 
-impl<'a> TrieTermView<'a> {
+impl TrieTermView<'_> {
     /// access to the char pointer
     pub fn ptr(&self) -> *mut c_char {
         self.data.as_ptr() as *mut c_char
@@ -130,6 +134,9 @@ pub fn str2boxed_c_char(input: &str) -> Box<[c_char]> {
 #[allow(improper_ctypes)]
 #[allow(dead_code)]
 #[allow(unsafe_op_in_unsafe_fn)]
+#[allow(clippy::all)]
+#[allow(clippy::multiple_unsafe_ops_per_block)]
+#[allow(clippy::undocumented_unsafe_blocks)]
 mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }

@@ -104,13 +104,12 @@ impl CorpusType {
         // generate strings without prefix:
         let strings = rdr
             .records()
-            .into_iter()
             .map(|e| {
                 e.unwrap()
                     .get(idx)
                     .unwrap()
                     .strip_prefix(prefix)
-                    .expect(&format!("prefix in csv isn't {} anymore.", prefix))
+                    .unwrap_or_else(|| panic!("prefix in csv isn't {} anymore.", prefix))
                     .to_owned()
             })
             .collect::<Vec<_>>();
@@ -120,19 +119,15 @@ impl CorpusType {
 
     fn create_terms_gutenberg(&self, contents: &str) -> Vec<String> {
         // use words in the text file as keys and ensure uniqueness of keys
-        let unique_words = {
-            let mut unique = BTreeSet::new();
-            'outer: for line in contents.lines().skip(36) {
-                for word in line.split_whitespace() {
-                    if unique.insert(word.to_string()) && unique.len() > 82 {
-                        break 'outer;
-                    }
+        let mut unique = BTreeSet::new();
+        'outer: for line in contents.lines().skip(36) {
+            for word in line.split_whitespace() {
+                if unique.insert(word.to_string()) && unique.len() > 82 {
+                    break 'outer;
                 }
             }
-            unique.into_iter().collect::<Vec<_>>()
-        };
-
-        unique_words
+        }
+        unique.into_iter().collect::<Vec<_>>()
     }
 
     fn create_terms_redis_wiki1k(&self, contents: &str) -> Vec<String> {
@@ -148,13 +143,12 @@ impl CorpusType {
         // generate strings without prefix:
         let strings = rdr
             .records()
-            .into_iter()
             .map(|e| {
                 e.unwrap()
                     .get(title_offset)
                     .unwrap()
                     .strip_prefix(prefix)
-                    .expect(&format!("prefix in csv isn't {} anymore.", prefix))
+                    .unwrap_or_else(|| panic!("prefix in csv isn't {} anymore.", prefix))
                     .to_owned()
             })
             .collect::<Vec<_>>();
@@ -219,9 +213,8 @@ fn download_corpus(corpus_url: &str) -> String {
         "The server responded with an error: {}",
         response.status()
     );
-    let text = response
+    response
         .into_body()
         .read_to_string()
-        .expect("Failed to response body");
-    text
+        .expect("Failed to response body")
 }

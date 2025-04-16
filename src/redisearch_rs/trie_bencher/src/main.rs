@@ -44,6 +44,7 @@ fn compute_and_report_memory_usage() {
             "{unique_word} not found in Rust map"
         );
         assert!(
+            // Safety: TRIEMAP_NOTFOUND is a constant defined in the C code 
             cmap.find(&unique_word.to_cstr().as_view()) != unsafe { trie_bencher::ffi::TRIEMAP_NOTFOUND },
             "{unique_word} not found in C map"
         )
