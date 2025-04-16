@@ -14,7 +14,7 @@
  #include "util/timeout.h"
  #include "util/arr.h"
  #include "util/minmax.h"
-
+ #include <float.h>
  /*******************************************************************************************************************
   *  General Result Processor Helper functions
   *******************************************************************************************************************/
@@ -1310,7 +1310,7 @@
       // We've already yielded all results, return EOF
      return RS_RESULT_EOF;
    }
-   *r = array_pop(*self->pool);
+   *r = *array_pop(self->pool);
    r->score = (r->score - self->minValue) / (self->maxValue - self->minValue);
    return RS_RESULT_OK;
  }
@@ -1363,6 +1363,6 @@ static int rpNormAccum(ResultProcessor *rp, SearchResult *r) {
   ret->base.type = RP_MAX_COLLECTOR;
   //TODO: use inf/-inf values
   ret->maxValue = 0;
-  ret->minValue = 10000;
+  ret->minValue = DBL_MAX;
   return &ret->base;
 }
