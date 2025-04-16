@@ -115,7 +115,7 @@ int AC_GetLongLong(ArgsCursor *ac, long long *ll, int flags) {
   return AC_OK;
 }
 
-#define GEN_AC_FUNC(name, T, minVal, maxVal, isUnsigned)  \
+#define GEN_AC_FUNC(name, T, minVal, maxVal, isUnsigned)      \
   int name(ArgsCursor *ac, T *p, int flags) {                 \
     if (isUnsigned) {                                         \
       flags |= AC_F_GE0;                                      \

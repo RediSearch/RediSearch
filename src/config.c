@@ -450,7 +450,9 @@ CONFIG_SETTER(setBM25StdTanhStretch) {
   int acrc = AC_GetU64(ac, &newStretch, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (newStretch > BM25STD_TANH_STRETCH_MAX) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "BM25STD_TANH_STRETCH cannot exceed %d", BM25STD_TANH_STRETCH_MAX);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT,
+      "BM25STD_TANH_STRETCH must be between %d and %d inclusive",
+      BM25STD_TANH_STRETCH_MIN, BM25STD_TANH_STRETCH_MAX);
     return REDISMODULE_ERR;
   }
   config->BM25STD_TanhStretchFactor = newStretch;

@@ -547,7 +547,6 @@ def testNormalizedBM25TanhScorerExplanation():
         ]]]
     )
 
-
 def testNormalizedBM25TanhValidations():
     """
     Tests the validations of the stretch factor of the BM25STD.TANH normalized
@@ -569,7 +568,7 @@ def testNormalizedBM25TanhValidations():
 
     # Above max value
     env.expect("CONFIG", "SET", "search-bm25std-tanh-stretch", "10001").error().contains("argument must be between 1 and 10000 inclusive")
-    env.expect(config_cmd(), "SET", "BM25STD_TANH_STRETCH", "10001").error().contains("BM25STD_TANH_STRETCH cannot exceed 10000")
+    env.expect(config_cmd(), "SET", "BM25STD_TANH_STRETCH", "10001").error().contains("BM25STD_TANH_STRETCH must be between 1 and 10000 inclusive")
 
     # Valid value
     env.expect("CONFIG", "SET", "search-bm25std-tanh-stretch", "25").ok()
