@@ -138,7 +138,7 @@ s3_upload() {
         return 1
     fi
 
-    local upload_dir="${S3_URL}/${product_name}/${SNAPSHOTS_FOLDER}"
+    local upload_dir="${S3_URL}/${product_name}/snapshots"
     local files file
 
     # print the current folder name
