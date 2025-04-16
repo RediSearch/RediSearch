@@ -137,7 +137,7 @@ GEN_AC_FUNC(AC_GetUnsignedLongLong, unsigned long long, 0, LLONG_MAX, 1)
 GEN_AC_FUNC(AC_GetUnsigned, unsigned, 0, UINT_MAX, 1)
 GEN_AC_FUNC(AC_GetInt, int, INT_MIN, INT_MAX, 0)
 GEN_AC_FUNC(AC_GetU8, uint8_t, 0, UINT8_MAX, 1)
-GEN_AC_FUNC(AC_GetU16, uint16_t, 0, UINT16_MAX, 1)
+GEN_AC_FUNC(AC_GetU32, uint32_t, 0, UINT32_MAX, 1)
 GEN_AC_FUNC(AC_GetU64, uint64_t, 0, UINT64_MAX, 1)
 GEN_AC_FUNC(AC_GetSize, size_t, 0, SIZE_MAX, 1)
 

@@ -461,7 +461,7 @@ CONFIG_SETTER(setBM25StdTanhStretch) {
 
 CONFIG_GETTER(getBM25StdTanhStretch) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->BM25STD_TanhStretchFactor);
+  return sdscatprintf(ss, "%ul", config->BM25STD_TanhStretchFactor);
 }
 
 /************************************ DEPRECATION CANDIDATES *************************************/
@@ -1253,7 +1253,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setIndexingMemoryLimit,
          .getValue = getIndexingMemoryLimit},
         {.name = "BM25STD_TANH_STRETCH",
-          .helpText = "Set the BM25STD.TANH stretch factor. This is the an integer value that divides the argument"
+          .helpText = "Set the BM25STD.TANH stretch factor. This is an integer value that divides the argument"
                       " of the tanh function that is used to normalize the score computed by the BM25STD scorer."
                       "The default value is 4.",
           .setValue = setBM25StdTanhStretch,
