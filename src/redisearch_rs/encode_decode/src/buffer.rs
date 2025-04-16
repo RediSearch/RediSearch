@@ -39,7 +39,7 @@ impl From<BufferWriter> for Cursor<Vec<u8>> {
         let (buffer_vec, pos) = unsafe {
             let buffer = &mut *writer.buf;
             let buffer_vec = Vec::from_raw_parts(buffer.data, buffer.offset, buffer.cap);
-            let pos = buffer.data.offset_from(writer.pos);
+            let pos = writer.pos.offset_from(buffer.data);
 
             (buffer_vec, pos)
         };
