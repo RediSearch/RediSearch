@@ -174,6 +174,7 @@ typedef struct AREQ {
   RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   int printProfileClock;
+  uint64_t BM25STD_TanhFactor;
   */
 
   RequestConfig reqConfig;

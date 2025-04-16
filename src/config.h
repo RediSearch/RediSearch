@@ -61,6 +61,8 @@ typedef struct {
   RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   int printProfileClock;
+  // BM25STD.TANH factor
+  uint64_t BM25STD_TanhFactor;
 } RequestConfig;
 
 // Configuration parameters related to the query execution.
@@ -286,7 +288,8 @@ void UpgradeDeprecatedMTConfigs();
     .prioritizeIntersectUnionChildren = false,                                  \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                             \
     .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE ,                \
-    .hideUserDataFromLog = false                                               \
+    .hideUserDataFromLog = false                                                \
+    .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,      \
   }
 
 #define REDIS_ARRAY_LIMIT 7
