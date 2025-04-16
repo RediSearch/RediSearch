@@ -13,7 +13,8 @@
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
-
+#include "util/minmax.h"
+#include <float.h>
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -1030,9 +1031,9 @@ void SetLoadersForMainThread(AREQ *r) {
 /*********************************************************************************/
 
 static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
-                                     "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
-                                     "Grouper", "Projector", "Filter",            "Profile",
-                                     "Network", "Metrics Applier"};
+                                    "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
+                                    "Grouper", "Projector", "Filter",            "Profile",
+                                    "Network", "Metrics Applier", "Normalizer"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -1275,4 +1276,101 @@ ResultProcessor *RPCrash_New() {
 void PipelineAddCrash(struct AREQ *r) {
   ResultProcessor *crash = RPCrash_New();
   addResultProcessor(r, crash);
+}
+
+ /*******************************************************************************************************************
+  *  Max Result Processor
+  *
+  * This processor first depletes the result pipeline by iterating through all results once.
+  * It can be used to collect maximum values or any other aggregation that requires a single pass.
+  *******************************************************************************************************************/
+ typedef struct {
+   ResultProcessor base;
+   // Stores the max value found (if needed in the future)
+   double maxValue;
+   double minValue;
+   const RLookupKey *scoreKey;
+   SearchResult *pooledResult;
+   arrayof(SearchResult *) pool;
+ } RPNormelizer;
+
+
+ static void rpNormelizor_Free(ResultProcessor *base) {
+   RPNormelizer *self = (RPNormelizer *)base;
+   array_free_ex(self->pool, srDtor);
+  //  array_free(self->pool);
+   srDtor(self->pooledResult);
+   rm_free(self);
+ }
+
+ static int rpNormelizor_Yield(ResultProcessor *rp, SearchResult *r){
+   RPNormelizer* self = (RPNormelizer*)rp;
+   size_t length = array_len(self->pool);
+   if (array_len(self->pool) == 0) {
+      // We've already yielded all results, return EOF
+     return RS_RESULT_EOF;
+   }
+   *r = *array_pop(self->pool);
+  //  double oldScore = r->score;
+   r->score = (r->score - self->minValue) / (self->maxValue - self->minValue);
+   if (self->scoreKey) {
+     RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
+   }
+  //  EXPLAIN(r->scoreExplain,
+  //        "(Score: %.2f = (Original Score: %.2f - Min Score: %.2f) / (Max Score: %.2f - Min Score: %.2f))",
+  //        r->score, oldScore, self->minValue, self->maxValue, self->minValue);
+   return RS_RESULT_OK;
+ }
+
+static int rpNormelizorNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
+  RPNormelizer *self = (RPNormelizer *)rp;
+
+  // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
+  int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
+  // if our upstream has finished - just change the state to not accumulating, and yield
+  if (rc == RS_RESULT_EOF) {
+    rp->Next = rpNormelizor_Yield;
+    return rp->Next(rp, r);
+  } else if (rc != RS_RESULT_OK) {
+    // whoops!
+    return rc;
+  }
+
+  self->maxValue = Max(self->maxValue, self->pooledResult->score);
+  self->minValue = Min(self->minValue, self->pooledResult->score);
+  // copy the index result to make it thread safe - but only if it is pushed to the heap
+  self->pooledResult->indexResult = NULL;
+  array_ensure_append_1(self->pool, self->pooledResult);
+
+  // we need to allocate a new result for the next iteration
+  //TODO: Consider optimizing by allocating memory once every N iterations
+  self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
+  return RESULT_QUEUED;
+}
+
+static int rpNormelizorAccum(ResultProcessor *rp, SearchResult *r) {
+  RPNormelizer *self = (RPNormelizer *)rp;
+  uint32_t chunkLimit = rp->parent->resultLimit;
+  rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
+  int rc;
+  int count = 0;
+  while ((rc = rpNormelizorNext_innerLoop(rp, r)) == RESULT_QUEUED) {}
+  RedisModule_Log(RSDummyContext,"warning", "count in the end of the loop is %d", count);
+  rp->parent->resultLimit = chunkLimit; // restore the limit
+  return rc;
+}
+
+ /* Create a new Max Collector processor */
+ ResultProcessor *RPNormelizor_New(const RLookupKey *rlk) {
+  RPNormelizer *ret = rm_calloc(1, sizeof(*ret));
+  ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
+  ret->pool = array_new(SearchResult*, 0);
+  ret->base.Next = rpNormelizorAccum;
+  ret->base.Free = rpNormelizor_Free;
+  ret->base.type = RP_NORMALIZER;
+  ret->scoreKey = rlk;
+  //TODO: use inf/-inf values
+  ret->maxValue = 0;
+  ret->minValue = DBL_MAX;
+  return &ret->base;
 }
