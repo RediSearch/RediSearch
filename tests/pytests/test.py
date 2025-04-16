@@ -4377,6 +4377,8 @@ def test_with_tls_and_non_tls_ports():
             ports.append(slot[2][2])
         return ports
 
+    time.sleep(2)
+
     # Get the TLS ports
     tls_ports = get_ports(env)
     # The non-TLS ports are the TLS ports + 1500 (hard-coded in RLTest)
