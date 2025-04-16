@@ -1289,6 +1289,7 @@ void PipelineAddCrash(struct AREQ *r) {
    // Stores the max value found (if needed in the future)
    double maxValue;
    double minValue;
+   const RLookupKey *scoreKey;
    SearchResult *pooledResult;
    arrayof(SearchResult *) pool;
  } RPNormelizer;
@@ -1312,6 +1313,9 @@ void PipelineAddCrash(struct AREQ *r) {
    }
    *r = *array_pop(self->pool);
    r->score = (r->score - self->minValue) / (self->maxValue - self->minValue);
+  if (self->scoreKey) {
+    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
+  }
    return RS_RESULT_OK;
  }
 
@@ -1354,13 +1358,14 @@ static int rpNormelizorAccum(ResultProcessor *rp, SearchResult *r) {
 }
 
  /* Create a new Max Collector processor */
- ResultProcessor *RPNormelizor_New() {
+ ResultProcessor *RPNormelizor_New(const RLookupKey *rlk) {
   RPNormelizer *ret = rm_calloc(1, sizeof(*ret));
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
   ret->pool = array_new(SearchResult*, 0);
   ret->base.Next = rpNormelizorAccum;
   ret->base.Free = rpNormelizor_Free;
   ret->base.type = RP_NORMALIZER;
+  ret->scoreKey = rlk;
   //TODO: use inf/-inf values
   ret->maxValue = 0;
   ret->minValue = DBL_MAX;

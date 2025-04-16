@@ -1473,7 +1473,11 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
     rp = getScorerRP(req, first);
     PUSH_RP();
     if (req->searchopts.scorerName && !strcmp(req->searchopts.scorerName, BM25_STD_NORMALIZED_MIN_MAX_SCORER_NAME)) {
-      rp = RPNormelizor_New();
+      const RLookupKey *scoreKey = NULL;
+      if (HasScoreInPipeline(req)) {
+        scoreKey = RLookup_GetKey(first, UNDERSCORE_SCORE, RLOOKUP_M_WRITE, RLOOKUP_F_OVERRIDE);
+      }
+      rp = RPNormelizor_New(scoreKey);
       PUSH_RP();
     }
   }

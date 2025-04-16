@@ -426,10 +426,10 @@ def testBM25NormMinMax():
         # Save the score to make sure the aggregate command returns the same results
         norm_scores.append(round(float(norm_res_search[i+1]), 5))
 
-    # norm_res_aggregate = env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM', 'SORTBY', '2', '@__score', 'DESC')
-    # for i, res in enumerate(norm_res_aggregate[1:]):
-    #   # Check that the order and the scores are the same
-    #   env.assertEqual(round(float(res[i]), 5), norm_scores[i])
+    norm_res_aggregate = env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM', 'SORTBY', '2', '@__score', 'DESC')
+    for i, res in enumerate(norm_res_aggregate[1:]):
+      # Check that the order and the scores are the same
+      env.assertEqual(round(float(res[1]), 5), norm_scores[i])
 
 
 def testNormalizedBM25ScorerExplanation():
