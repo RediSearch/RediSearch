@@ -1,6 +1,6 @@
 use crate::{
     CTrieMap, RustTrieMap,
-    cmap::{AsTrieTermView as _, IntoCstring as _},
+    cmap::{AsTrieTermView as _, IntoCString as _},
     str2boxed_c_char,
 };
 use criterion::{

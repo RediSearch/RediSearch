@@ -56,7 +56,7 @@ unsafe fn generic_shim<F: FnOnce(usize) -> *mut c_void>(
     // 1 --> We know size > 0
     // A. allocation_fun is called with size >= HEADER_SIZE + 1
     let mem: *mut c_void = allocation_func(size);
-    if mem == std::ptr::null_mut() {
+    if mem.is_null() {
         panic!("Allocation failed, out of memory?");
     }
 
@@ -72,12 +72,12 @@ unsafe fn generic_shim<F: FnOnce(usize) -> *mut c_void>(
 }
 
 /// Allocates the required memory of `size` bytes for the caller usage. The caller must invoke `free_shim`
-/// to free the memory when it is no longer needed. 
+/// to free the memory when it is no longer needed.
 ///  
 /// The allocator includes an additional header to keep track of the requested size.  
 /// That size information will be required, later on, if reallocating or deallocating the  
 /// buffer that this function returns.  
-/// 
+///
 /// If the reallocation fails and the size is non-zero, it panics.
 ///  
 /// The pointer returned by this function points right after the header slot, which is  
@@ -87,7 +87,7 @@ unsafe fn generic_shim<F: FnOnce(usize) -> *mut c_void>(
 /// 1. The caller must ensure that neither is non-zero as the behavior with size == 0 is implementation defined
 /// 2. See [generic_shim] for more details.
 ///
-/// If size is zero, the behavior is implementation defined (null pointer may be returned, 
+/// If size is zero, the behavior is implementation defined (null pointer may be returned,
 /// or some non-null pointer may be returned that shall not be dereferenced).
 extern "C" fn alloc_shim(size: usize) -> *mut c_void {
     #[cfg(debug_assertions)]
@@ -110,8 +110,8 @@ extern "C" fn alloc_shim(size: usize) -> *mut c_void {
 }
 
 /// Allocates the required memory of `size`*`count` bytes for the caller usage. The caller must invoke `free_shim`
-/// to free the memory when it is no longer needed. 
-/// 
+/// to free the memory when it is no longer needed.
+///
 /// The function behaves like [alloc_shim] but besides the header slots initializes the allocated memory to zero.
 ///
 /// Safety:
@@ -170,8 +170,8 @@ extern "C" fn free_shim(ptr: *mut c_void) {
 
 /// Reallocates the required memory of `size` bytes for the caller usage. The `ptr` must be created
 /// via `alloc_shim`, `calloc_shim` or `realloc_shim` functions. The caller must invoke `free_shim`
-/// to free the memory when it is no longer needed. 
-/// 
+/// to free the memory when it is no longer needed.
+///
 /// It retrieves the original pointer by subtracting the header size from the given pointer.
 /// The function then retrieves the size from the first 8 bytes of the original pointer.
 ///
@@ -204,6 +204,11 @@ extern "C" fn realloc_shim(ptr: *mut c_void, size: usize) -> *mut c_void {
     };
 
     let old_layout = Layout::from_size_align(old_size, ALIGNMENT).unwrap();
+
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
+    // Safety:
+    // 1. --> We know size > 0
+    // A. total_size = size + HEADER_SIZE (see [generic_shim])
     unsafe {
         generic_shim(size, |total_size| {
             realloc(ptr, old_layout, total_size) as *mut c_void

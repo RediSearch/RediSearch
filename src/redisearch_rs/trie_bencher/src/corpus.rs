@@ -120,11 +120,10 @@ impl CorpusType {
     fn create_terms_gutenberg(&self, contents: &str) -> Vec<String> {
         // use words in the text file as keys and ensure uniqueness of keys
         let mut unique = BTreeSet::new();
-        'outer: for line in contents.lines().skip(36) {
+        // we skip the first 36 lines of the text file, which are not part of the book but metadata
+        for line in contents.lines().skip(36) {
             for word in line.split_whitespace() {
-                if unique.insert(word.to_string()) && unique.len() > 82 {
-                    break 'outer;
-                }
+                unique.insert(word.to_string());
             }
         }
         unique.into_iter().collect::<Vec<_>>()

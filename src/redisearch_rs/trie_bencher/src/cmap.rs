@@ -1,8 +1,8 @@
 //! Implementation of [CTrieMap] which wraps the C TrieMap implementation and helper types for data conversion.
-//! 
+//!
 //! The [TrieTermView] struct provides a view into a `CString` used by [CTrieMap]. Ensuring Rust ownership of the data
-//! and providing access to the raw pointer and length of the string as needed by the C API. 
-use std::ffi::{c_char, c_void, CString};
+//! and providing access to the raw pointer and length of the string as needed by the C API.
+use std::ffi::{CString, c_char, c_void};
 
 #[repr(transparent)]
 /// A thin wrapper around the C TrieMap implementation to ensure that the map is properly initialized and cleaned up.
@@ -84,9 +84,9 @@ impl TrieTermView<'_> {
 }
 
 /// Extension trait to convert to CString.
-pub trait IntoCstring {
+pub trait IntoCString {
     /// Convert the implementing type to a `CString`.
-    fn into_cstring(&self) -> CString;
+    fn into_cstring(self) -> CString;
 }
 
 /// Extension trait to provide that uses a view on a `CString`.
@@ -100,8 +100,8 @@ pub trait AsTrieTermView {
 ///
 /// This blanket implementation allows any string-like type to be converted to a `CString`,
 /// which is useful for FFI operations.
-impl<T: AsRef<str>> IntoCstring for T {
-    fn into_cstring(&self) -> CString {
+impl<T: AsRef<str>> IntoCString for T {
+    fn into_cstring(self) -> CString {
         CString::new(self.as_ref()).expect("CString conversion failed")
     }
 }

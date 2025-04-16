@@ -1,12 +1,15 @@
 //! Supporting types and functions for benchmarking trie operations.
-use std::{ffi::{c_char, c_void}, ptr::NonNull};
+use std::{
+    ffi::{c_char, c_void},
+    ptr::NonNull,
+};
 
 pub use bencher::OperationBencher;
 
 pub mod bencher;
+pub mod cmap;
 pub mod corpus;
 pub mod ffi;
-pub mod cmap;
 mod redis_allocator;
 
 // Convenient aliases for the trie types that are being benchmarked.
