@@ -28,15 +28,6 @@ static inline size_t varintEncode(uint32_t value, uint8_t *vbuf) {
   return pos;
 }
 
-static size_t varintEncodeFieldMask(t_fieldMask value, uint8_t *vbuf) {
-  unsigned pos = sizeof(varintBuf) - 1;
-  vbuf[pos] = value & 127;
-  while (value >>= 7) {
-    vbuf[--pos] = 128 | (--value & 127);
-  }
-  return pos;
-}
-
 #define VARINT_BUF(buf, pos) ((buf) + pos)
 #define VARINT_LEN(pos) (sizeof(varintBuf) - (pos))
 
