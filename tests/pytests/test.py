@@ -4377,8 +4377,6 @@ def test_with_tls_and_non_tls_ports():
             ports.append(slot[2][2])
         return ports
 
-    time.sleep(2)
-
     # Get the TLS ports
     tls_ports = [shard.port for shard in env.envRunner.shards]
     print(f'TLS ports: {tls_ports}')
@@ -4388,7 +4386,10 @@ def test_with_tls_and_non_tls_ports():
 
     # Upon setting `tls-cluster` to `no`, we should still be able to succeed
     # connecting the coordinator to the shards, just not in TLS mode.
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+    env.assertEqual(
+        run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no'),
+        ['OK'] * env.shardsCount,
+    )
 
     with TimeLimit(10, 'Failed waiting for the cluster to be updated'):
         while get_ports(env) != expected_ports:
