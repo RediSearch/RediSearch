@@ -4114,8 +4114,11 @@ def test_with_tls_and_non_tls_ports():
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
 
     with TimeLimit(15, 'Failed waiting for the cluster to be updated'):
-        while get_ports(env) != expected_ports:
+        new_ports = get_ports(env)
+        while new_ports != expected_ports:
             time.sleep(0.5)
+            print(f'Waiting for the cluster to be updated. Current ports: {new_ports}, expected ports: {expected_ports}')
+            new_ports = get_ports(env)
 
     common_with_auth(env)
 
