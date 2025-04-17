@@ -4116,8 +4116,7 @@ def test_with_tls_and_non_tls_ports():
     with TimeLimit(15, 'Failed waiting for the cluster to be updated'):
         new_ports = get_ports(env)
         while new_ports != expected_ports:
-            time.sleep(0.5)
-            print(f'Waiting for the cluster to be updated. Current ports: {new_ports}, expected ports: {expected_ports}')
+            time.sleep(0.2)
             new_ports = get_ports(env)
 
     common_with_auth(env)
