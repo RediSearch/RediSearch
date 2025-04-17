@@ -4381,6 +4381,8 @@ def test_with_tls_and_non_tls_ports():
 
     # Get the TLS ports
     tls_ports = [shard.port for shard in env.envRunner.shards]
+    print(f'TLS ports: {tls_ports}')
+    print(f'get_ports: {get_ports(env)}')
     # The non-TLS ports are the TLS ports + 1500 (hard-coded in RLTest)
     expected_ports = [port + 1500 for port in tls_ports]
 
