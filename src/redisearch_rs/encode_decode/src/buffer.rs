@@ -38,6 +38,10 @@ impl From<BufferWriter> for Cursor<Vec<u8>> {
     fn from(writer: BufferWriter) -> Self {
         let (buffer_vec, pos) = unsafe {
             let buffer = &mut *writer.buf;
+            // According the doce of `Vec::from_raw_parts`, we shouldn't be doing this
+            // but it works and all this is hopefully transient anyway until all users of
+            // `BufferWriter` are oxidized and `BufferWriter` can then be dropped along with
+            // module.
             let buffer_vec = Vec::from_raw_parts(buffer.data, buffer.offset, buffer.cap);
             let pos = writer.pos.offset_from(buffer.data);
 
