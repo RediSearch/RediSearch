@@ -57,26 +57,6 @@ size_t WriteVarintBuffer(uint32_t value, Buffer *buf) {
   return n;
 }
 
-size_t WriteVarint(uint32_t value, BufferWriter *w) {
-  // printf("writing %d bytes\n", 16 - pos);
-  varintBuf varint;
-  size_t pos = varintEncode(value, varint);
-  size_t nw = VARINT_LEN(pos);
-
-  size_t mem_growth = 0;
-  // we assume buffer reserve will not fail
-  if (!!(mem_growth = Buffer_Reserve(w->buf, nw))) {
-    w->pos = w->buf->data + w->buf->offset;
-  }
-
-  memcpy(w->pos, VARINT_BUF(varint, pos), nw);
-
-  w->buf->offset += nw;
-  w->pos += nw;
-
-  return mem_growth;
-}
-
 size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *w) {
   // printf("writing %d bytes\n", 16 - pos);
 

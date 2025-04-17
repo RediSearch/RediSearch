@@ -1,6 +1,12 @@
-use crate::{FieldMask, buffer::BufferReader};
+use crate::{
+    FieldMask,
+    buffer::{BufferReader, BufferWriter},
+};
 
-use std::io::{self, Read};
+use std::{
+    io::{self, Read, Write},
+    ops::{Deref, DerefMut},
+};
 
 //
 // The C API goes here. This part will hopefully all be removed once all users of `varint` API are
@@ -29,6 +35,18 @@ extern "C" fn ReadVarintFieldMask(b: *mut BufferReader) -> FieldMask {
     buffer_reader.pos = cursor.position() as usize;
 
     val
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn WriteVarint(value: u32, b: *mut BufferWriter) -> usize {
+    let buffer_writer = unsafe { b.as_mut() }.unwrap();
+    let mut cursor = io::Cursor::<Vec<u8>>::from(*buffer_writer);
+    let cap = cursor.get_ref().capacity();
+    write(value, &mut cursor).unwrap();
+    let bytes_allocated = cursor.get_ref().capacity() - cap;
+    *buffer_writer = cursor.into();
+
+    bytes_allocated
 }
 
 //
@@ -75,4 +93,52 @@ where
     }
 
     Ok(val)
+}
+
+/// Encode an integer into a varint format and write it to the given writer.
+pub fn write<W: Write>(value: u32, mut write: W) -> io::Result<usize>
+where
+    W: Write,
+{
+    let mut variant = VarintBuf::new();
+    let pos = encode(value, &mut variant);
+    write.write(&variant[pos..])
+}
+
+#[inline(always)]
+fn encode(mut value: u32, vbuf: &mut VarintBuf) -> usize {
+    let mut pos = vbuf.len() - 1;
+    vbuf[pos] = (value & 127) as u8;
+    value >>= 7;
+    while value != 0 {
+        pos -= 1;
+        value -= 1;
+        vbuf[pos] = 128 | ((value & 127) as u8);
+        value >>= 7;
+    }
+
+    pos
+}
+
+#[repr(transparent)]
+struct VarintBuf([u8; 24]);
+
+impl VarintBuf {
+    fn new() -> Self {
+        Self([0; 24])
+    }
+}
+
+impl Deref for VarintBuf {
+    type Target = [u8; 24];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for VarintBuf {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
