@@ -43,6 +43,7 @@ pub static mut TRIEMAP_NOTFOUND: *mut ::std::os::raw::c_void = c"NOT FOUND".as_p
 ///   } tm_iter_mode;
 #[repr(C)]
 #[allow(dead_code)]
+#[derive(Debug)]
 enum tm_iter_mode {
     TM_PREFIX_MODE = 0,
     TM_CONTAINS_MODE = 1,
@@ -506,7 +507,7 @@ unsafe extern "C" fn TrieMap_Free(t: *mut TrieMap, func: freeCB) {
         #[cfg(all(test, miri))]
         // When testing under Miri, we use the custom allocator shim provided by
         // redis_module_test
-        redis_module_test::redis_allocator::free_shim
+        redis_module_test::ffi_polyfill::free_shim
     });
 
     // Iterate over all values and free them by calling `func` given the data.
@@ -655,6 +656,8 @@ unsafe extern "C" fn TrieMap_Iterate<'tm>(
 unsafe extern "C" fn TrieMapIterator_SetTimeout(it: *mut TrieMapIterator, timeout: libc::timespec) {
     debug_assert!(!it.is_null(), "it cannot be NULL");
 
+    // SAFETY: caller is to ensure `it` points to a valid
+    // TrieMapIterator obtained from `TrieMap_Iterate`
     let TrieMapIterator {
         timeout: it_timeout,
         ..
@@ -801,10 +804,7 @@ unsafe extern "C" fn TrieMapIterator_NextWildcard(
     unsafe { TrieMapIterator_Next(it, ptr, len, value) }
 }
 
-/// Iterate the trie for all the suffixes of a given prefix. This returns an
-/// iterator object even if the prefix was not found, and subsequent calls to
-/// TrieMapIterator_Next are needed to get the results from the iteration. If the
-/// prefix is not found, the first call to next will return 0.
+/// Iterate the trie within the specified key range.
 ///
 /// If `minLen` is 0, `min` is regarded as an empty string. It `minlen` is -1, the itaration starts from the beginning of the trie.
 /// If `maxLen` is 0, `max` is regarded as an empty string. If `maxlen` is -1, the iteration goes to the end of the trie.
@@ -814,6 +814,8 @@ unsafe extern "C" fn TrieMapIterator_NextWildcard(
 /// passing the key and its length, the value, and the `ctx` pointer passed to this
 /// function.
 ///
+/// Panics in case the passed callback is NULL.
+///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// - `trie` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
@@ -821,6 +823,7 @@ unsafe extern "C" fn TrieMapIterator_NextWildcard(
 /// - `minlen` can be 0. If so, `min` is regarded as an empty string.
 /// - `max` can be NULL only if `maxlen == 0` or `maxlen == -1`. It is not necessarily NULL-terminated.
 /// - `maxlen` can be 0. If so, `max` is regarded as an empty string.
+/// - `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
 ///
 /// C equivalent:
 /// ```c
@@ -840,6 +843,47 @@ unsafe extern "C" fn TrieMap_IterateRange(
     callback: TrieMapRangeCallback,
     ctx: *mut c_void,
 ) {
+    /// Simple generic function that builds an iterator
+    /// over the trie entries, applies the
+    /// passed predicate filter, and
+    /// consumes the results by calling the
+    /// passed callback.
+    /// Needs to be a generic because the iterator type
+    /// is determined by the (unnamable) predicate
+    /// closure, and because naming `LendingIterator`
+    /// trait objects is hard, if not impossible.
+    ///
+    /// This way, we avoid having to name the types,
+    /// but can still DRY and enjoy optmizations.
+    ///
+    /// # Safety `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
+    unsafe fn consume_iter<P: Fn(&(&[i8], &*mut c_void)) -> bool>(
+        trie: &crate::trie::TrieMap<*mut c_void>,
+        pred: P,
+        callback: unsafe extern "C" fn(*const c_char, libc::size_t, *mut c_void, *mut c_void),
+        ctx: *mut c_void,
+    ) {
+        trie.lending_iter()
+            .filter(pred)
+            .fuse()
+            // Safety: caller is to ensure `callback` be
+            // a valid pointer to a function of type [`TrieMapRangeCallback`]
+            .for_each(|(key, value)| unsafe {
+                (callback)(key.as_ptr(), key.len(), *value, ctx);
+            });
+    }
+
+    let Some(callback) = callback else {
+        #[cfg(debug_assertions)]
+        {
+            panic!("TrieMap_IterateRange with a NULL callback");
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            return; // It makes no sense to iterate without a callback
+        }
+    };
+
     debug_assert!(!trie.is_null(), "trie cannot be NULL");
     if minlen > 0 {
         debug_assert!(!min.is_null(), "min cannot be NULL if minlen > 0");
@@ -848,10 +892,59 @@ unsafe extern "C" fn TrieMap_IterateRange(
         debug_assert!(!max.is_null(), "max cannot be NULL if maxlen > 0");
     }
 
-    let _unused = (
-        trie, min, minlen, includeMin, max, maxlen, includeMax, callback, ctx,
-    );
-    todo!()
+    let min = match minlen {
+        ..0 => None,
+        0 => Some([].as_slice()),
+        // SAFETY: caller is to ensure that min is not null in case minlen > 0,
+        // and that min points to a contiguous slice of bytes of len minlen
+        1.. => Some(unsafe { std::slice::from_raw_parts(min, minlen as usize) }),
+    };
+
+    let max = match maxlen {
+        ..0 => None,
+        0 => Some([].as_slice()),
+        // SAFETY: caller is to ensure that max is not null in case maxlen > 0,
+        // and that max points to a contiguous slice of bytes of len maxlen
+        1.. => Some(unsafe { std::slice::from_raw_parts(max, maxlen as usize) }),
+    };
+
+    // SAFETY: caller is to ensure that `trie` is valid and not null
+    let TrieMap(trie) = unsafe { &mut *trie };
+
+    // Safety: caller is to ensure `callback`
+    // if a valid pointer of type [`TrieMapRangeCallback`],
+    // All below uses of unsafe are sound under this
+    // assumption
+    #[allow(clippy::undocumented_unsafe_blocks)]
+    match (min, includeMin, max, includeMax) {
+        (None, _, None, _) => trie.lending_iter().fuse().for_each(|(key, value)| unsafe {
+            (callback)(key.as_ptr(), key.len(), *value, ctx);
+        }),
+        (None, _, Some(max), true) => unsafe {
+            consume_iter(trie, |(key, _)| *key <= max, callback, ctx)
+        },
+        (None, _, Some(max), false) => unsafe {
+            consume_iter(trie, |(key, _)| *key < max, callback, ctx)
+        },
+        (Some(min), true, None, _) => unsafe {
+            consume_iter(trie, |(key, _)| *key >= min, callback, ctx)
+        },
+        (Some(min), false, None, _) => unsafe {
+            consume_iter(trie, |(key, _)| *key > min, callback, ctx)
+        },
+        (Some(min), true, Some(max), true) => unsafe {
+            consume_iter(trie, |(key, _)| *key >= min && *key <= max, callback, ctx)
+        },
+        (Some(min), true, Some(max), false) => unsafe {
+            consume_iter(trie, |(key, _)| *key >= min && *key < max, callback, ctx)
+        },
+        (Some(min), false, Some(max), true) => unsafe {
+            consume_iter(trie, |(key, _)| *key > min && *key <= max, callback, ctx)
+        },
+        (Some(min), false, Some(max), false) => unsafe {
+            consume_iter(trie, |(key, _)| *key > min && *key < max, callback, ctx)
+        },
+    }
 }
 
 /// Returns a random value for a key that has a given prefix.
@@ -895,7 +988,7 @@ mod iter_types {
     use lending_iterator::{lending_iterator::adapters::Filter, prelude::*};
     use std::ffi::{c_char, c_void};
 
-    type BoxedPredicate = Box<dyn Fn(&(&[i8], &*mut c_void)) -> bool>;
+    pub type BoxedPredicate = Box<dyn Fn(&(&[i8], &*mut c_void)) -> bool>;
 
     pub enum TrieMapIteratorImpl<'tm> {
         Plain(crate::iter::LendingIter<'tm, *mut c_void>),
@@ -925,6 +1018,21 @@ mod tests {
     use std::mem::MaybeUninit;
 
     use super::*;
+
+    macro_rules! assert_entries {
+        ($pattern:literal, $mode:expr, $iter_fn:expr, $expected:expr $(,)?) => {
+            with_trie_iter($pattern, $mode, Some($iter_fn), |entries| {
+                assert_eq!(
+                    entries,
+                    $expected.map(|(k, v)| (k.to_owned(), v)),
+                    "Pattern {:?} should have yielded entries {:?} in mode {:?}",
+                    String::from_utf8_lossy($pattern),
+                    $expected,
+                    $mode,
+                );
+            });
+        };
+    }
 
     pub fn bytes2c_char<const N: usize>(input: &[u8; N]) -> [c_char; N] {
         input.map(|b| b as c_char)
@@ -1082,264 +1190,183 @@ mod tests {
 
     #[test]
     fn test_trie_iter_prefix() {
-        with_trie_iter(
+        assert_entries!(
             b"bi",
             tm_iter_mode::TM_PREFIX_MODE,
-            Some(TrieMapIterator_NextContains),
-            |entries| {
-                assert_eq!(
-                    entries,
-                    [("bike", 0), ("biker", 1), ("bis", 2)].map(|(k, v)| (k.to_owned(), v))
-                )
-            },
+            TrieMapIterator_NextContains,
+            [("bike", 0), ("biker", 1), ("bis", 2)],
         );
 
-        with_trie_iter(
+        assert_entries!(
             b"ci",
             tm_iter_mode::TM_PREFIX_MODE,
-            Some(TrieMapIterator_NextContains),
-            |entries| assert_eq!(entries, [("cider", 5),].map(|(k, v)| (k.to_owned(), v))),
+            TrieMapIterator_NextContains,
+            [("cider", 5)],
         );
 
-        with_trie_iter(
+        assert_entries!(
             b"",
             tm_iter_mode::TM_PREFIX_MODE,
-            Some(TrieMapIterator_NextContains),
-            |entries| {
-                assert_eq!(
-                    entries,
-                    [
-                        ("bike", 0),
-                        ("biker", 1),
-                        ("bis", 2),
-                        ("cider", 5),
-                        ("cool", 3),
-                        ("cooler", 4)
-                    ]
-                    .map(|(k, v)| (k.to_owned(), v))
-                )
-            },
+            TrieMapIterator_NextContains,
+            [
+                ("bike", 0),
+                ("biker", 1),
+                ("bis", 2),
+                ("cider", 5),
+                ("cool", 3),
+                ("cooler", 4),
+            ],
         );
     }
 
     #[test]
     fn test_trie_iter_contains() {
-        with_trie_iter(
+        assert_entries!(
             b"ik",
             tm_iter_mode::TM_CONTAINS_MODE,
-            Some(TrieMapIterator_NextContains),
-            |entries| {
-                assert_eq!(
-                    entries,
-                    [("bike", 0), ("biker", 1),].map(|(k, v)| (k.to_owned(), v))
-                )
-            },
+            TrieMapIterator_NextContains,
+            [("bike", 0), ("biker", 1)],
         );
     }
 
     #[test]
     fn test_trie_iter_suffix() {
-        with_trie_iter(
+        assert_entries!(
             b"er",
             tm_iter_mode::TM_SUFFIX_MODE,
-            Some(TrieMapIterator_NextContains),
-            |entries| {
-                assert_eq!(
-                    entries,
-                    [("biker", 1), ("cider", 5), ("cooler", 4),].map(|(k, v)| (k.to_owned(), v))
-                )
-            },
+            TrieMapIterator_NextContains,
+            [("biker", 1), ("cider", 5), ("cooler", 4)],
         );
     }
 
     #[test]
     fn test_trie_iter_wildcard() {
-        with_trie_iter(
+        assert_entries!(
             b"*",
             tm_iter_mode::TM_WILDCARD_MODE,
-            Some(TrieMapIterator_NextWildcard),
-            |entries| {
-                assert_eq!(
-                    entries,
-                    [
-                        ("bike", 0),
-                        ("biker", 1),
-                        ("bis", 2),
-                        ("cider", 5),
-                        ("cool", 3),
-                        ("cooler", 4)
-                    ]
-                    .map(|(k, v)| (k.to_owned(), v))
-                )
-            },
+            TrieMapIterator_NextWildcard,
+            [
+                ("bike", 0),
+                ("biker", 1),
+                ("bis", 2),
+                ("cider", 5),
+                ("cool", 3),
+                ("cooler", 4),
+            ],
         );
 
-        with_trie_iter(
+        assert_entries!(
             b"c*",
             tm_iter_mode::TM_WILDCARD_MODE,
-            Some(TrieMapIterator_NextWildcard),
-            |entries| {
-                assert_eq!(
-                    entries,
-                    [("cider", 5), ("cool", 3), ("cooler", 4)].map(|(k, v)| (k.to_owned(), v))
-                )
-            },
+            TrieMapIterator_NextWildcard,
+            [("cider", 5), ("cool", 3), ("cooler", 4)],
         );
 
-        with_trie_iter(
+        assert_entries!(
             b"*r",
             tm_iter_mode::TM_WILDCARD_MODE,
-            Some(TrieMapIterator_NextWildcard),
-            |entries| {
-                assert_eq!(
-                    entries,
-                    [("biker", 1), ("cider", 5), ("cooler", 4)].map(|(k, v)| (k.to_owned(), v))
-                )
-            },
+            TrieMapIterator_NextWildcard,
+            [("biker", 1), ("cider", 5), ("cooler", 4)],
         );
 
-        with_trie_iter(
+        assert_entries!(
             b"*i*",
             tm_iter_mode::TM_WILDCARD_MODE,
-            Some(TrieMapIterator_NextWildcard),
-            |entries| {
-                assert_eq!(
-                    entries,
-                    [("bike", 0), ("biker", 1), ("bis", 2), ("cider", 5),]
-                        .map(|(k, v)| (k.to_owned(), v))
-                )
-            },
+            TrieMapIterator_NextWildcard,
+            [("bike", 0), ("biker", 1), ("bis", 2), ("cider", 5)],
         );
 
-        with_trie_iter(
+        assert_entries!(
             b"*i*",
             tm_iter_mode::TM_WILDCARD_MODE,
-            Some(TrieMapIterator_NextWildcard),
-            |entries| {
-                assert_eq!(
-                    entries,
-                    [("bike", 0), ("biker", 1), ("bis", 2), ("cider", 5),]
-                        .map(|(k, v)| (k.to_owned(), v))
-                )
-            },
+            TrieMapIterator_NextWildcard,
+            [("bike", 0), ("biker", 1), ("bis", 2), ("cider", 5)],
         );
 
-        with_trie_iter(
+        assert_entries!(
             b"?i?er",
             tm_iter_mode::TM_WILDCARD_MODE,
-            Some(TrieMapIterator_NextWildcard),
-            |entries| {
-                assert_eq!(
-                    entries,
-                    [("biker", 1), ("cider", 5),].map(|(k, v)| (k.to_owned(), v))
-                )
-            },
+            TrieMapIterator_NextWildcard,
+            [("biker", 1), ("cider", 5)],
         );
 
-        with_trie_iter(
+        assert_entries!(
             b"????",
             tm_iter_mode::TM_WILDCARD_MODE,
-            Some(TrieMapIterator_NextWildcard),
-            |entries| {
-                assert_eq!(
-                    entries,
-                    [("bike", 0), ("cool", 3),].map(|(k, v)| (k.to_owned(), v))
-                )
-            },
+            TrieMapIterator_NextWildcard,
+            [("bike", 0), ("cool", 3)],
         );
 
-        with_trie_iter(
+        assert_entries!(
             b"ci???",
             tm_iter_mode::TM_WILDCARD_MODE,
-            Some(TrieMapIterator_NextWildcard),
-            |entries| assert_eq!(entries, [("cider", 5),].map(|(k, v)| (k.to_owned(), v))),
+            TrieMapIterator_NextWildcard,
+            [("cider", 5)],
         );
 
-        with_trie_iter(
+        assert_entries!(
             b"cider",
             tm_iter_mode::TM_WILDCARD_MODE,
-            Some(TrieMapIterator_NextWildcard),
-            |entries| assert_eq!(entries, [("cider", 5),].map(|(k, v)| (k.to_owned(), v))),
+            TrieMapIterator_NextWildcard,
+            [("cider", 5)],
         );
 
-        with_trie_iter(
+        assert_entries!(
             b"******?",
             tm_iter_mode::TM_WILDCARD_MODE,
-            Some(TrieMapIterator_NextWildcard),
-            |entries| {
-                assert_eq!(
-                    entries,
-                    [
-                        ("bike", 0),
-                        ("biker", 1),
-                        ("bis", 2),
-                        ("cider", 5),
-                        ("cool", 3),
-                        ("cooler", 4)
-                    ]
-                    .map(|(k, v)| (k.to_owned(), v))
-                )
-            },
+            TrieMapIterator_NextWildcard,
+            [
+                ("bike", 0),
+                ("biker", 1),
+                ("bis", 2),
+                ("cider", 5),
+                ("cool", 3),
+                ("cooler", 4),
+            ],
         );
 
-        with_trie_iter(
+        assert_entries!(
             b"*????",
             tm_iter_mode::TM_WILDCARD_MODE,
-            Some(TrieMapIterator_NextWildcard),
-            |entries| {
-                assert_eq!(
-                    entries,
-                    [
-                        ("bike", 0),
-                        ("biker", 1),
-                        ("cider", 5),
-                        ("cool", 3),
-                        ("cooler", 4)
-                    ]
-                    .map(|(k, v)| (k.to_owned(), v))
-                )
-            },
+            TrieMapIterator_NextWildcard,
+            [
+                ("bike", 0),
+                ("biker", 1),
+                ("cider", 5),
+                ("cool", 3),
+                ("cooler", 4),
+            ],
         );
     }
 
     #[test]
     fn test_trie_iter_wildcard_fixed_len() {
-        with_trie_iter(
+        assert_entries!(
             b"?i?er",
             tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE,
-            Some(TrieMapIterator_NextWildcard),
-            |entries| {
-                assert_eq!(
-                    entries,
-                    [("biker", 1), ("cider", 5),].map(|(k, v)| (k.to_owned(), v))
-                )
-            },
+            TrieMapIterator_NextWildcard,
+            [("biker", 1), ("cider", 5)],
         );
 
-        with_trie_iter(
+        assert_entries!(
             b"????",
             tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE,
-            Some(TrieMapIterator_NextWildcard),
-            |entries| {
-                assert_eq!(
-                    entries,
-                    [("bike", 0), ("cool", 3),].map(|(k, v)| (k.to_owned(), v))
-                )
-            },
+            TrieMapIterator_NextWildcard,
+            [("bike", 0), ("cool", 3)],
         );
 
-        with_trie_iter(
+        assert_entries!(
             b"ci???",
             tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE,
-            Some(TrieMapIterator_NextWildcard),
-            |entries| assert_eq!(entries, [("cider", 5),].map(|(k, v)| (k.to_owned(), v))),
+            TrieMapIterator_NextWildcard,
+            [("cider", 5)],
         );
 
-        with_trie_iter(
+        assert_entries!(
             b"cider",
             tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE,
-            Some(TrieMapIterator_NextWildcard),
-            |entries| assert_eq!(entries, [("cider", 5),].map(|(k, v)| (k.to_owned(), v))),
+            TrieMapIterator_NextWildcard,
+            [("cider", 5)],
         );
     }
 
@@ -1364,11 +1391,13 @@ mod tests {
             let mut deadline = timespec_monotonic_now();
             deadline.tv_nsec += 1000 * 200; // Timeout in 200 ms
 
-            unsafe { TrieMapIterator_SetTimeout(it, deadline.clone()) };
+            // Safety: We adhere to all the safety requirements of `TrieMapIterator_SetTimeout`
+            unsafe { TrieMapIterator_SetTimeout(it, deadline) };
 
             for _ in 0..2 {
                 assert_eq!(
                     1,
+                    // Safety: We adhere to all the safety requirements of `TrieMapIterator_Next`
                     unsafe {
                         TrieMapIterator_Next(
                             it,
@@ -1393,6 +1422,7 @@ mod tests {
             for _ in 0..2 {
                 assert_eq!(
                     0,
+                    // Safety: We adhere to all the safety requirements of `TrieMapIterator_Next`
                     unsafe {
                         TrieMapIterator_Next(
                             it,
@@ -1408,5 +1438,159 @@ mod tests {
             // Safety: We adhere to all the safety requirements of `TrieMapIterator_Free`
             unsafe { TrieMapIterator_Free(it) };
         });
+    }
+
+    #[test]
+    fn test_trie_iter_range() {
+        type ResultsVec = Vec<(String, u8)>;
+
+        macro_rules! assert_range {
+            (<- ->, $expected:expr $(,)?) => {
+                assert_range!(None::<&str>, true, None::<&str>, true, $expected)
+            };
+            (<-, $min:expr, $include_min:expr, $expected:expr $(,)?) => {
+                assert_range!($min, $include_min, None::<&str>, true, $expected)
+            };
+            (->, $max:expr, $include_max:expr, $expected:expr $(,)?) => {
+                assert_range!(None::<&str>, true, $max, $include_max, $expected)
+            };
+            ($min: expr, $include_min:expr, $max:expr, $include_max:expr, $expected:expr $(,)?) => {
+                let results = do_iterate($min, $include_min, $max, $include_max);
+                let range_start = if $include_min { "[" } else { "(" };
+                let range_end = if $include_max { "]" } else { ")" };
+                let min = $min.map(|m| format!("{m:?}")).unwrap_or("←".to_owned());
+                let max = $max.map(|m| format!("{m:?}")).unwrap_or("→".to_owned());
+
+                assert_eq!(
+                    results,
+                    $expected.map(|(k, v)| (k.to_owned(), v)),
+                    "Invalid results for range {range_start} {min} ; {max} {range_end}"
+                );
+            };
+        }
+
+        unsafe extern "C" fn callback(
+            key: *const c_char,
+            key_len: libc::size_t,
+            value: *mut c_void,
+            ctx: *mut c_void,
+        ) {
+            // Safety: the passed context was indeed a `&mut ResultsVec`
+            let results = unsafe { &mut *(ctx as *mut ResultsVec) };
+
+            // Safety: We're reconstructing the keys and the values created in `with_trie_map`
+            let key = unsafe { std::slice::from_raw_parts(key, key_len) };
+            let key = String::from_utf8(key.iter().copied().map(|c| c as u8).collect()).unwrap();
+
+            // Safety: We're reconstructing the keys and the values created in `with_trie_map`
+            let value = unsafe { *(value as *mut u8) };
+
+            results.push((key, value));
+        }
+        fn do_iterate(
+            min: Option<&str>,
+            include_min: bool,
+            max: Option<&str>,
+            include_max: bool,
+        ) -> ResultsVec {
+            let mut results: ResultsVec = Vec::new();
+            with_trie_map(|t| {
+                let min_c_char = min.map(str2c_char);
+                let max_c_char = max.map(str2c_char);
+
+                let (min_ptr, min_len) = min_c_char
+                    .as_ref()
+                    .map(|min| (min.as_ptr(), min.len() as c_int))
+                    .unwrap_or((std::ptr::null(), -1));
+                let (max_ptr, max_len) = max_c_char
+                    .as_ref()
+                    .map(|max| (max.as_ptr(), max.len() as c_int))
+                    .unwrap_or((std::ptr::null(), -1));
+
+                // Safety: We adhere to all the safety requirements of `TrieMap_IterateRange`
+                unsafe {
+                    TrieMap_IterateRange(
+                        t,
+                        min_ptr,
+                        min_len,
+                        include_min,
+                        max_ptr,
+                        max_len,
+                        include_max,
+                        Some(callback),
+                        (&mut results) as *mut ResultsVec as *mut _,
+                    )
+                };
+            });
+            results
+        }
+
+        assert_range!(
+            Some("biker"),
+            true,
+            Some("cool"),
+            true,
+            [("biker", 1), ("bis", 2), ("cider", 5), ("cool", 3)],
+        );
+
+        assert_range!(
+            Some("biker"),
+            false,
+            Some("cool"),
+            true,
+            [("bis", 2), ("cider", 5), ("cool", 3)],
+        );
+
+        assert_range!(
+            Some("biker"),
+            true,
+            Some("cool"),
+            false,
+            [("biker", 1), ("bis", 2), ("cider", 5)],
+        );
+
+        assert_range!(
+            Some("biker"),
+            false,
+            Some("cool"),
+            false,
+            [("bis", 2), ("cider", 5)],
+        );
+
+        assert_range!(
+            ->,
+            Some("cool"),
+            true,
+            [
+                ("bike", 0),
+                ("biker", 1),
+                ("bis", 2),
+                ("cider", 5),
+                ("cool", 3)
+            ],
+        );
+
+        assert_range!(
+            <-,
+            Some("bike"),
+            true,
+            [
+                ("bike", 0),
+                ("biker", 1),
+                ("bis", 2),
+                ("cider", 5),
+                ("cool", 3),
+                ("cooler", 4),
+            ],
+        );
+
+        assert_range!(<- ->, [
+            ("bike", 0),
+            ("biker", 1),
+            ("bis", 2),
+            ("cider", 5),
+            ("cool", 3),
+            ("cooler", 4),
+        ],);
     }
 }

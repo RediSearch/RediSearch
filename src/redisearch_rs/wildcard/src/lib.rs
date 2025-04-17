@@ -581,7 +581,21 @@ mod tests {
             let rng = std::cell::RefCell::new(rng);
             let tokens = TokenStream::parse(pattern);
             let mut keys = Vec::new();
-            let mut chars = std::iter::repeat_with(|| rng.borrow_mut().r#gen());
+            let mut chars = std::iter::repeat_with(|| {
+                proptest::char::select_char(
+                    &mut *rng.borrow_mut(),
+                    &[],
+                    &[],
+                    &[
+                        'a'..='z',
+                        'A'..='Z',
+                        '0'..='9',
+                        '*'..='*',
+                        '?'..='?',
+                        '\\'..='\\',
+                    ],
+                ) as u8
+            });
             for _ in 0..num_keys {
                 let mut key = Vec::new();
 
