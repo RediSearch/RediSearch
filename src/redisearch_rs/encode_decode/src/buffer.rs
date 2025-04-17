@@ -29,6 +29,7 @@ impl BufferReader {
 
 /// Redefines the `BufferWriter` struct from `buffer.h`
 #[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct BufferWriter {
     pub buf: *mut Buffer,
     pub pos: *mut u8,
