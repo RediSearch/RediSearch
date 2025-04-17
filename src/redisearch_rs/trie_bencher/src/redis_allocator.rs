@@ -163,7 +163,7 @@ extern "C" fn free_shim(ptr: *mut c_void) {
     let ptr = unsafe { ptr.sub(HEADER_SIZE) };
 
     // Safety:
-    // We just moved to the begin of the heder slot
+    // We just moved to the begin of the header slot
     let size = unsafe { *(ptr as *mut usize) };
 
     // Safety:
@@ -202,7 +202,7 @@ extern "C" fn realloc_shim(ptr: *mut c_void, size: usize) -> *mut c_void {
     let ptr = unsafe { ptr.sub(HEADER_SIZE) };
 
     // Safety:
-    // We just moved to the begin of the heder slot
+    // We just moved to the begin of the header slot
     let old_size = unsafe { *(ptr as *mut usize) };
 
     let old_layout = Layout::from_size_align(old_size, ALIGNMENT).unwrap();
