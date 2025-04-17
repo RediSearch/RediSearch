@@ -148,12 +148,23 @@ def testProfileAggregate(env):
                 'apply', 'startswith(@t, "hel")', 'as', 'prefix')
   env.assertEqual(actual_res[1][4], expected_res)
 
+  # test number literal - want to get coverage for RSValue_ConvertStringPtrLen
+  expected_res =  ['Result processors profile',
+                   ['Type', 'Index', 'Counter', 2],
+                   ['Type', 'Loader', 'Counter', 2],
+                   ['Type', 'Filter - Literal 42.000000', 'Counter', 2]]
+  actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
+                       'load', 1, 't',
+                       'filter', '42',)
+  env.assertEqual(actual_res[1][4], expected_res)
+
   expected_res = ['Result processors profile',
                   ['Type', 'Index', 'Counter', 2],
                   ['Type', 'Sorter', 'Counter', 2],
                   ['Type', 'Loader', 'Counter', 2]]
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*', 'sortby', 2, '@t', 'asc', 'limit', 0, 10, 'LOAD', 2, '@__key', '@t')
   env.assertEqual(actual_res[1][4], expected_res)
+
 
 def testProfileCursor(env):
   conn = getConnectionByEnv(env)

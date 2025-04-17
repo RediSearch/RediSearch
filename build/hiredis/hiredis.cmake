@@ -9,4 +9,4 @@ if (APPLE)
 	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
 endif()
 
-set(HIREDIS_LIBS hiredis_static hiredis_ssl_static)
+set(HIREDIS_LIBS hiredis hiredis_ssl)
