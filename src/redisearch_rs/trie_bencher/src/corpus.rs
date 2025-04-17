@@ -29,7 +29,7 @@ pub enum CorpusType {
     /// Small corpus of a book text from gutenberg.net.
     ///
     /// See https://gutenberg.net.au/ebooks01/0100021.txt
-    GutenbergEbook,
+    GutenbergEbook(bool),
 }
 
 impl CorpusType {
@@ -78,7 +78,7 @@ impl CorpusType {
         let reval = match self {
             CorpusType::RedisBench1kWiki => self.create_terms_redis_wiki1k(&corpus),
             CorpusType::RedisBench10kNumerics => self.create_terms_redis_wiki10k(&corpus),
-            CorpusType::GutenbergEbook => self.create_terms_gutenberg(&corpus),
+            CorpusType::GutenbergEbook(full) => self.create_terms_gutenberg(&corpus, *full),
         };
         if output_pretty_print_trie {
             let trie = rust_load_from_terms(&reval);
@@ -117,7 +117,7 @@ impl CorpusType {
         strings
     }
 
-    fn create_terms_gutenberg(&self, contents: &str) -> Vec<String> {
+    fn create_terms_gutenberg(&self, contents: &str, full: bool) -> Vec<String> {
         // use words in the text file as keys and ensure uniqueness of keys
         let mut unique = BTreeSet::new();
         // we skip the first 36 lines of the text file, which are not part of the book but metadata
@@ -125,7 +125,7 @@ impl CorpusType {
             for word in line.split_whitespace() {
                 unique.insert(word.to_string());
                 // we only use the first 82 unique words with creates 108 nodes (micro benchmark)
-                if unique.len() >= 82 {
+                if !full && unique.len() >= 82 {
                     break 'outer;
                 }
             }
@@ -170,7 +170,7 @@ impl CorpusType {
             CorpusType::RedisBench10kNumerics => {
                 "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/10K-singlevalue-numeric-json/10K-singlevalue-numeric-json.redisjson.commands.SETUP.csv"
             }
-            CorpusType::GutenbergEbook => "https://gutenberg.net.au/ebooks01/0100021.txt",
+            CorpusType::GutenbergEbook(_) => "https://gutenberg.net.au/ebooks01/0100021.txt",
         }
     }
 
@@ -179,7 +179,7 @@ impl CorpusType {
         match self {
             CorpusType::RedisBench1kWiki => Some(0x65ed64eb),
             CorpusType::RedisBench10kNumerics => Some(0x3c18690f),
-            CorpusType::GutenbergEbook => Some(3817457071),
+            CorpusType::GutenbergEbook(_) => Some(3817457071),
         }
     }
 
@@ -190,7 +190,7 @@ impl CorpusType {
                 .join("enwiki_abstract-hashes-contains.redisearch.commands.SETUP.csv"),
             CorpusType::RedisBench10kNumerics => PathBuf::from("data")
                 .join("10K-singlevalue-numeric-json.redisjson.commands.SETUP.csv"),
-            CorpusType::GutenbergEbook => PathBuf::from("data").join("1984.txt"),
+            CorpusType::GutenbergEbook(_) => PathBuf::from("data").join("1984.txt"),
         }
     }
 
@@ -200,7 +200,7 @@ impl CorpusType {
         let filename = match self {
             CorpusType::RedisBench1kWiki => "redis_wiki1k_titles_bench.txt",
             CorpusType::RedisBench10kNumerics => "redis_wiki10k_guids_bench.txt",
-            CorpusType::GutenbergEbook => "gutenberg_bench.txt",
+            CorpusType::GutenbergEbook(_) => "gutenberg_bench.txt",
         };
         path.join(filename)
     }

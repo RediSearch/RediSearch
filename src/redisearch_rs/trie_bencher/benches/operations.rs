@@ -21,7 +21,7 @@ use trie_bencher::OperationBencher;
 use trie_bencher::corpus::CorpusType;
 
 fn criterion_benchmark_gutenberg(c: &mut Criterion) {
-    let corpus = CorpusType::GutenbergEbook;
+    let corpus = CorpusType::GutenbergEbook(true);
     let terms = corpus.create_terms(true);
 
     let bencher = OperationBencher::new("Gutenberg".to_owned(), terms, None);

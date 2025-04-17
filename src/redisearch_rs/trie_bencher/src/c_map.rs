@@ -2,7 +2,7 @@
 //!
 //! The [TrieTermView] struct provides a view into a `CString` used by [CTrieMap]. Ensuring Rust ownership of the data
 //! and providing access to the raw pointer and length of the string as needed by the C API.
-use std::ffi::{CString, c_char, c_void};
+use std::ffi::{CStr, CString, c_char, c_void};
 
 #[repr(transparent)]
 /// A thin wrapper around the C TrieMap implementation to ensure that the map is properly initialized and cleaned up.
@@ -68,7 +68,7 @@ unsafe extern "C" fn do_not_free(_val: *mut c_void) {
 #[derive(Copy, Clone)]
 /// Provides a view for a trie term into a CString used for passing to C trie functions in [CTrieMap].
 pub struct TrieTermView<'a> {
-    data: &'a CString,
+    data: &'a CStr,
 }
 
 impl TrieTermView<'_> {
@@ -79,7 +79,7 @@ impl TrieTermView<'_> {
 
     /// the len of the string
     pub fn len(&self) -> u16 {
-        self.data.as_bytes().len() as u16
+        self.data.to_bytes().len() as u16
     }
 }
 
@@ -92,11 +92,11 @@ pub trait IntoCString {
 /// Extension trait to provide that uses a view on a `CString`.
 /// This is useful for passing the string to C functions that expect a pointer and a len.
 pub trait AsTrieTermView {
-    /// Provides a view on the raw contents of a CString
+    /// Provides a view on the data for the c-side
     fn as_view(&self) -> TrieTermView;
 }
 
-/// Implements `ToCstr` for any type that can be viewed as a string slice.
+/// Implements [into_cstring] for any type that can be viewed as a string slice.
 ///
 /// This blanket implementation allows any string-like type to be converted to a `CString`,
 /// which is useful for FFI operations.

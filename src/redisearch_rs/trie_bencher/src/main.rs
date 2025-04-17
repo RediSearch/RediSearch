@@ -20,7 +20,7 @@ fn compute_and_report_memory_usage() {
     let mut cmap = CTrieMap::new();
 
     let mut raw_size = 0;
-    let unique_words = CorpusType::GutenbergEbook.create_terms(false);
+    let unique_words = CorpusType::GutenbergEbook(true).create_terms(false);
     let unique_words_cstrings = unique_words
         .iter()
         .map(|e| e.into_cstring())
