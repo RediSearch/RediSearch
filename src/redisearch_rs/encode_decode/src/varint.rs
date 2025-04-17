@@ -37,29 +37,29 @@ extern "C" fn ReadVarintFieldMask(b: *mut BufferReader) -> FieldMask {
     val
 }
 
+/// Note: This function now returns the number of bytes written to the buffer, not the change in
+/// capacity. The change of the buffer capacity is an internal detail and should not be of concern
+/// to the caller.
 #[unsafe(no_mangle)]
 extern "C" fn WriteVarint(value: u32, b: *mut BufferWriter) -> usize {
     let buffer_writer = unsafe { b.as_mut() }.unwrap();
     let mut cursor = io::Cursor::<Vec<u8>>::from(*buffer_writer);
-    let cap = cursor.get_ref().capacity();
-    write(value, &mut cursor).unwrap();
-    let bytes_allocated = cursor.get_ref().capacity() - cap;
+    let bytes_written = write(value, &mut cursor).unwrap();
     *buffer_writer = cursor.into();
 
-    bytes_allocated
+    bytes_written
 }
 
+/// See the note above for [`WriteVarint`].
 #[unsafe(no_mangle)]
 #[allow(improper_ctypes_definitions)]
 extern "C" fn WriteVarintFieldMask(value: FieldMask, b: *mut BufferWriter) -> usize {
     let buffer_writer = unsafe { b.as_mut() }.unwrap();
     let mut cursor = io::Cursor::<Vec<u8>>::from(*buffer_writer);
-    let cap = cursor.get_ref().capacity();
-    write_field_mask(value, &mut cursor).unwrap();
-    let bytes_allocated = cursor.get_ref().capacity() - cap;
+    let bytes_written = write_field_mask(value, &mut cursor).unwrap();
     *buffer_writer = cursor.into();
 
-    bytes_allocated
+    bytes_written
 }
 
 //
