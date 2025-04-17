@@ -4086,14 +4086,16 @@ def test_with_tls_and_non_tls_ports():
               dualTLS=True)        # Sets the ports to be both TLS and regular ports (in tls-ports + 1500).
 
     with TimeLimit(10, 'Failed waiting for the cluster to be initialized'):
-        try:
-            res = env.cmd('FT.CREATE', 'tmp_idx', 'SCHEMA', 'n', 'NUMERIC')
-            env.assertEqual(res, 'OK')
-            env.expect('FT.DROPINDEX', 'tmp_idx').ok()
-        except Exception:
-            # If the cluster is not initialized, it will throw an error
-            # and we will retry
-            pass
+        while True:
+            try:
+                res = env.cmd('FT.CREATE', 'tmp_idx', 'SCHEMA', 'n', 'NUMERIC')
+                env.assertEqual(res, 'OK')
+                env.expect('FT.DROPINDEX', 'tmp_idx').ok()
+                break
+            except Exception:
+                # If the cluster is not initialized, an error will be raised
+                # and we will retry
+                pass
 
     def get_ports(env):
         ports = []
@@ -4111,9 +4113,9 @@ def test_with_tls_and_non_tls_ports():
     # connecting the coordinator to the shards, just not in TLS mode.
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
 
-    with TimeLimit(10, 'Failed waiting for the cluster to be updated'):
+    with TimeLimit(15, 'Failed waiting for the cluster to be updated'):
         while get_ports(env) != expected_ports:
-            time.sleep(0.1)
+            time.sleep(0.5)
 
     common_with_auth(env)
 
