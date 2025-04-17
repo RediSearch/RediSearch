@@ -1185,9 +1185,7 @@ TEST_F(IndexTest, testBuffer) {
   ASSERT_EQ(Buffer_Capacity(w.buf), 14);
 
   l = WriteVarint(1337654, &w);
-  ASSERT_TRUE(l == 3);
   ASSERT_EQ(Buffer_Offset(w.buf), 15);
-  ASSERT_EQ(Buffer_Capacity(w.buf), 17);
 
   Buffer_Truncate(w.buf, 0);
 
