@@ -965,13 +965,12 @@ static inline void RPKeyNameLoader_Free(ResultProcessor *self) {
 
 static int RPKeyNameLoader_Next(ResultProcessor *base, SearchResult *res) {
   int rc = base->upstream->Next(base->upstream, res);
-  if (rc != RS_RESULT_OK) {
-    return rc;
+  if (RS_RESULT_OK == rc) {
+    RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
+    size_t keyLen = sdslen(res->dmd->keyPtr); // keyPtr is an sds
+    RLookup_WriteOwnKey(nl->out, &res->rowdata, RS_NewCopiedString(res->dmd->keyPtr, keyLen));
   }
-  RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
-  size_t keyLen = sdslen(res->dmd->keyPtr); // keyPtr is actually an sds
-  RLookup_WriteOwnKey(nl->out, &res->rowdata, RS_NewCopiedString(res->dmd->keyPtr, keyLen));
-  return RS_RESULT_OK;
+  return rc;
 }
 
 static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
@@ -984,6 +983,8 @@ static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
   base->type = RP_NAME_LOADER;
   return base;
 }
+
+/*********************************************************************************/
 
 ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
   if (RSGlobalConfig.enableUnstableFeatures) {
