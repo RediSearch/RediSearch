@@ -400,7 +400,7 @@ def testNormalizedBM25Tanh():
     # Do the same with a different stretch factor
     stretch_factor = 20
     env.assertEqual(
-        run_command_on_all_shards(env, "config", "set", "search-bm25std-tanh-factor", str(stretch_factor)),
+        run_command_on_all_shards(env, config_cmd(), "set", "BM25STD_TANH_FACTOR", str(stretch_factor)),
         ["OK"] * env.shardsCount,
         message=str(stretch_factor)
     )
@@ -502,7 +502,7 @@ def testNormalizedBM25TanhScorerExplanation():
     # Normalize the score with a non-default stretch factor
     stretch_factor = 20
     env.assertEqual(
-        run_command_on_all_shards(env, "config", "set", "search-bm25std-tanh-factor", str(stretch_factor)),
+        run_command_on_all_shards(env, config_cmd(), "set", "BM25STD_TANH_FACTOR", str(stretch_factor)),
         ["OK"] * env.shardsCount
     )
 
