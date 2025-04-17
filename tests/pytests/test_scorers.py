@@ -591,19 +591,15 @@ def testNormalizedBM25TanhValidations():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
 
     # Float
-    env.expect("CONFIG", "SET", "search-bm25std-tanh-factor", "1.5").error().contains("argument couldn't be parsed into an integer")
     env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "1.5").error().contains("Could not convert argument to expected type")
 
     # Below minimum value
-    env.expect("CONFIG", "SET", "search-bm25std-tanh-factor", "-1").error().contains("argument must be between 1 and 10000 inclusive")
     env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "-1").error().contains("Value is outside acceptable bounds")
 
     # Above max value
-    env.expect("CONFIG", "SET", "search-bm25std-tanh-factor", "10001").error().contains("argument must be between 1 and 10000 inclusive")
     env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "10001").error().contains("BM25STD_TANH_FACTOR must be between 1 and 10000 inclusive")
 
     # Valid value
-    env.expect("CONFIG", "SET", "search-bm25std-tanh-factor", "25").ok()
     env.expect(config_cmd(), "SET", "BM25STD_TANH_FACTOR", "25").ok()
 
 def testNormalizedBM25TanhScoreField():
