@@ -12,7 +12,7 @@ crate-type = ["staticlib", "rlib"]
 
 [features]
 default = []
-ffi = ["dep:memchr", "dep:redis-module"]
+ffi = ["dep:memchr", "dep:redis-module", "dep:rand"]
 
 [dependencies]
 wildcard.workspace = true
@@ -21,6 +21,7 @@ lending-iterator.workspace = true
 libc.workspace = true
 low_memory_thin_vec.workspace = true
 memchr = { workspace = true, optional = true }
+rand = { workspace = true, optional = true}
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,

@@ -968,8 +968,23 @@ unsafe extern "C" fn TrieMap_RandomValueByPrefix(
     if pflen > 0 {
         debug_assert!(!prefix.is_null(), "prefix cannot be NULL if pflen > 0");
     }
-    let _unused = (t, prefix, pflen);
-    todo!()
+    let mut buf = std::mem::MaybeUninit::uninit();
+
+    // Safety: We adhere to all the safety requirements of `TrieMap_FindPrefixes`
+    let data_len = unsafe { TrieMap_FindPrefixes(t, prefix, pflen, buf.as_mut_ptr()) };
+    // Safety: `buf` has been initialized by `TrieMap_FindPrefixes`
+    let mut buf = unsafe { buf.assume_init() };
+
+    // Safety: We adhere to all the safety requirements of `TrieMapResultBuf_Data`
+    let data = unsafe { TrieMapResultBuf_Data(&mut buf as *mut _) };
+
+    // Safety: `TrieMapResultBuf_Data` returns a pointer to the data,
+    // and its length is provided by `data_len`
+    let data = unsafe { std::slice::from_raw_parts(data, data_len as usize) };
+
+    let i = rand::random_range(..data.len());
+
+    data[i]
 }
 
 /// Get current time from monotonic clock.
@@ -1445,13 +1460,13 @@ mod tests {
         type ResultsVec = Vec<(String, u8)>;
 
         macro_rules! assert_range {
-            (<- ->, $expected:expr $(,)?) => {
+            (None, None, $expected:expr $(,)?) => {
                 assert_range!(None::<&str>, true, None::<&str>, true, $expected)
             };
-            (<-, $min:expr, $include_min:expr, $expected:expr $(,)?) => {
+            ($min:expr, $include_min:expr, None, $expected:expr $(,)?) => {
                 assert_range!($min, $include_min, None::<&str>, true, $expected)
             };
-            (->, $max:expr, $include_max:expr, $expected:expr $(,)?) => {
+            (None, $max:expr, $include_max:expr, $expected:expr $(,)?) => {
                 assert_range!(None::<&str>, true, $max, $include_max, $expected)
             };
             ($min: expr, $include_min:expr, $max:expr, $include_max:expr, $expected:expr $(,)?) => {
@@ -1558,7 +1573,7 @@ mod tests {
         );
 
         assert_range!(
-            ->,
+            None,
             Some("cool"),
             true,
             [
@@ -1571,9 +1586,9 @@ mod tests {
         );
 
         assert_range!(
-            <-,
             Some("bike"),
             true,
+            None,
             [
                 ("bike", 0),
                 ("biker", 1),
@@ -1584,13 +1599,34 @@ mod tests {
             ],
         );
 
-        assert_range!(<- ->, [
-            ("bike", 0),
-            ("biker", 1),
-            ("bis", 2),
-            ("cider", 5),
-            ("cool", 3),
-            ("cooler", 4),
-        ],);
+        assert_range!(
+            None,
+            None,
+            [
+                ("bike", 0),
+                ("biker", 1),
+                ("bis", 2),
+                ("cider", 5),
+                ("cool", 3),
+                ("cooler", 4),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_trie_random_value_by_prefix() {
+        with_trie_map(|t| {
+            let prefix = str2c_char("bi");
+            for _ in 0..1000 {
+                // Safety: We adhere to all the safety requirements of `TrieMap_RandomValueByPrefix`
+                let res = unsafe {
+                    TrieMap_RandomValueByPrefix(t, prefix.as_ptr(), prefix.len() as tm_len_t)
+                };
+                // Safety: with_trie_map inserts values of type u8
+                let res = unsafe { *(res as *mut u8) };
+
+                assert!((0..=2).contains(&res), "Result should be in range 0..=2")
+            }
+        });
     }
 }
