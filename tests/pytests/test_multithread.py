@@ -521,12 +521,9 @@ def test_change_workers_number():
 
 def testNameLoader(env: Env):
     def get_RP_name(profile_res):
-        if not env.isCluster():
-            return profile_res[1][5][-1][1]
-        if isinstance(profile_res[0], list):
-            return profile_res[2][6][-1][1] # 2.10 aggregate
-        else:
-            return profile_res[-1][6][4][1] # 2.10 search
+        shard0 = to_dict(profile_res[1])['Shards'][0]
+        last_rp = to_dict(shard0)['Result processors profile'][-1]
+        return to_dict(last_rp)['Type']
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'sortable', 'TEXT', 'SORTABLE', 'UNF', 'not-sortable', 'TEXT').ok()
     with env.getClusterConnectionIfNeeded() as con:
@@ -567,13 +564,12 @@ def testNameLoader(env: Env):
         [10] + [['key', f'doc:{i}', 'count', '1'] for i in range(10)])
 
     # Check that the right loader is used in the aggregate command when loading multiple fields with BG query
-    if MT_BUILD:
-        run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', '1')
-        res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@sortable', '@__key')
-        env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
-        res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@sortable')
-        env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
-        res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@not-sortable', '@__key')
-        env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
-        res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@not-sortable')
-        env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', '1')
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@sortable', '@__key')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@sortable')
+    env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@not-sortable', '@__key')
+    env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@not-sortable')
+    env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
