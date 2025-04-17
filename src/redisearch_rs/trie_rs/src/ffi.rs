@@ -86,7 +86,15 @@ type TrieMapIterator_NextFunc = Option<
 >;
 
 /// Opaque type TrieMapIterator. Obtained from calling [`TrieMap_Iterate`].
-struct TrieMapIterator<'tm>(TrieMapIteratorImpl<'tm>);
+struct TrieMapIterator<'tm> {
+    iter: TrieMapIteratorImpl<'tm>,
+    timeout: Option<IteratorTimeoutState>,
+}
+
+struct IteratorTimeoutState {
+    deadline: libc::timespec,
+    counter: u8,
+}
 
 /// Opaque type TrieMapResultBuf. Holds the results of [`TrieMap_FindPrefixes`].
 #[repr(C)]
@@ -622,7 +630,10 @@ unsafe extern "C" fn TrieMap_Iterate<'tm>(
         }
     };
 
-    let iter = TrieMapIterator(iter);
+    let iter = TrieMapIterator {
+        iter,
+        timeout: None,
+    };
     let iter = Box::new(iter);
 
     Box::into_raw(iter)
@@ -644,8 +655,15 @@ unsafe extern "C" fn TrieMap_Iterate<'tm>(
 unsafe extern "C" fn TrieMapIterator_SetTimeout(it: *mut TrieMapIterator, timeout: libc::timespec) {
     debug_assert!(!it.is_null(), "it cannot be NULL");
 
-    let _unused = (it, timeout);
-    todo!()
+    let TrieMapIterator {
+        timeout: it_timeout,
+        ..
+    } = unsafe { &mut *it };
+
+    *it_timeout = Some(IteratorTimeoutState {
+        deadline: timeout,
+        counter: 0,
+    });
 }
 
 /// Free a trie iterator
@@ -698,7 +716,24 @@ unsafe extern "C" fn TrieMapIterator_Next(
     debug_assert!(!value.is_null(), "value cannot be NULL");
 
     // SAFETY: caller is to ensure that the iterator is valid and not null
-    let TrieMapIterator(iter) = unsafe { &mut *it };
+    let TrieMapIterator { iter, timeout } = unsafe { &mut *it };
+
+    if let Some(IteratorTimeoutState { deadline, counter }) = timeout {
+        *counter += 1;
+        // For optimized builds, we only check the deadline
+        // once every 100 iterations. In development,
+        // we're checking each iterationn.
+        if *counter == 100 || cfg!(debug_assertions) {
+            let now = timespec_monotonic_now();
+
+            if now.tv_sec > deadline.tv_sec && now.tv_nsec > deadline.tv_nsec {
+                return 0;
+            }
+
+            *counter = 0;
+        }
+    }
+
     let Some((k, v)) = LendingIterator::next(iter) else {
         return 0;
     };
@@ -842,6 +877,18 @@ unsafe extern "C" fn TrieMap_RandomValueByPrefix(
     }
     let _unused = (t, prefix, pflen);
     todo!()
+}
+
+/// Get current time from monotonic clock.
+/// Calls `clock_gettime` with `clk_id == CLOCK_MONOTONIC_RAW`.
+fn timespec_monotonic_now() -> libc::timespec {
+    let mut ts = std::mem::MaybeUninit::uninit();
+    // SAFETY:
+    // We have exclusive access to a pointer of the correct type
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, ts.as_mut_ptr()) };
+    // SAFETY:
+    // `ts` was initialized by before call to `clock_gettime`
+    unsafe { ts.assume_init() }
 }
 
 mod iter_types {
@@ -1294,5 +1341,72 @@ mod tests {
             Some(TrieMapIterator_NextWildcard),
             |entries| assert_eq!(entries, [("cider", 5),].map(|(k, v)| (k.to_owned(), v))),
         );
+    }
+
+    #[test]
+    fn test_trie_iter_timeout() {
+        with_trie_map(|t| {
+            let pattern = bytes2c_char(b"");
+            // Safety: We adhere to all the safety requirements of `TrieMap_Iterate`
+            let it = unsafe {
+                TrieMap_Iterate(
+                    t,
+                    pattern.as_ptr(),
+                    pattern.len() as tm_len_t,
+                    tm_iter_mode::TM_PREFIX_MODE,
+                )
+            };
+
+            let mut char: *mut c_char = std::ptr::null_mut();
+            let mut len: tm_len_t = 0;
+            let mut value: *mut c_void = std::ptr::null_mut();
+
+            let mut deadline = timespec_monotonic_now();
+            deadline.tv_nsec += 1000 * 200; // Timeout in 200 ms
+
+            unsafe { TrieMapIterator_SetTimeout(it, deadline.clone()) };
+
+            for _ in 0..2 {
+                assert_eq!(
+                    1,
+                    unsafe {
+                        TrieMapIterator_Next(
+                            it,
+                            &mut char as *mut *mut c_char,
+                            &mut len as *mut tm_len_t,
+                            &mut value as *mut *mut c_void,
+                        )
+                    },
+                    "Before the deadline passes, next should yield a result"
+                );
+            }
+
+            // Wait until the deadline has passed.
+            // We're using a monotonic timer, so this should not be flaky
+            while {
+                let now = timespec_monotonic_now();
+                now.tv_sec <= deadline.tv_sec || now.tv_nsec <= deadline.tv_nsec
+            } {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+
+            for _ in 0..2 {
+                assert_eq!(
+                    0,
+                    unsafe {
+                        TrieMapIterator_Next(
+                            it,
+                            &mut char as *mut *mut c_char,
+                            &mut len as *mut tm_len_t,
+                            &mut value as *mut *mut c_void,
+                        )
+                    },
+                    "After the deadline passes, next should not yield a result"
+                );
+            }
+
+            // Safety: We adhere to all the safety requirements of `TrieMapIterator_Free`
+            unsafe { TrieMapIterator_Free(it) };
+        });
     }
 }
