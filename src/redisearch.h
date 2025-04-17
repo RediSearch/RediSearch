@@ -386,6 +386,9 @@ typedef struct {
   /* The GetSlop() callback. Returns the cumulative "slop" or distance between the query terms,
    * that can be used to factor the result score */
   int (*GetSlop)(const RSIndexResult *res);
+
+  /* Tanh factor (used only in the `BM25STD.TANH` scorer)*/
+  uint64_t tanhFactor;
 } ScoringFunctionArgs;
 
 /* RSScoringFunction is a callback type for query custom scoring function modules */
