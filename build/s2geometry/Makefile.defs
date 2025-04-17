@@ -1,2 +1,0 @@
-
-export S2GEOMETRY=$(S2GEOMETRY_BINDIR)/libs2.a
