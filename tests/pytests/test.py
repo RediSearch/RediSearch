@@ -4381,7 +4381,7 @@ def test_with_tls_and_non_tls_ports():
     time.sleep(2)
 
     # Get the TLS ports
-    tls_ports = get_ports(env)
+    tls_ports = [shard.port for shard in env.envRunner.shards]
     # The non-TLS ports are the TLS ports + 1500 (hard-coded in RLTest)
     expected_ports = [port + 1500 for port in tls_ports]
 
@@ -4390,8 +4390,11 @@ def test_with_tls_and_non_tls_ports():
     run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
 
     with TimeLimit(10, 'Failed waiting for the cluster to be updated'):
-        while get_ports(env) != expected_ports:
+        new_ports = get_ports(env)
+        while new_ports != expected_ports:
+            print(f'Waiting for the cluster to be updated. Expected ports: {expected_ports}, got: {new_ports}')
             time.sleep(0.1)
+            new_ports = get_ports(env)
 
     common_with_auth(env)
 
