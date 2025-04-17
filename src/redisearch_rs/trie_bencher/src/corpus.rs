@@ -121,9 +121,13 @@ impl CorpusType {
         // use words in the text file as keys and ensure uniqueness of keys
         let mut unique = BTreeSet::new();
         // we skip the first 36 lines of the text file, which are not part of the book but metadata
-        for line in contents.lines().skip(36) {
+        'outer: for line in contents.lines().skip(36) {
             for word in line.split_whitespace() {
                 unique.insert(word.to_string());
+                // we only use the first 82 unique words with creates 108 nodes (micro benchmark)
+                if unique.len() >= 82 {
+                    break 'outer;
+                }
             }
         }
         unique.into_iter().collect::<Vec<_>>()

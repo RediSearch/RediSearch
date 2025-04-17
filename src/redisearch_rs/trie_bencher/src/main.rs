@@ -2,7 +2,7 @@ use std::ptr::NonNull;
 use trie_bencher::corpus::CorpusType;
 use trie_bencher::{
     CTrieMap, RustTrieMap,
-    cmap::{AsTrieTermView as _, IntoCString as _},
+    c_map::{AsTrieTermView as _, IntoCString as _},
     str2boxed_c_char,
 };
 
