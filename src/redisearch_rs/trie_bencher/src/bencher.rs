@@ -3,11 +3,19 @@ use criterion::{
     BatchSize, BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use redis_module_test::{str2c_char, str2c_input};
+use lending_iterator::LendingIterator;
+use redis_module_test::{
+    ffi::{
+        TrieMap_Iterate, TrieMapIterator_Free, TrieMapIterator_NextContains,
+        tm_iter_mode_TM_CONTAINS_MODE, tm_len_t,
+    },
+    str2c_char, str2c_input,
+};
 use std::{
     ffi::{c_char, c_void},
     hint::black_box,
     ptr::NonNull,
+    rc::Rc,
     time::Duration,
 };
 
@@ -151,6 +159,20 @@ impl OperationBencher {
         load_c_benchmark(&mut group, &self.keys);
         group.finish();
     }
+
+    pub fn iterate_prefix_group(&self, c: &mut Criterion, pattern: &str, label: &str) {
+        let mut group = self.benchmark_group_immutable(c, label);
+        iterate_prefix_rust_benchmark(&mut group, self.rust_map.clone(), pattern);
+        iterate_prefix_c_benchmark(&mut group, &self.keys, pattern);
+        group.finish();
+    }
+
+    pub fn iterate_contains_group(&self, c: &mut Criterion, pattern: &str, label: &str) {
+        let mut group = self.benchmark_group_immutable(c, label);
+        iterate_contains_rust_benchmark(&mut group, self.rust_map.clone(), pattern);
+        iterate_contains_c_benchmark(&mut group, &self.keys, pattern);
+        group.finish();
+    }
 }
 
 fn find_rust_benchmark<M: Measurement>(
@@ -244,6 +266,134 @@ fn load_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, contents:
             |data| c_load(black_box(data)),
             BatchSize::LargeInput,
         )
+    });
+}
+
+fn iterate_prefix_rust_benchmark<M: Measurement>(
+    group: &mut BenchmarkGroup<'_, M>,
+    map: RustTrieMap,
+    pattern: &str,
+) {
+    let pattern = str2c_char(pattern);
+    // Ensure the map doesn't get dropped during benchmarking
+    let map = Rc::new(map);
+    group.bench_function("Rust", |b| {
+        b.iter_batched(
+            || map.clone(),
+            |map| {
+                map.lending_iter_prefix(&pattern).for_each(|entry| {
+                    black_box(entry);
+                });
+            },
+            BatchSize::LargeInput,
+        );
+    });
+}
+
+fn iterate_prefix_c_benchmark<M: Measurement>(
+    group: &mut BenchmarkGroup<'_, M>,
+    keys: &[String],
+    pattern: &str,
+) {
+    let pattern = str2c_char(pattern);
+    group.bench_function("C", |b| {
+        b.iter_batched(
+            || c_load_from_terms(keys),
+            |c_map| {
+                let c_map = c_map.into_inner();
+                let it =
+                    unsafe { TrieMap_Iterate(c_map, pattern.as_ptr(), pattern.len() as tm_len_t) };
+                let mut char: *mut c_char = std::ptr::null_mut();
+                let mut len: tm_len_t = 0;
+                let mut value: *mut c_void = std::ptr::null_mut();
+
+                while let 1 = unsafe {
+                    TrieMapIterator_NextContains(
+                        it,
+                        &mut char as *mut *mut c_char,
+                        &mut len as *mut tm_len_t,
+                        &mut value as *mut *mut c_void,
+                    )
+                } {
+                    black_box(char);
+                    black_box(len);
+                    black_box(value);
+                }
+
+                unsafe { TrieMapIterator_Free(it) };
+            },
+            BatchSize::LargeInput,
+        );
+    });
+}
+
+fn iterate_contains_rust_benchmark<M: Measurement>(
+    group: &mut BenchmarkGroup<'_, M>,
+    map: RustTrieMap,
+    pattern: &str,
+) {
+    let pattern = str2c_char(pattern);
+    // Ensure the map doesn't get dropped during benchmarking
+    let map = Rc::new(map);
+
+    group.bench_function("Rust", |b| {
+        b.iter_batched(
+            || map.clone(),
+            |map| {
+                let pat: &[u8] = unsafe { std::mem::transmute(&*pattern) };
+                let finder = memchr::memmem::Finder::new(pat);
+                map.lending_iter()
+                    .filter(|(k, _)| {
+                        let k: &[u8] = unsafe { std::mem::transmute(*k) };
+                        finder.find(k).is_some()
+                    })
+                    .for_each(|entry| {
+                        black_box(entry);
+                    });
+            },
+            BatchSize::LargeInput,
+        );
+    });
+}
+
+fn iterate_contains_c_benchmark<M: Measurement>(
+    group: &mut BenchmarkGroup<'_, M>,
+    keys: &[String],
+    pattern: &str,
+) {
+    let pattern = str2c_char(pattern);
+    group.bench_function("C", |b| {
+        b.iter_batched(
+            || c_load_from_terms(keys),
+            |c_map| {
+                let c_map = c_map.into_inner();
+                let it =
+                    unsafe { TrieMap_Iterate(c_map, pattern.as_ptr(), pattern.len() as tm_len_t) };
+
+                unsafe {
+                    (*it).mode = tm_iter_mode_TM_CONTAINS_MODE;
+                }
+
+                let mut char: *mut c_char = std::ptr::null_mut();
+                let mut len: tm_len_t = 0;
+                let mut value: *mut c_void = std::ptr::null_mut();
+
+                while let 1 = unsafe {
+                    TrieMapIterator_NextContains(
+                        it,
+                        &mut char as *mut *mut c_char,
+                        &mut len as *mut tm_len_t,
+                        &mut value as *mut *mut c_void,
+                    )
+                } {
+                    black_box(char);
+                    black_box(len);
+                    black_box(value);
+                }
+                unsafe { TrieMapIterator_Free(it) };
+            },
+            BatchSize::LargeInput,
+        );
     });
 }
 

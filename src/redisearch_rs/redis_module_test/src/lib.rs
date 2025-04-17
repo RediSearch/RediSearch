@@ -15,7 +15,7 @@ pub mod ffi {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
-pub mod redis_allocator;
+pub mod ffi_polyfill;
 
 /// Convert a string to a slice of `c_char`, allocated on the heap.
 pub fn str2c_char(input: &str) -> Box<[c_char]> {
