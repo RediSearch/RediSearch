@@ -167,7 +167,7 @@ def testOptimizer(env):
                             ['Type', 'NUMERIC', 'Term', '12 - 52', 'Counter', 7, 'Size', 8400]]]]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 9]]}
+                    ['Type', 'Pager/Limiter', 'Counter', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} @n:[10 15]', *params)
     env.assertEqual(res[0][1:], ['10', '12', '14', '110', '112', '114', '210', '212', '214', '310'])
     actual_profiler = to_dict(res[1][1][0])
@@ -210,7 +210,7 @@ def testOptimizer(env):
                         ['Type', 'NUMERIC', 'Term', '12 - 52', 'Counter', 6, 'Size', 8400]]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 9]]}
+                    ['Type', 'Pager/Limiter', 'Counter', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', *params)
     env.assertEqual(res[0], [1, '10', '11', '12', '13', '14', '15', '110', '111', '112', '113'])
     actual_profiler = to_dict(res[1][1][0])
@@ -294,7 +294,7 @@ def testOptimizer(env):
                     ['Type', 'TAG', 'Term', 'foo', 'Counter', 10, 'Size', 10000],
                  'Result processors profile': [
                     ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 9]]}
+                    ['Type', 'Pager/Limiter', 'Counter', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', *params)
     env.assertEqual(res[0][1:], ['0', '2', '4', '6', '8', '10', '12', '14', '16', '18'])
     actual_profiler = to_dict(res[1][1][0])
@@ -334,7 +334,7 @@ def testOptimizer(env):
                     ['Type', 'WILDCARD', 'Counter', 10],
                  'Result processors profile': [
                     ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 9]]}
+                    ['Type', 'Pager/Limiter', 'Counter', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '*', *params)
     env.assertEqual(res[0][1:], ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
     actual_profiler = to_dict(res[1][1][0])
