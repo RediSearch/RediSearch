@@ -4388,12 +4388,14 @@ def test_with_tls_and_non_tls_ports():
     # connecting the coordinator to the shards, just not in TLS mode.
     env.assertEqual(
         run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no'),
-        ['OK'] * env.shardsCount,
+        ['OK'] * env.shardsCount
     )
 
-    with TimeLimit(15, 'Failed waiting for the cluster to be updated'):
-        while get_ports(env) != expected_ports:
-            time.sleep(0.3)
+    with TimeLimit(10, 'Failed waiting for the cluster to be updated'):
+        new_ports = get_ports(env)
+        while new_ports != expected_ports:
+            time.sleep(0.1)
+            new_ports = get_ports(env)
 
     common_with_auth(env)
 
