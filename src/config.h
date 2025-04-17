@@ -239,6 +239,9 @@ void UpgradeDeprecatedMTConfigs();
 #define DEFAULT_MIN_STEM_LENGTH 4
 #define MIN_MIN_STEM_LENGHT 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
+#define DEFAULT_BM25STD_TANH_FACTOR 4
+#define BM25STD_TANH_FACTOR_MAX 10000
+#define BM25STD_TANH_FACTOR_MIN 1
 
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG \
@@ -288,7 +291,7 @@ void UpgradeDeprecatedMTConfigs();
     .prioritizeIntersectUnionChildren = false,                                  \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                             \
     .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE ,                \
-    .hideUserDataFromLog = false                                                \
+    .hideUserDataFromLog = false,                                               \
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,      \
   }
 

@@ -416,14 +416,14 @@ def testUnstableFeaturesOffByDefault():
     # -------------------- BM25STD_TANH_FACTOR --------------------
     reset_unstable_config()
 
-    env.expect('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'BM25STD_TANH_FACTOR', '2') \
-        .error().contains('BM25STD_TANH_FACTOR not available when `ENABLE_UNSTABLE_FEATURES` is off')
+    factor = 2
+    env.expect('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'BM25STD_TANH_FACTOR', str(factor)) \
+        .error().contains('BM25STD_TANH_FACTOR is not available when `ENABLE_UNSTABLE_FEATURES` is off')
 
     env.cmd(config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
 
-    factor = 2
-    normalized_res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT','SCORER', 'BM25STD.TANH', 'BM25STD_TANH_FACTOR', str(factor))
-    unnormalized_res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT')
+    unnormalized_res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD')
+    normalized_res = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.TANH', 'BM25STD_TANH_FACTOR', str(factor))
 
     # Check the score (only 1 doc..)
     env.assertEqual(round(math.tanh(float(unnormalized_res[2]) / factor), 5), round(float(normalized_res[2]), 5))
