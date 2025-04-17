@@ -6,6 +6,7 @@ from hotels import hotels
 import random
 import time
 
+TLS_PORT_DELTA = 1500
 
 # this tests is not longer relevant
 # def testAdd(env):
@@ -4105,18 +4106,21 @@ def test_with_tls_and_non_tls_ports():
         return ports
 
     # Get the TLS ports
-    tls_ports = get_ports(env)
+    tls_ports = [shard.port for shard in env.envRunner.shards]
     # The non-TLS ports are the TLS ports + 1500 (hard-coded in RLTest)
-    expected_ports = [port + 1500 for port in tls_ports]
+    expected_ports = [port + TLS_PORT_DELTA for port in tls_ports]
 
     # Upon setting `tls-cluster` to `no`, we should still be able to succeed
     # connecting the coordinator to the shards, just not in TLS mode.
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+    env.assertEqual(
+        run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no'),
+        ['OK'] * env.shardsCount
+    )
 
-    with TimeLimit(15, 'Failed waiting for the cluster to be updated'):
+    with TimeLimit(10, 'Failed waiting for the cluster to be updated'):
         new_ports = get_ports(env)
         while new_ports != expected_ports:
-            time.sleep(0.2)
+            time.sleep(0.1)
             new_ports = get_ports(env)
 
     common_with_auth(env)
