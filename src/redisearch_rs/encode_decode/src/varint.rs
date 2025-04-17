@@ -49,6 +49,19 @@ extern "C" fn WriteVarint(value: u32, b: *mut BufferWriter) -> usize {
     bytes_allocated
 }
 
+#[unsafe(no_mangle)]
+#[allow(improper_ctypes_definitions)]
+extern "C" fn WriteVarintFieldMask(value: FieldMask, b: *mut BufferWriter) -> usize {
+    let buffer_writer = unsafe { b.as_mut() }.unwrap();
+    let mut cursor = io::Cursor::<Vec<u8>>::from(*buffer_writer);
+    let cap = cursor.get_ref().capacity();
+    write_field_mask(value, &mut cursor).unwrap();
+    let bytes_allocated = cursor.get_ref().capacity() - cap;
+    *buffer_writer = cursor.into();
+
+    bytes_allocated
+}
+
 //
 // The Rust API goes here. This part will be used by the Rust code and will be used by the C code
 // above.
@@ -105,8 +118,33 @@ where
     write.write(&variant[pos..])
 }
 
+/// Encode a FieldMask into a varint format and write it to the given writer.
+pub fn write_field_mask<W: Write>(value: FieldMask, mut write: W) -> io::Result<usize>
+where
+    W: Write,
+{
+    let mut variant = VarintBuf::new();
+    let pos = encode_field_mask(value, &mut variant);
+    write.write(&variant[pos..])
+}
+
 #[inline(always)]
 fn encode(mut value: u32, vbuf: &mut VarintBuf) -> usize {
+    let mut pos = vbuf.len() - 1;
+    vbuf[pos] = (value & 127) as u8;
+    value >>= 7;
+    while value != 0 {
+        pos -= 1;
+        value -= 1;
+        vbuf[pos] = 128 | ((value & 127) as u8);
+        value >>= 7;
+    }
+
+    pos
+}
+
+// FIXME: The logic is identical to `encode` so we can use a macro here to avoid code duplication.
+fn encode_field_mask(mut value: FieldMask, vbuf: &mut VarintBuf) -> usize {
     let mut pos = vbuf.len() - 1;
     vbuf[pos] = (value & 127) as u8;
     value >>= 7;
