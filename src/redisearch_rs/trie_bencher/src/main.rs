@@ -1,6 +1,7 @@
+use redis_module_test::{str2c_char, str2c_input};
 use std::{collections::BTreeSet, ptr::NonNull};
 use trie_bencher::corpus::CorpusType;
-use trie_bencher::{CTrieMap, RustTrieMap, str2c_char, str2c_input};
+use trie_bencher::{CTrieMap, RustTrieMap};
 
 fn main() {
     compute_and_report_memory_usage();

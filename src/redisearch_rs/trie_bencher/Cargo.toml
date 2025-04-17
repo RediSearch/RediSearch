@@ -3,24 +3,34 @@ name = "trie_bencher"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+[lib]
+bench = false
+
+[[bin]]
+name = "trie_bencher"
+bench = false
 
 [[bench]]
 name = "operations"
 harness = false
 
+[[bench]]
+name = "iter"
+harness = false
+
 [dependencies]
+trie_rs.workspace = true
 redis_module_test.workspace = true
 
 criterion.workspace = true
 crc32fast.workspace = true
 csv.workspace = true
 fs-err.workspace = true
-trie_rs.workspace = true
+lending-iterator.workspace = true
+memchr.workspace = true
+radix_trie.workspace = true
 ureq.workspace = true
 
-[build-dependencies]
-cc.workspace = true
-bindgen.workspace = true
 
 [lints]
 workspace = true
