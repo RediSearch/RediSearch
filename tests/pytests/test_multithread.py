@@ -285,7 +285,7 @@ def test_async_updates_sanity():
     local_marked_deleted_vectors = to_dict(debug_info['BACKEND_INDEX'])['NUMBER_OF_MARKED_DELETED']
     env.assertEqual(local_marked_deleted_vectors, n_local_vectors_before_update)
 
-    # Get the updated numer of local vectors after the update, and validate that all of them are in the frontend
+    # Get the updated number of local vectors after the update, and validate that all of them are in the frontend
     # index (hadn't been ingested already).
     n_local_vectors = get_vecsim_debug_dict(env, 'idx', 'vector')['INDEX_LABEL_COUNT']
     env.assertEqual(to_dict(debug_info['FRONTEND_INDEX'])['INDEX_SIZE'], n_local_vectors)
@@ -533,7 +533,7 @@ def testNameLoader(env: Env):
     normal_search = env.cmd('FT.SEARCH', 'idx', '*', 'SORTBY', 'sortable', 'RETURN', 1, '__key')
     normal_aggregate = env.cmd('FT.AGGREGATE', 'idx', '*', 'SORTBY', '1', '@sortable', 'LOAD', 3, '@__key', 'AS', 'doc_id')
 
-    # enable unstable features so we have the spacial loader
+    # enable unstable features so we have the special loader
     run_command_on_all_shards(env, config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
 
     # Run the search and aggregate commands again, expecting the same results
