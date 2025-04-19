@@ -534,7 +534,7 @@ def testNameLoader(env: Env):
     normal_aggregate = env.cmd('FT.AGGREGATE', 'idx', '*', 'SORTBY', '1', '@sortable', 'LOAD', 3, '@__key', 'AS', 'doc_id')
 
     # enable unstable features so we have the special loader
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
 
     # Run the search and aggregate commands again, expecting the same results
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'sortable', 'RETURN', 1, '__key').equal(normal_search)
@@ -564,7 +564,7 @@ def testNameLoader(env: Env):
         [10] + [['key', f'doc:{i}', 'count', '1'] for i in range(10)])
 
     # Check that the right loader is used in the aggregate command when loading multiple fields with BG query
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', '1')
+    verify_command_OK_on_all_shards(env, config_cmd(), 'SET', 'WORKERS', '1')
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@sortable', '@__key')
     env.assertEqual(get_RP_name(res), 'Key Name Loader', message="Expected to be optimized when loading only sortables and __key")
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@sortable')
