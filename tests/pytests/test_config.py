@@ -90,10 +90,11 @@ def testGetConfigOptions(env):
     check_config('OSS_GLOBAL_PASSWORD')
     check_config('INDEX_CURSOR_LIMIT')
     check_config('ENABLE_UNSTABLE_FEATURES')
+    check_config('_BG_INDEX_MEM_PCT_THR')
+    check_config('BM25STD_TANH_FACTOR')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
-
     env.expect(config_cmd(), 'set', 'MINPREFIX', 'str').equal('Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'EXTLOAD', 1).equal(not_modifiable)
     env.expect(config_cmd(), 'set', 'NOGC', 1).equal(not_modifiable)
@@ -116,7 +117,8 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'FORK_GC_RETRY_INTERVAL', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
-
+    env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
@@ -128,7 +130,10 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', 'WORKERS',  2 ** 13 + 1).contains('Number of worker threads cannot exceed')
     env.expect(config_cmd(), 'set', 'MIN_OPERATION_WORKERS', 2 ** 13 + 1).contains('Number of worker threads cannot exceed')
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', -1).contains('Value is outside acceptable bounds')
-
+    env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', -1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 101).contains('Memory limit for indexing cannot be greater then 100%')
+    env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', -1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 10001).contains('BM25STD_TANH_FACTOR must be between 1 and 10000')
 
 @skip(cluster=True)
 def testAllConfig(env):
@@ -174,6 +179,8 @@ def testAllConfig(env):
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
+    env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '80')
+    env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -199,6 +206,8 @@ def testInitConfig():
     _test_config_num('BG_INDEX_SLEEP_GAP', 15)
     _test_config_num('MINSTEMLEN', 3)
     _test_config_num('INDEX_CURSOR_LIMIT', 128)
+    _test_config_num('_BG_INDEX_MEM_PCT_THR', 80)
+    _test_config_num('BM25STD_TANH_FACTOR', 4)
 
 # True/False arguments
     _test_config_true_false('NOGC', 'true')
@@ -473,6 +482,8 @@ numericConfigs = [
     ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False, False),
     ('search-workers', 'WORKERS', 0, 0, 16, False, False),
     ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True, False),
+    ('search-_bg-index-mem-pct-thr', '_BG_INDEX_MEM_PCT_THR', 80, 0, 100, False, False),
+    ('search-bm25std-tanh-factor', 'BM25STD_TANH_FACTOR', 4, 1, 10000, False, False),
     # Cluster parameters
     ('search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True, True),
     ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False, True),
