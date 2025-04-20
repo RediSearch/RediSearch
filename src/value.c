@@ -331,23 +331,36 @@ const char *RSValue_StringPtrLen(const RSValue *value, size_t *lenp) {
 
 // Combines PtrLen with ToString to convert any RSValue into a string buffer.
 // Returns NULL if buf is required, but is too small
+// buflen must not be bigger than INT32_MAX
 const char *RSValue_ConvertStringPtrLen(const RSValue *value, size_t *lenp, char *buf,
                                         size_t buflen) {
+  RS_LOG_ASSERT_FMT(value != NULL, "%s", "RSValue_ConvertStringPtrLen: value is NULL");
+  RS_LOG_ASSERT_FMT(buf != NULL, "%s", "RSValue_ConvertStringPtrLen: buf is NULL");
+  RS_LOG_ASSERT_FMT(buflen <= RSVALUE_MAX_BUFFER_LEN, "%s", "RSValue_ConvertStringPtrLen: buflen is too big");
   value = RSValue_Dereference(value);
 
   if (RSValue_IsString(value)) {
     return RSValue_StringPtrLen(value, lenp);
-  } else if (value->t == RSValue_Number) {
+  } else if (value && value->t == RSValue_Number) {
+    // notice snprintf can return a negative number if the buffer is too small
+    // since we capture it in size_t, we essentially make the negative number into a very large positive number
+    // we assume buflen length cannot be bigger than that number
     size_t n = snprintf(buf, buflen, "%f", value->numval);
     if (n >= buflen) {
-      *lenp = 0;
+      if (lenp) {
+        *lenp = 0;
+      }
       return "";
     }
-    *lenp = n;
+    if (lenp) {
+      *lenp = n;
+    }
     return buf;
   } else {
     // Array, Null, other types
-    *lenp = 0;
+    if (lenp) {
+      *lenp = 0;
+    }
     return "";
   }
 }
@@ -552,7 +565,7 @@ int RSValue_Cmp(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   } while (0);
 
   // cast to strings and compare as strings
-  char buf1[100], buf2[100];
+  char buf1[RSVALUE_MAX_BUFFER_LEN], buf2[RSVALUE_MAX_BUFFER_LEN];
 
   size_t l1, l2;
   const char *s1 = RSValue_ConvertStringPtrLen(v1, &l1, buf1, sizeof(buf1));
@@ -582,7 +595,7 @@ int RSValue_Equal(const RSValue *v1, const RSValue *v2, QueryError *qerr) {
   }
 
   // cast to strings and compare as strings
-  char buf1[100], buf2[100];
+  char buf1[RSVALUE_MAX_BUFFER_LEN], buf2[RSVALUE_MAX_BUFFER_LEN];
 
   size_t l1, l2;
   const char *s1 = RSValue_ConvertStringPtrLen(v1, &l1, buf1, sizeof(buf1));

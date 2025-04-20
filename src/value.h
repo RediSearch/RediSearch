@@ -137,6 +137,8 @@ typedef struct RSValue {
 #define RSVALUE_MAP_KEYPOS(pos) ((pos) * 2)
 #define RSVALUE_MAP_VALUEPOS(pos) ((pos) * 2 + 1)
 
+#define RSVALUE_MAX_BUFFER_LEN 100
+
 /**
  * Clears the underlying storage of the value, and makes it
  * be a reference to the NULL value

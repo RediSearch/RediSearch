@@ -290,6 +290,7 @@ typedef struct IndexSpec {
   // in favor on a newer, pending scan
   bool scan_in_progress;
   bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
+  bool isDuplicate;               // Marks that this index is a duplicate of an existing one
 
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;

@@ -321,6 +321,20 @@ static int handleCommonArgs(AREQ *req, ArgsCursor *ac, QueryError *status, int a
     if (parseValueFormat(&req->reqflags, ac, status) != REDISMODULE_OK) {
       return ARG_ERROR;
     }
+  } else if (AC_AdvanceIfMatch(ac, "BM25STD_TANH_FACTOR")) {
+    if (!RSGlobalConfig.enableUnstableFeatures) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "BM25STD_TANH_FACTOR is not available when `ENABLE_UNSTABLE_FEATURES` is off");
+      return ARG_ERROR;
+    }
+    if (AC_NumRemaining(ac) < 1) {
+      QueryError_SetError(status, QUERY_EPARSEARGS, "Need an argument for BM25STD_TANH_FACTOR");
+      return ARG_ERROR;
+    }
+    if (AC_GetUnsignedLongLong(ac, (unsigned long long *)&req->reqConfig.BM25STD_TanhFactor, AC_F_GE1) != AC_OK) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "BM25STD_TANH_FACTOR must be between %d and %d inclusive",
+      BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
+      return ARG_ERROR;
+    }
   } else {
     return ARG_UNKNOWN;
   }
@@ -869,6 +883,7 @@ AREQ *AREQ_New(void) {
   long long queryTimeoutMS;
   RSTimeoutPolicy timeoutPolicy;
   int printProfileClock;
+  uint64_t BM25STD_TanhFactor;
   */
   req->reqConfig = RSGlobalConfig.requestConfigParams;
 
@@ -1029,7 +1044,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     if (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
       return REDISMODULE_ERR;
-    } else if (!strcmp(opts->scorerName, BM25_STD_NORMALIZED_SCORER_NAME) && !RSGlobalConfig.enableUnstableFeatures) {
+    } else if (!strcmp(opts->scorerName, BM25_STD_NORMALIZED_TANH_SCORER_NAME) && !RSGlobalConfig.enableUnstableFeatures) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Scorer %s not available when `ENABLE_UNSTABLE_FEATURES` is off", opts->scorerName);
       return REDISMODULE_ERR;
     }
@@ -1299,6 +1314,10 @@ static ResultProcessor *getScorerRP(AREQ *req, RLookup *rl) {
   ScoringFunctionArgs scargs = {0};
   if (req->reqflags & QEXEC_F_SEND_SCOREEXPLAIN) {
     scargs.scrExp = rm_calloc(1, sizeof(RSScoreExplain));
+  }
+  if (!strcmp(scorer, BM25_STD_NORMALIZED_TANH_SCORER_NAME)) {
+    // Add the tanh factor to the scoring function args
+    scargs.tanhFactor = req->reqConfig.BM25STD_TanhFactor;
   }
   ExtScoringFunctionCtx *fns = Extensions_GetScoringFunction(&scargs, scorer);
   RS_LOG_ASSERT(fns, "Extensions_GetScoringFunction failed");
