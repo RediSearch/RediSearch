@@ -23,6 +23,7 @@ jobs:
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
+      pre-steps-script: "apt update && apt install -y git"
       container: "ubuntu:focal"
       get-redis: '7.4'
       test-config: QUICK=1
