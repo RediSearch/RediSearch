@@ -32,6 +32,7 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
   AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
   SAN: addr
+  SANITIZER: address
 
 jobs:
   build:
