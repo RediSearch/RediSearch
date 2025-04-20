@@ -120,6 +120,9 @@ file(GLOB SOURCES
     "src/util/*.c"
     "src/trie/*.c"
     "src/info/*.c"
+    "src/info/info_redis/*.c"
+    "src/info/info_redis/threads/*.c"
+    "src/info/info_redis/types/*.c"
     "src/obfuscation/*.c"
 
     "deps/cndict/cndict_data.c"

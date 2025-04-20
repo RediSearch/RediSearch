@@ -50,6 +50,7 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
   ArgsCursor ac = {0};
   ArgsCursor_InitRString(&ac, debug_argv, debug_params_count);
   ArgsCursor timeoutArgs = {0};
+  int crash = 0;
   int internal_only = 0;
   ACArgSpec debugArgsSpec[] = {
       // Getting TIMEOUT_AFTER_N as an array to use AC_IsInitialized API.
@@ -57,6 +58,8 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
        .type = AC_ARGTYPE_SUBARGS_N,
        .target = &timeoutArgs,
        .slicelen = 1},
+      // crash at the start of the query
+      {.name = "CRASH", .type = AC_ARGTYPE_BOOLFLAG, .target = &crash},
       // optional arg for TIMEOUT_AFTER_N
       {.name = "INTERNAL_ONLY", .type = AC_ARGTYPE_BOOLFLAG, .target = &internal_only},
       {NULL}};
@@ -75,6 +78,10 @@ int parseAndCompileDebug(AREQ_Debug *debug_req, QueryError *status) {
                              AC_Strerror(rv));
     }
     return REDISMODULE_ERR;
+  }
+
+  if (crash) {
+    PipelineAddCrash(&debug_req->r);
   }
 
   if (AC_IsInitialized(&timeoutArgs)) {

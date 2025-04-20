@@ -18,6 +18,7 @@
 #include "util/misc.h"
 #include "aggregate/aggregate_debug.h"
 #include "util/units.h"
+#include "info/info_redis/threads/current_thread.h"
 
 #include <err.h>
 
@@ -774,7 +775,6 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   AREQ *r = AREQ_New();
   QueryError status = {0};
   specialCaseCtx *knnCtx = NULL;
-
   if (prepareForExecution(r, ctx, argv, argc, &knnCtx, &status) != REDISMODULE_OK) {
     goto err;
   }
@@ -813,7 +813,6 @@ void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, in
   // CMD, index, expr, args...
   r = &debug_req->r;
   AREQ_Debug_params debug_params = debug_req->debug_params;
-
   int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, &knnCtx, &status) != REDISMODULE_OK) {
     goto err;

@@ -57,6 +57,7 @@ typedef enum {
   RP_NETWORK,
   RP_METRICS,
   RP_TIMEOUT, // DEBUG ONLY
+  RP_CRASH, // DEBUG ONLY
   RP_MAX,
 } ResultProcessorType;
 
@@ -283,6 +284,14 @@ const char *RPTypeToString(ResultProcessorType type);
  *******************************************************************************************************************/
 ResultProcessor *RPTimeoutAfterCount_New(size_t count);
 void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
+
+/*******************************************************************************************************************
+ *  Crash Processor - DEBUG ONLY
+ *
+ * crash the at the start of the query
+ *******************************************************************************************************************/
+ResultProcessor *RPCrash_New();
+void PipelineAddCrash(struct AREQ *r);
 
 #ifdef __cplusplus
 }
