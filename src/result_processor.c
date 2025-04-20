@@ -1297,8 +1297,7 @@ void PipelineAddCrash(struct AREQ *r) {
 
  static void rpNormelizor_Free(ResultProcessor *base) {
    RPNormelizer *self = (RPNormelizer *)base;
-   array_free_ex(self->pool, srDtor);
-  //  array_free(self->pool);
+   array_free_ex(self->pool, srDtor(*(char **)ptr));
    srDtor(self->pooledResult);
    rm_free(self);
  }
