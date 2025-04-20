@@ -103,6 +103,10 @@ static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndex
     return 0;
   }
   uint32_t norm = normMode == NORM_MAXFREQ ? dmd->maxFreq : dmd->len;
+  if (norm == 0) {
+    EXPLAIN(scrExp, "Document %s is 0", normMode == NORM_MAXFREQ ? "max frequency" : "length");
+    return 0;
+  }
   double rawTfidf = tfidfRecursive(h, dmd, scrExp);
   double tfidf = dmd->score * rawTfidf / norm;
   strExpCreateParent(ctx, &scrExp);
