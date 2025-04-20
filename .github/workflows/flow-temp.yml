@@ -18,3 +18,13 @@ jobs:
     with:
       platform: "ubuntu:focal"
       architecture: "x86_64"
+
+  test-focal:
+    secrets: inherit
+    uses: ./.github/workflows/task-test.yml
+    with:
+      container: "ubuntu:focal"
+      get-redis: '7.4'
+      test-config: QUICK=1
+      san: address
+      rejson-branch: '2.8'
