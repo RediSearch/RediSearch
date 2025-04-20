@@ -31,6 +31,7 @@ env:
   AWS_ACCESS_KEY_ID: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
   AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+  SAN: 1
 
 jobs:
   build:
@@ -138,6 +139,15 @@ jobs:
       - name: Build Redis
         working-directory: redis
         run: ${{ steps.mode.outputs.mode }} make install
+      - name: Install LLVM for sanitizer
+        working-directory: .install
+        run: |
+          . ./install_llvm.sh ${{ steps.mode.outputs.mode }}
+          CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-$LLVM_VERSION" 2>/dev/null)
+          echo "Using LLVM version: $LLVM_VERSION"
+          echo "CC=$CLANG_BIN" >> $GITHUB_ENV
+          echo "CXX=$(dirname $CLANG_BIN)/clang++-$LLVM_VERSION" >> $GITHUB_ENV
+          echo "LD=$CLANG_BIN" >> $GITHUB_ENV
 
       # Build & Pack
       - name: Build and Pack RediSearch OSS
