@@ -1309,7 +1309,9 @@ void PipelineAddCrash(struct AREQ *r) {
       // We've already yielded all results, return EOF
      return RS_RESULT_EOF;
    }
-   *r = *array_pop(self->pool);
+  SearchResult *poppedResult = array_pop(self->pool);
+  *r = *poppedResult;
+  rm_free(poppedResult);
   //  double oldScore = r->score;
    r->score = (r->score - self->minValue) / (self->maxValue - self->minValue);
    if (self->scoreKey) {
