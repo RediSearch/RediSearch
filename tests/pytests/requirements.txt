@@ -6,3 +6,4 @@ RLTest >= 0.7.16
 numpy >= 1.21.6
 scipy >= 1.7.3
 faker
+orderly-set <= 5.3.0 # Update pin once Python 3.8 is not used in CI
