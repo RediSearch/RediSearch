@@ -114,6 +114,17 @@ jobs:
         run: .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
         run: pip install -q -r .install/build_package_requirments.txt
+      - name: Install LLVM for sanitizer
+        working-directory: .install
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          . ./install_llvm.sh ${{ steps.mode.outputs.mode }}
+          CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-$LLVM_VERSION" 2>/dev/null)
+          echo "Using LLVM version: $LLVM_VERSION"
+          echo "CC=$CLANG_BIN" >> $GITHUB_ENV
+          echo "CXX=$(dirname $CLANG_BIN)/clang++-$LLVM_VERSION" >> $GITHUB_ENV
+          echo "LD=$CLANG_BIN" >> $GITHUB_ENV
 
       # Get Redis
       - name: Get Redis (node20)
@@ -139,15 +150,6 @@ jobs:
       - name: Build Redis
         working-directory: redis
         run: ${{ steps.mode.outputs.mode }} make install
-      - name: Install LLVM for sanitizer
-        working-directory: .install
-        run: |
-          . ./install_llvm.sh ${{ steps.mode.outputs.mode }}
-          CLANG_BIN=$(find /usr/bin /usr/local/bin -name "clang-$LLVM_VERSION" 2>/dev/null)
-          echo "Using LLVM version: $LLVM_VERSION"
-          echo "CC=$CLANG_BIN" >> $GITHUB_ENV
-          echo "CXX=$(dirname $CLANG_BIN)/clang++-$LLVM_VERSION" >> $GITHUB_ENV
-          echo "LD=$CLANG_BIN" >> $GITHUB_ENV
 
       # Build & Pack
       - name: Build and Pack RediSearch OSS

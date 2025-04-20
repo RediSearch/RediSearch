@@ -3,6 +3,7 @@
 OS_TYPE=$(uname -s)
 VERSION=18
 MODE=$1
+export DEBIAN_FRONTEND=noninteractive
 
 if [[ $OS_TYPE == Darwin ]]; then
     brew install llvm@$VERSION
