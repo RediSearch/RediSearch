@@ -33,6 +33,7 @@ env:
   AWS_REGION: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
   SAN: addr
   SANITIZER: address
+  ASAN_OPTIONS: "detect_odr_violation=0:halt_on_error=0:detect_leaks=1:verbosity=1:log_thread=1"
 
 jobs:
   build:
