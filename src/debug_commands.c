@@ -35,7 +35,8 @@ void validateDebugMode(DebugCTX *debugCtx) {
   debugCtx->debugMode =
     (debugCtx->bgIndexing.maxDocsTBscanned > 0) ||
     (debugCtx->bgIndexing.maxDocsTBscannedPause > 0) ||
-    (debugCtx->bgIndexing.pauseBeforeScan);
+    (debugCtx->bgIndexing.pauseBeforeScan) ||
+    (debugCtx->bgIndexing.pauseOnOOM);
 
 }
 
@@ -1236,10 +1237,10 @@ DEBUG_COMMAND(DocInfo) {
   return REDISMODULE_OK;
 }
 
-static void VecSim_Reply_Info_Iterator(RedisModuleCtx *ctx, VecSimInfoIterator *infoIter) {
-  RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
-  while(VecSimInfoIterator_HasNextField(infoIter)) {
-    VecSim_InfoField* infoField = VecSimInfoIterator_NextField(infoIter);
+static void VecSim_Reply_Info_Iterator(RedisModuleCtx *ctx, VecSimDebugInfoIterator *infoIter) {
+  RedisModule_ReplyWithArray(ctx, VecSimDebugInfoIterator_NumberOfFields(infoIter)*2);
+  while(VecSimDebugInfoIterator_HasNextField(infoIter)) {
+    VecSim_InfoField* infoField = VecSimDebugInfoIterator_NextField(infoIter);
     RedisModule_ReplyWithCString(ctx, infoField->fieldName);
     switch (infoField->fieldType) {
     case INFOFIELD_STRING:
@@ -1286,12 +1287,12 @@ DEBUG_COMMAND(VecsimInfo) {
     return RedisModule_ReplyWithError(ctx, "Can't open vector index");
   }
 
-  VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
+  VecSimDebugInfoIterator *infoIter = VecSimIndex_DebugInfoIterator(vecsimIndex);
   // Recursively reply with the info iterator
   VecSim_Reply_Info_Iterator(ctx, infoIter);
 
   // Cleanup
-  VecSimInfoIterator_Free(infoIter); // Free the iterator (and all its nested children)
+  VecSimDebugInfoIterator_Free(infoIter); // Free the iterator (and all its nested children)
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -1491,6 +1492,9 @@ DEBUG_COMMAND(RSAggregateCommandShard) {
   return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
 }
 
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_MAX_SCANNED_DOCS <max_scanned_docs>
+ */
 DEBUG_COMMAND(setMaxScannedDocs) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -1513,6 +1517,9 @@ DEBUG_COMMAND(setMaxScannedDocs) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_ON_SCANNED_DOCS <pause_scanned_docs>
+ */
 DEBUG_COMMAND(setPauseOnScannedDocs) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -1533,24 +1540,25 @@ DEBUG_COMMAND(setPauseOnScannedDocs) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_BG_INDEX_RESUME
+ */
 DEBUG_COMMAND(setBgIndexResume) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
-  if (argc != 3) {
+  if (argc != 2) {
     return RedisModule_WrongArity(ctx);
   }
-  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
-  if (!strcasecmp(op, "true")) {
-    globalDebugCtx.bgIndexing.pause = false;
-  } else {
-    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_BG_INDEX_RESUME'");
-  }
+  globalDebugCtx.bgIndexing.pause = false;
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER GET_DEBUG_SCANNER_STATUS <index_name>
+ */
 DEBUG_COMMAND(getDebugScannerStatus) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -1584,6 +1592,9 @@ DEBUG_COMMAND(getDebugScannerStatus) {
   return RedisModule_ReplyWithSimpleString(ctx, DEBUG_INDEX_SCANNER_STATUS_STRS[dScanner->status]);
 }
 
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_BEFORE_SCAN <true/false>
+ */
 DEBUG_COMMAND(setPauseBeforeScan) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -1606,6 +1617,51 @@ DEBUG_COMMAND(setPauseBeforeScan) {
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_ON_OOM <true/false>
+ */
+DEBUG_COMMAND(setPauseOnOOM) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.pauseOnOOM = true;
+  } else if (!strcasecmp(op, "false")) {
+    globalDebugCtx.bgIndexing.pauseOnOOM = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_ON_OOM'");
+  }
+
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER TERMINATE_BG_POOL
+ */
+DEBUG_COMMAND(terminateBgPool) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  ReindexPool_ThreadPoolDestroy();
+  // We do not create a new thread pool here, as it will automatically be created on the next background indexing job
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER <command> [options]
+ */
 DEBUG_COMMAND(bgScanController) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
@@ -1630,6 +1686,12 @@ DEBUG_COMMAND(bgScanController) {
   }
   if (!strcmp("SET_PAUSE_BEFORE_SCAN", op)) {
     return setPauseBeforeScan(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_PAUSE_ON_OOM", op)) {
+    return setPauseOnOOM(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("TERMINATE_BG_POOL", op)) {
+    return terminateBgPool(ctx, argv+1, argc-1);
   }
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'BG_SCAN_CONTROLLER'");
 

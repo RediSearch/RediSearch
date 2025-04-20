@@ -237,6 +237,7 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures", total_info->indexing_failures);
   // highest number of failures out of all specs
   RedisModule_InfoAddFieldDouble(ctx, "errors_for_index_with_max_failures", total_info->max_indexing_failures);
+  RedisModule_InfoAddFieldDouble(ctx, "OOM_indexing_failures_indexes_count", total_info->background_indexing_failures_OOM);
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {
@@ -280,6 +281,8 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
   RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length",
                                    RSGlobalConfig.minPhoneticTermLen);
+  RedisModule_InfoAddFieldLongLong(ctx, "bm25std_tanh_factor",
+                                   RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor);
 }
 
 // IF the crashing thread worked on a spec, output the spec name

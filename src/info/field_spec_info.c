@@ -113,7 +113,7 @@ void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bo
     REPLY_KVSTR("attribute", info->attribute);
     // Set the error as a new object.
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-    IndexError_Reply(&info->error, reply, withTimestamp, obfuscate);
+    IndexError_Reply(&info->error, reply, withTimestamp, obfuscate, INDEX_ERROR_WITHOUT_OOM_STATUS);
     FieldSpecStats_Reply(&info->stats, reply);
 
     RedisModule_Reply_MapEnd(reply);
@@ -126,7 +126,7 @@ void AggregatedFieldSpecInfo_Reply(const AggregatedFieldSpecInfo *info, RedisMod
     REPLY_KVSTR("attribute", info->attribute);
     // Set the error as a new object.
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-    IndexError_Reply(&info->error, reply, withTimestamp, obfuscate);
+    IndexError_Reply(&info->error, reply, withTimestamp, obfuscate, INDEX_ERROR_WITHOUT_OOM_STATUS);
     FieldSpecStats_Reply(&info->stats, reply);
 
     RedisModule_Reply_MapEnd(reply);
@@ -169,7 +169,7 @@ AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply
 
     MRReply *error = MRReply_MapElement(reply, IndexError_ObjectName);
     RS_ASSERT(error);
-    info.error = IndexError_Deserialize(error);
+    info.error = IndexError_Deserialize(error, INDEX_ERROR_WITHOUT_OOM_STATUS);
     // attribute used to determine field type
     info.stats = FieldStats_Deserialize(info.attribute, reply);
 
@@ -190,14 +190,9 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *f
   if (!vecsim) {
     return stats;
   }
-  VecSimIndexInfo info = VecSimIndex_Info(vecsim);
-  stats.memory += info.commonInfo.memory;
-  if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
-    stats.marked_deleted += info.hnswInfo.numberOfMarkedDeletedNodes;
-  } else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
-            fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
-    stats.marked_deleted += info.tieredInfo.backendInfo.hnswInfo.numberOfMarkedDeletedNodes;
-  }
+  const VecSimIndexStatsInfo info = VecSimIndex_StatsInfo(vecsim);
+  stats.memory += info.memory;
+  stats.marked_deleted += info.numberOfMarkedDeleted;
   return stats;
 }
 

@@ -8,6 +8,22 @@ SRCDIR=.
 
 MACOS_PACKAGES=openssl
 
+IGNORE_MISSING_DEPS=1
+build: verify_build $(DEFAULT_TARGETS) $(MK_MAKEFILES) $(TARGET)
+	@echo "Build completed."
+verify_build:
+	@echo "Verifying build dependencies..."
+	@if ! $(ROOT)/.install/verify_build_deps.sh; then \
+		if [ "$(IGNORE_MISSING_DEPS)" = "1" ]; then \
+			echo -e "\033[0;33mIGNORE_MISSING_DEPS is set. Ignoring dependency check failure.\033[0m"; \
+		else \
+            echo ""; \
+			echo -e "\033[0;31mDependency check failed. You can bypass this check by running:\033[0m"; \
+			echo -e "\033[0;31m\033[1mmake IGNORE_MISSING_DEPS=1 ...\033[0m"; \
+            exit 1; \
+        fi; \
+    fi
+
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
@@ -83,11 +99,6 @@ make pack             # create installation packages (default: 'redisearch-oss' 
   LITE=1                # pack RediSearchLight ('redisearch-light' package)
 
 make upload-artifacts   # copy snapshot packages to S3
-  OSNICK=nick             # copy snapshots for specific OSNICK
-make upload-release     # copy release packages to S3
-
-common options for upload operations:
-  STAGING=1             # copy to staging lab area (for validation)
   FORCE=1               # allow operation outside CI environment
   VERBOSE=1             # show more details
   NOP=1                 # do not copy, just print commands
@@ -460,13 +471,10 @@ pack:
 
 endif # RAML_YAML
 
-upload-release:
-	$(SHOW)RELEASE=1 ./sbin/upload-artifacts
-
 upload-artifacts:
-	$(SHOW)SNAPSHOT=1 ./sbin/upload-artifacts
+	./sbin/upload-artifacts
 
-.PHONY: pack upload-artifacts upload-release
+.PHONY: pack upload-artifacts
 
 #----------------------------------------------------------------------------------------------
 ifeq ($(REMOTE),1)

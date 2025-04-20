@@ -12,36 +12,9 @@ on:
     branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  get-latest-redis-tag:
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
-
-  test-rockylinux:
-    needs: [get-latest-redis-tag]
-    uses: ./.github/workflows/flow-linux-platforms.yml
+  test-macos:
+    uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
-      coordinator: true
-      # redis-ref: 9146ac050ba24c0e15246cc0271219614bd7ac54
       redis-ref: unstable
-      # redis-ref: meiravg_static_link_libstc++
-      test-config: QUICK=1
-      fail-fast: false
-      platform: "rockylinux:8"
-      # architecture: "x86_64"
-
-  test-amz2amazonlinux:
-    needs: [get-latest-redis-tag]
-    uses: ./.github/workflows/flow-linux-platforms.yml
-    secrets: inherit
-    with:
-      coordinator: true
-      ## redis-ref: 9146ac050ba24c0e15246cc0271219614bd7ac54
-      redis-ref: unstable
-      # redis-ref: meiravg_static_link_libstc++
-      test-config: QUICK=1
-      fail-fast: false
-      platform: "amazonlinux:2"
-
-
+      rejson-branch: master
