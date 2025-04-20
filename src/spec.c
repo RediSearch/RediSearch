@@ -1049,7 +1049,7 @@ size_t IndexSpec_VectorIndexSize(IndexSpec *sp) {
       if (!vecsim) {
         continue;
       }
-      total_memory += VecSimIndex_Info(vecsim).commonInfo.memory;
+      total_memory += VecSimIndex_StatsInfo(vecsim).memory;
     }
   }
   return total_memory;
@@ -1065,14 +1065,9 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp) {
       if (!vecsim) {
         continue;
       }
-      VecSimIndexInfo info = VecSimIndex_Info(vecsim);
-      stats.memory += info.commonInfo.memory;
-      if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
-        stats.marked_deleted += info.hnswInfo.numberOfMarkedDeletedNodes;
-      } else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
-                 fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
-        stats.marked_deleted += info.tieredInfo.backendInfo.hnswInfo.numberOfMarkedDeletedNodes;
-      }
+      VecSimIndexStatsInfo info = VecSimIndex_StatsInfo(vecsim);
+      stats.memory += info.memory;
+      stats.marked_deleted += info.numberOfMarkedDeleted;
     }
   }
   return stats;
@@ -1595,8 +1590,10 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
   // Remove spec from global index list
   dictDelete(specDict_g, (void*)spec->specName);
 
-  // Remove spec from global aliases list
-  IndexSpec_ClearAliases(spec_ref);
+  if (!spec->isDuplicate) {
+    // Remove spec from global aliases list
+    IndexSpec_ClearAliases(spec_ref);
+  }
 
   SchemaPrefixes_RemoveSpec(spec_ref);
 
@@ -2523,17 +2520,17 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   HiddenString* specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
 
-  RefManager *oldSpec = dictFetchValue(specDict_g, specName);
-  if (oldSpec) {
-    // spec already exists lets just free this one
-    HiddenString_Free(specName, true);
-    RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
-    return REDISMODULE_OK;
-  }
-
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
+  // setting isDuplicate to true will make sure index will not be removed from aliases container.
+  const RefManager *oldSpec = dictFetchValue(specDict_g, specName);
+  sp->isDuplicate = oldSpec != NULL;
+  if (sp->isDuplicate) {
+    // spec already exists, however we need to finish consuming the rdb so redis won't issue an error(expecting an eof but seeing remaining data)
+    // right now this can cause nasty side effects, to avoid them we will set isDuplicate to true
+    RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
+  }
 
   // `indexError` must be initialized before attempting to free the spec
   sp->stats.indexError = IndexError_Init();
@@ -2618,10 +2615,19 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   }
 
   sp->scan_in_progress = false;
-  dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
+  if (sp->isDuplicate) {
+    // spec already exists lets just free this one
+    // Remove the new spec from the global prefixes dictionary.
+    // This is the only global structure that we added the new spec to at this point
+    SchemaPrefixes_RemoveSpec(spec_ref);
+    addPendingIndexDrop();
+    StrongRef_Release(spec_ref);
+  } else {
+    dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
 
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
+    for (int i = 0; i < sp->numFields; i++) {
+      FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
+    }
   }
   return REDISMODULE_OK;
 

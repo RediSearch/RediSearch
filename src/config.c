@@ -662,6 +662,26 @@ CONFIG_GETTER(getIndexCursorLimit) {
 CONFIG_BOOLEAN_SETTER(set_EnableUnstableFeatures, enableUnstableFeatures)
 CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
 
+// BM25STD_TANH_FACTOR
+CONFIG_SETTER(setBM25StdTanhFactor) {
+  uint64_t newFactor;
+  int acrc = AC_GetU64(ac, &newFactor, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newFactor > BM25STD_TANH_FACTOR_MAX) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT,
+      "BM25STD_TANH_FACTOR must be between %d and %d inclusive",
+      BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
+    return REDISMODULE_ERR;
+  }
+  config->requestConfigParams.BM25STD_TanhFactor = newFactor;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getBM25StdTanhFactor) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->requestConfigParams.BM25STD_TanhFactor);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -943,10 +963,16 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "overall estimated number of results instead.",
          .setValue = set_PrioritizeIntersectUnionChildren,
          .getValue = get_PrioritizeIntersectUnionChildren},
-         {.name = "ENABLE_UNSTABLE_FEATURES",
+        {.name = "ENABLE_UNSTABLE_FEATURES",
          .helpText = "Enable unstable features.",
          .setValue = set_EnableUnstableFeatures,
          .getValue = get_EnableUnstableFeatures},
+        {.name = "BM25STD_TANH_FACTOR",
+          .helpText = "Set the BM25STD.TANH stretch factor. This is an integer value that divides the argument"
+                      " of the tanh function that is used to normalize the score computed by the BM25STD scorer."
+                      "The default value is 4.",
+          .setValue = setBM25StdTanhFactor,
+          .getValue = getBM25StdTanhFactor},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {

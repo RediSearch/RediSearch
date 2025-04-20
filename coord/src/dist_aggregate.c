@@ -575,6 +575,13 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     MRCommand_AppendRstr(xcmd, argv[timeout_index + 4 + profileArgs]);
   }
 
+  // Check for the `BM25STD_TANH_FACTOR` argument
+  int bm25std_tanh_factor_index = RMUtil_ArgIndex("BM25STD_TANH_FACTOR", argv + 3 + profileArgs, argc - 4 - profileArgs);
+  if (bm25std_tanh_factor_index != -1) {
+    MRCommand_AppendRstr(xcmd, argv[bm25std_tanh_factor_index + 3 + profileArgs]);
+    MRCommand_AppendRstr(xcmd, argv[bm25std_tanh_factor_index + 4 + profileArgs]);
+  }
+
   MRCommand_SetPrefix(xcmd, "_FT");
 
   array_free(tmparr);

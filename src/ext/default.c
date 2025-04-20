@@ -35,8 +35,6 @@
 #define NORM_MAXFREQ 1
 // normalize TF by number of tokens (weighted)
 #define NORM_DOCLEN 2
-// Stretch factor for the BM25 normalization function (tanh)
-#define NORMALIZED_BM25_STRETCH_FACTOR 4
 
 #define EXPLAIN(exp, fmt, args...) \
   {                                \
@@ -301,8 +299,10 @@ static inline double tanhStretched(double x, double stretch) {
 /* Normalized BM25 scoring function (of the standard version)
  * The normalization is done by applying the stretched hyperbolic tangent function
  * on the standard BM25 score of the result, resulting in a score in the range [0,1].
+ * The stretch factor is used to control the range of the linear part of the
+ * tanh function, after which the scores are mapped to ~1.
 */
-static double BM25StdNormScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+static double BM25StdTanhScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
                          const RSDocumentMetadata *dmd, double minScore) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   double bm25res = bm25StdRecursive(ctx, r, dmd, scrExp);
@@ -313,13 +313,13 @@ static double BM25StdNormScorer(const ScoringFunctionArgs *ctx, const RSIndexRes
           dmd->score);
 
   // Normalize the score
-  double normalizedScore = tanhStretched(score, NORMALIZED_BM25_STRETCH_FACTOR);
+  double normalizedScore = tanhStretched(score, ctx->tanhFactor);
 
   // Modify the explanation to include the normalization
   strExpCreateParent(ctx, &scrExp);
   EXPLAIN(scrExp,
     "Final Normalized BM25 : tanh(stretch factor 1/%d * Final BM25 %.2f)",
-    NORMALIZED_BM25_STRETCH_FACTOR, score);
+    ctx->tanhFactor, score);
 
   return normalizedScore;
 }
@@ -698,8 +698,8 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
     return REDISEARCH_ERR;
   }
 
-  /* Register BM25 scorer - STANDARD VARIATION */
-  if (ctx->RegisterScoringFunction(BM25_STD_NORMALIZED_SCORER_NAME, BM25StdNormScorer, NULL, NULL) == REDISEARCH_ERR) {
+  /* Register BM25 scorer - NORMALIZED STANDARD VARIATION - TANH */
+  if (ctx->RegisterScoringFunction(BM25_STD_NORMALIZED_TANH_SCORER_NAME, BM25StdTanhScorer, NULL, NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 

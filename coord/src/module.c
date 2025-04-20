@@ -735,6 +735,13 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
   }
 
   MRReply *result_id = MRReply_MapElement(result_j, "id");
+  if (!result_id || !MRReply_Type(result_id) == MR_REPLY_STRING) {
+    // We crash in development env, and return NULL (such that an error is raised)
+    // in production.
+    RS_LOG_ASSERT_FMT(false, "Expected id %d to exist, and be a string", j);
+    res->id = NULL;
+    return res;
+  }
   res->id = (char*)MRReply_String(result_id, &res->idLen);
   if (!res->id) {
     return res;
