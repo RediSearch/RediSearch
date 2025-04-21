@@ -34,8 +34,6 @@ typedef struct {
   uint32_t lastValue;
 } VarintVectorWriter;
 
-#define MAX_VARINT_LEN 5
-
 VarintVectorWriter *NewVarintVectorWriter(size_t cap);
 size_t VVW_Write(VarintVectorWriter *w, uint32_t i);
 size_t VVW_Truncate(VarintVectorWriter *w);
