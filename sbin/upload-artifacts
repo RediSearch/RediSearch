@@ -162,7 +162,7 @@ upload_product() {
 
     {
         echo "::group::Uploading $prefix artifacts"
-        s3_upload "$prefix" "$target"
+        s3_upload "$target" "$prefix"
         echo "::endgroup::"
     } || {
         echo "::endgroup::"
