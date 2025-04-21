@@ -352,6 +352,7 @@ class TestQueryDebugCommands(object):
         # In a regular case (no timeout), the query processes the entire dataset, sorts it, and returns the highest values.
         # If a timeout occurs, only the first TIMEOUT_AFTER_N documents are processed, and the results reflect
         # the highest values within this subset, not the entire dataset.
+        # we use this logic to verify that timeout occurred.
         if self.cmd == "AGGREGATE":
             sortby_params = ['SORTBY', 2, '@n', 'DESC']
         elif self.cmd == "SEARCH":

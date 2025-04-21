@@ -267,6 +267,47 @@ def testCursorOnCoordinator(env: Env):
     _, cursor = env.execute_command('FT.AGGREGATE', 'idx', '*', 'SORTBY', '1', '@n', 'MAX', '10000', 'WITHCURSOR')
     env.cmd('FT.CURSOR', 'DECIMATE', '"the cursor before getting the result"', cursor)
 
+# MOD-8483: In version 2.6, this bug is irrelevant because the sorter always returns EOF after the heap is depleted.
+# This test purpose is to validate the behavior of a cursor with a sorter when timeout is experienced and the timeout policy
+# is RETURN.
+def testCursorDepletionNonStrictTimeoutPolicySortby():
+    env = Env(moduleArgs='ON_TIMEOUT RETURN')
+    conn = getConnectionByEnv(env)
+
+    # Create the index
+    env.expect('FT.CREATE idx SCHEMA n numeric').ok()
+
+    # Populate the index
+    num_docs = 150 * env.shardsCount
+    for i in range(num_docs):
+        conn.execute_command('HSET', f'doc{i}' ,'n', i)
+
+    starting_cursor_count = getCursorStats(env, 'idx')['index_total']
+
+    # Create a cursor that will timeout during accumulation of results
+    timeout_res_count = 5
+    cursor_count = 3
+    res, cursor = runDebugQueryCommandTimeoutAfterN(env, ['FT.AGGREGATE', 'idx', '*', 'sortby', '2', '@n', 'DESC', 'WITHCURSOR', 'count',
+                          cursor_count], timeout_res_count)
+    # docs_count_per_read = MIN(cursor count or query limit, results collected until timeout)
+    # in this case: docs_count_per_read = 3
+    n_received = resultLen(res, mode="AGG")
+    env.assertEqual(n_received, cursor_count)
+    env.assertNotEqual(cursor, 0)
+    # In a regular case (no timeout), the query processes the entire dataset, sorts it, and returns the highest values.
+    # If a timeout occurs, only the first TIMEOUT_AFTER_N documents are processed, and the results reflect
+    # the highest values within this subset, not the entire dataset.
+    # we use this logic to verify that timeout occurred.
+    env.assertEqual(resValuesList(res, mode="AGG"), [['n', str(timeout_res_count - 1 - i)] for i in range(cursor_count)])
+
+    # Ensure the cursor is properly depleted after one FT.CURSOR READ
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+
+    env.assertEqual(cursor, 0, message=f"expected cursor to be depleted after one FT.CURSOR READ.")
+    env.assertEqual(resultLen(res, mode="AGG"), timeout_res_count - cursor_count, message=f"expected to receive {timeout_res_count - cursor_count} results after one FT.CURSOR READ. Initial query got {n_received} results.")
+
+    env.assertEqual(getCursorStats(env, 'idx')['index_total'], starting_cursor_count)
+
 @skip(cluster=True)
 def test_mod_6597(env):
     """Tests that we update the numeric index appropriately upon deleting
