@@ -59,11 +59,9 @@ TEST_F(IndexTest, testVarint) {
   }
 
   // VVW_Write(vw, 100);
-  // printf("%ld %ld\n", BufferLen(vw->bw.buf), vw->bw.buf->cap);
   VVW_Truncate(vw);
 
   RSOffsetVector vec = offsetsFromVVW(vw);
-  // Buffer_Seek(vw->bw.buf, 0);
   RSOffsetIterator it = RSOffsetVector_Iterate(&vec, NULL);
   int x = 0;
   uint32_t n = 0;
@@ -1402,7 +1400,6 @@ TEST_F(IndexTest, testIndexFlags) {
   IndexEncoder enc = InvertedIndex_GetEncoder(w->flags);
   ASSERT_TRUE(w->flags == flags);
   size_t sz = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
-  // printf("written %zd bytes. Offset=%zd\n", sz, h.vw->buf.offset);
   ASSERT_EQ(10, sz);
   InvertedIndex_Free(w);
 
@@ -1412,7 +1409,6 @@ TEST_F(IndexTest, testIndexFlags) {
   ASSERT_TRUE(!(w->flags & Index_StoreTermOffsets));
   enc = InvertedIndex_GetEncoder(w->flags);
   size_t sz2 = InvertedIndex_WriteForwardIndexEntry(w, enc, &h);
-  // printf("Wrote %zd bytes. Offset=%zd\n", sz2, h.vw->buf.offset);
   ASSERT_EQ(sz2, 0);
   InvertedIndex_Free(w);
 
