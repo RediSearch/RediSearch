@@ -55,14 +55,10 @@ void VVW_Free(VarintVectorWriter *w) {
 
 VarintVectorWriter *NewVarintVectorWriter(size_t cap) {
   VarintVectorWriter *w = rm_malloc(sizeof(VarintVectorWriter));
-  VVW_Init(w, cap);
-  return w;
-}
-
-void VVW_Init(VarintVectorWriter *w, size_t cap) {
   w->lastValue = 0;
   w->nmemb = 0;
   Buffer_Init(&w->buf, cap);
+  return w;
 }
 
 /**
@@ -84,11 +80,6 @@ size_t VVW_Write(VarintVectorWriter *w, uint32_t i) {
 // Truncate the vector
 size_t VVW_Truncate(VarintVectorWriter *w) {
   return Buffer_Truncate(&w->buf, 0);
-}
-
-void VVW_Cleanup(VarintVectorWriter *w) {
-  Buffer_Free(&w->buf);
-  memset(&w->buf, 0, sizeof w->buf);
 }
 
 void VVW_Reset(VarintVectorWriter *w) {

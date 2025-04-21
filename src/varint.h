@@ -33,9 +33,7 @@ VarintVectorWriter *NewVarintVectorWriter(size_t cap);
 size_t VVW_Write(VarintVectorWriter *w, uint32_t i);
 size_t VVW_Truncate(VarintVectorWriter *w);
 void VVW_Free(VarintVectorWriter *w);
-void VVW_Init(VarintVectorWriter *w, size_t cap);
 
-void VVW_Cleanup(VarintVectorWriter *w);
 void VVW_Reset(VarintVectorWriter *w);
 
 size_t VVW_GetCount(const VarintVectorWriter *w);
