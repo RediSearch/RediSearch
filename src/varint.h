@@ -27,12 +27,7 @@ size_t WriteVarint(uint32_t value, BufferWriter *w);
 
 size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *w);
 
-typedef struct {
-  Buffer buf;
-  // how many members we've put in
-  size_t nmemb;
-  uint32_t lastValue;
-} VarintVectorWriter;
+typedef struct VarintVectorWriter VarintVectorWriter;
 
 VarintVectorWriter *NewVarintVectorWriter(size_t cap);
 size_t VVW_Write(VarintVectorWriter *w, uint32_t i);

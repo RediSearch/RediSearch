@@ -41,6 +41,13 @@ size_t WriteVarintBuffer(uint32_t value, Buffer *buf) {
   return n;
 }
 
+struct VarintVectorWriter {
+  Buffer buf;
+  // how many members we've put in
+  size_t nmemb;
+  uint32_t lastValue;
+};
+
 void VVW_Free(VarintVectorWriter *w) {
   Buffer_Free(&w->buf);
   rm_free(w);

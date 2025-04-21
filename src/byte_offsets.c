@@ -33,9 +33,9 @@ RSByteOffsetField *RSByteOffsets_AddField(RSByteOffsets *offsets, uint32_t field
 }
 
 void ByteOffsetWriter_Move(ByteOffsetWriter *w, RSByteOffsets *offsets) {
-  offsets->offsets.data = w->buf.data;
-  offsets->offsets.len = w->buf.offset;
-  memset(&w->buf, 0, sizeof w->buf);
+  offsets->offsets.data = VVW_GetByteData(w->vw);
+  offsets->offsets.len = VVW_GetByteLength(w->vw);
+  rm_free(w->vw);
 }
 
 void RSByteOffsets_Serialize(const RSByteOffsets *offsets, Buffer *b) {
