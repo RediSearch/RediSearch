@@ -49,9 +49,6 @@ size_t VVW_GetCount(const VarintVectorWriter *w);
 size_t VVW_GetByteLength(const VarintVectorWriter *w);
 char *VVW_GetByteData(const VarintVectorWriter *w);
 
-#define VVW_OFFSETVECTOR_INIT(vvw) \
-  { .data = VVW_GetByteData(vvw), .len = VVW_GetByteLength(vvw) }
-
 #ifdef __cplusplus
 }
 #endif
