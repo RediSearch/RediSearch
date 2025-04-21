@@ -52,35 +52,9 @@ static size_t unescapen(char *s, size_t sz) {
   return (size_t)(dst - s);
 }
 
-#define NODENN_BOTH_VALID 0
-#define NODENN_BOTH_INVALID -1
-#define NODENN_ONE_NULL 1
-// Returns:
-// 0 if a && b
-// -1 if !a && !b
-// 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out`
-static int one_not_null(void *a, void *b, void *out) {
-    if (a && b) {
-        return NODENN_BOTH_VALID;
-    } else if (a == NULL && b == NULL) {
-        return NODENN_BOTH_INVALID;
-    } if (a) {
-        *(void **)out = a;
-        return NODENN_ONE_NULL;
-    } else {
-        *(void **)out = b;
-        return NODENN_ONE_NULL;
-    }
-}
-
-static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode* C) {
+static inline struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode* C) {
     struct RSQueryNode* A;
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        return NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing - `A` is already assigned
-    } else {
+    if (B && C) {
         struct RSQueryNode* child;
         if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
             A = B;
@@ -95,18 +69,19 @@ static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode*
         }
         // Handle child
         QueryNode_AddChild(A, child);
+    } else if (B) {
+        A = B;
+    } else if (C) {
+        A = C;
+    } else {
+        A = NULL;
     }
     return A;
 }
 
-static struct RSQueryNode* intersection_step(struct RSQueryNode* B, struct RSQueryNode* C) {
+static inline struct RSQueryNode* intersection_step(struct RSQueryNode* B, struct RSQueryNode* C) {
     struct RSQueryNode* A;
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        return NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing - `A` is already assigned
-    } else {
+    if (B && C) {
         struct RSQueryNode* child;
         if (B->type == QN_PHRASE && B->pn.exact == 0 && B->opts.fieldMask == RS_FIELDMASK_ALL) {
             A = B;
@@ -121,6 +96,12 @@ static struct RSQueryNode* intersection_step(struct RSQueryNode* B, struct RSQue
         }
         // Handle child
         QueryNode_AddChild(A, child);
+    } else if (B) {
+        A = B;
+    } else if (C) {
+        A = C;
+    } else {
+        A = NULL;
     }
     return A;
 }
