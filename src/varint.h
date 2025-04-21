@@ -42,20 +42,13 @@ size_t VVW_Truncate(VarintVectorWriter *w);
 void VVW_Free(VarintVectorWriter *w);
 void VVW_Init(VarintVectorWriter *w, size_t cap);
 
-static inline void VVW_Cleanup(VarintVectorWriter *w) {
-  Buffer_Free(&w->buf);
-  memset(&w->buf, 0, sizeof w->buf);
-}
+void VVW_Cleanup(VarintVectorWriter *w);
+void VVW_Reset(VarintVectorWriter *w);
 
-static inline void VVW_Reset(VarintVectorWriter *w) {
-  w->lastValue = 0;
-  w->nmemb = 0;
-  w->buf.offset = 0;
-}
+size_t VVW_GetCount(const VarintVectorWriter *w);
+size_t VVW_GetByteLength(const VarintVectorWriter *w);
+char *VVW_GetByteData(const VarintVectorWriter *w);
 
-#define VVW_GetCount(vvw) ((vvw) ? (vvw)->nmemb : 0)
-#define VVW_GetByteLength(vvw) ((vvw) ? (vvw)->buf.offset : 0)
-#define VVW_GetByteData(vvw) ((vvw) ? (vvw)->buf.data : NULL)
 #define VVW_OFFSETVECTOR_INIT(vvw) \
   { .data = VVW_GetByteData(vvw), .len = VVW_GetByteLength(vvw) }
 

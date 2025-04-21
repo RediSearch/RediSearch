@@ -78,3 +78,26 @@ size_t VVW_Write(VarintVectorWriter *w, uint32_t i) {
 size_t VVW_Truncate(VarintVectorWriter *w) {
   return Buffer_Truncate(&w->buf, 0);
 }
+
+void VVW_Cleanup(VarintVectorWriter *w) {
+  Buffer_Free(&w->buf);
+  memset(&w->buf, 0, sizeof w->buf);
+}
+
+void VVW_Reset(VarintVectorWriter *w) {
+  w->lastValue = 0;
+  w->nmemb = 0;
+  w->buf.offset = 0;
+}
+
+size_t VVW_GetCount(const VarintVectorWriter *w) {
+  return (w ? w->nmemb : 0);
+}
+
+size_t VVW_GetByteLength(const VarintVectorWriter *w) {
+  return (w ? w->buf.offset : 0);
+}
+
+char * VVW_GetByteData(const VarintVectorWriter *w) {
+  return (w ? w->buf.data : NULL);
+}
