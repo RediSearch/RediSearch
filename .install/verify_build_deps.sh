@@ -13,8 +13,8 @@ NC='\033[0m' # No Color
 
 # Check if the OS is macOS (Darwin)
 if [[ "$(uname -s)" == "Darwin" ]]; then
-  echo -e "${YELLOW}Dependency check is not supported for macOS.${NC}"
-  exit 0
+    source .install/verify_build_deps_macos.sh
+    exit $?
 fi
 
 # Function to detect the operating system
@@ -128,7 +128,7 @@ get_compiler_version() {
 
 # extract the version in the format X.Y
 get_cmake_version() {
-  cmake --version | grep -oP 'cmake version \K[0-9.]+' | cut -d. -f1,2
+  cmake --version | grep "cmake version" | sed -E 's/.*cmake version ([0-9]+\.[0-9]+).*/\1/'
 }
 
 # ==== Version Checkers ====
