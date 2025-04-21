@@ -31,13 +31,6 @@ static inline size_t varintEncode(uint32_t value, uint8_t *vbuf) {
 #define VARINT_BUF(buf, pos) ((buf) + pos)
 #define VARINT_LEN(pos) (sizeof(varintBuf) - (pos))
 
-size_t WriteVarintRaw(uint32_t value, char *buf) {
-  varintBuf varint;
-  size_t pos = varintEncode(value, varint);
-  memcpy(buf, VARINT_BUF(varint, pos), VARINT_LEN(pos));
-  return VARINT_LEN(pos);
-}
-
 size_t WriteVarintBuffer(uint32_t value, Buffer *buf) {
   varintBuf varint;
   size_t pos = varintEncode(value, varint);
