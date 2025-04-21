@@ -140,6 +140,32 @@ static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode*
     return A;
 }
 
+static struct RSQueryNode* intersection_step(struct RSQueryNode* B, struct RSQueryNode* C) {
+    struct RSQueryNode* A;
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        return NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing - `A` is already assigned
+    } else {
+        struct RSQueryNode* child;
+        if (B->type == QN_PHRASE && B->pn.exact == 0 && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+            child = C;
+        } else if (C->type == QN_PHRASE && C->pn.exact == 0 && C->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = C;
+            child = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+            child = C;
+        }
+        // Handle child
+        QueryNode_AddChild(A, child);
+    }
+    return A;
+}
+
 static void setup_trace(QueryParseCtx *ctx) {
 #ifdef PARSER_DEBUG
   void RSQueryParser_Trace(FILE*, char*);
@@ -321,79 +347,23 @@ expr(A) ::= text_expr(B). [TEXTEXPR] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= expr(B) expr(C) . [AND] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-    A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-    // Nothing- `out` is already assigned
-  } else {
-    if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-      B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-      A = B;
-    } else {
-      A = NewPhraseNode(0);
-      QueryNode_AddChild(A, B);
-    }
-    QueryNode_AddChild(A, C);
-  }
+  A = intersection_step(B, C);
 }
 
 // This rule is needed for queries like "hello (world @loc:[15.65 -15.65 30 ft])", when we discover too late that
 // inside the parentheses there is expr and not text_expr. this can lead to right recursion ONLY with parentheses.
 expr(A) ::= text_expr(B) expr(C) . [AND] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-    A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-    // Nothing- `out` is already assigned
-  } else {
-    if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-      B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-      A = B;
-    } else {
-      A = NewPhraseNode(0);
-      QueryNode_AddChild(A, B);
-    }
-    QueryNode_AddChild(A, C);
-  }
+  A = intersection_step(B, C);
 }
 
 expr(A) ::= expr(B) text_expr(C) . [AND] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-    A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-    // Nothing- `out` is already assigned
-  } else {
-    if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-      B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-      A = B;
-    } else {
-      A = NewPhraseNode(0);
-      QueryNode_AddChild(A, B);
-    }
-    QueryNode_AddChild(A, C);
-  }
+  A = intersection_step(B, C);
 }
 
 // This rule is identical to "expr ::= expr expr",  "expr ::= text_expr expr", "expr ::= expr text_expr",
 // but keeps the text context
 text_expr(A) ::= text_expr(B) text_expr(C) . [AND] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-    A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-    // Nothing- `out` is already assigned
-  } else {
-    if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-      B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-      A = B;
-    } else {
-      A = NewPhraseNode(0);
-      QueryNode_AddChild(A, B);
-    }
-    QueryNode_AddChild(A, C);
-  }
+  A = intersection_step(B, C);
 }
 
 /////////////////////////////////////////////////////////////////

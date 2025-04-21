@@ -16,7 +16,7 @@
 **
 ** The "lemon" program processes an LALR(1) input grammar file, then uses
 ** this template to construct a parser.  The "lemon" program inserts text
-** at each "%%" line.  Also, any "P-a-r-s-e" identifer prefix (without the
+** at each "%%" line.  Also, any "P-a-r-s-e" identifier prefix (without the
 ** interstitial "-" characters) contained in this template is changed into
 ** the value of the %name directive from the grammar.  Otherwise, the content
 ** of this template is copied straight through into the generate parser
@@ -90,6 +90,32 @@ static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode*
             child = B;
         } else {
             A = NewUnionNode();
+            QueryNode_AddChild(A, B);
+            child = C;
+        }
+        // Handle child
+        QueryNode_AddChild(A, child);
+    }
+    return A;
+}
+
+static struct RSQueryNode* intersection_step(struct RSQueryNode* B, struct RSQueryNode* C) {
+    struct RSQueryNode* A;
+    int rv = one_not_null(B, C, (void**)&A);
+    if (rv == NODENN_BOTH_INVALID) {
+        return NULL;
+    } else if (rv == NODENN_ONE_NULL) {
+        // Nothing - `A` is already assigned
+    } else {
+        struct RSQueryNode* child;
+        if (B->type == QN_PHRASE && B->pn.exact == 0 && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+            child = C;
+        } else if (C->type == QN_PHRASE && C->pn.exact == 0 && C->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = C;
+            child = B;
+        } else {
+            A = NewPhraseNode(0);
             QueryNode_AddChild(A, B);
             child = C;
         }
@@ -1745,21 +1771,7 @@ static YYACTIONTYPE yy_reduce(
       case 6: /* expr ::= expr text_expr */ yytestcase(yyruleno==6);
       case 7: /* text_expr ::= text_expr text_expr */ yytestcase(yyruleno==7);
 {
-  int rv = one_not_null(yymsp[-1].minor.yy3, yymsp[0].minor.yy3, (void**)&yylhsminor.yy3);
-  if (rv == NODENN_BOTH_INVALID) {
-    yylhsminor.yy3 = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-    // Nothing- `out` is already assigned
-  } else {
-    if (yymsp[-1].minor.yy3 && yymsp[-1].minor.yy3->type == QN_PHRASE && yymsp[-1].minor.yy3->pn.exact == 0 &&
-      yymsp[-1].minor.yy3->opts.fieldMask == RS_FIELDMASK_ALL ) {
-      yylhsminor.yy3 = yymsp[-1].minor.yy3;
-    } else {
-      yylhsminor.yy3 = NewPhraseNode(0);
-      QueryNode_AddChild(yylhsminor.yy3, yymsp[-1].minor.yy3);
-    }
-    QueryNode_AddChild(yylhsminor.yy3, yymsp[0].minor.yy3);
-  }
+  yylhsminor.yy3 = intersection_step(yymsp[-1].minor.yy3, yymsp[0].minor.yy3);
 }
   yymsp[-1].minor.yy3 = yylhsminor.yy3;
         break;
