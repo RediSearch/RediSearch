@@ -60,6 +60,7 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-02-primaries:
+    needs: benchmark-search-oss-standalone
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries' }}
     strategy:
       matrix:
