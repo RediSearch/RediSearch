@@ -156,8 +156,8 @@ def testIssue1305(env):
     env.expect('FT.ADD myIdx doc2 1.0 FIELDS title "hello"').error()
     env.expect('FT.ADD myIdx doc3 1.0 FIELDS title "hello"').ok()
     env.expect('FT.ADD myIdx doc1 1.0 FIELDS title "hello,work"').ok()
-    expectedRes = {'doc2': ['nan', ['title', '"work"']], 'doc3' : ['nan', ['title', '"hello"']],
-                   'doc1' : ['nan', ['title', '"hello,work"']]}
+    expectedRes = {'doc2': ['0', ['title', '"work"']], 'doc3' : ['0', ['title', '"hello"']],
+                   'doc1' : ['0', ['title', '"hello,work"']]}
     res = env.cmd('ft.search', 'myIdx', '~@title:{wor} ~@title:{hell}', 'WITHSCORES')[1:]
     res = {res[i]:res[i + 1: i + 3] for i in range(0, len(res), 3)}
     env.assertEqual(res, expectedRes)
@@ -553,7 +553,7 @@ def testDialect2TagExact():
                   'NOCONTENT', 'SORTBY', 'id', 'ASC')
     env.assertEqual(res, [3, '{doc}:1', '{doc}:2', '{doc}:3'])
 
-    res = env.cmd('FT.SEARCH', 'idx', 
+    res = env.cmd('FT.SEARCH', 'idx',
                   '((@tag:{"xyz:2"}  @tag:{"abc:1"}) | @tag1:{"val:3"} (@tag2:{"joe@mail.com"} => { $weight:0.3 } )) => { $weight:0.2 }',
                   'NOCONTENT')
     env.assertEqual(res, [1, '{doc}:3'])
@@ -664,7 +664,7 @@ def testDialect2TagExact():
     # wildcard with leading and trailing spaces are valid, spaces are ignored
     res = env.cmd('FT.EXPLAIN', 'idx', "@tag:{w'?*1'}")
     env.assertEqual(res, "TAG:@tag {\n  WILDCARD{?*1}\n}\n")
-    
+
     res2 = env.cmd('FT.EXPLAIN', 'idx', "@tag:{  w'?*1'}")
     env.assertEqual(res, res2)
 
@@ -811,20 +811,20 @@ def testDialect2InvalidSyntax():
 
     with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.SEARCH', 'idx', "@tag:{*\\w'abc'\\*}")
-    
+
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.SEARCH idx @tag:{w'-abc*}")
 
     with env.assertResponseError(contained='Syntax error'):
         env.cmd('FT.SEARCH', 'idx', "(@tag:{\\w'-abc*})")
-         
+
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.SEARCH idx '@tag:{*w'-abc*}'")
 
     # escaping an invalid wildcard
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.SEARCH idx '@tag:{\\w-:abc}")
-    
+
     with env.assertResponseError(contained='Syntax error'):
         env.cmd("FT.SEARCH idx '@tag:{\\w'-:abc}")
 
@@ -863,7 +863,7 @@ def testDialect2SpecialChars():
 
     # Create docs with a text containing the punct characters
     for c in punct:
-        conn.execute_command("HSET", f"doc{ord(chr(c))}", "text", 
+        conn.execute_command("HSET", f"doc{ord(chr(c))}", "text",
                              f"single\\{chr(c)}term")
 
     # Create docs without special characters
@@ -956,7 +956,7 @@ def testTagUNF():
     # Create index without UNF
     env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
                'SCHEMA', 'tag', 'TAG', 'SORTABLE').ok()
-    
+
     # Create index with UNF
     env.expect('FT.CREATE', 'idx_unf', 'ON', 'HASH', 'PREFIX', '1', '{doc}:',
                'SCHEMA', 'tag', 'TAG', 'SORTABLE', 'UNF').ok()
