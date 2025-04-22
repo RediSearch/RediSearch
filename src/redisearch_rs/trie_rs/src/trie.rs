@@ -2,6 +2,8 @@ use std::{cmp::Ordering, ffi::c_char, fmt};
 
 use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
 
+use crate::iter::{IntoValues, Iter, LendingIter, Values};
+
 #[derive(Default, Clone, PartialEq, Eq)]
 /// A trie data structure that maps keys of type `&[c_char]` to values.
 /// The node labels and children are stored in a [`LowMemoryThinVec`],
@@ -95,7 +97,59 @@ impl<T> TrieMap<T> {
 
     /// Get an iterator over the map entries in order of keys.
     pub fn iter(&self) -> Iter<'_, T> {
-        Iter::new(self.root.as_ref())
+        Iter::new(self.root.as_ref(), [])
+    }
+
+    /// Get an iterator over the map entries with keys that start
+    /// with the given prefix, in order of keys.
+    pub fn iter_prefix(&self, prefix: &[c_char]) -> Iter<'_, T> {
+        let buf = &mut vec![];
+        let Some((root, prefix_init)) = self
+            .root
+            .as_ref()
+            .and_then(|root| root.find_node_for_prefix(prefix, buf))
+        else {
+            return Iter::new(None, vec![]);
+        };
+
+        Iter::new(Some(root), prefix_init.to_vec())
+    }
+
+    /// Get a lending iterator over the map entries in order of keys.
+    pub fn lending_iter(&self) -> LendingIter<'_, T> {
+        Iter::new(self.root.as_ref(), []).into_lending_iter()
+    }
+
+    /// Get a lending iterator over the map entries with keys that start
+    /// with the given prefix, in order of keys.
+    pub fn lending_iter_prefix(&self, prefix: &[c_char]) -> LendingIter<'_, T> {
+        self.iter_prefix(prefix).into_lending_iter()
+    }
+
+    /// Get an iterator over the map values in order of corresponding keys
+    pub fn values(&self) -> Values<'_, T> {
+        Values::new(self.root.as_ref())
+    }
+
+    /// Get an iterator over the map values of which the keys
+    /// start with the given prefix, in order of keys.
+    pub fn values_prefix(&self, prefix: &[c_char]) -> Values<'_, T> {
+        let buf = &mut vec![];
+        let Some((root, _)) = self
+            .root
+            .as_ref()
+            .and_then(|root| root.find_node_for_prefix(prefix, buf))
+        else {
+            return Values::new(None);
+        };
+
+        Values::new(Some(root))
+    }
+
+    /// Get a consuming iterator over the values in the map
+    /// in order of corresponding keys.
+    pub fn into_values(self) -> IntoValues<T> {
+        IntoValues::new(self.root)
     }
 }
 
@@ -110,22 +164,22 @@ impl<T: fmt::Debug> fmt::Debug for TrieMap<T> {
 
 /// A trie data structure that maps labels comprised of [`c_char`] sequences to values.
 #[derive(Clone, PartialEq, Eq)]
-struct Node<Data> {
+pub(crate) struct Node<Data> {
     /// The children of this node.
-    children: ChildRefs<Data>,
+    pub children: ChildRefs<Data>,
     /// Optional data attached to the key leading to this node.
     ///
     /// # Invariants
     ///
     /// - Data may not be `None` for leaf nodes.
     ///
-    data: Option<Data>,
+    pub data: Option<Data>,
     /// The portion of the key attached to this node.
     ///
     /// # Invariants
     ///
     /// - `label` can only be empty for the root node.
-    label: LowMemoryThinVec<c_char>,
+    pub label: LowMemoryThinVec<c_char>,
 }
 
 impl<Data> Node<Data> {
@@ -451,12 +505,37 @@ impl<Data> Node<Data> {
     /// Get a reference to the value associated with a key.
     /// Returns `None` if the key is not present.
     fn find(&self, key: &[c_char]) -> Option<&Data> {
+        self.find_node(key)?.data.as_ref()
+    }
+
+    /// Get a reference to the node associated with a key.
+    /// Returns `None` if the key is not present.
+    fn find_node(&self, key: &[c_char]) -> Option<&Node<Data>> {
         let suffix = key.strip_prefix(self.label.as_slice())?;
         let Some(first_byte) = suffix.first() else {
             // The suffix is empty, so the key and the label are equal.
-            return self.data.as_ref();
+            return Some(self);
         };
-        self.children.find(*first_byte)?.find(suffix)
+        self.children.find(*first_byte)?.find_node(suffix)
+    }
+
+    /// Get a reference to the subtree associated with a key prefix.
+    /// Returns `None` if the key prefix is not present.
+    fn find_node_for_prefix<'k>(
+        &self,
+        key: &[c_char],
+        key_prefix: &'k mut Vec<c_char>,
+    ) -> Option<(&Node<Data>, &'k [c_char])> {
+        if self.label.starts_with(key) {
+            return Some((self, key_prefix.as_slice()));
+        }
+
+        let suffix = key.strip_prefix(self.label.as_slice())?;
+        let prefix_len = key.len() - suffix.len();
+        key_prefix.extend_from_slice(&key[..prefix_len]);
+        self.children
+            .find(*suffix.first()?)?
+            .find_node_for_prefix(suffix, key_prefix)
     }
 
     fn mem_usage(&self) -> usize {
@@ -527,7 +606,7 @@ impl<Data: fmt::Debug> fmt::Debug for Node<Data> {
 ///   to allow fast binary searches when traversing the trie.
 /// - There are no children with the same first byte.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ChildRefs<Data>(LowMemoryThinVec<ChildRef<Data>>);
+pub(crate) struct ChildRefs<Data>(pub LowMemoryThinVec<ChildRef<Data>>);
 
 impl<Data> Default for ChildRefs<Data> {
     fn default() -> Self {
@@ -600,63 +679,11 @@ impl<Data> ChildRefs<Data> {
 
 /// The reference to the child node held inside its parent node.
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct ChildRef<Data> {
+pub(crate) struct ChildRef<Data> {
     /// The first byte of the value that this child node holds.
-    first_byte: c_char,
-    /// The reference to the actual child node.
-    node: Node<Data>,
-}
-
-/// Iterates over the entries of a [`TrieMap`] in lexicographical order
-/// of the keys.
-pub struct Iter<'tm, Data> {
-    /// Stack of nodes and whether they have been visited.
-    stack: Vec<(&'tm Node<Data>, bool)>,
-    /// Labels of the parent nodes, used to reconstruct the key.
-    prefixes: Vec<&'tm [c_char]>,
-}
-
-impl<'tm, Data> Iter<'tm, Data> {
-    /// Creates a new iterator over the entries of a [`TrieMap`].
-    fn new(root: Option<&'tm Node<Data>>) -> Self {
-        Self {
-            stack: root.into_iter().map(|node| (node, false)).collect(),
-            prefixes: Vec::new(),
-        }
-    }
-}
-
-impl<'tm, Data> Iterator for Iter<'tm, Data> {
-    type Item = (Vec<c_char>, &'tm Data);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let (node, was_visited) = self.stack.pop()?;
-
-        if !was_visited {
-            let data = node.data.as_ref();
-            self.stack.push((node, true));
-
-            for child in node.children.0.iter().rev() {
-                self.stack.push((&child.node, false));
-            }
-
-            self.prefixes.push(&node.label);
-            if let Some(data) = data {
-                // Combine the labels of the parent nodes and the current node,
-                // thereby reconstructing the key.
-                let label = self
-                    .prefixes
-                    .iter()
-                    .flat_map(|p| p.iter())
-                    .copied()
-                    .collect();
-                return Some((label, data));
-            }
-        } else {
-            self.prefixes.pop();
-        }
-        self.next()
-    }
+    pub first_byte: c_char,
+    /// The actual child node.
+    pub node: Node<Data>,
 }
 
 #[cfg(test)]
@@ -902,7 +929,7 @@ mod test {
     }
 
     // Disable the proptest when testing with Miri,
-    // as proptest accesses the file system, which is not supported Miri
+    // as proptest accesses the file system, which is not supported by Miri
     #[cfg(not(miri))]
     proptest::proptest! {
         #[test]
