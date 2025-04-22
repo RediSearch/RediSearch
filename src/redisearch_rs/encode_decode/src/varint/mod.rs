@@ -1,4 +1,5 @@
 mod c_api;
+mod vector_writer;
 
 use crate::FieldMask;
 
