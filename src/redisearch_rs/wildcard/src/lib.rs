@@ -40,17 +40,22 @@ pub struct TokenStream<C> {
 }
 
 impl<'pattern, C: CastU8> TokenStream<&'pattern [C]> {
-    /// Parses a pattern into a stream of tokens,
-    /// handling escaped charactes and
-    /// trimming the pattern by replacing consecutive * with a single *,
-    /// and replacing occurrences of `*?` with `?*`.
+    /// Parses a pattern into a stream of tokens.
     ///
-    /// As the tokens may contain references to the original pattern,
-    /// patterns with escaped characters may contain more than one token
-    /// even if there is no wildcard. E.g. the pattern `br"f\\oo"` is parsed as
-    /// `[br"f", br"\oo"]`.
+    /// It handles escaped characters and tries to trim the pattern
+    /// by replacing consecutive * with a single * and
+    /// replacing occurrences of `*?` with `?*`.
     ///
-    /// assert_tokens!(br"f\\oo", [Literal(br"f"), Literal(br"\oo")]);
+    /// # Avoiding allocations
+    ///
+    /// Parsing tries to avoid allocations: literal tokens refer to slices of the original pattern.
+    ///
+    /// As a consequence, patterns with escaped characters may be broken into
+    /// more tokens than one might expect.
+    /// E.g. `br"f\\oo"` is parsed as `[br"f", br"\oo"]`. This allows each token
+    /// to reference a slice of the original pattern.
+    /// The "obvious" parsing outcome (`[br"f\oo"]`) would require an allocation, since
+    /// `foo` is not a substring of the original pattern.
     pub fn parse(pattern: &'pattern [C]) -> Self {
         let mut tokens: Vec<Token<&'pattern [C]>> = Vec::new();
 
