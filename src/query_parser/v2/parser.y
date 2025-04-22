@@ -93,6 +93,9 @@ static size_t unescapen(char *s, size_t sz) {
   return (size_t)(dst - s);
 }
 
+// reduce B and C to a single intersection node
+// if one of them is a phrase node, we will use it as the base node and add the other as a child.
+// if some of them is Null, we will return the other one.
 static inline struct RSQueryNode* intersection_step(struct RSQueryNode* B, struct RSQueryNode* C) {
     struct RSQueryNode* A;
     if (B && C) {
@@ -110,16 +113,15 @@ static inline struct RSQueryNode* intersection_step(struct RSQueryNode* B, struc
         }
         // Handle child
         QueryNode_AddChild(A, child);
-    } else if (B) {
-        A = B;
-    } else if (C) {
-        A = C;
     } else {
-        A = NULL;
+        A = B ?: C;
     }
     return A;
 }
 
+// reduce B and C to a single union node
+// if one of them is a union node, we will use it as the base node and add the other as a child.
+// if some of them is Null, we will return the other one.
 static inline struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode* C) {
     struct RSQueryNode* A;
     if (B && C) {
@@ -137,12 +139,8 @@ static inline struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQue
         }
         // Handle child
         QueryNode_AddChild(A, child);
-    } else if (B) {
-        A = B;
-    } else if (C) {
-        A = C;
     } else {
-        A = NULL;
+        A = B ?: C;
     }
     return A;
 }
