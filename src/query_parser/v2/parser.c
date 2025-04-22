@@ -52,18 +52,18 @@ static size_t unescapen(char *s, size_t sz) {
   return (size_t)(dst - s);
 }
 
-static inline struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode* C) {
+static inline struct RSQueryNode* intersection_step(struct RSQueryNode* B, struct RSQueryNode* C) {
     struct RSQueryNode* A;
     if (B && C) {
         struct RSQueryNode* child;
-        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+        if (B->type == QN_PHRASE && B->pn.exact == 0 && B->opts.fieldMask == RS_FIELDMASK_ALL) {
             A = B;
             child = C;
-        } else if (C->type == QN_UNION && C->opts.fieldMask == RS_FIELDMASK_ALL) {
+        } else if (C->type == QN_PHRASE && C->pn.exact == 0 && C->opts.fieldMask == RS_FIELDMASK_ALL) {
             A = C;
             child = B;
         } else {
-            A = NewUnionNode();
+            A = NewPhraseNode(0);
             QueryNode_AddChild(A, B);
             child = C;
         }
@@ -79,18 +79,18 @@ static inline struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQue
     return A;
 }
 
-static inline struct RSQueryNode* intersection_step(struct RSQueryNode* B, struct RSQueryNode* C) {
+static inline struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode* C) {
     struct RSQueryNode* A;
     if (B && C) {
         struct RSQueryNode* child;
-        if (B->type == QN_PHRASE && B->pn.exact == 0 && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+        if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
             A = B;
             child = C;
-        } else if (C->type == QN_PHRASE && C->pn.exact == 0 && C->opts.fieldMask == RS_FIELDMASK_ALL) {
+        } else if (C->type == QN_UNION && C->opts.fieldMask == RS_FIELDMASK_ALL) {
             A = C;
             child = B;
         } else {
-            A = NewPhraseNode(0);
+            A = NewUnionNode();
             QueryNode_AddChild(A, B);
             child = C;
         }
