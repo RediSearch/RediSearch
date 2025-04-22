@@ -136,3 +136,4 @@ s3_upload() {
 PROD=redisearch PREFIX=redisearch s3_upload
 PROD=redisearch PREFIX=redisearch-light s3_upload
 PROD=redisearch-oss PREFIX=redisearch-oss s3_upload
+PROD=redisearch-oss PREFIX=redisearch-community s3_upload

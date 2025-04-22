@@ -145,13 +145,14 @@ else # COORD
 		override COORD:=oss
 	endif
 
-	ifeq ($(COORD),oss) # OSS Coordinator
+	ifeq ($(COORD),oss) # OSS (community distribution) Coordinator
 		BINDIR=$(BINROOT)/coord-oss
 		SRCDIR=coord
 		TARGET=$(BINDIR)/module-oss.so
-		PACKAGE_NAME=redisearch
+		PACKAGE_NAME=redisearch-community
 		MODULE_NAME=search
-		RAMP_YAML=
+		RAMP_YAML=pack/ramp-community.yml
+		PACKAGE_S3_DIR=redisearch-oss
 
 	else ifeq ($(COORD),rlec) # RLEC Coordinator
 		BINDIR=$(BINROOT)/coord-rlec
