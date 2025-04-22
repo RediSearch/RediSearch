@@ -1,32 +1,45 @@
-//! Wildcard matching functionality.
-//! Contains a [`TokenStream`] struct,
-//! which can be created by parsing a slice of `i8`s or `u8`s.
+//! Wildcard matching functionality, as specified in the
+//! [RediSearch documentation](https://redis.io/docs/latest/develop/interact/search-and-query/advanced-concepts/query_syntax/#wildcard-matching).
 //!
-//! Implements the syntax described in the [Redis documentation](https://redis.io/docs/latest/develop/interact/search-and-query/advanced-concepts/query_syntax/).
-//!
-//! [`TokenStream`]: struct.TokenStream.html
+//! All functionality is provided through the [`TokenStream`] struct.
+//! You can create a [`TokenStream`] from a pattern using [`TokenStream::parse`] and
+//! then rely on [`TokenStream::matches`] to determine if a string matches the pattern.
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 /// A pattern token.
 pub enum Token<C> {
-    /// Matches zero or more characters.
+    /// `*`. Matches zero or more characters.
     Any,
-    /// Matches exactly one character.
+    /// `?`. Matches exactly one character.
     One,
-    /// Matches a literal character.
+    /// Literal character(s).
+    ///
+    /// Depending on the type used for `C`, this token can either
+    /// contain a single literal (e.g. if `C` is `u8`) or multiple literals grouped together
+    /// (e.g. if `C` is `&[u8]`).
     Literal(C),
 }
 
 /// A parsed stream of tokens.
 pub struct TokenStream<C> {
     tokens: Vec<Token<C>>,
-    /// The length of the pattern.
-    /// Used to short circuit the matching process
+    /// The length of the pattern that this stream was parsed from.
+    ///
+    /// Used to short-circuit the matching process
     /// in [`Self::matches_fixed_len`].
-    pat_len: usize,
+    ///
+    /// # Implementation Notes
+    ///
+    /// [`Self::pattern`] is usually going to be greater than the length of [`Self::tokens`].
+    /// Parsing may simplify the pattern (e.g. by replacing consecutive `*` with a single `*`)
+    /// and consecutive literals will be represented using a single [`Token`] instance.
+    ///
+    /// For example, `foo*bar` has a pattern length of 7 but it parses into 3 tokens:
+    /// `Literal("foo")`, `Any`, and `Literal("bar")`.
+    pattern_len: usize,
 }
 
-impl<'pat, C: Copy + CastU8> TokenStream<&'pat [C]> {
+impl<'pattern, C: CastU8> TokenStream<&'pattern [C]> {
     /// Parses a pattern into a stream of tokens,
     /// handling escaped charactes and
     /// trimming the pattern by replacing consecutive * with a single *,
@@ -38,8 +51,8 @@ impl<'pat, C: Copy + CastU8> TokenStream<&'pat [C]> {
     /// `[br"f", br"\oo"]`.
     ///
     /// assert_tokens!(br"f\\oo", [Literal(br"f"), Literal(br"\oo")]);
-    pub fn parse(pattern: &'pat [C]) -> Self {
-        let mut tokens: Vec<Token<&'pat [C]>> = Vec::new();
+    pub fn parse(pattern: &'pattern [C]) -> Self {
+        let mut tokens: Vec<Token<&'pattern [C]>> = Vec::new();
 
         let mut pattern_iter = pattern
             .iter()
@@ -94,7 +107,7 @@ impl<'pat, C: Copy + CastU8> TokenStream<&'pat [C]> {
 
         Self {
             tokens,
-            pat_len: pattern.len(),
+            pattern_len: pattern.len(),
         }
     }
 
@@ -190,7 +203,7 @@ impl<'pat, C: Copy + CastU8> TokenStream<&'pat [C]> {
     }
 
     /// Matches the key against a pattern that only contains literal
-    /// characters and '?'s. This simpler and is more performant than the general
+    /// characters and '?'s. This is simpler and more performant than the general
     /// [`matches` method](Self::matches), as it is able to short-
     /// circuit if the length of the key is not equal to the length of
     /// the pattern, and doesn't support backtracking.
@@ -200,7 +213,7 @@ impl<'pat, C: Copy + CastU8> TokenStream<&'pat [C]> {
     where
         C: PartialEq,
     {
-        if key.len() != self.pat_len {
+        if key.len() != self.pattern_len {
             return false;
         }
 
