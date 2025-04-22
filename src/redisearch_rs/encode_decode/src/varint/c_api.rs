@@ -10,8 +10,8 @@ use crate::{
 };
 
 #[unsafe(no_mangle)]
-extern "C" fn ReadVarint(b: *mut BufferReader) -> u32 {
-    let buffer_reader = unsafe { b.as_mut() }.unwrap();
+extern "C" fn ReadVarint(mut b: NonNull<BufferReader>) -> u32 {
+    let buffer_reader = unsafe { b.as_mut() };
     let mut cursor = buffer_reader.to_cursor();
     let val = read(&mut cursor).unwrap();
     buffer_reader.pos = cursor.position() as usize;
@@ -24,8 +24,8 @@ extern "C" fn ReadVarint(b: *mut BufferReader) -> u32 {
 // that's no longer an issue:
 // https://blog.rust-lang.org/2024/03/30/i128-layout-update/#compatibility
 #[allow(improper_ctypes_definitions)]
-extern "C" fn ReadVarintFieldMask(b: *mut BufferReader) -> FieldMask {
-    let buffer_reader = unsafe { b.as_mut() }.unwrap();
+extern "C" fn ReadVarintFieldMask(mut b: NonNull<BufferReader>) -> FieldMask {
+    let buffer_reader = unsafe { b.as_mut() };
     let mut cursor = buffer_reader.to_cursor();
     let val = read_field_mask(&mut cursor).unwrap();
     buffer_reader.pos = cursor.position() as usize;
@@ -37,8 +37,8 @@ extern "C" fn ReadVarintFieldMask(b: *mut BufferReader) -> FieldMask {
 /// capacity. The change of the buffer capacity is an internal detail and should not be of concern
 /// to the caller.
 #[unsafe(no_mangle)]
-extern "C" fn WriteVarint(value: u32, b: *mut BufferWriter) -> usize {
-    let buffer_writer = unsafe { b.as_mut() }.unwrap();
+extern "C" fn WriteVarint(value: u32, mut b: NonNull<BufferWriter>) -> usize {
+    let buffer_writer = unsafe { b.as_mut() };
     let mut cursor = std::io::Cursor::<Vec<u8>>::from(*buffer_writer);
     let bytes_written = write(value, &mut cursor).unwrap();
     *buffer_writer = cursor.into();
@@ -49,8 +49,8 @@ extern "C" fn WriteVarint(value: u32, b: *mut BufferWriter) -> usize {
 /// See the note above for [`WriteVarint`].
 #[unsafe(no_mangle)]
 #[allow(improper_ctypes_definitions)]
-extern "C" fn WriteVarintFieldMask(value: FieldMask, b: *mut BufferWriter) -> usize {
-    let buffer_writer = unsafe { b.as_mut() }.unwrap();
+extern "C" fn WriteVarintFieldMask(value: FieldMask, mut b: NonNull<BufferWriter>) -> usize {
+    let buffer_writer = unsafe { b.as_mut() };
     let mut cursor = std::io::Cursor::<Vec<u8>>::from(*buffer_writer);
     let bytes_written = write_field_mask(value, &mut cursor).unwrap();
     *buffer_writer = cursor.into();
