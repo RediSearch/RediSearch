@@ -2234,7 +2234,6 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   // RMKey it is provided, but we ignore it and open the key again with NOEFFECTS
   RedisModuleKey* scan_key = RedisModule_OpenKey(ctx, keyname, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
 
-
   // check type of document is support and document is not empty
   DocumentType type = getDocType(scan_key);
   if (type == DocumentType_Unsupported) {
