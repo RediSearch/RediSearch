@@ -10,6 +10,11 @@ workspace = true
 [lib]
 crate-type = ["staticlib", "rlib"]
 
+[features]
+default = []
+redis_allocator = ["dep:redis-module"]
+ffi = ["redis_allocator"]
+
 [dependencies]
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
@@ -23,3 +28,4 @@ default-features = false
 [target.'cfg(not(all(target_env="musl", target_os="linux")))'.dependencies.redis-module]
 workspace = true
 default-features = true
+optional = true
