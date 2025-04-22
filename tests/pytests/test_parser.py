@@ -791,8 +791,7 @@ INTERSECT {
     env.expect('FT.EXPLAIN', 'idx', '(foo bar) baz', 'VERBATIM').equal(expected)
     env.expect('FT.EXPLAIN', 'idx', 'baz (foo bar)', 'VERBATIM').equal(expected)
 
-    # Test combination of text and tag intersection
-    env.expect('FT.EXPLAIN', 'idx', '@text:foo bar @tag:{baz}', 'VERBATIM').equal(r'''
+    expected = r'''
 INTERSECT {
   @text:foo
   bar
@@ -800,4 +799,8 @@ INTERSECT {
     baz
   }
 }
-'''[1:])
+'''[1:]
+    # Test combination of text and tag intersection (not text-only)
+    env.expect('FT.EXPLAIN', 'idx', '@text:foo bar @tag:{baz}', 'VERBATIM').equal(expected)
+    env.expect('FT.EXPLAIN', 'idx', '(@text:foo bar) @tag:{baz}', 'VERBATIM').equal(expected)
+    env.expect('FT.EXPLAIN', 'idx', '@tag:{baz} (@text:foo bar)', 'VERBATIM').equal(expected)
