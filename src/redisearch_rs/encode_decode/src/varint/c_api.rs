@@ -1,7 +1,9 @@
 //! The C API goes here. This part will hopefully all be removed once all users of `varint` API are
 //! oxidized.
 
-use super::{read, read_field_mask, write, write_field_mask};
+use std::ptr::NonNull;
+
+use super::{read, read_field_mask, vector_writer::VectorWriter, write, write_field_mask};
 use crate::{
     FieldMask,
     buffer::{BufferReader, BufferWriter},
@@ -54,4 +56,77 @@ extern "C" fn WriteVarintFieldMask(value: FieldMask, b: *mut BufferWriter) -> us
     *buffer_writer = cursor.into();
 
     bytes_written
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn NewVarintVectorWriter(cap: usize) -> NonNull<VectorWriter> {
+    let vector_writer = Box::leak(Box::new(VectorWriter::new(cap)));
+
+    unsafe { NonNull::new_unchecked(vector_writer) }
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn VVW_Write(mut writer: NonNull<VectorWriter>, value: u32) -> usize {
+    unsafe { writer.as_mut() }.write(value).unwrap()
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn VVW_GetByteData(writer: *const VectorWriter) -> *const u8 {
+    if writer.is_null() {
+        return std::ptr::null();
+    }
+
+    unsafe { &*writer }.bytes().as_ptr()
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn VVW_GetByteLength(writer: *const VectorWriter) -> usize {
+    if writer.is_null() {
+        return 0;
+    }
+
+    unsafe { &*writer }.bytes_len()
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn VVW_GetCount(writer: *const VectorWriter) -> usize {
+    if writer.is_null() {
+        return 0;
+    }
+
+    unsafe { &*writer }.count()
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn VVW_Reset(mut writer: NonNull<VectorWriter>) {
+    unsafe { writer.as_mut() }.reset()
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn VVW_Free(writer: NonNull<VectorWriter>) {
+    // SAFETY: The caller is responsible for ensuring that the pointer is valid.
+    // The pointer is leaked in `NewVarintVectorWriter`, so we can safely drop it here.
+    drop(unsafe { Box::from_raw(writer.as_ptr()) });
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn VVW_Truncate(writer: NonNull<VectorWriter>) -> usize {
+    unsafe { &mut *writer.as_ptr() }.truncate()
+}
+
+#[unsafe(no_mangle)]
+extern "C" fn VVW_TakeByteData(writer: *mut VectorWriter, mut len: NonNull<usize>) -> *mut u8 {
+    if writer.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let vector_writer = unsafe { &mut *writer };
+    let len = unsafe { len.as_mut() };
+    let mut bytes = vec![];
+    std::mem::swap(vector_writer.bytes_mut(), &mut bytes);
+    *len = bytes.len();
+    let ptr = bytes.as_mut_ptr();
+    std::mem::forget(bytes);
+
+    ptr
 }
