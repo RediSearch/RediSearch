@@ -2023,22 +2023,16 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (scanner->cancelled) {
     return;
   }
-  // RMKey it is provided as best effort but in some cases it might be NULL
-  bool keyOpened = false;
-  if (!key) {
-    key = RedisModule_OpenKey(ctx, keyname, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
-    keyOpened = true;
-  }
+  // RMKey it is provided, but we ignore it and open the key again with NOEFFECTS
+  RedisModuleKey* scan_key = RedisModule_OpenKey(ctx, keyname, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
 
   // check type of document is support and document is not empty
-  DocumentType type = getDocType(key);
+  DocumentType type = getDocType(scan_key);
   if (type == DocumentType_Unsupported) {
     return;
   }
 
-  if (keyOpened) {
-    RedisModule_CloseKey(key);
-  }
+  RedisModule_CloseKey(scan_key);
 
   if (scanner->global) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL);
