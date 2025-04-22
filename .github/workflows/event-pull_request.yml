@@ -30,6 +30,13 @@ jobs:
       rejson-branch: master
     secrets: inherit
 
+  micro-benchmarks:
+    uses: ./.github/workflows/flow-micro-benchmarks.yml
+    with: 
+      rejson_branch: master
+      benchmark_folder: "src/redisearch_rs/trie_bencher"
+      output_folder: "bin/criterion/trie"
+
   coverage:
     if: >
       (
@@ -60,6 +67,7 @@ jobs:
     needs:
       - spellcheck
       - basic-test
+      - micro-benchmarks
       - lint
       - coverage
       - sanitize
