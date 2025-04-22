@@ -13,6 +13,9 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <sys/param.h>
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
 
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
@@ -228,7 +231,18 @@ void requestCb(void *p) {
 
 /* start the event loop side thread */
 static void sideThread(void *arg) {
-
+  /* Set thread name for profiling and debugging */
+  char *thread_name = REDISEARCH_MODULE_NAME "-uv";
+#if defined(__linux__)
+  /* Use prctl instead to prevent using _GNU_SOURCE flag and implicit
+   * declaration */
+  prctl(PR_SET_NAME, thread_name);
+#elif defined(__APPLE__) && defined(__MACH__)
+  pthread_setname_np(thread_name);
+#else
+  RedisModule_Log(RSDummyContext, "verbose",
+      "sideThread(): pthread_setname_np is not supported on this system");
+#endif
   // uv_loop_configure(uv_default_loop(), UV_LOOP_BLOCK_SIGNAL)
   while (1) {
     if (uv_run(uv_default_loop(), UV_RUN_DEFAULT)) break;
