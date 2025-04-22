@@ -932,9 +932,9 @@ int CheckSupportedVestion() {
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   char *err;
 
-  char *invalid = rm_strdup("Invalid");
-  rm_free(invalid);
-  RedisModule_Log(ctx, "warning", "Invalid access: %7s, %p", invalid, invalid);
+  // char *invalid = rm_strdup("Invalid");
+  // rm_free(invalid);
+  // RedisModule_Log(ctx, "warning", "Invalid access: %7s, %p", invalid, invalid);
 
   legacySpecRules = dictCreate(&dictTypeHeapStrings, NULL);
 
