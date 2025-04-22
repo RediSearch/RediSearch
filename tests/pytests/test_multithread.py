@@ -555,6 +555,8 @@ def testNameLoader(env: Env):
     env.assertEqual(get_RP_name(res), 'Loader', message="Expected not to be optimized")
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@not-sortable')
     env.assertEqual(get_RP_name(res), 'Loader', message="Expected not to be optimized")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@not-sortable')
+    env.assertEqual(get_RP_name(res), 'Loader', message="Expected not to be optimized")
 
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@__key', 'SORTBY', '1', '@__key').equal(
         [10] + [['__key', f'doc:{i}'] for i in range(10)])
@@ -572,4 +574,6 @@ def testNameLoader(env: Env):
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@not-sortable', '@__key')
     env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
     res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 2, '@__key', '@not-sortable')
+    env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")
+    res = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'QUERY', '*', 'LOAD', 1, '@not-sortable')
     env.assertEqual(get_RP_name(res), 'Threadsafe-Loader', message="Expected not to be optimized")

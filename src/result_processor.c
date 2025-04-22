@@ -980,7 +980,7 @@ static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
   ResultProcessor *base = &rp->base;
   base->Free = RPKeyNameLoader_Free;
   base->Next = RPKeyNameLoader_Next;
-  base->type = RP_NAME_LOADER;
+  base->type = RP_KEY_NAME_LOADER;
   return base;
 }
 
