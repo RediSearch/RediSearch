@@ -101,6 +101,7 @@ extern "C" fn alloc_shim(size: usize) -> *mut c_void {
     // Safety:
     // 1. --> We know size > 0
     // A. total_size = size + HEADER_SIZE (see [generic_shim])
+    // need line below due to clippy false positive --> https://github.com/rust-lang/rust-clippy/issues/13134
     #[allow(clippy::multiple_unsafe_ops_per_block)]
     unsafe {
         generic_shim(size, |total_size| {
@@ -134,6 +135,7 @@ extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
     // Safety:
     // 1. --> We know count > 0, size > 0 --> size_without_header > 0
     // A. total_size = size_without_header + HEADER_SIZE (see [generic_shim])
+    // need line below due to clippy false positive --> https://github.com/rust-lang/rust-clippy/issues/13134
     #[allow(clippy::multiple_unsafe_ops_per_block)]
     unsafe {
         generic_shim(size_without_header, |total_size| {
@@ -211,6 +213,7 @@ extern "C" fn realloc_shim(ptr: *mut c_void, size: usize) -> *mut c_void {
     // Safety:
     // 1. --> We know size > 0
     // A. total_size = size + HEADER_SIZE (see [generic_shim])
+    // need line below due to clippy false positive --> https://github.com/rust-lang/rust-clippy/issues/13134
     unsafe {
         generic_shim(size, |total_size| {
             realloc(ptr, old_layout, total_size) as *mut c_void
