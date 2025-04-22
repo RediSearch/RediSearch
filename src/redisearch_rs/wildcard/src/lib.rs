@@ -398,8 +398,6 @@ mod tests {
         );
         assert_tokens!(b"foobar", [Literal(b"foobar")]);
 
-        assert_tokens!(b"foobar", [Literal(b"foobar")]);
-
         assert_tokens!(b"*foorbar", [Any, Literal(b"foorbar")]);
 
         assert_tokens!(b"foo*bar", [Literal(b"foo"), Any, Literal(b"bar")]);
@@ -457,18 +455,12 @@ mod tests {
 
         assert_tokens!(br"f'oo", [Literal(br"f'oo")]);
 
-        assert_tokens!(br"f'oo", [Literal(br"f'oo")]);
-
         assert_tokens!(br"f\'oo", [Literal(br"f"), Literal(br"'oo")]);
-
-        assert_tokens!(br"f'oo", [Literal(br"f'oo")]);
 
         // end of string
         assert_tokens!(br"foo\", [Literal(br"foo")]);
 
         assert_tokens!(br"foo\\", [Literal(br"foo"), Literal(br"\")]);
-
-        assert_tokens!(br"foo'", [Literal(br"foo'")]);
 
         assert_tokens!(br"foo'", [Literal(br"foo'")]);
 
