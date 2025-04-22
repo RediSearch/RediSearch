@@ -269,4 +269,6 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
   RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length",
                                    RSGlobalConfig.minPhoneticTermLen);
+  RedisModule_InfoAddFieldLongLong(ctx, "bm25std_tanh_factor",
+                                   RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor);
 }

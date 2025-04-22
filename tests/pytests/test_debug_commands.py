@@ -52,6 +52,9 @@ class TestDebugCommands(object):
             "VECSIM_INFO",
             "DELETE_LOCAL_CURSORS",
             "DUMP_HNSW",
+            "INDEXES",
+            "INFO",
+            'GET_HIDE_USER_DATA_FROM_LOGS',
             'FT.AGGREGATE',
             'FT.SEARCH',
         ]
@@ -60,12 +63,12 @@ class TestDebugCommands(object):
 
         self.env.expect(debug_cmd(), 'help').equal(help_list)
 
-        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS']
+        arity_2_cmds = ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'INFO', 'INDEXES', 'GET_HIDE_USER_DATA_FROM_LOGS']
         for cmd in [c for c in help_list if c not in arity_2_cmds]:
             self.env.expect(debug_cmd(), cmd).error().contains(err_msg)
 
     def testDocInfo(self):
-        rv = self.env.cmd('ft.debug', 'docinfo', 'idx', 'doc1')
+        rv = self.env.cmd('ft.debug', 'docinfo', 'idx', 'doc1', 'REVEAL')
         self.env.assertEqual(['internal_id', 1, 'flags', '(0xc):HasSortVector,HasOffsetVector,',
                               'score', '1', 'num_tokens', 1, 'max_freq', 1, 'refcount', 1, 'sortables',
                                [['index', 0, 'field', 'name AS name', 'value', 'meir'],
@@ -392,7 +395,6 @@ def testHNSWdump_badParams(env: Env):
     env.expect(debug_cmd(), 'DUMP_HNSW', 'idx','v').error() \
         .contains("Can't open vector index")
 
-
 class TestQueryDebugCommands(object):
     def __init__(self):
         # Set the module default behaviour to non strict timeout policy, as this is the main focus of this test suite
@@ -699,3 +701,43 @@ class TestQueryDebugCommands(object):
         def listResults(res):
             return [{res[i]: res[i + 1]} for i in range(1, len(res[1:]), 2)]
         self.Resp2("SEARCH", ['SORTBY', 'n'], listResults)
+
+# For now allowing access to the value through the debug command
+# Maybe in the future it should be accessible through the FT.CONFIG command and the test move to test_config.py
+# Didn't want to "break" the API by adding a new config parameter
+def test_hideUserDataFromLogs(env):
+    env.skipOnCluster()
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
+    env.assertEqual(value, 0)
+    env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'yes').ok()
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
+    env.assertEqual(value, 1)
+    env.expect('CONFIG', 'SET', 'hide-user-data-from-log', 'no').ok()
+    value = env.cmd(debug_cmd(), 'GET_HIDE_USER_DATA_FROM_LOGS')
+    env.assertEqual(value, 0)
+
+
+def testIndexObfuscatedInfo(env: Env):
+    # we create more indexes to cover the found case in the code (it should break from the loop)
+    env.expect('FT.CREATE', 'first', 'SCHEMA', 'name', 'TEXT').ok()
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    env.expect('FT.CREATE', 'last', 'SCHEMA', 'name', 'TEXT').ok()
+
+    obfuscated_name = 'Index@4e7f626df794f6491574a236f22c100c34ed804f'
+    debug_output = env.cmd(debug_cmd(), 'INFO', obfuscated_name)
+    info = to_dict(debug_output[0])
+    env.assertEqual(info['index_name'], obfuscated_name)
+    index_definition = to_dict(info['index_definition'])
+    env.assertEqual(index_definition['prefixes'][0], '')
+    attr_list = info['attributes']
+    field_stats_list = info['field statistics']
+    field_count = len(attr_list)
+    env.assertEqual(field_count, 1)
+    env.assertEqual(len(field_stats_list), field_count)
+    for i in range(field_count):
+        attr = to_dict(attr_list[i])
+        env.assertEqual(attr['identifier'], 'name')
+        env.assertEqual(attr['attribute'], 'name')
+        field_stats = to_dict(field_stats_list[i])
+        env.assertEqual(field_stats['identifier'], 'name')
+        env.assertEqual(field_stats['attribute'], 'name')

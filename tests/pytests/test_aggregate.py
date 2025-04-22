@@ -1244,7 +1244,7 @@ def test_aggregate_filter_on_missing_values():
     # Search for the documents with the indexed fields (sanity)
     # document doc1 has no value for num1, so we expect to receive the mentioned error
     (env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'LOAD', '1', 'num1', 'FILTER', '@num1 > 2').error().
-     contains('num1: has no value, consider using EXISTS if applicable'))
+     contains('Could not find the value for a parameter name, consider using EXISTS if applicable for num1'))
     env.flush()
 
 def test_aggregate_filter_on_missing_indexed_values():
@@ -1274,14 +1274,14 @@ def test_aggregate_group_by_on_missing_indexed_values():
 def test_aggregate_apply_on_missing_values():
     env = setup_missing_values_index(False)
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'num1', 'num2', 'APPLY', '(@num1+@num2)/2').error().contains(
-        "has no value, consider using EXISTS if applicable"
+        "Could not find the value for a parameter name, consider using EXISTS if applicable"
     )
     env.flush()
 
 def test_aggregate_apply_on_missing_indexed_values():
     env = setup_missing_values_index(True)
     env.expect('FT.AGGREGATE', 'idx', 'ismissing(@tag) | @tag:{val}', 'LOAD', '1', 'tag', 'APPLY',
-               'upper(@tag)', 'AS', 'T').error().contains("tag: has no value, consider using EXISTS if applicable")
+               'upper(@tag)', 'AS', 'T').error().contains("Could not find the value for a parameter name, consider using EXISTS if applicable for tag")
     env.flush()
 
 def testSortByTextField(env):
@@ -1314,7 +1314,7 @@ def testErrorStatsResp2():
     env = Env(protocol=2)
     conn = getConnectionByEnv(env)
     res = conn.execute_command('info', 'errorstats')
-    env.assertEqual(res, {'errorstat_ERR': {'count': 1 }})
+    env.assertEqual(res, {})
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
     conn.execute_command('HSET', 'key1', 'n', 1.23)
     conn.execute_command('HSET', 'key2', 'n', 4.56)
@@ -1324,7 +1324,7 @@ def testErrorStatsResp2():
             'FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@n',
             'REDUCE', 'count', '0', 'AS', 'count', 'SORTBY', '2', '@n', 'DESC')
         res = conn.execute_command('info', 'errorstats')
-        env.assertEqual(res, {'errorstat_ERR': {'count': 1 + (i * 2)}})
+        env.assertEqual(res, {'errorstat_ERR': {'count': (i * 2)}})
 
 @skip(cluster=False)
 def testErrorStatsResp3():

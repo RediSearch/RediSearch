@@ -14,7 +14,18 @@ FieldSpecInfo FieldSpecInfo_Init() {
     return info;
 }
 
+AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Init() {
+    AggregatedFieldSpecInfo info = {0};
+    info.error = IndexError_Init();
+    return info;
+}
+
 void FieldSpecInfo_Clear(FieldSpecInfo *info) {
+    info->identifier = NULL;
+    info->attribute = NULL;
+}
+
+void AggregatedFieldSpecInfo_Clear(AggregatedFieldSpecInfo *info) {
     info->identifier = NULL;
     info->attribute = NULL;
     IndexError_Clear(info->error);
@@ -22,12 +33,12 @@ void FieldSpecInfo_Clear(FieldSpecInfo *info) {
 
 // Setters
 // Sets the identifier of the field spec.
-void FieldSpecInfo_SetIdentifier(FieldSpecInfo *info, const char *identifier) {
+void FieldSpecInfo_SetIdentifier(FieldSpecInfo *info, char *identifier) {
     info->identifier = identifier;
 }
 
 // Sets the attribute of the field spec.
-void FieldSpecInfo_SetAttribute(FieldSpecInfo *info, const char *attribute) {
+void FieldSpecInfo_SetAttribute(FieldSpecInfo *info, char *attribute) {
     info->attribute = attribute;
 }
 
@@ -39,14 +50,26 @@ void FieldSpecInfo_SetIndexError(FieldSpecInfo *info, IndexError error) {
 // IO and cluster traits
 
 // Reply a Field spec info.
-void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool with_timestamp) {
+void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate) {
     RedisModule_Reply_Map(reply);
 
     REPLY_KVSTR_SAFE("identifier", info->identifier);
     REPLY_KVSTR_SAFE("attribute", info->attribute);
     // Set the error as a new object.
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-    IndexError_Reply(&info->error, reply, with_timestamp);
+    IndexError_Reply(&info->error, reply, withTimestamp, obfuscate);
+
+    RedisModule_Reply_MapEnd(reply);
+}
+
+void AggregatedFieldSpecInfo_Reply(const AggregatedFieldSpecInfo *info, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate) {
+    RedisModule_Reply_Map(reply);
+
+    REPLY_KVSTR("identifier", info->identifier);
+    REPLY_KVSTR("attribute", info->attribute);
+    // Set the error as a new object.
+    RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
+    IndexError_Reply(&info->error, reply, withTimestamp, obfuscate);
 
     RedisModule_Reply_MapEnd(reply);
 }
@@ -56,21 +79,21 @@ void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bo
 #include "coord/src/rmr/reply.h"
 
 // Adds the index error of the other FieldSpecInfo to the FieldSpecInfo.
-void FieldSpecInfo_OpPlusEquals(FieldSpecInfo *info, const FieldSpecInfo *other) {
+void AggregatedFieldSpecInfo_Combine(AggregatedFieldSpecInfo *info, const AggregatedFieldSpecInfo *other) {
     RS_ASSERT(info);
     RS_ASSERT(other);
-    if(!info->identifier) {
+    if (!info->identifier) {
         info->identifier = other->identifier;
     }
-    if(!info->attribute) {
+    if (!info->attribute) {
         info->attribute = other->attribute;
     }
     IndexError_OpPlusEquals(&info->error, &other->error);
 }
 
 // Deserializes a FieldSpecInfo from a MRReply.
-FieldSpecInfo FieldSpecInfo_Deserialize(const MRReply *reply) {
-    FieldSpecInfo info = {0};
+AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply) {
+    AggregatedFieldSpecInfo info = AggregatedFieldSpecInfo_Init();
     RS_ASSERT(reply);
     // Validate the reply type - array or map.
     RS_ASSERT(MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0));

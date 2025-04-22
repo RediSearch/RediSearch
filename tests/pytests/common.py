@@ -663,7 +663,7 @@ def verify_shard_init(shard):
                 shard.execute_command('FT.SEARCH', 'non-existing', '*')
                 raise Exception('Expected FT.SEARCH to fail')
             except redis_exceptions.ResponseError as e:
-                if 'no such index' in str(e):
+                if 'No such index' in str(e):
                     break
 
 def cmd_assert(env, cmd, res, message=None):

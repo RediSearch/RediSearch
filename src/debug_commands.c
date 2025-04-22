@@ -22,6 +22,10 @@
 #include "cursor.h"
 #include "module.h"
 #include "aggregate/aggregate_debug.h"
+#include "reply.h"
+#include "reply_macros.h"
+#include "obfuscation/obfuscation_api.h"
+#include "info/info_command.h"
 #ifdef RS_COORDINATOR
 #ifndef RS_CLUSTER_ENTERPRISE
 #define RS_CLUSTER_OSS
@@ -475,7 +479,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
     goto end;
   }
-  const TagIndex *tagIndex = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+  const TagIndex *tagIndex = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
 
   // Field was not initialized yet
   if (!tagIndex) {
@@ -545,7 +549,7 @@ DEBUG_COMMAND(DumpSuffix) {
       RedisModule_ReplyWithError(sctx->redisCtx, "Could not find given field in index spec");
       goto end;
     }
-    const TagIndex *idx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+    const TagIndex *idx = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
 
     // Field was not initialized yet
     if (!idx) {
@@ -902,7 +906,7 @@ DEBUG_COMMAND(InfoTagIndex) {
     goto end;
   }
 
-  const TagIndex *idx = TagIndex_Open(sctx, keyName, DONT_CREATE_INDEX);
+  const TagIndex *idx = TagIndex_Open(sctx->spec, keyName, DONT_CREATE_INDEX);
 
   // Field was not initialized yet
   if (!idx) {
@@ -991,7 +995,7 @@ static void replyDocFlags(const char *name, const RSDocumentMetadata *dmd, Redis
 }
 
 static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
-                            RedisSearchCtx *sctx, RedisModule_Reply *reply) {
+                            RedisSearchCtx *sctx, bool obfuscate, RedisModule_Reply *reply) {
   RSSortingVector *sv = dmd->sortVector;
   RedisModule_ReplyKV_Array(reply, name);
   for (size_t ii = 0; ii < sv->len; ++ii) {
@@ -1003,7 +1007,14 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
 
       RedisModule_Reply_CString(reply, "field");
       const FieldSpec *fs = IndexSpec_GetFieldBySortingIndex(sctx->spec, ii);
-      RedisModule_Reply_Stringf(reply, "%s AS %s", fs ? fs->path : "!!!", fs ? fs->name : "???");
+
+      if (!fs) {
+        RedisModule_Reply_CString(reply, "!!! AS ???");
+      } else if (!fs->path) {
+        RedisModule_Reply_CString(reply, fs->name);
+      } else {
+        RedisModule_Reply_Stringf(reply, "%s AS %s", fs->path, fs->name);
+      }
 
       RedisModule_Reply_CString(reply, "value");
       RSValue_SendReply(reply, sv->values[ii], 0);
@@ -1013,10 +1024,10 @@ static void replySortVector(const char *name, const RSDocumentMetadata *dmd,
 }
 
 /**
- * FT.DEBUG DOC_INFO <index> <doc>
+ * FT.DEBUG DOC_INFO <index> <doc> [OBFUSCATE/REVEAL]
  */
 DEBUG_COMMAND(DocInfo) {
-  if (argc < 4) {
+  if (argc < 5) {
     return RedisModule_WrongArity(ctx);
   }
   GET_SEARCH_CTX(argv[2]);
@@ -1025,6 +1036,14 @@ DEBUG_COMMAND(DocInfo) {
   if (!dmd) {
     SearchCtx_Free(sctx);
     return RedisModule_ReplyWithError(ctx, "Document not found in index");
+  }
+
+  const char *obfuscateOrReveal = RedisModule_StringPtrLen(argv[4], NULL);
+  const bool reveal = !strcasecmp(obfuscateOrReveal, "REVEAL");
+  const bool obfuscate = !strcasecmp(obfuscateOrReveal, "OBFUSCATE");
+  if (!reveal && !obfuscate) {
+    SearchCtx_Free(sctx);
+    return RedisModule_ReplyWithError(ctx, "Invalid argument. Expected REVEAL or OBFUSCATE as the last argument");
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
@@ -1037,7 +1056,7 @@ DEBUG_COMMAND(DocInfo) {
     RedisModule_ReplyKV_LongLong(reply, "max_freq", dmd->maxFreq);
     RedisModule_ReplyKV_LongLong(reply, "refcount", dmd->ref_count - 1); // TODO: should include the refcount of the command call?
     if (dmd->sortVector) {
-      replySortVector("sortables", dmd, sctx, reply);
+      replySortVector("sortables", dmd, sctx, obfuscate, reply);
     }
   RedisModule_Reply_MapEnd(reply);
 
@@ -1048,10 +1067,10 @@ DEBUG_COMMAND(DocInfo) {
   return REDISMODULE_OK;
 }
 
-static void VecSim_Reply_Info_Iterator(RedisModuleCtx *ctx, VecSimInfoIterator *infoIter) {
-  RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
-  while(VecSimInfoIterator_HasNextField(infoIter)) {
-    VecSim_InfoField* infoField = VecSimInfoIterator_NextField(infoIter);
+static void VecSim_Reply_Info_Iterator(RedisModuleCtx *ctx, VecSimDebugInfoIterator *infoIter) {
+  RedisModule_ReplyWithArray(ctx, VecSimDebugInfoIterator_NumberOfFields(infoIter)*2);
+  while(VecSimDebugInfoIterator_HasNextField(infoIter)) {
+    VecSim_InfoField* infoField = VecSimDebugInfoIterator_NextField(infoIter);
     RedisModule_ReplyWithCString(ctx, infoField->fieldName);
     switch (infoField->fieldType) {
     case INFOFIELD_STRING:
@@ -1095,12 +1114,12 @@ DEBUG_COMMAND(VecsimInfo) {
     return RedisModule_ReplyWithError(ctx, "Can't open vector index");
   }
 
-  VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
+  VecSimDebugInfoIterator *infoIter = VecSimIndex_DebugInfoIterator(vecsimIndex);
   // Recursively reply with the info iterator
   VecSim_Reply_Info_Iterator(ctx, infoIter);
 
   // Cleanup
-  VecSimInfoIterator_Free(infoIter); // Free the iterator (and all its nested children)
+  VecSimDebugInfoIterator_Free(infoIter); // Free the iterator (and all its nested children)
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
@@ -1264,6 +1283,17 @@ DEBUG_COMMAND(RSAggregateCommandShard) {
   return DEBUG_RSAggregateCommand(ctx, ++argv, --argc);
 }
 
+DEBUG_COMMAND(ListIndexesSwitch) {
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx);
+  Indexes_List(&_reply, true);
+  return REDISMODULE_OK;
+}
+
+DEBUG_COMMAND(getHideUserDataFromLogs) {
+  const long long value = RSGlobalConfig.hideUserDataFromLog;
+  return RedisModule_ReplyWithLongLong(ctx, value);
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1293,6 +1323,9 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"VECSIM_INFO", VecsimInfo},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
                                {"DUMP_HNSW", dumpHNSWData},
+                               {"INDEXES", ListIndexesSwitch},
+                               {"INFO", IndexObfuscatedInfo},
+                               {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */

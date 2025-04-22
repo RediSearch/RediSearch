@@ -70,6 +70,7 @@ def testInfoModulesBasic(env):
   configInfo = info['search_runtime_configurations']
   env.assertEqual(configInfo['search_minimal_term_prefix'], '2')
   env.assertEqual(configInfo['search_gc_scan_size'], '100')
+  env.assertEqual(configInfo['search_bm25std_tanh_factor'], '4')
 
   # idx1Info = info['search_info_' + idx1]
   # env.assertTrue('search_stop_words' in idx1Info)

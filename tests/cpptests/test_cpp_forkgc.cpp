@@ -108,7 +108,7 @@ class FGCTest : public ::testing::Test {
 static InvertedIndex *getTagInvidx(RedisSearchCtx* sctx, const char *field,
                                    const char *value) {
   RedisModuleString *fmtkey = IndexSpec_GetFormattedKeyByName(sctx->spec, "f1", INDEXFLD_T_TAG);
-  auto tix = TagIndex_Open(sctx, fmtkey, CREATE_INDEX);
+  auto tix = TagIndex_Open(sctx->spec, fmtkey, CREATE_INDEX);
   size_t sz;
   auto iv = TagIndex_OpenIndex(tix, "hello", strlen("hello"), CREATE_INDEX, &sz);
   sctx->spec->stats.invertedSize += sz;
@@ -273,7 +273,7 @@ TEST_F(FGCTestTag, testRemoveLastBlockWhileUpdate) {
 }
 
 /**
- * Modify the last block, but don't delete it entirly. While the fork is running,
+ * Modify the last block, but don't delete it entirely. While the fork is running,
  * fill up the last block and add more blocks.
  * Make sur eno modifications are applied.
  * */

@@ -8,6 +8,7 @@
 #include "reply.h"
 #include "rmutil/rm_assert.h"
 #include "hiredis/adapters/libuv.h"
+#include "util/config_api.h"
 
 #include <uv.h>
 #include <signal.h>
@@ -496,28 +497,6 @@ error:
     return NULL;
 }
 
-
-static char* getConfigValue(RedisModuleCtx *ctx, const char* confName){
-  RedisModuleCallReply *rep = RedisModule_Call(ctx, "config", "cc", "get", confName);
-  RedisModule_Assert(RedisModule_CallReplyType(rep) == REDISMODULE_REPLY_ARRAY);
-  if (RedisModule_CallReplyLength(rep) == 0){
-    RedisModule_FreeCallReply(rep);
-    return NULL;
-  }
-  RedisModule_Assert(RedisModule_CallReplyLength(rep) == 2);
-  RedisModuleCallReply *valueRep = RedisModule_CallReplyArrayElement(rep, 1);
-  RedisModule_Assert(RedisModule_CallReplyType(valueRep) == REDISMODULE_REPLY_STRING);
-  size_t len;
-  const char* valueRepCStr = RedisModule_CallReplyStringPtr(valueRep, &len);
-
-  char* res = rm_calloc(1, len + 1);
-  memcpy(res, valueRepCStr, len);
-
-  RedisModule_FreeCallReply(rep);
-
-  return res;
-}
-
 extern RedisModuleCtx *RSDummyContext;
 static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char** key_pass){
   int ret = 1;
@@ -526,19 +505,23 @@ static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char*
   char* clusterTls = NULL;
   char* tlsPort = NULL;
 
-  clusterTls = getConfigValue(ctx, "tls-cluster");
+  // If `tls-cluster` is not set to `yes`, we do not connect to the other nodes
+  // with TLS on OSS-cluster. On Enterprise, we always want to connect with TLS
+  // when the tls-port is set to a non-zero value, since this is the port we
+  // get from the proxy.
+  clusterTls = getRedisConfigValue(ctx, "tls-cluster");
   if (!clusterTls || strcmp(clusterTls, "yes")) {
-    tlsPort = getConfigValue(ctx, "tls-port");
-    if (!tlsPort || !strcmp(tlsPort, "0")) {
+    tlsPort = getRedisConfigValue(ctx, "tls-port");
+    if (!IsEnterprise() || !tlsPort || !strcmp(tlsPort, "0")) {
       ret = 0;
       goto done;
     }
   }
 
-  *client_key = getConfigValue(ctx, "tls-key-file");
-  *client_cert = getConfigValue(ctx, "tls-cert-file");
-  *ca_cert = getConfigValue(ctx, "tls-ca-cert-file");
-  *key_pass = getConfigValue(ctx, "tls-key-file-pass");
+  *client_key = getRedisConfigValue(ctx, "tls-key-file");
+  *client_cert = getRedisConfigValue(ctx, "tls-cert-file");
+  *ca_cert = getRedisConfigValue(ctx, "tls-ca-cert-file");
+  *key_pass = getRedisConfigValue(ctx, "tls-key-file-pass");
 
   if (!*client_key || !*client_cert || !*ca_cert){
     ret = 0;

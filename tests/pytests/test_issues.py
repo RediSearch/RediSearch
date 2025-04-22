@@ -508,7 +508,7 @@ def test_MOD_3372(env):
   env.expect('FT.EXPLAIN', 'idx').error().contains('wrong number of arguments')
   env.expect('FT.EXPLAIN', 'idx', 'foo').equal('UNION {\n  foo\n  +foo(expanded)\n}\n')
   env.expect('FT.EXPLAIN', 'idx', 'foo', 'verbatim').equal('foo\n')
-  env.expect('FT.EXPLAIN', 'non-exist', 'foo').error().equal('non-exist: no such index')
+  env.expect('FT.EXPLAIN', 'non-exist', 'foo').error().equal('No such index non-exist')
 
   if not env.isCluster():
     # FT.EXPLAINCLI is not supported by the coordinator
@@ -516,7 +516,7 @@ def test_MOD_3372(env):
     env.expect('FT.EXPLAINCLI', 'idx').error().contains('wrong number of arguments')
     env.expect('FT.EXPLAINCLI', 'idx', 'foo').equal(['UNION {', '  foo', '  +foo(expanded)', '}', ''])
     env.expect('FT.EXPLAINCLI', 'idx', 'foo', 'verbatim').equal(['foo', ''])
-    env.expect('FT.EXPLAINCLI', 'non-exist', 'foo').error().equal('non-exist: no such index')
+    env.expect('FT.EXPLAINCLI', 'non-exist', 'foo').error().equal('No such index non-exist')
 
 def test_MOD_3540(env):
   # disable SORTBY MAX for FT.SEARCH
@@ -1289,7 +1289,7 @@ def test_mod_6783(env:Env):
 def test_mod_8589(env:Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   env.cmd('HSET', 'doc1', 'v', '????????', 't', 'foo bar foo') # Max frequency is 2 (foo)
-  docinfo = to_dict(env.cmd(debug_cmd(), 'DOCINFO', 'idx', 'doc1'))
+  docinfo = to_dict(env.cmd(debug_cmd(), 'DOCINFO', 'idx', 'doc1', 'REVEAL'))
   env.assertEqual(docinfo['max_freq'], 2)
 
 @skip(cluster=True)

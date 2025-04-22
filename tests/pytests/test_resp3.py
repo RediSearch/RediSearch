@@ -1203,7 +1203,18 @@ def test_ft_info():
     env = Env(protocol=3)
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
     with env.getClusterConnectionIfNeeded() as r:
+      nodes = 1
+      if env.isCluster():
+         res = r.execute_command("cluster info")
+         nodes = float(res['cluster_known_nodes'])
+
+      # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
+      #              = 64 + (1000 * 16) = 16064 bytes
+      initial_doc_table_size_mb = 16064 / (1024 * 1024)
+      total_index_memory_sz_mb = initial_doc_table_size_mb
+
       res = order_dict(r.execute_command('ft.info', 'idx'))
+
       exp = {
         'attributes': [
           { 'WEIGHT': 1.0,
@@ -1238,7 +1249,7 @@ def test_ft_info():
           'dialect_3': 0,
           'dialect_4': 0
         },
-        'doc_table_size_mb': 0.0,
+        'doc_table_size_mb': initial_doc_table_size_mb,
         'gc_stats': {
           'average_cycle_time_ms': nan,
           'bytes_collected': 0.0,
@@ -1261,7 +1272,7 @@ def test_ft_info():
         'key_table_size_mb': 0.0,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
-        'total_index_memory_sz_mb': 0.0,
+        'total_index_memory_sz_mb': total_index_memory_sz_mb,
         'max_doc_id': 0.0,
         'num_docs': 0.0,
         'num_records': 0.0,
@@ -1316,7 +1327,7 @@ def test_ft_info():
                           'dialect_2': 0,
                           'dialect_3': 0,
                           'dialect_4': 0},
-        'doc_table_size_mb': 0.0,
+        'doc_table_size_mb': nodes * initial_doc_table_size_mb,
         'gc_stats': {
               'average_cycle_time_ms': 0.0,
               'bytes_collected': 0.0,
@@ -1338,7 +1349,7 @@ def test_ft_info():
         'key_table_size_mb': 0.0,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
-        'total_index_memory_sz_mb': 0.0,
+        'total_index_memory_sz_mb': nodes * total_index_memory_sz_mb,
         'max_doc_id': 0,
         'num_docs': 0,
         'num_records': 0,
@@ -1531,3 +1542,33 @@ def test_warning_maxprefixexpansions():
       if shard_response.get('Warning', 'None') == 'Max prefix expansions limit was reached':
           n_warnings += 1
     env.assertEqual(n_warnings, 1)
+
+# TODO: `total_results` is currently not accurate on cluster - to be fixed in MOD-9094
+@skip(cluster=True)
+def test_totalResults_aggregate():
+  """Tests that the `total_results` field on `FT.AGGREGATE` is correct when
+  using the RESP3 protocol"""
+
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+  conn = env.getClusterConnectionIfNeeded()
+
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  # Populate the index
+  n_docs = 15 * env.shardsCount
+  for i in range(n_docs):
+      conn.execute_command('HSET', f'doc{i}', 't', str(i))
+
+  # Test that the `total_results` field is correct
+  res = env.cmd('FT.AGGREGATE', 'idx', '*')
+  env.assertEqual(res['total_results'], n_docs)
+
+  # Test the `total_results` field for a cursor
+  res, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '5')
+  while cid:
+    env.assertEqual(res['total_results'], 5)
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+
+  # Cursor is depleted.
+  env.assertEqual(res['total_results'], 0)

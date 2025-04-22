@@ -2048,8 +2048,8 @@ def testNoStem(env):
         res = conn.execute_command('ft.search', 'idx', '@body|name:candies')
         env.assertEqual(1, res[0])
 
-        # 3 results are returned because 'body' field is stemming 'candy' 
-        # but 'name' field is not stemming  
+        # 3 results are returned because 'body' field is stemming 'candy'
+        # but 'name' field is not stemming
         res = conn.execute_command(
             'ft.search', 'idx','@body|name:(candy|cherry)', 'dialect', 2)
         env.assertEqual(3, res[0])
@@ -2074,7 +2074,7 @@ def testNoStem(env):
   @body:candi(expanded)
 }
 '''[1:])
-        
+
         # Test explaincli with modifier list fields, all fields expanded
         env.expect('ft.explain', 'idx', '@body|body2:candy').equal(r'''
 @body|body2:UNION {
@@ -2083,12 +2083,12 @@ def testNoStem(env):
   @body|body2:candi(expanded)
 }
 '''[1:])
-        
+
         # Test explaincli single field with NOSTEM
         env.expect('ft.explain', 'idx', '@name:candy').equal(r'''
 @name:candy
 '''[1:])
-        
+
         # Test explaincli with modifier list NOSTEM fields
         env.expect('ft.explain', 'idx', '@name|name2:candy').equal(r'''
 @name|name2:candy
@@ -2102,7 +2102,7 @@ def testNoStem(env):
   @body:candi(expanded)
 }
 '''[1:])
-        
+
         env.expect('ft.explain', 'idx', '@name2|body|name:candy').equal(r'''
 @body|name|name2:UNION {
   @body|name|name2:candy
@@ -2110,7 +2110,7 @@ def testNoStem(env):
   @body:candi(expanded)
 }
 '''[1:])
-        
+
         env.expect('ft.explain', 'idx', '@body2|body|name:candy').equal(r'''
 @body|name|body2:UNION {
   @body|name|body2:candy
@@ -2118,7 +2118,7 @@ def testNoStem(env):
   @body|body2:candi(expanded)
 }
 '''[1:])
-        
+
         env.expect('ft.explain', 'idx', '@body2|body|name|name2:candy').equal(r'''
 @body|name|body2|name2:UNION {
   @body|name|body2|name2:candy
@@ -4023,7 +4023,7 @@ def test_missing_schema(env):
     # make sure the index succeecfully index new docs
     conn.execute_command('HSET', 'doc1', 'foo', 'bar')
     env.expect('FT.SEARCH', 'idx1', '*').equal([1, 'doc1', ['foo', 'bar']] )
-    env.expect('FT.SEARCH', 'idx2', '*').error().equal('idx2: no such index')
+    env.expect('FT.SEARCH', 'idx2', '*').error().equal('No such index idx2')
 
 
 @skip(cluster=False) # this test is only relevant on cluster
@@ -4344,19 +4344,40 @@ def common_with_auth(env: Env):
     env.expect('FT.SEARCH', 'idx', '*', 'SORTBY', 'n').equal(expected_res)
 
 def test_with_password():
-    mypass = '42MySecretPassword$'
+    mypass = '42MySecretPassword$'  # Hard-coded in `sbin/get-test-certs.sh` as default password
     args = f'OSS_GLOBAL_PASSWORD {mypass}' if COORD else None
     env = Env(moduleArgs=args, password=mypass)
     common_with_auth(env)
 
 def test_with_tls():
     cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+    # Upon setting `useTLS` to `True`, RLTest also sets the `tls-cluster` config
+    # to `yes`. This results in the coordinator-shard connections being TLS as well.
     env = Env(useTLS=True,
               tlsCertFile=cert_file,
               tlsKeyFile=key_file,
               tlsCaCertFile=ca_cert_file,
               tlsPassphrase=passphrase)
 
+    common_with_auth(env)
+
+@skip(cluster=False)
+def test_with_tls_and_non_tls_ports():
+    """Tests that the coordinator-shard connections are using the correct
+    protocol (TLS vs. non-TLS) according to the redis `tls-cluster` configuration."""
+
+    cert_file, key_file, ca_cert_file, passphrase = get_TLS_args()
+    env = Env(useTLS=True,
+              tlsCertFile=cert_file,
+              tlsKeyFile=key_file,
+              tlsCaCertFile=ca_cert_file,
+              tlsPassphrase=passphrase,
+              dualTLS=True)        # Sets the ports to be both TLS and regular ports.
+
+    # Upon setting `tls-cluster` to `no`, we should still be able to succeed
+    # connecting the coordinator to the shards, just not in TLS mode.
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no')
+    time.sleep(2)
     common_with_auth(env)
 
 @skip(asan=True, cluster=False)
@@ -4443,3 +4464,48 @@ def test_notIterTimeout(env):
         'FT.AGGREGATE', 'idx', '-@tag1:{fantasy}', 'LOAD', '2', '@title', '@n',
         'APPLY', '@n^2 / 2', 'AS', 'new_n', 'GROUPBY', '1', '@title', 'TIMEOUT', '1'
     ).error().contains('Timeout limit was reached')
+
+def _test_MOD9174(env):
+    """Tests MOD-9174 - in which we crashed/raised an error since the shard
+    pipeline was sending an empty result to the coordinator, i.e., a result
+    without a `dmd`, which the coordinator was not expecting.
+    On RESP3 we would crash, while in RESP2 we would raise an error (and log).
+    This would happen only when using `WORKERS n` with n > 1, such that the
+    safe-loader would be used.
+    The problem is only for the `FT.SEARCH` command, and not for `FT.AGGREGATE`
+    which uses a different coordinator pipeline.
+    """
+
+    conn = env.getClusterConnectionIfNeeded()
+
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+
+    # Populate the index
+    res = conn.execute_command('HSET', 'doc1', 'title', 'The Lord of the Rings')
+    env.assertEqual(res, 1)
+
+    # Query with `FT.SEARCH`, dialect 4 and LIMIT
+    res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', '0', '1', 'DIALECT', '4')
+    if env.protocol == 3:
+        # RESP3 response
+        env.assertEqual(res['total_results'], 1)
+        env.assertEqual(
+            res['results'][0],
+            {'id': 'doc1', 'extra_attributes': {'title': 'The Lord of the Rings'}, 'values': []}
+        )
+    else:
+        # RESP2 response
+        env.assertEqual(res[0], 1)
+        env.assertEqual(res[1], 'doc1')
+        env.assertEqual(res[2], ['title', 'The Lord of the Rings'])
+
+def test_MOD9174_RESP2():
+    """See further description in helper body"""
+    env = Env(moduleArgs='WORKERS 2', protocol=2)
+    _test_MOD9174(env)
+
+def test_MOD9174_RESP3():
+    """See further description in helper body"""
+    env = Env(moduleArgs='WORKERS 2', protocol=3)
+    _test_MOD9174(env)

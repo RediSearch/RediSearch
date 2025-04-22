@@ -61,6 +61,8 @@ typedef struct {
   RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   int printProfileClock;
+  // BM25STD.TANH factor
+  uint64_t BM25STD_TanhFactor;
 } RequestConfig;
 
 // Configuration parameters related to the query execution.
@@ -142,9 +144,10 @@ typedef struct {
   int prioritizeIntersectUnionChildren;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
-
   // Enable to execute unstable features
   bool enableUnstableFeatures;
+  // Control user data obfuscation in logs
+  bool hideUserDataFromLog;
 } RSConfig;
 
 typedef enum {
@@ -236,6 +239,9 @@ void UpgradeDeprecatedMTConfigs();
 #define DEFAULT_MIN_STEM_LENGTH 4
 #define MIN_MIN_STEM_LENGHT 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
+#define DEFAULT_BM25STD_TANH_FACTOR 4
+#define BM25STD_TANH_FACTOR_MAX 10000
+#define BM25STD_TANH_FACTOR_MIN 1
 
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG \
@@ -284,7 +290,9 @@ void UpgradeDeprecatedMTConfigs();
     .numBGIndexingIterationsBeforeSleep = 100,                                  \
     .prioritizeIntersectUnionChildren = false,                                  \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                             \
-    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE                  \
+    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE ,                \
+    .hideUserDataFromLog = false,                                               \
+    .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,      \
   }
 
 #define REDIS_ARRAY_LIMIT 7

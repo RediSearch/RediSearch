@@ -430,7 +430,7 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
     QueryVectorNode queryVectorNode = queryNode->vn;
     size_t k = queryVectorNode.vq->knn.k;
     if (k > MAX_KNN_K) {
-      QueryError_SetErrorFmt(status, QUERY_ELIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, VECSIM_KNN_K_TOO_LARGE_ERR_MSG ", max supported K value is %zu", MAX_KNN_K);
       goto cleanup;
     }
     specialCaseCtx *ctx = SpecialCaseCtx_New();
@@ -735,6 +735,13 @@ searchResult *newResult_resp3(searchResult *cached, MRReply *results, int j, sea
   }
 
   MRReply *result_id = MRReply_MapElement(result_j, "id");
+  if (!result_id || !MRReply_Type(result_id) == MR_REPLY_STRING) {
+    // We crash in development env, and return NULL (such that an error is raised)
+    // in production.
+    RS_LOG_ASSERT_FMT(false, "Expected id %d to exist, and be a string", j);
+    res->id = NULL;
+    return res;
+  }
   res->id = (char*)MRReply_String(result_id, &res->idLen);
   if (!res->id) {
     return res;
