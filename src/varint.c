@@ -96,7 +96,7 @@ size_t VVW_GetByteLength(const VarintVectorWriter *w) {
   return (w ? w->buf.offset : 0);
 }
 
-char * VVW_GetByteData(const VarintVectorWriter *w) {
+const char *VVW_GetByteData(const VarintVectorWriter *w) {
   return (w ? w->buf.data : NULL);
 }
 

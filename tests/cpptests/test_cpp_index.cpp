@@ -46,7 +46,7 @@ class IndexTest : public ::testing::Test {};
 
 static RSOffsetVector offsetsFromVVW(const VarintVectorWriter *vvw) {
   RSOffsetVector ret = {0};
-  ret.data = VVW_GetByteData(vvw);
+  ret.data = (char *) VVW_GetByteData(vvw);
   ret.len = VVW_GetByteLength(vvw);
   return ret;
 }

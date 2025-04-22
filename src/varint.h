@@ -38,7 +38,7 @@ void VVW_Reset(VarintVectorWriter *w);
 
 size_t VVW_GetCount(const VarintVectorWriter *w);
 size_t VVW_GetByteLength(const VarintVectorWriter *w);
-char *VVW_GetByteData(const VarintVectorWriter *w);
+const char *VVW_GetByteData(const VarintVectorWriter *w);
 char *VVW_TakeByteData(VarintVectorWriter *w, size_t *len);
 
 #ifdef __cplusplus
