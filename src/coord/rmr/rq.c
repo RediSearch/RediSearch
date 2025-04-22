@@ -128,7 +128,7 @@ static void sideThread(void *arg) {
   pthread_setname_np(thread_name);
 #else
   RedisModule_Log(RSDummyContext, "verbose",
-      "sideThread(): pthread_setname_np is not supported on this system")
+      "sideThread(): pthread_setname_np is not supported on this system");
 #endif
   // Mark the event loop thread as running before triggering the topology check.
   loop_th_running = true;
