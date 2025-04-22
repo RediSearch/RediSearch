@@ -100,9 +100,11 @@ pub trait AsTrieTermView {
 ///
 /// This blanket implementation allows any string-like type to be converted to a `CString`,
 /// which is useful for FFI operations.
+///
+/// Panics if the argument contains a null byte.
 impl<T: AsRef<str>> IntoCString for T {
     fn into_cstring(self) -> CString {
-        CString::new(self.as_ref()).expect("CString conversion failed")
+        CString::new(self.as_ref()).expect("null byte found")
     }
 }
 

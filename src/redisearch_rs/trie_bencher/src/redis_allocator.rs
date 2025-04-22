@@ -209,11 +209,11 @@ extern "C" fn realloc_shim(ptr: *mut c_void, size: usize) -> *mut c_void {
 
     let old_layout = Layout::from_size_align(old_size, ALIGNMENT).unwrap();
 
-    #[allow(clippy::multiple_unsafe_ops_per_block)]
     // Safety:
     // 1. --> We know size > 0
     // A. total_size = size + HEADER_SIZE (see [generic_shim])
     // need line below due to clippy false positive --> https://github.com/rust-lang/rust-clippy/issues/13134
+    #[allow(clippy::multiple_unsafe_ops_per_block)]
     unsafe {
         generic_shim(size, |total_size| {
             realloc(ptr, old_layout, total_size) as *mut c_void

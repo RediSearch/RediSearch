@@ -7,7 +7,9 @@
 #[allow(improper_ctypes)]
 #[allow(dead_code)]
 #[allow(unsafe_op_in_unsafe_fn)]
-#[allow(clippy::all)]
+#[allow(clippy::ptr_offset_with_cast)]
+#[allow(clippy::upper_case_acronyms)]
+#[allow(clippy::useless_transmute)]
 #[allow(clippy::multiple_unsafe_ops_per_block)]
 #[allow(clippy::undocumented_unsafe_blocks)]
 mod bindings {
