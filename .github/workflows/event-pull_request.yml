@@ -40,10 +40,6 @@ jobs:
 
   micro-benchmarks:
     uses: ./.github/workflows/flow-micro-benchmarks.yml
-    with: 
-      rejson_branch: master
-      benchmark_folder: "src/redisearch_rs/trie_bencher"
-      output_folder: "bin/criterion/trie"
 
   coverage:
     needs: [check-what-changed, get-latest-redis-tag]
