@@ -290,7 +290,7 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
    *
    * 1. REDISMODULE_SUBEVENT_SHARDING_SLOT_RANGE_CHANGED
    *    On this event we know that the slot range changed and we might have data
-   *    which are no longer belong to this shard, we must ignore it on searches
+   *    which no longer belongs to this shard, we must ignore it on searches
    *
    * 2. REDISMODULE_SUBEVENT_SHARDING_TRIMMING_STARTED
    *    This event tells us that the trimming process has started and keys will start to be
@@ -376,14 +376,16 @@ void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
     REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
     REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE,
     HashNotificationCallback);
+}
 
+void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   // RedisModule_SubscribeToServerEvent should exist since redis 6.0
   // We can assume it is always present
 
   // we do not need to scan after rdb load, i.e, there is not danger of losing results
   // after resharding, its safe to filter keys which are not in our slot range.
   if (RedisModule_ShardingGetKeySlot) {
-    // we have server events support, lets subscribe to relevan events.
+    // we have server events support, lets subscribe to relevant events.
     RedisModule_Log(ctx, "notice", "%s", "Subscribe to sharding events");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
   }

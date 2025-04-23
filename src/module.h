@@ -48,10 +48,12 @@ void RediSearch_CleanupModule(void);
 // Local spellcheck command
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-/** Module-level dummy context for certain dummy RM_XXX operations */
+// Module-level dummy context for certain dummy RM_XXX operations
 extern RedisModuleCtx *RSDummyContext;
-/** Indicates that RediSearch_Init was called */
+// Indicates that RediSearch_Init was called
 extern int RS_Initialized;
+// Indicates that RediSearch has subscribed to keyspace events
+extern bool RS_KeyspaceEvents_Initialized;
 
 #define RS_AutoMemory(ctx)                      \
 do {                                            \

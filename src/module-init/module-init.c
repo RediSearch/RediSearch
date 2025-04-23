@@ -94,6 +94,7 @@ static inline const char* RS_GetExtraVersion() {
 }
 
 int RS_Initialized = 0;
+bool RS_KeyspaceEvents_Initialized = false;
 RedisModuleCtx *RSDummyContext = NULL;
 
 int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
@@ -180,7 +181,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     return REDISMODULE_ERR;
   }
 
-  Initialize_KeyspaceNotifications(ctx);
+  Initialize_ServerEventNotifications(ctx);
   Initialize_CommandFilter(ctx);
   Initialize_RdbNotifications(ctx);
   Initialize_RoleChangeNotifications(ctx);
