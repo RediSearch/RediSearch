@@ -94,5 +94,6 @@ if [ $COMMAND_EXIT_CODE -ne 0 ]; then
   exit $COMMAND_EXIT_CODE
 fi
 
-echo "Last minute memory usage entries (VmSize, VmRSS in kB):"
-tail -n 12 memory_usage.log
+echo "Last minute memory usage entries (pid,rss,%mem,%cpu,cmd):"
+# 5 rows per entry --> 60 lines for one minute
+tail -n 60 memory_usage.log
