@@ -123,10 +123,7 @@ impl<'pattern, C: CharLike> TokenStream<'pattern, C> {
     /// is that literals are not matched per character, but by chunks.
     ///
     /// [Dogan Kurt]: http://dodobyte.com/wildcard.html
-    pub fn matches(&self, key: &[C]) -> bool
-    where
-        C: PartialEq,
-    {
+    pub fn matches(&self, key: &[C]) -> bool {
         if self.tokens.is_empty() {
             return key.is_empty();
         }
@@ -137,14 +134,18 @@ impl<'pattern, C: CharLike> TokenStream<'pattern, C> {
         while i_k < key.len() {
             // Obtain the current token
             let Some(curr_token) = self.tokens.get(i_t) else {
-                // No more tokens left to match
+                // No more tokens left to match, but we haven't exhausted
+                // the key yet. Can we backtrack?
                 let Some((bt_i_t, bt_i_k)) = &mut bt_state else {
                     // There's nowhere to backtrack to
                     break;
                 };
-                // Backtrack
+                // We try capture a bigger chunk of the key using the wildcard,
+                // hoping it will allow us to match until the end of the key.
                 i_t = *bt_i_t;
                 i_k = *bt_i_k + 1;
+                // We increase the key backtrack index, so that we won't try
+                // to backtrack again starting from the same position.
                 *bt_i_k = i_k;
                 continue;
             };
@@ -152,17 +153,24 @@ impl<'pattern, C: CharLike> TokenStream<'pattern, C> {
             match curr_token {
                 Token::Any => {
                     i_t += 1;
-                    // Set backtrack state to the current values
-                    // of `i_t`, and `i_k`,
-                    // i.e. to the current key character,
-                    // and the token right after the '*'
-                    // we just encountered.
-                    bt_state = Some((i_t, i_k));
                     if self.tokens.get(i_t).is_none() {
                         // Pattern ends with a '*' wildcard.
-                        // Disregard the rest of the key
+                        // We have a match, no matter what the rest of the key
+                        // looks like.
                         return true;
                     }
+
+                    // A wildcard can match zero or more characters.
+                    // We start by capturing zero characters—i.e. we don't
+                    // increment `i_k`.
+                    // We keep track of where the wildcard appears in the pattern
+                    // using the backtrack state. In particular, we store the
+                    // index of the wildcard in the pattern and the index of the
+                    // key token right after the wildcard.
+                    // If we have to backtrack, we will then capture exactly one character.
+                    // If that doesn't work, we will try again by capturing two characters.
+                    // Rinse and repeat until we either find a match or run out of key.
+                    bt_state = Some((i_t, i_k));
                 }
                 Token::Literal(chunk) => {
                     let Some(key_chunk) = key.get(i_k..i_k + chunk.len()) else {
@@ -212,10 +220,7 @@ impl<'pattern, C: CharLike> TokenStream<'pattern, C> {
     /// the pattern, and doesn't support backtracking.
     ///
     /// Panics in case the pattern contained a '*' wildcard.
-    pub fn matches_fixed_len(&self, mut key: &[C]) -> bool
-    where
-        C: PartialEq,
-    {
+    pub fn matches_fixed_len(&self, mut key: &[C]) -> bool {
         if key.len() != self.pattern_len {
             return false;
         }
@@ -246,17 +251,17 @@ impl<'pattern, C: CharLike> TokenStream<'pattern, C> {
         // We should have reached the end of the key by now
         key.is_empty()
     }
-
-    /// The parsed tokens.
-    pub fn tokens(&self) -> &[Token<'pattern, C>] {
-        &self.tokens
-    }
 }
 
 impl<'pattern, C> TokenStream<'pattern, C> {
     /// Get the first token in the stream.
     pub fn first(&self) -> Option<&Token<'pattern, C>> {
         self.tokens.first()
+    }
+
+    /// The parsed tokens.
+    pub fn tokens(&self) -> &[Token<'pattern, C>] {
+        &self.tokens
     }
 }
 
@@ -275,7 +280,7 @@ impl<'pattern, C> TokenStream<'pattern, C> {
 /// to ensure that it cannot be implemented outside this module since the correctness of our
 /// [`TokenStream`] implementation can't be guaranteed
 /// for other types.
-pub trait CharLike: Copy + sealed::Sealed {
+pub trait CharLike: Copy + PartialEq + sealed::Sealed {
     /// Perform a cast to `u8`.
     fn as_u8(self) -> u8;
 }
