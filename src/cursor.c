@@ -283,8 +283,8 @@ int Cursor_Pause(Cursor *cur) {
     }
 
     /* Add to idle list */
+    cur->pos = ARRAY_GETSIZE_AS(&cl->idle, Cursor **);
     *(Cursor **)(ARRAY_ADD_AS(&cl->idle, Cursor *)) = cur;
-    cur->pos = ARRAY_GETSIZE_AS(&cl->idle, Cursor **) - 1;
   }
 
   CursorList_Unlock(cl);
