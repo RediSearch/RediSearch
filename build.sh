@@ -27,7 +27,7 @@ BUILD_TESTS=0    # Build test binaries
 RUN_UNIT_TESTS=0 # Run C/C++ unit tests
 RUN_RUST_TESTS=0 # Run Rust tests
 RUN_PYTEST=0     # Run Python tests
-RUN_ALL_TESTS=0  # Run all test types
+RUN_ALL_TESTS=${RUN_ALL_TESTS:-0}  # Run all test types
 
 #-----------------------------------------------------------------------------
 # Function: parse_arguments

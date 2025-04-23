@@ -21,6 +21,3 @@ else
     chmod +x llvm.sh
     $MODE ./llvm.sh $VERSION
 fi
-
-export LDFLAGS="-L/opt/homebrew/opt/llvm@$VERSION/lib -L/opt/homebrew/opt/llvm@$VERSION/lib/c++ -lunwind"
-export CPPFLAGS="-I/opt/homebrew/opt/llvm@$VERSION/include"

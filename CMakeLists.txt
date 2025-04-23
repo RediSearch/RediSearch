@@ -52,7 +52,7 @@ endfunction()
 
 # Define debug symbols extraction function
 function(extract_debug_symbols target)
-  if(CMAKE_BUILD_TYPE STREQUAL "Release" AND NOT APPLE AND NOT WIN32)
+  if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" AND NOT APPLE)
     add_custom_command(TARGET ${target} POST_BUILD
       COMMAND objcopy --only-keep-debug $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
       COMMAND objcopy --strip-debug $<TARGET_FILE:${target}>
@@ -123,12 +123,21 @@ execute_process(
   ERROR_QUIET
 )
 
+execute_process(
+  COMMAND git rev-parse HEAD
+  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  OUTPUT_VARIABLE GIT_SHA
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  ERROR_QUIET
+)
+
 # ugly hack for cpu_features::list_cpu_features coming from VecSim
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
 add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
     "GIT_VERSPEC=\"${GIT_VERSPEC}\""
+    "GIT_SHA=\"${GIT_SHA}\""
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
