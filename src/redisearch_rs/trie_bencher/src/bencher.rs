@@ -262,7 +262,7 @@ pub fn rust_load_from_terms(keys: &[String]) -> RustTrieMap {
 }
 
 fn rust_load(words: &[Box<[c_char]>]) -> RustTrieMap {
-    let mut map = trie_rs::trie::TrieMap::new();
+    let mut map = trie_rs::TrieMap::new();
     for word in words {
         map.insert(word, NonNull::<c_void>::dangling());
     }

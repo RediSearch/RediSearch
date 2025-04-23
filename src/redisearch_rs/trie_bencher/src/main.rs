@@ -66,7 +66,7 @@ fn compute_and_report_memory_usage() {
           {} nodes"#,
         raw_size as f64 / 1024. / 1024.,
         map.mem_usage() as f64 / 1024. / 1024.,
-        map.num_nodes(),
+        map.n_nodes(),
         cmap.mem_usage() as f64 / 1024. / 1024.,
         cmap.n_nodes()
     );

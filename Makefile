@@ -480,7 +480,7 @@ unit-tests:
 	@echo "UPDATED_BINROOT: $(UPDATED_BINROOT)"
 	$(SHOW)BINROOT=$(UPDATED_BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
-RUST_TEST_OPTIONS=--all-features --profile=$(RUST_PROFILE)
+RUST_TEST_OPTIONS=--profile=$(RUST_PROFILE)
 ifeq ($(COV),1)
 # We use the `nightly` compiler in order to include doc tests in the coverage computation.
 # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.

@@ -1,7 +1,15 @@
+//! A trie map implementation with minimal memory footprint.
+//!
+//! Check [`TrieMap`]'s documentation for more details.
+
+mod node;
+mod trie;
+mod utils;
+
+pub use trie::{Iter, TrieMap};
+
 #[cfg(feature = "ffi")]
 pub mod ffi;
-
-pub mod trie;
 
 /// Registers the Redis module allocator
 /// as the global allocator for the application.
