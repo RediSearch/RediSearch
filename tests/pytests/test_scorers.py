@@ -85,6 +85,7 @@ def testTFIDFScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
+    dialect = int(env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1])
 
     env.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum')
     env.execute_command('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem')
@@ -107,13 +108,19 @@ def testTFIDFScorerExplanation(env):
 
     # test depth limit
 
-    res = env.cmd('ft.search', 'idx', 'hello(world(world))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
-    env.assertEqual(res[2][1], ['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1',
+    res = env.cmd('ft.search', 'idx', 'hello(world(world))', 'SCORER', 'TFIDF', 'WITHSCORES', 'EXPLAINSCORE', 'LIMIT', 0, 1)
+    dialect1 = ['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1',
                                 [['(Weight 1.00 * total children TFIDF 30.00)',
                                   [['(Weight 1.00 * total children TFIDF 20.00)',
                                     ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
                                      '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']],
-                                   '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]])
+                                   '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
+    dialect2 = ['Final TFIDF : words TFIDF 30.00 * document score 0.50 / norm 10 / slop 1',
+                                [['(Weight 1.00 * total children TFIDF 30.00)', [
+                                    '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                                    '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+                                    '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
+    env.assertEqual(res[2][1], dialect1 if dialect == 1 else dialect2)
 
     res1 = ['Final TFIDF : words TFIDF 40.00 * document score 1.00 / norm 10 / slop 1',
             [['(Weight 1.00 * total children TFIDF 40.00)',
@@ -129,10 +136,16 @@ def testTFIDFScorerExplanation(env):
                 ['(Weight 1.00 * total children TFIDF 20.00)',
                  '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']],
                '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
+    res3 = ['Final TFIDF : words TFIDF 40.00 * document score 0.50 / norm 10 / slop 1',
+            [['(Weight 1.00 * total children TFIDF 40.00)',
+              ['(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+               '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+               '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)',
+               '(TFIDF 10.00 = Weight 1.00 * TF 10 * IDF 1.00)']]]]
 
     actual_res = env.cmd('ft.search', 'idx', 'hello(world(world(hello)))', 'withscores', 'EXPLAINSCORE', 'limit', 0, 1)
     # on older versions we trim the reply to remain under the 7-layer limitation.
-    res = res1 if server_version_at_least(env, "6.2.0") else res2
+    res = res3 if dialect != 1 else res1 if server_version_at_least(env, "6.2.0") else res2
     env.assertEqual(actual_res[2][1], res)
 
 def testBM25ScorerExplanation(env):
