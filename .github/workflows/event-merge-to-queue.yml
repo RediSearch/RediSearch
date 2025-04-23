@@ -32,10 +32,12 @@ jobs:
 
   coverage:
     if: ${{ vars.ENABLE_CODE_COVERAGE != 'false'}}
-    uses: ./.github/workflows/flow-coverage.yml
+    uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
       rejson-branch: master
+      coverage: 1
+      test-config: '' # run all tests
 
   sanitize:
     secrets: inherit
