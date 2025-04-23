@@ -1,9 +1,9 @@
 //! Wildcard matching functionality, as specified in the
 //! [RediSearch documentation](https://redis.io/docs/latest/develop/interact/search-and-query/advanced-concepts/query_syntax/#wildcard-matching).
 //!
-//! All functionality is provided through the [`TokenStream`] struct.
-//! You can create a [`TokenStream`] from a pattern using [`TokenStream::parse`] and
-//! then rely on [`TokenStream::matches`] to determine if a string matches the pattern.
+//! All functionality is provided through the [`WildcardPattern`] struct.
+//! You can create a [`WildcardPattern`] from a pattern using [`WildcardPattern::parse`] and
+//! then rely on [`WildcardPattern::matches`] to determine if a string matches the pattern.
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 /// A pattern token.
@@ -38,10 +38,10 @@ pub enum MatchOutcome {
     NoMatch,
 }
 
-/// A parsed stream of tokens.
-pub struct TokenStream<'pattern, C> {
+/// A parsed pattern.
+pub struct WildcardPattern<'pattern, C> {
     tokens: Vec<Token<'pattern, C>>,
-    /// The length of the pattern that this stream was parsed from.
+    /// The length of the raw pattern that this instance was parsed from.
     ///
     /// Used to short-circuit the matching process
     /// in [`Self::matches_fixed_len`].
@@ -57,8 +57,8 @@ pub struct TokenStream<'pattern, C> {
     pattern_len: usize,
 }
 
-impl<'pattern, C: CharLike> TokenStream<'pattern, C> {
-    /// Parses a pattern into a stream of tokens.
+impl<'pattern, C: CharLike> WildcardPattern<'pattern, C> {
+    /// Parses a raw pattern.
     ///
     /// It handles escaped characters and tries to trim the pattern
     /// by replacing consecutive * with a single * and
@@ -291,12 +291,7 @@ impl<'pattern, C: CharLike> TokenStream<'pattern, C> {
     }
 }
 
-impl<'pattern, C> TokenStream<'pattern, C> {
-    /// Get the first token in the stream.
-    pub fn first(&self) -> Option<&Token<'pattern, C>> {
-        self.tokens.first()
-    }
-
+impl<'pattern, C> WildcardPattern<'pattern, C> {
     /// The parsed tokens.
     pub fn tokens(&self) -> &[Token<'pattern, C>] {
         &self.tokens
@@ -316,7 +311,7 @@ impl<'pattern, C> TokenStream<'pattern, C> {
 ///
 /// The trait is [sealed](https://predr.ag/blog/definitive-guide-to-sealed-traits-in-rust/)
 /// to ensure that it cannot be implemented outside this module since the correctness of our
-/// [`TokenStream`] implementation can't be guaranteed
+/// [`WildcardPattern`] implementation can't be guaranteed
 /// for other types.
 pub trait CharLike: Copy + PartialEq + sealed::Sealed {
     /// Perform a cast to `u8`.

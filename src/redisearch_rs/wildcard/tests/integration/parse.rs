@@ -1,11 +1,11 @@
 use crate::utils::chunk_to_string;
-use wildcard::{Token, TokenStream};
+use wildcard::{Token, WildcardPattern};
 
 /// Helper macro that parses the passed pattern and compares it with the expected tokens,
 /// forwarding to [`assert_eq!`].
 macro_rules! assert_tokens {
     ($pattern:literal, $expected:expr $(,)?) => {
-        let tokens = TokenStream::parse($pattern);
+        let tokens = WildcardPattern::parse($pattern);
 
         assert_eq!(
             tokens.tokens(),

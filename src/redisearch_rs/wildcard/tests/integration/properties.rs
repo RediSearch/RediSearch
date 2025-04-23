@@ -1,11 +1,11 @@
-//! Proptests for [`TokenStream`]
+//! Proptests for [`WildcardPattern`]
 //! Adapted from the [`wildcard` crate][wildcard]
 //!
 //! [wildcard]: https://github.com/cloudflare/wildcard/blob/c560ef01dda595d038e2f46b91cd5804fccb00e0/src/lib.rs#L1170-L1432
 use crate::{matches, utils::chunk_to_string};
 use proptest::{prelude::*, proptest};
 use std::{fmt, ops::Range};
-use wildcard::{Token, TokenStream};
+use wildcard::{Token, WildcardPattern};
 
 #[derive(Clone)]
 struct PatternAndKeys {
@@ -56,7 +56,7 @@ prop_compose! {
 
 fn generate_matching_keys(pattern: &[u8], num_keys: usize, rng: impl Rng) -> Vec<Box<[u8]>> {
     let rng = std::cell::RefCell::new(rng);
-    let tokens = TokenStream::parse(pattern);
+    let tokens = WildcardPattern::parse(pattern);
     let mut keys = Vec::new();
     let mut chars = std::iter::repeat_with(|| {
         proptest::char::select_char(

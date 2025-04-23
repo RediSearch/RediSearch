@@ -1,5 +1,5 @@
 use crate::{matches, no_match, partial_match, utils::chunk_to_string};
-use wildcard::TokenStream;
+use wildcard::WildcardPattern;
 
 #[test]
 fn test_matches() {

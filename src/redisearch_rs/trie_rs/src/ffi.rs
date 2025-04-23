@@ -10,7 +10,7 @@ use lending_iterator::LendingIterator;
 
 use redis_module::raw::RedisModule_Free;
 
-use wildcard::TokenStream;
+use wildcard::WildcardPattern;
 
 /// Holds the length of a key string in the trie.
 ///
@@ -604,30 +604,30 @@ unsafe extern "C" fn TrieMap_Iterate<'tm>(
                 .filter(Box::new(|(k, _)| k.ends_with(pattern))),
         ),
         tm_iter_mode::TM_WILDCARD_MODE => {
-            let tokens = TokenStream::parse(pattern);
+            let pattern = WildcardPattern::parse(pattern);
 
-            let iter = if let Some(wildcard::Token::Literal(prefix)) = tokens.first() {
+            let iter = if let Some(wildcard::Token::Literal(prefix)) = pattern.tokens().first() {
                 trie.lending_iter_prefix(prefix)
             } else {
                 trie.lending_iter()
             };
 
             TrieMapIteratorImpl::Filtered(iter.filter(Box::new(move |(key, _)| {
-                tokens.matches(key) == wildcard::MatchOutcome::Match
+                pattern.matches(key) == wildcard::MatchOutcome::Match
             })))
         }
         tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE => {
-            let tokens = TokenStream::parse(pattern);
+            let pattern = WildcardPattern::parse(pattern);
 
-            let iter = if let Some(wildcard::Token::Literal(prefix)) = tokens.first() {
+            let iter = if let Some(wildcard::Token::Literal(prefix)) = pattern.tokens().first() {
                 trie.lending_iter_prefix(prefix)
             } else {
                 trie.lending_iter()
             };
 
-            TrieMapIteratorImpl::Filtered(
-                iter.filter(Box::new(move |(key, _)| tokens.matches_fixed_len(key))),
-            )
+            TrieMapIteratorImpl::Filtered(iter.filter(Box::new(move |(key, _)| {
+                pattern.matches_fixed_len(key) == wildcard::MatchOutcome::Match
+            })))
         }
     };
 
