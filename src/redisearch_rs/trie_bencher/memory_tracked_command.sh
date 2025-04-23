@@ -56,14 +56,14 @@ if [ "$(uname)" == "Darwin" ]; then
   # macOS monitoring approach
   while ps -p $BENCH_PID > /dev/null 2>&1; do
     echo "$(date +%H:%M:%S) PID $BENCH_PID:"
-    ps -o pid,rss,vsz,pmem,command -p $BENCH_PID | tail -n +2
+    ps -o pid,rss,%mem,%cpu,command | grep -E 'cargo|bench' | grep -v grep;
     sleep 5
   done
 else
   # Linux monitoring approach
   while [ -d /proc/$BENCH_PID ]; do
     echo "$(date +%H:%M:%S) PID $BENCH_PID:"
-    grep -E "VmSize|VmRSS" /proc/$BENCH_PID/status
+    ps -o pid,rss,%mem,%cpu,cmd | grep -E 'cargo|bench' | grep -v grep;
     sleep 5
   done
 fi
