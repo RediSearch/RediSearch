@@ -2,7 +2,7 @@
 //! Adapted from the [`wildcard` crate][wildcard]
 //!
 //! [wildcard]: https://github.com/cloudflare/wildcard/blob/c560ef01dda595d038e2f46b91cd5804fccb00e0/src/lib.rs#L1170-L1432
-use crate::{assert_matches, assert_no_match, utils::chunk_to_string};
+use crate::{matches, utils::chunk_to_string};
 use proptest::{prelude::*, proptest};
 use std::{fmt, ops::Range};
 use wildcard::{Token, TokenStream};
@@ -116,9 +116,8 @@ proptest! {
         };
 
         for key in input.keys {
-            match wc_cf.is_match(&key) {
-                true => assert_matches!(&input.pattern, [&key]),
-                false => assert_no_match!(&input.pattern, [&key]),
+            if wc_cf.is_match(&key) {
+                matches!(&input.pattern, [&key])
             }
         }
     }
@@ -126,7 +125,7 @@ proptest! {
     #[test]
     fn sanity_check_matching(input in pattern_and_matching_keys(5..20, 8..20)) {
         for key in input.keys {
-            assert_matches!(&input.pattern, [&key])
+            matches!(&input.pattern, [&key])
         }
     }
 }

@@ -612,9 +612,9 @@ unsafe extern "C" fn TrieMap_Iterate<'tm>(
                 trie.lending_iter()
             };
 
-            TrieMapIteratorImpl::Filtered(
-                iter.filter(Box::new(move |(key, _)| tokens.matches(key))),
-            )
+            TrieMapIteratorImpl::Filtered(iter.filter(Box::new(move |(key, _)| {
+                tokens.matches(key) == wildcard::MatchOutcome::Match
+            })))
         }
         tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE => {
             let tokens = TokenStream::parse(pattern);

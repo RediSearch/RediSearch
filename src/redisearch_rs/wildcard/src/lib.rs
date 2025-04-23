@@ -18,6 +18,26 @@ pub enum Token<'pattern, C> {
     Literal(&'pattern [C]),
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum MatchOutcome {
+    /// The pattern matches the input.
+    Match,
+    /// The input isn't long enough to match the pattern.
+    ///
+    /// But there is a chance that the pattern matches a longer input
+    /// that starts with the current input.
+    ///
+    /// For example, the pattern `foo*bar` doesn't match `foo`, but it
+    /// would match `foobar`.
+    PartialMatch,
+    /// The pattern does not match the input, nor would it match a longer
+    /// input that starts with the current input.
+    ///
+    /// For example, the pattern `foo*bar` doesn't match `boo`, nor would
+    /// it match any other input that starts with `boo`.
+    NoMatch,
+}
+
 /// A parsed stream of tokens.
 pub struct TokenStream<'pattern, C> {
     tokens: Vec<Token<'pattern, C>>,
@@ -123,31 +143,38 @@ impl<'pattern, C: CharLike> TokenStream<'pattern, C> {
     /// is that literals are not matched per character, but by chunks.
     ///
     /// [Dogan Kurt]: http://dodobyte.com/wildcard.html
-    pub fn matches(&self, key: &[C]) -> bool {
+    pub fn matches(&self, key: &[C]) -> MatchOutcome {
         if self.tokens.is_empty() {
-            return key.is_empty();
+            return if key.is_empty() {
+                MatchOutcome::Match
+            } else {
+                MatchOutcome::NoMatch
+            };
+        }
+
+        // Backtrack if possible, otherwise return early claiming we can't match.
+        macro_rules! try_backtrack {
+            ($bt_state:expr, $i_t:ident, $i_k:ident, $label:lifetime) => {
+                if let Some((bt_i_t, bt_i_k)) = &mut $bt_state {
+                    $i_t = *bt_i_t;
+                    $i_k = *bt_i_k + 1;
+                    *bt_i_k = $i_k;
+                    continue $label;
+                } else {
+                    return MatchOutcome::NoMatch;
+                }
+            };
         }
 
         let mut i_t = 0; // Index in the list of tokens
         let mut i_k = 0; // Index in the key slice
         let mut bt_state = None; // Backtrack state
-        while i_k < key.len() {
+        'outer: while i_k < key.len() {
             // Obtain the current token
             let Some(curr_token) = self.tokens.get(i_t) else {
                 // No more tokens left to match, but we haven't exhausted
                 // the key yet. Can we backtrack?
-                let Some((bt_i_t, bt_i_k)) = &mut bt_state else {
-                    // There's nowhere to backtrack to
-                    break;
-                };
-                // We try capture a bigger chunk of the key using the wildcard,
-                // hoping it will allow us to match until the end of the key.
-                i_t = *bt_i_t;
-                i_k = *bt_i_k + 1;
-                // We increase the key backtrack index, so that we won't try
-                // to backtrack again starting from the same position.
-                *bt_i_k = i_k;
-                continue;
+                try_backtrack!(bt_state, i_t, i_k, 'outer);
             };
 
             match curr_token {
@@ -157,7 +184,7 @@ impl<'pattern, C: CharLike> TokenStream<'pattern, C> {
                         // Pattern ends with a '*' wildcard.
                         // We have a match, no matter what the rest of the key
                         // looks like.
-                        return true;
+                        return MatchOutcome::Match;
                     }
 
                     // A wildcard can match zero or more characters.
@@ -173,73 +200,81 @@ impl<'pattern, C: CharLike> TokenStream<'pattern, C> {
                     bt_state = Some((i_t, i_k));
                 }
                 Token::Literal(chunk) => {
-                    let Some(key_chunk) = key.get(i_k..i_k + chunk.len()) else {
-                        // No characters left, so no way to match the chunk
-                        return false;
-                    };
-
-                    if *chunk != key_chunk {
-                        let Some((bt_i_t, bt_i_k)) = &mut bt_state else {
-                            // There's nowhere to backtrack to
-                            return false;
+                    for i in 0..chunk.len() {
+                        let Some(key_char) = key.get(i_k + i) else {
+                            // It may have matched if we had more characters in the key
+                            return MatchOutcome::PartialMatch;
                         };
-
-                        // Backtrack
-                        i_t = *bt_i_t;
-                        i_k = *bt_i_k + 1;
-                        *bt_i_k = i_k;
-                        continue;
+                        if &chunk[i] != key_char {
+                            try_backtrack!(bt_state, i_t, i_k, 'outer);
+                        }
                     }
+
                     i_t += 1;
                     i_k += chunk.len();
                 }
-
                 Token::One => {
-                    // Simply advance both indices
-                    // as with '?' we ignore 1 character
+                    // Advance both indices, since `?` matches exactly one character
                     i_t += 1;
                     i_k += 1;
                 }
             }
         }
 
-        // If there's one token left, and it's a '*' token,
-        // we have a match
-        if i_t == self.tokens.len() - 1 && self.tokens[i_t] == Token::Any {
-            return true;
-        }
+        debug_assert!(
+            i_k >= key.len(),
+            "We should have consumed all characters in the key by now"
+        );
 
-        // At this point we should have handled all tokens
-        i_t == self.tokens.len() && i_k == key.len()
+        if i_t == self.tokens.len() {
+            // If there are no more tokens left, we have a match
+            MatchOutcome::Match
+        } else if i_t + 1 == self.tokens.len() && self.tokens[i_t] == Token::Any {
+            // If there's only one token left, and it's a '*' token,
+            // we have a match
+            MatchOutcome::Match
+        } else {
+            // Otherwise, we would need more key characters to fully match
+            // the pattern
+            MatchOutcome::PartialMatch
+        }
     }
 
-    /// Matches the key against a pattern that only contains literal
-    /// characters and '?'s. This is simpler and more performant than the general
-    /// [`matches` method](Self::matches), as it is able to short-
-    /// circuit if the length of the key is not equal to the length of
-    /// the pattern, and doesn't support backtracking.
+    /// Matches the key against a pattern that contains only literals
+    /// and '?'s.
+    /// This is simpler and more performant than the general
+    /// [`matches` method](Self::matches), since it doesn't have to
+    /// perform backtracking.
+    ///
+    /// # Panics
     ///
     /// Panics in case the pattern contained a '*' wildcard.
-    pub fn matches_fixed_len(&self, mut key: &[C]) -> bool {
-        if key.len() != self.pattern_len {
-            return false;
+    pub fn matches_fixed_len(&self, mut key: &[C]) -> MatchOutcome {
+        // It is OK to compare against the length of the original pattern,
+        // since there are no possible simplifications when the pattern
+        // contains only literals and '?'s.
+        if key.len() > self.pattern_len {
+            return MatchOutcome::NoMatch;
         }
 
         for token in self.tokens.iter() {
             match token {
                 Token::One => {
                     if key.is_empty() {
-                        return false;
+                        // It may have matched if we had more characters in the key
+                        return MatchOutcome::PartialMatch;
                     }
                     key = &key[1..];
                 }
                 Token::Literal(chunk) => {
-                    let key_chunk = match key.get(..chunk.len()) {
-                        Some(slice) => slice,
-                        None => return false,
-                    };
-                    if key_chunk != *chunk {
-                        return false;
+                    for i in 0..chunk.len() {
+                        let Some(key_char) = key.get(i) else {
+                            // It may have matched if we had more characters in the key
+                            return MatchOutcome::PartialMatch;
+                        };
+                        if &chunk[i] != key_char {
+                            return MatchOutcome::NoMatch;
+                        }
                     }
                     key = &key[chunk.len()..];
                 }
@@ -248,8 +283,11 @@ impl<'pattern, C: CharLike> TokenStream<'pattern, C> {
                 ),
             }
         }
-        // We should have reached the end of the key by now
-        key.is_empty()
+        debug_assert!(
+            key.is_empty(),
+            "Key should be exhausted after having matched all tokens"
+        );
+        MatchOutcome::Match
     }
 }
 
