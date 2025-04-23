@@ -424,8 +424,8 @@ def testNormalizedBM25Tanh():
 
 def testBM25NormMinMax():
     """
-    Tests that the normalized BM25 scorer works as expected.
-    We apply the stretched tanh function to the BM25 score, reaching a normalized
+    Tests that the linear normalized BM25STD.NORM scorer works as expected.
+    We apply the linear normalization (division by query max score) to the BM25STD score, reaching a normalized
     value between 0 and 1.
     """
 
@@ -454,7 +454,7 @@ def testBM25NormMinMax():
         env.assertGreaterEqual(float(norm_res_search[i+1]), 0)
         env.assertLessEqual(float(norm_res_search[i+1]), 1)
 
-        # The score should be normalized using the stretched tanh function
+        # The score should be normalized using division by maximum score
         env.assertEqual(round(float(norm_res_search[i+1]), 5), round((float(res[i+1])-min_score)/(max_score - min_score), 5))
         # Save the score to make sure the aggregate command returns the same results
         norm_scores.append(round(float(norm_res_search[i+1]), 5))

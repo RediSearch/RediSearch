@@ -675,7 +675,7 @@ def testPofileGILTime():
   except Exception:
     print(f"::error title=GIL report test failure:: res: {res}")
 
-def testProfileBM25NormMinMax(env):
+def testProfileBM25NormMax(env):
   #create index
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
 
