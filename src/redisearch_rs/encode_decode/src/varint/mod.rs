@@ -50,7 +50,7 @@ where
 }
 
 /// Encode an integer into a varint format and write it to the given writer.
-pub fn write<W: Write>(value: u32, mut write: W) -> io::Result<usize>
+pub fn write<W>(value: u32, mut write: W) -> io::Result<usize>
 where
     W: Write,
 {
@@ -60,7 +60,7 @@ where
 }
 
 /// Encode a FieldMask into a varint format and write it to the given writer.
-pub fn write_field_mask<W: Write>(value: FieldMask, mut write: W) -> io::Result<usize>
+pub fn write_field_mask<W>(value: FieldMask, mut write: W) -> io::Result<usize>
 where
     W: Write,
 {

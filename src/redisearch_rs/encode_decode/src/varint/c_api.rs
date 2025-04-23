@@ -11,8 +11,9 @@ use crate::{
 
 #[unsafe(no_mangle)]
 extern "C" fn ReadVarint(mut b: NonNull<BufferReader>) -> u32 {
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
     let buffer_reader = unsafe { b.as_mut() };
-    let mut cursor = buffer_reader.to_cursor();
+    let mut cursor = buffer_reader.as_cursor();
     let val = read(&mut cursor).unwrap();
     buffer_reader.pos = cursor.position() as usize;
 
@@ -25,8 +26,9 @@ extern "C" fn ReadVarint(mut b: NonNull<BufferReader>) -> u32 {
 // https://blog.rust-lang.org/2024/03/30/i128-layout-update/#compatibility
 #[allow(improper_ctypes_definitions)]
 extern "C" fn ReadVarintFieldMask(mut b: NonNull<BufferReader>) -> FieldMask {
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
     let buffer_reader = unsafe { b.as_mut() };
-    let mut cursor = buffer_reader.to_cursor();
+    let mut cursor = buffer_reader.as_cursor();
     let val = read_field_mask(&mut cursor).unwrap();
     buffer_reader.pos = cursor.position() as usize;
 
@@ -38,6 +40,7 @@ extern "C" fn ReadVarintFieldMask(mut b: NonNull<BufferReader>) -> FieldMask {
 /// to the caller.
 #[unsafe(no_mangle)]
 extern "C" fn WriteVarint(value: u32, mut b: NonNull<BufferWriter>) -> usize {
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
     let buffer_writer = unsafe { b.as_mut() };
     let mut cursor = std::io::Cursor::<Vec<u8>>::from(*buffer_writer);
     let bytes_written = write(value, &mut cursor).unwrap();
@@ -50,6 +53,7 @@ extern "C" fn WriteVarint(value: u32, mut b: NonNull<BufferWriter>) -> usize {
 #[unsafe(no_mangle)]
 #[allow(improper_ctypes_definitions)]
 extern "C" fn WriteVarintFieldMask(value: FieldMask, mut b: NonNull<BufferWriter>) -> usize {
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
     let buffer_writer = unsafe { b.as_mut() };
     let mut cursor = std::io::Cursor::<Vec<u8>>::from(*buffer_writer);
     let bytes_written = write_field_mask(value, &mut cursor).unwrap();
@@ -62,11 +66,13 @@ extern "C" fn WriteVarintFieldMask(value: FieldMask, mut b: NonNull<BufferWriter
 extern "C" fn NewVarintVectorWriter(cap: usize) -> NonNull<VectorWriter> {
     let vector_writer = Box::leak(Box::new(VectorWriter::new(cap)));
 
+    // Safety: The pointer is valid because we just created it.
     unsafe { NonNull::new_unchecked(vector_writer) }
 }
 
 #[unsafe(no_mangle)]
 extern "C" fn VVW_Write(mut writer: NonNull<VectorWriter>, value: u32) -> usize {
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
     unsafe { writer.as_mut() }.write(value).unwrap()
 }
 
@@ -76,6 +82,7 @@ extern "C" fn VVW_GetByteData(writer: *const VectorWriter) -> *const u8 {
         return std::ptr::null();
     }
 
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
     unsafe { &*writer }.bytes().as_ptr()
 }
 
@@ -85,6 +92,7 @@ extern "C" fn VVW_GetByteLength(writer: *const VectorWriter) -> usize {
         return 0;
     }
 
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
     unsafe { &*writer }.bytes_len()
 }
 
@@ -94,23 +102,25 @@ extern "C" fn VVW_GetCount(writer: *const VectorWriter) -> usize {
         return 0;
     }
 
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
     unsafe { &*writer }.count()
 }
 
 #[unsafe(no_mangle)]
 extern "C" fn VVW_Reset(mut writer: NonNull<VectorWriter>) {
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
     unsafe { writer.as_mut() }.reset()
 }
 
 #[unsafe(no_mangle)]
 extern "C" fn VVW_Free(writer: NonNull<VectorWriter>) {
-    // SAFETY: The caller is responsible for ensuring that the pointer is valid.
-    // The pointer is leaked in `NewVarintVectorWriter`, so we can safely drop it here.
+    // Safety: The pointer is leaked in `NewVarintVectorWriter`, so we can safely drop it here.
     drop(unsafe { Box::from_raw(writer.as_ptr()) });
 }
 
 #[unsafe(no_mangle)]
 extern "C" fn VVW_Truncate(writer: NonNull<VectorWriter>) -> usize {
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
     unsafe { &mut *writer.as_ptr() }.truncate()
 }
 
@@ -120,7 +130,9 @@ extern "C" fn VVW_TakeByteData(writer: *mut VectorWriter, mut len: NonNull<usize
         return std::ptr::null_mut();
     }
 
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
     let vector_writer = unsafe { &mut *writer };
+    // Safety: Same here.
     let len = unsafe { len.as_mut() };
     let mut bytes = vec![];
     std::mem::swap(vector_writer.bytes_mut(), &mut bytes);

@@ -16,11 +16,12 @@ pub(crate) struct BufferReader {
 }
 
 impl BufferReader {
-    pub fn to_cursor(&mut self) -> Cursor<&[u8]> {
-        let buffer_slice = unsafe {
-            let buffer = &*self.buf;
-            std::slice::from_raw_parts(buffer.data, buffer.cap)
-        };
+    pub fn as_cursor(&mut self) -> Cursor<&[u8]> {
+        // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
+        let buffer = unsafe { &*self.buf };
+        // Safety: All invariants of `std::slice::from_raw_parts` should hold here if the C side
+        // doesn't do something naughty.
+        let buffer_slice = unsafe { std::slice::from_raw_parts(buffer.data, buffer.cap) };
         let mut cursor = Cursor::new(buffer_slice);
         cursor.set_position(self.pos as u64);
         cursor
@@ -37,17 +38,14 @@ pub(crate) struct BufferWriter {
 
 impl From<BufferWriter> for Cursor<Vec<u8>> {
     fn from(writer: BufferWriter) -> Self {
-        let (buffer_vec, pos) = unsafe {
-            let buffer = &mut *writer.buf;
-            // According the doce of `Vec::from_raw_parts`, we shouldn't be doing this
-            // but it works and all this is hopefully transient anyway until all users of
-            // `BufferWriter` are oxidized and `BufferWriter` can then be dropped along with
-            // module.
-            let buffer_vec = Vec::from_raw_parts(buffer.data, buffer.offset, buffer.cap);
-            let pos = writer.pos.offset_from(buffer.data);
-
-            (buffer_vec, pos)
-        };
+        // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
+        let buffer = unsafe { &mut *writer.buf };
+        // Safety: According the docs of `Vec::from_raw_parts`, we shouldn't be doing this but it
+        // works and all this is hopefully transient anyway until all users of `BufferWriter` are
+        // oxidized and `BufferWriter` can then be dropped along with module.
+        let buffer_vec = unsafe { Vec::from_raw_parts(buffer.data, buffer.offset, buffer.cap) };
+        // Safety: Both pointers here should be valid, if C side doesn't do something naughty.
+        let pos = unsafe { writer.pos.offset_from(buffer.data) };
         let mut cursor = Cursor::new(buffer_vec);
         cursor.set_position(pos as u64);
         cursor
@@ -66,6 +64,8 @@ impl From<Cursor<Vec<u8>>> for BufferWriter {
                 cap: buffer_vec.capacity(),
                 offset: buffer_vec.len(),
             })),
+            // Safety: We got both the pointer and the position from the cursor, so we know that
+            // the pointer is valid and the position is within the bounds of the buffer.
             pos: unsafe { buffer_ptr.add(pos) },
         }
     }
