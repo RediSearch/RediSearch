@@ -23,6 +23,7 @@ from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
 import subprocess
+import math
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
@@ -857,7 +858,11 @@ def set_tight_maxmemory_for_oom(env, memory_limit_per = 0.8):
     # Get current memory consumption value
     memory_usage = env.cmd('INFO', 'MEMORY')['used_memory']
     # Set memory limit to less then memory limit
-    env.expect('config', 'set', 'maxmemory', int(memory_usage*(1/(memory_limit_per-0.01)))).ok()
+    required_memory = memory_usage * (1/memory_limit_per)
+    # Round up and add 1
+    new_memory = math.ceil(required_memory) + 1
+
+    env.expect('config', 'set', 'maxmemory',new_memory).ok()
 
 def set_unlimited_maxmemory_for_oom(env):
     env.expect('config', 'set', 'maxmemory', 0).ok()
@@ -900,7 +905,10 @@ def shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per = 0.8):
     # Get current memory consumption value
     memory_usage = env.getConnection(shardId).execute_command('INFO', 'MEMORY')['used_memory']
     # Set memory limit to less then memory limit
-    res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', int(memory_usage*(1/(memory_limit_per-0.01))))
+    required_memory = memory_usage * (1/memory_limit_per)
+    # Round up and add 1
+    new_memory = math.ceil(required_memory) + 1
+    res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', new_memory)
     env.assertEqual(res, 'OK')
 
 def allShards_set_tight_maxmemory_for_oom(env, memory_limit_per = 0.8):
