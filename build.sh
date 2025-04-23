@@ -256,12 +256,14 @@ build_redisearch_rs() {
 
   # Build using cargo
   mkdir -p "$REDISEARCH_RS_TARGET_DIR"
+  pushd .
   cd "$REDISEARCH_RS_DIR"
   cargo build $RUST_BUILD_MODE
 
   # Copy artifacts to the target directory
   mkdir -p "$REDISEARCH_RS_BINDIR"
   cp "$REDISEARCH_RS_TARGET_DIR/$RUST_ARTIFACT_SUBDIR"/*.a "$REDISEARCH_RS_BINDIR"
+  popd
 }
 
 #-----------------------------------------------------------------------------
@@ -269,6 +271,9 @@ build_redisearch_rs() {
 # Build the RediSearch project using Make
 #-----------------------------------------------------------------------------
 build_project() {
+  # Build redisearch_rs explicitly
+  build_redisearch_rs
+
   # Determine number of parallel jobs for make
   if command -v nproc &> /dev/null; then
     NPROC=$(nproc)
@@ -279,9 +284,6 @@ build_project() {
   fi
   echo "Building RediSearch with $NPROC parallel jobs..."
   make -j "$NPROC"
-
-  # Build redisearch_rs explicitly
-  build_redisearch_rs
 
   # Build test dependencies if needed
   build_test_dependencies
