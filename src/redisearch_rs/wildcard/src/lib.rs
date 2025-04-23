@@ -7,22 +7,20 @@
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 /// A pattern token.
-pub enum Token<C> {
+pub enum Token<'pattern, C> {
     /// `*`. Matches zero or more characters.
     Any,
     /// `?`. Matches exactly one character.
     One,
-    /// Literal character(s).
+    /// One or more literal characters (e.g. `Literal("foo")`).
     ///
-    /// Depending on the type used for `C`, this token can either
-    /// contain a single literal (e.g. if `C` is `u8`) or multiple literals grouped together
-    /// (e.g. if `C` is `&[u8]`).
-    Literal(C),
+    /// It borrows from the original pattern.
+    Literal(&'pattern [C]),
 }
 
 /// A parsed stream of tokens.
-pub struct TokenStream<C> {
-    tokens: Vec<Token<C>>,
+pub struct TokenStream<'pattern, C> {
+    tokens: Vec<Token<'pattern, C>>,
     /// The length of the pattern that this stream was parsed from.
     ///
     /// Used to short-circuit the matching process
@@ -39,7 +37,7 @@ pub struct TokenStream<C> {
     pattern_len: usize,
 }
 
-impl<'pattern, C: CastU8> TokenStream<&'pattern [C]> {
+impl<'pattern, C: CharLike> TokenStream<'pattern, C> {
     /// Parses a pattern into a stream of tokens.
     ///
     /// It handles escaped characters and tries to trim the pattern
@@ -57,12 +55,12 @@ impl<'pattern, C: CastU8> TokenStream<&'pattern [C]> {
     /// The "obvious" parsing outcome (`[br"f\oo"]`) would require an allocation, since
     /// `foo` is not a substring of the original pattern.
     pub fn parse(pattern: &'pattern [C]) -> Self {
-        let mut tokens: Vec<Token<&'pattern [C]>> = Vec::new();
+        let mut tokens: Vec<Token<'pattern, C>> = Vec::new();
 
         let mut pattern_iter = pattern
             .iter()
             .copied()
-            .map(|c| c.cast_u8())
+            .map(|c| c.as_u8())
             .enumerate()
             .peekable();
 
@@ -127,7 +125,7 @@ impl<'pattern, C: CastU8> TokenStream<&'pattern [C]> {
     /// [Dogan Kurt]: http://dodobyte.com/wildcard.html
     pub fn matches(&self, key: &[C]) -> bool
     where
-        C: PartialEq + std::fmt::Debug,
+        C: PartialEq,
     {
         if self.tokens.is_empty() {
             return key.is_empty();
@@ -250,83 +248,80 @@ impl<'pattern, C: CastU8> TokenStream<&'pattern [C]> {
     }
 }
 
-impl<C> TokenStream<C> {
+impl<'pattern, C> TokenStream<'pattern, C> {
     /// Get the first token in the stream.
-    pub fn first(&self) -> Option<&Token<C>> {
+    pub fn first(&self) -> Option<&Token<'pattern, C>> {
         self.tokens.first()
     }
 }
 
+/// A character type that can be used for wildcard matching.
+///
+/// # `c_char`
+///
+/// We want to provide our wildcard matching functionality for two types of "characters":
+/// `u8`s and `std::ffi::c_char`s.
+/// The latter is an alias for either `i8` or `u8` depending on the platform, hence
+/// our implementation for `i8` below.
+///
+/// # Sealed
+///
+/// The trait is [sealed](https://predr.ag/blog/definitive-guide-to-sealed-traits-in-rust/)
+/// to ensure that it cannot be implemented outside this module since the correctness of our
+/// [`TokenStream`] implementation can't be guaranteed
+/// for other types.
+pub trait CharLike: Copy + sealed::Sealed {
+    /// Perform a cast to `u8`.
+    fn as_u8(self) -> u8;
+}
+
 mod sealed {
-    /// Sealed trait for `CastU8` to ensure that it cannot be implemented outside this module.
     pub trait Sealed {}
 }
 
-/// Simple trait that provides a method to cast a value to `u8`.
-/// Implemented only for `i8` and `u8` and thus for `std::ffi::c_char`, and sealed
-/// so that it cannot be implemented outside this module as the
-/// correctness of [`TokenStream`] relies on correct implementation of this trait.
-pub trait CastU8: Copy + sealed::Sealed {
-    /// Perform a cast to `u8`.
-    fn cast_u8(self) -> u8;
-}
-
-impl CastU8 for i8 {
-    fn cast_u8(self) -> u8 {
+impl CharLike for i8 {
+    fn as_u8(self) -> u8 {
         self as u8
     }
 }
 impl sealed::Sealed for i8 {}
 
-impl CastU8 for u8 {
-    fn cast_u8(self) -> u8 {
+impl CharLike for u8 {
+    fn as_u8(self) -> u8 {
         self
     }
 }
 impl sealed::Sealed for u8 {}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    impl<C: CastU8> std::fmt::Debug for Token<&[C]> {
-        // `Debug` implementation that formats `Token::Literal` such that
-        // it matches the notation we're using in the tests
-        // for easy comparison.
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            match self {
-                Token::Any => write!(f, "Token::Any"),
-                Token::One => write!(f, "Token::One"),
-                Token::Literal(chunk) => {
-                    write!(f, r#"Token::Literal(br"{}")"#, chunk_to_string(chunk))
-                }
+impl<C: CharLike> std::fmt::Debug for Token<'_, C> {
+    // `Debug` implementation that formats `Token::Literal` such that
+    // it matches the notation we're using in the tests
+    // for easy comparison.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Token::Any => write!(f, "Token::Any"),
+            Token::One => write!(f, "Token::One"),
+            Token::Literal(chunk) => {
+                write!(f, r#"Token::Literal(br"{}")"#, chunk_to_string(chunk))
             }
         }
     }
+}
 
-    pub fn chunk_to_string<C: CastU8>(chunk: &[C]) -> String {
-        String::from_utf8_lossy(
-            chunk
-                .iter()
-                .map(|c| c.cast_u8())
-                .collect::<Vec<u8>>()
-                .as_slice(),
-        )
-        .into_owned()
-    }
+fn chunk_to_string<C: CharLike>(chunk: &[C]) -> String {
+    String::from_utf8_lossy(
+        chunk
+            .iter()
+            .map(|c| c.as_u8())
+            .collect::<Vec<u8>>()
+            .as_slice(),
+    )
+    .into_owned()
+}
 
-    /// Helper function that forces Rust to have the types of
-    /// byte sequence literals (e.g. `b"hello"`) be slices instead of arrays
-    /// when wrapped in a `Token`.
-    fn coerce_tokens<const N: usize>(t: [Token<&[u8]>; N]) -> [Token<&[u8]>; N] {
-        t
-    }
-
-    /// Helper function that forces Rust to have the types of
-    /// byte sequence literals (e.g. `b"hello"`) be slices instead of arrays.
-    fn coerce_literal<const N: usize>(l: [&[u8]; N]) -> [&[u8]; N] {
-        l
-    }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
     /// Helper macro that parses the passed pattern and compares it with the expected tokens,
     /// forwarding to [`assert_eq!`].
@@ -336,42 +331,12 @@ mod tests {
 
             assert_eq!(
                 tokens.tokens,
-                coerce_tokens($expected),
+                $expected,
                 r#""{}" should be parsed as {:?}"#,
                 chunk_to_string($pattern),
                 tokens.tokens
             );
         };
-    }
-
-    macro_rules! assert_matches {
-        ($pattern:expr, $expected_results:expr $(,)?) => {{
-            let tokens = TokenStream::parse($pattern);
-
-            for expected in coerce_literal($expected_results) {
-                assert!(
-                    tokens.matches(expected),
-                    r#"{:?} should match pattern {:?}"#,
-                    chunk_to_string(expected),
-                    chunk_to_string($pattern)
-                );
-            }
-        }};
-    }
-
-    macro_rules! assert_no_match {
-        ($pattern:expr, $expected_results:expr $(,)?) => {{
-            let tokens = TokenStream::parse($pattern);
-
-            for expected in coerce_literal($expected_results) {
-                assert!(
-                    !tokens.matches(expected),
-                    r#"{:?} should not match pattern {:?}"#,
-                    chunk_to_string(expected),
-                    chunk_to_string($pattern)
-                );
-            }
-        }};
     }
 
     #[test]
@@ -487,6 +452,38 @@ mod tests {
         assert_tokens!(br"foo\*?", [Literal(br"foo"), Literal(br"*"), One]);
 
         assert_tokens!(b"*?A", [One, Any, Literal(b"A")]);
+    }
+
+    macro_rules! assert_matches {
+        ($pattern:expr, $expected_results:expr $(,)?) => {{
+            let tokens = TokenStream::parse($pattern);
+
+            let results: &[&[u8]] = &$expected_results;
+            for expected in results {
+                assert!(
+                    tokens.matches(expected),
+                    r#"{:?} should match pattern {:?}"#,
+                    chunk_to_string(expected),
+                    chunk_to_string($pattern)
+                );
+            }
+        }};
+    }
+
+    macro_rules! assert_no_match {
+        ($pattern:expr, $expected_results:expr $(,)?) => {{
+            let tokens = TokenStream::parse($pattern);
+
+            let results: &[&[u8]] = &$expected_results;
+            for expected in results {
+                assert!(
+                    !tokens.matches(expected),
+                    r#"{:?} should not match pattern {:?}"#,
+                    chunk_to_string(expected),
+                    chunk_to_string($pattern)
+                );
+            }
+        }};
     }
 
     #[test]
