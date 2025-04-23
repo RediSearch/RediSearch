@@ -585,19 +585,19 @@ impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
 
     /// Shifts `n_elements` elements to the left by `by` positions in the children first-bytes buffer.
     ///
-    /// This operation copies elements from `[offset + by..(offset + n_elements - 1) + by]`
-    /// to `[offset..offset + n_elements - 1]`, effectively overwriting the elements
-    /// in `[offset..offset + by]`.
+    /// This operation copies elements from `[target + by..(target + n_elements - 1) + by]`
+    /// to `[target..target + n_elements - 1]`, effectively overwriting the elements
+    /// in `[target..target + by]`.
     ///
     /// # Example
     ///
-    /// Shift left with offset 2, by 1, and n_elements 4:
+    /// Shift left with target 2, by 1, and n_elements 4:
     ///
     /// ```text
     /// Old state: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     ///                   ^  ^
     ///                   |  |
-    ///              offset  offset+by
+    ///              target  target+by
     ///
     /// New state: [0, 1, 3, 4, 5, 6, 6, 7, 8, 9]
     ///                   ^^^^^^^^^^
@@ -606,23 +606,23 @@ impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
     ///
     /// # Safety
     ///
-    /// 1. `offset + by + n_elements` must not exceed the capacity of the buffer.
+    /// 1. `target + by + n_elements` must not exceed the capacity of the buffer.
     /// 2. You must have exclusive access to the children first-bytes buffer.
-    /// 3. The elements in `[offset + by..(offset + n_elements - 1) + by]` must be correctly initialized.
-    pub(super) unsafe fn shift_left(&mut self, offset: usize, by: NonZeroUsize, n_elements: usize) {
+    /// 3. The elements in `[target + by..(target + n_elements - 1) + by]` must be correctly initialized.
+    pub(super) unsafe fn shift_left(&mut self, target: usize, by: NonZeroUsize, n_elements: usize) {
         #[cfg(debug_assertions)]
         {
             assert!(
-                offset + by.get() + n_elements <= self.0.metadata.n_children,
+                target + by.get() + n_elements <= self.0.metadata.n_children,
                 "The shift operation would read from beyond the end of the buffer"
             );
         }
         // SAFETY:
         // The offsetted pointer is in bounds, thanks to 1.
-        let destination = unsafe { self.ptr().add(offset) };
+        let destination = unsafe { self.ptr().add(target) };
         // SAFETY:
         // The offsetted pointer is in bounds, thanks to 1.
-        let source = unsafe { self.ptr().add(offset + by.get()) };
+        let source = unsafe { self.ptr().add(target + by.get()) };
         // SAFETY:
         // - The source is valid for reads of `n_elements` elements, thanks to 1. and 3.
         // - The destination is valid for writes of `n_elements` elements, thanks to 1.,
