@@ -18,6 +18,10 @@ on:
           type: string
           default: bin/criterion/trie
           description: folder used to store the output of criterion
+        memory_limit:
+          type: number
+          default: 12582912 # thats 12GB
+          description: Used by the memory monitoring to understand if a runner terminates because of lack of memory (leaking)
     
     # For calling from other workflows
     workflow_call:
@@ -36,6 +40,10 @@ on:
           type: string
           default: bin/criterion/trie
           description: folder used to store the output of criterion
+        memory_limit:
+          type: number
+          default: 12582912 # thats 12GB
+          description: Used by the memory monitoring to understand if a runner terminates because of lack of memory (leaking)
 
 jobs:
   benchmarks:
@@ -89,15 +97,15 @@ jobs:
         run: mkdir -p "${{ inputs.output_folder }}"    
       - name: Run benchmark on PR with baseline from master
         if: github.event_name == 'pull_request' && steps.check_baseline.outputs.baseline_exists == 'true'
-        run: ./memory_tracked_command.sh "cargo bench -- --baseline master" 12582912
+        run: ./memory_tracked_command.sh "cargo bench -- --baseline master" ${{ inputs.memory_limit }}
         working-directory: ${{ inputs.benchmark_folder }}
       - name: Run benchmark on PR without baseline
         if: github.event_name == 'pull_request' && steps.check_baseline.outputs.baseline_exists == 'false'
-        run: ./memory_tracked_command.sh "cargo bench" 12582912
+        run: ./memory_tracked_command.sh "cargo bench" ${{ inputs.memory_limit }}
         working-directory: ${{ inputs.benchmark_folder }}
       - name: Run benchmark on master
         if: github.ref == 'refs/heads/master' && github.event_name == 'push' && success() 
-        run: ./memory_tracked_command.sh "cargo bench -- --save-baseline master" 12582912
+        run: ./memory_tracked_command.sh "cargo bench -- --save-baseline master" ${{ inputs.memory_limit }}
         working-directory: ${{ inputs.benchmark_folder }}
 
       - name: Upload rust baseline benchmarks for master
