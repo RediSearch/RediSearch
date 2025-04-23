@@ -1,15 +1,19 @@
 name: Run a Micro Benchmark Flow
 
 on:
-    # Manual trigger
-    workflow_dispatch:
+  workflow_call:
+    inputs:
+      env:
+        default: "${{ vars.RUNS_ON }} || ubuntu-latest"
+        type: string
 
-    # For calling from other workflows
-    workflow_call:
+env:
+  BOOST_VERSION: ${{ vars.BOOST_VERSION || '1.83.0' }}
+  LLVM_VERSION: ${{ vars.LLVM_VERSION || 18 }}
 
 jobs:
   benchmarks:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ inputs.env }}
     env:
       RUST_BACKTRACE: full
     steps:

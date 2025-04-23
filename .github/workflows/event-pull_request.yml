@@ -30,7 +30,12 @@ jobs:
       rejson-branch: master
     secrets: inherit
 
+  check-what-is-needed:
+    uses: ./.github/workflows/task-check-changes.yml
+    
   micro-benchmarks:
+    needs: check-what-is-needed
+    if: ${{needs.check-what-is-needed.outputs.MICRO_BENCHMARK_NEEDED}}
     uses: ./.github/workflows/flow-micro-benchmarks.yml
 
   coverage:
