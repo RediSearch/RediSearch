@@ -281,6 +281,7 @@ target_link_libraries(redisearch
         redisearch-coord
         trie
         uv_a
+        ${binroot}/redisearch_rs/libtrie_rs.a
         ${HIREDIS_LIBS}
         ${SSL_LIBS}
         ${CMAKE_LD_LIBS})
