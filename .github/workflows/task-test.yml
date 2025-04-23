@@ -180,7 +180,7 @@ jobs:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
-        run: ./build.sh TESTS
+        run: make
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
@@ -191,7 +191,7 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
-        run: make unit-tests  # todo: replace with ./build.sh RUN_UNIT_TESTS
+        run: make unit-tests
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
@@ -202,10 +202,10 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           SA: 1
-          REJSON: ${{ env.REJSON }}
+          REJSON: ${{ inputs.rejson }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
+        run: make pytest ${{ inputs.test-config }}
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
@@ -216,10 +216,10 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           SA: 0
-          REJSON: ${{ env.REJSON }}
+          REJSON: ${{ inputs.rejson }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
+        run: make pytest ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)
