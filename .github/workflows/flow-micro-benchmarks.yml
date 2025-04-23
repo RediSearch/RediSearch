@@ -20,7 +20,7 @@ on:
           description: folder used to store the output of criterion
         memory_limit:
           type: number
-          default: 12582912 # thats 12GB
+          default: 12582912 # that's 12GB
           description: Used by the memory monitoring to understand if a runner terminates because of lack of memory (leaking)
     
     # For calling from other workflows
@@ -42,7 +42,7 @@ on:
           description: folder used to store the output of criterion
         memory_limit:
           type: number
-          default: 12582912 # thats 12GB
+          default: 12582912 # that's 12GB
           description: Used by the memory monitoring to understand if a runner terminates because of lack of memory (leaking)
 
 jobs:
