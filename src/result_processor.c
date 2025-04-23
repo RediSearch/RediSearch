@@ -1291,18 +1291,18 @@ void PipelineAddCrash(struct AREQ *r) {
    const RLookupKey *scoreKey;
    SearchResult *pooledResult;
    arrayof(SearchResult *) pool;
- } RPNormelizer;
+ } RPNormalizer;
 
 
- static void rpNormelizor_Free(ResultProcessor *base) {
-   RPNormelizer *self = (RPNormelizer *)base;
+ static void rpNormalizer_Free(ResultProcessor *base) {
+   RPNormalizer *self = (RPNormalizer *)base;
    array_free_ex(self->pool, srDtor(*(char **)ptr));
    srDtor(self->pooledResult);
    rm_free(self);
  }
 
- static int rpNormelizor_Yield(ResultProcessor *rp, SearchResult *r){
-   RPNormelizer* self = (RPNormelizer*)rp;
+ static int rpNormalizer_Yield(ResultProcessor *rp, SearchResult *r){
+   RPNormalizer* self = (RPNormalizer*)rp;
    size_t length = array_len(self->pool);
    if (array_len(self->pool) == 0) {
       // We've already yielded all results, return EOF
@@ -1322,14 +1322,14 @@ void PipelineAddCrash(struct AREQ *r) {
    return RS_RESULT_OK;
  }
 
-static int rpNormelizorNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
-  RPNormelizer *self = (RPNormelizer *)rp;
+static int rpNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
+  RPNormalizer *self = (RPNormalizer *)rp;
 
   // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
-    rp->Next = rpNormelizor_Yield;
+    rp->Next = rpNormalizer_Yield;
     return rp->Next(rp, r);
   } else if (rc != RS_RESULT_OK) {
     // whoops!
@@ -1347,28 +1347,27 @@ static int rpNormelizorNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   return RESULT_QUEUED;
 }
 
-static int rpNormelizorAccum(ResultProcessor *rp, SearchResult *r) {
-  RPNormelizer *self = (RPNormelizer *)rp;
+static int rpNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
+  RPNormalizer *self = (RPNormalizer *)rp;
   uint32_t chunkLimit = rp->parent->resultLimit;
   rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
   int rc;
   int count = 0;
-  while ((rc = rpNormelizorNext_innerLoop(rp, r)) == RESULT_QUEUED) {}
+  while ((rc = rpNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED) {}
   RedisModule_Log(RSDummyContext,"warning", "count in the end of the loop is %d", count);
   rp->parent->resultLimit = chunkLimit; // restore the limit
   return rc;
 }
 
  /* Create a new Max Collector processor */
- ResultProcessor *RPNormelizor_New(const RLookupKey *rlk) {
-  RPNormelizer *ret = rm_calloc(1, sizeof(*ret));
+ ResultProcessor *RPNormalizer_New(const RLookupKey *rlk) {
+  RPNormalizer *ret = rm_calloc(1, sizeof(*ret));
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
   ret->pool = array_new(SearchResult*, 0);
-  ret->base.Next = rpNormelizorAccum;
-  ret->base.Free = rpNormelizor_Free;
+  ret->base.Next = rpNormalizer_Accum;
+  ret->base.Free = rpNormalizer_Free;
   ret->base.type = RP_NORMALIZER;
   ret->scoreKey = rlk;
-  //TODO: use inf/-inf values
   ret->maxValue = 0;
   return &ret->base;
 }

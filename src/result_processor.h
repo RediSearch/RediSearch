@@ -301,12 +301,12 @@ ResultProcessor *RPCrash_New();
 void PipelineAddCrash(struct AREQ *r);
 
  /*******************************************************************************************************************
-  *  Normalizor Result Processor
+  *  Normalizer Result Processor
   *
   * This processor depletes the result pipeline first, collecting the maximum value of something,
   * and then returns the maximum as a single result.
   *******************************************************************************************************************/
- ResultProcessor *RPNormelizor_New(const RLookupKey *rlk);
+ ResultProcessor *RPNormalizer_New(const RLookupKey *rlk);
 
 #ifdef __cplusplus
 }
