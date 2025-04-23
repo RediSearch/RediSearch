@@ -1288,7 +1288,6 @@ void PipelineAddCrash(struct AREQ *r) {
    ResultProcessor base;
    // Stores the max value found (if needed in the future)
    double maxValue;
-   double minValue;
    const RLookupKey *scoreKey;
    SearchResult *pooledResult;
    arrayof(SearchResult *) pool;
@@ -1313,13 +1312,13 @@ void PipelineAddCrash(struct AREQ *r) {
   *r = *poppedResult;
   rm_free(poppedResult);
   //  double oldScore = r->score;
-   r->score = (r->score - self->minValue) / (self->maxValue - self->minValue);
+   r->score = r->score / self->maxValue;
    if (self->scoreKey) {
      RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
    }
   //  EXPLAIN(r->scoreExplain,
-  //        "(Score: %.2f = (Original Score: %.2f - Min Score: %.2f) / (Max Score: %.2f - Min Score: %.2f))",
-  //        r->score, oldScore, self->minValue, self->maxValue, self->minValue);
+  //        "(Score: %.2f = Original Score: %.2f / Max Score: %.2f)",
+  //        r->score, oldScore, self->maxValue);
    return RS_RESULT_OK;
  }
 
@@ -1338,7 +1337,6 @@ static int rpNormelizorNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   }
 
   self->maxValue = Max(self->maxValue, self->pooledResult->score);
-  self->minValue = Min(self->minValue, self->pooledResult->score);
   // copy the index result to make it thread safe - but only if it is pushed to the heap
   self->pooledResult->indexResult = NULL;
   array_ensure_append_1(self->pool, self->pooledResult);
@@ -1372,6 +1370,5 @@ static int rpNormelizorAccum(ResultProcessor *rp, SearchResult *r) {
   ret->scoreKey = rlk;
   //TODO: use inf/-inf values
   ret->maxValue = 0;
-  ret->minValue = DBL_MAX;
   return &ret->base;
 }

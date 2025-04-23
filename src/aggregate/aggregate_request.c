@@ -1696,7 +1696,6 @@ int AREQ_BuildPipeline(AREQ *req, QueryError *status) {
     }
   }
 
-
   // If no LIMIT or SORT has been applied, do it somewhere here so we don't
   // return the entire matching result set!
   if (!hasArrange && IsSearch(req)) {
