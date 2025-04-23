@@ -10,6 +10,7 @@ from RLTest import Env
 def testProfileSearch(env):
   conn = getConnectionByEnv(env)
   env.cmd('FT.CONFIG', 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  dialect = int(env.cmd('FT.CONFIG', 'GET', 'DEFAULT_DIALECT')[0][1])
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
   conn.execute_command('hset', '1', 't', 'hello')
@@ -85,7 +86,13 @@ def testProfileSearch(env):
                                           ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]],
                                          ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]],
                                         ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
-  env.assertEqual(actual_res[1][4], expected_res)
+  expected_res_d2 = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
+  env.assertEqual(actual_res[1][4], expected_res if dialect == 1 else expected_res_d2)
 
   if server_version_less_than(env, '6.2.0'):
     return
@@ -102,7 +109,14 @@ def testProfileSearch(env):
                                           ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]],
                                          ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]],
                                         ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
-  env.assertEqual(actual_res[1][4], expected_res)
+  expected_res_d2 = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
+  env.assertEqual(actual_res[1][4], expected_res if dialect == 1 else expected_res_d2)
 
 @skip(cluster=True)
 def testProfileSearchLimited(env):
