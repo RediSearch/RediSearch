@@ -1,138 +1,55 @@
 cmake_minimum_required(VERSION 3.13)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
+include(${root}/deps/readies/cmake/main)
+
+
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 
-# Platform detection
-if(APPLE)
-  set(OS "macos")
-elseif(UNIX)
-  set(OS "linux")
-endif()
-message(STATUS "OS detected: ${OS}")
-
-# Always use .so extension even on macOS
-set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
-
-# Define compiler setup function
-function(setup_cc_options)
-    message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
-
-    # Common compiler flags
-    set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -Werror=incompatible-pointer-types -Werror=implicit-function-declaration -fcommon -funsigned-char" PARENT_SCOPE)
-    set(CMAKE_CXX_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
-    set(CMAKE_CXX_STANDARD 20)
-    # Release/Debug/Profile specific flags
-    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
-        set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
-        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
-    elseif(PROFILE)
-        set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
-        set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
-    else()
-        # Default to Release flags
-        set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O3" PARENT_SCOPE)
-        set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O3" PARENT_SCOPE)
-    endif()
-endfunction()
-
-# Define shared object setup function
-function(setup_shared_object_target target)
-  if(APPLE)
-      set_target_properties(${target} PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
-      # Force .so extension on macOS instead of .dylib
-      set_target_properties(${target} PROPERTIES SUFFIX ".so")
-  else()
-      # We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
-      # the library's own definition, rather than to a definition in another shared library or the main executable.
-      set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Bsymbolic -Bsymbolic-functions")
-  endif()
-  set_target_properties(${target} PROPERTIES PREFIX "")
-endfunction()
-
-# Define debug symbols extraction function
-function(extract_debug_symbols target)
-  if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" AND NOT APPLE)
-    add_custom_command(TARGET ${target} POST_BUILD
-      COMMAND objcopy --only-keep-debug $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
-      COMMAND objcopy --strip-debug $<TARGET_FILE:${target}>
-      COMMAND objcopy --add-gnu-debuglink=$<TARGET_FILE:${target}>.debug $<TARGET_FILE:${target}>
-      COMMENT "Extracting debug symbols from ${target}"
-    )
-  endif()
-endfunction()
-
 #----------------------------------------------------------------------------------------------
-# Command line options with default values
+
+option(BUILD_STATIC "Build a static library" OFF)
 option(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 option(BUILD_SEARCH_UNIT_TESTS "Build unit tests" OFF)
-option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
-option(ENABLE_ASSERT "Enable assertions" OFF)
-option(MAX_WORKER_THREADS "Override them maximum parallel worker threads allowed in thread-pool" "")
-option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
-
 
 #----------------------------------------------------------------------------------------------
-# Configure output paths based on build configuration
-set(MODULE_NAME "search" CACHE STRING "Module name" FORCE)
-if(NOT DEFINED COORD_TYPE)
-    set(COORD_TYPE "oss")
-endif()
-if(COORD_TYPE STREQUAL "oss")
-  set(BINDIR "${binroot}/search-community")
-elseif(COORD_TYPE STREQUAL "rlec")
-  set(BINDIR "${binroot}/search-enterprise")
-  add_compile_definitions(PRIVATE RS_CLUSTER_ENTERPRISE)
-  set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "module-enterprise")
-else()
-  message(FATAL_ERROR "Invalid COORD_TYPE (='${COORD_TYPE}'). Should be either 'oss' or 'rlec'")
-endif()
 
-#----------------------------------------------------------------------------------------------
 project(redisearch)
 
-# Configure compiler options
+if (NOT MODULE_NAME)
+    set(MODULE_NAME "search")  # unless it was already set to "searchlite"
+endif()
+
+#----------------------------------------------------------------------------------------------
+
 setup_cc_options()
 
-# Sanitizer settings
+# ugly hack for cpu_features::list_cpu_features coming from VecSim
+set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
+
 message(STATUS "SAN: ${SAN}")
-if(SAN)
-    if(SAN STREQUAL "address")
+
+# check if env sanitizers are set, and set ld_flags accordingly
+if (SAN)
+    if (SAN STREQUAL "address")
         set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fno-omit-frame-pointer -fsanitize=address -fsanitize-recover=all")
         set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fsanitize=address")
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address")
-        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+        # print the flags
         message(STATUS "CMAKE_C_FLAGS: ${CMAKE_C_FLAGS}")
         message(STATUS "CMAKE_LINKER_FLAGS: ${CMAKE_LINKER_FLAGS}")
         message(STATUS "CMAKE_SHARED_LINKER_FLAGS: ${CMAKE_SHARED_LINKER_FLAGS}")
     endif()
 endif()
 
-if (COV)
-    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
-endif()
-
-# Get Git version info - to be printed in log upon loading the module
-execute_process(
-  COMMAND git describe --abbrev=7 --always
-  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-  OUTPUT_VARIABLE GIT_VERSPEC
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  ERROR_QUIET
-)
-
-execute_process(
-  COMMAND git rev-parse HEAD
-  WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-  OUTPUT_VARIABLE GIT_SHA
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  ERROR_QUIET
-)
-
-# ugly hack for cpu_features::list_cpu_features coming from VecSim
-set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
+# The default signedness of char can vary by architecture and compiler.
+# Common defaults:
+# - x86/x86_64: Typically signed by default.
+# - ARM: Typically unsigned by default.
+# This can lead to different behavior when comparing or converting char to int,
+# and causes different behavior between different platforms when sorting strings.
+# To avoid this, we set the default signedness of char to unsigned.
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -funsigned-char")
 
 add_compile_definitions(
     "REDISEARCH_MODULE_NAME=\"${MODULE_NAME}\""
@@ -141,56 +58,43 @@ add_compile_definitions(
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
-if(MAX_WORKER_THREADS)
+if (BUILD_LITE)
+    message(WARNING "Building artifact under the name searchlight for backward compatibility, but coordinator will be activated in clustered environment")
+endif()
+
+if (MAX_WORKER_THREADS)
     set_source_files_properties(src/config.c PROPERTIES COMPILE_DEFINITIONS MAX_WORKER_THREADS=${MAX_WORKER_THREADS})
 endif()
 
-if(USE_REDIS_ALLOCATOR)
+if (USE_REDIS_ALLOCATOR)
     add_compile_definitions(REDIS_MODULE_TARGET)
 endif()
 
-if(VERBOSE_UTESTS)
-    add_compile_definitions(VERBOSE_UTESTS=1)
-endif()
+if (APPLE)
+    include_directories(/usr/local/opt/openssl/include)
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
 
-# Platform-specific settings
-if(APPLE)
-    # Find OpenSSL on macOS
-    find_package(OpenSSL REQUIRED)
-    include_directories(${OPENSSL_INCLUDE_DIR})
-
-    if(DEFINED LIBSSL_DIR)
-        include_directories(${LIBSSL_DIR}/include)
-        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L${LIBSSL_DIR}/lib")
-    endif()
-
-    set(SSL_LIBS ${OPENSSL_LIBRARIES})
-    set(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS} -dynamiclib")
+    include_directories(${LIBSSL_DIR}/include)
+    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L${LIBSSL_DIR}/lib")
+    set(SSL_LIBS crypto ssl)
 else()
     set(SSL_LIBS crypto crypt ssl)
 endif()
 
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
-
 # On debug artifacts, enable assertions
-if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR ENABLE_ASSERT)
+if (DEBUG)
     add_compile_definitions(ENABLE_ASSERT=1)
 endif()
 
 #----------------------------------------------------------------------------------------------
-# Include external dependencies
+
+include(${root}/build/libuv/libuv.cmake)
 include(${root}/build/hiredis/hiredis.cmake)
-
-if (NOT DEFINED BOOST_DIR)
-    set(BOOST_DIR "${root}/.install/boost")
-endif()
-
 include(${root}/build/boost/boost.cmake)
 if (NOT IS_DIRECTORY ${BOOST_DIR})
     message(FATAL_ERROR "BOOST_DIR is not defined or does not point to a valid directory ${BOOST_DIR}")
 endif()
 
-message(STATUS "BOOST_DIR: ${BOOST_DIR}")
 set(BOOST_ROOT ${BOOST_DIR})
 set(Boost_NO_WARN_NEW_VERSIONS ON)
 
@@ -213,12 +117,7 @@ add_subdirectory(deps/phonetics)
 add_subdirectory(deps/fast_float)
 add_subdirectory(deps/triemap)
 
-# Configure libuv options
-set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
-set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
-set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE) # Force static library
-add_subdirectory(deps/libuv)
-
+option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
@@ -227,7 +126,7 @@ add_subdirectory(src/util/hash)
 add_subdirectory(src/coord)
 
 #----------------------------------------------------------------------------------------------
-# Source files for the core library
+
 file(GLOB SOURCES
     "src/*.c"
     "src/aggregate/*.c"
@@ -269,30 +168,56 @@ set(FINAL_OBJECTS
 )
 
 #----------------------------------------------------------------------------------------------
-# Build the shared library
-add_library(redisearch SHARED ${FINAL_OBJECTS})
 
-set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
-setup_shared_object_target(redisearch "")
-target_link_libraries(redisearch
-        redisearch-geometry
-        redisearch-hash
-        VectorSimilarity
-        redisearch-coord
-        trie
-        uv_a
-        ${HIREDIS_LIBS}
-        ${SSL_LIBS}
-        ${CMAKE_LD_LIBS})
+if (BUILD_STATIC)
+    add_library(redisearch-static STATIC ${FINAL_OBJECTS})
+    add_library(redisearch SHARED ${FINAL_OBJECTS})
 
-extract_debug_symbols(redisearch)
-add_dependencies(redisearch VectorSimilarity)
-add_dependencies(redisearch uv_a)
+    set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
+    setup_shared_object_target(redisearch "")
+    target_link_libraries(redisearch redisearch-geometry redisearch-hash VectorSimilarity trie ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch ${binroot}/redisearch_rs/libtrie_rs.a)
 
+    set(TEST_MODULE "redisearch-static")
+    set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
+
+else() # OSS RediSearch
+    add_library(redisearch SHARED ${FINAL_OBJECTS})
+
+    set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
+    setup_shared_object_target(redisearch "")
+    target_link_libraries(redisearch
+            redisearch-geometry
+            redisearch-hash
+            VectorSimilarity
+            redisearch-coord
+            trie
+            ${LIBUV_LIBS}
+            ${HIREDIS_LIBS}
+            ${SSL_LIBS}
+            ${REDISEARCH_LIBS}
+            ${CMAKE_LD_LIBS})
+    target_link_libraries(redisearch ${binroot}/redisearch_rs/libtrie_rs.a)
+
+    extract_debug_symbols(redisearch)
+
+    add_dependencies(redisearch VectorSimilarity)
+
+endif()
+
+if (${COORD_TYPE} STREQUAL "oss")
+    add_compile_definitions(PRIVATE)
+elseif (${COORD_TYPE} STREQUAL "rlec")
+    add_compile_definitions(PRIVATE RS_CLUSTER_ENTERPRISE)
+    # TODO: why calling it module and not redisearch???
+    set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "module-enterprise")
+else()
+    message(FATAL_ERROR "Invalid TYPE (='${TYPE}'). Should be either 'oss' or 'rlec'")
+endif()
 
 #----------------------------------------------------------------------------------------------
-# Unit tests configuration
-if(BUILD_SEARCH_UNIT_TESTS)
+
+if (BUILD_SEARCH_UNIT_TESTS)
     enable_testing()
 
     add_subdirectory(tests/cpptests/redismock)
@@ -305,4 +230,5 @@ if(BUILD_SEARCH_UNIT_TESTS)
     add_subdirectory(tests/ctests)
     add_subdirectory(tests/ctests/ext-example example_extension)
     add_subdirectory(tests/ctests/coord_tests)
+
 endif()
