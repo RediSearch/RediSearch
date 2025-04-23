@@ -86,7 +86,7 @@ def testProfileSearch(env):
                                           ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]],
                                          ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]],
                                         ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
-  expected_res_d2 = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+  expected_res_d2 = ['Iterators profile', ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
                       ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                       ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                       ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
@@ -109,7 +109,7 @@ def testProfileSearch(env):
                                           ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]],
                                          ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]],
                                         ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
-  expected_res_d2 = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+  expected_res_d2 = ['Iterators profile', ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators',
                       ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                       ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
                       ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
