@@ -20,8 +20,14 @@ fn main() {
     };
 
     assert!(std::fs::exists(lib_dir.join("libtrie.a")).unwrap());
-    // Allow undefined symbols in non-macOS builds to align with macOS linker behavior, which permits unresolved symbols by default.
-    // This is safe here because the undefined symbols are resolved at runtime via dynamic linking, ensuring compatibility in CI on Ubuntu.
+    // There are several symbols exposed by `libtrie.a` that we don't
+    // actually invoke (either directly or indirectly) in our benchmarks.
+    // We provide a definition for the ones we need (e.g. Redis' allocation functions),
+    // but we don't want to be forced to add dummy definitions for the ones we don't rely on.
+    // We prefer to fail at runtime if we try to use a symbol that's undefined.
+    // This is the default linker behaviour on macOS. On other platforms, the default
+    // configuration is stricter: it exits with an error if any symbol is undefined.
+    // We intentionally relax it here.
     if target_os != "macos" {
         println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
     }
