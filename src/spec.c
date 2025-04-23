@@ -2236,11 +2236,13 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
 
   // check type of document is support and document is not empty
   DocumentType type = getDocType(scan_key);
+
+  // We release the key before type check, since we don't need it anymore
+  RedisModule_CloseKey(scan_key);
+
   if (type == DocumentType_Unsupported) {
     return;
   }
-
-  RedisModule_CloseKey(scan_key);
 
   if (scanner->global) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL);
