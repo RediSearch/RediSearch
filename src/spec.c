@@ -2246,7 +2246,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     RedisModule_CloseKey(key);
   }
 
-  // Verify that the document type is supported
+  // Verify that the document type is supported and document is not empty
   if (type == DocumentType_Unsupported) {
     return;
   }
