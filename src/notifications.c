@@ -370,6 +370,7 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
 }
 
 void Initialize_KeyspaceNotifications() {
+  static bool RS_KeyspaceEvents_Initialized = false;
   if (!RS_KeyspaceEvents_Initialized) {
     RedisModule_SubscribeToKeyspaceEvents(RSDummyContext,
       REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
