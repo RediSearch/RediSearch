@@ -60,7 +60,6 @@ OP=
 #--------------------------------------------------------------------------------- Environments
 
 ARCH=$($READIES/bin/platform --arch)
-[[ $ARCH == arm64v8 ]] && ARCH="aarch64"
 OS=$($READIES/bin/platform --os)
 OSNICK=$($READIES/bin/platform --osnick)
 
