@@ -149,9 +149,8 @@ jobs:
         run: ${{ steps.mode.outputs.mode }} make install
 
       # Build & Pack
-      - name: Build and Pack RediSearch Enterprise
+      - name: Build and Pack RediSearch
         env:
-          COORD: rlec
           MAX_WORKER_THREADS: ${{ vars.MAX_WORKER_THREADS }}
         run: ${{ env.BUILD_CMD }} && make pack
 
