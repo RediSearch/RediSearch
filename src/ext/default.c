@@ -704,7 +704,7 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
   }
 
   /* Register BM25 scorer - NORMALIZED STANDARD VARIATION - MIN MAX */
-  if (ctx->RegisterScoringFunction(BM25_STD_NORMALIZED_MIN_MAX_SCORER_NAME, BM25StdScorer, NULL, NULL) == REDISEARCH_ERR) {
+  if (ctx->RegisterScoringFunction(BM25_STD_NORMALIZED_MAX_SCORER_NAME, BM25StdScorer, NULL, NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 

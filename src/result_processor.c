@@ -1366,7 +1366,7 @@ static int rpNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
   ret->pool = array_new(SearchResult*, 0);
   ret->base.Next = rpNormalizer_Accum;
   ret->base.Free = rpNormalizer_Free;
-  ret->base.type = RP_NORMALIZER;
+  ret->base.type = RP_MAX_SCORE_NORMALIZER;
   ret->scoreKey = rlk;
   ret->maxValue = 0;
   return &ret->base;
