@@ -12,6 +12,8 @@ use redis_module::raw::RedisModule_Free;
 
 use wildcard::WildcardPattern;
 
+use crate::iter::{WildcardFilter, WildcardFixedLenFilter};
+
 /// Holds the length of a key string in the trie.
 ///
 /// C equivalent:
@@ -605,14 +607,14 @@ unsafe extern "C" fn TrieMap_Iterate<'tm>(
         ),
         tm_iter_mode::TM_WILDCARD_MODE => {
             let pattern = WildcardPattern::parse(pattern);
-
             let iter = if let Some(wildcard::Token::Literal(prefix)) = pattern.tokens().first() {
                 trie.lending_iter_prefix(prefix)
             } else {
                 trie.lending_iter()
-            };
+            }
+            .with_traversal_filter(WildcardFilter(pattern.clone()));
 
-            TrieMapIteratorImpl::Filtered(iter.filter(Box::new(move |(key, _)| {
+            TrieMapIteratorImpl::Wildcard(iter.filter(Box::new(move |(key, _)| {
                 pattern.matches(key) == wildcard::MatchOutcome::Match
             })))
         }
@@ -623,9 +625,10 @@ unsafe extern "C" fn TrieMap_Iterate<'tm>(
                 trie.lending_iter_prefix(prefix)
             } else {
                 trie.lending_iter()
-            };
+            }
+            .with_traversal_filter(WildcardFixedLenFilter(pattern.clone()));
 
-            TrieMapIteratorImpl::Filtered(iter.filter(Box::new(move |(key, _)| {
+            TrieMapIteratorImpl::WildcardFixedLen(iter.filter(Box::new(move |(key, _)| {
                 pattern.matches_fixed_len(key) == wildcard::MatchOutcome::Match
             })))
         }
@@ -1000,14 +1003,24 @@ fn timespec_monotonic_now() -> libc::timespec {
 }
 
 mod iter_types {
+    use crate::iter::{VisitAll, WildcardFilter, WildcardFixedLenFilter};
     use lending_iterator::{lending_iterator::adapters::Filter, prelude::*};
     use std::ffi::{c_char, c_void};
 
     pub type BoxedPredicate = Box<dyn Fn(&(&[i8], &*mut c_void)) -> bool>;
 
     pub enum TrieMapIteratorImpl<'tm> {
-        Plain(crate::iter::LendingIter<'tm, *mut c_void>),
-        Filtered(Filter<crate::iter::LendingIter<'tm, *mut c_void>, BoxedPredicate>),
+        Plain(crate::iter::LendingIter<'tm, *mut c_void, VisitAll>),
+        Filtered(Filter<crate::iter::LendingIter<'tm, *mut c_void, VisitAll>, BoxedPredicate>),
+        Wildcard(
+            Filter<crate::iter::LendingIter<'tm, *mut c_void, WildcardFilter<'tm>>, BoxedPredicate>,
+        ),
+        WildcardFixedLen(
+            Filter<
+                crate::iter::LendingIter<'tm, *mut c_void, WildcardFixedLenFilter<'tm>>,
+                BoxedPredicate,
+            >,
+        ),
     }
 
     #[gat]
@@ -1022,6 +1035,8 @@ mod iter_types {
             match self {
                 TrieMapIteratorImpl::Plain(iter) => LendingIterator::next(iter),
                 TrieMapIteratorImpl::Filtered(iter) => LendingIterator::next(iter),
+                TrieMapIteratorImpl::Wildcard(iter) => LendingIterator::next(iter),
+                TrieMapIteratorImpl::WildcardFixedLen(iter) => LendingIterator::next(iter),
             }
         }
     }

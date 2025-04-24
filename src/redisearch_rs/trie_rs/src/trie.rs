@@ -2,7 +2,7 @@ use std::{cmp::Ordering, ffi::c_char, fmt};
 
 use low_memory_thin_vec::{LowMemoryThinVec, low_memory_thin_vec};
 
-use crate::iter::{IntoValues, Iter, LendingIter, Values};
+use crate::iter::{IntoValues, Iter, LendingIter, Values, VisitAll};
 
 #[derive(Default, Clone, PartialEq, Eq)]
 /// A trie data structure that maps keys of type `&[c_char]` to values.
@@ -96,33 +96,33 @@ impl<T> TrieMap<T> {
     }
 
     /// Get an iterator over the map entries in order of keys.
-    pub fn iter(&self) -> Iter<'_, T> {
-        Iter::new(self.root.as_ref(), [])
+    pub fn iter(&self) -> Iter<'_, T, VisitAll> {
+        Iter::new(self.root.as_ref(), [], VisitAll)
     }
 
     /// Get an iterator over the map entries with keys that start
     /// with the given prefix, in order of keys.
-    pub fn iter_prefix(&self, prefix: &[c_char]) -> Iter<'_, T> {
+    pub fn iter_prefix(&self, prefix: &[c_char]) -> Iter<'_, T, VisitAll> {
         let buf = &mut vec![];
         let Some((root, prefix_init)) = self
             .root
             .as_ref()
             .and_then(|root| root.find_node_for_prefix(prefix, buf))
         else {
-            return Iter::new(None, vec![]);
+            return Iter::new(None, vec![], VisitAll);
         };
 
-        Iter::new(Some(root), prefix_init.to_vec())
+        Iter::new(Some(root), prefix_init.to_vec(), VisitAll)
     }
 
     /// Get a lending iterator over the map entries in order of keys.
-    pub fn lending_iter(&self) -> LendingIter<'_, T> {
-        Iter::new(self.root.as_ref(), []).into_lending_iter()
+    pub fn lending_iter(&self) -> LendingIter<'_, T, VisitAll> {
+        self.iter().into_lending_iter()
     }
 
     /// Get a lending iterator over the map entries with keys that start
     /// with the given prefix, in order of keys.
-    pub fn lending_iter_prefix(&self, prefix: &[c_char]) -> LendingIter<'_, T> {
+    pub fn lending_iter_prefix(&self, prefix: &[c_char]) -> LendingIter<'_, T, VisitAll> {
         self.iter_prefix(prefix).into_lending_iter()
     }
 

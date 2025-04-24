@@ -39,6 +39,7 @@ pub enum MatchOutcome {
 }
 
 /// A parsed pattern.
+#[derive(Clone)]
 pub struct WildcardPattern<'pattern, C> {
     tokens: Vec<Token<'pattern, C>>,
     /// The length of the raw pattern that this instance was parsed from.
