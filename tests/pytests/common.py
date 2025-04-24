@@ -23,6 +23,7 @@ from unittest.mock import ANY, _ANY
 from unittest import SkipTest
 import inspect
 import subprocess
+import math
 
 BASE_RDBS_URL = 'https://dev.cto.redis.s3.amazonaws.com/RediSearch/rdbs/'
 REDISEARCH_CACHE_DIR = '/tmp/redisearch-rdbs/'
@@ -812,6 +813,10 @@ def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, interna
         debug_params.append("INTERNAL_ONLY")
     return runDebugQueryCommand(env, query_cmd, debug_params)
 
+def runDebugQueryCommandAndCrash(env, query_cmd):
+    debug_params = ['CRASH']
+    return env.expect(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params)).error()
+
 def shardsConnections(env):
   for s in range(1, env.shardsCount + 1):
       yield env.getConnection(shardId=s)
@@ -830,6 +835,76 @@ def checkDebugScannerError(env, idx = 'idx', expected_error = ''):
     env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx).error() \
         .contains(expected_error)
 
-def waitForIndexPauseScan(env, idx = 'idx'):
-    while getDebugScannerStatus(env, idx)!='PAUSED':
+def set_tight_maxmemory_for_oom(env, memory_limit_per = 0.8):
+    # Get current memory consumption value
+    memory_usage = env.cmd('INFO', 'MEMORY')['used_memory']
+    # Set memory limit to less then memory limit
+    required_memory = memory_usage * (1/memory_limit_per)
+    # Round up and add 1
+    new_memory = math.ceil(required_memory) + 1
+
+    env.expect('config', 'set', 'maxmemory',new_memory).ok()
+
+def set_unlimited_maxmemory_for_oom(env):
+    env.expect('config', 'set', 'maxmemory', 0).ok()
+
+
+def waitForIndexStatus(env, status, idx='idx'):
+    while getDebugScannerStatus(env, idx) != status:
         time.sleep(0.1)
+
+def waitForIndexPauseScan(env,idx = 'idx'):
+    waitForIndexStatus(env,'PAUSED', idx)
+
+def shard_getDebugScannerStatus(env, shardId, idx = 'idx'):
+    return env.getConnection(shardId).execute_command(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
+
+def shard_waitForIndexStatus(env, shardId, status, idx='idx'):
+    while shard_getDebugScannerStatus(env, shardId, idx) != status:
+        time.sleep(0.1)
+
+def shard_waitForIndexPauseScan(env, shardId, idx = 'idx'):
+    shard_waitForIndexStatus(env, shardId, 'PAUSED', idx)
+
+def allShards_waitForIndexPauseScan(env, idx = 'idx'):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_waitForIndexPauseScan(env, shardId, idx)
+
+def allShards_waitForIndexStatus(env, status, idx='idx'):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_waitForIndexStatus(env, shardId, status, idx)
+
+def shard_waitForIndexFinishScan(env, shardId, idx = 'idx'):
+    while index_info(env, idx)['percent_indexed'] != '1':
+        time.sleep(0.1)
+
+def allShards_waitForIndexFinishScan(env, idx = 'idx'):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_waitForIndexFinishScan(env, shardId, idx)
+
+def shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per = 0.8):
+    # Get current memory consumption value
+    memory_usage = env.getConnection(shardId).execute_command('INFO', 'MEMORY')['used_memory']
+    # Set memory limit to less then memory limit
+    required_memory = memory_usage * (1/memory_limit_per)
+    # Round up and add 1
+    new_memory = math.ceil(required_memory) + 1
+    res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', new_memory)
+    env.assertEqual(res, 'OK')
+
+def allShards_set_tight_maxmemory_for_oom(env, memory_limit_per = 0.8):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per)
+
+def shard_set_unlimited_maxmemory_for_oom(env, shardId):
+    res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', 0)
+    env.assertEqual(res, 'OK')
+
+def allShards_set_unlimited_maxmemory_for_oom(env):
+    for shardId in range(1, env.shardsCount + 1):
+        shard_set_unlimited_maxmemory_for_oom(env, shardId)
+
+def assertEqual_dicts_on_intersection(env, d1, d2, message=None, depth=0):
+    for k in d1:
+        if k in d2:
+            env.assertEqual(d1[k], d2[k], message=message, depth=depth+1)

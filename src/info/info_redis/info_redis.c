@@ -6,10 +6,13 @@
 
 #include "info_redis.h"
 #include "version.h"
-#include "global_stats.h"
+#include "info/global_stats.h"
 #include "cursor.h"
-#include "indexes_info.h"
+#include "info/indexes_info.h"
 #include "util/units.h"
+#include "info/info_redis/types/blocked_queries.h"
+#include "info/info_redis/threads/current_thread.h"
+#include "info/info_redis/threads/main_thread.h"
 
 /* ========================== PROTOTYPES ============================ */
 // Fields statistics
@@ -24,6 +27,8 @@ static inline void AddToInfo_Queries(RedisModuleInfoCtx *ctx, TotalIndexesInfo *
 static inline void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *total_info);
 static inline void AddToInfo_Dialects(RedisModuleInfoCtx *ctx);
 static inline void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx);
+static inline void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx);
+static inline void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx);
 /* ========================== MAIN FUNC ============================ */
 
 void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
@@ -71,6 +76,12 @@ void RS_moduleInfoFunc(RedisModuleInfoCtx *ctx, int for_crash_report) {
 
   // Run time configuration
   AddToInfo_RSConfig(ctx);
+
+  // Active operations
+  if (for_crash_report) {
+    AddToInfo_CurrentThread(ctx);
+    AddToInfo_BlockedQueries(ctx);
+  }
 }
 
 /* ========================== IMP ============================ */
@@ -226,6 +237,7 @@ void AddToInfo_ErrorsAndWarnings(RedisModuleInfoCtx *ctx, TotalIndexesInfo *tota
   RedisModule_InfoAddFieldDouble(ctx, "errors_indexing_failures", total_info->indexing_failures);
   // highest number of failures out of all specs
   RedisModule_InfoAddFieldDouble(ctx, "errors_for_index_with_max_failures", total_info->max_indexing_failures);
+  RedisModule_InfoAddFieldDouble(ctx, "OOM_indexing_failures_indexes_count", total_info->background_indexing_failures_OOM);
 }
 
 void AddToInfo_Dialects(RedisModuleInfoCtx *ctx) {
@@ -269,4 +281,76 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
   RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length",
                                    RSGlobalConfig.minPhoneticTermLen);
+  RedisModule_InfoAddFieldLongLong(ctx, "bm25std_tanh_factor",
+                                   RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor);
+}
+
+// IF the crashing thread worked on a spec, output the spec name
+void AddToInfo_CurrentThread(RedisModuleInfoCtx *ctx) {
+  SpecInfo *specInfo = CurrentThread_TryGetSpecInfo();
+  RedisModule_InfoAddSection(ctx, "current_thread");
+  if (!specInfo) {
+    return;
+  }
+  if (specInfo) {
+    StrongRef strong = WeakRef_Promote(specInfo->specRef);
+    IndexSpec *spec = StrongRef_Get(strong);
+    // spec can be null if the spec was deleted,
+    // e.g in gc thread: it manages to take a strong ref but the invalidation flag was later turned on and no more strong refs can be taken
+    if (!spec) {
+      RedisModule_InfoAddFieldCString(ctx, "index", specInfo->specName ? specInfo->specName : "n/a");
+    } else {
+      RedisModule_InfoAddFieldCString(ctx, "index", IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog));
+      // output FT.INFO
+    }
+  }
+}
+
+static void AddQueriesToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQueries) {
+  if (!activeQueries) {
+    // we are not the main thread, simply return
+    return;
+  }
+  // Assumes no other thread is currently accessing the active-threads container
+  DLLIST_FOREACH(node, &(activeQueries->queries)) {
+    BlockedQueryNode *at = DLLIST_ITEM(node, BlockedQueryNode, llnode);
+    IndexSpec *sp = StrongRef_Get(at->spec);
+    // we have a strong ref so having a null pointer is not likely but would prefer not to crash in the signal handler
+    if (!sp) {
+      continue;
+    }
+    RedisModule_InfoBeginDictField(ctx, IndexSpec_FormatName(sp, RSGlobalConfig.hideUserDataFromLog));
+    RedisModule_InfoAddFieldULongLong(ctx, "started_at", (unsigned long long)at->start);
+    RedisModule_InfoEndDictField(ctx);
+  }
+}
+
+static void AddCursorsToInfo(RedisModuleInfoCtx *ctx, BlockedQueries* activeQueries) {
+  if (!activeQueries) {
+    // we are not the main thread, simply return
+    return;
+  }
+  DLLIST_FOREACH(node, &(activeQueries->cursors)) {
+    BlockedCursorNode *at = DLLIST_ITEM(node, BlockedCursorNode, llnode);
+    IndexSpec *spec = StrongRef_Get(at->spec);
+    char buffer[21]; // 20 is the max length of a uint64_t
+    sprintf(buffer, "%zu", at->cursorId);
+    RedisModule_InfoBeginDictField(ctx, buffer);
+    RedisModule_InfoAddFieldCString(ctx, "index", spec ? IndexSpec_FormatName(spec, RSGlobalConfig.hideUserDataFromLog) : "n/a");
+    RedisModule_InfoAddFieldULongLong(ctx, "started_at", at->start);
+    RedisModule_InfoEndDictField(ctx);
+  }
+}
+
+// if the main thread crashed, output the blocked queries and blocked cursors
+// useful in case the watchdog killed the process - which lead to the main thread handling the signal
+void AddToInfo_BlockedQueries(RedisModuleInfoCtx *ctx) {
+  BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
+  RedisModule_InfoAddSection(ctx, "blocked_queries");
+  // If we are not the main thread then do not output the current queries
+  AddQueriesToInfo(ctx, blockedQueries);
+
+  RedisModule_InfoAddSection(ctx, "blocked_cursors");
+  // Assumes no other thread is currently accessing the active-threads container
+  AddCursorsToInfo(ctx, blockedQueries);
 }

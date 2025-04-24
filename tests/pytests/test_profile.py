@@ -10,6 +10,7 @@ from RLTest import Env
 def testProfileSearch(env):
   conn = getConnectionByEnv(env)
   env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
+  dialect = int(env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1])
 
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
   conn.execute_command('hset', '1', 't', 'hello')
@@ -63,7 +64,7 @@ def testProfileSearch(env):
   env.assertEqual(actual_res[1][1][0][3], expected_res)
 
   # test FUZZY
-  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '%%hel%%', 'nocontent')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'query', '%%hel%%', 'nocontent') # codespell:ignore hel
   expected_res = ['Type', 'UNION', 'Query type', 'FUZZY - hel', 'Counter', 1, 'Child iterators', [
                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
   env.assertEqual(actual_res[1][1][0][3], expected_res)
@@ -86,7 +87,13 @@ def testProfileSearch(env):
                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
                   ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
-  env.assertEqual(actual_res[1][1][0][3], expected_res)
+  expected_res_d2 = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
+  env.assertEqual(actual_res[1][1][0][3], expected_res if dialect == 1 else expected_res_d2)
 
   if server_version_less_than(env, '6.2.0'):
     return
@@ -103,7 +110,14 @@ def testProfileSearch(env):
                     ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
                    ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]],
                   ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
-  env.assertEqual(actual_res[1][1][0][3], expected_res)
+  expected_res_d2 = ['Type', 'INTERSECT', 'Counter', 1, 'Child iterators', [
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1],
+                      ['Type', 'TEXT', 'Term', 'hello', 'Counter', 1, 'Size', 1]]]
+  env.assertEqual(actual_res[1][1][0][3], expected_res if dialect == 1 else expected_res_d2)
 
 @skip(cluster=True)
 def testProfileSearchLimited(env):
@@ -116,7 +130,7 @@ def testProfileSearchLimited(env):
   conn.execute_command('hset', '3', 't', 'help')
   conn.execute_command('hset', '4', 't', 'helowa')
 
-  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'limited', 'query',  '%hell% hel*')
+  actual_res = conn.execute_command('ft.profile', 'idx', 'search', 'limited', 'query',  '%hell% hel*') # codespell:ignore hel
   expected_res = ['Type', 'INTERSECT', 'Counter', 3, 'Child iterators', [
                   ['Type', 'UNION', 'Query type', 'FUZZY - hell', 'Counter', 3, 'Child iterators', 'The number of iterators in the union is 3'],
                   ['Type', 'UNION', 'Query type', 'PREFIX - hel', 'Counter', 3, 'Child iterators', 'The number of iterators in the union is 4']]]
@@ -144,7 +158,7 @@ def testProfileAggregate(env):
                   ['Type', 'Projector - Function startswith', 'Counter', 2]]
   actual_res = env.cmd('ft.profile', 'idx', 'aggregate', 'query', '*',
                 'load', 1, 't',
-                'apply', 'startswith(@t, "hel")', 'as', 'prefix')
+                'apply', 'startswith(@t, "hel")', 'as', 'prefix') # codespell:ignore hel
   env.assertEqual(actual_res[1][1][0][5], expected_res)
 
   expected_res = [['Type', 'Index', 'Counter', 2],
@@ -494,7 +508,7 @@ def TimeoutWarningInProfile(env):
 
 @skip(cluster=True)
 def testFailOnTimeout_nonStrict(env):
-  TimeoutWarningInProfile(env)
+  TimeoutWarningInProfile(Env(moduleArgs="ON_TIMEOUT RETURN"))
 
 @skip(cluster=True)
 def testFailOnTimeout_strict():

@@ -35,8 +35,6 @@
 #define NORM_MAXFREQ 1
 // normalize TF by number of tokens (weighted)
 #define NORM_DOCLEN 2
-// Stretch factor for the BM25 normalization function (tanh)
-#define NORMALIZED_BM25_STRETCH_FACTOR 4
 
 #define EXPLAIN(exp, fmt, args...) \
   {                                \
@@ -105,6 +103,10 @@ static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndex
     return 0;
   }
   uint32_t norm = normMode == NORM_MAXFREQ ? dmd->maxFreq : dmd->len;
+  if (norm == 0) {
+    EXPLAIN(scrExp, "Document %s is 0", normMode == NORM_MAXFREQ ? "max frequency" : "length");
+    return 0;
+  }
   double rawTfidf = tfidfRecursive(h, dmd, scrExp);
   double tfidf = dmd->score * rawTfidf / norm;
   strExpCreateParent(ctx, &scrExp);
@@ -221,7 +223,7 @@ static double inline CalculateBM25Std(float b, float k1, double idf, double f, i
                                       double avg_doc_len, double weight, RSScoreExplain *scrExp, const char *term) {
   double ret = weight * idf * f * (k1 + 1) / (f + k1 * (1.0f - b + b * (float)doc_len/avg_doc_len));
   EXPLAIN(scrExp,
-          "%s: (%.2f = Weight %.2f * IDF %.2f * (F %.2f * (k1 1.2 + 1)) / (F %.2f + k1 1.2 * (1 - b 0.5 + b 0.5 *"
+          "%s: (%.2f = Weight %.2f * IDF %.2f * (F %.2f * (k1 1.2 + 1)) / (F %.2f + k1 1.2 * (1 - b 0.75 + b 0.75 *"
           " Doc Len %d / Average Doc Len %.2f)))",
           term, ret, weight, idf, f, f, doc_len, avg_doc_len);
   return ret;
@@ -230,7 +232,7 @@ static double inline CalculateBM25Std(float b, float k1, double idf, double f, i
 /* recursively calculate score for each token, summing up sub tokens */
 static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
                             const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) {
-  static const float b = 0.5f;
+  static const float b = 0.75f;
   static const float k1 = 1.2f;
   double f = (double)r->freq;
   double ret = 0;
@@ -301,8 +303,10 @@ static inline double tanhStretched(double x, double stretch) {
 /* Normalized BM25 scoring function (of the standard version)
  * The normalization is done by applying the stretched hyperbolic tangent function
  * on the standard BM25 score of the result, resulting in a score in the range [0,1].
+ * The stretch factor is used to control the range of the linear part of the
+ * tanh function, after which the scores are mapped to ~1.
 */
-static double BM25StdNormScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+static double BM25StdTanhScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
                          const RSDocumentMetadata *dmd, double minScore) {
   RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
   double bm25res = bm25StdRecursive(ctx, r, dmd, scrExp);
@@ -313,13 +317,13 @@ static double BM25StdNormScorer(const ScoringFunctionArgs *ctx, const RSIndexRes
           dmd->score);
 
   // Normalize the score
-  double normalizedScore = tanhStretched(score, NORMALIZED_BM25_STRETCH_FACTOR);
+  double normalizedScore = tanhStretched(score, ctx->tanhFactor);
 
   // Modify the explanation to include the normalization
   strExpCreateParent(ctx, &scrExp);
   EXPLAIN(scrExp,
     "Final Normalized BM25 : tanh(stretch factor 1/%d * Final BM25 %.2f)",
-    NORMALIZED_BM25_STRETCH_FACTOR, score);
+    ctx->tanhFactor, score);
 
   return normalizedScore;
 }
@@ -698,8 +702,8 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
     return REDISEARCH_ERR;
   }
 
-  /* Register BM25 scorer - STANDARD VARIATION */
-  if (ctx->RegisterScoringFunction(BM25_STD_NORMALIZED_TANH_SCORER_NAME, BM25StdNormScorer, NULL, NULL) == REDISEARCH_ERR) {
+  /* Register BM25 scorer - NORMALIZED STANDARD VARIATION - TANH */
+  if (ctx->RegisterScoringFunction(BM25_STD_NORMALIZED_TANH_SCORER_NAME, BM25StdTanhScorer, NULL, NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 

@@ -19,7 +19,7 @@
 /* increasing the ref count of the given dmd */
 /*
  * This macro is atomic and fits for single writer and multiple readers as it is used only
- * used after we locked the index spec (R/W) and we either have a writer alone or multiple readers.
+ * after we locked the index spec (R/W) and we either have a writer alone or multiple readers.
  */
 #define DMD_Incref(md)                                                        \
   ({                                                                          \

@@ -34,6 +34,7 @@
 #include "util/workers.h"
 #include "info/global_stats.h"
 #include "debug_commands.h"
+#include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
 #include "util/hash/hash.h"
 #include "reply_macros.h"
@@ -71,7 +72,7 @@ static redisearch_thpool_t *cleanPool = NULL;
 extern DebugCTX globalDebugCtx;
 
 const char *DEBUG_INDEX_SCANNER_STATUS_STRS[DEBUG_INDEX_SCANNER_CODE_COUNT] = {
-    "NEW", "SCANNING", "DONE", "CANCELLED", "PAUSED", "RESUMED"
+    "NEW", "SCANNING", "DONE", "CANCELLED", "PAUSED", "RESUMED", "PAUSED_ON_OOM"
 };
 
 // Static assertion to ensure array size matches the number of statuses
@@ -85,6 +86,7 @@ static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref);
 static void DebugIndexesScanner_Free(DebugIndexesScanner *dScanner);
 static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              DebugIndexesScanner *dScanner);
+static void DebugIndexes_pauseOnOOMcheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx);
 
 //---------------------------------------------------------------------------------------------
 
@@ -1357,7 +1359,7 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
 
 failure:  // on failure free the spec fields array and return an error
   spec->flags &= ~Index_Temporary;
-  IndexSpec_RemoveFromGlobals(spec_ref);
+  IndexSpec_RemoveFromGlobals(spec_ref, false);
   return INVALID_STRONG_REF;
 }
 
@@ -1597,16 +1599,18 @@ void IndexSpec_Free(IndexSpec *spec) {
 
 // Assumes this is called from the main thread with no competing threads
 // Also assumes that the spec is existing in the global dictionary, so
-// we use the global reference as our guard and access the spec dierctly.
+// we use the global reference as our guard and access the spec directly.
 // This function consumes the Strong reference it gets
-void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
+void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive) {
   IndexSpec *spec = StrongRef_Get(spec_ref);
 
   // Remove spec from global index list
   dictDelete(specDict_g, (void*)spec->specName);
 
-  // Remove spec from global aliases list
-  IndexSpec_ClearAliases(spec_ref);
+  if (!spec->isDuplicate) {
+    // Remove spec from global aliases list
+    IndexSpec_ClearAliases(spec_ref);
+  }
 
   SchemaPrefixes_RemoveSpec(spec_ref);
 
@@ -1636,6 +1640,11 @@ void IndexSpec_RemoveFromGlobals(StrongRef spec_ref) {
   // Nullify the spec's quick access to the strong ref. (doesn't decrement refrences count).
   spec->own_ref = (StrongRef){0};
 
+  if (removeActive) {
+    // Remove thread from active-threads container
+    CurrentThread_ClearIndexSpec();
+  }
+
   // mark the spec as deleted and decrement the ref counts owned by the global dictionaries
   StrongRef_Invalidate(spec_ref);
   StrongRef_Release(spec_ref);
@@ -1661,7 +1670,7 @@ void Indexes_Free(dict *d) {
   dictReleaseIterator(iter);
 
   for (size_t i = 0; i < array_len(specs); ++i) {
-    IndexSpec_RemoveFromGlobals(specs[i]);
+    IndexSpec_RemoveFromGlobals(specs[i], false);
   }
   array_free(specs);
 }
@@ -2187,6 +2196,34 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (scanner->cancelled) {
     return;
   }
+  // Get the memory limit and memory usage
+  setMemoryInfo(ctx);
+  // Check if we need to cancel the scan due to memory limit, if memory limit is set to 0, we don't check it
+  if (RSGlobalConfig.indexingMemoryLimit && (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit)) {
+    char* error;
+    rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit);
+    RedisModule_Log(ctx, "warning", error);
+    scanner->cancelled = true;
+
+      // We need to report the error message besides the log, so we can show it in FT.INFO
+    if(!scanner->global) {
+      StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
+      IndexSpec *sp = StrongRef_Get(curr_run_ref);
+      if (sp) {
+        sp->scan_failed_OOM = true;  // Assuming there is no other reason that the scanner is canceled *and* the index exists
+        // Error message does not contain user data
+        IndexError_AddError(&sp->stats.indexError, error, error, keyname);
+        IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
+        StrongRef_Release(curr_run_ref);
+      } else {
+        // spec was deleted
+        RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (index deleted)",
+                      scanner->spec_name_for_logs);
+        }
+      }
+    rm_free(error);
+    return;
+  }
   // RMKey it is provided as best effort but in some cases it might be NULL
   bool keyOpened = false;
   if (!key) {
@@ -2207,7 +2244,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (scanner->global) {
     Indexes_UpdateMatchingWithSchemaRules(ctx, keyname, type, NULL);
   } else {
-    StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
+    StrongRef curr_run_ref = IndexSpecRef_Promote(scanner->spec_ref);
     IndexSpec *sp = StrongRef_Get(curr_run_ref);
     if (sp) {
       // This check is performed without locking the spec, but it's ok since we locked the GIL
@@ -2215,7 +2252,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
       if (SchemaRule_ShouldIndex(sp, keyname, type)) {
         IndexSpec_UpdateDoc(sp, ctx, keyname, type);
       }
-      StrongRef_Release(curr_run_ref);
+      IndexSpecRef_Release(curr_run_ref);
     } else {
       // spec was deleted, cancel scan
       scanner->cancelled = true;
@@ -2272,9 +2309,21 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_ThreadSafeContextLock(ctx);
 
     if (scanner->cancelled) {
-      RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%ld)",
-                  scanner->scannedKeys);
-      goto end;
+
+      // Check for pause after OOM if OOM occurred
+      if (scanner->isDebug) {
+        DebugIndexesScanner* dScanner = (DebugIndexesScanner*)scanner;
+        DebugIndexes_pauseOnOOMcheck(dScanner, ctx);
+      }
+
+      if (scanner->global) {
+        RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%ld)",
+                        scanner->scannedKeys);
+      } else {
+        RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (scanned=%ld)",
+                    scanner->spec_name_for_logs, scanner->scannedKeys);
+        goto end;
+      }
     }
   }
 
@@ -2567,17 +2616,17 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   HiddenString* specName = NewHiddenString(rawName, len, true);
   RedisModule_Free(rawName);
 
-  RefManager *oldSpec = dictFetchValue(specDict_g, specName);
-  if (oldSpec) {
-    // spec already exists lets just free this one
-    HiddenString_Free(specName, true);
-    RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
-    return REDISMODULE_OK;
-  }
-
   IndexSpec *sp = rm_calloc(1, sizeof(IndexSpec));
   StrongRef spec_ref = StrongRef_New(sp, (RefManager_Free)IndexSpec_Free);
   sp->own_ref = spec_ref;
+  // setting isDuplicate to true will make sure index will not be removed from aliases container.
+  const RefManager *oldSpec = dictFetchValue(specDict_g, specName);
+  sp->isDuplicate = oldSpec != NULL;
+  if (sp->isDuplicate) {
+    // spec already exists, however we need to finish consuming the rdb so redis won't issue an error(expecting an eof but seeing remaining data)
+    // right now this can cause nasty side effects, to avoid them we will set isDuplicate to true
+    RedisModule_Log(RSDummyContext, "notice", "Loading an already existing index, will just ignore.");
+  }
 
   // `indexError` must be initialized before attempting to free the spec
   sp->stats.indexError = IndexError_Init();
@@ -2667,10 +2716,19 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
   }
 
   sp->scan_in_progress = false;
-  dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
+  if (sp->isDuplicate) {
+    // spec already exists lets just free this one
+    // Remove the new spec from the global prefixes dictionary.
+    // This is the only global structure that we added the new spec to at this point
+    SchemaPrefixes_RemoveSpec(spec_ref);
+    addPendingIndexDrop();
+    StrongRef_Release(spec_ref);
+  } else {
+    dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
 
-  for (int i = 0; i < sp->numFields; i++) {
-    FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
+    for (int i = 0; i < sp->numFields; i++) {
+      FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
+    }
   }
   return REDISMODULE_OK;
 
@@ -2964,9 +3022,17 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
     return REDISMODULE_ERR;
   }
 
+  QueryError status = {0};
+
+  if(spec->scan_failed_OOM) {
+    QueryError_SetWithoutUserDataFmt(&status, QUERY_INDEXBGOOMFAIL, "Index background scan failed due to OOM. New documents will not be indexed.");
+    IndexError_AddQueryError(&spec->stats.indexError, &status, key);
+    QueryError_ClearError(&status);
+    return REDISMODULE_ERR;
+  }
+
   clock_t startDocTime = clock();
 
-  QueryError status = {0};
   Document doc = {0};
   Document_Init(&doc, key, DEFAULT_SCORE, DEFAULT_LANGUAGE, type);
   // if a key does not exit, is not a hash or has no fields in index schema
@@ -3294,8 +3360,10 @@ void Indexes_List(RedisModule_Reply* reply, bool obfuscate) {
   while ((entry = dictNext(iter))) {
     StrongRef ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(ref);
+    CurrentThread_SetIndexSpec(ref);
     const char *specName = IndexSpec_FormatName(sp, obfuscate);
     REPLY_SIMPLE_SAFE(specName);
+    CurrentThread_ClearIndexSpec();
   }
   dictReleaseIterator(iter);
   RedisModule_Reply_SetEnd(reply);
@@ -3314,6 +3382,7 @@ static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref) {
   dScanner->wasPaused = false;
   dScanner->status = DEBUG_INDEX_SCANNER_CODE_NEW;
   dScanner->base.isDebug = true;
+  dScanner->pauseOnOOM = globalDebugCtx.bgIndexing.pauseOnOOM;
 
   IndexSpec *spec = StrongRef_Get(global_ref);
   spec->scanner = (IndexesScanner*)dScanner;
@@ -3340,16 +3409,62 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
     dScanner->status = DEBUG_INDEX_SCANNER_CODE_CANCELLED;
   }
 
-  RedisModule_ThreadSafeContextUnlock(ctx);
-  while (globalDebugCtx.bgIndexing.pause) { // volatile variable
-    dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED;
-    usleep(1000);
+  // Check if we need to pause the scan before we release the GIL
+  if (globalDebugCtx.bgIndexing.pause)
+  {
+      // Warning: This section is highly unsafe. RM_Scan does not permit the callback
+      // function (i.e., this function) to release the GIL.
+      // If the key currently being scanned is deleted after the GIL is released,
+      // it can lead to a use-after-free and crash Redis.
+      RedisModule_Log(ctx, "warning", "RM_Scan callback function is releasing the GIL, which is unsafe.");
+
+      RedisModule_ThreadSafeContextUnlock(ctx);
+      while (globalDebugCtx.bgIndexing.pause) { // volatile variable
+        dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED;
+        usleep(1000);
+      }
+      RedisModule_ThreadSafeContextLock(ctx);
   }
-  RedisModule_ThreadSafeContextLock(ctx);
 
   if (dScanner->status == DEBUG_INDEX_SCANNER_CODE_PAUSED) {
     dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
   }
 
   Indexes_ScanProc(ctx, keyname, key, &(dScanner->base));
+}
+
+StrongRef IndexSpecRef_Promote(WeakRef ref) {
+  StrongRef strong = WeakRef_Promote(ref);
+  IndexSpec *spec = StrongRef_Get(strong);
+  if (spec) {
+    CurrentThread_SetIndexSpec(strong);
+  }
+  return strong;
+}
+
+void IndexSpecRef_Release(StrongRef ref) {
+  CurrentThread_ClearIndexSpec();
+  StrongRef_Release(ref);
+}
+
+static void DebugIndexes_pauseOnOOMcheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx) {
+  if (!dScanner->pauseOnOOM) {
+    return;
+  }
+
+  StrongRef curr_run_ref = WeakRef_Promote(dScanner->base.spec_ref);
+  IndexSpec *sp = StrongRef_Get(curr_run_ref);
+  if (sp) {
+    if (sp->scan_failed_OOM) {
+      globalDebugCtx.bgIndexing.pause = true;
+      RedisModule_ThreadSafeContextUnlock(ctx);
+      while (globalDebugCtx.bgIndexing.pause) { // volatile variable
+        dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM;
+        usleep(1000);
+      }
+      dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
+      RedisModule_ThreadSafeContextLock(ctx);
+    }
+    StrongRef_Release(curr_run_ref);
+  }
 }

@@ -129,7 +129,7 @@ typedef enum {
     DEBUG_INDEX_SCANNER_CODE_CANCELLED,
     DEBUG_INDEX_SCANNER_CODE_PAUSED,
     DEBUG_INDEX_SCANNER_CODE_RESUMED,
-
+    DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM,
     //Insert new codes here (before COUNT)
     DEBUG_INDEX_SCANNER_CODE_COUNT  // Helps with array size checks
     //Do not add new codes after COUNT
@@ -311,9 +311,10 @@ typedef struct IndexSpec {
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
   bool scan_in_progress;
-  bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
+  bool scan_failed_OOM; // background indexing failed due to Out Of Memory
   bool monitorDocumentExpiration;
   bool monitorFieldExpiration;
+  bool isDuplicate;               // Marks that this index is a duplicate of an existing one
 
   // cached strings, corresponding to number of fields
   IndexSpecFmtStrings *indexStrs;
@@ -600,8 +601,9 @@ StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec);
  * @brief Removes the spec from the global data structures
  *
  * @param ref a strong reference to the spec
+ * @param removeActive - should we call CurrentThread_ClearIndexSpec on the released spec
  */
-void IndexSpec_RemoveFromGlobals(StrongRef ref);
+void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive);
 
 /*
  * Free an indexSpec. For LLAPI
@@ -644,6 +646,7 @@ typedef struct DebugIndexesScanner {
   int maxDocsTBscanned;
   int maxDocsTBscannedPause;
   bool wasPaused;
+  bool pauseOnOOM;
   int status;
 } DebugIndexesScanner;
 
@@ -702,7 +705,19 @@ void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
 size_t CleanInProgressOrPending();
 
+// Expose reindexpool for debug
+void ReindexPool_ThreadPoolDestroy();
+
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
+
+// Tries to promote a WeakRef of a spec to a StrongRef
+// If a strong reference was obtained then we also set the current thread's active spec
+StrongRef IndexSpecRef_Promote(WeakRef ref);
+// Releases a strong reference to a spec
+// Must only be called if the spec was promoted successfully
+// Will also clear the current thread's active spec
+void IndexSpecRef_Release(StrongRef ref);
 
 #ifdef __cplusplus
 }
