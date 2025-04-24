@@ -405,33 +405,33 @@ class TestQueryDebugCommands(object):
         # with cursor
         timeout_res_count = 200
         limit = self.num_docs
-        cursor_count = 600 # higher than timeout_res_count, but lower than limit
+        cursor_count = 100 # lower than timeout_res_count
         debug_params = ["TIMEOUT_AFTER_N", timeout_res_count, "DEBUG_PARAMS_COUNT", 2]
         cursor_query = [*basic_debug_query, 'WITHCURSOR', 'COUNT', cursor_count]
         res, cursor = env.cmd(*cursor_query, 'LIMIT', 0, limit, *debug_params)
-        verifyResultLen(env, res, timeout_res_count, mode="AGG", message="AggregateDebug with cursor:")
+        verifyResultLen(env, res, cursor_count, mode="AGG", message="AggregateDebug with cursor:")
 
         iter = 0
+        # In each iteration, we retrieve cursor_count results.
+        # Once the total results across all iterations reach timeout_res_count, a timeout occurs.
         total_returned = resultLen(res, mode="AGG")
-        expected_results_per_iter = timeout_res_count
+        expected_results_per_iter = cursor_count
 
-        check_res = True
         while (cursor):
-            remaining = limit - total_returned
-            if remaining <= timeout_res_count:
+            remaining = timeout_res_count - total_returned
+            if remaining <= cursor_count:
                 expected_results_per_iter = remaining
             res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
             total_returned += resultLen(res, mode="AGG")
-            if check_res:
-                verifyResultLen(env, res, expected_results_per_iter, mode="AGG", message=f"AggregateDebug with cursor: iter: {iter}, total_returned: {total_returned}")
+            verifyResultLen(env, res, expected_results_per_iter, mode="AGG", message=f"AggregateDebug with cursor: iter: {iter}, total_returned: {total_returned}")
             iter += 1
-        env.assertEqual(total_returned, self.num_docs, message=f"AggregateDebug with cursor: depletion took {iter} iterations")
+        env.assertEqual(total_returned, timeout_res_count, message=f"AggregateDebug with cursor: depletion took {iter} iterations")
 
-        # cursor count smaller than timeout count, expect no timeout
-        cursor_count = timeout_res_count // 2
+        # limit smaller than timeout count, expect no timeout
+        limit = timeout_res_count // 2
         cursor_query = [*basic_debug_query, 'WITHCURSOR', 'COUNT', cursor_count]
         res, cursor = env.cmd(*cursor_query, 'LIMIT', 0, limit, *debug_params)
-        verifyResultLen(env, res, cursor_count, mode="AGG", message="AggregateDebug with cursor count lower than timeout_res_count:")
+        verifyResultLen(env, res, cursor_count, mode="AGG", message="AggregateDebug with limit lower than timeout_res_count:")
 
         self.StrictPolicy()
 

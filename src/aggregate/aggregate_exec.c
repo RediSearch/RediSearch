@@ -324,12 +324,8 @@ void sendChunk(AREQ *req, RedisModuleCtx *outctx, size_t limit) {
   }
 
 done:
-
   SearchResult_Destroy(&r);
-  bool cursor_done =
-      (rc != RS_RESULT_OK &&
-       !(rc == RS_RESULT_TIMEDOUT && RSGlobalConfig.timeoutPolicy == TimeoutPolicy_Return));
-  if (cursor_done) {
+  if (rc != RS_RESULT_OK) {
     req->stateflags |= QEXEC_S_ITERDONE;
   }
   if (req->sctx) {

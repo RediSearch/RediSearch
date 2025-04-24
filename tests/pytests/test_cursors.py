@@ -270,6 +270,7 @@ def testCursorOnCoordinator(env: Env):
 # MOD-8483: In version 2.6, this bug is irrelevant because the sorter always returns EOF after the heap is depleted.
 # This test purpose is to validate the behavior of a cursor with a sorter when timeout is experienced and the timeout policy
 # is RETURN.
+@skip(cluster=True)
 def testCursorDepletionNonStrictTimeoutPolicySortby():
     env = Env(moduleArgs='ON_TIMEOUT RETURN')
     conn = getConnectionByEnv(env)

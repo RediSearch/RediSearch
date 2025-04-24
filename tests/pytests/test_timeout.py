@@ -21,31 +21,149 @@ def testEmptyResult():
 
     verifyResultLen(env, res, 0, mode="AGG")
 
-# This test purpose it to verify that a cursor with limit (a pager), and some reads that result in timeout,
-# will be depleted once the sum of all the read results is equal to the limit.
-# Before the bug fix, the pager would decrease its counter for every 'Next' call to its upstream result processor.
-# Even though the upstream result processor returned might return an error or a timeout, without any new result.
-# As a result, with every cursor read resulted in a timeout, the pager would decrease its counter by 1, leading to a total
-# results count of limit - timedout_cursor_reads.
-@skip(cluster=True)
-def TestLimitWithCursor():
-    env = Env(moduleArgs='ON_TIMEOUT RETURN')
-    conn = getConnectionByEnv(env)
+# Based on this page https://redislabs.atlassian.net/wiki/spaces/DX/pages/edit-v2/5153554508,
+# detailing all the timeout scnarios and their expected results.
+def TestAllScenarios():
+    env = Env(moduleArgs='ON_TIMEOUT FAIL')
     # Create the index
     env.expect('FT.CREATE idx SCHEMA n numeric').ok()
-
+    conn = getConnectionByEnv(env)
     # Populate the index
     num_docs = 150
     for i in range(num_docs):
         conn.execute_command('HSET', f'doc{i}' ,'n', i)
 
-    # query with timeout
-    timeout_res_count = num_docs // 4
-    res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', num_docs, 'LIMIT', 0, num_docs, 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
-    total_res = resultLen(res, mode="AGG")
+    # ================ FAIL POLICY =================
 
-    while (cursor):
-        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
-        total_res += resultLen(res, mode="AGG")
-    # before the bug fix we got total_res = limit - cursor_reads
-    env.assertEqual(total_res, num_docs, message="unexpected results count")
+    """Test WITHCURSOR BASIC + FAIL policy"""
+    # scenario: timeout on first pass
+    # expected: [0, 0]
+    timeout_res_count = 0
+    res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'load', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(res, [0])
+    env.assertEqual(cursor, 0)
+    # scenario: timeout on later pass
+    # expected: [[ANY, <doc>, <doc> .. ], 0]
+    timeout_res_count = 3
+    res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'load', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    # skip doc count since it is unpredictable
+    env.assertEqual(res[1:], [['n', str(i)] for i in range(timeout_res_count)])
+    env.assertEqual(cursor, 0)
+
+    """Test WITHCURSOR + SORTER + FAIL policy"""
+    # Sorter logic includes timeout policy validation. On FAIL, propagates timeout without returning any results.
+    # scenario: timeout on first pass. timeout on later pass is unreachable.
+    # expected: [timeout_res_count, 0]
+    timeout_res_count = 3
+    res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'sortby', '1', '@n', 'load', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(res, [timeout_res_count])
+    env.assertEqual(cursor, 0)
+
+    """Test WITHCURSOR + GROUPER + FAIL policy"""
+    # Grouper drops accumulated results regardless the policy and propagates timeout
+    # scenario: timeout on first pass. timeout on later pass is unreachable.
+    # expected: [timeout_res_count, 0]
+    res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'load', '1', '@n', 'groupby', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(res, [timeout_res_count])
+    env.assertEqual(cursor, 0)
+
+    """Test No cursor BASIC + FAIL policy"""
+    # scenario: timeout on first pass
+    # expected: ["Timeout limit was reached"]
+    timeout_res_count = 0
+    res = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'load', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(res, ["Timeout limit was reached"])
+    # scenario: timeout on later pass
+    # expected: [ANY, <doc>, <doc> .. ]
+    timeout_res_count = 3
+    res = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'load', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    # skip doc count since it is unpredictable
+    env.assertEqual(res[1:], [['n', str(i)] for i in range(timeout_res_count)])
+
+    """Test No cursor + SORTER + FAIL policy"""
+    # scenario: timeout on first pass, timeout on later pass is unreachable.
+    # expected: ["Timeout limit was reached"]
+    timeout_res_count = 4
+    res = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'load', '1', '@n', 'sortby', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(res, ["Timeout limit was reached"])
+    # assuming FT.SEARCH always includes a sorter
+    res = env.cmd(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(res, ["Timeout limit was reached"])
+
+    """Test No cursor + GROUPER + FAIL policy"""
+    # scenario: timeout on first pass, timeout on later pass is unreachable.
+    # expected: ["Timeout limit was reached"]
+    timeout_res_count = 4
+    res = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'load', '1', '@n', 'groupby', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(res, ["Timeout limit was reached"])
+
+    # ================ RETURN POLICY =================
+    env.cmd('FT.CONFIG', 'SET', 'ON_TIMEOUT', 'RETURN')
+
+    """Test WITHCURSOR BASIC + RETURN policy"""
+    # Behaves same as FAIL: accumulate results in the reply until rp->Next() returns timeout.
+    # scenario: timeout on first pass
+    # expected: [0, 0]
+    timeout_res_count = 0
+    res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'load', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(res, [0])
+    env.assertEqual(cursor, 0)
+    # scenario: timeout on later pass
+    # expected: [[ANY, <doc>, <doc> .. ], 0]
+    timeout_res_count = 3
+    res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'load', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    # skip doc count since it is unpredictable
+    env.assertEqual(res[1:], [['n', str(i)] for i in range(timeout_res_count)])
+    env.assertEqual(cursor, 0)
+
+    """Test WITHCURSOR + SORTER + RETURN policy"""
+    # Sorter logic includes timeout policy validation. On RETURN, switch to yield, then EOF
+    # scenario: timeout on first pass. timeout on later pass is unreachable.
+    # expected: [timeout_res_count, 0]
+    timeout_res_count = 3
+    res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'sortby', '1', '@n', 'load', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(res[0], timeout_res_count)
+    env.assertEqual(res[1:], [['n', str(i)] for i in range(timeout_res_count)])
+    env.assertEqual(cursor, 0)
+
+    """Test WITHCURSOR + GROUPER + RETURN policy"""
+    # Grouper drops accumulated results regardless the policy and propagates timeout
+    # scenario: timeout on first pass. timeout on later pass is unreachable.
+    # expected: [timeout_res_count, 0]
+    res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'load', '1', '@n', 'groupby', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(res, [timeout_res_count])
+    env.assertEqual(cursor, 0)
+
+    """Test No cursor BASIC + RETURN policy"""
+    # scenario: timeout on first pass
+    # expected: empty result
+    timeout_res_count = 0
+    res = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'load', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(res, [0])
+    # scenario: timeout on later pass
+    # expected: [ANY, <doc>, <doc> .. ]
+    timeout_res_count = 3
+    res = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'load', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    # skip doc count since it is unpredictable
+    env.assertEqual(res[1:], [['n', str(i)] for i in range(timeout_res_count)])
+
+    """Test No cursor + SORTER + RETURN policy"""
+    # Sorter logic includes timeout policy validation. On RETURN, switch to yield, then EOF
+    # scenario: timeout on first pass. timeout on later pass is unreachable.
+    # expected: [timeout_res_count, 0]
+    timeout_res_count = 4
+    res = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'load', '1', '@n', 'sortby', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(res[0], timeout_res_count)
+    env.assertEqual(res[1:], [['n', str(i)] for i in range(timeout_res_count)])
+    # assuming FT.SEARCH always includes a sorter
+    res = env.cmd(debug_cmd(), 'FT.SEARCH', 'idx', '*', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(res[0], timeout_res_count)
+    expected_res = [f"doc{i}" if j % 2 == 0 else ['n', str(i)]  for i in range(timeout_res_count) for j in range(2)]
+    env.assertEqual(res[1:], expected_res)
+
+    """Test No cursor + GROUPER + FAIL policy"""
+    # scenario: timeout on first pass, timeout on later pass is unreachable.
+    # expected: ["Timeout limit was reached"]
+    timeout_res_count = 4
+    res = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'load', '1', '@n', 'groupby', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(res, [timeout_res_count])
