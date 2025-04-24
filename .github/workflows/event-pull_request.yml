@@ -38,15 +38,12 @@ jobs:
       rejson-branch: master
     secrets: inherit
 
-  check-what-is-needed:
-    uses: ./.github/workflows/task-check-changes.yml
+  micro-benchmarks:
+    needs: check-what-changed
+    if: ${{ needs.check-what-changed.outputs.RUST_CODE_CHANGED == 'true' }}
+    uses: ./.github/workflows/flow-micro-benchmarks.yml
     with:
       env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-
-  micro-benchmarks:
-    needs: check-what-is-needed
-    if: ${{ needs.check-what-is-needed.outputs.MICRO_BENCHMARK_NEEDED == 'true' }}
-    uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit
 
   coverage:
@@ -94,9 +91,11 @@ jobs:
     steps:
       - name: Check job results
         run: |
-          if [[ "${{ needs.micro-benchmarks.result }}" == "skipped" ]]; then
-            echo "Micro-benchmarks skipped (no Rust changes)."
-          elif [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+          if [[ "${{ contains(needs.*.result, 'skipped') }}" == "true" ]]; then
+            echo "One or more jobs skipped, due to change checks."
+          fi
+          
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
             echo "One or more required jobs failed or were cancelled."
             exit 1
           fi
