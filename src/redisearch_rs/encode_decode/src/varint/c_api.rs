@@ -78,6 +78,7 @@ extern "C" fn VVW_Write(mut writer: NonNull<VectorWriter>, value: u32) -> usize 
 
 #[unsafe(no_mangle)]
 extern "C" fn VVW_GetByteData(writer: *const VectorWriter) -> *const u8 {
+   #[cfg(debug_assertions)]
     if writer.is_null() {
         return std::ptr::null();
     }
