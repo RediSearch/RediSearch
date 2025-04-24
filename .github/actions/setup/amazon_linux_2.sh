@@ -6,7 +6,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 $MODE yum update -y
 $MODE amazon-linux-extras enable python3.8
-$MODE yum install -y python3.8 python38-devel which
+$MODE yum install -y python3.8 python38-devel which tar gzip git wget rsync unzip
 $MODE ln -s "$(which python3.8)" /usr/bin/python3
 
 if [[ $ARCH = 'x86_64' ]]
@@ -19,7 +19,7 @@ then
     $MODE sed -i 's/mirrorlist=/#mirrorlist=/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo                        # Disable mirrorlist
     $MODE sed -i 's/#baseurl=http:\/\/mirror/baseurl=http:\/\/vault/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo # Enable a working baseurl
 
-    $MODE yum install -y wget git devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make rsync unzip libclang-dev clang
+    $MODE yum install -y devtoolset-11-gcc devtoolset-11-gcc-c++ devtoolset-11-make libclang-dev clang
 
     source /opt/rh/devtoolset-11/enable
 
@@ -35,13 +35,12 @@ else
     # Enable a working baseurl
     $MODE sed -i 's/#baseurl=http:\/\/mirror.centos.org\/centos/baseurl=http:\/\/vault.centos.org\/altarch/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
 
-    $MODE yum install -y wget git devtoolset-10-gcc devtoolset-10-gcc-c++ \
-        devtoolset-10-make rsync unzip clang curl libclang-dev
+    $MODE yum install -y devtoolset-10-gcc devtoolset-10-gcc-c++ devtoolset-10-make clang curl libclang-dev
 
     source /opt/rh/devtoolset-10/enable
 
     $MODE cp /opt/rh/devtoolset-10/enable /etc/profile.d/scl-devtoolset-10.sh
-    
+
     # hack gcc 10.2.1 Redhat to enable _GLIBCXX_USE_CXX11_ABI=1
     $MODE sed -i \
         -e 's/^# define _GLIBCXX_USE_DUAL_ABI 0/# define _GLIBCXX_USE_DUAL_ABI 1/g' \
