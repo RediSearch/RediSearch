@@ -1,13 +1,8 @@
-/*
- * Copyright (c) 2006-Present, Redis Ltd.
- * All rights reserved.
- *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
- * GNU Affero General Public License v3 (AGPLv3).
-*/
-
-use crate::{node::Node, utils::strip_prefix};
+use crate::{
+    iter::{Iter, LendingIter, Values, filter::VisitAll},
+    node::Node,
+    utils::strip_prefix,
+};
 use std::{ffi::c_char, fmt};
 
 #[derive(Clone, PartialEq, Eq)]
@@ -85,6 +80,12 @@ impl<Data> TrieMap<Data> {
         self.root.as_ref().and_then(|n| n.find(key))
     }
 
+    /// Get a reference to the subtree associated with a key prefix.
+    /// Returns `None` if the key prefix is not present.
+    fn find_root_for_prefix(&self, key: &[c_char]) -> Option<(&Node<Data>, Vec<c_char>)> {
+        self.root.as_ref().and_then(|n| n.find_root_for_prefix(key))
+    }
+
     /// Insert an entry into the trie.
     ///
     /// The value is obtained by calling the provided callback function.
@@ -114,63 +115,46 @@ impl<Data> TrieMap<Data> {
         1 + self.root.as_ref().map_or(0, |r| r.n_descendants())
     }
 
-    /// Iterate over the entries, in (lexicographical) key order.
-    pub fn iter(&self) -> Iter<'_, Data> {
-        Iter::new(self.root.as_ref())
+    /// Iterate over the entries, in lexicographical key order.
+    pub fn iter(&self) -> Iter<'_, Data, VisitAll> {
+        Iter::new(self.root.as_ref(), vec![])
     }
-}
 
-/// Iterates over the entries of a [`TrieMap`] in lexicographical order
-/// of the keys.
-///
-/// Use [`TrieMap::iter`] to create an instance of this iterator.
-pub struct Iter<'tm, Data> {
-    /// Stack of nodes and whether they have been visited.
-    stack: Vec<(&'tm Node<Data>, bool)>,
-    /// Labels of the parent nodes, used to reconstruct the key.
-    prefixes: Vec<&'tm [c_char]>,
-}
-
-impl<'tm, Data> Iter<'tm, Data> {
-    /// Creates a new iterator over the entries of a [`TrieMap`].
-    fn new(root: Option<&'tm Node<Data>>) -> Self {
-        Self {
-            stack: root.into_iter().map(|node| (node, false)).collect(),
-            prefixes: Vec::new(),
+    /// Iterate over the entries that start with the given prefix, in lexicographical key order.
+    pub fn prefixed_iter(&self, prefix: &[c_char]) -> Iter<'_, Data, VisitAll> {
+        match self.find_root_for_prefix(prefix) {
+            Some((subroot, subroot_prefix)) => Iter::new(Some(subroot), subroot_prefix),
+            None => Iter::new(None, vec![]),
         }
     }
-}
 
-impl<'tm, Data> Iterator for Iter<'tm, Data> {
-    type Item = (Vec<c_char>, &'tm Data);
+    /// Iterate over the entries, borrowing the current key from the iterator, in lexicographical key order.
+    pub fn lending_iter(&self) -> LendingIter<'_, Data, VisitAll> {
+        self.iter().into()
+    }
 
-    fn next(&mut self) -> Option<Self::Item> {
-        let (node, was_visited) = self.stack.pop()?;
+    /// Iterate over the entries that start with the given prefix, borrowing the current key from the iterator,
+    /// in lexicographical key order.
+    pub fn prefixed_lending_iter(&self, prefix: &[c_char]) -> LendingIter<'_, Data, VisitAll> {
+        self.prefixed_iter(prefix).into()
+    }
 
-        if !was_visited {
-            let data = node.data();
-            self.stack.push((node, true));
+    /// Iterate over the values stored in this trie, in lexicographical key order.
+    ///
+    /// It won't yield the corresponding keys.
+    pub fn values(&self) -> Values<'_, Data> {
+        Values::new(self.root.as_ref())
+    }
 
-            for child in node.children().iter().rev() {
-                self.stack.push((child, false));
-            }
-
-            self.prefixes.push(node.label());
-            if let Some(data) = data {
-                // Combine the labels of the parent nodes and the current node,
-                // thereby reconstructing the key.
-                let label = self
-                    .prefixes
-                    .iter()
-                    .flat_map(|p| p.iter())
-                    .copied()
-                    .collect();
-                return Some((label, data));
-            }
-        } else {
-            self.prefixes.pop();
+    /// Iterate over the values stored in this trie, in lexicographical key order.
+    ///
+    /// It will only yield the values associated with keys that start with the given prefix.
+    /// It won't yield the corresponding keys.
+    pub fn prefixed_values(&self, prefix: &[c_char]) -> Values<'_, Data> {
+        match self.find_root_for_prefix(prefix) {
+            Some((root, _)) => Values::new(Some(root)),
+            None => Values::new(None),
         }
-        self.next()
     }
 }
 

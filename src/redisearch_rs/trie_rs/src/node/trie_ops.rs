@@ -185,6 +185,31 @@ impl<Data> Node<Data> {
         }
     }
 
+    /// Find the root of the subtree associated with a the given prefix—i.e. the root of the subtree
+    /// containing all keys that start with the given prefix.
+    ///
+    /// Returns `None` if there is no such subtree—i.e. none of the keys stored in the trie
+    /// start with the given prefix.
+    /// If there is a subtree, it also returns the concatenated labels for the path from
+    /// the root to the subtree root.
+    pub fn find_root_for_prefix(&self, mut key: &[c_char]) -> Option<(&Node<Data>, Vec<c_char>)> {
+        let mut current = self;
+        let mut prefix = Vec::new();
+        loop {
+            if key.len() <= current.label_len() as usize {
+                return strip_prefix(current.label(), key)
+                    .is_some()
+                    .then_some((current, prefix));
+            } else {
+                let label = current.label();
+                key = strip_prefix(key, label)?;
+                prefix.extend_from_slice(label);
+                current = current.child_starting_with(key[0])?;
+                continue;
+            }
+        }
+    }
+
     /// Get a reference to the child node whose label starts with the given byte.
     /// Returns `None` if there is no such child.
     pub fn child_starting_with(&self, c: c_char) -> Option<&Node<Data>> {

@@ -11,8 +11,9 @@
 //!
 //! Check [`TrieMap`]'s documentation for more details.
 
+pub mod iter;
 mod node;
 mod trie;
 mod utils;
 
-pub use trie::{Iter, TrieMap};
+pub use trie::TrieMap;
