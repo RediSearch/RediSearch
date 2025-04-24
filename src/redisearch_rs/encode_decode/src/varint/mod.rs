@@ -121,3 +121,36 @@ impl DerefMut for VarintBuf {
         &mut self.0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_varint() {
+        let values = [123456789, 987654321, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let expected_lens = [4, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+
+        for (i, value) in values.iter().enumerate() {
+            let mut buf = Vec::new();
+            let len = write(*value, &mut buf).unwrap();
+            assert_eq!(len, expected_lens[i]);
+            assert_eq!(buf.len(), expected_lens[i]);
+            assert_eq!(read(&buf[..]).unwrap(), *value);
+        }
+    }
+
+    #[test]
+    fn test_field_mask() {
+        let values = [123456789, 987654321, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+        let expected_lens = [4, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
+
+        for (i, value) in values.iter().enumerate() {
+            let mut buf = Vec::new();
+            let len = write_field_mask(*value, &mut buf).unwrap();
+            assert_eq!(len, expected_lens[i]);
+            assert_eq!(buf.len(), expected_lens[i]);
+            assert_eq!(read_field_mask(&buf[..]).unwrap(), *value);
+        }
+    }
+}
