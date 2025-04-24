@@ -1,6 +1,6 @@
 import math
 from includes import *
-from common import getConnectionByEnv, waitForIndex, server_version_at_least, skip
+from common import *
 from RLTest import Env
 
 
@@ -85,7 +85,7 @@ def testTFIDFScorerExplanation(env):
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'SCORE_FIELD', '__score',
                'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
-    dialect = int(env.cmd('FT.CONFIG', 'GET', 'DEFAULT_DIALECT')[0][1])
+    dialect = int(env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1])
 
     env.execute_command('ft.add', 'idx', 'doc1', 0.5, 'fields', 'title', 'hello world',' body', 'lorem ist ipsum')
     env.execute_command('ft.add', 'idx', 'doc2', 1, 'fields', 'title', 'hello another world',' body', 'lorem ist ipsum lorem lorem')
