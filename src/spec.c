@@ -490,10 +490,7 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
 
   // (Lazily) Subscribe to keyspace notifications, now that we have at least one
   // spec
-  if (!RS_KeyspaceEvents_Initialized) {
-    Initialize_KeyspaceNotifications(ctx);
-    RS_KeyspaceEvents_Initialized = true;
-  }
+  Initialize_KeyspaceNotifications();
 
   if (!(sp->flags & Index_SkipInitialScan)) {
     IndexSpec_ScanAndReindex(ctx, spec_ref);
@@ -2861,10 +2858,7 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
 
   // Subscribe to keyspace notifications
-  if (!RS_KeyspaceEvents_Initialized) {
-    Initialize_KeyspaceNotifications(ctx);
-    RS_KeyspaceEvents_Initialized = true;
-  }
+  Initialize_KeyspaceNotifications();
 
   return spec_ref.rm;
 }
@@ -2892,10 +2886,7 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
 
   // If we have indexes in the auxiliary data, we need to subscribe to the
   // keyspace notifications
-  if (!RS_KeyspaceEvents_Initialized) {
-    Initialize_KeyspaceNotifications(ctx);
-    RS_KeyspaceEvents_Initialized = true;
-  }
+  Initialize_KeyspaceNotifications();
 
   return REDISMODULE_OK;
 

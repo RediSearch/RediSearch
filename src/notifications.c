@@ -369,13 +369,16 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
   }
 }
 
-void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
-  RedisModule_SubscribeToKeyspaceEvents(ctx,
-    REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
-    REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_STRING |
-    REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
-    REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE,
-    HashNotificationCallback);
+void Initialize_KeyspaceNotifications() {
+  if (!RS_KeyspaceEvents_Initialized) {
+    RedisModule_SubscribeToKeyspaceEvents(RSDummyContext,
+      REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
+      REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_STRING |
+      REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
+      REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE,
+      HashNotificationCallback);
+    RS_KeyspaceEvents_Initialized = true;
+  }
 }
 
 void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
