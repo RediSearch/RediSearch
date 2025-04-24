@@ -62,7 +62,10 @@ static inline void ByteOffsetWriter_Init(ByteOffsetWriter *w) {
 }
 
 static inline void ByteOffsetWriter_Cleanup(ByteOffsetWriter *w) {
-  VVW_Free(w->vw);
+  if (w->vw != NULL) {
+    VVW_Free(w->vw);
+    w->vw = NULL;
+  }
 }
 
 static inline void ByteOffsetWriter_Write(ByteOffsetWriter *w, uint32_t offset) {
