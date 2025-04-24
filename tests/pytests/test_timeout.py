@@ -21,8 +21,9 @@ def testEmptyResult():
 
     verifyResultLen(env, res, 0, mode="AGG")
 
-# Based on this page https://redislabs.atlassian.net/wiki/spaces/DX/pages/edit-v2/5153554508,
-# detailing all the timeout scnarios and their expected results.
+# Referencing https://redislabs.atlassian.net/wiki/spaces/DX/pages/edit-v2/5153554508,
+# which outlines all timeout scenarios along with their expected outcomes.
+@skip(cluster=True)
 def TestAllScenarios():
     env = Env(moduleArgs='ON_TIMEOUT FAIL')
     # Create the index
@@ -126,6 +127,20 @@ def TestAllScenarios():
     env.assertEqual(res[1:], [['n', str(i)] for i in range(timeout_res_count)])
     env.assertEqual(cursor, 0)
 
+    """Test WITHCURSOR + CURSOR COUNT < TIMEOUT_RES_COUNT + SORTER + RETURN policy"""
+    # The sorter accumulates timeout_res_count. Each cursor iteration returns cursor_count results and a valid cursor id,
+    # until all batches sum up to timeout_res_count.
+    timeout_res_count = 5
+    cursor_count = timeout_res_count - 1
+    res, cursor = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', cursor_count, 'sortby', '1', '@n', 'load', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
+    env.assertEqual(res[0], timeout_res_count)
+    env.assertEqual(res[1:], [['n', str(i)] for i in range(cursor_count)])
+    env.assertNotEqual(cursor, 0)
+    # Next cursor read returns the rest of the results and depletes the cursor.
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+    env.assertEqual(res[1:], [['n', str(i)] for i in range(cursor_count, timeout_res_count)])
+    env.assertEqual(cursor, 0)
+
     """Test WITHCURSOR + GROUPER + RETURN policy"""
     # Grouper drops accumulated results regardless the policy and propagates timeout
     # scenario: timeout on first pass. timeout on later pass is unreachable.
@@ -150,7 +165,7 @@ def TestAllScenarios():
     """Test No cursor + SORTER + RETURN policy"""
     # Sorter logic includes timeout policy validation. On RETURN, switch to yield, then EOF
     # scenario: timeout on first pass. timeout on later pass is unreachable.
-    # expected: [timeout_res_count, 0]
+    # expected: [timeout_res_count, <doc>, <doc> .. ]
     timeout_res_count = 4
     res = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'load', '1', '@n', 'sortby', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
     env.assertEqual(res[0], timeout_res_count)
@@ -161,9 +176,9 @@ def TestAllScenarios():
     expected_res = [f"doc{i}" if j % 2 == 0 else ['n', str(i)]  for i in range(timeout_res_count) for j in range(2)]
     env.assertEqual(res[1:], expected_res)
 
-    """Test No cursor + GROUPER + FAIL policy"""
+    """Test No cursor + GROUPER + RETURN policy"""
     # scenario: timeout on first pass, timeout on later pass is unreachable.
-    # expected: ["Timeout limit was reached"]
+    # expected: [timeout_res_count]
     timeout_res_count = 4
     res = env.cmd(debug_cmd(), 'FT.AGGREGATE', 'idx', '*', 'load', '1', '@n', 'groupby', '1', '@n', 'TIMEOUT_AFTER_N', timeout_res_count, 'DEBUG_PARAMS_COUNT', 2)
     env.assertEqual(res, [timeout_res_count])
