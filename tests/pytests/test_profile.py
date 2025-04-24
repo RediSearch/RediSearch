@@ -561,7 +561,7 @@ def TimedOutWarningtestCoord(env):
   num_docs = 30000 * env.shardsCount
   for i in range(num_docs):
       conn.execute_command('HSET', f'doc{i}', 't', str(i))
-
+  #test
   # Simple `SEARCH` command
   res = env.cmd(
     'FT.PROFILE', 'idx', 'SEARCH', 'QUERY', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
