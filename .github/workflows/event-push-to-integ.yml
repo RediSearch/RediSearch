@@ -9,16 +9,16 @@ on:
       - '[0-9]+.[0-9]+'
 
 jobs:
-  check-what-is-needed:
+  check-what-changed:
     uses: ./.github/workflows/task-check-changes.yml
 
   benchmark:
-    needs: check-what-is-needed
-    if: ${{ needs.check-what-is-needed.outputs.BENCHMARK_NEEDED == 'true' }}
+    needs: check-what-changed
+    if: ${{ needs.check-what-changed.outputs.BENCHMARK_CHANGED == 'true' }}
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
 
   micro-benchmarks:
-    needs: check-what-is-needed
-    if: ${{ needs.check-what-is-needed.outputs.MICRO_BENCHMARK_NEEDED == 'true'}}
+    needs: check-what-changed
+    if: ${{ needs.check-what-changed.outputs.RUST_CODE_CHANGED == 'true'}}
     uses: ./.github/workflows/flow-micro-benchmarks.yml

@@ -11,7 +11,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-what-changed:
+    uses: ./.github/workflows/task-check-changes.yml
+    with:
+      env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+
   lint:
+    needs: check-what-changed
+    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
     uses: ./.github/workflows/task-lint.yml
     with:
       env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
@@ -21,6 +28,8 @@ jobs:
     uses: ./.github/workflows/task-spellcheck.yml
 
   basic-test:
+    needs: check-what-changed
+    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }} 
     uses: ./.github/workflows/task-test.yml
     with:
       env: 'ubuntu-latest'
@@ -29,22 +38,21 @@ jobs:
       rejson-branch: master
     secrets: inherit
 
-  check-what-is-needed:
-    uses: ./.github/workflows/task-check-changes.yml
+  micro-benchmarks:
+    needs: check-what-changed
+    if: ${{ needs.check-what-changed.outputs.RUST_CODE_CHANGED == 'true' }}
+    uses: ./.github/workflows/flow-micro-benchmarks.yml
     with:
       env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-
-  micro-benchmarks:
-    needs: check-what-is-needed
-    if: ${{ needs.check-what-is-needed.outputs.MICRO_BENCHMARK_NEEDED == 'true' }}
-    uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit
 
   coverage:
+    needs: check-what-changed
     if: >
       (
         vars.ENABLE_CODE_COVERAGE != 'false' &&
-        (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:coverage'))
+        (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:coverage')) &&
+        ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }} 
       )
     uses: ./.github/workflows/flow-coverage.yml
     with:
@@ -52,9 +60,11 @@ jobs:
     secrets: inherit
 
   sanitize:
+    needs: check-what-changed
     if: >
       (
-        (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize'))
+        (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) &&
+        ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }} 
       )
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
@@ -76,15 +86,14 @@ jobs:
       - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{!cancelled()}}
-#    steps:
-#      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-#        run: exit 1
     steps:
       - name: Check job results
         run: |
-          if [[ "${{ needs.micro-benchmarks.result }}" == "skipped" ]]; then
-            echo "Micro-benchmarks skipped (no Rust changes)."
-          elif [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+          if [[ "${{ contains(needs.*.result, 'skipped') }}" == "true" ]]; then
+            echo "One or more jobs skipped, due to change checks."
+          fi
+          
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
             echo "One or more required jobs failed or were cancelled."
             exit 1
           fi
