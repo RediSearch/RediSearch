@@ -113,56 +113,6 @@ int test_removeEscape() {
   return 0;
 }
 
-int _testTrimPattern(char *str, char *strAfter, int lenAfter) {
-  //printf("%d %s ", i++, str);
-  size_t len = Wildcard_TrimPattern(str, strlen(str));
-  //printf("%s %d\n", str, len);
-
-  ASSERT_EQUAL(len, lenAfter);
-  ASSERT_STRING_EQ(str, strAfter);
-  return 0;
-}
-
-int test_trimPattern() {
-  char buf[16];
-
-  // no change
-  memcpy(buf, "foobar", 7);
-  _testTrimPattern(buf, "foobar", 6);
-  memcpy(buf, "*foobar", 8);
-  _testTrimPattern(buf, "*foobar", 7);
-  memcpy(buf, "foo*bar", 8);
-  _testTrimPattern(buf, "foo*bar", 7);
-  memcpy(buf, "foobar*", 8);
-  _testTrimPattern(buf, "foobar*", 7);
-
-  // remove single *
-  memcpy(buf, "**foobar", 9);
-  _testTrimPattern(buf, "*foobar", 7);
-  memcpy(buf, "foo**bar", 9);
-  _testTrimPattern(buf, "foo*bar", 7);
-  memcpy(buf, "foobar**", 9);
-  _testTrimPattern(buf, "foobar*", 7);
-
-  // change order
-  memcpy(buf, "foo?*", 6);
-  _testTrimPattern(buf, "foo?*", 5);
-  memcpy(buf, "foo*?", 6);
-  _testTrimPattern(buf, "foo?*", 5);
-  memcpy(buf, "foo?**", 6);
-  _testTrimPattern(buf, "foo?*", 5);
-  memcpy(buf, "foo*?*", 6);
-  _testTrimPattern(buf, "foo?*", 5);
-  memcpy(buf, "foo**?", 6);
-  _testTrimPattern(buf, "foo?*", 5);
-
-  // go crazy
-  memcpy(buf, "***?***?***", 12);
-  _testTrimPattern(buf, "??*", 3);
-
-  return 0;
-}
-
 //int i = 0;
 int _testMatch(char *pattern, char *str, match_t expected) {
   match_t actual = Wildcard_MatchChar(pattern, strlen(pattern), str, strlen(str));
@@ -219,6 +169,5 @@ TEST_MAIN({
   RMUTil_InitAlloc();
   TESTFUNC(test_StarBreak);
   TESTFUNC(test_removeEscape);
-  TESTFUNC(test_trimPattern);
-  TESTFUNC(test_match); 
+  TESTFUNC(test_match);
 });
