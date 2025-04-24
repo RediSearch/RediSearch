@@ -10,7 +10,6 @@ on:
           - ubuntu:noble
           - ubuntu:jammy
           - ubuntu:focal
-          - ubuntu:bionic
           - rockylinux:8
           - rockylinux:9
           - debian:bullseye
