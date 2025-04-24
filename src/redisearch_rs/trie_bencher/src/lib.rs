@@ -4,13 +4,16 @@ use std::{
     ptr::NonNull,
 };
 
+// Force the compiler to link the symbols defined in `redis_mock`,
+// since they are required by `libtrie.a`.
+extern crate redis_mock;
+
 pub use bencher::OperationBencher;
 
 pub mod bencher;
 pub mod c_map;
 pub mod corpus;
 pub mod ffi;
-mod redis_allocator;
 
 // Convenient aliases for the trie types that are being benchmarked.
 pub use c_map::CTrieMap;

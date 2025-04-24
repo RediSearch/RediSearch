@@ -1,6 +1,12 @@
 [workspace]
-members = ["low_memory_thin_vec", "trie_bencher", "trie_rs"]
-default-members = ["trie_rs"]
+members = [
+    "low_memory_thin_vec",
+    "redis_mock",
+    "redisearch_rs",
+    "trie_bencher",
+    "trie_rs",
+]
+default-members = ["low_memory_thin_vec", "trie_rs", "redisearch_rs"]
 resolver = "3"
 
 [workspace.lints.clippy]
@@ -32,6 +38,7 @@ license = "Redis Source Available License 2.0 (RSALv2) or the Server Side Public
 
 [workspace.dependencies]
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
+redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }
 
 bindgen = "0.71.1"

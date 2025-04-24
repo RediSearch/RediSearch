@@ -1,5 +1,4 @@
 #![allow(non_camel_case_types, non_snake_case)]
-
 use std::{
     ffi::{c_char, c_int, c_void},
     slice,
@@ -50,7 +49,7 @@ static TM_ITER_MODE_DEFAULT: tm_iter_mode = tm_iter_mode::TM_PREFIX_MODE;
 
 /// Opaque type TrieMap. Can be instantiated with [`NewTrieMap`].
 #[repr(transparent)]
-struct TrieMap(crate::trie::TrieMap<*mut c_void>);
+struct TrieMap(trie_rs::TrieMap<*mut c_void>);
 
 /// Callback type for passing to [`TrieMap_IterateRange`].
 ///
@@ -128,7 +127,7 @@ unsafe extern "C" fn TrieMapResultBuf_Data(buf: *mut TrieMapResultBuf) -> *mut *
 /// ```
 #[unsafe(no_mangle)]
 unsafe extern "C" fn NewTrieMap() -> *mut TrieMap {
-    let map = Box::new(TrieMap(crate::trie::TrieMap::new()));
+    let map = Box::new(TrieMap(trie_rs::TrieMap::new()));
     Box::into_raw(map)
 }
 
