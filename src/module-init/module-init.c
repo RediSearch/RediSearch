@@ -180,7 +180,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     return REDISMODULE_ERR;
   }
 
-  Initialize_KeyspaceNotifications(ctx);
+  Initialize_ServerEventNotifications(ctx);
   Initialize_CommandFilter(ctx);
   Initialize_RdbNotifications(ctx);
   Initialize_RoleChangeNotifications(ctx);
