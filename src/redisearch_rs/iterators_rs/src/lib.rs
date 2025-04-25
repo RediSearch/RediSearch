@@ -40,3 +40,24 @@ pub trait QueryIterator  {
     /// access the RSIndexResult or None
     fn current(&self) -> Option<Self::Item>;
 }
+
+pub struct RustifiedIterator<I: QueryIterator> {
+    inner: I,
+}
+
+impl<I: QueryIterator> RustifiedIterator<I> {
+    pub fn current(&self) -> Option<I::Item> {
+        self.inner.current()
+    }
+}
+
+impl<I: QueryIterator> Iterator for RustifiedIterator<I> {
+    type Item = I::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.inner.read() {
+            IteratorStatus::IteratorOk => self.current(),
+            _ => None,
+        }
+    }
+}

@@ -18,3 +18,4 @@
 //! Check Assumption:
 //!
 //! 1. RSYieldableMetric field 'metric' of RSIndexResult is only used in MetricIterator and HybridIterator
+//! 
