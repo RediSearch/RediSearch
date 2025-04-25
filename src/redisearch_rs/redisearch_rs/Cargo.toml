@@ -20,10 +20,12 @@ test = false
 [features]
 default = []
 trie = ["dep:trie_rs"]
+iterator = ["dep:iterators_rs"]
 
 [dependencies]
 libc.workspace = true
 trie_rs = { workspace = true, optional = true }
+iterators_rs = { workspace = true, optional = true }
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,

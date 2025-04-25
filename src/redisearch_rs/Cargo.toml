@@ -1,5 +1,5 @@
 [workspace]
-members = [
+members = [ "iterators_rs",
     "low_memory_thin_vec",
     "redis_mock",
     "redisearch_rs",
@@ -40,6 +40,7 @@ license = "Redis Source Available License 2.0 (RSALv2) or the Server Side Public
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }
+iterators_rs = { path = "./iterators_rs" }
 
 bindgen = "0.71.1"
 cc = "1"
