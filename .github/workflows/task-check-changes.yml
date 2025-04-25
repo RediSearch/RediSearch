@@ -30,7 +30,7 @@ jobs:
       
       - name: Check if code were changed
         id: check-code
-        uses: tj-actions/changed-files@v46
+        uses: tj-actions/changed-files@ed68ef82c095e0d48ec87eccea555d944a631a4c # v46.0.5
         with: # Only run on changes to these paths (code, deps)
           files: |
                 src/**
@@ -39,7 +39,7 @@ jobs:
                 **/Makefile
       - name: Check if benchmarks or code were changed
         id: check-benchmarks
-        uses: tj-actions/changed-files@v46
+        uses: tj-actions/changed-files@ed68ef82c095e0d48ec87eccea555d944a631a4c # v46.0.5
         with: # Only run on changes to these paths (code, deps, and benchmarks related changes)
           files: |
                 src/**
@@ -50,7 +50,7 @@ jobs:
                 **/Makefile
       - name: Check if rust micro-benchmarks were changed
         id: check-micro-benchmarks
-        uses: tj-actions/changed-files@v46
+        uses: tj-actions/changed-files@ed68ef82c095e0d48ec87eccea555d944a631a4c # v46.0.5
         with: # Only run on changes to these paths (redisearch_rs)
           files: |
               src/redisearch_rs/**

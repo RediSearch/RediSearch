@@ -51,8 +51,9 @@ jobs:
     if: >
       (
         vars.ENABLE_CODE_COVERAGE != 'false' &&
-        (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:coverage')) &&
-        ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }} 
+        ((!github.event.pull_request.draft && 
+         ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
+        ) || contains(github.event.pull_request.labels.*.name, 'enforce:coverage'))
       )
     uses: ./.github/workflows/flow-coverage.yml
     with:
@@ -63,8 +64,8 @@ jobs:
     needs: check-what-changed
     if: >
       (
-        (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')) &&
-        ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }} 
+        ((!github.event.pull_request.draft && ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}) || 
+        contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')
       )
     secrets: inherit
     uses: ./.github/workflows/task-test.yml

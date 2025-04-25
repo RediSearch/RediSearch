@@ -7,10 +7,6 @@ on:
         default: "${{ vars.RUNS_ON }} || ubuntu-latest"
         type: string
 
-env:
-  BOOST_VERSION: ${{ vars.BOOST_VERSION || '1.83.0' }}
-  LLVM_VERSION: ${{ vars.LLVM_VERSION || 18 }}
-
 jobs:
   benchmarks:
     runs-on: ${{ inputs.env }}
