@@ -54,10 +54,10 @@ endfunction()
 function(extract_debug_symbols target)
   if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" AND NOT APPLE)
     add_custom_command(TARGET ${target} POST_BUILD
-      COMMAND objcopy --only-keep-debug $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
-      COMMAND objcopy --strip-debug $<TARGET_FILE:${target}>
-      COMMAND objcopy --add-gnu-debuglink=$<TARGET_FILE:${target}>.debug $<TARGET_FILE:${target}>
-      COMMENT "Extracting debug symbols from ${target}"
+        COMMAND cp $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
+        COMMAND objcopy --add-gnu-debuglink=$<TARGET_FILE:${target}>.debug $<TARGET_FILE:${target}>
+        COMMAND strip -g $<TARGET_FILE:${target}>
+        COMMENT "Extracting debug symbols from ${target}"
     )
   endif()
 endfunction()
@@ -73,23 +73,24 @@ option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
 
 
 #----------------------------------------------------------------------------------------------
+project(redisearch)
+
 # Configure output paths based on build configuration
 set(MODULE_NAME "search" CACHE STRING "Module name" FORCE)
 if(NOT DEFINED COORD_TYPE)
     set(COORD_TYPE "oss")
 endif()
+
 if(COORD_TYPE STREQUAL "oss")
   set(BINDIR "${binroot}/search-community")
 elseif(COORD_TYPE STREQUAL "rlec")
   set(BINDIR "${binroot}/search-enterprise")
   add_compile_definitions(PRIVATE RS_CLUSTER_ENTERPRISE)
-  set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "module-enterprise")
 else()
   message(FATAL_ERROR "Invalid COORD_TYPE (='${COORD_TYPE}'). Should be either 'oss' or 'rlec'")
 endif()
 
 #----------------------------------------------------------------------------------------------
-project(redisearch)
 
 # Configure compiler options
 setup_cc_options()
@@ -271,6 +272,10 @@ set(FINAL_OBJECTS
 #----------------------------------------------------------------------------------------------
 # Build the shared library
 add_library(redisearch SHARED ${FINAL_OBJECTS})
+
+if(COORD_TYPE STREQUAL "rlec")
+    set_target_properties(redisearch PROPERTIES OUTPUT_NAME "module-enterprise")
+endif()
 
 set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
 setup_shared_object_target(redisearch "")
