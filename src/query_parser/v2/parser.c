@@ -52,35 +52,38 @@ static size_t unescapen(char *s, size_t sz) {
   return (size_t)(dst - s);
 }
 
-#define NODENN_BOTH_VALID 0
-#define NODENN_BOTH_INVALID -1
-#define NODENN_ONE_NULL 1
-// Returns:
-// 0 if a && b
-// -1 if !a && !b
-// 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out`
-static int one_not_null(void *a, void *b, void *out) {
-    if (a && b) {
-        return NODENN_BOTH_VALID;
-    } else if (a == NULL && b == NULL) {
-        return NODENN_BOTH_INVALID;
-    } if (a) {
-        *(void **)out = a;
-        return NODENN_ONE_NULL;
+// reduce B and C to a single intersection node
+// if one of them is a phrase node, we will use it as the base node and add the other as a child.
+// if some of them is Null, we will return the other one.
+static inline struct RSQueryNode* intersection_step(struct RSQueryNode* B, struct RSQueryNode* C) {
+    struct RSQueryNode* A;
+    if (B && C) {
+        struct RSQueryNode* child;
+        if (B->type == QN_PHRASE && B->pn.exact == 0 && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+            child = C;
+        } else if (C->type == QN_PHRASE && C->pn.exact == 0 && C->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = C;
+            child = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+            child = C;
+        }
+        // Handle child
+        QueryNode_AddChild(A, child);
     } else {
-        *(void **)out = b;
-        return NODENN_ONE_NULL;
+        A = B ?: C;
     }
+    return A;
 }
 
-static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode* C) {
+// reduce B and C to a single union node
+// if one of them is a union node, we will use it as the base node and add the other as a child.
+// if some of them is Null, we will return the other one.
+static inline struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode* C) {
     struct RSQueryNode* A;
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        return NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing - `A` is already assigned
-    } else {
+    if (B && C) {
         struct RSQueryNode* child;
         if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
             A = B;
@@ -95,6 +98,8 @@ static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode*
         }
         // Handle child
         QueryNode_AddChild(A, child);
+    } else {
+        A = B ?: C;
     }
     return A;
 }
@@ -1720,21 +1725,7 @@ static YYACTIONTYPE yy_reduce(
       case 6: /* expr ::= expr text_expr */ yytestcase(yyruleno==6);
       case 7: /* text_expr ::= text_expr text_expr */ yytestcase(yyruleno==7);
 {
-    int rv = one_not_null(yymsp[-1].minor.yy47, yymsp[0].minor.yy47, (void**)&yylhsminor.yy47);
-    if (rv == NODENN_BOTH_INVALID) {
-        yylhsminor.yy47 = NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing- `out` is already assigned
-    } else {
-        if (yymsp[-1].minor.yy47 && yymsp[-1].minor.yy47->type == QN_PHRASE && yymsp[-1].minor.yy47->pn.exact == 0 &&
-            yymsp[-1].minor.yy47->opts.fieldMask == RS_FIELDMASK_ALL ) {
-            yylhsminor.yy47 = yymsp[-1].minor.yy47;
-        } else {
-            yylhsminor.yy47 = NewPhraseNode(0);
-            QueryNode_AddChild(yylhsminor.yy47, yymsp[-1].minor.yy47);
-        }
-        QueryNode_AddChild(yylhsminor.yy47, yymsp[0].minor.yy47);
-    }
+  yylhsminor.yy47 = intersection_step(yymsp[-1].minor.yy47, yymsp[0].minor.yy47);
 }
   yymsp[-1].minor.yy47 = yylhsminor.yy47;
         break;
