@@ -523,9 +523,12 @@ def test_change_workers_number():
 
 def testNameLoader(env: Env):
     def get_RP_name(profile_res):
-        shard0 = to_dict(profile_res[1])['Shards'][0]
-        last_rp = to_dict(shard0)['Result processors profile'][-1]
-        return to_dict(last_rp)['Type']
+        if not env.isCluster():
+            return profile_res[1][5][-1][1]
+        if isinstance(profile_res[0], list):
+            return profile_res[2][6][-1][1] # 2.10 aggregate
+        else:
+            return profile_res[-1][6][4][1] # 2.10 search
 
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'sortable', 'TEXT', 'SORTABLE', 'UNF', 'not-sortable', 'TEXT').ok()
     with env.getClusterConnectionIfNeeded() as con:
