@@ -316,6 +316,9 @@ def run_command_on_all_shards(env, *args):
 def config_cmd():
     return '_ft.config' if COORD else 'ft.config'
 
+def verify_command_OK_on_all_shards(env, *args):
+    res = run_command_on_all_shards(env, *args)
+    env.assertEqual(res, ['OK'] * env.shardsCount)
 
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
