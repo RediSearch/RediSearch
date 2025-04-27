@@ -46,6 +46,15 @@ jobs:
       env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     secrets: inherit
 
+  rust-code-review:
+    needs: check-what-changed
+    if: ${{ needs.check-what-changed.outputs.RUST_CODE_CHANGED == 'true' }}
+    uses: ./.github/workflows/task-rust-code-review.yml
+    with:
+      pr_number: ${{ github.event.pull_request.number }}
+      repository: ${{ github.repository }}
+    secrets: inherit
+
   coverage:
     needs: [check-what-changed, get-latest-redis-tag]
     if: >
@@ -83,6 +92,7 @@ jobs:
       - spellcheck
       - basic-test
       - micro-benchmarks
+      - rust-code-review
       - lint
       - coverage
       - sanitize
@@ -94,7 +104,7 @@ jobs:
           if [[ "${{ contains(needs.*.result, 'skipped') }}" == "true" ]]; then
             echo "One or more jobs skipped, due to change checks."
           fi
-          
+
           if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
             echo "One or more required jobs failed or were cancelled."
             exit 1
