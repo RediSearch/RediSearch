@@ -46,14 +46,7 @@ jobs:
       env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     secrets: inherit
 
-  rust-code-review:
-    needs: check-what-changed
-    if: ${{ needs.check-what-changed.outputs.RUST_CODE_CHANGED == 'true' }}
-    uses: ./.github/workflows/task-rust-code-review.yml
-    with:
-      pr_number: ${{ github.event.pull_request.number }}
-      repository: ${{ github.repository }}
-    secrets: inherit
+# Rust code review removed - now triggered by slash command /rust_review
 
   coverage:
     needs: [check-what-changed, get-latest-redis-tag]
