@@ -121,14 +121,12 @@ def test_v1_vs_v2(env):
     res = env.cmd('FT.EXPLAIN', 'idx', "1.e+3", 'DIALECT', 2)
     expected = [
       'INTERSECT {',
-      '  1',
-      '  INTERSECT {',
-      '    UNION {',
-      '      e',
-      '      +e(expanded)',
-      '    }',
-      '    +3',
+      '  UNION {',
+      '    e',
+      '    +e(expanded)',
       '  }',
+      '  +3',
+      '  1',
       '}',
       ''
     ]
