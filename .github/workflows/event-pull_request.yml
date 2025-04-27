@@ -84,7 +84,6 @@ jobs:
       - spellcheck
       - basic-test
       - micro-benchmarks
-      - rust-code-review
       - lint
       - coverage
       - sanitize
