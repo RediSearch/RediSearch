@@ -59,12 +59,12 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
 }
 
 /* Assumed to be called under the cursors global lock or upon server shut down. */
-static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
+static void Cursor_FreeInternal(Cursor *cur) {
   CursorList *cl = getCursorList(cur->is_coord);
+  khiter_t khi = kh_get(cursors, cl->lookup, cur->id);
+
   /* Decrement the used count */
   RS_LOG_ASSERT(khi != kh_end(cl->lookup), "Iterator shouldn't be at end of cursor list");
-  RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) != kh_end(cl->lookup),
-                                                    "Cursor was not found");
   kh_del(cursors, cl->lookup, khi);
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
@@ -85,32 +85,6 @@ static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
 
   }
   rm_free(cur);
-}
-
-static int CursorList_Delete_Internal(CursorList *cl, uint64_t cid, bool owned) {
-
-  khiter_t iter = kh_get(cursors, cl->lookup, cid);
-  if (iter == kh_end(cl->lookup)) {
-    // Cursor not found
-    return REDISMODULE_ERR;
-  }
-
-  Cursor *cur = kh_value(cl->lookup, iter);
-  if (Cursor_IsIdle(cur)) {
-    // Cursor is idle, we can free it (regardless of ownership)
-    Cursor_RemoveFromIdle(cur);
-    Cursor_FreeInternal(cur, iter);
-  } else if (owned) {
-    // Cursor is not idle, but we own it, so we can free it.
-    // No need to remove it from the idle list, as it is not in it.
-    Cursor_FreeInternal(cur, iter);
-  } else {
-    // Cursor is not idle, and we don't own it. We need to mark it for deletion.
-    // This is used when the cursor is still in use by another connection.
-    cur->delete_mark = true;
-  }
-
-  return REDISMODULE_OK;
 }
 
 static void Cursors_ForEach(CursorList *cl, void (*callback)(CursorList *, Cursor *, void *),
@@ -144,7 +118,7 @@ static void cursorGcCb(CursorList *cl, Cursor *cur, void *arg) {
   cursorGcCtx *ctx = arg;
   if (cur->nextTimeoutNs <= ctx->now) {
     Cursor_RemoveFromIdle(cur);
-    Cursor_FreeInternal(cur, kh_get(cursors, cl->lookup, cur->id));
+    Cursor_FreeInternal(cur);
     ctx->numCollected++;
   }
 }
@@ -272,7 +246,7 @@ int Cursor_Pause(Cursor *cur) {
 
   if (cur->delete_mark) {
     // Cursor is marked for deletion, we need to free it.
-    CursorList_Delete_Internal(cl, cur->id, true);
+    Cursor_FreeInternal(cur);
   } else {
     // Cursor is not marked for deletion, we need to pause it.
 
@@ -313,21 +287,39 @@ Cursor *Cursors_TakeForExecution(CursorList *cl, uint64_t cid) {
 }
 
 int Cursors_Purge(CursorList *cl, uint64_t cid) {
+  int rc = REDISMODULE_OK;
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
-  int rc = CursorList_Delete_Internal(cl, cid, false);
+
+  khiter_t iter = kh_get(cursors, cl->lookup, cid);
+  if (iter == kh_end(cl->lookup)) {
+    rc = REDISMODULE_ERR; // Cursor not found
+    goto finish;
+  }
+
+  Cursor *cur = kh_value(cl->lookup, iter);
+  if (Cursor_IsIdle(cur)) {
+    // Cursor is idle, we can free it (regardless of ownership)
+    Cursor_RemoveFromIdle(cur);
+    Cursor_FreeInternal(cur);
+  } else {
+    // Cursor is not idle, and we don't own it. We need to mark it for deletion.
+    // This is used when the cursor is still in use by another connection.
+    cur->delete_mark = true;
+  }
+
+finish:
   CursorList_Unlock(cl);
   return rc;
 }
 
 int Cursor_Free(Cursor *cur) {
   CursorList *cl = getCursorList(cur->is_coord);
-
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
-  int rc = CursorList_Delete_Internal(cl, cur->id, true);
+  Cursor_FreeInternal(cur);
   CursorList_Unlock(cl);
-  return rc;
+  return REDISMODULE_OK;
 }
 
 void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const IndexSpec *spec, RedisModule_Reply *reply) {
@@ -371,7 +363,7 @@ void CursorList_Destroy(CursorList *cl) {
       continue;
     }
     Cursor *c = kh_val(cl->lookup, ii);
-    Cursor_FreeInternal(c, ii);
+    Cursor_FreeInternal(c);
   }
   kh_destroy(cursors, cl->lookup);
 
