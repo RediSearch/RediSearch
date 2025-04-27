@@ -216,6 +216,10 @@ ifeq ($(ENABLE_ASSERT),1)
 CC_FLAGS.common += -DENABLE_ASSERT
 endif
 
+ifeq ($(COV),1)
+CC_FLAGS.common += -DCOVERAGE
+endif
+
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(TESTS),0)
@@ -234,7 +238,7 @@ endif
 
 #----------------------------------------------------------------------------------------------
 BOOST_DIR ?= $(ROOT)/.install/boost
-_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR) -DMAX_WORKER_THREADS=$(MAX_WORKER_THREADS) -DSAN=$(SAN) -DCOV=$(COV)
+_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR) -DMAX_WORKER_THREADS=$(MAX_WORKER_THREADS) -DSAN=$(SAN)
 
 ifeq ($(OS),macos)
 _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DAPPLE=ON
