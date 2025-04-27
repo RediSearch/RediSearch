@@ -1,0 +1,31 @@
+name: Rust Code Review on Comment
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  check-comment:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.issue.pull_request && (contains(github.event.comment.body, '/rust_review') || contains(github.event.comment.body, 'rust_review')) }}
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+      pr_number: ${{ github.event.issue.number }}
+    steps:
+      - name: Check if comment triggers review
+        id: check
+        run: |
+          if [[ "${{ github.event.comment.body }}" == *"/rust_review"* || "${{ github.event.comment.body }}" == "rust_review" ]]; then
+            echo "should_run=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_run=false" >> $GITHUB_OUTPUT
+          fi
+
+  run-rust-review:
+    needs: check-comment
+    if: ${{ needs.check-comment.outputs.should_run == 'true' }}
+    uses: ./.github/workflows/task-rust-code-review.yml
+    with:
+      pr_number: ${{ needs.check-comment.outputs.pr_number }}
+      repository: ${{ github.repository }}
+    secrets: inherit
