@@ -977,7 +977,11 @@ static void RMCK_SendChildHeartbeat(double progress) {
 }
 
 static int RMCK_ExitFromChild(int retcode) {
+#if defined(COV) || defined(COVERAGE)
   exit(retcode);
+#else
+  _exit(retcode);
+#endif
   return REDISMODULE_OK;
 }
 
