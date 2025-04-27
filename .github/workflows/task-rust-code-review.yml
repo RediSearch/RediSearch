@@ -1,0 +1,184 @@
+name: Rust Code Review
+
+on:
+  workflow_call:
+    inputs:
+      pr_number:
+        required: true
+        type: number
+        description: "The PR number to review"
+      repository:
+        required: true
+        type: string
+        description: "The repository name with owner (e.g., owner/repo)"
+
+jobs:
+  review-rust-code:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests openai
+
+      - name: Get changed Rust files
+        id: changed-files
+        run: |
+          PR_NUMBER=${{ inputs.pr_number }}
+          REPO=${{ inputs.repository }}
+
+          # Get the list of changed Rust files in the PR
+          FILES=$(gh pr view $PR_NUMBER --repo $REPO --json files --jq '.files[].path' | grep '\.rs$' || echo "")
+
+          if [ -z "$FILES" ]; then
+            echo "No Rust files changed in this PR."
+            echo "rust_files_changed=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "rust_files_changed=true" >> $GITHUB_OUTPUT
+          echo "files=$FILES" >> $GITHUB_OUTPUT
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Generate code review
+        if: steps.changed-files.outputs.rust_files_changed == 'true'
+        id: generate-review
+        run: |
+          cat > review_script.py << 'EOF'
+          import os
+          import json
+          import requests
+          import subprocess
+          from openai import OpenAI
+
+          # Configuration
+          pr_number = ${{ inputs.pr_number }}
+          repo = "${{ inputs.repository }}"
+          github_token = os.environ["GITHUB_TOKEN"]
+          openai_api_key = os.environ["OPENAI_API_KEY"]
+
+          # Initialize OpenAI client
+          client = OpenAI(api_key=openai_api_key)
+
+          # Get the list of changed Rust files
+          files_str = os.environ.get("CHANGED_FILES", "")
+          if not files_str:
+              print("No Rust files to review")
+              exit(0)
+
+          files = files_str.split()
+
+          # Function to get file content and diff
+          def get_file_diff(file_path):
+              try:
+                  # Get the diff for this file
+                  result = subprocess.run(
+                      ["git", "diff", "--staged", "origin/main", "--", file_path],
+                      capture_output=True,
+                      text=True,
+                      check=True
+                  )
+                  if not result.stdout:
+                      # If no staged changes, get the regular diff
+                      result = subprocess.run(
+                          ["git", "diff", "origin/main", "--", file_path],
+                          capture_output=True,
+                          text=True,
+                          check=True
+                      )
+                  return result.stdout
+              except subprocess.CalledProcessError:
+                  return f"Error getting diff for {file_path}"
+
+          # Collect diffs for all changed files
+          all_diffs = {}
+          for file in files:
+              diff = get_file_diff(file)
+              if diff:
+                  all_diffs[file] = diff
+
+          if not all_diffs:
+              print("No meaningful diffs found in Rust files")
+              exit(0)
+
+          # Prepare the prompt for OpenAI
+          prompt = f"""
+          You are a senior Rust developer performing a code review. Review the following Rust code changes for:
+          1. Code quality and best practices
+          2. Potential bugs or edge cases
+          3. Performance considerations
+          4. Readability and maintainability
+          5. Proper error handling
+          6. Memory safety concerns
+
+          Format your review as a markdown document with sections for each file, highlighting both positive aspects and areas for improvement.
+          Be specific and provide actionable feedback. Include code examples where appropriate.
+
+          Here are the changes to review:
+
+          """
+
+          for file, diff in all_diffs.items():
+              prompt += f"\n## File: {file}\n```diff\n{diff}\n```\n"
+
+          # Call OpenAI API to generate the review
+          try:
+              response = client.chat.completions.create(
+                  model="gpt-4",
+                  messages=[
+                      {"role": "system", "content": "You are a senior Rust developer performing a thorough code review."},
+                      {"role": "user", "content": prompt}
+                  ],
+                  max_tokens=4000,
+                  temperature=0.7
+              )
+              review = response.choices[0].message.content
+          except Exception as e:
+              print(f"Error calling OpenAI API: {str(e)}")
+              exit(1)
+
+          # Post the review as a comment on the PR
+          headers = {
+              "Authorization": f"token {github_token}",
+              "Accept": "application/vnd.github.v3+json"
+          }
+
+          comment_data = {
+              "body": f"# Rust Code Review\n\n{review}\n\n_This review was automatically generated by the Rust Code Reviewer Bot._"
+          }
+
+          comment_url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+          response = requests.post(comment_url, headers=headers, json=comment_data)
+
+          if response.status_code >= 400:
+              print(f"Error posting comment: {response.status_code} - {response.text}")
+              exit(1)
+          else:
+              print(f"Successfully posted code review comment to PR #{pr_number}")
+          EOF
+
+          # Run the script to generate and post the review
+          python review_script.py
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CHANGED_FILES: ${{ steps.changed-files.outputs.files }}
+
+      - name: Report status
+        run: |
+          if [ "${{ steps.changed-files.outputs.rust_files_changed }}" == "false" ]; then
+            echo "No Rust files were changed in this PR. Skipping code review."
+          else
+            echo "Rust code review completed and posted to PR #${{ inputs.pr_number }}."
+          fi
