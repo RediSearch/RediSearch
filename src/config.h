@@ -71,6 +71,8 @@ typedef struct {
   RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   int printProfileClock;
+  // BM25STD.TANH factor
+  uint64_t BM25STD_TanhFactor;
 } RequestConfig;
 
 // Configuration parameters related to the query execution.
@@ -266,6 +268,9 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
 #define DEFAULT_INDEXING_MEMORY_LIMIT 80
+#define DEFAULT_BM25STD_TANH_FACTOR 4
+#define BM25STD_TANH_FACTOR_MAX 10000
+#define BM25STD_TANH_FACTOR_MIN 1
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
@@ -309,8 +314,9 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .prioritizeIntersectUnionChildren = false,                                 \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
     .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE,                \
-    .hideUserDataFromLog = false                              ,                \
+    .hideUserDataFromLog = false,                                              \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \
+    .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
   }
 
 #define REDIS_ARRAY_LIMIT 7
