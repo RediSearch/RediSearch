@@ -6,7 +6,6 @@ env:
   ALL_X86_IMAGES: "['ubuntu:noble',
                     'ubuntu:jammy',
                     'ubuntu:focal',
-                    'ubuntu:bionic',
                     'rockylinux:8',
                     'rockylinux:9',
                     'debian:bullseye',
@@ -19,7 +18,6 @@ env:
   ALL_ARM_IMAGES: "['ubuntu:noble',
                     'ubuntu:jammy',
                     'ubuntu:focal',
-                    'ubuntu:bionic',
                     'rockylinux:8',
                     'rockylinux:9',
                     'debian:bullseye',
@@ -159,7 +157,7 @@ jobs:
               'pre-deps': "apk add bash gcompat libstdc++ libgcc git"})
 
           # Ubuntu and Debian distributions need git pre-checkout dependencies
-          debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'ubuntu:bionic', 'debian:bullseye', 'gcc:12-bookworm']
+          debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'debian:bullseye', 'gcc:12-bookworm']
           for os_name in debian_based_os:
             if os_name in x86_platforms:
               x86_include.append({

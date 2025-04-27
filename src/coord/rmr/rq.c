@@ -6,6 +6,11 @@
 
 #define RQ_C__
 
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
+#include <pthread.h>
+
 #include <stdlib.h>
 #include <uv.h>
 #include "rq.h"
@@ -112,6 +117,19 @@ static void topologyAsyncCB(uv_async_t *async) {
 /* start the event loop side thread */
 static void sideThread(void *arg) {
   REDISMODULE_NOT_USED(arg);
+  /* Set thread name for profiling and debugging */
+  char *thread_name = REDISEARCH_MODULE_NAME "-uv";
+
+#if defined(__linux__)
+  /* Use prctl instead to prevent using _GNU_SOURCE flag and implicit
+   * declaration */
+  prctl(PR_SET_NAME, thread_name);
+#elif defined(__APPLE__) && defined(__MACH__)
+  pthread_setname_np(thread_name);
+#else
+  RedisModule_Log(RSDummyContext, "verbose",
+      "sideThread(): pthread_setname_np is not supported on this system");
+#endif
   // Mark the event loop thread as running before triggering the topology check.
   loop_th_running = true;
   uv_async_send(&topologyAsync); // start the topology check

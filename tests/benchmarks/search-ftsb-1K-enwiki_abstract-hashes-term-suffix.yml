@@ -30,4 +30,5 @@ clientconfig:
     - requests: 250000
     - workers: 32
     - reporting-period: 1s
+    - duration: 120s
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/enwiki_abstract-hashes-suffix/enwiki_abstract-hashes-suffix.redisearch.commands.BENCH.QUERY_suffix.csv"

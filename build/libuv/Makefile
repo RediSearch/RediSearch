@@ -35,6 +35,7 @@ define CMAKE_DEFS +=
 	DISABLE_TESTS=on
 	ENABLE_SSL=on
 	CMAKE_POSITION_INDEPENDENT_CODE=on
+  LIBUV_BUILD_SHARED=OFF
 endef
 
 #----------------------------------------------------------------------------------------------

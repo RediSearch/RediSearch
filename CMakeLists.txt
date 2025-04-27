@@ -176,7 +176,7 @@ if (BUILD_STATIC)
     set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
     setup_shared_object_target(redisearch "")
     target_link_libraries(redisearch redisearch-geometry redisearch-hash VectorSimilarity trie ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
-    target_link_libraries(redisearch ${binroot}/redisearch_rs/libtrie_rs.a)
+    target_link_libraries(redisearch ${binroot}/redisearch_rs/libredisearch_rs.a)
 
     set(TEST_MODULE "redisearch-static")
     set(TEST_MODULE_SO $<TARGET_FILE:redisearch>)
@@ -197,7 +197,7 @@ else() # OSS RediSearch
             ${SSL_LIBS}
             ${REDISEARCH_LIBS}
             ${CMAKE_LD_LIBS})
-    target_link_libraries(redisearch ${binroot}/redisearch_rs/libtrie_rs.a)
+    target_link_libraries(redisearch ${binroot}/redisearch_rs/libredisearch_rs.a)
 
     extract_debug_symbols(redisearch)
 

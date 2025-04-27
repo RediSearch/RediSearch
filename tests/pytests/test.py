@@ -4380,8 +4380,8 @@ def test_with_tls_and_non_tls_ports():
 
     # Get the TLS ports
     tls_ports = [shard.port for shard in env.envRunner.shards]
-    print(f'TLS ports: {tls_ports}')
-    print(f'get_ports: {get_ports(env)}')
+    # print(f'TLS ports: {tls_ports}')
+    # print(f'get_ports: {get_ports(env)}')
     # The non-TLS ports are the TLS ports + 1500 (hard-coded in RLTest)
     expected_ports = [port + 1500 for port in tls_ports]
 
@@ -4389,13 +4389,13 @@ def test_with_tls_and_non_tls_ports():
     # connecting the coordinator to the shards, just not in TLS mode.
     env.assertEqual(
         run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no'),
-        ['OK'] * env.shardsCount,
+        ['OK'] * env.shardsCount
     )
 
     with TimeLimit(10, 'Failed waiting for the cluster to be updated'):
         new_ports = get_ports(env)
         while new_ports != expected_ports:
-            print(f'Waiting for the cluster to be updated. Expected ports: {expected_ports}, got: {new_ports}')
+            # print(f'Waiting for the cluster to be updated. Expected ports: {expected_ports}, got: {new_ports}')
             time.sleep(0.1)
             new_ports = get_ports(env)
 

@@ -41,5 +41,6 @@ clientconfig:
     - workers: 64
     - requests: 200000
     - reporting-period: 1s
+    - duration: 120s
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes/1M-enwiki_abstract-hashes.redisearch.commands.BENCH.QUERY_2word-intersection-query.csv"
 

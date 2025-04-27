@@ -1,6 +1,10 @@
-use std::{collections::BTreeSet, ptr::NonNull};
+use std::ptr::NonNull;
 use trie_bencher::corpus::CorpusType;
-use trie_bencher::{CTrieMap, RustTrieMap, str2c_char, str2c_input};
+use trie_bencher::{
+    CTrieMap, RustTrieMap,
+    c_map::{AsTrieTermView as _, IntoCString as _},
+    str2boxed_c_char,
+};
 
 fn main() {
     compute_and_report_memory_usage();
@@ -14,40 +18,39 @@ fn main() {
 fn compute_and_report_memory_usage() {
     let mut map = RustTrieMap::new();
     let mut cmap = CTrieMap::new();
-    let contents = CorpusType::GutenbergEbook.download_or_read_corpus();
+
     let mut raw_size = 0;
-    let mut n_words = 0;
-    let mut unique_words = BTreeSet::new();
-    for line in contents.lines() {
-        for word in line.split_whitespace() {
-            let converted = str2c_char(word);
-            raw_size += converted.len();
-            n_words += 1;
-            unique_words.insert(word.to_owned());
+    let unique_words = CorpusType::GutenbergEbook(true).create_terms(false);
+    let unique_words_cstrings = unique_words
+        .iter()
+        .map(|e| e.into_cstring())
+        .collect::<Vec<_>>();
 
-            // Use a zero-sized type by passing a null pointer for `value`
-            let value = NonNull::dangling();
+    for (string, c_string) in unique_words.iter().zip(unique_words_cstrings.iter()) {
+        let converted = str2boxed_c_char(string.as_str());
+        raw_size += converted.len();
 
-            // Rust insertion
-            map.insert(&converted, value);
+        // Use a zero-sized type by passing a null pointer for `value`
+        let value = NonNull::dangling();
 
-            // C insertion
-            let (c_word, c_len) = str2c_input(&word);
-            cmap.insert(c_word, c_len);
-        }
+        // Rust insertion
+        map.insert(&converted, value);
+
+        // C insertion
+        cmap.insert(c_string.as_view());
     }
 
     // Sanity check
-    for unique_word in &unique_words {
-        let converted = str2c_char(unique_word);
+    for (string, c_string) in unique_words.iter().zip(unique_words_cstrings.iter()) {
+        let converted = str2boxed_c_char(string);
         assert!(
             map.find(&converted).is_some(),
-            "{unique_word} not found in Rust map"
+            "{string} not found in Rust map"
         );
-        let (c_word, c_len) = str2c_input(unique_word);
         assert!(
-            cmap.find(c_word, c_len) != unsafe { trie_bencher::ffi::TRIEMAP_NOTFOUND },
-            "{unique_word} not found in C map"
+            // Safety: TRIEMAP_NOTFOUND is a constant defined in the C code
+            cmap.find(c_string.as_view()) != unsafe { trie_bencher::ffi::TRIEMAP_NOTFOUND },
+            "{string} not found in C map"
         )
     }
     let n_stored_words = map.iter().count();
@@ -56,7 +59,6 @@ fn compute_and_report_memory_usage() {
     println!(
         r#"Statistics:
 - Raw text size: {:.3} MBs
-- Number of words (with duplicates): {n_words}
 - Number of unique words: {n_unique_words}
 - Rust -> {:.3} MBs
           {} nodes
@@ -64,7 +66,7 @@ fn compute_and_report_memory_usage() {
           {} nodes"#,
         raw_size as f64 / 1024. / 1024.,
         map.mem_usage() as f64 / 1024. / 1024.,
-        map.num_nodes(),
+        map.n_nodes(),
         cmap.mem_usage() as f64 / 1024. / 1024.,
         cmap.n_nodes()
     );
