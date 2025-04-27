@@ -9,12 +9,20 @@ name: temporary testing
 
 on:
   push:
-    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test-macos:
-    uses: ./.github/workflows/flow-macos.yml
+  get-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
     secrets: inherit
     with:
-      redis-ref: unstable
-      rejson-branch: master
+      repo: redis/redis
+      prefix: "6.0"
+
+  print:
+    needs: get-tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Print Latest Release Tag
+        run: |
+          echo "Latest release tag: ${{ needs.get-tag.outputs.tag }}"
