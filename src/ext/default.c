@@ -223,7 +223,7 @@ static double inline CalculateBM25Std(float b, float k1, double idf, double f, i
                                       double avg_doc_len, double weight, RSScoreExplain *scrExp, const char *term) {
   double ret = weight * idf * f * (k1 + 1) / (f + k1 * (1.0f - b + b * (float)doc_len/avg_doc_len));
   EXPLAIN(scrExp,
-          "%s: (%.2f = Weight %.2f * IDF %.2f * (F %.2f * (k1 1.2 + 1)) / (F %.2f + k1 1.2 * (1 - b 0.5 + b 0.5 *"
+          "%s: (%.2f = Weight %.2f * IDF %.2f * (F %.2f * (k1 1.2 + 1)) / (F %.2f + k1 1.2 * (1 - b 0.75 + b 0.75 *"
           " Doc Len %d / Average Doc Len %.2f)))",
           term, ret, weight, idf, f, f, doc_len, avg_doc_len);
   return ret;
@@ -232,7 +232,7 @@ static double inline CalculateBM25Std(float b, float k1, double idf, double f, i
 /* recursively calculate score for each token, summing up sub tokens */
 static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
                             const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) {
-  static const float b = 0.5f;
+  static const float b = 0.75f;
   static const float k1 = 1.2f;
   double f = (double)r->freq;
   double ret = 0;

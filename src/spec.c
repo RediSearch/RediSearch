@@ -38,6 +38,7 @@
 #include "obfuscation/obfuscation_api.h"
 #include "util/hash/hash.h"
 #include "reply_macros.h"
+#include "notifications.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -486,6 +487,10 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if ((sp->flags & Index_Temporary) && IsMaster()) {
     IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(spec_ref));
   }
+
+  // (Lazily) Subscribe to keyspace notifications, now that we have at least one
+  // spec
+  Initialize_KeyspaceNotifications();
 
   if (!(sp->flags & Index_SkipInitialScan)) {
     IndexSpec_ScanAndReindex(ctx, spec_ref);
@@ -2851,6 +2856,10 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
+
+  // Subscribe to keyspace notifications
+  Initialize_KeyspaceNotifications();
+
   return spec_ref.rm;
 }
 
@@ -2874,6 +2883,11 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
       return REDISMODULE_ERR;
     }
   }
+
+  // If we have indexes in the auxiliary data, we need to subscribe to the
+  // keyspace notifications
+  Initialize_KeyspaceNotifications();
+
   return REDISMODULE_OK;
 
 cleanup:
