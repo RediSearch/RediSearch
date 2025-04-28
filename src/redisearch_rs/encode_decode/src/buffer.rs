@@ -73,6 +73,7 @@ impl std::io::Write for BufferWriterWrapper {
         buffer.cap = self.cursor.get_mut().capacity();
         buffer.offset = self.cursor.get_ref().len();
         let pos = self.cursor.position() as usize;
+        // Safety: `buffer_ptr` is coming from Rust side and we don't modify it.
         writer_mut.pos = unsafe { buffer_ptr.add(pos) };
 
         Ok(bytes_written)
