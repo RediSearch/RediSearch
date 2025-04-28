@@ -60,20 +60,50 @@ pub struct WildcardPattern<'pattern, C> {
 impl<'pattern, C: CharLike> WildcardPattern<'pattern, C> {
     /// Parses a raw pattern.
     ///
-    /// It handles escaped characters and tries to trim the pattern
-    /// by replacing consecutive `*` with a single `*` and
-    /// replacing occurrences of `*?` with `?*`.
+    /// Parsing takes care of escaping as well as pattern simplifications.
     ///
-    /// # Avoiding allocations
+    /// # Escaping
     ///
-    /// Parsing tries to avoid allocations: literal tokens refer to slices of the original pattern.
+    /// The backslash, `\`, is used to escape symbols that have special meaning in the pattern.
+    /// In particular, it is used to escape:
+    /// - `*` (wildcard), as `br"\*"`
+    /// - `?` (single character wildcard), as `br"\?"`
+    /// - `\` (backslash), as `br"\\"`
+    ///
+    /// There is no validation on escaped characters—whatever comes after the backslash is treated as a literal.
+    /// For example, `br"\a"` is parsed as `vec![Token::Literal(b"a")]`, even though it is not a valid escape sequence.
+    /// This matches the behaviour of the [original C implementation](https://github.com/RediSearch/RediSearch/blob/d988bde19385cd4e6aeec7987d344819eda66ab4/src/wildcard.c#L136).
+    ///
+    /// If you wish to reject some of these escaped characters as illegal, you should perform an additional validation step
+    /// on top of the parsing process.
+    ///
+    /// # Simplifications
+    ///
+    /// The parsing routine tries to simplify the pattern when possible:
+    ///
+    /// - Consecutive `*` are replaced with a single `*`. `*` matches any number of characters, including none,
+    ///   therefore consecutive `*` are equivalent to a single `*`.
+    /// - `*?` sequences are replaced with `?*`. `*?` matches one or more characters, just like `?*` matches zero or more characters.
+    ///   But the latter allows us to group together multiple `*` characters, which can be simplified further using the previous simplification rule.
+    ///   For example, `*?*?*?` becomes `???***`, which is then further simplified to `???*`.
+    ///
+    /// # Allocations
+    ///
+    /// Parsing tries to minimize allocations: literal tokens refer to slices of the original pattern.
     ///
     /// As a consequence, patterns with escaped characters may be broken into
-    /// more tokens than one might expect.
-    /// E.g. `br"f\\oo"` is parsed as `[b"f", br"\oo"]`. This allows each token
-    /// to reference a slice of the original pattern.
-    /// The "obvious" parsing outcome (`[br"f\oo"]`) would require an allocation, since
-    /// `foo` is not a substring of the original pattern.
+    /// more tokens than one might expect at a first glance.
+    ///
+    /// Let's look at `br"f\\oo"` as an example.
+    /// The obvious parsing outcome would be `vec![Token::Literal(br"f\oo")]`, where the escaped backslash is
+    /// resolved to a single character (`\`).
+    /// But `br"f\oo"` is not a substring of the original pattern. The parsing routine would have to allocate
+    /// new memory to store the re-assembled pattern with escaped characters resolved.
+    ///
+    /// Instead, we split at escape points to maintain zero-copy references. `br"f\\oo"`
+    /// is parsed as two tokens rather than one: `vec![Token::Literal(br"f"), Token::Literal(br"\oo")]`.
+    /// Both tokens refer to slices of the original pattern and, combined, they give us the correct (resolved)
+    /// pattern.
     pub fn parse(pattern: &'pattern [C]) -> Self {
         let mut tokens: Vec<Token<'pattern, C>> = Vec::new();
 
