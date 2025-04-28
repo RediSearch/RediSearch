@@ -5,6 +5,8 @@
 //! You can create a [`WildcardPattern`] from a pattern using [`WildcardPattern::parse`] and
 //! then rely on [`WildcardPattern::matches`] to determine if a string matches the pattern.
 
+mod fmt;
+
 #[derive(Copy, Clone, PartialEq, Eq)]
 /// A pattern token.
 pub enum Token<'pattern, C> {
@@ -39,6 +41,7 @@ pub enum MatchOutcome {
 }
 
 /// A parsed pattern.
+#[derive(Clone)]
 pub struct WildcardPattern<'pattern, C> {
     tokens: Vec<Token<'pattern, C>>,
     /// The length of the raw pattern that this instance was parsed from.
@@ -366,22 +369,3 @@ impl CharLike for u8 {
     }
 }
 impl sealed::Sealed for u8 {}
-
-impl<C: CharLike> std::fmt::Debug for Token<'_, C> {
-    // `Debug` implementation that formats `Token::Literal` such that
-    // it matches the notation we're using in the tests
-    // for easy comparison.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Token::Any => write!(f, "Token::Any"),
-            Token::One => write!(f, "Token::One"),
-            Token::Literal(chunk) => {
-                write!(
-                    f,
-                    r#"Token::Literal(br"{}")"#,
-                    String::from_utf8_lossy(&chunk.iter().map(|c| c.as_u8()).collect::<Vec<u8>>())
-                )
-            }
-        }
-    }
-}
