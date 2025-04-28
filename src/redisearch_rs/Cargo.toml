@@ -1,5 +1,5 @@
 [workspace]
-members = [
+members = [ "encode_decode",
     "low_memory_thin_vec",
     "redis_mock",
     "redisearch_rs",
