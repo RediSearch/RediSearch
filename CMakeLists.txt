@@ -50,7 +50,6 @@ endif()
 # and causes different behavior between different platforms when sorting strings.
 # To avoid this, we set the default signedness of char to unsigned.
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -funsigned-char")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -funsigned-char")
 
 # Treat all format‑string warnings as errors (hardened build)
 set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Werror=format-security")
