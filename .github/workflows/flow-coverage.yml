@@ -51,7 +51,7 @@ jobs:
         flags: flow
         fail_ci_if_error: true # Fail on upload errors
         token: ${{ secrets.CODECOV_TOKEN }}
-    - name: Upload union coverage
+    - name: Upload unit coverage
       uses: codecov/codecov-action@v5
       with:
         files: bin/linux-x64-debug-cov/unit.info,bin/linux-x64-debug-cov/rust_cov.info
