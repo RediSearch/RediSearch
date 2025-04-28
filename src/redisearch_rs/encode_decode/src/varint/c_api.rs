@@ -41,9 +41,7 @@ extern "C" fn ReadVarintFieldMask(mut b: NonNull<BufferReader>) -> FieldMask {
 #[unsafe(no_mangle)]
 extern "C" fn WriteVarint(value: u32, b: NonNull<BufferWriter>) -> usize {
     let mut wrapper = BufferWriterWrapper::from(b);
-    let bytes_written = write(value, &mut wrapper).unwrap();
-
-    bytes_written
+    write(value, &mut wrapper).unwrap()
 }
 
 /// See the note above for [`WriteVarint`].
