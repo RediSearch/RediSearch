@@ -1753,7 +1753,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   // Enum parameters
   RM_TRY(
     RedisModule_RegisterEnumConfig(
-      ctx, "search-on-timeout", TimeoutPolicy_Fail,
+      ctx, "search-on-timeout", TimeoutPolicy_Return,
       REDISMODULE_CONFIG_UNPREFIXED,
       on_timeout_vals, on_timeout_enums, 2,
       get_on_timeout, set_on_timeout, NULL,
