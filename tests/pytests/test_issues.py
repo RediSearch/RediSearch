@@ -1314,3 +1314,18 @@ def test_mod_8695():
   res2 = env.cmd('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
                                     'WITHSCORES', 'SORTBY', 'score')
   env.assertEqual(res1, res2)
+
+@skip(cluster=True)
+def test_mod_9423(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.cmd('HSET', 'doc1', 'n', '1') # Document with no text
+
+  # Expect the document score to be 0, since it has no text
+  expected = [1, 'doc1', '0', ['n', '1']]
+  env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF').equal(expected)
+  env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF.DOCNORM').equal(expected)
+
+  expected = [1, 'doc1', ['0', 'Document max frequency is 0'], ['n', '1']]
+  env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF', 'EXPLAINSCORE').equal(expected)
+  expected = [1, 'doc1', ['0', 'Document length is 0'], ['n', '1']]
+  env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF.DOCNORM', 'EXPLAINSCORE').equal(expected)
