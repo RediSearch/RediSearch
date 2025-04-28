@@ -46,7 +46,8 @@ def test_stop_background_indexing_on_low_mem(env):
     env.assertAlmostEqual(memory_ratio, 0.8, delta=0.1)
 
 @skip(cluster=True)
-def test_stop_indexing_low_mem_verbosity(env):
+def test_stop_indexing_low_mem_verbosity():
+  env = Env(protocol=3)
   # Create OOM
   num_docs = 10
   for i in range(num_docs):
@@ -123,8 +124,6 @@ def test_stop_indexing_low_mem_verbosity(env):
   env.assertEqual(error_dict, expected_error_dict)
 
   # Check resp3 warning for OOM
-  # Change protocol to resp3
-  env.expect('HELLO', 3).ok()
   res = env.cmd('FT.SEARCH', 'idx','*')
   print(res['warning'])
   env.assertEqual(res['warning'][0], 'Index contains partial data due to OOM indexing failure')
@@ -243,54 +242,6 @@ def test_change_config_during_bg_indexing(env):
   max_memory = env.cmd('INFO', 'MEMORY')['maxmemory']
   memory_ratio = used_memory / max_memory
   env.assertAlmostEqual(memory_ratio, 0.8, delta=0.1)
-
-@skip(cluster=True)
-def test_oom_query_error(env):
-  idx_name = 'idx'
-  error_querys_star = ['SEARCH', 'AGGREGATE', 'TAGVALS', 'MGET']
-  queries_params = {
-                    'PROFILE': f'{idx_name} SEARCH QUERY * ',
-                    'SYNDUMP': f'{idx_name}',
-                    'ALTER': f'{idx_name} SCHEMA ADD field1 TEXT',
-                  }
-  queries_params.update({query: f'{idx_name} *' for query in error_querys_star})
-  # Using a large number of docs to make sure the test is not flaky
-  n_docs = 10000
-  for i in range(n_docs):
-    env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
-  # Set pause before indexing
-  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
-  # Set pause on OOM
-  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
-  # Create an index with a text field.
-  env.expect('ft.create', idx_name, 'SCHEMA', 't', 'text').ok()
-  waitForIndexStatus(env, 'NEW', idx_name)
-  # Set tight memory limit
-  set_tight_maxmemory_for_oom(env)
-  # Resume indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-  # Wait for OOM
-  waitForIndexStatus(env, 'PAUSED_ON_OOM', idx_name)
-  # Resume the indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-  # Wait for the indexing to finish
-  waitForIndexFinishScan(env, idx_name)
-
-  for query,param in queries_params.items():
-    parsed_query = f'FT.{query} {param}'
-    env.expect(parsed_query).error().equal(f'Background scan for index {idx_name} failed due to OOM.'
-                                           ' Queries cannot be executed on an incomplete index.')
-
-  # Test FT.DEBUG FT.SEARCH/AGGREGATE command
-  for query_type in ['SEARCH', 'AGGREGATE']:
-    parsed_query = f'_FT.DEBUG FT.{query_type} {idx_name} * TIMEOUT_AFTER_N 3 DEBUG_PARAMS_COUNT 2 '
-    env.expect(parsed_query).error().equal(f'Background scan for index {idx_name} failed due to OOM.'
-                                           ' Queries cannot be executed on an incomplete index.')
-
-  # Verify ft info possible
-  env.expect('FT.INFO', idx_name).noError()
-  # Verify ft dropindex possible
-  env.expect('FT.DROPINDEX', idx_name).ok()
 
 def test_cluster_oom_all_shards(env):
   conn = getConnectionByEnv(env)
