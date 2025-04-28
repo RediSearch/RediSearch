@@ -92,8 +92,6 @@ fn test_parse_escape() {
 
     assert_tokens!(br"\'foo", [Literal(br"'foo")]);
 
-    assert_tokens!(br"\'foo", [Literal(br"'foo")]);
-
     assert_tokens!(br"\\'foo", [Literal(br"\'foo")]);
 
     // mid string
