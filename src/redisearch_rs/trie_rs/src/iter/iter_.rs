@@ -12,7 +12,7 @@ pub struct Iter<'tm, Data, F> {
     /// Determine if the current node should be yielded and
     /// if its children should be visited.
     filter: F,
-    /// Concatention of the labels of current node and its ancestors,
+    /// Concatenation of the labels of current node and its ancestors,
     /// i.e. the key of the current node.
     key: Vec<c_char>,
 }
