@@ -2214,7 +2214,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (RSGlobalConfig.indexingMemoryLimit && (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit)) {
     char* error;
     rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit);
-    RedisModule_Log(ctx, "warning", error);
+    RedisModule_Log(ctx, "warning", "%s", error);
     scanner->cancelled = true;
 
       // We need to report the error message besides the log, so we can show it in FT.INFO
