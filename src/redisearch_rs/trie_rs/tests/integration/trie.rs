@@ -1,8 +1,5 @@
 use crate::utils::ToCCharVec as _;
-use std::{
-    ffi::{c_char, c_void},
-    ptr::NonNull,
-};
+use std::{ffi::c_void, ptr::NonNull};
 use trie_rs::TrieMap;
 
 /// Forwards to `insta::assert_debug_snapshot!`,
@@ -236,11 +233,13 @@ fn test_trie_merge() {
 /// Used for in the proptest below.
 enum TrieOperation<Data> {
     Insert(
-        #[proptest(strategy = "proptest::collection::vec(97..122 as c_char, 0..10)")] Vec<c_char>,
+        #[proptest(strategy = "proptest::collection::vec(97..122 as std::ffi::c_char, 0..10)")]
+        Vec<std::ffi::c_char>,
         Data,
     ),
     Remove(
-        #[proptest(strategy = "proptest::collection::vec(97..122 as c_char, 0..10)")] Vec<c_char>,
+        #[proptest(strategy = "proptest::collection::vec(97..122 as std::ffi::c_char, 0..10)")]
+        Vec<std::ffi::c_char>,
     ),
 }
 
