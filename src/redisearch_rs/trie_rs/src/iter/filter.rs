@@ -24,6 +24,16 @@ pub trait TraversalFilter {
     fn filter(&self, key: &[c_char]) -> FilterOutcome;
 }
 
+/// Implement the trait for all closures that match the expected signature.
+impl<F> TraversalFilter for F
+where
+    F: Fn(&[c_char]) -> FilterOutcome,
+{
+    fn filter(&self, key: &[c_char]) -> FilterOutcome {
+        self(key)
+    }
+}
+
 /// The simplest filter: visit all nodes, no exceptions.
 pub struct VisitAll;
 
