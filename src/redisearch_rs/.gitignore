@@ -11,4 +11,4 @@ Cargo.lock
 
 .vscode
 
-wordlist.dic
+**/proptest-regressions/**
