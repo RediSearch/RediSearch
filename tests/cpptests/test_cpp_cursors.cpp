@@ -43,9 +43,9 @@ TEST_F(CursorsTest, OwnershipAPI) {
   ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already deleted";
   ASSERT_TRUE(cur->delete_mark);
 
-  ASSERT_EQ(Cursors_GetInfoStats().total_user, 1) << "Cursor should be alive";
+  ASSERT_EQ(Cursors_GetInfoStats().total, 1) << "Cursor should be alive";
   ASSERT_EQ(Cursor_Pause(cur), REDISMODULE_OK) << "Pausing the cursor Should actually free it.";
-  ASSERT_EQ(Cursors_GetInfoStats().total_user, 0) << "Cursor should be deleted";
+  ASSERT_EQ(Cursors_GetInfoStats().total, 0) << "Cursor should be deleted";
 
   // Try again with explicitly deleting the cursor
   cur = Cursors_Reserve(&g_CursorsList, dummy, 1000, NULL);
@@ -59,8 +59,8 @@ TEST_F(CursorsTest, OwnershipAPI) {
   ASSERT_EQ(Cursors_TakeForExecution(&g_CursorsList, id), nullptr) << "Cursor already deleted";
   ASSERT_TRUE(cur->delete_mark);
 
-  ASSERT_EQ(Cursors_GetInfoStats().total_user, 1) << "Cursor should be alive";
+  ASSERT_EQ(Cursors_GetInfoStats().total, 1) << "Cursor should be alive";
   ASSERT_EQ(Cursor_Free(cur), REDISMODULE_OK) << "Cursor should be deleted";
-  ASSERT_EQ(Cursors_GetInfoStats().total_user, 0) << "Cursor should be deleted";
+  ASSERT_EQ(Cursors_GetInfoStats().total, 0) << "Cursor should be deleted";
 
 }
