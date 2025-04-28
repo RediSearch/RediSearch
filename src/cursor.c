@@ -378,7 +378,7 @@ static void purgeCb(CursorList *cl, Cursor *cur, void *arg) {
   }
 
   Cursor_RemoveFromIdle(cur);
-  Cursor_FreeInternal(cur, kh_get(cursors, cl->lookup, cur->id));
+  Cursor_FreeInternal(cur);
 }
 
 void Cursors_PurgeWithName(CursorList *cl, const char *lookupName) {
