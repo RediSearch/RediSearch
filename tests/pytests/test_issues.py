@@ -1374,7 +1374,7 @@ def test_mod_8561(env:Env):
 
 @skip(cluster=True)
 def test_mod_8695():
-  env = Env(moduleArgs='DEFAULT_DIALECT 2')
+  env = Env(moduleArgs='DEFAULT_DIALECT 2 ON_TIMEOUT FAIL')
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT',
                                            'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
 
@@ -1419,6 +1419,7 @@ def test_mod_8695():
   env.assertEqual(res1, res2)
 
   # Test vector with AGGREGATE and scores
+  # TODO: why this assertion fails on timeout policy "return" ?
   env.expect('FT.AGGREGATE', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????', 'ADDSCORES', 'SCORER', 'TFIDF').noError().equal(
                [2, ['score', '0', '__score', '1'], ['score', '0', '__score', '1']])
 
