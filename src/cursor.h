@@ -18,6 +18,10 @@ typedef struct {
   size_t used;   /** Number of cursors currently open */
 } CursorSpecInfo;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct CursorList;
 
 typedef struct Cursor {
@@ -42,11 +46,16 @@ typedef struct Cursor {
   /** Initial timeout interval */
   unsigned timeoutIntervalMs;
 
-  /** Position within idle list */
+  /** Position within idle list.
+   * Should only be accessed under cursor list lock */
   int pos;
 
   /** Is it an internal coordinator cursor or a user cursor*/
   bool is_coord;
+
+  /** If true, a call to `Cursor_Pause` should drop it instead.
+   *  Should only be accessed under cursor list lock */
+  bool delete_mark;
 } Cursor;
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
@@ -177,7 +186,8 @@ int Cursor_Pause(Cursor *cur);
 int Cursor_Free(Cursor *cl);
 
 /**
- * Locate and free the cursor with the given ID
+ * Locate and free the cursor with the given ID.
+ * If the cursor is found but not idle, it is marked for deletion.
  */
 int Cursors_Purge(CursorList *cl, uint64_t cid);
 
@@ -203,4 +213,8 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const char
 #endif
 
 void Cursor_FreeExecState(void *);
+#ifdef __cplusplus
+}
+#endif
+
 #endif
