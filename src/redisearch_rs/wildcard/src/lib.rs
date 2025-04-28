@@ -113,16 +113,16 @@ impl<'pattern, C: CharLike> WildcardPattern<'pattern, C> {
                 (b'?', _, false) => tokens.push(Token::One),
                 (_, _, true) => {
                     // Handle escaped characters by starting a new `Literal` token
-                    tokens.push(Token::Literal(&pattern[i..][..1]));
+                    tokens.push(Token::Literal(&pattern[i..i + 1]));
                 }
                 _ => match tokens.last_mut() {
                     // Literal encountered. Either start a new `Literal` token or extend the last one.
                     Some(Token::Literal(chunk)) => {
                         let chunk_len = chunk.len();
                         let chunk_start = i - chunk_len;
-                        *chunk = &pattern[chunk_start..][..chunk_len + 1];
+                        *chunk = &pattern[chunk_start..chunk_start + chunk_len + 1];
                     }
-                    _ => tokens.push(Token::Literal(&pattern[i..][..1])),
+                    _ => tokens.push(Token::Literal(&pattern[i..i + 1])),
                 },
             }
             escape_next = false;
