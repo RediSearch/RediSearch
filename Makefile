@@ -230,6 +230,10 @@ ifeq ($(ENABLE_ASSERT),1)
 CC_FLAGS.common += -DENABLE_ASSERT
 endif
 
+ifeq ($(COV),1)
+CC_FLAGS.common += -DCOVERAGE
+endif
+
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(TESTS),0)
@@ -577,17 +581,33 @@ COV_EXCLUDE_DIRS += \
 
 COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
-coverage:
+coverage-unit:
 	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)$(MAKE) build COORD=oss COV=1
-	$(SHOW)$(COVERAGE_RESET)
-	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) pytest COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
-	-$(SHOW)$(MAKE) unit-tests COORD=oss COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) pytest COORD=oss COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
-	$(SHOW)$(COVERAGE_COLLECT_REPORT)
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
+	$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
+	$(SHOW)$(MAKE) unit-tests COORD=oss COV=1 $(REJSON_COV_ARG)
+	$(SHOW)lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/unit.info
+	$(SHOW)lcov -a $(BINROOT)/base.info -a $(BINROOT)/unit.info -o $(BINROOT)/unit.info.1
+	$(SHOW)lcov -o $(BINROOT)/unit.info.2 -r $(BINROOT)/unit.info.1 $(COV_EXCLUDE)
+	$(SHOW)mv $(BINROOT)/unit.info.2 $(BINROOT)/unit.info
+	$(SHOW)rm $(BINROOT)/unit.info.1
 
-.PHONY: coverage
+coverage-flow:
+	$(SHOW)$(MAKE) build COV=1
+	$(SHOW)$(MAKE) build COORD=oss COV=1
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
+	$(SHOW)$(MAKE) pytest           COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
+	$(SHOW)$(MAKE) pytest COORD=oss COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
+	$(SHOW)lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/flow.info
+	$(SHOW)lcov -a $(BINROOT)/base.info -a $(BINROOT)/flow.info -o $(BINROOT)/flow.info.1
+	$(SHOW)lcov -o $(BINROOT)/flow.info.2 -r $(BINROOT)/flow.info.1 $(COV_EXCLUDE)
+	$(SHOW)mv $(BINROOT)/flow.info.2 $(BINROOT)/flow.info
+	$(SHOW)rm $(BINROOT)/flow.info.1
+
+.PHONY: coverage-unit coverage-flow
 
 #----------------------------------------------------------------------------------------------
 
