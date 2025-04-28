@@ -261,7 +261,8 @@ impl<'pattern, C: CharLike> WildcardPattern<'pattern, C> {
             MatchOutcome::Match
         } else if i_t + 1 == self.tokens.len() && self.tokens[i_t] == Token::Any {
             // If there's only one token left, and it's a '*' token,
-            // we have a match
+            // we have a match. Even if the key is empty, since '*' matches
+            // zero or more characters.
             MatchOutcome::Match
         } else {
             // Otherwise, we would need more key characters to fully match
