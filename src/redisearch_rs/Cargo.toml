@@ -5,8 +5,14 @@ members = [
     "redisearch_rs",
     "trie_bencher",
     "trie_rs",
+    "wildcard",
 ]
-default-members = ["low_memory_thin_vec", "trie_rs", "redisearch_rs"]
+default-members = [
+    "low_memory_thin_vec",
+    "trie_rs",
+    "redisearch_rs",
+    "wildcard",
+]
 resolver = "3"
 
 [workspace.lints.clippy]
@@ -40,6 +46,7 @@ license = "Redis Source Available License 2.0 (RSALv2) or the Server Side Public
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }
+wildcard = { path = "./wildcard" }
 
 bindgen = "0.71.1"
 cc = "1"
@@ -53,6 +60,7 @@ memchr = "2.7.4"
 proptest = { version = "1.6.0", default-features = false }
 proptest-derive = { version = "0.5.1", default-features = false }
 ureq = "3.0.10"
+wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 
 [workspace.dependencies.redis-module]
 # Patched version. See https://github.com/RedisLabsModules/redismodule-rs/pull/413
