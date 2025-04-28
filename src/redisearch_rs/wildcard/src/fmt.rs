@@ -40,7 +40,7 @@ impl<C: CharLike> std::fmt::Debug for WildcardPattern<'_, C> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WildcardPattern")
             .field("tokens", &self.tokens)
-            .field("pattern_len", &self.pattern_len)
+            .field("expected_length", &self.expected_length)
             .finish()
     }
 }

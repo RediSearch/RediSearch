@@ -2,15 +2,6 @@ use crate::{matches, no_match, partial_match, utils::chunk_to_string};
 use wildcard::WildcardPattern;
 
 #[test]
-#[should_panic(
-    expected = "`matches_fixed_len` must not be called on a token stream that contains a '*' wildcard"
-)]
-fn test_matches_fixed_len_panics_with_wildcards() {
-    let pattern = WildcardPattern::parse(b"fo*");
-    pattern.matches_fixed_len(b"foo");
-}
-
-#[test]
 fn test_matches() {
     // no wildcard
     matches!(b"foo", [b"foo"]);

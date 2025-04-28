@@ -44,20 +44,17 @@ pub enum MatchOutcome {
 #[derive(Clone)]
 pub struct WildcardPattern<'pattern, C> {
     tokens: Vec<Token<'pattern, C>>,
-    /// The length of the raw pattern that this instance was parsed from.
+    /// The expected length of an input that will match the pattern.
     ///
-    /// Used to short-circuit the matching process
-    /// in [`Self::matches_fixed_len`].
+    /// It is set to `None` if the pattern contains any wildcard tokens, since it will match
+    /// inputs of different lengths.
     ///
-    /// # Implementation Notes
+    /// It is set to `Some` if there are no wildcard tokens, since we can simply count
+    /// the number of characters in the pattern to determine the expected length.
     ///
-    /// [`Self::pattern`] is usually going to be greater than the length of [`Self::tokens`].
-    /// Parsing may simplify the pattern (e.g. by replacing consecutive `*` with a single `*`)
-    /// and consecutive literals will be represented using a single [`Token`] instance.
-    ///
-    /// For example, `foo*bar` has a pattern length of 7 but it parses into 3 tokens:
-    /// `Literal("foo")`, `Any`, and `Literal("bar")`.
-    pattern_len: usize,
+    /// This can be used as an optimization to short-circuit the matching process
+    /// early on if the input is longer than the expected length.
+    expected_length: Option<usize>,
 }
 
 impl<'pattern, C: CharLike> WildcardPattern<'pattern, C> {
@@ -110,6 +107,7 @@ impl<'pattern, C: CharLike> WildcardPattern<'pattern, C> {
     pub fn parse(pattern: &'pattern [C]) -> Self {
         let mut tokens: Vec<Token<'pattern, C>> = Vec::new();
 
+        let mut expected_length = Some(pattern.len());
         let mut pattern_iter = pattern
             .iter()
             .copied()
@@ -141,8 +139,12 @@ impl<'pattern, C: CharLike> WildcardPattern<'pattern, C> {
                     }
 
                     tokens.push(Token::Any);
+                    expected_length = None;
                 }
-                (b'*', _, false) => tokens.push(Token::Any),
+                (b'*', _, false) => {
+                    tokens.push(Token::Any);
+                    expected_length = None;
+                }
                 (b'?', _, false) => tokens.push(Token::One),
                 (_, _, true) => {
                     // Handle escaped characters by starting a new `Literal` token
@@ -163,7 +165,7 @@ impl<'pattern, C: CharLike> WildcardPattern<'pattern, C> {
 
         Self {
             tokens,
-            pattern_len: pattern.len(),
+            expected_length,
         }
     }
 
@@ -183,6 +185,12 @@ impl<'pattern, C: CharLike> WildcardPattern<'pattern, C> {
             } else {
                 MatchOutcome::NoMatch
             };
+        }
+
+        if let Some(expected_length) = self.expected_length {
+            if key.len() > expected_length {
+                return MatchOutcome::NoMatch;
+            }
         }
 
         // Backtrack if possible, otherwise return early claiming we can't match.
@@ -272,56 +280,6 @@ impl<'pattern, C: CharLike> WildcardPattern<'pattern, C> {
             // the pattern
             MatchOutcome::PartialMatch
         }
-    }
-
-    /// Matches the key against a pattern that contains only literals
-    /// and '?'s.
-    /// This is simpler and more performant than the general
-    /// [`matches` method](Self::matches), since it doesn't have to
-    /// perform backtracking.
-    ///
-    /// # Panics
-    ///
-    /// Panics in case the pattern contained a '*' wildcard.
-    pub fn matches_fixed_len(&self, mut key: &[C]) -> MatchOutcome {
-        // It is OK to compare against the length of the original pattern,
-        // since there are no possible simplifications when the pattern
-        // contains only literals and '?'s.
-        if key.len() > self.pattern_len {
-            return MatchOutcome::NoMatch;
-        }
-
-        for token in self.tokens.iter() {
-            match token {
-                Token::One => {
-                    if key.is_empty() {
-                        // It may have matched if we had more characters in the key
-                        return MatchOutcome::PartialMatch;
-                    }
-                    key = &key[1..];
-                }
-                Token::Literal(chunk) => {
-                    for i in 0..chunk.len() {
-                        let Some(key_char) = key.get(i) else {
-                            // It may have matched if we had more characters in the key
-                            return MatchOutcome::PartialMatch;
-                        };
-                        if &chunk[i] != key_char {
-                            return MatchOutcome::NoMatch;
-                        }
-                    }
-                    key = &key[chunk.len()..];
-                }
-                Token::Any => panic!(
-                    "`matches_fixed_len` must not be called on a token stream that contains a '*' wildcard"
-                ),
-            }
-        }
-        debug_assert!(
-            key.is_empty(),
-            "Key should be exhausted after having matched all tokens"
-        );
-        MatchOutcome::Match
     }
 }
 

@@ -25,16 +25,6 @@ macro_rules! _assert_match {
                 chunk_to_string(expected),
                 chunk_to_string($pattern)
             );
-            if tokens.tokens().iter().all(|t| *t != wildcard::Token::Any) {
-                assert_eq!(
-                    tokens.matches(expected),
-                    tokens.matches_fixed_len(expected),
-                    r#"{:?} should yield the same result when trying to match {:?} normally \
-                    and via the fixed-length optimized algorithm"#,
-                    chunk_to_string(expected),
-                    chunk_to_string($pattern)
-                )
-            }
         }
     }};
 }
