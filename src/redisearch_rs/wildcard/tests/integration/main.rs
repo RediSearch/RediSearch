@@ -1,3 +1,4 @@
+mod fmt;
 mod matches;
 mod parse;
 // Disable the proptests when testing with Miri,
