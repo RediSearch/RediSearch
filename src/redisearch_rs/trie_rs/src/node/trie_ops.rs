@@ -197,13 +197,20 @@ impl<Data> Node<Data> {
         let mut prefix = Vec::new();
         loop {
             if key.len() <= current.label_len() as usize {
-                return strip_prefix(current.label(), key)
-                    .is_some()
-                    .then_some((current, prefix));
+                // The key must be a prefix of the current label, otherwise there
+                // is no entry with the desired prefix.
+                let is_prefix = strip_prefix(current.label(), key).is_some();
+                return is_prefix.then_some((current, prefix));
             } else {
+                // If the key is longer than the current label, the node we are looking for
+                // must be a child of the current node.
                 let label = current.label();
+                // But, first and foremost, we must ensure that the label of the current node
+                // is a prefix of the key, otherwise there is no entry with the desired prefix.
                 key = strip_prefix(key, label)?;
                 prefix.extend_from_slice(label);
+                // We know that the key has at least one byte left after stripping the label,
+                // since it is strictly longer than the label.
                 current = current.child_starting_with(key[0])?;
                 continue;
             }
