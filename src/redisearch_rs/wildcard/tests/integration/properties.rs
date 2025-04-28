@@ -115,9 +115,15 @@ proptest! {
             return Err(TestCaseError::Reject("Pattern rejected by reference implementation".into()));
         };
 
+        let pattern = WildcardPattern::parse(&input.pattern);
         for key in input.keys {
+            let outcome = pattern.matches(&key);
             if wc_cf.is_match(&key) {
-                matches!(&input.pattern, [&key])
+                assert_eq!(outcome, wildcard::MatchOutcome::Match);
+            } else {
+                // In this case, our implementation may return
+                // either `MatchOutcome::NoMatch` or `MatchOutcome::PartialMatch`.
+                assert_ne!(outcome, wildcard::MatchOutcome::Match);
             }
         }
     }
