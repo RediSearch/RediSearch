@@ -59,12 +59,12 @@ static void Cursor_RemoveFromIdle(Cursor *cur) {
 }
 
 /* Assumed to be called under the cursors global lock or upon server shut down. */
-static void Cursor_FreeInternal(Cursor *cur, khiter_t khi) {
+static void Cursor_FreeInternal(Cursor *cur) {
   CursorList *cl = getCursorList(cur->is_coord);
+  khiter_t khi = kh_get(cursors, cl->lookup, cur->id);
+
   /* Decrement the used count */
   RS_LOG_ASSERT(khi != kh_end(cl->lookup), "Iterator shouldn't be at end of cursor list");
-  RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) != kh_end(cl->lookup),
-                                                    "Cursor was not found");
   kh_del(cursors, cl->lookup, khi);
   RS_LOG_ASSERT(kh_get(cursors, cl->lookup, cur->id) == kh_end(cl->lookup),
                                                     "Failed to delete cursor");
@@ -118,7 +118,7 @@ static void cursorGcCb(CursorList *cl, Cursor *cur, void *arg) {
   cursorGcCtx *ctx = arg;
   if (cur->nextTimeoutNs <= ctx->now) {
     Cursor_RemoveFromIdle(cur);
-    Cursor_FreeInternal(cur, kh_get(cursors, cl->lookup, cur->id));
+    Cursor_FreeInternal(cur);
     ctx->numCollected++;
   }
 }
@@ -243,16 +243,24 @@ int Cursor_Pause(Cursor *cur) {
   CursorList_Lock(cl);
   CursorList_IncrCounter(cl);
 
-  cur->nextTimeoutNs = curTimeNs() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
-  if (cur->nextTimeoutNs < cl->nextIdleTimeoutNs || cl->nextIdleTimeoutNs == 0) {
-    cl->nextIdleTimeoutNs = cur->nextTimeoutNs;
+  if (cur->delete_mark) {
+    // Cursor is marked for deletion, we need to free it.
+    Cursor_FreeInternal(cur);
+  } else {
+    // Cursor is not marked for deletion, we need to pause it.
+
+    // Set the next timeout to be the current time + timeout interval
+    cur->nextTimeoutNs = curTimeNs() + ((uint64_t)cur->timeoutIntervalMs * 1000000);
+    if (cur->nextTimeoutNs < cl->nextIdleTimeoutNs || cl->nextIdleTimeoutNs == 0) {
+      cl->nextIdleTimeoutNs = cur->nextTimeoutNs;
+    }
+
+    /* Add to idle list */
+    cur->pos = ARRAY_GETSIZE_AS(&cl->idle, Cursor **);
+    *(Cursor **)(ARRAY_ADD_AS(&cl->idle, Cursor *)) = cur;
   }
 
-  /* Add to idle list */
-  *(Cursor **)(ARRAY_ADD_AS(&cl->idle, Cursor *)) = cur;
-  cur->pos = ARRAY_GETSIZE_AS(&cl->idle, Cursor **) - 1;
   CursorList_Unlock(cl);
-
   return REDISMODULE_OK;
 }
 
@@ -286,20 +294,30 @@ int Cursors_Purge(CursorList *cl, uint64_t cid) {
   if (iter != kh_end(cl->lookup)) {
     Cursor *cur = kh_value(cl->lookup, iter);
     if (Cursor_IsIdle(cur)) {
+      // Cursor is idle, we can free it (regardless of ownership)
       Cursor_RemoveFromIdle(cur);
+      Cursor_FreeInternal(cur);
+    } else {
+      // Cursor is not idle, and we don't own it. We need to mark it for deletion.
+      // This is used when the cursor is still in use by another connection.
+      cur->delete_mark = true;
     }
-    Cursor_FreeInternal(cur, iter);
     rc = REDISMODULE_OK;
-
   } else {
-    rc = REDISMODULE_ERR;
+    rc = REDISMODULE_ERR; // Cursor not found
   }
+
   CursorList_Unlock(cl);
   return rc;
 }
 
 int Cursor_Free(Cursor *cur) {
-  return Cursors_Purge(getCursorList(cur->is_coord), cur->id);
+  CursorList *cl = getCursorList(cur->is_coord);
+  CursorList_Lock(cl);
+  CursorList_IncrCounter(cl);
+  Cursor_FreeInternal(cur);
+  CursorList_Unlock(cl);
+  return REDISMODULE_OK;
 }
 
 void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModule_Reply *reply) {
@@ -343,7 +361,7 @@ void CursorList_Destroy(CursorList *cl) {
       continue;
     }
     Cursor *c = kh_val(cl->lookup, ii);
-    Cursor_FreeInternal(c, ii);
+    Cursor_FreeInternal(c);
   }
   kh_destroy(cursors, cl->lookup);
 
