@@ -160,7 +160,7 @@ else # COORD
 		BINDIR=$(BINROOT)/coord-oss
 		SRCDIR=coord
 		TARGET=$(BINDIR)/module-oss.so
-		PACKAGE_NAME=redisearch-community
+		PACKAGE_NAME=redisearch-oss-cluster
 		MODULE_NAME=search
 		RAMP_YAML=pack/ramp-community.yml
 		PACKAGE_S3_DIR=redisearch-oss
