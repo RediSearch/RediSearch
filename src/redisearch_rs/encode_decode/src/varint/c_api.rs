@@ -49,9 +49,7 @@ extern "C" fn WriteVarint(value: u32, b: NonNull<BufferWriter>) -> usize {
 #[allow(improper_ctypes_definitions)]
 extern "C" fn WriteVarintFieldMask(value: FieldMask, b: NonNull<BufferWriter>) -> usize {
     let mut wrapper = BufferWriterWrapper::from(b);
-    let bytes_written = write_field_mask(value, &mut wrapper).unwrap();
-
-    bytes_written
+    write_field_mask(value, &mut wrapper).unwrap()
 }
 
 #[unsafe(no_mangle)]
