@@ -22,7 +22,7 @@ where
     F: TraversalFilter,
 {
     /// Change the traversal filter used by this iterator.
-    pub fn with_filter<F1>(self, f: F1) -> Iter<'a, Data, F1> {
+    pub fn traversal_filter<F1>(self, f: F1) -> Iter<'a, Data, F1> {
         let Self { stack, key, .. } = self;
         Iter {
             stack,
@@ -36,6 +36,11 @@ impl<'tm, Data> Iter<'tm, Data, VisitAll> {
     /// Creates a new iterator over the entries of a [`TrieMap`](crate::TrieMap).
     pub(crate) fn new(root: Option<&'tm Node<Data>>, prefix: Vec<c_char>) -> Self {
         Self::filtered(root, prefix, VisitAll)
+    }
+
+    /// Creates a new empty iterator, that yields no entries.
+    pub(crate) fn empty() -> Self {
+        Self::filtered(None, vec![], VisitAll)
     }
 }
 

@@ -124,7 +124,7 @@ impl<Data> TrieMap<Data> {
     pub fn prefixed_iter(&self, prefix: &[c_char]) -> Iter<'_, Data, VisitAll> {
         match self.find_root_for_prefix(prefix) {
             Some((subroot, subroot_prefix)) => Iter::new(Some(subroot), subroot_prefix),
-            None => Iter::new(None, vec![]),
+            None => Iter::empty(),
         }
     }
 

@@ -22,8 +22,8 @@ where
     F: TraversalFilter,
 {
     /// Change the traversal filter used by this iterator.
-    pub fn with_filter<F1>(self, f: F1) -> LendingIter<'a, Data, F1> {
-        LendingIter(self.0.with_filter(f))
+    pub fn traversal_filter<F1>(self, f: F1) -> LendingIter<'a, Data, F1> {
+        LendingIter(self.0.traversal_filter(f))
     }
 }
 
