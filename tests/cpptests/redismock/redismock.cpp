@@ -808,8 +808,18 @@ static int RMCK_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
   return fork();
 }
 
+// like in Redis' `exitFromChild`, we exit from children using _exit() instead of
+// exit(), because the latter may interact with the same file objects used by
+// the parent process (may yield errors when testing with sanitizer).
+// However if we are testing the coverage normal exit() is
+// used in order to obtain the right coverage information.
 static int RMCK_ExitFromChild(int retcode) {
+#if defined(COV) || defined(COVERAGE)
+  exit(retcode);
+#else
   _exit(retcode);
+#endif
+  return REDISMODULE_OK; // never reached, but following the API "behavior"
 }
 
 static int RMCK_KillForkChild(int child_pid) {
