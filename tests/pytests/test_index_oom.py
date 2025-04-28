@@ -122,6 +122,13 @@ def test_stop_indexing_low_mem_verbosity(env):
                         }
   env.assertEqual(error_dict, expected_error_dict)
 
+  # Check resp3 warning for OOM
+  # Change protocol to resp3
+  env.expect('HELLO', 3).ok()
+  res = env.cmd('FT.SEARCH', 'idx','*')
+  print(res['warning'])
+  env.assertEqual(res['warning'][0], 'Index contains partial data due to OOM indexing failure')
+
 @skip(cluster=True)
 def test_idx_delete_during_bg_indexing(env):
   # Test deleting an index while it is being indexed in the background
