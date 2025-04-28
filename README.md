@@ -1,7 +1,13 @@
 [![Release](https://img.shields.io/github/v/release/redisearch/redisearch.svg?sort=semver)](https://github.com/RediSearch/RediSearch/releases)
 [![CircleCI](https://circleci.com/gh/RediSearch/RediSearch/tree/master.svg?style=svg)](https://circleci.com/gh/RediSearch/RediSearch/tree/master)
 [![Dockerhub](https://img.shields.io/docker/pulls/redis/redis-stack-server?label=redis-stack-server)](https://hub.docker.com/r/redis/redis-stack-server/)
-[![Codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/master/graph/badge.svg)](https://codecov.io/gh/RediSearch/RediSearch)
+
+| Total Coverage | Unit Tests | Flow Tests |
+|----------------|------------|------------|
+|[![codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/2.8/graph/badge.svg?token=bfZ02W6x3K)](https://codecov.io/gh/RediSearch/RediSearch/tree/2.8)|[![codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/2.8/graph/badge.svg?token=bfZ02W6x3K&flag=unit)](https://codecov.io/gh/RediSearch/RediSearch/tree/2.8?flags[0]=unit)|[![codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/2.8/graph/badge.svg?token=bfZ02W6x3K&flag=flow)](https://codecov.io/gh/RediSearch/RediSearch/tree/2.8?flags[0]=flow)|
+
+[![Latest 2.8](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.8*&label=latest%20maintenance%20release%20for%202.8)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.8%20draft:false)
+
 
 # RediSearch
 ## Querying, secondary indexing, and full-text search for Redis
