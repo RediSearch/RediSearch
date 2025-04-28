@@ -162,7 +162,7 @@ else # COORD
 		TARGET=$(BINDIR)/module-oss.so
 		PACKAGE_NAME=redisearch-oss-cluster
 		MODULE_NAME=search
-		RAMP_YAML=pack/ramp-community.yml
+		RAMP_YAML=pack/ramp-oss-cluster.yml
 		PACKAGE_S3_DIR=redisearch-oss
 
 	else ifeq ($(COORD),rlec) # RLEC Coordinator
