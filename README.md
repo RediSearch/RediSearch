@@ -1,12 +1,12 @@
 [![Dockerhub](https://img.shields.io/docker/pulls/redis/redis-stack-server?label=redis-stack-server)](https://hub.docker.com/r/redis/redis-stack-server/)
-[![Codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/master/graph/badge.svg)](https://codecov.io/gh/RediSearch/RediSearch)
 [![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redis.com/c/modules/redisearch/)
 [![Discord](https://img.shields.io/discord/697882427875393627)](https://discord.gg/xTbqgTB)
 
-[![Latest Release](https://img.shields.io/github/v/release/RediSearch/RediSearch?label=latest%20release)](https://github.com/RediSearch/RediSearch/releases/latest)
+| Total Coverage | Unit Tests | Flow Tests |
+|----------------|------------|------------|
+|[![codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/8.0/graph/badge.svg?token=bfZ02W6x3K)](https://codecov.io/gh/RediSearch/RediSearch/tree/8.0)|[![codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/8.0/graph/badge.svg?token=bfZ02W6x3K&flag=unit)](https://codecov.io/gh/RediSearch/RediSearch/tree/8.0?flags[0]=unit)|[![codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/8.0/graph/badge.svg?token=bfZ02W6x3K&flag=flow)](https://codecov.io/gh/RediSearch/RediSearch/tree/8.0?flags[0]=flow)|
 
-[![Latest 2.8](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.8*&label=latest%20maintenance%20release%20for%202.8)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.8%20draft:false)
-[![Latest 2.6](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.6*&label=latest%20maintenance%20release%20for%202.6)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.6%20draft:false)
+[![Latest 8.0](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v8.0*&label=latest%20maintenance%20release%20for%208.0)](https://github.com/RediSearch/RediSearch/releases?q=tag:v8.0%20draft:false)
 
 
 # RediSearch
