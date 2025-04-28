@@ -1,4 +1,4 @@
-use std::{io::Cursor, mem::ManuallyDrop};
+use std::{io::Cursor, ptr::NonNull};
 
 /// Redefines the `Buffer` struct from `buffer.h`
 #[repr(C)]
@@ -36,37 +36,58 @@ pub(crate) struct BufferWriter {
     pub pos: *mut u8,
 }
 
-impl From<BufferWriter> for Cursor<Vec<u8>> {
-    fn from(writer: BufferWriter) -> Self {
+pub(crate) struct BufferWriterWrapper {
+    writer: NonNull<BufferWriter>,
+    cursor: Cursor<Vec<u8>>,
+}
+
+impl From<NonNull<BufferWriter>> for BufferWriterWrapper {
+    fn from(mut writer: NonNull<BufferWriter>) -> Self {
+        // Safety: `writer` is a valid pointer, if C side doesn't do something naughty.
+        let writer_mut = unsafe { writer.as_mut() };
         // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
-        let buffer = unsafe { &mut *writer.buf };
+        let buffer = unsafe { &mut *writer_mut.buf };
         // Safety: According the docs of `Vec::from_raw_parts`, we shouldn't be doing this but it
         // works and all this is hopefully transient anyway until all users of `BufferWriter` are
         // oxidized and `BufferWriter` can then be dropped along with module.
         let buffer_vec = unsafe { Vec::from_raw_parts(buffer.data, buffer.offset, buffer.cap) };
         // Safety: Both pointers here should be valid, if C side doesn't do something naughty.
-        let pos = unsafe { writer.pos.offset_from(buffer.data) };
+        let pos = unsafe { writer_mut.pos.offset_from(buffer.data) };
         let mut cursor = Cursor::new(buffer_vec);
         cursor.set_position(pos as u64);
-        cursor
+
+        BufferWriterWrapper { writer, cursor }
     }
 }
 
-impl From<Cursor<Vec<u8>>> for BufferWriter {
-    fn from(cursor: Cursor<Vec<u8>>) -> Self {
-        let pos = cursor.position() as usize;
-        let mut buffer_vec = ManuallyDrop::new(cursor.into_inner());
-        let buffer_ptr = buffer_vec.as_mut_ptr();
+impl std::io::Write for BufferWriterWrapper {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let bytes_written = self.cursor.write(buf)?;
 
-        BufferWriter {
-            buf: Box::into_raw(Box::new(Buffer {
-                data: buffer_ptr,
-                cap: buffer_vec.capacity(),
-                offset: buffer_vec.len(),
-            })),
-            // Safety: We got both the pointer and the position from the cursor, so we know that
-            // the pointer is valid and the position is within the bounds of the buffer.
-            pos: unsafe { buffer_ptr.add(pos) },
-        }
+        // Safety: This was already wetted by `BufferWriterWrapper::from`.
+        let writer_mut = unsafe { self.writer.as_mut() };
+        // Safety: This was already wetted by `BufferWriterWrapper::from`.
+        let buffer = unsafe { &mut *writer_mut.buf };
+        let buffer_ptr = self.cursor.get_mut().as_mut_ptr();
+        buffer.data = buffer_ptr;
+        buffer.cap = self.cursor.get_mut().capacity();
+        buffer.offset = self.cursor.get_ref().len();
+        let pos = self.cursor.position() as usize;
+        writer_mut.pos = unsafe { buffer_ptr.add(pos) };
+
+        Ok(bytes_written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl Drop for BufferWriterWrapper {
+    fn drop(&mut self) {
+        // The C side is responsible for freeing the buffer, so we need to ensure we don't free it.
+        let mut buffer = vec![];
+        std::mem::swap(self.cursor.get_mut(), &mut buffer);
+        buffer.leak();
     }
 }

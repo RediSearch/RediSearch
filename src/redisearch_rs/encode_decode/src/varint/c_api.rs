@@ -6,7 +6,7 @@ use std::ptr::NonNull;
 use super::{read, read_field_mask, vector_writer::VectorWriter, write, write_field_mask};
 use crate::{
     FieldMask,
-    buffer::{BufferReader, BufferWriter},
+    buffer::{BufferReader, BufferWriter, BufferWriterWrapper},
 };
 
 #[unsafe(no_mangle)]
@@ -39,12 +39,9 @@ extern "C" fn ReadVarintFieldMask(mut b: NonNull<BufferReader>) -> FieldMask {
 /// capacity. The change of the buffer capacity is an internal detail and should not be of concern
 /// to the caller.
 #[unsafe(no_mangle)]
-extern "C" fn WriteVarint(value: u32, mut b: NonNull<BufferWriter>) -> usize {
-    // Safety: The caller is responsible for ensuring that the pointer is valid.
-    let buffer_writer = unsafe { b.as_mut() };
-    let mut cursor = std::io::Cursor::<Vec<u8>>::from(*buffer_writer);
-    let bytes_written = write(value, &mut cursor).unwrap();
-    *buffer_writer = cursor.into();
+extern "C" fn WriteVarint(value: u32, b: NonNull<BufferWriter>) -> usize {
+    let mut wrapper = BufferWriterWrapper::from(b);
+    let bytes_written = write(value, &mut wrapper).unwrap();
 
     bytes_written
 }
@@ -52,12 +49,9 @@ extern "C" fn WriteVarint(value: u32, mut b: NonNull<BufferWriter>) -> usize {
 /// See the note above for [`WriteVarint`].
 #[unsafe(no_mangle)]
 #[allow(improper_ctypes_definitions)]
-extern "C" fn WriteVarintFieldMask(value: FieldMask, mut b: NonNull<BufferWriter>) -> usize {
-    // Safety: The caller is responsible for ensuring that the pointer is valid.
-    let buffer_writer = unsafe { b.as_mut() };
-    let mut cursor = std::io::Cursor::<Vec<u8>>::from(*buffer_writer);
-    let bytes_written = write_field_mask(value, &mut cursor).unwrap();
-    *buffer_writer = cursor.into();
+extern "C" fn WriteVarintFieldMask(value: FieldMask, b: NonNull<BufferWriter>) -> usize {
+    let mut wrapper = BufferWriterWrapper::from(b);
+    let bytes_written = write_field_mask(value, &mut wrapper).unwrap();
 
     bytes_written
 }
