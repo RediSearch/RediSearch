@@ -156,7 +156,7 @@ else # COORD
 		override COORD:=oss
 	endif
 
-	ifeq ($(COORD),oss) # OSS (community distribution) Coordinator
+	ifeq ($(COORD),oss) # OSS (cluster) Coordinator
 		BINDIR=$(BINROOT)/coord-oss
 		SRCDIR=coord
 		TARGET=$(BINDIR)/module-oss.so
