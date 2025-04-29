@@ -317,10 +317,6 @@ def config_cmd():
 def run_command_on_all_shards(env, *args):
     return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
 
-def verify_command_OK_on_all_shards(env, *args):
-    res = run_command_on_all_shards(env, *args)
-    env.assertEqual(res, ['OK'] * env.shardsCount)
-
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 
