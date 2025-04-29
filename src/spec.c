@@ -1869,7 +1869,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   // RMKey it is provided as best effort but in some cases it might be NULL
   bool keyOpened = false;
   if (!key || isCrdt) {
-    key = RedisModule_OpenKey(ctx, keyname, REDISMODULE_READ);
+    key = RedisModule_OpenKey(ctx, keyname, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
     keyOpened = true;
   }
 
