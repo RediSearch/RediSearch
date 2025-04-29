@@ -13,6 +13,9 @@
 
 
 # RediSearch
+
+Starting with version 8.0, RediSearch is an integral part of Redis. See https://github.com/redis/redis 
+
 ## Querying, secondary indexing, and full-text search for Redis
 <picture>
 <img src="https://redis.io/docs/interact/search-and-query/img/logo.svg" title="RediSearch's Logo" width="300">
