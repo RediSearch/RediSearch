@@ -65,7 +65,7 @@ impl VectorWriter {
     }
 
     /// Truncate the vector.
-    pub fn truncate(&mut self) -> usize {
+    pub fn shrink_to_fit(&mut self) -> usize {
         self.buffer.shrink_to_fit();
 
         self.buffer.capacity()

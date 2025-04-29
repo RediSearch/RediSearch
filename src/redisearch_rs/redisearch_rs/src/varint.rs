@@ -116,7 +116,7 @@ extern "C" fn VVW_Free(writer: NonNull<VectorWriter>) {
 #[unsafe(no_mangle)]
 extern "C" fn VVW_Truncate(writer: NonNull<VectorWriter>) -> usize {
     // Safety: The caller is responsible for ensuring that the pointer is valid.
-    unsafe { &mut *writer.as_ptr() }.truncate()
+    unsafe { &mut *writer.as_ptr() }.shrink_to_fit()
 }
 
 #[unsafe(no_mangle)]
