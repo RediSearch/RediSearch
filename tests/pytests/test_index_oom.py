@@ -30,7 +30,7 @@ def test_stop_background_indexing_on_low_mem(env):
 
   # At this point num_docs_scanned were scanned
   # Now we set the tight memory limit
-  set_tight_maxmemory_for_oom(env)
+  set_tight_maxmemory_for_oom(env, 0.8)
   # After we resume, an OOM should trigger
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for OOM
@@ -66,7 +66,7 @@ def test_stop_indexing_low_mem_verbosity(env):
   # Wait for pause before scanning
   waitForIndexPauseScan(env, 'idx')
   # Set tight memory limit
-  set_tight_maxmemory_for_oom(env)
+  set_tight_maxmemory_for_oom(env, 0.8)
   # Resume indexing
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for OOM
@@ -191,7 +191,7 @@ def test_delete_docs_during_bg_indexing(env):
   env.expect('ft.create', idx_str, 'SCHEMA', 't', 'text').ok()
   waitForIndexStatus(env, 'NEW')
   # Set tight memory limit
-  set_tight_maxmemory_for_oom(env)
+  set_tight_maxmemory_for_oom(env, 0.8)
 
   # Delete the 1000 first docs
   for i in range(n_docs//10):
@@ -277,7 +277,7 @@ def test_oom_query_error(env):
   env.expect('ft.create', idx_name, 'SCHEMA', 't', 'text').ok()
   waitForIndexStatus(env, 'NEW', idx_name)
   # Set tight memory limit
-  set_tight_maxmemory_for_oom(env)
+  set_tight_maxmemory_for_oom(env, 0.8)
   # Resume indexing
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for OOM
@@ -336,7 +336,7 @@ def test_cluster_oom_all_shards(env):
   # Wait for pause on docs scanned
   allShards_waitForIndexPauseScan(env, idx_str)
   # Set tight memory limit for all shards
-  allShards_set_tight_maxmemory_for_oom(env)
+  allShards_set_tight_maxmemory_for_oom(env, 0.8)
   run_command_on_all_shards(env, resume_cmd)
   # Wait for OOM on all shards
   allShards_waitForIndexStatus(env, 'PAUSED_ON_OOM', idx_str)
@@ -393,7 +393,7 @@ def test_cluster_oom_single_shard(env):
   # Wait for pause on docs scanned
   allShards_waitForIndexPauseScan(env, idx_str)
   # Set tight memory limit for one shard
-  shard_set_tight_maxmemory_for_oom(env, oom_shard_id)
+  shard_set_tight_maxmemory_for_oom(env, oom_shard_id, 0.8)
   # Resume all shards
   run_command_on_all_shards(env, resume_cmd)
   # Wait for OOM on shard
@@ -436,7 +436,7 @@ def test_oom_json(env):
   # Wait for pause before scanning
   waitForIndexPauseScan(env, 'idx')
   # Set tight memory limit
-  set_tight_maxmemory_for_oom(env)
+  set_tight_maxmemory_for_oom(env, 0.8)
   # Resume indexing
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for OOM
