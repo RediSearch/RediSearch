@@ -1,5 +1,5 @@
-mod c_api;
 mod vector_writer;
+pub use vector_writer::VectorWriter;
 
 use crate::FieldMask;
 

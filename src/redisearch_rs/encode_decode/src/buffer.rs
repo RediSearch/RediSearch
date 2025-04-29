@@ -2,7 +2,7 @@ use std::{io::Cursor, ptr::NonNull};
 
 /// Redefines the `Buffer` struct from `buffer.h`
 #[repr(C)]
-pub(crate) struct Buffer {
+pub struct Buffer {
     pub data: *mut u8,
     pub cap: usize,
     pub offset: usize,
@@ -10,7 +10,7 @@ pub(crate) struct Buffer {
 
 /// Redefines the `BufferReader` struct from `buffer.h`
 #[repr(C)]
-pub(crate) struct BufferReader {
+pub struct BufferReader {
     pub buf: *const Buffer,
     pub pos: usize,
 }
@@ -31,12 +31,12 @@ impl BufferReader {
 /// Redefines the `BufferWriter` struct from `buffer.h`
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct BufferWriter {
+pub struct BufferWriter {
     pub buf: *mut Buffer,
     pub pos: *mut u8,
 }
 
-pub(crate) struct BufferWriterWrapper {
+pub struct BufferWriterWrapper {
     writer: NonNull<BufferWriter>,
     cursor: Cursor<Vec<u8>>,
 }

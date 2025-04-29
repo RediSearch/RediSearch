@@ -1,7 +1,7 @@
 use super::write;
 
 #[derive(Debug)]
-pub(crate) struct VectorWriter {
+pub struct VectorWriter {
     buffer: Vec<u8>,
     n_members: usize,
     last_value: u32,

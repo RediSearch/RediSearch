@@ -3,10 +3,9 @@
 
 use std::ptr::NonNull;
 
-use super::{read, read_field_mask, vector_writer::VectorWriter, write, write_field_mask};
-use crate::{
-    FieldMask,
-    buffer::{BufferReader, BufferWriter, BufferWriterWrapper},
+use encode_decode::{
+    BufferReader, BufferWriter, BufferWriterWrapper, FieldMask,
+    varint::{VectorWriter, read, read_field_mask, write, write_field_mask},
 };
 
 #[unsafe(no_mangle)]

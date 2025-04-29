@@ -1,5 +1,6 @@
 mod buffer;
-mod varint;
+pub mod varint;
+pub use buffer::*;
 
 /// Registers the Redis module allocator
 /// as the global allocator for the application.
