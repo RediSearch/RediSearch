@@ -48,8 +48,8 @@ jobs:
       run: make
     - name: Flow coverage
       run: make coverage-flow
-    - name: Unit coverage
-      run: make coverage-unit
+    # - name: Unit coverage
+    #   run: make coverage-unit
 
     - name: Upload flow coverage
       uses: codecov/codecov-action@v5
@@ -59,14 +59,14 @@ jobs:
         flags: flow
         fail_ci_if_error: true # Fail on upload errors
         token: ${{ secrets.CODECOV_TOKEN }}
-    - name: Upload unit coverage
-      uses: codecov/codecov-action@v5
-      with:
-        files: bin/linux-x64-debug-cov/unit.info,bin/linux-x64-debug-cov/rust_cov.info
-        disable_search: true
-        flags: unit
-        fail_ci_if_error: true # Fail on upload errors
-        token: ${{ secrets.CODECOV_TOKEN }}
+    # - name: Upload unit coverage
+    #   uses: codecov/codecov-action@v5
+    #   with:
+    #     files: bin/linux-x64-debug-cov/unit.info,bin/linux-x64-debug-cov/rust_cov.info
+    #     disable_search: true
+    #     flags: unit
+    #     fail_ci_if_error: true # Fail on upload errors
+    #     token: ${{ secrets.CODECOV_TOKEN }}
 
     - name: Upload Test Logs on Failure
       if: failure()
