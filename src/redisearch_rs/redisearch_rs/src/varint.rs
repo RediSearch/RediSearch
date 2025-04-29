@@ -59,7 +59,7 @@ extern "C" fn WriteVarintFieldMask(value: FieldMask, writer: NonNull<BufferWrite
 
 #[unsafe(no_mangle)]
 extern "C" fn NewVarintVectorWriter(cap: usize) -> NonNull<VectorWriter> {
-    let vector_writer = Box::leak(Box::new(VectorWriter::new(cap)));
+    let vector_writer = Box::into_raw(Box::new(VectorWriter::new(cap)));
 
     // Safety: The pointer is valid because we just created it.
     unsafe { NonNull::new_unchecked(vector_writer) }
