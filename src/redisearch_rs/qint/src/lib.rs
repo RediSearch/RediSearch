@@ -44,6 +44,7 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write; 
 
+
 /// Encodes an array of integers into a QInt buffer.
 ///
 /// # Arguments
@@ -53,20 +54,19 @@ use std::io::Write;
 /// # Returns
 /// The number of bytes written to the buffer or an io error
 #[inline(always)]
-pub(crate) fn qint_encode<const N: usize, W>(
+pub(crate) fn qint_encode<N: AllowedIntegersInQIntEncoding, W>(
     cursor: &mut W,
-    values: [u32; N],
+    values: N,
 ) -> Result<usize, std::io::Error>
+
 where
     W: Write + Seek,
 {
-    assert!((2..=4).contains(&N), "N must be 2, 3, or 4");
-
     let mut leading = 0;
     let mut ret = 0;
     let pos = cursor.stream_position()?;
     ret += cursor.write(b"\0")?; // Write placeholder for leading byte
-    for (i, &value) in values.iter().enumerate() {
+    for (i, value) in values.into_iter().enumerate() {
         ret += qint_encode_stepwise(&mut leading, cursor, value, i as u32)?;
     }
     cursor.seek(SeekFrom::Start(pos))?;
@@ -82,12 +82,9 @@ where
 ///
 /// # Returns
 /// A tuple of (decoded_values as an array, bytes_consumed) or an io error
-pub(crate) fn qint_decode<const N: usize, R: Read>(
+pub(crate) fn qint_decode<N: AllowedIntegersInQIntEncoding, R: Read>(
     reader: &mut R,
-) -> Result<([u32; N], usize), std::io::Error> {
-    // Ensure N is valid (2, 3, or 4)
-    assert!((2..=4).contains(&N), "N must be 2, 3, or 4");
-
+) -> Result<(N, usize), std::io::Error> {
     let mut total = 0;
 
     // Read the leading byte
@@ -96,8 +93,8 @@ pub(crate) fn qint_decode<const N: usize, R: Read>(
     total += 1;
 
     // Decode N values based on 2-bit fields in the leading byte
-    let mut result = [0u32; N];
-    for (i, item) in result.iter_mut().enumerate().take(N) {
+    let mut result = N::zero_initialzied();
+    for (i, item) in result.iter_mut().enumerate().take(N::ENCODE_SIZE) {
         // Extract 2-bit field for the i-th value
         let bits = (leading[0] >> (i * 2)) & 0x03;
         let (val, bytes) = qint_decode_value(bits, reader)?;
@@ -107,6 +104,75 @@ pub(crate) fn qint_decode<const N: usize, R: Read>(
 
     Ok((result, total))
 }
+
+// we use the private module to seal the AllowedEncodeSize trait and prevent other types from implementing it
+mod private {
+    pub trait Sealed {}
+    impl Sealed for [u32; 2] {}
+    impl Sealed for [u32; 3] {}
+    impl Sealed for [u32; 4] {}
+}
+
+pub trait AllowedIntegersInQIntEncoding: IntoIterator<Item= u32> + private::Sealed {
+    const ENCODE_SIZE: usize;
+
+    fn zero_initialzied() -> Self;
+    fn iter(&self) -> core::slice::Iter<u32>;
+    fn iter_mut(&mut self) -> core::slice::IterMut<u32>;
+}
+
+impl AllowedIntegersInQIntEncoding for [u32; 2] {
+    const ENCODE_SIZE: usize = 2;
+
+    fn zero_initialzied() -> Self {
+        [0; 2]
+    }
+    
+    fn iter(&self) -> core::slice::Iter<u32> {
+        self[..].iter()
+    }
+    
+    fn iter_mut(&mut self) -> core::slice::IterMut<u32> {
+        self[..].iter_mut()
+    }
+}
+
+impl AllowedIntegersInQIntEncoding for [u32; 3] {
+    const ENCODE_SIZE: usize = 3;
+
+    fn zero_initialzied() -> Self {
+        [0; 3]
+    }
+    
+    fn iter(&self) -> core::slice::Iter<u32> {
+        self[..].iter()
+    }
+    
+    fn iter_mut(&mut self) -> core::slice::IterMut<u32> {
+        self[..].iter_mut()
+    }
+}
+
+impl AllowedIntegersInQIntEncoding for [u32; 4] {
+    const ENCODE_SIZE: usize = 4;
+
+    fn zero_initialzied() -> Self {
+        [0; 4]
+    }
+    
+    fn iter(&self) -> core::slice::Iter<u32> {
+        self[..].iter()
+    }
+    
+    fn iter_mut(&mut self) -> core::slice::IterMut<u32> {
+        self[..].iter_mut()
+    }
+}
+
+type N2 = [u32; 2];
+type N3 = [u32; 3];
+type N4 = [u32; 4];
+
 
 /// Encodes 4 integers into a QInt buffer
 ///
@@ -243,7 +309,7 @@ where
 /// # Returns
 /// A tuple of (first_value, second_value, bytes_consumed)
 pub fn qint_decode2<R: Read>(reader: &mut R) -> Result<(u32, u32, usize), std::io::Error> {
-    let (v, bytes) = qint_decode::<2, _>(reader)?;
+    let (v, bytes) = qint_decode::<N2, _>(reader)?;
     Ok((v[0], v[1], bytes))
 }
 
@@ -255,7 +321,7 @@ pub fn qint_decode2<R: Read>(reader: &mut R) -> Result<(u32, u32, usize), std::i
 /// # Returns
 /// A tuple of (first_value, second_value, third_value, bytes_consumed)
 pub fn qint_decode3<R: Read>(reader: &mut R) -> Result<(u32, u32, u32, usize), std::io::Error> {
-    let (v, bytes) = qint_decode::<3, _>(reader)?;
+    let (v, bytes) = qint_decode::<N3, _>(reader)?;
     Ok((v[0], v[1], v[2], bytes))
 }
 
@@ -267,45 +333,7 @@ pub fn qint_decode3<R: Read>(reader: &mut R) -> Result<(u32, u32, u32, usize), s
 /// # Returns
 /// A tuple of (first_value, second_value, third_value, fourth_value, bytes_consumed)
 pub fn qint_decode4<R: Read>(r: &mut R) -> Result<(u32, u32, u32, u32, usize), io::Error> {
-    let (v, bytes) = qint_decode::<4, _>(r)?;
+    let (v, bytes) = qint_decode::<N4, _>(r)?;
     Ok((v[0], v[1], v[2], v[3], bytes))
 }
 
-#[cfg(test)]
-mod test {
-    use std::io::Cursor;
-    use super::qint_decode;
-    use super::qint_encode;
-
-    #[test]
-    #[should_panic]
-    fn test_5_bytes_encode_panics() {
-        let mut buf = [0u8; 64];
-        let mut write_cursor = Cursor::new(buf.as_mut());
-        qint_encode(&mut write_cursor, [1, 2, 3, 4, 5]).unwrap();
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_1_byte_encode_panics() {
-        let mut buf = [0u8; 64];
-        let mut write_cursor = Cursor::new(buf.as_mut());
-        qint_encode(&mut write_cursor, [1]).unwrap();
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_5_bytes_decode_panics() {
-        let mut buf = [0u8; 64];
-        let mut read_cursor = Cursor::new(buf.as_mut());
-        qint_decode::<5, _>(&mut read_cursor).unwrap();
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_1_byte_decode_panics() {
-        let mut buf = [0u8; 64];
-        let mut read_cursor = Cursor::new(buf.as_mut());
-        qint_decode::<1, _>(&mut read_cursor).unwrap();
-    }
-}
