@@ -3669,7 +3669,7 @@ void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
 }
 
 void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
-  // To be called after `Initialize_KeyspaceNotifications` as callbacks are overridden.
+  // To be called after `Initialize_ServerEventNotifications` as callbacks are overridden.
   if (RedisModule_SubscribeToServerEvent && getenv("RS_GLOBAL_DTORS")) {
     // clear resources when the server exits
     // used only with sanitizer or valgrind
