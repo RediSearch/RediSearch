@@ -496,7 +496,7 @@ def test_oom_100_percent(env):
   # Create an index, should not trigger OOM
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
   # Wait for pause before scanning
-  waitForIndexPauseScan(env, 'idx')
+  waitForIndexStatus(env, 'NEW', 'idx')
   # Set tight memory limit
   set_tight_maxmemory_for_oom(env)
   # Resume indexing
