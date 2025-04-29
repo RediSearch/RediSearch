@@ -11,42 +11,48 @@ OOMfailureStr = "OOM failure"
 
 @skip(cluster=True)
 def test_stop_background_indexing_on_low_mem(env):
-    num_docs = 1000
-    for i in range(num_docs):
-        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
 
-    # Set pause on OOM
-    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
-    # Set pause after quarter of the docs were scanned
-    num_docs_scanned = num_docs//4
-    env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+  num_docs = 1000
+  for i in range(num_docs):
+      env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
-    # Create an index
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-    waitForIndexPauseScan(env, 'idx')
+  # Set pause on OOM
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+  # Set pause after quarter of the docs were scanned
+  num_docs_scanned = num_docs//4
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
 
-    # At this point num_docs_scanned were scanned
-    # Now we set the tight memory limit
-    set_tight_maxmemory_for_oom(env)
-    # After we resume, an OOM should trigger
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-    # Wait for OOM
-    waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
-    # Resume the indexing
-    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-    # Wait for the indexing to finish
-    waitForIndexFinishScan(env, 'idx')
-    # Verify that only num_docs_scanned were indexed
-    docs_in_index = index_info(env)['num_docs']
-    env.assertEqual(docs_in_index, num_docs_scanned)
-    # Verify that used_memory is close to 80% (default) of maxmemory
-    used_memory = env.cmd('INFO', 'MEMORY')['used_memory']
-    max_memory = env.cmd('INFO', 'MEMORY')['maxmemory']
-    memory_ratio = used_memory / max_memory
-    env.assertAlmostEqual(memory_ratio, 0.8, delta=0.1)
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+  waitForIndexPauseScan(env, 'idx')
+
+  # At this point num_docs_scanned were scanned
+  # Now we set the tight memory limit
+  set_tight_maxmemory_for_oom(env)
+  # After we resume, an OOM should trigger
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Wait for OOM
+  waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
+  # Resume the indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Wait for the indexing to finish
+  waitForIndexFinishScan(env, 'idx')
+  # Verify that only num_docs_scanned were indexed
+  docs_in_index = index_info(env)['num_docs']
+  env.assertEqual(docs_in_index, num_docs_scanned)
+  # Verify that used_memory is close to 80% (config set) of maxmemory
+  used_memory = env.cmd('INFO', 'MEMORY')['used_memory']
+  max_memory = env.cmd('INFO', 'MEMORY')['maxmemory']
+  memory_ratio = used_memory / max_memory
+  env.assertAlmostEqual(memory_ratio, 0.8, delta=0.1)
 
 @skip(cluster=True)
 def test_stop_indexing_low_mem_verbosity(env):
+  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+
   # Create OOM
   num_docs = 10
   for i in range(num_docs):
@@ -124,6 +130,9 @@ def test_stop_indexing_low_mem_verbosity(env):
 
 @skip(cluster=True)
 def test_idx_delete_during_bg_indexing(env):
+  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+
   # Test deleting an index while it is being indexed in the background
   n_docs = 10000
   for i in range(n_docs):
@@ -159,6 +168,9 @@ def test_idx_delete_during_bg_indexing(env):
 
 @skip(cluster=True)
 def test_delete_docs_during_bg_indexing(env):
+  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+
   # Test deleting docs while they are being indexed in the background
   # Using a large number of docs to make sure the test is not flaky
   n_docs = 10000
@@ -205,6 +217,9 @@ def test_delete_docs_during_bg_indexing(env):
 
 @skip(cluster=True)
 def test_change_config_during_bg_indexing(env):
+  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+
   # Test deleting docs while they are being indexed in the background
   # Using a large number of docs to make sure the test is not flaky
   n_docs = 10000
@@ -239,6 +254,9 @@ def test_change_config_during_bg_indexing(env):
 
 @skip(cluster=True)
 def test_oom_query_error(env):
+  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+
   idx_name = 'idx'
   error_querys_star = ['SEARCH', 'AGGREGATE', 'TAGVALS', 'MGET']
   queries_params = {
@@ -286,6 +304,9 @@ def test_oom_query_error(env):
   env.expect('FT.DROPINDEX', idx_name).ok()
 
 def test_cluster_oom_all_shards(env):
+  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
+  verify_command_OK_on_all_shards(env,' '.join(['_FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80']))
+
   conn = getConnectionByEnv(env)
   n_docs_per_shard = 1000
   n_docs = n_docs_per_shard * env.shardsCount
@@ -338,6 +359,9 @@ def test_cluster_oom_all_shards(env):
 
 
 def test_cluster_oom_single_shard(env):
+  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
+  verify_command_OK_on_all_shards(env,' '.join(['_FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80']))
+
   conn = getConnectionByEnv(env)
   n_docs_per_shard = 1000
   n_docs = n_docs_per_shard * env.shardsCount
@@ -397,6 +421,8 @@ def test_cluster_oom_single_shard(env):
 
 @skip(cluster=True, no_json=True)
 def test_oom_json(env):
+  # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
 
   num_docs = 10
   for i in range(num_docs):
