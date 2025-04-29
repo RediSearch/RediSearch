@@ -11,8 +11,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-what-changed:
+    uses: ./.github/workflows/task-check-changes.yml
+    with:
+      env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
 
   lint:
+    needs: check-what-changed
+    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
     uses: ./.github/workflows/task-lint.yml
     with:
       env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
@@ -22,6 +28,8 @@ jobs:
     uses: ./.github/workflows/task-spellcheck.yml
 
   basic-test:
+    needs: check-what-changed
+    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
     uses: ./.github/workflows/task-test.yml
     with:
       env: 'ubuntu-latest'
@@ -30,11 +38,20 @@ jobs:
       rejson-branch: master
     secrets: inherit
 
+  micro-benchmarks:
+    needs: check-what-changed
+    if: ${{ needs.check-what-changed.outputs.RUST_CODE_CHANGED == 'true' }}
+    uses: ./.github/workflows/flow-micro-benchmarks.yml
+    with:
+      env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    secrets: inherit
+
   coverage:
+    needs: check-what-changed
     if: >
-      (
-        vars.ENABLE_CODE_COVERAGE != 'false' &&
-        (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:coverage'))
+      vars.ENABLE_CODE_COVERAGE != 'false' && (
+          (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') ||
+          contains(github.event.pull_request.labels.*.name, 'enforce:coverage')
       )
     uses: ./.github/workflows/flow-coverage.yml
     with:
@@ -42,9 +59,11 @@ jobs:
     secrets: inherit
 
   sanitize:
+    needs: check-what-changed
     if: >
       (
-        (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize'))
+        (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') ||
+        contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')
       )
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
@@ -58,13 +77,15 @@ jobs:
 
   pr-validation:
     needs:
+      - check-what-changed
       - spellcheck
       - basic-test
+      - micro-benchmarks
       - lint
       - coverage
       - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-    if: ${{ !cancelled() }}
+    if: ${{!cancelled()}}
     steps:
       - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1
