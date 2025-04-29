@@ -1,6 +1,6 @@
 use std::io::{Cursor, Seek, Write};
 
-use encode_decode::qint::{
+use qint::{
     qint_decode2, qint_decode3, qint_decode4, qint_encode2, qint_encode3, qint_encode4
 };
 
@@ -17,7 +17,6 @@ fn test_qint2() -> Result<(), std::io::Error> {
     let read_buf = write_cursor.into_inner();
     let mut read_cursor = Cursor::new(read_buf.as_ref());
     let (a, b, bytes_read) = qint_decode2(&mut read_cursor)?;
-    println!("{a}, {b}");
 
     // Check the number of bytes written (a=2bytes, b=1 byte, 1 leading byte) -> 4 bytes
     assert_eq!(bytes_written, 4);

@@ -1,6 +1,7 @@
 [workspace]
-members = [ "encode_decode",
+members = [
     "low_memory_thin_vec",
+    "qint",
     "redis_mock",
     "redisearch_rs",
     "trie_bencher",
@@ -9,6 +10,7 @@ members = [ "encode_decode",
 ]
 default-members = [
     "low_memory_thin_vec",
+    "qint",
     "trie_rs",
     "redisearch_rs",
     "wildcard",

@@ -1,14 +1,40 @@
-//! # qint encoding and decoding
+//! # qint encoding/decoding - From 2 up to 4 integers variable-length encoding scheme
 //!
 //! The qint encoding scheme is a variable-length encoding scheme for integers. It uses a leading byte to
 //! define the number of bytes used to represent the following integers. Based on that leading byte, up to four
 //! variable-length integers are encoded. The leading byte encodes each length in a 2-bit field. The first 2 bits 
 //! represent the first integer. The next 2 bits represent the second integer, and so on.
-//!
+//! 
+//! Because of the way the leading byte is interpreted the caller must ensure that the invoked encode method maps to the 
+//! correct decode method. For example, if you want to encode 2 integers you must use the `qint_encode::<2>()` method, 
+//! and then to decode you must decode invoke the `qint_decode::<2>` because the bits in the leading byte don't encode a 
+//! size of zero. There is one leading byte so the maximum number of integers that can be encoded is 4.
+//! 
 //! The module provides the same function as the C API, but in Rust: [qint_encode2], [qint_encode3], [qint_encode4] and
 //! [qint_decode2], [qint_decode3], [qint_decode4] based on the traits [Read], [Seek] and [Write].
 //!
 //! These methods build upon the generic [qint_encode] and [qint_decode] methods.
+//! 
+//! ## Example Encodings
+//! 
+//! For the following example we separate for bits for the encoded integers and every two bits for the leading byte.
+//! The `|` symbol is used to separate the leading byte and each of the encoded integers.
+//! 
+//! ### Two integers with a len of 1 byte and 2 bytes
+//! 
+//! Example values: `a=0xFF, b=0x0FF0`
+//! 
+//! would have the following bit pattern:
+//! 
+//! Bit Encoding: `00 01 00 00|1111 1111|0000 1111 1111 0000`
+//! 
+//! ### Four integers: 1, 2, 3 and 4 bytes
+//! 
+//! Example values: `a=0xFF, b=0x0FF0, c=0xFF00F0, d=0xFF0000FF`
+//!  
+//! and 4 bytes for d and has the following bit pattern:
+//! 
+//! Bit Encoding: `00 01 10 11|1111 1111|0000 1111 1111 0000|1111 1111 0000 0000 1111 0000|1111 1111 0000 0000 0000 0000 1111 1111`
 
 
 use std::io;
@@ -16,7 +42,7 @@ use std::io;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
-use std::io::Write;
+use std::io::Write; 
 
 /// Encodes an array of integers into a QInt buffer.
 ///
@@ -144,13 +170,11 @@ fn qint_encode_stepwise<W>(
 where
     W: Write + Seek,
 {
-    let mut ret: usize = 0;
-    let mut num_bytes: i8 = -1;
+    let mut bytes_written: usize = 0;
     loop {
         cursor.write_all(&[value as u8])?;
-        ret += &[value as u8].len();
-        num_bytes += 1;
-
+        bytes_written += 1;
+    
         // shift right until we have no more bigger bytes that are non zero
         value >>= 8;
         // do while(value) in c
@@ -161,8 +185,8 @@ where
     // encode the bit length of our integer into the leading byte.
     // 0 means 1 byte, 1 - 2 bytes, 2 - 3 bytes, 3 - 4 bytes.
     // we encode it at the i*2th place in the leading byte
-    *leading |= (num_bytes as u8) << (offset * 2);
-    Ok(ret)
+    *leading |= ((bytes_written-1) as u8) << (offset * 2);
+    Ok(bytes_written)
 }
 
 /// Internal: Decode an integer value from a buffer based on bit width
@@ -198,12 +222,15 @@ where
             let bytes = [buf[0], buf[1], buf[2], 0];
             Ok((u32::from_ne_bytes(bytes), 3))
         }
-        _ => {
+        3 => {
             // 4 bytes
             let mut buf = [0; 4];
             reader.read_exact(&mut buf)?;
             let bytes = [buf[0], buf[1], buf[2], buf[3]];
             Ok((u32::from_ne_bytes(bytes), 4))
+        }
+        _ => {
+            unreachable!("the bit value in the leading byte should never be more than 3 as it's only 2 bits.");
         }
     }
 }
