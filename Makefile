@@ -641,7 +641,7 @@ coverage-unit:
 	$(SHOW)$(MAKE) unit-tests COV=1
 	$(SHOW)lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/unit.info
 	$(SHOW)lcov -a $(BINROOT)/base.info -a $(BINROOT)/unit.info -o $(BINROOT)/unit.info.1
-	$(SHOW)lcov -o $(BINROOT)/unit.info.2 -r $(BINROOT)/unit.info.1 $(COV_EXCLUDE)
+	# $(SHOW)lcov -o $(BINROOT)/unit.info.2 -r $(BINROOT)/unit.info.1 $(COV_EXCLUDE)
 	$(SHOW)mv $(BINROOT)/unit.info.2 $(BINROOT)/unit.info
 	$(SHOW)rm $(BINROOT)/unit.info.1
 
@@ -652,7 +652,7 @@ coverage-flow:
 	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
 	$(SHOW)lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/flow.info
 	$(SHOW)lcov -a $(BINROOT)/base.info -a $(BINROOT)/flow.info -o $(BINROOT)/flow.info.1
-	$(SHOW)lcov -o $(BINROOT)/flow.info.2 -r $(BINROOT)/flow.info.1 $(COV_EXCLUDE)
+	# $(SHOW)lcov -o $(BINROOT)/flow.info.2 -r $(BINROOT)/flow.info.1 $(COV_EXCLUDE)
 	$(SHOW)mv $(BINROOT)/flow.info.2 $(BINROOT)/flow.info
 	$(SHOW)rm $(BINROOT)/flow.info.1
 
