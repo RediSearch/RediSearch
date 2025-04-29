@@ -85,10 +85,8 @@ impl CBuffer {
     /// Append a slice to the buffer, growing it if necessary.
     pub fn extend_from_slice(&mut self, additional: &[u8]) {
         let additional_len = additional.len();
-        if self.remaining_capacity() < additional_len {
-            if !self.try_reserve(additional_len) {
-                panic!("Failed to reserve additional capacity");
-            }
+        if self.remaining_capacity() < additional_len && !self.try_reserve(additional_len) {
+            panic!("Failed to reserve additional capacity");
         }
 
         unsafe {
