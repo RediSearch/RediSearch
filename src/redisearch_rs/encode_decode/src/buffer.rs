@@ -59,11 +59,13 @@ impl CBuffer {
 
     /// The internal buffer as a slice.
     pub fn as_slice(&self) -> &[u8] {
+        // Safety: `self.ptr` is a valid pointer, if C side gave us one.
         unsafe { slice::from_raw_parts(self.ptr, self.len) }
     }
 
     /// The internal buffer as a mutable slice.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
+        // Safety: `self.ptr` is a valid pointer, if C side gave us one.
         unsafe { slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 
@@ -89,11 +91,16 @@ impl CBuffer {
             panic!("Failed to reserve additional capacity");
         }
 
-        unsafe {
-            let dest = self.ptr.add(self.len);
-            std::ptr::copy_nonoverlapping(additional.as_ptr(), dest, additional_len);
-            self.len += additional_len;
-        }
+        let src = additional.as_ptr();
+        // Safety:
+        // *`self.ptr` is a valid pointer, if C side gave us one.
+        // * `self.len` is less than or equal to `self.capacity`.
+        let dest = unsafe { self.ptr.add(self.len) };
+        // Safety:
+        // * We just created `src` from `additional` reference, so it's valid.
+        // * `additional_len` is less than `self.remaining_capacity()`.
+        unsafe { std::ptr::copy_nonoverlapping(src, dest, additional_len) };
+        self.len += additional_len;
     }
 
     /// Try to reserve additional capacity in the buffer.
@@ -103,16 +110,17 @@ impl CBuffer {
         }
 
         let new_capacity = self.len + additional;
-        unsafe {
-            let realloc = RedisModule_Realloc.unwrap();
-            let new_ptr = realloc(self.ptr as *mut c_void, new_capacity);
-            if new_ptr.is_null() {
-                return false;
-            }
-            self.ptr = new_ptr as *mut u8;
-            self.capacity = new_capacity;
-            true
+        // Safety: Static-mutable requires `unsafe` to be accessed.
+        let realloc = unsafe { RedisModule_Realloc }.unwrap();
+
+        // Safety: Calling into C, so its unsafe by definition.
+        let new_ptr = unsafe { realloc(self.ptr as *mut c_void, new_capacity) };
+        if new_ptr.is_null() {
+            return false;
         }
+        self.ptr = new_ptr as *mut u8;
+        self.capacity = new_capacity;
+        true
     }
 
     /// Advance the buffer by `n` bytes.
