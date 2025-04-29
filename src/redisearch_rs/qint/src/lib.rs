@@ -48,7 +48,7 @@ use std::io::Write;
 /// Encodes an array of integers into a QInt buffer.
 ///
 /// # Arguments
-/// * `cursor` - Buffer writer
+/// * `cursor` - Must implement [Write] and [Seek], probably a buffer writer
 /// * `values` - Array of integers to encode (2, 3, or 4 integers)
 ///
 /// # Returns
@@ -77,7 +77,7 @@ where
 /// Decodes a QInt buffer into an array of integers
 ///
 /// # Arguments
-/// * `reader` - Buffer reader
+/// * `reader` - must implement [Read], probably a buffer reader
 /// * `N` - Number of integers to decode (2, 3, or 4)
 ///
 /// # Returns
