@@ -16,6 +16,10 @@ crate-type = ["staticlib", "rlib"]
 # allocator, thus causing a panic since it's not available.
 # We sidestep the issue by disabling the unit test harness explicitly.
 test = false
+# If `bench` is set to `true` (the default), Rust will try (again) to generate
+# and run a "no-op" test binary (where all tests will be skipped). We disable
+# that too.
+bench = false
 
 [features]
 default = []
