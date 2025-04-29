@@ -59,3 +59,11 @@ jobs:
         flags: unit
         fail_ci_if_error: true # Fail on upload errors
         token: ${{ secrets.CODECOV_TOKEN }}
+    - name: Upload Artifacts
+      # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: Coverage Test Logs
+        path: tests/**/logs/*.log*
+        if-no-files-found: ignore
