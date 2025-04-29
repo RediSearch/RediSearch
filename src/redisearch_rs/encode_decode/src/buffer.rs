@@ -74,6 +74,11 @@ impl CBuffer {
         self.len
     }
 
+    /// If the buffer is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
     /// The capacity of the buffer.
     pub fn capacity(&self) -> usize {
         self.capacity
