@@ -6,6 +6,31 @@ use trie_rs::{
     iter::filter::{FilterOutcome, TraversalFilter},
 };
 
+// Assert that all variations of prefixed iterators return the expected entries.
+macro_rules! assert_prefixed_iterators {
+    ($trie:expr, $prefix:expr, $entries:expr) => {{
+        // Standard iterator
+        let trie_entries: Vec<(Vec<c_char>, i32)> = $trie
+            .prefixed_iter($prefix)
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+        assert_eq!(trie_entries, $entries, "Standard iterator failed");
+
+        // Lending iterator
+        let mut lending_entries = Vec::new();
+        let mut lending_iter = $trie.prefixed_lending_iter($prefix);
+        while let Some((key, value)) = lending_iterator::LendingIterator::next(&mut lending_iter) {
+            lending_entries.push((key.to_owned(), *value));
+        }
+        assert_eq!(lending_entries, $entries, "Lending iterator failed");
+
+        // Verify the values iterator
+        let expected_values: Vec<i32> = $entries.iter().map(|(_, v)| *v).collect();
+        let trie_values: Vec<i32> = $trie.prefixed_values($prefix).copied().collect();
+        assert_eq!(trie_values, expected_values, "Values iterator failed");
+    }};
+}
+
 #[test]
 fn prefix_constraint_is_honored() {
     let mut trie = TrieMap::new();
@@ -15,52 +40,42 @@ fn prefix_constraint_is_honored() {
     trie.insert(&"apricot".c_chars(), 4);
 
     // Prefix search works when there is a node matching the prefix.
-    let entries: Vec<_> = trie.prefixed_iter(&"ap".c_chars()).collect();
-    let values: Vec<_> = trie.prefixed_values(&"ap".c_chars()).copied().collect();
-    assert_eq!(
-        entries,
-        vec![("apple".c_chars(), &1), ("apricot".c_chars(), &4)]
+    assert_prefixed_iterators!(
+        trie,
+        &"ap".c_chars(),
+        vec![("apple".c_chars(), 1), ("apricot".c_chars(), 4)]
     );
-    assert_eq!(values, vec![1, 4]);
 
     // Prefix search works even when there isn't a node matching the prefix.
-    let entries: Vec<_> = trie.prefixed_iter(&b"a".c_chars()).collect();
-    let values: Vec<_> = trie.prefixed_values(&b"a".c_chars()).copied().collect();
-    assert_eq!(
-        entries,
-        vec![("apple".c_chars(), &1), ("apricot".c_chars(), &4)]
+    assert_prefixed_iterators!(
+        trie,
+        &"a".c_chars(),
+        vec![("apple".c_chars(), 1), ("apricot".c_chars(), 4)]
     );
-    assert_eq!(values, vec![1, 4]);
 
     // If the prefix matches an entry, it should be included in the results.
-    let entries: Vec<_> = trie.prefixed_iter(&b"ban".c_chars()).collect();
-    let values: Vec<_> = trie.prefixed_values(&b"ban".c_chars()).copied().collect();
-    assert_eq!(
-        entries,
-        vec![("ban".c_chars(), &2), ("banana".c_chars(), &3)]
+    assert_prefixed_iterators!(
+        trie,
+        &"ban".c_chars(),
+        vec![("ban".c_chars(), 2), ("banana".c_chars(), 3)]
     );
-    assert_eq!(values, vec![2, 3]);
 
     // If the prefix is empty, all entries should be included in the results,
     // ordered lexicographically by key.
-    let entries: Vec<_> = trie.prefixed_iter(&b"".c_chars()).collect();
-    let values: Vec<_> = trie.prefixed_values(&b"".c_chars()).copied().collect();
-    assert_eq!(
-        entries,
+    assert_prefixed_iterators!(
+        trie,
+        &"".c_chars(),
         vec![
-            ("apple".c_chars(), &1),
-            ("apricot".c_chars(), &4),
-            ("ban".c_chars(), &2),
-            ("banana".c_chars(), &3),
+            ("apple".c_chars(), 1),
+            ("apricot".c_chars(), 4),
+            ("ban".c_chars(), 2),
+            ("banana".c_chars(), 3),
         ]
     );
-    assert_eq!(values, vec![1, 4, 2, 3]);
 
     // If there is no entry matching the prefix, an empty iterator should be returned.
-    let entries: Vec<_> = trie.prefixed_iter(&"xyz".c_chars()).collect();
-    assert!(entries.is_empty());
-    let values: Vec<_> = trie.prefixed_values(&"xyz".c_chars()).collect();
-    assert!(values.is_empty());
+    let expected: Vec<(Vec<c_char>, i32)> = vec![];
+    assert_prefixed_iterators!(trie, &"xyz".c_chars(), expected);
 }
 
 /// A wrapper around a traversal filter that records the keys visited during the traversal.
