@@ -636,7 +636,6 @@ COV_EXCLUDE_DIRS += \
 COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
 coverage-unit:
-	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
 	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
 	$(SHOW)$(MAKE) unit-tests COV=1
@@ -647,7 +646,6 @@ coverage-unit:
 	$(SHOW)rm $(BINROOT)/unit.info.1
 
 coverage-flow:
-	$(SHOW)$(MAKE) build COV=1
 	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
 	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
 	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)

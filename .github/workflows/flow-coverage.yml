@@ -20,7 +20,7 @@ env:
   VERBOSE_UTESTS: 1
   REJSON_BRANCH: ${{ inputs.rejson-branch }}
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
-  # QUICK: ${{ inputs.quick && 1 || 0 }}  # convert the boolean input to numeric
+  QUICK: ${{ inputs.quick && 1 || 0 }}  # convert the boolean input to numeric
   COV: 1 # make sure the context for any 'make' or script call is for coverage
 
 jobs:
@@ -44,9 +44,11 @@ jobs:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: ./deps/readies/bin/getredis --with-github-token --branch unstable
 
-    - name: Build and test flow
+    - name: Build
+      run: make
+    - name: Flow coverage
       run: make coverage-flow
-    - name: Build and test unit
+    - name: Unit coverage
       run: make coverage-unit
 
     - name: Upload flow coverage
