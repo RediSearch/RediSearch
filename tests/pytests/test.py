@@ -4391,6 +4391,8 @@ def test_with_tls_and_non_tls_ports():
         ['OK'] * env.shardsCount
     )
 
+    time.sleep(2) # Give some time for the cluster to be updated
+
     with TimeLimit(10, 'Failed waiting for the cluster to be updated'):
         new_ports = get_ports(env)
         while new_ports != expected_ports:

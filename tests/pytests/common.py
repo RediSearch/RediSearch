@@ -659,7 +659,7 @@ def get_TLS_args():
 
     return cert_file, key_file, ca_cert_file, passphrase
 
-# Dispatch a command to make sure that the module is loaded and initialized
+# Dispatch a command to make sure that the module is loaded and initialized.
 # We need to dispatch a command that will activate the topology updater, by
 # sending a command to the shards. Otherwise the cluster.refresh command will
 # not be effective, due to lazy initialization of the topology updater.
