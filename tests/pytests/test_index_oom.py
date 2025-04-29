@@ -476,3 +476,40 @@ def test_oom_json(env):
                         bgIndexingStatusStr: OOMfailureStr,
                         }
   env.assertEqual(error_dict, expected_error_dict)
+
+@skip(cluster=True)
+def test_oom_100_percent(env):
+  # Test the default behavior of 100% memory limit w.r.t redis memory limit (also 100%)
+  n_docs = 100
+  for i in range(n_docs):
+    env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
+  set_tight_maxmemory_for_oom(env)
+
+  # set pause on OOM
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+  # Set pause before scanning
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+
+  # Create an index, should trigger redis level OOM
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').error().contains("command not allowed when used memory > 'maxmemory'.")
+  set_unlimited_maxmemory_for_oom(env)
+  # Create an index, should not trigger OOM
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  # Wait for pause before scanning
+  waitForIndexPauseScan(env, 'idx')
+  # Set tight memory limit
+  set_tight_maxmemory_for_oom(env)
+  # Resume indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Wait for OOM
+  waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
+  # Resume the indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Wait for the indexing to finish
+  waitForIndexFinishScan(env, 'idx')
+  # Verify OOM status
+  info = index_info(env)
+  error_dict = to_dict(info["Index Errors"])
+  bgIndexingStatusStr = "background indexing status"
+  OOMfailureStr = "OOM failure"
+  env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
