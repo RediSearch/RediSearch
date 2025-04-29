@@ -898,7 +898,9 @@ def allShards_waitForIndexStatus(env, status, idx='idx'):
         shard_waitForIndexStatus(env, shardId, status, idx)
 
 def shard_waitForIndexFinishScan(env, shardId, idx = 'idx'):
-    while index_info(env, idx)['percent_indexed'] != '1':
+    # Wait for the index to finish scan
+    # Check if equals 1 for RESP3 support
+    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
         time.sleep(0.1)
 
 def allShards_waitForIndexFinishScan(env, idx = 'idx'):
