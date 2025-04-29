@@ -253,7 +253,14 @@ build_redisearch_rs() {
     RUST_BUILD_MODE="--release"
     RUST_ARTIFACT_SUBDIR="release"
   fi
-
+  # Set up RUSTFLAGS for dynamic C runtime if needed
+  if [[ "$RUST_DYN_CRT" == "1" ]]; then
+    # Disable statically linking the C runtime.
+    # Default behaviour or ignored on most platforms,
+    # but necessary on Alpine Linux.
+    # See: https://doc.rust-lang.org/reference/linkage.html#r-link.crt
+    export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }-C target-feature=-crt-static"
+  fi
   # Build using cargo
   mkdir -p "$REDISEARCH_RS_TARGET_DIR"
   cd "$REDISEARCH_RS_DIR"
