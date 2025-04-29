@@ -14,10 +14,6 @@
 #include "search_ctx.h"
 #include "aggregate/aggregate.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 struct CursorList;
 
 typedef struct Cursor {
@@ -40,16 +36,11 @@ typedef struct Cursor {
   /** Initial timeout interval */
   unsigned timeoutIntervalMs;
 
-  /** Position within idle list.
-   * Should only be accessed under cursor list lock */
+  /** Position within idle list */
   int pos;
 
   /** Is it an internal coordinator cursor or a user cursor*/
   bool is_coord;
-
-  /** If true, a call to `Cursor_Pause` should drop it instead.
-   *  Should only be accessed under cursor list lock */
-  bool delete_mark;
 } Cursor;
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
@@ -179,8 +170,7 @@ int Cursor_Pause(Cursor *cur);
 int Cursor_Free(Cursor *cl);
 
 /**
- * Locate and free the cursor with the given ID.
- * If the cursor is found but not idle, it is marked for deletion.
+ * Locate and free the cursor with the given ID
  */
 int Cursors_Purge(CursorList *cl, uint64_t cid);
 
@@ -208,8 +198,4 @@ void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const Inde
 #endif
 
 #define getCursorList(coord) ((coord) ? &g_CursorsListCoord : &g_CursorsList)
-
-#ifdef __cplusplus
-}
-#endif
 #endif // CURSOR_H
