@@ -52,7 +52,7 @@ jobs:
         working-directory: src/redisearch_rs
 
       - name: Upload rust baseline benchmarks for master
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push' && success()
+        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: "rust-benchmark-results-master"
