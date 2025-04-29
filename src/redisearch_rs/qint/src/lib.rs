@@ -93,7 +93,7 @@ pub(crate) fn qint_decode<N: AllowedIntegersInQIntEncoding, R: Read>(
     total += 1;
 
     // Decode N values based on 2-bit fields in the leading byte
-    let mut result = N::zero_initialzied();
+    let mut result = N::zero_initialized();
     for (i, item) in result.iter_mut().enumerate().take(N::ENCODE_SIZE) {
         // Extract 2-bit field for the i-th value
         let bits = (leading[0] >> (i * 2)) & 0x03;
@@ -105,69 +105,46 @@ pub(crate) fn qint_decode<N: AllowedIntegersInQIntEncoding, R: Read>(
     Ok((result, total))
 }
 
-// we use the private module to seal the AllowedEncodeSize trait and prevent other types from implementing it
-mod private {
-    pub trait Sealed {}
-    impl Sealed for [u32; 2] {}
-    impl Sealed for [u32; 3] {}
-    impl Sealed for [u32; 4] {}
+// This macro generates implementations of the AllowedIntegersInQIntEncoding trait for arrays of u32
+macro_rules! impl_allowed_integers_in_qint_encoding {
+    ($($size:literal),* $(,)?) => {
+        $(
+            impl AllowedIntegersInQIntEncoding for [u32; $size] {
+                const ENCODE_SIZE: usize = $size;
+
+                fn zero_initialized() -> Self {
+                    [0; $size]
+                }
+
+                fn iter(&self) -> core::slice::Iter<u32> {
+                    self[..].iter()
+                }
+
+                fn iter_mut(&mut self) -> core::slice::IterMut<u32> {
+                    self[..].iter_mut()
+                }
+            }
+
+            // Also implement Sealed for each array size
+            impl private::Sealed for [u32; $size] {}
+        )*
+    };
 }
 
-pub trait AllowedIntegersInQIntEncoding: IntoIterator<Item= u32> + private::Sealed {
-    const ENCODE_SIZE: usize;
+// Define the trait and private module
+mod private {
+    pub trait Sealed {}
+}
 
-    fn zero_initialzied() -> Self;
+pub trait AllowedIntegersInQIntEncoding: private::Sealed + IntoIterator<Item = u32> {
+    const ENCODE_SIZE: usize;
+    fn zero_initialized() -> Self;
     fn iter(&self) -> core::slice::Iter<u32>;
     fn iter_mut(&mut self) -> core::slice::IterMut<u32>;
 }
 
-impl AllowedIntegersInQIntEncoding for [u32; 2] {
-    const ENCODE_SIZE: usize = 2;
-
-    fn zero_initialzied() -> Self {
-        [0; 2]
-    }
-    
-    fn iter(&self) -> core::slice::Iter<u32> {
-        self[..].iter()
-    }
-    
-    fn iter_mut(&mut self) -> core::slice::IterMut<u32> {
-        self[..].iter_mut()
-    }
-}
-
-impl AllowedIntegersInQIntEncoding for [u32; 3] {
-    const ENCODE_SIZE: usize = 3;
-
-    fn zero_initialzied() -> Self {
-        [0; 3]
-    }
-    
-    fn iter(&self) -> core::slice::Iter<u32> {
-        self[..].iter()
-    }
-    
-    fn iter_mut(&mut self) -> core::slice::IterMut<u32> {
-        self[..].iter_mut()
-    }
-}
-
-impl AllowedIntegersInQIntEncoding for [u32; 4] {
-    const ENCODE_SIZE: usize = 4;
-
-    fn zero_initialzied() -> Self {
-        [0; 4]
-    }
-    
-    fn iter(&self) -> core::slice::Iter<u32> {
-        self[..].iter()
-    }
-    
-    fn iter_mut(&mut self) -> core::slice::IterMut<u32> {
-        self[..].iter_mut()
-    }
-}
+// Use the macro to generate impls for [u32; 2], [u32; 3], and [u32; 4]
+impl_allowed_integers_in_qint_encoding!(2, 3, 4);
 
 type N2 = [u32; 2];
 type N3 = [u32; 3];
