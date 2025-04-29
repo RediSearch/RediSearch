@@ -29,7 +29,7 @@ jobs:
 
   basic-test:
     needs: check-what-changed
-    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }} 
+    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
     uses: ./.github/workflows/task-test.yml
     with:
       env: 'ubuntu-latest'
@@ -49,11 +49,9 @@ jobs:
   coverage:
     needs: check-what-changed
     if: >
-      (
-        vars.ENABLE_CODE_COVERAGE != 'false' &&
-        ((!github.event.pull_request.draft && 
-         ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
-        ) || contains(github.event.pull_request.labels.*.name, 'enforce:coverage'))
+      vars.ENABLE_CODE_COVERAGE != 'false' && (
+          (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') ||
+          contains(github.event.pull_request.labels.*.name, 'enforce:coverage')
       )
     uses: ./.github/workflows/flow-coverage.yml
     with:
@@ -64,7 +62,7 @@ jobs:
     needs: check-what-changed
     if: >
       (
-        ((!github.event.pull_request.draft && ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}) || 
+        (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') ||
         contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')
       )
     secrets: inherit
@@ -79,6 +77,7 @@ jobs:
 
   pr-validation:
     needs:
+      - check-what-changed
       - spellcheck
       - basic-test
       - micro-benchmarks
@@ -88,14 +87,5 @@ jobs:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{!cancelled()}}
     steps:
-      - name: Check job results
-        run: |
-          if [[ "${{ contains(needs.*.result, 'skipped') }}" == "true" ]]; then
-            echo "One or more jobs skipped, due to change checks."
-          fi
-          
-          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
-            echo "One or more required jobs failed or were cancelled."
-            exit 1
-          fi
-          echo "All required jobs completed successfully or were skipped."
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
