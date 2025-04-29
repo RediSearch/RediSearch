@@ -8,7 +8,7 @@ use trie_rs::{
 
 // Assert that all variations of prefixed iterators return the expected entries.
 macro_rules! assert_prefixed_iterators {
-    ($trie:expr, $prefix:expr, $entries:expr) => {{
+    ($trie:ident, $prefix:expr, $entries:expr) => {{
         // Standard iterator
         let trie_entries: Vec<(Vec<c_char>, i32)> = $trie
             .prefixed_iter($prefix)
@@ -89,6 +89,10 @@ impl<T> SpyFilter<T> {
     pub fn visited_keys(&self) -> Vec<Vec<c_char>> {
         self.visited_keys.borrow().clone()
     }
+
+    pub fn reset(&mut self) {
+        self.visited_keys.borrow_mut().clear();
+    }
 }
 
 impl<T: TraversalFilter> TraversalFilter for SpyFilter<T> {
@@ -96,6 +100,46 @@ impl<T: TraversalFilter> TraversalFilter for SpyFilter<T> {
         self.visited_keys.borrow_mut().push(key.to_vec());
         self.inner.filter(key)
     }
+}
+
+macro_rules! assert_traversal {
+    ($trie:ident, $filter:ident, $expected_entries:expr, $expected_visited_keys:expr) => {{
+        // Collect entries using the normal iterator with the traversal filter
+        let normal_entries: Vec<Vec<c_char>> = $trie
+            .iter()
+            .traversal_filter($filter.clone())
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        assert_eq!(
+            normal_entries, $expected_entries,
+            "The filtered results for the standard iterator do not match expected entries"
+        );
+        assert_eq!(
+            $filter.visited_keys(),
+            $expected_visited_keys,
+            "The visited keys for the filtered standard iterator do not match expected entries"
+        );
+
+        $filter.reset();
+
+        // Collect entries using the lending iterator with the traversal filter
+        let mut lending_entries = Vec::new();
+        let mut lending_iter = $trie.lending_iter().traversal_filter($filter.clone());
+        while let Some((key, _)) = lending_iterator::LendingIterator::next(&mut lending_iter) {
+            lending_entries.push(key.to_owned());
+        }
+
+        assert_eq!(
+            lending_entries, $expected_entries,
+            "The filtered results for the lending iterator do not match expected entries"
+        );
+        assert_eq!(
+            $filter.visited_keys(),
+            $expected_visited_keys,
+            "The visited keys for the filtered lending iterator do not match expected entries"
+        );
+    }};
 }
 
 #[test]
@@ -106,7 +150,7 @@ fn traversal_filter() {
     trie.insert(&"banana".c_chars(), 3);
     trie.insert(&"apricot".c_chars(), 4);
 
-    let no_ban_prefix = SpyFilter {
+    let mut no_ban_prefix = SpyFilter {
         visited_keys: Rc::new(RefCell::new(Vec::new())),
         inner: |key: &[c_char]| {
             let is_prefixed = key.starts_with(&b"ban".c_chars());
@@ -116,54 +160,45 @@ fn traversal_filter() {
             }
         },
     };
-    let entries: Vec<_> = trie
-        .iter()
-        .traversal_filter(no_ban_prefix.clone())
-        .map(|(k, _)| k)
-        .collect();
-    assert_eq!(entries, c_chars_vec!["apple", "apricot"]);
-    // `ban` was visited, but `banana` was not.
-    assert_eq!(
-        no_ban_prefix.visited_keys(),
+    assert_traversal!(
+        trie,
+        no_ban_prefix,
+        c_chars_vec!["apple", "apricot"],
+        // `ban` was visited, but `banana` was not.
         c_chars_vec!["", "ap", "apple", "apricot", "ban"]
     );
 
     // Don't yield `ban`, but visit keys that are prefixed with `ban`.
-    let no_ban_exact = SpyFilter {
+    let mut no_ban_exact = SpyFilter {
         visited_keys: Rc::new(RefCell::new(Vec::new())),
         inner: |key: &[c_char]| FilterOutcome {
             yield_current: key != &b"ban".c_chars(),
             visit_descendants: true,
         },
     };
-    let entries: Vec<_> = trie
-        .iter()
-        .traversal_filter(no_ban_exact.clone())
-        .map(|(k, _)| k)
-        .collect();
-    assert_eq!(entries, c_chars_vec!["apple", "apricot", "banana"]);
-    // Both `ban` and `banana` were visited.
-    assert_eq!(
-        no_ban_exact.visited_keys(),
+    assert_traversal!(
+        trie,
+        no_ban_exact,
+        c_chars_vec!["apple", "apricot", "banana"],
+        // Both `ban` and `banana` were visited.
         c_chars_vec!["", "ap", "apple", "apricot", "ban", "banana"]
     );
 
     // Skip all keys, traverse no descendants.
-    let skip_all = SpyFilter {
+    let mut skip_all = SpyFilter {
         visited_keys: Rc::new(RefCell::new(Vec::new())),
         inner: |_: &[c_char]| FilterOutcome {
             yield_current: false,
             visit_descendants: false,
         },
     };
-    let entries: Vec<_> = trie
-        .iter()
-        .traversal_filter(skip_all.clone())
-        .map(|(k, _)| k)
-        .collect();
-    assert!(entries.is_empty());
-    // Only the root was visited.
-    assert_eq!(skip_all.visited_keys(), c_chars_vec![""]);
+    assert_traversal!(
+        trie,
+        skip_all,
+        Vec::<Vec<c_char>>::new(),
+        // Only the root was visited.
+        c_chars_vec![""]
+    );
 }
 
 mod property_based {
