@@ -627,15 +627,11 @@ endif
 
 #----------------------------------------------------------------------------------------------
 
-COV_EXCLUDE_DIRS += \
-	bin \
-	deps \
-	tests \
-	coord/tests
+COV_INCLUDE_DIR = \
+	src \
+	deps/thpool \
+	deps/triemap \
 
-COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
-
-COV_INCLUDE_DIR = src deps/thpool deps/triemap
 COV_INCLUDE+=$(foreach D,$(COV_INCLUDE_DIR),'$(realpath $(ROOT))/$(D)/*')
 
 coverage-unit:
@@ -644,18 +640,18 @@ coverage-unit:
 	$(SHOW)$(MAKE) unit-tests COV=1
 	$(SHOW)lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/unit.info
 	$(SHOW)lcov -a $(BINROOT)/base.info -a $(BINROOT)/unit.info -o $(BINROOT)/unit.info.1
-	$(SHOW)lcov -o $(BINROOT)/unit.info.2 -e $(BINROOT)/unit.info.1 src/result_processor
+	$(SHOW)lcov -o $(BINROOT)/unit.info.2 -e $(BINROOT)/unit.info.1 $(COV_INCLUDE)
 	$(SHOW)mv $(BINROOT)/unit.info.2 $(BINROOT)/unit.info
 	$(SHOW)rm $(BINROOT)/unit.info.1
 
 coverage-flow:
 	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
 	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
-	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 REJSON_BRANCH=$(REJSON_BRANCH) TEST=test_multithread:testNameLoader
-	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 REJSON_BRANCH=$(REJSON_BRANCH) TEST=test_multithread:testNameLoader
+	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
+	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
 	$(SHOW)lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/flow.info
 	$(SHOW)lcov -a $(BINROOT)/base.info -a $(BINROOT)/flow.info -o $(BINROOT)/flow.info.1
-	$(SHOW)lcov -o $(BINROOT)/flow.info.2 -e $(BINROOT)/flow.info.1 src/result_processor
+	$(SHOW)lcov -o $(BINROOT)/flow.info.2 -e $(BINROOT)/flow.info.1 $(COV_INCLUDE)
 	$(SHOW)mv $(BINROOT)/flow.info.2 $(BINROOT)/flow.info
 	$(SHOW)rm $(BINROOT)/flow.info.1
 
