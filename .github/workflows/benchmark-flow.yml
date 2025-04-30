@@ -62,12 +62,14 @@ jobs:
         with:
           cache-size: 10G
           cache-only: true
-      - name: Wrap any compiler with sccache
+      - name: Wrap any existing compiler with sccache
         run: |
-          export REAL_CC=$(which ${CC:-gcc})
-          export REAL_CXX=$(which ${CXX:-g++})
-          echo "CC=sccache $REAL_CC" >> $GITHUB_ENV
-          echo "CXX=sccache $REAL_CXX" >> $GITHUB_ENV
+          echo "CC=sccache $(command -v ${CC:-gcc})" >> $GITHUB_ENV
+          echo "CXX=sccache $(command -v ${CXX:-g++})" >> $GITHUB_ENV
+      - name: Confirm compiler wrapping
+        run: |
+          echo "CC=$CC"
+          echo "CXX=$CXX"
       - name: Build RediSearch
         run: ./build.sh ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
       - name: Prepare automation
