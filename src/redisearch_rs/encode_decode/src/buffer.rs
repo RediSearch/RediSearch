@@ -1,4 +1,9 @@
-use std::{ffi::c_void, io::Cursor, ptr::NonNull, slice};
+use std::{
+    ffi::c_void,
+    io::Cursor,
+    ptr::{NonNull, copy_nonoverlapping},
+    slice,
+};
 
 use redis_module::RedisModule_Realloc;
 
@@ -7,7 +12,7 @@ use redis_module::RedisModule_Realloc;
 /// Allocated by C, we never want to free it.
 #[repr(C)]
 pub struct Buffer {
-    data: *mut u8,
+    data: NonNull<u8>,
     capacity: usize,
     len: usize,
 }
@@ -15,29 +20,23 @@ pub struct Buffer {
 /// Redefines the `BufferReader` struct from `buffer.h`
 #[repr(C)]
 pub struct BufferReader {
-    pub buf: *const Buffer,
+    pub buf: NonNull<Buffer>,
     pub pos: usize,
 }
 
 impl BufferReader {
     pub fn as_cursor(&mut self) -> Cursor<&[u8]> {
         // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
-        let buffer = unsafe { &*self.buf };
+        let buffer = unsafe { self.buf.as_mut() };
+        // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
+        let data = unsafe { buffer.data.as_mut() };
         // Safety: All invariants of `std::slice::from_raw_parts` should hold here if the C side
         // doesn't do something naughty.
-        let buffer_slice = unsafe { slice::from_raw_parts(buffer.data, buffer.capacity) };
+        let buffer_slice = unsafe { slice::from_raw_parts(data, buffer.capacity) };
         let mut cursor = Cursor::new(buffer_slice);
         cursor.set_position(self.pos as u64);
         cursor
     }
-}
-
-/// Redefines the `BufferWriter` struct from `buffer.h`
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct BufferWriter {
-    pub buf: *mut Buffer,
-    pub pos: *mut u8,
 }
 
 impl Buffer {
@@ -46,7 +45,7 @@ impl Buffer {
     /// # Panics
     ///
     /// Panics if `len` is greater than `capacity`.
-    pub fn new(data: *mut u8, len: usize, capacity: usize) -> Self {
+    pub fn new(data: NonNull<u8>, len: usize, capacity: usize) -> Self {
         assert!(len <= capacity, "len must not exceed capacity");
         Self {
             data,
@@ -58,13 +57,17 @@ impl Buffer {
     /// The internal buffer as a slice.
     pub fn as_slice(&self) -> &[u8] {
         // Safety: `self.ptr` is a valid pointer, if C side gave us one.
-        unsafe { slice::from_raw_parts(self.data, self.len) }
+        let data = unsafe { self.data.as_ref() };
+        // Safety: `self.len` is a valid length, if C side didn't mess up.
+        unsafe { slice::from_raw_parts(data, self.len) }
     }
 
     /// The internal buffer as a mutable slice.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         // Safety: `self.ptr` is a valid pointer, if C side gave us one.
-        unsafe { slice::from_raw_parts_mut(self.data, self.len) }
+        let data = unsafe { self.data.as_mut() };
+        // Safety: `self.len` is a valid length, if C side didn't mess up.
+        unsafe { slice::from_raw_parts_mut(data, self.len) }
     }
 
     /// The length of the buffer.
@@ -87,45 +90,6 @@ impl Buffer {
         self.capacity - self.len
     }
 
-    /// Append a slice to the buffer, growing it if necessary.
-    pub fn extend_from_slice(&mut self, additional: &[u8]) {
-        let additional_len = additional.len();
-        if self.remaining_capacity() < additional_len && !self.try_reserve(additional_len) {
-            panic!("Failed to reserve additional capacity");
-        }
-
-        let src = additional.as_ptr();
-        // Safety:
-        // *`self.ptr` is a valid pointer, if C side gave us one.
-        // * `self.len` is less than or equal to `self.capacity`.
-        let dest = unsafe { self.data.add(self.len) };
-        // Safety:
-        // * We just created `src` from `additional` reference, so it's valid.
-        // * `additional_len` is less than `self.remaining_capacity()`.
-        unsafe { std::ptr::copy_nonoverlapping(src, dest, additional_len) };
-        self.len += additional_len;
-    }
-
-    /// Try to reserve additional capacity in the buffer.
-    pub fn try_reserve(&mut self, additional: usize) -> bool {
-        if self.remaining_capacity() >= additional {
-            return true;
-        }
-
-        let new_capacity = self.len + additional;
-        // Safety: Static-mutable requires `unsafe` to be accessed.
-        let realloc = unsafe { RedisModule_Realloc }.unwrap();
-
-        // Safety: Calling into C, so its unsafe by definition.
-        let new_ptr = unsafe { realloc(self.data as *mut c_void, new_capacity) };
-        if new_ptr.is_null() {
-            return false;
-        }
-        self.data = new_ptr as *mut u8;
-        self.capacity = new_capacity;
-        true
-    }
-
     /// Advance the buffer by `n` bytes.
     ///
     /// # Panics
@@ -135,44 +99,57 @@ impl Buffer {
         assert!(n <= self.remaining_capacity());
         self.len += n;
     }
-
-    /// Hands over the buffer (back) to the C side inside the given [`BufferWriter`].
-    // FIXME: Better name please?
-    pub fn to_buffer_writer(self, mut writer: NonNull<BufferWriter>) {
-        // Safety: `writer` is a valid pointer, if C side doesn't do something naughty.
-        let writer_mut = unsafe { writer.as_mut() };
-        // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
-        let buffer = unsafe { &mut *writer_mut.buf };
-        // Safety: `data` is a valid pointer, if C side doesn't do something naughty.
-        buffer.data = self.data;
-        buffer.capacity = self.capacity;
-        buffer.len = self.len;
-        // Safety: `pos` is a valid pointer, if C side doesn't do something naughty.
-        writer_mut.pos = unsafe { self.data.add(self.len) };
-    }
 }
 
-impl From<NonNull<BufferWriter>> for Buffer {
-    fn from(value: NonNull<BufferWriter>) -> Self {
-        // Safety: `value` is a valid pointer, if C side doesn't do something naughty.
-        let writer = unsafe { value.as_ref() };
-        if writer.buf.is_null() {
-            panic!("BufferWriter.buf is null");
+/// Redefines the `BufferWriter` struct from `buffer.h`
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct BufferWriter {
+    pub buf: NonNull<Buffer>,
+    pub cursor: NonNull<u8>,
+}
+
+impl std::io::Write for BufferWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
+        let buffer = unsafe { self.buf.as_mut() };
+        // Safety: All invariants of `std::slice::from_raw_parts` should hold here if the C side
+        // does everything correctly.
+        let pos = unsafe { self.cursor.byte_offset_from(buffer.data) } as usize;
+        // Check if pos + bytes.len() exceeds the buffer capacity and reallocate if necessary.
+        if pos + bytes.len() > buffer.capacity {
+            let extra = bytes.len() - (buffer.capacity - pos);
+            let new_capacity = buffer.capacity + extra;
+            // Safety: Static-mutable requires `unsafe` to be accessed.
+            let realloc = unsafe { RedisModule_Realloc }.unwrap();
+            // Safety: Calling into C, so its unsafe by definition.
+            let new_ptr = unsafe { realloc(buffer.data.as_ptr() as *mut c_void, new_capacity) };
+            buffer.data = NonNull::new(new_ptr as *mut u8).ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::OutOfMemory,
+                    "Failed to reallocate buffer",
+                )
+            })?;
+            buffer.capacity = new_capacity;
+            // Safety: All invariants of `std::ptr::NonNull::add` should hold here.
+            self.cursor = unsafe { buffer.data.add(pos) };
         }
-        // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
-        let buffer = unsafe { &*writer.buf };
-        // Safety: `data` is a valid pointer, if C side doesn't do something naughty.
-        let data = unsafe { slice::from_raw_parts(buffer.data, buffer.capacity) };
-        let ptr = data.as_ptr() as *mut u8;
 
-        Self::new(ptr, buffer.len, buffer.capacity)
-    }
-}
+        // Now copy the bytes into the buffer.
 
-impl std::io::Write for Buffer {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.extend_from_slice(buf);
-        Ok(buf.len())
+        let src = bytes.as_ptr();
+        let dest = self.cursor.as_ptr();
+        // Safety:
+        // * We just created `src` and `dest` using safe API.
+        // * `bytes.len()` is less than capacity - pos.
+        unsafe { copy_nonoverlapping(src, dest, bytes.len()) };
+        // Update the buffer length.
+        buffer.len = pos + bytes.len();
+        // Update the position.
+        // Safety: All invariants of `std::ptr::NonNull::add` should hold here.
+        self.cursor = unsafe { self.cursor.add(bytes.len()) };
+
+        Ok(bytes.len())
     }
 
     fn flush(&mut self) -> std::io::Result<()> {

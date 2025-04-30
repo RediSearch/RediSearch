@@ -4,7 +4,7 @@
 use std::ptr::NonNull;
 
 use encode_decode::{
-    Buffer, BufferReader, BufferWriter, FieldMask,
+    BufferReader, BufferWriter, FieldMask,
     varint::{VectorWriter, read, read_field_mask, write, write_field_mask},
 };
 
@@ -38,23 +38,19 @@ extern "C" fn ReadVarintFieldMask(mut b: NonNull<BufferReader>) -> FieldMask {
 /// capacity. The change of the buffer capacity is an internal detail and should not be of concern
 /// to the caller.
 #[unsafe(no_mangle)]
-extern "C" fn WriteVarint(value: u32, writer: NonNull<BufferWriter>) -> usize {
-    let mut buffer = Buffer::from(writer);
-    let len = write(value, &mut buffer).unwrap();
-    buffer.to_buffer_writer(writer);
-
-    len
+extern "C" fn WriteVarint(value: u32, mut writer: NonNull<BufferWriter>) -> usize {
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
+    let writer = unsafe { writer.as_mut() };
+    write(value, writer).unwrap()
 }
 
 /// See the note above for [`WriteVarint`].
 #[unsafe(no_mangle)]
 #[allow(improper_ctypes_definitions)]
-extern "C" fn WriteVarintFieldMask(value: FieldMask, writer: NonNull<BufferWriter>) -> usize {
-    let mut buffer = Buffer::from(writer);
-    let len = write_field_mask(value, &mut buffer).unwrap();
-    buffer.to_buffer_writer(writer);
-
-    len
+extern "C" fn WriteVarintFieldMask(value: FieldMask, mut writer: NonNull<BufferWriter>) -> usize {
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
+    let writer = unsafe { writer.as_mut() };
+    write_field_mask(value, writer).unwrap()
 }
 
 #[unsafe(no_mangle)]
