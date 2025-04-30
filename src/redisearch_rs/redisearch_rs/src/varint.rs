@@ -9,9 +9,10 @@ use encode_decode::{
 };
 
 #[unsafe(no_mangle)]
-extern "C" fn ReadVarint(mut b: NonNull<BufferReader>) -> u32 {
+extern "C" fn ReadVarint(b: Option<NonNull<BufferReader>>) -> u32 {
+    let mut buffer_reader = b.unwrap();
     // Safety: The caller is responsible for ensuring that the pointer is valid.
-    let buffer_reader = unsafe { b.as_mut() };
+    let buffer_reader = unsafe { buffer_reader.as_mut() };
     let mut cursor = buffer_reader.as_cursor();
     let val = read(&mut cursor).unwrap();
     buffer_reader.pos = cursor.position() as usize;
@@ -24,9 +25,10 @@ extern "C" fn ReadVarint(mut b: NonNull<BufferReader>) -> u32 {
 // that's no longer an issue:
 // https://blog.rust-lang.org/2024/03/30/i128-layout-update/#compatibility
 #[allow(improper_ctypes_definitions)]
-extern "C" fn ReadVarintFieldMask(mut b: NonNull<BufferReader>) -> FieldMask {
+extern "C" fn ReadVarintFieldMask(b: Option<NonNull<BufferReader>>) -> FieldMask {
+    let mut buffer_reader = b.unwrap();
     // Safety: The caller is responsible for ensuring that the pointer is valid.
-    let buffer_reader = unsafe { b.as_mut() };
+    let buffer_reader = unsafe { buffer_reader.as_mut() };
     let mut cursor = buffer_reader.as_cursor();
     let val = read_field_mask(&mut cursor).unwrap();
     buffer_reader.pos = cursor.position() as usize;
@@ -38,7 +40,8 @@ extern "C" fn ReadVarintFieldMask(mut b: NonNull<BufferReader>) -> FieldMask {
 /// capacity. The change of the buffer capacity is an internal detail and should not be of concern
 /// to the caller.
 #[unsafe(no_mangle)]
-extern "C" fn WriteVarint(value: u32, mut writer: NonNull<BufferWriter>) -> usize {
+extern "C" fn WriteVarint(value: u32, writer: Option<NonNull<BufferWriter>>) -> usize {
+    let mut writer = writer.unwrap();
     // Safety: The caller is responsible for ensuring that the pointer is valid.
     let writer = unsafe { writer.as_mut() };
     write(value, writer).unwrap()
@@ -47,7 +50,11 @@ extern "C" fn WriteVarint(value: u32, mut writer: NonNull<BufferWriter>) -> usiz
 /// See the note above for [`WriteVarint`].
 #[unsafe(no_mangle)]
 #[allow(improper_ctypes_definitions)]
-extern "C" fn WriteVarintFieldMask(value: FieldMask, mut writer: NonNull<BufferWriter>) -> usize {
+extern "C" fn WriteVarintFieldMask(
+    value: FieldMask,
+    writer: Option<NonNull<BufferWriter>>,
+) -> usize {
+    let mut writer = writer.unwrap();
     // Safety: The caller is responsible for ensuring that the pointer is valid.
     let writer = unsafe { writer.as_mut() };
     write_field_mask(value, writer).unwrap()
@@ -62,7 +69,8 @@ extern "C" fn NewVarintVectorWriter(cap: usize) -> NonNull<VectorWriter> {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn VVW_Write(mut writer: NonNull<VectorWriter>, value: u32) -> usize {
+extern "C" fn VVW_Write(writer: Option<NonNull<VectorWriter>>, value: u32) -> usize {
+    let mut writer = writer.unwrap();
     // Safety: The caller is responsible for ensuring that the pointer is valid.
     unsafe { writer.as_mut() }.write(value).unwrap()
 }
@@ -98,19 +106,22 @@ extern "C" fn VVW_GetCount(writer: *const VectorWriter) -> usize {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn VVW_Reset(mut writer: NonNull<VectorWriter>) {
+extern "C" fn VVW_Reset(writer: Option<NonNull<VectorWriter>>) {
+    let mut writer = writer.unwrap();
     // Safety: The caller is responsible for ensuring that the pointer is valid.
     unsafe { writer.as_mut() }.reset()
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn VVW_Free(writer: NonNull<VectorWriter>) {
+extern "C" fn VVW_Free(writer: Option<NonNull<VectorWriter>>) {
+    let writer = writer.unwrap();
     // Safety: The pointer is leaked in `NewVarintVectorWriter`, so we can safely drop it here.
     drop(unsafe { Box::from_raw(writer.as_ptr()) });
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn VVW_Truncate(writer: NonNull<VectorWriter>) -> usize {
+extern "C" fn VVW_Truncate(writer: Option<NonNull<VectorWriter>>) -> usize {
+    let writer = writer.unwrap();
     // Safety: The caller is responsible for ensuring that the pointer is valid.
     unsafe { &mut *writer.as_ptr() }.shrink_to_fit()
 }
