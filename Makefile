@@ -627,12 +627,12 @@ endif
 
 #----------------------------------------------------------------------------------------------
 
-COV_INCLUDE_DIR = \
+COV_INCLUDE_DIRS = \
 	src \
 	deps/thpool \
 	deps/triemap \
 
-COV_INCLUDE+=$(foreach D,$(COV_INCLUDE_DIR),'$(realpath $(ROOT))/$(D)/*')
+COV_INCLUDE = $(foreach D,$(COV_INCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
 coverage-unit:
 	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
