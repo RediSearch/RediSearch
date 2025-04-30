@@ -170,8 +170,8 @@ jobs:
           cache-only: true
       - name: Wrap any existing compiler with sccache
         run: |
-          echo "CC=sccache $(command -v ${CC:-gcc})" >> $GITHUB_ENV
-          echo "CXX=sccache $(command -v ${CXX:-g++})" >> $GITHUB_ENV
+          echo "CC=${SCCACHE_PATH} $(command -v ${CC:-gcc})" >> $GITHUB_ENV
+          echo "CXX=${SCCACHE_PATH} $(command -v ${CXX:-g++})" >> $GITHUB_ENV
       - name: Confirm compiler wrapping
         run: |
           echo "CC=$CC"
@@ -192,7 +192,7 @@ jobs:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
-          CMAKE_ARGS: '-DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache'
+          CMAKE_ARGS: '-DCMAKE_C_COMPILER_LAUNCHER=${SCCACHE_PATH} -DCMAKE_CXX_COMPILER_LAUNCHER=${SCCACHE_PATH}'
         run: ./build.sh TESTS
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
