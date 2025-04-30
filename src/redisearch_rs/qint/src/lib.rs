@@ -96,7 +96,6 @@ pub type QInt4 = [u32; 4];
 ///
 /// # Returns
 /// The number of bytes written to the buffer or an io error
-#[inline(always)]
 pub fn qint_encode<N: AllowedIntegersInQIntEncoding, W>(
     cursor: &mut W,
     values: N,
