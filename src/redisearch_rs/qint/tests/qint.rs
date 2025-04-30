@@ -4,6 +4,8 @@ use qint::{
     qint_decode2, qint_decode3, qint_decode4, qint_encode2, qint_encode3, qint_encode4
 };
 
+
+
 #[test]
 fn test_qint2() -> Result<(), std::io::Error> {
     let mut buf = [0u8; 64];
@@ -131,4 +133,99 @@ fn test_out_of_memory_error() {
     let res = qint_encode4(&mut write_cursor, ca, cb, cc, cd);
     assert_eq!(res.is_err(), true);
     assert_eq!(res.unwrap_err().kind(), std::io::ErrorKind::OutOfMemory);
+}
+
+mod property_based {
+    //#![cfg(not(miri))]
+
+    //! This module contains property-based tests for the qint encoding and decoding functions.
+    //! 
+    //! It uses the qint_varlen strategy to generate an equal amount of integers which one up to four 
+    //! bytes each. Hereby 0-255 is randomly chosen for each byte.
+    //! Based on that the qint1, qint2, qint3 and qint4 strategies are created as building block for
+    //! providing a enum PropEncoding that serves as input for the property-based tests.
+
+    use std::io::{Cursor, Seek as _};
+    use proptest::{prelude::*, prop_compose, prop_oneof};
+    use::qint::{qint_encode, qint_decode};
+
+    #[derive(Debug, Clone)]
+    enum PropEncoding {
+        QInt2([u32; 2]),
+        QInt3([u32; 3]),
+        QInt4([u32; 4]),
+    }
+
+    prop_compose! {
+        fn qint_varlen()(num_bytes in 1..4u32) -> u32 {
+            let mut bytes = [0u8; 4];
+            for idx in 0..num_bytes {
+                bytes[idx as usize] = rand::random::<u8>();
+            }
+            u32::from_ne_bytes(bytes)
+        }
+    }
+
+    prop_compose! {
+        fn qint2()(a in qint_varlen(), b in qint_varlen()) -> PropEncoding {
+            PropEncoding::QInt2([a, b])
+        }
+    }
+
+    prop_compose! {
+        fn qint3()(a in qint_varlen(), b in qint_varlen(), c in qint_varlen()) -> PropEncoding {
+            PropEncoding::QInt3([a, b, c])
+        }
+    }
+
+    prop_compose! {
+        fn qint4()(a in qint_varlen(), b in qint_varlen(), c in qint_varlen(), d in qint_varlen()) -> PropEncoding {
+            PropEncoding::QInt4([a, b, c, d])
+        }
+    }
+    
+    fn qint_encoding() -> BoxedStrategy<PropEncoding> {
+        // Generate a random number of integers (2, 3, or 4) in a slice encapsulated in a PropEncoding enum
+        prop_oneof![
+            qint2(),
+            qint3(),
+            qint4()
+        ].boxed()
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn test_encode_decode_identify(prop_encoding in qint_encoding()) {
+            // prepare buffer and cursor
+            let mut buf = [0u8; 64];
+            let mut cursor = Cursor::new(buf.as_mut());
+
+            // match on the PropEncoding enum to get the value slices and encode them
+            let bytes_written = match prop_encoding {
+                PropEncoding::QInt2(vals) => qint_encode(&mut cursor, vals).unwrap(),
+                PropEncoding::QInt3(vals) => qint_encode(&mut cursor, vals).unwrap(),
+                PropEncoding::QInt4(vals) => qint_encode(&mut cursor, vals).unwrap(),
+            };
+            
+            // move cursor to begin and decode
+            cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+            match prop_encoding {
+                PropEncoding::QInt2(input) => {
+                    let (decoded_values, bytes_read) = qint_decode::<[u32;2], _>(&mut cursor).unwrap();
+                    assert_eq!(bytes_written, bytes_read);
+                    assert_eq!(input, decoded_values);
+                }
+                PropEncoding::QInt3(input) => {
+                    let (decoded_values, bytes_read) = qint_decode::<[u32;3], _>(&mut cursor).unwrap();
+                    assert_eq!(bytes_written, bytes_read);
+                    assert_eq!(input, decoded_values);
+                }
+                PropEncoding::QInt4(input) => {
+                    let (decoded_values, bytes_read) = qint_decode::<[u32;4], _>(&mut cursor).unwrap();
+                    assert_eq!(bytes_written, bytes_read);
+                    assert_eq!(input, decoded_values);
+                }
+            }
+        }
+    }
 }

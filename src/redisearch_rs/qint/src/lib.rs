@@ -54,7 +54,7 @@ use std::io::Write;
 /// # Returns
 /// The number of bytes written to the buffer or an io error
 #[inline(always)]
-pub(crate) fn qint_encode<N: AllowedIntegersInQIntEncoding, W>(
+pub fn qint_encode<N: AllowedIntegersInQIntEncoding, W>(
     cursor: &mut W,
     values: N,
 ) -> Result<usize, std::io::Error>
@@ -82,7 +82,7 @@ where
 ///
 /// # Returns
 /// A tuple of (decoded_values as an array, bytes_consumed) or an io error
-pub(crate) fn qint_decode<N: AllowedIntegersInQIntEncoding, R: Read>(
+pub fn qint_decode<N: AllowedIntegersInQIntEncoding, R: Read>(
     reader: &mut R,
 ) -> Result<(N, usize), std::io::Error> {
     let mut total = 0;
