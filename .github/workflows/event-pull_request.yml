@@ -29,7 +29,7 @@ jobs:
 
   basic-test:
     needs: check-what-changed
-    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
+    if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' || needs.check-what-changed.outputs.WORKFLOW_CHANGED == 'true' }}
     uses: ./.github/workflows/task-test.yml
     with:
       env: "ubuntu-latest"
