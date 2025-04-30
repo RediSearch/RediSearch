@@ -5,20 +5,55 @@
 //! variable-length integers are encoded. The leading byte encodes each length in a 2-bit field. The first 2 bits 
 //! represent the first integer. The next 2 bits represent the second integer, and so on.
 //! 
-//! Because of the way the leading byte is interpreted the caller must ensure that the invoked encode method maps to the 
-//! correct decode method. For example, if you want to encode 2 integers you must use the `qint_encode::<2>()` method, 
-//! and then to decode you must decode invoke the `qint_decode::<2>` because the bits in the leading byte don't encode a 
-//! size of zero. There is one leading byte so the maximum number of integers that can be encoded is 4.
+//! As a caller you're interested in the generic [`qint_encode`] and [`qint_decode`] methods. The methods work on [u32] arrays. 
+//! To easily invoke [`qint_decode`] see the type aliases for the different sizes: [`QInt2`], [`QInt3`], and [`QInt4`].
 //! 
-//! The module provides the same function as the C API, but in Rust: [qint_encode2], [qint_encode3], [qint_encode4] and
-//! [qint_decode2], [qint_decode3], [qint_decode4] based on the traits [Read], [Seek] and [Write].
-//!
-//! These methods build upon the generic [qint_encode] and [qint_decode] methods.
+//! ## Usage Example
+//! 
+//! The following example encodes the two integers `0xFF` and `0x0FF0` into a buffer and then decodes them back. The assertions
+//! on the bottom hold.
+//! 
+//! ```
+//! # use std::io::{Cursor, Seek};
+//! # use qint::{qint_encode, qint_decode, QInt2};
+//! // generate a buffer, cursor and integers
+//! let buf = [0u8; 64];
+//! let mut cursor = std::io::Cursor::new(buf);
+//! let v = [0xFF, 0x0FF0];
+//! 
+//! // encode and decode the integers
+//! let bytes_written = qint_encode(&mut cursor, v).unwrap();
+//! cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
+//! let (decoded_values, bytes_consumed) = qint_decode::<QInt2, _>(&mut cursor).unwrap();
+//! 
+//! // these assertions hold
+//! assert_eq!(bytes_written, bytes_consumed); 
+//! assert_eq!(v, decoded_values);
+//! ```
+//! 
+//! The leading byte leads to two conclusions:
+//! 
+//! 1. We can only encode up to 4 integers. The leading byte has 8 bits, and each integer takes 2 bits. So the maximum number of integers is 4.
+//! 2. The leading byte is interpreted based on the number of integers encoded. That means encode and decode calls must match.
+//! 
+//! ### Encoding up to four integers
+//! 
+//! Internally the trait [`AllowedIntegersInQIntEncoding`] is used to restrict the number of integers that can be encoded. The trait
+//! is sealed, so you cannot implement it outside of this crate. The trait has a method `ENCODE_SIZE` that returns the number of integers
+//! that can be encoded. The trait is implemented for the following types: [QInt2], [QInt3], and [QInt4].
+//! 
+//! ### Encoding and Decoding must match
+//! 
+//! A mismatch always means a logical bug. But beside that it can lead to a [std::io::Error] or undefined behavior. Imagine you call with [std::io::Cursor]
+//! and you mismatch [QInt2] with [QInt3]. That means the decoding reads a byte more than the encoding. 
+//! 
+//! - If the buffer ends you get a [std::io::Error] with [std::io::ErrorKind::UnexpectedEof]. 
+//! - If the buffer is larger than the encoding, you read random data.
 //! 
 //! ## Example Encodings
 //! 
-//! For the following example we separate for bits for the encoded integers and every two bits for the leading byte.
-//! The `|` symbol is used to separate the leading byte and each of the encoded integers.
+//! For the following example space separates each four bits for the encoded integers and every two bits for the leading byte.
+//! The `|` symbol separates the leading byte and each of the encoded integers.
 //! 
 //! ### Two integers with a len of 1 byte and 2 bytes
 //! 
@@ -44,6 +79,14 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write; 
 
+/// type alias for a qint with 2 integers
+pub type QInt2 = [u32; 2];
+
+/// type alias for a qint with 3 integers
+pub type QInt3 = [u32; 3];
+
+/// type alias for a qint with 4 integers
+pub type QInt4 = [u32; 4];
 
 /// Encodes an array of integers into a QInt buffer.
 ///
@@ -146,62 +189,6 @@ pub trait AllowedIntegersInQIntEncoding: private::Sealed + IntoIterator<Item = u
 // Use the macro to generate impls for [u32; 2], [u32; 3], and [u32; 4]
 impl_allowed_integers_in_qint_encoding!(2, 3, 4);
 
-type N2 = [u32; 2];
-type N3 = [u32; 3];
-type N4 = [u32; 4];
-
-
-/// Encodes 4 integers into a QInt buffer
-///
-/// # Arguments
-/// * `cursor` - Buffer writer
-/// * `a` - First integer
-/// * `b` - Second integer
-/// * `c` - Third integer
-/// * `d` - Fourth integer
-///
-/// # Returns
-/// The number of bytes written to the buffer or an io error
-pub fn qint_encode4<W>(cursor: &mut W, a: u32, b: u32, c: u32, d: u32) -> Result<usize, io::Error>
-where
-    W: Write + Seek,
-{
-    qint_encode(cursor, [a, b, c, d])
-}
-
-/// Encodes 3 integers into a QInt buffer
-///
-/// # Arguments
-/// * `cursor` - Buffer writer
-/// * `a` - First integer
-/// * `b` - Second integer
-/// * `c` - Third integer
-///
-/// # Returns
-/// The number of bytes written to the buffer or an io error
-pub fn qint_encode3<W>(cursor: &mut W, a: u32, b: u32, c: u32) -> Result<usize, io::Error>
-where
-    W: Write + Seek,
-{
-    qint_encode(cursor, [a, b, c])
-}
-
-/// Encodes 2 integers into a QInt buffer
-///
-/// # Arguments
-/// * `cursor` - Buffer writer
-/// * `a` - First integer
-/// * `b` - Second integer
-///
-/// # Returns
-/// The number of bytes written to the buffer or an io error
-pub fn qint_encode2<W>(cursor: &mut W, a: u32, b: u32) -> Result<usize, io::Error>
-where
-    W: Write + Seek,
-{
-    qint_encode(cursor, [a, b])
-}
-
 // Internal: Encodes one byte of using qint encoding, called in a loop.
 #[inline(always)]
 fn qint_encode_stepwise<W>(
@@ -277,40 +264,3 @@ where
         }
     }
 }
-
-/// Decodes 2 integers from a qint buffer
-///
-/// # Arguments
-/// * `reader` - Buffer reader
-///
-/// # Returns
-/// A tuple of (first_value, second_value, bytes_consumed)
-pub fn qint_decode2<R: Read>(reader: &mut R) -> Result<(u32, u32, usize), std::io::Error> {
-    let (v, bytes) = qint_decode::<N2, _>(reader)?;
-    Ok((v[0], v[1], bytes))
-}
-
-/// Decodes 3 integers from a qint buffer
-///
-/// # Arguments
-/// * `reader` - Buffer reader
-///
-/// # Returns
-/// A tuple of (first_value, second_value, third_value, bytes_consumed)
-pub fn qint_decode3<R: Read>(reader: &mut R) -> Result<(u32, u32, u32, usize), std::io::Error> {
-    let (v, bytes) = qint_decode::<N3, _>(reader)?;
-    Ok((v[0], v[1], v[2], bytes))
-}
-
-/// Decodes 4 integers from a qint buffer
-///     
-/// # Arguments
-/// * `reader` - Buffer reader
-///
-/// # Returns
-/// A tuple of (first_value, second_value, third_value, fourth_value, bytes_consumed)
-pub fn qint_decode4<R: Read>(r: &mut R) -> Result<(u32, u32, u32, u32, usize), io::Error> {
-    let (v, bytes) = qint_decode::<N4, _>(r)?;
-    Ok((v[0], v[1], v[2], v[3], bytes))
-}
-

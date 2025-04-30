@@ -1,9 +1,6 @@
 use std::io::{Cursor, Seek, Write};
 
-use qint::{
-    qint_decode2, qint_decode3, qint_decode4, qint_encode2, qint_encode3, qint_encode4
-};
-
+use qint::{qint_encode, qint_decode, QInt2, QInt3, QInt4};
 
 
 #[test]
@@ -12,14 +9,14 @@ fn test_qint2() -> Result<(), std::io::Error> {
     let mut cursor = Cursor::new(buf.as_mut());
 
     let v = [3333, 10]; // 2bytes, 1byte
-    let bytes_written = qint_encode2(&mut cursor, v[0], v[1])?;
+    let bytes_written = qint_encode(&mut cursor, v)?;
     cursor.seek(std::io::SeekFrom::Start(0))?;
-    let (a, b, bytes_read) = qint_decode2(&mut cursor)?;
+    let (out, bytes_read) = qint_decode::<QInt2, _>(&mut cursor)?;
 
     // Check the number of bytes written 1+(2+1) -> 4 bytes
     assert_eq!(bytes_written, 4);
-    assert_eq!(bytes_read, bytes_written);
-    assert_eq!(v, [a, b]);
+    assert_eq!(bytes_written, bytes_read);
+    assert_eq!(v, out);
 
     Ok(())
 }
@@ -30,13 +27,13 @@ fn test_qint3() -> Result<(), std::io::Error> {
     let mut cursor = Cursor::new(buf.as_mut());
 
     let v = [1_000_000_000, 70_000, 20]; // 4 bytes, 3 bytes, 1 byte
-    let bytes_written = qint_encode3(&mut cursor, v[0], v[1], v[2])?;
+    let bytes_written = qint_encode(&mut cursor, v)?;
     cursor.seek(std::io::SeekFrom::Start(0))?;
-    let (a, b, c, bytes_read) = qint_decode3(&mut cursor)?;
+    let (out, bytes_read) = qint_decode::<QInt3, _>(&mut cursor)?;
 
     assert_eq!(bytes_written, 9); // 1+(4+3+1) = 9 bytes
     assert_eq!(bytes_read, bytes_written);
-    assert_eq!(v, [a, b, c]);
+    assert_eq!(v, out);
  
     Ok(())
 }
@@ -47,12 +44,13 @@ fn test_qint4() -> Result<(), std::io::Error> {
     let mut cursor = Cursor::new(buf.as_mut());
 
     let v = [2_500_000_000, 90_000, 0xFF, 1_500_000_000]; // 4 bytes, 3 bytes, 1 byte, 4 bytes
-    let bytes_written = qint_encode4(&mut cursor, v[0], v[1], v[2], v[3])?;
-    let (a, b, c, d, bytes_read) = qint_decode4(&mut cursor)?;
+    let bytes_written = qint_encode(&mut cursor, v)?;
+    cursor.seek(std::io::SeekFrom::Start(0))?;
+    let (out, bytes_read) = qint_decode::<QInt4, _>(&mut cursor)?;
 
     assert_eq!(bytes_read, bytes_written);
     assert_eq!(bytes_written, 13); // 1 leading byte + 4 bytes + 3 bytes + 1 byte + 4 bytes = 13 bytes
-    assert_eq!(v, [a, b, c, d]);
+    assert_eq!(v, out);
     Ok(())
 }
 
@@ -61,15 +59,7 @@ fn test_too_small_decode_buffer() {
     let mut buf = [0u8; 1];
     let mut cursor = Cursor::new(buf.as_mut());
 
-    let res = qint_decode2(&mut cursor);
-    assert_eq!(res.is_err(), true);
-    assert_eq!(res.unwrap_err().kind(), std::io::ErrorKind::UnexpectedEof);
-
-    let res = qint_decode3(&mut cursor);
-    assert_eq!(res.is_err(), true);
-    assert_eq!(res.unwrap_err().kind(), std::io::ErrorKind::UnexpectedEof);
-
-    let res = qint_decode4(&mut cursor);
+    let res = qint_decode::<QInt2, _>(&mut cursor);
     assert_eq!(res.is_err(), true);
     assert_eq!(res.unwrap_err().kind(), std::io::ErrorKind::UnexpectedEof);
 }
@@ -100,18 +90,8 @@ fn test_out_of_memory_error() {
 
     let ca = 3333;
     let cb = 10;
-    let cc = 0xFF;
-    let cd = 1_500_000_000;
 
-    let res = qint_encode2(&mut cursor, ca, cb);
-    assert_eq!(res.is_err(), true);
-    assert_eq!(res.unwrap_err().kind(), std::io::ErrorKind::OutOfMemory);
-
-    let res = qint_encode3(&mut cursor, ca, cb, cc);
-    assert_eq!(res.is_err(), true);
-    assert_eq!(res.unwrap_err().kind(), std::io::ErrorKind::OutOfMemory);
-
-    let res = qint_encode4(&mut cursor, ca, cb, cc, cd);
+    let res = qint_encode(&mut cursor, [ca, cb]);
     assert_eq!(res.is_err(), true);
     assert_eq!(res.unwrap_err().kind(), std::io::ErrorKind::OutOfMemory);
 }
