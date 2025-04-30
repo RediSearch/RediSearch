@@ -192,7 +192,8 @@ jobs:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
-        run: ./build.sh TESTS CC="$CC" CXX="$CXX"
+          CMAKE_ARGS: '-DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache'
+        run: ./build.sh TESTS
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
