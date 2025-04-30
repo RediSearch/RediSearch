@@ -1,7 +1,6 @@
-use std::io::{Cursor, Seek, Write};
+use std::io::{Cursor, Read as _, Seek, Write};
 
 use qint::{qint_encode, qint_decode, QInt2, QInt3, QInt4};
-
 
 #[test]
 fn test_qint2() -> Result<(), std::io::Error> {
@@ -62,6 +61,34 @@ fn test_too_small_decode_buffer() {
     let res = qint_decode::<QInt2, _>(&mut cursor);
     assert_eq!(res.is_err(), true);
     assert_eq!(res.unwrap_err().kind(), std::io::ErrorKind::UnexpectedEof);
+}
+
+#[test]
+fn test_encode_cursor_pos() {
+    let mut buf = [42u8; 64];
+    let mut cursor = Cursor::new(buf.as_mut());
+
+    let v = [0xFF, 0xFFFF];
+    let bytes_written = qint_encode(&mut cursor, v).unwrap();
+    assert_eq!(bytes_written, 4); // 1 (1+2) = 4 bytes
+    
+    // check that the cursor is at the right position 
+    let mut num = 0;
+    let mut read_buf = [0u8; 1];
+    loop {
+        let bytes_read = cursor.read(&mut read_buf).unwrap();
+        if bytes_read == 0 {
+            break;
+        }
+
+        // all the following bytes should be 42
+        assert_eq!(read_buf[0], 42);
+        num += 1;
+    }
+
+    // we should have read 64 - bytes_written bytes
+    assert_eq!(num, 64 - bytes_written); 
+    
 }
 
 struct OutOfMemMock;
@@ -158,7 +185,7 @@ mod property_based {
         #[test]
         fn test_encode_decode_identify(prop_encoding in qint_encoding()) {
             // prepare buffer and cursor
-            let mut buf = [0u8; 64];
+            let mut buf = [42u8; 64];
             let mut cursor = Cursor::new(buf.as_mut());
 
             // match on the PropEncoding enum to get the value slices and encode them
@@ -167,7 +194,7 @@ mod property_based {
                 PropEncoding::QInt3(vals) => qint_encode(&mut cursor, vals).unwrap(),
                 PropEncoding::QInt4(vals) => qint_encode(&mut cursor, vals).unwrap(),
             };
-            
+
             // move cursor to begin and decode
             cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
             match prop_encoding {

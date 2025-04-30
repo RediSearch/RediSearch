@@ -113,6 +113,7 @@ where
     }
     cursor.seek(SeekFrom::Start(pos))?;
     cursor.write_all(&[leading])?;
+    cursor.seek(SeekFrom::Current(ret as i64 -1))?;
     Ok(ret)
 }
 
