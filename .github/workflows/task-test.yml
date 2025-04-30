@@ -168,18 +168,11 @@ jobs:
         with:
           cache-size: 10G
           cache-only: true
-      - name: Wrap any existing compiler with sccache
-        run: |
-          echo "CC=${SCCACHE_PATH} $(command -v ${CC:-gcc})" >> $GITHUB_ENV
-          echo "CXX=${SCCACHE_PATH} $(command -v ${CXX:-g++})" >> $GITHUB_ENV
-      - name: Confirm compiler wrapping
-        run: |
-          echo "CC=$CC"
-          echo "CXX=$CXX"
+
       - name: Build Redis
         working-directory: redis
         run: |
-          ${{ steps.mode.outputs.mode }} SANITIZER=${{ inputs.san }} BUILD_TLS=yes make install CC="$CC" CXX="$CXX"
+          ${{ steps.mode.outputs.mode }} SANITIZER=${{ inputs.san }} BUILD_TLS=yes CC="${SCCACHE_PATH} $(command -v ${CC:-gcc})" CXX="${SCCACHE_PATH} $(command -v ${CC:-gcc})" make install
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
         # We also remove invalid characters from the name.
