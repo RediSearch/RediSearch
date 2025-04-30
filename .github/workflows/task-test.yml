@@ -168,17 +168,12 @@ jobs:
         with:
           cache-size: 10G
           cache-only: true
-      - name: Set sccache as compiler wrapper
+      - name: Wrap any compiler with sccache
         run: |
-          if command -v clang > /dev/null; then
-            echo "Using clang"
-            echo "CC=sccache clang" >> $GITHUB_ENV
-            echo "CXX=sccache clang++" >> $GITHUB_ENV
-          else
-            echo "Using gcc"
-            echo "CC=sccache gcc" >> $GITHUB_ENV
-            echo "CXX=sccache g++" >> $GITHUB_ENV
-          fi
+          export REAL_CC=$(which ${CC:-gcc})
+          export REAL_CXX=$(which ${CXX:-g++})
+          echo "CC=sccache $REAL_CC" >> $GITHUB_ENV
+          echo "CXX=sccache $REAL_CXX" >> $GITHUB_ENV
       - name: Build Redis
         working-directory: redis
         run: |

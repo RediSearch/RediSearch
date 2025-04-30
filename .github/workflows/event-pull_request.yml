@@ -68,6 +68,7 @@ jobs:
     if: >
       (
         (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') ||
+        (!github.event.pull_request.draft && needs.check-what-changed.outputs.WORKFLOW_CHANGED == 'true') ||
         contains(github.event.pull_request.labels.*.name, 'enforce:sanitize')
       )
     secrets: inherit
