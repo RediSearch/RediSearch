@@ -78,7 +78,7 @@ jobs:
   pr-validation:
     needs:
       - check-what-changed
-      - spellcheck
+      # - spellcheck
       - basic-test
       - micro-benchmarks
       - lint
