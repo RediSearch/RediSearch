@@ -4,7 +4,7 @@
 use std::ptr::NonNull;
 
 use encode_decode::{
-    BufferReader, BufferWriter, CBuffer, FieldMask,
+    Buffer, BufferReader, BufferWriter, FieldMask,
     varint::{VectorWriter, read, read_field_mask, write, write_field_mask},
 };
 
@@ -39,7 +39,7 @@ extern "C" fn ReadVarintFieldMask(mut b: NonNull<BufferReader>) -> FieldMask {
 /// to the caller.
 #[unsafe(no_mangle)]
 extern "C" fn WriteVarint(value: u32, writer: NonNull<BufferWriter>) -> usize {
-    let mut buffer = CBuffer::from(writer);
+    let mut buffer = Buffer::from(writer);
     let len = write(value, &mut buffer).unwrap();
     buffer.to_buffer_writer(writer);
 
@@ -50,7 +50,7 @@ extern "C" fn WriteVarint(value: u32, writer: NonNull<BufferWriter>) -> usize {
 #[unsafe(no_mangle)]
 #[allow(improper_ctypes_definitions)]
 extern "C" fn WriteVarintFieldMask(value: FieldMask, writer: NonNull<BufferWriter>) -> usize {
-    let mut buffer = CBuffer::from(writer);
+    let mut buffer = Buffer::from(writer);
     let len = write_field_mask(value, &mut buffer).unwrap();
     buffer.to_buffer_writer(writer);
 

@@ -3,11 +3,13 @@ use std::{ffi::c_void, io::Cursor, ptr::NonNull, slice};
 use redis_module::RedisModule_Realloc;
 
 /// Redefines the `Buffer` struct from `buffer.h`
+///
+/// Allocated by C, we never want to free it.
 #[repr(C)]
 pub struct Buffer {
-    pub data: *mut u8,
-    pub cap: usize,
-    pub offset: usize,
+    data: *mut u8,
+    capacity: usize,
+    len: usize,
 }
 
 /// Redefines the `BufferReader` struct from `buffer.h`
@@ -23,7 +25,7 @@ impl BufferReader {
         let buffer = unsafe { &*self.buf };
         // Safety: All invariants of `std::slice::from_raw_parts` should hold here if the C side
         // doesn't do something naughty.
-        let buffer_slice = unsafe { slice::from_raw_parts(buffer.data, buffer.cap) };
+        let buffer_slice = unsafe { slice::from_raw_parts(buffer.data, buffer.capacity) };
         let mut cursor = Cursor::new(buffer_slice);
         cursor.set_position(self.pos as u64);
         cursor
@@ -38,35 +40,31 @@ pub struct BufferWriter {
     pub pos: *mut u8,
 }
 
-/// Allocated by C, we never want to free it.
-/// Morally, a `&mut Vec<u8>`.
-pub struct CBuffer {
-    ptr: *mut u8,
-    len: usize,
-    capacity: usize,
-}
-
-impl CBuffer {
-    /// Creates a new `CBuffer` with the given pointer, length, and capacity.
+impl Buffer {
+    /// Creates a new `Buffer` with the given pointer, length, and capacity.
     ///
     /// # Panics
     ///
     /// Panics if `len` is greater than `capacity`.
-    pub fn new(ptr: *mut u8, len: usize, capacity: usize) -> Self {
+    pub fn new(data: *mut u8, len: usize, capacity: usize) -> Self {
         assert!(len <= capacity, "len must not exceed capacity");
-        Self { ptr, len, capacity }
+        Self {
+            data,
+            len,
+            capacity,
+        }
     }
 
     /// The internal buffer as a slice.
     pub fn as_slice(&self) -> &[u8] {
         // Safety: `self.ptr` is a valid pointer, if C side gave us one.
-        unsafe { slice::from_raw_parts(self.ptr, self.len) }
+        unsafe { slice::from_raw_parts(self.data, self.len) }
     }
 
     /// The internal buffer as a mutable slice.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         // Safety: `self.ptr` is a valid pointer, if C side gave us one.
-        unsafe { slice::from_raw_parts_mut(self.ptr, self.len) }
+        unsafe { slice::from_raw_parts_mut(self.data, self.len) }
     }
 
     /// The length of the buffer.
@@ -100,7 +98,7 @@ impl CBuffer {
         // Safety:
         // *`self.ptr` is a valid pointer, if C side gave us one.
         // * `self.len` is less than or equal to `self.capacity`.
-        let dest = unsafe { self.ptr.add(self.len) };
+        let dest = unsafe { self.data.add(self.len) };
         // Safety:
         // * We just created `src` from `additional` reference, so it's valid.
         // * `additional_len` is less than `self.remaining_capacity()`.
@@ -119,11 +117,11 @@ impl CBuffer {
         let realloc = unsafe { RedisModule_Realloc }.unwrap();
 
         // Safety: Calling into C, so its unsafe by definition.
-        let new_ptr = unsafe { realloc(self.ptr as *mut c_void, new_capacity) };
+        let new_ptr = unsafe { realloc(self.data as *mut c_void, new_capacity) };
         if new_ptr.is_null() {
             return false;
         }
-        self.ptr = new_ptr as *mut u8;
+        self.data = new_ptr as *mut u8;
         self.capacity = new_capacity;
         true
     }
@@ -146,15 +144,15 @@ impl CBuffer {
         // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
         let buffer = unsafe { &mut *writer_mut.buf };
         // Safety: `data` is a valid pointer, if C side doesn't do something naughty.
-        buffer.data = self.ptr;
-        buffer.cap = self.capacity;
-        buffer.offset = self.len;
+        buffer.data = self.data;
+        buffer.capacity = self.capacity;
+        buffer.len = self.len;
         // Safety: `pos` is a valid pointer, if C side doesn't do something naughty.
-        writer_mut.pos = unsafe { self.ptr.add(self.len) };
+        writer_mut.pos = unsafe { self.data.add(self.len) };
     }
 }
 
-impl From<NonNull<BufferWriter>> for CBuffer {
+impl From<NonNull<BufferWriter>> for Buffer {
     fn from(value: NonNull<BufferWriter>) -> Self {
         // Safety: `value` is a valid pointer, if C side doesn't do something naughty.
         let writer = unsafe { value.as_ref() };
@@ -164,14 +162,14 @@ impl From<NonNull<BufferWriter>> for CBuffer {
         // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
         let buffer = unsafe { &*writer.buf };
         // Safety: `data` is a valid pointer, if C side doesn't do something naughty.
-        let data = unsafe { slice::from_raw_parts(buffer.data, buffer.cap) };
+        let data = unsafe { slice::from_raw_parts(buffer.data, buffer.capacity) };
         let ptr = data.as_ptr() as *mut u8;
 
-        Self::new(ptr, buffer.offset, buffer.cap)
+        Self::new(ptr, buffer.len, buffer.capacity)
     }
 }
 
-impl std::io::Write for CBuffer {
+impl std::io::Write for Buffer {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.extend_from_slice(buf);
         Ok(buf.len())
