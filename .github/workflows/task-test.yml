@@ -163,7 +163,22 @@ jobs:
           # Checkout the REF
           git fetch origin ${{ inputs.get-redis }}
           git checkout ${{ inputs.get-redis }}
-
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          cache-size: 10G
+          cache-only: true
+      - name: Set sccache as compiler wrapper
+        run: |
+          if command -v clang > /dev/null; then
+            echo "Using clang"
+            echo "CC=sccache clang" >> $GITHUB_ENV
+            echo "CXX=sccache clang++" >> $GITHUB_ENV
+          else
+            echo "Using gcc"
+            echo "CC=sccache gcc" >> $GITHUB_ENV
+            echo "CXX=sccache g++" >> $GITHUB_ENV
+          fi
       - name: Build Redis
         working-directory: redis
         run: |

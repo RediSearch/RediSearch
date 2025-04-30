@@ -41,6 +41,7 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     env:
+      SCCACHE_GHA_ENABLED: "true"
       VERBOSE: 1 # For logging
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
       # Build command
@@ -122,7 +123,22 @@ jobs:
         run: .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
         run: pip install -q -r .install/build_package_requirments.txt
-
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          cache-size: 10G
+          cache-only: true
+      - name: Set sccache as compiler wrapper
+        run: |
+          if command -v clang > /dev/null; then
+            echo "Using clang"
+            echo "CC=sccache clang" >> $GITHUB_ENV
+            echo "CXX=sccache clang++" >> $GITHUB_ENV
+          else
+            echo "Using gcc"
+            echo "CC=sccache gcc" >> $GITHUB_ENV
+            echo "CXX=sccache g++" >> $GITHUB_ENV
+          fi
       # Get Redis
       - name: Get Redis (node20)
         if: steps.node20.outputs.supported == 'true'
