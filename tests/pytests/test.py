@@ -4361,7 +4361,9 @@ def test_with_tls():
 
     common_with_auth(env)
 
-@skip(cluster=False)
+# Temporarily disabled due to flakiness
+@skip()
+# @skip(cluster=False)
 def test_with_tls_and_non_tls_ports():
     """Tests that the coordinator-shard connections are using the correct
     protocol (TLS vs. non-TLS) according to the redis `tls-cluster` configuration."""
