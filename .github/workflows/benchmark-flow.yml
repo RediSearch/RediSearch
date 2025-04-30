@@ -57,19 +57,6 @@ jobs:
       - name: Install Boost
         working-directory: .install
         run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-        with:
-          cache-size: 10G
-          cache-only: true
-      - name: Wrap any existing compiler with sccache
-        run: |
-          echo "CC=sccache $(command -v ${CC:-gcc})" >> $GITHUB_ENV
-          echo "CXX=sccache $(command -v ${CXX:-g++})" >> $GITHUB_ENV
-      - name: Confirm compiler wrapping
-        run: |
-          echo "CC=$CC"
-          echo "CXX=$CXX"
       - name: Build RediSearch
         run: ./build.sh ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
       - name: Prepare automation

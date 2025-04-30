@@ -123,19 +123,6 @@ jobs:
         run: .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
       - name: install build artifacts req
         run: pip install -q -r .install/build_package_requirments.txt
-      - name: Setup sccache
-        uses: mozilla-actions/sccache-action@v0.0.9
-        with:
-          cache-size: 10G
-          cache-only: true
-      - name: Wrap any existing compiler with sccache
-        run: |
-          echo "CC=sccache $(command -v ${CC:-gcc})" >> $GITHUB_ENV
-          echo "CXX=sccache $(command -v ${CXX:-g++})" >> $GITHUB_ENV
-      - name: Confirm compiler wrapping
-        run: |
-          echo "CC=$CC"
-          echo "CXX=$CXX"
       # Get Redis
       - name: Get Redis (node20)
         if: steps.node20.outputs.supported == 'true'
