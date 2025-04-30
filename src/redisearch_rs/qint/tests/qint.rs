@@ -1,4 +1,4 @@
-use std::io::{Cursor, Read as _, Seek, Write};
+use std::io::{Cursor, Read, Seek};
 
 use qint::{qint_encode, qint_decode, QInt2, QInt3, QInt4};
 
@@ -94,32 +94,42 @@ fn test_encode_cursor_pos() {
     
 }
 
-struct OutOfMemMock;
-
-impl Write for OutOfMemMock {
-    fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-        Err(std::io::Error::new(std::io::ErrorKind::OutOfMemory, "Out of memory"))
-    }
-    
-    fn flush(&mut self) -> std::io::Result<()> {
-        
-        Ok(())
-    }
-}
-
-impl Seek for OutOfMemMock {
-    fn seek(&mut self, _pos: std::io::SeekFrom) -> std::io::Result<u64> {
-        Ok(0)
-    }
-}
-
 #[test]
 fn test_out_of_memory_error() {
-
-    let mut cursor = OutOfMemMock;
+    let mut buf = [0u8; MAX_QINT_BUFFER_SIZE];
+    let buf = &mut buf[0..1];
+    let mut cursor = Cursor::new(buf);
     let res = qint_encode(&mut cursor, [3333, 10]);
+
     assert_eq!(res.is_err(), true);
-    assert_eq!(res.unwrap_err().kind(), std::io::ErrorKind::OutOfMemory);
+    let kind = res.unwrap_err().kind();
+    let is_mem_err = kind == std::io::ErrorKind::OutOfMemory || kind == std::io::ErrorKind::WriteZero;
+    assert_eq!(is_mem_err, true);
+}
+
+
+#[test]
+fn proptest_false_positive_bc_of_expected_written_mismatch() {
+    //cc 89c60968333fa0650f6e808183adad48d96770946813b10d43c8343ce3516667 # shrinks to prop_encoding = QInt4(([127, 8106623, 2491134591, 10583097], 13)), buffer_size = 12
+    let mut buf = [0u8; MAX_QINT_BUFFER_SIZE];
+    let v = [127, 8106623, 2491134591, 10583097]; 
+    let buffer_size = 12;
+    let buf = &mut buf[0..buffer_size];
+    
+    let mut cursor = Cursor::new(buf);
+    let res = qint_encode(&mut cursor, v);
+    if res.is_ok() {
+        println!("Generation wrong: QInt4(([127, 8106623, 2491134591, 10583097], 13)), buffer_size = 12");
+        println!("expected_written: {}, smaller than 13", res.unwrap());
+    } else {
+    
+    println!("{:?}", cursor);
+    assert_eq!(res.is_err(), true);
+
+    let kind = res.unwrap_err().kind();
+    let is_mem_err = kind == std::io::ErrorKind::OutOfMemory || kind == std::io::ErrorKind::WriteZero;
+    assert_eq!(is_mem_err, true);
+    }
 }
 
 mod property_based {
@@ -138,22 +148,25 @@ mod property_based {
     use std::io::{Cursor, Seek as _};
     use proptest::{bits::usize, prelude::*, prop_compose, prop_oneof};
     use::qint::{qint_encode, qint_decode};
+    use rand::{RngCore as _, SeedableRng as _};
 
     use crate::MAX_QINT_BUFFER_SIZE;
 
     #[derive(Debug, Clone)]
     enum PropEncoding {
-        QInt2(([u32; 2], u32)),
-        QInt3(([u32; 3], u32)),
-        QInt4(([u32; 4], u32)),
+        QInt2(([u32; 2], usize)),
+        QInt3(([u32; 3], usize)),
+        QInt4(([u32; 4], usize)),
     }
 
     prop_compose! {
         // Generate a random number of bytes (1, 2, 3 or 4) f
-        fn qint_varlen()(num_bytes in 1..=4u32) -> (u32, u32) {
+        fn qint_varlen()(num_bytes in 1..=4usize, seed in any::<u64>()) -> (u32, usize) {
             let mut bytes = [0u8; 4];
+            let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+            
             for idx in 0..num_bytes {
-                bytes[idx as usize] = rand::random::<u8>();
+                bytes[idx as usize] = (rng.next_u32() & 0x000000FF) as u8;
             }
             (u32::from_ne_bytes(bytes), num_bytes)
         }
@@ -161,22 +174,22 @@ mod property_based {
 
     prop_compose! {
         fn qint2()(a in qint_varlen(), b in qint_varlen()) -> PropEncoding {
-            let size = a.1 + b.1 + 1;
-            PropEncoding::QInt2(([a.0, b.0], size))
+            let expected_written = a.1 + b.1 + 1;
+            PropEncoding::QInt2(([a.0, b.0], expected_written))
         }
     }
 
     prop_compose! {
         fn qint3()(a in qint_varlen(), b in qint_varlen(), c in qint_varlen()) -> PropEncoding {
-            let size = a.1 + b.1 + c.1 + 1;
-            PropEncoding::QInt3(([a.0, b.0, c.0], size))
+            let expected_written = a.1 + b.1 + c.1 + 1;
+            PropEncoding::QInt3(([a.0, b.0, c.0], expected_written))
         }
     }
 
     prop_compose! {
         fn qint4()(a in qint_varlen(), b in qint_varlen(), c in qint_varlen(), d in qint_varlen()) -> PropEncoding {
-            let size = a.1 + b.1 + c.1 + d.1 + 1;
-            PropEncoding::QInt4(([a.0, b.0, c.0, d.0], size))
+            let expected_written = a.1 + b.1 + c.1 + d.1 + 1;
+            PropEncoding::QInt4(([a.0, b.0, c.0, d.0], expected_written))
         }
     }
     
@@ -194,7 +207,7 @@ mod property_based {
         #[test]
         fn test_encode_decode_identify(prop_encoding in qint_encoding()) {
             // prepare buffer and cursor
-            let mut buf = [42u8; MAX_QINT_BUFFER_SIZE];
+            let mut buf = [0u8; MAX_QINT_BUFFER_SIZE];
             let mut cursor = Cursor::new(buf.as_mut());
 
             // match on the PropEncoding enum to get the value slices and encode them
@@ -209,20 +222,53 @@ mod property_based {
             match prop_encoding {
                 PropEncoding::QInt2((input, _)) => {
                     let (decoded_values, bytes_read) = qint_decode::<[u32;2], _>(&mut cursor).unwrap();
-                    assert_eq!(bytes_written, bytes_read);
-                    assert_eq!(input, decoded_values);
+                    prop_assert_eq!(bytes_written, bytes_read);
+                    prop_assert_eq!(input, decoded_values);
                 }
                 PropEncoding::QInt3((input, _)) => {
                     let (decoded_values, bytes_read) = qint_decode::<[u32;3], _>(&mut cursor).unwrap();
-                    assert_eq!(bytes_written, bytes_read);
-                    assert_eq!(input, decoded_values);
+                    prop_assert_eq!(bytes_written, bytes_read);
+                    prop_assert_eq!(input, decoded_values);
                 }
                 PropEncoding::QInt4((input, _)) => {
                     let (decoded_values, bytes_read) = qint_decode::<[u32;4], _>(&mut cursor).unwrap();
-                    assert_eq!(bytes_written, bytes_read);
-                    assert_eq!(input, decoded_values);
+                    prop_assert_eq!(bytes_written, bytes_read);
+                    prop_assert_eq!(input, decoded_values);
                 }
             }
+        }
+    }
+
+    macro_rules! match_qint_encoding {
+        ($($variant:ident),* => $cursor:expr, $prop_encoding:expr, $buffer_size:expr) => {
+            match $prop_encoding {
+                $(
+                    PropEncoding::$variant((v, expected_size)) => {
+                        let res = qint_encode(&mut $cursor, v);
+                        println!("buffer: {:?}\nexpected_sz={}, buf_sz={}, {:?}", $cursor, expected_size, $buffer_size, res);
+                        if expected_size > $buffer_size {
+                            prop_assert_eq!(res.is_err(), true);
+                            let kind = res.unwrap_err().kind();
+                            let is_mem_err = kind == std::io::ErrorKind::OutOfMemory || kind == std::io::ErrorKind::WriteZero;
+                            prop_assert_eq!(is_mem_err, true);
+                        } else {
+                            prop_assert_eq!(res.is_ok(), true);
+                        }
+                    }
+                ),*
+            }
+        };
+    }
+
+    proptest::proptest! {
+        // tests for error conditions
+        #[test]
+        fn test_encoding_with_varied_buffer(prop_encoding in qint_encoding(), buffer_size in 1..=17usize) {
+            let mut buf = [0u8; MAX_QINT_BUFFER_SIZE];
+            let buf = &mut buf[0..buffer_size];
+            let mut cursor = Cursor::new(buf);
+            
+            match_qint_encoding!(QInt2, QInt3, QInt4 => cursor, prop_encoding, buffer_size);
         }
     }
 }

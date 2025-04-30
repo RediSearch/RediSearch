@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 89c60968333fa0650f6e808183adad48d96770946813b10d43c8343ce3516667 # shrinks to prop_encoding = QInt4(([127, 8106623, 2491134591, 10583097], 13)), buffer_size = 12
