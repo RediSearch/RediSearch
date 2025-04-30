@@ -2231,22 +2231,19 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   }
   // RMKey it is provided as best effort but in some cases it might be NULL
   bool keyOpened = false;
-  if (!key || isCrdt) {
+  if (!key) {
     key = RedisModule_OpenKey(ctx, keyname, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
     keyOpened = true;
   }
 
-  // Get the document type
+  // check type of document is support and document is not empty
   DocumentType type = getDocType(key);
-
-  // Close the key if we opened it
-  if (keyOpened) {
-    RedisModule_CloseKey(key);
-  }
-
-  // Verify that the document type is supported and document is not empty
   if (type == DocumentType_Unsupported) {
     return;
+  }
+
+  if (keyOpened) {
+    RedisModule_CloseKey(key);
   }
 
   if (scanner->global) {
