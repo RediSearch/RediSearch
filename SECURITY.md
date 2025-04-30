@@ -9,11 +9,12 @@ performance and security.
 We generally backport security issues to a single previous major version,
 unless this is not possible or feasible with a reasonable effort.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 2.8     | :white_check_mark: |
-| 2.6     | :white_check_mark: |
-| < 2.6   | :x:                |
+| Version                        | Supported                                                                                            |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| (no newer standalone versions) | RedisSearch is now an integral part of Redis. See https://github.com/redis/redis/security/policy     |
+| 2.10                           | :white_check_mark:                                                                                   |
+| 2.8                            | :white_check_mark:                                                                                   |
+| < 2.8                          | :x:                                                                                                  |
 
 ## Reporting a Vulnerability
 
