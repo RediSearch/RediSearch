@@ -317,10 +317,6 @@ def config_cmd():
 def run_command_on_all_shards(env, *args):
     return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
 
-def verify_command_OK_on_all_shards(env, *args):
-    res = run_command_on_all_shards(env, *args)
-    env.assertEqual(res, ['OK'] * env.shardsCount)
-
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 
@@ -826,9 +822,7 @@ def shardsConnections(env):
       yield env.getConnection(shardId=s)
 
 def waitForIndexFinishScan(env, idx = 'idx'):
-    # Wait for the index to finish scan
-    # Check if equals 1 for RESP3 support
-    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
+    while index_info(env, idx)['percent_indexed'] != '1':
         time.sleep(0.1)
 
 def bgScanCommand():
