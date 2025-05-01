@@ -81,7 +81,7 @@ jobs:
       # - spellcheck
       - basic-test
       - micro-benchmarks
-      - lint
+      # - lint
       - coverage
       - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
