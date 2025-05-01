@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 
 // This is where the modules build/version is declared.
@@ -10,9 +13,9 @@
 
 #pragma once
 
-#define REDISEARCH_VERSION_MAJOR 7
-#define REDISEARCH_VERSION_MINOR 99
-#define REDISEARCH_VERSION_PATCH 91
+#define REDISEARCH_VERSION_MAJOR 8
+#define REDISEARCH_VERSION_MINOR 0
+#define REDISEARCH_VERSION_PATCH 0
 
 #ifndef REDISEARCH_MODULE_NAME
 #define REDISEARCH_MODULE_NAME "search"
