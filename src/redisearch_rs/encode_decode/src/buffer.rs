@@ -1,11 +1,8 @@
 use std::{
-    ffi::c_void,
     io::Cursor,
     ptr::{NonNull, copy_nonoverlapping},
     slice,
 };
-
-use redis_module::RedisModule_Realloc;
 
 /// Redefines the `Buffer` struct from `buffer.h`
 ///
@@ -113,26 +110,12 @@ impl std::io::Write for BufferWriter {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
         let buffer = unsafe { self.buf.as_mut() };
-        // Safety: All invariants of `std::slice::from_raw_parts` should hold here if the C side
-        // does everything correctly.
-        let pos = unsafe { self.cursor.byte_offset_from(buffer.data) } as usize;
-        // Check if pos + bytes.len() exceeds the buffer capacity and reallocate if necessary.
-        if pos + bytes.len() > buffer.capacity {
-            let extra = bytes.len() - (buffer.capacity - pos);
-            let new_capacity = buffer.capacity + extra;
-            // Safety: Static-mutable requires `unsafe` to be accessed.
-            let realloc = unsafe { RedisModule_Realloc }.unwrap();
-            // Safety: Calling into C, so its unsafe by definition.
-            let new_ptr = unsafe { realloc(buffer.data.as_ptr() as *mut c_void, new_capacity) };
-            buffer.data = NonNull::new(new_ptr as *mut u8).ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::OutOfMemory,
-                    "Failed to reallocate buffer",
-                )
-            })?;
-            buffer.capacity = new_capacity;
+        // Safety: Calling C, all bets are off.
+        if buffer.len + bytes.len() > buffer.capacity
+            && unsafe { Buffer_Grow(self.buf, bytes.len()) != 0 }
+        {
             // Safety: All invariants of `std::ptr::NonNull::add` should hold here.
-            self.cursor = unsafe { buffer.data.add(pos) };
+            self.cursor = unsafe { buffer.data.add(buffer.len()) };
         }
 
         // Now copy the bytes into the buffer.
@@ -144,7 +127,7 @@ impl std::io::Write for BufferWriter {
         // * `bytes.len()` is less than capacity - pos.
         unsafe { copy_nonoverlapping(src, dest, bytes.len()) };
         // Update the buffer length.
-        buffer.len = pos + bytes.len();
+        buffer.len += bytes.len();
         // Update the position.
         // Safety: All invariants of `std::ptr::NonNull::add` should hold here.
         self.cursor = unsafe { self.cursor.add(bytes.len()) };
@@ -155,4 +138,10 @@ impl std::io::Write for BufferWriter {
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
+}
+
+unsafe extern "C" {
+    /// Ensure that at least extraLen new bytes can be added to the buffer.
+    /// Returns the number of bytes added, or 0 if the buffer is already large enough.
+    fn Buffer_Grow(b: NonNull<Buffer>, extraLen: usize) -> usize;
 }

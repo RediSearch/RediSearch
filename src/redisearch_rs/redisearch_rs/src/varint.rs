@@ -36,18 +36,18 @@ extern "C" fn ReadVarintFieldMask(b: Option<NonNull<BufferReader>>) -> FieldMask
     val
 }
 
-/// Note: This function now returns the number of bytes written to the buffer, not the change in
-/// capacity. The change of the buffer capacity is an internal detail and should not be of concern
-/// to the caller.
 #[unsafe(no_mangle)]
 extern "C" fn WriteVarint(value: u32, writer: Option<NonNull<BufferWriter>>) -> usize {
     let mut writer = writer.unwrap();
     // Safety: The caller is responsible for ensuring that the pointer is valid.
     let writer = unsafe { writer.as_mut() };
-    write(value, writer).unwrap()
+    let buffer = unsafe { writer.buf.as_mut() };
+    let cap = buffer.capacity();
+    write(value, writer.clone()).unwrap();
+    let buffer = unsafe { writer.buf.as_mut() };
+    buffer.capacity() - cap
 }
 
-/// See the note above for [`WriteVarint`].
 #[unsafe(no_mangle)]
 #[allow(improper_ctypes_definitions)]
 extern "C" fn WriteVarintFieldMask(
@@ -57,7 +57,11 @@ extern "C" fn WriteVarintFieldMask(
     let mut writer = writer.unwrap();
     // Safety: The caller is responsible for ensuring that the pointer is valid.
     let writer = unsafe { writer.as_mut() };
-    write_field_mask(value, writer).unwrap()
+    let buffer = unsafe { writer.buf.as_mut() };
+    let cap = buffer.capacity();
+    write_field_mask(value, writer.clone()).unwrap();
+    let buffer = unsafe { writer.buf.as_mut() };
+    buffer.capacity() - cap
 }
 
 #[unsafe(no_mangle)]
