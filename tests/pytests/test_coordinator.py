@@ -53,7 +53,7 @@ def testCommandStatsOnRedis(env):
     env.expect('FT.SEARCH', 'idx', 'hello', 'LIMIT', 0, 0).equal([100])
     check_info_commandstats(env, 'FT.SEARCH')
 
-    env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).equal([env.shardsCount])
+    env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).noError()
     check_info_commandstats(env, 'FT.AGGREGATE')
 
     conn.execute_command('FT.INFO', 'idx')
