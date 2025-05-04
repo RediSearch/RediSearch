@@ -214,7 +214,7 @@ endif
 
 #----------------------------------------------------------------------------------------------
 BOOST_DIR ?= $(ROOT)/.install/boost
-_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR) -DMAX_WORKER_THREADS=$(MAX_WORKER_THREADS) -DSAN=$(SAN)
+_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR) -DMAX_WORKER_THREADS=$(MAX_WORKER_THREADS) -DSAN=$(SAN) -DCOV=$(COV)
 
 ifeq ($(OS),macos)
 _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DAPPLE=ON
@@ -395,8 +395,13 @@ endif
 
 test: unit-tests pytest
 
+# Temp hack - replace the arm artifact directory with aarch64 as it comes from build.sh since unit tests
+# access it directly (todo: refactor unit test flow completely)
+UPDATED_BINROOT:=$(subst arm64v8,aarch64,$(BINROOT))
+
 unit-tests:
-	$(SHOW)BINROOT=$(BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+	@echo "UPDATED_BINROOT: $(UPDATED_BINROOT)"
+	$(SHOW)BINROOT=$(UPDATED_BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
 pytest:
 	@printf "\n-------------- Running python flow test ------------------\n"
