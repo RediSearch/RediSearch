@@ -2,11 +2,7 @@
 cmake_minimum_required(VERSION 3.13)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
-include(${root}/deps/readies/cmake/main)
-
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
-
-#@@ lists_from_env(LIBUV HIREDIS)
 
 #----------------------------------------------------------------------------------------------
 
@@ -40,13 +36,59 @@ add_compile_definitions(
 	RS_COORDINATOR
 	RMUTIL_NO_SDS)
 
+# Define compiler setup function
+function(setup_cc_options)
+    message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
+
+    # Set C and C++ flags separately
+    set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -Werror=incompatible-pointer-types -Werror=implicit-function-declaration -fcommon -funsigned-char -fvisibility=hidden" PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fvisibility=hidden" PARENT_SCOPE)
+
+    # Set C++ standard
+    set(CMAKE_CXX_STANDARD 20)
+
+    # Release/Debug/Profile specific flags
+    if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+        set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -O0 -g -fno-omit-frame-pointer -ggdb" PARENT_SCOPE)
+    elseif(PROFILE)
+        set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
+        set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O2 -fno-omit-frame-pointer" PARENT_SCOPE)
+    else()
+        # Default to Release flags
+        set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS} -O3" PARENT_SCOPE)
+        set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS} -O3" PARENT_SCOPE)
+    endif()
+endfunction()
+
+# Define shared object setup function
+function(setup_shared_object_target target)
+  if(APPLE)
+      set_target_properties(${target} PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+      # Force .so extension on macOS instead of .dylib
+      set_target_properties(${target} PROPERTIES SUFFIX ".so")
+  else()
+      # We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
+      # the library's own definition, rather than to a definition in another shared library or the main executable.
+      set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Bsymbolic -Bsymbolic-functions")
+  endif()
+  set_target_properties(${target} PROPERTIES PREFIX "")
+endfunction()
+
+# Define debug symbols extraction function
+function(extract_debug_symbols target)
+  if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" AND NOT APPLE)
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND cp $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
+        COMMAND objcopy --add-gnu-debuglink=$<TARGET_FILE:${target}>.debug $<TARGET_FILE:${target}>
+        COMMAND strip -g $<TARGET_FILE:${target}>
+        COMMENT "Extracting debug symbols from ${target}"
+    )
+  endif()
+endfunction()
+
+# Call the setup function
 setup_cc_options()
-
-# Specific to coordinator
-add_compile_options("-fvisibility=hidden")
-
-#set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fvisibility=hidden")
-#set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden")
 
 #----------------------------------------------------------------------------------------------
 
@@ -71,8 +113,14 @@ add_subdirectory(src)
 option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
-include(${root}/build/libuv/libuv.cmake)
-include(${root}/build/hiredis/hiredis.cmake)
+# Configure libuv options
+set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
+set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
+set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE) # Force static library
+
+# Set libuv and hiredis libraries
+set(LIBUV_LIBS uv_a)
+set(HIREDIS_LIBS hiredis)
 
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:coordinator-core>
