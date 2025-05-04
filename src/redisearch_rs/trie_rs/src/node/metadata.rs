@@ -1,4 +1,3 @@
-
 /*
  * Copyright (c) 2006-Present, Redis Ltd.
  * All rights reserved.
@@ -7,6 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+
 //! Primitives to manage the expected memory layout of the heap-allocated buffer for each [`Node`].
 //!
 //! Check out [`NodeLayout`]'s documentation for more details.
