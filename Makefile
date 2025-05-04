@@ -642,26 +642,32 @@ COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
 coverage-unit:
 	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
-	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
-	$(SHOW)$(MAKE) unit-tests COV=1
-	$(SHOW)lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/unit.info
-	$(SHOW)lcov -a $(BINROOT)/base.info -a $(BINROOT)/unit.info -o $(BINROOT)/unit.info.1
-	$(SHOW)lcov -o $(BINROOT)/unit.info.2 -r $(BINROOT)/unit.info.1 $(COV_EXCLUDE)
-	$(SHOW)mv $(BINROOT)/unit.info.2 $(BINROOT)/unit.info
-	$(SHOW)rm $(BINROOT)/unit.info.1
+	$(SHOW)$(MAKE) build unit-tests COV=1
+	$(SHOW)@echo "Coverage data files generated: $$(find $(SRCDIR) -name "*.gcda" | wc -l)"
+	$(SHOW)lcov -j 8 --ignore-errors version,version --ignore-errors empty --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/unit.info
+	$(SHOW)lcov -o $(BINROOT)/unit.info.filtered -r $(BINROOT)/unit.info $(COV_EXCLUDE)
+	$(SHOW)mv $(BINROOT)/unit.info.filtered $(BINROOT)/unit.info
+	$(SHOW)@echo "Coverage info saved to $(BINROOT)/unit.info"
 
 coverage-flow:
 	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
-	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
-	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
-	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
-	$(SHOW)lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/flow.info
-	$(SHOW)lcov -a $(BINROOT)/base.info -a $(BINROOT)/flow.info -o $(BINROOT)/flow.info.1
-	$(SHOW)lcov -o $(BINROOT)/flow.info.2 -r $(BINROOT)/flow.info.1 $(COV_EXCLUDE)
-	$(SHOW)mv $(BINROOT)/flow.info.2 $(BINROOT)/flow.info
-	$(SHOW)rm $(BINROOT)/flow.info.1
+	$(SHOW)$(MAKE) build pytest REDIS_STANDALONE=1 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
+	$(SHOW)$(MAKE) build pytest REDIS_STANDALONE=0 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
+	$(SHOW)@echo "Coverage data files generated: $$(find $(SRCDIR) -name "*.gcda" | wc -l)"
+	$(SHOW)lcov -j 8 --ignore-errors version,version --ignore-errors empty --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/unit.info
+	$(SHOW)lcov -o $(BINROOT)/flow.info.filtered -r $(BINROOT)/flow.info $(COV_EXCLUDE)
+	$(SHOW)mv $(BINROOT)/flow.info.filtered $(BINROOT)/flow.info
+	$(SHOW)@echo "Coverage info saved to $(BINROOT)/flow.info"
 
-.PHONY: coverage-unit coverage-flow
+# Simple coverage test target that follows the pattern of the shell function
+covtest:
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
+	$(SHOW)$(MAKE) build pytest COV=1 TEST=$(TEST)
+	$(SHOW)@echo "Coverage data files generated: $$(find $(SRCDIR) -name "*.gcda" | wc -l)"
+	$(SHOW)@echo "To generate coverage report, run:"
+	$(SHOW)lcov -j 8 --ignore-errors version,version --ignore-errors empty --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/unit.info
+
+.PHONY: coverage-unit coverage-flow covtest
 
 #----------------------------------------------------------------------------------------------
 
