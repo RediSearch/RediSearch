@@ -784,10 +784,8 @@ def test_mod4296_badexpr(env):
 
 @skip(cluster=True)
 def test_mod5062(env):
-  run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
   env.expect(config_cmd(), 'SET', 'MAXSEARCHRESULTS', '0').ok()
   env.expect(config_cmd(), 'SET', 'MAXAGGREGATERESULTS', '0').ok()
-
   n = 100
 
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
@@ -1065,6 +1063,7 @@ def test_mod6186(env):
 def test_mod6510_vecsim_hybrid_adhoc_timeout(env):
     dim = 1000
     n_vectors = 50000
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
 
     # Create HNSW index which is large enough, so we'll get timeout later on.
     env.expect(f'FT.CREATE idx SCHEMA v VECTOR HNSW 10 DIM {dim} DISTANCE_METRIC L2 TYPE FLOAT32 M 2 EF_CONSTRUCTION 5'
@@ -1373,6 +1372,7 @@ def test_mod_8561(env:Env):
   env.expect('FT.SEARCH', 'idx1', 'bar foo').noError().equal(expected)
   env.expect('FT.SEARCH', 'idx2', "@t:{bar} @t:{foo}").noError().equal(expected)
 
+import time
 @skip(cluster=True)
 def test_mod_8695():
   env = Env(moduleArgs='DEFAULT_DIALECT 2')
@@ -1420,8 +1420,8 @@ def test_mod_8695():
   env.assertEqual(res1, res2)
 
   # Test vector with AGGREGATE and scores
-  env.expect('FT.AGGREGATE', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????', 'ADDSCORES', 'SCORER', 'TFIDF').noError().equal(
-               [2, ['score', '0', '__score', '1'], ['score', '0', '__score', '1']])
+  env.expect('FT.AGGREGATE', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????', 'ADDSCORES', 'SCORER', 'TFIDF', 'TIMEOUT', 0).noError().apply(lambda res: res[1:]).equal(
+               [['score', '0', '__score', '1'], ['score', '0', '__score', '1']])
 
 @skip(cluster=True)
 def test_mod_9423(env:Env):

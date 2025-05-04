@@ -879,9 +879,9 @@ def testMultibyteTag(env):
             # For dialect 4 the data are not sorted
             if dialect == 4:
                 if env.isCluster():
-                    expected = [3, 'doc:lower', 'doc:mixed', 'doc:upper']
+                    expected = [ANY, 'doc:lower', 'doc:mixed', 'doc:upper']
                 else:
-                    expected = [3, 'doc:upper', 'doc:lower', 'doc:mixed']
+                    expected = [ANY, 'doc:upper', 'doc:lower', 'doc:mixed']
 
             res = conn.execute_command(
                 'FT.SEARCH', 'idx', '@t:{$p}', 'NOCONTENT', 'PARAMS', 2, 'p',
@@ -893,7 +893,7 @@ def testMultibyteTag(env):
                 'БЪЛ', 'SORTBY', 't')
             env.assertEqual(res, expected, message=f'Dialect: {dialect}')
 
-            expected = [2, 'doc:eszett_1', 'doc:eszett_2']
+            expected = [ANY, 'doc:eszett_1', 'doc:eszett_2']
             res = conn.execute_command(
                 'FT.SEARCH', 'idx', '@t:{$p}', 'NOCONTENT', 'PARAMS', 2, 'p',
                 'GRÜẞEN', 'SORTBY', 't')

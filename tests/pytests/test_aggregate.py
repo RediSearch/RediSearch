@@ -850,7 +850,6 @@ def testGroupbyNoReduce(env):
 
 def testStartsWith(env):
     conn = getConnectionByEnv(env)
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
     conn.execute_command('hset', 'doc1', 't', 'aa')
     conn.execute_command('hset', 'doc2', 't', 'aaa')
@@ -863,7 +862,6 @@ def testStartsWith(env):
 
 def testContains(env):
     conn = getConnectionByEnv(env)
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
     conn.execute_command('hset', 'doc1', 't', 'aa')
     conn.execute_command('hset', 'doc2', 't', 'bba')
@@ -908,7 +906,6 @@ def testContains(env):
 
 def testStrLen(env):
     conn = getConnectionByEnv(env)
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
     conn.execute_command('hset', 'doc1', 't', 'aa')
     conn.execute_command('hset', 'doc2', 't', 'aaa')
@@ -922,7 +919,6 @@ def testStrLen(env):
 
 def testLoadAll(env):
     conn = getConnectionByEnv(env)
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'n', 'NUMERIC')
     conn.execute_command('HSET', 'doc1', 't', 'hello', 'n', 42, 'notIndexed', 'ccc')
     conn.execute_command('HSET', 'doc2', 't', 'world', 'n', 3.141, 'notIndexed', 'bbb')
