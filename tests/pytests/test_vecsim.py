@@ -576,7 +576,7 @@ def test_search_errors():
 
 
 def test_with_fields():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2' + ' MIN_OPERATION_WORKERS 0' if MT_BUILD else '')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2' + (' MIN_OPERATION_WORKERS 0' if MT_BUILD else ''))
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
@@ -1777,7 +1777,7 @@ def test_create_multi_value_json():
 
 
 def test_index_multi_value_json():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2' + ' MIN_OPERATION_WORKERS 0' if MT_BUILD else '')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2' + (' MIN_OPERATION_WORKERS 0' if MT_BUILD else ''))
     conn = getConnectionByEnv(env)
     dim = 4
     n = 100
