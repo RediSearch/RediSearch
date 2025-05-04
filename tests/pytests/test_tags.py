@@ -339,7 +339,6 @@ def testTagGCClearEmptyWithCursorAndMoreData(env):
 
     conn = getConnectionByEnv(env)
     conn.execute_command(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0')
-    conn.execute_command(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn.execute_command('HSET', 'doc1', 't', 'foo')
     conn.execute_command('HSET', 'doc2', 't', 'foo')
