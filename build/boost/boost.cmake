@@ -1,5 +1,12 @@
 message(STATUS "BOOST_DIR: ${BOOST_DIR}")
 
+if(POLICY CMP0144)
+    cmake_policy(SET CMP0144 NEW)
+endif()
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 NEW)
+endif()
+
 if (IS_DIRECTORY ${BOOST_DIR})
     message(STATUS "BOOST_DIR points to a valid directory: ${BOOST_DIR}")
 else()
@@ -16,6 +23,7 @@ else()
             URL https://archives.boost.io/release/1.84.0/source/boost_1_84_0.tar.gz
             USES_TERMINAL_DOWNLOAD TRUE
             DOWNLOAD_NO_EXTRACT FALSE
+            DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(Boost)
 
