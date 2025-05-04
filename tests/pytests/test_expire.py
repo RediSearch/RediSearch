@@ -237,7 +237,6 @@ def test_expire_aggregate(env):
     conn.execute_command('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT')
     conn.execute_command(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'not-documents')
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
 
     conn.execute_command('HSET', 'doc1', 't', 'bar')
     conn.execute_command('HSET', 'doc2', 't', 'arr')
@@ -246,9 +245,9 @@ def test_expire_aggregate(env):
     conn.execute_command('PEXPIRE', 'doc1', 1)
     # ensure expiration before search
     time.sleep(0.01)
-    # In some pipelines we can re-use the search result by clearing it before populating it with a new result.
+    # In some pipelines we can reuse the search result by clearing it before populating it with a new result.
     # If not cleared, it might affect subsequent results.
-    # This test ensures that the flag indicating expiration is cleared and the search result struct is ready to be re-used.
+    # This test ensures that the flag indicating expiration is cleared and the search result struct is ready to be reused.
     res = conn.execute_command('FT.AGGREGATE', 'idx', '*', 'LOAD', 1, '@t')
     # The result count is not accurate in aggregation, for now we compare res to the expected results with the wrong count
     env.assertEqual(res, [1, ['t', 'arr'], ['t', 'bar']])

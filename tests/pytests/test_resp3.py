@@ -186,7 +186,6 @@ def test_profile(env):
 @skip(cluster=False, redis_less_than="7.0.0")
 def test_coord_profile():
     env = Env(protocol=3)
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
 
     with env.getClusterConnectionIfNeeded() as r:
       r.execute_command('HSET', 'doc1', 'f1', '3', 'f2', '3')
@@ -1500,7 +1499,7 @@ def test_error_with_partial_results():
 
   env = Env(protocol=3)
   conn = getConnectionByEnv(env)
-  run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
+
   # Create an index
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
 
