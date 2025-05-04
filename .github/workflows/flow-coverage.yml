@@ -13,11 +13,15 @@ on:
         type: string
         default: '2.6'
         description: 'Branch to use when building RedisJSON for tests'
+      quick:
+        type: boolean
 
 env:
   REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
   VERBOSE_UTESTS: 1
+  REJSON_BRANCH: ${{ inputs.rejson-branch }}
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
+  QUICK: ${{ inputs.quick && 1 || 0 }}  # convert the boolean input to numeric
   COV: 1 # make sure the context for any 'make' or script call is for coverage
 
 jobs:
@@ -40,10 +44,14 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: ./deps/readies/bin/getredis --with-github-token
-    - name: Build and test flow
-      run: make coverage-flow QUICK=1 SHOW=1 REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
-    - name: Build and test unit
-      run: make coverage-unit QUICK=1 SHOW=1 REJSON=${{ env.REJSON }} REJSON_BRANCH=${{ inputs.rejson-branch }}
+
+    - name: Build
+      run: make && make COORD=1
+    - name: Flow coverage
+      run: make coverage-flow
+    - name: Unit coverage
+      run: make coverage-unit
+
     - name: Upload flow coverage
       uses: codecov/codecov-action@v5
       with:
@@ -60,3 +68,11 @@ jobs:
         flags: unit
         fail_ci_if_error: true # Fail on upload errors
         token: ${{ secrets.CODECOV_TOKEN }}
+
+    - name: Upload Test Logs on Failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: Coverage Test Logs
+        path: tests/**/logs/*.log*
+        if-no-files-found: ignore
