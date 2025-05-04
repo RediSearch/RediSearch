@@ -1,4 +1,3 @@
-
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/../../.. ABSOLUTE)
 message("# coord/rmr: root: " ${root})
 
@@ -9,7 +8,6 @@ file(GLOB RMR_SRC
 include_directories(
 	${root}/src
 	${root}/src/coord
-	${root}/deps/libuv
 	${root}/deps/libuv/include)
 
 if (APPLE)
@@ -17,3 +15,6 @@ if (APPLE)
 endif()
 
 add_library(rmr OBJECT ${RMR_SRC})
+
+# Add dependency to ensure libuv is built before rmr
+add_dependencies(rmr uv_a)
