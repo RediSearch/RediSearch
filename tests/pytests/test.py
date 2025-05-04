@@ -4500,11 +4500,13 @@ def _test_MOD9174(env):
         env.assertEqual(res[1], 'doc1')
         env.assertEqual(res[2], ['title', 'The Lord of the Rings'])
 
+@skip(noWorkers=True)
 def test_MOD9174_RESP2():
     """See further description in helper body"""
     env = Env(moduleArgs='WORKERS 2', protocol=2)
     _test_MOD9174(env)
 
+@skip(noWorkers=True)
 def test_MOD9174_RESP3():
     """See further description in helper body"""
     env = Env(moduleArgs='WORKERS 2', protocol=3)
