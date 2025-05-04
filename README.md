@@ -11,15 +11,18 @@
 [![Latest 2.8](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.8*&label=latest%20maintenance%20release%20for%202.8)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.8%20draft:false)
 [![Latest 2.6](https://img.shields.io/github/v/release/RediSearch/RediSearch?filter=v2.6*&label=latest%20maintenance%20release%20for%202.6)](https://github.com/RediSearch/RediSearch/releases?q=tag:v2.6%20draft:false)
 
-
 # RediSearch
 
-Starting with version 8.0, RediSearch is an integral part of Redis. See https://github.com/redis/redis 
-
-## Querying, secondary indexing, and full-text search for Redis
 <picture>
 <img src="https://redis.io/docs/interact/search-and-query/img/logo.svg" title="RediSearch's Logo" width="300">
 </picture>
+
+> [!NOTE]
+> Starting with Redis 8, Redis Query Engine (RediSearch) is an integral part of Redis. There is no need to install this module separately.
+>
+> Therefore, we no longer release standalone versions of RediSearch.
+>
+> See https://github.com/redis/redis
 
 ## Overview
 
