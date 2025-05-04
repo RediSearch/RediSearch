@@ -292,6 +292,9 @@ build_project() {
 
   # Build test dependencies if needed
   build_test_dependencies
+
+  # Report build success
+  echo "Build complete. Artifacts in $BINDIR"
 }
 
 #-----------------------------------------------------------------------------
@@ -360,18 +363,23 @@ run_unit_tests() {
     # export DYLD_LIBRARY_PATH="$BINDIR:$DYLD_LIBRARY_PATH"
   fi
 
+  # Set up environment variables for the unit-tests script
+  export BINROOT="$BINROOT/$FULL_VARIANT"
+
+  # Set up test filter if provided
   if [[ -n "$TEST_FILTER" ]]; then
     echo "Running tests matching: $TEST_FILTER"
-    TEST_FILTER_ARG="--gtest_filter=$TEST_FILTER"
+    export TEST="$TEST_FILTER"
   fi
 
-  # Change to the build directory and run ctest with output on failure
-  cd "$BINDIR"
+  # Set verbose mode if requested
   if [[ "$VERBOSE" == "1" ]]; then
-    ctest --output-on-failure -V $TEST_FILTER_ARG # Verbose test output
-  else
-    ctest --output-on-failure $TEST_FILTER_ARG # Regular test output with failures shown
+    export VERBOSE=1
   fi
+
+  # Call the unit-tests script from the sbin directory
+  echo "Calling $ROOT/sbin/unit-tests"
+  "$ROOT/sbin/unit-tests"
 
   # Check test results
   UNIT_TEST_RESULT=$?
@@ -509,9 +517,6 @@ run_tests() {
   run_unit_tests
   run_rust_tests
   run_python_tests
-
-  # Report build success
-  echo "Build complete. Artifacts in $BINDIR"
 
   # Exit with failure if any test suite failed
   if [[ "$HAS_FAILURES" == "1" ]]; then

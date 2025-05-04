@@ -4,8 +4,7 @@
 # RediSearch Unit Tests Runner
 #
 # This script runs unit tests for the RediSearch project. It supports running
-# C tests, C++ tests, and coordinator tests, with options for debugging,
-# sanitizer support, and more.
+# all unit tests with options for debugging and sanitizer support.
 #
 # Author: RediSearch Team
 #------------------------------------------------------------------------------
@@ -33,7 +32,7 @@ print_separator() {
 # Display help information
 #------------------------------------------------------------------------------
 show_help() {
-    cat <<-'END'
+    cat <<'END'
         Run unit tests
 
         [ARGVARS...] unit-tests [--help|help]
@@ -42,22 +41,11 @@ show_help() {
         BINROOT=path   Path to repo binary root dir
         TEST=name      Operate in single-test mode
 
-        C_TESTS=1      Run C tests
-        CPP_TESTS=1    Run C++ tests (gtest)
-        BENCH=1        Run micro-benchmark
         TEST_LEAK=1    Run test that leaks (for sanitizer diagnostics)
 
-        STATFILE=file  Write test status (0|1) into `file`
-
-        GDB=1          Enable interactive gdb debugging (in single-test mode)
-        CLANG=1        Implies use of lldb debugger
-
         VERBOSE=1      Print commands and Redis output
-        NOP=1          Dry run
         HELP=1         Show help
-
-
-    END
+END
 }
 
 #------------------------------------------------------------------------------
@@ -105,77 +93,154 @@ detect_platform() {
 }
 
 #------------------------------------------------------------------------------
-# Run C unit tests
+# Run all unit tests
 #------------------------------------------------------------------------------
-run_c_tests() {
+run_all_tests() {
+    # Run C tests
     print_separator
     echo "# Running C unit tests"
-    TESTS_DIR="$(cd $BINROOT/search-community/tests/ctests; pwd)"
+    C_TESTS_DIR="$(cd $BINROOT/search-community/tests/ctests; pwd)"
     cd $ROOT_DIR/tests/ctests
 
     if [[ -z $TEST ]]; then
-        # Run all tests
-        if [[ $NOP != 1 ]]; then
-            for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
-                test_name="$(basename $test)"
-                if [[ $TEST_LEAK == 1 || $test_name != test_leak ]]; then
-                    TEST_NAME="$test_name" setup_sanitizer
-                    if [[ $VERBOSE == 1 ]]; then
-                        echo "Running test: $test_name"
-                    fi
-                    { $test; (( EXIT_CODE |= $? )); } || true
-                fi
-            done
-        else
-            find $TESTS_DIR -name "test_*" -type f -executable -print
-        fi
-    else
-        # Run single test
-        $OP $GDB_CMD $TESTS_DIR/$TEST
-    fi
-}
+        # Run all C tests
+        for test in $(find $C_TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
+            test_name="$(basename $test)"
+            if [[ $TEST_LEAK == 1 || $test_name != test_leak ]]; then
+                TEST_NAME="$test_name" setup_sanitizer
+                LOG_FILE="${LOGS_DIR}/${test_name}.log"
+                echo -n "Running test: $test_name (log: $LOG_FILE) ... "
+                { $test > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
 
-#------------------------------------------------------------------------------
-# Run C++ unit tests
-#------------------------------------------------------------------------------
-run_cpp_tests() {
+                # Print pass/fail status
+                if [[ $test_result -eq 0 ]]; then
+                    echo "PASS"
+                else
+                    echo "FAIL"
+                    echo "Test failed! Log output:"
+                    cat "$LOG_FILE"
+                fi
+            fi
+        done
+    else
+        # Run single C test if it exists
+        if [[ -f $C_TESTS_DIR/$TEST ]]; then
+            LOG_FILE="${LOGS_DIR}/${TEST}.log"
+            echo -n "Running test: $TEST (log: $LOG_FILE) ... "
+            { $C_TESTS_DIR/$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+
+            # Print pass/fail status
+            if [[ $test_result -eq 0 ]]; then
+                echo "PASS"
+            else
+                echo "FAIL"
+                echo "Test failed! Log output:"
+                cat "$LOG_FILE"
+            fi
+        else
+            echo "Test not found: $TEST in $C_TESTS_DIR"
+        fi
+    fi
+
+    # Run C++ tests
     print_separator
     echo "# Running C++ unit tests"
-    TESTS_DIR="$(cd $BINROOT/search-community/tests/cpptests; pwd)"
+    CPP_TESTS_DIR="$(cd $BINROOT/search-community/tests/cpptests; pwd)"
     cd $ROOT_DIR/tests/cpptests
     TEST_NAME=rstest setup_sanitizer
 
     if [[ -z $TEST ]]; then
-        # Run all tests
-        { $OP $GDB_CMD $TESTS_DIR/rstest --gtest_filter="-$SKIP_CPP_TESTS"; (( EXIT_CODE |= $? )); } || true
-    else
-        # Run single test
-        { $OP $GDB_CMD $TESTS_DIR/rstest --gtest_filter=$TEST; (( EXIT_CODE |= $? )); } || true
-    fi
-}
+        # Run all C++ tests but capture the output to parse individual test results
+        LOG_FILE="${LOGS_DIR}/rstest.log"
+        echo "Running all C++ tests (log: $LOG_FILE)"
+        { $CPP_TESTS_DIR/rstest > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
 
-#------------------------------------------------------------------------------
-# Run coordinator unit tests
-#------------------------------------------------------------------------------
-run_coordinator_tests() {
+        # Parse the output to show individual test results
+        echo "Individual test results:"
+
+        # Extract all test results (both passed and failed)
+        # The pattern matches lines like: [       OK ] TestCase.TestName (5 ms)
+        # or [  FAILED  ] TestCase.TestName
+        grep -E "\[ *OK *\]|\[ *FAILED *\]" "$LOG_FILE" | while read -r line; do
+            if [[ $line == *"[       OK ]"* ]]; then
+                # Extract test name from passed test
+                test_name=$(echo "$line" | sed -e 's/\[ *OK *\] \(.*\) (.* ms)/\1/')
+                echo "$test_name ... PASS"
+            elif [[ $line == *"[  FAILED  ]"* ]]; then
+                # Extract test name from failed test
+                test_name=$(echo "$line" | sed -e 's/\[ *FAILED *\] \(.*\)/\1/')
+                echo "$test_name ... FAIL"
+            fi
+        done
+
+        # Show the full output for failed tests if any
+        if grep -q "\[ *FAILED *\]" "$LOG_FILE"; then
+            printf "\nFailed tests output:\n"
+            # Extract sections for failed tests
+            awk '/\[ *RUN *\]/{test=$0} /\[ *FAILED *\]/{print test; print $0; print "----- Error details -----"; flag=1; next} flag{print} /\[ *RUN *\]/{flag=0}' "$LOG_FILE"
+        fi
+
+        # Show summary
+        printf "\nTest summary:\n"
+        grep "\[==========\]" "$LOG_FILE" | tail -n 2
+    else
+        # Run single C++ test if requested
+        if [[ -f $CPP_TESTS_DIR/rstest ]]; then
+            LOG_FILE="${LOGS_DIR}/rstest_${TEST}.log"
+            echo "Running C++ test: $TEST (log: $LOG_FILE)"
+            { $CPP_TESTS_DIR/rstest --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+
+            # Always print output for single test mode
+            if [[ $test_result -eq 0 ]]; then
+                echo "Test result: PASS"
+            else
+                echo "Test result: FAIL"
+                cat "$LOG_FILE"
+            fi
+        else
+            echo "C++ test binary not found: $CPP_TESTS_DIR/rstest"
+        fi
+    fi
+
+    # Run coordinator tests
     print_separator
     echo "# Running coordinator unit tests"
 
     for TESTS_DIR in "$(cd $BINROOT/search-community/tests/ctests/coord_tests; pwd)" "$(cd $BINROOT/search-community/tests/cpptests; pwd)"; do
         if [[ -z $TEST ]]; then
-            # Run all tests
-            if [[ $NOP != 1 ]]; then
-                for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
-                    TEST_NAME="$(basename $test)" setup_sanitizer
-                    echo $TEST_NAME
-                    { $test; (( EXIT_CODE |= $? )); } || true
-                done
-            else
-                find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print
-            fi
+            # Run all coordinator tests
+            for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
+                test_name="$(basename $test)"
+                TEST_NAME="$test_name" setup_sanitizer
+                LOG_FILE="${LOGS_DIR}/coord_${test_name}.log"
+                echo -n "Running coordinator test: $test_name (log: $LOG_FILE) ... "
+                { $test > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+
+                # Print pass/fail status
+                if [[ $test_result -eq 0 ]]; then
+                    echo "PASS"
+                else
+                    echo "FAIL"
+                    echo "Test failed! Log output:"
+                    cat "$LOG_FILE"
+                fi
+            done
         else
-            # Run single test
-            $OP $GDB_CMD $TESTS_DIR/$TEST
+            # Run single coordinator test if it exists
+            if [[ -f $TESTS_DIR/$TEST ]]; then
+                LOG_FILE="${LOGS_DIR}/coord_${TEST}.log"
+                echo -n "Running coordinator test: $TEST (log: $LOG_FILE) ... "
+                { $TESTS_DIR/$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+
+                # Print pass/fail status
+                if [[ $test_result -eq 0 ]]; then
+                    echo "PASS"
+                else
+                    echo "FAIL"
+                    echo "Test failed! Log output:"
+                    cat "$LOG_FILE"
+                fi
+            fi
         fi
     done
 }
@@ -185,10 +250,8 @@ run_coordinator_tests() {
 #------------------------------------------------------------------------------
 generate_summary() {
     # Run memory check summary if needed
-    if [[ $NOP != 1 ]]; then
-        if [[ -n $SAN || $VG == 1 ]]; then
-            { UNIT=1 $ROOT_DIR/sbin/memcheck-summary; (( EXIT_CODE |= $? )); } || true
-        fi
+    if [[ -n $SAN || $VG == 1 ]]; then
+        { UNIT=1 $ROOT_DIR/sbin/memcheck-summary; (( EXIT_CODE |= $? )); } || true
     fi
 
     # Collect logs if requested
@@ -201,15 +264,6 @@ generate_summary() {
         echo "Tests logs:"
         du -ah --apparent-size bin/artifacts/tests
     fi
-
-    # Write status file if needed
-    if [[ -n $STATFILE ]]; then
-        mkdir -p "$(dirname "$STATFILE")"
-        if [[ -f $STATFILE ]]; then
-            (( EXIT_CODE |= $(cat $STATFILE || echo 1) )) || true
-        fi
-        echo $EXIT_CODE > $STATFILE
-    fi
 }
 
 #------------------------------------------------------------------------------
@@ -219,39 +273,14 @@ generate_summary() {
 # Check for help request
 [[ $1 == --help || $1 == help || $HELP == 1 ]] && { show_help; exit 0; }
 
-# Set up dry run mode if requested
-OP=
-[[ $NOP == 1 ]] && OP=echo
-
 # Detect platform information
 detect_platform
 
 # Setup paths and variables
 export EXT_TEST_PATH=${BINROOT}/search-community/example_extension/libexample_extension.so
-SKIP_CPP_TESTS=""
 
 # Configure test scope
 TEST_LEAK=${TEST_LEAK:-0}
-
-# Set default test types if not explicitly specified
-[[ $C_TESTS == 1 ]] && CPP_TESTS=${CPP_TESTS:-0}
-[[ $CPP_TESTS == 1 ]] && C_TESTS=${C_TESTS:-0}
-C_TESTS=${C_TESTS:-1}
-CPP_TESTS=${CPP_TESTS:-1}
-
-# Configure debugger if needed
-if [[ $GDB == 1 ]]; then
-    if [[ $CLANG == 1 ]]; then
-        GDB_CMD="lldb -o run --"
-    else
-        GDB_CMD="gdb -ex r --args"
-    fi
-else
-    GDB_CMD=""
-fi
-
-# Set up status file path
-STATFILE=${STATFILE:-$ROOT_DIR/bin/artifacts/tests/status}
 
 # Set up logs directory
 LOGS_DIR=$ROOT_DIR/tests/logs
@@ -263,17 +292,8 @@ mkdir -p $LOGS_DIR
 # Initialize exit code
 EXIT_CODE=0
 
-# Run tests based on configuration
-if [[ $C_TESTS == 1 ]]; then
-    run_c_tests
-fi
-
-if [[ $CPP_TESTS == 1 ]]; then
-    run_cpp_tests
-fi
-
-# Always run coordinator tests
-run_coordinator_tests
+# Run all tests
+run_all_tests
 
 # Generate summary and handle logs
 generate_summary
