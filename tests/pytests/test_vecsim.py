@@ -1081,7 +1081,7 @@ def test_hybrid_query_non_vector_score():
 
 @skip(cluster=False)
 def test_single_entry():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2' + (' MIN_OPERATION_WORKERS 0' if MT_BUILD else ''))
     # This test should test 3 shards with only one entry. 2 shards should return an empty response to the coordinator.
     # Execution should finish without failure.
     conn = getConnectionByEnv(env)
@@ -1097,9 +1097,9 @@ def test_single_entry():
                 'RETURN', '0',
                 'PARAMS', 2, 'vec_param', vector.tobytes()).equal([1, '0'])
 
-@skip(noWorkers=True)
+
 def test_hybrid_query_adhoc_bf_mode():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2' + (' MIN_OPERATION_WORKERS 0' if MT_BUILD else ''))
     conn = getConnectionByEnv(env)
     dimension = 128
     qty = 100
