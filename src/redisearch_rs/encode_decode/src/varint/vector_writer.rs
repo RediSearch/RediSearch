@@ -22,16 +22,14 @@ impl VectorWriter {
     /// # Return Value
     ///
     /// The number of bytes written to the vector.
-    pub fn write(&mut self, value: u32) -> std::io::Result<usize> {
+    pub fn write(&mut self, value: u32) -> std::io::Result<()> {
         self.buffer.reserve_exact(16);
         // Assumes `value` is greater than `last_value` (copied over from the C code).
-        let bytes_written = write(value - self.last_value, &mut self.buffer)?;
-        if bytes_written != 0 {
-            self.n_members += 1;
-            self.last_value = value;
-        }
+        write(value - self.last_value, &mut self.buffer)?;
+        self.n_members += 1;
+        self.last_value = value;
 
-        Ok(bytes_written)
+        Ok(())
     }
 
     /// reference to the internal byte buffer.

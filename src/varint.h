@@ -30,7 +30,7 @@ size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *w);
 typedef struct VarintVectorWriter VarintVectorWriter;
 
 VarintVectorWriter *NewVarintVectorWriter(size_t cap);
-size_t VVW_Write(VarintVectorWriter *w, uint32_t i);
+void VVW_Write(VarintVectorWriter *w, uint32_t i);
 size_t VVW_Truncate(VarintVectorWriter *w);
 void VVW_Free(VarintVectorWriter *w);
 

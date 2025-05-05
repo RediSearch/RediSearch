@@ -50,23 +50,23 @@ where
 }
 
 /// Encode an integer into a varint format and write it to the given writer.
-pub fn write<W>(value: u32, mut write: W) -> io::Result<usize>
+pub fn write<W>(value: u32, write: &mut W) -> io::Result<()>
 where
     W: Write,
 {
     let mut variant = VarintBuf::new();
     let pos = encode(value, &mut variant);
-    write.write(&variant[pos..])
+    write.write_all(&variant[pos..])
 }
 
 /// Encode a FieldMask into a varint format and write it to the given writer.
-pub fn write_field_mask<W>(value: FieldMask, mut write: W) -> io::Result<usize>
+pub fn write_field_mask<W>(value: FieldMask, mut write: W) -> io::Result<()>
 where
     W: Write,
 {
     let mut variant = VarintBuf::new();
     let pos = encode_field_mask(value, &mut variant);
-    write.write(&variant[pos..])
+    write.write_all(&variant[pos..])
 }
 
 #[inline(always)]
@@ -133,8 +133,7 @@ mod tests {
 
         for (i, value) in values.iter().enumerate() {
             let mut buf = Vec::new();
-            let len = write(*value, &mut buf).unwrap();
-            assert_eq!(len, expected_lens[i]);
+            write(*value, &mut buf).unwrap();
             assert_eq!(buf.len(), expected_lens[i]);
             assert_eq!(read(&buf[..]).unwrap(), *value);
         }
@@ -147,8 +146,7 @@ mod tests {
 
         for (i, value) in values.iter().enumerate() {
             let mut buf = Vec::new();
-            let len = write_field_mask(*value, &mut buf).unwrap();
-            assert_eq!(len, expected_lens[i]);
+            write_field_mask(*value, &mut buf).unwrap();
             assert_eq!(buf.len(), expected_lens[i]);
             assert_eq!(read_field_mask(&buf[..]).unwrap(), *value);
         }

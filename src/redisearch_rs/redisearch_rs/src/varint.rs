@@ -73,10 +73,10 @@ extern "C" fn NewVarintVectorWriter(cap: usize) -> NonNull<VectorWriter> {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn VVW_Write(writer: Option<NonNull<VectorWriter>>, value: u32) -> usize {
+extern "C" fn VVW_Write(writer: Option<NonNull<VectorWriter>>, value: u32) {
     let mut writer = writer.unwrap();
     // Safety: The caller is responsible for ensuring that the pointer is valid.
-    unsafe { writer.as_mut() }.write(value).unwrap()
+    unsafe { writer.as_mut() }.write(value).unwrap();
 }
 
 #[unsafe(no_mangle)]
