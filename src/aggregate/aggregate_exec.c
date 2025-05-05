@@ -352,15 +352,16 @@ static void destroyResults(SearchResult **results) {
   }
 }
 
-static bool ShouldReplyWithError(ResultProcessor *rp, AREQ *req) {
-  return QueryError_HasError(rp->parent->err)
-      && (rp->parent->err->code != QUERY_ETIMEDOUT
-          || (rp->parent->err->code == QUERY_ETIMEDOUT
-              && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
-              && !IsProfile(req)));
+static bool shouldReplyWithError(QueryError *err, AREQ *req) {
+  QueryErrorCode code = QueryError_GetCode(err);
+  return code
+         && (code != QUERY_ETIMEDOUT
+            || (code == QUERY_ETIMEDOUT
+                && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
+                && !IsProfile(req)));
 }
 
-static bool ShouldReplyWithTimeoutError(int rc, AREQ *req) {
+static bool shouldReplyWithTimeoutError(int rc, AREQ *req) {
   return rc == RS_RESULT_TIMEDOUT
          && req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail
          && !IsProfile(req);
@@ -450,11 +451,11 @@ static void sendChunk_Resp2(AREQ *req, RedisModule_Reply *reply, size_t limit,
     startPipeline(req, rp, &results, &r, &rc);
 
     // If an error occurred, or a timeout in strict mode - return a simple error
-    if (ShouldReplyWithError(rp, req)) {
+    if (shouldReplyWithError(rp->parent->err, req)) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(req->qiter.err));
       cursor_done = true;
       goto done_2_err;
-    } else if (ShouldReplyWithTimeoutError(rc, req)) {
+    } else if (shouldReplyWithTimeoutError(rc, req)) {
       ReplyWithTimeoutError(reply);
       cursor_done = true;
       goto done_2_err;
@@ -557,11 +558,11 @@ static void sendChunk_Resp3(AREQ *req, RedisModule_Reply *reply, size_t limit,
 
     startPipeline(req, rp, &results, &r, &rc);
 
-    if (ShouldReplyWithError(rp, req)) {
+    if (shouldReplyWithError(rp->parent->err, req)) {
       RedisModule_Reply_Error(reply, QueryError_GetUserError(req->qiter.err));
       cursor_done = true;
       goto done_3_err;
-    } else if (ShouldReplyWithTimeoutError(rc, req)) {
+    } else if (shouldReplyWithTimeoutError(rc, req)) {
       ReplyWithTimeoutError(reply);
       cursor_done = true;
       goto done_3_err;
@@ -775,7 +776,13 @@ void AREQ_Execute_Callback(blockedClientReqCtx *BCRctx) {
   goto cleanup;
 
 error:
-  QueryError_ReplyAndClear(outctx, &status);
+  if (shouldReplyWithError(&status, req)) {
+    RedisModule_ReplyWithError(outctx, QueryError_GetUserError(&status));
+  } else {
+    RedisModule_ReplyWithEmptyArray(outctx);
+  }
+  QueryError_ClearError(&status);
+  return;
 
 cleanup:
   // No need to unlock spec as it was unlocked by `AREQ_Execute` or will be unlocked by `blockedClientReqCtx_destroy`
