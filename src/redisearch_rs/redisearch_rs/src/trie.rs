@@ -476,7 +476,7 @@ pub unsafe extern "C" fn TrieMap_Delete(
 /// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
 /// - `func` must either be NULL or a valid pointer to a function of type [`freeCB`].
 /// - The Redis allocator must be initialized before calling this function,
-///    and `RedisModule_Free` must not get mutated while running this function.
+///   and `RedisModule_Free` must not get mutated while running this function.
 ///
 /// C equivalent:
 /// ```c
@@ -685,7 +685,7 @@ pub unsafe extern "C" fn TrieMapIterator_Free(it: *mut TrieMapIterator) {
 /// - `it` must point to a valid TrieMapIterator obtained from [`TrieMap_Iterate`] and cannot be NULL.
 /// - `ptr` must point to a valid pointer to a byte sequence, which will be set to the current key. This
 ///   pointer is invalidated upon calling [`TrieMapIterator_Next`], [`TrieMapIterator_NextContains`],
-///     or [`TrieMapIterator_NextWildcard`] again.
+///   or [`TrieMapIterator_NextWildcard`] again.
 /// - `len` must point to a valid `tm_len_t` which will be set to the length of the current key.
 /// - `value` must point to a valid pointer, which will be set to the value of the current key.
 ///
@@ -841,7 +841,7 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
     /// trait objects is hard, if not impossible.
     ///
     /// This way, we avoid having to name the types,
-    /// but can still DRY and enjoy optmizations.
+    /// but can still DRY and enjoy optimizations.
     ///
     /// # Safety `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
     unsafe fn consume_iter<P: Fn(&(&[i8], &*mut c_void)) -> bool>(
