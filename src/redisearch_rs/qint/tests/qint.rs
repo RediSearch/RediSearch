@@ -109,6 +109,7 @@ fn test_out_of_memory_error() {
 
 #[test]
 fn proptest_false_positive_bc_of_expected_written_mismatch() {
+    // this found an edge case in input generation where randomly a 0 was generated for the last byte and so num_bytes was effectively reduced by 1 in encoding.
     //cc 89c60968333fa0650f6e808183adad48d96770946813b10d43c8343ce3516667 # shrinks to prop_encoding = QInt4(([127, 8106623, 2491134591, 10583097], 13)), buffer_size = 12
     let mut buf = [0u8; MAX_QINT_BUFFER_SIZE];
     let v = [127, 8106623, 2491134591, 10583097];
@@ -162,12 +163,15 @@ mod property_based {
 
     prop_compose! {
         // Generate a random number of bytes (1, 2, 3 or 4) f
-        fn qint_varlen()(num_bytes in 1..=4usize, seed in any::<u64>()) -> (u32, usize) {
+        fn qint_varlen()(mut num_bytes in 1..=4usize, seed in any::<u64>()) -> (u32, usize) {
             let mut bytes = [0u8; 4];
             let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
 
             for idx in 0..num_bytes {
                 bytes[idx as usize] = (rng.next_u32() & 0x000000FF) as u8;
+            }
+            if bytes[num_bytes-1] == 0 {
+                num_bytes -= 1;
             }
             (u32::from_ne_bytes(bytes), num_bytes)
         }
