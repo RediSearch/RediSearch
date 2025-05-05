@@ -206,10 +206,9 @@ set(Boost_NO_WARN_NEW_VERSIONS ON)
 include_directories(
     ${root}/src
     ${root}/src/coord
-    ${root}/src/redisearch_rs
+    ${root}/src/redisearch_rs/headers
     ${root}/deps/libuv/include
     ${root}/deps
-    ${root}/deps/triemap
     ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
     ${BOOST_DIR}
@@ -220,7 +219,6 @@ add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
 add_subdirectory(deps/fast_float)
-add_subdirectory(deps/triemap)
 
 # Configure libuv options
 set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
@@ -269,7 +267,6 @@ file(GLOB SOURCES
 add_library(rscore OBJECT ${SOURCES})
 
 set(FINAL_OBJECTS
-    $<TARGET_OBJECTS:trie>
     $<TARGET_OBJECTS:arr>
     $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:rscore>
@@ -302,7 +299,6 @@ target_link_libraries(redisearch
         redisearch-coord
         arr
         wildcard
-        trie
         uv_a
         ${BINDIR}/redisearch_rs/libredisearch_rs.a
         ${HIREDIS_LIBS}

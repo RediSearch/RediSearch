@@ -10,7 +10,7 @@
 #pragma once
 
 #include "query_error.h"
-#include "triemap/triemap.h"
+#include "triemap.h"
 #include "stemmer.h"
 #include "util/arr.h"
 #include "json.h"
