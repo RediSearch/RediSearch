@@ -377,6 +377,11 @@ run_unit_tests() {
     export VERBOSE=1
   fi
 
+  # Set sanitizer mode if requested
+  if [[ "$SAN" == "address" ]]; then
+    export SAN="address"
+  fi
+
   # Call the unit-tests script from the sbin directory
   echo "Calling $ROOT/sbin/unit-tests"
   "$ROOT/sbin/unit-tests"

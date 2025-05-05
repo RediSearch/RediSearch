@@ -33,18 +33,15 @@ print_separator() {
 #------------------------------------------------------------------------------
 show_help() {
     cat <<'END'
-        Run unit tests
+        RediSearch Unit Tests Runner
 
-        [ARGVARS...] unit-tests [--help|help]
+        Usage: [ARGVARS...] unit-tests [--help|help]
 
-        Argument variables:
+        Arguments:
         BINROOT=path   Path to repo binary root dir
-        TEST=name      Operate in single-test mode
-
-        TEST_LEAK=1    Run test that leaks (for sanitizer diagnostics)
-
-        VERBOSE=1      Print commands and Redis output
-        HELP=1         Show help
+        TEST=name      Run only the specified test
+        VERBOSE=1      Show more detailed output
+        HELP=1         Show this help message
 END
 }
 
@@ -60,32 +57,13 @@ setup_sanitizer() {
 }
 
 #------------------------------------------------------------------------------
-# Detect system architecture and OS
+# Detect system architecture and OS using get-platform script
 #------------------------------------------------------------------------------
 detect_platform() {
-    # Detect architecture
-    if [[ $(uname -m) == "arm64" || $(uname -m) == "aarch64" ]]; then
-        ARCH="aarch64"
-    else
-        ARCH=$(uname -m)
-    fi
-
-    # Detect OS
-    OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-
-    # Detect OS nickname (simplified version)
-    if [[ $OS == "linux" ]]; then
-        if [[ -f /etc/os-release ]]; then
-            source /etc/os-release
-            OSNICK=$ID
-        else
-            OSNICK="linux"
-        fi
-    elif [[ $OS == "darwin" ]]; then
-        OSNICK="macos"
-    else
-        OSNICK=$OS
-    fi
+    # Use the get-platform script to detect platform information
+    ARCH=$($SCRIPT_DIR/get-platform --arch)
+    OS=$($SCRIPT_DIR/get-platform --os)
+    OSNICK=$($SCRIPT_DIR/get-platform --osnick)
 
     if [[ $VERBOSE == 1 ]]; then
         echo "Platform: $OS ($OSNICK) on $ARCH"
@@ -93,10 +71,38 @@ detect_platform() {
 }
 
 #------------------------------------------------------------------------------
-# Run all unit tests
+# Run a single test and report results
 #------------------------------------------------------------------------------
-run_all_tests() {
-    # Run C tests
+run_single_test() {
+    local test_path=$1
+    local test_name=$(basename $test_path)
+    local log_prefix=$2
+
+    # We always run all tests
+    # (TEST_LEAK option has been removed)
+
+    # Setup test environment
+    TEST_NAME="$test_name" setup_sanitizer
+    LOG_FILE="${LOGS_DIR}/${log_prefix}${test_name}.log"
+
+    # Run the test
+    echo -n "Running test: $test_name (log: $LOG_FILE) ... "
+    { $test_path > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
+
+    # Report results
+    if [[ $test_result -eq 0 ]]; then
+        echo "PASS"
+    else
+        echo "FAIL"
+        echo "Test failed! Log output:"
+        cat "$LOG_FILE"
+    fi
+}
+
+#------------------------------------------------------------------------------
+# Run C unit tests
+#------------------------------------------------------------------------------
+run_c_tests() {
     print_separator
     echo "# Running C unit tests"
     C_TESTS_DIR="$(cd $BINROOT/search-community/tests/ctests; pwd)"
@@ -105,84 +111,36 @@ run_all_tests() {
     if [[ -z $TEST ]]; then
         # Run all C tests
         for test in $(find $C_TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
-            test_name="$(basename $test)"
-            if [[ $TEST_LEAK == 1 || $test_name != test_leak ]]; then
-                TEST_NAME="$test_name" setup_sanitizer
-                LOG_FILE="${LOGS_DIR}/${test_name}.log"
-                echo -n "Running test: $test_name (log: $LOG_FILE) ... "
-                { $test > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-
-                # Print pass/fail status
-                if [[ $test_result -eq 0 ]]; then
-                    echo "PASS"
-                else
-                    echo "FAIL"
-                    echo "Test failed! Log output:"
-                    cat "$LOG_FILE"
-                fi
-            fi
+            run_single_test "$test" ""
         done
+    elif [[ -f $C_TESTS_DIR/$TEST ]]; then
+        # Run single C test
+        run_single_test "$C_TESTS_DIR/$TEST" ""
     else
-        # Run single C test if it exists
-        if [[ -f $C_TESTS_DIR/$TEST ]]; then
-            LOG_FILE="${LOGS_DIR}/${TEST}.log"
-            echo -n "Running test: $TEST (log: $LOG_FILE) ... "
-            { $C_TESTS_DIR/$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-
-            # Print pass/fail status
-            if [[ $test_result -eq 0 ]]; then
-                echo "PASS"
-            else
-                echo "FAIL"
-                echo "Test failed! Log output:"
-                cat "$LOG_FILE"
-            fi
-        else
-            echo "Test not found: $TEST in $C_TESTS_DIR"
-        fi
+        echo "Test not found: $TEST in $C_TESTS_DIR"
     fi
+}
 
-    # Run C++ tests
+#------------------------------------------------------------------------------
+# Run C++ unit tests
+#------------------------------------------------------------------------------
+run_cpp_tests() {
     print_separator
     echo "# Running C++ unit tests"
     CPP_TESTS_DIR="$(cd $BINROOT/search-community/tests/cpptests; pwd)"
     cd $ROOT_DIR/tests/cpptests
     TEST_NAME=rstest setup_sanitizer
 
+    # C++ tests are special because they use Google Test framework
+    # which runs multiple tests in a single binary
     if [[ -z $TEST ]]; then
-        # Run all C++ tests but capture the output to parse individual test results
+        # Run all C++ tests
         LOG_FILE="${LOGS_DIR}/rstest.log"
         echo "Running all C++ tests (log: $LOG_FILE)"
         { $CPP_TESTS_DIR/rstest > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
 
-        # Parse the output to show individual test results
-        echo "Individual test results:"
-
-        # Extract all test results (both passed and failed)
-        # The pattern matches lines like: [       OK ] TestCase.TestName (5 ms)
-        # or [  FAILED  ] TestCase.TestName
-        grep -E "\[ *OK *\]|\[ *FAILED *\]" "$LOG_FILE" | while read -r line; do
-            if [[ $line == *"[       OK ]"* ]]; then
-                # Extract test name from passed test
-                test_name=$(echo "$line" | sed -e 's/\[ *OK *\] \(.*\) (.* ms)/\1/')
-                echo "$test_name ... PASS"
-            elif [[ $line == *"[  FAILED  ]"* ]]; then
-                # Extract test name from failed test
-                test_name=$(echo "$line" | sed -e 's/\[ *FAILED *\] \(.*\)/\1/')
-                echo "$test_name ... FAIL"
-            fi
-        done
-
-        # Show the full output for failed tests if any
-        if grep -q "\[ *FAILED *\]" "$LOG_FILE"; then
-            printf "\nFailed tests output:\n"
-            # Extract sections for failed tests
-            awk '/\[ *RUN *\]/{test=$0} /\[ *FAILED *\]/{print test; print $0; print "----- Error details -----"; flag=1; next} flag{print} /\[ *RUN *\]/{flag=0}' "$LOG_FILE"
-        fi
-
-        # Show summary
-        printf "\nTest summary:\n"
-        grep "\[==========\]" "$LOG_FILE" | tail -n 2
+        # Parse and display individual test results
+        parse_cpp_test_results "$LOG_FILE"
     else
         # Run single C++ test if requested
         if [[ -f $CPP_TESTS_DIR/rstest ]]; then
@@ -190,19 +148,51 @@ run_all_tests() {
             echo "Running C++ test: $TEST (log: $LOG_FILE)"
             { $CPP_TESTS_DIR/rstest --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
 
-            # Always print output for single test mode
-            if [[ $test_result -eq 0 ]]; then
-                echo "Test result: PASS"
-            else
-                echo "Test result: FAIL"
-                cat "$LOG_FILE"
-            fi
+            # Parse and display results
+            parse_cpp_test_results "$LOG_FILE"
         else
             echo "C++ test binary not found: $CPP_TESTS_DIR/rstest"
         fi
     fi
+}
 
-    # Run coordinator tests
+#------------------------------------------------------------------------------
+# Parse and display C++ test results
+#------------------------------------------------------------------------------
+parse_cpp_test_results() {
+    local log_file=$1
+
+    echo "Individual test results:"
+
+    # Extract all test results (both passed and failed)
+    grep -E "\[ *OK *\]|\[ *FAILED *\]" "$log_file" | while read -r line; do
+        if [[ $line == *"[       OK ]"* ]]; then
+            # Extract test name from passed test
+            test_name=$(echo "$line" | sed -e 's/\[ *OK *\] \(.*\) (.* ms)/\1/')
+            echo "$test_name ... PASS"
+        elif [[ $line == *"[  FAILED  ]"* ]]; then
+            # Extract test name from failed test
+            test_name=$(echo "$line" | sed -e 's/\[ *FAILED *\] \(.*\)/\1/')
+            echo "$test_name ... FAIL"
+        fi
+    done
+
+    # Show the full output for failed tests if any
+    if grep -q "\[ *FAILED *\]" "$log_file"; then
+        printf "\nFailed tests output:\n"
+        # Extract sections for failed tests
+        awk '/\[ *RUN *\]/{test=$0} /\[ *FAILED *\]/{print test; print $0; print "----- Error details -----"; flag=1; next} flag{print} /\[ *RUN *\]/{flag=0}' "$log_file"
+    fi
+
+    # Show summary
+    printf "\nTest summary:\n"
+    grep "\[==========\]" "$log_file" | tail -n 2
+}
+
+#------------------------------------------------------------------------------
+# Run coordinator unit tests
+#------------------------------------------------------------------------------
+run_coordinator_tests() {
     print_separator
     echo "# Running coordinator unit tests"
 
@@ -210,39 +200,27 @@ run_all_tests() {
         if [[ -z $TEST ]]; then
             # Run all coordinator tests
             for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
-                test_name="$(basename $test)"
-                TEST_NAME="$test_name" setup_sanitizer
-                LOG_FILE="${LOGS_DIR}/coord_${test_name}.log"
-                echo -n "Running coordinator test: $test_name (log: $LOG_FILE) ... "
-                { $test > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-
-                # Print pass/fail status
-                if [[ $test_result -eq 0 ]]; then
-                    echo "PASS"
-                else
-                    echo "FAIL"
-                    echo "Test failed! Log output:"
-                    cat "$LOG_FILE"
-                fi
+                run_single_test "$test" "coord_"
             done
-        else
-            # Run single coordinator test if it exists
-            if [[ -f $TESTS_DIR/$TEST ]]; then
-                LOG_FILE="${LOGS_DIR}/coord_${TEST}.log"
-                echo -n "Running coordinator test: $TEST (log: $LOG_FILE) ... "
-                { $TESTS_DIR/$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
-
-                # Print pass/fail status
-                if [[ $test_result -eq 0 ]]; then
-                    echo "PASS"
-                else
-                    echo "FAIL"
-                    echo "Test failed! Log output:"
-                    cat "$LOG_FILE"
-                fi
-            fi
+        elif [[ -f $TESTS_DIR/$TEST ]]; then
+            # Run single coordinator test
+            run_single_test "$TESTS_DIR/$TEST" "coord_"
         fi
     done
+}
+
+#------------------------------------------------------------------------------
+# Run all unit tests
+#------------------------------------------------------------------------------
+run_all_tests() {
+    # Run C tests
+    run_c_tests
+
+    # Run C++ tests
+    run_cpp_tests
+
+    # Run coordinator tests
+    run_coordinator_tests
 }
 
 #------------------------------------------------------------------------------
@@ -279,8 +257,7 @@ detect_platform
 # Setup paths and variables
 export EXT_TEST_PATH=${BINROOT}/search-community/example_extension/libexample_extension.so
 
-# Configure test scope
-TEST_LEAK=${TEST_LEAK:-0}
+# No test scope configuration needed
 
 # Set up logs directory
 LOGS_DIR=$ROOT_DIR/tests/logs
