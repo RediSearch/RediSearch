@@ -126,7 +126,7 @@ fn proptest_false_positive_bc_of_expected_written_mismatch() {
 
 mod property_based {
     #![cfg(not(miri))]
-
+    
     //! This module contains property-based tests for the qint encoding and decoding functions.
     //!
     //! The strategies here return an array of u32 integers and the expected number of bytes that should
@@ -137,94 +137,14 @@ mod property_based {
     //! Based on that the qint1, qint2, qint3 and qint4 strategies are created as building block for
     //! providing a enum PropEncoding that serves as input for the property-based tests.
 
+
+    use proptest::prop_assert_eq;
     use ::qint::{qint_decode, qint_encode};
-    use proptest::{bits::usize, prelude::*, prop_compose, prop_oneof};
-    use rand::{RngCore as _, SeedableRng as _};
     use std::io::{Cursor, Seek as _};
 
+    use qint::test_utils::{PropEncoding, qint_encoding};
+
     use crate::MAX_QINT_BUFFER_SIZE;
-
-    #[derive(Debug, Clone)]
-    enum PropEncoding {
-        QInt2(([u32; 2], [usize; 2])),
-        QInt3(([u32; 3], [usize; 3])),
-        QInt4(([u32; 4], [usize; 4])),
-    }
-
-    impl PropEncoding {
-        fn expected_written(&self) -> usize {
-            match self {
-                PropEncoding::QInt2((_, expected_size)) => expected_size.iter().sum::<usize>() + 1,
-                PropEncoding::QInt3((_, expected_size)) => expected_size.iter().sum::<usize>() + 1,
-                PropEncoding::QInt4((_, expected_size)) => expected_size.iter().sum::<usize>() + 1,
-            }
-        }
-
-        fn leading_byte(&self) -> u8 {
-            let mut leading_byte = 0b00000000;
-            match &self {
-                PropEncoding::QInt2((_, expected_size)) => {
-                    leading_byte |= ((expected_size[0]-1) << 0) as u8;
-                    leading_byte |= ((expected_size[1]-1) << 2) as u8;
-                }
-                PropEncoding::QInt3((_, expected_size)) => {
-                    leading_byte |= ((expected_size[0]-1) << 0) as u8;
-                    leading_byte |= ((expected_size[1]-1) << 2) as u8;
-                    leading_byte |= ((expected_size[2]-1) << 4) as u8;
-                }
-                PropEncoding::QInt4((_, expected_size)) => {
-                    leading_byte |= ((expected_size[0]-1) << 0) as u8;
-                    leading_byte |= ((expected_size[1]-1) << 2) as u8;
-                    leading_byte |= ((expected_size[2]-1) << 4) as u8;
-                    leading_byte |= ((expected_size[3]-1) << 6) as u8;
-                }
-            }
-            leading_byte
-        }
-    }
-
-    prop_compose! {
-        // Generate a random number of bytes (1, 2, 3 or 4) f
-        fn qint_varlen()(num_bytes in 1..=4usize, seed in any::<u64>()) -> (u32, usize) {
-            let mut bytes = [0u8; 4];
-            let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-            let mut forward_size = num_bytes;
-            for idx in 0..num_bytes {
-                bytes[idx as usize] = (rng.next_u32() & 0x000000FF) as u8;
-            }
-            for idx in (1..num_bytes).rev() {
-                if bytes[idx as usize] == 0 {
-                    forward_size -= 1;
-                } else {
-                    break;
-                }
-            }
-            (u32::from_ne_bytes(bytes), forward_size)
-        }
-    }
-
-    prop_compose! {
-        fn qint2()(a in qint_varlen(), b in qint_varlen()) -> PropEncoding {
-            PropEncoding::QInt2(([a.0, b.0], [a.1, b.1]))
-        }
-    }
-
-    prop_compose! {
-        fn qint3()(a in qint_varlen(), b in qint_varlen(), c in qint_varlen()) -> PropEncoding {
-            PropEncoding::QInt3(([a.0, b.0, c.0], [a.1, b.1, c.1]))
-        }
-    }
-
-    prop_compose! {
-        fn qint4()(a in qint_varlen(), b in qint_varlen(), c in qint_varlen(), d in qint_varlen()) -> PropEncoding {
-            PropEncoding::QInt4(([a.0, b.0, c.0, d.0], [a.1, b.1, c.1, d.1]))
-        }
-    }
-
-    fn qint_encoding() -> BoxedStrategy<PropEncoding> {
-        // Generate a random number of integers (2, 3, or 4) in a slice encapsulated in a PropEncoding enum
-        prop_oneof![qint2(), qint3(), qint4()].boxed()
-    }
 
     proptest::proptest! {
         // tests for working conditions
