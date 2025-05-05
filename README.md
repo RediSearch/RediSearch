@@ -16,7 +16,7 @@
 > [!NOTE]
 > Starting with Redis 8, Redis Query Engine (RediSearch) is integral to Redis. You don't need to install this module separately.
 >
-> Therefore, we no longer release standalone versions of RediSearch.
+> We no longer release standalone versions of RediSearch.
 >
 > See https://github.com/redis/redis
 
