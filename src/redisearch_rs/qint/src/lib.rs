@@ -1,12 +1,12 @@
 //! # qint encoding/decoding - From 2 up to 4 integers variable-length encoding scheme
 //!
-//! The qint encoding scheme is a variable-length encoding scheme for integers. It uses a leading byte to
-//! define the number of bytes used to represent the following integers. Based on that leading byte, up to four
-//! variable-length integers are encoded. The leading byte encodes each length in a 2-bit field. The first 2 bits
+//! The qint encoding scheme is a variable-length encoding scheme for integers. It's header, i.e. leading byte,
+//! defines the number of bytes used to represent the following integers. With that header, up to four
+//! variable-length integers are encoded. The header encodes each integer-length in a 2-bit field. The first 2 bits
 //! represent the first integer. The next 2 bits represent the second integer, and so on.
 //!
-//! As a caller you're interested in the generic [`qint_encode`] and [`qint_decode`] methods. The methods work on [u32] arrays.
-//! To easily invoke [`qint_decode`] see the type aliases for the different sizes: [`QInt2`], [`QInt3`], and [`QInt4`].
+//! As a caller you're interested in the generic [`qint_encode`] and [`qint_decode`] methods. The methods work on [u32] arrays and
+//! the generic argument `N` is constrained to 2, 3 or 4.
 //!
 //! ## Usage Example
 //!
@@ -31,29 +31,27 @@
 //! assert_eq!(v, decoded_values);
 //! ```
 //!
-//! The leading byte leads to two conclusions:
+//! The header concludes two constraints:
 //!
-//! 1. We can only encode up to 4 integers. The leading byte has 8 bits, and each integer takes 2 bits. So the maximum number of integers is 4.
-//! 2. The leading byte is interpreted based on the number of integers encoded. That means encode and decode calls must match.
+//! 1. We can only encode up to 4 integers. The header has 8 bits, and each integer takes 2 bits. So the maximum number of integers is 4.
+//! 2. The header is interpreted based on the number of integers encoded. That means the generic argument `N` in encode and decode calls must match.
 //!
 //! ### Encoding up to four integers
 //!
-//! Internally the trait [`AllowedIntegersInQIntEncoding`] is used to restrict the number of integers that can be encoded. The trait
-//! is sealed, so you cannot implement it outside of this crate. The trait has a method `ENCODE_SIZE` that returns the number of integers
-//! that can be encoded. The trait is implemented for the following types: [QInt2], [QInt3], and [QInt4].
+//! Internally the trait [`ValidQIntSize`] is used to restrict the number of integers that can be encoded.
 //!
 //! ### Encoding and Decoding must match
 //!
 //! A mismatch always means a logical bug. But beside that it can lead to a [std::io::Error] or undefined behavior. Imagine you call with [std::io::Cursor]
-//! and you mismatch [QInt2] with [QInt3]. That means the decoding reads a byte more than the encoding.
+//! and you mismatch `N=2` with `N=3`. That means the decoding reads a byte more than the encoding.
 //!
 //! - If the buffer ends you get a [std::io::Error] with [std::io::ErrorKind::UnexpectedEof].
 //! - If the buffer is larger than the encoding, you read random data.
 //!
 //! ## Example Encodings
 //!
-//! For the following example space separates each four bits for the encoded integers and every two bits for the leading byte.
-//! The `|` symbol separates the leading byte and each of the encoded integers.
+//! For the following example a line break separates bytes of the buffer. The line separator 
+//! `------------|` separates the leading byte and the encoded integers.
 //!
 //! ### Two integers with a len of 1 byte and 2 bytes
 //!
@@ -61,7 +59,17 @@
 //!
 //! would have the following bit pattern:
 //!
-//! Bit Encoding: `00 01 00 00|1111 1111|0000 1111 1111 0000`
+//! Bit Encoding:
+//! 
+//! ```text
+//! 00 01 00 00 | <- header
+//! ------------|
+//! 11 11 11 11 | <- a (1 byte)
+//! ------------|
+//! 00 00 11 11 |
+//! 11 11 00 00 | <- b (2 bytes)
+//! EOF
+//! ```
 //!
 //! ### Four integers: 1, 2, 3 and 4 bytes
 //!
@@ -69,7 +77,26 @@
 //!
 //! and 4 bytes for d and has the following bit pattern:
 //!
-//! Bit Encoding: `00 01 10 11|1111 1111|0000 1111 1111 0000|1111 1111 0000 0000 1111 0000|1111 1111 0000 0000 0000 0000 1111 1111`
+//! Bit Encoding:
+//! 
+//! ```text
+//! 00 01 10 11 | <- header (1 byte)
+//! ------------|
+//! 11 11 11 11 | <- a (1 byte)
+//! ------------|
+//! 00 00 11 11 | <- b (2 bytes)
+//! 11 11 00 00 |
+//! ------------|
+//! 11 11 11 11 |
+//! 00 00 00 00 |
+//! 11 11 00 00 | <- c (3 bytes)
+//! ------------|
+//! 11 11 11 11 |
+//! 00 00 00 00 |
+//! 00 00 00 00 | <- d (4 bytes)
+//! 11 11 11 11 |
+//! EOF
+//! ```
 
 use std::io;
 
