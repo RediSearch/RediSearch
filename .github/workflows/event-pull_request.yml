@@ -36,6 +36,7 @@ jobs:
     uses: ./.github/workflows/flow-coverage.yml
     with:
       rejson-branch: '2.8'
+      quick: true
     secrets: inherit
 
   sanitize:
