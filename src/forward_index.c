@@ -245,7 +245,7 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
                            tokCtx->fieldScore, tokCtx->fieldId, options);
 
-  if (tokCtx->allOffsets) {
+  if (tokCtx->allOffsets && tokCtx->allOffsets->vw) {
     VVW_Write(tokCtx->allOffsets->vw, tokInfo->raw - tokCtx->doc);
   }
 
