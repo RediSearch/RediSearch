@@ -34,6 +34,7 @@ macro_rules! assert_prefixed_iterators {
 #[test]
 fn prefix_constraint_is_honored() {
     let mut trie = TrieMap::new();
+    trie.insert(&"".c_chars(), 0);
     trie.insert(&"apple".c_chars(), 1);
     trie.insert(&"ban".c_chars(), 2);
     trie.insert(&"banana".c_chars(), 3);
@@ -69,6 +70,7 @@ fn prefix_constraint_is_honored() {
         trie,
         &"".c_chars(),
         vec![
+            ("".c_chars(), 0),
             ("apple".c_chars(), 1),
             ("apricot".c_chars(), 4),
             ("ban".c_chars(), 2),
@@ -148,6 +150,7 @@ macro_rules! assert_traversal {
 #[test]
 fn traversal_filter() {
     let mut trie = TrieMap::new();
+    trie.insert(&"".c_chars(), 0);
     trie.insert(&"apple".c_chars(), 1);
     trie.insert(&"ban".c_chars(), 2);
     trie.insert(&"banana".c_chars(), 3);
@@ -166,7 +169,7 @@ fn traversal_filter() {
     assert_traversal!(
         trie,
         no_ban_prefix,
-        c_chars_vec!["apple", "apricot"],
+        c_chars_vec!["", "apple", "apricot"],
         // `ban` was visited, but `banana` was not.
         c_chars_vec!["", "ap", "apple", "apricot", "ban"]
     );
@@ -182,7 +185,7 @@ fn traversal_filter() {
     assert_traversal!(
         trie,
         no_ban_exact,
-        c_chars_vec!["apple", "apricot", "banana"],
+        c_chars_vec!["", "apple", "apricot", "banana"],
         // Both `ban` and `banana` were visited.
         c_chars_vec!["", "ap", "apple", "apricot", "ban", "banana"]
     );
