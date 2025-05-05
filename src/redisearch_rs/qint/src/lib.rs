@@ -15,7 +15,7 @@
 //!
 //! ```
 //! # use std::io::{Cursor, Seek};
-//! # use qint::{qint_encode, qint_decode, QInt2};
+//! # use qint::{qint_encode, qint_decode};
 //! // generate a buffer, cursor and integers
 //! let buf = [0u8; 64];
 //! let mut cursor = std::io::Cursor::new(buf);
@@ -24,7 +24,7 @@
 //! // encode and decode the integers
 //! let bytes_written = qint_encode(&mut cursor, v).unwrap();
 //! cursor.seek(std::io::SeekFrom::Start(0)).unwrap();
-//! let (decoded_values, bytes_consumed) = qint_decode::<QInt2, _>(&mut cursor).unwrap();
+//! let (decoded_values, bytes_consumed) = qint_decode::<2, _>(&mut cursor).unwrap();
 //!
 //! // these assertions hold
 //! assert_eq!(bytes_written, bytes_consumed);

@@ -156,45 +156,78 @@ mod property_based {
 
     #[derive(Debug, Clone)]
     enum PropEncoding {
-        QInt2(([u32; 2], usize)),
-        QInt3(([u32; 3], usize)),
-        QInt4(([u32; 4], usize)),
+        QInt2(([u32; 2], [usize; 2])),
+        QInt3(([u32; 3], [usize; 3])),
+        QInt4(([u32; 4], [usize; 4])),
+    }
+
+    impl PropEncoding {
+        fn expected_written(&self) -> usize {
+            match self {
+                PropEncoding::QInt2((_, expected_size)) => expected_size.iter().sum::<usize>() + 1,
+                PropEncoding::QInt3((_, expected_size)) => expected_size.iter().sum::<usize>() + 1,
+                PropEncoding::QInt4((_, expected_size)) => expected_size.iter().sum::<usize>() + 1,
+            }
+        }
+
+        fn leading_byte(&self) -> u8 {
+            let mut leading_byte = 0b00000000;
+            match &self {
+                PropEncoding::QInt2((_, expected_size)) => {
+                    leading_byte |= ((expected_size[0]-1) << 0) as u8;
+                    leading_byte |= ((expected_size[1]-1) << 2) as u8;
+                }
+                PropEncoding::QInt3((_, expected_size)) => {
+                    leading_byte |= ((expected_size[0]-1) << 0) as u8;
+                    leading_byte |= ((expected_size[1]-1) << 2) as u8;
+                    leading_byte |= ((expected_size[2]-1) << 4) as u8;
+                }
+                PropEncoding::QInt4((_, expected_size)) => {
+                    leading_byte |= ((expected_size[0]-1) << 0) as u8;
+                    leading_byte |= ((expected_size[1]-1) << 2) as u8;
+                    leading_byte |= ((expected_size[2]-1) << 4) as u8;
+                    leading_byte |= ((expected_size[3]-1) << 6) as u8;
+                }
+            }
+            leading_byte
+        }
     }
 
     prop_compose! {
         // Generate a random number of bytes (1, 2, 3 or 4) f
-        fn qint_varlen()(mut num_bytes in 1..=4usize, seed in any::<u64>()) -> (u32, usize) {
+        fn qint_varlen()(num_bytes in 1..=4usize, seed in any::<u64>()) -> (u32, usize) {
             let mut bytes = [0u8; 4];
             let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
-
+            let mut forward_size = num_bytes;
             for idx in 0..num_bytes {
                 bytes[idx as usize] = (rng.next_u32() & 0x000000FF) as u8;
             }
-            if bytes[num_bytes-1] == 0 {
-                num_bytes -= 1;
+            for idx in (1..num_bytes).rev() {
+                if bytes[idx as usize] == 0 {
+                    forward_size -= 1;
+                } else {
+                    break;
+                }
             }
-            (u32::from_ne_bytes(bytes), num_bytes)
+            (u32::from_ne_bytes(bytes), forward_size)
         }
     }
 
     prop_compose! {
         fn qint2()(a in qint_varlen(), b in qint_varlen()) -> PropEncoding {
-            let expected_written = a.1 + b.1 + 1;
-            PropEncoding::QInt2(([a.0, b.0], expected_written))
+            PropEncoding::QInt2(([a.0, b.0], [a.1, b.1]))
         }
     }
 
     prop_compose! {
         fn qint3()(a in qint_varlen(), b in qint_varlen(), c in qint_varlen()) -> PropEncoding {
-            let expected_written = a.1 + b.1 + c.1 + 1;
-            PropEncoding::QInt3(([a.0, b.0, c.0], expected_written))
+            PropEncoding::QInt3(([a.0, b.0, c.0], [a.1, b.1, c.1]))
         }
     }
 
     prop_compose! {
         fn qint4()(a in qint_varlen(), b in qint_varlen(), c in qint_varlen(), d in qint_varlen()) -> PropEncoding {
-            let expected_written = a.1 + b.1 + c.1 + d.1 + 1;
-            PropEncoding::QInt4(([a.0, b.0, c.0, d.0], expected_written))
+            PropEncoding::QInt4(([a.0, b.0, c.0, d.0], [a.1, b.1, c.1, d.1]))
         }
     }
 
@@ -242,9 +275,10 @@ mod property_based {
 
     macro_rules! match_qint_encoding {
         ($($variant:ident),* => $cursor:expr, $prop_encoding:expr, $buffer_size:expr) => {
+            let expected_size = $prop_encoding.expected_written();
             match $prop_encoding {
                 $(
-                    PropEncoding::$variant((v, expected_size)) => {
+                    PropEncoding::$variant((v, _)) => {
                         let res = qint_encode(&mut $cursor, v);
                         println!("buffer: {:?}\nexpected_sz={}, buf_sz={}, {:?}", $cursor, expected_size, $buffer_size, res);
                         if expected_size > $buffer_size {
@@ -262,7 +296,7 @@ mod property_based {
     }
 
     proptest::proptest! {
-        // tests for error conditions
+        // tests for error conditions related to buffer size
         #[test]
         fn test_encoding_with_varied_buffer(prop_encoding in qint_encoding(), buffer_size in 1..=17usize) {
             let mut buf = [0u8; MAX_QINT_BUFFER_SIZE];
@@ -272,4 +306,63 @@ mod property_based {
             match_qint_encoding!(QInt2, QInt3, QInt4 => cursor, prop_encoding, buffer_size);
         }
     }
+
+    proptest::proptest! {
+        // tests for error conditions related to buffer size
+        #[test]
+        fn test_decoding_with_varied_buffer(prop_encoding in qint_encoding(), buffer_size in 1..=17usize) {
+            let mut buf = [0u8; MAX_QINT_BUFFER_SIZE];
+            let buf = &mut buf[0..buffer_size];
+            let expected_written = prop_encoding.expected_written();
+            let fails_with_buffer_size = expected_written > buffer_size;
+
+            // we mock the encoding by writing the leading byte into buffer and the rest remains zero.
+            // so we can test what happens if the decoding buffer is smaller than the expected size
+            let leading_byte = prop_encoding.leading_byte();
+            buf[0] = leading_byte;
+            for i in 1..buffer_size {
+                buf[i] = (rand::random::<u8>()) as u8;
+            }
+
+            let mut cursor = Cursor::new(buf);
+            match prop_encoding {
+                PropEncoding::QInt2((_, _)) => {
+                    let res = qint_decode::<2, _>(&mut cursor);
+                    if fails_with_buffer_size {
+                        prop_assert_eq!(res.is_err(), true);
+                        let kind = res.unwrap_err().kind();
+                        let is_mem_err = kind == std::io::ErrorKind::UnexpectedEof;
+                        prop_assert_eq!(is_mem_err, true);
+                    } else {
+                        println!("QInt2: {:?}, ew:{}, bs:{}, lb:{}", res, expected_written, buffer_size, leading_byte);
+                        prop_assert_eq!(res.is_ok(), true);
+                    }
+                }
+                PropEncoding::QInt3((_, _)) => {
+                    let res = qint_decode::<3, _>(&mut cursor);
+                    if fails_with_buffer_size {
+                        prop_assert_eq!(res.is_err(), true);
+                        let kind = res.unwrap_err().kind();
+                        let is_mem_err = kind == std::io::ErrorKind::UnexpectedEof;
+                        prop_assert_eq!(is_mem_err, true);
+                    } else {
+                        prop_assert_eq!(res.is_ok(), true);
+                    }
+                }
+                PropEncoding::QInt4((_, _)) => {
+                    let res = qint_decode::<4, _>(&mut cursor);
+                    if fails_with_buffer_size {
+                        prop_assert_eq!(res.is_err(), true);
+                        let kind = res.unwrap_err().kind();
+                        let is_mem_err = kind == std::io::ErrorKind::UnexpectedEof;
+                        prop_assert_eq!(is_mem_err, true);
+                    } else {
+                        prop_assert_eq!(res.is_ok(), true);
+                    }
+                }
+            };
+            
+        }
+    }
+
 }
