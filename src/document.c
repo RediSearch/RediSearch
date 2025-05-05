@@ -28,6 +28,8 @@
 #include "redis_index.h"
 #include "fast_float/fast_float_strtod.h"
 #include "obfuscation/obfuscation_api.h"
+#include "redismodule.h"
+#include "config.h"
 
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
@@ -760,7 +762,17 @@ static PreprocessorFunc preprocessorMap[] = {
 int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
                    QueryError *status) {
+  
+  
+  static size_t opCounter = 0;
+  
+  // Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
+  if (RedisModule_Yield && ++opCounter % RSGlobalConfig.indexerYieldEveryOps == 0) {
+    RedisModule_Yield(sctx->redisCtx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
+  }
+  
   int rc = 0;
+  
   for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES && rc == 0; ++ii) {
     // see which types are supported in the current field...
     if (field->indexAs & INDEXTYPE_FROM_POS(ii)) {
