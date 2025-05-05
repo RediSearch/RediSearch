@@ -190,7 +190,7 @@ include build/libuv/Makefile.defs
 
 REDISEARCH_RS_DIR=$(ROOT)/src/redisearch_rs
 export REDISEARCH_RS_TARGET_DIR=$(ROOT)/bin/redisearch_rs/
-export REDISEARCH_RS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT)/redisearch_rs/
+export REDISEARCH_RS_BINDIR=$(BINDIR)/redisearch_rs/
 
 ifeq ($(RUST_PROFILE),)
 ifeq ($(DEBUG),1)
