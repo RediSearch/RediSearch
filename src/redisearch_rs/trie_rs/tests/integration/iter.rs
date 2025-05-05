@@ -40,6 +40,9 @@ fn prefix_constraint_is_honored() {
     trie.insert(&"apricot".c_chars(), 4);
 
     // Prefix search works when there is a node matching the prefix.
+    // `ap` isn't stored in the trie as a key, but there is node
+    // with `ap` as a label since `ap` is the shared prefix between
+    // `apricot` and `apple`.
     assert_prefixed_iterators!(
         trie,
         &"ap".c_chars(),
