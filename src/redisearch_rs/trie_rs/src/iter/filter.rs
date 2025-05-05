@@ -10,6 +10,8 @@
 //! Utilities to control which nodes are visited during iteration.
 use std::ffi::c_char;
 
+use wildcard::{MatchOutcome, WildcardPattern};
+
 #[derive(Clone, Copy)]
 /// The outcome of [`TraversalFilter::filter`].
 pub struct FilterOutcome {
@@ -51,6 +53,38 @@ impl TraversalFilter for VisitAll {
         FilterOutcome {
             yield_current: true,
             visit_descendants: true,
+        }
+    }
+}
+
+/// Returns all trie entries that match the given wildcard pattern.
+pub struct WildcardFilter<'a>(WildcardPattern<'a, c_char>);
+
+impl<'a> From<WildcardPattern<'a, c_char>> for WildcardFilter<'a> {
+    fn from(value: WildcardPattern<'a, c_char>) -> Self {
+        Self(value)
+    }
+}
+
+impl TraversalFilter for WildcardFilter<'_> {
+    fn filter(&self, key: &[c_char]) -> FilterOutcome {
+        match self.0.matches(key) {
+            MatchOutcome::Match => FilterOutcome {
+                yield_current: true,
+                // If the pattern matches inputs of a given length,
+                // and the current key is a match, it follows that
+                // it won't match any of its descendants, since they'll be
+                // at least one character longer.
+                visit_descendants: self.0.expected_length().is_none(),
+            },
+            MatchOutcome::PartialMatch => FilterOutcome {
+                yield_current: false,
+                visit_descendants: true,
+            },
+            MatchOutcome::NoMatch => FilterOutcome {
+                yield_current: false,
+                visit_descendants: false,
+            },
         }
     }
 }

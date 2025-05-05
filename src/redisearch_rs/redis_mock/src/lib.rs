@@ -16,7 +16,7 @@
 //! C code, since it levels the playing field by forcing both to use the same memory allocator.
 
 use std::os::raw::c_void;
-mod allocator;
+pub mod allocator;
 
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]

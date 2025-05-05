@@ -290,6 +290,14 @@ impl<'pattern, C: CharLike> WildcardPattern<'pattern, C> {
             MatchOutcome::PartialMatch
         }
     }
+
+    /// The expected length of an input that matches the pattern.
+    ///
+    /// Returns `None` if the pattern may match inputs of variable length (i.e.
+    /// it contains at least one wildcard).
+    pub fn expected_length(&self) -> Option<usize> {
+        self.expected_length
+    }
 }
 
 impl<'pattern, C> WildcardPattern<'pattern, C> {

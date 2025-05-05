@@ -964,6 +964,47 @@ impl<Data> Node<Data> {
             _phantom: Default::default(),
         }
     }
+
+    /// Decompose the node into:
+    ///
+    /// - Its children pointers, that will be appended to the provided buffer.
+    /// - Its payload, returned by the function.
+    ///
+    /// The heap allocation backing the node will be freed.
+    pub(crate) fn into_raw_parts(mut self, children_buffer: &mut Vec<Node<Data>>) -> Option<Data> {
+        let data = self.data_mut().take();
+        let n_children = self.n_children() as usize;
+        let ptr = self.downgrade();
+
+        children_buffer.reserve(n_children);
+
+        let mut next_child = ptr.children().ptr();
+        for _ in 0..n_children {
+            // After this read, we have two pointers to this child.
+            // This is fine, since we won't be trying to drop the old pointer,
+            // thus leaving this as the only existing pointer at the end of this routine.
+            //
+            // SAFETY:
+            // - Well-aligned and valid for reads,
+            //   thanks to invariant #1 in ChildrenBuffer::ptr
+            let child = unsafe { next_child.read() };
+            children_buffer.push(child);
+            // SAFETY:
+            // - `i` is strictly smaller than `n_children`, so we're in bounds.
+            next_child = unsafe { next_child.add(1) };
+        }
+
+        // We don't leak any memory since all fields that may manage resources (children, payload)
+        // have been taken out of the buffer at this point.
+        //
+        // SAFETY:
+        // - The pointer is valid and aligned.
+        // - We have exclusive access to the element, since this function
+        //   takes `self` by value.
+        unsafe { ptr.ptr().drop_in_place() };
+
+        data
+    }
 }
 
 #[cfg(test)]

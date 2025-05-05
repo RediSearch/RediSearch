@@ -22,12 +22,20 @@ test = false
 bench = false
 
 [features]
-default = []
-trie = ["dep:trie_rs"]
+default = ["trie"]
+trie = ["dep:trie_rs", "dep:rand", "dep:memchr"]
 
 [dependencies]
+lending-iterator.workspace = true
 libc.workspace = true
+low_memory_thin_vec.workspace = true
+memchr = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
 trie_rs = { workspace = true, optional = true }
+wildcard.workspace = true
+
+[dev-dependencies]
+redis_mock.workspace = true
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,

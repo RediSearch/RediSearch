@@ -1,17 +1,15 @@
-/*
- * Copyright (c) 2006-Present, Redis Ltd.
- * All rights reserved.
- *
- * Licensed under your choice of the Redis Source Available License 2.0
- * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
- * GNU Affero General Public License v3 (AGPLv3).
-*/
-
 #![allow(non_camel_case_types, non_snake_case)]
+
+use iter_types::TrieMapIteratorImpl;
+use lending_iterator::LendingIterator;
+use low_memory_thin_vec::LowMemoryThinVec;
+use redis_module::raw::RedisModule_Free;
 use std::{
     ffi::{c_char, c_int, c_void},
     slice,
 };
+use trie_rs::iter::filter::WildcardFilter;
+use wildcard::WildcardPattern;
 
 /// Holds the length of a key string in the trie.
 ///
@@ -44,6 +42,7 @@ pub static mut TRIEMAP_NOTFOUND: *mut ::std::os::raw::c_void = c"NOT FOUND".as_p
 ///   } tm_iter_mode;
 #[repr(C)]
 #[allow(dead_code)]
+#[derive(Debug)]
 enum tm_iter_mode {
     TM_PREFIX_MODE = 0,
     TM_CONTAINS_MODE = 1,
@@ -76,7 +75,7 @@ type TrieMapRangeCallback =
 /// ```c
 /// typedef int (*TrieMapIterator_NextFunc)(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
 /// ```
-#[expect(dead_code)]
+#[allow(dead_code)]
 type TrieMapIterator_NextFunc = Option<
     unsafe extern "C" fn(
         it: *mut TrieMapIterator,
@@ -87,26 +86,29 @@ type TrieMapIterator_NextFunc = Option<
 >;
 
 /// Opaque type TrieMapIterator. Obtained from calling [`TrieMap_Iterate`].
-enum TrieMapIterator {}
+struct TrieMapIterator<'tm> {
+    iter: TrieMapIteratorImpl<'tm>,
+    timeout: Option<IteratorTimeoutState>,
+}
+
+struct IteratorTimeoutState {
+    deadline: libc::timespec,
+    counter: u8,
+}
 
 /// Opaque type TrieMapResultBuf. Holds the results of [`TrieMap_FindPrefixes`].
-enum TrieMapResultBuf {}
+#[repr(C)]
+struct TrieMapResultBuf(LowMemoryThinVec<*mut c_void>);
 
 /// Free the [`TrieMapResultBuf`] and its contents.
-///
-/// # Safety
-///
-/// The following invariants must be upheld when calling this function:
-/// - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
 ///
 /// C equivalent:
 /// ```c
 /// void TrieMapResultBuf_Free(TrieMapResultBuf *buf);
 /// ```
 #[unsafe(no_mangle)]
-unsafe extern "C" fn TrieMapResultBuf_Free(buf: *mut TrieMapResultBuf) {
-    debug_assert!(!buf.is_null(), "buf cannot be NULL");
-    todo!()
+extern "C" fn TrieMapResultBuf_Free(buf: TrieMapResultBuf) {
+    drop(buf);
 }
 
 /// Get the data from the TrieMapResultBuf as an array of values.
@@ -123,7 +125,36 @@ unsafe extern "C" fn TrieMapResultBuf_Free(buf: *mut TrieMapResultBuf) {
 #[unsafe(no_mangle)]
 unsafe extern "C" fn TrieMapResultBuf_Data(buf: *mut TrieMapResultBuf) -> *mut *mut c_void {
     debug_assert!(!buf.is_null(), "buf cannot be NULL");
-    todo!()
+
+    // SAFETY:
+    // As per the safety invariants of this function:
+    // - `buf` is not NULL
+    // - `buf` points to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`]
+    let TrieMapResultBuf(data) = unsafe { &mut *buf };
+    data.as_mut_ptr()
+}
+
+/// Get the length of the TrieMapResultBuf.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+///
+/// C equivalent:
+/// ```c
+/// size_t TrieMapResultBuf_Len(TrieMapResultBuf *buf);
+/// ```
+#[unsafe(no_mangle)]
+unsafe extern "C" fn TrieMapResultBuf_Len(buf: *mut TrieMapResultBuf) -> usize {
+    debug_assert!(!buf.is_null(), "buf cannot be NULL");
+
+    // SAFETY:
+    // As per the safety invariants of this function:
+    // - `buf` is not NULL
+    // - `buf` points to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`]
+    let TrieMapResultBuf(data) = unsafe { &*buf };
+    data.len()
 }
 
 /// Create a new [`TrieMap`]. Returns an opaque pointer to the newly created trie.
@@ -135,7 +166,7 @@ unsafe extern "C" fn TrieMapResultBuf_Data(buf: *mut TrieMapResultBuf) -> *mut *
 /// TrieMap *NewTrieMap();
 /// ```
 #[unsafe(no_mangle)]
-unsafe extern "C" fn NewTrieMap() -> *mut TrieMap {
+extern "C" fn NewTrieMap() -> *mut TrieMap {
     let map = Box::new(TrieMap(trie_rs::TrieMap::new()));
     Box::into_raw(map)
 }
@@ -223,9 +254,7 @@ unsafe extern "C" fn TrieMap_Add(
                 // The safety requirements of this function
                 // require the caller to ensure that the Redis allocator is initialized,
                 // and that `RedisModule_Free` does not get mutated while running this function.
-                let rm_free = unsafe {
-                    redis_module::raw::RedisModule_Free.expect("Redis allocator not available")
-                };
+                let rm_free = unsafe { RedisModule_Free.expect("Redis allocator not available") };
                 // SAFETY:
                 // The safety requirements of this function
                 // require the caller to ensure that the Redis allocator is properly initialized.
@@ -317,6 +346,7 @@ unsafe extern "C" fn TrieMap_Find(
 /// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
 /// - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
 /// - `len` can be 0. If so, `str` is regarded as an empty string.
+/// - `results` must be a mutable, aligned pointer to a valid memory location.
 ///
 /// C equivalent:
 /// ```c
@@ -334,8 +364,37 @@ unsafe extern "C" fn TrieMap_FindPrefixes(
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
     }
 
-    let _unused = results;
-    todo!()
+    // SAFETY: The safety requirements of this function
+    // state the caller is to ensure that the pointer `t` is
+    // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
+    // If that invariant is upheld, then the following line is sound.
+    let TrieMap(trie) = unsafe { &mut *t };
+
+    let prefix = if len > 0 {
+        // SAFETY: The safety requirements of this function
+        // state the caller is to ensure that the pointer `str` is
+        // a valid pointer to a string of length `len` and cannot be NULL.
+        // If that invariant is upheld, then the following line is sound.
+        unsafe { std::slice::from_raw_parts(str, len as usize) }
+    } else {
+        &[]
+    };
+
+    let iter = trie.prefixed_values(prefix).copied();
+
+    let res = LowMemoryThinVec::from_iter(iter);
+    let len = res.len();
+    let res_buf = TrieMapResultBuf(res);
+    // SAFETY: The safety requirements of this function
+    // state the caller is to ensure that the pointer `results` is
+    // a valid, mutable, aligned pointer to a valid memory location.
+    // If that invariant is upheld, then the following line is sound.
+    unsafe {
+        std::ptr::write(results, res_buf);
+    };
+
+    len.try_into()
+        .expect("Number of results did not fit into a `c_int`")
 }
 
 /// Mark a node as deleted. It also optimizes the trie by merging nodes if
@@ -398,9 +457,7 @@ unsafe extern "C" fn TrieMap_Delete(
                 // The safety requirements of this function
                 // require the caller to ensure that the Redis allocator is initialized,
                 // and that `RedisModule_Free` does not get mutated while running this function.
-                let rm_free = unsafe {
-                    redis_module::raw::RedisModule_Free.expect("Redis allocator not available")
-                };
+                let rm_free = unsafe { RedisModule_Free.expect("Redis allocator not available") };
                 // SAFETY:
                 // The safety requirements of this function
                 // require the caller to ensure that the Redis allocator is properly initialized.
@@ -417,6 +474,9 @@ unsafe extern "C" fn TrieMap_Delete(
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+/// - `func` must either be NULL or a valid pointer to a function of type [`freeCB`].
+/// - The Redis allocator must be initialized before calling this function,
+///    and `RedisModule_Free` must not get mutated while running this function.
 ///
 /// C equivalent:
 /// ```c
@@ -432,9 +492,33 @@ unsafe extern "C" fn TrieMap_Free(t: *mut TrieMap, func: freeCB) {
     // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
     // If that invariant is upheld, then the following line is sound.
     let trie = unsafe { Box::from_raw(t) };
-    if let Some(func) = func {
-        let _unused = (func, trie);
-        todo!("Iterate over all nodes and free them by calling `func` given the data.");
+    let values = trie.0.into_values();
+
+    let free = func.unwrap_or_else(|| {
+        // SAFETY:
+        // The safety requirements of this function
+        // require the caller to ensure that the Redis allocator is initialized,
+        // and that `RedisModule_Free` does not get mutated while running this function.
+        #[cfg(not(all(miri, test)))]
+        unsafe {
+            RedisModule_Free.expect("Redis allocator not available")
+        }
+        #[cfg(all(test, miri))]
+        // When testing under Miri, we use the custom allocator shim provided by
+        // redis_module_test
+        redis_mock::allocator::free_shim
+    });
+
+    // Iterate over all values and free them by calling `func` given the data.
+    for value in values {
+        // SAFETY:
+        // `free` either refers to `RedisModule_Free` or a custom function provided by the caller.
+        // In the former case, the safety requirements of this function
+        // require the caller to ensure that the Redis allocator is initialized,
+        // and that `RedisModule_Free` does not get mutated while running this function.
+        // In the latter case, the caller is responsible for ensuring that the provided function
+        // is safe to call with the given data.
+        unsafe { free(value) }
     }
 }
 
@@ -468,25 +552,76 @@ unsafe extern "C" fn TrieMap_MemUsage(t: *mut TrieMap) -> usize {
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+/// - `t` must not be freed while the iterator lives.
+/// - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
+///   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
+///
+///
 ///
 /// C equivalent:
 /// ```c
 /// TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix, tm_len_t prefixLen);
 /// ```
 #[unsafe(no_mangle)]
-unsafe extern "C" fn TrieMap_Iterate(
+unsafe extern "C" fn TrieMap_Iterate<'tm>(
     t: *mut TrieMap,
     prefix: *const c_char,
     prefix_len: tm_len_t,
     iter_mode: tm_iter_mode,
-) -> *mut TrieMapIterator {
+) -> *mut TrieMapIterator<'tm> {
     debug_assert!(!t.is_null(), "t cannot be NULL");
-    if prefix_len > 0 {
-        debug_assert!(!prefix.is_null(), "prefix cannot be NULL if prefix_len > 0");
-    }
 
-    let _unused = (t, prefix, prefix_len, iter_mode);
-    todo!()
+    let pattern = if prefix_len > 0 {
+        debug_assert!(!prefix.is_null(), "prefix cannot be NULL if prefix_len > 0");
+        // SAFETY: Caller is to ensure that the pointer `prefix` is
+        // a valid pointer to a byte sequence of length `prefix_len`.
+        unsafe { std::slice::from_raw_parts(prefix, prefix_len as usize) }
+    } else {
+        &[]
+    };
+
+    // SAFETY: Caller is to ensure that the pointer `t` is
+    // a valid, non-null pointer to a TrieMap.
+    let TrieMap(trie) = unsafe { &*t };
+
+    let iter = match iter_mode {
+        tm_iter_mode::TM_PREFIX_MODE => {
+            TrieMapIteratorImpl::Plain(trie.prefixed_lending_iter(pattern))
+        }
+        tm_iter_mode::TM_CONTAINS_MODE => {
+            // SAFETY: `c_char` and `u8` have the same layout and alignment and are valid for all bit patterns.
+            let pattern: &[u8] = unsafe { std::mem::transmute::<&[c_char], &[u8]>(pattern) };
+            let finder = memchr::memmem::Finder::new(pattern);
+            TrieMapIteratorImpl::Filtered(trie.lending_iter().filter(Box::new(move |(key, _)| {
+                // SAFETY: `c_char` and `u8` have the same layout and alignment and are valid for all bit patterns.
+                let key = unsafe { std::mem::transmute::<&[c_char], &[u8]>(*key) };
+                finder.find(key).is_some()
+            })))
+        }
+        tm_iter_mode::TM_SUFFIX_MODE => TrieMapIteratorImpl::Filtered(
+            trie.lending_iter()
+                .filter(Box::new(|(k, _)| k.ends_with(pattern))),
+        ),
+        tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE | tm_iter_mode::TM_WILDCARD_MODE => {
+            let pattern = WildcardPattern::parse(pattern);
+            let iter = if let Some(wildcard::Token::Literal(prefix)) = pattern.tokens().first() {
+                trie.prefixed_lending_iter(prefix)
+            } else {
+                trie.lending_iter()
+            }
+            .traversal_filter(WildcardFilter::from(pattern));
+
+            TrieMapIteratorImpl::Wildcard(iter)
+        }
+    };
+
+    let iter = TrieMapIterator {
+        iter,
+        timeout: None,
+    };
+    let iter = Box::new(iter);
+
+    Box::into_raw(iter)
 }
 
 /// Set timeout limit used for affix queries. This timeout is checked in
@@ -505,8 +640,17 @@ unsafe extern "C" fn TrieMap_Iterate(
 unsafe extern "C" fn TrieMapIterator_SetTimeout(it: *mut TrieMapIterator, timeout: libc::timespec) {
     debug_assert!(!it.is_null(), "it cannot be NULL");
 
-    let _unused = (it, timeout);
-    todo!()
+    // SAFETY: caller is to ensure `it` points to a valid
+    // TrieMapIterator obtained from `TrieMap_Iterate`
+    let TrieMapIterator {
+        timeout: it_timeout,
+        ..
+    } = unsafe { &mut *it };
+
+    *it_timeout = Some(IteratorTimeoutState {
+        deadline: timeout,
+        counter: 0,
+    });
 }
 
 /// Free a trie iterator
@@ -523,8 +667,11 @@ unsafe extern "C" fn TrieMapIterator_SetTimeout(it: *mut TrieMapIterator, timeou
 unsafe extern "C" fn TrieMapIterator_Free(it: *mut TrieMapIterator) {
     debug_assert!(!it.is_null(), "it cannot be NULL");
 
-    let _unused = it;
-    todo!()
+    // SAFETY: caller is to ensure `it` points to a valid
+    // TrieMapIterator obtained from `TrieMap_Iterate`
+    unsafe {
+        let _ = Box::from_raw(it);
+    };
 }
 
 /// Iterate to the next matching entry in the trie. Returns 1 if we can continue,
@@ -533,7 +680,9 @@ unsafe extern "C" fn TrieMapIterator_Free(it: *mut TrieMapIterator) {
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// - `it` must point to a valid TrieMapIterator obtained from [`TrieMap_Iterate`] and cannot be NULL.
-/// - `ptr` must point to a valid pointer to a C string, which will be set to the current key.
+/// - `ptr` must point to a valid pointer to a byte sequence, which will be set to the current key. This
+///   pointer is invalidated upon calling [`TrieMapIterator_Next`], [`TrieMapIterator_NextContains`],
+///     or [`TrieMapIterator_NextWildcard`] again.
 /// - `len` must point to a valid `tm_len_t` which will be set to the length of the current key.
 /// - `value` must point to a valid pointer, which will be set to the value of the current key.
 ///
@@ -553,7 +702,46 @@ unsafe extern "C" fn TrieMapIterator_Next(
     debug_assert!(!len.is_null(), "len cannot be NULL");
     debug_assert!(!value.is_null(), "value cannot be NULL");
 
-    todo!()
+    // SAFETY: caller is to ensure that the iterator is valid and not null
+    let TrieMapIterator { iter, timeout } = unsafe { &mut *it };
+
+    if let Some(IteratorTimeoutState { deadline, counter }) = timeout {
+        *counter += 1;
+        // For optimized builds, we only check the deadline
+        // once every 100 iterations. In development,
+        // we're checking each iterationn.
+        if *counter == 100 || cfg!(debug_assertions) {
+            let now = timespec_monotonic_now();
+
+            if now.tv_sec > deadline.tv_sec && now.tv_nsec > deadline.tv_nsec {
+                return 0;
+            }
+
+            *counter = 0;
+        }
+    }
+
+    let Some((k, v)) = LendingIterator::next(iter) else {
+        return 0;
+    };
+
+    // SAFETY: caller is to ensure that `ptr` is
+    // a mutable, well-aligned pointer to a `c_char` array
+    unsafe {
+        ptr.write(k.as_ptr().cast_mut());
+    }
+    // SAFETY: caller is to ensure that `len` is
+    // a mutable, well-aligned pointer to a `tm_len_t`
+    unsafe {
+        len.write(k.len() as tm_len_t);
+    }
+    // SAFETY: caller is to ensure that `ptr` is
+    // a mutable, well-aligned pointer to a `*mut c_void`
+    unsafe {
+        value.write(*v);
+    }
+
+    1
 }
 
 /// Iterate to the next matching entry in the trie. Returns 1 if we can continue,
@@ -561,11 +749,7 @@ unsafe extern "C" fn TrieMapIterator_Next(
 /// Used by Contains and Suffix queries.
 ///
 /// # Safety
-/// The following invariants must be upheld when calling this function:
-/// - `it` must point to a valid TrieMapIterator obtained from [`TrieMap_Iterate`] and cannot be NULL.
-/// - `ptr` must point to a valid pointer to a C string, which will be set to the current key.
-/// - `len` must point to a valid `tm_len_t` which will be set to the length of the current key.
-/// - `value` must point to a valid pointer, which will be set to the value of the current key.
+/// See [`TrieMapIterator_Next`]
 ///
 ///  C equivalent:
 /// ```c
@@ -578,12 +762,8 @@ unsafe extern "C" fn TrieMapIterator_NextContains(
     len: *mut tm_len_t,
     value: *mut *mut c_void,
 ) -> c_int {
-    debug_assert!(!it.is_null(), "it cannot be NULL");
-    debug_assert!(!ptr.is_null(), "ptr cannot be NULL");
-    debug_assert!(!len.is_null(), "len cannot be NULL");
-    debug_assert!(!value.is_null(), "value cannot be NULL");
-
-    todo!()
+    // Safety: see `TrieMapIterator_Next`
+    unsafe { TrieMapIterator_Next(it, ptr, len, value) }
 }
 
 /// Iterate to the next matching entry in the trie. Returns 1 if we can continue,
@@ -591,11 +771,7 @@ unsafe extern "C" fn TrieMapIterator_NextContains(
 /// Used by Wildcard queries.
 ///
 /// # Safety
-/// The following invariants must be upheld when calling this function:
-/// - `it` must point to a valid TrieMapIterator obtained from [`TrieMap_Iterate`] and cannot be NULL.
-/// - `ptr` must point to a valid pointer to a C string, which will be set to the current key.
-/// - `len` must point to a valid `tm_len_t` which will be set to the length of the current key.
-/// - `value` must point to a valid pointer, which will be set to the value of the current key.
+/// See [`TrieMapIterator_Next`]
 ///
 /// C equivalent:
 /// ```c
@@ -608,18 +784,11 @@ unsafe extern "C" fn TrieMapIterator_NextWildcard(
     len: *mut tm_len_t,
     value: *mut *mut c_void,
 ) -> c_int {
-    debug_assert!(!it.is_null(), "it cannot be NULL");
-    debug_assert!(!ptr.is_null(), "ptr cannot be NULL");
-    debug_assert!(!len.is_null(), "len cannot be NULL");
-    debug_assert!(!value.is_null(), "value cannot be NULL");
-
-    todo!()
+    // Safety: see `TrieMapIterator_Next`
+    unsafe { TrieMapIterator_Next(it, ptr, len, value) }
 }
 
-/// Iterate the trie for all the suffixes of a given prefix. This returns an
-/// iterator object even if the prefix was not found, and subsequent calls to
-/// TrieMapIterator_Next are needed to get the results from the iteration. If the
-/// prefix is not found, the first call to next will return 0.
+/// Iterate the trie within the specified key range.
 ///
 /// If `minLen` is 0, `min` is regarded as an empty string. It `minlen` is -1, the itaration starts from the beginning of the trie.
 /// If `maxLen` is 0, `max` is regarded as an empty string. If `maxlen` is -1, the iteration goes to the end of the trie.
@@ -629,6 +798,8 @@ unsafe extern "C" fn TrieMapIterator_NextWildcard(
 /// passing the key and its length, the value, and the `ctx` pointer passed to this
 /// function.
 ///
+/// Panics in case the passed callback is NULL.
+///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// - `trie` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
@@ -636,6 +807,7 @@ unsafe extern "C" fn TrieMapIterator_NextWildcard(
 /// - `minlen` can be 0. If so, `min` is regarded as an empty string.
 /// - `max` can be NULL only if `maxlen == 0` or `maxlen == -1`. It is not necessarily NULL-terminated.
 /// - `maxlen` can be 0. If so, `max` is regarded as an empty string.
+/// - `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
 ///
 /// C equivalent:
 /// ```c
@@ -655,6 +827,47 @@ unsafe extern "C" fn TrieMap_IterateRange(
     callback: TrieMapRangeCallback,
     ctx: *mut c_void,
 ) {
+    /// Simple generic function that builds an iterator
+    /// over the trie entries, applies the
+    /// passed predicate filter, and
+    /// consumes the results by calling the
+    /// passed callback.
+    /// Needs to be a generic because the iterator type
+    /// is determined by the (unnamable) predicate
+    /// closure, and because naming `LendingIterator`
+    /// trait objects is hard, if not impossible.
+    ///
+    /// This way, we avoid having to name the types,
+    /// but can still DRY and enjoy optmizations.
+    ///
+    /// # Safety `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
+    unsafe fn consume_iter<P: Fn(&(&[i8], &*mut c_void)) -> bool>(
+        trie: &trie_rs::TrieMap<*mut c_void>,
+        pred: P,
+        callback: unsafe extern "C" fn(*const c_char, libc::size_t, *mut c_void, *mut c_void),
+        ctx: *mut c_void,
+    ) {
+        trie.lending_iter()
+            .filter(pred)
+            .fuse()
+            // Safety: caller is to ensure `callback` be
+            // a valid pointer to a function of type [`TrieMapRangeCallback`]
+            .for_each(|(key, value)| unsafe {
+                (callback)(key.as_ptr(), key.len(), *value, ctx);
+            });
+    }
+
+    let Some(callback) = callback else {
+        #[cfg(debug_assertions)]
+        {
+            panic!("TrieMap_IterateRange with a NULL callback");
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            return; // It makes no sense to iterate without a callback
+        }
+    };
+
     debug_assert!(!trie.is_null(), "trie cannot be NULL");
     if minlen > 0 {
         debug_assert!(!min.is_null(), "min cannot be NULL if minlen > 0");
@@ -663,10 +876,59 @@ unsafe extern "C" fn TrieMap_IterateRange(
         debug_assert!(!max.is_null(), "max cannot be NULL if maxlen > 0");
     }
 
-    let _unused = (
-        trie, min, minlen, includeMin, max, maxlen, includeMax, callback, ctx,
-    );
-    todo!()
+    let min = match minlen {
+        ..0 => None,
+        0 => Some([].as_slice()),
+        // SAFETY: caller is to ensure that min is not null in case minlen > 0,
+        // and that min points to a contiguous slice of bytes of len minlen
+        1.. => Some(unsafe { std::slice::from_raw_parts(min, minlen as usize) }),
+    };
+
+    let max = match maxlen {
+        ..0 => None,
+        0 => Some([].as_slice()),
+        // SAFETY: caller is to ensure that max is not null in case maxlen > 0,
+        // and that max points to a contiguous slice of bytes of len maxlen
+        1.. => Some(unsafe { std::slice::from_raw_parts(max, maxlen as usize) }),
+    };
+
+    // SAFETY: caller is to ensure that `trie` is valid and not null
+    let TrieMap(trie) = unsafe { &mut *trie };
+
+    // Safety: caller is to ensure `callback`
+    // if a valid pointer of type [`TrieMapRangeCallback`],
+    // All below uses of unsafe are sound under this
+    // assumption
+    #[allow(clippy::undocumented_unsafe_blocks)]
+    match (min, includeMin, max, includeMax) {
+        (None, _, None, _) => trie.lending_iter().fuse().for_each(|(key, value)| unsafe {
+            (callback)(key.as_ptr(), key.len(), *value, ctx);
+        }),
+        (None, _, Some(max), true) => unsafe {
+            consume_iter(trie, |(key, _)| *key <= max, callback, ctx)
+        },
+        (None, _, Some(max), false) => unsafe {
+            consume_iter(trie, |(key, _)| *key < max, callback, ctx)
+        },
+        (Some(min), true, None, _) => unsafe {
+            consume_iter(trie, |(key, _)| *key >= min, callback, ctx)
+        },
+        (Some(min), false, None, _) => unsafe {
+            consume_iter(trie, |(key, _)| *key > min, callback, ctx)
+        },
+        (Some(min), true, Some(max), true) => unsafe {
+            consume_iter(trie, |(key, _)| *key >= min && *key <= max, callback, ctx)
+        },
+        (Some(min), true, Some(max), false) => unsafe {
+            consume_iter(trie, |(key, _)| *key >= min && *key < max, callback, ctx)
+        },
+        (Some(min), false, Some(max), true) => unsafe {
+            consume_iter(trie, |(key, _)| *key > min && *key <= max, callback, ctx)
+        },
+        (Some(min), false, Some(max), false) => unsafe {
+            consume_iter(trie, |(key, _)| *key > min && *key < max, callback, ctx)
+        },
+    }
 }
 
 /// Returns a random value for a key that has a given prefix.
@@ -690,6 +952,672 @@ unsafe extern "C" fn TrieMap_RandomValueByPrefix(
     if pflen > 0 {
         debug_assert!(!prefix.is_null(), "prefix cannot be NULL if pflen > 0");
     }
-    let _unused = (t, prefix, pflen);
-    todo!()
+    let mut buf = std::mem::MaybeUninit::uninit();
+
+    // Safety: We adhere to all the safety requirements of `TrieMap_FindPrefixes`
+    let data_len = unsafe { TrieMap_FindPrefixes(t, prefix, pflen, buf.as_mut_ptr()) };
+    // Safety: `buf` has been initialized by `TrieMap_FindPrefixes`
+    let mut buf = unsafe { buf.assume_init() };
+
+    // Safety: We adhere to all the safety requirements of `TrieMapResultBuf_Data`
+    let data = unsafe { TrieMapResultBuf_Data(&mut buf as *mut _) };
+
+    // Safety: `TrieMapResultBuf_Data` returns a pointer to the data,
+    // and its length is provided by `data_len`
+    let data = unsafe { std::slice::from_raw_parts(data, data_len as usize) };
+
+    let i = rand::random_range(..data.len());
+
+    data[i]
+}
+
+/// Get current time from monotonic clock.
+/// Calls `clock_gettime` with `clk_id == CLOCK_MONOTONIC_RAW`.
+fn timespec_monotonic_now() -> libc::timespec {
+    let mut ts = std::mem::MaybeUninit::uninit();
+    // SAFETY:
+    // We have exclusive access to a pointer of the correct type
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, ts.as_mut_ptr()) };
+    // SAFETY:
+    // `ts` was initialized by before call to `clock_gettime`
+    unsafe { ts.assume_init() }
+}
+
+mod iter_types {
+    use lending_iterator::{lending_iterator::adapters::Filter, prelude::*};
+    use std::ffi::{c_char, c_void};
+    use trie_rs::iter::filter::{VisitAll, WildcardFilter};
+
+    pub type BoxedPredicate = Box<dyn Fn(&(&[i8], &*mut c_void)) -> bool>;
+
+    pub enum TrieMapIteratorImpl<'tm> {
+        Plain(trie_rs::iter::LendingIter<'tm, *mut c_void, VisitAll>),
+        Filtered(Filter<trie_rs::iter::LendingIter<'tm, *mut c_void, VisitAll>, BoxedPredicate>),
+        Wildcard(trie_rs::iter::LendingIter<'tm, *mut c_void, WildcardFilter<'tm>>),
+    }
+
+    #[gat]
+    #[allow(clippy::needless_lifetimes)]
+    impl<'tm> LendingIterator for TrieMapIteratorImpl<'tm> {
+        type Item<'next>
+        where
+            Self: 'next,
+        = (&'next [c_char], &'tm *mut c_void);
+
+        fn next(&mut self) -> Option<Self::Item<'_>> {
+            match self {
+                TrieMapIteratorImpl::Plain(iter) => LendingIterator::next(iter),
+                TrieMapIteratorImpl::Filtered(iter) => LendingIterator::next(iter),
+                TrieMapIteratorImpl::Wildcard(iter) => LendingIterator::next(iter),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::mem::MaybeUninit;
+
+    /// Convert a string to a slice of `c_char`, allocated on the heap, which is the expected input for [crate::RustTrieMap].
+    pub fn str2c_char(input: &str) -> Box<[c_char]> {
+        input.as_bytes().iter().map(|&b| b as c_char).collect()
+    }
+
+    use super::*;
+
+    macro_rules! assert_entries {
+        ($pattern:literal, $mode:expr, $iter_fn:expr, $expected:expr $(,)?) => {
+            with_trie_iter($pattern, $mode, Some($iter_fn), |entries| {
+                assert_eq!(
+                    entries,
+                    $expected.map(|(k, v)| (k.to_owned(), v)),
+                    "Pattern {:?} should have yielded entries {:?} in mode {:?}",
+                    String::from_utf8_lossy($pattern),
+                    $expected,
+                    $mode,
+                );
+            });
+        };
+    }
+
+    pub fn bytes2c_char<const N: usize>(input: &[u8; N]) -> [c_char; N] {
+        input.map(|b| b as c_char)
+    }
+
+    /// Create a [`TrieMap`], fill it with entries,
+    /// call the callback passing the [`TrieMap`] pointer,
+    /// and free the map.
+    ///
+    /// Map structure at the point the callback in invoked:
+    ///
+    /// ```text
+    /// "" (-)
+    ///  ↳––––"bi" (-)
+    ///        ↳––––"ke" (&0)
+    ///              ↳––––"r" (&1)
+    ///        ↳––––"s" (&2)
+    ///  ↳––––"c" (-)
+    ///        ↳––––"ider" (&3)
+    ///        ↳––––"ool" (&4)
+    ///              ↳––––"er" (&5)
+    /// ```
+    fn with_trie_map<F>(f: F)
+    where
+        F: FnOnce(*mut TrieMap),
+    {
+        let t = NewTrieMap();
+        let entries: Vec<_> = [
+            ("bike", 0u8),
+            ("biker", 1),
+            ("bis", 2),
+            ("cool", 3),
+            ("cooler", 4),
+            ("cider", 5),
+        ]
+        .into_iter()
+        .map(|(k, v)| {
+            let k = str2c_char(k);
+            let v = Box::into_raw(Box::new(v)) as *mut c_void;
+            let k_len = k.len() as tm_len_t;
+            (Box::into_raw(k) as *mut c_char, k_len, v)
+        })
+        .collect();
+        for (str, len, value) in entries.iter().copied() {
+            // Safety: We adhere to all the safety requirements of `TrieMap_Add`
+            unsafe { TrieMap_Add(t, str, len, value, None) };
+        }
+
+        f(t);
+
+        // Safety: We adhere to all the safety requirements of `TrieMap_Free`
+        unsafe { TrieMap_Free(t, None) };
+
+        for (str, len, _) in entries {
+            // Safety: we're reconstructing the `Box<[c_char]>`s created earlier
+            let k = unsafe { std::slice::from_raw_parts_mut(str, len as usize) };
+            // Safety: we're reconstructing the `Box<[c_char]>`s created earlier
+            unsafe { std::mem::transmute::<&mut [i8], std::boxed::Box<[i8]>>(k) };
+        }
+    }
+
+    /// Creates a map using [`with_trie_map`],
+    /// sets up a [`TrieMapIterator`] with the passed
+    /// config, collects the iteration results in a
+    /// [`Vec<(String, u8)>`] of which each item
+    /// corresponds to one entry the iterator yielded.
+    /// Then, calls the callback, passing the entries
+    /// and takes care of freeing the iterator.
+    fn with_trie_iter<F, const N: usize>(
+        pattern: &[u8; N],
+        iter_mode: tm_iter_mode,
+        iter_fn: TrieMapIterator_NextFunc,
+        f: F,
+    ) where
+        F: FnOnce(Vec<(String, u8)>),
+    {
+        let iter_fn = iter_fn.unwrap();
+        with_trie_map(|t| {
+            let pattern = bytes2c_char(pattern);
+            // Safety: We adhere to all the safety requirements of `TrieMap_Iterate`
+            let it = unsafe {
+                TrieMap_Iterate(t, pattern.as_ptr(), pattern.len() as tm_len_t, iter_mode)
+            };
+
+            let mut char: *mut c_char = std::ptr::null_mut();
+            let mut len: tm_len_t = 0;
+            let mut value: *mut c_void = std::ptr::null_mut();
+
+            let mut entries = Vec::new();
+            // Safety: We adhere to all the safety requirements of `TrieMap_Next`,
+            // `TrieMap_NextContains`, and `TrieMap_NextWildcard`, which
+            // are the instances of `TrieMap_NextFunc` that have been defined..
+            while let 1 = unsafe {
+                iter_fn(
+                    it,
+                    &mut char as *mut *mut c_char,
+                    &mut len as *mut tm_len_t,
+                    &mut value as *mut *mut c_void,
+                )
+            } {
+                // Safety: We're reconstructing the keys and the values created in `with_trie_map`
+                let key = unsafe { std::slice::from_raw_parts(char, len as usize) };
+                let key =
+                    String::from_utf8(key.iter().copied().map(|c| c as u8).collect()).unwrap();
+
+                // Safety: We're reconstructing the keys and the values created in `with_trie_map`
+                let value = unsafe { *(value as *mut u8) };
+
+                entries.push((key, value));
+            }
+
+            f(entries);
+
+            // Safety: We adhere to all the safety requirements of `TrieMapIterator_Free`
+            unsafe { TrieMapIterator_Free(it) };
+        });
+    }
+
+    #[test]
+    fn test_trie_find_prefixes() {
+        with_trie_map(|t| {
+            let prefix = str2c_char("b");
+            let mut buf: MaybeUninit<TrieMapResultBuf> = MaybeUninit::uninit();
+
+            // Safety: We adhere to all the safety requirements of `TrieMap_FindPrefixes`
+            let data_len = unsafe {
+                TrieMap_FindPrefixes(
+                    t,
+                    prefix.as_ptr(),
+                    prefix.len() as tm_len_t,
+                    buf.as_mut_ptr(),
+                )
+            };
+            // Safety: `buf` has been initialized by `TrieMap_FindPrefixes`
+            let mut buf = unsafe { buf.assume_init() };
+
+            // Safety: We adhere to all the safety requirements of `TrieMapResultBuf_Data`
+            let data = unsafe { TrieMapResultBuf_Data(&mut buf as *mut _) };
+            // Safety: `TrieMapResultBuf_Data` returns a pointer to the data,
+            // and its length is provided by `data_len`
+            let data = unsafe { std::slice::from_raw_parts(data, data_len as usize) };
+            let mut results = Vec::with_capacity(data_len as usize);
+            for &v in data {
+                // Safety: `v` was created in `with_trie_map`
+                // and is a pointer to a `u8` value in disguise.
+                let value = unsafe { *(v as *mut u8) };
+                results.push(value);
+            }
+
+            assert_eq!(results, [0, 1, 2]);
+
+            TrieMapResultBuf_Free(buf);
+        });
+    }
+
+    #[test]
+    fn test_trie_iter_prefix() {
+        assert_entries!(
+            b"bi",
+            tm_iter_mode::TM_PREFIX_MODE,
+            TrieMapIterator_NextContains,
+            [("bike", 0), ("biker", 1), ("bis", 2)],
+        );
+
+        assert_entries!(
+            b"ci",
+            tm_iter_mode::TM_PREFIX_MODE,
+            TrieMapIterator_NextContains,
+            [("cider", 5)],
+        );
+
+        assert_entries!(
+            b"",
+            tm_iter_mode::TM_PREFIX_MODE,
+            TrieMapIterator_NextContains,
+            [
+                ("bike", 0),
+                ("biker", 1),
+                ("bis", 2),
+                ("cider", 5),
+                ("cool", 3),
+                ("cooler", 4),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_trie_iter_contains() {
+        assert_entries!(
+            b"ik",
+            tm_iter_mode::TM_CONTAINS_MODE,
+            TrieMapIterator_NextContains,
+            [("bike", 0), ("biker", 1)],
+        );
+    }
+
+    #[test]
+    fn test_trie_iter_suffix() {
+        assert_entries!(
+            b"er",
+            tm_iter_mode::TM_SUFFIX_MODE,
+            TrieMapIterator_NextContains,
+            [("biker", 1), ("cider", 5), ("cooler", 4)],
+        );
+    }
+
+    #[test]
+    fn test_trie_iter_wildcard() {
+        assert_entries!(
+            b"*",
+            tm_iter_mode::TM_WILDCARD_MODE,
+            TrieMapIterator_NextWildcard,
+            [
+                ("bike", 0),
+                ("biker", 1),
+                ("bis", 2),
+                ("cider", 5),
+                ("cool", 3),
+                ("cooler", 4),
+            ],
+        );
+
+        assert_entries!(
+            b"c*",
+            tm_iter_mode::TM_WILDCARD_MODE,
+            TrieMapIterator_NextWildcard,
+            [("cider", 5), ("cool", 3), ("cooler", 4)],
+        );
+
+        assert_entries!(
+            b"*r",
+            tm_iter_mode::TM_WILDCARD_MODE,
+            TrieMapIterator_NextWildcard,
+            [("biker", 1), ("cider", 5), ("cooler", 4)],
+        );
+
+        assert_entries!(
+            b"*i*",
+            tm_iter_mode::TM_WILDCARD_MODE,
+            TrieMapIterator_NextWildcard,
+            [("bike", 0), ("biker", 1), ("bis", 2), ("cider", 5)],
+        );
+
+        assert_entries!(
+            b"*i*",
+            tm_iter_mode::TM_WILDCARD_MODE,
+            TrieMapIterator_NextWildcard,
+            [("bike", 0), ("biker", 1), ("bis", 2), ("cider", 5)],
+        );
+
+        assert_entries!(
+            b"?i?er",
+            tm_iter_mode::TM_WILDCARD_MODE,
+            TrieMapIterator_NextWildcard,
+            [("biker", 1), ("cider", 5)],
+        );
+
+        assert_entries!(
+            b"????",
+            tm_iter_mode::TM_WILDCARD_MODE,
+            TrieMapIterator_NextWildcard,
+            [("bike", 0), ("cool", 3)],
+        );
+
+        assert_entries!(
+            b"ci???",
+            tm_iter_mode::TM_WILDCARD_MODE,
+            TrieMapIterator_NextWildcard,
+            [("cider", 5)],
+        );
+
+        assert_entries!(
+            b"cider",
+            tm_iter_mode::TM_WILDCARD_MODE,
+            TrieMapIterator_NextWildcard,
+            [("cider", 5)],
+        );
+
+        assert_entries!(
+            b"******?",
+            tm_iter_mode::TM_WILDCARD_MODE,
+            TrieMapIterator_NextWildcard,
+            [
+                ("bike", 0),
+                ("biker", 1),
+                ("bis", 2),
+                ("cider", 5),
+                ("cool", 3),
+                ("cooler", 4),
+            ],
+        );
+
+        assert_entries!(
+            b"*????",
+            tm_iter_mode::TM_WILDCARD_MODE,
+            TrieMapIterator_NextWildcard,
+            [
+                ("bike", 0),
+                ("biker", 1),
+                ("cider", 5),
+                ("cool", 3),
+                ("cooler", 4),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_trie_iter_wildcard_fixed_len() {
+        assert_entries!(
+            b"?i?er",
+            tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE,
+            TrieMapIterator_NextWildcard,
+            [("biker", 1), ("cider", 5)],
+        );
+
+        assert_entries!(
+            b"????",
+            tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE,
+            TrieMapIterator_NextWildcard,
+            [("bike", 0), ("cool", 3)],
+        );
+
+        assert_entries!(
+            b"ci???",
+            tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE,
+            TrieMapIterator_NextWildcard,
+            [("cider", 5)],
+        );
+
+        assert_entries!(
+            b"cider",
+            tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE,
+            TrieMapIterator_NextWildcard,
+            [("cider", 5)],
+        );
+    }
+
+    #[test]
+    fn test_trie_iter_timeout() {
+        with_trie_map(|t| {
+            let pattern = bytes2c_char(b"");
+            // Safety: We adhere to all the safety requirements of `TrieMap_Iterate`
+            let it = unsafe {
+                TrieMap_Iterate(
+                    t,
+                    pattern.as_ptr(),
+                    pattern.len() as tm_len_t,
+                    tm_iter_mode::TM_PREFIX_MODE,
+                )
+            };
+
+            let mut char: *mut c_char = std::ptr::null_mut();
+            let mut len: tm_len_t = 0;
+            let mut value: *mut c_void = std::ptr::null_mut();
+
+            let mut deadline = timespec_monotonic_now();
+            deadline.tv_nsec += 1000 * 200; // Timeout in 200 ms
+
+            // Safety: We adhere to all the safety requirements of `TrieMapIterator_SetTimeout`
+            unsafe { TrieMapIterator_SetTimeout(it, deadline) };
+
+            for _ in 0..2 {
+                assert_eq!(
+                    1,
+                    // Safety: We adhere to all the safety requirements of `TrieMapIterator_Next`
+                    unsafe {
+                        TrieMapIterator_Next(
+                            it,
+                            &mut char as *mut *mut c_char,
+                            &mut len as *mut tm_len_t,
+                            &mut value as *mut *mut c_void,
+                        )
+                    },
+                    "Before the deadline passes, next should yield a result"
+                );
+            }
+
+            // Wait until the deadline has passed.
+            // We're using a monotonic timer, so this should not be flaky
+            while {
+                let now = timespec_monotonic_now();
+                now.tv_sec <= deadline.tv_sec || now.tv_nsec <= deadline.tv_nsec
+            } {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+
+            for _ in 0..2 {
+                assert_eq!(
+                    0,
+                    // Safety: We adhere to all the safety requirements of `TrieMapIterator_Next`
+                    unsafe {
+                        TrieMapIterator_Next(
+                            it,
+                            &mut char as *mut *mut c_char,
+                            &mut len as *mut tm_len_t,
+                            &mut value as *mut *mut c_void,
+                        )
+                    },
+                    "After the deadline passes, next should not yield a result"
+                );
+            }
+
+            // Safety: We adhere to all the safety requirements of `TrieMapIterator_Free`
+            unsafe { TrieMapIterator_Free(it) };
+        });
+    }
+
+    #[test]
+    fn test_trie_iter_range() {
+        type ResultsVec = Vec<(String, u8)>;
+
+        macro_rules! assert_range {
+            (None, None, $expected:expr $(,)?) => {
+                assert_range!(None::<&str>, true, None::<&str>, true, $expected)
+            };
+            ($min:expr, $include_min:expr, None, $expected:expr $(,)?) => {
+                assert_range!($min, $include_min, None::<&str>, true, $expected)
+            };
+            (None, $max:expr, $include_max:expr, $expected:expr $(,)?) => {
+                assert_range!(None::<&str>, true, $max, $include_max, $expected)
+            };
+            ($min: expr, $include_min:expr, $max:expr, $include_max:expr, $expected:expr $(,)?) => {
+                let results = do_iterate($min, $include_min, $max, $include_max);
+                let range_start = if $include_min { "[" } else { "(" };
+                let range_end = if $include_max { "]" } else { ")" };
+                let min = $min.map(|m| format!("{m:?}")).unwrap_or("←".to_owned());
+                let max = $max.map(|m| format!("{m:?}")).unwrap_or("→".to_owned());
+
+                assert_eq!(
+                    results,
+                    $expected.map(|(k, v)| (k.to_owned(), v)),
+                    "Invalid results for range {range_start} {min} ; {max} {range_end}"
+                );
+            };
+        }
+
+        unsafe extern "C" fn callback(
+            key: *const c_char,
+            key_len: libc::size_t,
+            value: *mut c_void,
+            ctx: *mut c_void,
+        ) {
+            // Safety: the passed context was indeed a `&mut ResultsVec`
+            let results = unsafe { &mut *(ctx as *mut ResultsVec) };
+
+            // Safety: We're reconstructing the keys and the values created in `with_trie_map`
+            let key = unsafe { std::slice::from_raw_parts(key, key_len) };
+            let key = String::from_utf8(key.iter().copied().map(|c| c as u8).collect()).unwrap();
+
+            // Safety: We're reconstructing the keys and the values created in `with_trie_map`
+            let value = unsafe { *(value as *mut u8) };
+
+            results.push((key, value));
+        }
+        fn do_iterate(
+            min: Option<&str>,
+            include_min: bool,
+            max: Option<&str>,
+            include_max: bool,
+        ) -> ResultsVec {
+            let mut results: ResultsVec = Vec::new();
+            with_trie_map(|t| {
+                let min_c_char = min.map(str2c_char);
+                let max_c_char = max.map(str2c_char);
+
+                let (min_ptr, min_len) = min_c_char
+                    .as_ref()
+                    .map(|min| (min.as_ptr(), min.len() as c_int))
+                    .unwrap_or((std::ptr::null(), -1));
+                let (max_ptr, max_len) = max_c_char
+                    .as_ref()
+                    .map(|max| (max.as_ptr(), max.len() as c_int))
+                    .unwrap_or((std::ptr::null(), -1));
+
+                // Safety: We adhere to all the safety requirements of `TrieMap_IterateRange`
+                unsafe {
+                    TrieMap_IterateRange(
+                        t,
+                        min_ptr,
+                        min_len,
+                        include_min,
+                        max_ptr,
+                        max_len,
+                        include_max,
+                        Some(callback),
+                        (&mut results) as *mut ResultsVec as *mut _,
+                    )
+                };
+            });
+            results
+        }
+
+        assert_range!(
+            Some("biker"),
+            true,
+            Some("cool"),
+            true,
+            [("biker", 1), ("bis", 2), ("cider", 5), ("cool", 3)],
+        );
+
+        assert_range!(
+            Some("biker"),
+            false,
+            Some("cool"),
+            true,
+            [("bis", 2), ("cider", 5), ("cool", 3)],
+        );
+
+        assert_range!(
+            Some("biker"),
+            true,
+            Some("cool"),
+            false,
+            [("biker", 1), ("bis", 2), ("cider", 5)],
+        );
+
+        assert_range!(
+            Some("biker"),
+            false,
+            Some("cool"),
+            false,
+            [("bis", 2), ("cider", 5)],
+        );
+
+        assert_range!(
+            None,
+            Some("cool"),
+            true,
+            [
+                ("bike", 0),
+                ("biker", 1),
+                ("bis", 2),
+                ("cider", 5),
+                ("cool", 3)
+            ],
+        );
+
+        assert_range!(
+            Some("bike"),
+            true,
+            None,
+            [
+                ("bike", 0),
+                ("biker", 1),
+                ("bis", 2),
+                ("cider", 5),
+                ("cool", 3),
+                ("cooler", 4),
+            ],
+        );
+
+        assert_range!(
+            None,
+            None,
+            [
+                ("bike", 0),
+                ("biker", 1),
+                ("bis", 2),
+                ("cider", 5),
+                ("cool", 3),
+                ("cooler", 4),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_trie_random_value_by_prefix() {
+        with_trie_map(|t| {
+            let prefix = str2c_char("bi");
+            for _ in 0..1000 {
+                // Safety: We adhere to all the safety requirements of `TrieMap_RandomValueByPrefix`
+                let res = unsafe {
+                    TrieMap_RandomValueByPrefix(t, prefix.as_ptr(), prefix.len() as tm_len_t)
+                };
+                // Safety: with_trie_map inserts values of type u8
+                let res = unsafe { *(res as *mut u8) };
+
+                assert!((0..=2).contains(&res), "Result should be in range 0..=2")
+            }
+        });
+    }
 }

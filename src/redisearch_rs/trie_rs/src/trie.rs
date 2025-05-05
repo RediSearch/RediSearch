@@ -8,7 +8,7 @@
 */
 
 use crate::{
-    iter::{Iter, LendingIter, Values, filter::VisitAll},
+    iter::{IntoValues, Iter, LendingIter, Values, filter::VisitAll},
     node::Node,
     utils::strip_prefix,
 };
@@ -148,11 +148,18 @@ impl<Data> TrieMap<Data> {
         self.prefixed_iter(prefix).into()
     }
 
-    /// Iterate over the values stored in this trie, in lexicographical key order.
+    /// Iterate over references to the values stored in this trie, in lexicographical key order.
     ///
     /// It won't yield the corresponding keys.
     pub fn values(&self) -> Values<'_, Data> {
         Values::new(self.root.as_ref())
+    }
+
+    /// Iterate over the values stored in this trie, in lexicographical key order.
+    ///
+    /// It won't yield the corresponding keys.
+    pub fn into_values(self) -> IntoValues<Data> {
+        IntoValues::new(self.root)
     }
 
     /// Iterate over the values stored in this trie, in lexicographical key order.
