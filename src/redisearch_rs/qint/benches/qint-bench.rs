@@ -1,21 +1,76 @@
-#![cfg(feature = "test-extensions")]
 use std::io::{Cursor, Seek, SeekFrom, Write};
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use qint::qint_encode;
 
-mod corpus;
-
 fn criterion_qint_proptest_corpus(c: &mut Criterion) {
-    let (slice2, slice3, slice4) = corpus::Corpus::get_sliced();
+    // all variatnts of sizes for 2 integers
+    let s2: [[u32; 2]; 16] = [
+        [0xFF, 0xFF],
+        [0xFF, 0xFF00],
+        [0xFF, 0xFFFFFF],
+        [0xFF, 0xFFFFFFFF],
+        [0xFFFF, 0xFF],
+        [0xFFFF, 0xFF00],
+        [0xFFFF, 0xFFFFFF],
+        [0xFFFF, 0xFFFFFFFF],
+        [0xFFFFFF, 0xFF],
+        [0xFFFFFF, 0xFF00],
+        [0xFFFFFF, 0xFFFFFF],
+        [0xFFFFFF, 0xFFFFFFFF],
+        [0x0FFFFFFF, 0xFF],
+        [0x0FFFFFFF, 0xFF00],
+        [0x0FFFFFFF, 0xFFFFFF],
+        [0x0FFFFFFF, 0xFFFFFFFF],
+    ];
 
-    let buf = [0u8; 500 * 24];
+    // 16 variants of sizes for 3 integers
+    let s3: [[u32; 3]; 16] = [
+        [0xFF, 0xFF, 0xFF],
+        [0xFF, 0xFF00, 0xFF],
+        [0xFF, 0xFFFFFF, 0xFF],
+        [0xFF, 0xFFFFFFFF, 0xFF],
+        [0xFFFF, 0xFF, 0xFF],
+        [0xFFFF, 0xFF00, 0xFF],
+        [0xFFFF, 0xFFFFFF, 0xFF],
+        [0xFFFF, 0xFFFFFFFF, 0xFF],
+        [0xFFFFFF, 0xFF, 0xFF],
+        [0xFFFFFF, 0xFF00, 0xFF],
+        [0xFFFFFF, 0xFFFFFF, 0xFF],
+        [0xFFFFFF, 0xFFFFFFFF, 0xFF],
+        [0xFFFFFFFF, 0xFF, 0xFF],
+        [0xFFFFFFFF, 0xFF00, 0xFF],
+        [0xFFFFFFFF, 0xFFFFFF, 0xFF],
+        [0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF],
+    ];
+
+    // 16 variants of sizes for 4 integers
+    let s4: [[u32; 4]; 16] = [
+        [0xFF, 0xFF, 0xFF, 0xFF],
+        [0xFF, 0xFF00, 0xFF, 0xFF],
+        [0xFF, 0xFFFFFF, 0xFF, 0xFF],
+        [0xFF, 0xFFFFFFFF, 0xFF, 0xFF],
+        [0xFFFF, 0xFF, 0xFF, 0xFF],
+        [0xFFFF, 0xFF00, 0xFF, 0xFF],
+        [0xFFFF, 0xFFFFFF, 0xFF, 0xFF],
+        [0xFFFF, 0xFFFFFFFF, 0xFF, 0xFF],
+        [0xFFFFFF, 0xFF, 0xFF, 0xFF],
+        [0xFFFFFF, 0xFF00, 0xFF, 0xFF],
+        [0xFFFFFF, 0xFFFFFF, 0xFF, 0xFF],
+        [0xFFFFFF, 0xFFFFFFFF, 0xFF, 0xFF],
+        [0xFFFFFFFF, 0xFF, 0xFF, 0xFF],
+        [0xFFFFFFFF, 0xFF00, 0xFF, 0xFF],
+        [0xFFFFFFFF, 0xFFFFFF, 0xFF, 0xFF],
+        [0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF],
+    ];
+
+    let buf = [0u8; 48 * 24];
     let mut group = c.benchmark_group("qint-proptest");
     group.bench_function("encode", |b| {
         b.iter_batched_ref(
             || Cursor::new(buf.clone()),
             |cursor| {
-                encode_slices(cursor, &slice2, &slice3, &slice4);
+                encode_slices(cursor, &s2, &s3, &s4);
             },
             criterion::BatchSize::SmallInput,
         );
@@ -23,20 +78,20 @@ fn criterion_qint_proptest_corpus(c: &mut Criterion) {
 
     // make an encode buffer for the decode benchmark:
     let mut cursor = Cursor::new(buf);
-    encode_slices(&mut cursor, &slice2, &slice3, &slice4);
+    encode_slices(&mut cursor, &s2, &s3, &s4);
     cursor.seek(SeekFrom::Start(0)).unwrap();
 
     group.bench_function("decode", |b| {
         b.iter_batched_ref(
             || cursor.clone(),
             |cursor| {
-                for _ in slice2.iter() {
+                for _ in s2.iter() {
                     qint::qint_decode::<2, _>(cursor).unwrap();
                 }
-                for _ in slice3.iter() {
+                for _ in s3.iter() {
                     qint::qint_decode::<3, _>(cursor).unwrap();
                 }
-                for _ in slice4.iter() {
+                for _ in s4.iter() {
                     qint::qint_decode::<4, _>(cursor).unwrap();
                 }
             },

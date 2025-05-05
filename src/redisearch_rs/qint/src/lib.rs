@@ -250,6 +250,3 @@ where
         }
     }
 }
-
-#[cfg(feature = "test-extensions")]
-pub mod test_utils;
