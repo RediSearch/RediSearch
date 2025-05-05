@@ -109,33 +109,23 @@ fn test_out_of_memory_error() {
 
 #[test]
 fn proptest_false_positive_bc_of_expected_written_mismatch() {
-    // this found an edge case in input generation where randomly a 0 was generated for the last byte and so num_bytes was effectively reduced by 1 in encoding.
+    // this found an edge case in input generation where randomly a 0 was generated for the last byte and so num_bytes required reduction by 1.
+    // the QInt enumeration changed therefore this is not part of qint-proptest-regressions anymore.
     //cc 89c60968333fa0650f6e808183adad48d96770946813b10d43c8343ce3516667 # shrinks to prop_encoding = QInt4(([127, 8106623, 2491134591, 10583097], 13)), buffer_size = 12
     let mut buf = [0u8; MAX_QINT_BUFFER_SIZE];
-    let v = [127, 8106623, 2491134591, 10583097];
+    let v: [u32; 4] = [127, 8106623, 2491134591, 10583097];
     let buffer_size = 12;
     let buf = &mut buf[0..buffer_size];
 
     let mut cursor = Cursor::new(buf);
     let res = qint_encode(&mut cursor, v);
-    if res.is_ok() {
-        println!(
-            "Generation wrong: QInt4(([127, 8106623, 2491134591, 10583097], 13)), buffer_size = 12"
-        );
-        println!("expected_written: {}, smaller than 13", res.unwrap());
-    } else {
-        println!("{:?}", cursor);
-        assert_eq!(res.is_err(), true);
-
-        let kind = res.unwrap_err().kind();
-        let is_mem_err =
-            kind == std::io::ErrorKind::OutOfMemory || kind == std::io::ErrorKind::WriteZero;
-        assert_eq!(is_mem_err, true);
+    if res.is_err() {
+        unreachable!("Generation wrong: QInt4(([127, 8106623, 2491134591, 10583097], 13)), buffer_size = 12<{}: expected_written", res.unwrap());
     }
 }
 
 mod property_based {
-    //#![cfg(not(miri))]
+    #![cfg(not(miri))]
 
     //! This module contains property-based tests for the qint encoding and decoding functions.
     //!
@@ -280,7 +270,6 @@ mod property_based {
                 $(
                     PropEncoding::$variant((v, _)) => {
                         let res = qint_encode(&mut $cursor, v);
-                        println!("buffer: {:?}\nexpected_sz={}, buf_sz={}, {:?}", $cursor, expected_size, $buffer_size, res);
                         if expected_size > $buffer_size {
                             prop_assert_eq!(res.is_err(), true);
                             let kind = res.unwrap_err().kind();
@@ -334,7 +323,6 @@ mod property_based {
                         let is_mem_err = kind == std::io::ErrorKind::UnexpectedEof;
                         prop_assert_eq!(is_mem_err, true);
                     } else {
-                        println!("QInt2: {:?}, ew:{}, bs:{}, lb:{}", res, expected_written, buffer_size, leading_byte);
                         prop_assert_eq!(res.is_ok(), true);
                     }
                 }
@@ -364,5 +352,4 @@ mod property_based {
             
         }
     }
-
 }
