@@ -32,7 +32,7 @@ jobs:
     if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
     uses: ./.github/workflows/task-test.yml
     with:
-      env: 'ubuntu-latest'
+      env: "ubuntu-latest"
       test-config: QUICK=1
       get-redis: unstable
       rejson-branch: master
@@ -40,7 +40,11 @@ jobs:
 
   micro-benchmarks:
     needs: check-what-changed
-    if: ${{ needs.check-what-changed.outputs.RUST_CODE_CHANGED == 'true' }}
+    if: >
+      (
+        (!github.event.pull_request.draft && needs.check-what-changed.outputs.RUST_CODE_CHANGED == 'true') || 
+        contains(github.event.pull_request.labels.*.name, 'enforce:micro-benchmarks')
+      )
     uses: ./.github/workflows/flow-micro-benchmarks.yml
     with:
       env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
