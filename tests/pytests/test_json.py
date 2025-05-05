@@ -29,7 +29,6 @@ doc1_content = r'''{"string": "gotcha1",
 @skip(msan=True, no_json=True)
 def testSearchUpdatedContent(env):
     conn = getConnectionByEnv(env)
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
 
     # TODO: test when rejson module is loaded after search
     # TODO: test when rejson module is loaded before search
