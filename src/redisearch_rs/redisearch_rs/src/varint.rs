@@ -41,8 +41,10 @@ extern "C" fn WriteVarint(value: u32, writer: Option<NonNull<BufferWriter>>) -> 
     let mut writer = writer.unwrap();
     // Safety: The caller is responsible for ensuring that the pointer is valid.
     let writer = unsafe { writer.as_mut() };
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
     let cap = unsafe { writer.buf.as_mut() }.capacity();
     write(value, &mut *writer).unwrap();
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
     let new_cap = unsafe { writer.buf.as_mut() }.capacity();
     new_cap - cap
 }
@@ -56,8 +58,10 @@ extern "C" fn WriteVarintFieldMask(
     let mut writer = writer.unwrap();
     // Safety: The caller is responsible for ensuring that the pointer is valid.
     let writer = unsafe { writer.as_mut() };
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
     let cap = unsafe { writer.buf.as_mut() }.capacity();
     write_field_mask(value, &mut *writer).unwrap();
+    // Safety: The caller is responsible for ensuring that the pointer is valid.
     let new_cap = unsafe { writer.buf.as_mut() }.capacity();
     new_cap - cap
 }

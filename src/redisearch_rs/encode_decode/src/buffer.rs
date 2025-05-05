@@ -110,8 +110,8 @@ impl std::io::Write for BufferWriter {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
         let buffer = unsafe { self.buf.as_mut() };
-        // Safety: Calling C, all bets are off.
         if buffer.len + bytes.len() > buffer.capacity
+            // Safety: Calling C, all bets are off.
             && unsafe { Buffer_Grow(self.buf, bytes.len()) != 0 }
         {
             // Safety: All invariants of `std::ptr::NonNull::add` should hold here.
