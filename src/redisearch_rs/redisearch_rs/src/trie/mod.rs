@@ -2,6 +2,7 @@
 
 use iter_types::TrieMapIteratorImpl;
 use lending_iterator::LendingIterator;
+use libc::timespec;
 use low_memory_thin_vec::LowMemoryThinVec;
 use redis_module::raw::RedisModule_Free;
 use std::{
@@ -11,35 +12,18 @@ use std::{
 use trie_rs::iter::filter::WildcardFilter;
 use wildcard::WildcardPattern;
 
-/// Holds the length of a key string in the trie.
-///
-/// C equivalent:
-/// ```c
-/// typedef uint16_t tm_len_t;
-/// ```
+/// cbindgen:ignore
+mod iter_types;
+
+/// The length of a key string in the trie.
 pub type tm_len_t = u16;
 
 /// This special pointer is returned when [`TrieMap_Find`] cannot find anything.
-///
-/// C equivalent:
-/// ```c
-/// void *TRIEMAP_NOTFOUND = "NOT FOUND";
-/// ```
 #[unsafe(no_mangle)]
 #[used]
 pub static mut TRIEMAP_NOTFOUND: *mut ::std::os::raw::c_void = c"NOT FOUND".as_ptr() as *mut _;
 
-/// Used by TrieMapIterator to determine type of query.
-///
-/// C equivalent:
-/// ```c
-/// typedef enum {
-///     TM_PREFIX_MODE = 0,
-///     TM_CONTAINS_MODE = 1,
-///     TM_SUFFIX_MODE = 2,
-///     TM_WILDCARD_MODE = 3,
-///     TM_WILDCARD_FIXED_LEN_MODE = 4,
-///   } tm_iter_mode;
+/// Used by [`TrieMapIterator`] to determine type of query.
 #[repr(C)]
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -56,25 +40,14 @@ pub enum tm_iter_mode {
 static TM_ITER_MODE_DEFAULT: tm_iter_mode = tm_iter_mode::TM_PREFIX_MODE;
 
 /// Opaque type TrieMap. Can be instantiated with [`NewTrieMap`].
-#[repr(transparent)]
 pub struct TrieMap(trie_rs::TrieMap<*mut c_void>);
 
 /// Callback type for passing to [`TrieMap_IterateRange`].
-///
-/// C equivalent:
-/// ```c
-/// typedef void(TrieMapRangeCallback)(const char *, size_t, void *, void *);
-/// ```
 pub type TrieMapRangeCallback =
     Option<unsafe extern "C" fn(*const c_char, libc::size_t, *mut c_void, *mut c_void)>;
 
 /// Type of the functions [`TrieMapIterator_Next`], [`TrieMapIterator_NextContains`],
 /// and [`TrieMapIterator_NextWildcard`].
-///
-///  C equivalent:
-/// ```c
-/// typedef int (*TrieMapIterator_NextFunc)(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
-/// ```
 #[allow(dead_code)]
 pub type TrieMapIterator_NextFunc = Option<
     unsafe extern "C" fn(
@@ -92,20 +65,15 @@ pub struct TrieMapIterator<'tm> {
 }
 
 struct IteratorTimeoutState {
-    deadline: libc::timespec,
+    deadline: timespec,
     counter: u8,
 }
 
 /// Opaque type TrieMapResultBuf. Holds the results of [`TrieMap_FindPrefixes`].
-#[repr(C)]
+#[repr(transparent)]
 pub struct TrieMapResultBuf(LowMemoryThinVec<*mut c_void>);
 
 /// Free the [`TrieMapResultBuf`] and its contents.
-///
-/// C equivalent:
-/// ```c
-/// void TrieMapResultBuf_Free(TrieMapResultBuf *buf);
-/// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn TrieMapResultBuf_Free(buf: TrieMapResultBuf) {
     drop(buf);
@@ -117,11 +85,6 @@ pub extern "C" fn TrieMapResultBuf_Free(buf: TrieMapResultBuf) {
 ///
 /// The following invariants must be upheld when calling this function:
 /// - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
-///
-/// C equivalent:
-/// ```c
-/// void **TrieMapResultBuf_Data(TrieMapResultBuf *buf);
-/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMapResultBuf_Data(buf: *mut TrieMapResultBuf) -> *mut *mut c_void {
     debug_assert!(!buf.is_null(), "buf cannot be NULL");
@@ -140,11 +103,6 @@ pub unsafe extern "C" fn TrieMapResultBuf_Data(buf: *mut TrieMapResultBuf) -> *m
 ///
 /// The following invariants must be upheld when calling this function:
 /// - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
-///
-/// C equivalent:
-/// ```c
-/// size_t TrieMapResultBuf_Len(TrieMapResultBuf *buf);
-/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMapResultBuf_Len(buf: *mut TrieMapResultBuf) -> usize {
     debug_assert!(!buf.is_null(), "buf cannot be NULL");
@@ -160,11 +118,6 @@ pub unsafe extern "C" fn TrieMapResultBuf_Len(buf: *mut TrieMapResultBuf) -> usi
 /// Create a new [`TrieMap`]. Returns an opaque pointer to the newly created trie.
 ///
 /// To free the trie, use [`TrieMap_Free`].
-///
-/// C equivalent:
-/// ```c
-/// TrieMap *NewTrieMap();
-/// ```
 #[unsafe(no_mangle)]
 pub extern "C" fn NewTrieMap() -> *mut TrieMap {
     let map = Box::new(TrieMap(trie_rs::TrieMap::new()));
@@ -172,19 +125,9 @@ pub extern "C" fn NewTrieMap() -> *mut TrieMap {
 }
 
 /// Callback type for passing to [`TrieMap_Delete`].
-///
-/// C equivalent:
-/// ```c
-/// typedef void (*freeCB)(void *);
-/// ```
 pub type freeCB = Option<unsafe extern "C" fn(*mut c_void)>;
 
 /// Callback type for passing to [`TrieMap_Add`].
-///
-/// C equivalent:
-/// ```c
-/// typedef void *(*TrieMapReplaceFunc)(void *oldval, void *newval);
-/// ```
 pub type TrieMapReplaceFunc =
     Option<unsafe extern "C" fn(oldval: *mut c_void, newval: *mut c_void) -> *mut c_void>;
 
@@ -206,11 +149,6 @@ pub type TrieMapReplaceFunc =
 ///  - `cb` must not free the value it returns
 ///  - The Redis allocator must be initialized before calling this function,
 ///    and `RedisModule_Free` must not get mutated while running this function.
-///
-/// C equivalent:
-/// ```c
-/// int TrieMap_Add(TrieMap *t, const char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb);
-/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Add(
     t: *mut TrieMap,
@@ -288,11 +226,6 @@ pub unsafe extern "C" fn TrieMap_Add(
 ///   Use [`TrieMap_Delete`] to remove it instead.
 /// - In case [`TRIE_NOTFOUND`] is returned, the key does not exist in the trie,
 ///   and the pointer must not be dereferenced.
-///
-/// C equivalent:
-/// ```c
-/// void *TrieMap_Find(TrieMap *t, const char *str, tm_len_t len);
-/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Find(
     t: *mut TrieMap,
@@ -347,11 +280,6 @@ pub unsafe extern "C" fn TrieMap_Find(
 /// - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
 /// - `len` can be 0. If so, `str` is regarded as an empty string.
 /// - `results` must be a mutable, aligned pointer to a valid memory location.
-///
-/// C equivalent:
-/// ```c
-/// int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, TrieMapResultBuf *results);
-/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_FindPrefixes(
     t: *mut TrieMap,
@@ -408,11 +336,6 @@ pub unsafe extern "C" fn TrieMap_FindPrefixes(
 /// - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
 /// - `len` can be 0. If so, `str` is regarded as an empty string.
 /// - if `func` is not NULL, it must be a valid function pointer of the type [`freeCB`].
-///
-/// C equivalent:
-/// ```c
-/// int TrieMap_Delete(TrieMap *t, const char *str, tm_len_t len, freeCB func);
-/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Delete(
     t: *mut TrieMap,
@@ -477,11 +400,6 @@ pub unsafe extern "C" fn TrieMap_Delete(
 /// - `func` must either be NULL or a valid pointer to a function of type [`freeCB`].
 /// - The Redis allocator must be initialized before calling this function,
 ///   and `RedisModule_Free` must not get mutated while running this function.
-///
-/// C equivalent:
-/// ```c
-/// void TrieMap_Free(TrieMap *t, freeCB func);
-/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Free(t: *mut TrieMap, func: freeCB) {
     debug_assert!(!t.is_null(), "t cannot be NULL");
@@ -527,11 +445,6 @@ pub unsafe extern "C" fn TrieMap_Free(t: *mut TrieMap, func: freeCB) {
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
-///
-///  C equivalent:
-/// ```c
-/// size_t TrieMap_MemUsage(TrieMap *t);
-/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_MemUsage(t: *mut TrieMap) -> usize {
     debug_assert!(!t.is_null(), "t cannot be NULL");
@@ -555,13 +468,6 @@ pub unsafe extern "C" fn TrieMap_MemUsage(t: *mut TrieMap) -> usize {
 /// - `t` must not be freed while the iterator lives.
 /// - `prefix` must point to a valid pointer to a byte sequence of length `prefix_len`,
 ///   which will be set to the current key. It may only be NULL in case `prefix_len == 0`.
-///
-///
-///
-/// C equivalent:
-/// ```c
-/// TrieMapIterator *TrieMap_Iterate(TrieMap *t, const char *prefix, tm_len_t prefixLen);
-/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Iterate<'tm>(
     t: *mut TrieMap,
@@ -631,16 +537,8 @@ pub unsafe extern "C" fn TrieMap_Iterate<'tm>(
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// - `it` must point to a valid TrieMapIterator obtained from [`TrieMap_Iterate`] and cannot be NULL.
-///
-/// C equivalent:
-/// ```c
-/// void TrieMapIterator_SetTimeout(TrieMapIterator *it, struct timespec timeout);
-/// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn TrieMapIterator_SetTimeout(
-    it: *mut TrieMapIterator,
-    timeout: libc::timespec,
-) {
+pub unsafe extern "C" fn TrieMapIterator_SetTimeout(it: *mut TrieMapIterator, timeout: timespec) {
     debug_assert!(!it.is_null(), "it cannot be NULL");
 
     // SAFETY: caller is to ensure `it` points to a valid
@@ -661,11 +559,6 @@ pub unsafe extern "C" fn TrieMapIterator_SetTimeout(
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// - `it` must point to a valid TrieMapIterator obtained from [`TrieMap_Iterate`] and cannot be NULL.
-///
-///  C equivalent:
-/// ```c
-/// void TrieMapIterator_Free(TrieMapIterator *it);
-/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMapIterator_Free(it: *mut TrieMapIterator) {
     debug_assert!(!it.is_null(), "it cannot be NULL");
@@ -688,11 +581,6 @@ pub unsafe extern "C" fn TrieMapIterator_Free(it: *mut TrieMapIterator) {
 ///   or [`TrieMapIterator_NextWildcard`] again.
 /// - `len` must point to a valid `tm_len_t` which will be set to the length of the current key.
 /// - `value` must point to a valid pointer, which will be set to the value of the current key.
-///
-/// C equivalent:
-/// ```c
-/// int TrieMapIterator_Next(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
-/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMapIterator_Next(
     it: *mut TrieMapIterator,
@@ -753,11 +641,6 @@ pub unsafe extern "C" fn TrieMapIterator_Next(
 ///
 /// # Safety
 /// See [`TrieMapIterator_Next`]
-///
-///  C equivalent:
-/// ```c
-/// int TrieMapIterator_NextContains(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
-/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMapIterator_NextContains(
     it: *mut TrieMapIterator,
@@ -775,11 +658,6 @@ pub unsafe extern "C" fn TrieMapIterator_NextContains(
 ///
 /// # Safety
 /// See [`TrieMapIterator_Next`]
-///
-/// C equivalent:
-/// ```c
-/// int TrieMapIterator_NextWildcard(TrieMapIterator *it, char **ptr, tm_len_t *len, void **value);
-/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMapIterator_NextWildcard(
     it: *mut TrieMapIterator,
@@ -811,13 +689,6 @@ pub unsafe extern "C" fn TrieMapIterator_NextWildcard(
 /// - `max` can be NULL only if `maxlen == 0` or `maxlen == -1`. It is not necessarily NULL-terminated.
 /// - `maxlen` can be 0. If so, `max` is regarded as an empty string.
 /// - `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
-///
-/// C equivalent:
-/// ```c
-/// void TrieMap_IterateRange(TrieMap *trie, const char *min, int minlen, bool includeMin,
-///   const char *max, int maxlen, bool includeMax,
-///   TrieMapRangeCallback callback, void *ctx);
-/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_IterateRange(
     trie: *mut TrieMap,
@@ -940,11 +811,6 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
 /// The following invariants must be upheld when calling this function:
 /// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
 /// - `prefix` can be NULL only if `pflen == 0`. It is not necessarily NULL-terminated.
-///
-///  C equivalent:
-/// ```c
-/// void *TrieMap_RandomValueByPrefix(TrieMap *t, const char *prefix, tm_len_t pflen);
-/// ```
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_RandomValueByPrefix(
     t: *mut TrieMap,
@@ -976,7 +842,7 @@ pub unsafe extern "C" fn TrieMap_RandomValueByPrefix(
 
 /// Get current time from monotonic clock.
 /// Calls `clock_gettime` with `clk_id == CLOCK_MONOTONIC_RAW`.
-pub fn timespec_monotonic_now() -> libc::timespec {
+pub fn timespec_monotonic_now() -> timespec {
     let mut ts = std::mem::MaybeUninit::uninit();
     // SAFETY:
     // We have exclusive access to a pointer of the correct type
@@ -984,35 +850,4 @@ pub fn timespec_monotonic_now() -> libc::timespec {
     // SAFETY:
     // `ts` was initialized by before call to `clock_gettime`
     unsafe { ts.assume_init() }
-}
-
-mod iter_types {
-    use lending_iterator::{lending_iterator::adapters::Filter, prelude::*};
-    use std::ffi::{c_char, c_void};
-    use trie_rs::iter::filter::{VisitAll, WildcardFilter};
-
-    pub type BoxedPredicate = Box<dyn Fn(&(&[i8], &*mut c_void)) -> bool>;
-
-    pub enum TrieMapIteratorImpl<'tm> {
-        Plain(trie_rs::iter::LendingIter<'tm, *mut c_void, VisitAll>),
-        Filtered(Filter<trie_rs::iter::LendingIter<'tm, *mut c_void, VisitAll>, BoxedPredicate>),
-        Wildcard(trie_rs::iter::LendingIter<'tm, *mut c_void, WildcardFilter<'tm>>),
-    }
-
-    #[gat]
-    #[allow(clippy::needless_lifetimes)]
-    impl<'tm> LendingIterator for TrieMapIteratorImpl<'tm> {
-        type Item<'next>
-        where
-            Self: 'next,
-        = (&'next [c_char], &'tm *mut c_void);
-
-        fn next(&mut self) -> Option<Self::Item<'_>> {
-            match self {
-                TrieMapIteratorImpl::Plain(iter) => LendingIterator::next(iter),
-                TrieMapIteratorImpl::Filtered(iter) => LendingIterator::next(iter),
-                TrieMapIteratorImpl::Wildcard(iter) => LendingIterator::next(iter),
-            }
-        }
-    }
 }

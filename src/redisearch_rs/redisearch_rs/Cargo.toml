@@ -25,6 +25,9 @@ bench = false
 default = []
 mock_allocator = ["dep:redis_mock"]
 
+[build-dependencies]
+cbindgen.workspace = true
+
 [dependencies]
 lending-iterator.workspace = true
 libc.workspace = true

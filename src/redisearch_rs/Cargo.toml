@@ -49,8 +49,9 @@ redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }
 wildcard = { path = "./wildcard" }
 
-bindgen = "0.71.1"
+cbindgen = { branch = "master", git = "https://github.com/mozilla/cbindgen.git" }
 cc = "1"
+bindgen = "0.71.1"
 crc32fast = "1.4.2"
 criterion = { version = "0.5", features = ["html_reports"] }
 csv = "1.3.1"
