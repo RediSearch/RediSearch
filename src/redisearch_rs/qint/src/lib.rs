@@ -50,7 +50,7 @@
 //!
 //! ## Example Encodings
 //!
-//! For the following example a line break separates bytes of the buffer. The line separator 
+//! For the following example a line break separates bytes of the buffer. The line separator
 //! `------------|` separates the leading byte and the encoded integers.
 //!
 //! ### Two integers with a len of 1 byte and 2 bytes
@@ -60,7 +60,7 @@
 //! would have the following bit pattern:
 //!
 //! Bit Encoding:
-//! 
+//!
 //! ```text
 //! 00 01 00 00 | <- header
 //! ------------|
@@ -78,7 +78,7 @@
 //! and 4 bytes for d and has the following bit pattern:
 //!
 //! Bit Encoding:
-//! 
+//!
 //! ```text
 //! 00 01 10 11 | <- header (1 byte)
 //! ------------|

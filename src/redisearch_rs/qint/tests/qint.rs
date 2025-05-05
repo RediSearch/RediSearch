@@ -120,13 +120,16 @@ fn proptest_false_positive_bc_of_expected_written_mismatch() {
     let mut cursor = Cursor::new(buf);
     let res = qint_encode(&mut cursor, v);
     if res.is_err() {
-        unreachable!("Generation wrong: QInt4(([127, 8106623, 2491134591, 10583097], 13)), buffer_size = 12<{}: expected_written", res.unwrap());
+        unreachable!(
+            "Generation wrong: QInt4(([127, 8106623, 2491134591, 10583097], 13)), buffer_size = 12<{}: expected_written",
+            res.unwrap()
+        );
     }
 }
 
 mod property_based {
     #![cfg(not(miri))]
-    
+
     //! This module contains property-based tests for the qint encoding and decoding functions.
     //!
     //! The strategies here return an array of u32 integers and the expected number of bytes that should
@@ -137,9 +140,8 @@ mod property_based {
     //! Based on that the qint1, qint2, qint3 and qint4 strategies are created as building block for
     //! providing a enum PropEncoding that serves as input for the property-based tests.
 
-
-    use proptest::prop_assert_eq;
     use ::qint::{qint_decode, qint_encode};
+    use proptest::prop_assert_eq;
     use std::io::{Cursor, Seek as _};
 
     use qint::test_utils::{PropEncoding, qint_encoding};
@@ -269,7 +271,7 @@ mod property_based {
                     }
                 }
             };
-            
+
         }
     }
 }

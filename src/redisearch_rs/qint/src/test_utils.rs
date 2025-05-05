@@ -1,7 +1,12 @@
-use proptest::{prelude::{any, BoxedStrategy}, prop_compose, prop_oneof, strategy::Strategy};
+use proptest::{
+    prelude::{BoxedStrategy, any},
+    prop_compose, prop_oneof,
+    strategy::Strategy,
+};
 use rand::{RngCore as _, SeedableRng as _};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PropEncoding {
     QInt2(([u32; 2], [usize; 2])),
     QInt3(([u32; 3], [usize; 3])),
@@ -18,22 +23,22 @@ impl PropEncoding {
     }
 
     pub fn leading_byte(&self) -> u8 {
-        let mut leading_byte = 0b00000000;
+        let mut leading_byte = 0b00000000u8;
         match &self {
             PropEncoding::QInt2((_, expected_size)) => {
-                leading_byte |= ((expected_size[0]-1) << 0) as u8;
-                leading_byte |= ((expected_size[1]-1) << 2) as u8;
+                leading_byte |= (expected_size[0] - 1) as u8;
+                leading_byte |= ((expected_size[1] - 1) << 2) as u8;
             }
             PropEncoding::QInt3((_, expected_size)) => {
-                leading_byte |= ((expected_size[0]-1) << 0) as u8;
-                leading_byte |= ((expected_size[1]-1) << 2) as u8;
-                leading_byte |= ((expected_size[2]-1) << 4) as u8;
+                leading_byte |= (expected_size[0] - 1) as u8;
+                leading_byte |= ((expected_size[1] - 1) << 2) as u8;
+                leading_byte |= ((expected_size[2] - 1) << 4) as u8;
             }
             PropEncoding::QInt4((_, expected_size)) => {
-                leading_byte |= ((expected_size[0]-1) << 0) as u8;
-                leading_byte |= ((expected_size[1]-1) << 2) as u8;
-                leading_byte |= ((expected_size[2]-1) << 4) as u8;
-                leading_byte |= ((expected_size[3]-1) << 6) as u8;
+                leading_byte |= (expected_size[0] - 1) as u8;
+                leading_byte |= ((expected_size[1] - 1) << 2) as u8;
+                leading_byte |= ((expected_size[2] - 1) << 4) as u8;
+                leading_byte |= ((expected_size[3] - 1) << 6) as u8;
             }
         }
         leading_byte
@@ -46,11 +51,11 @@ prop_compose! {
         let mut bytes = [0u8; 4];
         let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
         let mut forward_size = num_bytes;
-        for idx in 0..num_bytes {
-            bytes[idx as usize] = (rng.next_u32() & 0x000000FF) as u8;
+        for item in bytes.iter_mut().take(num_bytes) {
+            *item = (rng.next_u32() & 0x000000FF) as u8;
         }
         for idx in (1..num_bytes).rev() {
-            if bytes[idx as usize] == 0 {
+            if bytes[idx] == 0 {
                 forward_size -= 1;
             } else {
                 break;

@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [features]
-test-extensions = ["dep:criterion", "dep:proptest", "dep:proptest-derive"]
+test-extensions = ["dep:criterion", "dep:proptest", "dep:proptest-derive", "dep:serde", "dep:serde_json"]
 
 [lib]
 name = "qint"
@@ -16,11 +16,18 @@ name = "qint-tests"
 path = "tests/qint.rs"
 required-features = ["test-extensions"]
 
+[[bench]]
+name = "qint-benches"
+path = "benches/qint-bench.rs"
+required-features = ["test-extensions"]
+harness = false
+
 [dependencies]
-rand.workspace = true
 criterion = { workspace = true, optional = true}
 proptest = { workspace = true, features = ["std"], optional = true }
 proptest-derive = { workspace = true, optional = true }
-
+rand.workspace = true
+serde = {workspace = true, features = ["derive"], optional = true}
+serde_json = {workspace = true, optional = true}
 [lints]
 workspace = true

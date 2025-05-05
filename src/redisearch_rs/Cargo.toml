@@ -62,6 +62,8 @@ memchr = "2.7.4"
 proptest = { version = "1.6.0", default-features = false }
 proptest-derive = { version = "0.5.1", default-features = false }
 rand = "0.9.1"
+serde = "1.0.219"
+serde_json = "1.0.140"
 ureq = "3.0.10"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 
