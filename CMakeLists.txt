@@ -5,9 +5,9 @@ get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 
 # Platform detection
 if(APPLE)
-  set(OS "macos")
+    set(OS "macos")
 elseif(UNIX)
-  set(OS "linux")
+    set(OS "linux")
 endif()
 message(STATUS "OS detected: ${OS}")
 
@@ -38,28 +38,28 @@ endfunction()
 
 # Define shared object setup function
 function(setup_shared_object_target target)
-  if(APPLE)
-      set_target_properties(${target} PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
-      # Force .so extension on macOS instead of .dylib
-      set_target_properties(${target} PROPERTIES SUFFIX ".so")
-  else()
-      # We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
-      # the library's own definition, rather than to a definition in another shared library or the main executable.
-      set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Bsymbolic -Bsymbolic-functions")
-  endif()
-  set_target_properties(${target} PROPERTIES PREFIX "")
+    if(APPLE)
+        set_target_properties(${target} PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+        # Force .so extension on macOS instead of .dylib
+        set_target_properties(${target} PROPERTIES SUFFIX ".so")
+    else()
+        # We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
+        # the library's own definition, rather than to a definition in another shared library or the main executable.
+        set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Bsymbolic -Bsymbolic-functions")
+    endif()
+    set_target_properties(${target} PROPERTIES PREFIX "")
 endfunction()
 
 # Define debug symbols extraction function
 function(extract_debug_symbols target)
-  if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" AND NOT APPLE)
-    add_custom_command(TARGET ${target} POST_BUILD
+    if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" AND NOT APPLE)
+        add_custom_command(TARGET ${target} POST_BUILD
         COMMAND cp $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
         COMMAND objcopy --add-gnu-debuglink=$<TARGET_FILE:${target}>.debug $<TARGET_FILE:${target}>
         COMMAND strip -g $<TARGET_FILE:${target}>
         COMMENT "Extracting debug symbols from ${target}"
     )
-  endif()
+    endif()
 endfunction()
 
 #----------------------------------------------------------------------------------------------
@@ -82,12 +82,12 @@ if(NOT DEFINED COORD_TYPE)
 endif()
 
 if(COORD_TYPE STREQUAL "oss")
-  set(BINDIR "${binroot}/search-community")
+    set(BINDIR "${binroot}/search-community")
 elseif(COORD_TYPE STREQUAL "rlec")
-  set(BINDIR "${binroot}/search-enterprise")
-  add_compile_definitions(PRIVATE RS_CLUSTER_ENTERPRISE)
+    set(BINDIR "${binroot}/search-enterprise")
+    add_compile_definitions(PRIVATE RS_CLUSTER_ENTERPRISE)
 else()
-  message(FATAL_ERROR "Invalid COORD_TYPE (='${COORD_TYPE}'). Should be either 'oss' or 'rlec'")
+    message(FATAL_ERROR "Invalid COORD_TYPE (='${COORD_TYPE}'). Should be either 'oss' or 'rlec'")
 endif()
 
 #----------------------------------------------------------------------------------------------
@@ -217,7 +217,6 @@ add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
 add_subdirectory(deps/fast_float)
-add_subdirectory(deps/triemap)
 
 # Configure libuv options
 set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
@@ -264,7 +263,6 @@ file(GLOB SOURCES
 add_library(rscore OBJECT ${SOURCES})
 
 set(FINAL_OBJECTS
-    $<TARGET_OBJECTS:trie>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
@@ -289,7 +287,6 @@ target_link_libraries(redisearch
         redisearch-hash
         VectorSimilarity
         redisearch-coord
-        trie
         uv_a
         ${BINDIR}/redisearch_rs/libredisearch_rs.a
         ${HIREDIS_LIBS}
