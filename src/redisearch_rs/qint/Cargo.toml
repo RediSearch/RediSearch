@@ -5,16 +5,11 @@ edition.workspace = true
 license.workspace = true
 
 [lib]
-name = "qint"
-path = "src/lib.rs"
-
-[[test]]
-name = "qint-tests"
-path = "tests/qint.rs"
+# Disable running the binary unit tests during benchmarking
+bench = false
 
 [[bench]]
-name = "qint-benches"
-path = "benches/qint-bench.rs"
+name = "qint-bench"
 harness = false
 
 [dependencies]

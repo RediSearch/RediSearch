@@ -3,48 +3,9 @@ use std::io::{Cursor, Seek, SeekFrom};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use qint::{qint_encode, ValidQIntSize};
 
-fn insert_encode_n<const N: usize>(criterion: &mut Criterion, slice: &[[u32; N]]) where [u32; N]: ValidQIntSize {
-    let buf = vec![0u8; slice.len() * 24];
-    
-    let mut group = criterion.benchmark_group("qint-encode");
-    group.bench_function(format!("{} bytes", N), |b| {
-        b.iter_batched_ref(|| Cursor::new(buf.clone()), 
-        |mut cursor| {
-            for values in slice.iter() {
-                qint_encode::<N, _>(black_box(&mut cursor), black_box(*values)).unwrap();
-            }
-        }, criterion::BatchSize::SmallInput);
-    });
 
-    group.finish();
-}
-
-fn insert_decode_n<const N: usize>(criterion: &mut Criterion, slice: &[[u32; N]]) where [u32; N]: ValidQIntSize {
-    let buf = vec![0u8; slice.len() * 24];
-
-     // prepare a buffer for the decode benchmark
-     let mut cursor = Cursor::new(buf);
-     for values in slice.iter() {
-         qint_encode::<N, _>(&mut cursor, *values).unwrap();
-     }
-     cursor.seek(SeekFrom::Start(0)).unwrap();
- 
-     let mut group = criterion.benchmark_group("qint-decode");
-     group.bench_function(format!("{} bytes", N), |b| {
-         b.iter_batched_ref(
-             || cursor.clone(),
-             |cursor| {
-                 for _ in slice.iter() {
-                     qint::qint_decode::<N, _>(black_box(cursor)).unwrap();
-                 }
-             },
-             criterion::BatchSize::SmallInput,
-         );
-     });
- 
-     group.finish();
-}
-
+/// inserts benchmarks for encoding and decoding using a minimal set of inputs
+/// the three inputs cover the minimum and maximum sizes for 2, 3 and 4 integers
 fn qint_encode_decode(c: &mut Criterion) {
     // all variatnts of sizes for 2 integers
     let s2: [[u32; 2]; 4] = [
@@ -71,12 +32,12 @@ fn qint_encode_decode(c: &mut Criterion) {
          
     ];
 
-    // call encode benchmarks
+    // insert encode benchmarks
     insert_encode_n(c, &s2);
     insert_encode_n(c, &s3);
     insert_encode_n(c, &s4);
 
-    // call decode benchmarks
+    // insert decode benchmarks
     insert_decode_n(c, &s2);
     insert_decode_n(c, &s3);
     insert_decode_n(c, &s4);
@@ -85,3 +46,47 @@ fn qint_encode_decode(c: &mut Criterion) {
 
 criterion_group!(random_bench, qint_encode_decode);
 criterion_main!(random_bench);
+
+// helper method to insert encode benchmarks for N integers
+fn insert_encode_n<const N: usize>(criterion: &mut Criterion, slice: &[[u32; N]]) where [u32; N]: ValidQIntSize {
+    let buf = vec![0u8; slice.len() * 24];
+    
+    let mut group = criterion.benchmark_group("qint-encode");
+    group.bench_function(format!("{} bytes", N), |b| {
+        b.iter_batched_ref(|| Cursor::new(buf.clone()), 
+        |mut cursor| {
+            for values in slice.iter() {
+                qint_encode::<N, _>(black_box(&mut cursor), black_box(*values)).unwrap();
+            }
+        }, criterion::BatchSize::SmallInput);
+    });
+
+    group.finish();
+}
+
+// helper method to insert decode benchmarks for N integers
+fn insert_decode_n<const N: usize>(criterion: &mut Criterion, slice: &[[u32; N]]) where [u32; N]: ValidQIntSize {
+    let buf = vec![0u8; slice.len() * 24];
+
+     // prepare a buffer for the decode benchmark
+     let mut cursor = Cursor::new(buf);
+     for values in slice.iter() {
+         qint_encode::<N, _>(&mut cursor, *values).unwrap();
+     }
+     cursor.seek(SeekFrom::Start(0)).unwrap();
+ 
+     let mut group = criterion.benchmark_group("qint-decode");
+     group.bench_function(format!("{} bytes", N), |b| {
+         b.iter_batched_ref(
+             || cursor.clone(),
+             |cursor| {
+                 for _ in slice.iter() {
+                     qint::qint_decode::<N, _>(black_box(cursor)).unwrap();
+                 }
+             },
+             criterion::BatchSize::SmallInput,
+         );
+     });
+ 
+     group.finish();
+}

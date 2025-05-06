@@ -137,7 +137,7 @@ mod property_based {
     //!
     //! It uses the qint_varlen strategy to generate an equal amount of integers which one up to four
     //! bytes each. Hereby 0-255 is randomly chosen for each byte.
-    //! Based on that the qint1, qint2, qint3 and qint4 strategies are created as building block for
+    //! Based on that the qint2, qint3 and qint4 strategies are created as building block for
     //! providing a enum PropEncoding that serves as input for the property-based tests.
 
     use ::qint::{qint_decode, qint_encode};
