@@ -767,7 +767,8 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
   static size_t opCounter = 0;
   
   // Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
-  if (RedisModule_Yield && ++opCounter % RSGlobalConfig.indexerYieldEveryOps == 0) {
+  if (RedisModule_Yield && ++opCounter >= RSGlobalConfig.indexerYieldEveryOps) {
+    opCounter = 0;
     RedisModule_Yield(sctx->redisCtx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
   }
   
