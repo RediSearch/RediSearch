@@ -17,12 +17,12 @@ pub struct Iter<'tm, Data, F> {
     key: Vec<c_char>,
 }
 
-impl<'a, Data, F> Iter<'a, Data, F>
-where
-    F: TraversalFilter,
-{
+impl<'a, Data, F> Iter<'a, Data, F> {
     /// Change the traversal filter used by this iterator.
-    pub fn traversal_filter<F1>(self, f: F1) -> Iter<'a, Data, F1> {
+    pub fn traversal_filter<F1>(self, f: F1) -> Iter<'a, Data, F1>
+    where
+        F1: TraversalFilter,
+    {
         let Self { stack, key, .. } = self;
         Iter {
             stack,

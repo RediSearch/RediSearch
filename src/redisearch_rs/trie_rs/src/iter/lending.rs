@@ -17,12 +17,12 @@ impl<'tm, Data, F> From<Iter<'tm, Data, F>> for LendingIter<'tm, Data, F> {
     }
 }
 
-impl<'a, Data, F> LendingIter<'a, Data, F>
-where
-    F: TraversalFilter,
-{
+impl<'a, Data, F> LendingIter<'a, Data, F> {
     /// Change the traversal filter used by this iterator.
-    pub fn traversal_filter<F1>(self, f: F1) -> LendingIter<'a, Data, F1> {
+    pub fn traversal_filter<F1>(self, f: F1) -> LendingIter<'a, Data, F1>
+    where
+        F1: TraversalFilter,
+    {
         LendingIter(self.0.traversal_filter(f))
     }
 }
