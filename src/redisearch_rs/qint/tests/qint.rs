@@ -7,9 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::io::{Cursor, Read, Seek};
-
 use qint::{qint_decode, qint_encode};
+use std::io::{Cursor, Read, Seek};
 
 // A qint needs a maximum of 1+4*4=17 bytes we round up to 24 bytes for 8 byte alignment
 const MAX_QINT_BUFFER_SIZE: usize = 24;
@@ -66,6 +65,24 @@ fn test_qint4() -> Result<(), std::io::Error> {
 }
 
 #[test]
+fn test_qint_zeros() -> Result<(), std::io::Error> {
+    let mut buf = [0u8; MAX_QINT_BUFFER_SIZE];
+    let mut cursor = Cursor::new(buf.as_mut());
+
+    let v = [0, 0]; // 2bytes, 1byte
+    let bytes_written = qint_encode(&mut cursor, v)?;
+    cursor.seek(std::io::SeekFrom::Start(0))?;
+    let (out, bytes_read) = qint_decode::<2, _>(&mut cursor)?;
+
+    // Check the number of bytes written 1+(2+1) -> 4 bytes
+    assert_eq!(bytes_written, 3);
+    assert_eq!(bytes_written, bytes_read);
+    assert_eq!(v, out);
+
+    Ok(())
+}
+
+#[test]
 fn test_too_small_decode_buffer() {
     let mut buf = [0u8; 1];
     let mut cursor = Cursor::new(buf.as_mut());
@@ -111,29 +128,7 @@ fn test_out_of_memory_error() {
 
     assert_eq!(res.is_err(), true);
     let kind = res.unwrap_err().kind();
-    let is_mem_err =
-        kind == std::io::ErrorKind::OutOfMemory || kind == std::io::ErrorKind::WriteZero;
-    assert_eq!(is_mem_err, true);
-}
-
-#[test]
-fn proptest_false_positive_bc_of_expected_written_mismatch() {
-    // this found an edge case in input generation where randomly a 0 was generated for the last byte and so num_bytes required reduction by 1.
-    // the QInt enumeration changed therefore this is not part of qint-proptest-regressions anymore.
-    //cc 89c60968333fa0650f6e808183adad48d96770946813b10d43c8343ce3516667 # shrinks to prop_encoding = QInt4(([127, 8106623, 2491134591, 10583097], 13)), buffer_size = 12
-    let mut buf = [0u8; MAX_QINT_BUFFER_SIZE];
-    let v: [u32; 4] = [127, 8106623, 2491134591, 10583097];
-    let buffer_size = 12;
-    let buf = &mut buf[0..buffer_size];
-
-    let mut cursor = Cursor::new(buf);
-    let res = qint_encode(&mut cursor, v);
-    if res.is_err() {
-        unreachable!(
-            "Generation wrong: QInt4(([127, 8106623, 2491134591, 10583097], 13)), buffer_size = 12<{}: expected_written",
-            res.unwrap()
-        );
-    }
+    assert_eq!(kind, std::io::ErrorKind::WriteZero);
 }
 
 mod property_based {
@@ -291,8 +286,7 @@ mod property_based {
                         if expected_size > $buffer_size {
                             prop_assert_eq!(res.is_err(), true);
                             let kind = res.unwrap_err().kind();
-                            let is_mem_err = kind == std::io::ErrorKind::OutOfMemory || kind == std::io::ErrorKind::WriteZero;
-                            prop_assert_eq!(is_mem_err, true);
+                            prop_assert_eq!(kind, std::io::ErrorKind::WriteZero);
                         } else {
                             prop_assert_eq!(res.is_ok(), true);
                         }

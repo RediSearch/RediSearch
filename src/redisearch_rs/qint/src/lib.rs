@@ -165,7 +165,7 @@ where
 
     // Decode N values based on 2-bit fields in the leading byte
     let mut result = [0; N];
-    for (i, item) in result.iter_mut().enumerate().take(N) {
+    for (i, item) in result.iter_mut().enumerate() {
         // Extract 2-bit field for the i-th value
         let bits = (leading[0] >> (i * 2)) & 0x03;
         let (val, bytes) = qint_decode_value(bits, reader)?;
