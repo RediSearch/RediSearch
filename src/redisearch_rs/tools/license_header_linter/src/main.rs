@@ -69,7 +69,7 @@ fn check_file(path: &Path, fix: bool, bad_files: &mut Vec<std::path::PathBuf>) {
     let content = read_to_string(path).unwrap_or_default();
     if !content.starts_with(LICENSE_HEADER) {
         if fix {
-            let new_content = format!("{}\n\n{}", LICENSE_HEADER, content);
+            let new_content = format!("{}\n{}", LICENSE_HEADER, content);
             write(path, new_content).expect("Failed to write file");
             println!("🛠️  Fixed: {}", path.display());
         } else {
