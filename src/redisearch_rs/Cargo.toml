@@ -3,6 +3,7 @@ members = [
     "low_memory_thin_vec",
     "redis_mock",
     "redisearch_rs",
+    "tools/license_header_linter",
     "trie_bencher",
     "trie_rs",
     "wildcard",
