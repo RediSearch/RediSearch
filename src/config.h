@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #pragma once
 
 #include "redismodule.h"
@@ -71,6 +73,8 @@ typedef struct {
   RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   int printProfileClock;
+  // BM25STD.TANH factor
+  uint64_t BM25STD_TanhFactor;
 } RequestConfig;
 
 // Configuration parameters related to the query execution.
@@ -266,6 +270,9 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
 #define DEFAULT_INDEXING_MEMORY_LIMIT 80
+#define DEFAULT_BM25STD_TANH_FACTOR 4
+#define BM25STD_TANH_FACTOR_MAX 10000
+#define BM25STD_TANH_FACTOR_MIN 1
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
@@ -276,7 +283,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .iteratorsConfigParams.minStemLength = DEFAULT_MIN_STEM_LENGTH,            \
     .iteratorsConfigParams.maxPrefixExpansions = DEFAULT_MAX_PREFIX_EXPANSIONS,\
     .requestConfigParams.queryTimeoutMS = DEFAULT_QUERY_TIMEOUT_MS,            \
-    .requestConfigParams.timeoutPolicy = TimeoutPolicy_Fail,                   \
+    .requestConfigParams.timeoutPolicy = TimeoutPolicy_Return,                 \
     .cursorReadSize = 1000,                                                    \
     .cursorMaxIdle = DEFAULT_MAX_CURSOR_IDLE,                                  \
     .maxDocTableSize = DEFAULT_DOC_TABLE_SIZE,                                 \
@@ -309,8 +316,9 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .prioritizeIntersectUnionChildren = false,                                 \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
     .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE,                \
-    .hideUserDataFromLog = false                              ,                \
+    .hideUserDataFromLog = false,                                              \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \
+    .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
   }
 
 #define REDIS_ARRAY_LIMIT 7

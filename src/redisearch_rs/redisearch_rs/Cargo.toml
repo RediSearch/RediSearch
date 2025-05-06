@@ -1,0 +1,42 @@
+[package]
+name = "redisearch_rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+# This crate has no Rust unit tests—it only contains bindings
+# that will be exercises by the C side.
+# If `test` is set to `true` (the default), Rust will try to generate and
+# compile a "no-op" test binary, which will in turn try to link to the Redis
+# allocator, thus causing a panic since it's not available.
+# We sidestep the issue by disabling the unit test harness explicitly.
+test = false
+# If `bench` is set to `true` (the default), Rust will try (again) to generate
+# and run a "no-op" test binary (where all tests will be skipped). We disable
+# that too.
+bench = false
+
+[features]
+default = []
+trie = ["dep:trie_rs"]
+
+[dependencies]
+libc.workspace = true
+trie_rs = { workspace = true, optional = true }
+
+[target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
+# Statically link to the libclang on aarch64-unknown-linux-musl,
+# necessary on Alpine.
+# See https://github.com/rust-lang/rust-bindgen/issues/2360
+features = ["bindgen-static", "min-redis-compatibility-version-6-0"]
+workspace = true
+default-features = false
+
+[target.'cfg(not(all(target_env="musl", target_os="linux")))'.dependencies.redis-module]
+workspace = true
+default-features = true

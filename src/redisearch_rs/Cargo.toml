@@ -1,6 +1,18 @@
 [workspace]
-members = ["low_memory_thin_vec", "trie_bencher", "trie_rs"]
-default-members = ["trie_rs"]
+members = [
+    "low_memory_thin_vec",
+    "redis_mock",
+    "redisearch_rs",
+    "trie_bencher",
+    "trie_rs",
+    "wildcard",
+]
+default-members = [
+    "low_memory_thin_vec",
+    "trie_rs",
+    "redisearch_rs",
+    "wildcard",
+]
 resolver = "3"
 
 [workspace.lints.clippy]
@@ -28,29 +40,41 @@ multiple_unsafe_ops_per_block = "warn"
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
-license = "Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1)"
+license = "Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1) or the GNU Affero General Public License version 3 (AGPLv3)"
 
 [workspace.dependencies]
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
+redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }
+wildcard = { path = "./wildcard" }
 
 bindgen = "0.71.1"
 cc = "1"
 crc32fast = "1.4.2"
 criterion = { version = "0.5", features = ["html_reports"] }
+csv = "1.3.1"
 fs-err = "3.1.0"
 insta = "1.42.2"
 libc = "0.2.170"
+memchr = "2.7.4"
 proptest = { version = "1.6.0", default-features = false }
 proptest-derive = { version = "0.5.1", default-features = false }
-radix_trie = "0.2.1"
 ureq = "3.0.10"
+wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 
 [workspace.dependencies.redis-module]
 # Patched version. See https://github.com/RedisLabsModules/redismodule-rs/pull/413
 git = "https://github.com/hdoordt/redismodule-rs.git"
 branch = "patches-redisearch"
 default-features = false
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+
+[profile.profiling]
+inherits = "release"
+debug = true
 
 # A profile for fast test execution that doesn't sacrifice
 # runtime checks and debuggability.

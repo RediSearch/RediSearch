@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "config.h"
 #include "notifications.h"
 #include "spec.h"
@@ -290,7 +292,7 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
    *
    * 1. REDISMODULE_SUBEVENT_SHARDING_SLOT_RANGE_CHANGED
    *    On this event we know that the slot range changed and we might have data
-   *    which are no longer belong to this shard, we must ignore it on searches
+   *    which no longer belongs to this shard, we must ignore it on searches
    *
    * 2. REDISMODULE_SUBEVENT_SHARDING_TRIMMING_STARTED
    *    This event tells us that the trimming process has started and keys will start to be
@@ -369,21 +371,27 @@ void ConfigChangedCallback(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t e
   }
 }
 
-void Initialize_KeyspaceNotifications(RedisModuleCtx *ctx) {
-  RedisModule_SubscribeToKeyspaceEvents(ctx,
-    REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
-    REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_STRING |
-    REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
-    REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE,
-    HashNotificationCallback);
+void Initialize_KeyspaceNotifications() {
+  static bool RS_KeyspaceEvents_Initialized = false;
+  if (!RS_KeyspaceEvents_Initialized) {
+    RedisModule_SubscribeToKeyspaceEvents(RSDummyContext,
+      REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_HASH |
+      REDISMODULE_NOTIFY_TRIMMED | REDISMODULE_NOTIFY_STRING |
+      REDISMODULE_NOTIFY_EXPIRED | REDISMODULE_NOTIFY_EVICTED |
+      REDISMODULE_NOTIFY_LOADED | REDISMODULE_NOTIFY_MODULE,
+      HashNotificationCallback);
+    RS_KeyspaceEvents_Initialized = true;
+  }
+}
 
+void Initialize_ServerEventNotifications(RedisModuleCtx *ctx) {
   // RedisModule_SubscribeToServerEvent should exist since redis 6.0
   // We can assume it is always present
 
   // we do not need to scan after rdb load, i.e, there is not danger of losing results
   // after resharding, its safe to filter keys which are not in our slot range.
   if (RedisModule_ShardingGetKeySlot) {
-    // we have server events support, lets subscribe to relevan events.
+    // we have server events support, lets subscribe to relevant events.
     RedisModule_Log(ctx, "notice", "%s", "Subscribe to sharding events");
     RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Sharding, ShardingEvent);
   }

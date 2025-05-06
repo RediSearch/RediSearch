@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "info_redis.h"
 #include "version.h"
 #include "info/global_stats.h"
@@ -281,6 +283,8 @@ void AddToInfo_RSConfig(RedisModuleInfoCtx *ctx) {
   RedisModule_InfoAddFieldLongLong(ctx, "gc_scan_size", RSGlobalConfig.gcConfigParams.gcScanSize);
   RedisModule_InfoAddFieldLongLong(ctx, "min_phonetic_term_length",
                                    RSGlobalConfig.minPhoneticTermLen);
+  RedisModule_InfoAddFieldLongLong(ctx, "bm25std_tanh_factor",
+                                   RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor);
 }
 
 // IF the crashing thread worked on a spec, output the spec name

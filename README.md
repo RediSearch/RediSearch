@@ -1,7 +1,10 @@
 [![Dockerhub](https://img.shields.io/docker/pulls/redis/redis-stack-server?label=redis-stack-server)](https://hub.docker.com/r/redis/redis-stack-server/)
-[![Codecov](https://codecov.io/gh/RediSearch/RediSearch/branch/master/graph/badge.svg)](https://codecov.io/gh/RediSearch/RediSearch)
 [![Forum](https://img.shields.io/badge/Forum-RediSearch-blue)](https://forum.redis.com/c/modules/redisearch/)
 [![Discord](https://img.shields.io/discord/697882427875393627)](https://discord.gg/xTbqgTB)
+
+| Total Coverage | Unit Tests | Flow Tests |
+|----------------|------------|------------|
+|[![codecov](https://codecov.io/gh/RediSearch/RediSearch/graph/badge.svg?token=bfZ02W6x3K)](https://codecov.io/gh/RediSearch/RediSearch)|[![codecov](https://codecov.io/gh/RediSearch/RediSearch/graph/badge.svg?token=bfZ02W6x3K&flag=unit)](https://codecov.io/gh/RediSearch/RediSearch?flags[0]=unit)|[![codecov](https://codecov.io/gh/RediSearch/RediSearch/graph/badge.svg?token=bfZ02W6x3K&flag=flow)](https://codecov.io/gh/RediSearch/RediSearch?flags[0]=flow)|
 
 [![Latest Release](https://img.shields.io/github/v/release/RediSearch/RediSearch?label=latest%20release)](https://github.com/RediSearch/RediSearch/releases/latest)
 
@@ -10,6 +13,9 @@
 
 
 # RediSearch
+
+Starting with version 8.0, RediSearch is an integral part of Redis. See https://github.com/redis/redis 
+
 ## Querying, secondary indexing, and full-text search for Redis
 <picture>
 <img src="https://redis.io/docs/interact/search-and-query/img/logo.svg" title="RediSearch's Logo" width="300">
@@ -187,6 +193,14 @@ RediSearch has a distributed cluster version that scales to billions of document
 
 See [RediSearch on Redis Enterprise](https://redis.com/modules/redisearch/) for more information.
 
-### License
 
-RediSearch is licensed under the [Redis Source Available License 2.0 (RSALv2)](https://redis.com/legal/rsalv2-agreement) or the [Server Side Public License v1 (SSPLv1)](https://www.mongodb.com/licensing/server-side-public-license).
+## License
+
+Starting with Redis 8, RediSearch is licensed under your choice of: (i) Redis Source Available License 2.0 (RSALv2); (ii) the Server Side Public License v1 (SSPLv1); or (iii) the GNU Affero General Public License version 3 (AGPLv3). Please review the license folder for the full license terms and conditions. Prior versions remain subject to (i) and (ii).
+
+## Code contributions
+
+
+By contributing code to this Redis module in any form, including sending a pull request via GitHub, a code fragment or patch via private email or public discussion groups, you agree to release your code under the terms of the Redis Software Grant and Contributor License Agreement. Please see the CONTRIBUTING.md file in this source distribution for more information. For security bugs and vulnerabilities, please see SECURITY.md. 
+
+

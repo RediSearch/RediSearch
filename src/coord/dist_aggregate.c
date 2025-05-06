@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "result_processor.h"
 #include "rmr/rmr.h"
 #include "rmutil/util.h"
@@ -600,6 +602,13 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
   if (timeout_index != -1) {
     MRCommand_AppendRstr(xcmd, argv[timeout_index + 3 + profileArgs]);
     MRCommand_AppendRstr(xcmd, argv[timeout_index + 4 + profileArgs]);
+  }
+
+  // Check for the `BM25STD_TANH_FACTOR` argument
+  int bm25std_tanh_factor_index = RMUtil_ArgIndex("BM25STD_TANH_FACTOR", argv + 3 + profileArgs, argc - 4 - profileArgs);
+  if (bm25std_tanh_factor_index != -1) {
+    MRCommand_AppendRstr(xcmd, argv[bm25std_tanh_factor_index + 3 + profileArgs]);
+    MRCommand_AppendRstr(xcmd, argv[bm25std_tanh_factor_index + 4 + profileArgs]);
   }
 
   MRCommand_SetPrefix(xcmd, "_FT");

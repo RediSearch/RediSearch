@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "spec.h"
 
 #include <math.h>
@@ -38,6 +40,7 @@
 #include "obfuscation/obfuscation_api.h"
 #include "util/hash/hash.h"
 #include "reply_macros.h"
+#include "notifications.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -486,6 +489,10 @@ IndexSpec *IndexSpec_CreateNew(RedisModuleCtx *ctx, RedisModuleString **argv, in
   if ((sp->flags & Index_Temporary) && IsMaster()) {
     IndexSpec_SetTimeoutTimer(sp, StrongRef_Demote(spec_ref));
   }
+
+  // (Lazily) Subscribe to keyspace notifications, now that we have at least one
+  // spec
+  Initialize_KeyspaceNotifications();
 
   if (!(sp->flags & Index_SkipInitialScan)) {
     IndexSpec_ScanAndReindex(ctx, spec_ref);
@@ -2209,7 +2216,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (RSGlobalConfig.indexingMemoryLimit && (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit)) {
     char* error;
     rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit);
-    RedisModule_Log(ctx, "warning", error);
+    RedisModule_Log(ctx, "warning", "%s", error);
     scanner->cancelled = true;
 
       // We need to report the error message besides the log, so we can show it in FT.INFO
@@ -2233,19 +2240,22 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   }
   // RMKey it is provided as best effort but in some cases it might be NULL
   bool keyOpened = false;
-  if (!key) {
+  if (!key || isCrdt) {
     key = RedisModule_OpenKey(ctx, keyname, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
     keyOpened = true;
   }
 
-  // check type of document is support and document is not empty
+  // Get the document type
   DocumentType type = getDocType(key);
-  if (type == DocumentType_Unsupported) {
-    return;
-  }
 
+  // Close the key if we opened it
   if (keyOpened) {
     RedisModule_CloseKey(key);
+  }
+
+  // Verify that the document type is supported and document is not empty
+  if (type == DocumentType_Unsupported) {
+    return;
   }
 
   if (scanner->global) {
@@ -2851,6 +2861,10 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   Cursors_initSpec(sp);
 
   dictAdd(legacySpecDict, (void*)sp->specName, spec_ref.rm);
+
+  // Subscribe to keyspace notifications
+  Initialize_KeyspaceNotifications();
+
   return spec_ref.rm;
 }
 
@@ -2874,6 +2888,11 @@ int Indexes_RdbLoad(RedisModuleIO *rdb, int encver, int when) {
       return REDISMODULE_ERR;
     }
   }
+
+  // If we have indexes in the auxiliary data, we need to subscribe to the
+  // keyspace notifications
+  Initialize_KeyspaceNotifications();
+
   return REDISMODULE_OK;
 
 cleanup:

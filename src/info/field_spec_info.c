@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "field_spec_info.h"
 #include "reply_macros.h"
 #include "coord/rmr/reply.h"
@@ -190,14 +192,9 @@ VectorIndexStats IndexSpec_GetVectorIndexStats(IndexSpec *sp, const FieldSpec *f
   if (!vecsim) {
     return stats;
   }
-  VecSimIndexInfo info = VecSimIndex_Info(vecsim);
-  stats.memory += info.commonInfo.memory;
-  if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_HNSWLIB) {
-    stats.marked_deleted += info.hnswInfo.numberOfMarkedDeletedNodes;
-  } else if (fs->vectorOpts.vecSimParams.algo == VecSimAlgo_TIERED &&
-            fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams->algo == VecSimAlgo_HNSWLIB) {
-    stats.marked_deleted += info.tieredInfo.backendInfo.hnswInfo.numberOfMarkedDeletedNodes;
-  }
+  const VecSimIndexStatsInfo info = VecSimIndex_StatsInfo(vecsim);
+  stats.memory += info.memory;
+  stats.marked_deleted += info.numberOfMarkedDeleted;
   return stats;
 }
 

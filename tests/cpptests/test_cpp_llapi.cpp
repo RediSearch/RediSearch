@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 
 #include "src/redisearch_api.h"
 #include "gtest/gtest.h"
@@ -1029,9 +1038,9 @@ TEST_F(LLApiTest, testScorer) {
   const char *s = "hello world";
   RSResultsIterator *it = RediSearch_IterateQuery(index, s, strlen(s), NULL);
   RediSearch_ResultsIteratorNext(it, index, NULL);
-  EXPECT_NEAR(RediSearch_ResultsIteratorGetScore(it), 0.488305, 1e-6);
+  EXPECT_NEAR(RediSearch_ResultsIteratorGetScore(it), 0.4820176, 1e-6);
   RediSearch_ResultsIteratorNext(it, index, NULL);
-  EXPECT_NEAR(RediSearch_ResultsIteratorGetScore(it), 0.447305, 1e-6);
+  EXPECT_NEAR(RediSearch_ResultsIteratorGetScore(it), 0.4548243, 1e-6);
 
   RediSearch_ResultsIteratorFree(it);
   RediSearch_DropIndex(index);

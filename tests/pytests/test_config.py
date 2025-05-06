@@ -91,10 +91,10 @@ def testGetConfigOptions(env):
     check_config('INDEX_CURSOR_LIMIT')
     check_config('ENABLE_UNSTABLE_FEATURES')
     check_config('_BG_INDEX_MEM_PCT_THR')
+    check_config('BM25STD_TANH_FACTOR')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
-
     env.expect(config_cmd(), 'set', 'MINPREFIX', 'str').equal('Could not convert argument to expected type')
     env.expect(config_cmd(), 'set', 'EXTLOAD', 1).equal(not_modifiable)
     env.expect(config_cmd(), 'set', 'NOGC', 1).equal(not_modifiable)
@@ -118,7 +118,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 1).equal('OK')
-
+    env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
@@ -132,7 +132,8 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 101).contains('Memory limit for indexing cannot be greater then 100%')
-
+    env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', -1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 10001).contains('BM25STD_TANH_FACTOR must be between 1 and 10000')
 
 @skip(cluster=True)
 def testAllConfig(env):
@@ -158,7 +159,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['PRIVILEGED_THREADS_NUM'][0], '1')
     env.assertEqual(res_dict['WORKERS_PRIORITY_BIAS_THRESHOLD'][0], '1')
     env.assertEqual(res_dict['FRISOINI'][0], None)
-    env.assertEqual(res_dict['ON_TIMEOUT'][0], 'fail')
+    env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')
     env.assertEqual(res_dict['GCSCANSIZE'][0], '100')
     env.assertEqual(res_dict['MIN_PHONETIC_TERM_LEN'][0], '3')
     env.assertEqual(res_dict['FORK_GC_RUN_INTERVAL'][0], '30')
@@ -179,6 +180,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '80')
+    env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -205,6 +207,7 @@ def testInitConfig():
     _test_config_num('MINSTEMLEN', 3)
     _test_config_num('INDEX_CURSOR_LIMIT', 128)
     _test_config_num('_BG_INDEX_MEM_PCT_THR', 80)
+    _test_config_num('BM25STD_TANH_FACTOR', 4)
 
 # True/False arguments
     _test_config_true_false('NOGC', 'true')
@@ -213,7 +216,7 @@ def testInitConfig():
 
     _test_config_str('GC_POLICY', 'fork')
     _test_config_str('GC_POLICY', 'default', 'fork')
-    _test_config_str('ON_TIMEOUT', 'return')
+    _test_config_str('ON_TIMEOUT', 'fail')
     _test_config_str('TIMEOUT', '0', '0')
     _test_config_str('PARTIAL_INDEXED_DOCS', '0', 'false')
     _test_config_str('PARTIAL_INDEXED_DOCS', '1', 'true')
@@ -480,6 +483,7 @@ numericConfigs = [
     ('search-workers', 'WORKERS', 0, 0, 16, False, False),
     ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True, False),
     ('search-_bg-index-mem-pct-thr', '_BG_INDEX_MEM_PCT_THR', 80, 0, 100, False, False),
+    ('search-bm25std-tanh-factor', 'BM25STD_TANH_FACTOR', 4, 1, 10000, False, False),
     # Cluster parameters
     ('search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True, True),
     ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False, True),
@@ -883,16 +887,16 @@ def testConfigAPIRunTimeEnumParams():
 
     # Test default value
     env.expect('CONFIG', 'GET', 'search-on-timeout')\
+        .equal(['search-on-timeout', 'return'])
+
+    # Test search-on-timeout - valid values
+    env.expect('CONFIG', 'SET', 'search-on-timeout', 'fail').equal('OK')
+    env.expect('CONFIG', 'GET', 'search-on-timeout')\
         .equal(['search-on-timeout', 'fail'])
 
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'return').equal('OK')
     env.expect('CONFIG', 'GET', 'search-on-timeout')\
         .equal(['search-on-timeout', 'return'])
-
-    # Test search-on-timeout - valid values
-    env.expect('CONFIG', 'SET', 'search-on-timeout', 'fail').equal('OK')
-    env.expect('CONFIG', 'GET', 'search-on-timeout') \
-        .equal(['search-on-timeout', 'fail'])
 
     # Test search-on-timeout - invalid values
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'invalid_value').error()\

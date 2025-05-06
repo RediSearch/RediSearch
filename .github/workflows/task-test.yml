@@ -80,7 +80,7 @@ jobs:
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
-          for platform in ubuntu:bionic amazonlinux:2 alpine:3; do
+          for platform in amazonlinux:2 alpine:3; do
             if [[ "${{ inputs.container }}" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
@@ -98,7 +98,7 @@ jobs:
           # Execute the logic based on the detected platform
           echo "Detected platform: ${{ inputs.container }}"
           case "${{ inputs.container }}" in
-            ubuntu:bionic | amazonlinux:2 | alpine:3)
+            amazonlinux:2 | alpine:3)
 
               # Configure the safe directory
               git config --global --add safe.directory /__w/${{ github.repository }}
@@ -180,7 +180,7 @@ jobs:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
-        run: make
+        run: ./build.sh TESTS
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
@@ -191,7 +191,7 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
-        run: make unit-tests
+        run: make unit-tests  # todo: replace with ./build.sh RUN_UNIT_TESTS
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
@@ -202,10 +202,10 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           SA: 1
-          REJSON: ${{ inputs.rejson }}
+          REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }}
+        run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
@@ -216,10 +216,10 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           SA: 0
-          REJSON: ${{ inputs.rejson }}
+          REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }}
+        run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)

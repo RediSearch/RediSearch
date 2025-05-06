@@ -4,6 +4,16 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+
+[lib]
+# Disable running the library unit tests during benchmarking
+bench = false
+
+[[bin]]
+name = "trie_bencher"
+# Disable running the binary unit tests during benchmarking
+bench = false
+
 [[bench]]
 name = "operations"
 harness = false
@@ -11,8 +21,9 @@ harness = false
 [dependencies]
 crc32fast.workspace = true
 criterion.workspace = true
+csv.workspace = true
 fs-err.workspace = true
-radix_trie.workspace = true
+redis_mock.workspace = true
 trie_rs.workspace = true
 ureq.workspace = true
 

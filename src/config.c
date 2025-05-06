@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "config.h"
 #include "deps/thpool/thpool.h"
 #include "err.h"
@@ -82,6 +84,7 @@ configPair_t __configPairs[] = {
   {"WORKERS_PRIORITY_BIAS_THRESHOLD", "search-workers-priority-bias-threshold"},
   {"WORKER_THREADS",                  ""},
   {"ENABLE_UNSTABLE_FEATURES",        "search-enable-unstable-features"},
+  {"BM25STD_TANH_FACTOR",             "search-bm25std-tanh-factor"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -441,6 +444,26 @@ CONFIG_SETTER(setIndexingMemoryLimit) {
 CONFIG_GETTER(getIndexingMemoryLimit) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%u", config->indexingMemoryLimit);
+}
+
+// BM25STD_TANH_FACTOR
+CONFIG_SETTER(setBM25StdTanhFactor) {
+  uint64_t newFactor;
+  int acrc = AC_GetU64(ac, &newFactor, AC_F_GE1);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newFactor > BM25STD_TANH_FACTOR_MAX) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT,
+      "BM25STD_TANH_FACTOR must be between %d and %d inclusive",
+      BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX);
+    return REDISMODULE_ERR;
+  }
+  config->requestConfigParams.BM25STD_TanhFactor = newFactor;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getBM25StdTanhFactor) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->requestConfigParams.BM25STD_TanhFactor);
 }
 
 /************************************ DEPRECATION CANDIDATES *************************************/
@@ -1222,7 +1245,7 @@ RSConfigOptions RSGlobalConfigOptions = {
                      "overall estimated number of results instead.",
          .setValue = set_PrioritizeIntersectUnionChildren,
          .getValue = get_PrioritizeIntersectUnionChildren},
-         {.name = "ENABLE_UNSTABLE_FEATURES",
+        {.name = "ENABLE_UNSTABLE_FEATURES",
          .helpText = "Enable unstable features.",
          .setValue = set_EnableUnstableFeatures,
          .getValue = get_EnableUnstableFeatures},
@@ -1231,6 +1254,12 @@ RSConfigOptions RSGlobalConfigOptions = {
                       " any queries on the affected index will result in an error. The default is 80 percent.",
          .setValue = setIndexingMemoryLimit,
          .getValue = getIndexingMemoryLimit},
+        {.name = "BM25STD_TANH_FACTOR",
+          .helpText = "Set the BM25STD.TANH stretch factor. This is an integer value that divides the argument"
+                      " of the tanh function that is used to normalize the score computed by the BM25STD scorer."
+                      "The default value is 4.",
+          .setValue = setBM25StdTanhFactor,
+          .getValue = getBM25StdTanhFactor},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -1694,6 +1723,16 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     )
   )
 
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-bm25std-tanh-factor",
+      DEFAULT_BM25STD_TANH_FACTOR,
+      REDISMODULE_CONFIG_UNPREFIXED, BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX,
+      get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor)
+    )
+  )
+
   // String parameters
   RM_TRY(
     RedisModule_RegisterStringConfig(
@@ -1716,7 +1755,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   // Enum parameters
   RM_TRY(
     RedisModule_RegisterEnumConfig(
-      ctx, "search-on-timeout", TimeoutPolicy_Fail,
+      ctx, "search-on-timeout", TimeoutPolicy_Return,
       REDISMODULE_CONFIG_UNPREFIXED,
       on_timeout_vals, on_timeout_enums, 2,
       get_on_timeout, set_on_timeout, NULL,

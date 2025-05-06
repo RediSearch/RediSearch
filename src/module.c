@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #define REDISMODULE_MAIN
 
 #include <stdio.h>
@@ -3669,7 +3671,7 @@ void Coordinator_ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64
 }
 
 void Initialize_CoordKeyspaceNotifications(RedisModuleCtx *ctx) {
-  // To be called after `Initialize_KeyspaceNotifications` as callbacks are overridden.
+  // To be called after `Initialize_ServerEventNotifications` as callbacks are overridden.
   if (RedisModule_SubscribeToServerEvent && getenv("RS_GLOBAL_DTORS")) {
     // clear resources when the server exits
     // used only with sanitizer or valgrind

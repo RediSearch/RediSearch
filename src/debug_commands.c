@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "debug_commands.h"
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
@@ -1237,10 +1239,10 @@ DEBUG_COMMAND(DocInfo) {
   return REDISMODULE_OK;
 }
 
-static void VecSim_Reply_Info_Iterator(RedisModuleCtx *ctx, VecSimInfoIterator *infoIter) {
-  RedisModule_ReplyWithArray(ctx, VecSimInfoIterator_NumberOfFields(infoIter)*2);
-  while(VecSimInfoIterator_HasNextField(infoIter)) {
-    VecSim_InfoField* infoField = VecSimInfoIterator_NextField(infoIter);
+static void VecSim_Reply_Info_Iterator(RedisModuleCtx *ctx, VecSimDebugInfoIterator *infoIter) {
+  RedisModule_ReplyWithArray(ctx, VecSimDebugInfoIterator_NumberOfFields(infoIter)*2);
+  while(VecSimDebugInfoIterator_HasNextField(infoIter)) {
+    VecSim_InfoField* infoField = VecSimDebugInfoIterator_NextField(infoIter);
     RedisModule_ReplyWithCString(ctx, infoField->fieldName);
     switch (infoField->fieldType) {
     case INFOFIELD_STRING:
@@ -1287,12 +1289,12 @@ DEBUG_COMMAND(VecsimInfo) {
     return RedisModule_ReplyWithError(ctx, "Can't open vector index");
   }
 
-  VecSimInfoIterator *infoIter = VecSimIndex_InfoIterator(vecsimIndex);
+  VecSimDebugInfoIterator *infoIter = VecSimIndex_DebugInfoIterator(vecsimIndex);
   // Recursively reply with the info iterator
   VecSim_Reply_Info_Iterator(ctx, infoIter);
 
   // Cleanup
-  VecSimInfoIterator_Free(infoIter); // Free the iterator (and all its nested children)
+  VecSimDebugInfoIterator_Free(infoIter); // Free the iterator (and all its nested children)
   SearchCtx_Free(sctx);
   return REDISMODULE_OK;
 }
