@@ -1,7 +1,4 @@
-use std::{
-    ffi::{c_char, c_int, c_void},
-    mem::MaybeUninit,
-};
+use std::ffi::{c_char, c_int, c_void};
 
 /// Convert a string to a slice of `c_char`, allocated on the heap, which is the expected input for [crate::RustTrieMap].
 pub fn str2c_char(input: &str) -> Box<[c_char]> {
@@ -33,8 +30,8 @@ pub static mut RedisModule_Calloc: Option<
 use redisearch_rs::trie::*;
 
 macro_rules! assert_entries {
-    ($pattern:literal, $mode:expr, $iter_fn:expr, $expected:expr $(,)?) => {
-        with_trie_iter($pattern, $mode, Some($iter_fn), |entries| {
+    ($pattern:literal, $mode:expr, $expected:expr $(,)?) => {
+        with_trie_iter($pattern, $mode, |entries| {
             assert_eq!(
                 entries,
                 $expected.map(|(k, v)| (k.to_owned(), v)),
@@ -119,15 +116,10 @@ where
 /// corresponds to one entry the iterator yielded.
 /// Then, calls the callback, passing the entries
 /// and takes care of freeing the iterator.
-fn with_trie_iter<F, const N: usize>(
-    pattern: &[u8; N],
-    iter_mode: tm_iter_mode,
-    iter_fn: TrieMapIterator_NextFunc,
-    f: F,
-) where
+fn with_trie_iter<F, const N: usize>(pattern: &[u8; N], iter_mode: tm_iter_mode, f: F)
+where
     F: FnOnce(Vec<(String, u8)>),
 {
-    let iter_fn = iter_fn.unwrap();
     with_trie_map(|t| {
         let pattern = bytes2c_char(pattern);
         // Safety: We adhere to all the safety requirements of `TrieMap_Iterate`
@@ -139,11 +131,9 @@ fn with_trie_iter<F, const N: usize>(
         let mut value: *mut c_void = std::ptr::null_mut();
 
         let mut entries = Vec::new();
-        // Safety: We adhere to all the safety requirements of `TrieMap_Next`,
-        // `TrieMap_NextContains`, and `TrieMap_NextWildcard`, which
-        // are the instances of `TrieMap_NextFunc` that have been defined..
+        // Safety: We adhere to all the safety requirements of `TrieMap_Next`.
         while let 1 = unsafe {
-            iter_fn(
+            TrieMapIterator_Next(
                 it,
                 &mut char as *mut *mut c_char,
                 &mut len as *mut tm_len_t,
@@ -171,34 +161,18 @@ fn with_trie_iter<F, const N: usize>(
 fn test_trie_find_prefixes() {
     with_trie_map(|t| {
         let prefix = str2c_char("b");
-        let mut buf: MaybeUninit<TrieMapResultBuf> = MaybeUninit::uninit();
 
         // Safety: We adhere to all the safety requirements of `TrieMap_FindPrefixes`
-        let data_len = unsafe {
-            TrieMap_FindPrefixes(
-                t,
-                prefix.as_ptr(),
-                prefix.len() as tm_len_t,
-                buf.as_mut_ptr(),
-            )
-        };
-        // Safety: `buf` has been initialized by `TrieMap_FindPrefixes`
-        let mut buf = unsafe { buf.assume_init() };
-
-        // Safety: We adhere to all the safety requirements of `TrieMapResultBuf_Data`
-        let data = unsafe { TrieMapResultBuf_Data(&mut buf as *mut _) };
-        // Safety: `TrieMapResultBuf_Data` returns a pointer to the data,
-        // and its length is provided by `data_len`
-        let data = unsafe { std::slice::from_raw_parts(data, data_len as usize) };
-        let mut results = Vec::with_capacity(data_len as usize);
-        for &v in data {
+        let buf = unsafe { TrieMap_FindPrefixes(t, prefix.as_ptr(), prefix.len() as tm_len_t) };
+        let mut results = Vec::with_capacity(buf.0.len());
+        for &v in &buf.0 {
             // Safety: `v` was created in `with_trie_map`
             // and is a pointer to a `u8` value in disguise.
             let value = unsafe { *(v as *mut u8) };
             results.push(value);
         }
 
-        assert_eq!(results, [0, 1, 2]);
+        assert_eq!(results, &[0, 1, 2]);
 
         TrieMapResultBuf_Free(buf);
     });
@@ -209,21 +183,14 @@ fn test_trie_iter_prefix() {
     assert_entries!(
         b"bi",
         tm_iter_mode::TM_PREFIX_MODE,
-        TrieMapIterator_NextContains,
         [("bike", 0), ("biker", 1), ("bis", 2)],
     );
 
-    assert_entries!(
-        b"ci",
-        tm_iter_mode::TM_PREFIX_MODE,
-        TrieMapIterator_NextContains,
-        [("cider", 5)],
-    );
+    assert_entries!(b"ci", tm_iter_mode::TM_PREFIX_MODE, [("cider", 5)],);
 
     assert_entries!(
         b"",
         tm_iter_mode::TM_PREFIX_MODE,
-        TrieMapIterator_NextContains,
         [
             ("bike", 0),
             ("biker", 1),
@@ -240,7 +207,6 @@ fn test_trie_iter_contains() {
     assert_entries!(
         b"ik",
         tm_iter_mode::TM_CONTAINS_MODE,
-        TrieMapIterator_NextContains,
         [("bike", 0), ("biker", 1)],
     );
 }
@@ -250,7 +216,6 @@ fn test_trie_iter_suffix() {
     assert_entries!(
         b"er",
         tm_iter_mode::TM_SUFFIX_MODE,
-        TrieMapIterator_NextContains,
         [("biker", 1), ("cider", 5), ("cooler", 4)],
     );
 }
@@ -260,7 +225,6 @@ fn test_trie_iter_wildcard() {
     assert_entries!(
         b"*",
         tm_iter_mode::TM_WILDCARD_MODE,
-        TrieMapIterator_NextWildcard,
         [
             ("bike", 0),
             ("biker", 1),
@@ -274,63 +238,46 @@ fn test_trie_iter_wildcard() {
     assert_entries!(
         b"c*",
         tm_iter_mode::TM_WILDCARD_MODE,
-        TrieMapIterator_NextWildcard,
         [("cider", 5), ("cool", 3), ("cooler", 4)],
     );
 
     assert_entries!(
         b"*r",
         tm_iter_mode::TM_WILDCARD_MODE,
-        TrieMapIterator_NextWildcard,
         [("biker", 1), ("cider", 5), ("cooler", 4)],
     );
 
     assert_entries!(
         b"*i*",
         tm_iter_mode::TM_WILDCARD_MODE,
-        TrieMapIterator_NextWildcard,
         [("bike", 0), ("biker", 1), ("bis", 2), ("cider", 5)],
     );
 
     assert_entries!(
         b"*i*",
         tm_iter_mode::TM_WILDCARD_MODE,
-        TrieMapIterator_NextWildcard,
         [("bike", 0), ("biker", 1), ("bis", 2), ("cider", 5)],
     );
 
     assert_entries!(
         b"?i?er",
         tm_iter_mode::TM_WILDCARD_MODE,
-        TrieMapIterator_NextWildcard,
         [("biker", 1), ("cider", 5)],
     );
 
     assert_entries!(
         b"????",
         tm_iter_mode::TM_WILDCARD_MODE,
-        TrieMapIterator_NextWildcard,
         [("bike", 0), ("cool", 3)],
     );
 
-    assert_entries!(
-        b"ci???",
-        tm_iter_mode::TM_WILDCARD_MODE,
-        TrieMapIterator_NextWildcard,
-        [("cider", 5)],
-    );
+    assert_entries!(b"ci???", tm_iter_mode::TM_WILDCARD_MODE, [("cider", 5)],);
 
-    assert_entries!(
-        b"cider",
-        tm_iter_mode::TM_WILDCARD_MODE,
-        TrieMapIterator_NextWildcard,
-        [("cider", 5)],
-    );
+    assert_entries!(b"cider", tm_iter_mode::TM_WILDCARD_MODE, [("cider", 5)],);
 
     assert_entries!(
         b"******?",
         tm_iter_mode::TM_WILDCARD_MODE,
-        TrieMapIterator_NextWildcard,
         [
             ("bike", 0),
             ("biker", 1),
@@ -344,7 +291,6 @@ fn test_trie_iter_wildcard() {
     assert_entries!(
         b"*????",
         tm_iter_mode::TM_WILDCARD_MODE,
-        TrieMapIterator_NextWildcard,
         [
             ("bike", 0),
             ("biker", 1),
@@ -353,37 +299,22 @@ fn test_trie_iter_wildcard() {
             ("cooler", 4),
         ],
     );
-}
 
-#[test]
-fn test_trie_iter_wildcard_fixed_len() {
     assert_entries!(
         b"?i?er",
-        tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE,
-        TrieMapIterator_NextWildcard,
+        tm_iter_mode::TM_WILDCARD_MODE,
         [("biker", 1), ("cider", 5)],
     );
 
     assert_entries!(
         b"????",
-        tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE,
-        TrieMapIterator_NextWildcard,
+        tm_iter_mode::TM_WILDCARD_MODE,
         [("bike", 0), ("cool", 3)],
     );
 
-    assert_entries!(
-        b"ci???",
-        tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE,
-        TrieMapIterator_NextWildcard,
-        [("cider", 5)],
-    );
+    assert_entries!(b"ci???", tm_iter_mode::TM_WILDCARD_MODE, [("cider", 5)],);
 
-    assert_entries!(
-        b"cider",
-        tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE,
-        TrieMapIterator_NextWildcard,
-        [("cider", 5)],
-    );
+    assert_entries!(b"cider", tm_iter_mode::TM_WILDCARD_MODE, [("cider", 5)],);
 }
 
 #[test]

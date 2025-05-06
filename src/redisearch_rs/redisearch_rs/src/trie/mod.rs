@@ -6,7 +6,7 @@ use libc::timespec;
 use low_memory_thin_vec::LowMemoryThinVec;
 use redis_module::raw::RedisModule_Free;
 use std::{
-    ffi::{c_char, c_int, c_void},
+    ffi::{CString, c_char, c_int, c_void},
     slice,
 };
 use trie_rs::iter::filter::WildcardFilter;
@@ -70,7 +70,7 @@ struct IteratorTimeoutState {
 
 /// Opaque type TrieMapResultBuf. Holds the results of [`TrieMap_FindPrefixes`].
 #[repr(transparent)]
-pub struct TrieMapResultBuf(LowMemoryThinVec<*mut c_void>);
+pub struct TrieMapResultBuf(pub LowMemoryThinVec<*mut c_void>);
 
 /// Free the [`TrieMapResultBuf`] and its contents.
 #[unsafe(no_mangle)]
@@ -270,6 +270,25 @@ pub unsafe extern "C" fn TrieMap_NNodes(t: *mut TrieMap) -> usize {
     trie.n_nodes()
 }
 
+#[unsafe(no_mangle)]
+/// Returns the debug representation of a TrieMap instance for debugging purposes.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+pub unsafe extern "C" fn TrieMap_DebugRepr(t: *mut TrieMap) -> *const c_char {
+    debug_assert!(!t.is_null(), "t cannot be NULL");
+
+    // SAFETY: The safety requirements of this function
+    // state the caller is to ensure that the pointer `t` is
+    // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
+    // If that invariant is upheld, then the following line is sound.
+    let TrieMap(trie) = unsafe { &mut *t };
+    // TODO: Fix, it leaks memory as is.
+    CString::new(format!("{trie:?}")).unwrap().into_raw()
+}
+
 /// Find the entry with a given string and length, and return its value, even if
 /// that was NULL.
 ///
@@ -370,8 +389,8 @@ pub unsafe extern "C" fn TrieMap_FindPrefixes(
     };
 
     let iter = trie.prefixed_values(prefix).copied();
-
-    TrieMapResultBuf(LowMemoryThinVec::from_iter(iter))
+    let vec = LowMemoryThinVec::from_iter(iter);
+    TrieMapResultBuf(vec)
 }
 
 /// Mark a node as deleted. It also optimizes the trie by merging nodes if
@@ -837,10 +856,9 @@ pub unsafe extern "C" fn TrieMap_RandomValueByPrefix(
         debug_assert!(!prefix.is_null(), "prefix cannot be NULL if pflen > 0");
     }
     // Safety: We adhere to all the safety requirements of `TrieMap_FindPrefixes`
-    let buf = unsafe { TrieMap_FindPrefixes(t, prefix, pflen) };
+    let mut buf = unsafe { TrieMap_FindPrefixes(t, prefix, pflen) };
     let i = rand::random_range(..buf.0.len());
-    // TODO: We must free the buffer.
-    buf.0.as_slice()[i]
+    buf.0.swap_remove(i)
 }
 
 /// Get current time from monotonic clock.
