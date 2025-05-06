@@ -12,14 +12,11 @@ bench = false
 name = "qint-bench"
 harness = false
 
-[dependencies]
-
-rand.workspace = true
-
 [dev-dependencies]
 criterion = { workspace = true }
 proptest = { workspace = true, features = ["std"] }
 proptest-derive = { workspace = true }
+rand.workspace = true
 
 [lints]
 workspace = true
