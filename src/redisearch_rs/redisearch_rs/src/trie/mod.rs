@@ -32,7 +32,6 @@ pub enum tm_iter_mode {
     TM_CONTAINS_MODE = 1,
     TM_SUFFIX_MODE = 2,
     TM_WILDCARD_MODE = 3,
-    TM_WILDCARD_FIXED_LEN_MODE = 4,
 }
 
 /// Default iteration mode for [`TrieMap_Iterate`].
@@ -95,6 +94,32 @@ pub unsafe extern "C" fn TrieMapResultBuf_Data(buf: *mut TrieMapResultBuf) -> *m
     // - `buf` points to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`]
     let TrieMapResultBuf(data) = unsafe { &mut *buf };
     data.as_mut_ptr()
+}
+
+/// Retrieve an element from the buffer, via a 0-initialized index.
+///
+/// It returns `NULL` if the index is out of bounds.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `buf` must point to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`] and cannot be NULL.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn TrieMapResultBuf_GetByIndex(
+    buf: *mut TrieMapResultBuf,
+    index: usize,
+) -> *mut c_void {
+    debug_assert!(!buf.is_null(), "buf cannot be NULL");
+
+    // SAFETY:
+    // As per the safety invariants of this function:
+    // - `buf` is not NULL
+    // - `buf` points to a valid TrieMapResultBuf initialized by [`TrieMap_FindPrefixes`]
+    let TrieMapResultBuf(data) = unsafe { &mut *buf };
+    match data.get(index) {
+        Some(element) => *element,
+        None => std::ptr::null_mut(),
+    }
 }
 
 /// Get the length of the TrieMapResultBuf.
@@ -207,6 +232,44 @@ pub unsafe extern "C" fn TrieMap_Add(
     if was_vacant { 1 } else { 0 }
 }
 
+#[unsafe(no_mangle)]
+/// The number of unique keys stored in the provided triemap.
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+pub unsafe extern "C" fn TrieMap_NUniqueKeys(t: *mut TrieMap) -> usize {
+    debug_assert!(!t.is_null(), "t cannot be NULL");
+
+    // SAFETY: The safety requirements of this function
+    // state the caller is to ensure that the pointer `t` is
+    // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
+    // If that invariant is upheld, then the following line is sound.
+    let TrieMap(trie) = unsafe { &mut *t };
+    trie.n_unique_keys()
+}
+
+#[unsafe(no_mangle)]
+/// The number of nodes stored in the provided triemap.
+///
+/// It's greater or equal to the number returned by [`TrieMap_NUniqueKeys`].
+///
+/// # Safety
+///
+/// The following invariants must be upheld when calling this function:
+/// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
+pub unsafe extern "C" fn TrieMap_NNodes(t: *mut TrieMap) -> usize {
+    debug_assert!(!t.is_null(), "t cannot be NULL");
+
+    // SAFETY: The safety requirements of this function
+    // state the caller is to ensure that the pointer `t` is
+    // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
+    // If that invariant is upheld, then the following line is sound.
+    let TrieMap(trie) = unsafe { &mut *t };
+    trie.n_nodes()
+}
+
 /// Find the entry with a given string and length, and return its value, even if
 /// that was NULL.
 ///
@@ -279,14 +342,12 @@ pub unsafe extern "C" fn TrieMap_Find(
 /// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
 /// - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
 /// - `len` can be 0. If so, `str` is regarded as an empty string.
-/// - `results` must be a mutable, aligned pointer to a valid memory location.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_FindPrefixes(
     t: *mut TrieMap,
     str: *const c_char,
     len: tm_len_t,
-    results: *mut TrieMapResultBuf,
-) -> c_int {
+) -> TrieMapResultBuf {
     debug_assert!(!t.is_null(), "t cannot be NULL");
     if len > 0 {
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
@@ -310,19 +371,7 @@ pub unsafe extern "C" fn TrieMap_FindPrefixes(
 
     let iter = trie.prefixed_values(prefix).copied();
 
-    let res = LowMemoryThinVec::from_iter(iter);
-    let len = res.len();
-    let res_buf = TrieMapResultBuf(res);
-    // SAFETY: The safety requirements of this function
-    // state the caller is to ensure that the pointer `results` is
-    // a valid, mutable, aligned pointer to a valid memory location.
-    // If that invariant is upheld, then the following line is sound.
-    unsafe {
-        std::ptr::write(results, res_buf);
-    };
-
-    len.try_into()
-        .expect("Number of results did not fit into a `c_int`")
+    TrieMapResultBuf(LowMemoryThinVec::from_iter(iter))
 }
 
 /// Mark a node as deleted. It also optimizes the trie by merging nodes if
@@ -508,7 +557,7 @@ pub unsafe extern "C" fn TrieMap_Iterate<'tm>(
             trie.lending_iter()
                 .filter(Box::new(|(k, _)| k.ends_with(pattern))),
         ),
-        tm_iter_mode::TM_WILDCARD_FIXED_LEN_MODE | tm_iter_mode::TM_WILDCARD_MODE => {
+        tm_iter_mode::TM_WILDCARD_MODE => {
             let pattern = WildcardPattern::parse(pattern);
             let iter = if let Some(wildcard::Token::Literal(prefix)) = pattern.tokens().first() {
                 trie.prefixed_lending_iter(prefix)
@@ -633,40 +682,6 @@ pub unsafe extern "C" fn TrieMapIterator_Next(
     }
 
     1
-}
-
-/// Iterate to the next matching entry in the trie. Returns 1 if we can continue,
-/// or 0 if we're done and should exit.
-/// Used by Contains and Suffix queries.
-///
-/// # Safety
-/// See [`TrieMapIterator_Next`]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn TrieMapIterator_NextContains(
-    it: *mut TrieMapIterator,
-    ptr: *mut *mut c_char,
-    len: *mut tm_len_t,
-    value: *mut *mut c_void,
-) -> c_int {
-    // Safety: see `TrieMapIterator_Next`
-    unsafe { TrieMapIterator_Next(it, ptr, len, value) }
-}
-
-/// Iterate to the next matching entry in the trie. Returns 1 if we can continue,
-/// or 0 if we're done and should exit.
-/// Used by Wildcard queries.
-///
-/// # Safety
-/// See [`TrieMapIterator_Next`]
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn TrieMapIterator_NextWildcard(
-    it: *mut TrieMapIterator,
-    ptr: *mut *mut c_char,
-    len: *mut tm_len_t,
-    value: *mut *mut c_void,
-) -> c_int {
-    // Safety: see `TrieMapIterator_Next`
-    unsafe { TrieMapIterator_Next(it, ptr, len, value) }
 }
 
 /// Iterate the trie within the specified key range.
@@ -821,23 +836,11 @@ pub unsafe extern "C" fn TrieMap_RandomValueByPrefix(
     if pflen > 0 {
         debug_assert!(!prefix.is_null(), "prefix cannot be NULL if pflen > 0");
     }
-    let mut buf = std::mem::MaybeUninit::uninit();
-
     // Safety: We adhere to all the safety requirements of `TrieMap_FindPrefixes`
-    let data_len = unsafe { TrieMap_FindPrefixes(t, prefix, pflen, buf.as_mut_ptr()) };
-    // Safety: `buf` has been initialized by `TrieMap_FindPrefixes`
-    let mut buf = unsafe { buf.assume_init() };
-
-    // Safety: We adhere to all the safety requirements of `TrieMapResultBuf_Data`
-    let data = unsafe { TrieMapResultBuf_Data(&mut buf as *mut _) };
-
-    // Safety: `TrieMapResultBuf_Data` returns a pointer to the data,
-    // and its length is provided by `data_len`
-    let data = unsafe { std::slice::from_raw_parts(data, data_len as usize) };
-
-    let i = rand::random_range(..data.len());
-
-    data[i]
+    let buf = unsafe { TrieMap_FindPrefixes(t, prefix, pflen) };
+    let i = rand::random_range(..buf.0.len());
+    // TODO: We must free the buffer.
+    buf.0.as_slice()[i]
 }
 
 /// Get current time from monotonic clock.

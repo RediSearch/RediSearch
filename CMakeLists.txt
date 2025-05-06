@@ -203,10 +203,9 @@ set(Boost_NO_WARN_NEW_VERSIONS ON)
 include_directories(
     ${root}/src
     ${root}/src/coord
-    ${root}/src/redisearch_rs
+    ${root}/src/redisearch_rs/headers
     ${root}/deps/libuv/include
     ${root}/deps
-    ${root}/deps/triemap
     ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
     ${BOOST_DIR}
