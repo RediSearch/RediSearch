@@ -305,6 +305,26 @@ mod property_based {
         }
     }
 
+    macro_rules! match_qint_decoding {
+        ($($variant:ident, $number:literal),* => $cursor:expr, $prop_encoding:expr, $fails_with_buffer_size:expr) => {
+            match $prop_encoding {
+                $(
+                    PropEncoding::$variant(_) => {
+                        let res = qint_decode::<$number, _>(&mut $cursor);
+                        if $fails_with_buffer_size {
+                            prop_assert_eq!(res.is_err(), true);
+                            let kind = res.unwrap_err().kind();
+                            let is_mem_err = kind == std::io::ErrorKind::UnexpectedEof;
+                            prop_assert_eq!(is_mem_err, true);
+                        } else {
+                            prop_assert_eq!(res.is_ok(), true);
+                        }
+                    }
+                ),*
+            }
+        }
+    }
+
     proptest::proptest! {
         // tests for error conditions related to buffer size
         #[test]
@@ -323,42 +343,7 @@ mod property_based {
             }
 
             let mut cursor = Cursor::new(buf);
-            match prop_encoding {
-                PropEncoding::QInt2((_, _)) => {
-                    let res = qint_decode::<2, _>(&mut cursor);
-                    if fails_with_buffer_size {
-                        prop_assert_eq!(res.is_err(), true);
-                        let kind = res.unwrap_err().kind();
-                        let is_mem_err = kind == std::io::ErrorKind::UnexpectedEof;
-                        prop_assert_eq!(is_mem_err, true);
-                    } else {
-                        prop_assert_eq!(res.is_ok(), true);
-                    }
-                }
-                PropEncoding::QInt3((_, _)) => {
-                    let res = qint_decode::<3, _>(&mut cursor);
-                    if fails_with_buffer_size {
-                        prop_assert_eq!(res.is_err(), true);
-                        let kind = res.unwrap_err().kind();
-                        let is_mem_err = kind == std::io::ErrorKind::UnexpectedEof;
-                        prop_assert_eq!(is_mem_err, true);
-                    } else {
-                        prop_assert_eq!(res.is_ok(), true);
-                    }
-                }
-                PropEncoding::QInt4((_, _)) => {
-                    let res = qint_decode::<4, _>(&mut cursor);
-                    if fails_with_buffer_size {
-                        prop_assert_eq!(res.is_err(), true);
-                        let kind = res.unwrap_err().kind();
-                        let is_mem_err = kind == std::io::ErrorKind::UnexpectedEof;
-                        prop_assert_eq!(is_mem_err, true);
-                    } else {
-                        prop_assert_eq!(res.is_ok(), true);
-                    }
-                }
-            };
-
+            match_qint_decoding!(QInt2, 2, QInt3, 3, QInt4, 4 => cursor, prop_encoding, fails_with_buffer_size);
         }
     }
 }
