@@ -50,7 +50,7 @@ where
     for (input, n_bytes) in slice {
         let buf = vec![0u8; input.len() * 24];
 
-        group.bench_function(format!("{n_bytes} bytes"), |b| {
+        group.bench_function(format!("{} encoded bytes", n_bytes + 1), |b| {
             b.iter_batched_ref(
                 || Cursor::new(buf.clone()),
                 |mut cursor| {
@@ -77,7 +77,7 @@ where
         qint_encode::<N, _>(&mut cursor, *input).unwrap();
         cursor.seek(SeekFrom::Start(0)).unwrap();
 
-        group.bench_function(format!("{n_bytes} bytes"), |b| {
+        group.bench_function(format!("{} encoded bytes", n_bytes + 1), |b| {
             b.iter_batched_ref(
                 || cursor.clone(),
                 |cursor| {
