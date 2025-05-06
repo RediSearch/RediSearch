@@ -559,6 +559,9 @@ def testDebugScannerStatus(env: Env):
     .contains("Invalid command for 'BG_SCAN_CONTROLLER'")
 
     # Test OOM pause
+    # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
+    env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+
     # Insert more docs to ensure un-flakey test
     extra_docs = 90
     for i in range(num_docs,extra_docs+num_docs):
@@ -571,7 +574,7 @@ def testDebugScannerStatus(env: Env):
     # Set OOM pause
     env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
     # Set tight memory limit to trigger OOM
-    set_tight_maxmemory_for_oom(env)
+    set_tight_maxmemory_for_oom(env, 0.8)
     # Create an index and expect OOM pause
     env.expect('FT.CREATE', 'idx_oom', 'SCHEMA', 'name', 'TEXT').ok()
     waitForIndexStatus(env, 'PAUSED_ON_OOM','idx_oom')
@@ -925,6 +928,9 @@ def testIndexObfuscatedInfo(env: Env):
 
 @skip(cluster=True)
 def testPauseOnOOM(env: Env):
+    # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
+    env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+
     num_docs = 1000
     for i in range(num_docs):
         env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
@@ -951,7 +957,7 @@ def testPauseOnOOM(env: Env):
 
     # At this point num_docs_scanned were scanned
     # Now we set the tight memory limit
-    set_tight_maxmemory_for_oom(env)
+    set_tight_maxmemory_for_oom(env, 0.8)
     # After we resume, an OOM should trigger
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
