@@ -1545,12 +1545,12 @@ TEST_F(IndexTest, testVarintFieldMask) {
   BufferWriter bw = NewBufferWriter(&b);
   for (int i = 0; i < sizeof(t_fieldMask); i++, x |= x << 8) {
     size_t sz = WriteVarintFieldMask(x, &bw);
-    BufferWriter_Seek(&bw, 0);
     BufferReader br = NewBufferReader(bw.buf);
 
     t_fieldMask y = ReadVarintFieldMask(&br);
 
     ASSERT_EQ(y, x);
+    BufferWriter_Seek(&bw, 0);
   }
   Buffer_Free(&b);
 }
