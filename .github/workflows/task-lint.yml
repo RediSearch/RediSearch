@@ -1,4 +1,4 @@
-name: Lint for warnings, and check that code is well-formatted
+name: Lint for warnings, missing license headers and check that code is well-formatted
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
@@ -37,13 +37,18 @@ jobs:
         id: lint
         continue-on-error: true
         run: make lint
+      - name: License header
+        id: license-header
+        continue-on-error: true
+        run: make license-check
       - name: Format check
         id: fmt
         continue-on-error: true
         run: make fmt CHECK=1
       - name: Fail if any step failed
-        if: steps.lint.outcome == 'failure' || steps.fmt.outcome == 'failure'
+        if: steps.lint.outcome == 'failure' || steps.license-header.outcome == 'failure' || steps.fmt.outcome == 'failure'
         run: |
           echo "Linting: ${{ steps.lint.outcome }}"
+          echo "License header: ${{ steps.license-header.outcome }}"
           echo "Formatting: ${{ steps.fmt.outcome }}"
           exit 1

@@ -1,0 +1,10 @@
+[package]
+name = "license_header_linter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
