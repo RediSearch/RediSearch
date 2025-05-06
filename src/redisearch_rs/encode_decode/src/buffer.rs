@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-
 use std::{
     ptr::{NonNull, copy_nonoverlapping},
     slice,

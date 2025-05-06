@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-
 mod buffer;
 pub mod varint;
 pub use buffer::*;

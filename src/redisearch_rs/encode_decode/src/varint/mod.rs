@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-
 mod vector_writer;
 pub use vector_writer::VectorWriter;
 

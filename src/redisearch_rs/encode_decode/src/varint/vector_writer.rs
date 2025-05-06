@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-
 use super::write;
 
 #[derive(Debug)]

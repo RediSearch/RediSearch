@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-
 //! The C API goes here. This part will hopefully all be removed once all users of `varint` API are
 //! oxidized.
 
