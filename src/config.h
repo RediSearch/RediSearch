@@ -270,7 +270,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 #define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
-#define DEFAULT_INDEXING_MEMORY_LIMIT 80
+#define DEFAULT_INDEXING_MEMORY_LIMIT 100
 #define DEFAULT_BM25STD_TANH_FACTOR 4
 #define BM25STD_TANH_FACTOR_MAX 10000
 #define BM25STD_TANH_FACTOR_MIN 1
