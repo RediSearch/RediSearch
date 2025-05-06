@@ -1,5 +1,4 @@
 use std::{
-    io::Cursor,
     ptr::{NonNull, copy_nonoverlapping},
     slice,
 };
@@ -21,18 +20,29 @@ pub struct BufferReader {
     pub pos: usize,
 }
 
-impl BufferReader {
-    pub fn as_cursor(&mut self) -> Cursor<&[u8]> {
+impl std::io::Read for BufferReader {
+    fn read(&mut self, dest_buf: &mut [u8]) -> std::io::Result<usize> {
         // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
         let buffer = unsafe { self.buf.as_mut() };
-        // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
-        let data = unsafe { buffer.data.as_mut() };
-        // Safety: All invariants of `std::slice::from_raw_parts` should hold here if the C side
-        // doesn't do something naughty.
-        let buffer_slice = unsafe { slice::from_raw_parts(data, buffer.capacity) };
-        let mut cursor = Cursor::new(buffer_slice);
-        cursor.set_position(self.pos as u64);
-        cursor
+        if self.pos + dest_buf.len() > buffer.len {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "BufferReader: not enough data",
+            ));
+        }
+        // Safety: `self.pos` was just checked to be within the limits.
+        let src = unsafe { buffer.data.add(self.pos) };
+        // Safety: just checked that `buf` is valid and has enough space.
+        let src = unsafe { src.as_ref() };
+        let dest = dest_buf.as_mut_ptr();
+        // Safety:
+        // * `src` is a valid pointer.
+        // * We just created `dest` using safe API.
+        // * `bytes.len()` is less than capacity - pos.
+        unsafe { copy_nonoverlapping(src, dest, dest_buf.len()) };
+        self.pos += dest_buf.len();
+
+        Ok(dest_buf.len())
     }
 }
 

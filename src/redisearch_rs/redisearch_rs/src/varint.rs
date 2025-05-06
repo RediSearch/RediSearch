@@ -13,11 +13,7 @@ extern "C" fn ReadVarint(b: Option<NonNull<BufferReader>>) -> u32 {
     let mut buffer_reader = b.unwrap();
     // Safety: The caller is responsible for ensuring that the pointer is valid.
     let buffer_reader = unsafe { buffer_reader.as_mut() };
-    let mut cursor = buffer_reader.as_cursor();
-    let val = read(&mut cursor).unwrap();
-    buffer_reader.pos = cursor.position() as usize;
-
-    val
+    read(buffer_reader).unwrap()
 }
 
 #[unsafe(no_mangle)]
@@ -29,11 +25,7 @@ extern "C" fn ReadVarintFieldMask(b: Option<NonNull<BufferReader>>) -> FieldMask
     let mut buffer_reader = b.unwrap();
     // Safety: The caller is responsible for ensuring that the pointer is valid.
     let buffer_reader = unsafe { buffer_reader.as_mut() };
-    let mut cursor = buffer_reader.as_cursor();
-    let val = read_field_mask(&mut cursor).unwrap();
-    buffer_reader.pos = cursor.position() as usize;
-
-    val
+    read_field_mask(buffer_reader).unwrap()
 }
 
 #[unsafe(no_mangle)]
