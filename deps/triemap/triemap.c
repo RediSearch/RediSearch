@@ -2,6 +2,7 @@
 #include <math.h>
 #include <sys/param.h>
 #include <ctype.h>
+#include "redismodule.h"
 #include "util/bsearch.h"
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
@@ -62,6 +63,7 @@ TrieMap *NewTrieMap() {
   tm->size = 0;
   tm->cardinality = 0;
   tm->root = __newTrieMapNode("", 0, 0, 0, NULL, 0);
+  RedisModule_Log(NULL, "debug", "TrieMap::new, with address %p", (void *)tm);
   return tm;
 }
 
@@ -198,6 +200,11 @@ int TrieMapNode_Add(TrieMapNode **np, const char *str, tm_len_t len, void *value
 }
 
 int TrieMap_Add(TrieMap *t, const char *str, tm_len_t len, void *value, TrieMapReplaceFunc cb) {
+  char nice_key[len + 1];
+  memcpy(nice_key, str, len);
+  nice_key[len] = '\0';
+  RedisModule_Log(NULL, "debug", "TrieMap::insert [%p], key = \"%s\"", (void*)t, nice_key);
+
   int rc = TrieMapNode_Add(&t->root, str, len, value, cb);
   t->size += rc;
   int added = rc ? 1 : 0;
@@ -363,10 +370,19 @@ TrieMapNode *TrieMapNode_FindNode(TrieMapNode *n, char *str, tm_len_t len, tm_le
 }
 
 void *TrieMap_Find(TrieMap *t, const char *str, tm_len_t len) {
+  char nice_key[len + 1];
+  memcpy(nice_key, str, len);
+  nice_key[len] = '\0';
+  RedisModule_Log(NULL, "debug", "TrieMap::find [%p], key = \"%s\"", (void *)t, nice_key);
+
   return TrieMapNode_Find(t->root, str, len);
 }
 
 int TrieMap_FindPrefixes(TrieMap *t, const char *str, tm_len_t len, arrayof(void *) * results) {
+  char nice_key[len + 1];
+  memcpy(nice_key, str, len);
+  nice_key[len] = '\0';
+  RedisModule_Log(NULL, "debug", "TrieMap::find_prefixes [%p], key = \"%s\"", (void *)t, nice_key);
   return TrieMapNode_FindPrefixes(t->root, str, len, results);
 }
 
