@@ -105,11 +105,16 @@ static inline int TimedOut_WithCtx_Gran(TimeoutCtx *ctx, uint32_t gran) {
   return TimedOut_WithCounter_Gran(&ctx->timeout, &ctx->counter, gran);
 }
 
-// Check if time has been reached
-static inline int TimedOut_WithStatus(struct timespec *timeout, QueryError *status) {
+// Check if time has been reached.
+// This function checks if the specified timeout has been reached and optionally updates the provided
+// QueryError `status` with an appropriate error code. The `early` parameter determines the type of
+// timeout error to set in the `status`:
+// - If `early` is true, the error code QUERY_EEARLYTIMEDOUT is used, indicating an early timeout.
+// - If `early` is false, the error code QUERY_ETIMEDOUT is used, indicating a regular timeout.
+static inline int TimedOut_WithStatus(struct timespec *timeout, QueryError *status, bool early) {
   int rc = TimedOut(timeout);
   if (status && rc == TIMED_OUT) {
-    QueryError_SetCode(status, QUERY_ETIMEDOUT);
+    QueryError_SetCode(status, early ? QUERY_EEARLYTIMEDOUT : QUERY_ETIMEDOUT);
   }
   return rc;
 }
