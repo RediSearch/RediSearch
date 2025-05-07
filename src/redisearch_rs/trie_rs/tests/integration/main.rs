@@ -7,13 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! A trie map implementation with minimal memory footprint.
-//!
-//! Check [`TrieMap`]'s documentation for more details.
-
-pub mod iter;
-mod node;
+mod iter;
 mod trie;
 mod utils;
-
-pub use trie::TrieMap;
