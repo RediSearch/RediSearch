@@ -161,6 +161,9 @@ typedef struct {
   bool enableUnstableFeatures;
   // Control user data obfuscation in logs
   bool hideUserDataFromLog;
+  // Set how much time after OOM is detected we should wait to enable the resource manager to
+  // allocate more memory.
+  uint64_t bgIndexingOomPauseTimeForRsMgr;
 } RSConfig;
 
 typedef enum {
@@ -273,6 +276,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_BM25STD_TANH_FACTOR 4
 #define BM25STD_TANH_FACTOR_MAX 10000
 #define BM25STD_TANH_FACTOR_MIN 1
+#define DEFAULT_BG_OOM_PAUSE_TIME_FOR_RS_MGR 1
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
@@ -319,6 +323,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .hideUserDataFromLog = false,                                              \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
+    .bgIndexingOomPauseTimeForRsMgr = DEFAULT_BG_OOM_PAUSE_TIME_FOR_RS_MGR,    \
   }
 
 #define REDIS_ARRAY_LIMIT 7

@@ -85,6 +85,7 @@ configPair_t __configPairs[] = {
   {"WORKER_THREADS",                  ""},
   {"ENABLE_UNSTABLE_FEATURES",        "search-enable-unstable-features"},
   {"BM25STD_TANH_FACTOR",             "search-bm25std-tanh-factor"},
+  {"BG_INDEX_OOM_PAUSE_TIME",         "search-bg_index_oom_pause_time"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -464,6 +465,19 @@ CONFIG_SETTER(setBM25StdTanhFactor) {
 CONFIG_GETTER(getBM25StdTanhFactor) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%lu", config->requestConfigParams.BM25STD_TanhFactor);
+}
+
+CONFIG_SETTER(setBgOOMpauseTimeForRsMgr) {
+  uint64_t newPauseTime;
+  int acrc = AC_GetU64(ac, &newPauseTime, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  config->bgIndexingOomPauseTimeForRsMgr = newPauseTime;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getBgOOMpauseTimeForRsMgr) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%lu", config->bgIndexingOomPauseTimeForRsMgr);
 }
 
 /************************************ DEPRECATION CANDIDATES *************************************/
@@ -1260,6 +1274,17 @@ RSConfigOptions RSGlobalConfigOptions = {
                       "The default value is 4.",
           .setValue = setBM25StdTanhFactor,
           .getValue = getBM25StdTanhFactor},
+          // replace time with ms/sec
+          {.name = "BG_INDEX_OOM_PAUSE_TIME",
+            .helpText = "draft - Set the time given to the background indexing thread to sleep when it reaches the memory limit, giving time to reallocate memory."
+                        "The default value is X milli/seconds.",
+            /*
+            Milliseconds to pause background indexing after an out‑of‑memory error, "
+               "allowing Redis time to reclaim memory before the next retry. "
+               "Default: 5000 ms.",
+            */
+            .setValue = setBgOOMpauseTimeForRsMgr,
+            .getValue = getBgOOMpauseTimeForRsMgr},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -1730,6 +1755,16 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED, BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX,
       get_uint_numeric_config, set_uint_numeric_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor)
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-bg_index_oom_pause_time",
+      DEFAULT_BG_OOM_PAUSE_TIME_FOR_RS_MGR,
+      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
+      UINT64_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.bgIndexingOomPauseTimeForRsMgr)
     )
   )
 
