@@ -31,6 +31,8 @@
 #include "redismodule.h"
 #include "config.h"
 
+extern void IncrementYieldCounter(void);
+
 // Memory pool for RSAddDocumentContext contexts
 static mempool_t *actxPool_g = NULL;
 extern RedisModuleCtx *RSDummyContext;
@@ -759,16 +761,16 @@ static PreprocessorFunc preprocessorMap[] = {
     [IXFLDPOS_GEOMETRY] = geometryPreprocessor,
     };
 
+
 int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
-                   QueryError *status) {
-  
+                   QueryError *status) {  
   
   static size_t opCounter = 0;
-  
   // Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
   if (RedisModule_Yield && ++opCounter >= RSGlobalConfig.indexerYieldEveryOps) {
     opCounter = 0;
+    IncrementYieldCounter(); // Track that we called yield
     RedisModule_Yield(sctx->redisCtx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
   }
   
