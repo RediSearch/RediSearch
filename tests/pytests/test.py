@@ -4285,7 +4285,7 @@ def test_timeout_non_strict_policy(env):
     # i.e., less results than the total number of documents that match the query.
     # Since a timeout ERROR is possible if it occurs in the pipeline creation
     # phase, we may need to retry the query a few times.
-    with TimeLimit(7, env):
+    with TimeLimit(7, "Failed getting partial results - either due to continuous early timeouts, or due to a different error."):
         while True:
             try:
                 num_docs = n * env.shardsCount
@@ -4301,7 +4301,7 @@ def test_timeout_non_strict_policy(env):
 
     # Same for `FT.AGGREGATE`
     # We use the TimeLimit from the same reason as above.
-    with TimeLimit(7, env):
+    with TimeLimit(7, "Failed getting partial results - either due to continuous early timeouts, or due to a different error."):
         while True:
             try:
                 num_docs = n * env.shardsCount
