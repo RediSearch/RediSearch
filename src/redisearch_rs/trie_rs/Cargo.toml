@@ -8,6 +8,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+lending-iterator.workspace = true
 libc.workspace = true
 memchr.workspace = true
 

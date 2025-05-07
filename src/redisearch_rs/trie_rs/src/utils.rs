@@ -28,6 +28,8 @@ pub(crate) fn strip_prefix<'a>(haystack: &'a [c_char], prefix: &[c_char]) -> Opt
 #[inline(always)]
 /// Returns the length of the longest common prefix between `a` and `b`, along with the ordering of the first element
 /// that differs between `a` and `b`.
+///
+/// It returns `None` if either slice is a prefix of the other.
 pub(crate) fn longest_common_prefix(
     a: &[c_char],
     b: &[c_char],

@@ -7,32 +7,19 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{
-    ffi::{c_char, c_void},
-    ptr::NonNull,
-};
+use crate::utils::ToCCharVec as _;
+use std::{ffi::c_void, ptr::NonNull};
 use trie_rs::TrieMap;
-
-pub(crate) trait ToCCharArray<const N: usize> {
-    /// Convenience method to convert a byte array to a C-compatible character array.
-    fn c_chars(self) -> [c_char; N];
-}
-
-impl<const N: usize> ToCCharArray<N> for [u8; N] {
-    fn c_chars(self) -> [c_char; N] {
-        self.map(|b| b as c_char)
-    }
-}
 
 /// Forwards to `insta::assert_debug_snapshot!`,
 /// but is disabled in Miri, as snapshot testing
 /// involves file I/O, which is not supported in Miri.
 macro_rules! assert_debug_snapshot {
-        ($($arg:tt)*) => {
-            #[cfg(not(miri))]
-            insta::assert_debug_snapshot!($($arg)*);
-        };
-    }
+    ($($arg:tt)*) => {
+        #[cfg(not(miri))]
+        insta::assert_debug_snapshot!($($arg)*);
+    };
+}
 
 #[test]
 fn test_trie_child_additions() {
@@ -255,11 +242,13 @@ fn test_trie_merge() {
 /// Used for in the proptest below.
 enum TrieOperation<Data> {
     Insert(
-        #[proptest(strategy = "proptest::collection::vec(97..122 as c_char, 0..10)")] Vec<c_char>,
+        #[proptest(strategy = "proptest::collection::vec(97..122 as std::ffi::c_char, 0..10)")]
+        Vec<std::ffi::c_char>,
         Data,
     ),
     Remove(
-        #[proptest(strategy = "proptest::collection::vec(97..122 as c_char, 0..10)")] Vec<c_char>,
+        #[proptest(strategy = "proptest::collection::vec(97..122 as std::ffi::c_char, 0..10)")]
+        Vec<std::ffi::c_char>,
     ),
 }
 
