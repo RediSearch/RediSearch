@@ -41,6 +41,26 @@ macro_rules! assert_prefixed_iterators {
 }
 
 #[test]
+fn utf8() {
+    let mut trie = TrieMap::new();
+    trie.insert(&"бълга123".c_chars(), 0);
+    trie.insert(&"abcabc".c_chars(), 1);
+    trie.insert(&"fußball straße".c_chars(), 2);
+    trie.insert(&"grüßen".c_chars(), 3);
+
+    assert_prefixed_iterators!(
+        trie,
+        &"".c_chars(),
+        vec![
+            ("бълга123".c_chars(), 0),
+            ("abcabc".c_chars(), 1),
+            ("fußball straße".c_chars(), 2),
+            ("grüßen".c_chars(), 3)
+        ]
+    );
+}
+
+#[test]
 fn prefix_constraint_is_honored() {
     let mut trie = TrieMap::new();
     trie.insert(&"".c_chars(), 0);
