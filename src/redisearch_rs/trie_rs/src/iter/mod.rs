@@ -7,13 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! A trie map implementation with minimal memory footprint.
-//!
-//! Check [`TrieMap`]'s documentation for more details.
+//! Different iterators to traverse a [`TrieMap`](crate::TrieMap).
+pub mod filter;
+mod iter_;
+mod lending;
+mod values;
 
-pub mod iter;
-mod node;
-mod trie;
-mod utils;
-
-pub use trie::TrieMap;
+pub use iter_::Iter;
+pub use lending::LendingIter;
+pub use values::Values;
