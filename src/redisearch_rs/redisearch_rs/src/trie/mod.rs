@@ -4,16 +4,30 @@ use iter_types::TrieMapIteratorImpl;
 use lending_iterator::LendingIterator;
 use libc::timespec;
 use low_memory_thin_vec::LowMemoryThinVec;
-use redis_module::raw::RedisModule_Free;
+use redis_module::{RedisModule_Log, raw::RedisModule_Free};
 use std::{
     ffi::{CString, c_char, c_int, c_void},
     slice,
+    str::FromStr,
 };
 use trie_rs::iter::filter::WildcardFilter;
 use wildcard::WildcardPattern;
 
 /// cbindgen:ignore
 mod iter_types;
+
+/// Utility function to log a message through using Redis' log system.
+fn redis_log(msg: &str) {
+    let level = CString::from_str("debug").unwrap();
+    let msg = CString::from_str(msg).unwrap();
+    unsafe {
+        RedisModule_Log.expect("RedisModule_Log is not defined")(
+            std::ptr::null_mut(),
+            level.as_c_str().as_ptr(),
+            msg.as_c_str().as_ptr(),
+        )
+    };
+}
 
 /// The length of a key string in the trie.
 pub type tm_len_t = u16;
@@ -44,18 +58,6 @@ pub struct TrieMap(trie_rs::TrieMap<*mut c_void>);
 /// Callback type for passing to [`TrieMap_IterateRange`].
 pub type TrieMapRangeCallback =
     Option<unsafe extern "C" fn(*const c_char, libc::size_t, *mut c_void, *mut c_void)>;
-
-/// Type of the functions [`TrieMapIterator_Next`], [`TrieMapIterator_NextContains`],
-/// and [`TrieMapIterator_NextWildcard`].
-#[allow(dead_code)]
-pub type TrieMapIterator_NextFunc = Option<
-    unsafe extern "C" fn(
-        it: *mut TrieMapIterator,
-        ptr: *mut *mut c_char,
-        len: *mut tm_len_t,
-        value: *mut *mut c_void,
-    ) -> c_int,
->;
 
 /// Opaque type TrieMapIterator. Obtained from calling [`TrieMap_Iterate`].
 pub struct TrieMapIterator<'tm> {
@@ -146,7 +148,9 @@ pub unsafe extern "C" fn TrieMapResultBuf_Len(buf: *mut TrieMapResultBuf) -> usi
 #[unsafe(no_mangle)]
 pub extern "C" fn NewTrieMap() -> *mut TrieMap {
     let map = Box::new(TrieMap(trie_rs::TrieMap::new()));
-    Box::into_raw(map)
+    let ptr = Box::into_raw(map);
+    redis_log(&format!("TrieMap::new, with address {:?}", ptr));
+    ptr
 }
 
 /// Callback type for passing to [`TrieMap_Delete`].
@@ -202,6 +206,10 @@ pub unsafe extern "C" fn TrieMap_Add(
     } else {
         &[]
     };
+
+    let nice_key: &[u8] = unsafe { slice::from_raw_parts(str as *mut u8, len as usize) };
+    let nice_key = std::str::from_utf8(nice_key).expect("Non UTF-8 key");
+    redis_log(&format!("TrieMap::insert [{t:?}], key = \"{nice_key}\""));
 
     let mut was_vacant = true;
     trie.insert_with(key, |old| {
@@ -271,13 +279,13 @@ pub unsafe extern "C" fn TrieMap_NNodes(t: *mut TrieMap) -> usize {
 }
 
 #[unsafe(no_mangle)]
-/// Returns the debug representation of a TrieMap instance for debugging purposes.
+/// Log the debug representation of a TrieMap instance for debugging purposes.
 ///
 /// # Safety
 ///
 /// The following invariants must be upheld when calling this function:
 /// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
-pub unsafe extern "C" fn TrieMap_DebugRepr(t: *mut TrieMap) -> *const c_char {
+pub unsafe extern "C" fn TrieMap_DebugRepr(t: *mut TrieMap) {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
     // SAFETY: The safety requirements of this function
@@ -285,8 +293,8 @@ pub unsafe extern "C" fn TrieMap_DebugRepr(t: *mut TrieMap) -> *const c_char {
     // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
     // If that invariant is upheld, then the following line is sound.
     let TrieMap(trie) = unsafe { &mut *t };
-    // TODO: Fix, it leaks memory as is.
-    CString::new(format!("{trie:?}")).unwrap().into_raw()
+
+    redis_log(&format!("TrieMap [{t:?}], {trie:?}"));
 }
 
 /// Find the entry with a given string and length, and return its value, even if
@@ -318,6 +326,10 @@ pub unsafe extern "C" fn TrieMap_Find(
     if len > 0 {
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
     }
+
+    let nice_key: &[u8] = unsafe { slice::from_raw_parts(str as *mut u8, len as usize) };
+    let nice_key = std::str::from_utf8(nice_key).expect("Non UTF-8 key");
+    redis_log(&format!("TrieMap::find [{t:?}], key = \"{nice_key}\""));
 
     // SAFETY: The safety requirements of this function
     // state the caller is to ensure that the pointer `t` is
@@ -372,6 +384,12 @@ pub unsafe extern "C" fn TrieMap_FindPrefixes(
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
     }
 
+    let nice_key: &[u8] = unsafe { slice::from_raw_parts(str as *mut u8, len as usize) };
+    let nice_key = std::str::from_utf8(nice_key).expect("Non UTF-8 key");
+    redis_log(&format!(
+        "TrieMap::find_prefixes [{t:?}], key = \"{nice_key}\""
+    ));
+
     // SAFETY: The safety requirements of this function
     // state the caller is to ensure that the pointer `t` is
     // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
@@ -415,6 +433,10 @@ pub unsafe extern "C" fn TrieMap_Delete(
     if len > 0 {
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
     }
+
+    let nice_key: &[u8] = unsafe { slice::from_raw_parts(str as *mut u8, len as usize) };
+    let nice_key = std::str::from_utf8(nice_key).expect("Non UTF-8 key");
+    redis_log(&format!("TrieMap::delete [{t:?}], key = \"{nice_key}\""));
 
     // SAFETY: The safety requirements of this function
     // state the caller is to ensure that the pointer `t` is
@@ -553,6 +575,16 @@ pub unsafe extern "C" fn TrieMap_Iterate<'tm>(
     } else {
         &[]
     };
+
+    let nice_pattern = if prefix_len > 0 {
+        let nice: &[u8] = unsafe { slice::from_raw_parts(prefix as *mut u8, prefix_len as usize) };
+        std::str::from_utf8(nice).expect("Non UTF-8 key")
+    } else {
+        ""
+    };
+    redis_log(&format!(
+        "TrieMap::iterate [{t:?}], prefix = \"{nice_pattern}\", mode = {iter_mode:?}"
+    ));
 
     // SAFETY: Caller is to ensure that the pointer `t` is
     // a valid, non-null pointer to a TrieMap.
@@ -783,6 +815,8 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
     if maxlen > 0 {
         debug_assert!(!max.is_null(), "max cannot be NULL if maxlen > 0");
     }
+
+    redis_log(&format!("TrieMap::iter_range [{trie:?}]"));
 
     let min = match minlen {
         ..0 => None,

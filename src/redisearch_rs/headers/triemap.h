@@ -181,14 +181,14 @@ uintptr_t TrieMap_NUniqueKeys(struct TrieMap *t);
 uintptr_t TrieMap_NNodes(struct TrieMap *t);
 
 /**
- * Returns the debug representation of a TrieMap instance for debugging purposes.
+ * Log the debug representation of a TrieMap instance for debugging purposes.
  *
  * # Safety
  *
  * The following invariants must be upheld when calling this function:
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  */
-const char *TrieMap_DebugRepr(struct TrieMap *t);
+void TrieMap_DebugRepr(struct TrieMap *t);
 
 /**
  * Find the entry with a given string and length, and return its value, even if
