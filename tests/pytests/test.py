@@ -4282,17 +4282,38 @@ def test_timeout_non_strict_policy(env):
     populate_db(env, text=True, n_per_shard=n)
 
     # Query the index with a small timeout, and verify that we get partial results
-    num_docs = n * env.shardsCount
-    res = conn.execute_command(
-        'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
-        )
-    env.assertTrue(len(res) < num_docs * 2 + 1)
+    # i.e., less results than the total number of documents that match the query.
+    # Since a timeout ERROR is possible if it occurs in the pipeline creation
+    # phase, we may need to retry the query a few times.
+    with TimeLimit(7, "Failed getting partial results - either due to continuous early timeouts, or due to a different error."):
+        while True:
+            try:
+                num_docs = n * env.shardsCount
+                res = conn.execute_command(
+                    'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+                )
+                env.assertTrue(len(res) < num_docs * 2 + 1)
+                break
+            except redis.ResponseError as e:
+                # This is a possible error - depicting that we timed out early
+                # on - try again.
+                env.assertEqual(str(e), 'Timeout limit was reached during command parsing')
 
     # Same for `FT.AGGREGATE`
-    res = conn.execute_command(
-        'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text1', 'TIMEOUT', '1'
-        )
-    env.assertTrue(len(res) < num_docs + 1)
+    # We use the TimeLimit from the same reason as above.
+    with TimeLimit(7, "Failed getting partial results - either due to continuous early timeouts, or due to a different error."):
+        while True:
+            try:
+                num_docs = n * env.shardsCount
+                res = conn.execute_command(
+                    'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text1', 'TIMEOUT', '1'
+                )
+                env.assertTrue(len(res) < num_docs + 1)
+                break
+            except redis.ResponseError as e:
+                # This is a possible error - depicting that we timed out early
+                # on - try again.
+                env.assertEqual(str(e), 'Timeout limit was reached during command parsing')
 
 def test_timeout_strict_policy():
     """Tests that we get the wanted behavior for the strict timeout policy.

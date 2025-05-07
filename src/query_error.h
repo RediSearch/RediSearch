@@ -56,6 +56,7 @@ extern "C" {
   X(QUERY_EUNSUPPTYPE, "Unsupported index type")                                                 \
   X(QUERY_ENOTNUMERIC, "Could not convert value to a number")                                    \
   X(QUERY_ETIMEDOUT, "Timeout limit was reached")                                                \
+  X(QUERY_EEARLYTIMEDOUT, "Timeout limit was reached during command parsing")                    \
   X(QUERY_ENOPARAM, "Parameter not found")                                                       \
   X(QUERY_EDUPPARAM, "Parameter was specified twice")                                            \
   X(QUERY_EBADVAL, "Invalid value was given")                                                    \
