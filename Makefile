@@ -460,7 +460,7 @@ PACK_ARGS=\
 	RAMP_YAML=$(RAMP_YAML) \
 	RAMP_ARGS=$(RAMP_ARGS)
 
-RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 $(PACK_ARGS) $(ROOT)/sbin/pack.sh)
+RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 $(PACK_ARGS) $(ROOT)/sbin/pack.sh)
 
 ifneq ($(FORCE),1)
 bin/artifacts/$(RAMP.release): $(RAMP_YAML) # $(TARGET)
