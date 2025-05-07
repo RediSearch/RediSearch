@@ -18,8 +18,10 @@ mod iter_types;
 
 /// Utility function to log a message through using Redis' log system.
 fn redis_log(msg: &str) {
-    let level = CString::from_str("debug").unwrap();
-    let msg = CString::from_str(msg).unwrap();
+    let level =
+        CString::from_str("debug").expect("The debug level failed to converted to a CString");
+    let msg = CString::from_str(&msg.replace('\0', "�"))
+        .expect("The log message failed to be converted to a CString");
     unsafe {
         RedisModule_Log.expect("RedisModule_Log is not defined")(
             std::ptr::null_mut(),
@@ -207,8 +209,11 @@ pub unsafe extern "C" fn TrieMap_Add(
         &[]
     };
 
-    let nice_key: &[u8] = unsafe { slice::from_raw_parts(str as *mut u8, len as usize) };
-    let nice_key = String::from_utf8_lossy(nice_key);
+    let nice_key = if len > 0 {
+        String::from_utf8_lossy(unsafe { slice::from_raw_parts(str as *mut u8, len as usize) })
+    } else {
+        "".into()
+    };
     redis_log(&format!("TrieMap::insert [{t:?}], key = \"{nice_key}\""));
 
     let mut was_vacant = true;
@@ -327,7 +332,11 @@ pub unsafe extern "C" fn TrieMap_Find(
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
     }
 
-    let nice_key: &[u8] = unsafe { slice::from_raw_parts(str as *mut u8, len as usize) };
+    let nice_key: &[u8] = if len > 0 {
+        unsafe { slice::from_raw_parts(str as *mut u8, len as usize) }
+    } else {
+        &[]
+    };
     let nice_key = String::from_utf8_lossy(nice_key);
     redis_log(&format!("TrieMap::find [{t:?}], key = \"{nice_key}\""));
 
@@ -384,8 +393,11 @@ pub unsafe extern "C" fn TrieMap_FindPrefixes(
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
     }
 
-    let nice_key: &[u8] = unsafe { slice::from_raw_parts(str as *mut u8, len as usize) };
-    let nice_key = String::from_utf8_lossy(nice_key);
+    let nice_key = if len > 0 {
+        String::from_utf8_lossy(unsafe { slice::from_raw_parts(str as *mut u8, len as usize) })
+    } else {
+        "".into()
+    };
     redis_log(&format!(
         "TrieMap::find_prefixes [{t:?}], key = \"{nice_key}\""
     ));
@@ -437,8 +449,11 @@ pub unsafe extern "C" fn TrieMap_Delete(
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
     }
 
-    let nice_key: &[u8] = unsafe { slice::from_raw_parts(str as *mut u8, len as usize) };
-    let nice_key = String::from_utf8_lossy(nice_key);
+    let nice_key = if len > 0 {
+        String::from_utf8_lossy(unsafe { slice::from_raw_parts(str as *mut u8, len as usize) })
+    } else {
+        "".into()
+    };
     redis_log(&format!("TrieMap::delete [{t:?}], key = \"{nice_key}\""));
 
     // SAFETY: The safety requirements of this function
@@ -489,13 +504,15 @@ pub unsafe extern "C" fn TrieMap_Delete(
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
 /// - `func` must either be NULL or a valid pointer to a function of type [`freeCB`].
 /// - The Redis allocator must be initialized before calling this function,
 ///   and `RedisModule_Free` must not get mutated while running this function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Free(t: *mut TrieMap, func: freeCB) {
-    debug_assert!(!t.is_null(), "t cannot be NULL");
+    if t.is_null() {
+        return;
+    }
+
     // Reconstruct the original Box<TrieMap> which will take care of freeing the memory
     // upon dropping.
     // SAFETY: The safety requirements of this function
@@ -547,7 +564,13 @@ pub unsafe extern "C" fn TrieMap_MemUsage(t: *mut TrieMap) -> usize {
     // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
     // If that invariant is upheld, then the following line is sound.
     let TrieMap(trie) = unsafe { &*t };
-    trie.mem_usage()
+    let usage = trie.mem_usage();
+
+    redis_log(&format!(
+        "TrieMap::mem_usage [{t:?}], usage = {usage} bytes"
+    ));
+
+    usage
 }
 
 /// Iterate the trie for all the suffixes of a given prefix. This returns an

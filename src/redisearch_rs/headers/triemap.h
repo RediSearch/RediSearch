@@ -248,7 +248,6 @@ int TrieMap_Delete(struct TrieMap *t, const char *str, tm_len_t len, freeCB func
  *
  * # Safety
  * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  * - `func` must either be NULL or a valid pointer to a function of type [`freeCB`].
  * - The Redis allocator must be initialized before calling this function,
  *   and `RedisModule_Free` must not get mutated while running this function.
