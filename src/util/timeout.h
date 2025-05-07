@@ -109,10 +109,10 @@ static inline int TimedOut_WithCtx_Gran(TimeoutCtx *ctx, uint32_t gran) {
 }
 
 // Check if time has been reached
-static inline int TimedOut_WithStatus(struct timespec *timeout, QueryError *status) {
+static inline int TimedOut_WithStatus(struct timespec *timeout, QueryError *status, bool early) {
   int rc = TimedOut(timeout);
   if (status && rc == TIMED_OUT) {
-    QueryError_SetCode(status, QUERY_ETIMEDOUT);
+    QueryError_SetCode(status, early ? QUERY_EEARLYTIMEDOUT : QUERY_ETIMEDOUT);
   }
   return rc;
 }
