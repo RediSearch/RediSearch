@@ -12,6 +12,8 @@ use std::ffi::c_char;
 
 use wildcard::{MatchOutcome, WildcardPattern};
 
+use crate::utils::is_prefix;
+
 #[derive(Clone, Copy)]
 /// The outcome of [`TraversalFilter::filter`].
 pub struct FilterOutcome {
@@ -85,6 +87,26 @@ impl TraversalFilter for WildcardFilter<'_> {
                 yield_current: false,
                 visit_descendants: false,
             },
+        }
+    }
+}
+
+/// Return all trie entries whose key is a prefix of `self.0`.
+pub struct IsPrefixFilter<'a> {
+    needle: &'a [c_char],
+}
+
+impl<'a> IsPrefixFilter<'a> {
+    pub fn new(needle: &'a [c_char]) -> Self {
+        Self { needle }
+    }
+}
+impl TraversalFilter for IsPrefixFilter<'_> {
+    fn filter(&self, key: &[c_char]) -> FilterOutcome {
+        let is_prefix = is_prefix(self.needle, key);
+        FilterOutcome {
+            yield_current: is_prefix,
+            visit_descendants: is_prefix && key.len() < self.needle.len(),
         }
     }
 }

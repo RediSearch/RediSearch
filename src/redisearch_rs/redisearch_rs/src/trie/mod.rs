@@ -10,7 +10,7 @@ use std::{
     slice,
     str::FromStr,
 };
-use trie_rs::iter::filter::WildcardFilter;
+use trie_rs::iter::filter::{IsPrefixFilter, WildcardFilter};
 use wildcard::WildcardPattern;
 
 /// cbindgen:ignore
@@ -208,7 +208,7 @@ pub unsafe extern "C" fn TrieMap_Add(
     };
 
     let nice_key: &[u8] = unsafe { slice::from_raw_parts(str as *mut u8, len as usize) };
-    let nice_key = std::str::from_utf8(nice_key).expect("Non UTF-8 key");
+    let nice_key = String::from_utf8_lossy(nice_key);
     redis_log(&format!("TrieMap::insert [{t:?}], key = \"{nice_key}\""));
 
     let mut was_vacant = true;
@@ -328,7 +328,7 @@ pub unsafe extern "C" fn TrieMap_Find(
     }
 
     let nice_key: &[u8] = unsafe { slice::from_raw_parts(str as *mut u8, len as usize) };
-    let nice_key = std::str::from_utf8(nice_key).expect("Non UTF-8 key");
+    let nice_key = String::from_utf8_lossy(nice_key);
     redis_log(&format!("TrieMap::find [{t:?}], key = \"{nice_key}\""));
 
     // SAFETY: The safety requirements of this function
@@ -385,7 +385,7 @@ pub unsafe extern "C" fn TrieMap_FindPrefixes(
     }
 
     let nice_key: &[u8] = unsafe { slice::from_raw_parts(str as *mut u8, len as usize) };
-    let nice_key = std::str::from_utf8(nice_key).expect("Non UTF-8 key");
+    let nice_key = String::from_utf8_lossy(nice_key);
     redis_log(&format!(
         "TrieMap::find_prefixes [{t:?}], key = \"{nice_key}\""
     ));
@@ -406,9 +406,12 @@ pub unsafe extern "C" fn TrieMap_FindPrefixes(
         &[]
     };
 
-    let iter = trie.prefixed_values(prefix).copied();
-    let vec = LowMemoryThinVec::from_iter(iter);
-    TrieMapResultBuf(vec)
+    let iter = trie
+        .iter()
+        .traversal_filter(IsPrefixFilter::new(prefix))
+        .map(|(_, v)| v)
+        .copied();
+    TrieMapResultBuf(LowMemoryThinVec::from_iter(iter))
 }
 
 /// Mark a node as deleted. It also optimizes the trie by merging nodes if
@@ -435,7 +438,7 @@ pub unsafe extern "C" fn TrieMap_Delete(
     }
 
     let nice_key: &[u8] = unsafe { slice::from_raw_parts(str as *mut u8, len as usize) };
-    let nice_key = std::str::from_utf8(nice_key).expect("Non UTF-8 key");
+    let nice_key = String::from_utf8_lossy(nice_key);
     redis_log(&format!("TrieMap::delete [{t:?}], key = \"{nice_key}\""));
 
     // SAFETY: The safety requirements of this function
@@ -578,9 +581,9 @@ pub unsafe extern "C" fn TrieMap_Iterate<'tm>(
 
     let nice_pattern = if prefix_len > 0 {
         let nice: &[u8] = unsafe { slice::from_raw_parts(prefix as *mut u8, prefix_len as usize) };
-        std::str::from_utf8(nice).expect("Non UTF-8 key")
+        String::from_utf8_lossy(nice)
     } else {
-        ""
+        "".into()
     };
     redis_log(&format!(
         "TrieMap::iterate [{t:?}], prefix = \"{nice_pattern}\", mode = {iter_mode:?}"

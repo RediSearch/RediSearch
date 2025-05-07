@@ -18,11 +18,19 @@ pub(crate) fn memchr_c_char(target: c_char, slice: &[c_char]) -> Option<usize> {
 /// A version of `std`'s `strip_prefix` that's built on top of [`memchr::arch::is_prefix`].
 #[inline(always)]
 pub(crate) fn strip_prefix<'a>(haystack: &'a [c_char], prefix: &[c_char]) -> Option<&'a [c_char]> {
-    if !memchr::arch::all::is_prefix(to_u8_slice(haystack), to_u8_slice(prefix)) {
+    if !is_prefix(haystack, prefix) {
         None
     } else {
         Some(&haystack[prefix.len()..])
     }
+}
+
+/// Returns `true` if `needle` is a prefix of `haystack`.
+///
+/// A version of [`memchr::arch::is_prefix`] that takes `&[c_char]` as input, rather than `&[u8]`.
+#[inline(always)]
+pub(crate) fn is_prefix<'a>(haystack: &'a [c_char], needle: &[c_char]) -> bool {
+    memchr::arch::all::is_prefix(to_u8_slice(haystack), to_u8_slice(needle))
 }
 
 #[inline(always)]
