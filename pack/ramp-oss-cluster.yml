@@ -22,3 +22,34 @@ capabilities:
     - crdb
     - eviction_expiry
     - hash_policy
+    - intershard_tls
+    - intershard_tls_pass
+    - ipv6
+exclude_commands:
+    - FT.CREATE
+    - FT.DROP
+    - FT.DROPINDEX
+    - FT.ALIASADD
+    - FT.ALIASDEL
+    - FT.ALIASUPDATE
+    - FT.ALTER
+    - FT.DICTADD
+    - FT.DICTDEL
+    - FT.SYNUPDATE
+    - FT._CREATEIFNX
+    - FT._DROPIFX
+    - FT._DROPINDEXIFX
+    - FT._ALTERIFNX
+    - FT._ALIASADDIFNX
+    - FT._ALIASDELIFX
+    - _FT.CONFIG
+    - _FT.DEBUG
+    - search.CLUSTERREFRESH
+    - search.CLUSTERINFO
+overide_command:
+    - {"command_arity": -1, "command_name": "FT.SUGADD", "first_key": 0, "flags": ["write"], "last_key": 0, "step": -1}
+    - {"command_arity": -1, "command_name": "FT.SUGDEL", "first_key": 0, "flags": ["write"], "last_key": 0, "step": -1}
+    - {"command_arity": -1, "command_name": "FT.AGGREGATE", "first_key": 0, "flags": ["readonly" ], "last_key": 1, "step": -2}
+    - {"command_arity": -1, "command_name": "FT.CURSOR", "first_key": 3, "flags": ["readonly"], "last_key": 1, "step": -3}
+    - {"command_arity": -1, "command_name": "FT.SEARCH", "first_key": 0, "flags": ["readonly"], "last_key": 0, "step": -1}
+
