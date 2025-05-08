@@ -2192,6 +2192,10 @@ void IndexesScanner_Free(IndexesScanner *scanner) {
     }
     WeakRef_Release(scanner->spec_ref);
   }
+  // Free the last scanned key
+  if (scanner->lastScannedKey) {
+    RedisModule_FreeString(RSDummyContext, scanner->lastScannedKey);
+  }
   rm_free(scanner);
 }
 
@@ -2228,6 +2232,8 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     key = RedisModule_OpenKey(ctx, keyname, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
     keyOpened = true;
   }
+
+  scanner->lastScannedKey = RedisModule_HoldString(RSDummyContext, keyname);
 
   // Get the document type
   DocumentType type = getDocType(key);
