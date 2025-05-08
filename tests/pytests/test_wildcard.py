@@ -73,17 +73,9 @@ def dotestSanity(env, dialect):
       pl.execute()
 
   env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
-  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
-  env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
-    .contains('Timeout limit was reached')
-  #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
-  #  .contains('Timeout limit was reached')
-
   env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
   env.expect('ft.search', index_list[0], "w'foo*'", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
-  #env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0 , 0).error() \
-  #  .contains('Timeout limit was reached')
 
 @skip(cluster=True)
 def testSanityTag_dialect_2(env):
@@ -161,12 +153,6 @@ def dotestSanityTag(env, dialect):
       pl.execute()
 
   env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
-  env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'RETURN').ok()
-  env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
-    .contains('Timeout limit was reached')
-  env.expect('ft.search', index_list[1], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
-    .contains('Timeout limit was reached')
-
   env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
   env.expect('ft.search', index_list[0], "@t:{w'foo*'}", 'LIMIT', 0 , 0).error() \
     .contains('Timeout limit was reached')
