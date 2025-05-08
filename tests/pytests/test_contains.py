@@ -127,14 +127,8 @@ def testSanity(env: Env):
         pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
         pl.execute()
 
-    env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-    env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
+    env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
     env.expect('ft.search', index_list[0], 'foo*', 'LIMIT', 0, 0).error() \
       .contains('Timeout limit was reached')
     env.expect('ft.search', index_list[1], 'foo*', 'LIMIT', 0, 0).error() \
@@ -198,14 +192,8 @@ def testSanityTags(env):
         pl.execute_command('HSET', 'doc%d' % (i + item_qty * 3), 't', 'foofo%d' % i)
         pl.execute()
 
-    env.expect('ft.config', 'set', 'TIMEOUT', 1).ok()
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'RETURN').ok()
-    env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-    env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0, 0).error() \
-      .contains('Timeout limit was reached')
-
-    env.expect('ft.config', 'set', 'ON_TIMEOUT', 'FAIL').ok()
+    env.expect(config_cmd(), 'set', 'TIMEOUT', 1).ok()
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
     env.expect('ft.search', index_list[0], '@t:{foo*}', 'LIMIT', 0, 0).error() \
       .contains('Timeout limit was reached')
     env.expect('ft.search', index_list[1], '@t:{foo*}', 'LIMIT', 0, 0).error() \
