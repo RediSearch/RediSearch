@@ -1,3 +1,13 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+
 #![allow(non_camel_case_types, non_snake_case)]
 
 use iter_types::TrieMapIteratorImpl;
@@ -723,12 +733,12 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
         trie.lending_iter()
             .filter(pred)
             .fuse()
-            // Safety: caller is to ensure `callback` be
-            // a valid pointer to a function of type [`TrieMapRangeCallback`]
             .for_each(|(key, value)| {
                 let key_len = key.len();
                 // `u8` and `c_char` can be safely transmuted back and forth.
                 let key_ptr = key.as_ptr().cast();
+                // Safety: caller is to ensure `callback` be
+                // a valid pointer to a function of type [`TrieMapRangeCallback`]
                 unsafe {
                     (callback)(key_ptr, key_len, *value, ctx);
                 }
@@ -762,10 +772,10 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
     let max: Option<&[u8]> = match maxlen {
         ..0 => None,
         0 => Some([].as_slice()),
-        // SAFETY: caller is to ensure that max is not null in case maxlen > 0,
-        // and that max points to a contiguous slice of bytes of len maxlen
         1.. => {
             debug_assert!(!max.is_null(), "max cannot be NULL if maxlen > 0");
+            // SAFETY: caller is to ensure that max is not null in case maxlen > 0,
+            // and that max points to a contiguous slice of bytes of len maxlen
             Some(unsafe { std::slice::from_raw_parts(max.cast(), maxlen as usize) })
         }
     };
