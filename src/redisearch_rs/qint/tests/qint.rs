@@ -83,7 +83,7 @@ fn test_qint_zeros() -> Result<(), std::io::Error> {
 }
 
 #[test]
-fn test_multiple_qints_in_a_buffer()  -> Result<(), std::io::Error> {
+fn test_multiple_qints_in_a_buffer() -> Result<(), std::io::Error> {
     let v2 = [3333, 10]; // 2bytes, 1byte
     let v3 = [1_000_000_000, 70_000, 20]; // 4 bytes, 3 bytes, 1 byte
     let v4 = [2_500_000_000, 90_000, 0xFF, 1_500_000_000]; // 4 bytes, 3 bytes, 1 byte, 4 bytes
@@ -174,34 +174,34 @@ mod property_based {
     //!  
     //! The module defines strategies for generating random test data: [qint_varlen], [qint2], [qint3], [qint4], and [qint_encoding].  
     //! These strategies produce arrays of `u32` integers along with their expected sizes in bytes, which are used to test the encoding and decoding logic.  
-    //! 
+    //!
     //! The [qint_varlen] strategy generates random integers, where each integer is 1 to 4 bytes long.  
     //! Each byte is assigned a random value between 0 and 255. This way we get the same distribution of 1-4 bytes as in the encoding
-    //! whereas a normal random u32 would strongly bias the distribution towards 4 bytes. 
+    //! whereas a normal random u32 would strongly bias the distribution towards 4 bytes.
     //! If we would create a u32 from random bytes we would have a strong bias towards 4 bytes as the probability of getting a 3 byte
     //! integer value is already 2^8 times smaller than that of a 4 byte value.
     //!  
     //! Using [qint_varlen], the [qint2], [qint3], and [qint4] strategies build [PropEncoding] variants.  
     //! For example, `PropEncoding::QInt3(([100, 2000, 30000], [1, 2, 3]))` represents three integers with sizes of 1, 2, and 3 bytes, respectively.  
-    //! These variants serve as input for property-based tests. 
-    //! 
+    //! These variants serve as input for property-based tests.
+    //!
     //! ## How to handle failures of Property-based tests
-    //! 
-    //! When a property-based test fails, it will print the input that caused the failure. The property-based test framework will try to minimize the 
+    //!
+    //! When a property-based test fails, it will print the input that caused the failure. The property-based test framework will try to minimize the
     //! input size to find a minimal failing case. In our case a [qint2] is considered smaller than a [qint3] and so on. This is decided by the ordering
-    //! in the [PropEncoding] enum as an implementation detail of the property-based test framework. For integers like num_bytes=1..=4 the framework 
+    //! in the [PropEncoding] enum as an implementation detail of the property-based test framework. For integers like num_bytes=1..=4 the framework
     //! will try to minimize the number of bytes.
-    //! 
+    //!
     //! It is advisable to use that input to write a unit test for the failure.
-    //! 
+    //!
     //! In case of a failure you get an error message like this:
     //! ```text
     //! proptest: Saving this and future failures in .../RediSearch/src/redisearch_rs/qint/tests/qint.proptest-regressions
     //! proptest: If this test was run on a CI system, you may wish to add the following line to your copy of the file. (You may need to create it.)
     //! cc 14694d891a3112acab7bf19e0b77a965d75e90fb417cca8273871d5c2a8739a9
-    //! 
+    //!
     //! thread 'property_based::test_encoding_with_varied_buffer' panicked at qint/tests/qint.rs:342:5:
-    //! Test failed: assertion failed: `(left == right)` 
+    //! Test failed: assertion failed: `(left == right)`
     //! left: `false`,
     //! right: `true` at qint/tests/qint.rs:350.
     //! minimal failing input: prop_encoding = QInt2(
@@ -220,16 +220,16 @@ mod property_based {
     //!       local rejects: 0
     //!       global rejects: 0
     //! ```
-    //! 
+    //!
     //! The property test framework provides information the cc 14694d891a3112acab7bf19e0b77a965d75e90fb417cca8273871d5c2a8739a9
     //! which is a hash of the input. This hash can be used to reproduce the test case and is stored in the file `qint.proptest-regressions`.
-    //! 
+    //!
     //! The line `minimal failing input: prop_encoding = QInt2(...)` and the following lines shows the input that caused the failure and is helpful
     //! to rewrite the test case as a unit test. The input is a [PropEncoding] enum with the values that caused the failure. `buffer_size` is the size
     //! of the buffer that is used internally by the proptest to test both succeeding and failing cases.
-    //! 
+    //!
     //! successes are the number of tests that passed before the failing test run. Local rejects are input filters implement in input strategies. Global rejects are the number
-    //! serve a similar purpose but are encoded at test level with the `prop_assume` macro. These both local and global rejects are helpful to 
+    //! serve a similar purpose but are encoded at test level with the `prop_assume` macro. These both local and global rejects are helpful to
     //! write specialized tests, e.g. tests where the `buffer_size` is always too small to fit the encoded integers.
 
     use ::qint::{qint_decode, qint_encode};
@@ -241,7 +241,7 @@ mod property_based {
         prop_compose, prop_oneof,
         strategy::Strategy,
     };
-    use rand::{RngCore as _, SeedableRng as _};
+    use rand::{Rng as _, SeedableRng as _};
 
     #[derive(Debug, Clone)]
     pub enum PropEncoding {
@@ -289,7 +289,7 @@ mod property_based {
             let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
             let mut forward_size = num_bytes;
             for item in bytes.iter_mut().take(num_bytes) {
-                *item = (rng.next_u32() & 0x000000FF) as u8;
+                *item = rng.random_range(0..=255);
             }
 
             // we use a repair step instead of local or global rejects because we want to
