@@ -93,7 +93,7 @@ static void DebugIndexes_pauseOnOOMcheck(DebugIndexesScanner* dScanner, RedisMod
 
 //---------------------------------------------------------------------------------------------
 
-static inline void scanWaitAfterOOM(RedisModuleCtx *ctx);
+static inline void threadSleepByConfigTime(RedisModuleCtx *ctx);
 static inline void scanStopAfterOOM(RedisModuleCtx *ctx);
 
 
@@ -2322,7 +2322,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
       if (scanner->scanFaileOnOOM) {
         if (retry_after_oom) {
           // Call the wait function
-          scanWaitAfterOOM(ctx);
+          threadSleepByConfigTime(ctx);
           // Reset the cursor and
           RedisModule_ScanCursorRestart(cursor);
           // Reset the scanner
@@ -3499,7 +3499,13 @@ static void DebugIndexes_pauseOnOOMcheck(DebugIndexesScanner* dScanner, RedisMod
 // This function should be called after the first background scan OOM error
 // It will wait for resource manager to allocate more memory to the process if possible
 // and after the function returns, the scan will continue
-static inline void scanWaitAfterOOM(RedisModuleCtx *ctx) {
+static inline void threadSleepByConfigTime(RedisModuleCtx *ctx) {
+  // Thread sleep based on the config
+  int sleepTime = RSGlobalConfig.bgIndexingOomPauseTimeForRsMgr * 1000; // @Omer Verify time unit
+  if (sleepTime > 0) {
+    RedisModule_Log(ctx, "warning", "Waiting for memory allocation to continue scan");
+    usleep(sleepTime);
+  }
   return;
 }
 
@@ -3527,5 +3533,4 @@ static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner
       }
     }
     rm_free(error);
-  */
 }
