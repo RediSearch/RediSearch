@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-
 use lending_iterator::{lending_iterator::adapters::Filter, prelude::*};
 use std::ffi::c_void;
 use trie_rs::iter::filter::{VisitAll, WildcardFilter};
