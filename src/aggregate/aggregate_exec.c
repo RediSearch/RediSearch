@@ -805,8 +805,7 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     QOptimizer_Iterators(req, req->optimizer);
   }
 
-  // Early timeout check (i.e., before pipeline execution)
-  TimedOut_WithStatus(&sctx->time.timeout, status, true);
+  TimedOut_WithStatus(&sctx->time.timeout, status);
 
   if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
