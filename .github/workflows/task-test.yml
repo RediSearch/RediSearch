@@ -50,7 +50,10 @@ env:
   # flags, and therefore reuse the same intermediate build artifacts.
   RUST_DENY_WARNS: 1
   RUST_PROFILE: "optimised_test"
-
+  SCCACHE_BUCKET: search-sscache
+  SCCACHE_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 jobs:
   common-flow:
     name: Test ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
@@ -163,11 +166,16 @@ jobs:
           # Checkout the REF
           git fetch origin ${{ inputs.get-redis }}
           git checkout ${{ inputs.get-redis }}
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+        with:
+          cache-size: 10G
+          cache-only: true
 
       - name: Build Redis
         working-directory: redis
         run: |
-          ${{ steps.mode.outputs.mode }} SANITIZER=${{ inputs.san }} BUILD_TLS=yes make install
+          ${{ steps.mode.outputs.mode }} SANITIZER=${{ inputs.san }} BUILD_TLS=yes CC="${SCCACHE_PATH} $(command -v ${CC:-gcc})" CXX="${SCCACHE_PATH} $(command -v ${CC:-gcc})" make install
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
         # We also remove invalid characters from the name.
@@ -180,6 +188,7 @@ jobs:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
+          CMAKE_ARGS: '-DCMAKE_C_COMPILER_LAUNCHER=${SCCACHE_PATH} -DCMAKE_CXX_COMPILER_LAUNCHER=${SCCACHE_PATH}'
         run: ./build.sh TESTS
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
