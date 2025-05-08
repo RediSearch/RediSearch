@@ -11,7 +11,7 @@
 //! Adapted from the [`wildcard` crate][wildcard]
 //!
 //! [wildcard]: https://github.com/cloudflare/wildcard/blob/c560ef01dda595d038e2f46b91cd5804fccb00e0/src/lib.rs#L1170-L1432
-use crate::{matches, utils::chunk_to_string};
+use crate::matches;
 use proptest::{prelude::*, proptest};
 use std::{fmt, ops::Range};
 use wildcard::{Token, WildcardPattern};
@@ -108,8 +108,8 @@ fn generate_matching_keys(pattern: &[u8], num_keys: usize, rng: impl Rng) -> Vec
 
 impl fmt::Debug for PatternAndKeys {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let pattern = chunk_to_string(&self.pattern);
-        let keys = Vec::from_iter(self.keys.iter().map(|k| chunk_to_string(k)));
+        let pattern = String::from_utf8_lossy(&self.pattern);
+        let keys = Vec::from_iter(self.keys.iter().map(|k| String::from_utf8_lossy(k)));
         f.debug_struct("PatternAndKeys")
             .field("pattern", &pattern)
             .field("keys", &keys)

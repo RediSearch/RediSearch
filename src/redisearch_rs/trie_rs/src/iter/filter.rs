@@ -8,11 +8,8 @@
 */
 
 //! Utilities to control which nodes are visited during iteration.
-use std::ffi::c_char;
-
+use memchr::arch::all::is_prefix;
 use wildcard::{MatchOutcome, WildcardPattern};
-
-use crate::utils::is_prefix;
 
 #[derive(Clone, Copy)]
 /// The outcome of [`TraversalFilter::filter`].
@@ -34,15 +31,15 @@ pub trait TraversalFilter {
     /// the current node—i.e. the concatenation of the
     /// labels associated with every node between the
     /// root of the trie and the current one.
-    fn filter(&self, key: &[c_char]) -> FilterOutcome;
+    fn filter(&self, key: &[u8]) -> FilterOutcome;
 }
 
 /// Implement the trait for all closures that match the expected signature.
 impl<F> TraversalFilter for F
 where
-    F: Fn(&[c_char]) -> FilterOutcome,
+    F: Fn(&[u8]) -> FilterOutcome,
 {
-    fn filter(&self, key: &[c_char]) -> FilterOutcome {
+    fn filter(&self, key: &[u8]) -> FilterOutcome {
         self(key)
     }
 }
@@ -51,7 +48,7 @@ where
 pub struct VisitAll;
 
 impl TraversalFilter for VisitAll {
-    fn filter(&self, _key: &[c_char]) -> FilterOutcome {
+    fn filter(&self, _key: &[u8]) -> FilterOutcome {
         FilterOutcome {
             yield_current: true,
             visit_descendants: true,
@@ -60,16 +57,16 @@ impl TraversalFilter for VisitAll {
 }
 
 /// Returns all trie entries that match the given wildcard pattern.
-pub struct WildcardFilter<'a>(WildcardPattern<'a, c_char>);
+pub struct WildcardFilter<'a>(WildcardPattern<'a>);
 
-impl<'a> From<WildcardPattern<'a, c_char>> for WildcardFilter<'a> {
-    fn from(value: WildcardPattern<'a, c_char>) -> Self {
+impl<'a> From<WildcardPattern<'a>> for WildcardFilter<'a> {
+    fn from(value: WildcardPattern<'a>) -> Self {
         Self(value)
     }
 }
 
 impl TraversalFilter for WildcardFilter<'_> {
-    fn filter(&self, key: &[c_char]) -> FilterOutcome {
+    fn filter(&self, key: &[u8]) -> FilterOutcome {
         match self.0.matches(key) {
             MatchOutcome::Match => FilterOutcome {
                 yield_current: true,
@@ -93,20 +90,20 @@ impl TraversalFilter for WildcardFilter<'_> {
 
 /// Return all trie entries whose key is a prefix of `self.0`.
 pub struct IsPrefixFilter<'a> {
-    needle: &'a [c_char],
+    haystack: &'a [u8],
 }
 
 impl<'a> IsPrefixFilter<'a> {
-    pub fn new(needle: &'a [c_char]) -> Self {
-        Self { needle }
+    pub fn new(needle: &'a [u8]) -> Self {
+        Self { haystack: needle }
     }
 }
 impl TraversalFilter for IsPrefixFilter<'_> {
-    fn filter(&self, key: &[c_char]) -> FilterOutcome {
-        let is_prefix = is_prefix(self.needle, key);
+    fn filter(&self, key: &[u8]) -> FilterOutcome {
+        let is_prefix = is_prefix(self.haystack, key);
         FilterOutcome {
             yield_current: is_prefix,
-            visit_descendants: is_prefix && key.len() < self.needle.len(),
+            visit_descendants: is_prefix && key.len() < self.haystack.len(),
         }
     }
 }

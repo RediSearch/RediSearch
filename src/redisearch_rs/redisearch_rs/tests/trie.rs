@@ -141,8 +141,8 @@ where
             )
         } {
             // Safety: We're reconstructing the keys and the values created in `with_trie_map`
-            let key = unsafe { std::slice::from_raw_parts(char, len as usize) };
-            let key = String::from_utf8(key.iter().copied().map(|c| c as u8).collect()).unwrap();
+            let key: &[u8] = unsafe { std::slice::from_raw_parts(char.cast(), len as usize) };
+            let key = String::from_utf8(key.to_vec()).unwrap();
 
             // Safety: We're reconstructing the keys and the values created in `with_trie_map`
             let value = unsafe { *(value as *mut u8) };
@@ -160,7 +160,7 @@ where
 #[test]
 fn test_trie_find_prefixes() {
     with_trie_map(|t| {
-        let prefix = str2c_char("b");
+        let prefix = str2c_char("bistro");
 
         // Safety: We adhere to all the safety requirements of `TrieMap_FindPrefixes`
         let buf = unsafe { TrieMap_FindPrefixes(t, prefix.as_ptr(), prefix.len() as tm_len_t) };
@@ -172,7 +172,7 @@ fn test_trie_find_prefixes() {
             results.push(value);
         }
 
-        assert_eq!(results, &[0, 1, 2]);
+        assert_eq!(results, &[2]);
 
         TrieMapResultBuf_Free(buf);
     });
@@ -543,21 +543,4 @@ fn test_trie_iter_range() {
             ("cooler", 4),
         ],
     );
-}
-
-#[test]
-fn test_trie_random_value_by_prefix() {
-    with_trie_map(|t| {
-        let prefix = str2c_char("bi");
-        for _ in 0..1000 {
-            // Safety: We adhere to all the safety requirements of `TrieMap_RandomValueByPrefix`
-            let res = unsafe {
-                TrieMap_RandomValueByPrefix(t, prefix.as_ptr(), prefix.len() as tm_len_t)
-            };
-            // Safety: with_trie_map inserts values of type u8
-            let res = unsafe { *(res as *mut u8) };
-
-            assert!((0..=2).contains(&res), "Result should be in range 0..=2")
-        }
-    });
 }

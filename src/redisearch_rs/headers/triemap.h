@@ -352,16 +352,6 @@ void TrieMap_IterateRange(struct TrieMap *trie,
                           TrieMapRangeCallback callback,
                           void *ctx);
 
-/**
- * Returns a random value for a key that has a given prefix.
- *
- * # Safety
- * The following invariants must be upheld when calling this function:
- * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
- * - `prefix` can be NULL only if `pflen == 0`. It is not necessarily NULL-terminated.
- */
-void *TrieMap_RandomValueByPrefix(struct TrieMap *t, const char *prefix, tm_len_t pflen);
-
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus

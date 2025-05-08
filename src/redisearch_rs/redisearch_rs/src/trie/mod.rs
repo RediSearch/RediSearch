@@ -18,17 +18,22 @@ mod iter_types;
 
 /// Utility function to log a message through using Redis' log system.
 fn redis_log(msg: &str) {
-    let level =
-        CString::from_str("debug").expect("The debug level failed to converted to a CString");
-    let msg = CString::from_str(&msg.replace('\0', "�"))
-        .expect("The log message failed to be converted to a CString");
-    unsafe {
-        RedisModule_Log.expect("RedisModule_Log is not defined")(
-            std::ptr::null_mut(),
-            level.as_c_str().as_ptr(),
-            msg.as_c_str().as_ptr(),
-        )
-    };
+    #[cfg(not(miri))]
+    if let Some(log) = unsafe { RedisModule_Log } {
+        let level =
+            CString::from_str("debug").expect("The debug level failed to converted to a CString");
+        let msg = CString::from_str(&msg.replace('\0', "�"))
+            .expect("The log message failed to be converted to a CString");
+        unsafe {
+            log(
+                std::ptr::null_mut(),
+                level.as_c_str().as_ptr(),
+                msg.as_c_str().as_ptr(),
+            )
+        }
+        return;
+    }
+    eprintln!("{msg}")
 }
 
 /// The length of a key string in the trie.
@@ -199,12 +204,12 @@ pub unsafe extern "C" fn TrieMap_Add(
     // If that invariant is upheld, then the following line is sound.
     let TrieMap(trie) = unsafe { &mut *t };
 
-    let key = if len > 0 {
+    let key: &[u8] = if len > 0 {
         // SAFETY: The safety requirements of this function
         // require the caller to ensure that the pointer `str` is
         // a valid pointer to a C string, with a length of `len` bytes.
         // If that invariant is upheld, then the following line is sound.
-        unsafe { slice::from_raw_parts(str, len as usize) }
+        unsafe { slice::from_raw_parts(str.cast(), len as usize) }
     } else {
         &[]
     };
@@ -346,12 +351,12 @@ pub unsafe extern "C" fn TrieMap_Find(
     // If that invariant is upheld, then the following line is sound.
     let TrieMap(trie) = unsafe { &mut *t };
 
-    let key = if len > 0 {
+    let key: &[u8] = if len > 0 {
         // SAFETY: The safety requirements of this function
         // state the caller is to ensure that the pointer `str` is
         // a valid pointer to a C string, with a length of `len` bytes.
         // If that invariant is upheld, then the following line is sound.
-        unsafe { slice::from_raw_parts(str, len as usize) }
+        unsafe { slice::from_raw_parts(str.cast(), len as usize) }
     } else {
         // `str` is allowed to be NULL if len is 0,
         // but `slice::from_raw_parts` requires a non-null pointer.
@@ -393,30 +398,26 @@ pub unsafe extern "C" fn TrieMap_FindPrefixes(
         debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
     }
 
-    let nice_key = if len > 0 {
-        String::from_utf8_lossy(unsafe { slice::from_raw_parts(str as *mut u8, len as usize) })
-    } else {
-        "".into()
-    };
-    redis_log(&format!(
-        "TrieMap::find_prefixes [{t:?}], key = \"{nice_key}\""
-    ));
-
     // SAFETY: The safety requirements of this function
     // state the caller is to ensure that the pointer `t` is
     // a valid TrieMap obtained from `NewTrieMap` and cannot be NULL.
     // If that invariant is upheld, then the following line is sound.
     let TrieMap(trie) = unsafe { &mut *t };
 
-    let prefix = if len > 0 {
+    let prefix: &[u8] = if len > 0 {
         // SAFETY: The safety requirements of this function
         // state the caller is to ensure that the pointer `str` is
         // a valid pointer to a string of length `len` and cannot be NULL.
         // If that invariant is upheld, then the following line is sound.
-        unsafe { std::slice::from_raw_parts(str, len as usize) }
+        unsafe { std::slice::from_raw_parts(str.cast(), len as usize) }
     } else {
         &[]
     };
+
+    redis_log(&format!(
+        "TrieMap::find_prefixes [{t:?}], key = \"{}\"",
+        String::from_utf8_lossy(prefix)
+    ));
 
     let iter = trie
         .iter()
@@ -462,12 +463,12 @@ pub unsafe extern "C" fn TrieMap_Delete(
     // If that invariant is upheld, then the following line is sound.
     let TrieMap(trie) = unsafe { &mut *t };
 
-    let key = if len > 0 {
+    let key: &[u8] = if len > 0 {
         // SAFETY: The safety requirements of this function
         // state the caller is to ensure that the pointer `str` is
         // a valid pointer to a C string, with a length of `len` bytes.
         // If that invariant is upheld, then the following line is sound.
-        unsafe { slice::from_raw_parts(str, len as usize) }
+        unsafe { slice::from_raw_parts(str.cast(), len as usize) }
     } else {
         // `str` is allowed to be NULL if len is 0,
         // but `slice::from_raw_parts` requires a non-null pointer.
@@ -593,23 +594,18 @@ pub unsafe extern "C" fn TrieMap_Iterate<'tm>(
 ) -> *mut TrieMapIterator<'tm> {
     debug_assert!(!t.is_null(), "t cannot be NULL");
 
-    let pattern = if prefix_len > 0 {
+    let pattern: &[u8] = if prefix_len > 0 {
         debug_assert!(!prefix.is_null(), "prefix cannot be NULL if prefix_len > 0");
         // SAFETY: Caller is to ensure that the pointer `prefix` is
         // a valid pointer to a byte sequence of length `prefix_len`.
-        unsafe { std::slice::from_raw_parts(prefix, prefix_len as usize) }
+        unsafe { std::slice::from_raw_parts(prefix.cast(), prefix_len as usize) }
     } else {
         &[]
     };
 
-    let nice_pattern = if prefix_len > 0 {
-        let nice: &[u8] = unsafe { slice::from_raw_parts(prefix as *mut u8, prefix_len as usize) };
-        String::from_utf8_lossy(nice)
-    } else {
-        "".into()
-    };
     redis_log(&format!(
-        "TrieMap::iterate [{t:?}], prefix = \"{nice_pattern}\", mode = {iter_mode:?}"
+        "TrieMap::iterate [{t:?}], prefix = \"{}\", mode = {iter_mode:?}",
+        String::from_utf8_lossy(pattern)
     ));
 
     // SAFETY: Caller is to ensure that the pointer `t` is
@@ -621,14 +617,11 @@ pub unsafe extern "C" fn TrieMap_Iterate<'tm>(
             TrieMapIteratorImpl::Plain(trie.prefixed_lending_iter(pattern))
         }
         tm_iter_mode::TM_CONTAINS_MODE => {
-            // SAFETY: `c_char` and `u8` have the same layout and alignment and are valid for all bit patterns.
-            let pattern: &[u8] = unsafe { std::mem::transmute::<&[c_char], &[u8]>(pattern) };
             let finder = memchr::memmem::Finder::new(pattern);
-            TrieMapIteratorImpl::Filtered(trie.lending_iter().filter(Box::new(move |(key, _)| {
-                // SAFETY: `c_char` and `u8` have the same layout and alignment and are valid for all bit patterns.
-                let key = unsafe { std::mem::transmute::<&[c_char], &[u8]>(*key) };
-                finder.find(key).is_some()
-            })))
+            TrieMapIteratorImpl::Filtered(
+                trie.lending_iter()
+                    .filter(Box::new(move |(key, _)| finder.find(key).is_some())),
+            )
         }
         tm_iter_mode::TM_SUFFIX_MODE => TrieMapIteratorImpl::Filtered(
             trie.lending_iter()
@@ -719,6 +712,8 @@ pub unsafe extern "C" fn TrieMapIterator_Next(
     debug_assert!(!len.is_null(), "len cannot be NULL");
     debug_assert!(!value.is_null(), "value cannot be NULL");
 
+    redis_log(&format!("TrieMap::next [{it:?}]",));
+
     // SAFETY: caller is to ensure that the iterator is valid and not null
     let TrieMapIterator { iter, timeout } = unsafe { &mut *it };
 
@@ -745,7 +740,7 @@ pub unsafe extern "C" fn TrieMapIterator_Next(
     // SAFETY: caller is to ensure that `ptr` is
     // a mutable, well-aligned pointer to a `c_char` array
     unsafe {
-        ptr.write(k.as_ptr().cast_mut());
+        ptr.write(k.as_ptr().cast::<c_char>().cast_mut());
     }
     // SAFETY: caller is to ensure that `len` is
     // a mutable, well-aligned pointer to a `tm_len_t`
@@ -807,7 +802,7 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
     /// but can still DRY and enjoy optimizations.
     ///
     /// # Safety `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
-    unsafe fn consume_iter<P: Fn(&(&[i8], &*mut c_void)) -> bool>(
+    unsafe fn consume_iter<P: Fn(&(&[u8], &*mut c_void)) -> bool>(
         trie: &trie_rs::TrieMap<*mut c_void>,
         pred: P,
         callback: unsafe extern "C" fn(*const c_char, libc::size_t, *mut c_void, *mut c_void),
@@ -818,8 +813,13 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
             .fuse()
             // Safety: caller is to ensure `callback` be
             // a valid pointer to a function of type [`TrieMapRangeCallback`]
-            .for_each(|(key, value)| unsafe {
-                (callback)(key.as_ptr(), key.len(), *value, ctx);
+            .for_each(|(key, value)| {
+                let key_len = key.len();
+                // `u8` and `c_char` can be safely transmuted back and forth.
+                let key_ptr = key.as_ptr().cast();
+                unsafe {
+                    (callback)(key_ptr, key_len, *value, ctx);
+                }
             });
     }
 
@@ -844,20 +844,20 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
 
     redis_log(&format!("TrieMap::iter_range [{trie:?}]"));
 
-    let min = match minlen {
+    let min: Option<&[u8]> = match minlen {
         ..0 => None,
         0 => Some([].as_slice()),
         // SAFETY: caller is to ensure that min is not null in case minlen > 0,
         // and that min points to a contiguous slice of bytes of len minlen
-        1.. => Some(unsafe { std::slice::from_raw_parts(min, minlen as usize) }),
+        1.. => Some(unsafe { std::slice::from_raw_parts(min.cast(), minlen as usize) }),
     };
 
-    let max = match maxlen {
+    let max: Option<&[u8]> = match maxlen {
         ..0 => None,
         0 => Some([].as_slice()),
         // SAFETY: caller is to ensure that max is not null in case maxlen > 0,
         // and that max points to a contiguous slice of bytes of len maxlen
-        1.. => Some(unsafe { std::slice::from_raw_parts(max, maxlen as usize) }),
+        1.. => Some(unsafe { std::slice::from_raw_parts(max.cast(), maxlen as usize) }),
     };
 
     // SAFETY: caller is to ensure that `trie` is valid and not null
@@ -869,8 +869,13 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
     // assumption
     #[allow(clippy::undocumented_unsafe_blocks)]
     match (min, includeMin, max, includeMax) {
-        (None, _, None, _) => trie.lending_iter().fuse().for_each(|(key, value)| unsafe {
-            (callback)(key.as_ptr(), key.len(), *value, ctx);
+        (None, _, None, _) => trie.lending_iter().fuse().for_each(|(key, value)| {
+            let key_len = key.len();
+            // `u8` and `c_char` can be safely transmuted back and forth.
+            let key_ptr = key.as_ptr().cast();
+            unsafe {
+                (callback)(key_ptr, key_len, *value, ctx);
+            }
         }),
         (None, _, Some(max), true) => unsafe {
             consume_iter(trie, |(key, _)| *key <= max, callback, ctx)
@@ -899,36 +904,18 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
     }
 }
 
-/// Returns a random value for a key that has a given prefix.
-///
-/// # Safety
-/// The following invariants must be upheld when calling this function:
-/// - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
-/// - `prefix` can be NULL only if `pflen == 0`. It is not necessarily NULL-terminated.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn TrieMap_RandomValueByPrefix(
-    t: *mut TrieMap,
-    prefix: *const c_char,
-    pflen: tm_len_t,
-) -> *mut c_void {
-    debug_assert!(!t.is_null(), "t cannot be NULL");
-    if pflen > 0 {
-        debug_assert!(!prefix.is_null(), "prefix cannot be NULL if pflen > 0");
-    }
-    // Safety: We adhere to all the safety requirements of `TrieMap_FindPrefixes`
-    let mut buf = unsafe { TrieMap_FindPrefixes(t, prefix, pflen) };
-    let i = rand::random_range(..buf.0.len());
-    buf.0.swap_remove(i)
-}
-
 /// Get current time from monotonic clock.
 /// Calls `clock_gettime` with `clk_id == CLOCK_MONOTONIC_RAW`.
 pub fn timespec_monotonic_now() -> timespec {
     let mut ts = std::mem::MaybeUninit::uninit();
     // SAFETY:
     // We have exclusive access to a pointer of the correct type
-    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, ts.as_mut_ptr()) };
-    // SAFETY:
-    // `ts` was initialized by before call to `clock_gettime`
-    unsafe { ts.assume_init() }
+    let ret = unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, ts.as_mut_ptr()) };
+    if ret == 0 {
+        // SAFETY:
+        // `ts` was initialized by before call to `clock_gettime`
+        unsafe { ts.assume_init() }
+    } else {
+        panic!("Couldn't get the current time from the system monotonic clock")
+    }
 }

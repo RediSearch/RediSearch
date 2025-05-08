@@ -10,7 +10,6 @@
 use metadata::{NodeHeader, PtrMetadata, PtrWithMetadata};
 use std::{
     alloc::{handle_alloc_error, realloc},
-    ffi::c_char,
     marker::PhantomData,
     mem::ManuallyDrop,
     num::NonZeroUsize,
@@ -26,8 +25,8 @@ mod trie_ops;
 ///
 /// Each node stores:
 ///
-/// - A sequence of [`c_char`] as its label (see [`Self::label`])
-/// - The first [`c_char`] of the label of each of its children (see [`Self::children_first_bytes`])
+/// - A sequence of [`u8`] as its label (see [`Self::label`])
+/// - The first [`u8`] of the label of each of its children (see [`Self::children_first_bytes`])
 /// - Pointers to each of its children (see [`Self::children`])
 /// - An optional payload (see [`Self::data`])
 ///
@@ -50,7 +49,7 @@ impl<Data> Node<Data> {
     /// # Panics
     ///
     /// Panics if the label length exceeds [`u16::MAX`].
-    pub(crate) fn new_leaf(label: &[c_char], value: Option<Data>) -> Self {
+    pub(crate) fn new_leaf(label: &[u8], value: Option<Data>) -> Self {
         // SAFETY:
         // - There are no children, so all requirements are met.
         unsafe { Self::new_unchecked(label, [], value) }
@@ -76,7 +75,7 @@ impl<Data> Node<Data> {
     ///
     /// The caller must ensure that all children have a non-empty label.
     unsafe fn new_unchecked<const N: usize>(
-        label: &[c_char],
+        label: &[u8],
         children: [Node<Data>; N],
         value: Option<Data>,
     ) -> Self {
@@ -120,7 +119,7 @@ impl<Data> Node<Data> {
             // We don't support labels longer than u16::MAX.
             label_len,
             // A node can have at most 255 children, since that's
-            // the number of unique `c_char` values.
+            // the number of unique `u8` values.
             n_children: N as u8,
         };
         let mut new_ptr = header.metadata().allocate();
@@ -146,7 +145,7 @@ impl<Data> Node<Data> {
                 // We require the caller of this method to guarantee that child labels are non-empty,
                 // thus it's safe to access the first element.
                 let first_byte = unsafe { child.label().get_unchecked(0) };
-                // No risk of double-free on drop since `c_char` is `Copy`.
+                // No risk of double-free on drop since `u8` is `Copy`.
                 //
                 // SAFETY:
                 // - The destination range is all contained within newly allocated buffer.
@@ -345,7 +344,7 @@ impl<Data> Node<Data> {
         unsafe { child_ptr.label().copy_from_slice_nonoverlapping(suffix) };
 
         // `self`'s children become the children of the new node.
-        // No risk of double-free/use-after-free since &[c_char] is `Copy`.
+        // No risk of double-free/use-after-free since &[u8] is `Copy`.
         //
         // SAFETY:
         // 1. The length of the source slice matches the capacity of the first-byte buffer
@@ -480,7 +479,7 @@ impl<Data> Node<Data> {
     /// Set the node label to `concat!(prefix, old_label)`.
     ///
     /// This version uses `realloc` for more efficient memory usage.
-    fn prepend(mut self, prefix: &[c_char]) -> Self {
+    fn prepend(mut self, prefix: &[u8]) -> Self {
         debug_assert!(
             self.label_len() as usize + prefix.len() <= u16::MAX as usize,
             "The new label length exceeds u16::MAX, {}",
