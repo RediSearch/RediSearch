@@ -11,13 +11,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  get-latest-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '8.0'
 
   basic-test:
+    needs: [get-latest-redis-tag]
     uses: ./.github/workflows/task-test.yml
     with:
       env: 'ubuntu-latest'
       test-config: QUICK=1
-      get-redis: unstable
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: '8.0'
     secrets: inherit
 
@@ -34,6 +40,7 @@ jobs:
     secrets: inherit
 
   sanitize:
+    needs: [get-latest-redis-tag]
     if: >
       (
         (!github.event.pull_request.draft || contains(github.event.pull_request.labels.*.name, 'enforce:sanitize'))
@@ -41,7 +48,7 @@ jobs:
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
-      get-redis: unstable
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       test-config: QUICK=1
       san: address
       env: ubuntu-latest
@@ -49,6 +56,7 @@ jobs:
 
   pr-validation:
     needs:
+      - get-latest-redis-tag
       - basic-test
       - coverage
       - sanitize

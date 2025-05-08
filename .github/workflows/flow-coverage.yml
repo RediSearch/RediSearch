@@ -42,7 +42,7 @@ jobs:
     - name: Get Redis
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      run: ./deps/readies/bin/getredis --with-github-token --branch unstable
+      run: ./deps/readies/bin/getredis --with-github-token
 
     - name: Build
       run: make

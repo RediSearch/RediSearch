@@ -16,18 +16,26 @@ concurrency:
 # TODO: Use RedisJSON's `${{ vars.DEFAULT_REDISJSON_REF }}` branch when testing on nightly
 
 jobs:
+  get-latest-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+      prefix: '8.0'
+
   test-linux:
+    needs: [get-latest-redis-tag]
     uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
     with:
-      redis-ref: unstable
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: '8.0'
 
   test-macos:
+    needs: [get-latest-redis-tag]
     uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
-      redis-ref: unstable
+      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: '8.0'
 
   coverage:
@@ -38,10 +46,11 @@ jobs:
       rejson-branch: '8.0'
 
   sanitize:
+    needs: [get-latest-redis-tag]
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
-      get-redis: unstable
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: '8.0'
       test-config: '' # run all tests
       san: address
@@ -49,6 +58,7 @@ jobs:
 
   pr-validation:
     needs:
+      - get-latest-redis-tag
       - test-linux
       - test-macos
       - coverage
