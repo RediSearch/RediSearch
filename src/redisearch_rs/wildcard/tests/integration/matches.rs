@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{matches, no_match, partial_match, utils::chunk_to_string};
+use crate::{matches, no_match, partial_match};
 use wildcard::WildcardPattern;
 
 #[test]
