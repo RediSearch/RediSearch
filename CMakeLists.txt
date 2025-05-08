@@ -282,7 +282,11 @@ if(COORD_TYPE STREQUAL "rlec")
     set_target_properties(redisearch PROPERTIES OUTPUT_NAME "module-enterprise")
 endif()
 
-set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
+set_target_properties(redisearch
+    PROPERTIES
+    LINKER_LANGUAGE CXX
+    C_STANDARD 17
+    C_STANDARD_REQUIRED ON)
 setup_shared_object_target(redisearch "")
 target_link_libraries(redisearch
         redisearch-geometry
