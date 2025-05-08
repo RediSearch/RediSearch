@@ -314,13 +314,19 @@ mod property_based {
             let trie_keys: Vec<u16> = trie.range_iter(filter).map(|(k, _)| u16::from_be_bytes([k[0], k[1]])).collect();
             let btree_keys: Vec<u16> = btree.keys().filter_map(|&k| {
                 if let Some(min) = &filter.min {
-                    if k.as_slice() <= min.value {
+                    if k.as_slice() < min.value {
+                        return None;
+                    }
+                    if k.as_slice() == min.value && !min.is_included {
                         return None;
                     }
                 }
 
                 if let Some(max) = &filter.max {
-                    if k.as_slice() >= max.value {
+                    if k.as_slice() > max.value {
+                        return None;
+                    }
+                    if k.as_slice() == max.value && !max.is_included {
                         return None;
                     }
                 }
