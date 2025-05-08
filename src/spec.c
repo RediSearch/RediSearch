@@ -3474,7 +3474,7 @@ void IndexSpecRef_Release(StrongRef ref) {
   StrongRef_Release(ref);
 }
 
-// If this function is called, it means that the scan failed due to OOM
+// If this function is called, it means that the scan failed due to OOM, should be verified by the caller
 static void DebugIndexes_pauseOnOOMcheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx) {
   if (!dScanner->pauseOnOOM) {
     return;
