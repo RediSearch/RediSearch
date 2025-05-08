@@ -153,6 +153,8 @@ typedef struct {
   // If set, we use an optimization that sorts the children of an intersection iterator in a way
   // where union iterators are being factorize by the number of their own children.
   int prioritizeIntersectUnionChildren;
+    // The number of operations to perform before yielding to Redis during indexing
+  unsigned int indexerYieldEveryOps;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
   // The maximum ratio between current memory and max memory for which background indexing is allowed
@@ -161,8 +163,6 @@ typedef struct {
   bool enableUnstableFeatures;
   // Control user data obfuscation in logs
   bool hideUserDataFromLog;
-  // The number of operations to perform before yielding to Redis during indexing
-  unsigned int indexerYieldEveryOps;
 } RSConfig;
 
 typedef enum {

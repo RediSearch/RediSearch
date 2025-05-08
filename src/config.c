@@ -1751,6 +1751,15 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     )
   )
 
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-indexer-yield-every-ops", DEFAULT_INDEXER_YIELD_EVERY_OPS,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.indexerYieldEveryOps)
+    )
+  )
+  
   // String parameters
   RM_TRY(
     RedisModule_RegisterStringConfig(
@@ -1860,15 +1869,6 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       REDISMODULE_CONFIG_UNPREFIXED,
       get_bool_config, set_bool_config, NULL,
       (void *)&(RSGlobalConfig.enableUnstableFeatures)
-    )
-  )
-
-  RM_TRY(
-    RedisModule_RegisterNumericConfig(
-      ctx, "search-indexer-yield-every-ops", DEFAULT_INDEXER_YIELD_EVERY_OPS,
-      REDISMODULE_CONFIG_UNPREFIXED, 1,
-      UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.indexerYieldEveryOps)
     )
   )
 
