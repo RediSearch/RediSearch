@@ -69,15 +69,50 @@ fn test_qint_zeros() -> Result<(), std::io::Error> {
     let mut buf = [0u8; MAX_QINT_BUFFER_SIZE];
     let mut cursor = Cursor::new(buf.as_mut());
 
-    let v = [0, 0]; // 2bytes, 1byte
+    let v = [0, 0, 0, 0]; // 1+1+1+1=4 bytes
     let bytes_written = qint_encode(&mut cursor, v)?;
     cursor.seek(std::io::SeekFrom::Start(0))?;
-    let (out, bytes_read) = qint_decode::<2, _>(&mut cursor)?;
+    let (out, bytes_read) = qint_decode::<4, _>(&mut cursor)?;
 
-    // Check the number of bytes written 1+(2+1) -> 4 bytes
-    assert_eq!(bytes_written, 3);
+    // Check the number of bytes written 1+(1+1+1+1) -> 5 bytes
+    assert_eq!(bytes_written, 5);
     assert_eq!(bytes_written, bytes_read);
     assert_eq!(v, out);
+
+    Ok(())
+}
+
+#[test]
+fn test_multiple_qints_in_a_buffer()  -> Result<(), std::io::Error> {
+    let v2 = [3333, 10]; // 2bytes, 1byte
+    let v3 = [1_000_000_000, 70_000, 20]; // 4 bytes, 3 bytes, 1 byte
+    let v4 = [2_500_000_000, 90_000, 0xFF, 1_500_000_000]; // 4 bytes, 3 bytes, 1 byte, 4 bytes
+
+    let mut buf = [0u8; 1024];
+    let mut cursor = Cursor::new(buf.as_mut());
+    let mut bytes_written = vec![];
+    bytes_written.push(qint_encode(&mut cursor, v2)?);
+    bytes_written.push(qint_encode(&mut cursor, v3)?);
+    bytes_written.push(qint_encode(&mut cursor, v4)?);
+
+    // test we wrote the right number of bytes
+    assert_eq!(bytes_written[0], 4); // 1+(2+1) = 4 bytes
+    assert_eq!(bytes_written[1], 9); // 1+(4+3+1) = 9 bytes
+    assert_eq!(bytes_written[2], 13); // 1+(4+3+1+4) = 13 bytes
+
+    // use decode for identity test
+    cursor.seek(std::io::SeekFrom::Start(0))?;
+    let (out2, br2) = qint_decode::<2, _>(&mut cursor)?;
+    let (out3, br3) = qint_decode::<3, _>(&mut cursor)?;
+    let (out4, br4) = qint_decode::<4, _>(&mut cursor)?;
+    let bytes_read = vec![br2, br3, br4];
+
+    // check that we read the right number of bytes
+    assert_eq!(bytes_written, bytes_read);
+    // check that we read the right values
+    assert_eq!(v2, out2);
+    assert_eq!(v3, out3);
+    assert_eq!(v4, out4);
 
     Ok(())
 }
@@ -132,8 +167,6 @@ fn test_out_of_memory_error() {
 }
 
 mod property_based {
-    #![cfg(not(miri))]
-
     //! This module contains property-based tests for the qint encoding and decoding functions.
     //!
     //! The strategies here return an array of u32 integers and the expected number of bytes that should
