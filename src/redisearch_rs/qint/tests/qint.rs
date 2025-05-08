@@ -184,8 +184,8 @@ mod property_based {
     //! Using [qint_varlen], the [qint2], [qint3], and [qint4] strategies build [PropEncoding] variants.  
     //! For example, `PropEncoding::QInt3(([100, 2000, 30000], [1, 2, 3]))` represents three integers with sizes of 1, 2, and 3 bytes, respectively.  
     //! These variants serve as input for property-based tests.
-    //! 
-    //! The strategy [qint_encoding_with_to_small_buffer_base] is used in the property tests [test_encoding_with_too_small_buffer] and 
+    //!
+    //! The strategy [qint_encoding_with_to_small_buffer_base] is used in the property tests [test_encoding_with_too_small_buffer] and
     //! [test_decoding_with_too_small_buffer] with prop_filter to ensure only buffers that are too small are used.
     //!
     //! ## How to handle failures of Property-based tests
@@ -231,8 +231,8 @@ mod property_based {
     //! to rewrite the test case as a unit test. The input is a [PropEncoding] enum with the values that caused the failure. `buffer_size` is the size
     //! of the buffer that is used internally by the proptest to test both succeeding and failing cases.
     //!
-    //! successes are the number of tests that passed before the failing test run. Local rejects are input filters implement in input strategies. 
-    //! Global rejects are the number serve a similar purpose but are encoded at test level with the `prop_assume` macro. Both local and global 
+    //! successes are the number of tests that passed before the failing test run. Local rejects are input filters implement in input strategies.
+    //! Global rejects are the number serve a similar purpose but are encoded at test level with the `prop_assume` macro. Both local and global
     //! rejects are helpful to write specialized tests, e.g. tests where the `buffer_size` is always too small to fit the encoded integers as we
     //! do in the tests [test_encoding_with_too_small_buffer] and [test_decoding_with_too_small_buffer].
 
