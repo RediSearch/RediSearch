@@ -638,6 +638,7 @@ typedef struct IndexesScanner {
   bool global;
   bool cancelled;
   bool isDebug;
+  bool oom_scan;
   WeakRef spec_ref;
   char *spec_name_for_logs;
   size_t scannedKeys;

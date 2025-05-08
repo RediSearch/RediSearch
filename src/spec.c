@@ -2218,6 +2218,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit);
     RedisModule_Log(ctx, "warning", "%s", error);
     scanner->cancelled = true;
+    scanner->oom_scan = true;
 
       // We need to report the error message besides the log, so we can show it in FT.INFO
     if(!scanner->global) {
@@ -2328,7 +2329,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     if (scanner->cancelled) {
 
       // Check for pause after OOM if OOM occurred
-      if (scanner->isDebug) {
+      if (scanner->isDebug && scanner->oom_scan) {
         DebugIndexesScanner* dScanner = (DebugIndexesScanner*)scanner;
         DebugIndexes_pauseOnOOMcheck(dScanner, ctx);
       }
@@ -3473,24 +3474,17 @@ void IndexSpecRef_Release(StrongRef ref) {
   StrongRef_Release(ref);
 }
 
+// If this function is called, it means that the scan failed due to OOM
 static void DebugIndexes_pauseOnOOMcheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx) {
   if (!dScanner->pauseOnOOM) {
     return;
   }
-
-  StrongRef curr_run_ref = WeakRef_Promote(dScanner->base.spec_ref);
-  IndexSpec *sp = StrongRef_Get(curr_run_ref);
-  if (sp) {
-    if (sp->scan_failed_OOM) {
-      globalDebugCtx.bgIndexing.pause = true;
-      RedisModule_ThreadSafeContextUnlock(ctx);
-      while (globalDebugCtx.bgIndexing.pause) { // volatile variable
-        dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM;
-        usleep(1000);
-      }
-      dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
-      RedisModule_ThreadSafeContextLock(ctx);
-    }
-    StrongRef_Release(curr_run_ref);
+  globalDebugCtx.bgIndexing.pause = true;
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  while (globalDebugCtx.bgIndexing.pause) { // volatile variable
+    dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM;
+    usleep(1000);
   }
+  dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
+  RedisModule_ThreadSafeContextLock(ctx);
 }
