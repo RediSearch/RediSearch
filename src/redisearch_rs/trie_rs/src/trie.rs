@@ -8,9 +8,11 @@
 */
 
 use crate::{
-    iter::{IntoValues, Iter, LendingIter, Values, filter::VisitAll},
+    iter::{
+        Boundary, IntoValues, Iter, LendingIter, RangeFilter, RangeIter, Values, filter::VisitAll,
+    },
     node::Node,
-    utils::strip_prefix,
+    utils::{longest_common_prefix, strip_prefix},
 };
 use std::fmt;
 
@@ -168,6 +170,61 @@ impl<Data> TrieMap<Data> {
     /// Iterate over the entries, borrowing the current key from the iterator, in lexicographical key order.
     pub fn lending_iter(&self) -> LendingIter<'_, Data, VisitAll> {
         self.iter().into()
+    }
+
+    pub fn range_iter<'a>(&'a self, filter: RangeFilter<'a>) -> RangeIter<'a, Data> {
+        match (filter.min, filter.max) {
+            (Some(min), Some(max)) => match longest_common_prefix(min.value, max.value) {
+                Some((equal_up_to, _)) => {
+                    let prefix = &min.value[..equal_up_to];
+                    match self.find_root_for_prefix(prefix) {
+                        Some((subroot, subroot_prefix)) => {
+                            // Shorten the boundaries.
+                            let filter = RangeFilter {
+                                min: Some(Boundary {
+                                    value: &min.value[subroot_prefix.len()..],
+                                    is_included: min.is_included,
+                                }),
+                                max: Some(Boundary {
+                                    value: &max.value[subroot_prefix.len()..],
+                                    is_included: max.is_included,
+                                }),
+                            };
+                            RangeIter::new(Some(subroot), subroot_prefix, filter)
+                        }
+                        None => RangeIter::empty(),
+                    }
+                }
+                None => {
+                    if min.value.len() > max.value.len() {
+                        // The maximum is a prefix of the minimum!
+                        // Nothing to find here.
+                        RangeIter::empty()
+                    } else {
+                        match self.find_root_for_prefix(min.value) {
+                            Some((subroot, subroot_prefix)) => {
+                                // Shorten the boundaries.
+                                let filter = RangeFilter {
+                                    min: Some(Boundary {
+                                        value: &min.value[subroot_prefix.len()..],
+                                        is_included: min.is_included,
+                                    }),
+                                    max: Some(Boundary {
+                                        value: &max.value[subroot_prefix.len()..],
+                                        is_included: max.is_included,
+                                    }),
+                                };
+                                RangeIter::new(Some(subroot), subroot_prefix, filter)
+                            }
+                            None => RangeIter::empty(),
+                        }
+                    }
+                }
+            },
+            // No common prefix between the boundaries of the range,
+            // therefore we start from the root.
+            _ => RangeIter::new(self.root.as_ref(), vec![], filter),
+        }
     }
 
     /// Iterate over the entries that start with the given prefix, borrowing the current key from the iterator,

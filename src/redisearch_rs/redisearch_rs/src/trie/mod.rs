@@ -18,7 +18,10 @@ use std::{
     ffi::{c_char, c_int, c_void},
     slice,
 };
-use trie_rs::iter::filter::{IsPrefixFilter, WildcardFilter};
+use trie_rs::iter::{
+    Boundary, RangeFilter, RangeLendingIter,
+    filter::{IsPrefixFilter, WildcardFilter},
+};
 use wildcard::WildcardPattern;
 
 /// cbindgen:ignore
@@ -707,43 +710,6 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
     callback: TrieMapRangeCallback,
     ctx: *mut c_void,
 ) {
-    /// Simple generic function that builds an iterator
-    /// over the trie entries, applies the
-    /// passed predicate filter, and
-    /// consumes the results by calling the
-    /// passed callback.
-    /// Needs to be a generic because the iterator type
-    /// is determined by the (unnamable) predicate
-    /// closure, and because naming `LendingIterator`
-    /// trait objects is hard, if not impossible.
-    ///
-    /// This way, we avoid having to name the types,
-    /// but can still DRY and enjoy optimizations.
-    ///
-    /// # Safety
-    ///
-    /// `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
-    unsafe fn consume_iter<P: Fn(&(&[u8], &*mut c_void)) -> bool>(
-        trie: &trie_rs::TrieMap<*mut c_void>,
-        pred: P,
-        callback: unsafe extern "C" fn(*const c_char, libc::size_t, *mut c_void, *mut c_void),
-        ctx: *mut c_void,
-    ) {
-        trie.lending_iter()
-            .filter(pred)
-            .fuse()
-            .for_each(|(key, value)| {
-                let key_len = key.len();
-                // `u8` and `c_char` can be safely transmuted back and forth.
-                let key_ptr = key.as_ptr().cast();
-                // Safety: caller is to ensure `callback` be
-                // a valid pointer to a function of type [`TrieMapRangeCallback`]
-                unsafe {
-                    (callback)(key_ptr, key_len, *value, ctx);
-                }
-            });
-    }
-
     let Some(callback) = callback else {
         #[cfg(debug_assertions)]
         {
@@ -782,45 +748,27 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
     // SAFETY: caller is to ensure that `trie` is valid and not null
     let TrieMap(trie) = unsafe { &mut *trie };
 
-    // Safety: caller is to ensure `callback`
-    // if a valid pointer of type [`TrieMapRangeCallback`],
-    // All below uses of unsafe are sound under this
-    // assumption
-    #[allow(clippy::undocumented_unsafe_blocks)]
-    match (min, includeMin, max, includeMax) {
-        (None, _, None, _) => trie.lending_iter().fuse().for_each(|(key, value)| {
-            let key_len = key.len();
-            // `u8` and `c_char` can be safely transmuted back and forth.
-            let key_ptr = key.as_ptr().cast();
-            unsafe {
-                (callback)(key_ptr, key_len, *value, ctx);
-            }
+    let filter = RangeFilter {
+        min: min.map(|m| Boundary {
+            value: m,
+            is_included: includeMin,
         }),
-        (None, _, Some(max), true) => unsafe {
-            consume_iter(trie, |(key, _)| *key <= max, callback, ctx)
-        },
-        (None, _, Some(max), false) => unsafe {
-            consume_iter(trie, |(key, _)| *key < max, callback, ctx)
-        },
-        (Some(min), true, None, _) => unsafe {
-            consume_iter(trie, |(key, _)| *key >= min, callback, ctx)
-        },
-        (Some(min), false, None, _) => unsafe {
-            consume_iter(trie, |(key, _)| *key > min, callback, ctx)
-        },
-        (Some(min), true, Some(max), true) => unsafe {
-            consume_iter(trie, |(key, _)| *key >= min && *key <= max, callback, ctx)
-        },
-        (Some(min), true, Some(max), false) => unsafe {
-            consume_iter(trie, |(key, _)| *key >= min && *key < max, callback, ctx)
-        },
-        (Some(min), false, Some(max), true) => unsafe {
-            consume_iter(trie, |(key, _)| *key > min && *key <= max, callback, ctx)
-        },
-        (Some(min), false, Some(max), false) => unsafe {
-            consume_iter(trie, |(key, _)| *key > min && *key < max, callback, ctx)
-        },
-    }
+        max: max.map(|m| Boundary {
+            value: m,
+            is_included: includeMax,
+        }),
+    };
+    let iter: RangeLendingIter<_> = trie.range_iter(filter).into();
+    iter.fuse().for_each(|(key, value)| {
+        let key_len = key.len();
+        // `u8` and `c_char` can be safely transmuted back and forth.
+        let key_ptr = key.as_ptr().cast();
+        // Safety: caller is to ensure `callback` be
+        // a valid pointer to a function of type [`TrieMapRangeCallback`]
+        unsafe {
+            (callback)(key_ptr, key_len, *value, ctx);
+        }
+    });
 }
 
 /// Get current time from monotonic clock.

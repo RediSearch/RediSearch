@@ -12,9 +12,13 @@ pub mod filter;
 mod into_values;
 mod iter_;
 mod lending;
+mod lending_range;
+mod range;
 mod values;
 
 pub use into_values::IntoValues;
 pub use iter_::Iter;
 pub use lending::LendingIter;
+pub use lending_range::RangeLendingIter;
+pub use range::{Boundary, RangeFilter, RangeIter};
 pub use values::Values;
