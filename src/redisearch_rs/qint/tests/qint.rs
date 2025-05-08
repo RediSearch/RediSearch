@@ -184,6 +184,9 @@ mod property_based {
     //! Using [qint_varlen], the [qint2], [qint3], and [qint4] strategies build [PropEncoding] variants.  
     //! For example, `PropEncoding::QInt3(([100, 2000, 30000], [1, 2, 3]))` represents three integers with sizes of 1, 2, and 3 bytes, respectively.  
     //! These variants serve as input for property-based tests.
+    //! 
+    //! The strategy [qint_encoding_with_to_small_buffer_base] is used in the property tests [test_encoding_with_too_small_buffer] and 
+    //! [test_decoding_with_too_small_buffer] with prop_filter to ensure only buffers that are too small are used.
     //!
     //! ## How to handle failures of Property-based tests
     //!
@@ -228,9 +231,10 @@ mod property_based {
     //! to rewrite the test case as a unit test. The input is a [PropEncoding] enum with the values that caused the failure. `buffer_size` is the size
     //! of the buffer that is used internally by the proptest to test both succeeding and failing cases.
     //!
-    //! successes are the number of tests that passed before the failing test run. Local rejects are input filters implement in input strategies. Global rejects are the number
-    //! serve a similar purpose but are encoded at test level with the `prop_assume` macro. These both local and global rejects are helpful to
-    //! write specialized tests, e.g. tests where the `buffer_size` is always too small to fit the encoded integers.
+    //! successes are the number of tests that passed before the failing test run. Local rejects are input filters implement in input strategies. 
+    //! Global rejects are the number serve a similar purpose but are encoded at test level with the `prop_assume` macro. Both local and global 
+    //! rejects are helpful to write specialized tests, e.g. tests where the `buffer_size` is always too small to fit the encoded integers as we
+    //! do in the tests [test_encoding_with_too_small_buffer] and [test_decoding_with_too_small_buffer].
 
     use ::qint::{qint_decode, qint_encode};
     use proptest::prop_assert_eq;
@@ -325,9 +329,28 @@ mod property_based {
         }
     }
 
+    prop_compose! {
+        // Generate a random number of integers (2, 3, or 4) in a slice encapsulated in a PropEncoding enum
+        fn qint_encoding_base()(prop_encoding in prop_oneof![qint2(), qint3(), qint4()]) -> PropEncoding {
+            prop_encoding
+        }
+    }
+
+    prop_compose! {
+        fn qint_encoding_with_to_small_buffer_base()(enc in qint_encoding_base(), buffer_size in 1..=17usize) -> (PropEncoding, usize) {
+            // Generate a random number of integers (2, 3, or 4) in a slice encapsulated in a PropEncoding enum
+            (enc, buffer_size)
+        }
+    }
+
     pub fn qint_encoding() -> BoxedStrategy<PropEncoding> {
         // Generate a random number of integers (2, 3, or 4) in a slice encapsulated in a PropEncoding enum
-        prop_oneof![qint2(), qint3(), qint4()].boxed()
+        qint_encoding_base().boxed()
+    }
+
+    pub fn qint_encoding_with_buffer_size() -> BoxedStrategy<(PropEncoding, usize)> {
+        // Generate a random number of integers (2, 3, or 4) in a slice encapsulated in a PropEncoding enum
+        qint_encoding_with_to_small_buffer_base().boxed()
     }
 
     use crate::MAX_QINT_BUFFER_SIZE;
@@ -369,20 +392,15 @@ mod property_based {
         }
     }
 
-    macro_rules! match_qint_encoding {
-        ($($variant:ident),* => $cursor:expr, $prop_encoding:expr, $buffer_size:expr) => {
-            let expected_size = $prop_encoding.expected_written();
+    macro_rules! match_qint_encoding_buf_too_small {
+        ($($variant:ident),* => $cursor:expr, $prop_encoding:expr) => {
             match $prop_encoding {
                 $(
                     PropEncoding::$variant((v, _)) => {
                         let res = qint_encode(&mut $cursor, v);
-                        if expected_size > $buffer_size {
-                            prop_assert_eq!(res.is_err(), true);
-                            let kind = res.unwrap_err().kind();
-                            prop_assert_eq!(kind, std::io::ErrorKind::WriteZero);
-                        } else {
-                            prop_assert_eq!(res.is_ok(), true);
-                        }
+                        prop_assert_eq!(res.is_err(), true);
+                        let kind = res.unwrap_err().kind();
+                        prop_assert_eq!(kind, std::io::ErrorKind::WriteZero);
                     }
                 ),*
             }
@@ -392,29 +410,25 @@ mod property_based {
     proptest::proptest! {
         // tests for error conditions related to buffer size
         #[test]
-        fn test_encoding_with_varied_buffer(prop_encoding in qint_encoding(), buffer_size in 1..=17usize) {
+        fn test_encoding_with_too_small_buffer((prop_encoding, buffer_size) in qint_encoding_with_buffer_size()
+            .prop_filter("only use buffers that are too small", |(enc, buf_size_candidate)| enc.expected_written() > *buf_size_candidate)) {
             let mut buf = [0u8; MAX_QINT_BUFFER_SIZE];
             let buf = &mut buf[0..buffer_size];
             let mut cursor = Cursor::new(buf);
 
-            match_qint_encoding!(QInt2, QInt3, QInt4 => cursor, prop_encoding, buffer_size);
+            match_qint_encoding_buf_too_small!(QInt2, QInt3, QInt4 => cursor, prop_encoding);
         }
     }
 
-    macro_rules! match_qint_decoding {
-        ($($variant:ident, $number:literal),* => $cursor:expr, $prop_encoding:expr, $fails_with_buffer_size:expr) => {
+    macro_rules! match_qint_decoding_buf_too_small {
+        ($($variant:ident, $number:literal),* => $cursor:expr, $prop_encoding:expr) => {
             match $prop_encoding {
                 $(
                     PropEncoding::$variant(_) => {
                         let res = qint_decode::<$number, _>(&mut $cursor);
-                        if $fails_with_buffer_size {
-                            prop_assert_eq!(res.is_err(), true);
-                            let kind = res.unwrap_err().kind();
-                            let is_mem_err = kind == std::io::ErrorKind::UnexpectedEof;
-                            prop_assert_eq!(is_mem_err, true);
-                        } else {
-                            prop_assert_eq!(res.is_ok(), true);
-                        }
+                        prop_assert_eq!(res.is_err(), true);
+                        let kind = res.unwrap_err().kind();
+                        prop_assert_eq!(kind, std::io::ErrorKind::UnexpectedEof);
                     }
                 ),*
             }
@@ -424,11 +438,10 @@ mod property_based {
     proptest::proptest! {
         // tests for error conditions related to buffer size
         #[test]
-        fn test_decoding_with_varied_buffer(prop_encoding in qint_encoding(), buffer_size in 1..=17usize) {
+        fn test_decoding_with_too_small_buffer((prop_encoding, buffer_size) in qint_encoding_with_buffer_size()
+            .prop_filter("only use buffers that are too small", |(enc, buf_size_candidate)| enc.expected_written() > *buf_size_candidate)) {
             let mut buf = [0u8; MAX_QINT_BUFFER_SIZE];
             let buf = &mut buf[0..buffer_size];
-            let expected_written = prop_encoding.expected_written();
-            let fails_with_buffer_size = expected_written > buffer_size;
 
             // we mock the encoding by writing the leading byte into buffer and the rest remains zero.
             // so we can test what happens if the decoding buffer is smaller than the expected size
@@ -439,7 +452,7 @@ mod property_based {
             }
 
             let mut cursor = Cursor::new(buf);
-            match_qint_decoding!(QInt2, 2, QInt3, 3, QInt4, 4 => cursor, prop_encoding, fails_with_buffer_size);
+            match_qint_decoding_buf_too_small!(QInt2, 2, QInt3, 3, QInt4, 4 => cursor, prop_encoding);
         }
     }
 }
