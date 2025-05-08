@@ -638,10 +638,11 @@ typedef struct IndexesScanner {
   bool global;
   bool cancelled;
   bool isDebug;
-  bool oom_scan;
+  bool scanFaileOnOOM;
   WeakRef spec_ref;
   char *spec_name_for_logs;
   size_t scannedKeys;
+  RedisModuleString *lastScannedKey;
 } IndexesScanner;
 
 typedef struct DebugIndexesScanner {
