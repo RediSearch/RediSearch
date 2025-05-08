@@ -114,6 +114,28 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
 
+// Internal: Enum to represent valid bit offsets for the header byte
+#[derive(Clone, Copy, Debug)]
+enum BitOffset {
+    Zero = 0,
+    One = 1,
+    Two = 2,
+    Three = 3,
+}
+
+impl BitOffset {
+    // Convert from usize to Offset, safe for indices 0..=3
+    fn from_usize(i: usize) -> Self {
+        match i {
+            0 => BitOffset::Zero,
+            1 => BitOffset::One,
+            2 => BitOffset::Two,
+            3 => BitOffset::Three,
+            _ => unreachable!("index out of bounds for arrays of length 2, 3, or 4"),
+        }
+    }
+}
+
 /// Encodes an array of integers into a QInt buffer.
 ///
 /// # Arguments
@@ -135,7 +157,9 @@ where
     let pos = cursor.stream_position()?;
     ret += cursor.write(b"\0")?; // Write placeholder for leading byte
     for (i, value) in values.into_iter().enumerate() {
-        ret += qint_encode_stepwise(&mut leading, cursor, value, i as u32)?;
+        // the following line is safe because i < N <= 4
+        let bit_offset = BitOffset::from_usize(i);
+        ret += qint_encode_stepwise(&mut leading, cursor, value, bit_offset)?;
     }
     cursor.seek(SeekFrom::Start(pos))?;
     cursor.write_all(&[leading])?;
@@ -188,7 +212,7 @@ fn qint_encode_stepwise<W>(
     leading: &mut u8,
     cursor: &mut W,
     mut value: u32,
-    offset: u32,
+    bit_offset: BitOffset,
 ) -> Result<usize, io::Error>
 where
     W: Write + Seek,
@@ -208,7 +232,7 @@ where
     // encode the bit length of our integer into the leading byte.
     // 0 means 1 byte, 1 - 2 bytes, 2 - 3 bytes, 3 - 4 bytes.
     // we encode it at the i*2th place in the leading byte
-    *leading |= ((bytes_written - 1) as u8) << (offset * 2);
+    *leading |= ((bytes_written - 1) as u8) << (bit_offset as u8 * 2);
     Ok(bytes_written)
 }
 
