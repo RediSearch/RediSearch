@@ -83,9 +83,10 @@ where
 
             if !was_visited {
                 self.stack.push((node, true));
+                let label_offset = self.key.len();
                 self.key.extend(node.label());
 
-                let filter_outcome = self.filter.filter(&self.key);
+                let filter_outcome = self.filter.filter(&self.key, label_offset);
 
                 if filter_outcome.visit_descendants {
                     for child in node.children().iter().rev() {

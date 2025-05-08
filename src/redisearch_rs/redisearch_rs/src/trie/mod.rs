@@ -180,9 +180,6 @@ pub unsafe extern "C" fn TrieMap_Add(
     cb: TrieMapReplaceFunc,
 ) -> c_int {
     debug_assert!(!t.is_null(), "t cannot be NULL");
-    if len > 0 {
-        debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
-    }
 
     // SAFETY: The safety requirements of this function
     // require the caller to ensure that the pointer `t` is
@@ -191,6 +188,7 @@ pub unsafe extern "C" fn TrieMap_Add(
     let TrieMap(trie) = unsafe { &mut *t };
 
     let key: &[u8] = if len > 0 {
+        debug_assert!(!str.is_null(), "str cannot be NULL if len > 0");
         // SAFETY: The safety requirements of this function
         // require the caller to ensure that the pointer `str` is
         // a valid pointer to a C string, with a length of `len` bytes.

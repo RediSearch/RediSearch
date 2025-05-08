@@ -116,9 +116,9 @@ impl<T> SpyFilter<T> {
 }
 
 impl<T: TraversalFilter> TraversalFilter for SpyFilter<T> {
-    fn filter(&self, key: &[u8]) -> FilterOutcome {
+    fn filter(&self, key: &[u8], label_offset: usize) -> FilterOutcome {
         self.visited_keys.borrow_mut().push(key.to_vec());
-        self.inner.filter(key)
+        self.inner.filter(key, label_offset)
     }
 }
 
@@ -173,7 +173,7 @@ fn traversal_filter() {
 
     let mut no_ban_prefix = SpyFilter {
         visited_keys: Rc::new(RefCell::new(Vec::new())),
-        inner: |key: &[u8]| {
+        inner: |key: &[u8], _label_offset: usize| {
             let is_prefixed = key.starts_with(b"ban");
             FilterOutcome {
                 yield_current: !is_prefixed,
@@ -192,7 +192,7 @@ fn traversal_filter() {
     // Don't yield `ban`, but visit keys that are prefixed with `ban`.
     let mut no_ban_exact = SpyFilter {
         visited_keys: Rc::new(RefCell::new(Vec::new())),
-        inner: |key: &[u8]| FilterOutcome {
+        inner: |key: &[u8], _label_offset: usize| FilterOutcome {
             yield_current: key != b"ban",
             visit_descendants: true,
         },
@@ -215,7 +215,7 @@ fn traversal_filter() {
     // Skip all keys, traverse no descendants.
     let mut skip_all = SpyFilter {
         visited_keys: Rc::new(RefCell::new(Vec::new())),
-        inner: |_: &[u8]| FilterOutcome {
+        inner: |_: &[u8], _: usize| FilterOutcome {
             yield_current: false,
             visit_descendants: false,
         },
