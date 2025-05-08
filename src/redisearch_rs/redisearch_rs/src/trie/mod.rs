@@ -720,7 +720,9 @@ pub unsafe extern "C" fn TrieMap_IterateRange(
     /// This way, we avoid having to name the types,
     /// but can still DRY and enjoy optimizations.
     ///
-    /// # Safety `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
+    /// # Safety
+    ///
+    /// `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
     unsafe fn consume_iter<P: Fn(&(&[u8], &*mut c_void)) -> bool>(
         trie: &trie_rs::TrieMap<*mut c_void>,
         pred: P,
