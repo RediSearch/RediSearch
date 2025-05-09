@@ -1437,3 +1437,55 @@ def test_mod_9423(env:Env):
   env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF', 'EXPLAINSCORE').equal(expected)
   expected = [1, 'doc1', ['0', 'Document length is 0'], ['n', '1']]
   env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF.DOCNORM', 'EXPLAINSCORE').equal(expected)
+
+# Test that RedisModule_Yield is called while indexing in order to prevent master from killing the replica [MOD-8809]
+def test_mod_8809():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
+    
+    # Configure yield every 10 operations
+    yield_every_n_ops = 10
+    env.expect('FT.CONFIG', 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
+    env.expect('FT.CONFIG', 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
+
+    # Reset yield counter
+    env.expect(debug_cmd(), 'INDEXING_YIELD_COUNTER', 'RESET').ok()
+    initial_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
+    env.assertEqual(initial_count, 0, message="Initial yield counter should be 0")
+    
+    # Create index
+    dimension = 128
+    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+    
+    # Add enough documents to trigger yields
+    num_docs = 1000
+    for i in range(num_docs):
+        vector = np.random.rand(1, dimension).astype(np.float32)
+        env.execute_command('HSET', i, 'v', vector.tobytes())
+    waitForIndex(env, 'idx')
+
+    
+    # Check that yield was called
+    final_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
+    env.assertGreater(final_count, 0, message="Yield should have been called at least once")
+    
+    # Verify the number of yields 
+    expected_min_yields = num_docs // yield_every_n_ops
+    env.assertGreaterEqual(final_count, expected_min_yields, 
+                          message=f"Expected at least {expected_min_yields} yields, got {final_count}")
+    
+    # Test with different configuration
+    yield_every_n_ops = 5
+    env.expect('FT.CONFIG', 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
+    env.expect(debug_cmd(), 'INDEXING_YIELD_COUNTER', 'RESET').ok()
+
+    # Reload and check 
+    env.broadcast('SAVE')
+    env.broadcast('DEBUG RELOAD NOSAVE')
+    waitForIndex(env, 'idx')
+    env.expect('FT.CONFIG', 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
+    
+    final_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
+    expected_min_yields = num_docs // yield_every_n_ops
+    env.assertGreaterEqual(final_count, expected_min_yields, 
+                          message=f"Expected at least {expected_min_yields} yields, got {final_count}")
+

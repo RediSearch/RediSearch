@@ -153,6 +153,8 @@ typedef struct {
   // If set, we use an optimization that sorts the children of an intersection iterator in a way
   // where union iterators are being factorize by the number of their own children.
   int prioritizeIntersectUnionChildren;
+    // The number of operations to perform before yielding to Redis during indexing
+  unsigned int indexerYieldEveryOps;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
   // The maximum ratio between current memory and max memory for which background indexing is allowed
@@ -273,6 +275,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_BM25STD_TANH_FACTOR 4
 #define BM25STD_TANH_FACTOR_MAX 10000
 #define BM25STD_TANH_FACTOR_MIN 1
+#define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
@@ -319,6 +322,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
     .hideUserDataFromLog = false,                                              \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
+    .indexerYieldEveryOps = DEFAULT_INDEXER_YIELD_EVERY_OPS,                   \
   }
 
 #define REDIS_ARRAY_LIMIT 7

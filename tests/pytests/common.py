@@ -84,7 +84,12 @@ def getConnectionByEnv(env):
 def waitForIndex(env, idx = 'idx'):
     waitForRdbSaveToFinish(env)
     while True:
-        res = env.cmd('ft.info', idx)
+        try:
+            res = env.cmd('ft.info', idx)
+        except redis_exceptions.ResponseError as e:
+            if 'redis is busy' in str(e).lower():
+                continue
+            raise e
         try:
             if res[res.index('indexing') + 1] == 0:
                 break
