@@ -2297,7 +2297,9 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec_name_for_logs);
   }
 
-  bool retry_after_oom = true;
+  // Only retry if the config time is set to a positive value
+  bool retry_after_oom = RSGlobalConfig.bgIndexingOomPauseTimeForRsMgr > 0;
+
   size_t counter = 0;
   RedisModuleScanCB scanner_func = (RedisModuleScanCB)Indexes_ScanProc;
   if (globalDebugCtx.debugMode) {
@@ -2367,8 +2369,9 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     }
 
     // Re-arm retry_after_oom if scanning continues
-    if (scanner->scannedKeys > 0)
+    if (scanner->scannedKeys > 0 && RSGlobalConfig.bgIndexingOomPauseTimeForRsMgr > 0) {
       retry_after_oom = true;
+    }
   }
 
   if (scanner->isDebug) {
