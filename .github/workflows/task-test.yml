@@ -164,21 +164,20 @@ jobs:
           # Checkout the REF
           git fetch origin ${{ inputs.get-redis }}
           git checkout ${{ inputs.get-redis }}
-      # Add GitHub Actions cache for sccache
+      # Add GitHub Actions cache for sccache using the SCCACHE_DIR environment variable
       - name: Cache sccache data
         uses: actions/cache@v3
         with:
-          path: ~/.cache/sccache
+          path: ${{ env.SCCACHE_DIR }}
           key: sccache-${{ inputs.container || inputs.env }}-${{ runner.arch }}-${{ github.sha }}
           restore-keys: |
             sccache-${{ inputs.container || inputs.env }}-${{ runner.arch }}-
 
-      # Keep the existing sccache setup but without S3 configuration
+      # Setup sccache without invalid parameters
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
         with:
           cache-size: 10G
-
       - name: Build Redis
         working-directory: redis
         run: |
