@@ -48,7 +48,7 @@ source venv/bin/activate
 
 pip install --upgrade pip
 pip install -q --upgrade setuptools
-pip install gevent==25.4.2
+pip install gevent
 echo "pip version: $(pip --version)"
 echo "pip path: $(which pip)"
 
