@@ -1,5 +1,5 @@
 packaging <= 24.2
-gevent <= 25.4.2
+gevent <= 22.10.2
 deepdiff <= 8.3.0
 redis >= 5.2.1
 RLTest <= 0.7.16
