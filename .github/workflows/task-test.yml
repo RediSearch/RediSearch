@@ -173,6 +173,12 @@ jobs:
           restore-keys: |
             sccache-${{ inputs.container || inputs.env }}-${{ runner.arch }}-
 
+      # Create sccache directory with proper permissions
+      - name: Prepare sccache directory
+        run: |
+          mkdir -p ${{ env.SCCACHE_DIR }}
+          chmod -R 777 ${{ env.SCCACHE_DIR }}
+
       # Setup sccache without invalid parameters
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
