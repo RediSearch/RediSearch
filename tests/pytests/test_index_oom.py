@@ -515,41 +515,41 @@ def test_oom_100_percent(env):
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
 
 
-# def test_oom_retry_succses(env):
-#     num_docs = 100000
-#     for i in range(num_docs):
-#       env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+def test_enterprise_oom_retry_succses(env):
+  # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+  # Set the pause time to 1 second so we can test the retry
+  env.expect('FT.CONFIG', 'SET', 'BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+  num_docs = 10000
+  for i in range(num_docs):
+    env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
-#     # Set pause on OOM
-#     env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+  # Set pause on OOM
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
 
-#     # Set pause after quarter of the docs were scanned
-#     num_docs_scanned = num_docs//4
-#     env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+  # Set pause after quarter of the docs were scanned
+  num_docs_scanned = num_docs//4
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
 
-#     env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET', 'true').ok()
-#     env.expect(bgScanCommand(), 'SET_PAUSE_AFTER_OOM_RESET', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_AFTER_OOM_RESET', 'true').ok()
 
 
-#     # Create an index
-#     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
-#     waitForIndexPauseScan(env, 'idx')
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+  waitForIndexPauseScan(env, 'idx')
 
-#     # At this point num_docs_scanned were scanned
-#     # Now we set the tight memory limit
-#     set_tight_maxmemory_for_oom(env)
+  # At this point num_docs_scanned were scanned
+  # Now we set the tight memory limit
+  set_tight_maxmemory_for_oom(env)
 
-#     # PAUSE ON SCANNED DOCS
-#     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-#     # PAUSE BEFORE OOM RESET
-#     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-#     set_unlimited_maxmemory_for_oom(env)
-#     # for i in range(num_docs):
-#     #     env.expect('HSET', f'doc{i}', 'fame', f'fame{i}').equal(0)
-#     for i in range(num_docs):
-#         env.expect('DEL', f'doc{i}').equal(0)
-#     # PAUSE AFTER OOM RESET
-#     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-#     # PAUSE ON OOM
-#     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-#     time.sleep(1)
+  # PAUSE ON SCANNED DOCS
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # PAUSE BEFORE OOM RESET
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  set_unlimited_maxmemory_for_oom(env)
+  # PAUSE AFTER OOM RESET
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # PAUSE ON OOM
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  time.sleep(1)
