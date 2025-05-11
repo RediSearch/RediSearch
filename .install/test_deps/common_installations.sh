@@ -48,10 +48,11 @@ source venv/bin/activate
 
 pip install --upgrade pip
 pip install -q --upgrade setuptools
+pip install --upgrade Cython
 echo "pip version: $(pip --version)"
 echo "pip path: $(which pip)"
 
-pip install -q --only-binary=:all: -r tests/pytests/requirements.txt
+pip install -q -r tests/pytests/requirements.txt
 
 # List installed packages
 pip list
