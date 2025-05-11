@@ -1439,9 +1439,8 @@ def test_mod_9423(env:Env):
   env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF.DOCNORM', 'EXPLAINSCORE').equal(expected)
 
 # Test that RedisModule_Yield is called while indexing in order to prevent master from killing the replica [MOD-8809]
-def test_mod_8809():
-    env = Env(moduleArgs='DEFAULT_DIALECT 2 MIN_OPERATION_WORKERS 0')
-    
+def test_mod_8809(env:Env):
+
     # Configure yield every 10 operations
     yield_every_n_ops = 10
     env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
@@ -1458,9 +1457,10 @@ def test_mod_8809():
     
     # Add enough documents to trigger yields
     num_docs = 1000
-    for i in range(num_docs):
-        vector = np.random.rand(1, dimension).astype(np.float32)
-        env.cmd('HSET', i, 'v', vector.tobytes())
+    with env.getClusterConnectionIfNeeded() as conn:
+        for i in range(num_docs):
+            vector = np.random.rand(1, dimension).astype(np.float32)
+            conn.execute_command('HSET', i, 'v', vector.tobytes())
     waitForIndex(env, 'idx')
 
     
