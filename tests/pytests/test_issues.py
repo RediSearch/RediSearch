@@ -1444,8 +1444,8 @@ def test_mod_8809():
     
     # Configure yield every 10 operations
     yield_every_n_ops = 10
-    env.expect('FT.CONFIG', 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
-    env.expect('FT.CONFIG', 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
+    env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
+    env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
 
     # Reset yield counter
     env.expect(debug_cmd(), 'INDEXING_YIELD_COUNTER', 'RESET').ok()
@@ -1475,14 +1475,14 @@ def test_mod_8809():
     
     # Test with different configuration
     yield_every_n_ops = 5
-    env.expect('FT.CONFIG', 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
+    env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
     env.expect(debug_cmd(), 'INDEXING_YIELD_COUNTER', 'RESET').ok()
 
     # Reload and check 
     env.broadcast('SAVE')
     env.broadcast('DEBUG RELOAD NOSAVE')
     waitForIndex(env, 'idx')
-    env.expect('FT.CONFIG', 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
+    env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
     
     final_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
     expected_min_yields = num_docs // yield_every_n_ops
