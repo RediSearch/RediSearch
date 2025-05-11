@@ -276,7 +276,7 @@ char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 #define DEFAULT_BM25STD_TANH_FACTOR 4
 #define BM25STD_TANH_FACTOR_MAX 10000
 #define BM25STD_TANH_FACTOR_MIN 1
-#define DEFAULT_BG_OOM_PAUSE_TIME_FOR_RS_MGR 1
+#define DEFAULT_BG_OOM_PAUSE_TIME_FOR_RS_MGR 30
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \

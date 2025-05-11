@@ -2329,8 +2329,8 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     }
     RedisModule_ThreadSafeContextLock(ctx);
 
-    if (scanner->cancelled) {
 
+    if (scanner->cancelled) {
       // If the scan stopped due to OOM, we need to check if we need to retry
       if (scanner->scanFailedOnOOM) {
         if (retry_after_oom) {
@@ -3525,10 +3525,10 @@ static void DebugIndexes_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCt
 // and after the function returns, the scan will continue
 static inline void threadSleepByConfigTime(RedisModuleCtx *ctx) {
   // Thread sleep based on the config
-  int sleepTime = RSGlobalConfig.bgIndexingOomPauseTimeForRsMgr * 1000; // @Omer Verify time unit
+  int sleepTime = RSGlobalConfig.bgIndexingOomPauseTimeForRsMgr; // @Omer Verify time unit
   if (sleepTime > 0) {
     RedisModule_Log(ctx, "warning", "Waiting for memory allocation to continue scan");//notice/warning?
-    usleep(sleepTime);
+    sleep(sleepTime);
   }
   return;
 }

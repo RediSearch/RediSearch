@@ -1761,7 +1761,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-bg_index_oom_pause_time",
-      DEFAULT_BG_OOM_PAUSE_TIME_FOR_RS_MGR,
+      IsEnterprise() ? DEFAULT_BG_OOM_PAUSE_TIME_FOR_RS_MGR : 0,
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
       UINT64_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
       (void *)&(RSGlobalConfig.bgIndexingOomPauseTimeForRsMgr)
