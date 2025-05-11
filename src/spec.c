@@ -2230,6 +2230,10 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (RSGlobalConfig.indexingMemoryLimit && (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit)) {
     scanner->scanFailedOnOOM = true;
     scanner->cancelled = true;
+    if (scanner->lastScannedKey) {
+      RedisModule_FreeString(RSDummyContext, scanner->lastScannedKey);
+    }
+    scanner->lastScannedKey = RedisModule_CreateStringFromString(RSDummyContext, keyname);
     return;
   }
   // RMKey it is provided as best effort but in some cases it might be NULL
@@ -2239,7 +2243,6 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     keyOpened = true;
   }
 
-  scanner->lastScannedKey = RedisModule_HoldString(RSDummyContext, keyname);
 
   // Get the document type
   DocumentType type = getDocType(key);
@@ -2349,6 +2352,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
           if (scanner->isDebug) {
             DebugIndexes_pauseCheck(dScanner, ctx, dScanner->pauseAfterOOMReset, DEBUG_INDEX_SCANNER_CODE_PAUSED_AFTER_OOM_RESET);
           }
+          RedisModule_FreeString(RSDummyContext, scanner->lastScannedKey);
           continue;
         } else {
           scanStopAfterOOM(ctx, scanner);
