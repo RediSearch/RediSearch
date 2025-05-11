@@ -176,8 +176,11 @@ jobs:
       # Setup sccache without invalid parameters
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
-        with:
-          cache-size: 10G
+        
+      # Set SCCACHE_PATH environment variable
+      - name: Set sccache path
+        run: |
+          echo "SCCACHE_PATH=$(which sccache)" >> $GITHUB_ENV
       - name: Build Redis
         working-directory: redis
         run: |
