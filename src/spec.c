@@ -89,12 +89,12 @@ static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref);
 static void DebugIndexesScanner_Free(DebugIndexesScanner *dScanner);
 static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              DebugIndexesScanner *dScanner);
-static void DebugIndexes_pauseOnOOMcheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx);
+static void DebugIndexes_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx, bool pauseField, DebugIndexScannerCode code);
 
 //---------------------------------------------------------------------------------------------
 
 static inline void threadSleepByConfigTime(RedisModuleCtx *ctx);
-static inline void scanStopAfterOOM(RedisModuleCtx *ctx);
+static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner);
 
 
 static void setMemoryInfo(RedisModuleCtx *ctx) {
@@ -2203,6 +2203,12 @@ void IndexesScanner_Cancel(IndexesScanner *scanner) {
   scanner->cancelled = true;
 }
 
+void IndexesScanner_ResetProgression(IndexesScanner *scanner) {
+  scanner-> scanFailedOnOOM = false;
+  scanner-> scannedKeys = 0;
+  scanner-> cancelled = false;
+}
+
 //---------------------------------------------------------------------------------------------
 
 static void IndexSpec_DoneIndexingCallabck(struct RSAddDocumentCtx *docCtx, RedisModuleCtx *ctx,
@@ -2222,7 +2228,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   setMemoryInfo(ctx);
   // Check if we need to cancel the scan due to memory limit, if memory limit is set to 0, we don't check it
   if (RSGlobalConfig.indexingMemoryLimit && (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit)) {
-    scanner->scanFaileOnOOM = true;
+    scanner->scanFailedOnOOM = true;
     scanner->cancelled = true;
     return;
   }
@@ -2277,6 +2283,11 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
   RedisModule_ThreadSafeContextLock(ctx);
 
+  DebugIndexesScanner* dScanner = NULL;
+  if (scanner->isDebug) {
+    dScanner = (DebugIndexesScanner*)scanner;
+  }
+
   if (scanner->cancelled) {
     goto end;
   }
@@ -2319,26 +2330,30 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     if (scanner->cancelled) {
 
       // If the scan stopped due to OOM, we need to check if we need to retry
-      if (scanner->scanFaileOnOOM) {
+      if (scanner->scanFailedOnOOM) {
         if (retry_after_oom) {
+          // Check if we we need to pause before the reset
           // Call the wait function
           threadSleepByConfigTime(ctx);
-          // Reset the cursor and
+          if (scanner->isDebug) {
+            DebugIndexes_pauseCheck(dScanner, ctx, dScanner->pauseBeforeOOMReset, DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RESET);
+          }
+          // Reset the cursor, the scan will start from the beginning
           RedisModule_ScanCursorRestart(cursor);
-          // Reset the scanner
-          scanner-> scanFaileOnOOM = false;
-          scanner-> scannedKeys = 0;
-
+          // Reset the scanner's progression
+          IndexesScanner_ResetProgression(scanner);
+          // Second OOM failure will cancel the scan
           retry_after_oom = false;
+          if (scanner->isDebug) {
+            DebugIndexes_pauseCheck(dScanner, ctx, dScanner->pauseAfterOOMReset, DEBUG_INDEX_SCANNER_CODE_PAUSED_AFTER_OOM_RESET);
+          }
+          continue;
         } else {
           scanStopAfterOOM(ctx, scanner);
+          if (scanner->isDebug) {
+            DebugIndexes_pauseCheck(dScanner, ctx, dScanner->pauseOnOOM, DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM);
+          }
         }
-      }
-
-      // Check for pause after OOM if OOM occurred
-      if (scanner->isDebug && scanner->scanFaileOnOOM) {
-        DebugIndexesScanner* dScanner = (DebugIndexesScanner*)scanner;
-        DebugIndexes_pauseOnOOMcheck(dScanner, ctx);
       }
 
       if (scanner->global) {
@@ -2350,6 +2365,10 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
         goto end;
       }
     }
+
+    // Re-arm retry_after_oom if scanning continues
+    if (scanner->scannedKeys > 0)
+      retry_after_oom = true;
   }
 
   if (scanner->isDebug) {
@@ -3417,6 +3436,8 @@ static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref) {
   dScanner->status = DEBUG_INDEX_SCANNER_CODE_NEW;
   dScanner->base.isDebug = true;
   dScanner->pauseOnOOM = globalDebugCtx.bgIndexing.pauseOnOOM;
+  dScanner->pauseBeforeOOMReset = globalDebugCtx.bgIndexing.pauseBeforeOOMreset;
+  dScanner->pauseAfterOOMReset = globalDebugCtx.bgIndexing.pauseAfterOOMreset;
 
   IndexSpec *spec = StrongRef_Get(global_ref);
   spec->scanner = (IndexesScanner*)dScanner;
@@ -3482,14 +3503,14 @@ void IndexSpecRef_Release(StrongRef ref) {
 }
 
 // If this function is called, it means that the scan failed due to OOM, should be verified by the caller
-static void DebugIndexes_pauseOnOOMcheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx) {
-  if (!dScanner->pauseOnOOM) {
+static void DebugIndexes_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx, bool pauseField, DebugIndexScannerCode code) {
+  if (!pauseField) {
     return;
   }
   globalDebugCtx.bgIndexing.pause = true;
   RedisModule_ThreadSafeContextUnlock(ctx);
   while (globalDebugCtx.bgIndexing.pause) { // volatile variable
-    dScanner->status = DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM;
+    dScanner->status = code;
     usleep(1000);
   }
   dScanner->status = DEBUG_INDEX_SCANNER_CODE_RESUMED;
@@ -3503,7 +3524,7 @@ static inline void threadSleepByConfigTime(RedisModuleCtx *ctx) {
   // Thread sleep based on the config
   int sleepTime = RSGlobalConfig.bgIndexingOomPauseTimeForRsMgr * 1000; // @Omer Verify time unit
   if (sleepTime > 0) {
-    RedisModule_Log(ctx, "warning", "Waiting for memory allocation to continue scan");
+    RedisModule_Log(ctx, "warning", "Waiting for memory allocation to continue scan");//notice/warning?
     usleep(sleepTime);
   }
   return;
