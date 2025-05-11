@@ -132,6 +132,9 @@ typedef enum {
     DEBUG_INDEX_SCANNER_CODE_PAUSED,
     DEBUG_INDEX_SCANNER_CODE_RESUMED,
     DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM,
+    DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RESET,
+    DEBUG_INDEX_SCANNER_CODE_PAUSED_AFTER_OOM_RESET,
+
     //Insert new codes here (before COUNT)
     DEBUG_INDEX_SCANNER_CODE_COUNT  // Helps with array size checks
     //Do not add new codes after COUNT
@@ -530,6 +533,8 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 #define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
 
 void IndexesScanner_Cancel(struct IndexesScanner *scanner);
+void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
+
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
 #ifdef FTINFO_FOR_INFO_MODULES
 /**
@@ -638,7 +643,7 @@ typedef struct IndexesScanner {
   bool global;
   bool cancelled;
   bool isDebug;
-  bool scanFaileOnOOM;
+  bool scanFailedOnOOM;
   WeakRef spec_ref;
   char *spec_name_for_logs;
   size_t scannedKeys;
@@ -652,6 +657,8 @@ typedef struct DebugIndexesScanner {
   bool wasPaused;
   bool pauseOnOOM;
   int status;
+  bool pauseBeforeOOMReset;
+  bool pauseAfterOOMReset;
 } DebugIndexesScanner;
 
 
