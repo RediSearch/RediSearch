@@ -38,7 +38,9 @@ void validateDebugMode(DebugCTX *debugCtx) {
     (debugCtx->bgIndexing.maxDocsTBscanned > 0) ||
     (debugCtx->bgIndexing.maxDocsTBscannedPause > 0) ||
     (debugCtx->bgIndexing.pauseBeforeScan) ||
-    (debugCtx->bgIndexing.pauseOnOOM);
+    (debugCtx->bgIndexing.pauseOnOOM) ||
+    (debugCtx->bgIndexing.pauseBeforeOOMreset) ||
+    (debugCtx->bgIndexing.pauseAfterOOMreset);
 
 }
 
@@ -1662,6 +1664,56 @@ DEBUG_COMMAND(terminateBgPool) {
 }
 
 /**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_BEFORE_OOM_RESET <true/false>
+ */
+DEBUG_COMMAND(setPauseBeforeOOMreset) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.pauseBeforeOOMreset = true;
+  } else if (!strcasecmp(op, "false")) {
+    globalDebugCtx.bgIndexing.pauseBeforeOOMreset = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_OOM_RESET'");
+  }
+
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_AFTER_OOM_RESET <true/false>
+ */
+DEBUG_COMMAND(setPauseAfterOOMreset) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.pauseAfterOOMreset = true;
+  } else if (!strcasecmp(op, "false")) {
+    globalDebugCtx.bgIndexing.pauseAfterOOMreset = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_AFTER_OOM_RESET'");
+  }
+
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
  * FT.DEBUG BG_SCAN_CONTROLLER <command> [options]
  */
 DEBUG_COMMAND(bgScanController) {
@@ -1694,6 +1746,12 @@ DEBUG_COMMAND(bgScanController) {
   }
   if (!strcmp("TERMINATE_BG_POOL", op)) {
     return terminateBgPool(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_PAUSE_BEFORE_OOM_RESET", op)) {
+    return setPauseBeforeOOMreset(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_PAUSE_AFTER_OOM_RESET", op)) {
+    return setPauseAfterOOMreset(ctx, argv+1, argc-1);
   }
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'BG_SCAN_CONTROLLER'");
 

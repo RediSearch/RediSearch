@@ -29,6 +29,9 @@ typedef struct BgIndexingDebugCtx {
   bool pauseBeforeScan; // Whether to pause before scanning
   volatile atomic_bool pause; // Volatile atomic bool to wait for the resume command
   bool pauseOnOOM; // Whether to pause on OOM
+  bool pauseBeforeOOMreset; // Whether to pause before the first OOM reset
+  bool pauseAfterOOMreset; // Whether to pause after the first OOM reset
+
 } BgIndexingDebugCtx;
 
 // General debug context
