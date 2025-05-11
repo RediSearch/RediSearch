@@ -7,15 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#include "test_util.h"
+//! Different iterators to traverse a [`TrieMap`](crate::TrieMap).
+pub mod filter;
+mod iter_;
+mod lending;
+mod values;
 
-#include <stdlib.h>
-
-int testLeak() {
-	void *p = malloc(1024);
-	return 0;
-}
-
-TEST_MAIN({
-  TESTFUNC(testLeak);
-})
+pub use iter_::Iter;
+pub use lending::LendingIter;
+pub use values::Values;

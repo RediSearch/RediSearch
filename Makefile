@@ -75,6 +75,7 @@ make test          # run all tests
   RUST_DENY_WARNS=0   # Deny all Rust compiler warnings
   RUST_DYN_CRT=0      # Link C runtime dynamically (default: 0)
 
+make license-check # check if all Rust files include a license header
 make lint          # run linters and exit with an error if warnings are found
 make fmt           # format the source files using the appropriate auto-formatter
   CHECK=1              # don't modify the source files, but exit with an error if
@@ -544,7 +545,14 @@ endif
 fmt:
 	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo fmt -- $(RUSTFMT_FLAGS)
 
-.PHONY: fmt
+.PHONY: license-header
+
+#----------------------------------------------------------------------------------------------
+
+license-check:
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo license-check
+
+.PHONY: license-check
 
 #----------------------------------------------------------------------------------------------
 
@@ -579,7 +587,7 @@ PACK_ARGS=\
 	RAMP_YAML=$(RAMP_YAML) \
 	RAMP_ARGS=$(RAMP_ARGS)
 
-RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 $(PACK_ARGS) $(ROOT)/sbin/pack.sh)
+RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 $(PACK_ARGS) $(ROOT)/sbin/pack.sh)
 
 ifneq ($(FORCE),1)
 bin/artifacts/$(RAMP.release): $(RAMP_YAML) # $(TARGET)

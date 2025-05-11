@@ -1,14 +1,17 @@
 [workspace]
 members = [
     "low_memory_thin_vec",
+    "qint",
     "redis_mock",
     "redisearch_rs",
+    "tools/license_header_linter",
     "trie_bencher",
     "trie_rs",
     "wildcard",
 ]
 default-members = [
     "low_memory_thin_vec",
+    "qint",
     "trie_rs",
     "redisearch_rs",
     "wildcard",
@@ -55,10 +58,12 @@ criterion = { version = "0.5", features = ["html_reports"] }
 csv = "1.3.1"
 fs-err = "3.1.0"
 insta = "1.42.2"
+lending-iterator = "0.1.7"
 libc = "0.2.170"
 memchr = "2.7.4"
 proptest = { version = "1.6.0", default-features = false }
 proptest-derive = { version = "0.5.1", default-features = false }
+rand = "0.9.1"
 ureq = "3.0.10"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 
