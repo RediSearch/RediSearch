@@ -1454,13 +1454,13 @@ def test_mod_8809():
     
     # Create index
     dimension = 128
-    env.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
     
     # Add enough documents to trigger yields
     num_docs = 1000
     for i in range(num_docs):
         vector = np.random.rand(1, dimension).astype(np.float32)
-        env.execute_command('HSET', i, 'v', vector.tobytes())
+        env.cmd('HSET', i, 'v', vector.tobytes())
     waitForIndex(env, 'idx')
 
     
