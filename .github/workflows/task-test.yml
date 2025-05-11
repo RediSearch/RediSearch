@@ -50,10 +50,8 @@ env:
   # flags, and therefore reuse the same intermediate build artifacts.
   RUST_DENY_WARNS: 1
   RUST_PROFILE: "optimised_test"
-  SCCACHE_BUCKET: search-sscache
-  SCCACHE_REGION: us-east-1
-  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  # Set a specific sccache directory that will be used by both the cache action and sccache
+  SCCACHE_DIR: "/tmp/sccache-dir"
 jobs:
   common-flow:
     name: Test ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
