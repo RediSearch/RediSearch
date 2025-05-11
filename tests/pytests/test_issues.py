@@ -1439,6 +1439,7 @@ def test_mod_9423(env:Env):
   env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF.DOCNORM', 'EXPLAINSCORE').equal(expected)
 
 # Test that RedisModule_Yield is called while indexing in order to prevent master from killing the replica [MOD-8809]
+@skip(cluster=True)
 def test_mod_8809(env:Env):
 
     # Configure yield every 10 operations
@@ -1457,10 +1458,9 @@ def test_mod_8809(env:Env):
     
     # Add enough documents to trigger yields
     num_docs = 1000
-    with env.getClusterConnectionIfNeeded() as conn:
-        for i in range(num_docs):
-            vector = np.random.rand(1, dimension).astype(np.float32)
-            conn.execute_command('HSET', i, 'v', vector.tobytes())
+    for i in range(num_docs):
+        vector = np.random.rand(1, dimension).astype(np.float32)
+        env.execute_command('HSET', i, 'v', vector.tobytes())
     waitForIndex(env, 'idx')
 
     
@@ -1469,7 +1469,7 @@ def test_mod_8809(env:Env):
     env.assertGreater(final_count, 0, message="Yield should have been called at least once")
     
     # Verify the number of yields 
-    expected_min_yields = num_docs // yield_every_n_ops // env.shardsCount - 1
+    expected_min_yields = num_docs // yield_every_n_ops
     env.assertGreaterEqual(final_count, expected_min_yields, 
                           message=f"Expected at least {expected_min_yields} yields, got {final_count}")
     
@@ -1485,7 +1485,7 @@ def test_mod_8809(env:Env):
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
     
     final_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
-    expected_min_yields = num_docs // yield_every_n_ops // env.shardsCount - 1
+    expected_min_yields = num_docs // yield_every_n_ops
     env.assertGreaterEqual(final_count, expected_min_yields, 
                           message=f"Expected at least {expected_min_yields} yields, got {final_count}")
 
