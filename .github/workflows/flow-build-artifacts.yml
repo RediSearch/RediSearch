@@ -38,23 +38,22 @@ on:
         default: all
 
 jobs:
-  get-latest-redis-tag:
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
-      prefix: '7.4'
-
+  
   setup:
     # Sets SHA and Validates the reference Input (branch or tag)
     runs-on: ubuntu-latest
-    needs: [get-latest-redis-tag]
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
-      redis-ref: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      redis-ref: ${{ steps.get-latest-redis-tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
       - id: set-sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+      - id: get-latest-redis-tag
+        uses: ./.github/workflows/task-get-latest-tag.yml
+        with:
+          repo: redis/redis
+          prefix: '7.4'
       - name: Validate Reference
         shell: python
         run: |
