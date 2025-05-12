@@ -3450,12 +3450,12 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
     dScanner->status = DEBUG_INDEX_SCANNER_CODE_RUNNING;
   }
 
-  if (dScanner->maxDocsTBscannedPause > 0 && (!dScanner->wasPaused) && scanner->scannedKeys >= dScanner->maxDocsTBscannedPause) {
+  if (dScanner->maxDocsTBscannedPause > 0 && (!dScanner->wasPaused) && scanner->scannedKeys == dScanner->maxDocsTBscannedPause) {
     globalDebugCtx.bgIndexing.pause = true;
     dScanner->wasPaused = true;
   }
 
-  if ((dScanner->maxDocsTBscanned > 0) && (scanner->scannedKeys >= dScanner->maxDocsTBscanned)) {
+  if ((dScanner->maxDocsTBscanned > 0) && (scanner->scannedKeys == dScanner->maxDocsTBscanned)) {
     scanner->cancelled = true;
     dScanner->status = DEBUG_INDEX_SCANNER_CODE_CANCELLED;
   }
@@ -3553,11 +3553,11 @@ static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner
 }
 
 static inline void scanWaitAndRestart(RedisModuleCtx *ctx, IndexesScanner *scanner, RedisModuleScanCursor *cursor) {
-  // Check if we we need to pause before the reset
+  // Reset the scanner's progression
+  // Resetting before releasing so if drop/alter occured during it will cancel the scan
+  IndexesScanner_ResetProgression(scanner);
   // Call the wait function
   threadSleepByConfigTime(ctx);
   // Reset the cursor, the scan will start from the beginning
   RedisModule_ScanCursorRestart(cursor);
-  // Reset the scanner's progression
-  IndexesScanner_ResetProgression(scanner);
 }

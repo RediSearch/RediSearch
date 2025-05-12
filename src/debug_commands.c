@@ -1714,6 +1714,49 @@ DEBUG_COMMAND(setPauseAfterOOMreset) {
 }
 
 /**
+ * FT.DEBUG BG_SCAN_CONTROLLER DEBUG_SCANNER_UPDATE_CONFIG <index_name>
+ */
+DEBUG_COMMAND(debugScannerUpdateConfig) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  if (!sp->scanner) {
+    return RedisModule_ReplyWithError(ctx, "Scanner is not initialized");
+  }
+
+  if(!(sp->scanner->isDebug)) {
+    return RedisModule_ReplyWithError(ctx, "Debug mode enabled but scanner is not a debug scanner");
+  }
+
+  // Assuming this file is aware of spec.h, via direct or in-direct include
+  DebugIndexesScanner *dScanner = (DebugIndexesScanner*)sp->scanner;
+  // Update the scanner with the new settings
+  dScanner->maxDocsTBscanned = globalDebugCtx.bgIndexing.maxDocsTBscanned;
+  dScanner->maxDocsTBscannedPause = globalDebugCtx.bgIndexing.maxDocsTBscannedPause;
+  dScanner->wasPaused = false;
+  dScanner->pauseOnOOM = globalDebugCtx.bgIndexing.pauseOnOOM;
+  dScanner->pauseBeforeOOMReset = globalDebugCtx.bgIndexing.pauseBeforeOOMreset;
+  dScanner->pauseAfterOOMReset = globalDebugCtx.bgIndexing.pauseAfterOOMreset;
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+
+/**
  * FT.DEBUG BG_SCAN_CONTROLLER <command> [options]
  */
 DEBUG_COMMAND(bgScanController) {
@@ -1752,6 +1795,9 @@ DEBUG_COMMAND(bgScanController) {
   }
   if (!strcmp("SET_PAUSE_AFTER_OOM_RESET", op)) {
     return setPauseAfterOOMreset(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("DEBUG_SCANNER_UPDATE_CONFIG", op)) {
+    return debugScannerUpdateConfig(ctx, argv+1, argc-1);
   }
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'BG_SCAN_CONTROLLER'");
 
