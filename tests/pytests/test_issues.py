@@ -1440,7 +1440,7 @@ def test_mod_9423(env:Env):
 
 # Test that RedisModule_Yield is called while indexing in order to prevent master from killing the replica [MOD-8809]
 @skip(cluster=True)
-def test_mod_8809(env:Env):
+def test_mod_8809_single_index_single_field(env:Env):
 
     # Configure yield every 10 operations
     yield_every_n_ops = 10
@@ -1460,7 +1460,7 @@ def test_mod_8809(env:Env):
     num_docs = 1000
     for i in range(num_docs):
         vector = np.random.rand(1, dimension).astype(np.float32)
-        env.execute_command('HSET', i, 'v', vector.tobytes())
+        env.execute_command('HSET', f'doc{i}', 'v', vector.tobytes())
     waitForIndex(env, 'idx')
 
     
@@ -1486,6 +1486,58 @@ def test_mod_8809(env:Env):
     
     final_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
     expected_min_yields = num_docs // yield_every_n_ops
+    env.assertGreaterEqual(final_count, expected_min_yields, 
+                          message=f"Expected at least {expected_min_yields} yields, got {final_count}")
+
+@skip(cluster=True)
+def test_mod_8809_multi_index_multi_fields(env:Env):
+
+    # Configure yield every 10 operations
+    yield_every_n_ops = 10
+    env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
+    env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
+
+    # Reset yield counter
+    env.expect(debug_cmd(), 'INDEXING_YIELD_COUNTER', 'RESET').ok()
+    initial_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
+    env.assertEqual(initial_count, 0, message="Initial yield counter should be 0")
+    
+    # Create index
+    dimension = 128
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+    env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+    
+    # Add enough documents to trigger yields
+    num_docs = 1000
+    for i in range(num_docs):
+        vector = np.random.rand(1, dimension).astype(np.float32)
+        env.execute_command('HSET', f'doc{i}', 'v', vector.tobytes(), 'num', i, 't', f'text {i}')
+    waitForIndex(env, 'idx')
+    waitForIndex(env, 'idx2')
+
+    
+    # Check that yield was called
+    final_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
+    env.assertGreater(final_count, 0, message="Yield should have been called at least once")
+    
+    # Verify the number of yields 
+    expected_min_yields = 4 * num_docs // yield_every_n_ops
+    env.assertGreaterEqual(final_count, expected_min_yields, 
+                          message=f"Expected at least {expected_min_yields} yields, got {final_count}")
+    
+    # Test with different configuration
+    yield_every_n_ops = 5
+    env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
+    env.expect(debug_cmd(), 'INDEXING_YIELD_COUNTER', 'RESET').ok()
+
+    # Reload and check 
+    env.broadcast('SAVE')
+    env.broadcast('DEBUG RELOAD NOSAVE')
+    waitForIndex(env, 'idx')
+    env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
+    
+    final_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
+    expected_min_yields = 4 * num_docs // yield_every_n_ops
     env.assertGreaterEqual(final_count, expected_min_yields, 
                           message=f"Expected at least {expected_min_yields} yields, got {final_count}")
 

@@ -14,6 +14,7 @@
 #include "logging.h"
 #include "rmutil/rm_assert.h"
 #include "VecSim/vec_sim.h"
+#include "util/misc.h"
 
 #include <pthread.h>
 
@@ -32,7 +33,7 @@ static void yieldCallback(void *yieldCtx) {
                     " waiting for workers to finish: call number %zu", yield_counter);
   }
   RedisModuleCtx *ctx = yieldCtx;
-  RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
+  RedisModule_YieldAndIncrement(ctx);
 }
 
 /* Configure here anything that needs to know it can use the thread pool */

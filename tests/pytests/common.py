@@ -87,9 +87,8 @@ def waitForIndex(env, idx = 'idx'):
         try:
             res = env.cmd('ft.info', idx)
         except redis_exceptions.ResponseError as e:
-            if 'redis is busy' in str(e).lower():
-                continue
-            raise e
+            if 'redis is busy' not in str(e).lower():
+                raise e
         try:
             if res[res.index('indexing') + 1] == 0:
                 break

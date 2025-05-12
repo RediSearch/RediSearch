@@ -1743,8 +1743,9 @@ DEBUG_COMMAND(YieldCounter) {
   
   // Check if we need to reset the counter
   if (argc == 3) {
-    const char *subCmd = RedisModule_StringPtrLen(argv[2], NULL);
-    if (!strcasecmp(subCmd, "RESET")) {
+    size_t len;
+    const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
+    if (STR_EQCASE(subCmd, len, "RESET")) {
       ResetYieldCounter();
       return RedisModule_ReplyWithSimpleString(ctx, "OK");
     } else {

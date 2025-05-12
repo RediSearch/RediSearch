@@ -994,3 +994,12 @@ def test_terminate_bg_pool(env):
     env.expect(bgScanCommand(), 'TERMINATE_BG_POOL').ok()
     # Check if the scan is finished
     env.assertEqual(index_info(env, 'idx')['indexing'], 0)
+
+@skip(cluster=True)
+def test_yield_counter(env):
+    # Giving wrong arity
+    env.expect(debug_cmd(), 'INDEXING_YIELD_COUNTER','ExtraARG1','ExtraARG2').error()\
+    .contains('wrong number of arguments')
+    # Giving wrong subcommand
+    env.expect(debug_cmd(), 'INDEXING_YIELD_COUNTER', 'NOT_A_COMMAND').error()\
+    .contains('Unknown subcommand')

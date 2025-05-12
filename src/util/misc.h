@@ -19,4 +19,11 @@ void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *ke
 //null-unsafe
 int GetRedisErrorCodeLength(const char* error);
 
+/**
+ * Yield to Redis and increment the yield counter.
+ * This helps keep Redis responsive during long operations.
+ * @param ctx The Redis context
+ */
+void RedisModule_YieldAndIncrement(RedisModuleCtx *ctx);
+
 #endif
