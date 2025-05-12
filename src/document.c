@@ -757,13 +757,10 @@ static PreprocessorFunc preprocessorMap[] = {
     [IXFLDPOS_GEOMETRY] = geometryPreprocessor,
     };
 
-
 int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
-                   QueryError *status) {  
-    
+                   QueryError *status) {
   int rc = 0;
-  
   for (size_t ii = 0; ii < INDEXFLD_NUM_TYPES && rc == 0; ++ii) {
     // see which types are supported in the current field...
     if (field->indexAs & INDEXTYPE_FROM_POS(ii)) {
