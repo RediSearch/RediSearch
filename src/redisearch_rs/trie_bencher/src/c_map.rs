@@ -47,11 +47,11 @@ impl CTrieMap {
     }
 
     pub fn find_prefixes(&self, term: TrieTermView) -> Result<PrefixesValues, ()> {
-        let mut results: *mut *mut c_void = {
+        let mut results = {
             // Here we are emulating the behaviour of the `array_new` macro, which we can't
             // invoke directly on the Rust side.
             let raw = unsafe { array_new_sz(std::mem::size_of::<*mut c_void>() as u32, 1, 0) };
-            raw.cast()
+            raw as *mut *mut c_void
         };
         let error_code = unsafe {
             crate::ffi::TrieMap_FindPrefixes(self.0, term.ptr(), term.len(), &mut results)
@@ -87,7 +87,7 @@ pub struct PrefixesValues(*mut *mut c_void);
 
 impl Drop for PrefixesValues {
     fn drop(&mut self) {
-        unsafe { array_free(*self.0) };
+        unsafe { array_free(self.0 as *mut c_void) };
     }
 }
 
