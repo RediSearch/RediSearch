@@ -89,13 +89,13 @@ static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref);
 static void DebugIndexesScanner_Free(DebugIndexesScanner *dScanner);
 static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, RedisModuleKey *key,
                              DebugIndexesScanner *dScanner);
-static void DebugIndexes_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx, bool pauseField, DebugIndexScannerCode code);
+static void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx, bool pauseField, DebugIndexScannerCode code);
 
 //---------------------------------------------------------------------------------------------
 
 static inline void threadSleepByConfigTime(RedisModuleCtx *ctx);
 static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner);
-
+static inline void scanWaitAndRestart(RedisModuleCtx *ctx, IndexesScanner *scanner, RedisModuleScanCursor *cursor);
 
 static void setMemoryInfo(RedisModuleCtx *ctx) {
 #define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
@@ -2193,8 +2193,8 @@ void IndexesScanner_Free(IndexesScanner *scanner) {
     WeakRef_Release(scanner->spec_ref);
   }
   // Free the last scanned key
-  if (scanner->lastScannedKey) {
-    RedisModule_FreeString(RSDummyContext, scanner->lastScannedKey);
+  if (scanner->OOMkey) {
+    RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
   }
   rm_free(scanner);
 }
@@ -2230,10 +2230,10 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (RSGlobalConfig.indexingMemoryLimit && (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit)) {
     scanner->scanFailedOnOOM = true;
     scanner->cancelled = true;
-    if (scanner->lastScannedKey) {
-      RedisModule_FreeString(RSDummyContext, scanner->lastScannedKey);
+    if (scanner->OOMkey) {
+      RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
     }
-    scanner->lastScannedKey = RedisModule_CreateStringFromString(RSDummyContext, keyname);
+    scanner->OOMkey = RedisModule_HoldString(RSDummyContext, keyname);
     return;
   }
   // RMKey it is provided as best effort but in some cases it might be NULL
@@ -2278,6 +2278,15 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
 }
 
 //---------------------------------------------------------------------------------------------
+// Define for neater code, first argument is the debug scanner flag field , second is the status code
+#define IF_DEBUG_PAUSE_CHECK(scanner, ctx, status_bool, status_code) \
+if (scanner->isDebug) { \
+  DebugIndexesScanner *dScanner = (DebugIndexesScanner*)scanner;\
+  DebugIndexesScanner_pauseCheck(dScanner, ctx, dScanner->status_bool, status_code); \
+}
+#define IF_DEBUG_PAUSE_CHECK_BEFORE_OOM_RESET(scanner, ctx) IF_DEBUG_PAUSE_CHECK(scanner, ctx, pauseBeforeOOMReset, DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RESET)
+#define IF_DEBUG_PAUSE_CHECK_AFTER_OOM_RESET(scanner, ctx) IF_DEBUG_PAUSE_CHECK(scanner, ctx, pauseAfterOOMReset, DEBUG_INDEX_SCANNER_CODE_PAUSED_AFTER_OOM_RESET)
+#define IF_DEBUG_PAUSE_CHECK_ON_OOM(scanner, ctx) IF_DEBUG_PAUSE_CHECK(scanner, ctx, pauseOnOOM, DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM)
 
 static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RS_LOG_ASSERT(scanner, "invalid IndexesScanner");
@@ -2285,11 +2294,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   RedisModuleCtx *ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
   RedisModuleScanCursor *cursor = RedisModule_ScanCursorCreate();
   RedisModule_ThreadSafeContextLock(ctx);
-
-  DebugIndexesScanner* dScanner = NULL;
-  if (scanner->isDebug) {
-    dScanner = (DebugIndexesScanner*)scanner;
-  }
 
   if (scanner->cancelled) {
     goto end;
@@ -2337,29 +2341,14 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
       // If the scan stopped due to OOM, we need to check if we need to retry
       if (scanner->scanFailedOnOOM) {
         if (retry_after_oom) {
-          // Check if we we need to pause before the reset
-          // Call the wait function
-          threadSleepByConfigTime(ctx);
-          if (scanner->isDebug) {
-            DebugIndexes_pauseCheck(dScanner, ctx, dScanner->pauseBeforeOOMReset, DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RESET);
-          }
-          // Reset the cursor, the scan will start from the beginning
-          RedisModule_ScanCursorRestart(cursor);
-          // Reset the scanner's progression
-          IndexesScanner_ResetProgression(scanner);
-          // Second OOM failure will cancel the scan
-          retry_after_oom = false;
-          if (scanner->isDebug) {
-            DebugIndexes_pauseCheck(dScanner, ctx, dScanner->pauseAfterOOMReset, DEBUG_INDEX_SCANNER_CODE_PAUSED_AFTER_OOM_RESET);
-          }
-          RedisModule_FreeString(RSDummyContext, scanner->lastScannedKey);
+          IF_DEBUG_PAUSE_CHECK_BEFORE_OOM_RESET(scanner, ctx);
+          scanWaitAndRestart(ctx, scanner, cursor);
+          retry_after_oom = false; // Next successive OOM should stop the scan
+          IF_DEBUG_PAUSE_CHECK_AFTER_OOM_RESET(scanner, ctx);
           continue;
-        } else {
-          scanStopAfterOOM(ctx, scanner);
-          if (scanner->isDebug) {
-            DebugIndexes_pauseCheck(dScanner, ctx, dScanner->pauseOnOOM, DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM);
-          }
         }
+        scanStopAfterOOM(ctx, scanner);
+        IF_DEBUG_PAUSE_CHECK_ON_OOM(scanner, ctx);
       }
 
       if (scanner->global) {
@@ -3510,8 +3499,8 @@ void IndexSpecRef_Release(StrongRef ref) {
 }
 
 // If this function is called, it means that the scan failed due to OOM, should be verified by the caller
-static void DebugIndexes_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx, bool pauseField, DebugIndexScannerCode code) {
-  if (!pauseField) {
+static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx, bool pauseField, DebugIndexScannerCode code) {
+  if (!dScanner || !pauseField) {
     return;
   }
   globalDebugCtx.bgIndexing.pause = true;
@@ -3549,9 +3538,9 @@ static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner
     StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
     IndexSpec *sp = StrongRef_Get(curr_run_ref);
     if (sp) {
-      sp->scan_failed_OOM = true;  // Assuming there is no other reason that the scanner is canceled *and* the index exists
+      sp->scan_failed_OOM = true;
       // Error message does not contain user data
-      IndexError_AddError(&sp->stats.indexError, error, error, scanner->lastScannedKey);
+      IndexError_AddError(&sp->stats.indexError, error, error, scanner->OOMkey);
       IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
       StrongRef_Release(curr_run_ref);
     } else {
@@ -3561,4 +3550,14 @@ static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner
       }
     }
     rm_free(error);
+}
+
+static inline void scanWaitAndRestart(RedisModuleCtx *ctx, IndexesScanner *scanner, RedisModuleScanCursor *cursor) {
+  // Check if we we need to pause before the reset
+  // Call the wait function
+  threadSleepByConfigTime(ctx);
+  // Reset the cursor, the scan will start from the beginning
+  RedisModule_ScanCursorRestart(cursor);
+  // Reset the scanner's progression
+  IndexesScanner_ResetProgression(scanner);
 }
