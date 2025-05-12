@@ -10,26 +10,26 @@
 use trie_rs::TrieMap;
 
 /// Return all the keys that are a prefix of the given target.
-fn prefixes<Data>(trie: &TrieMap<Data>, target: &[u8]) -> Vec<Vec<u8>> {
-    trie.prefixes_iter(target).map(|(k, _)| k).collect()
+fn prefixes<Data: Clone>(trie: &TrieMap<Data>, target: &[u8]) -> Vec<Data> {
+    trie.prefixes_iter(target).map(|v| v.to_owned()).collect()
 }
 
 #[test]
 fn empty_is_a_prefix_of_itself() {
     let mut trie = TrieMap::new();
-    trie.insert(b"", 0);
-    trie.insert(b"apple", 1);
+    trie.insert(b"", b"".to_vec());
+    trie.insert(b"apple", b"apple".into());
 
     assert_eq!(prefixes(&trie, b""), vec![b""]);
 }
 
 #[test]
-fn no_prefix() {
+fn non_empty_prefixes() {
     let mut trie = TrieMap::new();
-    trie.insert(b"apple", 1);
-    trie.insert(b"ban", 2);
-    trie.insert(b"banana", 3);
-    trie.insert(b"apricot", 4);
+    trie.insert(b"apple", b"apple".to_vec());
+    trie.insert(b"ban", b"ban".into());
+    trie.insert(b"banana", b"banana".into());
+    trie.insert(b"apricot", b"apricot".into());
 
     // No non-empty term is a prefix of the empty string.
     assert!(prefixes(&trie, b"").is_empty());
