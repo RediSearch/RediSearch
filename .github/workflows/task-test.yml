@@ -148,7 +148,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: redis/redis
-          ref: ${{ inputs.get-redis }}
+          ref: 8148e4116
           path: redis
       - name: Get Redis (node20 not supported)
         if: ${{ steps.node20.outputs.supported == 'false' }}
@@ -162,7 +162,7 @@ jobs:
 
           # Checkout the REF
           git fetch origin ${{ inputs.get-redis }}
-          git checkout ${{ inputs.get-redis }}
+          git checkout 8148e4116
 
       - name: Build Redis
         working-directory: redis
