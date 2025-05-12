@@ -140,7 +140,7 @@ typedef enum {
     //Do not add new codes after COUNT
 } DebugIndexScannerCode;
 
-extern const char *DEBUG_INDEX_SCANNER_STATUS_STRS[DEBUG_INDEX_SCANNER_CODE_COUNT];
+extern const char *DEBUG_INDEX_SCANNER_STATUS_STRS[];
 
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
