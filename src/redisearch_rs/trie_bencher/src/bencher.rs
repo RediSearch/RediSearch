@@ -181,8 +181,7 @@ fn find_prefixes_rust_benchmark<M: Measurement>(
 ) {
     let target = target.as_bytes();
     c.bench_function("Rust", |b| {
-        // Set to avoid timing the drop phase to match the performance profile of the C bench.
-        b.iter_with_large_drop(|| map.prefixes_iter(black_box(target)).collect::<Vec<_>>())
+        b.iter(|| map.prefixes_iter(black_box(target)).collect::<Vec<_>>())
     });
 }
 
@@ -194,10 +193,7 @@ fn find_prefixes_c_benchmark<M: Measurement>(
     let target = target.into_cstring();
     let view = target.as_view();
     let map = c_load_from_terms(terms);
-    c.bench_function("C", |b| {
-        // We are leaking memory here, since we don't free the pointer to the result array.
-        b.iter_with_large_drop(|| map.find_prefixes(view).unwrap())
-    });
+    c.bench_function("C", |b| b.iter(|| map.find_prefixes(view).unwrap()));
 }
 
 fn find_rust_benchmark<M: Measurement>(
