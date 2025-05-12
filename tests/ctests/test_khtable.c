@@ -31,7 +31,7 @@ static uint32_t myHash(const KHTableEntry *e) {
   return ((const MyEntry *)e)->hash;
 }
 
-static KHTableEntry *myAlloc() {
+static KHTableEntry *myAlloc(void *ctx) {
   return calloc(1, sizeof(MyEntry));
 }
 

@@ -33,10 +33,10 @@ CircularBuffer CircularBuffer_New(size_t item_size, uint cap) {
   CircularBuffer cb = rm_calloc(1, sizeof(_CircularBuffer) + item_size * cap);
 
   cb->read       = cb->data;                      // initial read position
-  cb->write      = ATOMIC_VAR_INIT(0);            // write offset into data
+  cb->write      = 0;                             // write offset into data
   cb->item_cap   = cap;                           // buffer capacity
   cb->item_size  = item_size;                     // item size
-  cb->item_count = ATOMIC_VAR_INIT(0);            // no items in buffer
+  cb->item_count = 0;                             // no items in buffer
   cb->end_marker = cb->data + (item_size * cap);  // end of data marker
 
   return cb;
