@@ -514,7 +514,7 @@ def test_oom_100_percent(env):
   OOMfailureStr = "OOM failure"
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
 
-
+@skip(cluster=True)
 def test_enterprise_oom_retry_success(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
@@ -558,6 +558,7 @@ def test_enterprise_oom_retry_success(env):
   bgIndexingStatusStr = "background indexing status"
   env.assertEqual(to_dict(info["Index Errors"])[bgIndexingStatusStr], 'OK')
 
+@skip(cluster=True)
 def test_enterprise_oom_retry_failure(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
@@ -600,7 +601,7 @@ def test_enterprise_oom_retry_failure(env):
   OOMfailureStr = "OOM failure"
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
 
-
+@skip(cluster=True)
 def test_enterprise_oom_multiple_retry_success(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
@@ -656,7 +657,7 @@ def test_enterprise_oom_multiple_retry_success(env):
   bgIndexingStatusStr = "background indexing status"
   env.assertEqual(to_dict(info["Index Errors"])[bgIndexingStatusStr], 'OK')
 
-
+@skip(cluster=True)
 def test_enterprise_oom_multiple_retry_failure(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
@@ -719,7 +720,7 @@ def test_enterprise_oom_multiple_retry_failure(env):
   OOMfailureStr = "OOM failure"
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
 
-
+@skip(cluster=True)
 def test_enterprise_oom_retry_drop(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
@@ -757,6 +758,7 @@ def test_enterprise_oom_retry_drop(env):
   # Validate that the index was dropped
   env.expect('ft._list').equal([])
 
+@skip(cluster=True)
 def test_enterprise_oom_retry_alter(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
