@@ -468,8 +468,8 @@ CONFIG_GETTER(getBM25StdTanhFactor) {
 }
 
 CONFIG_SETTER(setBgOOMpauseTimeForRsMgr) {
-  uint64_t newPauseTime;
-  int acrc = AC_GetU64(ac, &newPauseTime, AC_F_GE0);
+  uint32_t newPauseTime;
+  int acrc = AC_GetU32(ac, &newPauseTime, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   config->bgIndexingOomPauseTimeForRsMgr = newPauseTime;
   return REDISMODULE_OK;
@@ -477,7 +477,7 @@ CONFIG_SETTER(setBgOOMpauseTimeForRsMgr) {
 
 CONFIG_GETTER(getBgOOMpauseTimeForRsMgr) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->bgIndexingOomPauseTimeForRsMgr);
+  return sdscatprintf(ss, "%u", config->bgIndexingOomPauseTimeForRsMgr);
 }
 
 /************************************ DEPRECATION CANDIDATES *************************************/
@@ -1763,7 +1763,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       ctx, "search-bg_index_oom_pause_time",
       IsEnterprise() ? DEFAULT_BG_OOM_PAUSE_TIME_FOR_RS_MGR : 0,
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
-      UINT64_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
       (void *)&(RSGlobalConfig.bgIndexingOomPauseTimeForRsMgr)
     )
   )

@@ -163,7 +163,7 @@ typedef struct {
   bool hideUserDataFromLog;
   // Set how much time after OOM is detected we should wait to enable the resource manager to
   // allocate more memory.
-  uint64_t bgIndexingOomPauseTimeForRsMgr;
+  uint32_t bgIndexingOomPauseTimeForRsMgr;
 } RSConfig;
 
 typedef enum {
