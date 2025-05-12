@@ -1,5 +1,6 @@
-packaging <= 24.2
+--only-binary=gevent
 gevent <= 24.11.1
+packaging <= 24.2
 deepdiff <= 8.3.0
 # `orderly-set` is imported by `deepdiff` and may be updated from it even if we
 # pin `deepdiff`, thus we pin `orderly-set` here as well.
