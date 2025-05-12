@@ -50,7 +50,8 @@ env:
   # flags, and therefore reuse the same intermediate build artifacts.
   RUST_DENY_WARNS: 1
   RUST_PROFILE: "optimised_test"
-
+  # Set a specific sccache directory that will be used by both the cache action and sccache
+  SCCACHE_DIR: "/tmp/sccache-dir"
 jobs:
   common-flow:
     name: Test ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
@@ -163,11 +164,33 @@ jobs:
           # Checkout the REF
           git fetch origin ${{ inputs.get-redis }}
           git checkout ${{ inputs.get-redis }}
+      # Add GitHub Actions cache for sccache using the SCCACHE_DIR environment variable
+      - name: Cache sccache data
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.SCCACHE_DIR }}
+          key: sccache-${{ inputs.container || inputs.env }}-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            sccache-${{ inputs.container || inputs.env }}-${{ runner.arch }}-
 
+      # Create sccache directory with proper permissions
+      - name: Prepare sccache directory
+        run: |
+          mkdir -p ${{ env.SCCACHE_DIR }}
+          chmod -R 777 ${{ env.SCCACHE_DIR }}
+
+      # Setup sccache without invalid parameters
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+        
+      # Set SCCACHE_PATH environment variable
+      - name: Set sccache path
+        run: |
+          echo "SCCACHE_PATH=$(which sccache)" >> $GITHUB_ENV
       - name: Build Redis
         working-directory: redis
         run: |
-          ${{ steps.mode.outputs.mode }} SANITIZER=${{ inputs.san }} BUILD_TLS=yes make install
+          ${{ steps.mode.outputs.mode }} SANITIZER=${{ inputs.san }} BUILD_TLS=yes CC="${SCCACHE_PATH} $(command -v ${CC:-gcc})" CXX="${SCCACHE_PATH} $(command -v ${CC:-gcc})" make install
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
         # We also remove invalid characters from the name.
@@ -180,6 +203,7 @@ jobs:
           SAN: ${{ inputs.san }}
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
+          CMAKE_ARGS: '-DCMAKE_C_COMPILER_LAUNCHER=${{ env.SCCACHE_PATH }} -DCMAKE_CXX_COMPILER_LAUNCHER=${{ env.SCCACHE_PATH }}'
         run: ./build.sh TESTS
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
