@@ -15,12 +15,13 @@ BINROOT="$ROOT/bin"
 #-----------------------------------------------------------------------------
 # Default configuration values
 #-----------------------------------------------------------------------------
-COORD="oss"      # Coordinator type: oss or rlec
+COORD=0        # Coordinator type: 0 (disabled), 1/oss, or rlec
 DEBUG=0          # Debug build flag
 PROFILE=0        # Profile build flag
 FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
 QUICK=0          # Quick test mode (subset of tests)
+ENABLE_ASSERT=0  # Enable assertions (0=disabled, 1=enabled)
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0    # Build test binaries
@@ -36,7 +37,13 @@ parse_arguments() {
   for arg in "$@"; do
     case $arg in
       COORD=*)
-        COORD="${arg#*=}"
+        COORD_VALUE="${arg#*=}"
+        # Handle COORD=1 as COORD=oss
+        if [[ "$COORD_VALUE" == "1" ]]; then
+          COORD="oss"
+        else
+          COORD="$COORD_VALUE"
+        fi
         ;;
       DEBUG|debug)
         DEBUG=1
@@ -50,7 +57,8 @@ parse_arguments() {
       RUN_UNIT_TESTS|run_unit_tests)
         RUN_UNIT_TESTS=1
         ;;
-      RUN_PYTEST|run_pytest)
+      RUN_PYTEST|run_pytest|RUNPYTEST|runpytest)
+        echo "Setting RUN_PYTEST=1"
         RUN_PYTEST=1
         ;;
       TEST=*)
@@ -64,6 +72,9 @@ parse_arguments() {
         ;;
       VERBOSE|verbose)
         VERBOSE=1
+        ;;
+      ENABLE_ASSERT|enable_assert)
+        ENABLE_ASSERT=1
         ;;
       QUICK|quick)
         QUICK=1
@@ -143,8 +154,10 @@ setup_build_environment() {
     OUTDIR="search-community"
   elif [[ "$COORD" == "rlec" ]]; then
     OUTDIR="search-enterprise"
+  elif [[ "$COORD" == "0" ]]; then
+    OUTDIR="search-standalone"
   else
-    echo "COORD should be either oss or rlec"
+    echo "COORD should be either 0, oss, or rlec"
     exit 1
   fi
 
@@ -158,10 +171,23 @@ setup_build_environment() {
 #-----------------------------------------------------------------------------
 prepare_cmake_arguments() {
   # Initialize with base arguments
-  CMAKE_BASIC_ARGS="-DCOORD_TYPE=$COORD"
+  CMAKE_BASIC_ARGS=""
+
+  # Only pass COORD_TYPE and BUILD_COORDINATOR when building with COORD=oss or COORD=rlec
+  if [[ "$COORD" == "oss" || "$COORD" == "rlec" ]]; then
+    echo "Building with coordinator support (COORD=$COORD)"
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCOORD_TYPE=$COORD -DBUILD_COORDINATOR=ON"
+  else
+    echo "Building without coordinator support"
+    # Explicitly set BUILD_COORDINATOR to OFF for vanilla builds
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_COORDINATOR=OFF"
+  fi
 
   if [[ "$BUILD_TESTS" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_SEARCH_UNIT_TESTS=ON"
+
+    # Always build the example extension for unit tests
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_EXAMPLE_EXTENSION=ON"
   fi
 
   if [[ -n "$SAN" ]]; then
@@ -181,8 +207,18 @@ prepare_cmake_arguments() {
   # Set build type
   if [[ "$DEBUG" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_BUILD_TYPE=Debug"
+    # Debug builds automatically enable assertions in CMakeLists.txt
   else
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_BUILD_TYPE=RelWithDebInfo"
+  fi
+
+  # Handle ENABLE_ASSERT as an input parameter
+  if [[ "$ENABLE_ASSERT" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DENABLE_ASSERT=ON"
+    echo "Building with assertions enabled"
+  else
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DENABLE_ASSERT=OFF"
+    echo "Building with assertions disabled"
   fi
 
   # Ensure output file is always .so even on macOS
@@ -217,10 +253,10 @@ run_cmake() {
 
   # Determine which CMake entry point to use based on COORD
   if [[ "$COORD" == "oss" || "$COORD" == "rlec" ]]; then
-    echo "Using coordinator build entry point"
+    echo "Using coordinator build entry point (coord/CMakeLists.txt)"
     CMAKE_SOURCE_DIR="$ROOT/coord"
   else
-    echo "Using standard build entry point"
+    echo "Using standard build entry point (CMakeLists.txt)"
     CMAKE_SOURCE_DIR="$ROOT"
   fi
 
@@ -380,6 +416,7 @@ run_python_tests() {
   export BINROOT="$BINROOT"
   export FULL_VARIANT="$FULL_VARIANT"
   export BINDIR="$BINDIR"
+  export COORD="$COORD"
   export REJSON="${REJSON:-1}"
   export REJSON_BRANCH="${REJSON_BRANCH:-master}"
   export REJSON_PATH="${REJSON_PATH:-}"
@@ -389,8 +426,6 @@ run_python_tests() {
   export PARALLEL="${PARALLEL:-1}"
   export LOG_LEVEL="${LOG_LEVEL:-debug}"
   export TEST_TIMEOUT="${TEST_TIMEOUT:-}"
-  export REDIS_STANDALONE="${REDIS_STANDALONE:-}"
-  export SA="${SA:-1}"
 
   # Set up test filter if provided
   if [[ -n "$TEST_FILTER" ]]; then
@@ -455,6 +490,12 @@ run_tests() {
 
 # Parse command line arguments
 parse_arguments "$@"
+
+# Ensure COORD is set to a valid value
+if [[ "$COORD" != "0" && "$COORD" != "oss" && "$COORD" != "rlec" ]]; then
+  echo "Warning: Invalid COORD value '$COORD'. Setting to default (0)."
+  COORD="0"
+fi
 
 # Set up test configuration based on input parameters
 setup_test_configuration

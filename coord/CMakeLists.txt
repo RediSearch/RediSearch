@@ -8,20 +8,26 @@ get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 
 # COORD_TYPE=oss|rlec
 
-if (NOT COORD_TYPE)
+# Only build coordinator components if COORD_TYPE is set
+if (NOT DEFINED COORD_TYPE)
 	message(FATAL_ERROR "Missing COORD_TYPE. Should be 'oss' or 'rlec'.")
 elseif (COORD_TYPE STREQUAL "oss")
 	set(BUILD_COORD_OSS 1)
+	set(BUILD_COORDINATOR 1)
 elseif (COORD_TYPE STREQUAL "rlec")
 	set(BUILD_COORD_RLEC 1)
+	set(BUILD_COORDINATOR 1)
 else()
 	message(FATAL_ERROR "Invalid COORD_TYPE (='${COORD_TYPE}'). Should be either 'oss' or 'rlec'")
 endif()
 
-set(BUILD_TESTS OFF CACHE BOOL "" FORCE) # don't run RediSearch tests
+# Only override BUILD_SEARCH_UNIT_TESTS if not explicitly set
+if(NOT DEFINED BUILD_SEARCH_UNIT_TESTS)
+    set(BUILD_SEARCH_UNIT_TESTS OFF CACHE BOOL "Build unit tests" FORCE)
+endif()
+
 set(ENABLE_REDIS_MOCK ON CACHE BOOL "" FORCE) # build mock to link coordinator tests
 set(BUILD_STATIC OFF CACHE BOOL "" FORCE)
-set(BUILD_COORDINATOR 1)
 
 #----------------------------------------------------------------------------------------------
 
@@ -70,7 +76,7 @@ function(setup_shared_object_target target)
   else()
       # We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
       # the library's own definition, rather than to a definition in another shared library or the main executable.
-      set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Bsymbolic -Bsymbolic-functions")
+      set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Wl,-Bsymbolic,-Bsymbolic-functions")
   endif()
   set_target_properties(${target} PROPERTIES PREFIX "")
 endfunction()
@@ -106,9 +112,14 @@ if (APPLE)
 	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
 endif()
 
-add_subdirectory(${root} search)
-add_subdirectory(src/rmr)
-add_subdirectory(src)
+# Only include coordinator components when building with COORD_TYPE
+if (DEFINED COORD_TYPE)
+    add_subdirectory(${root} search)
+    add_subdirectory(src/rmr)
+    add_subdirectory(src)
+else()
+    message(FATAL_ERROR "COORD_TYPE must be defined when building coordinator")
+endif()
 
 option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
@@ -190,7 +201,10 @@ if (BUILD_COORD_OSS)
 	if (BUILD_SEARCH_UNIT_TESTS)
 		add_subdirectory(src/rmr/test)
 		add_subdirectory(tests/unit)
-		add_subdirectory(${root}/tests/ctests/ext-example example_extension)
+		# Build the example extension if requested
+		if (BUILD_EXAMPLE_EXTENSION)
+			add_subdirectory(${root}/tests/ctests/ext-example example_extension)
+		endif()
 		add_subdirectory(${root}/tests/cpptests/redismock redismock)
 	endif()
 endif()

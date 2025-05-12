@@ -67,7 +67,17 @@ OSNICK=$($READIES/bin/platform --osnick)
 
 #---------------------------------------------------------------------------------------- Setup
 
-export EXT_TEST_PATH=${BINROOT}/search/example_extension/libexample_extension.so
+# Set the extension path based on the build type
+if [[ -z $COORD ]]; then
+    export EXT_TEST_PATH=${BINROOT}/search-standalone/example_extension/libexample_extension.so
+elif [[ $COORD == "oss" ]]; then
+    export EXT_TEST_PATH=${BINROOT}/search-community/example_extension/libexample_extension.so
+elif [[ $COORD == "rlec" ]]; then
+    export EXT_TEST_PATH=${BINROOT}/search-enterprise/example_extension/libexample_extension.so
+fi
+
+# Print the extension path for debugging
+echo "Using extension path: $EXT_TEST_PATH"
 
 SKIP_CPP_TESTS=""
 #---------------------------------------------------------------------------------- Tests scope
@@ -115,7 +125,7 @@ if [[ -z $COORD ]]; then
 	if [[ $C_TESTS == 1 ]]; then
 		$READIES/bin/sep1
 		echo "# Running C unit tests"
-		TESTS_DIR="$(cd $BINROOT/search/tests/ctests; pwd)"
+		TESTS_DIR="$(cd $BINROOT/search-standalone/tests/ctests; pwd)"
 		cd $ROOT/tests/ctests
 		if [[ -z $TEST ]]; then
 			if [[ $NOP != 1 ]]; then
@@ -137,7 +147,7 @@ if [[ -z $COORD ]]; then
 	if [[ $CPP_TESTS == 1 ]]; then
 		$READIES/bin/sep1
 		echo "# Running C++ unit tests"
-		TESTS_DIR="$(cd $BINROOT/search/tests/cpptests; pwd)"
+		TESTS_DIR="$(cd $BINROOT/search-standalone/tests/cpptests; pwd)"
 		cd $ROOT/tests/cpptests
 		TEST_NAME=rstest sanitizer_defs
 		if [[ -z $TEST ]]; then

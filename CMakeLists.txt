@@ -1,5 +1,4 @@
 cmake_minimum_required(VERSION 3.13)
-# set(CMAKE_CXX_STANDARD 20)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
@@ -46,7 +45,7 @@ function(setup_shared_object_target target)
   else()
       # We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
       # the library's own definition, rather than to a definition in another shared library or the main executable.
-      set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Bsymbolic -Bsymbolic-functions")
+      set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Wl,-Bsymbolic,-Bsymbolic-functions")
   endif()
   set_target_properties(${target} PROPERTIES PREFIX "")
 endfunction()
@@ -172,8 +171,6 @@ endif()
 
 #----------------------------------------------------------------------------------------------
 # Include external dependencies
-include(${root}/build/hiredis/hiredis.cmake)
-
 if (NOT DEFINED BOOST_DIR)
     set(BOOST_DIR "${root}/.install/boost")
 endif()
@@ -187,13 +184,11 @@ message(STATUS "BOOST_DIR: ${BOOST_DIR}")
 set(BOOST_ROOT ${BOOST_DIR})
 set(Boost_NO_WARN_NEW_VERSIONS ON)
 
-
 include_directories(
     ${root}/src
     ${root}/deps
     ${root}/deps/RedisModulesSDK
     ${root}/deps/VectorSimilarity/src
-#   ${root}/deps/s2geometry/src
     ${BOOST_DIR}
     ${root})
 
@@ -201,12 +196,6 @@ add_subdirectory(deps/rmutil)
 add_subdirectory(deps/friso)
 add_subdirectory(deps/snowball)
 add_subdirectory(deps/phonetics)
-
-# Configure libuv options
-set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
-set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
-set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE) # Force static library
-add_subdirectory(deps/libuv)
 
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
@@ -252,7 +241,8 @@ set(FINAL_OBJECTS
 
 if (BUILD_COORDINATOR)
     if (BUILD_COORD_OSS)
-        add_library(redisearch-oss STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c coord/src/rmr/reply.c)
+        # Only include coordinator components when building with COORD=oss
+        add_library(redisearch-oss STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c)
         target_link_libraries(redisearch-oss redisearch-hash)
         target_compile_definitions(redisearch-oss PRIVATE
             RS_NO_ONLOAD
@@ -260,7 +250,8 @@ if (BUILD_COORDINATOR)
             RS_CLUSTER_OSS)
 
     elseif (BUILD_COORD_RLEC)
-        add_library(redisearch-enterprise STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c coord/src/rmr/reply.c)
+        # Only include coordinator components when building with COORD=rlec
+        add_library(redisearch-enterprise STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c)
         target_link_libraries(redisearch-enterprise redisearch-hash)
         target_compile_definitions(redisearch-enterprise PRIVATE
             RS_NO_ONLOAD
@@ -292,17 +283,18 @@ else() # OSS RediSearch
     target_link_libraries(redisearch redisearch-geometry redisearch-hash VectorSimilarity ${REDISEARCH_LIBS} ${CMAKE_LD_LIBS})
 
     extract_debug_symbols(redisearch)
-    add_dependencies(redisearch uv_a)
     add_dependencies(redisearch VectorSimilarity)
 endif()
 
 #----------------------------------------------------------------------------------------------
 
-if (BUILD_COORDINATOR)
+# Only override BUILD_SEARCH_UNIT_TESTS for coordinator builds if not explicitly set
+if (BUILD_COORDINATOR AND NOT DEFINED CMAKE_BUILD_SEARCH_UNIT_TESTS)
     set(BUILD_SEARCH_UNIT_TESTS OFF)
 endif()
 
-if (BUILD_SEARCH_UNIT_TESTS AND NOT BUILD_COORDINATOR AND NOT BUILD_STATIC)
+# Always build unit tests if explicitly requested
+if (BUILD_SEARCH_UNIT_TESTS)
     set(BUILD_GTEST ON CACHE BOOL "enable gtest" FORCE)
     set(BUILD_GMOCK OFF CACHE BOOL "disable gmock" FORCE)
 
@@ -310,7 +302,11 @@ if (BUILD_SEARCH_UNIT_TESTS AND NOT BUILD_COORDINATOR AND NOT BUILD_STATIC)
     add_subdirectory(tests/cpptests)
     add_subdirectory(tests/ctests)
     add_subdirectory(tests/c_utils)
-    add_subdirectory(tests/ctests/ext-example example_extension)
+
+    # Build the example extension if requested
+    if (BUILD_EXAMPLE_EXTENSION)
+        add_subdirectory(tests/ctests/ext-example example_extension)
+    endif()
     if (ENABLE_REDIS_MOCK)
         add_subdirectory(tests/cpptests/redismock)
     endif()
