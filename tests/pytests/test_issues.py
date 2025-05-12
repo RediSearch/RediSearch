@@ -1506,14 +1506,16 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     dimension = 128
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
     env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
-    
+    env.cmd('FT.CREATE', 'idx3', 'SCHEMA', 'geom', 'GEOSHAPE', 'tag', 'TAG')
+
     # Add enough documents to trigger yields
     num_docs = 1000
     for i in range(num_docs):
         vector = np.random.rand(1, dimension).astype(np.float32)
-        env.execute_command('HSET', f'doc{i}', 'v', vector.tobytes(), 'num', i, 't', f'text {i}')
+        env.execute_command('HSET', f'doc{i}', 'v', vector.tobytes(), 'num', i, 't', f'text {i}', 'geom', f'POINT({i%10} {i%15})', 'tag', f'tag{i%10}')
     waitForIndex(env, 'idx')
     waitForIndex(env, 'idx2')
+    waitForIndex(env, 'idx3')
 
     
     # Check that yield was called
@@ -1521,7 +1523,7 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     env.assertGreater(final_count, 0, message="Yield should have been called at least once")
     
     # Verify the number of yields 
-    expected_min_yields = 4 * num_docs // yield_every_n_ops
+    expected_min_yields = 6 * num_docs // yield_every_n_ops
     env.assertGreaterEqual(final_count, expected_min_yields, 
                           message=f"Expected at least {expected_min_yields} yields, got {final_count}")
     
@@ -1537,7 +1539,7 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
     
     final_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
-    expected_min_yields = 4 * num_docs // yield_every_n_ops
+    expected_min_yields = 6 * num_docs // yield_every_n_ops
     env.assertGreaterEqual(final_count, expected_min_yields, 
                           message=f"Expected at least {expected_min_yields} yields, got {final_count}")
 
