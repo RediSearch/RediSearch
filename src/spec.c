@@ -3555,7 +3555,6 @@ static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner
 
 static inline void scanWaitAndRestart(RedisModuleCtx *ctx, IndexesScanner *scanner, RedisModuleScanCursor *cursor) {
   // Reset the scanner's progression
-  // Resetting before releasing so if drop/alter occured during it will cancel the scan
   IndexesScanner_ResetProgression(scanner);
   // Call the wait function
   threadSleepByConfigTime(ctx);
