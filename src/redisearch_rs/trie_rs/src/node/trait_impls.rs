@@ -26,7 +26,7 @@ impl<Data: fmt::Debug> fmt::Debug for Node<Data> {
             let data_repr = next
                 .data()
                 .as_ref()
-                .map_or("(-)".to_string(), |data| format!("({:?})", data));
+                .map_or("(-)".to_string(), |data| format!("({data:?})"));
 
             let prefix = if white_indentation == 0 && line_indentation == 0 {
                 "".to_string()

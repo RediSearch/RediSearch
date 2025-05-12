@@ -44,6 +44,14 @@ impl CTrieMap {
         unsafe { crate::ffi::TrieMap_Delete(self.0, term.ptr(), term.len(), Some(do_not_free)) }
     }
 
+    pub fn find_prefixes(&self, term: TrieTermView) -> Result<*mut *mut c_void, ()> {
+        let mut results: *mut *mut c_void = std::ptr::null_mut();
+        let error_code = unsafe {
+            crate::ffi::TrieMap_FindPrefixes(self.0, term.ptr(), term.len(), &mut results)
+        };
+        if error_code > 0 { Err(()) } else { Ok(results) }
+    }
+
     pub fn n_nodes(&self) -> usize {
         unsafe { (*self.0).size }
     }
