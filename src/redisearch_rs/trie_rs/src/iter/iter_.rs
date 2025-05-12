@@ -9,7 +9,6 @@
 
 use super::filter::{TraversalFilter, VisitAll};
 use crate::node::Node;
-use std::ffi::c_char;
 
 /// Iterates over the entries of a [`TrieMap`](crate::TrieMap) in lexicographical order.
 ///
@@ -23,7 +22,7 @@ pub struct Iter<'tm, Data, F> {
     filter: F,
     /// Concatenation of the labels of current node and its ancestors,
     /// i.e. the key of the current node.
-    key: Vec<c_char>,
+    key: Vec<u8>,
 }
 
 impl<'a, Data, F> Iter<'a, Data, F> {
@@ -43,7 +42,7 @@ impl<'a, Data, F> Iter<'a, Data, F> {
 
 impl<'tm, Data> Iter<'tm, Data, VisitAll> {
     /// Creates a new iterator over the entries of a [`TrieMap`](crate::TrieMap).
-    pub(crate) fn new(root: Option<&'tm Node<Data>>, prefix: Vec<c_char>) -> Self {
+    pub(crate) fn new(root: Option<&'tm Node<Data>>, prefix: Vec<u8>) -> Self {
         Self::filtered(root, prefix, VisitAll)
     }
 
@@ -60,7 +59,7 @@ where
     /// Creates a new iterator over the entries of a [`TrieMap`](crate::TrieMap).
     pub(crate) fn filtered(
         root: Option<&'tm Node<Data>>,
-        prefix: Vec<c_char>,
+        prefix: Vec<u8>,
         visit_descendants: F,
     ) -> Self {
         Self {
@@ -72,7 +71,7 @@ where
 
     /// The current key, obtained by concatenating the labels of the nodes
     /// between the root and the current node.
-    pub(crate) fn key(&self) -> &[c_char] {
+    pub(crate) fn key(&self) -> &[u8] {
         &self.key
     }
 
@@ -111,7 +110,7 @@ impl<'tm, Data, F> Iterator for Iter<'tm, Data, F>
 where
     F: TraversalFilter,
 {
-    type Item = (Vec<c_char>, &'tm Data);
+    type Item = (Vec<u8>, &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.advance().map(|d| (self.key.clone(), d))
