@@ -9,7 +9,6 @@
 
 use super::{Iter, filter::TraversalFilter};
 use lending_iterator::prelude::*;
-use std::ffi::c_char;
 
 /// Iterates over the entries of a [`TrieMap`](crate::TrieMap) in lexicographical order, with minimal cloning.
 ///
@@ -52,7 +51,7 @@ where
     type Item<'next>
     where
         Self: 'next,
-    = (&'next [c_char], &'tm Data);
+    = (&'next [u8], &'tm Data);
 
     fn next(&mut self) -> Option<Self::Item<'_>> {
         let item = self.0.advance()?;
