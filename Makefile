@@ -75,6 +75,7 @@ make test          # run all tests
   RUST_DENY_WARNS=0   # Deny all Rust compiler warnings
   RUST_DYN_CRT=0      # Link C runtime dynamically (default: 0)
 
+make license-check # check if all Rust files include a license header
 make lint          # run linters and exit with an error if warnings are found
 make fmt           # format the source files using the appropriate auto-formatter
   CHECK=1              # don't modify the source files, but exit with an error if
@@ -190,7 +191,7 @@ include build/libuv/Makefile.defs
 
 REDISEARCH_RS_DIR=$(ROOT)/src/redisearch_rs
 export REDISEARCH_RS_TARGET_DIR=$(ROOT)/bin/redisearch_rs/
-export REDISEARCH_RS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT)/redisearch_rs/
+export REDISEARCH_RS_BINDIR=$(BINDIR)/redisearch_rs/
 
 ifeq ($(RUST_PROFILE),)
 ifeq ($(DEBUG),1)
@@ -245,6 +246,10 @@ ifeq ($(ENABLE_ASSERT),1)
 CC_FLAGS.common += -DENABLE_ASSERT
 endif
 
+ifeq ($(COV),1)
+CC_FLAGS.common += -DCOVERAGE
+endif
+
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(TESTS),0)
@@ -263,7 +268,7 @@ endif
 
 #----------------------------------------------------------------------------------------------
 BOOST_DIR ?= $(ROOT)/.install/boost
-_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR) -DMAX_WORKER_THREADS=$(MAX_WORKER_THREADS) -DSAN=$(SAN)
+_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR) -DMAX_WORKER_THREADS=$(MAX_WORKER_THREADS) -DSAN=$(SAN) -DCOV=$(COV)
 
 ifeq ($(OS),macos)
 _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DAPPLE=ON
@@ -472,10 +477,15 @@ endif
 
 test: unit-tests pytest rust-tests
 
-unit-tests: rust-tests
-	$(SHOW)BINROOT=$(BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+# Temp hack - replace the arm artifact directory with aarch64 as it comes from build.sh since unit tests
+# access it directly (todo: refactor unit test flow completely)
+UPDATED_BINROOT:=$(subst arm64v8,aarch64,$(BINROOT))
 
-RUST_TEST_OPTIONS=--all-features --profile=$(RUST_PROFILE)
+unit-tests:
+	@echo "UPDATED_BINROOT: $(UPDATED_BINROOT)"
+	$(SHOW)BINROOT=$(UPDATED_BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+
+RUST_TEST_OPTIONS=--profile=$(RUST_PROFILE)
 ifeq ($(COV),1)
 # We use the `nightly` compiler in order to include doc tests in the coverage computation.
 # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
@@ -535,7 +545,14 @@ endif
 fmt:
 	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo fmt -- $(RUSTFMT_FLAGS)
 
-.PHONY: fmt
+.PHONY: license-header
+
+#----------------------------------------------------------------------------------------------
+
+license-check:
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo license-check
+
+.PHONY: license-check
 
 #----------------------------------------------------------------------------------------------
 
@@ -570,7 +587,7 @@ PACK_ARGS=\
 	RAMP_YAML=$(RAMP_YAML) \
 	RAMP_ARGS=$(RAMP_ARGS)
 
-RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 $(PACK_ARGS) $(ROOT)/sbin/pack.sh)
+RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 $(PACK_ARGS) $(ROOT)/sbin/pack.sh)
 
 ifneq ($(FORCE),1)
 bin/artifacts/$(RAMP.release): $(RAMP_YAML) # $(TARGET)
@@ -631,15 +648,28 @@ COV_EXCLUDE_DIRS += \
 
 COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
-coverage:
-	$(SHOW)$(MAKE) build COV=1
-	$(SHOW)$(COVERAGE_RESET)
+coverage-unit:
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
 	$(SHOW)$(MAKE) unit-tests COV=1
+	$(SHOW)lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/unit.info
+	$(SHOW)lcov -a $(BINROOT)/base.info -a $(BINROOT)/unit.info -o $(BINROOT)/unit.info.1
+	$(SHOW)lcov -o $(BINROOT)/unit.info.2 -r $(BINROOT)/unit.info.1 $(COV_EXCLUDE)
+	$(SHOW)mv $(BINROOT)/unit.info.2 $(BINROOT)/unit.info
+	$(SHOW)rm $(BINROOT)/unit.info.1
+
+coverage-flow:
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
 	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
 	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
-	$(SHOW)$(COVERAGE_COLLECT_REPORT)
+	$(SHOW)lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/flow.info
+	$(SHOW)lcov -a $(BINROOT)/base.info -a $(BINROOT)/flow.info -o $(BINROOT)/flow.info.1
+	$(SHOW)lcov -o $(BINROOT)/flow.info.2 -r $(BINROOT)/flow.info.1 $(COV_EXCLUDE)
+	$(SHOW)mv $(BINROOT)/flow.info.2 $(BINROOT)/flow.info
+	$(SHOW)rm $(BINROOT)/flow.info.1
 
-.PHONY: coverage
+.PHONY: coverage-unit coverage-flow
 
 #----------------------------------------------------------------------------------------------
 

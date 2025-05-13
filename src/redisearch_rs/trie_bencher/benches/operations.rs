@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 //! Benchmark the core operations provided by a trie map: insertions, deletions, and lookups.
 //!
 //! The data sources for the benchmarks are obtained via the [CorpusType] enum.
@@ -21,7 +30,7 @@ use trie_bencher::OperationBencher;
 use trie_bencher::corpus::CorpusType;
 
 fn criterion_benchmark_gutenberg(c: &mut Criterion) {
-    let corpus = CorpusType::GutenbergEbook;
+    let corpus = CorpusType::GutenbergEbook(false);
     let terms = corpus.create_terms(true);
 
     let bencher = OperationBencher::new("Gutenberg".to_owned(), terms, None);
@@ -64,7 +73,7 @@ fn criterion_benchmark_redis_wiki_10k(c: &mut Criterion) {
     let corpus = CorpusType::RedisBench10kNumerics;
     let terms = corpus.create_terms(true);
     let bencher =
-        OperationBencher::new("Wiki-10K".to_owned(), terms, Some(Duration::from_secs(10)));
+        OperationBencher::new("Wiki-10K".to_owned(), terms, Some(Duration::from_secs(20)));
 
     bencher.load_group(c);
 

@@ -317,6 +317,10 @@ def config_cmd():
 def run_command_on_all_shards(env, *args):
     return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
 
+def verify_command_OK_on_all_shards(env, *args):
+    res = run_command_on_all_shards(env, *args)
+    env.assertEqual(res, ['OK'] * env.shardsCount)
+
 def get_vecsim_debug_dict(env, index_name, vector_field):
     return to_dict(env.cmd(debug_cmd(), "VECSIM_INFO", index_name, vector_field))
 
@@ -854,7 +858,7 @@ def checkDebugScannerError(env, idx = 'idx', expected_error = ''):
     env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx).error() \
         .contains(expected_error)
 
-def set_tight_maxmemory_for_oom(env, memory_limit_per = 0.8):
+def set_tight_maxmemory_for_oom(env, memory_limit_per = 1.0):
     # Get current memory consumption value
     memory_usage = env.cmd('INFO', 'MEMORY')['used_memory']
     # Set memory limit to less then memory limit
@@ -901,7 +905,7 @@ def allShards_waitForIndexFinishScan(env, idx = 'idx'):
     for shardId in range(1, env.shardsCount + 1):
         shard_waitForIndexFinishScan(env, shardId, idx)
 
-def shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per = 0.8):
+def shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per = 1.0):
     # Get current memory consumption value
     memory_usage = env.getConnection(shardId).execute_command('INFO', 'MEMORY')['used_memory']
     # Set memory limit to less then memory limit
@@ -911,7 +915,7 @@ def shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per = 0.8):
     res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', new_memory)
     env.assertEqual(res, 'OK')
 
-def allShards_set_tight_maxmemory_for_oom(env, memory_limit_per = 0.8):
+def allShards_set_tight_maxmemory_for_oom(env, memory_limit_per = 1.0):
     for shardId in range(1, env.shardsCount + 1):
         shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per)
 

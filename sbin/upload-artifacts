@@ -132,10 +132,10 @@ s3_upload_file() {
 
 s3_upload() {
     # Parameters:
-    #   $1: file_prefix - Prefix of files to upload (e.g., "redisearch")
-    #   $2: product_name - Product folder name in S3 (e.g., "redisearch")
-    local file_prefix="$1"
-    local product_name="$2"
+    #   $1: product_name - Product folder name in S3 (e.g., "redisearch")
+    #   $2: file_prefix - Prefix of files to upload (e.g., "redisearch")
+    local product_name="$1"
+    local file_prefix="$2"
 
     if [[ -z "$file_prefix" || -z "$product_name" ]]; then
         eprint "Error: Missing required parameters"
@@ -162,12 +162,12 @@ s3_upload() {
     echo "All uploads complete to $upload_dir"
 }
 upload_product() {
-    local prefix="$1"
-    local target="$2"
+    local target="$1"
+    local prefix="$2"
 
     {
         echo "::group::Uploading $prefix artifacts"
-        s3_upload "$prefix" "$target"
+        s3_upload "$target" "$prefix"
         echo "::endgroup::"
     } || {
         echo "::endgroup::"

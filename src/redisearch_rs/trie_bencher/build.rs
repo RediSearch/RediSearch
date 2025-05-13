@@ -1,4 +1,12 @@
-use bindgen;
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 use std::env;
 use std::path::PathBuf;
 
@@ -6,20 +14,31 @@ fn main() {
     let root = git_root();
 
     // Construct the correct folder path based on OS and architecture
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let lib_dir = {
         let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
         let target_arch = match target_arch.as_str() {
-            "aarch64" => "arm64v8",
             "x86_64" => "x64",
             _ => &target_arch,
         };
-        let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+
         root.join(format!(
             "bin/{target_os}-{target_arch}-release/search-community/deps/triemap"
         ))
     };
 
     assert!(std::fs::exists(lib_dir.join("libtrie.a")).unwrap());
+    // There are several symbols exposed by `libtrie.a` that we don't
+    // actually invoke (either directly or indirectly) in our benchmarks.
+    // We provide a definition for the ones we need (e.g. Redis' allocation functions),
+    // but we don't want to be forced to add dummy definitions for the ones we don't rely on.
+    // We prefer to fail at runtime if we try to use a symbol that's undefined.
+    // This is the default linker behaviour on macOS. On other platforms, the default
+    // configuration is stricter: it exits with an error if any symbol is undefined.
+    // We intentionally relax it here.
+    if target_os != "macos" {
+        println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
+    }
     println!("cargo:rustc-link-lib=static=trie");
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!(

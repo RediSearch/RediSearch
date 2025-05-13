@@ -1,0 +1,17 @@
+[package]
+name = "wildcard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bench]]
+name = "matching"
+harness = false
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+proptest = { workspace = true, features = ["std"] }
+wildcard_cloudflare.workspace = true

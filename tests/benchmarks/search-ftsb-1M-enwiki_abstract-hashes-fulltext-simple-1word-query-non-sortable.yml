@@ -33,4 +33,5 @@ clientconfig:
     - workers: 32
     - requests: 50000
     - reporting-period: 1s
+    - duration: 120s
     - input: "https://s3.amazonaws.com/benchmarks.redislabs/redisearch/datasets/1M-enwiki_abstract-hashes-text-no-sortable/1M-enwiki_abstract-hashes-text-no-sortable.redisearch.commands.BENCH.QUERY_simple-1word-query.csv"

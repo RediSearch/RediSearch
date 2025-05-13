@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "aggregate/aggregate.h"
 #include "result_processor.h"
 #include "query.h"
@@ -955,7 +957,46 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, cons
 
 /*********************************************************************************/
 
+typedef struct {
+  ResultProcessor base;
+  const RLookupKey *out;
+} RPKeyNameLoader;
+
+static inline void RPKeyNameLoader_Free(ResultProcessor *self) {
+  rm_free(self);
+}
+
+static int RPKeyNameLoader_Next(ResultProcessor *base, SearchResult *res) {
+  int rc = base->upstream->Next(base->upstream, res);
+  if (RS_RESULT_OK == rc) {
+    RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
+    size_t keyLen = sdslen(res->dmd->keyPtr); // keyPtr is an sds
+    RLookup_WriteOwnKey(nl->out, &res->rowdata, RS_NewCopiedString(res->dmd->keyPtr, keyLen));
+  }
+  return rc;
+}
+
+static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
+  RPKeyNameLoader *rp = rm_calloc(1, sizeof(*rp));
+  rp->out = key;
+
+  ResultProcessor *base = &rp->base;
+  base->Free = RPKeyNameLoader_Free;
+  base->Next = RPKeyNameLoader_Next;
+  base->type = RP_KEY_NAME_LOADER;
+  return base;
+}
+
+/*********************************************************************************/
+
 ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+  if (RSGlobalConfig.enableUnstableFeatures) {
+    if (nkeys == 1 && !strcmp(keys[0]->path, UNDERSCORE_KEY)) {
+      // Return a thin RP that doesn't actually loads anything or access to the key space
+      // Returning without turning on the `QEXEC_S_HAS_LOAD` flag
+      return RPKeyNameLoader_New(keys[0]);
+    }
+  }
   r->stateflags |= QEXEC_S_HAS_LOAD;
   if (r->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
@@ -1031,9 +1072,9 @@ void SetLoadersForMainThread(AREQ *r) {
 /*********************************************************************************/
 
 static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
-                                    "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
-                                    "Grouper", "Projector", "Filter",            "Profile",
-                                    "Network", "Metrics Applier", "Normalizer"};
+                                     "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
+                                     "Grouper", "Projector", "Filter",            "Profile",
+                                     "Network", "Metrics Applier", "Key Name Loader", "Normalizer"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
