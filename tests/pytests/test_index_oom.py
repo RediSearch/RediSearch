@@ -731,7 +731,6 @@ def test_enterprise_oom_retry_drop(env):
   for i in range(num_docs):
     env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
-  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
   num_docs_scanned = num_docs//4
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
   env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET', 'true').ok()
