@@ -172,6 +172,29 @@ impl OperationBencher {
         find_prefixes_c_benchmark(&mut group, &self.keys, target);
         group.finish();
     }
+
+    /// Benchmark the `IntoValues` iterator.
+    ///
+    /// The benchmark group will be marked with the given label.
+    pub fn into_values_group(&self, c: &mut Criterion, label: &str) {
+        let mut group = self.benchmark_group_mutable(c, label);
+        into_values_benchmark(&mut group, &self.rust_map);
+        group.finish();
+    }
+}
+
+fn into_values_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, map: &RustTrieMap) {
+    c.bench_function("Rust", |b| {
+        b.iter_batched(
+            || map.clone(),
+            |map| {
+                for value in map.into_values() {
+                    black_box(value);
+                }
+            },
+            BatchSize::LargeInput,
+        )
+    });
 }
 
 fn find_prefixes_rust_benchmark<M: Measurement>(

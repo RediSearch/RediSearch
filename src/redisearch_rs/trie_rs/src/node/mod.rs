@@ -963,6 +963,56 @@ impl<Data> Node<Data> {
             _phantom: Default::default(),
         }
     }
+
+    /// Decompose the node into:
+    ///
+    /// - Its children pointers, that will be appended to the provided buffer in reverse order.
+    /// - Its payload, returned by the function.
+    ///
+    /// The heap allocation backing the node will be freed.
+    pub(crate) fn into_raw_parts_reversed(
+        mut self,
+        children_buffer: &mut Vec<Node<Data>>,
+    ) -> Option<Data> {
+        let data = self.data_mut().take();
+        let n_children = self.n_children() as usize;
+        let ptr = self.downgrade();
+
+        children_buffer.reserve(n_children);
+
+        // SAFETY:
+        // - The pointer is well-aligned and points immediately after
+        //   the last element.
+        //   It is therefore true that all memory between the base pointer
+        //   and the offsetted pointer belongs to a single allocation.
+        let mut next_child = unsafe { ptr.children().ptr().add(n_children) };
+        for _ in 0..n_children {
+            // SAFETY:
+            // - `i` is strictly smaller than `n_children`, so we're in bounds.
+            next_child = unsafe { next_child.sub(1) };
+            // After this read, we have two pointers to this child.
+            // This is fine, since we will drop the allocated buffer without trying
+            // to drop the old pointer, thus leaving the freshly read pointer
+            // as the only existing pointer at the end of this routine.
+            //
+            // SAFETY:
+            // - Well-aligned and valid for reads,
+            //   thanks to invariant #1 in ChildrenBuffer::ptr
+            let child = unsafe { next_child.read() };
+            children_buffer.push(child);
+        }
+
+        // We don't leak any memory since all fields that may manage resources (children, payload)
+        // have been taken out of the buffer at this point.
+        //
+        // SAFETY:
+        // - The pointer is valid and aligned.
+        // - We have exclusive access to the element, since this function
+        //   takes `self` by value.
+        unsafe { ptr.ptr().drop_in_place() };
+
+        data
+    }
 }
 
 #[cfg(test)]
