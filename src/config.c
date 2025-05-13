@@ -467,17 +467,17 @@ CONFIG_GETTER(getBM25StdTanhFactor) {
   return sdscatprintf(ss, "%lu", config->requestConfigParams.BM25STD_TanhFactor);
 }
 
-CONFIG_SETTER(setBgOOMpauseTimeForRsMgr) {
+CONFIG_SETTER(setBgOOMpauseTimeForRetry) {
   uint32_t newPauseTime;
   int acrc = AC_GetU32(ac, &newPauseTime, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
-  config->bgIndexingOomPauseTimeForRsMgr = newPauseTime;
+  config->bgIndexingOomPauseTimeBeforeRetry = newPauseTime;
   return REDISMODULE_OK;
 }
 
-CONFIG_GETTER(getBgOOMpauseTimeForRsMgr) {
+CONFIG_GETTER(getBgOOMpauseTimeForRetry) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->bgIndexingOomPauseTimeForRsMgr);
+  return sdscatprintf(ss, "%u", config->bgIndexingOomPauseTimeBeforeRetry);
 }
 
 /************************************ DEPRECATION CANDIDATES *************************************/
@@ -1276,15 +1276,10 @@ RSConfigOptions RSGlobalConfigOptions = {
           .getValue = getBM25StdTanhFactor},
           // replace time with ms/sec
           {.name = "BG_INDEX_OOM_PAUSE_TIME",
-            .helpText = "draft - Set the time given to the background indexing thread to sleep when it reaches the memory limit, giving time to reallocate memory."
-                        "The default value is X milli/seconds.",
-            /*
-            Milliseconds to pause background indexing after an out‑of‑memory error, "
-               "allowing Redis time to reclaim memory before the next retry. "
-               "Default: 5000 ms.",
-            */
-            .setValue = setBgOOMpauseTimeForRsMgr,
-            .getValue = getBgOOMpauseTimeForRsMgr},
+            .helpText = "Set the time (in seconds) given to the background indexing thread to sleep when it reaches the memory limit, giving time to reallocate memory."
+                        "The default value is 5 seconds in Redis Enterprise, 0 in Redis OS.",
+            .setValue = setBgOOMpauseTimeForRetry,
+            .getValue = getBgOOMpauseTimeForRetry},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -1761,10 +1756,10 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-bg_index_oom_pause_time",
-      IsEnterprise() ? DEFAULT_BG_OOM_PAUSE_TIME_FOR_RS_MGR : 0,
+      IsEnterprise() ? DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY : 0,
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
       UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.bgIndexingOomPauseTimeForRsMgr)
+      (void *)&(RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry)
     )
   )
 

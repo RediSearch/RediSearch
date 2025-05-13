@@ -93,7 +93,7 @@ static void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisM
 
 //---------------------------------------------------------------------------------------------
 
-static inline void threadSleepByConfigTime(RedisModuleCtx *ctx);
+static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *scanner);
 static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner);
 static inline void scanWaitAndRestart(RedisModuleCtx *ctx, IndexesScanner *scanner, RedisModuleScanCursor *cursor);
 
@@ -2302,7 +2302,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   }
 
   // Only retry if the config time is set to a positive value
-  bool retry_after_oom = RSGlobalConfig.bgIndexingOomPauseTimeForRsMgr > 0;
+  bool retry_after_oom = RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry > 0;
 
   size_t counter = 0;
   RedisModuleScanCB scanner_func = (RedisModuleScanCB)Indexes_ScanProc;
@@ -2359,7 +2359,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     }
 
     // If we’ve scanned at least one key—showing the scan is active—re-enable retry_after_oom
-    if (scanner->scannedKeys > 0 && RSGlobalConfig.bgIndexingOomPauseTimeForRsMgr > 0) {
+    if (scanner->scannedKeys > 0 && RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry > 0) {
       retry_after_oom = true;
     }
   }
@@ -3513,11 +3513,12 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
 // This function should be called after the first background scan OOM error
 // It will wait for resource manager to allocate more memory to the process if possible
 // and after the function returns, the scan will continue
-static inline void threadSleepByConfigTime(RedisModuleCtx *ctx) {
+static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *scanner) {
   // Thread sleep based on the config
-  int sleepTime = RSGlobalConfig.bgIndexingOomPauseTimeForRsMgr; // @Omer Verify time unit
+  int sleepTime = RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry;
   if (sleepTime > 0) {
-    RedisModule_Log(ctx, "warning", "Waiting for memory allocation to continue scan");//notice/warning?
+    RedisModule_Log(ctx, "notice", "Scanning index %s in background: paused for %d seconds due to OOM, waiting for memory allocation",
+                    scanner->spec_name_for_logs, sleepTime);
     sleep(sleepTime);
   }
   return;
@@ -3554,7 +3555,7 @@ static inline void scanWaitAndRestart(RedisModuleCtx *ctx, IndexesScanner *scann
   // Reset the scanner's progression
   IndexesScanner_ResetProgression(scanner);
   // Call the wait function
-  threadSleepByConfigTime(ctx);
+  threadSleepByConfigTime(ctx, scanner);
   // Reset the cursor, the scan will start from the beginning
   RedisModule_ScanCursorRestart(cursor);
 }
