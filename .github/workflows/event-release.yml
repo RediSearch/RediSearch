@@ -21,6 +21,8 @@ on:
 env:
   checkout_target: ${{ inputs.snapshot_of || inputs.tag || github.ref_name }}
 
+# This is a comment to add content to the commit
+
 jobs:
   validate-tag:
     # Verify that the tag matches the version in src/version.h
