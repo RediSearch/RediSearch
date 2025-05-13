@@ -547,11 +547,11 @@ def testDebugScannerStatus(env: Env):
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
     waitForIndexFinishScan(env, 'idx')
     # When scan is done, the scanner is freed
-    checkDebugScannerError(env, 'idx', 'Scanner is not initialized')
+    checkDebugScannerStatusError(env, 'idx', 'Scanner is not initialized')
 
     # Test error handling
     # Giving non existing index name
-    checkDebugScannerError(env, 'non_existing', 'Unknown index name')
+    checkDebugScannerStatusError(env, 'non_existing', 'Unknown index name')
 
     # Test error handling
     # Giving invalid argument to debug scanner control command
@@ -993,3 +993,34 @@ def test_terminate_bg_pool(env):
     env.expect(bgScanCommand(), 'TERMINATE_BG_POOL').ok()
     # Check if the scan is finished
     env.assertEqual(index_info(env, 'idx')['indexing'], 0)
+
+@skip(cluster=True)
+def test_pause_before_oom_reset(env):
+    # Check error handling
+    # Giving invalid argument
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET', 'notAbool').error()\
+    .contains("Invalid argument for 'SET_PAUSE_BEFORE_OOM_RESET'")
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET').error()\
+    .contains('wrong number of arguments')
+
+@skip(cluster=True)
+def test_update_debug_scanner_config(env):
+    # Check error handling
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'DEBUG_SCANNER_UPDATE_CONFIG').error()\
+    .contains('wrong number of arguments')
+
+    num_docs = 10
+    for i in range(num_docs):
+        env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+    # Create an index
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndexFinishScan(env, 'idx')
+
+    # When scan is done, the scanner is freed
+    checkDebugScannerUpdateError(env, 'idx', 'Scanner is not initialized')
+
+    # Test error handling
+    # Giving non existing index name
+    checkDebugScannerUpdateError(env, 'non_existing', 'Unknown index name')

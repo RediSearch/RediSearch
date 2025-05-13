@@ -514,7 +514,7 @@ def test_oom_100_percent(env):
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
 
 @skip(cluster=True)
-def test_enterprise_oom_retry_success(env):
+def test_pseudo_enterprise_oom_retry_success(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
   # Set the pause time to 1 second so we can test the retry
@@ -532,7 +532,6 @@ def test_enterprise_oom_retry_success(env):
   # Create an index
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
   waitForIndexPauseScan(env, 'idx')
-
   # At this point num_docs_scanned were scanned
   # Now we set the tight memory limit
   set_tight_maxmemory_for_oom(env, 0.8)
@@ -558,7 +557,7 @@ def test_enterprise_oom_retry_success(env):
   env.assertEqual(to_dict(info["Index Errors"])[bgIndexingStatusStr], 'OK')
 
 @skip(cluster=True)
-def test_enterprise_oom_retry_failure(env):
+def test_pseudo_enterprise_oom_retry_failure(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
   # Set the pause time to 1 second so we can test the retry
@@ -601,7 +600,7 @@ def test_enterprise_oom_retry_failure(env):
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
 
 @skip(cluster=True)
-def test_enterprise_oom_multiple_retry_success(env):
+def test_pseudo_enterprise_oom_multiple_retry_success(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
   # Set the pause time to 1 second so we can test the retry
@@ -658,7 +657,7 @@ def test_enterprise_oom_multiple_retry_success(env):
   env.assertEqual(to_dict(info["Index Errors"])[bgIndexingStatusStr], 'OK')
 
 @skip(cluster=True)
-def test_enterprise_oom_multiple_retry_failure(env):
+def test_pseudo_enterprise_oom_multiple_retry_failure(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
   # Set the pause time to 1 second so we can test the retry
@@ -721,7 +720,7 @@ def test_enterprise_oom_multiple_retry_failure(env):
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
 
 @skip(cluster=True)
-def test_enterprise_oom_retry_drop(env):
+def test_pseudo_enterprise_oom_retry_drop(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
   # Set the pause time to 1 second so we can test the retry
@@ -764,7 +763,7 @@ def test_enterprise_oom_retry_drop(env):
     set_unlimited_maxmemory_for_oom(env)
 
 @skip(cluster=True)
-def test_enterprise_oom_retry_alter_success(env):
+def test_pseudo_enterprise_oom_retry_alter_success(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
   # Set the pause time to 1 second so we can test the retry
@@ -814,7 +813,7 @@ def test_enterprise_oom_retry_alter_success(env):
   env.assertEqual(to_dict(info["Index Errors"])[bgIndexingStatusStr], 'OK')
 
 @skip(cluster=True)
-def test_enterprise_oom_retry_alter_failure(env):
+def test_pseudo_enterprise_oom_retry_alter_failure(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
   # Set the pause time to 1 second so we can test the retry
@@ -873,3 +872,106 @@ def test_enterprise_oom_retry_alter_failure(env):
   bgIndexingStatusStr = "background indexing status"
   OOMfailureStr = "OOM failure"
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
+
+def test_pseudo_enterprise_cluster_oom_retry_success(env):
+    # Let background indexing go up to 80 % of Redis' limit
+    verify_command_OK_on_all_shards(
+        env, '_FT.CONFIG SET _BG_INDEX_MEM_PCT_THR 80')
+    # 1-second grace so the test doesn’t take too long
+    verify_command_OK_on_all_shards(
+        env, '_FT.CONFIG SET BG_INDEX_OOM_PAUSE_TIME 1')
+
+    conn = getConnectionByEnv(env)
+    docs_per_shard = 1_000
+    total_docs = docs_per_shard * env.shardsCount
+    for i in range(total_docs):
+        conn.execute_command('HSET', f'doc{i}', 'name', f'name{i}')
+
+    # Instrument the scanner on every shard
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_PAUSE_ON_OOM true')
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_PAUSE_ON_SCANNED_DOCS {docs_per_shard//4}')
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_PAUSE_BEFORE_OOM_RESET true')
+
+    idx = 'idx'
+    conn.execute_command('FT.CREATE', idx, 'SCHEMA', 'name', 'TEXT')
+
+    # Pause after the first chunk of documents
+    allShards_waitForIndexPauseScan(env, idx)
+
+    # Drop memory to 80 % of the configured threshold
+    allShards_set_tight_maxmemory_for_oom(env, 0.8)
+
+    # Resume – this will push every shard into PAUSED_BEFORE_OOM_RESET
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_BG_INDEX_RESUME')
+    allShards_waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RESET', idx)
+
+    # While paused, free memory so the retry can succeed
+    allShards_set_unlimited_maxmemory_for_oom(env)
+
+    # Resume again – indexing should now complete
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_BG_INDEX_RESUME')
+    allShards_waitForIndexFinishScan(env, idx)
+
+    info = index_info(env, idx=idx)
+    assert info['num_docs'] == total_docs
+    assert to_dict(info['Index Errors'])['background indexing status'] == 'OK'
+    # Every shard’s failure counter must stay at 0
+    for shard_id in range(1, env.shardsCount + 1):
+        failures = env.getConnection(shard_id).execute_command(
+            'INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+        env.assertEqual(failures, 0)
+
+def test_pseudo_enterprise_cluster_oom_retry_failure(env):
+    verify_command_OK_on_all_shards(
+        env, '_FT.CONFIG SET _BG_INDEX_MEM_PCT_THR 80')
+    verify_command_OK_on_all_shards(
+        env, '_FT.CONFIG SET BG_INDEX_OOM_PAUSE_TIME 1')
+
+    conn = getConnectionByEnv(env)
+    docs_per_shard = 1_000
+    total_docs = docs_per_shard * env.shardsCount
+    for i in range(total_docs):
+        conn.execute_command('HSET', f'doc{i}', 'name', f'name{i}')
+
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_PAUSE_ON_OOM true')
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_PAUSE_ON_SCANNED_DOCS {docs_per_shard//4}')
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_PAUSE_BEFORE_OOM_RESET true')
+
+    idx = 'idx'
+    conn.execute_command('FT.CREATE', idx, 'SCHEMA', 'name', 'TEXT')
+
+    # Pause after first docs chunk, then tighten memory
+    allShards_waitForIndexPauseScan(env, idx)
+    allShards_set_tight_maxmemory_for_oom(env, 0.8)
+
+    # Resume – shards pause *before* OOM reset
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_BG_INDEX_RESUME')
+    allShards_waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RESET', idx)
+
+    # Resume again with memory still tight → PAUSED_ON_OOM
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_BG_INDEX_RESUME')
+    allShards_waitForIndexStatus(env, 'PAUSED_ON_OOM', idx)
+
+    # One last resume – the second OOM turns into failure
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_BG_INDEX_RESUME')
+    allShards_waitForIndexFinishScan(env, idx)
+
+    info = index_info(env, idx=idx)
+    errors = to_dict(info['Index Errors'])
+    env.assertEqual(errors['background indexing status'], 'OOM failure')
+    # Shards must report exactly one failed index each
+    for shard_id in range(1, env.shardsCount + 1):
+        failures = env.getConnection(shard_id).execute_command(
+            'INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+        env.assertEqual(failures, 1)
