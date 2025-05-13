@@ -34,7 +34,7 @@ const ALIGNMENT: usize = std::mem::align_of::<usize>();
 ///
 /// If size is zero, the behavior is implementation defined (null pointer may be returned,
 /// or some non-null pointer may be returned that shall not be dereferenced).
-pub(crate) extern "C" fn alloc_shim(size: usize) -> *mut c_void {
+pub extern "C" fn alloc_shim(size: usize) -> *mut c_void {
     #[cfg(debug_assertions)]
     {
         // Check if size is zero
@@ -62,7 +62,7 @@ pub(crate) extern "C" fn alloc_shim(size: usize) -> *mut c_void {
 /// Safety:
 /// 1. The caller must ensure that neither size nor count is non-zero.
 /// 2. See [generic_shim] for more details.
-pub(crate) extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
+pub extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
     #[cfg(debug_assertions)]
     {
         // Check if size is zero
@@ -94,7 +94,7 @@ pub(crate) extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
 ///
 /// Safety:
 /// 1. The caller must ensure that the pointer is valid and was allocated by `alloc_shim`.
-pub(crate) extern "C" fn free_shim(ptr: *mut c_void) {
+pub extern "C" fn free_shim(ptr: *mut c_void) {
     if ptr.is_null() {
         return;
     }
@@ -131,7 +131,7 @@ pub(crate) extern "C" fn free_shim(ptr: *mut c_void) {
 /// Safety:
 /// 1. The caller must ensure that the pointer is valid and was allocated by `alloc_shim`.
 /// 2. The caller must ensure that the size is non-zero if the pointer is not null.
-pub(crate) extern "C" fn realloc_shim(ptr: *mut c_void, size: usize) -> *mut c_void {
+pub extern "C" fn realloc_shim(ptr: *mut c_void, size: usize) -> *mut c_void {
     if ptr.is_null() {
         // Safety:
         // 1. --> We know size > 0
