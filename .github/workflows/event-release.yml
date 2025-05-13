@@ -21,8 +21,6 @@ on:
 env:
   checkout_target: ${{ inputs.snapshot_of || inputs.tag || github.ref_name }}
 
-# This is a comment to add content to the commit
-
 jobs:
   validate-tag:
     # Verify that the tag matches the version in src/version.h
@@ -58,7 +56,8 @@ jobs:
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
           version_branch = '${{ github.event.base_ref }}'
           if '${{ github.event_name }}' == 'push' and not valid_version_branch(version_branch):
-            raise Exception(f"Version branch {version_branch} does not match the tag {tag}")
+            start = version_branch.rfind("/") + 1 # get the branch name, not the full ref
+            raise Exception(f"Tag {tag} does not match the head of version branch {version_branch[start:]}")
 
           import os
           with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
