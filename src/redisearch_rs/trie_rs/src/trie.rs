@@ -10,9 +10,12 @@
 use wildcard::WildcardPattern;
 
 use crate::{
-    iter::{IntoValues, Iter, LendingIter, PrefixesIter, Values, WildcardIter, filter::VisitAll},
+    iter::{
+        IntoValues, Iter, LendingIter, PrefixesIter, RangeBoundary, RangeFilter, RangeIter, Values,
+        WildcardIter, filter::VisitAll,
+    },
     node::Node,
-    utils::strip_prefix,
+    utils::{longest_common_prefix, strip_prefix},
 };
 use std::fmt;
 
@@ -21,11 +24,16 @@ use std::fmt;
 pub struct TrieMap<Data> {
     /// The root node of the trie.
     root: Option<Node<Data>>,
+    /// The number of unique keys stored in this map.
+    n_unique_keys: usize,
 }
 
 impl<Data> Default for TrieMap<Data> {
     fn default() -> Self {
-        Self { root: None }
+        Self {
+            root: None,
+            n_unique_keys: 0,
+        }
     }
 }
 
@@ -67,7 +75,7 @@ impl<Data> TrieMap<Data> {
         // we check whether it has any children. If it doesn't, we can
         // simply remove the root node. If it does, we remove the root's
         // data and attempt to merge the children.
-        if suffix.is_empty() {
+        let data = if suffix.is_empty() {
             if root.n_children() == 0 {
                 self.root.take().and_then(|mut n| n.data_mut().take())
             } else {
@@ -81,7 +89,11 @@ impl<Data> TrieMap<Data> {
             // After removing the child, we attempt to merge the child into the root.
             root.merge_child_if_possible();
             data
+        };
+        if data.is_some() {
+            self.n_unique_keys -= 1;
         }
+        data
     }
 
     /// Get a reference to the value associated with a key.
@@ -106,12 +118,23 @@ impl<Data> TrieMap<Data> {
     where
         F: FnOnce(Option<Data>) -> Data,
     {
+        let mut has_cardinality_increased = false;
+        let wrapped_f = |old_data: Option<Data>| {
+            if old_data.is_none() {
+                has_cardinality_increased = true;
+            }
+            f(old_data)
+        };
         match &mut self.root {
             None => {
-                let data = f(None);
+                let data = wrapped_f(None);
                 self.root = Some(Node::new_leaf(key, Some(data)));
             }
-            Some(root) => root.insert_or_replace_with(key, f),
+            Some(root) => root.insert_or_replace_with(key, wrapped_f),
+        }
+
+        if has_cardinality_increased {
+            self.n_unique_keys += 1;
         }
     }
 
@@ -121,9 +144,17 @@ impl<Data> TrieMap<Data> {
         std::mem::size_of::<Self>() + self.root.as_ref().map(|r| r.mem_usage()).unwrap_or(0)
     }
 
+    /// The number of unique keys stored in this map.
+    pub fn n_unique_keys(&self) -> usize {
+        self.n_unique_keys
+    }
+
     /// Compute the number of nodes in the trie.
     pub fn n_nodes(&self) -> usize {
-        1 + self.root.as_ref().map_or(0, |r| r.n_descendants())
+        match &self.root {
+            Some(r) => 1 + r.n_descendants(),
+            None => 0,
+        }
     }
 
     /// Iterate over the entries, in lexicographical key order.
@@ -152,6 +183,61 @@ impl<Data> TrieMap<Data> {
     /// Iterate over the entries, borrowing the current key from the iterator, in lexicographical key order.
     pub fn lending_iter(&self) -> LendingIter<'_, Data, VisitAll> {
         self.iter().into()
+    }
+
+    pub fn range_iter<'a>(&'a self, filter: RangeFilter<'a>) -> RangeIter<'a, Data> {
+        match (filter.min, filter.max) {
+            (Some(min), Some(max)) => match longest_common_prefix(min.value, max.value) {
+                Some((equal_up_to, _)) => {
+                    let prefix = &min.value[..equal_up_to];
+                    match self.find_root_for_prefix(prefix) {
+                        Some((subroot, subroot_prefix)) => {
+                            // Shorten the boundaries.
+                            let filter = RangeFilter {
+                                min: Some(RangeBoundary {
+                                    value: &min.value[subroot_prefix.len()..],
+                                    is_included: min.is_included,
+                                }),
+                                max: Some(RangeBoundary {
+                                    value: &max.value[subroot_prefix.len()..],
+                                    is_included: max.is_included,
+                                }),
+                            };
+                            RangeIter::new(Some(subroot), subroot_prefix, filter)
+                        }
+                        None => RangeIter::empty(),
+                    }
+                }
+                None => {
+                    if min.value.len() > max.value.len() {
+                        // The maximum is a prefix of the minimum!
+                        // Nothing to find here.
+                        RangeIter::empty()
+                    } else {
+                        match self.find_root_for_prefix(min.value) {
+                            Some((subroot, subroot_prefix)) => {
+                                // Shorten the boundaries.
+                                let filter = RangeFilter {
+                                    min: Some(RangeBoundary {
+                                        value: &min.value[subroot_prefix.len()..],
+                                        is_included: min.is_included,
+                                    }),
+                                    max: Some(RangeBoundary {
+                                        value: &max.value[subroot_prefix.len()..],
+                                        is_included: max.is_included,
+                                    }),
+                                };
+                                RangeIter::new(Some(subroot), subroot_prefix, filter)
+                            }
+                            None => RangeIter::empty(),
+                        }
+                    }
+                }
+            },
+            // No common prefix between the boundaries of the range,
+            // therefore we start from the root.
+            _ => RangeIter::new(self.root.as_ref(), vec![], filter),
+        }
     }
 
     /// Iterate over the entries that start with the given prefix, borrowing the current key from the iterator,
