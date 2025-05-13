@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::c_char;
-
 use super::Node;
 use super::metadata::{NodeHeader, PtrMetadata};
 
@@ -42,7 +40,7 @@ impl<Data> Node<Data> {
 
     /// Returns a reference to the label associated with this node.
     #[inline]
-    pub fn label(&self) -> &[c_char] {
+    pub fn label(&self) -> &[u8] {
         // SAFETY:
         // - The layout satisfies the requirements thanks to invariant 1. in [`Self::ptr`]'s documentation.
         let label_ptr = unsafe { PtrMetadata::<Data>::label_ptr(self.ptr) };
@@ -119,7 +117,7 @@ impl<Data> Node<Data> {
     /// The index of a byte in this array matches the index of the child
     /// it belongs to in the array returned by [`Self::children`].
     #[inline]
-    pub fn children_first_bytes(&self) -> &[c_char] {
+    pub fn children_first_bytes(&self) -> &[u8] {
         // SAFETY:
         // - The layout satisfies the requirements thanks to invariant 1. in [`Self::ptr`]'s documentation.
         let ptr = unsafe { self.metadata().child_first_bytes_ptr(self.ptr) };

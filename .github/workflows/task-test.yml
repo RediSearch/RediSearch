@@ -49,6 +49,7 @@ env:
   # Setting RUSTFLAGS here to ensure that all `cargo` invocations use the same
   # flags, and therefore reuse the same intermediate build artifacts.
   RUSTFLAGS: "-D warnings"
+  RUST_BACKTRACE: "full"
 
 jobs:
   common-flow:

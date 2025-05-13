@@ -22,8 +22,7 @@ jobs:
         run: |
           ./install_script.sh sudo
       - name: Build RediSearch
-        run: make build
-          SHOW=1
+        run: ./build.sh
       - name: Get Latest Baseline
         uses: actions/download-artifact@v4
         with:
