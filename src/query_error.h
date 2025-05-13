@@ -71,7 +71,7 @@ extern "C" {
   X(QUERY_EALIASCONFLICT, "Alias conflicts with an existing index name")                         \
   X(QUERY_INDEXBGOOMFAIL, "Index background scan failed due to OOM. Queries cannot be executed on\
      an incomplete index.")                                                                      \
-
+  X(QUERY_EUNSTABLE, "Unstable feature is not enabled")
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 
 typedef enum {

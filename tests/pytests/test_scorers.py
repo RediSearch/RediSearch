@@ -435,7 +435,7 @@ def testNormalizedBM25Tanh():
     stretch_factor = 10000
     testNormScore(env, stretch_factor, query_param=True)
 
-def testBM25NormMinMax():
+def testBM25NormMax():
     """
     Tests that the linear normalized BM25STD.NORM scorer works as expected.
     We apply the linear normalization (division by query max score) to the BM25STD score, reaching a normalized
@@ -443,7 +443,7 @@ def testBM25NormMinMax():
     """
 
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-
+    env.cmd('CONFIG', 'SET', 'search-enable-unstable-features', 'yes')
     # Prepare the index
     _prepare_index(env, 'idx')
 
@@ -456,7 +456,6 @@ def testBM25NormMinMax():
     env.assertEqual(len(res), len(norm_res_search))
 
     max_score  = max(map(float, res[2::2]))
-    min_score = min(map(float, res[2::2]))
 
     norm_scores = []
 
@@ -468,7 +467,7 @@ def testBM25NormMinMax():
         env.assertLessEqual(float(norm_res_search[i+1]), 1)
 
         # The score should be normalized using division by maximum score
-        env.assertEqual(round(float(norm_res_search[i+1]), 5), round((float(res[i+1])-min_score)/(max_score - min_score), 5))
+        env.assertEqual(round(float(norm_res_search[i+1]), 5), round(float(res[i+1])/max_score, 5))
         # Save the score to make sure the aggregate command returns the same results
         norm_scores.append(round(float(norm_res_search[i+1]), 5))
 
