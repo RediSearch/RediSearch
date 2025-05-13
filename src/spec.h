@@ -647,7 +647,7 @@ typedef struct IndexesScanner {
   WeakRef spec_ref;
   char *spec_name_for_logs;
   size_t scannedKeys;
-  RedisModuleString *OOMkey;
+  RedisModuleString *OOMkey; // The key that caused the OOM
 } IndexesScanner;
 
 typedef struct DebugIndexesScanner {

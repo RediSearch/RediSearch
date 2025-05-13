@@ -2334,8 +2334,9 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
     }
     RedisModule_ThreadSafeContextLock(ctx);
 
-    // Check if we need to handle OOM but must check if the scanner was cancelled for other reasons (i.e. FT.ALTER)
+    // Check if we need to handle OOM but must check if the scanner was cancelled for other reasons (i.e. FT. ALTER)
     if (scanner->scanFailedOnOOM && !scanner->cancelled) {
+      // If the scan stopped due to OOM, we need to check if we need to retry
       if (retry_after_oom) {
         IF_DEBUG_PAUSE_CHECK_BEFORE_OOM_RESET(scanner, ctx);
         scanWaitAndRestart(ctx, scanner, cursor);
@@ -2345,11 +2346,9 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
       }
       scanStopAfterOOM(ctx, scanner);
       IF_DEBUG_PAUSE_CHECK_ON_OOM(scanner, ctx);
-
     }
 
     if (scanner->cancelled) {
-      // If the scan stopped due to OOM, we need to check if we need to retry
 
       if (scanner->global) {
         RedisModule_Log(ctx, "notice", "Scanning indexes in background: cancelled (scanned=%ld)",
@@ -2361,7 +2360,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
       }
     }
 
-    // Re-arm retry_after_oom if scanning continues
+    // If we’ve scanned at least one key—showing the scan is active—re-enable retry_after_oom
     if (scanner->scannedKeys > 0 && RSGlobalConfig.bgIndexingOomPauseTimeForRsMgr > 0) {
       retry_after_oom = true;
     }
@@ -3546,7 +3545,7 @@ static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner
       StrongRef_Release(curr_run_ref);
     } else {
       // spec was deleted
-      RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled (index deleted)",
+      RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled due to OOM and index was dropped",
                     scanner->spec_name_for_logs);
       }
     }
