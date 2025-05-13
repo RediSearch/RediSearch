@@ -52,12 +52,12 @@ jobs:
           def valid_tag(tag):
             return tag == f"v{major}.{minor}.{patch}"
           def valid_version_branch(branch):
-            return branch == f"{major}.{minor}"
+            return branch == f"refs/heads/{major}.{minor}"
           tag = '${{ inputs.tag || github.ref_name }}'
           if not valid_tag(tag):
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
-          version_branch = '${{ env.checkout_target }}'
-          if not valid_version_branch(version_branch) and '${{ github.event_name }}' == 'release':
+          version_branch = '${{ github.event.base_ref }}'
+          if '${{ github.event_name }}' == 'push' and not valid_version_branch(version_branch):
             raise Exception(f"Version branch {version_branch} does not match the tag {tag}")
 
           import os
