@@ -1448,8 +1448,8 @@ def test_mod_8809_single_index_single_field(env:Env):
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
 
     # Reset yield counter
-    env.expect(debug_cmd(), 'INDEXING_YIELD_COUNTER', 'RESET').ok()
-    initial_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
+    initial_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
     env.assertEqual(initial_count, 0, message="Initial yield counter should be 0")
     
     # Create index
@@ -1464,30 +1464,36 @@ def test_mod_8809_single_index_single_field(env:Env):
     waitForIndex(env, 'idx')
 
     
-    # Check that yield was called
-    final_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
-    env.assertGreater(final_count, 0, message="Yield should have been called at least once")
+    # Check that yield was not called
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.assertEqual(yields_count, 0, message="Yield should not have been called")
     
-    # Verify the number of yields 
-    expected_min_yields = num_docs // yield_every_n_ops
-    env.assertGreaterEqual(final_count, expected_min_yields, 
-                          message=f"Expected at least {expected_min_yields} yields, got {final_count}")
-    
-    # Test with different configuration
-    yield_every_n_ops = 5
-    env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
-    env.expect(debug_cmd(), 'INDEXING_YIELD_COUNTER', 'RESET').ok()
-
     # Reload and check 
     env.broadcast('SAVE')
     env.broadcast('DEBUG RELOAD NOSAVE')
     waitForIndex(env, 'idx')
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
     
-    final_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
+    # Verify the number of yields 
     expected_min_yields = num_docs // yield_every_n_ops
-    env.assertGreaterEqual(final_count, expected_min_yields, 
-                          message=f"Expected at least {expected_min_yields} yields, got {final_count}")
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.assertGreaterEqual(yields_count, expected_min_yields, 
+                          message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
+    
+    # Test with different configuration
+    yields_every_n_ops = 5
+    env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
+
+    # Reload and check 
+    env.broadcast('SAVE')
+    env.broadcast('DEBUG RELOAD NOSAVE')
+    waitForIndex(env, 'idx')
+
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    expected_min_yields = num_docs // yield_every_n_ops
+    env.assertGreaterEqual(yields_count, expected_min_yields, 
+                          message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
 
 @skip(cluster=True)
 def test_mod_8809_multi_index_multi_fields(env:Env):
@@ -1498,39 +1504,45 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
 
     # Reset yield counter
-    env.expect(debug_cmd(), 'INDEXING_YIELD_COUNTER', 'RESET').ok()
-    initial_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
+    initial_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
     env.assertEqual(initial_count, 0, message="Initial yield counter should be 0")
     
     # Create index
     dimension = 128
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
     env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
-    env.cmd('FT.CREATE', 'idx3', 'SCHEMA', 'geom', 'GEOSHAPE', 'tag', 'TAG')
+    env.cmd('FT.CREATE', 'idx3', 'SCHEMA', 'geom', 'GEOSHAPE', 'tag', 'TAG' ,'t2', 'TEXT')
 
     # Add enough documents to trigger yields
     num_docs = 1000
     for i in range(num_docs):
         vector = np.random.rand(1, dimension).astype(np.float32)
-        env.execute_command('HSET', f'doc{i}', 'v', vector.tobytes(), 'num', i, 't', f'text {i}', 'geom', f'POINT({i%10} {i%15})', 'tag', f'tag{i%10}')
+        env.execute_command('HSET', f'doc{i}', 'v', vector.tobytes(), 'num', i, 't', f'text {i}', 't2', f'text2 {i}', 'geom', f'POINT({i%10} {i%15})', 'tag', f'tag{i%10}')
     waitForIndex(env, 'idx')
     waitForIndex(env, 'idx2')
     waitForIndex(env, 'idx3')
 
-    
+    # Reload and check 
+    env.broadcast('SAVE')
+    env.broadcast('DEBUG RELOAD NOSAVE')
+    waitForIndex(env, 'idx')
+    waitForIndex(env, 'idx2')
+    waitForIndex(env, 'idx3')
+
     # Check that yield was called
-    final_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
-    env.assertGreater(final_count, 0, message="Yield should have been called at least once")
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.assertGreater(yields_count, 0, message="Yield should have been called at least once")
     
     # Verify the number of yields 
-    expected_min_yields = 6 * num_docs // yield_every_n_ops
-    env.assertGreaterEqual(final_count, expected_min_yields, 
-                          message=f"Expected at least {expected_min_yields} yields, got {final_count}")
+    expected_min_yields = 7 * num_docs // yield_every_n_ops
+    env.assertGreaterEqual(yields_count, expected_min_yields, 
+                          message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
     
     # Test with different configuration
     yield_every_n_ops = 5
     env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
-    env.expect(debug_cmd(), 'INDEXING_YIELD_COUNTER', 'RESET').ok()
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
 
     # Reload and check 
     env.broadcast('SAVE')
@@ -1538,8 +1550,8 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     waitForIndex(env, 'idx')
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
     
-    final_count = env.cmd(debug_cmd(), 'INDEXING_YIELD_COUNTER')
-    expected_min_yields = 6 * num_docs // yield_every_n_ops
-    env.assertGreaterEqual(final_count, expected_min_yields, 
-                          message=f"Expected at least {expected_min_yields} yields, got {final_count}")
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    expected_min_yields = 7 * num_docs // yield_every_n_ops
+    env.assertGreaterEqual(yields_count, expected_min_yields, 
+                          message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
 

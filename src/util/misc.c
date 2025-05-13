@@ -7,13 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "misc.h"
-#include "debug_commands.h"
 #include "redismodule.h"
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
 
-extern void IncrementYieldCounter(void);
 
 void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *key, void *value) {
   RedisModule_Log(RedisModule_GetContextFromIO(aof), "error",
@@ -26,16 +24,3 @@ int GetRedisErrorCodeLength(const char* error) {
   return errorSpace ? errorSpace - error : 0;
 }
 
-/**
- * Yield to Redis and increment the yield counter.
- * This helps keep Redis responsive during long operations.
- * @param ctx The Redis context
- * @param flags Yield flags (e.g., REDISMODULE_YIELD_FLAG_CLIENTS)
- * @param busy_reply Optional busy reply message
- */
-void YieldToRedis(RedisModuleCtx *ctx) {
-  if (RedisModule_Yield) { // RedisModule_Yield is available only in Redis 7+
-    IncrementYieldCounter(); // Track that we called yield
-    RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
-  }
-}

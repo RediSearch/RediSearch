@@ -1715,7 +1715,7 @@ DEBUG_COMMAND(getHideUserDataFromLogs) {
   return RedisModule_ReplyWithLongLong(ctx, value);
 }
 
-// Global counter for tracking yield calls
+// Global counter for tracking yield calls during loading
 static size_t g_yieldCallCounter = 0;
 
 // Function to increment the yield counter (to be called from IndexerBulkAdd)
@@ -1729,8 +1729,8 @@ void ResetYieldCounter(void) {
 }
 
 /**
- * FT.DEBUG INDEXING_YIELD_COUNTER [RESET]
- * Get or reset the yield counter
+ * FT.DEBUG YIELDS_ON_LOAD_COUNTER [RESET]
+ * Get or reset the counter for yields during loading operations
  */
 DEBUG_COMMAND(YieldCounter) {
   if (!debugCommandsEnabled(ctx)) {
@@ -1792,7 +1792,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INDEXES", ListIndexesSwitch},
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
-                               {"INDEXING_YIELD_COUNTER", YieldCounter},
+                               {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */

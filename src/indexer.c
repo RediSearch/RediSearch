@@ -19,9 +19,12 @@
 #include "rmutil/rm_assert.h"
 #include "phonetic_manager.h"
 #include "obfuscation/obfuscation_api.h"
-#include "util/misc.h"
+#include "redismodule.h"
+#include "debug_commands.h"
 
 extern RedisModuleCtx *RSDummyContext;
+
+extern void IncrementYieldCounter(void);
 
 #include <unistd.h>
 
@@ -106,6 +109,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     if (invidx) {
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
+      IndexerYieldWhileLoading(ctx->redisCtx);
       writeIndexEntry(spec, invidx, encoder, entry);
       if (Index_StoreFieldMask(spec)) {
         invidx->fieldMask |= entry->fieldMask;
@@ -229,7 +233,7 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
         continue;
       }
 
-      IndexerYield(sctx->redisCtx);
+      IndexerYieldWhileLoading(sctx->redisCtx);
       if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         IndexError_AddQueryError(&cur->spec->stats.indexError, &cur->status, doc->docKey);
         FieldSpec_AddQueryError(&cur->spec->fields[fs->index], &cur->status, doc->docKey);
@@ -375,7 +379,6 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
 
   // Handle FULLTEXT indexes
   if ((aCtx->fwIdx && (aCtx->stateFlags & ACTX_F_ERRORED) == 0)) {
-    IndexerYield(ctx.redisCtx);
     writeCurEntries(aCtx, &ctx);
   }
 
@@ -395,12 +398,13 @@ int IndexDocument(RSAddDocumentCtx *aCtx) {
  * This helps keep Redis responsive during long indexing operations.
  * @param ctx The Redis context
  */
-void IndexerYield(RedisModuleCtx *ctx) {
+void IndexerYieldWhileLoading(RedisModuleCtx *ctx) {
   static size_t opCounter = 0;
   
-  // Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
-  if (++opCounter >= RSGlobalConfig.indexerYieldEveryOps) {
+  // If server is loading, Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
+  if (RedisModule_GetContextFlags(ctx) & REDISMODULE_CTX_FLAGS_LOADING && ++opCounter >= RSGlobalConfig.indexerYieldEveryOps) {
     opCounter = 0;
-    YieldToRedis(ctx);
+    IncrementYieldCounter(); // Track that we called yield
+    RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);  
   }
 }
