@@ -46,21 +46,17 @@ impl CTrieMap {
         unsafe { crate::ffi::TrieMap_Delete(self.0, term.ptr(), term.len(), Some(do_not_free)) }
     }
 
-    pub fn find_prefixes(&self, term: TrieTermView) -> Result<PrefixesValues, ()> {
+    pub fn find_prefixes(&self, term: TrieTermView) -> PrefixesValues {
         let mut results = {
             // Here we are emulating the behaviour of the `array_new` macro, which we can't
             // invoke directly on the Rust side.
             let raw = unsafe { array_new_sz(std::mem::size_of::<*mut c_void>() as u32, 1, 0) };
             raw as *mut *mut c_void
         };
-        let error_code = unsafe {
+        let _n_results = unsafe {
             crate::ffi::TrieMap_FindPrefixes(self.0, term.ptr(), term.len(), &mut results)
         };
-        if error_code > 0 {
-            Err(())
-        } else {
-            Ok(PrefixesValues(results))
-        }
+        PrefixesValues(results)
     }
 
     pub fn n_nodes(&self) -> usize {

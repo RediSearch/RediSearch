@@ -193,7 +193,7 @@ fn find_prefixes_c_benchmark<M: Measurement>(
     let target = target.into_cstring();
     let view = target.as_view();
     let map = c_load_from_terms(terms);
-    c.bench_function("C", |b| b.iter(|| map.find_prefixes(view).unwrap()));
+    c.bench_function("C", |b| b.iter(|| map.find_prefixes(view)));
 }
 
 fn find_rust_benchmark<M: Measurement>(
