@@ -51,6 +51,8 @@ jobs:
       run: make coverage-flow
     - name: Unit coverage
       run: make coverage-unit
+    - name: Rust coverage
+      run: make coverage-rust
 
     - name: Upload flow coverage
       uses: codecov/codecov-action@v5
