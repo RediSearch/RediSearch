@@ -57,7 +57,7 @@ jobs:
           version_branch = '${{ github.event.base_ref }}'
           if '${{ github.event_name }}' == 'push' and not valid_version_branch(version_branch):
             start = version_branch.rfind("/") + 1 # get the branch name, not the full ref
-            raise Exception(f"Tag {tag} does not match the head of version branch {version_branch[start:]}")
+            raise Exception(f"Tag {tag} does not match the head of version branch {major}.{minor} (Got {version_branch[start:]})")
 
           import os
           with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
