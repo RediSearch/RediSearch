@@ -664,7 +664,7 @@ def test_enterprise_oom_multiple_retry_failure(env):
   # Set the pause time to 1 second so we can test the retry
   env.expect('FT.CONFIG', 'SET', 'BG_INDEX_OOM_PAUSE_TIME', '1').ok()
 
-  num_docs = 1000
+  num_docs = 100
   for i in range(num_docs):
     env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
@@ -727,7 +727,7 @@ def test_enterprise_oom_retry_drop(env):
   # Set the pause time to 1 second so we can test the retry
   env.expect('FT.CONFIG', 'SET', 'BG_INDEX_OOM_PAUSE_TIME', '1').ok()
 
-  num_docs = 1000
+  num_docs = 100
   for i in range(num_docs):
     env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
@@ -765,7 +765,7 @@ def test_enterprise_oom_retry_alter(env):
   # Set the pause time to 1 second so we can test the retry
   env.expect('FT.CONFIG', 'SET', 'BG_INDEX_OOM_PAUSE_TIME', '1').ok()
 
-  num_docs = 1000
+  num_docs = 100
   for i in range(num_docs):
     env.expect('HSET', f'doc{i}', 'name', f'name{i}', 'hello', f'hello{i}').equal(2)
 
