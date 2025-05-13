@@ -12,6 +12,7 @@ mod prefixed;
 mod prefixes;
 mod unfiltered;
 mod values;
+mod wildcard;
 
 use trie_rs::TrieMap;
 

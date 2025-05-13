@@ -11,6 +11,7 @@ workspace = true
 lending-iterator.workspace = true
 libc.workspace = true
 memchr.workspace = true
+wildcard.workspace = true
 
 [dev-dependencies]
 insta.workspace = true
