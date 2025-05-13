@@ -22,6 +22,7 @@ env:
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   QUICK: ${{ inputs.quick && 1 || 0 }}  # convert the boolean input to numeric
   COV: 1 # make sure the context for any 'make' or script call is for coverage
+  RUST_BACKTRACE: "full"
 
 jobs:
   coverage:
@@ -50,6 +51,8 @@ jobs:
       run: make coverage-flow
     - name: Unit coverage
       run: make coverage-unit
+    - name: Rust coverage
+      run: make coverage-rust
 
     - name: Upload flow coverage
       uses: codecov/codecov-action@v5

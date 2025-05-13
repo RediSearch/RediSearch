@@ -13,6 +13,9 @@ message(STATUS "OS detected: ${OS}")
 
 # Always use .so extension even on macOS
 set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
+# Export the underlying compiler invocations in a compile_commands.json, located in the bin directory.
+# It'll be picked up by clangd to provide LSP support in editors like Zed and VSCode
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Define compiler setup function
 function(setup_cc_options)
@@ -282,7 +285,11 @@ if(COORD_TYPE STREQUAL "rlec")
     set_target_properties(redisearch PROPERTIES OUTPUT_NAME "module-enterprise")
 endif()
 
-set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
+set_target_properties(redisearch
+    PROPERTIES
+    LINKER_LANGUAGE CXX
+    C_STANDARD 17
+    C_STANDARD_REQUIRED ON)
 setup_shared_object_target(redisearch "")
 target_link_libraries(redisearch
         redisearch-geometry
