@@ -7,8 +7,9 @@ permissions:
   pull-requests:  write   # This is required for creating a PR
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       tag:
@@ -18,7 +19,7 @@ on:
         description: 'The branch/tag/commit of the snapshots to release. Defaults to the given tag'
 
 env:
-  checkout_target: ${{ inputs.snapshot_of || inputs.tag || github.event.release.target_commitish }}
+  checkout_target: ${{ inputs.snapshot_of || inputs.tag || github.ref_name }}
 
 jobs:
   validate-tag:
@@ -50,7 +51,7 @@ jobs:
             return tag == f"v{major}.{minor}.{patch}"
           def valid_version_branch(branch):
             return branch == f"{major}.{minor}"
-          tag = '${{ inputs.tag || github.event.release.tag_name }}'
+          tag = '${{ inputs.tag || github.ref_name }}'
           if not valid_tag(tag):
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
           version_branch = '${{ env.checkout_target }}'
@@ -97,7 +98,7 @@ jobs:
         run: |
           gh pr create \
             --title    "Bump version from ${{ needs.validate-tag.outputs.cur_version }} to ${{ needs.validate-tag.outputs.next_version }}" \
-            --body     "This PR was automatically created by the release workflow of ${{ inputs.tag || github.event.release.tag_name }}." \
+            --body     "This PR was automatically created by the release workflow of ${{ inputs.tag || github.ref_name }}." \
             --head     "${{ env.BRANCH }}" \
             --base     "${{ env.checkout_target }}" \
             --reviewer "alonre24,DvirDukhan,oshadmi,${{ github.actor }}" \
