@@ -18,7 +18,7 @@ mod fmt;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 /// A pattern token.
-pub enum Token<'pattern, C> {
+pub enum Token<'pattern> {
     /// `*`. Matches zero or more characters.
     Any,
     /// `?`. Matches exactly one character.
@@ -26,7 +26,7 @@ pub enum Token<'pattern, C> {
     /// One or more literal characters (e.g. `Literal("foo")`).
     ///
     /// It borrows from the original pattern.
-    Literal(&'pattern [C]),
+    Literal(&'pattern [u8]),
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -51,8 +51,8 @@ pub enum MatchOutcome {
 
 /// A parsed pattern.
 #[derive(Clone)]
-pub struct WildcardPattern<'pattern, C> {
-    tokens: Vec<Token<'pattern, C>>,
+pub struct WildcardPattern<'pattern> {
+    tokens: Vec<Token<'pattern>>,
     /// The expected length of an input that will match the pattern.
     ///
     /// It is set to `None` if the pattern contains any wildcard tokens, since it will match
@@ -66,7 +66,7 @@ pub struct WildcardPattern<'pattern, C> {
     expected_length: Option<usize>,
 }
 
-impl<'pattern, C: CharLike> WildcardPattern<'pattern, C> {
+impl<'pattern> WildcardPattern<'pattern> {
     /// Parses a raw pattern.
     ///
     /// Parsing takes care of escaping as well as pattern simplifications.
@@ -113,16 +113,11 @@ impl<'pattern, C: CharLike> WildcardPattern<'pattern, C> {
     /// is parsed as two tokens rather than one: `vec![Token::Literal(br"f"), Token::Literal(br"\oo")]`.
     /// Both tokens refer to slices of the original pattern and, combined, they give us the correct (resolved)
     /// pattern.
-    pub fn parse(pattern: &'pattern [C]) -> Self {
-        let mut tokens: Vec<Token<'pattern, C>> = Vec::new();
+    pub fn parse(pattern: &'pattern [u8]) -> Self {
+        let mut tokens: Vec<Token<'pattern>> = Vec::new();
 
         let mut expected_length = Some(pattern.len());
-        let mut pattern_iter = pattern
-            .iter()
-            .copied()
-            .map(|c| c.as_u8())
-            .enumerate()
-            .peekable();
+        let mut pattern_iter = pattern.iter().copied().enumerate().peekable();
 
         let mut escape_next = false;
         while let Some((i, curr_char)) = pattern_iter.next() {
@@ -187,7 +182,7 @@ impl<'pattern, C: CharLike> WildcardPattern<'pattern, C> {
     /// is that literals are not matched per character, but by chunks.
     ///
     /// [Dogan Kurt]: http://dodobyte.com/wildcard.html
-    pub fn matches(&self, key: &[C]) -> MatchOutcome {
+    pub fn matches(&self, key: &[u8]) -> MatchOutcome {
         if self.tokens.is_empty() {
             return if key.is_empty() {
                 MatchOutcome::Match
@@ -290,49 +285,19 @@ impl<'pattern, C: CharLike> WildcardPattern<'pattern, C> {
             MatchOutcome::PartialMatch
         }
     }
+
+    /// The expected length of an input that matches the pattern.
+    ///
+    /// Returns `None` if the pattern may match inputs of variable length (i.e.
+    /// it contains at least one wildcard).
+    pub fn expected_length(&self) -> Option<usize> {
+        self.expected_length
+    }
 }
 
-impl<'pattern, C> WildcardPattern<'pattern, C> {
+impl<'pattern> WildcardPattern<'pattern> {
     /// The parsed tokens.
-    pub fn tokens(&self) -> &[Token<'pattern, C>] {
+    pub fn tokens(&self) -> &[Token<'pattern>] {
         &self.tokens
     }
 }
-
-/// A character type that can be used for wildcard matching.
-///
-/// # `c_char`
-///
-/// We want to provide our wildcard matching functionality for two types of "characters":
-/// `u8`s and `std::ffi::c_char`s.
-/// The latter is an alias for either `i8` or `u8` depending on the platform, hence
-/// our implementation for `i8` below.
-///
-/// # Sealed
-///
-/// The trait is [sealed](https://predr.ag/blog/definitive-guide-to-sealed-traits-in-rust/)
-/// to ensure that it cannot be implemented outside this module since the correctness of our
-/// [`WildcardPattern`] implementation can't be guaranteed
-/// for other types.
-pub trait CharLike: Copy + PartialEq + sealed::Sealed {
-    /// Perform a cast to `u8`.
-    fn as_u8(self) -> u8;
-}
-
-mod sealed {
-    pub trait Sealed {}
-}
-
-impl CharLike for i8 {
-    fn as_u8(self) -> u8 {
-        self as u8
-    }
-}
-impl sealed::Sealed for i8 {}
-
-impl CharLike for u8 {
-    fn as_u8(self) -> u8 {
-        self
-    }
-}
-impl sealed::Sealed for u8 {}

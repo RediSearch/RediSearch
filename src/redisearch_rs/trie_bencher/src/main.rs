@@ -12,7 +12,6 @@ use trie_bencher::corpus::CorpusType;
 use trie_bencher::{
     CTrieMap, RustTrieMap,
     c_map::{AsTrieTermView as _, IntoCString as _},
-    str2boxed_c_char,
 };
 
 fn main() {
@@ -36,14 +35,13 @@ fn compute_and_report_memory_usage() {
         .collect::<Vec<_>>();
 
     for (string, c_string) in unique_words.iter().zip(unique_words_cstrings.iter()) {
-        let converted = str2boxed_c_char(string.as_str());
-        raw_size += converted.len();
+        raw_size += string.len();
 
         // Use a zero-sized type by passing a null pointer for `value`
         let value = NonNull::dangling();
 
         // Rust insertion
-        map.insert(&converted, value);
+        map.insert(string.as_bytes(), value);
 
         // C insertion
         cmap.insert(c_string.as_view());
@@ -51,9 +49,8 @@ fn compute_and_report_memory_usage() {
 
     // Sanity check
     for (string, c_string) in unique_words.iter().zip(unique_words_cstrings.iter()) {
-        let converted = str2boxed_c_char(string);
         assert!(
-            map.find(&converted).is_some(),
+            map.find(string.as_bytes()).is_some(),
             "{string} not found in Rust map"
         );
         assert!(

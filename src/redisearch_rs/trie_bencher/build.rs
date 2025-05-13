@@ -18,7 +18,6 @@ fn main() {
     let lib_dir = {
         let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
         let target_arch = match target_arch.as_str() {
-            "aarch64" => "arm64v8",
             "x86_64" => "x64",
             _ => &target_arch,
         };

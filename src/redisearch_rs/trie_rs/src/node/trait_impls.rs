@@ -9,13 +9,12 @@
 
 //! Implementation of various standard traits for [`Node`].
 use crate::node::Node;
-use std::{alloc::dealloc, ffi::c_char, fmt};
+use std::{alloc::dealloc, fmt};
 
-/// Convenience method to convert a `c_char` array into a `String`,
+/// Convenience method to convert a `u8` array into a `String`,
 /// replacing non-UTF-8 characters with `�` along the way.
-pub(crate) fn to_string_lossy(label: &[c_char]) -> String {
-    let slice = label.iter().map(|&c| c as u8).collect::<Vec<_>>();
-    String::from_utf8_lossy(&slice).into_owned()
+pub(crate) fn to_string_lossy(label: &[u8]) -> String {
+    String::from_utf8_lossy(label).into_owned()
 }
 
 impl<Data: fmt::Debug> fmt::Debug for Node<Data> {
@@ -67,11 +66,11 @@ impl<Data: PartialEq> PartialEq for Node<Data> {
 impl<Data: Eq> Eq for Node<Data> {}
 
 // SAFETY:
-// `Node` is semantically equivalent to a `HashMap<Vec<c_char>, Data>`, which is `Send`
+// `Node` is semantically equivalent to a `HashMap<Vec<u8>, Data>`, which is `Send`
 // if whatever it contains is `Send`.
 unsafe impl<Data: Send> Send for Node<Data> {}
 // SAFETY:
-// `Node` is semantically equivalent to a `HashMap<Vec<c_char>, Data>`, which is `Sync`
+// `Node` is semantically equivalent to a `HashMap<Vec<u8>, Data>`, which is `Sync`
 // if whatever it contains is `Sync`.
 unsafe impl<Data: Sync> Sync for Node<Data> {}
 

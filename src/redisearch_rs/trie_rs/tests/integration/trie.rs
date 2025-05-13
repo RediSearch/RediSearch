@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::utils::ToCCharVec as _;
 use std::{ffi::c_void, ptr::NonNull};
 use trie_rs::TrieMap;
 
@@ -26,22 +25,22 @@ fn test_trie_child_additions() {
     // A minimal case identified by `arbitrary` that used to cause
     // an invalid reference to uninitialized data (UB!).
     let mut trie = TrieMap::new();
-    trie.insert(&b"notcxw".c_chars(), 0);
+    trie.insert(b"notcxw", 0);
     assert_debug_snapshot!(trie, @r###""notcxw" (0)"###);
-    trie.insert(&b"ul".c_chars(), 1);
+    trie.insert(b"ul", 1);
     assert_debug_snapshot!(trie, @r###"
         "" (-)
           ↳n–––"notcxw" (0)
           ↳u–––"ul" (1)
         "###);
-    trie.insert(&b"vsvaah".c_chars(), 2);
+    trie.insert(b"vsvaah", 2);
     assert_debug_snapshot!(trie, @r###"
         "" (-)
           ↳n–––"notcxw" (0)
           ↳u–––"ul" (1)
           ↳v–––"vsvaah" (2)
         "###);
-    trie.insert(&b"kunjrn".c_chars(), 3);
+    trie.insert(b"kunjrn", 3);
     assert_debug_snapshot!(trie, @r###"
         "" (-)
           ↳k–––"kunjrn" (3)
@@ -63,34 +62,34 @@ fn test_excessively_long_label() {
 #[test]
 fn test_trie_insertions() {
     let mut trie = TrieMap::new();
-    trie.insert(&b"bike".c_chars(), 0);
+    trie.insert(b"bike", 0);
     assert_debug_snapshot!(trie, @r###""bike" (0)"###);
-    assert_eq!(trie.find(&b"bike".c_chars()), Some(&0));
-    assert_eq!(trie.find(&b"cool".c_chars()), None);
+    assert_eq!(trie.find(b"bike"), Some(&0));
+    assert_eq!(trie.find(b"cool"), None);
     println!("Alive!");
 
-    trie.insert(&b"biker".c_chars(), 1);
+    trie.insert(b"biker", 1);
     assert_debug_snapshot!(trie, @r###"
         "bike" (0)
           ↳r–––"r" (1)
         "###);
-    assert_eq!(trie.find(&b"bike".c_chars()), Some(&0));
-    assert_eq!(trie.find(&b"biker".c_chars()), Some(&1));
-    assert_eq!(trie.find(&b"cool".c_chars()), None);
+    assert_eq!(trie.find(b"bike"), Some(&0));
+    assert_eq!(trie.find(b"biker"), Some(&1));
+    assert_eq!(trie.find(b"cool"), None);
 
-    trie.insert(&b"bis".c_chars(), 2);
+    trie.insert(b"bis", 2);
     assert_debug_snapshot!(trie, @r###"
         "bi" (-)
           ↳k–––"ke" (0)
                 ↳r–––"r" (1)
           ↳s–––"s" (2)
         "###);
-    assert_eq!(trie.find(&b"bike".c_chars()), Some(&0));
-    assert_eq!(trie.find(&b"biker".c_chars()), Some(&1));
-    assert_eq!(trie.find(&b"bis".c_chars()), Some(&2));
-    assert_eq!(trie.find(&b"cool".c_chars()), None);
+    assert_eq!(trie.find(b"bike"), Some(&0));
+    assert_eq!(trie.find(b"biker"), Some(&1));
+    assert_eq!(trie.find(b"bis"), Some(&2));
+    assert_eq!(trie.find(b"cool"), None);
 
-    trie.insert(&b"cool".c_chars(), 3);
+    trie.insert(b"cool", 3);
     assert_debug_snapshot!(trie, @r###"
         "" (-)
           ↳b–––"bi" (-)
@@ -99,12 +98,12 @@ fn test_trie_insertions() {
                 ↳s–––"s" (2)
           ↳c–––"cool" (3)
         "###);
-    assert_eq!(trie.find(&b"bike".c_chars()), Some(&0));
-    assert_eq!(trie.find(&b"biker".c_chars()), Some(&1));
-    assert_eq!(trie.find(&b"bis".c_chars()), Some(&2));
-    assert_eq!(trie.find(&b"cool".c_chars()), Some(&3));
+    assert_eq!(trie.find(b"bike"), Some(&0));
+    assert_eq!(trie.find(b"biker"), Some(&1));
+    assert_eq!(trie.find(b"bis"), Some(&2));
+    assert_eq!(trie.find(b"cool"), Some(&3));
 
-    trie.insert(&b"bi".c_chars(), 4);
+    trie.insert(b"bi", 4);
     assert_debug_snapshot!(trie, @r###"
         "" (-)
           ↳b–––"bi" (4)
@@ -113,43 +112,43 @@ fn test_trie_insertions() {
                 ↳s–––"s" (2)
           ↳c–––"cool" (3)
         "###);
-    assert_eq!(trie.find(&b"bike".c_chars()), Some(&0));
-    assert_eq!(trie.find(&b"biker".c_chars()), Some(&1));
-    assert_eq!(trie.find(&b"bis".c_chars()), Some(&2));
-    assert_eq!(trie.find(&b"cool".c_chars()), Some(&3));
-    assert_eq!(trie.find(&b"bi".c_chars()), Some(&4));
+    assert_eq!(trie.find(b"bike"), Some(&0));
+    assert_eq!(trie.find(b"biker"), Some(&1));
+    assert_eq!(trie.find(b"bis"), Some(&2));
+    assert_eq!(trie.find(b"cool"), Some(&3));
+    assert_eq!(trie.find(b"bi"), Some(&4));
 
     assert_eq!(trie.n_nodes(), 6);
 
-    assert_eq!(trie.remove(&b"cool".c_chars()), Some(3));
+    assert_eq!(trie.remove(b"cool"), Some(3));
     assert_debug_snapshot!(trie, @r###"
         "bi" (4)
           ↳k–––"ke" (0)
                 ↳r–––"r" (1)
           ↳s–––"s" (2)
         "###);
-    assert_eq!(trie.remove(&b"cool".c_chars()), None);
+    assert_eq!(trie.remove(b"cool"), None);
 
-    assert_eq!(trie.remove(&b"bike".c_chars()), Some(0));
+    assert_eq!(trie.remove(b"bike"), Some(0));
     assert_debug_snapshot!(trie, @r###"
         "bi" (4)
           ↳k–––"ker" (1)
           ↳s–––"s" (2)
         "###);
-    assert_eq!(trie.remove(&b"bike".c_chars()), None);
+    assert_eq!(trie.remove(b"bike"), None);
 
-    assert_eq!(trie.remove(&b"biker".c_chars()), Some(1));
+    assert_eq!(trie.remove(b"biker"), Some(1));
     assert_debug_snapshot!(trie, @r###"
         "bi" (4)
           ↳s–––"s" (2)
         "###);
-    assert_eq!(trie.remove(&b"biker".c_chars()), None);
+    assert_eq!(trie.remove(b"biker"), None);
 
-    assert_eq!(trie.remove(&b"bi".c_chars()), Some(4));
+    assert_eq!(trie.remove(b"bi"), Some(4));
     assert_debug_snapshot!(trie, @r#"
         "bis" (2)
         "#);
-    assert_eq!(trie.remove(&b"bi".c_chars()), None);
+    assert_eq!(trie.remove(b"bi"), None);
 }
 
 #[test]
@@ -157,10 +156,10 @@ fn test_trie_insertions() {
 /// to insert is already present.
 fn test_trie_replace() {
     let mut trie = TrieMap::new();
-    trie.insert(&b";".c_chars(), 256);
+    trie.insert(b";", 256);
     assert_debug_snapshot!(trie, @r###"";" (256)"###);
 
-    trie.insert(&b";".c_chars(), 0);
+    trie.insert(b";", 0);
     assert_debug_snapshot!(trie, @r###"
         ";" (0)
         "###);
@@ -171,7 +170,7 @@ fn test_trie_replace() {
 /// has a non-trivial `Drop` implementation.
 fn test_trie_with_non_copy_data() {
     let mut trie = TrieMap::new();
-    trie.insert(&b";".c_chars(), NonNull::<c_void>::dangling());
+    trie.insert(b";", NonNull::<c_void>::dangling());
     assert_debug_snapshot!(trie, @r###"";" (0x1)"###);
 }
 
@@ -180,8 +179,8 @@ fn test_trie_with_non_copy_data() {
 /// copy of the data—i.e. no double-free on drop.
 fn test_trie_clone() {
     let mut trie = TrieMap::new();
-    trie.insert(&b";".c_chars(), NonNull::<c_void>::dangling());
-    trie.insert(&b";hey".c_chars(), NonNull::<c_void>::dangling());
+    trie.insert(b";", NonNull::<c_void>::dangling());
+    trie.insert(b";hey", NonNull::<c_void>::dangling());
     assert_debug_snapshot!(trie, @r###"
     ";" (0x1)
       ↳h–––"hey" (0x1)
@@ -199,29 +198,29 @@ fn test_trie_clone() {
 /// correctly upon removal of entries.
 fn test_trie_merge() {
     let mut trie = TrieMap::new();
-    trie.insert(&b"a".c_chars(), 0);
+    trie.insert(b"a", 0);
     assert_debug_snapshot!(trie, @r###""a" (0)"###);
 
-    trie.insert(&b"ab".c_chars(), 1);
+    trie.insert(b"ab", 1);
     assert_debug_snapshot!(trie, @r###"
         "a" (0)
           ↳b–––"b" (1)
         "###);
 
-    trie.insert(&b"abcd".c_chars(), 2);
+    trie.insert(b"abcd", 2);
     assert_debug_snapshot!(trie, @r###"
         "a" (0)
           ↳b–––"b" (1)
                 ↳c–––"cd" (2)
         "###);
 
-    assert_eq!(trie.remove(&b"ab".c_chars()), Some(1));
+    assert_eq!(trie.remove(b"ab"), Some(1));
     assert_debug_snapshot!(trie, @r###"
         "a" (0)
           ↳b–––"bcd" (2)
         "###);
 
-    trie.insert(&b"abce".c_chars(), 3);
+    trie.insert(b"abce", 3);
     assert_debug_snapshot!(trie, @r###"
         "a" (0)
           ↳b–––"bc" (-)
@@ -229,7 +228,7 @@ fn test_trie_merge() {
                 ↳e–––"e" (3)
         "###);
 
-    assert_eq!(trie.remove(&b"abcd".c_chars()), Some(2));
+    assert_eq!(trie.remove(b"abcd"), Some(2));
     assert_debug_snapshot!(trie, @r###"
         "a" (0)
           ↳b–––"bce" (3)
@@ -242,14 +241,10 @@ fn test_trie_merge() {
 /// Used for in the proptest below.
 enum TrieOperation<Data> {
     Insert(
-        #[proptest(strategy = "proptest::collection::vec(97..122 as std::ffi::c_char, 0..10)")]
-        Vec<std::ffi::c_char>,
+        #[proptest(strategy = "proptest::collection::vec(97..122 as u8, 0..10)")] Vec<u8>,
         Data,
     ),
-    Remove(
-        #[proptest(strategy = "proptest::collection::vec(97..122 as std::ffi::c_char, 0..10)")]
-        Vec<std::ffi::c_char>,
-    ),
+    Remove(#[proptest(strategy = "proptest::collection::vec(97..122 as u8, 0..10)")] Vec<u8>),
 }
 
 // Disable the proptest when testing with Miri,

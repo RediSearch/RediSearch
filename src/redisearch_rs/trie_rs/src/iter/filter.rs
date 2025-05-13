@@ -8,7 +8,6 @@
 */
 
 //! Utilities to control which nodes are visited during iteration.
-use std::ffi::c_char;
 
 #[derive(Clone, Copy)]
 /// The outcome of [`TraversalFilter::filter`].
@@ -30,15 +29,15 @@ pub trait TraversalFilter {
     /// the current node—i.e. the concatenation of the
     /// labels associated with every node between the
     /// root of the trie and the current one.
-    fn filter(&self, key: &[c_char]) -> FilterOutcome;
+    fn filter(&self, key: &[u8]) -> FilterOutcome;
 }
 
 /// Implement the trait for all closures that match the expected signature.
 impl<F> TraversalFilter for F
 where
-    F: Fn(&[c_char]) -> FilterOutcome,
+    F: Fn(&[u8]) -> FilterOutcome,
 {
-    fn filter(&self, key: &[c_char]) -> FilterOutcome {
+    fn filter(&self, key: &[u8]) -> FilterOutcome {
         self(key)
     }
 }
@@ -47,7 +46,7 @@ where
 pub struct VisitAll;
 
 impl TraversalFilter for VisitAll {
-    fn filter(&self, _key: &[c_char]) -> FilterOutcome {
+    fn filter(&self, _key: &[u8]) -> FilterOutcome {
         FilterOutcome {
             yield_current: true,
             visit_descendants: true,

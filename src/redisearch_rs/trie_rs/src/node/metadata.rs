@@ -11,7 +11,7 @@
 //!
 //! Check out [`NodeLayout`]'s documentation for more details.
 use crate::node::Node;
-use std::{alloc::Layout, ffi::c_char, marker::PhantomData, num::NonZeroUsize, ptr::NonNull};
+use std::{alloc::Layout, marker::PhantomData, num::NonZeroUsize, ptr::NonNull};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -160,7 +160,7 @@ impl<Data> PtrMetadata<Data> {
         let layout = Layout::new::<NodeHeader>();
 
         // The offset doesn't depend on the actual number of children.
-        let Ok(label) = Layout::array::<c_char>(1) else {
+        let Ok(label) = Layout::array::<u8>(1) else {
             // `1 (array size)` is guaranteed to be less than `isize::MAX`.
             unreachable!()
         };
@@ -176,7 +176,7 @@ impl<Data> PtrMetadata<Data> {
         let layout = Layout::new::<NodeHeader>();
 
         // Node label
-        let Ok(label) = Layout::array::<c_char>(header.label_len as usize) else {
+        let Ok(label) = Layout::array::<u8>(header.label_len as usize) else {
             // The label length is a `u16`, so we will never overflow `isize::MAX` here
             // since `u16::MAX` is less than `isize::MAX`.
             unreachable!()
@@ -187,7 +187,7 @@ impl<Data> PtrMetadata<Data> {
         };
 
         // Children first-bytes
-        let Ok(first_bytes) = Layout::array::<c_char>(header.n_children as usize) else {
+        let Ok(first_bytes) = Layout::array::<u8>(header.n_children as usize) else {
             // The number of children is a `u8`, so we will never overflow `isize::MAX` here
             // since `u8::MAX` is less than `isize::MAX`.
             unreachable!()
@@ -264,7 +264,7 @@ impl<Data> PtrMetadata<Data> {
     /// # Invariants
     ///
     /// 1. If the safety preconditions are met, the returned pointer is well-aligned
-    ///    to write/read a slice of `c_char`.
+    ///    to write/read a slice of `u8`.
     ///
     /// # Safety
     ///
@@ -277,7 +277,7 @@ impl<Data> PtrMetadata<Data> {
     pub const unsafe fn child_first_bytes_ptr(
         &self,
         header_ptr: NonNull<NodeHeader>,
-    ) -> NonNull<c_char> {
+    ) -> NonNull<u8> {
         // SAFETY:
         // The safety preconditions must be verified by the caller.
         unsafe { header_ptr.byte_offset(self.children_first_bytes_offset as isize) }.cast()
@@ -312,7 +312,7 @@ impl<Data> PtrMetadata<Data> {
     /// # Invariants
     ///
     /// 1. If the safety preconditions are met, the returned pointer is well-aligned
-    ///    to write/read a slice of `c_char`s.
+    ///    to write/read a slice of `u8`s.
     ///
     /// # Safety
     ///
@@ -322,7 +322,7 @@ impl<Data> PtrMetadata<Data> {
     ///
     /// The requirements are automatically verified if `header_ptr` is backed by an allocation
     /// created using the layout returned by [`Self::layout`].
-    pub const unsafe fn label_ptr(header_ptr: NonNull<NodeHeader>) -> NonNull<c_char> {
+    pub const unsafe fn label_ptr(header_ptr: NonNull<NodeHeader>) -> NonNull<u8> {
         // SAFETY:
         // The safety preconditions must be verified by the caller.
         unsafe { header_ptr.byte_offset(Self::LABEL_OFFSET as isize) }.cast()
@@ -466,8 +466,8 @@ impl<Data> LabelBuffer<'_, Data> {
     ///
     /// # Invariants
     ///
-    /// 1. The returned pointer is well-aligned to write/read a slice of `c_char`s.
-    fn ptr(&self) -> NonNull<c_char> {
+    /// 1. The returned pointer is well-aligned to write/read a slice of `u8`s.
+    fn ptr(&self) -> NonNull<u8> {
         // SAFETY: This is safe because:
         // 1. `self.ptr` was verified to be properly allocated with the correct layout
         //    when this struct was created (see safety invariant #1).
@@ -482,7 +482,7 @@ impl<Data> LabelBuffer<'_, Data> {
     /// 1. The number of elements in `src` must be less than or equal to the capacity of the label buffer.
     /// 2. `src` and the label buffer must not overlap.
     /// 3. You have exclusive access to the label buffer.
-    pub(super) unsafe fn copy_from_slice_nonoverlapping(&mut self, src: &[c_char]) {
+    pub(super) unsafe fn copy_from_slice_nonoverlapping(&mut self, src: &[u8]) {
         #[cfg(debug_assertions)]
         {
             assert!(
@@ -490,7 +490,7 @@ impl<Data> LabelBuffer<'_, Data> {
                 "The length of the source slice exceeds the label buffer capacity"
             );
         }
-        // There is no risk of a double-free on drop because `[c_char]` is `Copy`.
+        // There is no risk of a double-free on drop because `[u8]` is `Copy`.
         //
         // SAFETY:
         // - The source data is all contained within a single allocation, since it's a well-formed slice.
@@ -505,7 +505,7 @@ impl<Data> LabelBuffer<'_, Data> {
     /// Shifts `n_elements` elements to the right by `offset` positions in the label buffer.
     ///
     /// The elements in the range `[0, offset)` are left untouched. This operation is safe, since
-    /// `c_char` (our label type) is `Copy`.
+    /// `u8` (our label type) is `Copy`.
     ///
     /// # Example
     ///
@@ -556,8 +556,8 @@ impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
     ///
     /// # Invariants
     ///
-    /// 1. The returned pointer is well-aligned to write/read a slice of `c_char`s.
-    pub(super) fn ptr(&self) -> NonNull<c_char> {
+    /// 1. The returned pointer is well-aligned to write/read a slice of `u8`s.
+    pub(super) fn ptr(&self) -> NonNull<u8> {
         // SAFETY: This is safe because:
         // 1. `self.0.ptr` was verified to be properly allocated with the correct layout
         //    when this struct was created (see safety invariant #1 in `PtrWithMetadata`).
@@ -572,7 +572,7 @@ impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
     /// 1. The number of elements in `src` must be less than or equal to the capacity of the buffer.
     /// 2. `src` and the destination buffer must not overlap.
     /// 3. You have exclusive access to the children first-bytes buffer.
-    pub(super) unsafe fn copy_from_slice_nonoverlapping(&mut self, src: &[c_char]) {
+    pub(super) unsafe fn copy_from_slice_nonoverlapping(&mut self, src: &[u8]) {
         #[cfg(debug_assertions)]
         {
             assert!(
@@ -580,7 +580,7 @@ impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
                 "The length of the source slice exceeds the children first-bytes buffer capacity"
             );
         }
-        // There is no risk of a double-free on drop because `[c_char]` is `Copy`.
+        // There is no risk of a double-free on drop because `[u8]` is `Copy`.
         //
         // SAFETY:
         // - The source data is all contained within a single allocation, since it's a well-formed slice.
@@ -647,7 +647,7 @@ impl<Data> ChildrenFirstBytesBuffer<'_, Data> {
     ///
     /// 1. The number of elements in `bytes` must be less than or equal to the capacity of the buffer.
     /// 2. You have exclusive access to the children first-bytes buffer.
-    pub(super) unsafe fn write<const N: usize>(&mut self, bytes: [c_char; N]) {
+    pub(super) unsafe fn write<const N: usize>(&mut self, bytes: [u8; N]) {
         #[cfg(debug_assertions)]
         {
             assert!(
