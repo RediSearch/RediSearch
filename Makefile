@@ -658,6 +658,9 @@ coverage-unit:
 	$(SHOW)mv $(BINROOT)/unit.info.2 $(BINROOT)/unit.info
 	$(SHOW)rm $(BINROOT)/unit.info.1
 
+coverage-rust:
+	$(SHOW)$(MAKE) rust-tests COV=1
+
 coverage-flow:
 	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
 	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
@@ -669,7 +672,7 @@ coverage-flow:
 	$(SHOW)mv $(BINROOT)/flow.info.2 $(BINROOT)/flow.info
 	$(SHOW)rm $(BINROOT)/flow.info.1
 
-.PHONY: coverage-unit coverage-flow
+.PHONY: coverage-unit coverage-flow coverage-rust
 
 #----------------------------------------------------------------------------------------------
 
