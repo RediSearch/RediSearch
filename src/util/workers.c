@@ -33,7 +33,7 @@ static void yieldCallback(void *yieldCtx) {
                     " waiting for workers to finish: call number %zu", yield_counter);
   }
   RedisModuleCtx *ctx = yieldCtx;
-  RedisModule_YieldAndIncrement(ctx);
+  YieldToRedis(ctx);
 }
 
 /* Configure here anything that needs to know it can use the thread pool */

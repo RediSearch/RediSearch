@@ -33,7 +33,7 @@ int GetRedisErrorCodeLength(const char* error) {
  * @param flags Yield flags (e.g., REDISMODULE_YIELD_FLAG_CLIENTS)
  * @param busy_reply Optional busy reply message
  */
-void RedisModule_YieldAndIncrement(RedisModuleCtx *ctx) {
+void YieldToRedis(RedisModuleCtx *ctx) {
   if (RedisModule_Yield) { // RedisModule_Yield is available only in Redis 7+
     IncrementYieldCounter(); // Track that we called yield
     RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);

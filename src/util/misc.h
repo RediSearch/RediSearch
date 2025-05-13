@@ -24,6 +24,6 @@ int GetRedisErrorCodeLength(const char* error);
  * This helps keep Redis responsive during long operations.
  * @param ctx The Redis context
  */
-void RedisModule_YieldAndIncrement(RedisModuleCtx *ctx);
+void YieldToRedis(RedisModuleCtx *ctx);
 
 #endif

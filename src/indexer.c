@@ -401,6 +401,6 @@ void IndexerYield(RedisModuleCtx *ctx) {
   // Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
   if (++opCounter >= RSGlobalConfig.indexerYieldEveryOps) {
     opCounter = 0;
-    RedisModule_YieldAndIncrement(ctx);
+    YieldToRedis(ctx);
   }
 }
