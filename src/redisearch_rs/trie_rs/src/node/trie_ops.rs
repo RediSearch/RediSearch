@@ -9,18 +9,15 @@
 
 //! Trie operations.
 use super::Node;
-use crate::utils::{longest_common_prefix, memchr_c_char, strip_prefix};
-use std::{
-    alloc::dealloc, cmp::Ordering, ffi::c_char, marker::PhantomData, mem::ManuallyDrop,
-    ptr::NonNull,
-};
+use crate::utils::{longest_common_prefix, strip_prefix};
+use std::{alloc::dealloc, cmp::Ordering, marker::PhantomData, mem::ManuallyDrop, ptr::NonNull};
 
 impl<Data> Node<Data> {
     /// Inserts a new key-value pair into the trie.
     ///
     /// If the key already exists, the current value is passede to provided function,
     /// and replaced with the value returned by that function.
-    pub fn insert_or_replace_with<F>(&mut self, mut key: &[c_char], f: F)
+    pub fn insert_or_replace_with<F>(&mut self, mut key: &[u8], f: F)
     where
         F: FnOnce(Option<Data>) -> Data,
     {
@@ -173,7 +170,7 @@ impl<Data> Node<Data> {
 
     /// Get a reference to the value associated with a key.
     /// Returns `None` if the key is not present.
-    pub fn find(&self, mut key: &[c_char]) -> Option<&Data> {
+    pub fn find(&self, mut key: &[u8]) -> Option<&Data> {
         let mut current = self;
         loop {
             key = strip_prefix(key, current.label())?;
@@ -192,7 +189,7 @@ impl<Data> Node<Data> {
     /// start with the given prefix.
     /// If there is a subtree, it also returns the concatenated labels for the path from
     /// the root to the subtree root.
-    pub fn find_root_for_prefix(&self, mut key: &[c_char]) -> Option<(&Node<Data>, Vec<c_char>)> {
+    pub fn find_root_for_prefix(&self, mut key: &[u8]) -> Option<(&Node<Data>, Vec<u8>)> {
         let mut current = self;
         let mut prefix = Vec::new();
         loop {
@@ -219,7 +216,7 @@ impl<Data> Node<Data> {
 
     /// Get a reference to the child node whose label starts with the given byte.
     /// Returns `None` if there is no such child.
-    pub fn child_starting_with(&self, c: c_char) -> Option<&Node<Data>> {
+    pub fn child_starting_with(&self, c: u8) -> Option<&Node<Data>> {
         let i = self.child_index_starting_with(c)?;
         // SAFETY:
         // Guaranteed by invariant 1. in [`Self::child_index_starting_with`].
@@ -235,14 +232,14 @@ impl<Data> Node<Data> {
     ///    the bounds of the children pointers array and the children
     ///    first bytes array.
     #[inline]
-    pub fn child_index_starting_with(&self, c: c_char) -> Option<usize> {
-        memchr_c_char(c, self.children_first_bytes())
+    pub fn child_index_starting_with(&self, c: u8) -> Option<usize> {
+        memchr::memchr(c, self.children_first_bytes())
     }
 
     /// Remove the descendant of this node that matches the given key, if any.
     ///
     /// Returns the data associated with the removed node, if any.
-    pub fn remove_descendant(&mut self, key: &[c_char]) -> Option<Data> {
+    pub fn remove_descendant(&mut self, key: &[u8]) -> Option<Data> {
         // Find the index of child whose label starts with the first byte of the key,
         // as well as the child itself.
         // If the we find none, there's nothing to remove.

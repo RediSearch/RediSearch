@@ -7,7 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::utils::chunk_to_string;
 use wildcard::{Token, WildcardPattern};
 
 /// Helper macro that parses the passed pattern and compares it with the expected tokens,
@@ -20,7 +19,7 @@ macro_rules! assert_tokens {
             tokens.tokens(),
             $expected,
             r#""{}" should be parsed as {:?}"#,
-            chunk_to_string($pattern),
+            String::from_utf8_lossy($pattern),
             tokens.tokens()
         );
     };

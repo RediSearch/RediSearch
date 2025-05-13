@@ -8,9 +8,9 @@
 */
 
 //! Implementations of `Debug` and `Display` for our public types.
-use crate::{CharLike, Token, WildcardPattern};
+use crate::{Token, WildcardPattern};
 
-impl<C: CharLike> std::fmt::Debug for Token<'_, C> {
+impl std::fmt::Debug for Token<'_> {
     // `Debug` implementation that formats `Token::Literal` such that
     // it matches the notation we're using in the tests
     // for easy comparison.
@@ -22,30 +22,26 @@ impl<C: CharLike> std::fmt::Debug for Token<'_, C> {
                 write!(
                     f,
                     r#"Token::Literal(br"{}")"#,
-                    String::from_utf8_lossy(&chunk.iter().map(|c| c.as_u8()).collect::<Vec<u8>>())
+                    String::from_utf8_lossy(chunk)
                 )
             }
         }
     }
 }
 
-impl<C: CharLike> std::fmt::Display for Token<'_, C> {
+impl std::fmt::Display for Token<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Token::Any => write!(f, "*"),
             Token::One => write!(f, "?"),
             Token::Literal(chunk) => {
-                write!(
-                    f,
-                    r#"{}"#,
-                    String::from_utf8_lossy(&chunk.iter().map(|c| c.as_u8()).collect::<Vec<u8>>())
-                )
+                write!(f, r#"{}"#, String::from_utf8_lossy(chunk))
             }
         }
     }
 }
 
-impl<C: CharLike> std::fmt::Debug for WildcardPattern<'_, C> {
+impl std::fmt::Debug for WildcardPattern<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WildcardPattern")
             .field("tokens", &self.tokens)
@@ -54,7 +50,7 @@ impl<C: CharLike> std::fmt::Debug for WildcardPattern<'_, C> {
     }
 }
 
-impl<C: CharLike> std::fmt::Display for WildcardPattern<'_, C> {
+impl std::fmt::Display for WildcardPattern<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut pattern = String::new();
         for token in &self.tokens {
