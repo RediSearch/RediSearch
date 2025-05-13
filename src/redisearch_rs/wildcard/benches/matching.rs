@@ -26,7 +26,7 @@ fn criterion_benchmark_matching(c: &mut Criterion) {
     for (pattern, key) in &cases {
         let pattern = WildcardPattern::parse(pattern);
 
-        let id = format!("{} vs {}", pattern, String::from_utf8_lossy(&key));
+        let id = format!("{} vs {}", pattern, String::from_utf8_lossy(key));
         c.bench_function(&id, |b| {
             b.iter(|| pattern.matches(black_box(key)));
         });
