@@ -48,8 +48,7 @@ env:
   VERBOSE_UTESTS: 1
   # Setting RUSTFLAGS here to ensure that all `cargo` invocations use the same
   # flags, and therefore reuse the same intermediate build artifacts.
-  RUST_DENY_WARNS: 1
-  RUST_PROFILE: "optimised_test"
+  RUSTFLAGS: "-D warnings"
 
 jobs:
   common-flow:
