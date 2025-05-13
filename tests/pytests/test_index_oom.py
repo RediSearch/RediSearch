@@ -813,7 +813,6 @@ def test_enterprise_oom_retry_alter_success(env):
   bgIndexingStatusStr = "background indexing status"
   env.assertEqual(to_dict(info["Index Errors"])[bgIndexingStatusStr], 'OK')
 
-
 @skip(cluster=True)
 def test_enterprise_oom_retry_alter_failure(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
