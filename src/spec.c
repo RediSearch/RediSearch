@@ -75,7 +75,7 @@ static redisearch_thpool_t *cleanPool = NULL;
 extern DebugCTX globalDebugCtx;
 
 const char *DEBUG_INDEX_SCANNER_STATUS_STRS[] = {
-    "NEW", "SCANNING", "DONE", "CANCELLED", "PAUSED", "RESUMED", "PAUSED_ON_OOM", "PAUSED_BEFORE_OOM_RESET", "PAUSED_AFTER_OOM_RESET",
+    "NEW", "SCANNING", "DONE", "CANCELLED", "PAUSED", "RESUMED", "PAUSED_ON_OOM", "PAUSED_BEFORE_OOM_RESET",
 };
 
 // Static assertion to ensure array size matches the number of statuses
@@ -2283,7 +2283,6 @@ if (scanner->isDebug) { \
   DebugIndexesScanner_pauseCheck(dScanner, ctx, dScanner->status_bool, status_code); \
 }
 #define IF_DEBUG_PAUSE_CHECK_BEFORE_OOM_RESET(scanner, ctx) IF_DEBUG_PAUSE_CHECK(scanner, ctx, pauseBeforeOOMReset, DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RESET)
-#define IF_DEBUG_PAUSE_CHECK_AFTER_OOM_RESET(scanner, ctx) IF_DEBUG_PAUSE_CHECK(scanner, ctx, pauseAfterOOMReset, DEBUG_INDEX_SCANNER_CODE_PAUSED_AFTER_OOM_RESET)
 #define IF_DEBUG_PAUSE_CHECK_ON_OOM(scanner, ctx) IF_DEBUG_PAUSE_CHECK(scanner, ctx, pauseOnOOM, DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM)
 
 static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
@@ -2341,7 +2340,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
         IF_DEBUG_PAUSE_CHECK_BEFORE_OOM_RESET(scanner, ctx);
         scanWaitAndRestart(ctx, scanner, cursor);
         retry_after_oom = false; // Next successive OOM should stop the scan
-        IF_DEBUG_PAUSE_CHECK_AFTER_OOM_RESET(scanner, ctx);
         continue;
       }
       scanStopAfterOOM(ctx, scanner);

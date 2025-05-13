@@ -1689,31 +1689,6 @@ DEBUG_COMMAND(setPauseBeforeOOMreset) {
 }
 
 /**
- * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_AFTER_OOM_RESET <true/false>
- */
-DEBUG_COMMAND(setPauseAfterOOMreset) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  if (argc != 3) {
-    return RedisModule_WrongArity(ctx);
-  }
-  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
-
-  if (!strcasecmp(op, "true")) {
-    globalDebugCtx.bgIndexing.pauseAfterOOMreset = true;
-  } else if (!strcasecmp(op, "false")) {
-    globalDebugCtx.bgIndexing.pauseAfterOOMreset = false;
-  } else {
-    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_AFTER_OOM_RESET'");
-  }
-
-  validateDebugMode(&globalDebugCtx);
-
-  return RedisModule_ReplyWithSimpleString(ctx, "OK");
-}
-
-/**
  * FT.DEBUG BG_SCAN_CONTROLLER DEBUG_SCANNER_UPDATE_CONFIG <index_name>
  */
 DEBUG_COMMAND(debugScannerUpdateConfig) {
@@ -1792,9 +1767,6 @@ DEBUG_COMMAND(bgScanController) {
   }
   if (!strcmp("SET_PAUSE_BEFORE_OOM_RESET", op)) {
     return setPauseBeforeOOMreset(ctx, argv+1, argc-1);
-  }
-  if (!strcmp("SET_PAUSE_AFTER_OOM_RESET", op)) {
-    return setPauseAfterOOMreset(ctx, argv+1, argc-1);
   }
   if (!strcmp("DEBUG_SCANNER_UPDATE_CONFIG", op)) {
     return debugScannerUpdateConfig(ctx, argv+1, argc-1);
