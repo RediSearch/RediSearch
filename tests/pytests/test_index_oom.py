@@ -839,7 +839,6 @@ def test_enterprise_oom_retry_alter_failure(env):
   # Now we set the tight memory limit
   set_tight_maxmemory_for_oom(env, 0.8)
 
-
   # Resume PAUSE ON SCANNED DOCS
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for OOM
@@ -866,7 +865,6 @@ def test_enterprise_oom_retry_alter_failure(env):
   waitForIndexStatus(env, 'PAUSED_ON_OOM', idx)
   # Resume PAUSE ON OOM
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-
 
   # Verify that the indexing finished
   waitForIndexFinishScan(env, idx)
