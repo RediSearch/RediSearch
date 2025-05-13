@@ -29,6 +29,11 @@ RUN_RUST_TESTS=0 # Run Rust tests
 RUN_PYTEST=0     # Run Python tests
 RUN_ALL_TESTS=${RUN_ALL_TESTS:-0}  # Run all test types
 
+# Rust configuration
+RUST_PROFILE=""  # Which profile should be used to build/test Rust code
+                 # If unspecified, the correct profile will be determined based
+                 # the operations to be performed
+
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
 # Parse command-line arguments and set configuration variables
@@ -59,6 +64,9 @@ parse_arguments() {
         ;;
       TEST=*)
         TEST_FILTER="${arg#*=}"
+        ;;
+      RUST_PROFILE=*)
+        RUST_PROFILE="${arg#*=}"
         ;;
       SAN=*)
         SAN="${arg#*=}"
@@ -121,6 +129,19 @@ setup_build_environment() {
     FLAVOR="release-profile"
   else
     FLAVOR="release"
+  fi
+
+  # If unset, determine the Rust build profile
+  if [[ "$RUST_PROFILE" == "" ]]; then
+    if [[ "$BUILD_TESTS" == "1" ]]; then
+      if [[ "$DEBUG" == "1" ]]; then
+        RUST_PROFILE="debug"
+      else
+        RUST_PROFILE="optimised_test"
+      fi
+    else
+      RUST_PROFILE="release"
+    fi
   fi
 
   # Get OS and architecture
@@ -245,13 +266,11 @@ build_redisearch_rs() {
   REDISEARCH_RS_TARGET_DIR="$ROOT/bin/redisearch_rs"
   REDISEARCH_RS_BINDIR="$BINDIR/redisearch_rs"
 
-  # Determine Rust build mode
-  if [[ "$DEBUG" == "1" ]]; then
-    RUST_BUILD_MODE=""
+  # Determine Rust artifact directory based on the chosen profile
+  if [[ "$RUST_PROFILE" == "dev" ]]; then
     RUST_ARTIFACT_SUBDIR="debug"
   else
-    RUST_BUILD_MODE="--release"
-    RUST_ARTIFACT_SUBDIR="release"
+    RUST_ARTIFACT_SUBDIR="$RUST_PROFILE"
   fi
   # Set up RUSTFLAGS for dynamic C runtime if needed
   if [[ "$RUST_DYN_CRT" == "1" ]]; then
@@ -265,7 +284,7 @@ build_redisearch_rs() {
   mkdir -p "$REDISEARCH_RS_TARGET_DIR"
   pushd .
   cd "$REDISEARCH_RS_DIR"
-  cargo build $RUST_BUILD_MODE
+  cargo build --profile="$RUST_PROFILE"
 
   # Copy artifacts to the target directory
   mkdir -p "$REDISEARCH_RS_BINDIR"
@@ -412,20 +431,13 @@ run_rust_tests() {
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
 
-  # Use the appropriate Rust build mode
-  if [[ "$DEBUG" == "1" ]]; then
-    RUST_MODE=""
-  else
-    RUST_MODE="--release"
-  fi
-
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
   if [[ -n "$TEST_FILTER" ]]; then
     echo "Running Rust tests matching: $TEST_FILTER"
-    cargo test $RUST_MODE $TEST_FILTER -- --nocapture
+    cargo test --profile=$RUST_PROFILE $TEST_FILTER -- --nocapture
   else
-    cargo test $RUST_MODE -- --nocapture
+    cargo test --profile=$RUST_PROFILE -- --nocapture
   fi
 
   # Check test results
