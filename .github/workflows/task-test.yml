@@ -13,7 +13,8 @@ on:
       san:
         type: string
       coverage:
-        type: string
+        type: boolean
+        default: false
       run_miri:
         description: 'Whether to run Rust tests through miri to detect undefined behavior'
         type: boolean
@@ -48,7 +49,7 @@ on:
 env:
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
-  COV: ${{ inputs.coverage }}
+  COV: ${{ inputs.coverage && 1 || 0 }}  # convert the boolean input to numeric
   # Setting RUSTFLAGS here to ensure that all `cargo` invocations use the same
   # flags, and therefore reuse the same intermediate build artifacts.
   RUSTFLAGS: "-D warnings"

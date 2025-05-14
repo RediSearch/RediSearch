@@ -187,7 +187,7 @@ setup_build_environment() {
 # Run lcov preparations before testing for coverage
 #-----------------------------------------------------------------------------
 prepare_coverage_capture() {
-  mkdir -p $BINDIR # verify the path exists
+  # mkdir -p $BINDIR # verify the path exists
   lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
   lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info
 }
@@ -480,22 +480,29 @@ run_rust_tests() {
   # Set Rust test environment
   RUST_DIR="$ROOT/src/redisearch_rs"
 
+  # Add Rust test extensions
+  if [[ $COV == 1 ]]; then
+    RUST_EXTENSIONS="+nightly llvm-cov"
+    RUST_TEST_OPTIONS="
+      --doctests
+      --codecov
+      --workspace
+      --exclude='trie_bencher'
+      --ignore-filename-regex='trie_bencher/*'
+      --output-path='$BINROOT/rust_cov.info'
+    "
+  elif [[ -n "$SAN" ]]; then # using `elif` as we shouldn't run with both
+    RUST_EXTENSIONS="+nightly miri"
+  fi
+
   # Run cargo test with the appropriate filter
   cd "$RUST_DIR"
-  if [[ -n "$TEST_FILTER" ]]; then
-    echo "Running Rust tests matching: $TEST_FILTER"
-    cargo test --profile=$RUST_PROFILE $TEST_FILTER -- --nocapture
-  else
-    cargo test --profile=$RUST_PROFILE -- --nocapture
-  fi
+  cargo $RUST_EXTENSIONS test --profile=$RUST_PROFILE $RUST_TEST_OPTIONS $TEST_FILTER -- --nocapture
 
   # Check test results
   RUST_TEST_RESULT=$?
   if [[ $RUST_TEST_RESULT -eq 0 ]]; then
     echo "All Rust tests passed!"
-    if [[ $COV == 1 ]]; then
-      capture_coverage rust
-    fi
   else
     echo "Some Rust tests failed. Check the test logs above for details."
     HAS_FAILURES=1

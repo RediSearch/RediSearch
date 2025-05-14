@@ -60,7 +60,7 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     with:
       rejson-branch: master
-      coverage: 1
+      coverage: true
       test-config: QUICK=1
     secrets: inherit
 

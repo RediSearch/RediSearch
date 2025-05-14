@@ -36,7 +36,7 @@ jobs:
     secrets: inherit
     with:
       rejson-branch: master
-      coverage: 1
+      coverage: true
       test-config: '' # run all tests
 
   sanitize:

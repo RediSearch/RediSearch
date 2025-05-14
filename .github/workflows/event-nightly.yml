@@ -29,7 +29,7 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
-      coverage: 1
+      coverage: true
       test-config: QUICK=1
       get-redis: unstable
 
