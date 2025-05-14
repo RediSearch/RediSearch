@@ -73,7 +73,7 @@
     IndexSpec *sp = StrongRef_Get(spec_ref);                                                                \
     if (!sp) {                                                                                              \
       return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idxName);                           \
-    }                                                                                                       \                                                                                               \
+    }                                                                                                       \
     if (!ACLUserMayAccessIndex(ctx, sp)) {                                                                  \
       return RedisModule_ReplyWithError(ctx, NOPERM_ERR);                                                   \
     }                                                                                                       \
