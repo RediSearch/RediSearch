@@ -400,14 +400,30 @@ run_python_tests() {
 
   echo "Running Python behavioral tests..."
 
-  # Locate the built module
-  MODULE_PATH="$BINDIR/redisearch.so"
-  if [[ ! -f "$MODULE_PATH" && -f "$BINDIR/module-enterprise.so" ]]; then
+  # Locate the built module based on COORD value
+  if [[ "$COORD" == "0" || -z "$COORD" ]]; then
+    # Standalone build
+    MODULE_PATH="$BINDIR/redisearch.so"
+    echo "Looking for standalone module at: $MODULE_PATH"
+  elif [[ "$COORD" == "oss" || "$COORD" == "1" ]]; then
+    # OSS coordinator build
+    MODULE_PATH="$BINDIR/module-oss.so"
+    echo "Looking for OSS coordinator module at: $MODULE_PATH"
+  elif [[ "$COORD" == "rlec" ]]; then
+    # RLEC coordinator build
     MODULE_PATH="$BINDIR/module-enterprise.so"
+    echo "Looking for RLEC coordinator module at: $MODULE_PATH"
+  else
+    echo "Error: Unknown COORD value: $COORD"
+    exit 1
   fi
 
   if [[ ! -f "$MODULE_PATH" ]]; then
-    echo "Error: Cannot find RediSearch module binary in $BINDIR"
+    echo "Error: Cannot find RediSearch module binary at $MODULE_PATH"
+    echo "BINDIR: $BINDIR"
+    echo "COORD: $COORD"
+    echo "Files in $BINDIR:"
+    ls -la "$BINDIR"
     exit 1
   fi
 

@@ -383,9 +383,9 @@ if [[ $RLEC != 1 ]]; then
 			if [[ -z $COORD || $COORD == "0" ]]; then
 				MODULE=$BINROOT/search-standalone/redisearch.so
 			elif [[ $COORD == oss ]]; then
-				MODULE=$BINROOT/search-community/redisearch.so
+				MODULE=$BINROOT/search-community/module-oss.so
 			elif [[ $COORD == rlec ]]; then
-				MODULE=$BINROOT/search-enterprise/redisearch.so
+				MODULE=$BINROOT/search-enterprise/module-enterprise.so
 			fi
 		fi
 		if [[ -z $MODULE || ! -f $MODULE ]]; then
@@ -523,7 +523,6 @@ if [[ $GC == 0 ]]; then
 fi
 
 echo "Running tests in parallel using $parallel Python processes"
-echo "COORD=$COORD, CONFIG=$CONFIG"
 if [[ $COORD == 0 ]]; then
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true

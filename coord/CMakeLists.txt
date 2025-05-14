@@ -114,6 +114,10 @@ endif()
 
 # Only include coordinator components when building with COORD_TYPE
 if (DEFINED COORD_TYPE)
+    # Pass the RS_COORDINATOR flag to the root CMakeLists.txt file
+    set(RS_COORDINATOR ON CACHE BOOL "Building with coordinator support" FORCE)
+
+    # Include the root directory as a subdirectory
     add_subdirectory(${root} search)
     add_subdirectory(src/rmr)
     add_subdirectory(src)
@@ -128,6 +132,10 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
 set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
 set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE) # Force static library
+
+# Add libuv and hiredis as subdirectories
+add_subdirectory(${root}/deps/libuv ${CMAKE_CURRENT_BINARY_DIR}/deps/libuv)
+add_subdirectory(${root}/deps/hiredis ${CMAKE_CURRENT_BINARY_DIR}/deps/hiredis)
 
 # Set libuv and hiredis libraries
 set(LIBUV_LIBS uv_a)

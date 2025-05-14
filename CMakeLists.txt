@@ -137,8 +137,18 @@ add_compile_definitions(
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
+# Add RS_COORDINATOR flag if building with coordinator support
+if (RS_COORDINATOR)
+    add_compile_definitions(RS_COORDINATOR)
+endif()
+
 if (USE_REDIS_ALLOCATOR)
     add_compile_definitions(REDIS_MODULE_TARGET)
+endif()
+
+# Set RS_COORDINATOR flag when building with coordinator support
+if (BUILD_COORDINATOR)
+    add_compile_definitions(RS_COORDINATOR)
 endif()
 
 if(VERBOSE_UTESTS)
