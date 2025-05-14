@@ -174,8 +174,8 @@ jobs:
           SANITIZER: ${{ inputs.san }}
           BUILD_TLS: yes
           REDIS_CFLAGS: ${{ inputs.coverage && '-DCOVERAGE_TEST' || '' }}
-        run: |
-          ${{ steps.mode.outputs.mode }} SANITIZER=${{ inputs.san }} BUILD_TLS=yes make install
+        run: ${{ steps.mode.outputs.mode }} make install
+
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
         # We also remove invalid characters from the name.
