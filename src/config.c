@@ -99,8 +99,8 @@ static const char* FTConfigNameToConfigName(const char *name) {
   return NULL;
 }
 
-int set_long_numeric_config(const char *name, long long val, void *privdata,
-                           RedisModuleString **err) {
+int set_numeric_config(const char *name, long long val, void *privdata,
+                  RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
   *(long long *)privdata = val;
@@ -133,7 +133,7 @@ int set_uint_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-long long get_uint_numeric_config(const char *name, void *privdata) {
+unsigned int get_uint_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return *(unsigned int *)privdata;
 }
@@ -167,12 +167,12 @@ int set_inverted_bool_config(const char *name, int val, void *privdata,
   return REDISMODULE_OK;
 }
 
-int get_bool_config(const char *name, void *privdata) {
+bool get_bool_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return *(bool *)privdata;
 }
 
-int get_inverted_bool_config(const char *name, void *privdata) {
+bool get_inverted_bool_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return !*(bool *)privdata;
 }
@@ -1807,7 +1807,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       ctx, "search-bm25std-tanh-factor",
       DEFAULT_BM25STD_TANH_FACTOR,
       REDISMODULE_CONFIG_UNPREFIXED, BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX,
-      get_uint_numeric_config, set_uint_numeric_config, NULL,
+      get_uint64_numeric_config, set_uint64_numeric_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor)
     )
   )
