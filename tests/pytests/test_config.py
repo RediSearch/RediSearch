@@ -1636,6 +1636,9 @@ def testConfigIndependence_default():
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         if immutable:
             continue
+        if clusterConfig:
+            if not env.isCluster():
+                continue
 
         # Test min value
         env.expect('CONFIG', 'SET', configName, minValue).ok()
@@ -1716,6 +1719,9 @@ def testConfigIndependence_min_values():
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         if immutable:
             continue
+        if clusterConfig:
+            if not env.isCluster():
+                continue
         env.expect('CONFIG', 'SET', configName, minValue).ok()
     # set all boolean configs to false
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
@@ -1726,12 +1732,27 @@ def testConfigIndependence_min_values():
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         if immutable:
             continue
+        if clusterConfig:
+            if not env.isCluster():
+                continue
         env.expect('CONFIG', 'SET', configName, maxValue).ok()
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, str(maxValue)]])
+        if argName in ['MAXSEARCHRESULTS', 'MAXAGGREGATERESULTS']:
+            env.expect(config_cmd(), 'GET', argName).equal([[argName, 'unlimited']])
+        else:
+            env.expect(config_cmd(), 'GET', argName).equal([[argName, str(maxValue)]])
         currentConfigDict = getConfigDict(env)
         for k, v in minValueConfigDict.items():
-            if k == argName:
+            if (k, argName) == ('MAXPREFIXEXPANSIONS', 'MAXEXPANSIONS'):
                 env.assertEqual(currentConfigDict[k], [str(maxValue)], message=f'changedConfig: {argName}')
+                continue
+            if (k, argName) == ('MAXEXPANSIONS', 'MAXPREFIXEXPANSIONS'):
+                env.assertEqual(currentConfigDict[k], [str(maxValue)], message=f'changedConfig: {argName}')
+                continue
+            if k == argName:
+                if argName in ['MAXSEARCHRESULTS', 'MAXAGGREGATERESULTS']:
+                    env.assertEqual(currentConfigDict[k], ['unlimited'], message=f'changedConfig: {argName}')
+                else:
+                    env.assertEqual(currentConfigDict[k], [str(maxValue)], message=f'changedConfig: {argName}')
             else:
                 env.assertEqual(currentConfigDict[k], v, message=f'affectedConfig: {k}, changedConfig: {argName}')
         # Reset to min value
@@ -1760,6 +1781,9 @@ def testConfigIndependence_max_values():
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         if immutable:
             continue
+        if clusterConfig:
+            if not env.isCluster():
+                continue
         env.expect('CONFIG', 'SET', configName, maxValue).ok()
     # set all boolean configs to true
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
@@ -1770,6 +1794,9 @@ def testConfigIndependence_max_values():
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         if immutable:
             continue
+        if clusterConfig:
+            if not env.isCluster():
+                continue
         env.expect('CONFIG', 'SET', configName, minValue).ok()
         env.expect(config_cmd(), 'GET', argName).equal([[argName, str(minValue)]])
         currentConfigDict = getConfigDict(env)
