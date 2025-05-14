@@ -1548,6 +1548,8 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     env.broadcast('SAVE')
     env.broadcast('DEBUG RELOAD NOSAVE')
     waitForIndex(env, 'idx')
+    waitForIndex(env, 'idx2')
+    waitForIndex(env, 'idx3')
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
     
     yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
