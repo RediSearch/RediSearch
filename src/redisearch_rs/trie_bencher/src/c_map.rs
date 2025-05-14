@@ -13,6 +13,8 @@
 //! and providing access to the raw pointer and length of the string as needed by the C API.
 use std::ffi::{CStr, CString, c_char, c_void};
 
+use crate::ffi::{array_free, array_new_sz};
+
 #[repr(transparent)]
 /// A thin wrapper around the C TrieMap implementation to ensure that the map is properly initialized and cleaned up.
 pub struct CTrieMap(*mut crate::ffi::TrieMap);
@@ -44,6 +46,19 @@ impl CTrieMap {
         unsafe { crate::ffi::TrieMap_Delete(self.0, term.ptr(), term.len(), Some(do_not_free)) }
     }
 
+    pub fn find_prefixes(&self, term: TrieTermView) -> PrefixesValues {
+        let mut results = {
+            // Here we are emulating the behaviour of the `array_new` macro, which we can't
+            // invoke directly on the Rust side.
+            let raw = unsafe { array_new_sz(std::mem::size_of::<*mut c_void>() as u32, 1, 0) };
+            raw as *mut *mut c_void
+        };
+        let _n_results = unsafe {
+            crate::ffi::TrieMap_FindPrefixes(self.0, term.ptr(), term.len(), &mut results)
+        };
+        PrefixesValues(results)
+    }
+
     pub fn n_nodes(&self) -> usize {
         unsafe { (*self.0).size }
     }
@@ -60,6 +75,15 @@ impl Drop for CTrieMap {
         unsafe {
             crate::ffi::TrieMap_Free(self.0, Some(do_not_free));
         }
+    }
+}
+
+/// The values attached to the prefixes retrieved by [`CTrieMap::find_prefixes`].
+pub struct PrefixesValues(*mut *mut c_void);
+
+impl Drop for PrefixesValues {
+    fn drop(&mut self) {
+        unsafe { array_free(self.0 as *mut c_void) };
     }
 }
 
