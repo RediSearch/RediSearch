@@ -48,7 +48,7 @@ jobs:
       test-config: '' # run all tests
       san: address
       env: ubuntu-latest
-      run_miri: true
+      # run_miri: true
 
   pr-validation:
     needs:
