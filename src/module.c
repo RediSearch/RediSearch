@@ -3483,11 +3483,6 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // Reply with error
     return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
   }
-  if (sp->scan_failed_OOM) {
-    return RedisModule_ReplyWithErrorFormat(ctx,
-      "Background scan for index %s failed due to OOM. Queries cannot be executed on an incomplete index.",
-      idx);
-  }
 
   bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);
   // Check the ACL key permissions of the user w.r.t the queried index (only if
