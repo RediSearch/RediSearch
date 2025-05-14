@@ -574,7 +574,7 @@ def testDebugScannerStatus(env: Env):
     # Set OOM pause
     env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
     # Set tight memory limit to trigger OOM
-    set_tight_maxmemory_for_oom(env, 0.8)
+    set_tight_maxmemory_for_oom(env, 0.85)
     # Create an index and expect OOM pause
     env.expect('FT.CREATE', 'idx_oom', 'SCHEMA', 'name', 'TEXT').ok()
     waitForIndexStatus(env, 'PAUSED_ON_OOM','idx_oom')
@@ -957,7 +957,7 @@ def testPauseOnOOM(env: Env):
 
     # At this point num_docs_scanned were scanned
     # Now we set the tight memory limit
-    set_tight_maxmemory_for_oom(env, 0.8)
+    set_tight_maxmemory_for_oom(env, 0.85)
     # After we resume, an OOM should trigger
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
