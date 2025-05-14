@@ -15,7 +15,7 @@ on:
         description: "Indicates if Rust code files were modified"
         value: ${{ jobs.change-checks.outputs.RUST_CODE_CHANGED }}
 
-jobs: 
+jobs:
   change-checks:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     outputs:
@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # required for changed-files action to work
-      
+
       - name: Check if code were changed
         id: check-code
         uses: tj-actions/changed-files@ed68ef82c095e0d48ec87eccea555d944a631a4c # v46.0.5
@@ -35,6 +35,9 @@ jobs:
           files: |
                 src/**
                 deps/**
+                tests/cpptests/**
+                tests/ctests/**
+                tests/pytests/**
                 **/CMakeLists.txt
                 **/Makefile
       - name: Check if benchmarks or code were changed
