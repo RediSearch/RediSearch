@@ -33,7 +33,7 @@ int testTMNumResults(TrieMap *t, const char *str, tm_iter_mode mode) {
   tm_len_t len;
   void *val;
   int numRes = 0;
-  
+
   TrieMapIterator *it = TrieMap_Iterate(t, str, strlen(str));
   it->mode = mode;
   affixFunc *f = (mode == TM_PREFIX_MODE) ? TrieMapIterator_Next : TrieMapIterator_NextContains;
@@ -60,7 +60,7 @@ TEST_F(TrieMapTest, testPrefix) {
 
 TEST_F(TrieMapTest, testSuffix) {
   TrieMap *t = loadTrieMap();
-  
+
   ASSERT_EQ(testTMNumResults(t, "he", TM_SUFFIX_MODE), 1);
   ASSERT_EQ(testTMNumResults(t, "er", TM_SUFFIX_MODE), 3);
 
@@ -69,11 +69,29 @@ TEST_F(TrieMapTest, testSuffix) {
 
 TEST_F(TrieMapTest, testContains) {
   TrieMap *t = loadTrieMap();
-  
+
   ASSERT_EQ(testTMNumResults(t, "wel", TM_CONTAINS_MODE), 1);
   ASSERT_EQ(testTMNumResults(t, "el", TM_CONTAINS_MODE), 7);
   ASSERT_EQ(testTMNumResults(t, "ell", TM_CONTAINS_MODE), 4);
   ASSERT_EQ(testTMNumResults(t, "ll", TM_CONTAINS_MODE), 4);
+
+  TrieMap_Free(t, freeCb);
+}
+
+TEST_F(TrieMapTest, testIterateRange) {
+  TrieMap *t = NewTrieMap();
+  const char *words[] = {"H", "Hello", "a", "he", "her", "hell", "help", "helper", "hello",
+                         "hello world", "towel", "dealer", "bell"};
+  for (int i = 0; i < 13; ++i) {
+    TrieMap_Add(t, (char *)words[i], strlen(words[i]), (void *)words[i], NULL);
+  }
+
+  int nResults = 0;
+  TrieMap_IterateRange(t, "he", 2, true, "hello", 5, true, [](const char *key, size_t len, void *ctx, void *value) {
+      int *counter = (int *)ctx;
+      (*counter)++;
+  }, &nResults);
+  ASSERT_EQ(nResults, 3);
 
   TrieMap_Free(t, freeCb);
 }
