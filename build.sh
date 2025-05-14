@@ -21,14 +21,14 @@ PROFILE=0        # Profile build flag
 FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
 QUICK=0          # Quick test mode (subset of tests)
-COV=0
+COV=0            # Coverage mode (for building and testing)
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0    # Build test binaries
 RUN_UNIT_TESTS=0 # Run C/C++ unit tests
 RUN_RUST_TESTS=0 # Run Rust tests
 RUN_PYTEST=0     # Run Python tests
-RUN_ALL_TESTS=${RUN_ALL_TESTS:-0}  # Run all test types
+RUN_ALL_TESTS=0  # Run all test types
 
 # Rust configuration
 RUST_PROFILE=""  # Which profile should be used to build/test Rust code
@@ -83,6 +83,9 @@ parse_arguments() {
         ;;
       QUICK|quick)
         QUICK=1
+        ;;
+      QUICK=*)
+        QUICK="${arg#*=}"
         ;;
       SA|sa)
         SA=1
@@ -482,6 +485,8 @@ run_rust_tests() {
 
   # Add Rust test extensions
   if [[ $COV == 1 ]]; then
+    # We use the `nightly` compiler in order to include doc tests in the coverage computation.
+    # See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
     RUST_EXTENSIONS="+nightly llvm-cov"
     RUST_TEST_OPTIONS="
       --doctests
@@ -533,21 +538,21 @@ run_python_tests() {
 
   # Set up environment variables required by runtests.sh
   export MODULE="$(realpath "$MODULE_PATH")"
-  export BINROOT="$BINROOT"
-  export FULL_VARIANT="$FULL_VARIANT"
-  export BINDIR="$BINDIR"
+  export BINROOT
+  export FULL_VARIANT
+  export BINDIR
   export REJSON="${REJSON:-1}"
   export REJSON_BRANCH="${REJSON_BRANCH:-master}"
-  export REJSON_PATH="${REJSON_PATH:-}"
-  export REJSON_ARGS="${REJSON_ARGS:-}"
-  export TEST="${TEST:-}"
-  export FORCE="${FORCE:-}"
+  export REJSON_PATH
+  export REJSON_ARGS
+  export TEST
+  export FORCE
   export PARALLEL="${PARALLEL:-1}"
   export LOG_LEVEL="${LOG_LEVEL:-debug}"
-  export TEST_TIMEOUT="${TEST_TIMEOUT:-}"
-  export REDIS_STANDALONE="${REDIS_STANDALONE:-}"
+  export TEST_TIMEOUT
+  export REDIS_STANDALONE
   export SA="${SA:-1}"
-  export COV="$COV"
+  export COV
 
   # Set up test filter if provided
   if [[ -n "$TEST_FILTER" ]]; then
