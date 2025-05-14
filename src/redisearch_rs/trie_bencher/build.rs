@@ -15,19 +15,7 @@ fn main() {
 
     // Construct the correct folder path based on OS and architecture
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
-    let lib_dir = {
-        let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-        let target_arch = match target_arch.as_str() {
-            "x86_64" => "x64",
-            _ => &target_arch,
-        };
 
-        root.join(format!(
-            "bin/{target_os}-{target_arch}-release/search-community/deps/triemap"
-        ))
-    };
-
-    assert!(std::fs::exists(lib_dir.join("libtrie.a")).unwrap());
     // There are several symbols exposed by `libtrie.a` that we don't
     // actually invoke (either directly or indirectly) in our benchmarks.
     // We provide a definition for the ones we need (e.g. Redis' allocation functions),
@@ -39,12 +27,32 @@ fn main() {
     if target_os != "macos" {
         println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
     }
+
+    let bin_root = {
+        let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+        let target_arch = match target_arch.as_str() {
+            "x86_64" => "x64",
+            _ => &target_arch,
+        };
+
+        root.join(format!(
+            "bin/{target_os}-{target_arch}-release/search-community/"
+        ))
+    };
+
+    let libtrie_dir = bin_root.join("deps/triemap");
+    let libtrie = libtrie_dir.join("libtrie.a");
+    assert!(std::fs::exists(&libtrie).unwrap());
     println!("cargo:rustc-link-lib=static=trie");
-    println!("cargo:rustc-link-search=native={}", lib_dir.display());
-    println!(
-        "cargo:rerun-if-changed={}",
-        lib_dir.join("libtrie.a").display()
-    );
+    println!("cargo:rerun-if-changed={}", libtrie.display());
+    println!("cargo:rustc-link-search=native={}", libtrie_dir.display());
+
+    let libarr_dir = bin_root.join("src/util/arr");
+    let libarr = libarr_dir.join("libarr.a");
+    assert!(std::fs::exists(&libarr).unwrap());
+    println!("cargo:rustc-link-lib=static=arr");
+    println!("cargo:rerun-if-changed={}", libarr.display());
+    println!("cargo:rustc-link-search=native={}", libarr_dir.display());
 
     let redis_modules = root.join("deps").join("RedisModulesSDK");
     let src = root.join("src");
@@ -54,6 +62,14 @@ fn main() {
             root.join("deps")
                 .join("triemap")
                 .join("triemap.h")
+                .to_str()
+                .unwrap(),
+        )
+        .header(
+            root.join("src")
+                .join("util")
+                .join("arr")
+                .join("arr.h")
                 .to_str()
                 .unwrap(),
         )
