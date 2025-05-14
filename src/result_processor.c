@@ -1395,7 +1395,6 @@ static int rpNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
   int rc;
   int count = 0;
   while ((rc = rpNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED) {}
-  RedisModule_Log(RSDummyContext,"warning", "count in the end of the loop is %d", count);
   rp->parent->resultLimit = chunkLimit; // restore the limit
   return rc;
 }
