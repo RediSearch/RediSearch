@@ -162,6 +162,38 @@ impl OperationBencher {
         load_c_benchmark(&mut group, &self.keys);
         group.finish();
     }
+
+    /// Benchmark the find prefixes iterator.
+    ///
+    /// The benchmark group will be marked with the given label.
+    pub fn find_prefixes_group(&self, c: &mut Criterion, target: &str, label: &str) {
+        let mut group = self.benchmark_group_immutable(c, label);
+        find_prefixes_rust_benchmark(&mut group, &self.rust_map, target);
+        find_prefixes_c_benchmark(&mut group, &self.keys, target);
+        group.finish();
+    }
+}
+
+fn find_prefixes_rust_benchmark<M: Measurement>(
+    c: &mut BenchmarkGroup<'_, M>,
+    map: &RustTrieMap,
+    target: &str,
+) {
+    let target = target.as_bytes();
+    c.bench_function("Rust", |b| {
+        b.iter(|| map.prefixes_iter(black_box(target)).collect::<Vec<_>>())
+    });
+}
+
+fn find_prefixes_c_benchmark<M: Measurement>(
+    c: &mut BenchmarkGroup<'_, M>,
+    terms: &[String],
+    target: &str,
+) {
+    let target = target.into_cstring();
+    let view = target.as_view();
+    let map = c_load_from_terms(terms);
+    c.bench_function("C", |b| b.iter(|| map.find_prefixes(view)));
 }
 
 fn find_rust_benchmark<M: Measurement>(
