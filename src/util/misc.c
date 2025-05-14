@@ -7,11 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "misc.h"
-#include "redismodule.h"
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
-
 
 void GenericAofRewrite_DisabledHandler(RedisModuleIO *aof, RedisModuleString *key, void *value) {
   RedisModule_Log(RedisModule_GetContextFromIO(aof), "error",
@@ -23,4 +21,3 @@ int GetRedisErrorCodeLength(const char* error) {
   const char* errorSpace = strchr(error, ' ');
   return errorSpace ? errorSpace - error : 0;
 }
-
