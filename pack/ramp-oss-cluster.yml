@@ -2,12 +2,12 @@ display_name: RediSearch 2 OSS cluster
 capability_name: Search and query
 author: RedisLabs
 email: meir@redislabs.com
-description: High performance search index on top of redis
-homepage: http://redisearch.io
-license:  Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1)
-command_line_args: ""
-min_redis_version: "7.1"
-min_redis_pack_version: "7.2"
+description: High performance search index on top of Redis (with oss clustering)
+homepage: 'http://redisearch.io'
+license: Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1)
+command_line_args: PARTITIONS AUTO
+min_redis_version: '7.1'
+min_redis_pack_version: '7.2.0'
 config_command: "_FT.CONFIG SET"
 capabilities:
     - types
@@ -52,4 +52,3 @@ overide_command:
     - {"command_arity": -1, "command_name": "FT.AGGREGATE", "first_key": 0, "flags": ["readonly" ], "last_key": 1, "step": -2}
     - {"command_arity": -1, "command_name": "FT.CURSOR", "first_key": 3, "flags": ["readonly"], "last_key": 1, "step": -3}
     - {"command_arity": -1, "command_name": "FT.SEARCH", "first_key": 0, "flags": ["readonly"], "last_key": 0, "step": -1}
-
