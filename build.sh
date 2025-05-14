@@ -21,7 +21,7 @@ PROFILE=0        # Profile build flag
 FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
 QUICK=0          # Quick test mode (subset of tests)
-COV=0            # Coverage mode (for building and testing)
+COV=${COV:-0}    # Coverage mode (for building and testing)
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0    # Build test binaries
@@ -62,6 +62,9 @@ parse_arguments() {
         ;;
       COV|cov|COVERAGE|coverage)
         COV=1
+        ;;
+      COV=*)
+        COV="${arg#*=}"
         ;;
       RUN_PYTEST|run_pytest)
         RUN_PYTEST=1
@@ -132,6 +135,8 @@ setup_build_environment() {
     FLAVOR="debug-asan"
   elif [[ "$DEBUG" == "1" ]]; then
     FLAVOR="debug"
+  elif [[ "$COV" == "1" ]]; then
+    FLAVOR="debug-cov"
   elif [[ "$PROFILE" == "1" ]]; then
     FLAVOR="release-profile"
   else
@@ -238,6 +243,10 @@ prepare_cmake_arguments() {
   if [[ -n "$SAN" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DSAN=$SAN"
     DEBUG="1"
+  fi
+
+  if [[ "$COV" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCOV=1"
   fi
 
   if [[ "$PROFILE" != 0 ]]; then
