@@ -39,8 +39,8 @@ void validateDebugMode(DebugCTX *debugCtx) {
     (debugCtx->bgIndexing.maxDocsTBscannedPause > 0) ||
     (debugCtx->bgIndexing.pauseBeforeScan) ||
     (debugCtx->bgIndexing.pauseOnOOM) ||
-    (debugCtx->bgIndexing.pauseBeforeOOMreset) ||
-    (debugCtx->bgIndexing.pauseAfterOOMreset);
+    (debugCtx->bgIndexing.pauseBeforeOOMretry) ||
+    (debugCtx->bgIndexing.pauseAfterOOMretry);
 
 }
 
@@ -1664,9 +1664,9 @@ DEBUG_COMMAND(terminateBgPool) {
 }
 
 /**
- * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_BEFORE_OOM_RESET <true/false>
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_BEFORE_OOM_RETRY <true/false>
  */
-DEBUG_COMMAND(setPauseBeforeOOMreset) {
+DEBUG_COMMAND(setPauseBeforeOOMretry) {
   if (!debugCommandsEnabled(ctx)) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
@@ -1676,11 +1676,11 @@ DEBUG_COMMAND(setPauseBeforeOOMreset) {
   const char* op = RedisModule_StringPtrLen(argv[2], NULL);
 
   if (!strcasecmp(op, "true")) {
-    globalDebugCtx.bgIndexing.pauseBeforeOOMreset = true;
+    globalDebugCtx.bgIndexing.pauseBeforeOOMretry = true;
   } else if (!strcasecmp(op, "false")) {
-    globalDebugCtx.bgIndexing.pauseBeforeOOMreset = false;
+    globalDebugCtx.bgIndexing.pauseBeforeOOMretry = false;
   } else {
-    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_OOM_RESET'");
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_OOM_RETRY'");
   }
 
   validateDebugMode(&globalDebugCtx);
@@ -1724,8 +1724,8 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
   dScanner->maxDocsTBscannedPause = globalDebugCtx.bgIndexing.maxDocsTBscannedPause;
   dScanner->wasPaused = false;
   dScanner->pauseOnOOM = globalDebugCtx.bgIndexing.pauseOnOOM;
-  dScanner->pauseBeforeOOMReset = globalDebugCtx.bgIndexing.pauseBeforeOOMreset;
-  dScanner->pauseAfterOOMReset = globalDebugCtx.bgIndexing.pauseAfterOOMreset;
+  dScanner->pauseBeforeOOMRetry = globalDebugCtx.bgIndexing.pauseBeforeOOMretry;
+  dScanner->pauseAfterOOMRetry = globalDebugCtx.bgIndexing.pauseAfterOOMretry;
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
@@ -1765,8 +1765,8 @@ DEBUG_COMMAND(bgScanController) {
   if (!strcmp("TERMINATE_BG_POOL", op)) {
     return terminateBgPool(ctx, argv+1, argc-1);
   }
-  if (!strcmp("SET_PAUSE_BEFORE_OOM_RESET", op)) {
-    return setPauseBeforeOOMreset(ctx, argv+1, argc-1);
+  if (!strcmp("SET_PAUSE_BEFORE_OOM_RETRY", op)) {
+    return setPauseBeforeOOMretry(ctx, argv+1, argc-1);
   }
   if (!strcmp("DEBUG_SCANNER_UPDATE_CONFIG", op)) {
     return debugScannerUpdateConfig(ctx, argv+1, argc-1);

@@ -75,7 +75,7 @@ static redisearch_thpool_t *cleanPool = NULL;
 extern DebugCTX globalDebugCtx;
 
 const char *DEBUG_INDEX_SCANNER_STATUS_STRS[] = {
-    "NEW", "SCANNING", "DONE", "CANCELLED", "PAUSED", "RESUMED", "PAUSED_ON_OOM", "PAUSED_BEFORE_OOM_RESET",
+    "NEW", "SCANNING", "DONE", "CANCELLED", "PAUSED", "RESUMED", "PAUSED_ON_OOM", "PAUSED_BEFORE_OOM_RETRY",
 };
 
 // Static assertion to ensure array size matches the number of statuses
@@ -96,6 +96,7 @@ static void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisM
 static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *scanner);
 static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner);
 static inline void scanWaitAndRestart(RedisModuleCtx *ctx, IndexesScanner *scanner, RedisModuleScanCursor *cursor);
+static inline bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx);
 
 static void setMemoryInfo(RedisModuleCtx *ctx) {
 #define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
@@ -2223,10 +2224,8 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
   if (scanner->cancelled) {
     return;
   }
-  // Get the memory limit and memory usage
-  setMemoryInfo(ctx);
-  // Check if we need to cancel the scan due to memory limit, if memory limit is set to 0, we don't check it
-  if (RSGlobalConfig.indexingMemoryLimit && (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit)) {
+
+  if (isBgIndexingMemoryOverLimit(ctx)){
     scanner->scanFailedOnOOM = true;
     if (scanner->OOMkey) {
       RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
@@ -2282,7 +2281,7 @@ if (scanner->isDebug) { \
   DebugIndexesScanner *dScanner = (DebugIndexesScanner*)scanner;\
   DebugIndexesScanner_pauseCheck(dScanner, ctx, dScanner->status_bool, status_code); \
 }
-#define IF_DEBUG_PAUSE_CHECK_BEFORE_OOM_RESET(scanner, ctx) IF_DEBUG_PAUSE_CHECK(scanner, ctx, pauseBeforeOOMReset, DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RESET)
+#define IF_DEBUG_PAUSE_CHECK_BEFORE_OOM_RETRY(scanner, ctx) IF_DEBUG_PAUSE_CHECK(scanner, ctx, pauseBeforeOOMRetry, DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RETRY)
 #define IF_DEBUG_PAUSE_CHECK_ON_OOM(scanner, ctx) IF_DEBUG_PAUSE_CHECK(scanner, ctx, pauseOnOOM, DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM)
 
 static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
@@ -2300,9 +2299,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
   } else {
     RedisModule_Log(ctx, "notice", "Scanning index %s in background", scanner->spec_name_for_logs);
   }
-
-  // Only retry if the config time is set to a positive value
-  bool retry_after_oom = RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry > 0;
 
   size_t counter = 0;
   RedisModuleScanCB scanner_func = (RedisModuleScanCB)Indexes_ScanProc;
@@ -2335,13 +2331,23 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
 
     // Check if we need to handle OOM but must check if the scanner was cancelled for other reasons (i.e. FT. ALTER)
     if (scanner->scanFailedOnOOM && !scanner->cancelled) {
-      // If the scan stopped due to OOM, we need to check if we need to retry
-      if (retry_after_oom) {
-        IF_DEBUG_PAUSE_CHECK_BEFORE_OOM_RESET(scanner, ctx);
-        scanWaitAndRestart(ctx, scanner, cursor);
-        retry_after_oom = false; // Next successive OOM should stop the scan
-        continue;
+
+      // Check the config to see if we should wait for memory allocation
+      if(RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry > 0) {
+        IF_DEBUG_PAUSE_CHECK_BEFORE_OOM_RETRY(scanner, ctx);
+        // Call the wait function
+        threadSleepByConfigTime(ctx, scanner);
+        if (!isBgIndexingMemoryOverLimit(ctx)) {
+          // We can continue the scan
+          RedisModule_Log(ctx, "notice", "Scanning index %s in background: resuming after OOM",
+                          scanner->spec_name_for_logs);
+          IndexesScanner_ResetProgression(scanner);
+          RedisModule_ScanCursorRestart(cursor);
+          continue;
+        }
       }
+      // At this point we either waited for memory allocation and failed
+      // or the config is set to not wait for memory allocation after OOM
       scanStopAfterOOM(ctx, scanner);
       IF_DEBUG_PAUSE_CHECK_ON_OOM(scanner, ctx);
     }
@@ -2356,11 +2362,6 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
                     scanner->spec_name_for_logs, scanner->scannedKeys);
         goto end;
       }
-    }
-
-    // If we’ve scanned at least one key—showing the scan is active—re-enable retry_after_oom
-    if (scanner->scannedKeys > 0 && RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry > 0) {
-      retry_after_oom = true;
     }
   }
 
@@ -3429,8 +3430,8 @@ static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref) {
   dScanner->status = DEBUG_INDEX_SCANNER_CODE_NEW;
   dScanner->base.isDebug = true;
   dScanner->pauseOnOOM = globalDebugCtx.bgIndexing.pauseOnOOM;
-  dScanner->pauseBeforeOOMReset = globalDebugCtx.bgIndexing.pauseBeforeOOMreset;
-  dScanner->pauseAfterOOMReset = globalDebugCtx.bgIndexing.pauseAfterOOMreset;
+  dScanner->pauseBeforeOOMRetry = globalDebugCtx.bgIndexing.pauseBeforeOOMretry;
+  dScanner->pauseAfterOOMRetry = globalDebugCtx.bgIndexing.pauseAfterOOMretry;
 
   IndexSpec *spec = StrongRef_Get(global_ref);
   spec->scanner = (IndexesScanner*)dScanner;
@@ -3515,12 +3516,11 @@ static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner,
 // and after the function returns, the scan will continue
 static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *scanner) {
   // Thread sleep based on the config
-  int sleepTime = RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry;
-  if (sleepTime > 0) {
-    RedisModule_Log(ctx, "notice", "Scanning index %s in background: paused for %d seconds due to OOM, waiting for memory allocation",
-                    scanner->spec_name_for_logs, sleepTime);
-    sleep(sleepTime);
-  }
+  uint32_t sleepTime = RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry;
+  RedisModule_Log(ctx, "notice", "Scanning index %s in background: paused for %u seconds due to OOM, waiting for memory allocation",
+                  scanner->spec_name_for_logs, sleepTime);
+  sleep(sleepTime);
+
   return;
 }
 
@@ -3558,4 +3558,16 @@ static inline void scanWaitAndRestart(RedisModuleCtx *ctx, IndexesScanner *scann
   threadSleepByConfigTime(ctx, scanner);
   // Reset the cursor, the scan will start from the beginning
   RedisModule_ScanCursorRestart(cursor);
+}
+
+// Return true if used_memory exceeds (indexingMemoryLimit % × memoryLimit); false if within bounds or limit is 0.
+static inline bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
+  // if memory limit is set to 0, we don't need to check for memory usage
+  if(RSGlobalConfig.indexingMemoryLimit == 0) {
+    return false;
+  }
+  // Get the memory limit and memory usage
+  setMemoryInfo(ctx);
+  // Check if used memory crossed the threshold
+  return (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit) ;
 }

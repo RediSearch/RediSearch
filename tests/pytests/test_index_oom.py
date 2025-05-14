@@ -527,7 +527,7 @@ def test_pseudo_enterprise_oom_retry_success(env):
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
   num_docs_scanned = num_docs//4
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
-  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'true').ok()
 
   # Create an index
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
@@ -539,11 +539,11 @@ def test_pseudo_enterprise_oom_retry_success(env):
   # Resume PAUSE ON SCANNED DOCS
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for OOM
-  waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RESET','idx')
-  # At this point the scan should be paused before OOM reset
+  waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY','idx')
+  # At this point the scan should be paused before OOM retry
   # Increase memory during the pause, emulating resource allocation
   set_unlimited_maxmemory_for_oom(env)
-  # Resume PAUSE BEFORE OOM RESET
+  # Resume PAUSE BEFORE OOM RETRY
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
   # Verify that the indexing finished
@@ -570,7 +570,7 @@ def test_pseudo_enterprise_oom_retry_failure(env):
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
   num_docs_scanned = num_docs//4
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
-  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'true').ok()
 
   # Create an index
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
@@ -582,8 +582,8 @@ def test_pseudo_enterprise_oom_retry_failure(env):
 
   # Resume PAUSE ON SCANNED DOCS
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-  waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RESET','idx')
-  # Resume PAUSE BEFORE OOM RESET
+  waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY','idx')
+  # Resume PAUSE BEFORE OOM RETRY
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Since we are not increasing the memory, the scan should be paused on OOM
   waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
@@ -610,7 +610,7 @@ def test_pseudo_enterprise_oom_multiple_retry_success(env):
   for i in range(num_docs):
     env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
-  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'true').ok()
 
   runs = 2
   run = 1
@@ -638,11 +638,11 @@ def test_pseudo_enterprise_oom_multiple_retry_success(env):
     # Resume PAUSE ON SCANNED DOCS
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
     # Wait for OOM
-    waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RESET','idx')
-    # At this point the scan should be paused before OOM reset
+    waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY','idx')
+    # At this point the scan should be paused before OOM retry
     # Increase memory during the pause, emulating resource allocation
     set_unlimited_maxmemory_for_oom(env)
-    # Resume PAUSE BEFORE OOM RESET
+    # Resume PAUSE BEFORE OOM RETRY
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
     run+=1
 
@@ -663,12 +663,12 @@ def test_pseudo_enterprise_oom_multiple_retry_failure(env):
   # Set the pause time to 1 second so we can test the retry
   env.expect('FT.CONFIG', 'SET', 'BG_INDEX_OOM_PAUSE_TIME', '1').ok()
 
-  num_docs = 100
+  num_docs = 10000
   for i in range(num_docs):
     env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
 
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
-  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'true').ok()
 
   runs = 2
   run = 1
@@ -695,13 +695,13 @@ def test_pseudo_enterprise_oom_multiple_retry_failure(env):
     # Resume PAUSE ON SCANNED DOCS
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
     # Wait for OOM
-    waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RESET','idx')
-    # At this point the scan should be paused before OOM reset
+    waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY','idx')
+    # At this point the scan should be paused before OOM retry
 
     # Increase memory during the pause, emulating resource allocation, only if not in the last run
     if run < runs:
       set_unlimited_maxmemory_for_oom(env)
-    # Resume PAUSE BEFORE OOM RESET
+    # Resume PAUSE BEFORE OOM RETRY
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
     run+=1
 
@@ -732,7 +732,7 @@ def test_pseudo_enterprise_oom_retry_drop(env):
 
   num_docs_scanned = num_docs//4
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
-  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'true').ok()
   for run in ['without', 'with']: # Run the test with and without increasing memory
     idx = f'idx{run}'
     # Create an index
@@ -746,15 +746,15 @@ def test_pseudo_enterprise_oom_retry_drop(env):
     # Resume PAUSE ON SCANNED DOCS
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
     # Wait for OOM
-    waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RESET',idx)
-    # At this point the scan should be paused before OOM reset
+    waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY',idx)
+    # At this point the scan should be paused before OOM retry
     # If we are in the first run, we don't increase the memory
     if run == 'with':
       # Increase memory during the pause, emulating resource allocation
       set_unlimited_maxmemory_for_oom(env)
     # Drop the index
     env.expect(f'FT.DROPINDEX', idx).ok()
-    # Resume PAUSE BEFORE OOM RESET
+    # Resume PAUSE BEFORE OOM RETRY
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
     # Validate that the index was dropped
@@ -776,7 +776,7 @@ def test_pseudo_enterprise_oom_retry_alter_success(env):
   # env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
   num_docs_scanned = num_docs//4
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
-  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'true').ok()
 
   idx = f'idx'
 # Create an index
@@ -790,16 +790,16 @@ def test_pseudo_enterprise_oom_retry_alter_success(env):
   # Resume PAUSE ON SCANNED DOCS
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for OOM
-  waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RESET',idx)
-  # At this point the scan should be paused before OOM reset
+  waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY',idx)
+  # At this point the scan should be paused before OOM retry
   # Increase memory during the pause, emulating resource allocation
   set_unlimited_maxmemory_for_oom(env)
   # Remove pause configs
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 0).ok()
-  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET', 'false').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'false').ok()
 
   env.expect(f'FT.ALTER', idx, 'SCHEMA', 'ADD', 'hello', 'TEXT').ok()
-  # Resume PAUSE BEFORE OOM RESET
+  # Resume PAUSE BEFORE OOM RETRY
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
   # Verify that the indexing finished
@@ -825,7 +825,7 @@ def test_pseudo_enterprise_oom_retry_alter_failure(env):
 
   num_docs_scanned = num_docs//4
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
-  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'true').ok()
   env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
 
   idx = f'idx'
@@ -840,16 +840,16 @@ def test_pseudo_enterprise_oom_retry_alter_failure(env):
   # Resume PAUSE ON SCANNED DOCS
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for OOM
-  waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RESET',idx)
-  # At this point the scan should be paused before OOM reset
+  waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY',idx)
+  # At this point the scan should be paused before OOM retry
 
   # Remove pause configs
-  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET', 'false').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'false').ok()
 
   # # Increase memory during the pause, to enable the ft.alter command
   set_unlimited_maxmemory_for_oom(env)
   env.expect(f'FT.ALTER', idx, 'SCHEMA', 'ADD', 'hello', 'TEXT').ok()
-  # Resume PAUSE BEFORE OOM RESET
+  # Resume PAUSE BEFORE OOM RETRY
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
 
   # The scan should cancel due to the ft.alter command
@@ -893,7 +893,7 @@ def test_pseudo_enterprise_cluster_oom_retry_success(env):
     run_command_on_all_shards(env,
         f'{bgScanCommand()} SET_PAUSE_ON_SCANNED_DOCS {docs_per_shard//4}')
     run_command_on_all_shards(env,
-        f'{bgScanCommand()} SET_PAUSE_BEFORE_OOM_RESET true')
+        f'{bgScanCommand()} SET_PAUSE_BEFORE_OOM_RETRY true')
 
     idx = 'idx'
     conn.execute_command('FT.CREATE', idx, 'SCHEMA', 'name', 'TEXT')
@@ -904,10 +904,10 @@ def test_pseudo_enterprise_cluster_oom_retry_success(env):
     # Drop memory to 80 % of the configured threshold
     allShards_set_tight_maxmemory_for_oom(env, 0.8)
 
-    # Resume – this will push every shard into PAUSED_BEFORE_OOM_RESET
+    # Resume – this will push every shard into PAUSED_BEFORE_OOM_RETRY
     run_command_on_all_shards(env,
         f'{bgScanCommand()} SET_BG_INDEX_RESUME')
-    allShards_waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RESET', idx)
+    allShards_waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY', idx)
 
     # While paused, free memory so the retry can succeed
     allShards_set_unlimited_maxmemory_for_oom(env)
@@ -943,7 +943,7 @@ def test_pseudo_enterprise_cluster_oom_retry_failure(env):
     run_command_on_all_shards(env,
         f'{bgScanCommand()} SET_PAUSE_ON_SCANNED_DOCS {docs_per_shard//4}')
     run_command_on_all_shards(env,
-        f'{bgScanCommand()} SET_PAUSE_BEFORE_OOM_RESET true')
+        f'{bgScanCommand()} SET_PAUSE_BEFORE_OOM_RETRY true')
 
     idx = 'idx'
     conn.execute_command('FT.CREATE', idx, 'SCHEMA', 'name', 'TEXT')
@@ -952,10 +952,10 @@ def test_pseudo_enterprise_cluster_oom_retry_failure(env):
     allShards_waitForIndexPauseScan(env, idx)
     allShards_set_tight_maxmemory_for_oom(env, 0.8)
 
-    # Resume – shards pause *before* OOM reset
+    # Resume – shards pause *before* OOM retry
     run_command_on_all_shards(env,
         f'{bgScanCommand()} SET_BG_INDEX_RESUME')
-    allShards_waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RESET', idx)
+    allShards_waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY', idx)
 
     # Resume again with memory still tight → PAUSED_ON_OOM
     run_command_on_all_shards(env,

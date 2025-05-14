@@ -132,7 +132,7 @@ typedef enum {
     DEBUG_INDEX_SCANNER_CODE_PAUSED,
     DEBUG_INDEX_SCANNER_CODE_RESUMED,
     DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM,
-    DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RESET,
+    DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RETRY,
 
     //Insert new codes here (before COUNT)
     DEBUG_INDEX_SCANNER_CODE_COUNT  // Helps with array size checks
@@ -656,8 +656,8 @@ typedef struct DebugIndexesScanner {
   bool wasPaused;
   bool pauseOnOOM;
   int status;
-  bool pauseBeforeOOMReset;
-  bool pauseAfterOOMReset;
+  bool pauseBeforeOOMRetry;
+  bool pauseAfterOOMRetry;
 } DebugIndexesScanner;
 
 

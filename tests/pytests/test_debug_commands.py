@@ -995,13 +995,13 @@ def test_terminate_bg_pool(env):
     env.assertEqual(index_info(env, 'idx')['indexing'], 0)
 
 @skip(cluster=True)
-def test_pause_before_oom_reset(env):
+def test_pause_before_oom_retry(env):
     # Check error handling
     # Giving invalid argument
-    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET', 'notAbool').error()\
-    .contains("Invalid argument for 'SET_PAUSE_BEFORE_OOM_RESET'")
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'notAbool').error()\
+    .contains("Invalid argument for 'SET_PAUSE_BEFORE_OOM_RETRY'")
     # Giving wrong arity
-    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RESET').error()\
+    env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY').error()\
     .contains('wrong number of arguments')
 
 @skip(cluster=True)
