@@ -1352,14 +1352,14 @@ void PipelineAddCrash(struct AREQ *r) {
   SearchResult *poppedResult = array_pop(self->pool);
   *r = *poppedResult;
   rm_free(poppedResult);
-  //  double oldScore = r->score;
+   double oldScore = r->score;
    r->score = r->score / self->maxValue;
    if (self->scoreKey) {
      RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
    }
-  //  EXPLAIN(r->scoreExplain,
-  //        "(Score: %.2f = Original Score: %.2f / Max Score: %.2f)",
-  //        r->score, oldScore, self->maxValue);
+   EXPLAIN(r->scoreExplain,
+         "(Score: %.2f = Original Score: %.2f / Max Score: %.2f)",
+         r->score, oldScore, self->maxValue);
    return RS_RESULT_OK;
  }
 
