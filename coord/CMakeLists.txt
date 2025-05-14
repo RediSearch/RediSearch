@@ -26,6 +26,11 @@ if(NOT DEFINED BUILD_SEARCH_UNIT_TESTS)
     set(BUILD_SEARCH_UNIT_TESTS OFF CACHE BOOL "Build unit tests" FORCE)
 endif()
 
+# Pass MT_BUILD to the root CMakeLists.txt file if set
+if(DEFINED MT_BUILD)
+    set(MT_BUILD ${MT_BUILD} CACHE BOOL "Enable multi-threading support" FORCE)
+endif()
+
 set(ENABLE_REDIS_MOCK ON CACHE BOOL "" FORCE) # build mock to link coordinator tests
 set(BUILD_STATIC OFF CACHE BOOL "" FORCE)
 

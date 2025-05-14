@@ -21,7 +21,13 @@ PROFILE=0        # Profile build flag
 FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
 QUICK=0          # Quick test mode (subset of tests)
-ENABLE_ASSERT=0  # Enable assertions (0=disabled, 1=enabled)
+# Use environment variable if set, otherwise default to 0
+ENABLE_ASSERT=${ENABLE_ASSERT:-0}
+
+# Enable multi-threading support (0=disabled, 1=enabled)
+# Use environment variable if set, otherwise default to 0
+# Support both REDISEARCH_MT_BUILD and MT as aliases
+MT_BUILD=${REDISEARCH_MT_BUILD:-${MT:-0}}
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0    # Build test binaries
@@ -58,7 +64,6 @@ parse_arguments() {
         RUN_UNIT_TESTS=1
         ;;
       RUN_PYTEST|run_pytest|RUNPYTEST|runpytest)
-        echo "Setting RUN_PYTEST=1"
         RUN_PYTEST=1
         ;;
       TEST=*)
@@ -75,6 +80,9 @@ parse_arguments() {
         ;;
       ENABLE_ASSERT|enable_assert)
         ENABLE_ASSERT=1
+        ;;
+      MT_BUILD|mt_build|MT|mt)
+        MT_BUILD=1
         ;;
       QUICK|quick)
         QUICK=1
@@ -212,13 +220,22 @@ prepare_cmake_arguments() {
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_BUILD_TYPE=RelWithDebInfo"
   fi
 
-  # Handle ENABLE_ASSERT as an input parameter
+  # Handle ENABLE_ASSERT (already initialized from environment variable if set)
   if [[ "$ENABLE_ASSERT" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DENABLE_ASSERT=ON"
     echo "Building with assertions enabled"
   else
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DENABLE_ASSERT=OFF"
     echo "Building with assertions disabled"
+  fi
+
+  # Handle MT_BUILD (multi-threading support)
+  if [[ "$MT_BUILD" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DMT_BUILD=ON"
+    echo "Building with multi-threading support enabled"
+  else
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DMT_BUILD=OFF"
+    echo "Building with multi-threading support disabled"
   fi
 
   # Ensure output file is always .so even on macOS
@@ -401,11 +418,12 @@ run_python_tests() {
   echo "Running Python behavioral tests..."
 
   # Locate the built module based on COORD value
+  echo "COORD value: '$COORD'"
   if [[ "$COORD" == "0" || -z "$COORD" ]]; then
     # Standalone build
     MODULE_PATH="$BINDIR/redisearch.so"
     echo "Looking for standalone module at: $MODULE_PATH"
-  elif [[ "$COORD" == "oss" || "$COORD" == "1" ]]; then
+  elif [[ "$COORD" == "oss" ]]; then
     # OSS coordinator build
     MODULE_PATH="$BINDIR/module-oss.so"
     echo "Looking for OSS coordinator module at: $MODULE_PATH"
@@ -414,7 +432,7 @@ run_python_tests() {
     MODULE_PATH="$BINDIR/module-enterprise.so"
     echo "Looking for RLEC coordinator module at: $MODULE_PATH"
   else
-    echo "Error: Unknown COORD value: $COORD"
+    echo "Error: Unknown COORD value: '$COORD'"
     exit 1
   fi
 
@@ -432,7 +450,31 @@ run_python_tests() {
   export BINROOT="$BINROOT"
   export FULL_VARIANT="$FULL_VARIANT"
   export BINDIR="$BINDIR"
-  export COORD="$COORD"
+
+  # Make sure COORD is set to the correct value for Python tests
+  # In includes.py, COORD is checked with: COORD = os.getenv('COORD', '0') in ('1', 'oss', 'rlec')
+  if [[ "$COORD" == "0" || -z "$COORD" ]]; then
+    # Standalone build - COORD should be '0'
+    export COORD="0"
+    echo "Setting COORD=0 for Python tests (standalone build)"
+  elif [[ "$COORD" == "oss" ]]; then
+    # OSS coordinator build - COORD should be 'oss'
+    export COORD="oss"
+    echo "Setting COORD=oss for Python tests (OSS coordinator build)"
+  elif [[ "$COORD" == "rlec" ]]; then
+    # RLEC coordinator build - COORD should be 'rlec'
+    export COORD="rlec"
+    echo "Setting COORD=rlec for Python tests (RLEC coordinator build)"
+  else
+    echo "Warning: Unknown COORD value: '$COORD', setting to '0' for Python tests"
+    export COORD="0"
+  fi
+
+  # Pass MT_BUILD to Python tests (using both environment variables)
+  export REDISEARCH_MT_BUILD="$MT_BUILD"
+  export MT="$MT_BUILD"
+  echo "Setting REDISEARCH_MT_BUILD=$MT_BUILD and MT=$MT_BUILD for Python tests"
+
   export REJSON="${REJSON:-1}"
   export REJSON_BRANCH="${REJSON_BRANCH:-master}"
   export REJSON_PATH="${REJSON_PATH:-}"
