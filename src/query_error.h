@@ -69,11 +69,10 @@ extern "C" {
   X(QUERY_EUNKNOWNINDEX, "Unknown index name")                                                   \
   X(QUERY_EDROPPEDBACKGROUND, "The index was dropped before the query could be executed")        \
   X(QUERY_EALIASCONFLICT, "Alias conflicts with an existing index name")                         \
-  X(QUERY_INDEXBGOOMFAIL, "Index background scan failed due to OOM. Queries cannot be executed on\
-     an incomplete index.")                                                                      \
+  X(QUERY_INDEXBGOOMFAIL, "Index background scan failed due to OOM")                             \
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
-
+#define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
 typedef enum {
   QUERY_OK = 0,
 
