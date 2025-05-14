@@ -88,6 +88,7 @@ where
                 let filter_outcome = self.filter.filter(&self.key);
 
                 if filter_outcome.visit_descendants {
+                    self.stack.reserve(node.children().len());
                     for child in node.children().iter().rev() {
                         self.stack.push((child, false));
                     }
