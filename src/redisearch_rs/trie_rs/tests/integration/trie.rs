@@ -66,7 +66,6 @@ fn test_trie_insertions() {
     assert_debug_snapshot!(trie, @r###""bike" (0)"###);
     assert_eq!(trie.find(b"bike"), Some(&0));
     assert_eq!(trie.find(b"cool"), None);
-    println!("Alive!");
 
     trie.insert(b"biker", 1);
     assert_debug_snapshot!(trie, @r###"

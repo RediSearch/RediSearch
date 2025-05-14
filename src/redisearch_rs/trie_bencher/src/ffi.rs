@@ -27,12 +27,9 @@ mod bindings {
 
 // We re-export the required bindings only. This list will be extended as needed.
 // It allows us to keep the bindings module private while still exposing the necessary functions and types.
-pub(crate) use bindings::NewTrieMap;
-pub(crate) use bindings::TrieMap;
-pub(crate) use bindings::TrieMap_Add;
-pub(crate) use bindings::TrieMap_Delete;
-pub(crate) use bindings::TrieMap_ExactMemUsage;
-pub(crate) use bindings::TrieMap_Find;
-pub(crate) use bindings::TrieMap_Free;
+pub(crate) use bindings::{
+    NewTrieMap, TrieMap, TrieMap_Add, TrieMap_Delete, TrieMap_ExactMemUsage, TrieMap_Find,
+    TrieMap_FindPrefixes, TrieMap_Free, array_free, array_new_sz,
+};
 // used in outside binary crate (main.rs)
 pub use bindings::TRIEMAP_NOTFOUND;

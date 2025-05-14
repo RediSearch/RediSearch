@@ -18,6 +18,10 @@ bench = false
 name = "operations"
 harness = false
 
+[[bench]]
+name = "iter"
+harness = false
+
 [dependencies]
 crc32fast.workspace = true
 criterion.workspace = true
