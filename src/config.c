@@ -947,13 +947,13 @@ CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
 CONFIG_SETTER(setIndexerYieldEveryOps) {
   unsigned int yieldEveryOps;
   int acrc = AC_GetUnsigned(ac, &yieldEveryOps, AC_F_GE1);
-  config->indexerYieldEveryOps = yieldEveryOps;
+  config->indexerYieldEveryOpsWhileLoading = yieldEveryOps;
   RETURN_STATUS(acrc);
 }
 
 CONFIG_GETTER(getIndexerYieldEveryOps) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->indexerYieldEveryOps);
+  return sdscatprintf(ss, "%u", config->indexerYieldEveryOpsWhileLoading);
 }
 
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
@@ -1756,7 +1756,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       ctx, "search-indexer-yield-every-ops", DEFAULT_INDEXER_YIELD_EVERY_OPS,
       REDISMODULE_CONFIG_UNPREFIXED, 1,
       UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
-      (void *)&(RSGlobalConfig.indexerYieldEveryOps)
+      (void *)&(RSGlobalConfig.indexerYieldEveryOpsWhileLoading)
     )
   )
   
