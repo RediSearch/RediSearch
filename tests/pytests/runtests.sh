@@ -381,11 +381,11 @@ if [[ $RLEC != 1 ]]; then
 	if [[ -z $MODULE ]]; then
 		if [[ -n $BINROOT ]]; then
 			if [[ -z $COORD || $COORD == "0" ]]; then
-				MODULE=$BINROOT/search-standalone/redisearch.so
+				MODULE=$BINROOT/search/redisearch.so
 			elif [[ $COORD == oss ]]; then
-				MODULE=$BINROOT/search-community/module-oss.so
+				MODULE=$BINROOT/coord-oss/module-oss.so
 			elif [[ $COORD == rlec ]]; then
-				MODULE=$BINROOT/search-enterprise/module-enterprise.so
+				MODULE=$BINROOT/coord-enterprise/module-enterprise.so
 			fi
 		fi
 		if [[ -z $MODULE || ! -f $MODULE ]]; then

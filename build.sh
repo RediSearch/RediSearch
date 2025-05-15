@@ -149,7 +149,7 @@ setup_build_environment() {
   # Get architecture and convert arm64 to arm64v8
   ARCH=$(uname -m)
   if [[ "$ARCH" == "arm64" ]]; then
-    ARCH="aarch64"
+    ARCH="arm64v8" # so that unit tests can find the right binary
   elif [[ "$ARCH" == "x86_64" ]]; then
     ARCH="x64"
   fi
@@ -157,13 +157,13 @@ setup_build_environment() {
   # Create full variant string for the build directory
   FULL_VARIANT="${OS_NAME}-${ARCH}-${FLAVOR}"
 
-  # Set BINDIR based on configuration and FULL_VARIANT
+  # Set OUTDIR based on configuration
   if [[ "$COORD" == "oss" ]]; then
-    OUTDIR="search-community"
+    OUTDIR="coord-oss"
   elif [[ "$COORD" == "rlec" ]]; then
-    OUTDIR="search-enterprise"
+    OUTDIR="coord-rlec"
   elif [[ "$COORD" == "0" ]]; then
-    OUTDIR="search-standalone"
+    OUTDIR="search"
   else
     echo "COORD should be either 0, oss, or rlec"
     exit 1
