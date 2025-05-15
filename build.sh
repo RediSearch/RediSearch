@@ -438,7 +438,7 @@ run_unit_tests() {
   fi
 
   # Set up environment variables for the unit-tests script
-  export BINROOT="$BINROOT/$FULL_VARIANT"
+  export BINDIR
 
   # Set up test filter if provided
   if [[ -n "$TEST_FILTER" ]]; then
