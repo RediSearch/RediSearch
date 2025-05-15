@@ -45,7 +45,7 @@ parse_arguments() {
       COORD=*)
         COORD_VALUE="${arg#*=}"
         # Handle COORD=1 as COORD=oss
-        if [[ "$COORD_VALUE" == "1" ]]; then
+        if [[ "$COORD_VALUE" == "1" || "$COORD" == "1" ]]; then
           COORD="oss"
         else
           COORD="$COORD_VALUE"
@@ -450,25 +450,6 @@ run_python_tests() {
   export BINROOT="$BINROOT"
   export FULL_VARIANT="$FULL_VARIANT"
   export BINDIR="$BINDIR"
-
-  # Make sure COORD is set to the correct value for Python tests
-  # In includes.py, COORD is checked with: COORD = os.getenv('COORD', '0') in ('1', 'oss', 'rlec')
-  if [[ "$COORD" == "0" || -z "$COORD" ]]; then
-    # Standalone build - COORD should be '0'
-    export COORD="0"
-    echo "Setting COORD=0 for Python tests (standalone build)"
-  elif [[ "$COORD" == "oss" ]]; then
-    # OSS coordinator build - COORD should be 'oss'
-    export COORD="oss"
-    echo "Setting COORD=oss for Python tests (OSS coordinator build)"
-  elif [[ "$COORD" == "rlec" ]]; then
-    # RLEC coordinator build - COORD should be 'rlec'
-    export COORD="rlec"
-    echo "Setting COORD=rlec for Python tests (RLEC coordinator build)"
-  else
-    echo "Warning: Unknown COORD value: '$COORD', setting to '0' for Python tests"
-    export COORD="0"
-  fi
 
   # Pass MT_BUILD to Python tests (using both environment variables)
   export REDISEARCH_MT_BUILD="$MT_BUILD"
