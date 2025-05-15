@@ -13,10 +13,8 @@ if (NOT DEFINED COORD_TYPE)
 	message(FATAL_ERROR "Missing COORD_TYPE. Should be 'oss' or 'rlec'.")
 elseif (COORD_TYPE STREQUAL "oss")
 	set(BUILD_COORD_OSS 1)
-	set(BUILD_COORDINATOR 1)
 elseif (COORD_TYPE STREQUAL "rlec")
 	set(BUILD_COORD_RLEC 1)
-	set(BUILD_COORDINATOR 1)
 else()
 	message(FATAL_ERROR "Invalid COORD_TYPE (='${COORD_TYPE}'). Should be either 'oss' or 'rlec'")
 endif()
@@ -33,6 +31,7 @@ endif()
 
 set(ENABLE_REDIS_MOCK ON CACHE BOOL "" FORCE) # build mock to link coordinator tests
 set(BUILD_STATIC OFF CACHE BOOL "" FORCE)
+set(BUILD_COORDINATOR 1)
 
 #----------------------------------------------------------------------------------------------
 
@@ -101,6 +100,13 @@ endfunction()
 # Call the setup function
 setup_cc_options()
 
+if (COV)
+	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
+	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
+	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
+endif()
+
 #----------------------------------------------------------------------------------------------
 
 include_directories(
@@ -117,18 +123,9 @@ if (APPLE)
 	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
 endif()
 
-# Only include coordinator components when building with COORD_TYPE
-if (DEFINED COORD_TYPE)
-    # Pass the RS_COORDINATOR flag to the root CMakeLists.txt file
-    set(RS_COORDINATOR ON CACHE BOOL "Building with coordinator support" FORCE)
-
-    # Include the root directory as a subdirectory
-    add_subdirectory(${root} search)
-    add_subdirectory(src/rmr)
-    add_subdirectory(src)
-else()
-    message(FATAL_ERROR "COORD_TYPE must be defined when building coordinator")
-endif()
+add_subdirectory(${root} search)
+add_subdirectory(src/rmr)
+add_subdirectory(src)
 
 option(VECSIM_STATIC "Build as static library" ON)
 option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
@@ -137,14 +134,12 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 set(LIBUV_BUILD_TESTS OFF CACHE BOOL "Build libuv tests" FORCE)
 set(LIBUV_BUILD_BENCH OFF CACHE BOOL "Build libuv benchmarks" FORCE)
 set(LIBUV_BUILD_SHARED OFF CACHE BOOL "Build shared libuv library" FORCE) # Force static library
+set(LIBUV_LIBS uv_a)
 
 # Add libuv and hiredis as subdirectories
 add_subdirectory(${root}/deps/libuv ${CMAKE_CURRENT_BINARY_DIR}/deps/libuv)
-add_subdirectory(${root}/deps/hiredis ${CMAKE_CURRENT_BINARY_DIR}/deps/hiredis)
-
-# Set libuv and hiredis libraries
-set(LIBUV_LIBS uv_a)
-set(HIREDIS_LIBS hiredis)
+include(${root}/build/hiredis/hiredis.cmake)
+message("HIREDIS_LIBS: ${HIREDIS_LIBS}")
 
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:coordinator-core>
@@ -214,10 +209,7 @@ if (BUILD_COORD_OSS)
 	if (BUILD_SEARCH_UNIT_TESTS)
 		add_subdirectory(src/rmr/test)
 		add_subdirectory(tests/unit)
-		# Build the example extension if requested
-		if (BUILD_EXAMPLE_EXTENSION)
-			add_subdirectory(${root}/tests/ctests/ext-example example_extension)
-		endif()
+		add_subdirectory(${root}/tests/ctests/ext-example example_extension)
 		add_subdirectory(${root}/tests/cpptests/redismock redismock)
 	endif()
 endif()

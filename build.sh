@@ -15,7 +15,7 @@ BINROOT="$ROOT/bin"
 #-----------------------------------------------------------------------------
 # Default configuration values
 #-----------------------------------------------------------------------------
-COORD=0        # Coordinator type: 0 (disabled), 1/oss, or rlec
+COORD=${COORD:-0}        # Coordinator type: 0 (disabled), 1/oss, or rlec
 DEBUG=0          # Debug build flag
 PROFILE=0        # Profile build flag
 FORCE=0          # Force clean build flag

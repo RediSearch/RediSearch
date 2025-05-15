@@ -138,11 +138,6 @@ add_compile_definitions(
     REDISMODULE_SDK_RLEC
     _GNU_SOURCE)
 
-# Add RS_COORDINATOR flag if building with coordinator support
-if (RS_COORDINATOR)
-    add_compile_definitions(RS_COORDINATOR)
-endif()
-
 if (USE_REDIS_ALLOCATOR)
     add_compile_definitions(REDIS_MODULE_TARGET)
 endif()
@@ -258,8 +253,7 @@ set(FINAL_OBJECTS
 
 if (BUILD_COORDINATOR)
     if (BUILD_COORD_OSS)
-        # Only include coordinator components when building with COORD=oss
-        add_library(redisearch-oss STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c)
+        add_library(redisearch-oss STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c coord/src/rmr/reply.c)
         target_link_libraries(redisearch-oss redisearch-hash)
         target_compile_definitions(redisearch-oss PRIVATE
             RS_NO_ONLOAD
@@ -267,8 +261,7 @@ if (BUILD_COORDINATOR)
             RS_CLUSTER_OSS)
 
     elseif (BUILD_COORD_RLEC)
-        # Only include coordinator components when building with COORD=rlec
-        add_library(redisearch-enterprise STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c)
+        add_library(redisearch-enterprise STATIC ${SOURCES} ${FINAL_OBJECTS} src/module-init/module-init.c coord/src/rmr/reply.c)
         target_link_libraries(redisearch-enterprise redisearch-hash)
         target_compile_definitions(redisearch-enterprise PRIVATE
             RS_NO_ONLOAD
