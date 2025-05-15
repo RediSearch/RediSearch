@@ -172,7 +172,7 @@ jobs:
         working-directory: redis
           # REDIS_CFLAGS: ${{ inputs.coverage && '-DCOVERAGE_TEST' || '' }}
         run: ${{ steps.mode.outputs.mode }} make
-             ${{ inputs.coverage && 'gcov' || 'build' }}
+             ${{ inputs.coverage && 'REDIS_CFLAGS=-DCOVERAGE_TEST' }}
               install
               BUILD_TLS=yes
               SANITIZER=${{ inputs.san }}
