@@ -466,13 +466,8 @@ endif
 
 test: unit-tests pytest
 
-# Temp hack - replace the arm artifact directory with aarch64 as it comes from build.sh since unit tests
-# access it directly (todo: refactor unit test flow completely)
-UPDATED_BINROOT:=$(subst arm64v8,aarch64,$(BINROOT))
-
 unit-tests:
-	@echo "UPDATED_BINROOT: $(UPDATED_BINROOT)"
-	$(SHOW)BINROOT=$(UPDATED_BINROOT) COORD=$(COORD) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+	$(SHOW)BINROOT=$(BINROOT) COORD=$(COORD) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
 pytest:
 	@printf "\n-------------- Running python flow test ------------------\n"
