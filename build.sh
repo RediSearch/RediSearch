@@ -207,19 +207,25 @@ capture_coverage() {
   # Accumulate results with the baseline captured before the test
   lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info
 
-  # Remove coverage for directories we don't want
-  lcov -o $BINROOT/tmp.info --remove $BINROOT/full.info \
-    "$ROOT/bin/*" \
-    "$ROOT/tests/*" \
-    "$ROOT/deps/*" \
+  # # Remove coverage for directories we don't want
+  # lcov -o $BINROOT/tmp.info --remove $BINROOT/full.info \
+  #   "$ROOT/bin/*" \
+  #   "$ROOT/tests/*" \
+  #   "$ROOT/deps/*" \
 
-  # Extract back coverage for specific directories we want to keep
-  lcov --output-file $BINROOT/$NAME.info --extract $BINROOT/tmp.info \
+  # # Extract back coverage for specific directories we want to keep
+  # lcov --output-file $BINROOT/$NAME.info --extract $BINROOT/tmp.info \
+  #   "$ROOT/deps/triemap/*" \
+  #   "$ROOT/deps/thpool/*" \
+
+  # Extract only the coverage we want, of files under src/
+  lcov --output-file $BINROOT/$NAME.info --extract $BINROOT/full.info \
+    "$ROOT/src/*" \
     "$ROOT/deps/triemap/*" \
     "$ROOT/deps/thpool/*" \
 
   # Clean up temporary files
-  rm $BINROOT/base.info $BINROOT/test.info $BINROOT/full.info $BINROOT/tmp.info
+  rm $BINROOT/base.info $BINROOT/test.info $BINROOT/full.info #$BINROOT/tmp.info
 }
 
 #-----------------------------------------------------------------------------
