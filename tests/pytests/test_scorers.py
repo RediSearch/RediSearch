@@ -511,10 +511,10 @@ def testBM25NormMax():
         env.flush()
 
     def _test_scores_match_and_normalized(env, index_name='idx', query='hello world'):
-        create_index(env)
+        create_index(env, use_key_tags=env.isCluster())
         # Run both SEARCH and AGGREGATE with BM25STD and BM25STD.NORM
-        res_std = env.cmd('FT.SEARCH', index_name, query, 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD')
-        res_norm = env.cmd('FT.SEARCH', index_name, query, 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+        res_std = sortedResults(env.cmd('FT.SEARCH', index_name, query, 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD'))
+        res_norm = sortedResults(env.cmd('FT.SEARCH', index_name, query, 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM'))
 
         doc_ids_std = [res_std[i] for i in range(1, len(res_std), 2)]
         doc_ids_norm = [res_norm[i] for i in range(1, len(res_norm), 2)]
@@ -528,6 +528,8 @@ def testBM25NormMax():
             expected = float(res_std[i]) / max_std
             actual = float(res_norm[i])
             env.assertAlmostEqual(actual, expected, 0.00001)
+            env.assertGreaterEqual(actual, 0.0)
+            env.assertLessEqual(actual, 1.0)
 
         # AGGREGATE version
         agg_std = env.cmd('FT.AGGREGATE', index_name, query, 'ADDSCORES', 'SCORER', 'BM25STD',
@@ -535,12 +537,13 @@ def testBM25NormMax():
         agg_norm = env.cmd('FT.AGGREGATE', index_name, query, 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
                            'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC')
 
-
-        scores_std = {row[3]: float(row[1]) for row in agg_std[1:]}
+        key_index = agg_std[1].index('__key') + 1
+        score_index = agg_std[1].index('__score') + 1
+        scores_std = {row[key_index]: float(row[score_index]) for row in agg_std[1:]}
         max_score = max(scores_std.values())
         for row in agg_norm[1:]:
-            norm_score = float(row[1])
-            env.assertAlmostEqual(norm_score, scores_std[row[3]] / max_score, 0.00001)
+            norm_score = float(row[score_index])
+            env.assertAlmostEqual(norm_score, scores_std[row[key_index]] / max_score, 0.00001)
 
         env.flush()
 
@@ -568,12 +571,15 @@ def testBM25NormMax():
         agg_limited = env.cmd('FT.AGGREGATE', index_name, query, 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
                               'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC', 'LIMIT', '0', '2')
 
-        env.assertAlmostEqual(float(agg_limited[1][1]), 1.0, 0.00001)
+        key_index = agg_full[1].index('__key') + 1
+        score_index = agg_full[1].index('__score') + 1
+
+        env.assertAlmostEqual(float(agg_limited[1][score_index]), 1.0, 0.00001)
 
         for row in agg_limited[1:]:
             for full_row in agg_full[1:]:
-                if row[3] == full_row[3]:  # Compare by key
-                    env.assertAlmostEqual(float(row[1]), float(full_row[1]), 0.00001)
+                if row[key_index] == full_row[key_index]:  # Compare by key
+                    env.assertAlmostEqual(float(row[score_index]), float(full_row[score_index]), 0.00001)
                     break
 
         env.flush()
@@ -606,7 +612,9 @@ def testBM25NormMax():
                           'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC')
 
         # Store scores by key
-        agg_scores = {row[3]: float(row[1]) for row in agg_full[1:]}
+        key_index = agg_full[1].index('__key') + 1
+        score_index = agg_full[1].index('__score') + 1
+        agg_scores = {row[key_index]: float(row[score_index]) for row in agg_full[1:]}
 
         for offset in range(0, agg_full[0]):
             agg_page = env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
@@ -614,8 +622,8 @@ def testBM25NormMax():
                               'LIMIT', str(offset), '1')
 
             if agg_page[0] > 0:  # If we have results
-                key = agg_page[1][3]
-                page_score = float(agg_page[1][1])
+                key = agg_page[1][key_index]
+                page_score = float(agg_page[1][score_index])
                 env.assertAlmostEqual(page_score, agg_scores[key], 0.00001)
 
         env.flush()

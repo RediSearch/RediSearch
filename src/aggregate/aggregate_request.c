@@ -1489,7 +1489,8 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
        (IsOptimized(req) ? HasScorer(req) : !hasQuerySortby(&req->ap)))) {
     rp = getScorerRP(req, first);
     PUSH_RP();
-    if (req->searchopts.scorerName && !strcmp(req->searchopts.scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME )) {
+    const char * scorerName = req->searchopts.scorerName;
+    if (scorerName && !strcmp(scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME )) {
       if (RSGlobalConfig.enableUnstableFeatures){
         const RLookupKey *scoreKey = NULL;
         if (HasScoreInPipeline(req)) {
