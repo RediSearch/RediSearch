@@ -85,7 +85,7 @@ configPair_t __configPairs[] = {
   {"WORKER_THREADS",                  ""},
   {"ENABLE_UNSTABLE_FEATURES",        "search-enable-unstable-features"},
   {"BM25STD_TANH_FACTOR",             "search-bm25std-tanh-factor"},
-  {"BG_INDEX_OOM_PAUSE_TIME",         "search-bg_index_oom_pause_time"},
+  {"BG_INDEX_OOM_PAUSE_TIME",         "search-bg_index-oom-pause-time"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -1755,7 +1755,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-bg_index_oom_pause_time",
+      ctx, "search-bg_index-oom-pause-time",
       IsEnterprise() ? DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY : 0,
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
       UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,

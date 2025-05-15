@@ -2239,7 +2239,6 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     keyOpened = true;
   }
 
-
   // Get the document type
   DocumentType type = getDocType(key);
 

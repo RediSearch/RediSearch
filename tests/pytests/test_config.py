@@ -492,7 +492,7 @@ numericConfigs = [
     ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True, False),
     ('search-_bg-index-mem-pct-thr', '_BG_INDEX_MEM_PCT_THR', 100, 0, 100, False, False),
     ('search-bm25std-tanh-factor', 'BM25STD_TANH_FACTOR', 4, 1, 10000, False, False),
-    ('search-bg_index_oom_pause_time','BG_INDEX_OOM_PAUSE_TIME', 0, 0, UINT32_MAX, False, False),
+    ('search-bg_index-oom-pause-time','BG_INDEX_OOM_PAUSE_TIME', 0, 0, UINT32_MAX, False, False),
     # Cluster parameters
     ('search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True, True),
     ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False, True),
