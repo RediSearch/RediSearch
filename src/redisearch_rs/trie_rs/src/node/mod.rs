@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use metadata::{NodeHeader, PtrMetadata, PtrWithMetadata};
+use metadata::{DeallocOptions, NodeHeader, PtrMetadata, PtrWithMetadata};
 use std::{
     alloc::{handle_alloc_error, realloc},
     marker::PhantomData,
@@ -234,7 +234,7 @@ impl<Data> Node<Data> {
                     // This incurs a cost (i.e. the node allocation), but this code
                     // path is only triggered when the `f` closure panics,
                     // which should only happen in case of an implementation error.
-                    std::mem::forget(std::mem::replace(self.target, Node::new_leaf(&[], None)));
+                    self.disarm(Node::new_leaf(&[], None));
                 }
             }
         }
@@ -962,6 +962,65 @@ impl<Data> Node<Data> {
             ptr: new_ptr,
             _phantom: Default::default(),
         }
+    }
+
+    /// Decompose the node into:
+    ///
+    /// - Its children pointers, that will be appended to the provided buffer in reverse order.
+    /// - Its payload, returned by the function.
+    ///
+    /// The heap allocation backing the node will be freed.
+    pub(crate) fn into_raw_parts_reversed(
+        mut self,
+        children_buffer: &mut Vec<Node<Data>>,
+    ) -> Option<Data> {
+        let data = self.data_mut().take();
+        let n_children = self.n_children() as usize;
+        let mut ptr = self.downgrade();
+
+        children_buffer.reserve(n_children);
+
+        // SAFETY:
+        // - The pointer is well-aligned and points immediately after
+        //   the last element.
+        //   It is therefore true that all memory between the base pointer
+        //   and the offsetted pointer belongs to a single allocation.
+        let mut next_child = unsafe { ptr.children().ptr().add(n_children) };
+        for _ in 0..n_children {
+            // SAFETY:
+            // - The number of iterations is capped at `n_children`, and we start from
+            //   one past the end, therefore we're guaranteed to be in bounds
+            //   every single time we shift left.
+            next_child = unsafe { next_child.sub(1) };
+            // After this read, we have two pointers to this child.
+            // This is fine, since we will drop the allocated buffer without trying
+            // to drop the old pointer, thus leaving the freshly read pointer
+            // as the only existing pointer at the end of this routine.
+            //
+            // SAFETY:
+            // - Well-aligned and valid for reads,
+            //   thanks to invariant #1 in ChildrenBuffer::ptr
+            let child = unsafe { next_child.read() };
+            children_buffer.push(child);
+        }
+
+        // SAFETY:
+        // - The layout inferred from the node header values matches exactly the layout
+        //   used to allocate the buffer behind the pointer.
+        // - We have exclusive access, since this function takes `self` by value.
+        // - We don't try to drop the children.
+        unsafe {
+            ptr.dealloc(DeallocOptions {
+                // We don't want to drop them, since their ownership has been moved to the buffer.
+                drop_children: None,
+                // We have already taken the data out of the buffer, so nothing to drop there.
+                drop_data: false,
+                // If new fields are added with non-trivial drop behaviour, the compiler will
+                // report an error here, forcing us to reason about our intentions!
+            })
+        };
+
+        data
     }
 }
 
