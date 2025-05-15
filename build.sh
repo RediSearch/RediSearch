@@ -500,9 +500,9 @@ run_rust_tests() {
       --doctests
       --codecov
       --workspace
-      --exclude=\"trie_bencher\"
-      --ignore-filename-regex=\"trie_bencher/*\"
-      --output-path=\"$BINROOT/rust_cov.info\"
+      --exclude=trie_bencher
+      --ignore-filename-regex=trie_bencher/*
+      --output-path=$BINROOT/rust_cov.info
     "
   elif [[ -n "$SAN" ]]; then # using `elif` as we shouldn't run with both
     RUST_EXTENSIONS="+nightly miri"
