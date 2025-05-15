@@ -1147,9 +1147,14 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (opts->scorerName && (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL)) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
-    return REDISMODULE_ERR;
+  if (opts->scorerName) {
+    if (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
+      return REDISMODULE_ERR;
+    } else if (!strcmp(opts->scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME) && !RSGlobalConfig.enableUnstableFeatures) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Scorer %s not available when `ENABLE_UNSTABLE_FEATURES` is off", opts->scorerName);
+      return REDISMODULE_ERR;
+    }
   }
 
   bool resp3 = req->protocol == 3;
@@ -1491,20 +1496,15 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
     PUSH_RP();
     const char * scorerName = req->searchopts.scorerName;
     if (scorerName && !strcmp(scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME )) {
-      if (RSGlobalConfig.enableUnstableFeatures){
-        const RLookupKey *scoreKey = NULL;
-        if (HasScoreInPipeline(req)) {
-          scoreKey = RLookup_GetKey(first, UNDERSCORE_SCORE, RLOOKUP_M_WRITE, RLOOKUP_F_OVERRIDE);
-        }
-        rp = RPNormalizer_New(scoreKey);
-        PUSH_RP();
-      } else {
-        QueryError_SetCode(Status, QUERY_EUNSTABLE);
-        return;
+      const RLookupKey *scoreKey = NULL;
+      if (HasScoreInPipeline(req)) {
+        scoreKey = RLookup_GetKey(first, UNDERSCORE_SCORE, RLOOKUP_M_WRITE, RLOOKUP_F_OVERRIDE);
+      }
+      rp = RPNormalizer_New(scoreKey);
+      PUSH_RP();
       }
     }
   }
-}
 
 /**
  * This handles the RETURN and SUMMARIZE keywords, which operate on the result
