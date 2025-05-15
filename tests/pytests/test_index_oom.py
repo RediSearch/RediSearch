@@ -50,6 +50,8 @@ def test_stop_background_indexing_on_low_mem(env):
 
 @skip(cluster=True)
 def test_stop_indexing_low_mem_verbosity(env):
+  # Change to resp3
+  env = Env(protocol=3)
   # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
 
@@ -127,6 +129,10 @@ def test_stop_indexing_low_mem_verbosity(env):
                         bgIndexingStatusStr: OOMfailureStr,
                         }
   env.assertEqual(error_dict, expected_error_dict)
+  # Check resp3 warning for OOM
+  res = env.cmd('FT.SEARCH', 'idx','*')
+  print(res['warning'])
+  env.assertEqual(res['warning'][0], 'Index contains partial data due to an indexing failure caused by insufficient memory')
 
 @skip(cluster=True)
 def test_idx_delete_during_bg_indexing(env):
