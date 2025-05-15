@@ -64,6 +64,15 @@ void SearchResult_Destroy(SearchResult *r) {
   RLookupRow_Cleanup(&r->rowdata);
 }
 
+// Replaces the contents of 'dst' with those from 'src'.
+// Ensures proper cleanup of any existing data in 'dst'.
+static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
+  if (!src) return;
+  RLookupRow oldrow = dst->rowdata;
+  *dst = *src;
+  RLookupRow_Cleanup(&oldrow);
+}
+
 
 /*******************************************************************************************************************
  *  Base Result Processor - this processor is the topmost processor of every processing chain.
@@ -374,11 +383,8 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   SearchResult *cur_best = mmh_pop_max(self->pq);
 
   if (cur_best) {
-    RLookupRow oldrow = r->rowdata;
-    *r = *cur_best;
-
+    SearchResult_Override(r, cur_best);
     rm_free(cur_best);
-    RLookupRow_Cleanup(&oldrow);
     return RS_RESULT_OK;
   }
   int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
@@ -1348,17 +1354,17 @@ void PipelineAddCrash(struct AREQ *r) {
      return RS_RESULT_EOF;
    }
   SearchResult *poppedResult = array_pop(self->pool);
-  *r = *poppedResult;
+  SearchResult_Override(r, poppedResult);
   rm_free(poppedResult);
-   double oldScore = r->score;
-   r->score = r->score / self->maxValue;
-   if (self->scoreKey) {
-     RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
-   }
-   EXPLAIN(r->scoreExplain,
-         "Final BM25STD.NORM: %.2f = Original Score: %.2f / Max Score: %.2f",
-         r->score, oldScore, self->maxValue);
-   return RS_RESULT_OK;
+  double oldScore = r->score;
+  r->score = r->score / self->maxValue;
+  if (self->scoreKey) {
+    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
+  }
+  EXPLAIN(r->scoreExplain,
+        "Final BM25STD.NORM: %.2f = Original Score: %.2f / Max Score: %.2f",
+        r->score, oldScore, self->maxValue);
+  return RS_RESULT_OK;
  }
 
 static int rpNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
