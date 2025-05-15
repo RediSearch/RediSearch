@@ -7,7 +7,7 @@ homepage: 'http://redisearch.io'
 license: Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1)
 command_line_args: PARTITIONS AUTO
 min_redis_version: '6.0.7'
-min_redis_pack_version: '6.0.20'
+min_redis_pack_version: '6.0.8'
 config_command: "_FT.CONFIG SET"
 capabilities:
     - types
