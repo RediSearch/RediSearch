@@ -171,10 +171,10 @@ jobs:
       - name: Build Redis
         working-directory: redis
           # REDIS_CFLAGS: ${{ inputs.coverage && '-DCOVERAGE_TEST' || '' }}
-        run: ${{ steps.mode.outputs.mode }} make \
-             ${{ inputs.coverage && 'gcov' || 'build' }} \
-              install \
-              BUILD_TLS=yes \
+        run: ${{ steps.mode.outputs.mode }} make
+             ${{ inputs.coverage && 'gcov' || 'build' }}
+              install
+              BUILD_TLS=yes
               SANITIZER=${{ inputs.san }}
 
       - name: Set Artifact Names
