@@ -9,7 +9,9 @@
 
 //! Implementation of various standard traits for [`Node`].
 use crate::node::Node;
-use std::{alloc::dealloc, fmt};
+use std::fmt;
+
+use super::metadata::DeallocOptions;
 
 /// Convenience method to convert a `u8` array into a `String`,
 /// replacing non-UTF-8 characters with `�` along the way.
@@ -143,23 +145,20 @@ impl<Data: Clone> Clone for Node<Data> {
 
 impl<Data> Drop for Node<Data> {
     fn drop(&mut self) {
-        let layout = self.metadata().layout();
         // SAFETY:
-        // - We have exclusive access to buffer.
-        // - The field is correctly initialized (see invariant 2. in [`Self::ptr`])
-        // - The pointer is valid since it comes from a reference.
-        unsafe { std::ptr::drop_in_place(self.data_mut()) };
-        // SAFETY:
-        // - We have exclusive access to buffer.
-        // - The field is correctly initialized (see invariant 2. in [`Self::ptr`])
-        // - The pointer is valid since it comes from a reference.
-        unsafe { std::ptr::drop_in_place(self.children_mut()) };
-
-        // SAFETY:
-        // - The pointer was allocated via the same global allocator
-        //    we are invoking via `dealloc` (see invariant 3. in [`Self::ptr`])
-        // - `layout` is the same layout that was used
-        //   to allocate the buffer (see invariant 1. in [`Self::ptr`])
-        unsafe { dealloc(self.ptr.as_ptr().cast(), layout) };
+        // a. `layout` is the same layout that was used to allocate the buffer (see invariant 1. in [`Self::ptr`])
+        // b. The pointer was allocated via same global allocator (see invariant 3. in [`Self::ptr`])
+        // c. We have exclusive access to buffer, all fields are correctly initialized
+        //    (see invariant 2. in [`Self::ptr`]) and we're inside a `Drop` invocation.
+        // d. The number of children matches the length of the buffer and they are all initialized.
+        unsafe {
+            self.metadata().dealloc(
+                self.ptr,
+                DeallocOptions {
+                    drop_children: Some(self.n_children() as usize),
+                    drop_data: true,
+                },
+            )
+        };
     }
 }

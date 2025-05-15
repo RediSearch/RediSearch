@@ -24,9 +24,11 @@ mod property_based {
             }
 
             let trie_values: Vec<i32> = trie.values().copied().collect();
+            let trie_into_values: Vec<i32> = trie.into_values().collect();
             let btree_values: Vec<i32> = entries.values().copied().collect();
 
             assert_eq!(trie_values, btree_values);
+            assert_eq!(trie_values, trie_into_values);
         }
     }
 }

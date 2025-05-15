@@ -342,11 +342,68 @@ impl<Data> PtrMetadata<Data> {
     ///    returned by this function.
     ///
     /// The requirements are automatically verified if `header_ptr` is backed by an allocation
+    /// created using the layout returned by [`Self::layout`].
     pub const unsafe fn value_ptr(&self, header_ptr: NonNull<NodeHeader>) -> NonNull<Option<Data>> {
         // SAFETY:
         // The safety preconditions must be verified by the caller.
         unsafe { header_ptr.byte_offset(self.value_offset as isize) }.cast()
     }
+
+    /// Deallocate the node behind the provided pointer.
+    /// After calling this method, `ptr` must be considered invalid and never be used.
+    ///
+    /// # Safety
+    ///
+    /// a. `ptr` must point to an allocation with the same alignment and size of [`Self::layout`].
+    /// b. `ptr` must have been allocated via the global allocator.
+    /// c. `ptr` must satisfy all the requirements laid out in [`std::ptr::drop_in_place`]
+    /// d. If [`DeallocOption::drop_children`] is set to `Some(n_children)`, then
+    ///    the children buffer length is greater than or equal to `n_children` and all
+    ///    entries up to `n_children` are initialized.
+    pub unsafe fn dealloc(&mut self, ptr: NonNull<NodeHeader>, options: DeallocOptions) {
+        let layout = self.layout;
+        if options.drop_data {
+            // SAFETY:
+            // - Guaranteed by the caller, thanks to safety requirement a.
+            let value_ptr = unsafe { self.value_ptr(ptr) };
+            // SAFETY:
+            // - Guaranteed by the caller, thanks to safety requirement c.
+            unsafe { value_ptr.drop_in_place() };
+        }
+
+        if let Some(n_children) = options.drop_children {
+            if n_children > 0 {
+                // SAFETY:
+                // - Guaranteed by the caller, thanks to safety requirement a.
+                let children = unsafe { self.children_ptr(ptr) };
+                // SAFETY:
+                // - All entries are initialized thanks to safety requirement d.
+                // - We have exclusive access, thanks to safety requirement c.
+                let children =
+                    unsafe { std::slice::from_raw_parts_mut(children.as_ptr(), n_children) };
+                // SAFETY:
+                // - Guaranteed by the caller, thanks to safety requirement c.
+                unsafe { std::ptr::drop_in_place(children) };
+            }
+        }
+
+        // SAFETY:
+        // - The pointer was allocated via the same global allocator
+        //    we are invoking via `dealloc` (see safety requirement b.)
+        // - `layout` is the same layout that was used
+        //   to allocate the buffer (see safety requirement a.)
+        unsafe { std::alloc::dealloc(ptr.as_ptr().cast(), layout) };
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+/// Options to determine what should be dropped when [`PtrMetadata::dealloc`] is invoked.
+pub struct DeallocOptions {
+    /// If `Some(n_children)`, each child pointer will have its `Drop` method invoked.
+    /// If `None`, none of the pointers will be freed (assuming there are any).
+    pub drop_children: Option<usize>,
+    /// If `true`, the payload will have its `Drop` method invoked.
+    pub drop_data: bool,
 }
 
 /// Ties together a pointer and a compatible metadata.
@@ -455,6 +512,25 @@ impl<Data> PtrWithMetadata<Data> {
     pub(super) fn into_parts(self) -> (NonNull<NodeHeader>, PtrMetadata<Data>) {
         (self.ptr, self.metadata)
     }
+
+    /// Deallocate the node behind the pointer.
+    /// After calling this method, `ptr` must be considered invalid and never be used again.
+    ///
+    /// # Safety
+    ///
+    /// a. The layout of the allocation behind [`Self::ptr`] matches *exactly* the layout it was allocated with.
+    /// b. `ptr` must satisfy all the requirements laid out in [`std::ptr::drop_in_place`]
+    /// c. If [`DeallocOption::drop_children`] is set to `Some(n_children)`, then
+    ///    the children buffer length is greater than or equal to `n_children` and all
+    ///    entries up to `n_children` are initialized.
+    pub unsafe fn dealloc(&mut self, options: DeallocOptions) {
+        // SAFETY:
+        // a. Guaranteed by the caller, via safety requirement a.
+        // b. Guaranteed by invariant 1. in Self's documentation
+        // c. Guaranteed by the caller, via safety requirement b.
+        // d. Guaranteed by the caller, via safety requirement c.
+        unsafe { self.metadata.dealloc(self.ptr, options) };
+    }
 }
 
 /// A struct that groups together methods to manipulate the buffer allocated
@@ -473,6 +549,20 @@ impl<Data> LabelBuffer<'_, Data> {
         //    when this struct was created (see safety invariant #1).
         // 2. The metadata's layout guarantees proper alignment for this field.
         unsafe { PtrMetadata::<Data>::label_ptr(self.0.ptr) }
+    }
+
+    /// Get a view over the contents of the label buffer.
+    ///
+    /// # Safety
+    ///
+    /// 1. `len` must be lower than or equal to the capacity of the label buffer.
+    /// 2. All elements up to `len` must have been initialized.
+    pub(super) unsafe fn as_slice(&self, len: usize) -> &[u8] {
+        // SAFETY:
+        // - The pointer is valid thanks to invariant 1. from `Self::ptr`
+        // - All elements are being read are within the buffer and initialized up
+        //   to the specified length, thanks to safety requirements #1 and #2
+        unsafe { std::slice::from_raw_parts(self.ptr().as_ptr(), len) }
     }
 
     /// Copy the contents of `src` into the label buffer.
