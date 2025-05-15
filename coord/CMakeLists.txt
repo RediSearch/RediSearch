@@ -26,7 +26,8 @@ endif()
 
 # Pass MT_BUILD to the root CMakeLists.txt file if set
 if(DEFINED MT_BUILD)
-    set(MT_BUILD ${MT_BUILD} CACHE BOOL "Enable multi-threading support" FORCE)
+	add_compile_definitions(MT_BUILD=1)
+    set(MT_BUILD ${MT_BUILD} CACHE BOOL "Enable multi-threading support in coord" FORCE)
 endif()
 
 set(ENABLE_REDIS_MOCK ON CACHE BOOL "" FORCE) # build mock to link coordinator tests

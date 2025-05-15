@@ -446,6 +446,7 @@ run_python_tests() {
   fi
 
   # Set up environment variables required by runtests.sh
+  export COORD="$COORD"
   export MODULE="$(realpath "$MODULE_PATH")"
   export BINROOT="$BINROOT"
   export FULL_VARIANT="$FULL_VARIANT"
