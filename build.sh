@@ -189,9 +189,10 @@ setup_build_environment() {
 # Run lcov preparations before testing for coverage
 #-----------------------------------------------------------------------------
 prepare_coverage_capture() {
-  # mkdir -p $BINDIR # verify the path exists
+  [[ -n $GITHUB_ACTIONS ]] && echo "::group::Code Coverage Preparation"
   lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
   lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info
+  [[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::"
 }
 
 #-----------------------------------------------------------------------------
@@ -201,28 +202,26 @@ prepare_coverage_capture() {
 capture_coverage() {
   NAME=${1:-cov} # Get output name. Defaults to `cov.info`
 
+  [[ -n $GITHUB_ACTIONS ]] && echo "::group::Code Coverage Capture ($NAME)"
+
   # Capture coverage collected while running tests previously
   lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info
 
   # Accumulate results with the baseline captured before the test
   lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info
 
-  # # Remove coverage for directories we don't want
-  # lcov -o $BINROOT/tmp.info --remove $BINROOT/full.info \
-  #   "$ROOT/bin/*" \
-  #   "$ROOT/tests/*" \
-  #   "$ROOT/deps/*" \
-
-  # # Extract back coverage for specific directories we want to keep
-  # lcov --output-file $BINROOT/$NAME.info --extract $BINROOT/tmp.info \
-  #   "$ROOT/deps/triemap/*" \
-  #   "$ROOT/deps/thpool/*" \
-
-  # Extract only the coverage we want, of files under src/
+  # Extract only the coverage of the project source files
   lcov --output-file $BINROOT/$NAME.info --extract $BINROOT/full.info \
     "$ROOT/src/*" \
     "$ROOT/deps/triemap/*" \
     "$ROOT/deps/thpool/*" \
+
+  # TODO: remove `tests`?
+  # # Remove coverage for directories we don't want
+  # lcov -o $BINROOT/tmp.info --remove $BINROOT/full.info \
+  #   "*/tests/*" \
+
+  [[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::"
 
   # Clean up temporary files
   rm $BINROOT/base.info $BINROOT/test.info $BINROOT/full.info #$BINROOT/tmp.info
