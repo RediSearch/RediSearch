@@ -15,8 +15,6 @@
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
-#include "util/minmax.h"
-#include <float.h>
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -1358,7 +1356,7 @@ void PipelineAddCrash(struct AREQ *r) {
      RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
    }
    EXPLAIN(r->scoreExplain,
-         "(Score: %.2f = Original Score: %.2f / Max Score: %.2f)",
+         "Final BM25STD.NORM: %.2f = Original Score: %.2f / Max Score: %.2f",
          r->score, oldScore, self->maxValue);
    return RS_RESULT_OK;
  }
@@ -1377,7 +1375,7 @@ static int rpNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     return rc;
   }
 
-  self->maxValue = Max(self->maxValue, self->pooledResult->score);
+  self->maxValue = MAX(self->maxValue, self->pooledResult->score);
   // copy the index result to make it thread safe - but only if it is pushed to the heap
   self->pooledResult->indexResult = NULL;
   array_ensure_append_1(self->pool, self->pooledResult);
