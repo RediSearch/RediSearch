@@ -80,6 +80,6 @@ int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
  * This helps keep Redis responsive during long indexing operations.
  * @param ctx The Redis context
  */
-void IndexerYieldWhileLoading(RedisModuleCtx *ctx);
+static void IndexerYieldWhileLoading(RedisModuleCtx *ctx, bool isLoading);
 
 #endif
