@@ -11,6 +11,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  get-latest-redis-tag:
+    uses: ./.github/workflows/task-get-latest-tag.yml
+    with:
+      repo: redis/redis
+
   check-what-changed:
     uses: ./.github/workflows/task-check-changes.yml
     with:
@@ -28,13 +33,12 @@ jobs:
     uses: ./.github/workflows/task-spellcheck.yml
 
   basic-test:
-    needs: check-what-changed
+    needs: [check-what-changed, get-latest-redis-tag]
     if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
     uses: ./.github/workflows/task-test.yml
     with:
-      env: "ubuntu-latest"
       test-config: QUICK=1
-      get-redis: unstable
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
     secrets: inherit
 
@@ -51,7 +55,7 @@ jobs:
     secrets: inherit
 
   coverage:
-    needs: check-what-changed
+    needs: [check-what-changed, get-latest-redis-tag]
     if: >
       vars.ENABLE_CODE_COVERAGE != 'false' && (
           (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') ||
@@ -59,13 +63,14 @@ jobs:
       )
     uses: ./.github/workflows/task-test.yml
     with:
-      rejson-branch: master
       coverage: true
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      rejson-branch: master
       test-config: QUICK=1
     secrets: inherit
 
   sanitize:
-    needs: check-what-changed
+    needs: [check-what-changed, get-latest-redis-tag]
     if: >
       (
         (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') ||
@@ -74,15 +79,15 @@ jobs:
     secrets: inherit
     uses: ./.github/workflows/task-test.yml
     with:
-      get-redis: unstable
-      test-config: QUICK=1
       san: address
-      env: ubuntu-latest
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
+      test-config: QUICK=1
       # run_miri: true
 
   pr-validation:
     needs:
+      - get-latest-redis-tag
       - check-what-changed
       - spellcheck
       - basic-test
