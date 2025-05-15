@@ -158,14 +158,14 @@ setup_build_environment() {
   FULL_VARIANT="${OS_NAME}-${ARCH}-${FLAVOR}"
 
   # Set OUTDIR based on configuration
-  if [[ "$COORD" == "oss" ]]; then
+  if [[ "$COORD" == "oss" || "$COORD" == "1" ]]; then
     OUTDIR="coord-oss"
   elif [[ "$COORD" == "rlec" ]]; then
     OUTDIR="coord-rlec"
   elif [[ "$COORD" == "0" ]]; then
     OUTDIR="search"
   else
-    echo "COORD should be either 0, oss, or rlec"
+    echo "COORD should be either 0, 1, oss, or rlec"
     exit 1
   fi
 
