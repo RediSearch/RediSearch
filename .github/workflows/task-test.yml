@@ -198,7 +198,7 @@ jobs:
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
-        run: make pytest ${{ inputs.test-config }}
+        run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
       - name: Unit tests (coordinator)
         id: coordinator_unit_tests
         if: ${{ inputs.coordinator }}

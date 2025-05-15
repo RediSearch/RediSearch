@@ -16,6 +16,9 @@ BINROOT="$ROOT/bin"
 # Default configuration values
 #-----------------------------------------------------------------------------
 COORD=${COORD:-0}        # Coordinator type: 0 (disabled), 1/oss, or rlec
+if [[ "$COORD" == "1" ]]; then
+  COORD="oss"
+fi
 DEBUG=0          # Debug build flag
 PROFILE=0        # Profile build flag
 FORCE=0          # Force clean build flag
@@ -45,7 +48,8 @@ parse_arguments() {
       COORD=*)
         COORD_VALUE="${arg#*=}"
         # Handle COORD=1 as COORD=oss
-        if [[ "$COORD_VALUE" == "1" || "$COORD" == "1" ]]; then
+        echo "coord is set to $COORD"
+        if [[ "$COORD_VALUE" == "1" ]]; then
           COORD="oss"
         else
           COORD="$COORD_VALUE"
