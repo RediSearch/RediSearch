@@ -197,10 +197,11 @@ jobs:
         env:
           SAN: ${{ inputs.san }}
           # RUN_MIRI: ${{ inputs.run_miri && 1 || 0 }}  # convert the boolean input to numeric
+          MIRIFLAGS: -Zmiri-disable-isolation
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
-        run: ./build.sh RUN_UNIT_TESTS ${{ inputs.san && '' || 'RUN_RUST_TESTS' }} # TODO: run rust tests unconditionally
+        run: ./build.sh RUN_UNIT_TESTS RUN_RUST_TESTS
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
