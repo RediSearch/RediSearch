@@ -59,6 +59,7 @@ typedef enum {
   RP_NETWORK,
   RP_METRICS,
   RP_KEY_NAME_LOADER,
+  RP_MAX_SCORE_NORMALIZER,
   RP_TIMEOUT, // DEBUG ONLY
   RP_CRASH, // DEBUG ONLY
   RP_MAX,
@@ -301,6 +302,14 @@ void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
  *******************************************************************************************************************/
 ResultProcessor *RPCrash_New();
 void PipelineAddCrash(struct AREQ *r);
+
+ /*******************************************************************************************************************
+  *  Normalizer Result Processor
+  *
+  * This processor depletes the result pipeline first, collecting the maximum value of something,
+  * and then returns the maximum as a single result.
+  *******************************************************************************************************************/
+ ResultProcessor *RPNormalizer_New(const RLookupKey *rlk);
 
 #ifdef __cplusplus
 }

@@ -15,7 +15,6 @@
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
-
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -63,6 +62,15 @@ void SearchResult_Clear(SearchResult *r) {
 void SearchResult_Destroy(SearchResult *r) {
   SearchResult_Clear(r);
   RLookupRow_Cleanup(&r->rowdata);
+}
+
+// Replaces the contents of 'dst' with those from 'src'.
+// Ensures proper cleanup of any existing data in 'dst'.
+static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
+  if (!src) return;
+  RLookupRow oldrow = dst->rowdata;
+  *dst = *src;
+  RLookupRow_Cleanup(&oldrow);
 }
 
 
@@ -375,11 +383,8 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   SearchResult *cur_best = mmh_pop_max(self->pq);
 
   if (cur_best) {
-    RLookupRow oldrow = r->rowdata;
-    *r = *cur_best;
-
+    SearchResult_Override(r, cur_best);
     rm_free(cur_best);
-    RLookupRow_Cleanup(&oldrow);
     return RS_RESULT_OK;
   }
   int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
@@ -1073,7 +1078,7 @@ void SetLoadersForMainThread(AREQ *r) {
 static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
                                      "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
                                      "Grouper", "Projector", "Filter",            "Profile",
-                                     "Network", "Metrics Applier", "Key Name Loader"};
+                                     "Network", "Metrics Applier", "Key Name Loader", "Normalizer"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -1316,4 +1321,97 @@ ResultProcessor *RPCrash_New() {
 void PipelineAddCrash(struct AREQ *r) {
   ResultProcessor *crash = RPCrash_New();
   addResultProcessor(r, crash);
+}
+
+ /*******************************************************************************************************************
+  *  Max Result Processor
+  *
+  * This processor first depletes the result pipeline by iterating through all results once.
+  * It can be used to collect maximum values or any other aggregation that requires a single pass.
+  *******************************************************************************************************************/
+ typedef struct {
+   ResultProcessor base;
+   // Stores the max value found (if needed in the future)
+   double maxValue;
+   const RLookupKey *scoreKey;
+   SearchResult *pooledResult;
+   arrayof(SearchResult *) pool;
+ } RPNormalizer;
+
+
+ static void rpNormalizer_Free(ResultProcessor *base) {
+   RPNormalizer *self = (RPNormalizer *)base;
+   array_free_ex(self->pool, srDtor(*(char **)ptr));
+   srDtor(self->pooledResult);
+   rm_free(self);
+ }
+
+ static int rpNormalizer_Yield(ResultProcessor *rp, SearchResult *r){
+   RPNormalizer* self = (RPNormalizer*)rp;
+   size_t length = array_len(self->pool);
+   if (array_len(self->pool) == 0) {
+      // We've already yielded all results, return EOF
+     return RS_RESULT_EOF;
+   }
+  SearchResult *poppedResult = array_pop(self->pool);
+  SearchResult_Override(r, poppedResult);
+  rm_free(poppedResult);
+  double oldScore = r->score;
+  r->score = r->score / self->maxValue;
+  if (self->scoreKey) {
+    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
+  }
+  EXPLAIN(r->scoreExplain,
+        "Final BM25STD.NORM: %.2f = Original Score: %.2f / Max Score: %.2f",
+        r->score, oldScore, self->maxValue);
+  return RS_RESULT_OK;
+ }
+
+static int rpNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
+  RPNormalizer *self = (RPNormalizer *)rp;
+
+  // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
+  int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
+  // if our upstream has finished - just change the state to not accumulating, and yield
+  if (rc == RS_RESULT_EOF) {
+    rp->Next = rpNormalizer_Yield;
+    return rp->Next(rp, r);
+  } else if (rc != RS_RESULT_OK) {
+    // whoops!
+    return rc;
+  }
+
+  self->maxValue = MAX(self->maxValue, self->pooledResult->score);
+  // copy the index result to make it thread safe - but only if it is pushed to the heap
+  self->pooledResult->indexResult = NULL;
+  array_ensure_append_1(self->pool, self->pooledResult);
+
+  // we need to allocate a new result for the next iteration
+  //TODO: Consider optimizing by allocating memory once every N iterations
+  self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
+  return RESULT_QUEUED;
+}
+
+static int rpNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
+  RPNormalizer *self = (RPNormalizer *)rp;
+  uint32_t chunkLimit = rp->parent->resultLimit;
+  rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
+  int rc;
+  int count = 0;
+  while ((rc = rpNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED) {}
+  rp->parent->resultLimit = chunkLimit; // restore the limit
+  return rc;
+}
+
+ /* Create a new Max Collector processor */
+ ResultProcessor *RPNormalizer_New(const RLookupKey *rlk) {
+  RPNormalizer *ret = rm_calloc(1, sizeof(*ret));
+  ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
+  ret->pool = array_new(SearchResult*, 0);
+  ret->base.Next = rpNormalizer_Accum;
+  ret->base.Free = rpNormalizer_Free;
+  ret->base.type = RP_MAX_SCORE_NORMALIZER;
+  ret->scoreKey = rlk;
+  ret->maxValue = 0;
+  return &ret->base;
 }
