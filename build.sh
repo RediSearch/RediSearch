@@ -60,9 +60,6 @@ parse_arguments() {
       RUN_RUST_TESTS|run_rust_tests)
         RUN_RUST_TESTS=1
         ;;
-      COV|cov|COVERAGE|coverage)
-        COV=1
-        ;;
       COV=*)
         COV="${arg#*=}"
         ;;
@@ -84,17 +81,14 @@ parse_arguments() {
       VERBOSE|verbose)
         VERBOSE=1
         ;;
-      QUICK|quick)
-        QUICK=1
-        ;;
       QUICK=*)
         QUICK="${arg#*=}"
         ;;
-      SA|sa)
-        SA=1
+      SA=*)
+        SA="${arg#*=}"
         ;;
-      REDIS_STANDALONE|redis_standalone)
-        REDIS_STANDALONE=1
+      REDIS_STANDALONE=*)
+        REDIS_STANDALONE="${arg#*=}"
         ;;
       *)
         # Pass all other arguments directly to CMake
@@ -559,8 +553,8 @@ run_python_tests() {
   export PARALLEL="${PARALLEL:-1}"
   export LOG_LEVEL="${LOG_LEVEL:-debug}"
   export TEST_TIMEOUT
-  export REDIS_STANDALONE
-  export SA="${SA:-1}"
+  export REDIS_STANDALONE="${REDIS_STANDALONE:-1}"
+  export SA="${SA:-$REDIS_STANDALONE}"
   export COV
 
   # Set up test filter if provided
