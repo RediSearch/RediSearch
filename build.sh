@@ -549,12 +549,6 @@ run_tests() {
 # Parse command line arguments
 parse_arguments "$@"
 
-# Ensure COORD is set to a valid value
-if [[ "$COORD" != "0" && "$COORD" != "oss" && "$COORD" != "rlec" ]]; then
-  echo "Warning: Invalid COORD value '$COORD'. Setting to default (0)."
-  COORD="0"
-fi
-
 # Set up test configuration based on input parameters
 setup_test_configuration
 
