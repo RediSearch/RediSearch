@@ -314,7 +314,7 @@ def config_cmd():
     return '_FT.CONFIG'
 
 def enable_unstable_features(env):
-    run_command_on_all_shards(env, 'CONFIG', 'SET', 'ENABLE_UNSTABLE_FEATURES', 'yes')
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'yes')
 
 def run_command_on_all_shards(env, *args):
     return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
