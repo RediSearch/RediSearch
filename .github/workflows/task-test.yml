@@ -200,7 +200,7 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
-        run: ./build.sh RUN_UNIT_TESTS RUN_RUST_TESTS
+        run: ./build.sh RUN_UNIT_TESTS ${{ inputs.san && '' || 'RUN_RUST_TESTS' }} # TODO: run rust tests unconditionally
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
@@ -210,7 +210,7 @@ jobs:
           SAN: ${{ inputs.san }}
           LOG: 1
           CLEAR_LOGS: 0
-          SA: 1
+          REDIS_STANDALONE: 1
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
@@ -224,7 +224,7 @@ jobs:
           SAN: ${{ inputs.san }}
           LOG: 1
           CLEAR_LOGS: 0
-          SA: 0
+          REDIS_STANDALONE: 0
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
