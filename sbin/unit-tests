@@ -38,7 +38,7 @@ show_help() {
         Usage: [ARGVARS...] unit-tests [--help|help]
 
         Arguments:
-        BINROOT=path   Path to repo binary root dir
+        BINDIR=path   Path to repo binary dir
         TEST=name      Run only the specified test
         VERBOSE=1      Show more detailed output
         HELP=1         Show this help message
@@ -105,7 +105,7 @@ run_single_test() {
 run_c_tests() {
     print_separator
     echo "# Running C unit tests"
-    C_TESTS_DIR="$(cd $BINROOT/search-community/tests/ctests; pwd)"
+    C_TESTS_DIR="$(cd $BINDIR/tests/ctests; pwd)"
     cd $ROOT_DIR/tests/ctests
 
     if [[ -z $TEST ]]; then
@@ -127,7 +127,7 @@ run_c_tests() {
 run_cpp_tests() {
     print_separator
     echo "# Running C++ unit tests"
-    CPP_TESTS_DIR="$(cd $BINROOT/search-community/tests/cpptests; pwd)"
+    CPP_TESTS_DIR="$(cd $BINDIR/tests/cpptests; pwd)"
     cd $ROOT_DIR/tests/cpptests
     TEST_NAME=rstest setup_sanitizer
 
@@ -196,7 +196,7 @@ run_coordinator_tests() {
     print_separator
     echo "# Running coordinator unit tests"
 
-    for TESTS_DIR in "$(cd $BINROOT/search-community/tests/ctests/coord_tests; pwd)" "$(cd $BINROOT/search-community/tests/cpptests; pwd)"; do
+    for TESTS_DIR in "$(cd $BINDIR/tests/ctests/coord_tests; pwd)" "$(cd $BINDIR/tests/cpptests; pwd)"; do
         if [[ -z $TEST ]]; then
             # Run all coordinator tests
             for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
@@ -255,7 +255,7 @@ generate_summary() {
 detect_platform
 
 # Setup paths and variables
-export EXT_TEST_PATH=${BINROOT}/search-community/example_extension/libexample_extension.so
+export EXT_TEST_PATH=${BINDIR}/example_extension/libexample_extension.so
 
 # No test scope configuration needed
 
