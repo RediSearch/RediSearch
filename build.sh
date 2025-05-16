@@ -246,13 +246,14 @@ prepare_cmake_arguments() {
 
   if [[ "$COV" == "1" ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCOV=1"
+    DEBUG=1
   fi
 
   if [[ "$PROFILE" != 0 ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DPROFILE=$PROFILE"
     # We shouldn't run profile with debug - so we fail the build
     if [[ "$DEBUG" == "1" ]]; then
-      echo "Error: Cannot run profile with debug/sanitizer"
+      echo "Error: Cannot run profile with debug/sanitizer/coverage"
       exit 1
     fi
   fi
