@@ -845,7 +845,7 @@ static int handleApplyOrFilter(AREQ *req, ArgsCursor *ac, QueryError *status, in
 
 error:
   if (stp) {
-    AGPLN_PopStep(&stp->base);
+    AGPLN_PopStep(&req->ap, &stp->base);
     stp->base.dtor(&stp->base);
   }
   return REDISMODULE_ERR;

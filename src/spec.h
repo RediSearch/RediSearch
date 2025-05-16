@@ -603,9 +603,8 @@ StrongRef IndexSpec_GetStrongRefUnsafe(const IndexSpec *spec);
  * @brief Removes the spec from the global data structures
  *
  * @param ref a strong reference to the spec
- * @param removeActive - should we call CurrentThread_ClearIndexSpec on the released spec
  */
-void IndexSpec_RemoveFromGlobals(StrongRef spec_ref, bool removeActive);
+void IndexSpec_RemoveFromGlobals(StrongRef ref);
 
 /*
  * Free an indexSpec. For LLAPI
@@ -712,14 +711,6 @@ void ReindexPool_ThreadPoolDestroy();
 
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
-
-// Tries to promote a WeakRef of a spec to a StrongRef
-// If a strong reference was obtained then we also set the current thread's active spec
-StrongRef IndexSpecRef_Promote(WeakRef ref);
-// Releases a strong reference to a spec
-// Must only be called if the spec was promoted successfully
-// Will also clear the current thread's active spec
-void IndexSpecRef_Release(StrongRef ref);
 
 #ifdef __cplusplus
 }

@@ -1286,7 +1286,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(f->sortIdx == -1);
   ASSERT_TRUE(s->numSortableFields == 2);
 
-  IndexSpec_RemoveFromGlobals(ref, false);
+  IndexSpec_RemoveFromGlobals(ref);
 
   QueryError_ClearError(&err);
   const char *args2[] = {
@@ -1300,7 +1300,7 @@ TEST_F(IndexTest, testIndexSpec) {
 
   ASSERT_TRUE(!(s->flags & Index_StoreFieldFlags));
   ASSERT_TRUE(!(s->flags & Index_StoreTermOffsets));
-  IndexSpec_RemoveFromGlobals(ref, false);
+  IndexSpec_RemoveFromGlobals(ref);
 
   // User-reported bug
   const char *args3[] = {"SCHEMA", "ha", "NUMERIC", "hb", "TEXT", "WEIGHT", "1", "NOSTEM"};
@@ -1310,7 +1310,7 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(FieldSpec_IsNoStem(s->fields + 1));
-  IndexSpec_RemoveFromGlobals(ref, false);
+  IndexSpec_RemoveFromGlobals(ref);
 }
 
 static void fillSchema(std::vector<char *> &args, size_t nfields) {
@@ -1358,7 +1358,7 @@ TEST_F(IndexTest, testHugeSpec) {
   ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == N);
-  IndexSpec_RemoveFromGlobals(ref, false);
+  IndexSpec_RemoveFromGlobals(ref);
   freeSchemaArgs(args);
 
   // test too big a schema

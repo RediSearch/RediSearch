@@ -187,7 +187,7 @@ void AGPLN_AddAfter(AGGPlan *pln, PLN_BaseStep *step, PLN_BaseStep *add);
 void AGPLN_Prepend(AGGPlan *pln, PLN_BaseStep *newstp);
 
 /* Removes the step from the plan */
-void AGPLN_PopStep(PLN_BaseStep *step);
+void AGPLN_PopStep(AGGPlan *pln, PLN_BaseStep *step);
 
 /** Checks if a step with the given type is contained within the plan */
 int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t);

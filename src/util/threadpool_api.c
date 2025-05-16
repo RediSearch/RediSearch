@@ -13,7 +13,7 @@
 
 static void ThreadPoolAPI_Execute(void *ctx) {
   ThreadPoolAPI_AsyncIndexJob *job = ctx;
-  StrongRef spec_ref = IndexSpecRef_Promote(job->spec_ref);
+  StrongRef spec_ref = WeakRef_Promote(job->spec_ref);
 
   // If the spec is still alive, execute the callback
   IndexSpec *spec = StrongRef_Get(spec_ref);
@@ -21,7 +21,7 @@ static void ThreadPoolAPI_Execute(void *ctx) {
     IndexSpec_IncrActiveWrites(spec); // Currently assuming all jobs are writes
     job->cb(job->arg);
     IndexSpec_DecrActiveWrites(spec);
-    IndexSpecRef_Release(spec_ref);
+    StrongRef_Release(spec_ref);
   }
 
   // Free the job

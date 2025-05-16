@@ -116,7 +116,7 @@ static void distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep
 
   // Add new local step
   AGPLN_AddAfter(origPlan, step, &grLocal->base);  // Add the new local step
-  AGPLN_PopStep(step);
+  AGPLN_PopStep(origPlan, step);
 
   ReducerDistCtx rdctx;
   rdctx.alloc = &dstp->alloc;
@@ -145,18 +145,18 @@ static void distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep
 cleanup:
     // printf("Couldn't find distribution implementation for %s\n", gr->reducers[ii].name);
     AGPLN_AddBefore(origPlan, &grLocal->base, step);
-    AGPLN_PopStep(&grLocal->base);
+    AGPLN_PopStep(origPlan, &grLocal->base);
     grLocal->base.dtor(&grLocal->base);
     grRemote->base.dtor(&grRemote->base);
 
     // Clear any added steps..
     for (auto stp : rdctx.addedRemoteSteps) {
-      AGPLN_PopStep(stp);
+      AGPLN_PopStep(remote, stp);
       stp->dtor(stp);
     }
 
     for (auto stp : rdctx.addedLocalSteps) {
-      AGPLN_PopStep(stp);
+      AGPLN_PopStep(origPlan, stp);
       stp->dtor(stp);
     }
 }
@@ -168,7 +168,7 @@ cleanup:
 static PLN_BaseStep *moveStep(AGGPlan *dst, AGGPlan *src, PLN_BaseStep *step) {
   PLN_BaseStep *next = PLN_NEXT_STEP(step);
   RS_ASSERT(next != step);
-  AGPLN_PopStep(step);
+  AGPLN_PopStep(src, step);
   AGPLN_AddStep(dst, step);
   return next;
 }
@@ -383,8 +383,6 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
   dstp->base.getLookup = distStepGetLookup;
   BlkAlloc_Init(&dstp->alloc);
 
-  // TODO: The while condition is buggy, since it returns the `AGGPlan`, not the `PLN_BaseStep` that is actually needed
-  // Should be fixed to `DLLIST_FOREACH(it, ll) {}`.
   while (current != PLN_END_STEP(src)) {
     switch (current->type) {
       case PLN_T_ROOT:
@@ -550,7 +548,7 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
     }
   }
 
-  AGPLN_PopStep(&local->firstStep_s.base);
+  AGPLN_PopStep(local, &local->firstStep_s.base);
   AGPLN_Prepend(local, &dstp->base);
   auto tmp = (char **)AGPLN_Serialize(dstp->plan);
   auto &v = *dstp->serialized;

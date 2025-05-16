@@ -262,7 +262,7 @@ protected:
   }
 
   void TearDown() override {
-    IndexSpec_RemoveFromGlobals({index}, false);
+    IndexSpec_RemoveFromGlobals({index});
   }
 };
 
