@@ -80,7 +80,7 @@ RefManager *createSpec(RedisModuleCtx *ctx) {
 }
 
 void freeSpec(RefManager *ism) {
-    IndexSpec_RemoveFromGlobals({ism});
+    IndexSpec_RemoveFromGlobals({ism}, false);
 }
 
 NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field) {

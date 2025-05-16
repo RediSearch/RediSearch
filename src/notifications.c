@@ -331,8 +331,9 @@ void ShardingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
 }
 
 void ShutdownEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent, void *data) {
-  RedisModule_Log(ctx, "notice", "%s", "Clearing resources on shutdown");
+  RedisModule_Log(ctx, "notice", "%s", "Begin releasing RediSearch resources on shutdown");
   RediSearch_CleanupModule();
+  RedisModule_Log(ctx, "notice", "%s", "End releasing RediSearch resources");
 }
 
 #define HIDE_USER_DATA_FROM_LOGS "hide-user-data-from-log"

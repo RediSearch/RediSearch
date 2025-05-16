@@ -45,7 +45,7 @@ RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* optio
     options = &opts_s;
   }
   IndexSpec* spec = NewIndexSpec(NewHiddenString(name, strlen(name), true));
-  StrongRef ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
+  spec->own_ref = StrongRef_New(spec, (RefManager_Free)IndexSpec_Free);
   IndexSpec_MakeKeyless(spec);
   spec->flags |= Index_Temporary;  // temporary is so that we will not use threads!!
   spec->flags |= Index_FromLLAPI;
@@ -62,14 +62,14 @@ RefManager* RediSearch_CreateIndex(const char* name, const RSIndexOptions* optio
     spec->docs.maxSize = DOCID_MAX;
   }
   if (options->gcPolicy != GC_POLICY_NONE) {
-    IndexSpec_StartGCFromSpec(ref, spec, options->gcPolicy);
+    IndexSpec_StartGCFromSpec(spec->own_ref, spec, options->gcPolicy);
   }
   if (options->stopwordsLen != -1) {
     // replace default list which is a global so no need to free anything.
     spec->stopwords = NewStopWordListCStr((const char **)options->stopwords,
                                                          options->stopwordsLen);
   }
-  return ref.rm;
+  return spec->own_ref.rm;
 }
 
 void RediSearch_DropIndex(RefManager* rm) {

@@ -18,6 +18,7 @@
 #include "info/global_stats.h"
 #include "util/units.h"
 #include "field_spec_info.h"
+#include "info/info_redis/threads/current_thread.h"
 #include "obfuscation/obfuscation_api.h"
 
 static void renderIndexOptions(RedisModule_Reply *reply, const IndexSpec *sp) {
@@ -326,11 +327,13 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
+  CurrentThread_SetIndexSpec(sp->own_ref);
   const bool with_times = (argc > 2 && !strcmp(RedisModule_StringPtrLen(argv[2], NULL), WITH_INDEX_ERROR_TIME));
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   RedisModule_Reply _reply = RedisModule_NewReply(ctx);
   fillReplyWithIndexInfo(&sctx, &_reply, false, with_times);
   RedisModule_EndReply(&_reply);
+  CurrentThread_ClearIndexSpec();
   return REDISMODULE_OK;
 }
 
@@ -353,8 +356,10 @@ int IndexObfuscatedInfo(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
     StrongRef ref = dictGetRef(entry);
     IndexSpec *sp = StrongRef_Get(ref);
     if (sp && (everything || !strcasecmp(sp->obfuscatedName, nameOrAll))) {
+      CurrentThread_SetIndexSpec(sp->own_ref);
       RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
       fillReplyWithIndexInfo(&sctx, &_reply, true, true);
+      CurrentThread_ClearIndexSpec();
       found = true;
     } else if (found) {
       // we are out of the bucket for the obfuscated name, can do this small optimization
