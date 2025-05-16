@@ -83,7 +83,6 @@ jobs:
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
       test-config: QUICK=1
-      # run_miri: true
 
   pr-validation:
     needs:

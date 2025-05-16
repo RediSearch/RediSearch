@@ -15,10 +15,6 @@ on:
       coverage:
         type: boolean
         default: false
-      # run_miri:
-      #   description: 'Whether to run Rust tests through miri to detect undefined behavior'
-      #   type: boolean
-      #   default: false
       get-redis:
         type: string
       test-config:
@@ -196,8 +192,6 @@ jobs:
         continue-on-error: true
         env:
           SAN: ${{ inputs.san }}
-          # RUN_MIRI: ${{ inputs.run_miri && 1 || 0 }}  # convert the boolean input to numeric
-          # MIRIFLAGS: -Zmiri-disable-isolation
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
