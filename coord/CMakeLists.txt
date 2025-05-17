@@ -81,7 +81,7 @@ function(setup_shared_object_target target)
   else()
       # We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
       # the library's own definition, rather than to a definition in another shared library or the main executable.
-      set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Wl,-Bsymbolic,-Bsymbolic-functions")
+      set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Wl,-Bsymbolic,-Bsymbolic-functions -static-libstdc++")
   endif()
   set_target_properties(${target} PROPERTIES PREFIX "")
 endfunction()

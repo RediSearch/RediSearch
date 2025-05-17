@@ -20,8 +20,7 @@ function(setup_cc_options)
 
     # Common compiler flags
     set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -Werror=incompatible-pointer-types -Werror=implicit-function-declaration -fcommon -funsigned-char" PARENT_SCOPE)
-    # -static-libgcc++ is required for versions that are running against redis < 8 (as of redis 8 redis is linked dynamically against libstdc++)
-    set(CMAKE_CXX_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -static-libstdc++" PARENT_SCOPE)
+    set(CMAKE_CXX_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
     set(CMAKE_CXX_STANDARD 20)
     # Release/Debug/Profile specific flags
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -46,7 +45,8 @@ function(setup_shared_object_target target)
   else()
       # We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
       # the library's own definition, rather than to a definition in another shared library or the main executable.
-      set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Wl,-Bsymbolic,-Bsymbolic-functions")
+      # -static-libgcc++ is required for versions that are running against redis < 8 (as of redis 8 redis is linked dynamically against libstdc++)
+      set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Wl,-Bsymbolic,-Bsymbolic-functions -static-libstdc++")
   endif()
   set_target_properties(${target} PROPERTIES PREFIX "")
 endfunction()
