@@ -72,6 +72,7 @@ option(ENABLE_ASSERT "Enable assertions" OFF)
 option(MT_BUILD "Enable multi-threading support" OFF)
 option(MAX_WORKER_THREADS "Override them maximum parallel worker threads allowed in thread-pool" "")
 option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
+option(BUILD_EXAMPLE_EXTENSION "Build example extension for tests" ON)
 
 
 #----------------------------------------------------------------------------------------------
