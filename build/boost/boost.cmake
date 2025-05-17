@@ -1,5 +1,12 @@
 message(STATUS "BOOST_DIR: ${BOOST_DIR}")
 
+if(POLICY CMP0144)
+    cmake_policy(SET CMP0144 NEW)
+endif()
+if(POLICY CMP0167)
+    cmake_policy(SET CMP0167 NEW)
+endif()
+
 if(NOT BOOST_DIR STREQUAL "" AND EXISTS ${BOOST_DIR})
     message(STATUS "BOOST_DIR is not empty: ${BOOST_DIR}")
     include_directories(${BOOST_DIR})
