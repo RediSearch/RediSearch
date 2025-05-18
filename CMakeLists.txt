@@ -153,23 +153,6 @@ if(VERBOSE_UTESTS)
     add_compile_definitions(VERBOSE_UTESTS=1)
 endif()
 
-# Platform-specific settings
-if(APPLE)
-    # Find OpenSSL on macOS
-    find_package(OpenSSL REQUIRED)
-    include_directories(${OPENSSL_INCLUDE_DIR})
-
-    if(DEFINED LIBSSL_DIR)
-        include_directories(${LIBSSL_DIR}/include)
-        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L${LIBSSL_DIR}/lib")
-    endif()
-
-    set(SSL_LIBS ${OPENSSL_LIBRARIES})
-    set(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS} -dynamiclib")
-else()
-    set(SSL_LIBS crypto crypt ssl)
-endif()
-
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
 # On debug artifacts, enable assertions

@@ -152,7 +152,7 @@ setup_build_environment() {
 
   # Get architecture and convert arm64 to arm64v8
   ARCH=$(uname -m)
-  if [[ "$ARCH" == "arm64" ]]; then
+  if [[ "$ARCH" == "arm64" || "$ARCH" == "aarch64" ]]; then
     ARCH="arm64v8" # so that unit tests can find the right binary
   elif [[ "$ARCH" == "x86_64" ]]; then
     ARCH="x64"

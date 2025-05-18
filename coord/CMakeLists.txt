@@ -123,6 +123,23 @@ if (COV)
 	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
 endif()
 
+# Platform-specific settings
+if(APPLE)
+	# Find OpenSSL on macOS
+	find_package(OpenSSL REQUIRED)
+	include_directories(${OPENSSL_INCLUDE_DIR})
+
+	if(DEFINED LIBSSL_DIR)
+		include_directories(${LIBSSL_DIR}/include)
+		set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L${LIBSSL_DIR}/lib")
+	endif()
+
+	set(SSL_LIBS ${OPENSSL_LIBRARIES})
+	set(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS} -dynamiclib")
+else()
+	set(SSL_LIBS crypto crypt ssl)
+endif()
+
 #----------------------------------------------------------------------------------------------
 
 include_directories(
@@ -133,11 +150,6 @@ include_directories(
 	${root}/src
 	${root}
 	${root}/deps/VectorSimilarity/src)
-
-if (APPLE)
-    include_directories(/usr/local/opt/openssl/include)
-	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/usr/local/opt/openssl/lib")
-endif()
 
 add_subdirectory(${root} search)
 add_subdirectory(src/rmr)
@@ -161,15 +173,6 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:coordinator-core>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:rmr>)
-
-if (APPLE)
-	include_directories(${LIBSSL_DIR}/include)
-	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L${LIBSSL_DIR}/lib")
-	set(SSL_LIBS crypto ssl)
-else()
-	set(SSL_LIBS crypto crypt ssl)
-endif()
-
 #----------------------------------------------------------------------------------------------
 
 macro(MODULE_TARGET TYPE)
