@@ -992,7 +992,7 @@ def test_unlimited_memory_thrs(env):
   set_tight_maxmemory_for_oom(env, 1.0)
   # Resume indexing
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-  # Verify that the indexing finished
+  # Verify that the indexing finished even though we reached OOM
   waitForIndexFinishScan(env, 'idx')
   # Verify that all docs were indexed
   info = index_info(env)
