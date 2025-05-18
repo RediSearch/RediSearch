@@ -92,7 +92,7 @@ static size_t countMerged(mergedEntry *ent) {
  * it's simpler to forego building the merged dictionary because there is
  * nothing to merge.
  */
-static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, bool isLoading) {
+static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
   RS_LOG_ASSERT(ctx, "ctx should not be NULL");
 
   IndexSpec *spec = ctx->spec;
@@ -109,7 +109,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, bool is
     if (invidx) {
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
-      IndexerYieldWhileLoading(ctx->redisCtx, isLoading);
+      IndexerYieldWhileLoading(ctx->redisCtx);
       writeIndexEntry(spec, invidx, encoder, entry);
       if (Index_StoreFieldMask(spec)) {
         invidx->fieldMask |= entry->fieldMask;
@@ -218,7 +218,7 @@ static void doAssignIds(RSAddDocumentCtx *cur, RedisSearchCtx *ctx) {
   }
 }
 
-static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, bool isLoading) {
+static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
   // Traverse all fields, seeing if there may be something which can be written!
   for (RSAddDocumentCtx *cur = aCtx; cur && cur->doc->docId; cur = cur->next) {
     if (cur->stateFlags & ACTX_F_ERRORED) {
@@ -233,7 +233,7 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx, bool i
         continue;
       }
 
-      IndexerYieldWhileLoading(sctx->redisCtx, isLoading);
+      IndexerYieldWhileLoading(sctx->redisCtx);
       if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         IndexError_AddQueryError(&cur->spec->stats.indexError, &cur->status, doc->docKey);
         FieldSpec_AddQueryError(&cur->spec->fields[fs->index], &cur->status, doc->docKey);
@@ -337,8 +337,6 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
   RSAddDocumentCtx *firstZeroId = aCtx;
   RedisSearchCtx ctx = *aCtx->sctx;
 
-  bool isLoading = RedisModule_GetContextFlags(ctx.redisCtx) & REDISMODULE_CTX_FLAGS_LOADING;
-
   if (ACTX_IS_INDEXED(aCtx) || aCtx->stateFlags & (ACTX_F_ERRORED)) {
     // Document is complete or errored. No need for further processing.
     if (!(aCtx->stateFlags & ACTX_F_EMPTY)) {
@@ -381,11 +379,11 @@ static void Indexer_Process(RSAddDocumentCtx *aCtx) {
 
   // Handle FULLTEXT indexes
   if ((aCtx->fwIdx && (aCtx->stateFlags & ACTX_F_ERRORED) == 0)) {
-    writeCurEntries(aCtx, &ctx, isLoading);
+    writeCurEntries(aCtx, &ctx);
   }
 
   if (!(aCtx->stateFlags & ACTX_F_OTHERINDEXED)) {
-    indexBulkFields(aCtx, &ctx, isLoading);
+    indexBulkFields(aCtx, &ctx);
   }
 }
 
@@ -395,17 +393,18 @@ int IndexDocument(RSAddDocumentCtx *aCtx) {
   return 0;
 }
 
+bool g_isLoading = false;
+
 /**
  * Yield to Redis after a certain number of operations during indexing.
  * This helps keep Redis responsive during long indexing operations.
  * @param ctx The Redis context
  */
-static void IndexerYieldWhileLoading(RedisModuleCtx *ctx, bool isLoading) {
+static void IndexerYieldWhileLoading(RedisModuleCtx *ctx) {
   static size_t opCounter = 0;
 
   // If server is loading, Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
-  if (isLoading && ++opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) 
-  {
+  if (g_isLoading && ++opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
     opCounter = 0;
     IncrementYieldCounter(); // Track that we called yield
     RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
