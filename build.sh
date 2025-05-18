@@ -48,7 +48,6 @@ parse_arguments() {
       COORD=*)
         COORD_VALUE="${arg#*=}"
         # Handle COORD=1 as COORD=oss
-        echo "coord is set to $COORD"
         if [[ "$COORD_VALUE" == "1" ]]; then
           COORD="oss"
         else
@@ -166,7 +165,7 @@ setup_build_environment() {
     OUTDIR="coord-oss"
   elif [[ "$COORD" == "rlec" ]]; then
     OUTDIR="coord-rlec"
-  elif [[ "$COORD" == "0" ]]; then
+  elif [[ "$COORD" == "0" || -z "$COORD" ]]; then
     OUTDIR="search"
   else
     echo "COORD should be either 0, 1, oss, or rlec"
