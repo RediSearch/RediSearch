@@ -8,7 +8,7 @@
 */
 
 use crate::{
-    iter::{Iter, LendingIter, Values, filter::VisitAll},
+    iter::{Iter, LendingIter, PrefixesIter, Values, filter::VisitAll},
     node::Node,
     utils::strip_prefix,
 };
@@ -127,6 +127,11 @@ impl<Data> TrieMap<Data> {
     /// Iterate over the entries, in lexicographical key order.
     pub fn iter(&self) -> Iter<'_, Data, VisitAll> {
         Iter::new(self.root.as_ref(), vec![])
+    }
+
+    /// Iterate over all trie entries whose key is a prefix of `target`.
+    pub fn prefixes_iter<'a>(&'a self, target: &'a [u8]) -> PrefixesIter<'a, Data> {
+        PrefixesIter::new(self.root.as_ref(), target)
     }
 
     /// Iterate over the entries that start with the given prefix, in lexicographical key order.
