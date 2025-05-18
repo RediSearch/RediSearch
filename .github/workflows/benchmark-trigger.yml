@@ -8,7 +8,7 @@ on:
 
 jobs:
   perf-ci:
-    name: Trigger
+    name: Trigger Benchmarks
     if: >
       (
         github.event.action == 'labeled' &&
