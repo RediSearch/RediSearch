@@ -699,6 +699,6 @@ def testProfileBM25NormMax(env):
     conn.execute_command('HSET', 'doc3', 't', 'hello more space world')
 
   aggregate_response = env.cmd('FT.PROFILE', 'idx', 'AGGREGATE', 'query', 'hello', 'ADDSCORES', 'SCORER', 'BM25STD.NORM')
-  env.assertTrue(recursive_contains(aggregate_response, "Normalizer"))
+  env.assertTrue(recursive_contains(aggregate_response, "Score Max Normalizer"))
   search_response = env.cmd('FT.PROFILE', 'idx', 'SEARCH', 'query', 'hello', 'WITHSCORES', 'SCORER', 'BM25STD.NORM')
-  env.assertTrue(recursive_contains(search_response, "Normalizer"))
+  env.assertTrue(recursive_contains(search_response, "Score Max Normalizer"))
