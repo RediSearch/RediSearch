@@ -1966,7 +1966,7 @@ impl<T> Drop for IntoIter<T> {
         #[inline(never)]
         fn drop_non_singleton<T>(this: &mut IntoIter<T>) {
             // We need to take ownership of the vector to avoid dropping its elements twice
-            let mut vec = mem::replace(&mut this.vec, LowMemoryThinVec::new());
+            let mut vec = mem::take(&mut this.vec);
             // SAFETY:
             // - The pointer is valid because it was obtained from a valid slice.
             // - We're in the `Drop` implementation.
