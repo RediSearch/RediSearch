@@ -4367,6 +4367,8 @@ def test_with_tls_and_non_tls_ports():
               tlsPassphrase=passphrase,
               dualTLS=True)        # Sets the ports to be both TLS and regular ports (in tls-ports + 1500).
 
+    time.sleep(3)
+
     # Initialize the cluster topology updated in RediSearch
     verify_shard_init(env)
 
@@ -4391,7 +4393,7 @@ def test_with_tls_and_non_tls_ports():
         ['OK'] * env.shardsCount
     )
 
-    time.sleep(2) # Give some time for the cluster to be updated
+    time.sleep(3)
 
     with TimeLimit(10, 'Failed waiting for the cluster to be updated'):
         new_ports = get_ports(env)

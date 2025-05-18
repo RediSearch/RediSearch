@@ -228,6 +228,76 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
+      - name: Flow tests (coordinator) again
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: coordinator_tests_again_1
+        if: ${{ inputs.coordinator }}
+        continue-on-error: true
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          REDIS_STANDALONE: 0
+          REJSON: ${{ env.REJSON }}
+          REJSON_BRANCH: ${{ inputs.rejson-branch }}
+          ENABLE_ASSERT: 1
+        run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
+      - name: Flow tests (coordinator) again
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: coordinator_tests_again_2
+        if: ${{ inputs.coordinator }}
+        continue-on-error: true
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          REDIS_STANDALONE: 0
+          REJSON: ${{ env.REJSON }}
+          REJSON_BRANCH: ${{ inputs.rejson-branch }}
+          ENABLE_ASSERT: 1
+        run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
+      - name: Flow tests (coordinator) again
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: coordinator_tests_again_3
+        if: ${{ inputs.coordinator }}
+        continue-on-error: true
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          REDIS_STANDALONE: 0
+          REJSON: ${{ env.REJSON }}
+          REJSON_BRANCH: ${{ inputs.rejson-branch }}
+          ENABLE_ASSERT: 1
+        run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
+      - name: Flow tests (coordinator) again
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: coordinator_tests_again_4
+        if: ${{ inputs.coordinator }}
+        continue-on-error: true
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          REDIS_STANDALONE: 0
+          REJSON: ${{ env.REJSON }}
+          REJSON_BRANCH: ${{ inputs.rejson-branch }}
+          ENABLE_ASSERT: 1
+        run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
+      - name: Flow tests (coordinator) again
+        timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
+        id: coordinator_tests_again_5
+        if: ${{ inputs.coordinator }}
+        continue-on-error: true
+        env:
+          SAN: ${{ inputs.san }}
+          LOG: 1
+          CLEAR_LOGS: 0
+          REDIS_STANDALONE: 0
+          REJSON: ${{ env.REJSON }}
+          REJSON_BRANCH: ${{ inputs.rejson-branch }}
+          ENABLE_ASSERT: 1
+        run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
 
       # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
       - name: Upload Artifacts (node20)
