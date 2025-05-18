@@ -197,8 +197,15 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
+  dummy:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dummy step
+        run: exit 1
+
   notify-failure:
     needs:
+      - dummy
       - benchmark-search-oss-standalone
       - benchmark-vecsim-oss-standalone
       - benchmark-search-oss-cluster-02-primaries
