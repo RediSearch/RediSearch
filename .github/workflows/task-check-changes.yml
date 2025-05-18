@@ -1,9 +1,5 @@
 on:
   workflow_call:
-    inputs:
-      env:
-        default: "${{ vars.RUNS_ON }} || ubuntu-latest"
-        type: string
     outputs:
       CODE_CHANGED:
         description: "Indicates if code has been modified"
@@ -15,22 +11,28 @@ on:
         description: "Indicates if Rust code files were modified"
         value: ${{ jobs.change-checks.outputs.RUST_CODE_CHANGED }}
 
-jobs: 
+jobs:
   change-checks:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-    outputs:
-      CODE_CHANGED: ${{ steps.check-code.outputs.any_modified }}
-      BENCHMARK_CHANGED: ${{ steps.check-benchmarks.outputs.any_modified }}
-      RUST_CODE_CHANGED: ${{ steps.check-micro-benchmarks.outputs.any_modified }}
+    outputs: # Make sure to return "true" if any workflow was changed, to make sure the workflow works
+      CODE_CHANGED: ${{ steps.check-code.outputs.any_modified || steps.check-workflows.outputs.any_modified }}
+      BENCHMARK_CHANGED: ${{ steps.check-benchmarks.outputs.any_modified || steps.check-workflows.outputs.any_modified }}
+      RUST_CODE_CHANGED: ${{ steps.check-micro-benchmarks.outputs.any_modified || steps.check-workflows.outputs.any_modified }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # required for changed-files action to work
-      
+
+      - name: Check if any workflows were changed
+        id: check-workflows
+        uses: tj-actions/changed-files@v46.0.5
+        with: # Only run on changes to these paths (workflows)
+          files: |
+                .github/workflows/**
       - name: Check if code were changed
         id: check-code
-        uses: tj-actions/changed-files@ed68ef82c095e0d48ec87eccea555d944a631a4c # v46.0.5
+        uses: tj-actions/changed-files@v46.0.5
         with: # Only run on changes to these paths (code, deps)
           files: |
                 src/**
@@ -39,7 +41,7 @@ jobs:
                 **/Makefile
       - name: Check if benchmarks or code were changed
         id: check-benchmarks
-        uses: tj-actions/changed-files@ed68ef82c095e0d48ec87eccea555d944a631a4c # v46.0.5
+        uses: tj-actions/changed-files@v46.0.5
         with: # Only run on changes to these paths (code, deps, and benchmarks related changes)
           files: |
                 src/**
@@ -50,7 +52,7 @@ jobs:
                 **/Makefile
       - name: Check if rust micro-benchmarks were changed
         id: check-micro-benchmarks
-        uses: tj-actions/changed-files@ed68ef82c095e0d48ec87eccea555d944a631a4c # v46.0.5
+        uses: tj-actions/changed-files@v46.0.5
         with: # Only run on changes to these paths (redisearch_rs)
           files: |
               src/redisearch_rs/**
