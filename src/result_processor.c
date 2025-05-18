@@ -1357,7 +1357,9 @@ void PipelineAddCrash(struct AREQ *r) {
   SearchResult_Override(r, poppedResult);
   rm_free(poppedResult);
   double oldScore = r->score;
-  r->score = r->score / self->maxValue;
+  if (r->score != 0) {
+    r->score /= self->maxValue;
+  }
   if (self->scoreKey) {
     RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
   }
