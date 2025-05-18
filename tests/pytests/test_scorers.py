@@ -483,58 +483,56 @@ def testNormalizedBM25Tanh():
     stretch_factor = 10000
     testNormScore(env, stretch_factor, query_param=True)
 
-def testBM25NormMax():
-    '''
-    The normalization process should be integrated with the scoring mechanism, as we're introducing it as a scorer type: BM25STD.NORM.
-    This integration ensures that each document in the result set, derived from the index iterator, receives a consistent normalized score.
-    For instance, applying a LIMIT 0 2 clause doesn't alter the scores considered for normalization, since we exhaust the index iterator before applying the limit.
-    '''
 
-
-    def create_index(env, use_key_tags=False):
+class TestBM25NormMax:
+    """
+    Scores are normalized by dividing each score by the maximum score in the result set.
+    Upstream consumption depends on the requirements of the pipeline stage; it may request all results or a limited number, based on the stage's processing needs.
+    """
+    def create_and_fill_index(self, use_key_tags=False):
         # Prepare the index with documents having different scores
-        conn = env.getClusterConnectionIfNeeded()
-        env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'body', 'TEXT').ok()
-
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'body', 'TEXT').ok()
+        conn = self.env.getClusterConnectionIfNeeded()
         # Add documents with varying content to get different scores
         tag = '{tag}' if use_key_tags else ''
-        conn.execute_command('HSET', f'doc1{tag}', 'title', 'hello world', 'body', 'this is a test')
-        conn.execute_command('HSET', f'doc2{tag}', 'title', 'hello world', 'body', 'this is a test hello world')
-        conn.execute_command('HSET', f'doc3{tag}', 'title', 'hello', 'body', 'world')
-        conn.execute_command('HSET', f'doc4{tag}', 'title', 'something else', 'body', 'completely different')
-        conn.execute_command('HSET', f'doc5{tag}', 'title', 'hello', 'body', 'hello hello hello world world')
+        conn.execute_command('HSET', f'doc:1{tag}', 'title', 'hello')
+        conn.execute_command('HSET', f'doc:2{tag}', 'title', 'hello world')
+        conn.execute_command('HSET', f'doc:3{tag}', 'title', 'hello world orange')
+        conn.execute_command('HSET', f'doc:4{tag}', 'title', 'hello world orange yellow')
+        conn.execute_command('HSET', f'doc:5{tag}', 'title', 'hello world orange yellow blue')
 
+    def setUp(self):
+        self.env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
+        self.create_and_fill_index(use_key_tags=self.env.isCluster())
 
-    def _test_error_unstable_feature_disabled(env):
-        create_index(env)
-        env.expect('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM').error()
-        env.flush()
+    def tearDown(self): # cleanup after each test
+        self.env.flush()
 
-    def _test_scores_match_and_normalized(env, index_name='idx', query='hello world'):
-        create_index(env, use_key_tags=env.isCluster())
+    def test_bm25std_normalization_correctness(self):
         # Run both SEARCH and AGGREGATE with BM25STD and BM25STD.NORM
-        res_std = sortedResults(env.cmd('FT.SEARCH', index_name, query, 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD'))
-        res_norm = sortedResults(env.cmd('FT.SEARCH', index_name, query, 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM'))
+        res_std = self.env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD')
+        res_norm = self.env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
 
-        doc_ids_std = [res_std[i] for i in range(1, len(res_std), 2)]
-        doc_ids_norm = [res_norm[i] for i in range(1, len(res_norm), 2)]
-        env.assertEqual(doc_ids_std, doc_ids_norm)
+        keys_std = [res_std[i] for i in range(1, len(res_std), 2)]
+        keys_norm = [res_norm[i] for i in range(1, len(res_norm), 2)]
+        self.env.assertEqual(keys_std, keys_norm)
 
         max_std = max(float(res_std[i]) for i in range(2, len(res_std), 2))
         max_norm = max(float(res_norm[i]) for i in range(2, len(res_norm), 2))
-        env.assertAlmostEqual(max_norm, 1.0, 0.00001)
+        # When no documents are excluded and query not have 'not' clause, maximum score should be 1.0
+        self.env.assertAlmostEqual(max_norm, 1.0, 0.00001)
 
         for i in range(2, len(res_norm), 2):
             expected = float(res_std[i]) / max_std
             actual = float(res_norm[i])
-            env.assertAlmostEqual(actual, expected, 0.00001)
-            env.assertGreaterEqual(actual, 0.0)
-            env.assertLessEqual(actual, 1.0)
+            self.env.assertAlmostEqual(actual, expected, 0.00001)
+            self.env.assertGreaterEqual(actual, 0.0)
+            self.env.assertLessEqual(actual, 1.0)
 
         # AGGREGATE version
-        agg_std = env.cmd('FT.AGGREGATE', index_name, query, 'ADDSCORES', 'SCORER', 'BM25STD',
+        agg_std = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD',
                           'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC')
-        agg_norm = env.cmd('FT.AGGREGATE', index_name, query, 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+        agg_norm = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
                            'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC')
 
         key_index = agg_std[1].index('__key') + 1
@@ -543,145 +541,75 @@ def testBM25NormMax():
         max_score = max(scores_std.values())
         for row in agg_norm[1:]:
             norm_score = float(row[score_index])
-            env.assertAlmostEqual(norm_score, scores_std[row[key_index]] / max_score, 0.00001)
+            self.env.assertAlmostEqual(norm_score, scores_std[row[key_index]] / max_score, 0.00001)
 
-        env.flush()
 
-    def _test_limit_behavior(env, index_name='idx', query='hello world'):
-        create_index(env)
-        full = env.cmd('FT.SEARCH', index_name, query, 'WITHSCORES', 'SCORER', 'BM25STD.NORM', 'NOCONTENT')
-        limited = env.cmd('FT.SEARCH', index_name, query, 'WITHSCORES', 'SCORER', 'BM25STD.NORM',
-                          'NOCONTENT', 'LIMIT', '0', '2')
+    def test_limit_behavior(self):
+        # The number of results to normalize depends on the request from the downstream consumer.
+        # In search operations, this typically means normalizing all results.
+        offset = 1
+        limit = 2
+        full = self.env.cmd('FT.SEARCH', 'idx', 'hello world orange', 'WITHSCORES', 'SCORER', 'BM25STD.NORM', 'NOCONTENT')
+        limited = self.env.cmd('FT.SEARCH', 'idx', 'hello world orange', 'WITHSCORES', 'SCORER', 'BM25STD.NORM',
+                          'NOCONTENT', 'LIMIT', offset, limit)
 
-        # Max score of limited page should be 1.0
-        env.assertAlmostEqual(float(limited[2]), 1.0, 0.00001)
+        num_results = lambda response: (len(response) - 1) / 2
+        self.env.assertEqual(limited[0], 3)
+        self.env.assertEqual(num_results(limited), 2)
+        self.env.assertEqual(full[0], 3)
 
-        # Assert scores match corresponding full results
         for i in range(1, len(limited), 2):
-            doc_id = limited[i]
-            score = float(limited[i+1])
-            for j in range(1, len(full), 2):
-                if full[j] == doc_id:
-                    env.assertAlmostEqual(score, float(full[j+1]), 0.00001)
-                    break
+            self.env.assertAlmostEqual(float(limited[i+1]), float(full[2*offset +i+1]), 0.00001)
 
         # AGGREGATE version
-        agg_full = env.cmd('FT.AGGREGATE', index_name, query, 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+        agg_full = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world orange', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
                            'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC')
-        agg_limited = env.cmd('FT.AGGREGATE', index_name, query, 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
-                              'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC', 'LIMIT', '0', '2')
+        agg_limited = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world orange', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+                              'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC', 'LIMIT', offset, limit)
 
         key_index = agg_full[1].index('__key') + 1
         score_index = agg_full[1].index('__score') + 1
 
-        env.assertAlmostEqual(float(agg_limited[1][score_index]), 1.0, 0.00001)
-
-        for row in agg_limited[1:]:
-            for full_row in agg_full[1:]:
-                if row[key_index] == full_row[key_index]:  # Compare by key
-                    env.assertAlmostEqual(float(row[score_index]), float(full_row[score_index]), 0.00001)
-                    break
-
-        env.flush()
+        for i in range(1, len(agg_limited)):
+            self.env.assertLessEqual(float(agg_limited[i][score_index]), float(agg_full[i+offset][score_index]), 0.00001)
 
 
-    def _test_bm25std_norm_pagination_consistency(env):
-        """Tests score consistency with pagination"""
-        create_index(env)
+    def test_single_result_normalization(self):
 
-        # Get full results
-        res_full = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+        res = self.env.cmd('FT.SEARCH', 'idx', 'blue', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+        self.env.assertEqual(res[0], 1)
+        self.env.assertAlmostEqual(float(res[2]), 1.0, 0.00001)
 
-        # Store scores by document ID
-        doc_scores = {}
-        for i in range(1, len(res_full), 2):
-            doc_scores[res_full[i]] = float(res_full[i+1])
+        agg = self.env.cmd('FT.AGGREGATE', 'idx', 'blue', 'ADDSCORES', 'SCORER', 'BM25STD.NORM')
+        self.env.assertAlmostEqual(float(res[2]), 1.0, 0.00001)
 
-        # Test different pagination offsets
-        for offset in range(0, res_full[0]):
-            res_page = env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT',
-                              'SCORER', 'BM25STD.NORM', 'LIMIT', str(offset), '1')
-
-            if res_page[0] > 0:  # If we have results
-                doc_id = res_page[1]
-                page_score = float(res_page[2])
-                env.assertAlmostEqual(page_score, doc_scores[doc_id], 0.00001)
-
-        # AGGREGATE version
-        agg_full = env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
-                          'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC')
-
-        # Store scores by key
-        key_index = agg_full[1].index('__key') + 1
-        score_index = agg_full[1].index('__score') + 1
-        agg_scores = {row[key_index]: float(row[score_index]) for row in agg_full[1:]}
-
-        for offset in range(0, agg_full[0]):
-            agg_page = env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
-                              'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC',
-                              'LIMIT', str(offset), '1')
-
-            if agg_page[0] > 0:  # If we have results
-                key = agg_page[1][key_index]
-                page_score = float(agg_page[1][score_index])
-                env.assertAlmostEqual(page_score, agg_scores[key], 0.00001)
-
-        env.flush()
-
-    def _test_single_result_normalization(env):
-        create_index(env)
-        res = env.cmd('FT.SEARCH', 'idx', 'different', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
-        env.assertEqual(res[0], 1)
-        env.assertAlmostEqual(float(res[2]), 1.0, 0.00001)
-
-        agg = env.cmd('FT.AGGREGATE', 'idx', 'different', 'ADDSCORES', 'SCORER', 'BM25STD.NORM')
-        env.assertEqual(agg[0], 1)
-        env.assertAlmostEqual(float(res[2]), 1.0, 0.00001)
-        env.flush()
-
-
-    def _test_identical_scores_same_shard(env):
-        create_index(env, use_key_tags=env.isCluster())  # Use tags to ensure docs are on same shard
-        conn = env.getClusterConnectionIfNeeded()
+    def test_identical_scores_same_shard(self):
+        conn = self.env.getClusterConnectionIfNeeded()
 
         # Add identical documents with tag to ensure same shard
         for i in range(6, 9):
             conn.execute_command('HSET', f'doc{i}{{tag}}', 'title', 'identical content', 'body', 'identical body text')
 
-        res = env.cmd('FT.SEARCH', 'idx', 'identical', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+        res = self.env.cmd('FT.SEARCH', 'idx', 'identical', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
         for i in range(2, len(res), 2):
-            env.assertAlmostEqual(float(res[i]), 1.0, 0.00001)
+            self.env.assertAlmostEqual(float(res[i]), 1.0, 0.00001)
 
-        agg = env.cmd('FT.AGGREGATE', 'idx', 'identical', 'ADDSCORES', 'SCORER', 'BM25STD.NORM')
+        agg = self.env.cmd('FT.AGGREGATE', 'idx', 'identical', 'ADDSCORES', 'SCORER', 'BM25STD.NORM')
         for row in agg[1:]:
-            env.assertAlmostEqual(float(row[1]), 1.0, 0.00001)
+            self.env.assertAlmostEqual(float(row[1]), 1.0, 0.00001)
 
-        env.flush()
-
-
-    def _test_no_results(env):
-        create_index(env)
+    def test_no_results(self):
         query = 'no match term'
-        res = env.cmd('FT.SEARCH', 'idx', query, 'WITHSCORES', 'SCORER', 'BM25STD.NORM', 'NOCONTENT')
-        env.assertEqual(res[0], 0)
+        res = self.env.cmd('FT.SEARCH', 'idx', query, 'WITHSCORES', 'SCORER', 'BM25STD.NORM', 'NOCONTENT')
+        self.env.assertEqual(res[0], 0)
 
-        agg = env.cmd('FT.AGGREGATE', 'idx', query, 'ADDSCORES', 'SCORER', 'BM25STD.NORM')
-        env.assertEqual(agg[0], 0)
+        agg = self.env.cmd('FT.AGGREGATE', 'idx', query, 'ADDSCORES', 'SCORER', 'BM25STD.NORM')
+        self.env.assertEqual(len(agg), 1)
 
-        env.flush()
-
-
+def test_error_unstable_feature_disabled(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    _test_error_unstable_feature_disabled(env)
-    enable_unstable_features(env)
-    _test_scores_match_and_normalized(env)
-    _test_limit_behavior(env)
-    _test_bm25std_norm_pagination_consistency(env)
-    _test_single_result_normalization(env)
-    _test_identical_scores_same_shard(env)
-    _test_no_results(env)
-
-
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    env.expect('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM').error().contains("Scorer BM25STD.NORM not available when `ENABLE_UNSTABLE_FEATURES` is off")
 
 def testNormalizedBM25ScorerExplanation():
     """

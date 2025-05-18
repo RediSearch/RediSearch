@@ -1078,7 +1078,7 @@ void SetLoadersForMainThread(AREQ *r) {
 static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
                                      "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
                                      "Grouper", "Projector", "Filter",            "Profile",
-                                     "Network", "Metrics Applier", "Key Name Loader", "Normalizer"};
+                                     "Network", "Metrics Applier", "Key Name Loader", "Score Max Normalizer"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -1324,10 +1324,7 @@ void PipelineAddCrash(struct AREQ *r) {
 }
 
  /*******************************************************************************************************************
-  *  Max Result Processor
-  *
-  * This processor first depletes the result pipeline by iterating through all results once.
-  * It can be used to collect maximum values or any other aggregation that requires a single pass.
+  *  Max Score Normalizer Result Processor
   *******************************************************************************************************************/
  typedef struct {
    ResultProcessor base;
@@ -1380,6 +1377,7 @@ static int rpNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     return rp->Next(rp, r);
   } else if (rc != RS_RESULT_OK) {
     // whoops!
+    RS_LOG_ASSERT(rc != RS_RESULT_OK, "Received an unexpected result status that is neither EOF nor OK");
     return rc;
   }
 
@@ -1389,7 +1387,6 @@ static int rpNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   array_ensure_append_1(self->pool, self->pooledResult);
 
   // we need to allocate a new result for the next iteration
-  //TODO: Consider optimizing by allocating memory once every N iterations
   self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
   return RESULT_QUEUED;
 }
@@ -1397,10 +1394,9 @@ static int rpNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
 static int rpNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
   RPNormalizer *self = (RPNormalizer *)rp;
   uint32_t chunkLimit = rp->parent->resultLimit;
-  rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
   int rc;
   int count = 0;
-  while ((rc = rpNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED) {}
+  while (count < chunkLimit && (rc = rpNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED);
   rp->parent->resultLimit = chunkLimit; // restore the limit
   return rc;
 }
