@@ -216,8 +216,8 @@ capture_coverage() {
     "$ROOT/deps/triemap/*" \
     "$ROOT/deps/thpool/*" \
 
-  # Remove coverage for directories we don't want
-  lcov -o $BINROOT/$NAME.info --remove $BINROOT/source.info \
+  # Remove coverage for directories we don't want (ignore if no file matches)
+  lcov -o $BINROOT/$NAME.info --ignore-errors unused --remove $BINROOT/source.info \
     "*/tests/*" \
 
   [[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::"
