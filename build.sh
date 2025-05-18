@@ -211,20 +211,19 @@ capture_coverage() {
   lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info
 
   # Extract only the coverage of the project source files
-  lcov --output-file $BINROOT/$NAME.info --extract $BINROOT/full.info \
+  lcov --output-file $BINROOT/source.info --extract $BINROOT/full.info \
     "$ROOT/src/*" \
     "$ROOT/deps/triemap/*" \
     "$ROOT/deps/thpool/*" \
 
-  # TODO: remove `tests`?
-  # # Remove coverage for directories we don't want
-  # lcov -o $BINROOT/tmp.info --remove $BINROOT/full.info \
-  #   "*/tests/*" \
+  # Remove coverage for directories we don't want
+  lcov -o $BINROOT/$NAME.info --remove $BINROOT/source.info \
+    "*/tests/*" \
 
   [[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::"
 
   # Clean up temporary files
-  rm $BINROOT/base.info $BINROOT/test.info $BINROOT/full.info #$BINROOT/tmp.info
+  rm $BINROOT/base.info $BINROOT/test.info $BINROOT/full.info $BINROOT/source.info
 }
 
 #-----------------------------------------------------------------------------
