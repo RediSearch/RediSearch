@@ -976,6 +976,7 @@ def test_pseudo_enterprise_cluster_oom_retry_failure(env):
             'INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
         env.assertEqual(failures, 1)
 
+@skip(cluster=True)
 def test_unlimited_memory_thrs(env):
   # Set the threshold to 0
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '0').ok()
