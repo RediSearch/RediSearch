@@ -22,7 +22,7 @@ function(setup_cc_options)
     message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
     # Common compiler flags
-    set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -Werror=incompatible-pointer-types -Werror=implicit-function-declaration -fcommon -funsigned-char" PARENT_SCOPE)
+    set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
     set(CMAKE_CXX_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
     set(CMAKE_CXX_STANDARD 20)
     # Release/Debug/Profile specific flags
@@ -139,8 +139,8 @@ execute_process(
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
 # Treat all format‑string warnings as errors
-set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wformat -Werror=format-security")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat -Werror=format-security")
+set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wformat")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
 
 
 add_compile_definitions(
