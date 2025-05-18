@@ -256,7 +256,7 @@ jobs:
         if: inputs.coverage
         uses: codecov/codecov-action@v5
         with:
-          files: bin/flow.info
+          files: bin/flow_standalone.info,bin/flow_coordinator.info
           disable_search: true
           flags: flow
           fail_ci_if_error: true # Fail on upload errors

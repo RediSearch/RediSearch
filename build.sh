@@ -598,7 +598,12 @@ run_python_tests() {
   if [[ $PYTHON_TEST_RESULT -eq 0 ]]; then
     echo "All Python tests passed!"
     if [[ $COV == 1 ]]; then
-      capture_coverage flow
+      if [[ "$REDIS_STANDALONE" == "1" ]]; then
+        DEPLOYMENT_TYPE="standalone"
+      else
+        DEPLOYMENT_TYPE="coordinator"
+      fi
+      capture_coverage flow_$DEPLOYMENT_TYPE
     fi
   else
     echo "Some Python tests failed. Check the test logs above for details."
