@@ -15,7 +15,7 @@ on:
       get-redis:
         type: string
       test-config:
-        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK")'
+        description: 'Test configuration environment variable (e.g. "CONFIG=tls" or "QUICK=1")'
         required: true
         type: string
       coordinator:
