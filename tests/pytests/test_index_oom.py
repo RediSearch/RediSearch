@@ -975,3 +975,26 @@ def test_pseudo_enterprise_cluster_oom_retry_failure(env):
         failures = env.getConnection(shard_id).execute_command(
             'INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
         env.assertEqual(failures, 1)
+
+def test_unlimited_memory_thrs(env):
+  # Set the threshold to 0
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '0').ok()
+  # Set pause before scan
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+  # insert 100 docs
+  for i in range(100):
+      env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+  # Wait for pause before scan
+  waitForIndexStatus(env, 'NEW')
+  # Set maxmemory to be equal to used memory
+  set_tight_maxmemory_for_oom(env, 1.0)
+  # Resume indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Verify that the indexing finished
+  waitForIndexFinishScan(env, 'idx')
+  # Verify that all docs were indexed
+  info = index_info(env)
+  docs_in_index = info['num_docs']
+  env.assertEqual(docs_in_index, 100)
