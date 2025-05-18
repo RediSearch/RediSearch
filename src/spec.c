@@ -93,9 +93,57 @@ static void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisM
 
 //---------------------------------------------------------------------------------------------
 
-static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *scanner);
-static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner);
-static inline bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx);
+// This function should be called after the first background scan OOM error
+// It will wait for resource manager to allocate more memory to the process if possible
+// and after the function returns, the scan will continue
+static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *scanner) {
+  // Thread sleep based on the config
+  uint32_t sleepTime = RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry;
+  RedisModule_Log(ctx, "notice", "Scanning index %s in background: paused for %u seconds due to OOM, waiting for memory allocation",
+                  scanner->spec_name_for_logs, sleepTime);
+  sleep(sleepTime);
+
+  return;
+}
+
+// This function should be called after the second background scan OOM error
+// It will stop the background scan process
+static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner) {
+  char* error;
+  rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit);
+  RedisModule_Log(ctx, "warning", "%s", error);
+
+    // We need to report the error message besides the log, so we can show it in FT.INFO
+  if(!scanner->global) {
+    scanner->cancelled = true;
+    StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
+    IndexSpec *sp = StrongRef_Get(curr_run_ref);
+    if (sp) {
+      sp->scan_failed_OOM = true;
+      // Error message does not contain user data
+      IndexError_AddError(&sp->stats.indexError, error, error, scanner->OOMkey);
+      IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
+      StrongRef_Release(curr_run_ref);
+    } else {
+      // spec was deleted
+      RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled due to OOM and index was dropped",
+                    scanner->spec_name_for_logs);
+      }
+    }
+    rm_free(error);
+}
+
+// Return true if used_memory exceeds (indexingMemoryLimit % × memoryLimit); false if within bounds or limit is 0.
+static inline bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
+  // if memory limit is set to 0, we don't need to check for memory usage
+  if(RSGlobalConfig.indexingMemoryLimit == 0) {
+    return false;
+  }
+  // Get the memory limit and memory usage
+  setMemoryInfo(ctx);
+  // Check if used memory crossed the threshold
+  return (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit) ;
+}
 
 static void setMemoryInfo(RedisModuleCtx *ctx) {
 #define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
@@ -2229,6 +2277,7 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     if (scanner->OOMkey) {
       RedisModule_FreeString(RSDummyContext, scanner->OOMkey);
     }
+    // Hold the key that triggered OOM in case we need to attach an index error
     scanner->OOMkey = RedisModule_HoldString(RSDummyContext, keyname);
     return;
   }
@@ -2238,7 +2287,6 @@ static void Indexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keyname, Re
     key = RedisModule_OpenKey(ctx, keyname, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
     keyOpened = true;
   }
-
   // Get the document type
   DocumentType type = getDocType(key);
 
@@ -2337,7 +2385,7 @@ static void Indexes_ScanAndReindexTask(IndexesScanner *scanner) {
         threadSleepByConfigTime(ctx, scanner);
         if (!isBgIndexingMemoryOverLimit(ctx)) {
           // We can continue the scan
-          RedisModule_Log(ctx, "notice", "Scanning index %s in background: resuming after OOM",
+          RedisModule_Log(ctx, "notice", "Scanning index %s in background: resuming after OOM due to memory limit increase",
                           scanner->spec_name_for_logs);
           IndexesScanner_ResetProgression(scanner);
           RedisModule_ScanCursorRestart(cursor);
@@ -2389,59 +2437,6 @@ end:
 }
 
 //---------------------------------------------------------------------------------------------
-
-// This function should be called after the first background scan OOM error
-// It will wait for resource manager to allocate more memory to the process if possible
-// and after the function returns, the scan will continue
-static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *scanner) {
-  // Thread sleep based on the config
-  uint32_t sleepTime = RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry;
-  RedisModule_Log(ctx, "notice", "Scanning index %s in background: paused for %u seconds due to OOM, waiting for memory allocation",
-                  scanner->spec_name_for_logs, sleepTime);
-  sleep(sleepTime);
-
-  return;
-}
-
-// This function should be called after the second background scan OOM error
-// It will stop the background scan process
-static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner) {
-  char* error;
-  rm_asprintf(&error, "Used memory is more than %u percent of max memory, cancelling the scan",RSGlobalConfig.indexingMemoryLimit);
-  RedisModule_Log(ctx, "warning", "%s", error);
-
-    // We need to report the error message besides the log, so we can show it in FT.INFO
-  if(!scanner->global) {
-    scanner->cancelled = true;
-    StrongRef curr_run_ref = WeakRef_Promote(scanner->spec_ref);
-    IndexSpec *sp = StrongRef_Get(curr_run_ref);
-    if (sp) {
-      sp->scan_failed_OOM = true;
-      // Error message does not contain user data
-      IndexError_AddError(&sp->stats.indexError, error, error, scanner->OOMkey);
-      IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
-      StrongRef_Release(curr_run_ref);
-    } else {
-      // spec was deleted
-      RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled due to OOM and index was dropped",
-                    scanner->spec_name_for_logs);
-      }
-    }
-    rm_free(error);
-}
-
-// Return true if used_memory exceeds (indexingMemoryLimit % × memoryLimit); false if within bounds or limit is 0.
-static inline bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
-  // if memory limit is set to 0, we don't need to check for memory usage
-  if(RSGlobalConfig.indexingMemoryLimit == 0) {
-    return false;
-  }
-  // Get the memory limit and memory usage
-  setMemoryInfo(ctx);
-  // Check if used memory crossed the threshold
-  return (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit) ;
-}
-
 
 static void IndexSpec_ScanAndReindexAsync(StrongRef spec_ref) {
   if (!reindexPool) {

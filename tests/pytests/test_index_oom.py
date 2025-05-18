@@ -518,7 +518,7 @@ def test_pseudo_enterprise_oom_retry_success(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
   # Set the pause time to 1 second so we can test the retry
-  env.expect('FT.CONFIG', 'SET', 'BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
 
   num_docs = 1000
   for i in range(num_docs):
@@ -561,7 +561,7 @@ def test_pseudo_enterprise_oom_retry_failure(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
   # Set the pause time to 1 second so we can test the retry
-  env.expect('FT.CONFIG', 'SET', 'BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
 
   num_docs = 1000
   for i in range(num_docs):
@@ -604,7 +604,7 @@ def test_pseudo_enterprise_oom_multiple_retry_success(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
   # Set the pause time to 1 second so we can test the retry
-  env.expect('FT.CONFIG', 'SET', 'BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
 
   num_docs = 1000
   for i in range(num_docs):
@@ -661,7 +661,7 @@ def test_pseudo_enterprise_oom_multiple_retry_failure(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
   # Set the pause time to 1 second so we can test the retry
-  env.expect('FT.CONFIG', 'SET', 'BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
 
   num_docs = 10000
   for i in range(num_docs):
@@ -724,7 +724,7 @@ def test_pseudo_enterprise_oom_retry_drop(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
   # Set the pause time to 1 second so we can test the retry
-  env.expect('FT.CONFIG', 'SET', 'BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
 
   num_docs = 100
   for i in range(num_docs):
@@ -767,7 +767,7 @@ def test_pseudo_enterprise_oom_retry_alter_success(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
   # Set the pause time to 1 second so we can test the retry
-  env.expect('FT.CONFIG', 'SET', 'BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
 
   num_docs = 100
   for i in range(num_docs):
@@ -817,7 +817,7 @@ def test_pseudo_enterprise_oom_retry_alter_failure(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
   # Set the pause time to 1 second so we can test the retry
-  env.expect('FT.CONFIG', 'SET', 'BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
 
   num_docs = 100
   for i in range(num_docs):
@@ -879,7 +879,7 @@ def test_pseudo_enterprise_cluster_oom_retry_success(env):
         env, '_FT.CONFIG SET _BG_INDEX_MEM_PCT_THR 80')
     # 1-second grace so the test doesn’t take too long
     verify_command_OK_on_all_shards(
-        env, '_FT.CONFIG SET BG_INDEX_OOM_PAUSE_TIME 1')
+        env, '_FT.CONFIG SET _BG_INDEX_OOM_PAUSE_TIME 1')
 
     conn = getConnectionByEnv(env)
     docs_per_shard = 1_000
@@ -930,7 +930,7 @@ def test_pseudo_enterprise_cluster_oom_retry_failure(env):
     verify_command_OK_on_all_shards(
         env, '_FT.CONFIG SET _BG_INDEX_MEM_PCT_THR 80')
     verify_command_OK_on_all_shards(
-        env, '_FT.CONFIG SET BG_INDEX_OOM_PAUSE_TIME 1')
+        env, '_FT.CONFIG SET _BG_INDEX_OOM_PAUSE_TIME 1')
 
     conn = getConnectionByEnv(env)
     docs_per_shard = 1_000

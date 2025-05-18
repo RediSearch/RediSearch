@@ -92,7 +92,7 @@ def testGetConfigOptions(env):
     check_config('ENABLE_UNSTABLE_FEATURES')
     check_config('_BG_INDEX_MEM_PCT_THR')
     check_config('BM25STD_TANH_FACTOR')
-    check_config('BG_INDEX_OOM_PAUSE_TIME')
+    check_config('_BG_INDEX_OOM_PAUSE_TIME')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
@@ -120,7 +120,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
-    env.expect(config_cmd(), 'set', 'BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
 
 
 @skip(cluster=True)
@@ -137,8 +137,8 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 101).contains('Memory limit for indexing cannot be greater then 100%')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 10001).contains('BM25STD_TANH_FACTOR must be between 1 and 10000')
-    env.expect(config_cmd(), 'set', 'BG_INDEX_OOM_PAUSE_TIME', -1).contains('Value is outside acceptable bounds')
-    env.expect(config_cmd(), 'set', 'BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', -1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')
 @skip(cluster=True)
 def testAllConfig(env):
     ## on existing env the pre tests might change the config
@@ -185,7 +185,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
     env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
-    env.assertEqual(res_dict['BG_INDEX_OOM_PAUSE_TIME'][0], '0')
+    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
 
 
 @skip(cluster=True)
@@ -214,7 +214,7 @@ def testInitConfig():
     _test_config_num('INDEX_CURSOR_LIMIT', 128)
     _test_config_num('_BG_INDEX_MEM_PCT_THR', 100)
     _test_config_num('BM25STD_TANH_FACTOR', 4)
-    _test_config_num('BG_INDEX_OOM_PAUSE_TIME', 0)
+    _test_config_num('_BG_INDEX_OOM_PAUSE_TIME', 0)
 
 
 # True/False arguments
@@ -492,7 +492,7 @@ numericConfigs = [
     ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True, False),
     ('search-_bg-index-mem-pct-thr', '_BG_INDEX_MEM_PCT_THR', 100, 0, 100, False, False),
     ('search-bm25std-tanh-factor', 'BM25STD_TANH_FACTOR', 4, 1, 10000, False, False),
-    ('search-bg_index-oom-pause-time','BG_INDEX_OOM_PAUSE_TIME', 0, 0, UINT32_MAX, False, False),
+    ('search-_bg-index-oom-pause-time','_BG_INDEX_OOM_PAUSE_TIME', 0, 0, UINT32_MAX, False, False),
     # Cluster parameters
     ('search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True, True),
     ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False, True),
