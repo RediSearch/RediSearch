@@ -167,22 +167,23 @@ fn test_out_of_memory_error() {
 }
 
 mod property_based {
+    #![cfg(not(miri))]
     //! This module contains property-based tests for the qint encoding and decoding functions.
     //!
-    //! The [PropEncoding] enum represents different configurations of integers and their expected sizes for encoding.  
-    //! Each variant corresponds to a specific number of integers (2, 3, or 4) and their respective sizes in bytes.  
-    //!  
-    //! The module defines strategies for generating random test data: [qint_varlen], [qint2], [qint3], [qint4], and [qint_encoding].  
-    //! These strategies produce arrays of `u32` integers along with their expected sizes in bytes, which are used to test the encoding and decoding logic.  
+    //! The [PropEncoding] enum represents different configurations of integers and their expected sizes for encoding.
+    //! Each variant corresponds to a specific number of integers (2, 3, or 4) and their respective sizes in bytes.
     //!
-    //! The [qint_varlen] strategy generates random integers, where each integer is 1 to 4 bytes long.  
+    //! The module defines strategies for generating random test data: [qint_varlen], [qint2], [qint3], [qint4], and [qint_encoding].
+    //! These strategies produce arrays of `u32` integers along with their expected sizes in bytes, which are used to test the encoding and decoding logic.
+    //!
+    //! The [qint_varlen] strategy generates random integers, where each integer is 1 to 4 bytes long.
     //! Each byte is assigned a random value between 0 and 255. This way we get the same distribution of 1-4 bytes as in the encoding
     //! whereas a normal random u32 would strongly bias the distribution towards 4 bytes.
     //! If we would create a u32 from random bytes we would have a strong bias towards 4 bytes as the probability of getting a 3 byte
     //! integer value is already 2^8 times smaller than that of a 4 byte value.
-    //!  
-    //! Using [qint_varlen], the [qint2], [qint3], and [qint4] strategies build [PropEncoding] variants.  
-    //! For example, `PropEncoding::QInt3(([100, 2000, 30000], [1, 2, 3]))` represents three integers with sizes of 1, 2, and 3 bytes, respectively.  
+    //!
+    //! Using [qint_varlen], the [qint2], [qint3], and [qint4] strategies build [PropEncoding] variants.
+    //! For example, `PropEncoding::QInt3(([100, 2000, 30000], [1, 2, 3]))` represents three integers with sizes of 1, 2, and 3 bytes, respectively.
     //! These variants serve as input for property-based tests.
     //!
     //! The strategy [qint_encoding_with_to_small_buffer_base] is used in the property tests [test_encoding_with_too_small_buffer] and
