@@ -209,7 +209,7 @@ jobs:
       - benchmark-search-oss-cluster-24-primaries
       - benchmark-search-oss-standalone-profiler
       - benchmark-vecsim-oss-standalone-profiler
-    if: failure()
+    if: ${{ failure() && github.event_name == 'push' }}
     runs-on: ${{ vars.RUNS_ON }}
     steps:
       - name: Notify Failure
