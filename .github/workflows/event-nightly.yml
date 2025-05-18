@@ -14,7 +14,7 @@ jobs:
     secrets: inherit
     with:
       redis-ref: unstable
-      test-config: QUICK=1
+      test-config: QUICK
       fail-fast: false
 
   test-macos:
@@ -22,7 +22,7 @@ jobs:
     secrets: inherit
     with:
       redis-ref: unstable
-      test-config: QUICK=1
+      test-config: QUICK
 
   coverage:
     if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' }}
@@ -35,6 +35,6 @@ jobs:
     with:
       # Consider running against unstable Redis (will require dynamic linking to libstdc++
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      test-config: QUICK=1
+      test-config: QUICK
       san: address
       env: ubuntu-latest

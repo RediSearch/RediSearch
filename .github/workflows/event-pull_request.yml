@@ -22,7 +22,7 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     with:
       env: ubuntu-latest
-      test-config: QUICK=1
+      test-config: QUICK
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: '2.8'
     secrets: inherit
@@ -49,7 +49,7 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     with:
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
-      test-config: QUICK=1
+      test-config: QUICK
       san: address
       env: ubuntu-latest
       rejson-branch: '2.8'
