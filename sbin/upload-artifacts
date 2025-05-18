@@ -175,3 +175,4 @@ upload_product() {
 upload_product "redisearch-oss" "redisearch-oss"
 upload_product "redisearch" "redisearch"
 upload_product "redisearch" "redisearch-light"
+upload_product "redisearch-oss" "redisearch-oss-cluster"
