@@ -380,7 +380,7 @@ if [[ $RLEC != 1 ]]; then
 
 	if [[ -z $MODULE ]]; then
 		if [[ -n $BINROOT ]]; then
-			if [[ -z $COORD || $COORD == "0" ]]; then
+			if [[ -z "$COORD" || "$COORD" == "0" ]]; then
 				MODULE=$BINROOT/search/redisearch.so
 			elif [[ $COORD == oss ]]; then
 				MODULE=$BINROOT/oss-coord/module-oss.so
