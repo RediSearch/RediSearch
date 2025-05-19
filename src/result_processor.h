@@ -306,8 +306,8 @@ void PipelineAddCrash(struct AREQ *r);
  /*******************************************************************************************************************
   *  Normalizer Result Processor
   *
-  * This processor depletes the result pipeline first, collecting the maximum value of something,
-  * and then returns the maximum as a single result.
+  * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
+  * First accumulates all results from the upstream, then normalizes and yields them.
   *******************************************************************************************************************/
  ResultProcessor *RPNormalizer_New(const RLookupKey *rlk);
 
