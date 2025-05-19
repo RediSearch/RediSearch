@@ -29,52 +29,72 @@
         pythonEnv = pkgs.python3;
       in
       {
-        devShells.default =  pkgs.mkShell {
-          # Shell hooks to create executable scripts in a local bin directory
-          shellHook = ''
-            cargo_version=$(cargo --version 2>/dev/null)
+        devShells = {
+          default =  pkgs.mkShell {
+            # Shell hooks to create executable scripts in a local bin directory
+            shellHook = ''
+              cargo_version=$(cargo --version 2>/dev/null)
 
-            echo -e "\033[1;36m=== 🦀 Welcome to the RediSearch development environment ===\033[0m"
-            echo -e "\033[1;33m• $cargo_version\033[0m"
-            echo ""
+              echo -e "\033[1;36m=== 🦀 Welcome to the RediSearch development environment ===\033[0m"
+              echo -e "\033[1;33m• $cargo_version\033[0m"
+              echo ""
 
-            echo -e "\n\033[1;33m• Checking for any outdated packages...\033[0m\n"
-            cd src/redisearch_rs && cargo outdated --root-deps-only
+              echo -e "\n\033[1;33m• Checking for any outdated packages...\033[0m\n"
+              cd src/redisearch_rs && cargo outdated --root-deps-only
 
-            # For libclang dependency to work
-            export LIBCLANG_PATH="${pkgs.llvmPackages.libclang.lib}/lib"
-            # For `sys/types.h` required by redismodules-rs
-            export BINDGEN_EXTRA_CLANG_ARGS="-I${pkgs.glibc.dev}/include -I${pkgs.gcc-unwrapped}/lib/gcc/x86_64-unknown-linux-gnu/14.2.1/include"
-          '';
+              # For libclang dependency to work
+              export LIBCLANG_PATH="${pkgs.llvmPackages.libclang.lib}/lib"
+              # For `sys/types.h` required by redismodules-rs
+              export BINDGEN_EXTRA_CLANG_ARGS="-I${pkgs.glibc.dev}/include -I${pkgs.gcc-unwrapped}/lib/gcc/x86_64-unknown-linux-gnu/14.2.1/include"
+            '';
 
-          buildInputs = with pkgs; [
-            # Dev dependencies based on developer.md
-            cmake
-            openssl.dev
-            libxcrypt
+            buildInputs = with pkgs; [
+              # Dev dependencies based on developer.md
+              cmake
+              openssl.dev
+              libxcrypt
 
-            # To run the unit tests
-            gtest.dev
+              # To run the unit tests
+              gtest.dev
 
-            # This is a cheat just to get the integration tests to work for the time being
-            # Nix should manage the environment, but readies just does not play nicely with Nix
-            pythonEnv
-            pythonEnv.pkgs.uv
-            pythonEnv.pkgs.numpy # Needed to get the C bindings for numpy
+              # This is a cheat just to get the integration tests to work for the time being
+              # Nix should manage the environment, but readies just does not play nicely with Nix
+              pythonEnv
+              pythonEnv.pkgs.uv
+              pythonEnv.pkgs.numpy # Needed to get the C bindings for numpy
 
-            # Needed by python tests
-            wget
-            redis
+              # Needed by python tests
+              wget
+              redis
 
-            rust-bin.stable.latest.default
-          ];
+              rust-bin.stable.latest.default
+            ];
 
-          # Extra inputs can be added here; cargo and rustc are provided by default.
-          packages = with pkgs; [
-            rust-analyzer
-            cargo-watch
-            cargo-outdated
-          ];
+            # Extra inputs can be added here; cargo and rustc are provided by default.
+            packages = with pkgs; [
+              rust-analyzer
+              cargo-watch
+              cargo-outdated
+            ];
+          };
+
+          nightly = pkgs.mkShell {
+            buildInputs = with pkgs; [
+              # Dev dependencies based on developer.md
+              cmake
+              openssl.dev
+              libxcrypt
+
+              (rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
+                extensions = [ "rust-src" "miri" "llvm-tools-preview" ];
+              }))
+            ];
+
+            # Extra inputs can be added here; cargo and rustc are provided by default.
+            packages = with pkgs; [
+              cargo-llvm-cov
+            ];
+          };
         };
       });
 }
