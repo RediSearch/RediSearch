@@ -7,8 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use wildcard::WildcardPattern;
+
 use crate::{
-    iter::{IntoValues, Iter, LendingIter, PrefixesIter, Values, filter::VisitAll},
+    iter::{IntoValues, Iter, LendingIter, PrefixesIter, Values, WildcardIter, filter::VisitAll},
     node::Node,
     utils::strip_prefix,
 };
@@ -132,6 +134,11 @@ impl<Data> TrieMap<Data> {
     /// Iterate over all trie entries whose key is a prefix of `target`.
     pub fn prefixes_iter<'a>(&'a self, target: &'a [u8]) -> PrefixesIter<'a, Data> {
         PrefixesIter::new(self.root.as_ref(), target)
+    }
+
+    /// Iterate over all trie entries whose key matches the specified pattern.
+    pub fn wildcard_iter<'a>(&'a self, pattern: WildcardPattern<'a>) -> WildcardIter<'a, Data> {
+        WildcardIter::new(self.root.as_ref(), pattern)
     }
 
     /// Iterate over the entries that start with the given prefix, in lexicographical key order.
