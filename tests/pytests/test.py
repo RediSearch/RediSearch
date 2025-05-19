@@ -4086,6 +4086,8 @@ def test_with_tls_and_non_tls_ports():
               tlsPassphrase=passphrase,
               dualTLS=True)        # Sets the ports to be both TLS and regular ports (in tls-ports + 1500).
 
+    time.sleep(3)
+
     with TimeLimit(10, 'Failed waiting for the cluster to be initialized'):
         while True:
             try:
