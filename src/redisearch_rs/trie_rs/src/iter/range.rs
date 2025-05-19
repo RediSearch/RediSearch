@@ -193,164 +193,168 @@ impl<'tm, Data> RangeIter<'tm, Data> {
                 max,
             } = self.stack.pop()?;
 
-            if !was_visited {
-                self.stack.push(StackEntry {
-                    node,
-                    was_visited: true,
-                    min,
-                    max,
-                });
-                self.key.extend(node.label());
+            if was_visited {
+                // We have now visited this node and all its descendants.
+                // We restore the key to the value matching its parent.
+                self.key
+                    .truncate(self.key.len() - node.label_len() as usize);
+                continue;
+            }
 
-                let mut child_min = None;
-                let mut child_max = None;
-                let mut yield_current = true;
-                let mut visit_descendants = true;
+            self.key.extend(node.label());
+            // Push the current node into the stack to remember, once all
+            // its descendants have been visited, to remove its label
+            // from the key buffer.
+            self.stack.push(StackEntry {
+                node,
+                was_visited: true,
+                min,
+                max,
+            });
 
-                if let Some(min) = min {
-                    match longest_common_prefix(min, node.label()) {
-                        Some((_, ord)) => match ord {
-                            Ordering::Less => {
-                                // This node and all its descendants are greater than the minimum
-                            }
-                            Ordering::Greater => {
-                                // This node and all its descendants are smaller than the minimum,
-                                // hence they can be skipped.
-                                continue;
-                            }
-                            Ordering::Equal => unreachable!(),
-                        },
-                        None => match min.len().cmp(&(node.label_len() as usize)) {
-                            Ordering::Less => {
-                                // The minimum is a prefix of the current label.
-                                // This node and all its descendants are greater than the minimum.
-                            }
-                            Ordering::Equal => {
-                                // The minimum is identical to the current label.
-                                // All the descendants of this node are greater than the minimum.
-                                if !self.is_min_included {
-                                    yield_current = false
-                                }
-                            }
-                            Ordering::Greater => {
-                                // The current label is a prefix of the minimum.
-                                yield_current = false;
-                                // We need to compare the label of the descendants against the
-                                // remaining suffix.
-                                child_min = Some(&min[node.label_len() as usize..]);
-                            }
-                        },
-                    }
-                }
+            let mut child_min = None;
+            let mut child_max = None;
+            let mut yield_current = true;
+            let mut visit_descendants = true;
 
-                if let Some(max) = max {
-                    match longest_common_prefix(max, node.label()) {
-                        Some((_, ord)) => match ord {
-                            Ordering::Less => {
-                                // This node and all its descendants are greater than the maximum
-                                // hence they can be skipped.
-                                continue;
-                            }
-                            Ordering::Greater => {
-                                // This node and all its descendants are smaller than the maximum,
-                            }
-                            Ordering::Equal => unreachable!(),
-                        },
-                        None => match max.len().cmp(&(node.label_len() as usize)) {
-                            Ordering::Less => {
-                                // The maximum is a prefix of the current label.
-                                // This node and all its descendants are greater than the maximum.
-                                continue;
-                            }
-                            Ordering::Equal => {
-                                // The maximum is identical to the current label.
-                                // All the descendants of this node are greater than the maximum.
-                                if !self.is_max_included {
-                                    yield_current = false;
-                                }
-                                visit_descendants = false;
-                            }
-                            Ordering::Greater => {
-                                // The current label is a prefix of the maximum.
-                                // We need to compare the descendants against the remaining prefix.
-                                child_max = Some(&max[node.label_len() as usize..]);
-                            }
-                        },
-                    }
-                }
-
-                if visit_descendants {
-                    self.stack.reserve(node.children().len());
-
-                    let mut max_index = node.children().len();
-                    if let Some(max) = child_max {
-                        if let Some(first) = max.first() {
-                            let i = match node.children_first_bytes().binary_search(first) {
-                                Ok(i) => {
-                                    self.stack.push(StackEntry {
-                                        node: &node.children()[i],
-                                        was_visited: false,
-                                        min: child_min,
-                                        max: child_max,
-                                    });
-                                    i
-                                }
-                                Err(i) => i,
-                            };
-                            max_index = i;
+            if let Some(min) = min {
+                match longest_common_prefix(min, node.label()) {
+                    Some((_, ord)) => match ord {
+                        Ordering::Less => {
+                            // This node and all its descendants are greater than the minimum
                         }
+                        Ordering::Greater => {
+                            // This node and all its descendants are smaller than the minimum,
+                            // hence they can be skipped.
+                            continue;
+                        }
+                        Ordering::Equal => unreachable!(),
+                    },
+                    None => match min.len().cmp(&(node.label_len() as usize)) {
+                        Ordering::Less => {
+                            // The minimum is a prefix of the current label.
+                            // This node and all its descendants are greater than the minimum.
+                        }
+                        Ordering::Equal => {
+                            // The minimum is identical to the current label.
+                            // All the descendants of this node are greater than the minimum.
+                            if !self.is_min_included {
+                                yield_current = false
+                            }
+                        }
+                        Ordering::Greater => {
+                            // The current label is a prefix of the minimum.
+                            yield_current = false;
+                            // We need to compare the label of the descendants against the
+                            // remaining suffix.
+                            child_min = Some(&min[node.label_len() as usize..]);
+                        }
+                    },
+                }
+            }
+
+            if let Some(max) = max {
+                match longest_common_prefix(max, node.label()) {
+                    Some((_, ord)) => match ord {
+                        Ordering::Less => {
+                            // This node and all its descendants are greater than the maximum
+                            // hence they can be skipped.
+                            continue;
+                        }
+                        Ordering::Greater => {
+                            // This node and all its descendants are smaller than the maximum,
+                        }
+                        Ordering::Equal => unreachable!(),
+                    },
+                    None => match max.len().cmp(&(node.label_len() as usize)) {
+                        Ordering::Less => {
+                            // The maximum is a prefix of the current label.
+                            // This node and all its descendants are greater than the maximum.
+                            continue;
+                        }
+                        Ordering::Equal => {
+                            // The maximum is identical to the current label.
+                            // All the descendants of this node are greater than the maximum.
+                            if !self.is_max_included {
+                                yield_current = false;
+                            }
+                            visit_descendants = false;
+                        }
+                        Ordering::Greater => {
+                            // The current label is a prefix of the maximum.
+                            // We need to compare the descendants against the remaining prefix.
+                            child_max = Some(&max[node.label_len() as usize..]);
+                        }
+                    },
+                }
+            }
+
+            if visit_descendants {
+                self.stack.reserve(node.children().len());
+
+                let mut max_index = node.children().len();
+                if let Some(max) = child_max {
+                    if let Some(first) = max.first() {
+                        max_index = match node.children_first_bytes().binary_search(first) {
+                            Ok(i) => {
+                                self.stack.push(StackEntry {
+                                    node: &node.children()[i],
+                                    was_visited: false,
+                                    min: child_min,
+                                    max: child_max,
+                                });
+                                i
+                            }
+                            Err(i) => i,
+                        };
                     }
+                }
 
-                    let mut min_index = 0;
+                let mut min_index = 0;
 
-                    let mut min_entry = None;
-                    if let Some(min) = child_min {
-                        if let Some(first) = min.first() {
+                let mut min_entry = None;
+                if let Some(min) = child_min {
+                    if let Some(first) = min.first() {
+                        min_index =
                             match node.children_first_bytes()[..max_index].binary_search(first) {
                                 Ok(i) => {
                                     min_entry = Some(StackEntry {
                                         node: &node.children()[i],
                                         was_visited: false,
                                         min: child_min,
-                                        max: None,
+                                        max: child_max,
                                     });
-                                    min_index = i + 1;
+                                    i + 1
                                 }
-                                Err(i) => {
-                                    min_index = i;
-                                }
-                            }
-                        }
-                    }
-
-                    for child in node
-                        .children()
-                        .iter()
-                        .skip(min_index)
-                        .rev()
-                        .skip(node.children().len() - max_index)
-                    {
-                        self.stack.push(StackEntry {
-                            node: child,
-                            was_visited: false,
-                            min: None,
-                            max: None,
-                        });
-                    }
-
-                    if let Some(min_child) = min_entry {
-                        self.stack.push(min_child);
+                                Err(i) => i,
+                            };
                     }
                 }
 
-                if yield_current {
-                    if let Some(data) = node.data() {
-                        return Some(data);
-                    }
+                for child in node
+                    .children()
+                    .iter()
+                    .skip(min_index)
+                    .rev()
+                    .skip(node.children().len() - max_index)
+                {
+                    self.stack.push(StackEntry {
+                        node: child,
+                        was_visited: false,
+                        min: None,
+                        max: None,
+                    });
                 }
-            } else {
-                self.key
-                    .truncate(self.key.len() - node.label_len() as usize);
+
+                if let Some(min_child) = min_entry {
+                    self.stack.push(min_child);
+                }
+            }
+
+            if yield_current {
+                if let Some(data) = node.data() {
+                    return Some(data);
+                }
             }
         }
     }
