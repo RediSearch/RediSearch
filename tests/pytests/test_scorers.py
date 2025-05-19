@@ -618,6 +618,14 @@ class TestBM25NormMax:
                 self.env.assertAlmostEqual(scores_std[row[key_index]], float(row[score_index]), 0.00001)
             res, cursor = self.env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
 
+        res, cursor = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+                           'LOAD', '2', '@__key', '@__score', 'SORTBY', 2, '@__score', 'DESC', 'WITHCURSOR', 'COUNT', 2)
+        while cursor != 0:
+            for row in res[1:]:
+                self.env.assertAlmostEqual(scores_std[row[key_index]], float(row[score_index]), 0.00001)
+            res, cursor = self.env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+
+
 def test_error_unstable_feature_disabled(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
