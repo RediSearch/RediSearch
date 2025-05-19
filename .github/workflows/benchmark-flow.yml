@@ -47,19 +47,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Setup specific  # assuming node20 supported
+      - name: Setup specific
         working-directory: .install
-        run: |
-          ./install_script.sh ${{ steps.mode.outputs.mode }} sudo
+        run: install_script.sh sudo
       - name: Setup tests dependencies
-        run: |
-          .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }} sudo
+        run: .install/test_deps/common_installations.sh sudo
       - name: Install Boost
         working-directory: .install
-        run: ./install_boost.sh ${{ env.BOOST_VERSION }} sudo
+        run: install_boost.sh
 
       - name: Build RediSearch
-        run: ./build.sh ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
+        run: build.sh ${{ inputs.profile_env == 1 && 'PROFILE' || ''}}
       - name: Prepare automation
         run: |
           ./deps/readies/bin/getpy3
