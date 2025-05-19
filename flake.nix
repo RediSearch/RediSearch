@@ -45,6 +45,9 @@
             openssl.dev
             libxcrypt
 
+            # To run the unit tests
+            gtest.dev
+
             rust-bin.stable.latest.default
           ];
 
