@@ -8,7 +8,7 @@
 */
 
 use std::{
-    ptr::{copy_nonoverlapping, NonNull},
+    ptr::{NonNull, copy_nonoverlapping},
     slice,
 };
 
@@ -159,8 +159,17 @@ impl std::io::Write for BufferWriter {
     }
 }
 
+#[cfg(not(test))]
 unsafe extern "C" {
     /// Ensure that at least extraLen new bytes can be added to the buffer.
     /// Returns the number of bytes added, or 0 if the buffer is already large enough.
     fn Buffer_Grow(b: NonNull<Buffer>, extraLen: usize) -> usize;
 }
+
+#[cfg(test)]
+mod mock;
+#[cfg(test)]
+use mock::Buffer_Grow;
+
+#[cfg(test)]
+mod tests;
