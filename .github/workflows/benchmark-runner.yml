@@ -201,18 +201,24 @@ jobs:
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
+  test-failure:
+    runs-on: ubuntu-24.04
+    steps:
+    - run: exit 1
+
   notify-failure:
     needs:
-      - benchmark-search-oss-standalone
-      - benchmark-vecsim-oss-standalone
-      - benchmark-search-oss-cluster-02-primaries
-      - benchmark-search-oss-cluster-04-primaries
-      - benchmark-search-oss-cluster-08-primaries
-      - benchmark-search-oss-cluster-16-primaries
-      - benchmark-search-oss-cluster-20-primaries
-      - benchmark-search-oss-cluster-24-primaries
-      - benchmark-search-oss-standalone-profiler
-      - benchmark-vecsim-oss-standalone-profiler
+      # - benchmark-search-oss-standalone
+      # - benchmark-vecsim-oss-standalone
+      # - benchmark-search-oss-cluster-02-primaries
+      # - benchmark-search-oss-cluster-04-primaries
+      # - benchmark-search-oss-cluster-08-primaries
+      # - benchmark-search-oss-cluster-16-primaries
+      # - benchmark-search-oss-cluster-20-primaries
+      # - benchmark-search-oss-cluster-24-primaries
+      # - benchmark-search-oss-standalone-profiler
+      # - benchmark-vecsim-oss-standalone-profiler
+      - test-failure
     if: ${{ failure() && inputs.notify_failure }}
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
