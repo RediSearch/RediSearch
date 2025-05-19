@@ -19,7 +19,7 @@ jobs:
           submodules: recursive
       - name: Setup
         working-directory: .install
-        run: install_script.sh sudo
+        run: ./install_script.sh sudo
 
       - name: Lint
         id: lint
