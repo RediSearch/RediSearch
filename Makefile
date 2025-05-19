@@ -198,6 +198,7 @@ endif
 ifeq ($(MT),1)
 $(info ### Multithreading enabled)
 CC_FLAGS.common += -DMT_BUILD
+_CMAKE_FLAGS += -DMT_BUILD=1  # pass this directly to cmake when readies is not used
 override REDISEARCH_MT_BUILD=1
 export REDISEARCH_MT_BUILD
 endif
