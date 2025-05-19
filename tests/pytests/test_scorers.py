@@ -487,7 +487,8 @@ def testNormalizedBM25Tanh():
 class TestBM25NormMax:
     """
     Scores are normalized by dividing each score by the maximum score in the result set.
-    Upstream consumption depends on the requirements of the pipeline stage; it may request all results or a limited number, based on the stage's processing needs.
+    This result processor calculates the maximum score by accumulating all of its upstream results.
+    This means that other result processors such as LIMIT, or cursor usage do not affect the score normalization.
     """
     def create_and_fill_index(self, use_key_tags=False):
         # Prepare the index with documents having different scores
@@ -519,7 +520,7 @@ class TestBM25NormMax:
 
         max_std = max(float(res_std[i]) for i in range(2, len(res_std), 2))
         max_norm = max(float(res_norm[i]) for i in range(2, len(res_norm), 2))
-        # When no documents are excluded and query not have 'not' clause, maximum score should be 1.0
+        # Since no documents are excluded and the query does not have any 'not' clause, maximum score should be 1.0
         self.env.assertAlmostEqual(max_norm, 1.0, 0.00001)
 
         for i in range(2, len(res_norm), 2):
@@ -543,28 +544,26 @@ class TestBM25NormMax:
             norm_score = float(row[score_index])
             self.env.assertAlmostEqual(norm_score, scores_std[row[key_index]] / max_score, 0.00001)
 
-
     def test_limit_behavior(self):
-        # The number of results to normalize depends on the request from the downstream consumer.
-        # In search operations, this typically means normalizing all results.
+        # Retrieve the second and third results from a query with four results, and verify their scores match in both full and restricted queries
         offset = 1
         limit = 2
-        full = self.env.cmd('FT.SEARCH', 'idx', 'hello world orange', 'WITHSCORES', 'SCORER', 'BM25STD.NORM', 'NOCONTENT')
-        limited = self.env.cmd('FT.SEARCH', 'idx', 'hello world orange', 'WITHSCORES', 'SCORER', 'BM25STD.NORM',
+        full = self.env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'SCORER', 'BM25STD.NORM', 'NOCONTENT')
+        limited = self.env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'SCORER', 'BM25STD.NORM',
                           'NOCONTENT', 'LIMIT', offset, limit)
 
         num_results = lambda response: (len(response) - 1) / 2
-        self.env.assertEqual(limited[0], 3)
+        self.env.assertEqual(limited[0], 4)
         self.env.assertEqual(num_results(limited), 2)
-        self.env.assertEqual(full[0], 3)
+        self.env.assertEqual(full[0], 4)
 
         for i in range(1, len(limited), 2):
             self.env.assertAlmostEqual(float(limited[i+1]), float(full[2*offset +i+1]), 0.00001)
 
         # AGGREGATE version
-        agg_full = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world orange', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+        agg_full = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
                            'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC')
-        agg_limited = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world orange', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+        agg_limited = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
                            'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC', 'LIMIT', offset, limit)
 
         key_index = agg_full[1].index('__key') + 1
@@ -573,27 +572,7 @@ class TestBM25NormMax:
         for i in range(1, len(agg_limited)):
             self.env.assertLessEqual(float(agg_limited[i][score_index]), float(agg_full[i+offset][score_index]), 0.00001)
 
-        #test limit properly restricts the number of results
-        #doc:3 doesn't have to be excluded from the first 2 results, and depends on order of insertion.
-        #we want to make sure limit actually limits the result set, and does not go over all results, normalizing and then limiting.
-        offset = 1
-        limit = 1
-
-        agg_full = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world orange', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
-                            'LOAD', '2', '@__key', '@__score')
-        agg_limited = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world orange', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
-                            'LOAD', '2', '@__key', '@__score', 'LIMIT', offset, limit)
-
-        scores_agg_full = {row[key_index]: float(row[score_index]) for row in agg_full[1:]}
-        scores_agg_limited = {row[key_index]: float(row[score_index]) for row in agg_limited[1:]}
-
-        for key, score in scores_agg_limited.items():
-            self.env.assertNotEqual(score, scores_agg_full[key], 0.00001)
-
-
-
     def test_single_result_normalization(self):
-
         res = self.env.cmd('FT.SEARCH', 'idx', 'blue', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
         self.env.assertEqual(res[0], 1)
         self.env.assertAlmostEqual(float(res[2]), 1.0, 0.00001)
@@ -623,6 +602,21 @@ class TestBM25NormMax:
 
         agg = self.env.cmd('FT.AGGREGATE', 'idx', query, 'ADDSCORES', 'SCORER', 'BM25STD.NORM')
         self.env.assertEqual(len(agg), 1)
+
+    def test_cursor(self):
+        agg_norm = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+                        'LOAD', '2', '@__key', '@__score')
+
+        key_index = agg_norm[1].index('__key') + 1
+        score_index = agg_norm[1].index('__score') + 1
+        scores_std = {row[key_index]: float(row[score_index]) for row in agg_norm[1:]}
+
+        res, cursor = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+                           'LOAD', '2', '@__key', '@__score', 'WITHCURSOR', 'COUNT', 2)
+        while cursor != 0:
+            for row in res[1:]:
+                self.env.assertAlmostEqual(scores_std[row[key_index]], float(row[score_index]), 0.00001)
+            res, cursor = self.env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
 
 def test_error_unstable_feature_disabled(env):
     env = Env(moduleArgs='DEFAULT_DIALECT 2')

@@ -1355,9 +1355,9 @@ void PipelineAddCrash(struct AREQ *r) {
  static int rpNormalizer_Yield(ResultProcessor *rp, SearchResult *r){
    RPNormalizer* self = (RPNormalizer*)rp;
    size_t length = array_len(self->pool);
-   if (array_len(self->pool) == 0) {
-      // We've already yielded all results, return EOF
-     return RS_RESULT_EOF;
+   if (length == 0) {
+    // We've already yielded all results, return EOF
+    return RS_RESULT_EOF;
    }
   SearchResult *poppedResult = array_pop(self->pool);
   SearchResult_Override(r, poppedResult);
@@ -1377,12 +1377,12 @@ void PipelineAddCrash(struct AREQ *r) {
 
 static int rpNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   RPNormalizer *self = (RPNormalizer *)rp;
-
   // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
-    return rc;
+    rp->Next = rpNormalizer_Yield;
+    return rp->Next(rp, r);
   } else if (rc != RS_RESULT_OK) {
     // whoops!
     RS_ABORT("Received an unexpected result status that is neither EOF nor OK");
@@ -1402,12 +1402,11 @@ static int rpNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
 static int rpNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
   RPNormalizer *self = (RPNormalizer *)rp;
   uint32_t chunkLimit = rp->parent->resultLimit;
+  rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
   int rc;
-  int count = 0;
-  while (count++ < chunkLimit && (rc = rpNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED);
-  rp->Next = rpNormalizer_Yield;
+  while ((rc = rpNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED);
   rp->parent->resultLimit = chunkLimit; // restore the limit
-  return rp->Next(rp, r);
+  return rc;
 }
 
  /* Create a new Max Collector processor */
