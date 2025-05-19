@@ -7,13 +7,27 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use lending_iterator::LendingIterator;
 use trie_rs::{
     TrieMap,
-    iter::{RangeBoundary, RangeFilter},
+    iter::{RangeBoundary, RangeFilter, RangeLendingIter},
 };
 
 fn in_range<Data>(t: &TrieMap<Data>, filter: RangeFilter) -> Vec<Vec<u8>> {
-    t.range_iter(filter).map(|(k, _)| k).collect()
+    let lending_keys = {
+        let mut keys = Vec::new();
+        let mut iter: RangeLendingIter<_> = t.range_iter(filter).into();
+        while let Some((key, _)) = LendingIterator::next(&mut iter) {
+            keys.push(key.to_owned());
+        }
+        keys
+    };
+    let iter_keys = t.range_iter(filter).map(|(k, _)| k).collect();
+    assert_eq!(
+        iter_keys, lending_keys,
+        "Lending and non-lending iterator don't agree on the result set"
+    );
+    iter_keys
 }
 
 #[test]
