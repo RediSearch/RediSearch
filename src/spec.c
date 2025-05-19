@@ -133,20 +133,9 @@ static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner
     rm_free(error);
 }
 
-// Return true if used_memory exceeds (indexingMemoryLimit % × memoryLimit); false if within bounds or limit is 0.
-static inline bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
-  // if memory limit is set to 0, we don't need to check for memory usage
-  if(RSGlobalConfig.indexingMemoryLimit == 0) {
-    return false;
-  }
-  // Get the memory limit and memory usage
-  setMemoryInfo(ctx);
-  // Check if used memory crossed the threshold
-  return (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit) ;
-}
 
 static void setMemoryInfo(RedisModuleCtx *ctx) {
-#define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
+  #define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
   RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
 
   size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
@@ -161,6 +150,17 @@ static void setMemoryInfo(RedisModuleCtx *ctx) {
   RedisModule_FreeServerInfo(ctx, info);
 }
 
+// Return true if used_memory exceeds (indexingMemoryLimit % × memoryLimit); false if within bounds or limit is 0.
+static inline bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
+  // if memory limit is set to 0, we don't need to check for memory usage
+  if(RSGlobalConfig.indexingMemoryLimit == 0) {
+    return false;
+  }
+  // Get the memory limit and memory usage
+  setMemoryInfo(ctx);
+  // Check if used memory crossed the threshold
+  return (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit) ;
+}
 /*
  * Initialize the spec's fields that are related to the cursors.
  */
@@ -3477,7 +3477,6 @@ static DebugIndexesScanner *DebugIndexesScanner_New(StrongRef global_ref) {
   dScanner->base.isDebug = true;
   dScanner->pauseOnOOM = globalDebugCtx.bgIndexing.pauseOnOOM;
   dScanner->pauseBeforeOOMRetry = globalDebugCtx.bgIndexing.pauseBeforeOOMretry;
-  dScanner->pauseAfterOOMRetry = globalDebugCtx.bgIndexing.pauseAfterOOMretry;
 
   IndexSpec *spec = StrongRef_Get(global_ref);
   spec->scanner = (IndexesScanner*)dScanner;
