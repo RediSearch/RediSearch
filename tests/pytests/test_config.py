@@ -1356,6 +1356,7 @@ def testModuleLoadexBooleanParams():
         # use non-default value as argument value
         argValue = 'true' if defaultValue == 'no' else 'false'
         expected = 'yes' if argValue == 'true' else 'no'
+        
 
         if not isFlag:
             res = env.cmd('MODULE', 'LOADEX', redisearch_module_path,
@@ -1473,8 +1474,6 @@ def testConfigFileBooleanParams():
     for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
         # the expected value is the opposite of the default value
         configValue = 'yes' if defaultValue == 'no' else 'no'
-        if isInverted:
-            configValue = 'no' if defaultValue == 'no' else 'yes'
         ftExpectedValue = 'true' if defaultValue == 'no' else 'false'
         res = env.cmd('CONFIG', 'GET', configName)
         env.assertEqual(res, [configName, configValue])
@@ -1497,6 +1496,10 @@ def testConfigFileAndArgsBooleanParams():
 
     moduleArgs = ''
     for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
+        # `search-partial-indexed-docs` has its own test because
+        # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
+        if configName == 'search-partial-indexed-docs':
+            continue
         # use non-default value as argument value
         ftDefaultValue = 'false' if defaultValue == 'yes' else 'true'
         if isFlag:
@@ -1506,10 +1509,7 @@ def testConfigFileAndArgsBooleanParams():
 
     env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
     for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
-        # `search-partial-indexed-docs` has its own test because
-        # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
-        if configName == 'search-partial-indexed-docs':
-            continue
+        
         # the expected value is the default value, taken from the config file
         ftExpectedValue = 'true' if defaultValue == 'yes' else 'false'
         res = env.cmd('CONFIG', 'GET', configName)
@@ -1525,6 +1525,8 @@ def testBooleanArgDeprecationMessage():
     # create module arguments
     moduleArgs = ''
     for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
+        if configName == 'search-partial-indexed-docs':
+            continue
         # use non-default value as argument value
         ftDefaultValue = 'false' if defaultValue == 'yes' else 'true'
         if isFlag:
@@ -1537,6 +1539,8 @@ def testBooleanArgDeprecationMessage():
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
     logFilePath = os.path.join(logDir, logFileName)
     for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
+        if configName == 'search-partial-indexed-docs':
+            continue
         expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}` instead'
         matchCount = _grep_file_count(logFilePath, expectedMessage)
         env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')

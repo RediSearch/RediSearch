@@ -198,7 +198,7 @@ int get_bool_config(const char *name, void *privdata) {
 
 int get_inverted_bool_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
-  return !(bool *)privdata;
+  return !*(bool *)privdata;
 }
 
 int set_immutable_string_config(const char *name, RedisModuleString *val, void *privdata,
