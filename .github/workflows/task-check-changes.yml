@@ -30,6 +30,7 @@ jobs:
         with: # Only run on changes to these paths (workflows)
           files: |
                 .github/workflows/**
+                .github/actions/**
       - name: Check if code were changed
         id: check-code
         uses: tj-actions/changed-files@v46.0.5
@@ -56,3 +57,10 @@ jobs:
         with: # Only run on changes to these paths (redisearch_rs)
           files: |
               src/redisearch_rs/**
+
+      - name: PRINT
+        run: |
+          echo "CODE_CHANGED=${{ steps.check-code.outputs.any_modified }}"
+          echo "BENCHMARK_CHANGED=${{ steps.check-benchmarks.outputs.any_modified }}"
+          echo "RUST_CODE_CHANGED=${{ steps.check-micro-benchmarks.outputs.any_modified }}"
+          echo "WORKFLOWS_CHANGED=${{ steps.check-workflows.outputs.any_modified }}"
