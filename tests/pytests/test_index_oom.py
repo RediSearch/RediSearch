@@ -22,10 +22,18 @@ def get_index_num_docs(env, idx = 'idx'):
   num_docs = info['num_docs']
   return num_docs
 
+def oom_test_config(env):
+  # Set the memory limit to 80% so it can be tested without colliding with redis memory limit
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+
+def oom_pseudo_enterprise_config(env):
+  oom_test_config(env)
+  # Set the pause time to 1 second so we can test the retry
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+
 @skip(cluster=True)
 def test_stop_background_indexing_on_low_mem(env):
-  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+  oom_test_config(env)
 
   num_docs = 1000
   for i in range(num_docs):
@@ -61,8 +69,7 @@ def test_stop_background_indexing_on_low_mem(env):
 
 @skip(cluster=True)
 def test_stop_indexing_low_mem_verbosity(env):
-  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+  oom_test_config(env)
 
   # Create OOM
   num_docs = 10
@@ -138,8 +145,7 @@ def test_stop_indexing_low_mem_verbosity(env):
 
 @skip(cluster=True)
 def test_idx_delete_during_bg_indexing(env):
-  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+  oom_test_config(env)
 
   # Test deleting an index while it is being indexed in the background
   n_docs = 10000
@@ -176,8 +182,7 @@ def test_idx_delete_during_bg_indexing(env):
 
 @skip(cluster=True)
 def test_delete_docs_during_bg_indexing(env):
-  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+  oom_test_config(env)
 
   # Test deleting docs while they are being indexed in the background
   # Using a large number of docs to make sure the test is not flaky
@@ -222,8 +227,7 @@ def test_delete_docs_during_bg_indexing(env):
 
 @skip(cluster=True)
 def test_change_config_during_bg_indexing(env):
-  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+  oom_test_config(env)
 
   # Test deleting docs while they are being indexed in the background
   # Using a large number of docs to make sure the test is not flaky
@@ -257,8 +261,7 @@ def test_change_config_during_bg_indexing(env):
 
 @skip(cluster=True)
 def test_oom_query_error(env):
-  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+  oom_test_config(env)
 
   idx_name = 'idx'
   error_querys_star = ['SEARCH', 'AGGREGATE', 'TAGVALS', 'MGET']
@@ -417,8 +420,7 @@ def test_cluster_oom_single_shard(env):
 
 @skip(cluster=True, no_json=True)
 def test_oom_json(env):
-  # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+  oom_test_config(env)
 
   num_docs = 10
   for i in range(num_docs):
@@ -506,10 +508,7 @@ def test_oom_100_percent(env):
 
 @skip(cluster=True)
 def test_pseudo_enterprise_oom_retry_success(env):
-  # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
-  # Set the pause time to 1 second so we can test the retry
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+  oom_pseudo_enterprise_config(env)
 
   num_docs = 1000
   for i in range(num_docs):
@@ -548,10 +547,7 @@ def test_pseudo_enterprise_oom_retry_success(env):
 
 @skip(cluster=True)
 def test_pseudo_enterprise_oom_retry_failure(env):
-  # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
-  # Set the pause time to 1 second so we can test the retry
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+  oom_pseudo_enterprise_config(env)
 
   num_docs = 1000
   for i in range(num_docs):
@@ -588,10 +584,7 @@ def test_pseudo_enterprise_oom_retry_failure(env):
 
 @skip(cluster=True)
 def test_pseudo_enterprise_oom_multiple_retry_success(env):
-  # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
-  # Set the pause time to 1 second so we can test the retry
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+  oom_pseudo_enterprise_config(env)
 
   num_docs = 1000
   for i in range(num_docs):
@@ -644,10 +637,7 @@ def test_pseudo_enterprise_oom_multiple_retry_success(env):
 
 @skip(cluster=True)
 def test_pseudo_enterprise_oom_multiple_retry_failure(env):
-  # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
-  # Set the pause time to 1 second so we can test the retry
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+  oom_pseudo_enterprise_config(env)
 
   num_docs = 1000
   for i in range(num_docs):
@@ -704,10 +694,7 @@ def test_pseudo_enterprise_oom_multiple_retry_failure(env):
 
 @skip(cluster=True)
 def test_pseudo_enterprise_oom_retry_drop(env):
-  # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
-  # Set the pause time to 1 second so we can test the retry
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+  oom_pseudo_enterprise_config(env)
 
   num_docs = 100
   for i in range(num_docs):
@@ -747,10 +734,7 @@ def test_pseudo_enterprise_oom_retry_drop(env):
 
 @skip(cluster=True)
 def test_pseudo_enterprise_oom_retry_alter_success(env):
-  # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
-  # Set the pause time to 1 second so we can test the retry
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+  oom_pseudo_enterprise_config(env)
 
   num_docs = 100
   for i in range(num_docs):
@@ -796,10 +780,7 @@ def test_pseudo_enterprise_oom_retry_alter_success(env):
 
 @skip(cluster=True)
 def test_pseudo_enterprise_oom_retry_alter_failure(env):
-  # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
-  # Set the pause time to 1 second so we can test the retry
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
+  oom_pseudo_enterprise_config(env)
 
   num_docs = 100
   for i in range(num_docs):
