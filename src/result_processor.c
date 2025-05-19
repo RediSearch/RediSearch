@@ -1324,16 +1324,17 @@ void PipelineAddCrash(struct AREQ *r) {
 }
 
  /*******************************************************************************************************************
-  *  Max Score Normalizer Result Processor
-  *
-  * This result processor is responsible for normalizing the scores of search results.
-  * It collects all results requested by the downstream result processor, finds the maximum score, and then normalizes all
-  * scores by dividing them by the maximum score. This ensures that all scores
-  * are in the range [0, 1].
-  *
-  * The processor works in two phases:
-  * 1. Accumulation: Collect all results and find the maximum score.
-  * 2. Yielding: Return normalized results one by one.
+   *  Max Score Normalizer Result Processor
+   *
+   * This result processor normalizes the scores of search results using division by
+   * the max score. It gathers all results from the upstream processor, finds the
+   * maximum score, and divides each score by the maximum. This ensures that all scores
+   * fall within the range [0, 1].
+   *
+   * The processor works in two phases:
+   * 1. Accumulation: Gather all results from upstream and find the max score.
+   * 2. Yield: Normalize each result’s score by division with the max score, then pass
+   *    it downstream.
   *******************************************************************************************************************/
  typedef struct {
    ResultProcessor base;
