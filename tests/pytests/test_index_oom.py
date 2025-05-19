@@ -877,9 +877,10 @@ def test_pseudo_enterprise_cluster_oom_retry_success(env):
         f'{bgScanCommand()} SET_BG_INDEX_RESUME')
     allShards_waitForIndexFinishScan(env, idx)
 
-    info = index_info(env, idx=idx)
-    assert info['num_docs'] == total_docs
-    assert to_dict(info['Index Errors'])[bgIndexingStatusStr] == 'OK'
+    indexed_num_docs = get_index_num_docs(env, idx=idx)
+    index_errors = get_index_errors_dict(env, idx=idx)
+    env.assertEqual(indexed_num_docs, total_docs)
+    env.assertEqual(index_errors[bgIndexingStatusStr], 'OK')
     # Every shard’s failure counter must stay at 0
     for shard_id in range(1, env.shardsCount + 1):
         failures = env.getConnection(shard_id).execute_command(
