@@ -481,8 +481,8 @@ def test_config():
     res = env.cmd(config_cmd(), "SET", "TIMEOUT", 501)
 
     res = env.cmd(config_cmd(), "GET", "*")
-    env.assertEqual(res['TIMEOUT'], '0') # FIXME: should be '501'. This is a bug in the RESP3 implementation because we have 2 configurations with the same name
-
+    env.assertEqual(res['TIMEOUT'], '501') 
+    
     res = env.cmd(config_cmd(), "GET", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': '501'})
 

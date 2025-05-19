@@ -1637,7 +1637,8 @@ def getConfigDict(env):
 
 def testConfigIndependence_default():
     """Test that changing one configuration value doesn't affect other configuration values"""
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
+
     defaultConfigDict = getConfigDict(env)
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         if immutable:
@@ -1732,7 +1733,7 @@ def testConfigIndependence_default():
 
 def testConfigIndependence_min_values():
     """Test that changing one configuration value doesn't affect other configuration values"""
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
     # set all numeric configs to min value
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         if immutable:
@@ -1800,7 +1801,7 @@ def testConfigIndependence_min_values():
 
 def testConfigIndependence_max_values():
     """Test that changing one configuration value doesn't affect other configuration values"""
-    env = Env()
+    env = Env(noDefaultModuleArgs=True)
     # set all numeric configs to max value
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         if immutable:
