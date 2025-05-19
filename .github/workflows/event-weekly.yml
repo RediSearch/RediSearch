@@ -12,3 +12,4 @@ jobs:
     secrets: inherit
     with:
       extended: true
+      notify_failure: true

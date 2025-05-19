@@ -18,15 +18,11 @@ jobs:
 
   check-what-changed:
     uses: ./.github/workflows/task-check-changes.yml
-    with:
-      env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
 
   lint:
     needs: check-what-changed
     if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
     uses: ./.github/workflows/task-lint.yml
-    with:
-      env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     secrets: inherit
 
   spellcheck:
@@ -40,18 +36,6 @@ jobs:
       test-config: QUICK=1
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: master
-    secrets: inherit
-
-  micro-benchmarks:
-    needs: check-what-changed
-    if: >
-      (
-        (!github.event.pull_request.draft && needs.check-what-changed.outputs.RUST_CODE_CHANGED == 'true') ||
-        contains(github.event.pull_request.labels.*.name, 'enforce:micro-benchmarks')
-      )
-    uses: ./.github/workflows/flow-micro-benchmarks.yml
-    with:
-      env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     secrets: inherit
 
   coverage:
@@ -90,7 +74,6 @@ jobs:
       - check-what-changed
       - spellcheck
       - basic-test
-      - micro-benchmarks
       - lint
       - coverage
       - sanitize

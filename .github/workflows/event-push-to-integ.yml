@@ -17,6 +17,8 @@ jobs:
     if: ${{ needs.check-what-changed.outputs.BENCHMARK_CHANGED == 'true' }}
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
+    with:
+      notify_failure: true
 
   micro-benchmarks:
     needs: check-what-changed

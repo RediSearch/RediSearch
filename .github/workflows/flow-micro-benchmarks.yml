@@ -2,14 +2,10 @@ name: Run a Micro Benchmark Flow
 
 on:
   workflow_call:
-    inputs:
-      env:
-        default: "${{ vars.RUNS_ON }} || ubuntu-latest"
-        type: string
 
 jobs:
   benchmarks:
-    runs-on: ${{ inputs.env }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     env:
       RUST_BACKTRACE: full
     steps:
@@ -19,8 +15,7 @@ jobs:
           submodules: recursive
       - name: Setup specific
         working-directory: .install
-        run: |
-          ./install_script.sh sudo
+        run: ./install_script.sh sudo
       - name: Build RediSearch
         run: ./build.sh
       - name: Get Latest Baseline

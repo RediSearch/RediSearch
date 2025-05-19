@@ -4,35 +4,23 @@ name: Lint for warnings, missing license headers and check that code is well-for
 
 on:
   workflow_call:
-    inputs:
-      env:
-        default: "${{ vars.RUNS_ON }} || ubuntu-latest"
-        type: string
 
 jobs:
   lint:
     name: Linting
-    runs-on: ${{ inputs.env }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: Deps checkout
-        uses: actions/checkout@v4
-        with:
-          path: setup
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            .install
-            tests/pytests/requirements.*
-      - name: Setup specific
-        working-directory: setup/.install
-        run: |
-          ./install_script.sh "sudo"
-      - name: Full checkout
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Setup
+        working-directory: .install
+        run: ./install_script.sh sudo
+
       - name: Lint
         id: lint
         continue-on-error: true
@@ -45,6 +33,7 @@ jobs:
         id: fmt
         continue-on-error: true
         run: make fmt CHECK=1
+
       - name: Fail if any step failed
         if: steps.lint.outcome == 'failure' || steps.license-header.outcome == 'failure' || steps.fmt.outcome == 'failure'
         run: |
