@@ -162,19 +162,6 @@ long long get_uint8_numeric_config(const char *name, void *privdata) {
   return *(uint8_t *)privdata;
 }
 
-int set_uint64_numeric_config(const char *name, long long val,
-                           void *privdata, RedisModuleString **err) {
-  REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
-  *(uint64_t *)privdata = (uint64_t) val;
-  return REDISMODULE_OK;
-}
-
-long long get_uint64_numeric_config(const char *name, void *privdata) {
-  REDISMODULE_NOT_USED(name);
-  return *(uint64_t *)privdata;
-}
-
 int set_bool_config(const char *name, int val, void *privdata,
                     RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
@@ -500,8 +487,8 @@ CONFIG_GETTER(getIndexingMemoryLimit) {
 
 // BM25STD_TANH_FACTOR
 CONFIG_SETTER(setBM25StdTanhFactor) {
-  uint64_t newFactor;
-  int acrc = AC_GetU64(ac, &newFactor, AC_F_GE1);
+  unsigned int newFactor;
+  int acrc = AC_GetUnsigned(ac, &newFactor, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (newFactor > BM25STD_TANH_FACTOR_MAX) {
     QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT,
@@ -515,7 +502,7 @@ CONFIG_SETTER(setBM25StdTanhFactor) {
 
 CONFIG_GETTER(getBM25StdTanhFactor) {
   sds ss = sdsempty();
-  return sdscatprintf(ss, "%lu", config->requestConfigParams.BM25STD_TanhFactor);
+  return sdscatprintf(ss, "%u", config->requestConfigParams.BM25STD_TanhFactor);
 }
 
 /************************************ DEPRECATION CANDIDATES *************************************/
@@ -1782,7 +1769,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       ctx, "search-bm25std-tanh-factor",
       DEFAULT_BM25STD_TANH_FACTOR,
       REDISMODULE_CONFIG_UNPREFIXED, BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX,
-      get_uint64_numeric_config, set_uint64_numeric_config, NULL,
+      get_uint_numeric_config, set_uint_numeric_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor)
     )
   )

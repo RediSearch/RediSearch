@@ -74,7 +74,7 @@ typedef struct {
   // reply with time on profile
   bool printProfileClock;
   // BM25STD.TANH factor
-  uint64_t BM25STD_TanhFactor;
+  unsigned int BM25STD_TanhFactor;
 } RequestConfig;
 
 // Configuration parameters related to the query execution.
