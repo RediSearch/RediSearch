@@ -15,9 +15,9 @@ jobs:
   change-checks:
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     outputs: # Make sure to return "true" if any workflow was changed, to make sure the workflow works
-      CODE_CHANGED: ${{ steps.check-code.outputs.any_modified || steps.check-workflows.outputs.any_modified }}
-      BENCHMARK_CHANGED: ${{ steps.check-benchmarks.outputs.any_modified || steps.check-workflows.outputs.any_modified }}
-      RUST_CODE_CHANGED: ${{ steps.check-micro-benchmarks.outputs.any_modified || steps.check-workflows.outputs.any_modified }}
+      CODE_CHANGED: ${{ steps.check-code.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
+      BENCHMARK_CHANGED: ${{ steps.check-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
+      RUST_CODE_CHANGED: ${{ steps.check-micro-benchmarks.outputs.any_modified == 'true' || steps.check-workflows.outputs.any_modified == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
