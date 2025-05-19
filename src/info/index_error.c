@@ -88,25 +88,27 @@ void IndexError_RaiseBackgroundIndexFailureFlag(IndexError *error) {
 // a destroyed object and a valid one. then use RS_ASSERT at th ebegining of each function
 // of this API to check that error->key is NULL or a valid key.
 void IndexError_Clear(IndexError error) {
-    if (error.last_error_without_user_data != NA && error.last_error_without_user_data != NULL) {
-        rm_free(error.last_error_without_user_data);
-        error.last_error_without_user_data = NA;
-    }
-    if (error.last_error_with_user_data != NA && error.last_error_with_user_data != NULL) {
-      rm_free(error.last_error_with_user_data);
-      error.last_error_with_user_data = NA;
-    }
-    if (error.key) {
-        RedisModule_FreeString(RSDummyContext, error.key);
-        error.key = NULL;
-    }
+    if (!error.key) return;
+    RedisModule_FreeString(RSDummyContext, error.key);
+    error.key = NULL;
+    RS_ASSERT(error.last_error_without_user_data != NULL);
+    rm_free(error.last_error_without_user_data);
+    error.last_error_without_user_data = NA;
+
+    RS_ASSERT(error.last_error_with_user_data != NULL);
+    rm_free(error.last_error_with_user_data);
+    error.last_error_with_user_data = NA;
+
 }
 
 void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate, bool withOOMstatus) {
     RedisModule_Reply_Map(reply);
     REPLY_KVINT(IndexingFailure_String, IndexError_ErrorCount(error));
-    RedisModuleString *lastErrorKey = NA; // TODO: this is not pretty... raises a warning
+    RedisModuleString *lastErrorKey = NULL;
     const char *lastError = NA;
+    // TODO: lets condider introducting a function IndexError_LastErrorKey_UnSafe(error, obfuscated)
+    // that assumed we already checked that the error is not N/A
+    // and that the key is not N/A. this way we can avoid the check in each of this functions
     if (obfuscate) {
         lastErrorKey = IndexError_LastErrorKeyObfuscated(error);
         lastError = IndexError_LastErrorObfuscated(error);
@@ -266,7 +268,7 @@ IndexError IndexError_Deserialize(MRReply *reply, bool withOOMstatus) {
         IndexError_SetKey(&error, key_rstr);
     } else {
         IndexError_SetLastError(&error, NA);
-        IndexError_SetKey(&error, NULL);
+        RS_ASSERT(error.key == NULL);
     }
     if (withOOMstatus) {
         MRReply *oomFailure = MRReply_MapElement(reply, BackgroundIndexingOOMfailure_String);
