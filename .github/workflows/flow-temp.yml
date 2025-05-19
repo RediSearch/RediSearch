@@ -9,18 +9,12 @@ name: temporary testing
 
 on:
   push:
-    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  check-changes:
-    uses: ./.github/workflows/task-check-changes.yml
+  test-macos:
+    uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
-  print:
-    runs-on: ubuntu-latest
-    needs: check-changes
-    steps:
-      - name: Print
-        run: |
-          echo "CODE_CHANGED=${{ needs.check-changes.outputs.CODE_CHANGED }}"
-          echo "BENCHMARK_CHANGED=${{ needs.check-changes.outputs.BENCHMARK_CHANGED }}"
-          echo "RUST_CODE_CHANGED=${{ needs.check-changes.outputs.RUST_CODE_CHANGED }}"
+    with:
+      redis-ref: unstable
+      rejson-branch: master
