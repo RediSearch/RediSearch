@@ -10,15 +10,23 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    redis-flake = {
+      url = "github:chesedo/redis-flake";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.follows = "flake-utils";
+    };
   };
 
-  outputs = { self, nixpkgs, flake-utils, rust-overlay, ... }:
+  outputs = { self, nixpkgs, flake-utils, rust-overlay, redis-flake, ... }:
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = import nixpkgs {
           inherit system;
           overlays = [ (import rust-overlay) ];
         };
+        redis = redis-flake.packages.${system}.redis;
+        pythonEnv = pkgs.python3;
       in
       {
         devShells.default =  pkgs.mkShell {
@@ -47,6 +55,16 @@
 
             # To run the unit tests
             gtest.dev
+
+            # This is a cheat just to get the integration tests to work for the time being
+            # Nix should manage the environment, but readies just does not play nicely with Nix
+            pythonEnv
+            pythonEnv.pkgs.uv
+            pythonEnv.pkgs.numpy # Needed to get the C bindings for numpy
+
+            # Needed by python tests
+            wget
+            redis
 
             rust-bin.stable.latest.default
           ];

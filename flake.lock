@@ -34,10 +34,52 @@
         "type": "github"
       }
     },
+    "redis": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1747543133,
+        "narHash": "sha256-PeHxmP8xHkTPCxqEcMldoMKicb/8cG1vU4PZPpWBgbs=",
+        "owner": "redis",
+        "repo": "redis",
+        "rev": "5d0d64b062c160093dc287ed5d18ec7c807873cf",
+        "type": "github"
+      },
+      "original": {
+        "owner": "redis",
+        "ref": "unstable",
+        "repo": "redis",
+        "type": "github"
+      }
+    },
+    "redis-flake": {
+      "inputs": {
+        "flake-utils": [
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "redis": "redis"
+      },
+      "locked": {
+        "lastModified": 1747647386,
+        "narHash": "sha256-wEmhjs2ZNhugWSp3KPJWi94YpwU7hzdfDXiatRz6Mjg=",
+        "owner": "chesedo",
+        "repo": "redis-flake",
+        "rev": "1f7535bccbb99f70a7bcb8f7ebbfb14eb899657f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "chesedo",
+        "repo": "redis-flake",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "flake-utils": "flake-utils",
         "nixpkgs": "nixpkgs",
+        "redis-flake": "redis-flake",
         "rust-overlay": "rust-overlay"
       }
     },
