@@ -8,11 +8,10 @@
 */
 
 //! Supporting types and functions for benchmarking trie operations.
+use redis_mock::bind_redis_alloc_symbols_to_mock_impl;
 use std::{ffi::c_void, ptr::NonNull};
 
-// Force the compiler to link the symbols defined in `redis_mock`,
-// since they are required by `libtrie.a`.
-extern crate redis_mock;
+bind_redis_alloc_symbols_to_mock_impl!();
 
 pub use bencher::OperationBencher;
 

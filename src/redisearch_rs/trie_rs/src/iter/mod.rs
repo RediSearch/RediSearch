@@ -29,4 +29,4 @@ pub use lending_range::RangeLendingIter;
 pub use prefixes::PrefixesIter;
 pub use range::{RangeBoundary, RangeFilter, RangeIter};
 pub use values::Values;
-pub use wildcard::WildcardIter;
+pub use wildcard::{WildcardFilter, WildcardIter};
