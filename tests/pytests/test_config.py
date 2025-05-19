@@ -1258,16 +1258,16 @@ def testStringArgDeprecationMessage():
 # Test CONFIG SET/GET boolean parameters
 ################################################################################
 booleanConfigs = [
-    # configName, ftConfigName, defaultValue, immutable, isFlag
-    ('search-_free-resource-on-thread', '_FREE_RESOURCE_ON_THREAD', 'yes', False, False),
-    ('search-_numeric-compress', '_NUMERIC_COMPRESS', 'no', False, False),
-    ('search-_print-profile-clock', '_PRINT_PROFILE_CLOCK', 'yes', False, False),
-    ('search-no-gc', 'NOGC', 'no', True, True),
-    ('search-no-mem-pools', 'NO_MEM_POOLS', 'no', True, True),
-    # ('search-partial-indexed-docs', 'PARTIAL_INDEXED_DOCS', 'no', True, False),
-    ('search-_prioritize-intersect-union-children', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no', False, False),
-    ('search-raw-docid-encoding', 'RAW_DOCID_ENCODING', 'no', True, False),
-    ('search-enable-unstable-features', 'ENABLE_UNSTABLE_FEATURES', 'no', False, False),
+    # configName, ftConfigName, defaultValue, immutable, isFlag, isInverted
+    ('search-_free-resource-on-thread', '_FREE_RESOURCE_ON_THREAD', 'yes', False, False, False),
+    ('search-_numeric-compress', '_NUMERIC_COMPRESS', 'no', False, False, False),
+    ('search-_print-profile-clock', '_PRINT_PROFILE_CLOCK', 'yes', False, False, False),
+    ('search-no-gc', 'NOGC', 'no', True, True, True),
+    ('search-no-mem-pools', 'NO_MEM_POOLS', 'no', True, True, False),
+    ('search-partial-indexed-docs', 'PARTIAL_INDEXED_DOCS', 'no', True, False, False),
+    ('search-_prioritize-intersect-union-children', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no', False, False, False),
+    ('search-raw-docid-encoding', 'RAW_DOCID_ENCODING', 'no', True, False, False),
+    ('search-enable-unstable-features', 'ENABLE_UNSTABLE_FEATURES', 'no', False, False, False),
 ]
 
 @skip(redis_less_than='7.9.227')
@@ -1310,7 +1310,7 @@ def testConfigAPIRunTimeBooleanParams():
             .contains('CONFIG SET failed')
 
     # Test boolean parameters
-    for configName, ftConfigName, defaultValue, immutable, isFlag in booleanConfigs:
+    for configName, ftConfigName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
         if immutable:
             _testImmutableBooleanConfig(env, configName, ftConfigName, defaultValue)
         else:
@@ -1328,7 +1328,7 @@ def testModuleLoadexBooleanParams():
     redisearch_module_path = env.envRunner.modulePath[0]
     _removeModuleArgs(env)
 
-    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+    for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
         # `search-partial-indexed-docs` has its own test because
         # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
         if configName == 'search-partial-indexed-docs':
@@ -1463,16 +1463,18 @@ def testConfigFileBooleanParams():
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
-        for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
             # use non-default value as config value
             configValue = 'yes' if defaultValue == 'no' else 'no'
             f.write(f'{configName} {configValue}\n')
 
     # Start the server using the conf file and check each value
     env = Env(noDefaultModuleArgs=True, redisConfigFile=redisConfigFile)
-    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+    for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
         # the expected value is the opposite of the default value
         configValue = 'yes' if defaultValue == 'no' else 'no'
+        if isInverted:
+            configValue = 'no' if defaultValue == 'no' else 'yes'
         ftExpectedValue = 'true' if defaultValue == 'no' else 'false'
         res = env.cmd('CONFIG', 'GET', configName)
         env.assertEqual(res, [configName, configValue])
@@ -1489,12 +1491,12 @@ def testConfigFileAndArgsBooleanParams():
     if os.path.isfile(redisConfigFile):
         os.unlink(redisConfigFile)
     with open(redisConfigFile, 'w') as f:
-        for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
             # use default value as config value
             f.write(f'{configName} {defaultValue}\n')
 
     moduleArgs = ''
-    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+    for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
         # use non-default value as argument value
         ftDefaultValue = 'false' if defaultValue == 'yes' else 'true'
         if isFlag:
@@ -1503,7 +1505,7 @@ def testConfigFileAndArgsBooleanParams():
             moduleArgs += f'{argName} {ftDefaultValue} '
 
     env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
-    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+    for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
         # `search-partial-indexed-docs` has its own test because
         # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
         if configName == 'search-partial-indexed-docs':
@@ -1522,7 +1524,7 @@ def testBooleanArgDeprecationMessage():
     '''Test deprecation message of module boolean arguments'''
     # create module arguments
     moduleArgs = ''
-    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+    for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
         # use non-default value as argument value
         ftDefaultValue = 'false' if defaultValue == 'yes' else 'true'
         if isFlag:
@@ -1534,7 +1536,7 @@ def testBooleanArgDeprecationMessage():
     logDir = env.cmd('config', 'get', 'dir')[1]
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
     logFilePath = os.path.join(logDir, logFileName)
-    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+    for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
         expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}` instead'
         matchCount = _grep_file_count(logFilePath, expectedMessage)
         env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
@@ -1570,13 +1572,13 @@ def testBooleanFTConfigDeprecationMessage():
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
     logFilePath = os.path.join(logDir, logFileName)
 
-    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+    for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
         if immutable:
             continue
         env.expect(config_cmd(), 'SET', argName, 'true').ok()
         env.expect(config_cmd(), 'GET', argName).equal([[argName, 'true']])
 
-    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+    for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
         if immutable:
             continue
         expectedMessage = f'FT.CONFIG is deprecated, please use CONFIG SET {configName} instead'
@@ -1682,26 +1684,38 @@ def testConfigIndependence_default():
         currentConfigDict = getConfigDict(env)
         env.assertEqual(currentConfigDict, defaultConfigDict)
 
-    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+    for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
         if immutable:
             continue
         # Test true
         env.expect('CONFIG', 'SET', configName, 'yes').ok()
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, 'true']])
+        if isInverted:
+            env.expect(config_cmd(), 'GET', argName).equal([[argName, 'false']])
+        else:
+            env.expect(config_cmd(), 'GET', argName).equal([[argName, 'true']])
         currentConfigDict = getConfigDict(env)
         for k, v in defaultConfigDict.items():
             if k == argName:
-                env.assertEqual(currentConfigDict[k], ['true'], message=f'changedConfig: {argName}')
+                if isInverted:
+                    env.assertEqual(currentConfigDict[k], ['false'], message=f'changedConfig: {argName}')
+                else:
+                    env.assertEqual(currentConfigDict[k], ['true'], message=f'changedConfig: {argName}')
             else:
                 env.assertEqual(currentConfigDict[k], v, message=f'affectedConfig: {k}, changedConfig: {argName}')
         
         # test false
         env.expect('CONFIG', 'SET', configName, 'no').ok()
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, 'false']])
+        if isInverted:
+            env.expect(config_cmd(), 'GET', argName).equal([[argName, 'true']])
+        else:
+            env.expect(config_cmd(), 'GET', argName).equal([[argName, 'false']])
         currentConfigDict = getConfigDict(env)
         for k, v in defaultConfigDict.items():
             if k == argName:
-                env.assertEqual(currentConfigDict[k], ['false'], message=f'changedConfig: {argName}')
+                if isInverted:
+                    env.assertEqual(currentConfigDict[k], ['true'], message=f'changedConfig: {argName}')
+                else:
+                    env.assertEqual(currentConfigDict[k], ['false'], message=f'changedConfig: {argName}')
             else:
                 env.assertEqual(currentConfigDict[k], v, message=f'affectedConfig: {k}, changedConfig: {argName}')
         
@@ -1724,7 +1738,7 @@ def testConfigIndependence_min_values():
                 continue
         env.expect('CONFIG', 'SET', configName, minValue).ok()
     # set all boolean configs to false
-    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+    for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
         if immutable:
             continue
         env.expect('CONFIG', 'SET', configName, 'no').ok()
@@ -1759,15 +1773,21 @@ def testConfigIndependence_min_values():
         env.expect('CONFIG', 'SET', configName, minValue).ok()
         currentConfigDict = getConfigDict(env)
         env.assertEqual(currentConfigDict, minValueConfigDict)
-    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+    for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
         if immutable:
             continue
         env.expect('CONFIG', 'SET', configName, 'yes').ok()
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, 'true']])
+        if isInverted:
+            env.expect(config_cmd(), 'GET', argName).equal([[argName, 'false']])
+        else:
+            env.expect(config_cmd(), 'GET', argName).equal([[argName, 'true']])
         currentConfigDict = getConfigDict(env)
         for k, v in minValueConfigDict.items():
             if k == argName:
-                env.assertEqual(currentConfigDict[k], ['true'], message=f'changedConfig: {argName}')
+                if isInverted:
+                    env.assertEqual(currentConfigDict[k], ['false'], message=f'changedConfig: {argName}')
+                else:
+                    env.assertEqual(currentConfigDict[k], ['true'], message=f'changedConfig: {argName}')
             else:
                 env.assertEqual(currentConfigDict[k], v, message=f'affectedConfig: {k}, changedConfig: {argName}')
         # Reset to false
@@ -1786,7 +1806,7 @@ def testConfigIndependence_max_values():
                 continue
         env.expect('CONFIG', 'SET', configName, maxValue).ok()
     # set all boolean configs to true
-    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+    for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
         if immutable:
             continue
         env.expect('CONFIG', 'SET', configName, 'yes').ok()
@@ -1816,15 +1836,21 @@ def testConfigIndependence_max_values():
         currentConfigDict = getConfigDict(env)
         env.assertEqual(currentConfigDict, maxValueConfigDict)
     
-    for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+    for configName, argName, defaultValue, immutable, isFlag, isInverted in booleanConfigs:
         if immutable:
             continue
         env.expect('CONFIG', 'SET', configName, 'no').ok()
-        env.expect(config_cmd(), 'GET', argName).equal([[argName, 'false']])
+        if isInverted:
+            env.expect(config_cmd(), 'GET', argName).equal([[argName, 'true']])
+        else:
+            env.expect(config_cmd(), 'GET', argName).equal([[argName, 'false']])
         currentConfigDict = getConfigDict(env)
         for k, v in maxValueConfigDict.items():
             if k == argName:
-                env.assertEqual(currentConfigDict[k], ['false'], message=f'changedConfig: {argName}')
+                if isInverted:
+                    env.assertEqual(currentConfigDict[k], ['true'], message=f'changedConfig: {argName}')
+                else:
+                    env.assertEqual(currentConfigDict[k], ['false'], message=f'changedConfig: {argName}')
             else:
                 env.assertEqual(currentConfigDict[k], v, message=f'affectedConfig: {k}, changedConfig: {argName}')
         # Reset to true

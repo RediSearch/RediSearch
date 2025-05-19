@@ -118,7 +118,7 @@ int set_size_t_numeric_config(const char *name, long long val, void *privdata,
   return REDISMODULE_OK;
 }
 
-size_t get_size_t_numeric_config(const char *name, void *privdata) {
+long long get_size_t_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return *(size_t *)privdata;
 }
@@ -131,7 +131,7 @@ int set_int_numeric_config(const char *name, long long val, void *privdata,
   return REDISMODULE_OK;
 }
 
-int get_int_numeric_config(const char *name, void *privdata) {
+long long get_int_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return *(int *)privdata;
 }
@@ -144,7 +144,7 @@ int set_uint_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-unsigned int get_uint_numeric_config(const char *name, void *privdata) {
+long long get_uint_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return *(unsigned int *)privdata;
 }
@@ -157,7 +157,7 @@ int set_uint8_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-uint8_t get_uint8_numeric_config(const char *name, void *privdata) {
+long long get_uint8_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return *(uint8_t *)privdata;
 }
@@ -170,7 +170,7 @@ int set_uint64_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-uint64_t get_uint64_numeric_config(const char *name, void *privdata) {
+long long get_uint64_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return *(uint64_t *)privdata;
 }
@@ -191,14 +191,14 @@ int set_inverted_bool_config(const char *name, int val, void *privdata,
   return REDISMODULE_OK;
 }
 
-bool get_bool_config(const char *name, void *privdata) {
+int get_bool_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return *(bool *)privdata;
 }
 
-bool get_inverted_bool_config(const char *name, void *privdata) {
+int get_inverted_bool_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
-  return !*(bool *)privdata;
+  return !(bool *)privdata;
 }
 
 int set_immutable_string_config(const char *name, RedisModuleString *val, void *privdata,
@@ -880,7 +880,9 @@ CONFIG_GETTER(getGcPolicy) {
 
 // PARTIAL_INDEXED_DOCS
 CONFIG_SETTER(setFilterCommand) {
-  int acrc = AC_GetInt(ac, &config->filterCommands, AC_F_GE0);
+  int filterCommands;
+  int acrc = AC_GetInt(ac, &filterCommands, AC_F_GE0);
+  config->filterCommands = (bool)filterCommands;
   RETURN_STATUS(acrc);
 }
 
@@ -1631,7 +1633,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig(
       ctx, "search-max-prefix-expansions", DEFAULT_MAX_PREFIX_EXPANSIONS,
-      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      REDISMODULE_CONFIG_UNPREFIXED, 1, LLONG_MAX,
       get_long_numeric_config, set_long_numeric_config, NULL,
       (void *)&(RSGlobalConfig.iteratorsConfigParams.maxPrefixExpansions)
     )
