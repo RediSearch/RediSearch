@@ -19,5 +19,6 @@
 pub mod trie;
 
 /// Registers the Redis module allocator as the global allocator for the application.
+#[cfg(not(feature = "mock_allocator"))]
 #[global_allocator]
 static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
