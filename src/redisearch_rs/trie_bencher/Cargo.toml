@@ -6,12 +6,12 @@ license.workspace = true
 
 
 [lib]
-# Disable running the library unit tests during benchmarking
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
 bench = false
 
 [[bin]]
 name = "trie_bencher"
-# Disable running the binary unit tests during benchmarking
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
 bench = false
 
 [[bench]]
