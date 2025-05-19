@@ -1807,7 +1807,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       ctx, "search-bm25std-tanh-factor",
       DEFAULT_BM25STD_TANH_FACTOR,
       REDISMODULE_CONFIG_UNPREFIXED, BM25STD_TANH_FACTOR_MIN, BM25STD_TANH_FACTOR_MAX,
-      get_uint64_numeric_config, set_uint64_numeric_config, NULL,
+      get_uint_numeric_config, set_uint_numeric_config, NULL,
       (void *)&(RSGlobalConfig.requestConfigParams.BM25STD_TanhFactor)
     )
   )
