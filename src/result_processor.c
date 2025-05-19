@@ -1325,6 +1325,15 @@ void PipelineAddCrash(struct AREQ *r) {
 
  /*******************************************************************************************************************
   *  Max Score Normalizer Result Processor
+  *
+  * This result processor is responsible for normalizing the scores of search results.
+  * It collects all results requested by the downstream result processor, finds the maximum score, and then normalizes all
+  * scores by dividing them by the maximum score. This ensures that all scores
+  * are in the range [0, 1].
+  *
+  * The processor works in two phases:
+  * 1. Accumulation: Collect all results and find the maximum score.
+  * 2. Yielding: Return normalized results one by one.
   *******************************************************************************************************************/
  typedef struct {
    ResultProcessor base;
@@ -1373,11 +1382,10 @@ static int rpNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
-    rp->Next = rpNormalizer_Yield;
-    return rp->Next(rp, r);
+    return rc;
   } else if (rc != RS_RESULT_OK) {
     // whoops!
-    RS_LOG_ASSERT(rc != RS_RESULT_OK, "Received an unexpected result status that is neither EOF nor OK");
+    RS_ABORT("Received an unexpected result status that is neither EOF nor OK");
     return rc;
   }
 
@@ -1396,9 +1404,10 @@ static int rpNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
   uint32_t chunkLimit = rp->parent->resultLimit;
   int rc;
   int count = 0;
-  while (count < chunkLimit && (rc = rpNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED);
+  while (count++ < chunkLimit && (rc = rpNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED);
+  rp->Next = rpNormalizer_Yield;
   rp->parent->resultLimit = chunkLimit; // restore the limit
-  return rc;
+  return rp->Next(rp, r);
 }
 
  /* Create a new Max Collector processor */

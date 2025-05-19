@@ -495,11 +495,11 @@ class TestBM25NormMax:
         conn = self.env.getClusterConnectionIfNeeded()
         # Add documents with varying content to get different scores
         tag = '{tag}' if use_key_tags else ''
-        conn.execute_command('HSET', f'doc:1{tag}', 'title', 'hello')
-        conn.execute_command('HSET', f'doc:2{tag}', 'title', 'hello world')
-        conn.execute_command('HSET', f'doc:3{tag}', 'title', 'hello world orange')
-        conn.execute_command('HSET', f'doc:4{tag}', 'title', 'hello world orange yellow')
         conn.execute_command('HSET', f'doc:5{tag}', 'title', 'hello world orange yellow blue')
+        conn.execute_command('HSET', f'doc:4{tag}', 'title', 'hello world orange yellow')
+        conn.execute_command('HSET', f'doc:3{tag}', 'title', 'hello world orange')
+        conn.execute_command('HSET', f'doc:2{tag}', 'title', 'hello world')
+        conn.execute_command('HSET', f'doc:1{tag}', 'title', 'hello')
 
     def setUp(self):
         self.env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
@@ -531,9 +531,9 @@ class TestBM25NormMax:
 
         # AGGREGATE version
         agg_std = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD',
-                          'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC')
+                          'LOAD', '2', '@__key', '@__score')
         agg_norm = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
-                           'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC')
+                           'LOAD', '2', '@__key', '@__score')
 
         key_index = agg_std[1].index('__key') + 1
         score_index = agg_std[1].index('__score') + 1
@@ -565,13 +565,31 @@ class TestBM25NormMax:
         agg_full = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world orange', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
                            'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC')
         agg_limited = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world orange', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
-                              'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC', 'LIMIT', offset, limit)
+                           'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC', 'LIMIT', offset, limit)
 
         key_index = agg_full[1].index('__key') + 1
         score_index = agg_full[1].index('__score') + 1
 
         for i in range(1, len(agg_limited)):
             self.env.assertLessEqual(float(agg_limited[i][score_index]), float(agg_full[i+offset][score_index]), 0.00001)
+
+        #test limit properly restricts the number of results
+        #doc:3 doesn't have to be excluded from the first 2 results, and depends on order of insertion.
+        #we want to make sure limit actually limits the result set, and does not go over all results, normalizing and then limiting.
+        offset = 1
+        limit = 1
+
+        agg_full = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world orange', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+                            'LOAD', '2', '@__key', '@__score')
+        agg_limited = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world orange', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+                            'LOAD', '2', '@__key', '@__score', 'LIMIT', offset, limit)
+
+        scores_agg_full = {row[key_index]: float(row[score_index]) for row in agg_full[1:]}
+        scores_agg_limited = {row[key_index]: float(row[score_index]) for row in agg_limited[1:]}
+
+        for key, score in scores_agg_limited.items():
+            self.env.assertNotEqual(score, scores_agg_full[key], 0.00001)
+
 
 
     def test_single_result_normalization(self):
