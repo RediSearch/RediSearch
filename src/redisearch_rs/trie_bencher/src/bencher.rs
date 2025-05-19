@@ -22,7 +22,7 @@ use std::{
     ptr::NonNull,
     time::Duration,
 };
-use trie_rs::iter::LendingIter;
+use trie_rs::iter::{ContainsLendingIter, LendingIter};
 use trie_rs::iter::{RangeFilter, RangeLendingIter};
 use wildcard::WildcardPattern;
 
@@ -207,6 +207,51 @@ impl OperationBencher {
         into_values_benchmark(&mut group, &self.rust_map);
         group.finish();
     }
+
+    /// Benchmark the `ContainsIter` iterator.
+    ///
+    /// The benchmark group will be marked with the given label.
+    pub fn contains_group(&self, c: &mut Criterion, target: &str) {
+        let label = format!("Contains [{target}]");
+        let mut group = self.benchmark_group_mutable(c, &label);
+        contains_rust_benchmark(&mut group, &self.rust_map, target);
+        contains_c_benchmark(&mut group, &self.keys, target);
+        group.finish();
+    }
+}
+
+fn contains_rust_benchmark<M: Measurement>(
+    c: &mut BenchmarkGroup<'_, M>,
+    map: &RustTrieMap,
+    target: &str,
+) {
+    c.bench_function("Rust", |b| {
+        b.iter(|| {
+            let mut iter: ContainsLendingIter<_> =
+                map.contains_iter(black_box(target.as_bytes())).into();
+            while let Some(entry) = LendingIterator::next(&mut iter) {
+                black_box(entry);
+            }
+        })
+    });
+}
+
+fn contains_c_benchmark<M: Measurement>(
+    c: &mut BenchmarkGroup<'_, M>,
+    terms: &[String],
+    target: &str,
+) {
+    let target = target.into_cstring();
+    let view = target.as_view();
+    let map = c_load_from_terms(terms);
+    c.bench_function("C", |b| {
+        b.iter(|| {
+            let mut iter = map.contains_iter(view);
+            while let Some(entry) = LendingIterator::next(&mut iter) {
+                black_box(entry);
+            }
+        })
+    });
 }
 
 fn into_values_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, map: &RustTrieMap) {
