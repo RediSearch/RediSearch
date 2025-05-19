@@ -148,7 +148,7 @@ ifeq ($(COORD),oss) # OSS (community distribution) Coordinator
 	SRCDIR=.
 	TARGET=$(BINDIR)/redisearch.so
 	PACKAGE_NAME=redisearch-community
-	MODULE_NAME=search
+	MODULE_NAME=search-test
 	RAMP_YAML=pack/ramp-community.yml
 	PACKAGE_S3_DIR=redisearch-oss
 
@@ -157,7 +157,7 @@ else ifeq ($(COORD),rlec) # RLEC Coordinator
 	SRCDIR=.
 	TARGET=$(BINDIR)/module-enterprise.so
 	PACKAGE_NAME=redisearch
-	MODULE_NAME=search
+	MODULE_NAME=search-test
 	RAMP_YAML=pack/ramp-enterprise.yml
 	PACKAGE_S3_DIR=redisearch
 
