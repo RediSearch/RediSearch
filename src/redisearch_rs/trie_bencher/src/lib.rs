@@ -16,10 +16,7 @@ bind_redis_alloc_symbols_to_mock_impl!();
 pub use bencher::OperationBencher;
 
 pub mod bencher;
-pub mod c_map;
 pub mod corpus;
-pub mod ffi;
 
 // Convenient aliases for the trie types that are being benchmarked.
-pub use c_map::CTrieMap;
 pub type RustTrieMap = trie_rs::TrieMap<NonNull<c_void>>;

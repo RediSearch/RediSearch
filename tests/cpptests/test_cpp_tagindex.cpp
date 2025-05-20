@@ -8,6 +8,7 @@
 */
 
 #include "tag_index.h"
+#include "triemap.h"
 #include "gtest/gtest.h"
 
 #include <vector>
@@ -34,7 +35,7 @@ TEST_F(TagIndexTest, testCreate) {
     ASSERT_EQ(0, sz);
   }
 
-  ASSERT_EQ(v.size(), idx->values->cardinality);
+  ASSERT_EQ(v.size(), TrieMap_NUniqueKeys(idx->values));
 
   // expectedTotalSZ should include the memory occupied by the inverted index
   // structure and its blocks.

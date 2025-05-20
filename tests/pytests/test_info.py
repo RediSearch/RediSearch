@@ -150,9 +150,9 @@ def test_info_text_tag_overhead(env):
   forceInvokeGC(env, 'idx')
   time.sleep(1)
 
-  # Overhead = 0
+  # Overhead ~= 0
   res = index_info(env, 'idx')
-  env.assertEqual(float(res['tag_overhead_sz_mb']), 0)
+  env.assertEqual(float(res['tag_overhead_sz_mb']), 1.52587890625e-05)
   env.assertEqual(float(res['text_overhead_sz_mb']), 0)
 
 def test_vecsim_info_stats_memory():

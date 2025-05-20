@@ -18,6 +18,7 @@
 #include "config.h"
 #include "redis_index.h"
 #include "tokenize.h"
+#include "triemap.h"
 #include "util/logging.h"
 #include "extension.h"
 #include "ext/default.h"
@@ -1156,22 +1157,21 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   IndexIterator **its = rm_calloc(itsCap, sizeof(*its));
 
   if (!qn->pfx.suffix || !withSuffixTrie) {    // prefix query or no suffix triemap, use bruteforce
-    TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
+    tm_iter_mode iter_mode = TM_PREFIX_MODE;
+    if (qn->pfx.suffix) {
+      if (qn->pfx.prefix) { // contains mode
+        iter_mode = TM_CONTAINS_MODE;
+      } else {
+        iter_mode = TM_SUFFIX_MODE;
+      }
+    }
+    TrieMapIterator *it = TrieMap_IterateWithFilter(idx->values, tok->str, tok->len, iter_mode);
     if (!it) {
       rm_free(its);
       return NULL;
     }
     TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
-    TrieMapIterator_NextFunc nextFunc = TrieMapIterator_Next;
 
-    if (qn->pfx.suffix) {
-      nextFunc = TrieMapIterator_NextContains;
-      if (qn->pfx.prefix) { // contains mode
-        it->mode = TM_CONTAINS_MODE;
-      } else {
-        it->mode = TM_SUFFIX_MODE;
-      }
-    }
 
     // an upper limit on the number of expansions is enforced to avoid stuff like "*"
     char *s;
@@ -1180,7 +1180,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
     // Find all completions of the prefix
     int hasNext;
-    while ((hasNext = nextFunc(it, &s, &sl, &ptr)) &&
+    while ((hasNext = TrieMapIterator_Next(it, &s, &sl, &ptr)) &&
            (itsSz < q->config->maxPrefixExpansions)) {
       IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx, s, sl, 1, fieldIndex);
       if (!ret) continue;
@@ -1289,10 +1289,8 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
 
   if (!idx->suffix || fallbackBruteForce) {
     // brute force wildcard query
-    TrieMapIterator *it = TrieMap_Iterate(idx->values, tok->str, tok->len);
+    TrieMapIterator *it = TrieMap_IterateWithFilter(idx->values, tok->str, tok->len, TM_WILDCARD_MODE);
     TrieMapIterator_SetTimeout(it, q->sctx->time.timeout);
-    // If there is no '*`, the length is known which can be used for optimization
-    it->mode = strchr(tok->str, '*') ? TM_WILDCARD_MODE : TM_WILDCARD_FIXED_LEN_MODE;
 
     char *s;
     tm_len_t sl;
@@ -1300,7 +1298,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
 
     // Find all completions of the prefix
     int hasNext;
-    while ((hasNext = TrieMapIterator_NextWildcard(it, &s, &sl, &ptr)) &&
+    while ((hasNext = TrieMapIterator_Next(it, &s, &sl, &ptr)) &&
            (itsSz < q->config->maxPrefixExpansions)) {
       IndexIterator *ret = TagIndex_OpenReader(idx, q->sctx, s, sl, 1, fieldIndex);
       if (!ret) continue;

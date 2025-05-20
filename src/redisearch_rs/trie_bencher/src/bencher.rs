@@ -7,28 +7,21 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{
-    CTrieMap, RustTrieMap,
-    c_map::{AsTrieTermView as _, IntoCString as _},
-};
 use criterion::{
     BatchSize, BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
 use lending_iterator::LendingIterator;
-use std::{
-    ffi::{CString, c_void},
-    hint::black_box,
-    ptr::NonNull,
-    time::Duration,
-};
+use std::{ffi::c_void, hint::black_box, ptr::NonNull, time::Duration};
 use trie_rs::iter::{ContainsLendingIter, LendingIter};
 use trie_rs::iter::{RangeFilter, RangeLendingIter};
 use wildcard::WildcardPattern;
 
+use crate::RustTrieMap;
+
 /// A helper struct for benchmarking operations on different trie map implementations.
 pub struct OperationBencher {
-    rust_map: RustTrieMap,
+    map: RustTrieMap,
 
     /// A vector of strings that will be inserted into the trie map.
     keys: Vec<String>,
@@ -52,10 +45,10 @@ pub struct OperationBencher {
 /// This is an approximation based on the assumption that immutable operations are 5 times faster than mutable operations.
 pub struct CorpusMeasurementTime {
     /// Measurement time for immutable operations, e.g. find
-    measurement_time_immutable: Duration,
+    immutable: Duration,
 
     /// Measurement time for mutable operations, e.g. insert, remove
-    measurement_time_mutable: Duration,
+    mutable: Duration,
 }
 
 impl CorpusMeasurementTime {
@@ -67,8 +60,8 @@ impl CorpusMeasurementTime {
     /// for find vs insert/remove in the benchmarks.
     pub fn from_mutable_trie(mutable_measurement_time: Duration) -> Self {
         Self {
-            measurement_time_immutable: mutable_measurement_time.mul_f32(0.2),
-            measurement_time_mutable: mutable_measurement_time,
+            immutable: mutable_measurement_time.mul_f32(0.2),
+            mutable: mutable_measurement_time,
         }
     }
 }
@@ -76,8 +69,8 @@ impl CorpusMeasurementTime {
 impl Default for CorpusMeasurementTime {
     fn default() -> Self {
         Self {
-            measurement_time_immutable: Duration::from_secs(5),
-            measurement_time_mutable: Duration::from_secs(5),
+            immutable: Duration::from_secs(5),
+            mutable: Duration::from_secs(5),
         }
     }
 }
@@ -103,7 +96,7 @@ impl OperationBencher {
         let measurement_times = CorpusMeasurementTime::from_mutable_trie(measurement_time);
         Self {
             prefix,
-            rust_map,
+            map: rust_map,
             keys: terms,
             measurement_times,
         }
@@ -115,7 +108,7 @@ impl OperationBencher {
         label: &str,
     ) -> BenchmarkGroup<'a, WallTime> {
         let mut group = c.benchmark_group(format!("{}|{}", self.prefix, label));
-        group.measurement_time(self.measurement_times.measurement_time_mutable);
+        group.measurement_time(self.measurement_times.mutable);
         group
     }
 
@@ -125,7 +118,7 @@ impl OperationBencher {
         label: &str,
     ) -> BenchmarkGroup<'a, WallTime> {
         let mut group = c.benchmark_group(format!("{}|{}", self.prefix, label));
-        group.measurement_time(self.measurement_times.measurement_time_immutable);
+        group.measurement_time(self.measurement_times.immutable);
         group
     }
 
@@ -134,8 +127,7 @@ impl OperationBencher {
     /// The benchmark group will be marked with the given label.
     pub fn find_group(&self, c: &mut Criterion, word: &str, label: &str) {
         let mut group = self.benchmark_group_immutable(c, label);
-        find_rust_benchmark(&mut group, &self.rust_map, word);
-        find_c_benchmark(&mut group, &self.keys, word);
+        find_rust_benchmark(&mut group, &self.map, word);
         group.finish();
     }
 
@@ -144,8 +136,7 @@ impl OperationBencher {
     /// The benchmark group will be marked with the given label.
     pub fn insert_group(&self, c: &mut Criterion, word: &str, label: &str) {
         let mut group = self.benchmark_group_mutable(c, label);
-        insert_rust_benchmark(&mut group, self.rust_map.clone(), word);
-        insert_c_benchmark(&mut group, &self.keys, word);
+        insert_rust_benchmark(&mut group, self.map.clone(), word);
         group.finish();
     }
 
@@ -154,8 +145,7 @@ impl OperationBencher {
     /// The benchmark group will be marked with the given label.
     pub fn remove_group(&self, c: &mut Criterion, word: &str, label: &str) {
         let mut group = self.benchmark_group_mutable(c, label);
-        remove_rust_benchmark(&mut group, self.rust_map.clone(), word);
-        remove_c_benchmark(&mut group, &self.keys, word);
+        remove_rust_benchmark(&mut group, self.map.clone(), word);
         group.finish();
     }
 
@@ -163,7 +153,6 @@ impl OperationBencher {
     pub fn load_group(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group_mutable(c, "Load");
         load_rust_benchmark(&mut group, &self.keys);
-        load_c_benchmark(&mut group, &self.keys);
         group.finish();
     }
 
@@ -172,8 +161,7 @@ impl OperationBencher {
     /// The benchmark group will be marked with the given label.
     pub fn find_prefixes_group(&self, c: &mut Criterion, target: &str, label: &str) {
         let mut group = self.benchmark_group_immutable(c, label);
-        find_prefixes_rust_benchmark(&mut group, &self.rust_map, target);
-        find_prefixes_c_benchmark(&mut group, &self.keys, target);
+        find_prefixes_rust_benchmark(&mut group, &self.map, target);
         group.finish();
     }
 
@@ -183,8 +171,7 @@ impl OperationBencher {
     pub fn wildcard_group(&self, c: &mut Criterion, target: &str) {
         let label = format!("Wildcard [{target}]");
         let mut group = self.benchmark_group_immutable(c, &label);
-        wildcard_rust_benchmark(&mut group, &self.rust_map, target);
-        wildcard_c_benchmark(&mut group, &self.keys, target);
+        wildcard_rust_benchmark(&mut group, &self.map, target);
         group.finish();
     }
 
@@ -194,8 +181,7 @@ impl OperationBencher {
     pub fn range_group(&self, c: &mut Criterion, range: RangeFilter) {
         let label = format!("Range [{range}]");
         let mut group = self.benchmark_group_immutable(c, &label);
-        range_rust_benchmark(&mut group, &self.rust_map, range);
-        range_c_benchmark(&mut group, &self.keys, range);
+        range_rust_benchmark(&mut group, &self.map, range);
         group.finish();
     }
 
@@ -204,7 +190,7 @@ impl OperationBencher {
     /// The benchmark group will be marked with the given label.
     pub fn into_values_group(&self, c: &mut Criterion, label: &str) {
         let mut group = self.benchmark_group_mutable(c, label);
-        into_values_benchmark(&mut group, &self.rust_map);
+        into_values_benchmark(&mut group, &self.map);
         group.finish();
     }
 
@@ -214,8 +200,7 @@ impl OperationBencher {
     pub fn contains_group(&self, c: &mut Criterion, target: &str) {
         let label = format!("Contains [{target}]");
         let mut group = self.benchmark_group_mutable(c, &label);
-        contains_rust_benchmark(&mut group, &self.rust_map, target);
-        contains_c_benchmark(&mut group, &self.keys, target);
+        contains_rust_benchmark(&mut group, &self.map, target);
         group.finish();
     }
 }
@@ -229,24 +214,6 @@ fn contains_rust_benchmark<M: Measurement>(
         b.iter(|| {
             let mut iter: ContainsLendingIter<_> =
                 map.contains_iter(black_box(target.as_bytes())).into();
-            while let Some(entry) = LendingIterator::next(&mut iter) {
-                black_box(entry);
-            }
-        })
-    });
-}
-
-fn contains_c_benchmark<M: Measurement>(
-    c: &mut BenchmarkGroup<'_, M>,
-    terms: &[String],
-    target: &str,
-) {
-    let target = target.into_cstring();
-    let view = target.as_view();
-    let map = c_load_from_terms(terms);
-    c.bench_function("C", |b| {
-        b.iter(|| {
-            let mut iter = map.contains_iter(view);
             while let Some(entry) = LendingIterator::next(&mut iter) {
                 black_box(entry);
             }
@@ -283,33 +250,6 @@ fn range_rust_benchmark<M: Measurement>(
     });
 }
 
-fn range_c_benchmark<M: Measurement>(
-    c: &mut BenchmarkGroup<'_, M>,
-    terms: &[String],
-    range: RangeFilter,
-) {
-    let min = range.min.map(|m| m.value.into_cstring());
-    let min_view = min.as_ref().map(|min| min.as_view());
-
-    let max = range.max.map(|m| m.value.into_cstring());
-    let max_view = max.as_ref().map(|max| max.as_view());
-
-    let include_min = range.min.map(|m| m.is_included).unwrap_or(false);
-    let include_max = range.max.map(|m| m.is_included).unwrap_or(false);
-
-    let map = c_load_from_terms(terms);
-    c.bench_function("C", |b| {
-        b.iter(|| {
-            map.range_iter(
-                black_box(min_view),
-                black_box(max_view),
-                black_box(include_min),
-                black_box(include_max),
-            );
-        })
-    });
-}
-
 fn wildcard_rust_benchmark<M: Measurement>(
     c: &mut BenchmarkGroup<'_, M>,
     map: &RustTrieMap,
@@ -326,25 +266,6 @@ fn wildcard_rust_benchmark<M: Measurement>(
     });
 }
 
-fn wildcard_c_benchmark<M: Measurement>(
-    c: &mut BenchmarkGroup<'_, M>,
-    terms: &[String],
-    pattern: &str,
-) {
-    let fixed_length = pattern.chars().all(|c| c != '*');
-    let pattern = pattern.into_cstring();
-    let view = pattern.as_view();
-    let map = c_load_from_terms(terms);
-    c.bench_function("C", |b| {
-        b.iter(|| {
-            let mut iter = map.wildcard_iter(view, fixed_length);
-            while let Some(entry) = LendingIterator::next(&mut iter) {
-                black_box(entry);
-            }
-        })
-    });
-}
-
 fn find_prefixes_rust_benchmark<M: Measurement>(
     c: &mut BenchmarkGroup<'_, M>,
     map: &RustTrieMap,
@@ -354,17 +275,6 @@ fn find_prefixes_rust_benchmark<M: Measurement>(
     c.bench_function("Rust", |b| {
         b.iter(|| map.prefixes_iter(black_box(target)).collect::<Vec<_>>())
     });
-}
-
-fn find_prefixes_c_benchmark<M: Measurement>(
-    c: &mut BenchmarkGroup<'_, M>,
-    terms: &[String],
-    target: &str,
-) {
-    let target = target.into_cstring();
-    let view = target.as_view();
-    let map = c_load_from_terms(terms);
-    c.bench_function("C", |b| b.iter(|| map.find_prefixes(view)));
 }
 
 fn find_rust_benchmark<M: Measurement>(
@@ -394,25 +304,6 @@ fn insert_rust_benchmark<M: Measurement>(
     });
 }
 
-fn insert_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, terms: &[String], word: &str) {
-    let word = word.into_cstring();
-    let view = word.as_view();
-    c.bench_function("C", |b| {
-        b.iter_batched_ref(
-            || c_load_from_terms(terms),
-            |data| data.insert(black_box(view)),
-            BatchSize::LargeInput,
-        )
-    });
-}
-
-fn find_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, terms: &[String], word: &str) {
-    let word = word.into_cstring();
-    let view = word.as_view();
-    let map = c_load_from_terms(terms);
-    c.bench_function("C", |b| b.iter(|| map.find(black_box(view))));
-}
-
 fn remove_rust_benchmark<M: Measurement>(
     c: &mut BenchmarkGroup<'_, M>,
     map: RustTrieMap,
@@ -428,38 +319,11 @@ fn remove_rust_benchmark<M: Measurement>(
     });
 }
 
-fn remove_c_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, keys: &[String], word: &str) {
-    let word = word.into_cstring();
-    let view = word.as_view();
-    c.bench_function("C", |b| {
-        b.iter_batched_ref(
-            || c_load_from_terms(keys),
-            |data| data.remove(black_box(view)),
-            BatchSize::LargeInput,
-        )
-    });
-}
-
 fn load_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, keys: &[String]) {
     group.bench_function("Rust", |b| {
         b.iter_batched(
             || keys.iter().map(|s| s.as_bytes()).collect::<Vec<_>>(),
             |data| rust_load(black_box(&data)),
-            BatchSize::LargeInput,
-        )
-    });
-}
-
-fn load_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, contents: &[String]) {
-    group.bench_function("C", |b| {
-        b.iter_batched(
-            || {
-                contents
-                    .iter()
-                    .map(|s| s.into_cstring())
-                    .collect::<Vec<_>>()
-            },
-            |data| c_load(black_box(data)),
             BatchSize::LargeInput,
         )
     });
@@ -476,20 +340,4 @@ fn rust_load(words: &[&[u8]]) -> RustTrieMap {
         map.insert(word, NonNull::<c_void>::dangling());
     }
     map
-}
-
-fn c_load(words: Vec<CString>) -> CTrieMap {
-    let mut map = CTrieMap::new();
-    for word in words {
-        map.insert(word.as_view());
-    }
-    map
-}
-
-fn c_load_from_terms(contents: &[String]) -> CTrieMap {
-    let words = contents
-        .iter()
-        .map(|s| s.into_cstring())
-        .collect::<Vec<_>>();
-    c_load(words)
 }

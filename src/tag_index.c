@@ -13,6 +13,7 @@
 #include "inverted_index.h"
 #include "redis_index.h"
 #include "rmutil/util.h"
+#include "triemap.h"
 #include "util/misc.h"
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
@@ -311,7 +312,7 @@ TagIndex *TagIndex_Open(const IndexSpec *spec, RedisModuleString *key, bool crea
 
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
-  TrieMapIterator *it = TrieMap_Iterate(idx->values, "", 0);
+  TrieMapIterator *it = TrieMap_Iterate(idx->values);
 
   char *str;
   tm_len_t slen;
@@ -346,8 +347,8 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
 }
 void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
   TagIndex *idx = value;
-  RedisModule_SaveUnsigned(rdb, idx->values->cardinality);
-  TrieMapIterator *it = TrieMap_Iterate(idx->values, "", 0);
+  RedisModule_SaveUnsigned(rdb, TrieMap_NUniqueKeys(idx->values));
+  TrieMapIterator *it = TrieMap_Iterate(idx->values);
 
   char *str;
   tm_len_t slen;
@@ -359,7 +360,7 @@ void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
     InvertedIndex *inv = ptr;
     InvertedIndex_RdbSave(rdb, inv);
   }
-  RS_LOG_ASSERT(count == idx->values->cardinality, "not all inverted indexes save to rdb");
+  RS_LOG_ASSERT(count == TrieMap_NUniqueKeys(idx->values), "not all inverted indexes save to rdb");
   TrieMapIterator_Free(it);
 }
 
@@ -374,7 +375,7 @@ size_t TagIndex_MemUsage(const void *value) {
   const TagIndex *idx = value;
   size_t sz = sizeof(*idx);
 
-  TrieMapIterator *it = TrieMap_Iterate(idx->values, "", 0);
+  TrieMapIterator *it = TrieMap_Iterate(idx->values);
 
   char *str;
   tm_len_t slen;
