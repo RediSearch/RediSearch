@@ -39,8 +39,7 @@ void validateDebugMode(DebugCTX *debugCtx) {
     (debugCtx->bgIndexing.maxDocsTBscannedPause > 0) ||
     (debugCtx->bgIndexing.pauseBeforeScan) ||
     (debugCtx->bgIndexing.pauseOnOOM) ||
-    (debugCtx->bgIndexing.pauseBeforeOOMretry) ||
-    (debugCtx->bgIndexing.pauseAfterOOMretry);
+    (debugCtx->bgIndexing.pauseBeforeOOMretry);
 
 }
 
@@ -1725,7 +1724,6 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
   dScanner->wasPaused = false;
   dScanner->pauseOnOOM = globalDebugCtx.bgIndexing.pauseOnOOM;
   dScanner->pauseBeforeOOMRetry = globalDebugCtx.bgIndexing.pauseBeforeOOMretry;
-  dScanner->pauseAfterOOMRetry = globalDebugCtx.bgIndexing.pauseAfterOOMretry;
 
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }

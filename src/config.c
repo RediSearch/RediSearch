@@ -85,7 +85,7 @@ configPair_t __configPairs[] = {
   {"WORKER_THREADS",                  ""},
   {"ENABLE_UNSTABLE_FEATURES",        "search-enable-unstable-features"},
   {"BM25STD_TANH_FACTOR",             "search-bm25std-tanh-factor"},
-  {"BG_INDEX_OOM_PAUSE_TIME",         "search-bg_index_oom_pause_time"},
+  {"_BG_INDEX_OOM_PAUSE_TIME",         "search-_bg-index-oom-pause-time"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -1274,7 +1274,7 @@ RSConfigOptions RSGlobalConfigOptions = {
           .setValue = setBM25StdTanhFactor,
           .getValue = getBM25StdTanhFactor},
           // replace time with ms/sec
-          {.name = "BG_INDEX_OOM_PAUSE_TIME",
+          {.name = "_BG_INDEX_OOM_PAUSE_TIME",
             .helpText = "Set the time (in seconds) given to the background indexing thread to sleep when it reaches the memory limit, giving time to reallocate memory."
                         "The default value is 5 seconds in Redis Enterprise, 0 in Redis OS.",
             .setValue = setBgOOMpauseTimeForRetry,
@@ -1754,7 +1754,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
 
   RM_TRY(
     RedisModule_RegisterNumericConfig(
-      ctx, "search-bg_index_oom_pause_time",
+      ctx, "search-_bg-index-oom-pause-time",
       IsEnterprise() ? DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY : 0,
       REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0,
       UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,

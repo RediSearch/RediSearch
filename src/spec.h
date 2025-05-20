@@ -657,7 +657,6 @@ typedef struct DebugIndexesScanner {
   bool pauseOnOOM;
   int status;
   bool pauseBeforeOOMRetry;
-  bool pauseAfterOOMRetry;
 } DebugIndexesScanner;
 
 

@@ -30,7 +30,6 @@ typedef struct BgIndexingDebugCtx {
   volatile atomic_bool pause; // Volatile atomic bool to wait for the resume command
   bool pauseOnOOM; // Whether to pause on OOM
   bool pauseBeforeOOMretry; // Whether to pause before the first OOM retry
-  bool pauseAfterOOMretry; // Whether to pause after the first OOM retry
 
 } BgIndexingDebugCtx;
 
