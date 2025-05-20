@@ -49,7 +49,7 @@ Got questions? Join us in [#redisearch on the Redis Discord](https://discord.gg/
 
 * Full-Text indexing of multiple fields in Redis hashes
 * Incremental indexing without performance loss
-* Document ranking (using [tf-idf](https://en.wikipedia.org/wiki/Tf%E2%80%93idf), with optional user-provided weights)
+* Document ranking (using [BM25](https://en.wikipedia.org/wiki/Okapi_BM25) as default, with optional user-provided weights). All available scoring methods described [here](https://redis.io/docs/latest/develop/interact/search-and-query/advanced-concepts/scoring/)
 * Field weighting
 * Complex boolean queries with AND, OR, and NOT operators
 * Prefix matching, fuzzy matching, and exact-phrase queries
