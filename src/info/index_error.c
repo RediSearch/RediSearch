@@ -77,11 +77,8 @@ void IndexError_RaiseBackgroundIndexFailureFlag(IndexError *error) {
     error->background_indexing_OOM_failure = true;
 }
 
-// TODO2: consider setting error->key to something that is not null to distinguish between
-// a destroyed object and a valid one. then use RS_ASSERT at the beginning of each function
-// of this API to check that error->key is NULL or a valid key.
 
-// Destroy the index error, the error.key cannot be used after this function is called.
+// Destroy the index error, the error object cannot be used after this function is called.
 void IndexError_Destroy(IndexError* error) {
     if (!error->key) return;
 
@@ -189,12 +186,11 @@ void IndexError_Combine(IndexError *error, const IndexError *other) {
         // Prefer the other error.
         // copy/add error count later.
         IndexError_ClearLastError(error);
-        if (error->key) {
-            RedisModule_FreeString(RSDummyContext, error->key);
-            // if we got here, it means that the other->key is not N/A
-            RS_ASSERT(other->key != NULL);
-            error->key = RedisModule_HoldString(RSDummyContext, other->key);
-        }
+        if (error->key) RedisModule_FreeString(RSDummyContext, error->key);
+        
+        // if we got here, it means that the other->key is not N/A
+        RS_ASSERT(other->key != NULL);
+        error->key = RedisModule_HoldString(RSDummyContext, other->key);
         error->last_error_without_user_data = rm_strdup(other->last_error_without_user_data);
         error->last_error_with_user_data = rm_strdup(other->last_error_with_user_data);
         error->last_error_time = other->last_error_time;
@@ -221,11 +217,12 @@ void IndexError_SetLastError(IndexError *error, const char *last_error) {
     error->last_error_with_user_data = (last_error != NULL && last_error != NA) ? rm_strdup(last_error) : NA;
 }
 
-// Set the key of the IndexError. can be called with key == NULL to reset the error key.
-void IndexError_SetKey(IndexError *error, RedisModuleString *key) {
+// Set the key of the IndexError to the given key.
+static void IndexError_SetKey(IndexError *error, const char *key, size_t key_len) {
     RS_ASSERT(error->last_error_without_user_data != DEADBEEF && error->last_error_with_user_data != DEADBEEF);
     if (error->key) RedisModule_FreeString(RSDummyContext, error->key);
-    error->key = key;
+
+    error->key = RedisModule_CreateString(RSDummyContext, key, key_len);
 }
 void IndexError_SetErrorTime(IndexError *error, struct timespec error_time) {
     RS_ASSERT(error->last_error_without_user_data != DEADBEEF && error->last_error_with_user_data != DEADBEEF);
@@ -272,8 +269,7 @@ IndexError IndexError_Deserialize(MRReply *reply, bool withOOMstatus) {
 
     if (!STR_EQ(last_error_str, error_len, NA)) {
         IndexError_SetLastError(&error, last_error_str);
-        RedisModuleString *key_rstr = RedisModule_CreateString(RSDummyContext, key_str, key_len);
-        IndexError_SetKey(&error, key_rstr);
+        IndexError_SetKey(&error, key_str, key_len);
     } else {
         IndexError_SetLastError(&error, NA);
         RS_ASSERT(error.key == NULL);

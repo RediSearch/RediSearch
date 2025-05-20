@@ -37,8 +37,6 @@ typedef struct IndexError {
 // Global constant to place an index error object in maps/dictionaries.
 extern char* const IndexError_ObjectName;
 
-RedisModuleString* getNAstring(); // TODO: add test only macro
-
 // Initializes an IndexError. The error_count is set to 0 and the last_error is set to NA.
 IndexError IndexError_Init();
 
