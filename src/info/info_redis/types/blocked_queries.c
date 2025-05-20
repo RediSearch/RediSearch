@@ -83,9 +83,15 @@ BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* blockedQueries, Weak
 void BlockedQueries_RemoveQuery(BlockedQueryNode* blockedQueryNode) {
   // Main thread manages the lifetime of specs, so spec must be valid
   StrongRef_Release(blockedQueryNode->spec);
+  if (blockedQueryNode->query) {
+    rm_free(blockedQueryNode->query);
+  }
   dllist_delete(&blockedQueryNode->llnode);
 }
 
 void BlockedQueries_RemoveCursor(BlockedCursorNode* blockedCursorNode) {
+  if (blockedCursorNode->query) {
+    rm_free(blockedCursorNode->query);
+  }
   dllist_delete(&blockedCursorNode->llnode);
 }
