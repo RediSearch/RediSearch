@@ -7,10 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use metadata::{NodeHeader, PtrMetadata, PtrWithMetadata};
+use metadata::{DeallocOptions, NodeHeader, PtrMetadata, PtrWithMetadata};
 use std::{
     alloc::{handle_alloc_error, realloc},
-    ffi::c_char,
     marker::PhantomData,
     mem::ManuallyDrop,
     num::NonZeroUsize,
@@ -26,8 +25,8 @@ mod trie_ops;
 ///
 /// Each node stores:
 ///
-/// - A sequence of [`c_char`] as its label (see [`Self::label`])
-/// - The first [`c_char`] of the label of each of its children (see [`Self::children_first_bytes`])
+/// - A sequence of [`u8`] as its label (see [`Self::label`])
+/// - The first [`u8`] of the label of each of its children (see [`Self::children_first_bytes`])
 /// - Pointers to each of its children (see [`Self::children`])
 /// - An optional payload (see [`Self::data`])
 ///
@@ -50,7 +49,7 @@ impl<Data> Node<Data> {
     /// # Panics
     ///
     /// Panics if the label length exceeds [`u16::MAX`].
-    pub(crate) fn new_leaf(label: &[c_char], value: Option<Data>) -> Self {
+    pub(crate) fn new_leaf(label: &[u8], value: Option<Data>) -> Self {
         // SAFETY:
         // - There are no children, so all requirements are met.
         unsafe { Self::new_unchecked(label, [], value) }
@@ -76,7 +75,7 @@ impl<Data> Node<Data> {
     ///
     /// The caller must ensure that all children have a non-empty label.
     unsafe fn new_unchecked<const N: usize>(
-        label: &[c_char],
+        label: &[u8],
         children: [Node<Data>; N],
         value: Option<Data>,
     ) -> Self {
@@ -120,7 +119,7 @@ impl<Data> Node<Data> {
             // We don't support labels longer than u16::MAX.
             label_len,
             // A node can have at most 255 children, since that's
-            // the number of unique `c_char` values.
+            // the number of unique `u8` values.
             n_children: N as u8,
         };
         let mut new_ptr = header.metadata().allocate();
@@ -146,7 +145,7 @@ impl<Data> Node<Data> {
                 // We require the caller of this method to guarantee that child labels are non-empty,
                 // thus it's safe to access the first element.
                 let first_byte = unsafe { child.label().get_unchecked(0) };
-                // No risk of double-free on drop since `c_char` is `Copy`.
+                // No risk of double-free on drop since `u8` is `Copy`.
                 //
                 // SAFETY:
                 // - The destination range is all contained within newly allocated buffer.
@@ -235,7 +234,7 @@ impl<Data> Node<Data> {
                     // This incurs a cost (i.e. the node allocation), but this code
                     // path is only triggered when the `f` closure panics,
                     // which should only happen in case of an implementation error.
-                    std::mem::forget(std::mem::replace(self.target, Node::new_leaf(&[], None)));
+                    self.disarm(Node::new_leaf(&[], None));
                 }
             }
         }
@@ -345,7 +344,7 @@ impl<Data> Node<Data> {
         unsafe { child_ptr.label().copy_from_slice_nonoverlapping(suffix) };
 
         // `self`'s children become the children of the new node.
-        // No risk of double-free/use-after-free since &[c_char] is `Copy`.
+        // No risk of double-free/use-after-free since &[u8] is `Copy`.
         //
         // SAFETY:
         // 1. The length of the source slice matches the capacity of the first-byte buffer
@@ -480,7 +479,7 @@ impl<Data> Node<Data> {
     /// Set the node label to `concat!(prefix, old_label)`.
     ///
     /// This version uses `realloc` for more efficient memory usage.
-    fn prepend(mut self, prefix: &[c_char]) -> Self {
+    fn prepend(mut self, prefix: &[u8]) -> Self {
         debug_assert!(
             self.label_len() as usize + prefix.len() <= u16::MAX as usize,
             "The new label length exceeds u16::MAX, {}",
@@ -963,6 +962,65 @@ impl<Data> Node<Data> {
             ptr: new_ptr,
             _phantom: Default::default(),
         }
+    }
+
+    /// Decompose the node into:
+    ///
+    /// - Its children pointers, that will be appended to the provided buffer in reverse order.
+    /// - Its payload, returned by the function.
+    ///
+    /// The heap allocation backing the node will be freed.
+    pub(crate) fn into_raw_parts_reversed(
+        mut self,
+        children_buffer: &mut Vec<Node<Data>>,
+    ) -> Option<Data> {
+        let data = self.data_mut().take();
+        let n_children = self.n_children() as usize;
+        let mut ptr = self.downgrade();
+
+        children_buffer.reserve(n_children);
+
+        // SAFETY:
+        // - The pointer is well-aligned and points immediately after
+        //   the last element.
+        //   It is therefore true that all memory between the base pointer
+        //   and the offsetted pointer belongs to a single allocation.
+        let mut next_child = unsafe { ptr.children().ptr().add(n_children) };
+        for _ in 0..n_children {
+            // SAFETY:
+            // - The number of iterations is capped at `n_children`, and we start from
+            //   one past the end, therefore we're guaranteed to be in bounds
+            //   every single time we shift left.
+            next_child = unsafe { next_child.sub(1) };
+            // After this read, we have two pointers to this child.
+            // This is fine, since we will drop the allocated buffer without trying
+            // to drop the old pointer, thus leaving the freshly read pointer
+            // as the only existing pointer at the end of this routine.
+            //
+            // SAFETY:
+            // - Well-aligned and valid for reads,
+            //   thanks to invariant #1 in ChildrenBuffer::ptr
+            let child = unsafe { next_child.read() };
+            children_buffer.push(child);
+        }
+
+        // SAFETY:
+        // - The layout inferred from the node header values matches exactly the layout
+        //   used to allocate the buffer behind the pointer.
+        // - We have exclusive access, since this function takes `self` by value.
+        // - We don't try to drop the children.
+        unsafe {
+            ptr.dealloc(DeallocOptions {
+                // We don't want to drop them, since their ownership has been moved to the buffer.
+                drop_children: None,
+                // We have already taken the data out of the buffer, so nothing to drop there.
+                drop_data: false,
+                // If new fields are added with non-trivial drop behaviour, the compiler will
+                // report an error here, forcing us to reason about our intentions!
+            })
+        };
+
+        data
     }
 }
 

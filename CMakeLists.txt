@@ -5,21 +5,24 @@ get_filename_component(binroot ${CMAKE_CURRENT_BINARY_DIR}/.. ABSOLUTE)
 
 # Platform detection
 if(APPLE)
-  set(OS "macos")
+    set(OS "macos")
 elseif(UNIX)
-  set(OS "linux")
+    set(OS "linux")
 endif()
 message(STATUS "OS detected: ${OS}")
 
 # Always use .so extension even on macOS
 set(CMAKE_SHARED_LIBRARY_SUFFIX ".so")
+# Export the underlying compiler invocations in a compile_commands.json, located in the bin directory.
+# It'll be picked up by clangd to provide LSP support in editors like Zed and VSCode
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # Define compiler setup function
 function(setup_cc_options)
     message("# CMAKE_C_COMPILER_ID: " ${CMAKE_C_COMPILER_ID})
 
     # Common compiler flags
-    set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -Werror=incompatible-pointer-types -Werror=implicit-function-declaration -fcommon -funsigned-char" PARENT_SCOPE)
+    set(CMAKE_C_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -fcommon -funsigned-char" PARENT_SCOPE)
     set(CMAKE_CXX_FLAGS "-fPIC -pthread -fno-strict-aliasing -Wno-unused-function -Wno-unused-variable -Wno-sign-compare" PARENT_SCOPE)
     set(CMAKE_CXX_STANDARD 20)
     # Release/Debug/Profile specific flags
@@ -38,28 +41,28 @@ endfunction()
 
 # Define shared object setup function
 function(setup_shared_object_target target)
-  if(APPLE)
-      set_target_properties(${target} PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
-      # Force .so extension on macOS instead of .dylib
-      set_target_properties(${target} PROPERTIES SUFFIX ".so")
-  else()
-      # We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
-      # the library's own definition, rather than to a definition in another shared library or the main executable.
-      set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Bsymbolic -Bsymbolic-functions")
-  endif()
-  set_target_properties(${target} PROPERTIES PREFIX "")
+    if(APPLE)
+        set_target_properties(${target} PROPERTIES LINK_FLAGS "-undefined dynamic_lookup")
+        # Force .so extension on macOS instead of .dylib
+        set_target_properties(${target} PROPERTIES SUFFIX ".so")
+    else()
+        # We are building a shared library and want to verify that any reference to a symbol within the library will resolve to
+        # the library's own definition, rather than to a definition in another shared library or the main executable.
+        set_target_properties(${target} PROPERTIES LINK_FLAGS "-pthread -shared -Bsymbolic -Bsymbolic-functions")
+    endif()
+    set_target_properties(${target} PROPERTIES PREFIX "")
 endfunction()
 
 # Define debug symbols extraction function
 function(extract_debug_symbols target)
-  if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" AND NOT APPLE)
-    add_custom_command(TARGET ${target} POST_BUILD
+    if(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo" AND NOT APPLE)
+        add_custom_command(TARGET ${target} POST_BUILD
         COMMAND cp $<TARGET_FILE:${target}> $<TARGET_FILE:${target}>.debug
         COMMAND objcopy --add-gnu-debuglink=$<TARGET_FILE:${target}>.debug $<TARGET_FILE:${target}>
         COMMAND strip -g $<TARGET_FILE:${target}>
         COMMENT "Extracting debug symbols from ${target}"
     )
-  endif()
+    endif()
 endfunction()
 
 #----------------------------------------------------------------------------------------------
@@ -82,12 +85,12 @@ if(NOT DEFINED COORD_TYPE)
 endif()
 
 if(COORD_TYPE STREQUAL "oss")
-  set(BINDIR "${binroot}/search-community")
+    set(BINDIR "${binroot}/search-community")
 elseif(COORD_TYPE STREQUAL "rlec")
-  set(BINDIR "${binroot}/search-enterprise")
-  add_compile_definitions(PRIVATE RS_CLUSTER_ENTERPRISE)
+    set(BINDIR "${binroot}/search-enterprise")
+    add_compile_definitions(PRIVATE RS_CLUSTER_ENTERPRISE)
 else()
-  message(FATAL_ERROR "Invalid COORD_TYPE (='${COORD_TYPE}'). Should be either 'oss' or 'rlec'")
+    message(FATAL_ERROR "Invalid COORD_TYPE (='${COORD_TYPE}'). Should be either 'oss' or 'rlec'")
 endif()
 
 #----------------------------------------------------------------------------------------------
@@ -109,10 +112,13 @@ if(SAN)
     endif()
 endif()
 
+# Coverage settings
+message(STATUS "COV: ${COV}")
 if (COV)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
+    add_compile_definitions(COVERAGE=1)
 endif()
 
 # Get Git version info - to be printed in log upon loading the module
@@ -136,8 +142,8 @@ execute_process(
 set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 
 # Treat all format‑string warnings as errors
-set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wformat -Werror=format-security")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat -Werror=format-security")
+set(CMAKE_C_FLAGS   "${CMAKE_C_FLAGS} -Wformat")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wformat")
 
 
 add_compile_definitions(
@@ -229,6 +235,8 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
+add_subdirectory(src/wildcard)
+add_subdirectory(src/util/arr)
 add_subdirectory(src/util/hash)
 add_subdirectory(src/coord)
 
@@ -256,7 +264,6 @@ file(GLOB SOURCES
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
     "deps/miniz/*.c"
-    "deps/base64/*.c"
     "deps/fast_float/*.c"
     "deps/thpool/*.c"
     "deps/geohash/*.c")
@@ -265,6 +272,8 @@ add_library(rscore OBJECT ${SOURCES})
 
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:trie>
+    $<TARGET_OBJECTS:arr>
+    $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
@@ -282,13 +291,19 @@ if(COORD_TYPE STREQUAL "rlec")
     set_target_properties(redisearch PROPERTIES OUTPUT_NAME "module-enterprise")
 endif()
 
-set_target_properties(redisearch PROPERTIES LINKER_LANGUAGE CXX)
+set_target_properties(redisearch
+    PROPERTIES
+    LINKER_LANGUAGE CXX
+    C_STANDARD 17
+    C_STANDARD_REQUIRED ON)
 setup_shared_object_target(redisearch "")
 target_link_libraries(redisearch
         redisearch-geometry
         redisearch-hash
         VectorSimilarity
         redisearch-coord
+        arr
+        wildcard
         trie
         uv_a
         ${BINDIR}/redisearch_rs/libredisearch_rs.a

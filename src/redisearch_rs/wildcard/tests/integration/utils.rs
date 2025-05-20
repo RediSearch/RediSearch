@@ -7,19 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use wildcard::CharLike;
-
-pub fn chunk_to_string<C: CharLike>(chunk: &[C]) -> String {
-    String::from_utf8_lossy(
-        chunk
-            .iter()
-            .map(|c| c.as_u8())
-            .collect::<Vec<u8>>()
-            .as_slice(),
-    )
-    .into_owned()
-}
-
 #[macro_export]
 macro_rules! _assert_match {
     ($pattern:expr, $expected_results:expr $(,)?, $outcome:expr) => {{
@@ -31,8 +18,8 @@ macro_rules! _assert_match {
                 tokens.matches(expected),
                 $outcome,
                 r#"Unexpected match outcome for {:?} when trying to match against {:?}"#,
-                chunk_to_string(expected),
-                chunk_to_string($pattern)
+                String::from_utf8_lossy(expected),
+                String::from_utf8_lossy($pattern)
             );
         }
     }};
@@ -42,18 +29,18 @@ macro_rules! _assert_match {
 // For consistency, this macro should be called `match!`, but `match`
 // is a keyword in Rust, so we use `matches!` instead.
 macro_rules! matches {
-    ($pattern:expr, $expected_results:expr $(,)?) => {{ crate::_assert_match!($pattern, $expected_results, wildcard::MatchOutcome::Match) }};
+    ($pattern:expr, $expected_results:expr $(,)?) => {{ $crate::_assert_match!($pattern, $expected_results, wildcard::MatchOutcome::Match) }};
 }
 
 #[macro_export]
 macro_rules! no_match {
-    ($pattern:expr, $expected_results:expr $(,)?) => {{ crate::_assert_match!($pattern, $expected_results, wildcard::MatchOutcome::NoMatch) }};
+    ($pattern:expr, $expected_results:expr $(,)?) => {{ $crate::_assert_match!($pattern, $expected_results, wildcard::MatchOutcome::NoMatch) }};
 }
 
 #[macro_export]
 macro_rules! partial_match {
     ($pattern:expr, $expected_results:expr $(,)?) => {{
-        crate::_assert_match!(
+        $crate::_assert_match!(
             $pattern,
             $expected_results,
             wildcard::MatchOutcome::PartialMatch

@@ -8,19 +8,16 @@
 */
 
 //! Trie operations.
-use super::Node;
-use crate::utils::{longest_common_prefix, memchr_c_char, strip_prefix};
-use std::{
-    alloc::dealloc, cmp::Ordering, ffi::c_char, marker::PhantomData, mem::ManuallyDrop,
-    ptr::NonNull,
-};
+use super::{Node, metadata::DeallocOptions};
+use crate::utils::{longest_common_prefix, strip_prefix};
+use std::cmp::Ordering;
 
 impl<Data> Node<Data> {
     /// Inserts a new key-value pair into the trie.
     ///
     /// If the key already exists, the current value is passede to provided function,
     /// and replaced with the value returned by that function.
-    pub fn insert_or_replace_with<F>(&mut self, mut key: &[c_char], f: F)
+    pub fn insert_or_replace_with<F>(&mut self, mut key: &[u8], f: F)
     where
         F: FnOnce(Option<Data>) -> Data,
     {
@@ -173,7 +170,7 @@ impl<Data> Node<Data> {
 
     /// Get a reference to the value associated with a key.
     /// Returns `None` if the key is not present.
-    pub fn find(&self, mut key: &[c_char]) -> Option<&Data> {
+    pub fn find(&self, mut key: &[u8]) -> Option<&Data> {
         let mut current = self;
         loop {
             key = strip_prefix(key, current.label())?;
@@ -192,7 +189,7 @@ impl<Data> Node<Data> {
     /// start with the given prefix.
     /// If there is a subtree, it also returns the concatenated labels for the path from
     /// the root to the subtree root.
-    pub fn find_root_for_prefix(&self, mut key: &[c_char]) -> Option<(&Node<Data>, Vec<c_char>)> {
+    pub fn find_root_for_prefix(&self, mut key: &[u8]) -> Option<(&Node<Data>, Vec<u8>)> {
         let mut current = self;
         let mut prefix = Vec::new();
         loop {
@@ -219,7 +216,7 @@ impl<Data> Node<Data> {
 
     /// Get a reference to the child node whose label starts with the given byte.
     /// Returns `None` if there is no such child.
-    pub fn child_starting_with(&self, c: c_char) -> Option<&Node<Data>> {
+    pub fn child_starting_with(&self, c: u8) -> Option<&Node<Data>> {
         let i = self.child_index_starting_with(c)?;
         // SAFETY:
         // Guaranteed by invariant 1. in [`Self::child_index_starting_with`].
@@ -235,14 +232,14 @@ impl<Data> Node<Data> {
     ///    the bounds of the children pointers array and the children
     ///    first bytes array.
     #[inline]
-    pub fn child_index_starting_with(&self, c: c_char) -> Option<usize> {
-        memchr_c_char(c, self.children_first_bytes())
+    pub fn child_index_starting_with(&self, c: u8) -> Option<usize> {
+        memchr::memchr(c, self.children_first_bytes())
     }
 
     /// Remove the descendant of this node that matches the given key, if any.
     ///
     /// Returns the data associated with the removed node, if any.
-    pub fn remove_descendant(&mut self, key: &[c_char]) -> Option<Data> {
+    pub fn remove_descendant(&mut self, key: &[u8]) -> Option<Data> {
         // Find the index of child whose label starts with the first byte of the key,
         // as well as the child itself.
         // If the we find none, there's nothing to remove.
@@ -258,18 +255,12 @@ impl<Data> Node<Data> {
 
             let is_leaf = child.n_children() == 0;
             if is_leaf {
-                let mut current = std::mem::replace(
-                    self,
-                    Node {
-                        ptr: NonNull::dangling(),
-                        _phantom: PhantomData,
-                    },
-                );
-                // If the child is a leaf, we remove the child node itself.
-                // SAFETY:
-                // Guaranteed by invariant 1. in [`Self::child_index_starting_with`].
-                current = unsafe { current.remove_child_unchecked(child_index) };
-                std::mem::forget(std::mem::replace(self, current));
+                self.map(|current| {
+                    // If the child is a leaf, we remove the child node itself.
+                    // SAFETY:
+                    // Guaranteed by invariant 1. in [`Self::child_index_starting_with`].
+                    unsafe { current.remove_child_unchecked(child_index) }
+                });
             } else {
                 // If there's a single grandchild,
                 // we merge the grandchild into the child.
@@ -291,25 +282,49 @@ impl<Data> Node<Data> {
         if self.data().is_some() || self.n_children() != 1 {
             return;
         }
-        let old_child = std::mem::replace(
-            &mut self.children_mut()[0],
-            Node {
-                ptr: NonNull::dangling(),
-                _phantom: Default::default(),
-            },
-        );
-        let new_parent = old_child.prepend(self.label());
-        let old_self = ManuallyDrop::new(std::mem::replace(self, new_parent));
-        // There is no data and we removed the child, so we can
-        // just free the buffer and be done.
-        // SAFETY:
-        // - The pointer was allocated via the same global allocator
-        //    we are invoking via `dealloc` (see invariant 3. in [`Self::ptr`])
-        // - `old_self.metadata().layout()` is the same layout that was used
-        //   to allocate the buffer (see invariant 1. in [`Self::ptr`])
-        unsafe {
-            dealloc(old_self.ptr.as_ptr().cast(), old_self.metadata().layout());
-        }
+        self.map(|old_parent| {
+            let old_parent_label_len = old_parent.label_len() as usize;
+            let mut old_parent = old_parent.downgrade();
+
+            // After this read, we have two pointers to this child.
+            // This is fine, since we will drop old_parent without trying
+            // to drop the old child pointer, thus leaving the freshly read pointer
+            // as the only existing pointer at the end of this routine.
+            //
+            // SAFETY:
+            // - Well-aligned and valid for reads,
+            //   thanks to invariant #1 in ChildrenBuffer::ptr
+            let mut child: Node<Data> = unsafe { old_parent.children().ptr().read() };
+
+            // Modify the child's label.
+            {
+                let label_ptr = old_parent.label();
+                // SAFETY:
+                // - The length matches the length of the buffer.
+                // - All elements are initialized since `old_parent` was a fully initialized node and
+                //   we haven't modified its label buffer in any way up to this point.
+                let old_parent_label = unsafe { label_ptr.as_slice(old_parent_label_len) };
+                child = child.prepend(old_parent_label);
+            }
+
+            // SAFETY:
+            // - The layout inferred from the node header values matches exactly the layout
+            //   used to allocate the buffer behind the pointer.
+            // - We have exclusive access, since this function takes `old_parent` by value.
+            // - We don't try to drop the children.
+            unsafe {
+                old_parent.dealloc(DeallocOptions {
+                    // We don't want to drop them, since the only child will be returned by this function.
+                    drop_children: None,
+                    // There is no data in the buffer, we checked it as a precondition earlier in this method.
+                    drop_data: false,
+                    // If new fields are added with non-trivial drop behaviour, the compiler will
+                    // report an error here, forcing us to reason about our intentions!
+                })
+            };
+
+            child
+        })
     }
 
     /// The memory usage of this node and his descendants, in bytes.

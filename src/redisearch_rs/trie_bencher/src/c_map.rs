@@ -11,6 +11,8 @@
 //!
 //! The [TrieTermView] struct provides a view into a `CString` used by [CTrieMap]. Ensuring Rust ownership of the data
 //! and providing access to the raw pointer and length of the string as needed by the C API.
+use crate::ffi::{array_free, array_new_sz};
+use lending_iterator::prelude::*;
 use std::ffi::{CStr, CString, c_char, c_void};
 
 #[repr(transparent)]
@@ -44,6 +46,32 @@ impl CTrieMap {
         unsafe { crate::ffi::TrieMap_Delete(self.0, term.ptr(), term.len(), Some(do_not_free)) }
     }
 
+    pub fn find_prefixes(&self, term: TrieTermView) -> PrefixesValues {
+        let mut results = {
+            // Here we are emulating the behaviour of the `array_new` macro, which we can't
+            // invoke directly on the Rust side.
+            let raw = unsafe { array_new_sz(std::mem::size_of::<*mut c_void>() as u32, 1, 0) };
+            raw as *mut *mut c_void
+        };
+        let _n_results = unsafe {
+            crate::ffi::TrieMap_FindPrefixes(self.0, term.ptr(), term.len(), &mut results)
+        };
+        PrefixesValues(results)
+    }
+
+    pub fn wildcard_iter(&self, pattern: TrieTermView, fixed_length: bool) -> WildcardCIter {
+        let iter = unsafe { crate::ffi::TrieMap_Iterate(self.0, pattern.ptr(), pattern.len()) };
+        (unsafe { *iter }).mode = if fixed_length {
+            crate::ffi::tm_iter_mode_TM_WILDCARD_FIXED_LEN_MODE
+        } else {
+            crate::ffi::tm_iter_mode_TM_WILDCARD_MODE
+        };
+        WildcardCIter {
+            iterator: iter,
+            finished: false,
+        }
+    }
+
     pub fn n_nodes(&self) -> usize {
         unsafe { (*self.0).size }
     }
@@ -60,6 +88,55 @@ impl Drop for CTrieMap {
         unsafe {
             crate::ffi::TrieMap_Free(self.0, Some(do_not_free));
         }
+    }
+}
+
+/// The values attached to the prefixes retrieved by [`CTrieMap::find_prefixes`].
+pub struct PrefixesValues(*mut *mut c_void);
+
+impl Drop for PrefixesValues {
+    fn drop(&mut self) {
+        unsafe { array_free(self.0 as *mut c_void) };
+    }
+}
+
+pub struct WildcardCIter {
+    iterator: *mut crate::ffi::TrieMapIterator,
+    finished: bool,
+}
+
+#[gat]
+// The 'tm lifetime parameter is not actually needless.
+#[allow(clippy::needless_lifetimes)]
+impl LendingIterator for WildcardCIter {
+    type Item<'next>
+    where
+        Self: 'next,
+    = (&'next [u8], *mut c_void);
+
+    fn next(&mut self) -> Option<Self::Item<'_>> {
+        if self.finished {
+            return None;
+        }
+
+        let mut ptr: *mut c_char = std::ptr::null_mut();
+        let mut len = 0;
+        let mut value: *mut c_void = std::ptr::null_mut();
+        let should_continue = unsafe {
+            crate::ffi::TrieMapIterator_NextWildcard(self.iterator, &mut ptr, &mut len, &mut value)
+        };
+
+        if should_continue != 1 {
+            self.finished = false;
+        }
+        let key: &[u8] = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+        Some((key, value))
+    }
+}
+
+impl Drop for WildcardCIter {
+    fn drop(&mut self) {
+        unsafe { crate::ffi::TrieMapIterator_Free(self.iterator) };
     }
 }
 

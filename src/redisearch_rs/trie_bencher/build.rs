@@ -8,27 +8,14 @@
 */
 
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let root = git_root();
 
     // Construct the correct folder path based on OS and architecture
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
-    let lib_dir = {
-        let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-        let target_arch = match target_arch.as_str() {
-            "aarch64" => "arm64v8",
-            "x86_64" => "x64",
-            _ => &target_arch,
-        };
 
-        root.join(format!(
-            "bin/{target_os}-{target_arch}-release/search-community/deps/triemap"
-        ))
-    };
-
-    assert!(std::fs::exists(lib_dir.join("libtrie.a")).unwrap());
     // There are several symbols exposed by `libtrie.a` that we don't
     // actually invoke (either directly or indirectly) in our benchmarks.
     // We provide a definition for the ones we need (e.g. Redis' allocation functions),
@@ -40,12 +27,22 @@ fn main() {
     if target_os != "macos" {
         println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
     }
-    println!("cargo:rustc-link-lib=static=trie");
-    println!("cargo:rustc-link-search=native={}", lib_dir.display());
-    println!(
-        "cargo:rerun-if-changed={}",
-        lib_dir.join("libtrie.a").display()
-    );
+
+    let bin_root = {
+        let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+        let target_arch = match target_arch.as_str() {
+            "x86_64" => "x64",
+            _ => &target_arch,
+        };
+
+        root.join(format!(
+            "bin/{target_os}-{target_arch}-release/search-community/"
+        ))
+    };
+
+    link_static_lib(&bin_root, "deps/triemap", "trie");
+    link_static_lib(&bin_root, "src/util/arr", "arr");
+    link_static_lib(&bin_root, "src/wildcard", "wildcard");
 
     let redis_modules = root.join("deps").join("RedisModulesSDK");
     let src = root.join("src");
@@ -55,6 +52,14 @@ fn main() {
             root.join("deps")
                 .join("triemap")
                 .join("triemap.h")
+                .to_str()
+                .unwrap(),
+        )
+        .header(
+            root.join("src")
+                .join("util")
+                .join("arr")
+                .join("arr.h")
                 .to_str()
                 .unwrap(),
         )
@@ -72,6 +77,15 @@ fn main() {
     bindings
         .write_to_file(out_dir.join("bindings.rs"))
         .expect("Couldn't write bindings!");
+}
+
+fn link_static_lib(bin_root: &Path, lib_subdir: &str, lib_name: &str) {
+    let lib_dir = bin_root.join(lib_subdir);
+    let lib = lib_dir.join(format!("lib{lib_name}.a"));
+    assert!(std::fs::exists(&lib).unwrap());
+    println!("cargo:rustc-link-lib=static={lib_name}");
+    println!("cargo:rerun-if-changed={}", lib.display());
+    println!("cargo:rustc-link-search=native={}", lib_dir.display());
 }
 
 fn git_root() -> std::path::PathBuf {
