@@ -21,6 +21,13 @@ macro_rules! assert_debug_snapshot {
 }
 
 #[test]
+fn test_counters_on_empty_tries() {
+    let trie = TrieMap::<u64>::new();
+    assert_eq!(trie.n_nodes(), 0);
+    assert_eq!(trie.n_unique_keys(), 0);
+}
+
+#[test]
 fn test_trie_child_additions() {
     // A minimal case identified by `arbitrary` that used to cause
     // an invalid reference to uninitialized data (UB!).
@@ -274,5 +281,6 @@ proptest::proptest! {
         let trie_entries = triemap.iter().collect::<Vec<_>>();
         let hash_entries = btreemap.iter().map(|(label, data)| (label.clone(), data)).collect::<Vec<_>>();
         assert_eq!(trie_entries, hash_entries, "TrieMap and BTreeMap should report the same entries");
+        assert_eq!(triemap.n_unique_keys(), trie_entries.len());
     }
 }
