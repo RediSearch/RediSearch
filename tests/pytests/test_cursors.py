@@ -459,8 +459,18 @@ def testTimeoutPartialWithEmptyResults(env):
                           cursor_count, 'TIMEOUT_AFTER_N', timeout_res_count, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3)
     VerifyTimeoutWarningResp3(env, res)
 
-def testCursorDepletionBM25NORMNonStrictTimeoutPolicySortby():
-    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN ENABLE_UNSTABLE_FEATURES true')
+def testCursorDepletionBM25NORMNonStrictTimeoutPolicy():
+    # The Normalizing result processor runs only on the shard, so each shard
+    # returns timeout_res_count results.
+    # Cursor read replies from each shard sequentially. It continues
+    # reading from a shard until that shard reaches its timeout_res_count.
+    # For example, with 3 shards, a cursor count of 3, and timeout_res_count of 5,
+    # the reads might return: 3, 2, 3, 2, 3, 2, 0 — totaling 5 results from each
+    # shard. The final 0 appears because the cursor read is triggered again, but
+    # no shard has more results left. Once all shards reach timeout_res_count,
+    # the cursor is fully depleted.
+
+    env = Env(enableDebugCommand=True, protocol=3, moduleArgs='ON_TIMEOUT RETURN ENABLE_UNSTABLE_FEATURES true')
     conn = getConnectionByEnv(env)
 
     #FT.CREATE idx SCHEMA text1 TEXT
@@ -479,12 +489,14 @@ def testCursorDepletionBM25NORMNonStrictTimeoutPolicySortby():
     env.assertEqual(len(res['results']), timeout_res_count)
     n_received = len(res['results'])
 
-    # Ensure the cursor is properly depleted after one FT.CURSOR READ
-    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+    # Read from the cursor until it's depleted
+    while cursor:
+        res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        env.assertTrue(len(res['results']) == timeout_res_count or (len(res['results']) == 0 and cursor == 0))
+        n_received += len(res['results'])
 
-    # Cursor should be depleted after the first read
-    env.assertEqual(cursor, 0, message=f"expected cursor to be depleted after one FT.CURSOR READ.")
-    env.assertEqual(len(res['results']), 0, message=f"expected to receive 0 results after one FT.CURSOR READ. First query got {n_received} results, read results:{len(res['results'])}")
+    # Verify total number of results received
+    env.assertEqual(n_received, env.shardsCount * timeout_res_count, message=f"expected to receive 9 results in total. Got {n_received} results")
 
     env.assertEqual(getCursorStats(env, 'idx')['index_total'], starting_cursor_count)
 
