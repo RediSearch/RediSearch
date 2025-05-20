@@ -12,6 +12,7 @@ pub(crate) type SizeType = u16;
 pub(crate) const MAX_CAP: usize = SizeType::MAX as usize;
 
 #[inline(always)]
+#[expect(clippy::cast_possible_truncation, reason = "checked by the assert")]
 /// Convert a `usize` to a [`SizeType`], panicking if the value is too large to fit.
 pub(crate) const fn assert_size(x: usize) -> SizeType {
     assert!(

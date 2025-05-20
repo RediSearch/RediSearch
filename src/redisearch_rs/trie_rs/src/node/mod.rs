@@ -119,6 +119,10 @@ impl<Data> Node<Data> {
             label_len,
             // A node can have at most 255 children, since that's
             // the number of unique `u8` values.
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "we have checked above that N fits into u8"
+            )]
             n_children: N as u8,
         };
         let mut new_ptr = header.metadata().allocate();
@@ -317,7 +321,12 @@ impl<Data> Node<Data> {
             offset < self.label_len() as usize,
             "The label offset must be fully contained within the current label"
         );
+        debug_assert!(offset <= u16::MAX as usize, "offset exceeds u16::MAX");
         let child_header = NodeHeader {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "we have checked above that offset is representable as u16"
+            )]
             label_len: self.label_len() - offset as u16,
             n_children: self.n_children(),
         };
@@ -387,6 +396,10 @@ impl<Data> Node<Data> {
         let child = unsafe { child_ptr.assume_init() };
 
         let new_header = NodeHeader {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "we have checked above that offset is representable as u16"
+            )]
             label_len: offset as u16,
             n_children: 1 + if extra_child.is_some() { 1 } else { 0 },
         };
@@ -487,6 +500,10 @@ impl<Data> Node<Data> {
         );
 
         let new_header = NodeHeader {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "we have checked above that label_len is representable as u16"
+            )]
             label_len: self.label_len() + prefix.len() as u16,
             n_children: self.n_children(),
         };
