@@ -74,7 +74,7 @@ void IndexError_Clear(IndexError error) {
       rm_free(error.last_error_with_user_data);
       error.last_error_with_user_data = NA;
     }
-    if (error.key != NA_rstr) {
+    if (error.key && error.key != NA_rstr) {
         RedisModule_FreeString(RSDummyContext, error.key);
         error.key = RedisModule_HoldString(RSDummyContext, NA_rstr);
     }
