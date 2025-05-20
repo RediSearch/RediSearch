@@ -123,7 +123,7 @@ fn test_too_small_decode_buffer() {
     let mut cursor = Cursor::new(buf.as_mut());
 
     let res = qint_decode::<2, _>(&mut cursor);
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     assert_eq!(res.unwrap_err().kind(), std::io::ErrorKind::UnexpectedEof);
 }
 
@@ -161,7 +161,7 @@ fn test_out_of_memory_error() {
     let mut cursor = Cursor::new(buf);
     let res = qint_encode(&mut cursor, [3333, 10]);
 
-    assert_eq!(res.is_err(), true);
+    assert!(res.is_err());
     let kind = res.unwrap_err().kind();
     assert_eq!(kind, std::io::ErrorKind::WriteZero);
 }
