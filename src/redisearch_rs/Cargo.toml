@@ -40,6 +40,8 @@ undocumented_unsafe_blocks = "warn"
 # the codebase.
 multiple_unsafe_ops_per_block = "warn"
 
+as_conversions = "warn"
+
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
