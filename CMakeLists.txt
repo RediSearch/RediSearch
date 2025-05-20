@@ -264,7 +264,6 @@ file(GLOB SOURCES
     "deps/cndict/cndict_data.c"
     "deps/libnu/*.c"
     "deps/miniz/*.c"
-    "deps/base64/*.c"
     "deps/fast_float/*.c"
     "deps/thpool/*.c"
     "deps/geohash/*.c")
