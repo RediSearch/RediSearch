@@ -1670,10 +1670,7 @@ def checkConfigChange(env, configName, argName, newValue, baseConfigDict):
     # Get current configuration and verify only the target changed
     currentConfigDict = getConfigDict(env)
     for k, v in baseConfigDict.items():
-        if (k, argName) == ('MAXPREFIXEXPANSIONS', 'MAXEXPANSIONS'):
-            env.assertEqual(currentConfigDict[k], [str(newValue)], message=f'changedConfig: {argName}')
-            continue
-        if (k, argName) == ('MAXEXPANSIONS', 'MAXPREFIXEXPANSIONS'):
+        if {k, argName} == {'MAXPREFIXEXPANSIONS', 'MAXEXPANSIONS'}:
             env.assertEqual(currentConfigDict[k], [str(newValue)], message=f'changedConfig: {argName}')
             continue
         if k == argName:
