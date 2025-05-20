@@ -1599,7 +1599,7 @@ void IndexSpec_Free(IndexSpec *spec) {
     spec->stopwords = NULL;
   }
 
-  IndexError_Clear(spec->stats.indexError);
+  IndexError_Destroy(&spec->stats.indexError);
 
   // Free unlinked index spec on a second thread
   if (RSGlobalConfig.freeResourcesThread == false) {
@@ -2114,7 +2114,7 @@ static int FieldSpec_RdbLoad(RedisModuleIO *rdb, FieldSpec *f, StrongRef sp_ref,
   return REDISMODULE_OK;
 
 fail:
-  IndexError_Clear(f->indexError);
+  IndexError_Destroy(&f->indexError);
   return REDISMODULE_ERR;
 }
 

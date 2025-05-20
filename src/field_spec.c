@@ -29,7 +29,7 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
     VecSimParams_Cleanup(&fs->vectorOpts.vecSimParams);
   }
 
-  IndexError_Clear(fs->indexError);
+  IndexError_Destroy(&fs->indexError);
 }
 
 void FieldSpec_SetSortable(FieldSpec* fs) {

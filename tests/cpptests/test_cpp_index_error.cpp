@@ -38,15 +38,13 @@ TEST_F(IndexErrorTest, testBasic) {
   ASSERT_NE(key, lastErrorKey);
   ASSERT_STREQ("Key@0", text);
   RedisModule_FreeString(NULL, lastErrorKey);
-  IndexError_Clear(error);
+  IndexError_Destroy(&error);
   RedisModule_FreeString(NULL, key);
 }
 
 // TEST_F(IndexErrorTest, testBasic1) {
 //   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
 //   QueryError qerr = {QueryErrorCode(0)};
-//   auto na = getNAstring(); // initialize the NA string
-//   ASSERT_EQ(na->getRefCount(), 1);
 
 //   // Create a new index spec with error
 //   RMCK::ArgvList args(ctx, "FT.CREATE", "idx", "ON", "HASH",

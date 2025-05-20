@@ -199,7 +199,7 @@ static void handleIndexError(InfoFields *fields, MRReply *src) {
   }
   IndexError indexError = IndexError_Deserialize(src, INDEX_ERROR_WITH_OOM_STATUS);
   IndexError_Combine(&fields->indexError, &indexError);
-  IndexError_Clear(indexError); // Free Resources
+  IndexError_Destroy(&indexError); // Free Resources
 }
 
 struct InfoFieldTypeAndValue {
@@ -308,7 +308,7 @@ static void cleanInfoReply(InfoFields *fields) {
     array_free(fields->fieldSpecInfo_arr);
     fields->fieldSpecInfo_arr = NULL;
   }
-  IndexError_Clear(fields->indexError);
+  IndexError_Destroy(&fields->indexError);
   rm_free(fields->errorIndexes);
 }
 

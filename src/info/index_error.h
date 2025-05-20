@@ -71,8 +71,8 @@ RedisModuleString *IndexError_LastErrorKeyObfuscated(const IndexError *error);
 // Returns the time of the last error.
 struct timespec IndexError_LastErrorTime(const IndexError *error);
 
-// Clears an IndexError. If the last_error is not NA, it is freed.
-void IndexError_Clear(IndexError error);
+// Destroy an IndexError. If the last_error is not NA, it is freed.
+void IndexError_Destroy(IndexError* error);
 
 // IO and cluster traits
 // Reply the index errors to the client.
