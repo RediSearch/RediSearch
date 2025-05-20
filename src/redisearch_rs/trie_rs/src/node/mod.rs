@@ -410,7 +410,8 @@ impl<Data> Node<Data> {
                     old_ptr.as_ptr().cast(),
                     old_metadata.layout(),
                     new_metadata.layout().size(),
-                ) as *mut NodeHeader
+                )
+                .cast::<NodeHeader>()
             };
             let Some(new_ptr) = NonNull::new(new_ptr) else {
                 handle_alloc_error(new_metadata.layout());
@@ -518,7 +519,8 @@ impl<Data> Node<Data> {
                     old_ptr.as_ptr().cast(),
                     old_metadata.layout(),
                     new_metadata.layout().size(),
-                ) as *mut NodeHeader
+                )
+                .cast::<NodeHeader>()
             };
 
             let Some(raw_ptr) = NonNull::new(new_ptr) else {
@@ -650,7 +652,8 @@ impl<Data> Node<Data> {
                     old_ptr.as_ptr().cast(),
                     old_metadata.layout(),
                     new_metadata.layout().size(),
-                ) as *mut NodeHeader
+                )
+                .cast::<NodeHeader>()
             };
 
             let Some(raw_ptr) = NonNull::new(raw_ptr) else {
@@ -946,7 +949,8 @@ impl<Data> Node<Data> {
                     old_ptr.as_ptr().cast(),
                     old_metadata.layout(),
                     new_metadata.layout().size(),
-                ) as *mut NodeHeader
+                )
+                .cast::<NodeHeader>()
             }
         };
 

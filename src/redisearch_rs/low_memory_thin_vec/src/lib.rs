@@ -102,7 +102,7 @@ fn allocate_for_capacity<T>(cap: usize) -> NonNull<Header> {
         // SAFETY:
         // `layout.size()` is greater than zero, since `cap` is greater than zero
         // and we always allocate a header, even if `T` is a zero-sized type.
-        unsafe { alloc(layout) as *mut Header }
+        unsafe { alloc(layout).cast::<Header>() }
     };
 
     let Some(header) = NonNull::new(header) else {
@@ -216,7 +216,7 @@ impl<T> LowMemoryThinVec<T> {
         let ptr = unsafe {
             // TODO: Use [NonNull::from_ref](https://doc.rust-lang.org/std/ptr/struct.NonNull.html#method.from_ref)
             //   when it stabilizes
-            NonNull::new_unchecked(&EMPTY_HEADER as *const Header as *mut Header)
+            NonNull::new_unchecked(ptr::from_ref(&EMPTY_HEADER).cast_mut())
         };
         LowMemoryThinVec {
             ptr,
@@ -324,12 +324,16 @@ impl<T> LowMemoryThinVec<T> {
             // This could technically result in overflow, but padding
             // would have to be absurdly large for this to occur.
             let header_size = mem::size_of::<Header>();
-            let header_ptr = self.ptr.as_ptr() as *mut u8;
+            let header_ptr = self.ptr.as_ptr().cast::<u8>();
             // SAFETY:
             // Due to all the reasoning above, we know that offsetted
             // pointer is valid and aligned in both the singleton and
             // the non-singleton cases.
-            unsafe { header_ptr.add(header_size + header_field_padding) as *mut T }
+            unsafe {
+                header_ptr
+                    .add(header_size + header_field_padding)
+                    .cast::<T>()
+            }
         }
     }
 
@@ -1237,10 +1241,11 @@ impl<T> LowMemoryThinVec<T> {
             //   and we always allocate a header, even for zero-sized types.
             let ptr = unsafe {
                 realloc(
-                    self.ptr.as_ptr() as *mut u8,
+                    self.ptr.as_ptr().cast::<u8>(),
                     allocation_layout::<T>(old_cap),
                     new_layout.size(),
-                ) as *mut Header
+                )
+                .cast::<Header>()
             };
 
             let Some(ptr) = NonNull::new(ptr) else {
@@ -1263,7 +1268,7 @@ impl<T> LowMemoryThinVec<T> {
 
     #[inline]
     fn is_singleton(&self) -> bool {
-        self.ptr.as_ptr() as *const Header == &EMPTY_HEADER
+        self.ptr.as_ptr().cast_const().cast::<Header>() == &EMPTY_HEADER
     }
 }
 
@@ -1419,7 +1424,7 @@ impl<T> Drop for LowMemoryThinVec<T> {
             //   we're using to deallocate it.
             unsafe {
                 dealloc(
-                    self.ptr.as_ptr() as *mut u8,
+                    self.ptr.as_ptr().cast::<u8>(),
                     allocation_layout::<T>(self.capacity()),
                 )
             }
