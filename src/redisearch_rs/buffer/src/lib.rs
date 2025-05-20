@@ -17,9 +17,9 @@ use std::{
 /// Allocated by C, we never want to free it.
 #[repr(C)]
 pub struct Buffer {
-    data: NonNull<u8>,
-    capacity: usize,
-    len: usize,
+    pub data: NonNull<u8>,
+    pub capacity: usize,
+    pub len: usize,
 }
 
 /// Redefines the `BufferReader` struct from `buffer.h`
