@@ -66,7 +66,6 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
       case RP_INDEX:
       case RP_METRICS:
       case RP_LOADER:
-      case RP_SAFE_LOADER:
       case RP_KEY_NAME_LOADER:
       case RP_SCORER:
       case RP_SORTER:

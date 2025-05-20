@@ -901,10 +901,6 @@ done:
   return rc;
 }
 
-#define NO_PROFILE 0
-#define PROFILE_FULL 1
-#define PROFILE_LIMITED 2
-
 static void parseProfile(AREQ *r, int execOptions) {
   if (execOptions & EXEC_WITH_PROFILE) {
     r->reqflags |= QEXEC_F_PROFILE;
