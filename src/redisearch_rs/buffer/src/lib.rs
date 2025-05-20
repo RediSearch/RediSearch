@@ -51,24 +51,33 @@ pub struct BufferReader {
 
 impl std::io::Read for BufferReader {
     fn read(&mut self, dest_buf: &mut [u8]) -> std::io::Result<usize> {
-        // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
+        // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
         let buffer = unsafe { self.buf.as_mut() };
+
+        // Check if there's enough data to read
         if self.pos + dest_buf.len() > buffer.len {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::UnexpectedEof,
                 "BufferReader: not enough data",
             ));
         }
-        // Safety: `self.pos` was just checked to be within the limits.
+
+        // Safety: `self.pos` was just checked to be within the limits of the buffer's
+        // initialized range, so this pointer arithmetic is safe.
         let src = unsafe { buffer.data.add(self.pos) };
-        // Safety: just checked that `buf` is valid and has enough space.
+
+        // Safety: We just verified that `src` points to valid memory within the buffer.
         let src = unsafe { src.as_ref() };
         let dest = dest_buf.as_mut_ptr();
+
         // Safety:
-        // * `src` is a valid pointer.
-        // * We just created `dest` using safe API.
-        // * `bytes.len()` is less than capacity - pos.
+        // * `src` points to initialized memory in the buffer.
+        // * `dest` is a valid pointer to the destination slice.
+        // * We've verified there are at least `dest_buf.len()` bytes available in the source.
+        // * The memory regions don't overlap (copy_nonoverlapping requirement).
         unsafe { copy_nonoverlapping(src, dest, dest_buf.len()) };
+
+        // Update position after successful read
         self.pos += dest_buf.len();
 
         Ok(dest_buf.len())
@@ -108,9 +117,11 @@ impl Buffer {
     /// If these invariants are violated, this method may return an invalid slice,
     /// leading to undefined behavior.
     pub fn as_slice(&self) -> &[u8] {
-        // Safety: `self.ptr` is a valid pointer, if C side gave us one.
+        // Safety: We assume `self.data` is a valid pointer as per `Buffer`'s invariants.
         let data = unsafe { self.data.as_ref() };
-        // Safety: `self.len` is a valid length, if C side didn't mess up.
+
+        // Safety: We assume `self.len` is a valid length within the allocated memory.
+        // Creates a slice referencing the initialized portion of the buffer.
         unsafe { slice::from_raw_parts(data, self.len) }
     }
 
@@ -126,9 +137,11 @@ impl Buffer {
     /// If these invariants are violated, this method may return an invalid mutable slice,
     /// leading to undefined behavior.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        // Safety: `self.ptr` is a valid pointer, if C side gave us one.
+        // Safety: We assume `self.data` is a valid pointer as per `Buffer`'s invariants
+        // and that we have exclusive access to the buffer.
         let data = unsafe { self.data.as_mut() };
-        // Safety: `self.len` is a valid length, if C side didn't mess up.
+
+        // Safety: We assume `self.len` is a valid length within the allocated memory.
         unsafe { slice::from_raw_parts_mut(data, self.len) }
     }
 
@@ -208,34 +221,48 @@ pub struct BufferWriter {
 
 impl std::io::Write for BufferWriter {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        // Safety: `buf` is a valid pointer, if C side doesn't do something naughty.
+        // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
         let buffer = unsafe { self.buf.as_mut() };
-        if buffer.len + bytes.len() > buffer.capacity
-            // Safety: Calling C, all bets are off.
-            && unsafe { Buffer_Grow(self.buf, bytes.len()) != 0 }
-        {
-            // Safety: All invariants of `std::ptr::NonNull::add` should hold here.
-            self.cursor = unsafe { buffer.data.add(buffer.len()) };
+
+        // Check if we need to grow the buffer to accommodate the new data
+        if buffer.len + bytes.len() > buffer.capacity {
+            // Safety: `Buffer_Grow` is a C function that increases the buffer's capacity. It
+            // expects a valid buffer pointer and returns the number of bytes added to capacity. If
+            // it returns non-zero, the buffer was successfully grown.
+            //
+            // Note that this may invalidate previously held pointers into the buffer.
+            if unsafe { Buffer_Grow(self.buf, bytes.len()) } != 0 {
+                // The buffer has been grown and potentially relocated, so we need to update our cursor.
+                // Safety: After growth, `buffer.len()` points just past the end of the valid data,
+                // which is a valid position to write to.
+                self.cursor = unsafe { buffer.data.add(buffer.len) };
+            }
         }
 
-        // Now copy the bytes into the buffer.
-
+        // Now copy the bytes into the buffer
         let src = bytes.as_ptr();
         let dest = self.cursor.as_ptr();
+
         // Safety:
-        // * We just created `src` and `dest` using safe API.
-        // * `bytes.len()` is less than capacity - pos.
+        // * `src` is a valid pointer to the input slice.
+        // * `dest` is a valid pointer within the buffer (upheld by our invariants).
+        // * We've either verified or ensured that the buffer has enough capacity.
+        // * The regions don't overlap (copy_nonoverlapping requirement).
         unsafe { copy_nonoverlapping(src, dest, bytes.len()) };
+
         // Update the buffer length.
         buffer.len += bytes.len();
-        // Update the position.
-        // Safety: All invariants of `std::ptr::NonNull::add` should hold here.
+
+        // Update the cursor position.
+        // Safety: The cursor is moved forward by the number of bytes written, which is still within
+        // the valid buffer memory.
         self.cursor = unsafe { self.cursor.add(bytes.len()) };
 
         Ok(bytes.len())
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
+        // BufferWriter is unbuffered, so flush is a no-op
         Ok(())
     }
 }
