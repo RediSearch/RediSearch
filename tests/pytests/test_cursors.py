@@ -459,6 +459,35 @@ def testTimeoutPartialWithEmptyResults(env):
                           cursor_count, 'TIMEOUT_AFTER_N', timeout_res_count, 'INTERNAL_ONLY', 'DEBUG_PARAMS_COUNT', 3)
     VerifyTimeoutWarningResp3(env, res)
 
+def testCursorDepletionBM25NORMNonStrictTimeoutPolicySortby():
+    env = Env(protocol=3, moduleArgs='ON_TIMEOUT RETURN ENABLE_UNSTABLE_FEATURES true')
+    conn = getConnectionByEnv(env)
+
+    #FT.CREATE idx SCHEMA text1 TEXT
+    populate_db(env, idx_name='idx', text=True, n_per_shard=150)
+
+    starting_cursor_count = getCursorStats(env, 'idx')['index_total']
+
+    # Create a cursor that will timeout during accumulation of results
+    timeout_res_count = 3
+    cursor_count = 5
+    res, cursor = runDebugQueryCommandTimeoutAfterN(env, ['FT.AGGREGATE', 'idx', '*', 'ADDSCORES', 'SCORER', 'BM25STD.NORM', 'LOAD', '1', '@text1', 'WITHCURSOR', 'count',
+                          cursor_count], timeout_res_count)
+    VerifyTimeoutWarningResp3(env, res)
+
+    # Verify that the accumulated results (up to timeout_res_count) are returned after timeout
+    env.assertEqual(len(res['results']), timeout_res_count)
+    n_received = len(res['results'])
+
+    # Ensure the cursor is properly depleted after one FT.CURSOR READ
+    res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+
+    # Cursor should be depleted after the first read
+    env.assertEqual(cursor, 0, message=f"expected cursor to be depleted after one FT.CURSOR READ.")
+    env.assertEqual(len(res['results']), 0, message=f"expected to receive 0 results after one FT.CURSOR READ. First query got {n_received} results, read results:{len(res['results'])}")
+
+    env.assertEqual(getCursorStats(env, 'idx')['index_total'], starting_cursor_count)
+
 def testCursorDepletionStrictTimeoutPolicy():
     """Tests that the cursor returns a timeout error in case of a timeout, when
     the timeout policy is `ON_TIMEOUT FAIL`"""
