@@ -80,13 +80,12 @@ impl<Data> Node<Data> {
         value: Option<Data>,
     ) -> Self {
         // This has no runtime overhead, since the number of children is known at compile time.
-        if N > u8::MAX as usize {
-            panic!(
-                "There are {} children, which exceeds the maximum allowed number, {}",
-                N,
-                u8::MAX
-            );
-        }
+        assert!(
+            N <= u8::MAX as usize,
+            "There are {} children, which exceeds the maximum allowed number, {}",
+            N,
+            u8::MAX
+        );
         let Ok(label_len) = label.len().try_into() else {
             panic!(
                 "The label length is {}, which exceeds the maximum allowed length, {}",

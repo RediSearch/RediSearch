@@ -14,9 +14,10 @@ pub(crate) const MAX_CAP: usize = SizeType::MAX as usize;
 #[inline(always)]
 /// Convert a `usize` to a [`SizeType`], panicking if the value is too large to fit.
 pub(crate) const fn assert_size(x: usize) -> SizeType {
-    if x > MAX_CAP {
-        panic!("LowMemoryThinVec size may not exceed the capacity of a 16-bit sized int");
-    }
+    assert!(
+        x <= MAX_CAP,
+        "LowMemoryThinVec size may not exceed the capacity of a 16-bit sized int"
+    );
     x as SizeType
 }
 
