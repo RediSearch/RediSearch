@@ -1343,6 +1343,7 @@ void PipelineAddCrash(struct AREQ *r) {
    const RLookupKey *scoreKey;
    SearchResult *pooledResult;
    arrayof(SearchResult *) pool;
+   bool timedOut;
  } RPNormalizer;
 
 
@@ -1358,7 +1359,9 @@ void PipelineAddCrash(struct AREQ *r) {
    size_t length = array_len(self->pool);
    if (length == 0) {
     // We've already yielded all results, return EOF
-    return RS_RESULT_EOF;
+    int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    self->timedOut = false;
+    return ret;
    }
   SearchResult *poppedResult = array_pop(self->pool);
   SearchResult_Override(r, poppedResult);
@@ -1382,6 +1385,10 @@ static int rpNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
+    rp->Next = rpNormalizer_Yield;
+    return rp->Next(rp, r);
+  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+    self->timedOut = true;
     rp->Next = rpNormalizer_Yield;
     return rp->Next(rp, r);
   } else if (rc != RS_RESULT_OK) {
