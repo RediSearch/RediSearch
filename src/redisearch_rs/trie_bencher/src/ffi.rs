@@ -29,7 +29,20 @@ mod bindings {
 // It allows us to keep the bindings module private while still exposing the necessary functions and types.
 pub(crate) use bindings::{
     NewTrieMap, TrieMap, TrieMap_Add, TrieMap_Delete, TrieMap_ExactMemUsage, TrieMap_Find,
-    TrieMap_FindPrefixes, TrieMap_Free, array_free, array_new_sz,
+    TrieMap_FindPrefixes, TrieMap_Free, TrieMap_Iterate, TrieMapIterator, TrieMapIterator_Free,
+    TrieMapIterator_NextWildcard, array_free, array_new_sz,
+    tm_iter_mode_TM_WILDCARD_FIXED_LEN_MODE, tm_iter_mode_TM_WILDCARD_MODE,
 };
 // used in outside binary crate (main.rs)
 pub use bindings::TRIEMAP_NOTFOUND;
+
+#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
+pub static mut RedisModule_CreateTimer: ::std::option::Option<
+    unsafe extern "C" fn(
+        ctx: *mut bindings::RedisModuleCtx,
+        period: bindings::mstime_t,
+        callback: bindings::RedisModuleTimerProc,
+        data: *mut ::std::os::raw::c_void,
+    ) -> bindings::RedisModuleTimerID,
+> = None;
