@@ -123,19 +123,6 @@ long long get_size_t_numeric_config(const char *name, void *privdata) {
   return *(size_t *)privdata;
 }
 
-int set_int_numeric_config(const char *name, long long val, void *privdata,
-                           RedisModuleString **err) {
-  REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
-  *(int *)privdata = (int) val;
-  return REDISMODULE_OK;
-}
-
-long long get_int_numeric_config(const char *name, void *privdata) {
-  REDISMODULE_NOT_USED(name);
-  return *(int *)privdata;
-}
-
 int set_uint_numeric_config(const char *name, long long val,
                            void *privdata, RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
