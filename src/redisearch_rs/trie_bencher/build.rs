@@ -8,7 +8,7 @@
 */
 
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let root = git_root();
@@ -40,19 +40,9 @@ fn main() {
         ))
     };
 
-    let libtrie_dir = bin_root.join("deps/triemap");
-    let libtrie = libtrie_dir.join("libtrie.a");
-    assert!(std::fs::exists(&libtrie).unwrap());
-    println!("cargo:rustc-link-lib=static=trie");
-    println!("cargo:rerun-if-changed={}", libtrie.display());
-    println!("cargo:rustc-link-search=native={}", libtrie_dir.display());
-
-    let libarr_dir = bin_root.join("src/util/arr");
-    let libarr = libarr_dir.join("libarr.a");
-    assert!(std::fs::exists(&libarr).unwrap());
-    println!("cargo:rustc-link-lib=static=arr");
-    println!("cargo:rerun-if-changed={}", libarr.display());
-    println!("cargo:rustc-link-search=native={}", libarr_dir.display());
+    link_static_lib(&bin_root, "deps/triemap", "trie");
+    link_static_lib(&bin_root, "src/util/arr", "arr");
+    link_static_lib(&bin_root, "src/wildcard", "wildcard");
 
     let redis_modules = root.join("deps").join("RedisModulesSDK");
     let src = root.join("src");
@@ -87,6 +77,15 @@ fn main() {
     bindings
         .write_to_file(out_dir.join("bindings.rs"))
         .expect("Couldn't write bindings!");
+}
+
+fn link_static_lib(bin_root: &Path, lib_subdir: &str, lib_name: &str) {
+    let lib_dir = bin_root.join(lib_subdir);
+    let lib = lib_dir.join(format!("lib{lib_name}.a"));
+    assert!(std::fs::exists(&lib).unwrap());
+    println!("cargo:rustc-link-lib=static={lib_name}");
+    println!("cargo:rerun-if-changed={}", lib.display());
+    println!("cargo:rustc-link-search=native={}", lib_dir.display());
 }
 
 fn git_root() -> std::path::PathBuf {

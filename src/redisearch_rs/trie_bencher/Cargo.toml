@@ -27,9 +27,11 @@ crc32fast.workspace = true
 criterion.workspace = true
 csv.workspace = true
 fs-err.workspace = true
+lending-iterator.workspace = true
 redis_mock.workspace = true
 trie_rs.workspace = true
 ureq.workspace = true
+wildcard.workspace = true
 
 [build-dependencies]
 cc.workspace = true

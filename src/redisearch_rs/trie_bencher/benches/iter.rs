@@ -21,6 +21,9 @@ fn iter_benches_wiki1k(c: &mut Criterion) {
     let bencher = OperationBencher::new("Wiki-1K".to_owned(), terms, None);
     // Matches "A" and "Abacus"
     bencher.find_prefixes_group(c, "Abacuses", "Find prefixes");
+    bencher.wildcard_group(c, "Ab*");
+    // Fixed length.
+    bencher.wildcard_group(c, "Apollo ??");
     bencher.into_values_group(c, "IntoValues iterator");
 }
 
@@ -31,6 +34,8 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
     let bencher = OperationBencher::new("Gutenberg".to_owned(), terms, None);
     // Matches "ever", "everlasting" and "everlastingly".
     bencher.find_prefixes_group(c, "everlastingly", "Find prefixes");
+    // Requires backtracking to perform, de facto, suffix matching
+    bencher.wildcard_group(c, "*ly");
     bencher.into_values_group(c, "IntoValues iterator");
 }
 
