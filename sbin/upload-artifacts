@@ -177,4 +177,5 @@ upload_product() {
 }
 
 # Main upload process
+upload_product "redisearch-oss" "redisearch-oss"
 upload_product "redisearch" "redisearch"
