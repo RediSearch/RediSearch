@@ -609,20 +609,20 @@ class TestBM25NormMax:
 
         key_index = agg_norm[1].index('__key') + 1
         score_index = agg_norm[1].index('__score') + 1
-        scores_std = {row[key_index]: float(row[score_index]) for row in agg_norm[1:]}
+        scores_norm = {row[key_index]: float(row[score_index]) for row in agg_norm[1:]}
 
-        res, cursor = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+        results, cursor = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
                            'LOAD', '2', '@__key', '@__score', 'WITHCURSOR', 'COUNT', 2)
         while cursor != 0:
-            for row in res[1:]:
-                self.env.assertAlmostEqual(scores_std[row[key_index]], float(row[score_index]), 0.00001)
+            for result in results[1:]:
+                self.env.assertAlmostEqual(scores_norm[result[key_index]], float(result[score_index]), 0.00001)
             res, cursor = self.env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
 
-        res, cursor = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+        results, cursor = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
                            'LOAD', '2', '@__key', '@__score', 'SORTBY', 2, '@__score', 'DESC', 'WITHCURSOR', 'COUNT', 2)
         while cursor != 0:
-            for row in res[1:]:
-                self.env.assertAlmostEqual(scores_std[row[key_index]], float(row[score_index]), 0.00001)
+            for result in results[1:]:
+                self.env.assertAlmostEqual(scores_norm[result[key_index]], float(result[score_index]), 0.00001)
             res, cursor = self.env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
 
 

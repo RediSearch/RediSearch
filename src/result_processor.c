@@ -1385,8 +1385,6 @@ static int rpNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
     rp->Next = rpNormalizer_Yield;
     return rp->Next(rp, r);
   } else if (rc != RS_RESULT_OK) {
-    // whoops!
-    RS_ABORT("Received an unexpected result status that is neither EOF nor OK");
     return rc;
   }
 
