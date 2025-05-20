@@ -30,6 +30,7 @@ typedef struct {
   DLLIST_node llnode; // Node in the doubly-linked list
   StrongRef spec;     // IndexSpec strong ref
   time_t start;       // Time node was added into list
+  char *query;        // The query
 } BlockedQueryNode;
 
 typedef struct {
@@ -38,6 +39,7 @@ typedef struct {
   uint64_t cursorId;  // cursor id
   size_t count;       // cursor count
   time_t start;       // Time node was added into list
+  char *query;        // The query that created the cursor
 } BlockedCursorNode;
 
 /**
@@ -68,7 +70,7 @@ BlockedQueries* BlockedQueries_Init();
 void BlockedQueries_Free(BlockedQueries*);
 
 BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* list, StrongRef spec, QueryAST* ast);
-BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* list, WeakRef spec, uint64_t cursorId, size_t count);
+BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* list, WeakRef spec, uint64_t cursorId, QueryAST* ast, size_t count);
 void BlockedQueries_RemoveQuery(BlockedQueryNode* node);
 void BlockedQueries_RemoveCursor(BlockedCursorNode* node);
 
