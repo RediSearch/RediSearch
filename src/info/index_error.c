@@ -99,9 +99,6 @@ void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool wi
     REPLY_KVINT(IndexingFailure_String, IndexError_ErrorCount(error));
     RedisModuleString *lastErrorKey = NULL;
     const char *lastError = NA;
-    // TODO: lets consider introducing a function IndexError_LastErrorKey_UnSafe(error, obfuscated)
-    // that assumed we already checked that the error is not N/A
-    // and that the key is not N/A. this way we can avoid the check in each of this functions
     if (obfuscate) {
         lastErrorKey = IndexError_LastErrorKeyObfuscated(error);
         lastError = IndexError_LastErrorObfuscated(error);
@@ -274,6 +271,7 @@ IndexError IndexError_Deserialize(MRReply *reply, bool withOOMstatus) {
         IndexError_SetLastError(&error, NA);
         RS_ASSERT(error.key == NULL);
     }
+
     if (withOOMstatus) {
         MRReply *oomFailure = MRReply_MapElement(reply, BackgroundIndexingOOMfailure_String);
         RS_ASSERT(oomFailure);

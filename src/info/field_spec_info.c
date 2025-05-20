@@ -39,7 +39,7 @@ FieldSpecInfo FieldSpecInfo_Init() {
 
 AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Init() {
     AggregatedFieldSpecInfo info = {0};
-    info.error = IndexError_Init(); // remove
+    info.error = IndexError_Init();
     return info;
 }
 
