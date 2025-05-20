@@ -141,7 +141,7 @@ setup_build_environment() {
   if [[ "$RUST_PROFILE" == "" ]]; then
     if [[ "$BUILD_TESTS" == "1" ]]; then
       if [[ "$DEBUG" == "1" ]]; then
-        RUST_PROFILE="debug"
+        RUST_PROFILE="dev"
       else
         RUST_PROFILE="optimised_test"
       fi
