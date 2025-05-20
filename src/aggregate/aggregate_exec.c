@@ -903,6 +903,7 @@ done:
 
 static void parseProfile(AREQ *r, int execOptions) {
   if (execOptions & EXEC_WITH_PROFILE) {
+    r->qiter.isProfile = true;
     r->reqflags |= QEXEC_F_PROFILE;
     if (execOptions & EXEC_WITH_PROFILE_LIMITED) {
       r->reqflags |= QEXEC_F_PROFILE_LIMITED;
