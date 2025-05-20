@@ -14,9 +14,11 @@ mod iter_;
 mod lending;
 mod prefixes;
 mod values;
+mod wildcard;
 
 pub use into_values::IntoValues;
 pub use iter_::Iter;
 pub use lending::LendingIter;
 pub use prefixes::PrefixesIter;
 pub use values::Values;
+pub use wildcard::WildcardIter;
