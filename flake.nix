@@ -49,6 +49,9 @@
             '';
 
             buildInputs = with pkgs; [
+              # For lsp
+              ccls
+
               # Dev dependencies based on developer.md
               cmake
               openssl.dev

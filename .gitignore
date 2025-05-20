@@ -28,3 +28,6 @@ callgrind.out.*
 /deps/RedisJSON/
 /1/
 /.install/boost*
+/.direnv/
+/.ccls-cache
+/compile_commands.json
