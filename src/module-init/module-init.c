@@ -122,7 +122,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   DO_LOG("notice", "RediSearch version %d.%d.%d (Git=%s)", REDISEARCH_VERSION_MAJOR,
          REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH, RS_GetExtraVersion());
 #ifdef __USE_GNU
-  // we print the base addess to allow easier translation of backtrace symbols
+  // we print the base addesss to allow easier translation of backtrace symbols
   Dl_info info;
   dladdr((void *)RediSearch_Init, &info);
   DO_LOG("debug", "RediSearch base address: %p", &info.dli_fbase);
