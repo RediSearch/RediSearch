@@ -1120,7 +1120,7 @@ impl<T> LowMemoryThinVec<T> {
     ///
     /// # Examples
     ///
-    /// ``rust
+    /// ```rust
     /// # #[macro_use] extern crate low_memory_thin_vec;
     /// # fn main() {
     /// let mut vec = low_memory_thin_vec![1, 2, 3, 4, 5];
