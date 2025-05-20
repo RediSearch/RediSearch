@@ -122,7 +122,6 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
-
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', 1).equal('OK')
 
 @skip(cluster=True)
