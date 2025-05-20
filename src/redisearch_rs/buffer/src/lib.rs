@@ -7,25 +7,45 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+//! The `Buffer` API Rust wrappers.
+//!
+//! This crate provides Rust wrappers for the `Buffer`, `BufferReader` and `BufferWriter` structs
+//! from `buffer.h`.
+
 use std::{
     ptr::{NonNull, copy_nonoverlapping},
     slice,
 };
 
 /// Redefines the `Buffer` struct from `buffer.h`
-///
-/// Allocated by C, we never want to free it.
 #[repr(C)]
 pub struct Buffer {
+    /// A pointer to the underlying data buffer. This is typically allocated by C and hence should
+    /// not be freed by Rust code.
     pub data: NonNull<u8>,
+    /// The capacity of the buffer (i-e allocated size)
     pub capacity: usize,
+    /// The length of the buffer (i-e the total used memory from allocated memory)
     pub len: usize,
 }
 
 /// Redefines the `BufferReader` struct from `buffer.h`
+///
+/// Provides read functionality over a Buffer with position tracking.
+///
+/// # Safety Invariants
+///
+/// * `buf` must point to a valid, properly initialized `Buffer`.
+/// * `pos` must not exceed the length of the Buffer.
+/// * The `BufferReader` does not own the `Buffer`, only borrows it.
+///
+/// It's best to use this through the `std::io::Read` implementation.
 #[repr(C)]
 pub struct BufferReader {
+    /// A pointer to a [`Buffer`]. If the `BufferReader` is coming from the C side, we must not
+    /// free or move it.
     pub buf: NonNull<Buffer>,
+    /// The read position in the `buf` pointer.
     pub pos: usize,
 }
 
@@ -58,6 +78,13 @@ impl std::io::Read for BufferReader {
 impl Buffer {
     /// Creates a new `Buffer` with the given pointer, length, and capacity.
     ///
+    /// # Safety
+    ///
+    /// This function is safe to call, but creates a Buffer that maintains unsafe invariants:
+    /// * `data` must be a valid pointer to a memory region of at least `capacity` bytes.
+    /// * The memory region must remain valid for the lifetime of the Buffer.
+    /// * The first `len` bytes of the memory region must be initialized.
+    ///
     /// # Panics
     ///
     /// Panics if `len` is greater than `capacity`.
@@ -70,7 +97,16 @@ impl Buffer {
         }
     }
 
-    /// The internal buffer as a slice.
+    /// Returns the initialized portion of the buffer as a slice.
+    ///
+    /// # Safety
+    ///
+    /// This method assumes the safety invariants of `Buffer` are upheld:
+    /// * `data` points to a valid memory region of at least `capacity` bytes.
+    /// * The first `len` bytes of that memory are initialized.
+    ///
+    /// If these invariants are violated, this method may return an invalid slice,
+    /// leading to undefined behavior.
     pub fn as_slice(&self) -> &[u8] {
         // Safety: `self.ptr` is a valid pointer, if C side gave us one.
         let data = unsafe { self.data.as_ref() };
@@ -78,7 +114,17 @@ impl Buffer {
         unsafe { slice::from_raw_parts(data, self.len) }
     }
 
-    /// The internal buffer as a mutable slice.
+    /// Returns the initialized portion of the buffer as a mutable slice.
+    ///
+    /// # Safety
+    ///
+    /// This method assumes the safety invariants of Buffer are upheld:
+    /// * `data` points to a valid memory region of at least `capacity` bytes.
+    /// * The first `len` bytes of that memory are initialized.
+    /// * The caller has exclusive access to the buffer (no aliasing).
+    ///
+    /// If these invariants are violated, this method may return an invalid mutable slice,
+    /// leading to undefined behavior.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         // Safety: `self.ptr` is a valid pointer, if C side gave us one.
         let data = unsafe { self.data.as_mut() };
@@ -86,27 +132,31 @@ impl Buffer {
         unsafe { slice::from_raw_parts_mut(data, self.len) }
     }
 
-    /// The length of the buffer.
+    /// Returns the length of the buffer (number of initialized bytes).
     pub fn len(&self) -> usize {
         self.len
     }
 
-    /// If the buffer is empty.
+    /// Returns true if the buffer is empty (length is zero).
     pub fn is_empty(&self) -> bool {
         self.len == 0
     }
 
-    /// The capacity of the buffer.
+    /// Returns the total capacity of the buffer (maximum number of bytes it can hold).
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
-    /// The remaining capacity of the buffer.
+    /// Returns the remaining capacity of the buffer (capacity - length).
     pub fn remaining_capacity(&self) -> usize {
         self.capacity - self.len
     }
 
     /// Advance the buffer by `n` bytes.
+    ///
+    /// This increases the buffer's length by `n` bytes, effectively marking
+    /// more of the buffer as "initialized" without actually writing any data.
+    /// Typically used after directly writing to the buffer's memory.
     ///
     /// # Panics
     ///
@@ -118,6 +168,37 @@ impl Buffer {
 }
 
 /// Redefines the `BufferWriter` struct from `buffer.h`
+///
+/// A writer for appending data to a `Buffer`. Provides a mechanism to write bytes to a `Buffer`
+/// while tracking the current write position with a cursor.
+///
+/// # Safety Invariants
+///
+/// * `buf` must point to a valid, properly initialized `Buffer`.
+/// * `cursor` must point to a valid position within the Buffer's allocated memory.
+/// * The `BufferWriter` does not own the `Buffer`, only borrows it.
+/// * If the buffer is grown (implicitly) as part of a write operation, all previously obtained
+///   pointers into the buffer are invalidated.
+///
+/// # Usage
+///
+/// It's best to use this through the `std::io::Write` implementation, which handles
+/// buffer growth and cursor position management automatically.
+///
+/// ```no_run
+/// # use std::io::Write;
+/// # use buffer::{Buffer, BufferWriter};
+/// # use std::ptr::NonNull;
+/// # let buffer_ptr: NonNull<Buffer> = todo!();
+/// # let buffer = unsafe { buffer_ptr.as_mut() };
+/// let mut writer = BufferWriter {
+///     buf: buffer_ptr,
+///     cursor: buffer.data,  // Start writing at the beginning
+/// };
+///
+/// // Write data to the buffer
+/// writer.write(b"Hello, world!").unwrap();
+/// ```
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct BufferWriter {
@@ -162,7 +243,27 @@ impl std::io::Write for BufferWriter {
 #[cfg(not(test))]
 unsafe extern "C" {
     /// Ensure that at least extraLen new bytes can be added to the buffer.
-    /// Returns the number of bytes added, or 0 if the buffer is already large enough.
+    ///
+    /// This function grows the buffer's capacity if needed to accommodate at least `extraLen`
+    /// additional bytes beyond the current length. If the buffer already has enough capacity, no
+    /// action is taken.
+    ///
+    /// # Safety
+    ///
+    /// This function must be called with a valid buffer pointer. It may reallocate the buffer's
+    /// memory, which invalidates any existing pointers into the buffer. After calling this
+    /// function, any previously obtained pointers or references to the buffer's data may be
+    /// invalid.
+    ///
+    /// The caller must ensure:
+    /// * `b` points to a valid `Buffer` struct.
+    /// * The `Buffer`'s data pointer is valid and was allocated by the C side.
+    /// * After calling this function, update any pointers that may have been invalidated.
+    ///
+    /// # Returns
+    ///
+    /// Returns the number of bytes added to the capacity, or 0 if the buffer
+    /// already had enough capacity.
     fn Buffer_Grow(b: NonNull<Buffer>, extraLen: usize) -> usize;
 }
 
