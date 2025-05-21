@@ -93,7 +93,7 @@ static inline int StrongRef_Equals(StrongRef s_ref, StrongRef other) {
 }
 
 #ifdef SAN
-#include <stdint.h>
+#include <stddef.h>
 typedef struct RefStats {
   size_t strong;
   size_t weak;
