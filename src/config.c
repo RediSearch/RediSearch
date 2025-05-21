@@ -122,7 +122,7 @@ int set_size_t_numeric_config(const char *name, long long val, void *privdata,
 
 long long get_size_t_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
-  return *(size_t *)privdata;
+  return (long long)(*(size_t *)privdata);
 }
 
 int set_uint_numeric_config(const char *name, long long val,
@@ -135,7 +135,7 @@ int set_uint_numeric_config(const char *name, long long val,
 
 unsigned int get_uint_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
-  return *(unsigned int *)privdata;
+  return (long long)(*(unsigned int *)privdata);
 }
 
 int set_uint8_numeric_config(const char *name, long long val,
@@ -148,7 +148,7 @@ int set_uint8_numeric_config(const char *name, long long val,
 
 long long get_uint8_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
-  return *(uint8_t *)privdata;
+  return (long long)(*(uint8_t *)privdata);
 }
 
 int set_bool_config(const char *name, int val, void *privdata,

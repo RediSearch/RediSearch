@@ -1647,7 +1647,7 @@ def testDeprecatedConfigParamMessage():
 
 def getConfigDict(env):
     """Get all configuration values as a dictionary"""
-    return {d[0]: d[1:] for d in env.cmd(config_cmd() + ' get *')}
+    return {d[0]: d[1:] for d in env.cmd(config_cmd(), 'GET', '*')}
 
 def checkConfigChange(env, configName, argName, newValue, baseConfigDict):
     """Test changing a single configuration value and verify others remain unchanged
