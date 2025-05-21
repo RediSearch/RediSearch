@@ -13,11 +13,18 @@
 //! from `buffer.h`.
 
 use std::{
+    cmp,
     ptr::{NonNull, copy_nonoverlapping},
     slice,
 };
 
 /// Redefines the `Buffer` struct from `buffer.h`
+///
+/// # Safety
+///
+/// * `data` must point to a valid, properly initialized `Buffer`.
+/// * `capacity` must not exceed the length of the Buffer.
+/// * `len` must not exceed the length of the Buffer.
 #[repr(C)]
 pub struct Buffer {
     /// A pointer to the underlying data buffer. This is typically allocated by C and hence should
@@ -54,14 +61,6 @@ impl std::io::Read for BufferReader {
         // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
         let buffer = unsafe { self.buf.as_mut() };
 
-        // Check if there's enough data to read
-        if self.pos + dest_buf.len() > buffer.len {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "BufferReader: not enough data",
-            ));
-        }
-
         // Safety: `self.pos` was just checked to be within the limits of the buffer's
         // initialized range, so this pointer arithmetic is safe.
         let src = unsafe { buffer.data.add(self.pos) };
@@ -69,18 +68,19 @@ impl std::io::Read for BufferReader {
         // Safety: We just verified that `src` points to valid memory within the buffer.
         let src = unsafe { src.as_ref() };
         let dest = dest_buf.as_mut_ptr();
+        let len = cmp::min(dest_buf.len(), buffer.len - self.pos);
 
         // Safety:
         // * `src` points to initialized memory in the buffer.
         // * `dest` is a valid pointer to the destination slice.
         // * We've verified there are at least `dest_buf.len()` bytes available in the source.
         // * The memory regions don't overlap (copy_nonoverlapping requirement).
-        unsafe { copy_nonoverlapping(src, dest, dest_buf.len()) };
+        unsafe { copy_nonoverlapping(src, dest, len) };
 
         // Update position after successful read
-        self.pos += dest_buf.len();
+        self.pos += len;
 
-        Ok(dest_buf.len())
+        Ok(len)
     }
 }
 
@@ -89,16 +89,16 @@ impl Buffer {
     ///
     /// # Safety
     ///
-    /// This function is safe to call, but creates a Buffer that maintains unsafe invariants:
     /// * `data` must be a valid pointer to a memory region of at least `capacity` bytes.
+    /// * `len` must be less than or equal to `capacity`.
     /// * The memory region must remain valid for the lifetime of the Buffer.
     /// * The first `len` bytes of the memory region must be initialized.
     ///
     /// # Panics
     ///
     /// Panics if `len` is greater than `capacity`.
-    pub fn new(data: NonNull<u8>, len: usize, capacity: usize) -> Self {
-        assert!(len <= capacity, "len must not exceed capacity");
+    pub unsafe fn new(data: NonNull<u8>, len: usize, capacity: usize) -> Self {
+        debug_assert!(len <= capacity, "len must not exceed capacity");
         Self {
             data,
             len,
@@ -167,15 +167,16 @@ impl Buffer {
 
     /// Advance the buffer by `n` bytes.
     ///
-    /// This increases the buffer's length by `n` bytes, effectively marking
-    /// more of the buffer as "initialized" without actually writing any data.
-    /// Typically used after directly writing to the buffer's memory.
+    /// This increases the buffer's length by `n` bytes, effectively marking more of the buffer as
+    /// "initialized" without actually writing any data. Typically used after directly writing to
+    /// the buffer's memory.
     ///
-    /// # Panics
+    /// # Safety
     ///
-    /// Panics if `n` exceeds the remaining capacity of the buffer.
-    pub fn advance(&mut self, n: usize) {
-        assert!(n <= self.remaining_capacity());
+    /// * `n` must not exceed the remaining capacity of the buffer.
+    /// * The new bytes added by this call must be initialized.
+    pub unsafe fn advance(&mut self, n: usize) {
+        debug_assert!(n <= self.remaining_capacity());
         self.len += n;
     }
 }
@@ -238,16 +239,16 @@ impl std::io::Write for BufferWriter {
         // Check if we need to grow the buffer to accommodate the new data
         if buffer.len + bytes.len() > buffer.capacity {
             // Safety: `Buffer_Grow` is a C function that increases the buffer's capacity. It
-            // expects a valid buffer pointer and returns the number of bytes added to capacity. If
-            // it returns non-zero, the buffer was successfully grown.
+            // expects a valid buffer pointer and returns the number of bytes added to capacity.
+            // This number can be 0 if the buffer is already large enough but since it reallocates
+            // unconditionally, we need to update our cursor in either case.
             //
             // Note that this may invalidate previously held pointers into the buffer.
-            if unsafe { Buffer_Grow(self.buf, bytes.len()) } != 0 {
-                // The buffer has been grown and potentially relocated, so we need to update our cursor.
-                // Safety: After growth, `buffer.len()` points just past the end of the valid data,
-                // which is a valid position to write to.
-                self.cursor = unsafe { buffer.data.add(buffer.len) };
-            }
+            unsafe { Buffer_Grow(self.buf, bytes.len()) };
+            // The buffer has relocated, so we need to update our cursor.
+            // Safety: After growth, `buffer.len()` points just past the end of the valid data,
+            // which is a valid position to write to.
+            self.cursor = unsafe { buffer.data.add(buffer.len) };
         }
 
         // Now copy the bytes into the buffer
@@ -283,15 +284,14 @@ unsafe extern "C" {
     /// Ensure that at least extraLen new bytes can be added to the buffer.
     ///
     /// This function grows the buffer's capacity if needed to accommodate at least `extraLen`
-    /// additional bytes beyond the current length. If the buffer already has enough capacity, no
-    /// action is taken.
+    /// additional bytes beyond the current length.
     ///
     /// # Safety
     ///
-    /// This function must be called with a valid buffer pointer. It may reallocate the buffer's
-    /// memory, which invalidates any existing pointers into the buffer. After calling this
-    /// function, any previously obtained pointers or references to the buffer's data may be
-    /// invalid.
+    /// This function must be called with a valid buffer pointer. It reallocate the buffer's memory
+    /// (even if the buffer is already large enough), which invalidates any existing pointers into
+    /// the buffer. After calling this function, any previously obtained pointers or references to
+    /// the buffer's data may be invalid.
     ///
     /// The caller must ensure:
     /// * `b` points to a valid `Buffer` struct.
