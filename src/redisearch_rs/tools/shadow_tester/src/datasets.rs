@@ -22,14 +22,14 @@ pub fn get_1984_index() -> Result<Vec<String>, ureq::Error> {
     let mut index_pos = 0;
     let mut part_text = vec![];
 
-    let mut queries = vec!["flushall".to_string()];
+    let mut setup_queries = vec!["flushall".to_string()];
 
     for line in text.lines() {
         if line.is_empty() {
             let t = part_text.join(" ");
-            queries.push(format!(
+            setup_queries.push(format!(
                 "HSET 1984:part:{part_num} text '{t}' part_num {part_num} index_pos {index_pos} part_len {part_len}"
-            ).to_string());
+            ));
 
             part_num += 1;
             index_pos += part_len + 1;
@@ -42,11 +42,12 @@ pub fn get_1984_index() -> Result<Vec<String>, ureq::Error> {
     }
 
     let t = part_text.join(" ");
-    queries.push(format!(
+    setup_queries.push(format!(
         "HSET 1984:part:{part_num} text '{t}' part_num {part_num} index_pos {index_pos} part_len {part_len}"
-    ).to_string());
+    ));
 
-    queries.push("FT.CREATE idx:1984 ON HASH PREFIX 1 '1984:part:' SCHEMA text TEXT WEIGHT 1.0 part_num NUMERIC SORTABLE index_pos NUMERIC SORTABLE length NUMERIC SORTABLE".to_string());
-
-    Ok(queries)
+    Ok(vec![
+        setup_queries.join("\n"),
+        "FT.CREATE idx:1984 ON HASH PREFIX 1 '1984:part:' SCHEMA text TEXT WEIGHT 1.0 part_num NUMERIC SORTABLE index_pos NUMERIC SORTABLE length NUMERIC SORTABLE".to_string()
+    ])
 }
