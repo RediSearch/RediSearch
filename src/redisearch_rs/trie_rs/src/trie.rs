@@ -11,8 +11,8 @@ use wildcard::WildcardPattern;
 
 use crate::{
     iter::{
-        IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter, RangeIter, Values, WildcardIter,
-        filter::VisitAll,
+        ContainsIter, IntoValues, Iter, LendingIter, PrefixesIter, RangeFilter, RangeIter, Values,
+        WildcardIter, filter::VisitAll,
     },
     node::Node,
     utils::strip_prefix,
@@ -188,6 +188,11 @@ impl<Data> TrieMap<Data> {
     /// Iterates over the entries between the specified `min` and `max`, in lexicographical order.
     pub fn range_iter<'a>(&'a self, filter: RangeFilter<'a>) -> RangeIter<'a, Data> {
         RangeIter::new(self.root.as_ref(), filter)
+    }
+
+    /// Iterate over the entries that contain the target fragment, in lexicographical key order.
+    pub fn contains_iter<'a>(&'a self, target: &'a [u8]) -> ContainsIter<'a, Data> {
+        ContainsIter::new(self.root.as_ref(), target)
     }
 
     /// Iterate over the entries that start with the given prefix, borrowing the current key from the iterator,
