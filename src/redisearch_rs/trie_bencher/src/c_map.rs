@@ -72,6 +72,32 @@ impl CTrieMap {
         }
     }
 
+    pub fn range_iter(
+        &self,
+        min: Option<TrieTermView>,
+        max: Option<TrieTermView>,
+        include_min: bool,
+        include_max: bool,
+    ) {
+        let min_ptr = min.map(|m| m.ptr()).unwrap_or(std::ptr::null_mut());
+        let min_len = min.map(|m| m.len()).unwrap_or(0);
+        let max_ptr = max.map(|m| m.ptr()).unwrap_or(std::ptr::null_mut());
+        let max_len = max.map(|m| m.len()).unwrap_or(0);
+        unsafe {
+            crate::ffi::TrieMap_IterateRange(
+                self.0,
+                min_ptr,
+                min_len.into(),
+                include_min,
+                max_ptr,
+                max_len.into(),
+                include_max,
+                Some(do_nothing_callback),
+                std::ptr::null_mut(),
+            )
+        };
+    }
+
     pub fn n_nodes(&self) -> usize {
         unsafe { (*self.0).size }
     }
@@ -150,6 +176,15 @@ unsafe extern "C" fn do_not_free(_val: *mut c_void) {
     // We're using the null pointer as value, so we don't want to free it.
 }
 
+unsafe extern "C" fn do_nothing_callback(
+    _arg1: *const ::std::os::raw::c_char,
+    _arg2: usize,
+    _arg3: *mut ::std::os::raw::c_void,
+    _arg4: *mut ::std::os::raw::c_void,
+) {
+    // A callback for `TrieMap_IterateRange` that, as the name implies, does nothing with its input.
+}
+
 #[allow(clippy::len_without_is_empty)]
 #[derive(Copy, Clone)]
 /// Provides a view for a trie term into a CString used for passing to C trie functions in [CTrieMap].
@@ -188,7 +223,7 @@ pub trait AsTrieTermView {
 /// which is useful for FFI operations.
 ///
 /// Panics if the argument contains a null byte.
-impl<T: AsRef<str>> IntoCString for T {
+impl<T: AsRef<[u8]>> IntoCString for T {
     fn into_cstring(self) -> CString {
         CString::new(self.as_ref()).expect("null byte found")
     }

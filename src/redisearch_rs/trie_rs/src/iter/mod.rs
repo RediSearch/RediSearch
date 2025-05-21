@@ -12,13 +12,17 @@ pub mod filter;
 mod into_values;
 mod iter_;
 mod lending;
+mod lending_range;
 mod prefixes;
+mod range;
 mod values;
 mod wildcard;
 
 pub use into_values::IntoValues;
 pub use iter_::Iter;
 pub use lending::LendingIter;
+pub use lending_range::RangeLendingIter;
 pub use prefixes::PrefixesIter;
+pub use range::{RangeBoundary, RangeFilter, RangeIter};
 pub use values::Values;
 pub use wildcard::WildcardIter;

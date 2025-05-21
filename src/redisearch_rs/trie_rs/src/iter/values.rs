@@ -34,9 +34,7 @@ impl<'tm, Data> Iterator for Values<'tm, Data> {
     fn next(&mut self) -> Option<Self::Item> {
         let node = self.stack.pop()?;
 
-        for child in node.children().iter().rev() {
-            self.stack.push(child);
-        }
+        self.stack.extend(node.children().iter().rev());
 
         if let Some(data) = node.data() {
             return Some(data);
