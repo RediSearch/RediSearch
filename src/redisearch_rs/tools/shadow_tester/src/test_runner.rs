@@ -7,9 +7,13 @@ pub struct TestRunner {
 }
 
 impl TestRunner {
-    pub fn new(base_client: RedisClient, changeset_client: RedisClient) -> Self {
+    pub fn new(
+        dataset: Vec<String>,
+        base_client: RedisClient,
+        changeset_client: RedisClient,
+    ) -> Self {
         TestRunner {
-            commands: Vec::new(),
+            commands: dataset,
             base_client,
             changeset_client,
         }

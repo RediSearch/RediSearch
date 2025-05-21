@@ -1,19 +1,23 @@
 use clap::Parser;
+use datasets::get_1984_index;
 use redis_client::RedisClient;
 use test_runner::TestRunner;
 
 mod args;
+mod datasets;
 mod redis_client;
 mod test_runner;
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = args::Options::parse();
 
     let base_client = RedisClient::new(6379, &options.rltest_path, options.baseline_so)?;
     let changeset_client = RedisClient::new(6380, &options.rltest_path, options.changeset_so)?;
 
-    let mut test_runner = TestRunner::new(base_client, changeset_client);
-    test_runner.add_command("PING");
+    let queries = get_1984_index()?;
+
+    let mut test_runner = TestRunner::new(queries, base_client, changeset_client);
+    test_runner.add_command("FT.SEARCH idx:1984 'thoughtcrime'");
 
     let success = test_runner.run()?;
 
