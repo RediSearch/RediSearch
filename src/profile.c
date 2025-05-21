@@ -113,6 +113,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   AREQ *req = profileCtx->req;
   bool timedout = profileCtx->timedout;
   bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
+  bool bgScanOOM = profileCtx->bgScanOOM;
   req->totalTime += clock() - req->initClock;
 
   //-------------------------------------------------------------------------------------------
@@ -147,14 +148,22 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         }
 
       // Print whether a warning was raised throughout command execution
+      bool replyWarningWithNone = true;
       if (timedout) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ETIMEDOUT));
-      } else if (reachedMaxPrefixExpansions) {
-        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
+        replyWarningWithNone = true;
       } else {
+        if (reachedMaxPrefixExpansions) {
+          RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
+        }
+        if (bgScanOOM) {
+          RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WINDEXING_FAILURE);
+          replyWarningWithNone = false;
+        }
+      }
+      if (replyWarningWithNone) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
       }
-
       // print into array with a recursive function over result processors
 
       // Print profile of iterators
@@ -205,8 +214,10 @@ void Profile_PrintInFormat(RedisModule_Reply *reply,
   RedisModule_Reply_MapEnd(reply); /* >profile */
 }
 
-void Profile_PrintDefault(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions) {
+void Profile_PrintDefault(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions, bool bgScanOOM) {
   ProfilePrinterCtx ctx = {.req = req, .timedout = timedout,
-                           .reachedMaxPrefixExpansions = reachedMaxPrefixExpansions};
+                           .reachedMaxPrefixExpansions = reachedMaxPrefixExpansions,
+                           .bgScanOOM = bgScanOOM,
+                          };
   Profile_PrintInFormat(reply, Profile_Print, &ctx, NULL, NULL);
 }
