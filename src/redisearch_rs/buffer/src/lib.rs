@@ -22,11 +22,11 @@ use std::{
 pub struct Buffer {
     /// A pointer to the underlying data buffer. This is typically allocated by C and hence should
     /// not be freed by Rust code.
-    pub data: NonNull<u8>,
+    data: NonNull<u8>,
     /// The capacity of the buffer (i-e allocated size)
-    pub capacity: usize,
+    capacity: usize,
     /// The length of the buffer (i-e the total used memory from allocated memory)
-    pub len: usize,
+    len: usize,
 }
 
 /// Redefines the `BufferReader` struct from `buffer.h`
@@ -202,12 +202,8 @@ impl Buffer {
 /// # use std::io::Write;
 /// # use buffer::{Buffer, BufferWriter};
 /// # use std::ptr::NonNull;
-/// # let buffer_ptr: NonNull<Buffer> = todo!();
-/// # let buffer = unsafe { buffer_ptr.as_mut() };
-/// let mut writer = BufferWriter {
-///     buf: buffer_ptr,
-///     cursor: buffer.data,  // Start writing at the beginning
-/// };
+/// let buffer_ptr: NonNull<Buffer> = todo!();
+/// let mut writer = unsafe { BufferWriter::for_buffer(buffer_ptr) };
 ///
 /// // Write data to the buffer
 /// writer.write(b"Hello, world!").unwrap();
@@ -217,6 +213,21 @@ impl Buffer {
 pub struct BufferWriter {
     pub buf: NonNull<Buffer>,
     pub cursor: NonNull<u8>,
+}
+
+impl BufferWriter {
+    /// Create a new `BufferWriter` for the given buffer.
+    ///
+    /// # Safety
+    ///
+    /// We assume `buf` is a valid pointer to a properly initialized `Buffer`.
+    pub unsafe fn for_buffer(buffer: NonNull<Buffer>) -> Self {
+        Self {
+            buf: buffer,
+            // Safety: We assume `buf` is a valid pointer to a properly initialized `Buffer`.
+            cursor: unsafe { buffer.as_ref() }.data,
+        }
+    }
 }
 
 impl std::io::Write for BufferWriter {
