@@ -1280,7 +1280,9 @@ def test_ft_info():
       # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
       #              = 72 + (1000 * 16) = 16072 bytes
       initial_doc_table_size_mb = 16072 / (1024 * 1024)
-      total_index_memory_sz_mb = initial_doc_table_size_mb
+      # Size of an empty TrieMap
+      key_table_sz_mb = 16 / (1024 * 1024)
+      total_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
 
       res = order_dict(r.execute_command('ft.info', 'idx'))
 
@@ -1339,7 +1341,7 @@ def test_ft_info():
         'index_options': [],
         'indexing': 0.0,
         'inverted_sz_mb': 0.0,
-        'key_table_size_mb': 0.0,
+        'key_table_size_mb': key_table_sz_mb,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
         'total_index_memory_sz_mb': total_index_memory_sz_mb,
@@ -1419,7 +1421,7 @@ def test_ft_info():
         'index_options': [],
         'indexing': 0,
         'inverted_sz_mb': 0.0,
-        'key_table_size_mb': 0.0,
+        'key_table_size_mb': nodes * key_table_sz_mb,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
         'total_index_memory_sz_mb': nodes * total_index_memory_sz_mb,
