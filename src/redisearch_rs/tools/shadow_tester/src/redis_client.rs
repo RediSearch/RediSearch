@@ -11,9 +11,9 @@ pub struct RedisClient {
 }
 
 impl RedisClient {
-    pub fn new(port: u16, rltest_command: &str, so_path: PathBuf) -> std::io::Result<Self> {
+    pub fn new(port: u16, rltest_path: &PathBuf, so_path: PathBuf) -> std::io::Result<Self> {
         // Start a RLTest server in the background
-        let mut server_process = Command::new(rltest_command)
+        let mut server_process = Command::new(rltest_path)
             .env("ENV_ONLY", "1")
             .env("REJSON", "0")
             .env("MODULE", so_path)

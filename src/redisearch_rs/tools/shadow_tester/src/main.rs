@@ -9,8 +9,8 @@ mod test_runner;
 fn main() -> std::io::Result<()> {
     let options = args::Options::parse();
 
-    let base_client = RedisClient::new(6379, &options.rltest_command, options.baseline_so)?;
-    let changeset_client = RedisClient::new(6380, &options.rltest_command, options.changeset_so)?;
+    let base_client = RedisClient::new(6379, &options.rltest_path, options.baseline_so)?;
+    let changeset_client = RedisClient::new(6380, &options.rltest_path, options.changeset_so)?;
 
     let mut test_runner = TestRunner::new(base_client, changeset_client);
     test_runner.add_command("PING");
