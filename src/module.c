@@ -1459,20 +1459,21 @@ void RediSearch_CleanupModule(void) {
 #ifdef SAN
   size_t strong_leaks = 0;
   size_t weak_leaks = 0;
-  for (int i = 0; i < array_len(specTrack_g); i++) {
+  for (int i = 0; i < specTrackSize_g; i++) {
     RefStats stats = WeakRef_GetStats(specTrack_g[i]);
     strong_leaks += stats.strong;
     weak_leaks += stats.weak - 1;
     WeakRef_Release(specTrack_g[i]);
   }
-  RS_DEBUG_LOG_FMT("Leaked %zu strong and %zu weak references to index spec. Also knows about %zu GCs",
-                    strong_leaks, weak_leaks, numGCs_g);
   // Any still alive GC has a weak reference to its spec
   weak_leaks -= numGCs_g;
   // Anything else is a leak
-  RS_LOG_ASSERT_FMT(strong_leaks == 0 && weak_leaks == 0,
-                    "Leaked %zu strong and %zu weak references to index spec",
-                    strong_leaks, weak_leaks);
+  if (strong_leaks || weak_leaks) {
+    RS_DEBUG_LOG_FMT("LEAKED %zu strong and %zu weak references to index spec.",
+                     strong_leaks, weak_leaks);
+    // tickle the leak detector
+    rm_strdup("Spec reference leak");
+  }
 #endif
 
   // free global structures

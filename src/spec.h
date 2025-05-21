@@ -125,7 +125,8 @@ extern dict *specDict_g;
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 
 #ifdef SAN
-extern arrayof(WeakRef) specTrack_g;
+extern unsigned specTrackSize_g
+extern WeakRef *specTrack_g;
 #endif
 
 typedef enum {
