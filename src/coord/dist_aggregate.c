@@ -658,10 +658,10 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
-void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions, bool bgScanOOM) {
+void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions) {
   // profileRP replace netRP as end PR
   RPNet *rpnet = (RPNet *)req->qiter.rootProc;
-  ProfilePrinterCtx cCtx = {req, timedout, reachedMaxPrefixExpansions, bgScanOOM};
+  ProfilePrinterCtx cCtx = {req, timedout, reachedMaxPrefixExpansions};
   PrintShardProfile_ctx sCtx = {
     .count = array_len(rpnet->shardsProfile),
     .replies = rpnet->shardsProfile,
