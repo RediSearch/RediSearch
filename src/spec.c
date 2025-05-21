@@ -3039,6 +3039,7 @@ int CompareVersions(Version v1, Version v2) {
 
   return 0;
 }
+
 // This function is called in case the server is started or
 // when the replica is loading the RDB file from the master.
 static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
@@ -3053,6 +3054,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       legacySpecDict = dictCreate(&dictTypeHeapHiddenStrings, NULL);
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
+    g_isLoading = true;
     workersThreadPool_OnEventStart();
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);
@@ -3068,10 +3070,12 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       Indexes_ScanAndReindex();
     }
     workersThreadPool_OnEventEnd(true);
+    g_isLoading = false;
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
     // Clear pending jobs from job queue in case of short read.
     workersThreadPool_OnEventEnd(true);
+    g_isLoading = false;
   }
 }
 
