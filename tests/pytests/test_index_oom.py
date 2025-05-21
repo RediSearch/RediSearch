@@ -5,7 +5,7 @@ bgIndexingStatusStr = "background indexing status"
 indexing_failures_str = 'indexing failures'
 last_indexing_error_key_str = 'last indexing error key'
 last_indexing_error_str = 'last indexing error'
-OOM_indexing_failure_str = 'Index background scan failed due to OOM. New documents will not be indexed.'
+OOM_indexing_failure_str = 'Index background scan did not complete due to OOM. New documents will not be indexed.'
 OOMfailureStr = "OOM failure"
 
 def get_memory_consumption_ratio(env):
@@ -146,8 +146,12 @@ def test_stop_indexing_low_mem_verbosity(env):
   env.assertEqual(error_dict, expected_error_dict)
   # Check resp3 warning for OOM
   res = env.cmd('FT.SEARCH', 'idx','*')
-  print(res['warning'])
-  env.assertEqual(res['warning'][0], 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  warning = res['warning'][0]
+  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  # Check resp3 warning in FT.PROFILE
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
+  warning = res['Results']['warning'][0]
+  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
 
 @skip(cluster=True)
 def test_idx_delete_during_bg_indexing(env):
