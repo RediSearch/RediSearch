@@ -38,3 +38,70 @@ TEST_F(IndexErrorTest, testBasic) {
   RedisModule_FreeString(NULL, key);
 }
 
+
+#ifdef ENABLE_ASSERT
+
+
+TEST_F(IndexErrorTest, testAddErrorAfterDestroy) {
+  IndexError error1 = IndexError_Init();
+  
+  const char* expected = "secret";
+  RedisModuleString *key = RedisModule_CreateString(NULL, expected, 6);
+  IndexError_AddError(&error1, "error", "error1", key);
+  
+  // destroy the error and make sure the error is not usable
+  IndexError_Destroy(&error1);
+  try {
+        IndexError_AddError(&error1, "error", "error1", key);
+        // This should not be reached, as the error should be destroyed
+        FAIL() << "Expected IndexError to be destroyed";
+  } catch (const std::exception& e) {
+    std::string error_msg = e.what();
+    EXPECT_NE(error_msg.find("error->last_error_without_user_data != DEADBEEF && error->last_error_with_user_data != DEADBEEF && error->key != DEADBEEF"), std::string::npos);
+    RedisModule_FreeString(NULL, key);
+  }
+
+  // Call destroy again to make sure it doesn't crash
+  try {
+    IndexError_Destroy(&error1);
+      // This should not be reached, as the error should be destroyed
+    FAIL() << "Expected IndexError to be destroyed";
+  } catch (const std::exception& e) {
+    std::string error_msg = e.what();
+    EXPECT_NE(error_msg.find("error->last_error_without_user_data != DEADBEEF && error->last_error_with_user_data != DEADBEEF && error->key != DEADBEEF"), std::string::npos);
+  }
+  
+}
+
+TEST_F(IndexErrorTest, testAEmptyAddErrorAfterDestroy) {
+  IndexError error1 = IndexError_Init();
+
+  // destroy the error and make sure the error is not usable
+  IndexError_Destroy(&error1);
+  const char* expected = "secret";
+  RedisModuleString *key = RedisModule_CreateString(NULL, expected, 6);
+  try {
+    IndexError_AddError(&error1, "error", "error1", key);
+    // This should not be reached, as the error should be destroyed
+    FAIL() << "Expected IndexError to be destroyed";
+  } catch (const std::exception& e) {
+    std::string error_msg = e.what();
+    EXPECT_NE(error_msg.find("error->last_error_without_user_data != DEADBEEF && error->last_error_with_user_data != DEADBEEF && error->key != DEADBEEF"), std::string::npos);
+    RedisModule_FreeString(NULL, key);
+  }
+
+  // Call destroy again to make sure it doesn't crash
+  try {
+    IndexError_Destroy(&error1);
+      // This should not be reached, as the error should be destroyed
+    FAIL() << "Expected IndexError to be destroyed";
+  } catch (const std::exception& e) {
+    std::string error_msg = e.what();
+    EXPECT_NE(error_msg.find("error->last_error_without_user_data != DEADBEEF && error->last_error_with_user_data != DEADBEEF && error->key != DEADBEEF"), std::string::npos);
+  }
+  
+}
+
+
+#endif
+
