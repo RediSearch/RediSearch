@@ -5,8 +5,10 @@ MODE=$1 # whether to install using sudo or not
 
 $MODE apt update -qq
 $MODE apt upgrade -yqq
-
+$MODE apt install -yqq software-properties-common
 $MODE add-apt-repository ppa:ubuntu-toolchain-r/test -y
+$MODE apt update
+
 $MODE apt install -yqq wget make clang-format gcc python3 python3-venv python3-pip lcov git openssl libssl-dev \
     unzip rsync build-essential gcc-11 g++-11 curl libclang-dev
 
