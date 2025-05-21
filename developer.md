@@ -75,7 +75,7 @@ Some of our behavioral tests require RedisJSON to be present. Our testing framew
 To build RediSearch from source, you need to run the following commands:
 
 ```bash
-make build
+./build.sh
 ```
 
 ### Running Redis with RediSearch
@@ -91,12 +91,17 @@ make run
 To run the tests, you need to execute the following commands:
 
 ```bash
-make test
+./build.sh run_tests
 ```
+
+Note that if you had built or run a build previously, you would need to add the `FORCE` option to make sure the test binaries are compiled. (`./build.sh run_tests FORCE`)
+
 For running specific tests you can use the following commands:
-* C tests, located in tests/ctests, run by `make c-tests`.
-* C++ tests (enabled by GTest), located in tests/cpptests, run by `make cpp-tests`.
-* Python behavioral tests (enabled by [RLTest](https://github.com/RedisLabsModules/RLTest)), located in tests/pytests, run by `make pytest`.
+* C, C++ tests, located in tests/ctests, and tests/cpptests run by `./build.sh run_unit_tests`.
+* Rust tests run by `./build.sh run_rust_tests`..
+* Python behavioral tests (enabled by [RLTest](https://github.com/RedisLabsModules/RLTest)), located in tests/pytests, run by `./build.sh run_pytest`.
+
+To run Python tests, we recommend that you use a [virtual environment](https://docs.python.org/3/library/venv.html) and install the dependencies listed in the `tests/pytest/requirements.txt` file.
 
 ### Test prerequisites
 To run the python behavioral tests you need to install the following dependencies:
@@ -113,28 +118,28 @@ Note those scripts will create a python virtual environment called `venv` and in
 ### RedisJSON
 Some of our behavioral tests require RedisJSON to be present. You can skip the RedisJSON tests by setting the `REJSON=0` in the command
 ```bash
-make pytest REJSON=0
+REJSON=0 ./build.sh run_pytest
 ```
 If you have RedisJSON module already built on your machine you can specify the path to it by setting the `REJSON_PATH` variable.
 ```bash
-make pytest REJSON_PATH=/path/to/redisjson.so
+REJSON_PATH=/path/to/redisjson.so ./build.sh run_pytest
 ```
 If the module does not exist in the specified path, our testing framework will clone and build RedisJSON for you. You can specify the branch of RedisJSON you want to use by setting the `REJSON_BRANCH` variable.
 
 ```bash
-make pytest REJSON_BRANCH=branch
+REJSON_BRANCH=branch ./build.sh run_pytest
 ```
 
 ### Sanitizers
 Currently address sanitizer is supported. To run the tests with address sanitizer you can use the following command:
 
 ```bash
-make build test SAN=address
+./build.sh run_tests SAN=address
 ```
 
 ## Debug
 To build the code with debug symbols, you can use the following commands:
 
 ```bash
-make DEBUG=1
+./build.sh DEBUG
 ```

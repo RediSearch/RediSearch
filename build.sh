@@ -235,6 +235,7 @@ prepare_cmake_arguments() {
   CMAKE_BASIC_ARGS="-DCOORD_TYPE=$COORD"
 
   if [[ "$BUILD_TESTS" == "1" ]]; then
+    echo "JOAN HERE BUILD TESTES IS ON"
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DBUILD_SEARCH_UNIT_TESTS=ON"
   fi
 
@@ -283,7 +284,7 @@ run_cmake() {
   # Create build directory and ensure any parent directories exist
   mkdir -p "$BINDIR"
   cd "$BINDIR"
-
+  echo "JOAN RUNNING CMAKE"
   # Clean up any cached CMake configuration if force is enabled
   if [[ "$FORCE" == "1" ]]; then
     echo "Cleaning CMake cache..."
@@ -297,7 +298,9 @@ run_cmake() {
   # Run CMake with all the flags
   if [[ "$FORCE" == "1" || ! -f "$BINDIR/Makefile" ]]; then
     CMAKE_CMD="cmake $ROOT $CMAKE_BASIC_ARGS $CMAKE_ARGS"
+    echo "JOAN HERE WILL COME CMAKE CMD"
     echo "$CMAKE_CMD"
+    
 
     # If verbose, dump all CMake variables before and after configuration
     if [[ "$VERBOSE" == "1" ]]; then
@@ -376,11 +379,13 @@ build_project() {
 # Build additional dependencies needed for tests
 #-----------------------------------------------------------------------------
 build_test_dependencies() {
+  echo "JOAN I AM HERE 1 $BUILD_TESTS" 
   if [[ "$BUILD_TESTS" == "1" ]]; then
+    echo "JOAN I AM HERE 2"
     # Ensure ext-example binary gets compiled
     if [[ -d "$ROOT/tests/ctests/ext-example" ]]; then
       echo "Building ext-example for unit tests..."
-
+      echo "$BINDIR"
       # Check if we're already in the build directory
       if [[ "$PWD" != "$BINDIR" ]]; then
         cd "$BINDIR"
