@@ -56,6 +56,7 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'BG_INDEX_SLEEP_GAP').res[0][0] == 'BG_INDEX_SLEEP_GAP'
     assert env.expect('ft.config', 'get', '_PRIORITIZE_INTERSECT_UNION_CHILDREN').res[0][0] == '_PRIORITIZE_INTERSECT_UNION_CHILDREN'
     assert env.expect('ft.config', 'get', 'INDEX_CURSOR_LIMIT').res[0][0] == 'INDEX_CURSOR_LIMIT'
+    assert env.expect('ft.config', 'get', 'INDEXER_YIELD_EVERY_OPS').res[0][0] == 'INDEXER_YIELD_EVERY_OPS'
 
 '''
 
@@ -145,6 +146,7 @@ def testAllConfig(env):
     #env.assertEqual(res_dict['SAFEMODE'][0], 'true')
     #env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
+    env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
 
 @skip(cluster=True)
 def testInitConfig(env):
@@ -179,6 +181,7 @@ def testInitConfig(env):
     test_arg_num('_NUMERIC_RANGES_PARENTS', 1)
     test_arg_num('BG_INDEX_SLEEP_GAP', 15)
     test_arg_num('INDEX_CURSOR_LIMIT', 128)
+    test_arg_num('INDEXER_YIELD_EVERY_OPS', 123)
 
 # True/False arguments
     def test_arg_true_false(arg_name, res):

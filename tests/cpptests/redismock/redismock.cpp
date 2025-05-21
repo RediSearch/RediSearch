@@ -803,6 +803,15 @@ static int RMCK_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent eve
   return REDISMODULE_OK;
 }
 
+void RMCK_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
+  return;
+}
+
+int RMCK_GetContextFlags(RedisModuleCtx *ctx) {
+  return 0;
+}
+
+
 /** Fork */
 static int RMCK_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
   return fork();
@@ -945,6 +954,8 @@ static void registerApis() {
   REGISTER_API(KillForkChild);
   REGISTER_API(ExitFromChild);
   REGISTER_API(Fork);
+  REGISTER_API(Yield);
+  REGISTER_API(GetContextFlags);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {

@@ -1180,6 +1180,44 @@ typedef struct DebugCommandType {
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 } DebugCommandType;
 
+// Global counter for tracking yield calls during loading
+static size_t g_yieldCallCounter = 0;
+
+// Function to increment the yield counter (to be called from IndexerBulkAdd)
+void IncrementYieldCounter(void) {
+  g_yieldCallCounter++;
+}
+
+// Reset the yield counter
+void ResetYieldCounter(void) {
+  g_yieldCallCounter = 0;
+}
+
+/**
+ * FT.DEBUG YIELDS_ON_LOAD_COUNTER [RESET]
+ * Get or reset the counter for yields during loading operations
+ */
+DEBUG_COMMAND(YieldCounter) {
+  if (argc > 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  
+  // Check if we need to reset the counter
+  if (argc == 3) {
+    size_t len;
+    const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
+    if (STR_EQCASE(subCmd, len, "RESET")) {
+      ResetYieldCounter();
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else {
+      return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
+    }
+  }
+  
+  // Return the current counter value
+  return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
+}
+
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1208,6 +1246,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
                                {"DELETE_LOCAL_CURSORS", DeleteCursors},
+                               {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
                                /**
                                 * The following commands are for debugging search/aggregation.
                                 */
