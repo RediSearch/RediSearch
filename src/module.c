@@ -1462,10 +1462,11 @@ void RediSearch_CleanupModule(void) {
   for (int i = 0; i < array_len(specTrack_g); i++) {
     RefStats stats = WeakRef_GetStats(specTrack_g[i]);
     strong_leaks += stats.strong;
-    weak_leaks += stats.weak;
+    weak_leaks += stats.weak - 1;
+    WeakRef_Release(specTrack_g[i]);
   }
-  // Don't count the references in `specTrack_g` itself (which are all weak)
-  weak_leaks -= array_len(specTrack_g);
+  RS_DEBUG_LOG_FMT("Leaked %zu strong and %zu weak references to index spec. Also knows about %zu GCs",
+                    strong_leaks, weak_leaks, numGCs_g);
   // Any still alive GC has a weak reference to its spec
   weak_leaks -= numGCs_g;
   // Anything else is a leak
