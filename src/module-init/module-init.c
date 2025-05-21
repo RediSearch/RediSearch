@@ -125,7 +125,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   // we print the base addesss to allow easier translation of backtrace symbols
   Dl_info info;
   dladdr((void *)RediSearch_Init, &info);
-  DO_LOG("debug", "RediSearch base address: %p", &info.dli_fbase);
+  DO_LOG("debug", "RediSearch base address: %p", info.dli_fbase);
 #endif
   RS_Initialized = 1;
 
