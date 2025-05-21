@@ -25,7 +25,7 @@ static redisearch_thpool_t *gcThreadpool_g = NULL;
 
 #ifdef SAN
 // Track number of GCs. Synchronize with the GIL
-static size_t numGCs_g = 0;
+size_t numGCs_g = 0;
 #endif
 
 typedef struct GCDebugTask {

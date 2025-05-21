@@ -57,7 +57,7 @@ void GC_ThreadPoolStart();
 void GC_ThreadPoolDestroy();
 
 #ifdef SAN
-extern static size_t numGCs_g;
+extern size_t numGCs_g;
 #endif
 
 #ifdef __cplusplus
