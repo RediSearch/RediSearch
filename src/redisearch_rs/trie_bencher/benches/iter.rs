@@ -64,6 +64,13 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
         },
     );
 
+    // It's a prefix of many titles, we will therefore be able to skip
+    // the check for all children of the prefix node.
+    bencher.contains_group(c, "An");
+
+    // Rarely a prefix, we have to scan ~all nodes.
+    bencher.contains_group(c, "of");
+
     bencher.into_values_group(c, "IntoValues iterator");
 }
 

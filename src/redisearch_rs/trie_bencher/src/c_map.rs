@@ -72,6 +72,15 @@ impl CTrieMap {
         }
     }
 
+    pub fn contains_iter(&self, target: TrieTermView) -> ContainsCIter {
+        let iter = unsafe { crate::ffi::TrieMap_Iterate(self.0, target.ptr(), target.len()) };
+        (unsafe { *iter }).mode = crate::ffi::tm_iter_mode_TM_CONTAINS_MODE;
+        ContainsCIter {
+            iterator: iter,
+            finished: false,
+        }
+    }
+
     pub fn range_iter(
         &self,
         min: Option<TrieTermView>,
@@ -161,6 +170,46 @@ impl LendingIterator for WildcardCIter {
 }
 
 impl Drop for WildcardCIter {
+    fn drop(&mut self) {
+        unsafe { crate::ffi::TrieMapIterator_Free(self.iterator) };
+    }
+}
+
+pub struct ContainsCIter {
+    iterator: *mut crate::ffi::TrieMapIterator,
+    finished: bool,
+}
+
+#[gat]
+// The 'tm lifetime parameter is not actually needless.
+#[allow(clippy::needless_lifetimes)]
+impl LendingIterator for ContainsCIter {
+    type Item<'next>
+    where
+        Self: 'next,
+    = (&'next [u8], *mut c_void);
+
+    fn next(&mut self) -> Option<Self::Item<'_>> {
+        if self.finished {
+            return None;
+        }
+
+        let mut ptr: *mut c_char = std::ptr::null_mut();
+        let mut len = 0;
+        let mut value: *mut c_void = std::ptr::null_mut();
+        let should_continue = unsafe {
+            crate::ffi::TrieMapIterator_NextContains(self.iterator, &mut ptr, &mut len, &mut value)
+        };
+
+        if should_continue != 1 {
+            self.finished = false;
+        }
+        let key: &[u8] = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+        Some((key, value))
+    }
+}
+
+impl Drop for ContainsCIter {
     fn drop(&mut self) {
         unsafe { crate::ffi::TrieMapIterator_Free(self.iterator) };
     }
