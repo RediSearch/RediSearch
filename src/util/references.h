@@ -21,6 +21,7 @@ extern "C" {
 typedef void(*RefManager_Free)(void *obj);
 typedef struct RefManager RefManager;
 
+
 #define INVALID_STRONG_REF ((StrongRef){0})
 
 // For LLAPI and wrappers only. DO NOT USE directly.
@@ -90,6 +91,15 @@ StrongRef StrongRef_New(void *obj, RefManager_Free freeCB);
 static inline int StrongRef_Equals(StrongRef s_ref, StrongRef other) {
   return s_ref.rm == other.rm;
 }
+
+#ifdef SAN
+typedef struct RefStats {
+  size_t strong;
+  size_t weak;
+} RefStats;
+
+RefStats WeakRef_GetStats(WeakRef w_ref);
+#endif
 
 #ifdef __cplusplus
 }

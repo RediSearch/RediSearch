@@ -57,6 +57,9 @@ IndexesScanner *global_spec_scanner = NULL;
 size_t pending_global_indexing_ops = 0;
 dict *legacySpecDict;
 dict *legacySpecRules;
+#ifdef SAN
+arrayof(WeakRef) specTrack_g = NULL; // Track all specs (even deleted ones) to verify all are released
+#endif
 
 // Pending or in-progress index drops
 uint16_t pendingIndexDropCount_g = 0;
@@ -1421,6 +1424,10 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     SchemaRule_FilterFields(spec);
   }
 
+#ifdef SAN
+  WeakRef tracker_ref = StrongRef_Demote(spec_ref);
+  array_ensure_append_1(specTrack_g, tracker_ref);
+#endif
   return spec_ref;
 
 failure:  // on failure free the spec fields array and return an error
@@ -2809,6 +2816,10 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     StrongRef_Release(spec_ref);
   } else {
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
+#ifdef SAN
+    WeakRef tracker_ref = StrongRef_Demote(spec_ref);
+    array_ensure_append_1(specTrack_g, tracker_ref);
+#endif
 
     for (int i = 0; i < sp->numFields; i++) {
       FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
@@ -2932,6 +2943,10 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   // Subscribe to keyspace notifications
   Initialize_KeyspaceNotifications();
 
+#ifdef SAN
+  WeakRef tracker_ref = StrongRef_Demote(spec_ref);
+  array_ensure_append_1(specTrack_g, tracker_ref);
+#endif
   return spec_ref.rm;
 }
 

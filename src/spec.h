@@ -124,6 +124,10 @@ struct IndexesScanner;
 extern dict *specDict_g;
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 
+#ifdef SAN
+extern arrayof(WeakRef) specTrack_g;
+#endif
+
 typedef enum {
     DEBUG_INDEX_SCANNER_CODE_NEW,
     DEBUG_INDEX_SCANNER_CODE_RUNNING,

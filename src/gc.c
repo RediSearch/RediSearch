@@ -23,6 +23,11 @@
 
 static redisearch_thpool_t *gcThreadpool_g = NULL;
 
+#ifdef SAN
+// Track number of GCs. Synchronize with the GIL
+static size_t numGCs_g = 0;
+#endif
+
 typedef struct GCDebugTask {
   GCContext* gc;
   RedisModuleBlockedClient* bClient;
@@ -42,6 +47,9 @@ GCContext* GCContext_CreateGC(StrongRef spec_ref, uint32_t gcPolicy) {
       ret->gcCtx = FGC_New(spec_ref, &ret->callbacks);
       break;
   }
+#ifdef SAN
+  numGCs_g++; // Increase the number of GCs (this is done from the main thread, so the GIL is held)
+#endif
   return ret;
 }
 
@@ -82,8 +90,16 @@ static void taskCallback(void* data) {
   } else {
     // The index was freed. There is no need to reschedule the task.
     // We need to free the task and the GC.
+    #ifdef SAN
+    // On sanitizer, synchronize the number of GCs using redis GIL
+    RedisModule_ThreadSafeContextLock(RSDummyContext);
+    #endif
     RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_VERBOSE, "GC %p: Self-Terminating. Index was freed.", gc);
     gc->callbacks.onTerm(gc->gcCtx);
+    #ifdef SAN
+    numGCs_g--;
+    RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    #endif
     rm_free(gc);
   }
 }

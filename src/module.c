@@ -1450,6 +1450,30 @@ void RediSearch_CleanupModule(void) {
   ReindexPool_ThreadPoolDestroy();
   ConcurrentSearch_ThreadPoolDestroy();
 
+  // free Cursor lists
+  CursorList_Destroy(&g_CursorsList);
+  CursorList_Destroy(&g_CursorsListCoord);
+
+  // We finished with all the indexes and thread pools, lets validate we are not leaking
+  // any reference to the index spec.
+#ifdef SAN
+  size_t strong_leaks = 0;
+  size_t weak_leaks = 0;
+  for (int i = 0; i < array_len(specTrack_g); i++) {
+    RefStats stats = WeakRef_GetStats(specTrack_g[i]);
+    strong_leaks += stats.strong;
+    weak_leaks += stats.weak;
+  }
+  // Don't count the references in `specTrack_g` itself (which are all weak)
+  weak_leaks -= array_len(specTrack_g);
+  // Any still alive GC has a weak reference to its spec
+  weak_leaks -= numGCs_g;
+  // Anything else is a leak
+  RS_LOG_ASSERT_FMT(strong_leaks == 0 && weak_leaks == 0,
+                    "Leaked %zu strong and %zu weak references to index spec",
+                    strong_leaks, weak_leaks);
+#endif
+
   // free global structures
   Extensions_Free();
   StopWordList_FreeGlobals();

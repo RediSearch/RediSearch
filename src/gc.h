@@ -56,6 +56,10 @@ void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc);
 void GC_ThreadPoolStart();
 void GC_ThreadPoolDestroy();
 
+#ifdef SAN
+extern size_t numGCs_g;
+#endif
+
 #ifdef __cplusplus
 }
 #endif
