@@ -1,12 +1,19 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::thread::sleep;
 use std::time::Duration;
 
+use clap::Parser;
+
+mod args;
+
 fn main() -> std::io::Result<()> {
-    let base_client = RedisClient::new(6379)?;
-    let changeset_client = RedisClient::new(6380)?;
+    let options = args::Options::parse();
+
+    let base_client = RedisClient::new(6379, &options.rltest_command, options.baseline_so)?;
+    let changeset_client = RedisClient::new(6380, &options.rltest_command, options.changeset_so)?;
 
     let mut test_runner = TestRunner::new(base_client, changeset_client);
     test_runner.add_command("PING");
@@ -66,15 +73,12 @@ struct RedisClient {
 }
 
 impl RedisClient {
-    fn new(port: u16) -> std::io::Result<Self> {
+    fn new(port: u16, rltest_command: &str, so_path: PathBuf) -> std::io::Result<Self> {
         // Start a RLTest server in the background
-        let mut server_process = Command::new("../../tests/pytests/runtests.sh")
+        let mut server_process = Command::new(rltest_command)
             .env("ENV_ONLY", "1")
             .env("REJSON", "0")
-            .env(
-                "MODULE",
-                "../../bin/linux-x64-release/search-community/redisearch.so",
-            )
+            .env("MODULE", so_path)
             .env("REDIS_PORT", port.to_string())
             .spawn()?;
 
