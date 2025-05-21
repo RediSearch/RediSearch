@@ -52,6 +52,10 @@ static inline void rs_timersub(struct timespec *a, struct timespec *b, struct ti
   }
 }
 
+static inline double rs_timer_ms(struct timespec *a){
+  return a->tv_sec * 1000 + (double)a->tv_nsec / 1000000.0;
+}
+
 #define NOT_TIMED_OUT 0
 #define TIMED_OUT 1
 

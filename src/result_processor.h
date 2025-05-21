@@ -81,6 +81,9 @@ typedef struct {
   // Contains our spec
   RedisSearchCtx *sctx;
 
+  struct timespec initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
+  struct timespec GILTime;  //milliseconds
+
   // the minimal score applicable for a result. It can be used to optimize the scorers
   double minScore;
 
@@ -98,6 +101,7 @@ typedef struct {
   // Object which contains the error
   QueryError *err;
 
+  bool isProfile;
   RSTimeoutPolicy timeoutPolicy;
 } QueryIterator, QueryProcessingCtx;
 
@@ -167,6 +171,7 @@ typedef struct ResultProcessor {
   // Type of result processor
   ResultProcessorType type;
 
+  struct timespec GILTime;
   /**
    * Populates the result pointed to by `res`. The existing data of `res` is
    * not read, so it is the responsibility of the caller to ensure that there
