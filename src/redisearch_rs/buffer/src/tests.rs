@@ -56,7 +56,11 @@ fn buffer_as_mut_slice() {
         let mut buffer_ptr = create_test_buffer(capacity);
         let buffer = buffer_ptr.as_mut();
 
-        // Fill buffer with initial data
+        // Initialize memory before setting length
+        for i in 0..5 {
+            *buffer.data.as_ptr().add(i) = 0; // Zero-initialize
+        }
+        // Now it's safe to set the length
         buffer.len = 5;
 
         // Modify via mut slice
@@ -81,10 +85,18 @@ fn buffer_advance() {
 
         assert_eq!(buffer.len(), 0);
 
+        // Initialize first 10 bytes before advancing
+        for i in 0..10 {
+            *buffer.data.as_ptr().add(i) = i as u8;
+        }
         buffer.advance(10);
         assert_eq!(buffer.len(), 10);
         assert_eq!(buffer.remaining_capacity(), 90);
 
+        // Initialize next 20 bytes before advancing
+        for i in 0..20 {
+            *buffer.data.as_ptr().add(10 + i) = i as u8;
+        }
         buffer.advance(20);
         assert_eq!(buffer.len(), 30);
         assert_eq!(buffer.remaining_capacity(), 70);
@@ -135,9 +147,9 @@ fn buffer_reader() {
         assert_eq!(dest, b", world!"[..]);
         assert_eq!(reader.pos, 13);
 
-        // Try to read more than available (should fail)
+        // Try to read more than available (should just give us 0)
         let mut dest = [0u8; 1];
-        assert!(reader.read(&mut dest).is_err());
+        assert_eq!(reader.read(&mut dest).unwrap(), 0);
 
         free_test_buffer(buffer_ptr);
     }
@@ -203,6 +215,14 @@ fn buffer_writer_grow() {
         let expected = b"HelloWorldMoreData";
         assert_eq!(&buffer.as_slice()[..18], expected);
 
+        // Verify that the cursor has been updated to point within the new allocation and is
+        // positioned at the end of the written data.
+        let cursor_ptr = writer.cursor.as_ptr();
+        assert_eq!(cursor_ptr as usize - buffer.data.as_ptr() as usize, 18);
+        // Make sure cursor is pointing to a location within the new allocation.
+        assert!(cursor_ptr >= buffer.data.as_ptr());
+        assert!(cursor_ptr <= buffer.data.as_ptr().add(buffer.capacity));
+
         free_test_buffer(buffer_ptr);
     }
 }
@@ -253,6 +273,17 @@ fn buffer_grow_edge_cases() {
         for i in 0..100 {
             assert_eq!(buffer.as_slice()[initial_capacity + 1 + i], b'x');
         }
+
+        // Verify that the cursor has been updated to point within the new allocation and is
+        // positioned at the end of the written data.
+        let cursor_ptr = writer.cursor.as_ptr();
+        assert_eq!(
+            cursor_ptr as usize - buffer.data.as_ptr() as usize,
+            initial_capacity + 1 + 100
+        );
+        // Make sure cursor is pointing to a location within the new allocation.
+        assert!(cursor_ptr >= buffer.data.as_ptr());
+        assert!(cursor_ptr <= buffer.data.as_ptr().add(buffer.capacity));
 
         free_test_buffer(buffer_ptr);
     }
