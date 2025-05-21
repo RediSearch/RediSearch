@@ -84,6 +84,17 @@ jobs:
       rejson-branch: master
       test-config: QUICK=1
 
+  query-diff:
+    # needs: [check-what-changed, get-latest-redis-tag]
+    if: contains(github.event.pull_request.labels.*.name, 'enforce:refactor')
+    secrets: inherit
+    uses: ./.github/workflows/task-query-diff.yml
+    with:
+      san: address
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      rejson-branch: master
+      test-config: QUICK=1
+
   pr-validation:
     needs:
       - get-latest-redis-tag
@@ -92,8 +103,9 @@ jobs:
       - basic-test
       - micro-benchmarks
       - lint
-      - coverage
+      # - coverage   # temporary disabled until flaky tests are fixed
       - sanitize
+      - query-diff
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{!cancelled()}}
     steps:

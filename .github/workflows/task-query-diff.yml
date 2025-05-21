@@ -1,0 +1,71 @@
+name: Query Diff
+
+# Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
+
+on:
+  workflow_call:
+
+jobs:
+  query-diff_task:
+    name: Query Diff
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup
+        working-directory: .install
+        run: ./install_script.sh sudo
+      - name: Install aws cli
+        working-directory: .install
+        run: ./install_aws.sh ${{ steps.mode.outputs.mode }}
+      - name: Setup tests dependencies
+        run: |
+          .install/test_deps/common_installations.sh
+      # TODO we might want to configure AWS credentials & use signed requests to do things the "proper" way
+      # - name: Configure AWS Credentials Using Role (node20)
+      #   if: vars.USE_AWS_ROLE == 'true'
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     role-to-assume: ${{ vars.ARTIFACT_UPLOAD_AWS_ROLE_TO_ASSUME }}
+      #     aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+      # - name: Configure AWS Credentials Using Keys (node20)
+      #   if: vars.USE_AWS_ROLE == 'false'
+      #   uses: aws-actions/configure-aws-credentials@v4
+      #   with:
+      #     aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
+      #     aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
+      #     aws-region: ${{ vars.ARTIFACT_UPLOAD_AWS_REGION }}
+      - name: Get Redis (node20)
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: ${{ inputs.get-redis }}
+          path: redis
+      - name: Build Redis
+        working-directory: redis
+        run: ${{ steps.mode.outputs.mode }} make install
+          BUILD_TLS=yes
+      - name: Download Baseline RediSearch
+        run: |
+          aws s3 cp s3://redismodules/redisearch-oss/snapshots/${{ env.file }} bin/query_diff/${{ env.file }} --no-sign-request
+          unzip -d bin/query_diff bin/query_diff/${{ env.file }}
+          ls bin/query_diff
+        env:
+          file: redisearch-oss.Linux-ubuntu24.04-x86_64.master.zip
+      - name: Build Changeset RediSearch
+        run: ./build.sh
+      - name: Run Query Diff Tests
+        run: |
+          ls ${{ env.baseline_so }}
+          ls ${{ env.changeset_so }}
+          cargo run --manifest-path src/redisearch_rs/Cargo.toml \
+            -p shadow_tester -- \
+            --baseline-so ${{ env.baseline_so }} \
+            --changeset-so ${{ env.changeset_so }} \
+            --rltest-path tests/pytests/runtests.sh
+        env:
+          baseline_so: bin/query_diff/redisearch.so
+          changeset_so: bin/linux-x64-release/search-community/redisearch.so
