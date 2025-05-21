@@ -86,6 +86,7 @@ configPair_t __configPairs[] = {
   {"ENABLE_UNSTABLE_FEATURES",        "search-enable-unstable-features"},
   {"BM25STD_TANH_FACTOR",             "search-bm25std-tanh-factor"},
   {"_BG_INDEX_OOM_PAUSE_TIME",         "search-_bg-index-oom-pause-time"},
+  {"INDEXER_YIELD_EVERY_OPS",         "search-indexer-yield-every-ops"},
 };
 
 static const char* FTConfigNameToConfigName(const char *name) {
@@ -956,6 +957,19 @@ CONFIG_GETTER(getIndexCursorLimit) {
 CONFIG_BOOLEAN_SETTER(set_EnableUnstableFeatures, enableUnstableFeatures)
 CONFIG_BOOLEAN_GETTER(get_EnableUnstableFeatures, enableUnstableFeatures, 0)
 
+// INDEXER_YIELD_EVERY_OPS
+CONFIG_SETTER(setIndexerYieldEveryOps) {
+  unsigned int yieldEveryOps;
+  int acrc = AC_GetUnsigned(ac, &yieldEveryOps, AC_F_GE1);
+  config->indexerYieldEveryOpsWhileLoading = yieldEveryOps;
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getIndexerYieldEveryOps) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->indexerYieldEveryOpsWhileLoading);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -1280,6 +1294,10 @@ RSConfigOptions RSGlobalConfigOptions = {
                         "The default value is 5 seconds in Redis Enterprise, 0 in Redis OS.",
             .setValue = setBgOOMpauseTimeForRetry,
             .getValue = getBgOOMpauseTimeForRetry},
+        {.name = "INDEXER_YIELD_EVERY_OPS",
+         .helpText = "The number of operations to perform before yielding to Redis during indexing while loading",
+         .setValue = setIndexerYieldEveryOps,
+         .getValue = getIndexerYieldEveryOps},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {
@@ -1763,6 +1781,15 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
     )
   )
 
+  RM_TRY(
+    RedisModule_RegisterNumericConfig(
+      ctx, "search-indexer-yield-every-ops", DEFAULT_INDEXER_YIELD_EVERY_OPS,
+      REDISMODULE_CONFIG_UNPREFIXED, 1,
+      UINT32_MAX, get_uint_numeric_config, set_uint_numeric_config, NULL,
+      (void *)&(RSGlobalConfig.indexerYieldEveryOpsWhileLoading)
+    )
+  )
+  
   // String parameters
   RM_TRY(
     RedisModule_RegisterStringConfig(
