@@ -236,7 +236,6 @@ def testBM25STDNORMScorerExplanation(env):
     conn = getConnectionByEnv(env)
     env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
     waitForIndex(env, 'idx')
-    enable_unstable_features(env)
     conn.execute_command('HSET', 'doc1{hash_tag}', 'title', 'hello world', 'body', 'lorem ist ipsum')
     conn.execute_command('HSET', 'doc2{hash_tag}', 'title', 'hello space world', 'body', 'lorem ist ipsum lorem lorem')
     conn.execute_command('HSET', 'doc3{hash_tag}', 'title', 'hello more space world', 'body', 'lorem ist ipsum lorem lorem')
@@ -503,7 +502,7 @@ class TestBM25NormMax:
         conn.execute_command('HSET', f'doc:1{tag}', 'title', 'hello')
 
     def setUp(self):
-        self.env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
+        self.env = Env(moduleArgs='DEFAULT_DIALECT 2')
         self.create_and_fill_index(use_key_tags=self.env.isCluster())
 
     def tearDown(self): # cleanup after each test
@@ -625,11 +624,6 @@ class TestBM25NormMax:
                 self.env.assertAlmostEqual(scores_norm[result[key_index]], float(result[score_index]), 0.00001)
             res, cursor = self.env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
 
-
-def test_error_unstable_feature_disabled(env):
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
-    env.expect('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM').error().contains("Scorer BM25STD.NORM not available when `ENABLE_UNSTABLE_FEATURES` is off")
 
 def testNormalizedBM25ScorerExplanation():
     """

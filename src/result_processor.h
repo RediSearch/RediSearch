@@ -309,7 +309,7 @@ void PipelineAddCrash(struct AREQ *r);
   * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
   * First accumulates all results from the upstream, then normalizes and yields them.
   *******************************************************************************************************************/
- ResultProcessor *RPNormalizer_New(const RLookupKey *rlk);
+ ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
 
 #ifdef __cplusplus
 }

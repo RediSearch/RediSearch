@@ -470,7 +470,7 @@ def testCursorDepletionBM25NORMNonStrictTimeoutPolicy():
     # no shard has more results left. Once all shards reach timeout_res_count,
     # the cursor is fully depleted.
 
-    env = Env(enableDebugCommand=True, protocol=3, moduleArgs='ON_TIMEOUT RETURN ENABLE_UNSTABLE_FEATURES true')
+    env = Env(enableDebugCommand=True, protocol=3, moduleArgs='ON_TIMEOUT RETURN')
     conn = getConnectionByEnv(env)
 
     #FT.CREATE idx SCHEMA text1 TEXT

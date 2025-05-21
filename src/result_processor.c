@@ -64,7 +64,7 @@ void SearchResult_Destroy(SearchResult *r) {
   RLookupRow_Cleanup(&r->rowdata);
 }
 
-// Replaces the contents of 'dst' with those from 'src'.
+// Overwrites the contents of 'dst' with those from 'src'.
 // Ensures proper cleanup of any existing data in 'dst'.
 static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
   if (!src) return;
@@ -1344,18 +1344,18 @@ void PipelineAddCrash(struct AREQ *r) {
    SearchResult *pooledResult;
    arrayof(SearchResult *) pool;
    bool timedOut;
- } RPNormalizer;
+ } RPMaxScoreNormalizer;
 
 
- static void rpNormalizer_Free(ResultProcessor *base) {
-   RPNormalizer *self = (RPNormalizer *)base;
+ static void RPMaxScoreNormalizer_Free(ResultProcessor *base) {
+   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)base;
    array_free_ex(self->pool, srDtor(*(char **)ptr));
    srDtor(self->pooledResult);
    rm_free(self);
  }
 
- static int rpNormalizer_Yield(ResultProcessor *rp, SearchResult *r){
-   RPNormalizer* self = (RPNormalizer*)rp;
+ static int RPMaxScoreNormalizer_Yield(ResultProcessor *rp, SearchResult *r){
+   RPMaxScoreNormalizer* self = (RPMaxScoreNormalizer*)rp;
    size_t length = array_len(self->pool);
    if (length == 0) {
     // We've already yielded all results, return EOF
@@ -1367,7 +1367,7 @@ void PipelineAddCrash(struct AREQ *r) {
   SearchResult_Override(r, poppedResult);
   rm_free(poppedResult);
   double oldScore = r->score;
-  if (r->score != 0) {
+  if (self->maxValue != 0) {
     r->score /= self->maxValue;
   }
   if (self->scoreKey) {
@@ -1379,17 +1379,17 @@ void PipelineAddCrash(struct AREQ *r) {
   return RS_RESULT_OK;
  }
 
-static int rpNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
-  RPNormalizer *self = (RPNormalizer *)rp;
+static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
+  RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
   // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
   int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
   // if our upstream has finished - just change the state to not accumulating, and yield
   if (rc == RS_RESULT_EOF) {
-    rp->Next = rpNormalizer_Yield;
+    rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);
   } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
     self->timedOut = true;
-    rp->Next = rpNormalizer_Yield;
+    rp->Next = RPMaxScoreNormalizer_Yield;
     return rp->Next(rp, r);
   } else if (rc != RS_RESULT_OK) {
     return rc;
@@ -1405,25 +1405,24 @@ static int rpNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
   return RESULT_QUEUED;
 }
 
-static int rpNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
-  RPNormalizer *self = (RPNormalizer *)rp;
+static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
+  RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
   uint32_t chunkLimit = rp->parent->resultLimit;
   rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
   int rc;
-  while ((rc = rpNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED);
+  while ((rc = RPMaxScoreNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED) {};
   rp->parent->resultLimit = chunkLimit; // restore the limit
   return rc;
 }
 
  /* Create a new Max Collector processor */
- ResultProcessor *RPNormalizer_New(const RLookupKey *rlk) {
-  RPNormalizer *ret = rm_calloc(1, sizeof(*ret));
+ ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk) {
+  RPMaxScoreNormalizer *ret = rm_calloc(1, sizeof(*ret));
   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
   ret->pool = array_new(SearchResult*, 0);
-  ret->base.Next = rpNormalizer_Accum;
-  ret->base.Free = rpNormalizer_Free;
+  ret->base.Next = RPMaxScoreNormalizer_Accum;
+  ret->base.Free = RPMaxScoreNormalizer_Free;
   ret->base.type = RP_MAX_SCORE_NORMALIZER;
   ret->scoreKey = rlk;
-  ret->maxValue = 0;
   return &ret->base;
 }
