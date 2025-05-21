@@ -5,6 +5,7 @@ members = [
     "redis_mock",
     "redisearch_rs",
     "tools/license_header_linter",
+    "tools/shadow_tester",
     "trie_bencher",
     "trie_rs",
     "wildcard",
