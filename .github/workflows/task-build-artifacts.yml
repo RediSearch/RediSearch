@@ -146,6 +146,10 @@ jobs:
         run: ${{ steps.mode.outputs.mode }} make install
 
       # Build & Pack
+      - name: Build and Pack RediSearch OSS
+        env:
+            COORD: oss
+        run: ${{ env.BUILD_CMD }} && make pack
       - name: Build and Pack RediSearch Enterprise
         env:
           COORD: rlec
