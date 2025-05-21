@@ -67,9 +67,19 @@ impl Drop for RedisClient {
 }
 
 /// Kill the `runtests.sh` process correctly.
-/// Technically this has an issue since the `runtests.sh` process does not correctly stop the
-/// RLTest process it spawns when it is killed. To kill the RLTest process, one has to manually
-/// send a ``SIGINT` signal to the `redis-server` it spawned.
+///
+/// Technically `child` here has 3 processes:
+/// - `runtests.sh` which will spawn
+/// - `python3 -m RLTest` which will spawn
+/// - `redis-server`
+///
+/// Now, the kill in this function will only kill the `runtests.sh` process. This means users
+/// will have to manually kill the `python3 -m RLTest` process and the `redis-server` process
+/// using a`SIGINT` signal.
+///
+/// However, there is a short cut here. Killing (`SIGINT`) the `redis-server` process will
+/// automatically cause its `python3 -m RLTest` parent process to die as well. This just makes
+/// cleaning up easier when you are iterating a lot.
 fn kill_process(child: &mut Child) -> std::io::Result<()> {
     child.kill()?;
     child.wait()?;
