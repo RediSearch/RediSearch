@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+mod contains;
 mod filter;
 mod prefixed;
 mod prefixes;
