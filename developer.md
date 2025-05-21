@@ -85,6 +85,12 @@ To run Redis with RediSearch, you need to load the module. You can do this by ru
 make run
 ```
 
+If you have built RediSearch in debug mode (`./build.sh DEBUG`) you can run Redis with gdb by running the following command:
+
+```bash
+make run GDB=1
+```
+
 ## Testing
 
 ### Running the tests
