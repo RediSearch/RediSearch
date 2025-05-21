@@ -27,6 +27,8 @@ impl RedisClient {
             match TcpStream::connect(&address) {
                 Ok(stream) => {
                     println!("Redis server connnection ready at {address}");
+                    stream.set_read_timeout(Some(Duration::from_millis(350)))?;
+
                     return Ok(Self {
                         stream,
                         server_process,
@@ -51,10 +53,24 @@ impl RedisClient {
         self.stream.write_all(command.as_bytes())?;
         self.stream.write_all(b"\r\n")?;
 
-        let mut buffer = [0; 1024];
-        let n = self.stream.read(&mut buffer)?;
+        // Read all available data
+        let mut buffer = Vec::new();
+        loop {
+            let mut chunk = [0; 1024];
+            match self.stream.read(&mut chunk) {
+                Ok(0) => break, // Connection closed (shouldn't happen with Redis)
+                Ok(n) => buffer.extend_from_slice(&chunk[0..n]),
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::TimedOut =>
+                {
+                    break;
+                } // No more data available
+                Err(e) => return Err(e), // Actual error
+            }
+        }
 
-        Ok(String::from_utf8_lossy(&buffer[..n]).to_string())
+        Ok(String::from_utf8_lossy(&buffer).to_string())
     }
 }
 
