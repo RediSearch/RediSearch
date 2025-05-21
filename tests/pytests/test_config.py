@@ -93,6 +93,7 @@ def testGetConfigOptions(env):
     check_config('_BG_INDEX_MEM_PCT_THR')
     check_config('BM25STD_TANH_FACTOR')
     check_config('_BG_INDEX_OOM_PAUSE_TIME')
+    check_config('INDEXER_YIELD_EVERY_OPS')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
@@ -122,6 +123,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
 
+    env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', 1).equal('OK')
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
@@ -138,7 +140,9 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 10001).contains('BM25STD_TANH_FACTOR must be between 1 and 10000')
     env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', -1).contains('Value is outside acceptable bounds')
-    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')    
+    env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', -1).contains('Value is outside acceptable bounds')
+
 @skip(cluster=True)
 def testAllConfig(env):
     ## on existing env the pre tests might change the config
@@ -187,6 +191,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
     env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
 
+    env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -493,6 +498,7 @@ numericConfigs = [
     ('search-_bg-index-mem-pct-thr', '_BG_INDEX_MEM_PCT_THR', 100, 0, 100, False, False),
     ('search-bm25std-tanh-factor', 'BM25STD_TANH_FACTOR', 4, 1, 10000, False, False),
     ('search-_bg-index-oom-pause-time','_BG_INDEX_OOM_PAUSE_TIME', 0, 0, UINT32_MAX, False, False),
+    ('search-indexer-yield-every-ops', 'INDEXER_YIELD_EVERY_OPS', 1000, 1, UINT32_MAX, False, False),
     # Cluster parameters
     ('search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True, True),
     ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False, True),

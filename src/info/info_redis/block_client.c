@@ -47,7 +47,7 @@ RedisModuleBlockedClient *BlockQueryClient(RedisModuleCtx *ctx, StrongRef spec_r
 RedisModuleBlockedClient *BlockCursorClient(RedisModuleCtx *ctx, Cursor *cursor, size_t count, int timeoutMS) {
   BlockedQueries *blockedQueries = MainThread_GetBlockedQueries();
   RS_LOG_ASSERT(blockedQueries, "MainThread_InitBlockedQueries was not called, or function not called from main thread");
-  BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref, cursor->id, count);
+  BlockedCursorNode *node = BlockedQueries_AddCursor(blockedQueries, cursor->spec_ref, cursor->id, &cursor->execState->ast, count);
   // Prepare context for the worker thread
   // Since we are still in the main thread, and we already validated the
   // spec's existence, it is safe to directly get the strong reference from the spec

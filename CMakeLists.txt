@@ -235,6 +235,7 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
+add_subdirectory(src/wildcard)
 add_subdirectory(src/util/arr)
 add_subdirectory(src/util/hash)
 add_subdirectory(src/coord)
@@ -272,6 +273,7 @@ add_library(rscore OBJECT ${SOURCES})
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:trie>
     $<TARGET_OBJECTS:arr>
+    $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
     $<TARGET_OBJECTS:friso>
@@ -301,6 +303,7 @@ target_link_libraries(redisearch
         VectorSimilarity
         redisearch-coord
         arr
+        wildcard
         trie
         uv_a
         ${BINDIR}/redisearch_rs/libredisearch_rs.a

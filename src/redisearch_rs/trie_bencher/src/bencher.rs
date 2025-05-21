@@ -15,12 +15,15 @@ use criterion::{
     BatchSize, BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
+use lending_iterator::LendingIterator;
 use std::{
     ffi::{CString, c_void},
     hint::black_box,
     ptr::NonNull,
     time::Duration,
 };
+use trie_rs::iter::LendingIter;
+use wildcard::WildcardPattern;
 
 /// A helper struct for benchmarking operations on different trie map implementations.
 pub struct OperationBencher {
@@ -173,6 +176,17 @@ impl OperationBencher {
         group.finish();
     }
 
+    /// Benchmark the wildcard iterator.
+    ///
+    /// The benchmark group will be marked with the given label.
+    pub fn wildcard_group(&self, c: &mut Criterion, target: &str) {
+        let label = format!("Wildcard [{target}]");
+        let mut group = self.benchmark_group_immutable(c, &label);
+        wildcard_rust_benchmark(&mut group, &self.rust_map, target);
+        wildcard_c_benchmark(&mut group, &self.keys, target);
+        group.finish();
+    }
+
     /// Benchmark the `IntoValues` iterator.
     ///
     /// The benchmark group will be marked with the given label.
@@ -194,6 +208,41 @@ fn into_values_benchmark<M: Measurement>(c: &mut BenchmarkGroup<'_, M>, map: &Ru
             },
             BatchSize::LargeInput,
         )
+    });
+}
+
+fn wildcard_rust_benchmark<M: Measurement>(
+    c: &mut BenchmarkGroup<'_, M>,
+    map: &RustTrieMap,
+    pattern: &str,
+) {
+    c.bench_function("Rust", |b| {
+        b.iter(|| {
+            let filter = WildcardPattern::parse(black_box(pattern.as_bytes()));
+            let mut iter: LendingIter<'_, _, _> = map.wildcard_iter(filter).into();
+            while let Some(entry) = LendingIterator::next(&mut iter) {
+                black_box(entry);
+            }
+        })
+    });
+}
+
+fn wildcard_c_benchmark<M: Measurement>(
+    c: &mut BenchmarkGroup<'_, M>,
+    terms: &[String],
+    pattern: &str,
+) {
+    let fixed_length = pattern.chars().all(|c| c != '*');
+    let pattern = pattern.into_cstring();
+    let view = pattern.as_view();
+    let map = c_load_from_terms(terms);
+    c.bench_function("C", |b| {
+        b.iter(|| {
+            let mut iter = map.wildcard_iter(view, fixed_length);
+            while let Some(entry) = LendingIterator::next(&mut iter) {
+                black_box(entry);
+            }
+        })
     });
 }
 
