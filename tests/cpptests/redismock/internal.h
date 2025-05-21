@@ -34,10 +34,6 @@ struct RedisModuleString : public std::string {
 
   size_t refcount = 1;
 
-  size_t getRefCount() const {
-    return refcount;
-  }
-  
   void decref() {
     if (!--refcount) {
       delete this;

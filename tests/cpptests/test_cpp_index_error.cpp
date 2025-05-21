@@ -102,6 +102,5 @@ TEST_F(IndexErrorTest, testAEmptyAddErrorAfterDestroy) {
   
 }
 
-
 #endif
 

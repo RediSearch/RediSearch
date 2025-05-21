@@ -45,6 +45,9 @@ IndexError IndexError_Init() {
 
 static inline void IndexError_ClearLastError(IndexError *error) {
     RS_ASSERT(error->last_error_without_user_data != DEADBEEF && error->last_error_with_user_data != DEADBEEF && error->key != DEADBEEF);
+    if (!error->key){
+        return;
+    }
     if (error->last_error_without_user_data && error->last_error_without_user_data != NA) {
         rm_free(error->last_error_without_user_data);
     }
@@ -77,7 +80,6 @@ void IndexError_RaiseBackgroundIndexFailureFlag(IndexError *error) {
     error->background_indexing_OOM_failure = true;
 }
 
-// Destroy the index error, the error object cannot be used after this function is called.
 void IndexError_Destroy(IndexError* error) {
     RS_ASSERT(error->last_error_without_user_data != DEADBEEF && error->last_error_with_user_data != DEADBEEF && error->key != DEADBEEF);
     // If the key is NULL, it means that the error was not set
