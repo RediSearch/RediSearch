@@ -2535,6 +2535,7 @@ int CompareVestions(Version v1, Version v2) {
   return 0;
 }
 
+
 static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
   if (subevent == REDISMODULE_SUBEVENT_LOADING_RDB_START ||
@@ -2547,6 +2548,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
+    g_isLoading = true;
   } else if (subevent == REDISMODULE_SUBEVENT_LOADING_ENDED) {
     int hasLegacyIndexes = dictSize(legacySpecDict);
     Indexes_UpgradeLegacyIndexes();
@@ -2563,6 +2565,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       RedisModule_Log(ctx, "notice",
                       "Skip background reindex scan, redis version contains loaded event.");
     }
+    g_isLoading = false;
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
   }
 }
