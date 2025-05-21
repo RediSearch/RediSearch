@@ -1,9 +1,12 @@
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::process::{Child, Command};
+use std::thread::sleep;
+use std::time::Duration;
 
 fn main() -> std::io::Result<()> {
-    let base_client = RedisClient::new("127.0.0.1:6379")?;
-    let changeset_client = RedisClient::new("127.0.0.1:6380")?;
+    let base_client = RedisClient::new(6379)?;
+    let changeset_client = RedisClient::new(6380)?;
 
     let mut test_runner = TestRunner::new(base_client, changeset_client);
     test_runner.add_command("PING");
@@ -59,12 +62,47 @@ impl TestRunner {
 
 struct RedisClient {
     stream: TcpStream,
+    server_process: Child,
 }
 
 impl RedisClient {
-    fn new(address: &str) -> std::io::Result<Self> {
-        let stream = TcpStream::connect(address)?;
-        Ok(RedisClient { stream })
+    fn new(port: u16) -> std::io::Result<Self> {
+        // Start a RLTest server in the background
+        let mut server_process = Command::new("../../tests/pytests/runtests.sh")
+            .env("ENV_ONLY", "1")
+            .env("REJSON", "0")
+            .env(
+                "MODULE",
+                "../../bin/linux-x64-release/search-community/redisearch.so",
+            )
+            .env("REDIS_PORT", port.to_string())
+            .spawn()?;
+
+        // Wait a few seconds for the connection to be ready
+        for _ in 0..5 {
+            let address = format!("127.0.0.1:{port}");
+
+            match TcpStream::connect(&address) {
+                Ok(stream) => {
+                    println!("Redis server connnection ready at {address}");
+                    return Ok(Self {
+                        stream,
+                        server_process,
+                    });
+                }
+                Err(_) => {
+                    println!("Server not ready yet at {address}, retrying...");
+                    sleep(Duration::from_secs(1));
+                }
+            }
+        }
+
+        kill_process(&mut server_process)?;
+
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Server not ready",
+        ))
     }
 
     fn query(&mut self, command: &str) -> std::io::Result<String> {
@@ -76,4 +114,23 @@ impl RedisClient {
 
         Ok(String::from_utf8_lossy(&buffer[..n]).to_string())
     }
+}
+
+impl Drop for RedisClient {
+    fn drop(&mut self) {
+        println!("killing RLTest server");
+
+        kill_process(&mut self.server_process).expect("to be able to kill the RLTest server");
+    }
+}
+
+/// Kill the `runtests.sh` process correctly.
+/// Technically this has an issue since the `runtests.sh` process does not correctly stop the
+/// RLTest process it spawns when it is killed. To kill the RLTest process, one has to manually
+/// send a ``SIGINT` signal to the `redis-server` it spawned.
+fn kill_process(child: &mut Child) -> std::io::Result<()> {
+    child.kill()?;
+    child.wait()?;
+
+    Ok(())
 }
