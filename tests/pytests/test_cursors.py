@@ -481,7 +481,7 @@ def testCursorDepletionBM25NORMNonStrictTimeoutPolicy():
     # Create a cursor that will timeout during accumulation of results
     timeout_res_count = 3
     cursor_count = 5
-    res, cursor = runDebugQueryCommandTimeoutAfterN(env, ['FT.AGGREGATE', 'idx', '*', 'ADDSCORES', 'SCORER', 'BM25STD.NORM', 'LOAD', '1', '@text1', 'WITHCURSOR', 'count',
+    res, cursor = runDebugQueryCommandTimeoutAfterN(env, ['FT.AGGREGATE', 'idx', '*', 'ADDSCORES', 'SCORER', 'BM25STD.NORM', 'WITHCURSOR', 'count',
                           cursor_count], timeout_res_count)
     VerifyTimeoutWarningResp3(env, res)
 
@@ -492,6 +492,7 @@ def testCursorDepletionBM25NORMNonStrictTimeoutPolicy():
     # Read from the cursor until it's depleted
     while cursor:
         res, cursor = env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+        # (len(res['results']) == 0 and cursor == 0) indicates that the cursor is depleted, as described above.
         env.assertTrue(len(res['results']) == timeout_res_count or (len(res['results']) == 0 and cursor == 0))
         n_received += len(res['results'])
 
