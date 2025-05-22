@@ -70,8 +70,7 @@ static void *vvwAlloc(void) {
 
 static void vvwFree(void *p) {
   // printf("Releasing VVW=%p\n", p);
-  VVW_Cleanup(p);
-  rm_free(p);
+  VVW_Free(p);
 }
 
 static void ForwardIndex_InitCommon(ForwardIndex *idx, Document *doc, uint32_t idxFlags) {
@@ -246,8 +245,8 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   ForwardIndex_HandleToken(tokCtx->idx, tokInfo->tok, tokInfo->tokLen, tokInfo->pos,
                            tokCtx->fieldScore, tokCtx->fieldId, options);
 
-  if (tokCtx->allOffsets) {
-    VVW_Write(tokCtx->allOffsets, tokInfo->raw - tokCtx->doc);
+  if (tokCtx->allOffsets && tokCtx->allOffsets->vw) {
+    VVW_Write(tokCtx->allOffsets->vw, tokInfo->raw - tokCtx->doc);
   }
 
   if (tokInfo->stem) {
