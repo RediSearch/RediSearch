@@ -19,20 +19,27 @@ use std::{
 };
 
 /// Redefines the `Buffer` struct from `buffer.h`
-///
-/// # Safety
-///
-/// * `data` must point to a valid, properly initialized `Buffer`.
-/// * `capacity` must not exceed the length of the Buffer.
-/// * `len` must not exceed the length of the Buffer.
 #[repr(C)]
 pub struct Buffer {
     /// A pointer to the underlying data buffer. This is typically allocated by C and hence should
     /// not be freed by Rust code.
+    ///
+    /// # Safety
+    ///
+    /// It must point to a valid, properly initialized `Buffer`.
     data: NonNull<u8>,
     /// The capacity of the buffer (i-e allocated size)
+    ///
+    /// # Safety
+    ///
+    /// This should ideally be actual allocated length of the underlying byte buffer
+    /// but if not, it must not exceed it.
     capacity: usize,
     /// The length of the buffer (i-e the total used memory from allocated memory)
+    ///
+    /// # Safety
+    ///
+    /// Must not exceed the `capacity`.
     len: usize,
 }
 
