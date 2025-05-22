@@ -288,8 +288,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .multiTextOffsetDelta = 100,                                                                                      \
     .numBGIndexingIterationsBeforeSleep = 100,                                                                        \
     .prioritizeIntersectUnionChildren = false       ,                                                                        \
-    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                                                                    \
-    .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
+    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                                                             \
+    .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,                                              \
   }
 
 #define REDIS_ARRAY_LIMIT 7
