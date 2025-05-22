@@ -57,6 +57,19 @@ IndexesScanner *global_spec_scanner = NULL;
 size_t pending_global_indexing_ops = 0;
 dict *legacySpecDict;
 dict *legacySpecRules;
+#ifdef SAN
+// Track all specs (even deleted ones) to verify all are released
+unsigned specTrackSize_g = 0;
+unsigned specTrackCapacity_g = 0;
+WeakRef *specTrack_g = NULL;
+static void specTrack_add(WeakRef w_ref) {
+  if (specTrackSize_g >= specTrackCapacity_g) {
+    specTrackCapacity_g = specTrackCapacity_g ? specTrackCapacity_g * 2 : 16;
+    specTrack_g = rm_realloc(specTrack_g, sizeof(*specTrack_g) * specTrackCapacity_g);
+  }
+  specTrack_g[specTrackSize_g++] = w_ref;
+}
+#endif
 
 // Pending or in-progress index drops
 uint16_t pendingIndexDropCount_g = 0;
@@ -1421,6 +1434,9 @@ StrongRef IndexSpec_Parse(const HiddenString *name, const char **argv, int argc,
     SchemaRule_FilterFields(spec);
   }
 
+#ifdef SAN
+  specTrack_add(StrongRef_Demote(spec_ref));
+#endif
   return spec_ref;
 
 failure:  // on failure free the spec fields array and return an error
@@ -2809,6 +2825,9 @@ int IndexSpec_CreateFromRdb(RedisModuleCtx *ctx, RedisModuleIO *rdb, int encver,
     StrongRef_Release(spec_ref);
   } else {
     dictAdd(specDict_g, (void*)sp->specName, spec_ref.rm);
+#ifdef SAN
+    specTrack_add(StrongRef_Demote(spec_ref));
+#endif
 
     for (int i = 0; i < sp->numFields; i++) {
       FieldsGlobalStats_UpdateStats(sp->fields + i, 1);
@@ -2932,6 +2951,9 @@ void *IndexSpec_LegacyRdbLoad(RedisModuleIO *rdb, int encver) {
   // Subscribe to keyspace notifications
   Initialize_KeyspaceNotifications();
 
+#ifdef SAN
+  specTrack_add(StrongRef_Demote(spec_ref));
+#endif
   return spec_ref.rm;
 }
 

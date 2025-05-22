@@ -150,3 +150,9 @@ StrongRef StrongRef_New(void *obj, RefManager_Free freeCB) {
   StrongRef s_ref = {RefManager_New(obj, freeCB)};
   return s_ref;
 }
+
+#ifdef SAN
+RefStats WeakRef_GetStats(WeakRef w_ref) {
+  return (RefStats){w_ref.rm->strong_refcount, w_ref.rm->weak_refcount};
+}
+#endif
