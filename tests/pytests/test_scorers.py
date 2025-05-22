@@ -617,7 +617,7 @@ class TestBM25NormMax:
 def test_error_unstable_feature_disabled():
     env = Env(moduleArgs='DEFAULT_DIALECT 2')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
-    expected_error = 'Scorer BM25STD.NORM not available when `ENABLE_UNSTABLE_FEATURES` is off'
+    expected_error = 'Scorer BM25STD.NORM is unavailable when `ENABLE_UNSTABLE_FEATURES` is off'
     env.expect('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM').error().contains(expected_error)
 
 def testNormalizedBM25ScorerExplanation():
