@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 /// Construct queries to create a dataset for the "1984" book from Project Gutenberg
 ///
 /// This creates a part entry for every paragraph (separated by a blank line) in the book. These
@@ -12,10 +14,7 @@
 /// }
 /// ```
 pub fn get_1984_index() -> Result<Vec<String>, ureq::Error> {
-    let text = ureq::get("https://gutenberg.net.au/ebooks01/0100021.txt")
-        .call()?
-        .into_body()
-        .read_to_string()?;
+    let text = get_1984_text()?;
 
     let mut part_num = 0;
     let mut part_len = 0;
@@ -50,4 +49,30 @@ pub fn get_1984_index() -> Result<Vec<String>, ureq::Error> {
         setup_queries.join("\n"),
         "FT.CREATE idx:1984 ON HASH PREFIX 1 '1984:part:' SCHEMA text TEXT WEIGHT 1.0 part_num NUMERIC SORTABLE index_pos NUMERIC SORTABLE length NUMERIC SORTABLE".to_string()
     ])
+}
+
+/// Gets the 1984 book text from the cache if it exists, otherwise fetches it from the Gutenberg
+/// Project and stores it in the cache.
+fn get_1984_text() -> Result<String, ureq::Error> {
+    let cache_path = PathBuf::from("cache/1984.txt");
+    if cache_path.exists() {
+        let text = std::fs::read_to_string(&cache_path).expect("To read 1984 text from cache");
+        return Ok(text);
+    }
+
+    let text = ureq::get("https://gutenberg.net.au/ebooks01/0100021.txt")
+        .call()?
+        .into_body()
+        .read_to_string()?;
+
+    let cache_dir = cache_path
+        .parent()
+        .expect("To get the parent directory for the cache file");
+    if !cache_dir.exists() {
+        std::fs::create_dir_all(cache_dir).expect("To create the cache directory");
+    }
+
+    std::fs::write(&cache_path, &text).expect("To write the 1984 text to cache");
+
+    Ok(text)
 }
