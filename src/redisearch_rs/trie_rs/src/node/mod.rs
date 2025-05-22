@@ -80,13 +80,12 @@ impl<Data> Node<Data> {
         value: Option<Data>,
     ) -> Self {
         // This has no runtime overhead, since the number of children is known at compile time.
-        if N > u8::MAX as usize {
-            panic!(
-                "There are {} children, which exceeds the maximum allowed number, {}",
-                N,
-                u8::MAX
-            );
-        }
+        assert!(
+            N <= u8::MAX as usize,
+            "There are {} children, which exceeds the maximum allowed number, {}",
+            N,
+            u8::MAX
+        );
         let Ok(label_len) = label.len().try_into() else {
             panic!(
                 "The label length is {}, which exceeds the maximum allowed length, {}",
@@ -120,6 +119,10 @@ impl<Data> Node<Data> {
             label_len,
             // A node can have at most 255 children, since that's
             // the number of unique `u8` values.
+            #[allow(
+                clippy::cast_possible_truncation,
+                reason = "we have checked above that N fits into u8"
+            )]
             n_children: N as u8,
         };
         let mut new_ptr = header.metadata().allocate();
@@ -318,7 +321,12 @@ impl<Data> Node<Data> {
             offset < self.label_len() as usize,
             "The label offset must be fully contained within the current label"
         );
+        debug_assert!(offset <= u16::MAX as usize, "offset exceeds u16::MAX");
         let child_header = NodeHeader {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "we have checked above that offset is representable as u16"
+            )]
             label_len: self.label_len() - offset as u16,
             n_children: self.n_children(),
         };
@@ -388,6 +396,10 @@ impl<Data> Node<Data> {
         let child = unsafe { child_ptr.assume_init() };
 
         let new_header = NodeHeader {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "we have checked above that offset is representable as u16"
+            )]
             label_len: offset as u16,
             n_children: 1 + if extra_child.is_some() { 1 } else { 0 },
         };
@@ -411,7 +423,8 @@ impl<Data> Node<Data> {
                     old_ptr.as_ptr().cast(),
                     old_metadata.layout(),
                     new_metadata.layout().size(),
-                ) as *mut NodeHeader
+                )
+                .cast::<NodeHeader>()
             };
             let Some(new_ptr) = NonNull::new(new_ptr) else {
                 handle_alloc_error(new_metadata.layout());
@@ -487,6 +500,10 @@ impl<Data> Node<Data> {
         );
 
         let new_header = NodeHeader {
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "we have checked above that label_len is representable as u16"
+            )]
             label_len: self.label_len() + prefix.len() as u16,
             n_children: self.n_children(),
         };
@@ -519,7 +536,8 @@ impl<Data> Node<Data> {
                     old_ptr.as_ptr().cast(),
                     old_metadata.layout(),
                     new_metadata.layout().size(),
-                ) as *mut NodeHeader
+                )
+                .cast::<NodeHeader>()
             };
 
             let Some(raw_ptr) = NonNull::new(new_ptr) else {
@@ -651,7 +669,8 @@ impl<Data> Node<Data> {
                     old_ptr.as_ptr().cast(),
                     old_metadata.layout(),
                     new_metadata.layout().size(),
-                ) as *mut NodeHeader
+                )
+                .cast::<NodeHeader>()
             };
 
             let Some(raw_ptr) = NonNull::new(raw_ptr) else {
@@ -947,7 +966,8 @@ impl<Data> Node<Data> {
                     old_ptr.as_ptr().cast(),
                     old_metadata.layout(),
                     new_metadata.layout().size(),
-                ) as *mut NodeHeader
+                )
+                .cast::<NodeHeader>()
             }
         };
 

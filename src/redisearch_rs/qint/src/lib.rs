@@ -116,6 +116,7 @@ use std::io::Write;
 
 // Internal: Enum to represent valid bit offsets for the header byte
 #[derive(Clone, Copy, Debug)]
+#[repr(u8)]
 enum BitOffset {
     Zero = 0,
     One = 1,
