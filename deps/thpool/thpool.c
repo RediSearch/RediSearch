@@ -19,6 +19,7 @@
 #include <time.h>
 #include <sys/time.h>
 #include <assert.h>
+#include <stdatomic.h>
 
 #if defined(__linux__)
 #include <sys/prctl.h>
@@ -84,7 +85,7 @@ typedef struct redisearch_thpool_t {
   size_t total_threads_count;
   volatile size_t num_threads_alive;   /* threads currently alive   */
   volatile size_t num_threads_working; /* threads currently working */
-  volatile int keepalive;              /* keep pool alive           */
+  _Atomic int keepalive;              /* keep pool alive           */
   volatile int terminate_when_empty;   /* terminate thread when there are no more pending jobs */
   pthread_mutex_t thcount_lock;        /* used for thread count etc, when locking jobqueues_rwmutex as
                                         * well, we should first acquire this lock to prevent deadlocks */
@@ -138,7 +139,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
   thpool_p->total_threads_count = num_threads;
   thpool_p->num_threads_alive = 0;
   thpool_p->num_threads_working = 0;
-  thpool_p->keepalive = 0;
+  atomic_store_explicit(&thpool_p->keepalive, 0, memory_order_release);;
   thpool_p->terminate_when_empty = 0;
   thpool_p->total_jobs_done = 0;
 
@@ -180,8 +181,8 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
 
 /* Initialise thread pool */
 void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
-  assert(thpool_p->keepalive == 0);
-  thpool_p->keepalive = 1;
+  assert(atomic_load_explicit(&thpool_p->keepalive, memory_order_acquire) == 0);
+  atomic_store_explicit(&thpool_p->keepalive, 1, memory_order_release);
   thpool_p->terminate_when_empty = 0;
 
   /* Thread init */
@@ -311,7 +312,7 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t* thpool_p) {
   RedisModule_Assert(thpool_p);
 
   /* End each thread 's infinite loop */
-  thpool_p->keepalive = 0;
+  atomic_store_explicit(&thpool_p->keepalive, 0, memory_order_release);
 
   /* Poll all threads and wait for them to finish */
   bsem_post_all(thpool_p->jobqueue.has_jobs);
@@ -373,7 +374,7 @@ size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
 }
 
 int redisearch_thpool_running(redisearch_thpool_t *thpool_p) {
-  return thpool_p->keepalive;
+  return atomic_load_explicit(&thpool_p->keepalive, memory_order_acquire);
 }
 
 thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *thpool_p) {
@@ -458,11 +459,11 @@ static void* thread_do(struct thread* thread_p) {
   thpool_p->num_threads_alive += 1;
   pthread_mutex_unlock(&thpool_p->thcount_lock);
 
-  while (thpool_p->keepalive) {
+  while (atomic_load_explicit(&thpool_p->keepalive, memory_order_acquire) == 1) {
 
     bsem_wait(thpool_p->jobqueue.has_jobs);
     LOG_IF_EXISTS("debug", "Thread-%d is running iteration", thread_p->id)
-    if (thpool_p->keepalive) {
+    if (atomic_load_explicit(&thpool_p->keepalive, memory_order_acquire) == 1) {
 
       pthread_mutex_lock(&thpool_p->thcount_lock);
       thpool_p->num_threads_working++;
@@ -488,7 +489,7 @@ static void* thread_do(struct thread* thread_p) {
       }
 	  if (priority_queue_len(&thpool_p->jobqueue) == 0 && thpool_p->terminate_when_empty) {
 		  LOG_IF_EXISTS("verbose", "Job queue is empty - terminating thread %d", thread_p->id);
-          thpool_p->keepalive = 0;
+          atomic_store_explicit(&thpool_p->keepalive, 0, memory_order_release);;
 	  }
       pthread_mutex_unlock(&thpool_p->thcount_lock);
     }
