@@ -407,7 +407,7 @@ def testUnstableFeaturesOffByDefault():
 
     # -------------------- BM25STD.TANH scorer --------------------
     env.expect('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.TANH') \
-        .error().contains('Scorer BM25STD.TANH not available when `ENABLE_UNSTABLE_FEATURES` is off')
+        .error().contains('Scorer BM25STD.TANH is unavailable when `ENABLE_UNSTABLE_FEATURES` is off')
 
     env.cmd(config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
 

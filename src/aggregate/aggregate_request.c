@@ -1044,8 +1044,9 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     if (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
       QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
       return REDISMODULE_ERR;
-    } else if (!strcmp(opts->scorerName, BM25_STD_NORMALIZED_TANH_SCORER_NAME) && !RSGlobalConfig.enableUnstableFeatures) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Scorer %s not available when `ENABLE_UNSTABLE_FEATURES` is off", opts->scorerName);
+    } else if ((!strcmp(opts->scorerName, BM25_STD_NORMALIZED_TANH_SCORER_NAME) || !strcmp(opts->scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME))
+        && !RSGlobalConfig.enableUnstableFeatures) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Scorer %s is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`", opts->scorerName);
       return REDISMODULE_ERR;
     }
   }
@@ -1381,8 +1382,17 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
        (IsOptimized(req) ? HasScorer(req) : !hasQuerySortby(&req->ap)))) {
     rp = getScorerRP(req, first);
     PUSH_RP();
+    const char *scorerName = req->searchopts.scorerName;
+    if (scorerName && !strcmp(scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME )) {
+      const RLookupKey *scoreKey = NULL;
+      if (HasScoreInPipeline(req)) {
+        scoreKey = RLookup_GetKey(first, UNDERSCORE_SCORE, RLOOKUP_M_WRITE, RLOOKUP_F_OVERRIDE);
+      }
+      rp = RPMaxScoreNormalizer_New(scoreKey);
+      PUSH_RP();
+      }
+    }
   }
-}
 
 /**
  * This handles the RETURN and SUMMARIZE keywords, which operate on the result

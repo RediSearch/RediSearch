@@ -310,6 +310,9 @@ def collectKeys(env, pattern='*'):
 def debug_cmd():
     return '_ft.debug' if COORD else 'ft.debug'
 
+def enable_unstable_features(env):
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
+
 def run_command_on_all_shards(env, *args):
     return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
 
@@ -725,6 +728,19 @@ def compare_index_info_dict(env, idx, expected_info_dict, msg="", depth=0):
 def check_index_info_empty(env, idx, fields, msg="after delete all and gc", depth=0):
     expected_size = getInvertedIndexInitialSize_MB(env, fields, depth=depth+1)
     check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)
+
+def recursive_index(lst, target):
+    for i, element in enumerate(lst):
+        if isinstance(element, list):
+            sublist_index = recursive_index(element, target)
+            if sublist_index != -1:
+                return [i] + sublist_index
+        elif element == target:
+            return [i]
+    return -1
+
+def recursive_contains(lst, target):
+    return recursive_index(lst, target) != -1
 
 def index_errors(env, idx = 'idx'):
     return to_dict(index_info(env, idx)['Index Errors'])
