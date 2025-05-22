@@ -106,15 +106,52 @@ fn buffer_advance() {
 }
 
 #[test]
-#[should_panic(expected = "n <= self.remaining_capacity()")]
 fn buffer_advance_overflow() {
+    use std::panic;
+
     unsafe {
         let capacity = 100;
         let mut buffer_ptr = create_test_buffer(capacity);
-        let buffer = buffer_ptr.as_mut();
 
-        // This should panic so we don't need to free the buffer.
-        buffer.advance(capacity + 1);
+        // Use catch_unwind to handle the panic and clean up memory
+        let result = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+            let buffer = buffer_ptr.as_mut();
+            buffer.advance(capacity + 1);
+        }));
+
+        // Clean up the buffer
+        free_test_buffer(buffer_ptr);
+
+        // Assert that the panic occurred with the expected message
+        match result {
+            Err(panic_payload) => {
+                match (
+                    panic_payload.downcast_ref::<&str>(),
+                    panic_payload.downcast_ref::<String>(),
+                ) {
+                    (Some(message), _) => {
+                        assert!(
+                            message.contains("n <= self.remaining_capacity()"),
+                            "Expected panic message to contain 'n <= self.remaining_capacity()',\
+                            got: {}",
+                            message
+                        );
+                    }
+                    (None, Some(message)) => {
+                        assert!(
+                            message.contains("n <= self.remaining_capacity()"),
+                            "Expected panic message to contain 'n <= self.remaining_capacity()',\
+                            got: {}",
+                            message
+                        );
+                    }
+                    (None, None) => {
+                        panic!("Expected a string panic message");
+                    }
+                }
+            }
+            Ok(_) => panic!("Expected buffer.advance to panic, but it didn't"),
+        }
     }
 }
 
@@ -170,11 +207,13 @@ fn buffer_writer() {
         // Write data
         let test_data = b"Hello";
         assert_eq!(writer.write(test_data).unwrap(), 5);
+        let buffer = writer.buf.as_ref();
         assert_eq!(buffer.len, 5);
 
         // Write more data
         let test_data = b", world!";
         assert_eq!(writer.write(test_data).unwrap(), 8);
+        let buffer = writer.buf.as_ref();
         assert_eq!(buffer.len, 13);
 
         // Check the written data
@@ -201,6 +240,7 @@ fn buffer_writer_grow() {
         // Write data that fits within initial capacity
         let test_data = b"HelloWorld";
         assert_eq!(writer.write(test_data).unwrap(), 10);
+        let buffer = writer.buf.as_ref();
         assert_eq!(buffer.len, 10);
 
         // Write more data that will require growing the buffer
@@ -208,6 +248,7 @@ fn buffer_writer_grow() {
         assert_eq!(writer.write(test_data).unwrap(), 8);
 
         // Buffer should have grown
+        let buffer = writer.buf.as_ref();
         assert!(buffer.capacity > initial_capacity);
         assert_eq!(buffer.len, 18);
 
@@ -252,6 +293,7 @@ fn buffer_grow_edge_cases() {
         assert_eq!(writer.write(test_data).unwrap(), 1);
 
         // Buffer should have grown
+        let buffer = writer.buf.as_ref();
         assert!(buffer.capacity > initial_capacity);
         assert_eq!(buffer.len, initial_capacity + 1);
 
@@ -266,6 +308,7 @@ fn buffer_grow_edge_cases() {
         assert_eq!(writer.write(&large_data).unwrap(), 100);
 
         // Buffer capacity should accommodate all data
+        let buffer = writer.buf.as_ref();
         assert!(buffer.capacity >= initial_capacity + 1 + 100);
         assert_eq!(buffer.len, initial_capacity + 1 + 100);
 

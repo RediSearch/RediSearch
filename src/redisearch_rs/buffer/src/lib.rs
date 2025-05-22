@@ -115,9 +115,6 @@ impl Buffer {
 
     /// Returns the initialized portion of the buffer as a slice.
     pub fn as_slice(&self) -> &[u8] {
-        // Safety: We assume `self.data` is a valid pointer as per `Buffer`'s invariants.
-        let data = unsafe { self.data.as_ref() };
-
         // Safety: We assume `self.len` is a valid length within the allocated memory.
         // Creates a slice referencing the initialized portion of the buffer.
         unsafe { slice::from_raw_parts(self.data.as_ptr(), self.len) }
@@ -125,10 +122,6 @@ impl Buffer {
 
     /// Returns the initialized portion of the buffer as a mutable slice.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        // Safety: We assume `self.data` is a valid pointer as per `Buffer`'s invariants
-        // and that we have exclusive access to the buffer.
-        let data = unsafe { self.data.as_mut() };
-
         // Safety: We assume `self.len` is a valid length within the allocated memory.
         unsafe { slice::from_raw_parts_mut(self.data.as_ptr(), self.len) }
     }
@@ -222,7 +215,7 @@ impl BufferWriter {
 impl std::io::Write for BufferWriter {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
-        let buffer = unsafe { self.buf.as_mut() };
+        let buffer = unsafe { self.buf.as_ref() };
 
         // Check if we need to grow the buffer to accommodate the new data
         debug_assert!(
@@ -237,6 +230,10 @@ impl std::io::Write for BufferWriter {
             //
             // Note that this may invalidate previously held pointers into the buffer.
             unsafe { Buffer_Grow(self.buf, bytes.len()) };
+
+            // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
+            let buffer = unsafe { self.buf.as_ref() };
+
             // The buffer has relocated, so we need to update our cursor.
             // Safety: After growth, `buffer.len()` points just past the end of the valid data,
             // which is a valid position to write to.
@@ -254,6 +251,8 @@ impl std::io::Write for BufferWriter {
         // * The regions don't overlap (copy_nonoverlapping requirement).
         unsafe { copy_nonoverlapping(src, dest, bytes.len()) };
 
+        // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
+        let buffer = unsafe { self.buf.as_mut() };
         // Update the buffer length.
         buffer.len += bytes.len();
 
