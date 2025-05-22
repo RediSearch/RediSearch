@@ -1046,7 +1046,7 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
       return REDISMODULE_ERR;
     } else if ((!strcmp(opts->scorerName, BM25_STD_NORMALIZED_TANH_SCORER_NAME) || !strcmp(opts->scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME))
         && !RSGlobalConfig.enableUnstableFeatures) {
-      QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Scorer %s not available when `ENABLE_UNSTABLE_FEATURES` is off", opts->scorerName);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "Scorer %s is unavailable when `ENABLE_UNSTABLE_FEATURES` is off. Enable it with `FT.CONFIG SET ENABLE_UNSTABLE_FEATURES true`", opts->scorerName);
       return REDISMODULE_ERR;
     }
   }
