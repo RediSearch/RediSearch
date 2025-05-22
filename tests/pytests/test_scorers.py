@@ -1,6 +1,5 @@
 import math
 from time import sleep
-
 from includes import *
 from common import *
 
@@ -233,6 +232,55 @@ def testBM25STDScorerExplanation(env):
                                 ['hello: (0.13 = Weight 0.50 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) / (F 10.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 45 / Average Doc Len 34.33)))',
                                     'world: (0.26 = Weight 1.00 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) / (F 10.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 45 / Average Doc Len 34.33)))']]]])
 
+def testBM25STDNORMScorerExplanation(env):
+    conn = getConnectionByEnv(env)
+    env.expect('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text', 'weight', 10, 'body', 'text').ok()
+    waitForIndex(env, 'idx')
+    enable_unstable_features(env)
+    conn.execute_command('HSET', 'doc1{hash_tag}', 'title', 'hello world', 'body', 'lorem ist ipsum')
+    conn.execute_command('HSET', 'doc2{hash_tag}', 'title', 'hello space world', 'body', 'lorem ist ipsum lorem lorem')
+    conn.execute_command('HSET', 'doc3{hash_tag}', 'title', 'hello more space world', 'body', 'lorem ist ipsum lorem lorem')
+    res = env.cmd('ft.search', 'idx', 'hello world', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25STD.NORM')
+    env.assertEqual(res[0], 3)
+
+    env.assertEqual(res[2][1], ['Final BM25STD.NORM: 1.00 = Original Score: 0.54 / Max Score: 0.54',
+                                [['(Weight 1.00 * children BM25 0.54)',
+                                    ['hello: (0.27 = Weight 1.00 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) /'
+                                    ' (F 10.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 23 / Average Doc Len 34.33)))',
+                                    'world: (0.27 = Weight 1.00 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) /'
+                                    ' (F 10.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 23 / Average Doc Len 34.33)))']]]])
+    env.assertEqual(res[5][1],  ['Final BM25STD.NORM: 0.97 = Original Score: 0.52 / Max Score: 0.54',
+                                    [['(Weight 1.00 * children BM25 0.52)',
+                                    ['hello: (0.26 = Weight 1.00 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) /'
+                                    ' (F 10.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 35 / Average Doc Len 34.33)))',
+                                    'world: (0.26 = Weight 1.00 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) /'
+                                    ' (F 10.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 35 / Average Doc Len 34.33)))']]]] )
+    env.assertEqual(res[8][1],  ['Final BM25STD.NORM: 0.95 = Original Score: 0.51 / Max Score: 0.54',
+                                    [['(Weight 1.00 * children BM25 0.51)',
+                                    ['hello: (0.26 = Weight 1.00 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) /'
+                                    ' (F 10.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 45 / Average Doc Len 34.33)))',
+                                    'world: (0.26 = Weight 1.00 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) / '
+                                    '(F 10.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 45 / Average Doc Len 34.33)))']]]])
+
+    res = env.cmd('ft.search', 'idx', '((@title:(hello => {$weight: 0.5;}|world) => {$weight: 0.7;}) => {$weight: 0.3;})', 'withscores', 'EXPLAINSCORE', 'scorer', 'BM25STD.NORM', 'nocontent')
+
+    # The result of 0.12 divided by 0.12 can be a little different due to number accuracy limits
+    env.assertEqual(res[2][1],['Final BM25STD.NORM: 1.00 = Original Score: 0.12 / Max Score: 0.12',
+                                [['(Weight 0.30 * children BM25 0.40)',
+                                    ['hello: (0.13 = Weight 0.50 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) / (F 10.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 23 / Average Doc Len 34.33)))',
+                                    'world: (0.27 = Weight 1.00 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) / (F 10.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 23 / Average Doc Len 34.33)))']]]])
+
+    env.assertEqual(res[4][1],['Final BM25STD.NORM: 0.97 = Original Score: 0.12 / Max Score: 0.12',
+                                [['(Weight 0.30 * children BM25 0.39)',
+                                ['hello: (0.13 = Weight 0.50 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) / (F 10.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 35 / Average Doc Len 34.33)))',
+                                    'world: (0.26 = Weight 1.00 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) / (F 10.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 35 / Average Doc Len 34.33)))']]]])
+    env.assertEqual(res[6][1], ['Final BM25STD.NORM: 0.95 = Original Score: 0.12 / Max Score: 0.12',
+                                [['(Weight 0.30 * children BM25 0.38)',
+                                ['hello: (0.13 = Weight 0.50 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) / (F 10.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 45 / Average Doc Len 34.33)))',
+                                    'world: (0.26 = Weight 1.00 * IDF 0.13 * (F 10.00 * (k1 1.2 + 1)) / (F 10.00 + k1 1.2 * (1 - b 0.75 + b 0.75 * Doc Len 45 / Average Doc Len 34.33)))']]]])
+
+
+
 @skip(cluster=True)
 def testOptionalAndWildcardScoring(env):
     conn = getConnectionByEnv(env)
@@ -435,12 +483,162 @@ def testNormalizedBM25Tanh():
     stretch_factor = 10000
     testNormScore(env, stretch_factor, query_param=True)
 
-def testNormalizedBM25TanhScorerExplanation():
+
+class TestBM25NormMax:
+    """
+    Scores are normalized by dividing each score by the maximum score in the result set.
+    This result processor calculates the maximum score by accumulating all of its upstream results.
+    This means that other result processors such as LIMIT, or cursor usage do not affect the score normalization.
+    """
+    def create_and_fill_index(self, use_key_tags=False):
+        # Prepare the index with documents having different scores
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT', 'body', 'TEXT').ok()
+        conn = self.env.getClusterConnectionIfNeeded()
+        # Add documents with varying content to get different scores
+        tag = '{tag}' if use_key_tags else ''
+        conn.execute_command('HSET', f'doc:5{tag}', 'title', 'hello world orange yellow blue')
+        conn.execute_command('HSET', f'doc:4{tag}', 'title', 'hello world orange yellow')
+        conn.execute_command('HSET', f'doc:3{tag}', 'title', 'hello world orange')
+        conn.execute_command('HSET', f'doc:2{tag}', 'title', 'hello world')
+        conn.execute_command('HSET', f'doc:1{tag}', 'title', 'hello')
+
+    def setUp(self):
+        self.env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
+        self.create_and_fill_index(use_key_tags=self.env.isCluster())
+
+    def tearDown(self): # cleanup after each test
+        self.env.flush()
+
+    def test_bm25std_normalization_correctness(self):
+        # Run both SEARCH and AGGREGATE with BM25STD and BM25STD.NORM
+        res_std = self.env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD')
+        res_norm = self.env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+
+        keys_std = [res_std[i] for i in range(1, len(res_std), 2)]
+        keys_norm = [res_norm[i] for i in range(1, len(res_norm), 2)]
+        self.env.assertEqual(keys_std, keys_norm)
+
+        max_std = max(float(res_std[i]) for i in range(2, len(res_std), 2))
+        max_norm = max(float(res_norm[i]) for i in range(2, len(res_norm), 2))
+        # Since no documents are excluded and the query does not have any 'not' clause, maximum score should be 1.0
+        self.env.assertAlmostEqual(max_norm, 1.0, 0.00001)
+
+        for i in range(2, len(res_norm), 2):
+            expected = float(res_std[i]) / max_std
+            actual = float(res_norm[i])
+            self.env.assertAlmostEqual(actual, expected, 0.00001)
+            self.env.assertGreaterEqual(actual, 0.0)
+            self.env.assertLessEqual(actual, 1.0)
+
+        # AGGREGATE version
+        agg_std = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD',
+                          'LOAD', '2', '@__key', '@__score')
+        agg_norm = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+                           'LOAD', '2', '@__key', '@__score')
+
+        key_index = agg_std[1].index('__key') + 1
+        score_index = agg_std[1].index('__score') + 1
+        scores_std = {row[key_index]: float(row[score_index]) for row in agg_std[1:]}
+        max_score = max(scores_std.values())
+        for row in agg_norm[1:]:
+            norm_score = float(row[score_index])
+            self.env.assertAlmostEqual(norm_score, scores_std[row[key_index]] / max_score, 0.00001)
+
+    def test_limit_behavior(self):
+        # Retrieve the second and third results from a query with four results, and verify their scores match in both full and restricted queries
+        offset = 1
+        limit = 2
+        full = self.env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'SCORER', 'BM25STD.NORM', 'NOCONTENT')
+        limited = self.env.cmd('FT.SEARCH', 'idx', 'hello world', 'WITHSCORES', 'SCORER', 'BM25STD.NORM',
+                          'NOCONTENT', 'LIMIT', offset, limit)
+
+        num_results = lambda response: (len(response) - 1) / 2
+        self.env.assertEqual(limited[0], 4)
+        self.env.assertEqual(num_results(limited), 2)
+        self.env.assertEqual(full[0], 4)
+
+        for i in range(1, len(limited), 2):
+            self.env.assertAlmostEqual(float(limited[i+1]), float(full[2*offset +i+1]), 0.00001)
+
+        # AGGREGATE version
+        agg_full = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+                           'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC')
+        agg_limited = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+                           'LOAD', '2', '@__key', '@__score', 'SORTBY', '2', '@__score', 'DESC', 'LIMIT', offset, limit)
+
+        key_index = agg_full[1].index('__key') + 1
+        score_index = agg_full[1].index('__score') + 1
+
+        for i in range(1, len(agg_limited)):
+            self.env.assertLessEqual(float(agg_limited[i][score_index]), float(agg_full[i+offset][score_index]), 0.00001)
+
+    def test_single_result_normalization(self):
+        res = self.env.cmd('FT.SEARCH', 'idx', 'blue', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+        self.env.assertEqual(res[0], 1)
+        self.env.assertAlmostEqual(float(res[2]), 1.0, 0.00001)
+
+        agg = self.env.cmd('FT.AGGREGATE', 'idx', 'blue', 'ADDSCORES', 'SCORER', 'BM25STD.NORM')
+        self.env.assertAlmostEqual(float(res[2]), 1.0, 0.00001)
+
+    def test_identical_scores_same_shard(self):
+        conn = self.env.getClusterConnectionIfNeeded()
+
+        # Add identical documents with tag to ensure same shard
+        for i in range(6, 9):
+            conn.execute_command('HSET', f'doc{i}{{tag}}', 'title', 'identical content', 'body', 'identical body text')
+
+        res = self.env.cmd('FT.SEARCH', 'idx', 'identical', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM')
+        for i in range(2, len(res), 2):
+            self.env.assertAlmostEqual(float(res[i]), 1.0, 0.00001)
+
+        agg = self.env.cmd('FT.AGGREGATE', 'idx', 'identical', 'ADDSCORES', 'SCORER', 'BM25STD.NORM')
+        for row in agg[1:]:
+            self.env.assertAlmostEqual(float(row[1]), 1.0, 0.00001)
+
+    def test_no_results(self):
+        query = 'no match term'
+        res = self.env.cmd('FT.SEARCH', 'idx', query, 'WITHSCORES', 'SCORER', 'BM25STD.NORM', 'NOCONTENT')
+        self.env.assertEqual(res[0], 0)
+
+        agg = self.env.cmd('FT.AGGREGATE', 'idx', query, 'ADDSCORES', 'SCORER', 'BM25STD.NORM')
+        self.env.assertEqual(agg[0], 0)
+
+    def test_cursor(self):
+        agg_norm = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+                        'LOAD', '2', '@__key', '@__score')
+
+        key_index = agg_norm[1].index('__key') + 1
+        score_index = agg_norm[1].index('__score') + 1
+        scores_norm = {row[key_index]: float(row[score_index]) for row in agg_norm[1:]}
+
+        results, cursor = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+                           'LOAD', '2', '@__key', '@__score', 'WITHCURSOR', 'COUNT', 2)
+        while cursor != 0:
+            for result in results[1:]:
+                self.env.assertAlmostEqual(scores_norm[result[key_index]], float(result[score_index]), 0.00001)
+            res, cursor = self.env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+
+        results, cursor = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
+                           'LOAD', '2', '@__key', '@__score', 'SORTBY', 2, '@__score', 'DESC', 'WITHCURSOR', 'COUNT', 2)
+        while cursor != 0:
+            for result in results[1:]:
+                self.env.assertAlmostEqual(scores_norm[result[key_index]], float(result[score_index]), 0.00001)
+            res, cursor = self.env.cmd('FT.CURSOR', 'READ', 'idx', cursor)
+
+
+def test_error_unstable_feature_disabled():
+    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    expected_error = 'Scorer BM25STD.NORM is unavailable when `search-enable-unstable-features` is off'
+    env.expect('FT.SEARCH', 'idx', 'hello', 'WITHSCORES', 'NOCONTENT', 'SCORER', 'BM25STD.NORM').error().contains(expected_error)
+
+
+def testNormalizedBM25ScorerExplanation():
     """
     Tests that the normalized BM25STD scorer explanation is correct
     """
 
-    env = Env(moduleArgs='DEFAULT_DIALECT 2')
+    env = Env(moduleArgs='DEFAULT_DIALECT 2 ENABLE_UNSTABLE_FEATURES true')
 
     # Prepare the index
     _prepare_index(env, 'idx')
