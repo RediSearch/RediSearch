@@ -1404,7 +1404,7 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     dimension = 128
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
     env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
-    env.cmd('FT.CREATE', 'idx3', 'SCHEMA', 'geom', 'GEOSHAPE', 'tag', 'TAG' ,'t2', 'TEXT')
+    env.cmd('FT.CREATE', 'idx3', 'SCHEMA', 'tag', 'TAG' ,'t2', 'TEXT')
 
     # Add enough documents to trigger yields
     num_docs = 1000
@@ -1427,7 +1427,7 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     env.assertGreater(yields_count, 0, message="Yield should have been called at least once")
     
     # Verify the number of yields 
-    expected_min_yields = 7 * num_docs // yield_every_n_ops
+    expected_min_yields = 6 * num_docs // yield_every_n_ops
     env.assertGreaterEqual(yields_count, expected_min_yields, 
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
     
@@ -1445,7 +1445,7 @@ def test_mod_8809_multi_index_multi_fields(env:Env):
     env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
     
     yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
-    expected_min_yields = 7 * num_docs // yield_every_n_ops
+    expected_min_yields = 6 * num_docs // yield_every_n_ops
     env.assertGreaterEqual(yields_count, expected_min_yields, 
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
 

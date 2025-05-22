@@ -1,6 +1,6 @@
 from RLTest import Env
 from includes import *
-from common import waitForIndex, TimeLimit
+from common import waitForIndex, TimeLimit, debug_cmd
 
 class TestDebugCommands(object):
 
