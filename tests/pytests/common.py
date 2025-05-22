@@ -729,6 +729,19 @@ def check_index_info_empty(env, idx, fields, msg="after delete all and gc", dept
     expected_size = getInvertedIndexInitialSize_MB(env, fields, depth=depth+1)
     check_index_info(env, idx, exp_num_records=0, exp_inv_idx_size=expected_size, msg=msg, depth=depth+1)
 
+def recursive_index(lst, target):
+    for i, element in enumerate(lst):
+        if isinstance(element, list):
+            sublist_index = recursive_index(element, target)
+            if sublist_index != -1:
+                return [i] + sublist_index
+        elif element == target:
+            return [i]
+    return -1
+
+def recursive_contains(lst, target):
+    return recursive_index(lst, target) != -1
+
 def index_errors(env, idx = 'idx'):
     return to_dict(index_info(env, idx)['Index Errors'])
 def field_errors(env, idx = 'idx', fld_index = 0):

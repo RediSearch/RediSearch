@@ -664,6 +664,7 @@ def testNonZeroTimers(env):
 
 
 def testProfileBM25NormMax(env):
+  enable_unstable_features(env)
   #create index
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
 
