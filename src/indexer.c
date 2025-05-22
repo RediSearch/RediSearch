@@ -16,11 +16,16 @@
 #include "index.h"
 #include "redis_index.h"
 #include "suffix.h"
+#include "config.h"
 #include "rmutil/rm_assert.h"
 #include "phonetic_manager.h"
 #include "obfuscation/obfuscation_api.h"
+#include "redismodule.h"
+#include "debug_commands.h"
 
 extern RedisModuleCtx *RSDummyContext;
+
+extern void IncrementYieldCounter(void);
 
 #include <unistd.h>
 
@@ -105,6 +110,7 @@ static void writeCurEntries(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx) {
     if (invidx) {
       entry->docId = aCtx->doc->docId;
       RS_LOG_ASSERT(entry->docId, "docId should not be 0");
+      IndexerYieldWhileLoading(ctx->redisCtx);
       writeIndexEntry(spec, invidx, encoder, entry);
       if (Index_StoreFieldMask(spec)) {
         invidx->fieldMask |= entry->fieldMask;
@@ -228,6 +234,7 @@ static void indexBulkFields(RSAddDocumentCtx *aCtx, RedisSearchCtx *sctx) {
         continue;
       }
 
+      IndexerYieldWhileLoading(sctx->redisCtx);
       if (IndexerBulkAdd(cur, sctx, doc->fields + ii, fs, fdata, &cur->status) != 0) {
         IndexError_AddQueryError(&cur->spec->stats.indexError, &cur->status, doc->docKey);
         FieldSpec_AddQueryError(&cur->spec->fields[fs->index], &cur->status, doc->docKey);
@@ -385,4 +392,22 @@ int IndexDocument(RSAddDocumentCtx *aCtx) {
   Indexer_Process(aCtx);
   AddDocumentCtx_Finish(aCtx);
   return 0;
+}
+
+bool g_isLoading = false;
+
+/**
+ * Yield to Redis after a certain number of operations during indexing.
+ * This helps keep Redis responsive during long indexing operations.
+ * @param ctx The Redis context
+ */
+static void IndexerYieldWhileLoading(RedisModuleCtx *ctx) {
+  static size_t opCounter = 0;
+
+  // If server is loading, Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
+  if (g_isLoading && ++opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
+    opCounter = 0;
+    IncrementYieldCounter(); // Track that we called yield
+    RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
+  }
 }
