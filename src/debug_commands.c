@@ -4,7 +4,7 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include "debug_commads.h"
+#include "debug_commands.h"
 #include "inverted_index.h"
 #include "index.h"
 #include "redis_index.h"
@@ -985,6 +985,44 @@ DEBUG_COMMAND(VecsimInfo) {
   return REDISMODULE_OK;
 }
 
+// Global counter for tracking yield calls during loading
+static size_t g_yieldCallCounter = 0;
+
+// Function to increment the yield counter (to be called from IndexerBulkAdd)
+void IncrementYieldCounter(void) {
+  g_yieldCallCounter++;
+}
+
+// Reset the yield counter
+void ResetYieldCounter(void) {
+  g_yieldCallCounter = 0;
+}
+
+/**
+ * FT.DEBUG YIELDS_ON_LOAD_COUNTER [RESET]
+ * Get or reset the counter for yields during loading operations
+ */
+DEBUG_COMMAND(YieldCounter) {
+  if (argc > 1) {
+    return RedisModule_WrongArity(ctx);
+  }
+  
+  // Check if we need to reset the counter
+  if (argc == 1) {
+    size_t len;
+    const char *subCmd = RedisModule_StringPtrLen(argv[0], &len);
+    if (STR_EQCASE(subCmd, len, "RESET")) {
+      ResetYieldCounter();
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else {
+      return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
+    }
+  }
+  
+  // Return the current counter value
+  return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
+}
+
 typedef struct DebugCommandType {
   char *name;
   int (*callback)(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
@@ -1012,6 +1050,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"TTL_PAUSE", ttlPause},
                                {"TTL_EXPIRE", ttlExpire},
                                {"VECSIM_INFO", VecsimInfo},
+                               {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
                                {NULL, NULL}};
 
 int DebugCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
