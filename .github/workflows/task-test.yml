@@ -221,7 +221,7 @@ jobs:
           CLEAR_LOGS: 0
           COORD: 1
           ENABLE_ASSERT: 1
-        run: make unit-tests
+        run: make unit-tests   # todo: replace with ./build.sh RUN_UNIT_TESTS
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests

@@ -27,11 +27,6 @@ QUICK=0          # Quick test mode (subset of tests)
 # Use environment variable if set, otherwise default to 0
 ENABLE_ASSERT=${ENABLE_ASSERT:-0}
 
-# Enable multi-threading support (0=disabled, 1=enabled)
-# Use environment variable if set, otherwise default to 0
-# Support both REDISEARCH_MT_BUILD and MT as aliases
-MT_BUILD=${REDISEARCH_MT_BUILD:-${MT:-0}}
-
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0    # Build test binaries
 RUN_UNIT_TESTS=0 # Run C/C++ unit tests
@@ -83,9 +78,6 @@ parse_arguments() {
         ;;
       ENABLE_ASSERT|enable_assert)
         ENABLE_ASSERT=1
-        ;;
-      MT_BUILD|mt_build|MT|mt)
-        MT_BUILD=1
         ;;
       QUICK|quick)
         QUICK=1
@@ -230,15 +222,6 @@ prepare_cmake_arguments() {
   else
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DENABLE_ASSERT=OFF"
     echo "Building with assertions disabled"
-  fi
-
-  # Handle MT_BUILD (multi-threading support)
-  if [[ "$MT_BUILD" == "1" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DMT_BUILD=ON"
-    echo "Building with multi-threading support enabled"
-  else
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DMT_BUILD=OFF"
-    echo "Building with multi-threading support disabled"
   fi
 
   # Ensure output file is always .so even on macOS
@@ -454,11 +437,6 @@ run_python_tests() {
   export BINROOT="$BINROOT"
   export FULL_VARIANT="$FULL_VARIANT"
   export BINDIR="$BINDIR"
-
-  # Pass MT_BUILD to Python tests (using both environment variables)
-  export REDISEARCH_MT_BUILD="$MT_BUILD"
-  export MT="$MT_BUILD"
-  echo "Setting REDISEARCH_MT_BUILD=$MT_BUILD and MT=$MT_BUILD for Python tests"
 
   export REJSON="${REJSON:-1}"
   export REJSON_BRANCH="${REJSON_BRANCH:-master}"

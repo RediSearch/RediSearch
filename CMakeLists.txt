@@ -70,7 +70,6 @@ option(USE_REDIS_ALLOCATOR "Use redis allocator" ON)
 option(BUILD_SEARCH_UNIT_TESTS "Build unit tests" OFF)
 option(VERBOSE_UTESTS "Enable verbose unit tests" OFF)
 option(ENABLE_ASSERT "Enable assertions" OFF)
-option(MT_BUILD "Enable multi-threading support" OFF)
 option(MAX_WORKER_THREADS "Override them maximum parallel worker threads allowed in thread-pool" "")
 option(BUILD_TESTING "Enable testing for cpu-features dep" OFF)
 option(BUILD_EXAMPLE_EXTENSION "Build example extension for tests" ON)
@@ -158,12 +157,6 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${CMAKE_LD_FLAGS}")
 # On debug artifacts, enable assertions
 if(CMAKE_BUILD_TYPE STREQUAL "Debug" OR ENABLE_ASSERT)
     add_compile_definitions(ENABLE_ASSERT=1)
-endif()
-
-# Enable multi-threading support if requested
-if(MT_BUILD)
-    add_compile_definitions(MT_BUILD=1)
-    message(STATUS "Building with multi-threading support")
 endif()
 
 #----------------------------------------------------------------------------------------------
