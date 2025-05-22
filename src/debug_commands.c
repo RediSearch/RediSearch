@@ -1312,10 +1312,6 @@ void ResetYieldCounter(void) {
  * Get or reset the counter for yields during loading operations
  */
 DEBUG_COMMAND(YieldCounter) {
-  if (!debugCommandsEnabled(ctx)) {
-    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
-  }
-  
   if (argc > 3) {
     return RedisModule_WrongArity(ctx);
   }
