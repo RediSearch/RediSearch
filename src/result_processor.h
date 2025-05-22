@@ -57,6 +57,7 @@ typedef enum {
   RP_NETWORK,
   RP_METRICS,
   RP_KEY_NAME_LOADER,
+  RP_MAX_SCORE_NORMALIZER,
   RP_TIMEOUT, // DEBUG ONLY
   RP_MAX,
 } ResultProcessorType;
@@ -284,6 +285,16 @@ const char *RPTypeToString(ResultProcessorType type);
  *******************************************************************************************************************/
 ResultProcessor *RPTimeoutAfterCount_New(size_t count);
 void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
+
+
+
+ /*******************************************************************************************************************
+  *  Normalizer Result Processor
+  *
+  * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
+  * First accumulates all results from the upstream, then normalizes and yields them.
+  *******************************************************************************************************************/
+ ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
 
 #ifdef __cplusplus
 }

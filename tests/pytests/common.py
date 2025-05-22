@@ -310,6 +310,9 @@ def collectKeys(env, pattern='*'):
 def debug_cmd():
     return '_ft.debug' if COORD else 'ft.debug'
 
+def enable_unstable_features(env):
+    run_command_on_all_shards(env, config_cmd(), 'SET', 'ENABLE_UNSTABLE_FEATURES', 'true')
+
 def run_command_on_all_shards(env, *args):
     return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
 
