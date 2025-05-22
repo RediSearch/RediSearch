@@ -688,6 +688,7 @@ def testPofileGILTime():
     print(f"::error title=GIL report test failure:: res: {res}")
 
 def testProfileBM25NormMax(env):
+  enable_unstable_features(env)
   #create index
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT')
 
