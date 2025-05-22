@@ -238,7 +238,6 @@ class TestDebugCommands(object):
         self.env.expect('ft.debug', 'VECSIM_INFO', 'vectorIdx','v').error() \
             .contains("Vector index not found")
 
-@skip(cluster=True)
 def test_yield_counter(env):
     # Giving wrong arity
     env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER','ExtraARG1','ExtraARG2').error()\
