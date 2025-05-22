@@ -47,3 +47,14 @@ void SEDestroy(RSScoreExplain *scrExp) {
     rm_free(scrExp);
   }
 }
+
+void explain(RSScoreExplain *scrExp, char *fmt, ...) {
+  void *tempStr = scrExp->str;
+
+  va_list ap;
+  va_start(ap, fmt);
+  rm_vasprintf((char **restrict) & scrExp->str, fmt, ap);
+  va_end(ap);
+
+  rm_free(tempStr);
+}
