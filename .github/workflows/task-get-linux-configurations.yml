@@ -78,6 +78,7 @@ jobs:
             'mariner:2': 'mcr.microsoft.com/cbl-mariner/base/core:2.0',
             'azurelinux:3': 'mcr.microsoft.com/azurelinux/base/core:3.0',
             'debian:bookworm': 'gcc:12-bookworm',
+            'debian:bullseye:gcc11': 'gcc:11-bullseye'
           }
 
           # Normalize the platform name
