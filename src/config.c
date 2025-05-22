@@ -99,7 +99,7 @@ static const char* FTConfigNameToConfigName(const char *name) {
   return NULL;
 }
 
-int set_numeric_config(const char *name, long long val, void *privdata,
+int set_long_numeric_config(const char *name, long long val, void *privdata,
                   RedisModuleString **err) {
   REDISMODULE_NOT_USED(name);
   REDISMODULE_NOT_USED(err);
@@ -133,7 +133,7 @@ int set_uint_numeric_config(const char *name, long long val,
   return REDISMODULE_OK;
 }
 
-unsigned int get_uint_numeric_config(const char *name, void *privdata) {
+long long get_uint_numeric_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return (long long)(*(unsigned int *)privdata);
 }
@@ -167,12 +167,12 @@ int set_inverted_bool_config(const char *name, int val, void *privdata,
   return REDISMODULE_OK;
 }
 
-bool get_bool_config(const char *name, void *privdata) {
+int get_bool_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return *(bool *)privdata;
 }
 
-bool get_inverted_bool_config(const char *name, void *privdata) {
+int get_inverted_bool_config(const char *name, void *privdata) {
   REDISMODULE_NOT_USED(name);
   return !*(bool *)privdata;
 }
@@ -492,32 +492,6 @@ CONFIG_SETTER(setBM25StdTanhFactor) {
 CONFIG_GETTER(getBM25StdTanhFactor) {
   sds ss = sdsempty();
   return sdscatprintf(ss, "%u", config->requestConfigParams.BM25STD_TanhFactor);
-}
-
-CONFIG_SETTER(setBgOOMpauseTimeForRetry) {
-  uint32_t newPauseTime;
-  int acrc = AC_GetU32(ac, &newPauseTime, AC_F_GE0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  config->bgIndexingOomPauseTimeBeforeRetry = newPauseTime;
-  return REDISMODULE_OK;
-}
-
-CONFIG_GETTER(getBgOOMpauseTimeForRetry) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->bgIndexingOomPauseTimeBeforeRetry);
-}
-
-CONFIG_SETTER(setBgOOMpauseTimeForRetry) {
-  uint32_t newPauseTime;
-  int acrc = AC_GetU32(ac, &newPauseTime, AC_F_GE0);
-  CHECK_RETURN_PARSE_ERROR(acrc);
-  config->bgIndexingOomPauseTimeBeforeRetry = newPauseTime;
-  return REDISMODULE_OK;
-}
-
-CONFIG_GETTER(getBgOOMpauseTimeForRetry) {
-  sds ss = sdsempty();
-  return sdscatprintf(ss, "%u", config->bgIndexingOomPauseTimeBeforeRetry);
 }
 
 CONFIG_SETTER(setBgOOMpauseTimeForRetry) {
