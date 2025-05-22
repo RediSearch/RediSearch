@@ -82,7 +82,12 @@ fn main() {
 fn link_static_lib(bin_root: &Path, lib_subdir: &str, lib_name: &str) {
     let lib_dir = bin_root.join(lib_subdir);
     let lib = lib_dir.join(format!("lib{lib_name}.a"));
-    assert!(std::fs::exists(&lib).unwrap());
+    assert!(
+        std::fs::exists(&lib).unwrap(),
+        "lib '{}' at '{}' not found",
+        lib.to_str().unwrap(),
+        lib_dir.to_str().unwrap()
+    );
     println!("cargo:rustc-link-lib=static={lib_name}");
     println!("cargo:rerun-if-changed={}", lib.display());
     println!("cargo:rustc-link-search=native={}", lib_dir.display());

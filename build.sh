@@ -271,7 +271,8 @@ prepare_cmake_arguments() {
   CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -UCMAKE_TOOLCHAIN_FILE"
 
   if [[ "$OS_NAME" == "macos" ]]; then
-    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
+    # allow 'missing template arg-list-for-template-kw' to support clang17 with boost qvm
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCMAKE_CXX_FLAGS=-Wno-error=missing-template-arg-list-after-template-kw -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++"
   fi
 }
 
