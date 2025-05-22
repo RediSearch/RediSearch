@@ -42,18 +42,6 @@ CONFIG_GETTER(getNumPartitions) {
   return sdsnew("AUTO");
 }
 
-// CLUSTER_TIMEOUT
-CONFIG_SETTER(setClusterTimeout) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  int acrc = AC_GetInt(ac, &realConfig->timeoutMS, AC_F_GE1);
-  RETURN_STATUS(acrc);
-}
-
-CONFIG_GETTER(getClusterTimeout) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  return sdsfromlonglong(realConfig->timeoutMS);
-}
-
 CONFIG_SETTER(setGlobalPass) {
   // Deprecated, no scenario in which this config param should be set, nor should
   // it affect something (replaced by internal connections)
@@ -201,10 +189,6 @@ static RSConfigOptions clusterOptions_g = {
              .setValue = setNumPartitions,
              .getValue = getNumPartitions,
              .flags = RSCONFIGVAR_F_IMMUTABLE},
-            {.name = "CLUSTER_TIMEOUT",
-             .helpText = "Cluster synchronization timeout",
-             .setValue = setClusterTimeout,
-             .getValue = getClusterTimeout},
             {.name = "OSS_GLOBAL_PASSWORD",
              .helpText = "Deprecated, Global oss cluster password that will be used to connect to other shards",
              .setValue = setGlobalPass,

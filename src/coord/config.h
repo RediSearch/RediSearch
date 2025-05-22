@@ -19,7 +19,6 @@ typedef enum { ClusterType_RedisOSS = 0, ClusterType_RedisLabs = 1 } MRClusterTy
 
 typedef struct {
   MRClusterType type;
-  int timeoutMS;
   size_t connPerShard;
   size_t cursorReplyThreshold;
   size_t coordinatorPoolSize; // number of threads in the coordinator thread pool
@@ -41,7 +40,6 @@ extern RedisModuleString *config_dummy_password;
   (SearchClusterConfig) {                                                      \
     .connPerShard = DEFAULT_CONN_PER_SHARD,                                    \
     .type = DetectClusterType(),                                               \
-    .timeoutMS = 0,                                                            \
     .cursorReplyThreshold = DEFAULT_CURSOR_REPLY_THRESHOLD,                    \
     .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                      \
     .topologyValidationTimeoutMS = DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,        \

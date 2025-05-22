@@ -39,9 +39,6 @@
 static MRCluster *cluster_g = NULL;
 static MRWorkQueue *rq_g = NULL;
 
-/* Coordination request timeout */
-long long timeout_g = 5000; // unused value. will be set in MR_Init
-
 /* MapReduce context for a specific command's execution */
 typedef struct MRCtx {
   int numReplied;
@@ -192,10 +189,9 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
 // #define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
 #define PENDING_FACTOR 50
 /* Initialize the MapReduce engine with a node provider */
-void MR_Init(MRCluster *cl, long long timeoutMS) {
+void MR_Init(MRCluster *cl) {
 
   cluster_g = cl;
-  timeout_g = timeoutMS;
   rq_g = RQ_New(cl->mgr.nodeConns * PENDING_FACTOR);
 }
 
@@ -246,7 +242,7 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
   if (block) {
     RS_ASSERT(!mrctx->bc);
     mrctx->bc = RedisModule_BlockClient(
-        mrctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
+        mrctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0);
     RedisModule_BlockedClientMeasureTimeStart(mrctx->bc);
   }
   mrctx->reducer = reducer;
@@ -259,7 +255,7 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   ctx->reducer = reducer;
   ctx->cmd = cmd;
   RS_ASSERT(!ctx->bc);
-  ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
+  ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0);
   RedisModule_BlockedClientMeasureTimeStart(ctx->bc);
   RQ_Push(rq_g, uvMapRequest, ctx);
   return REDIS_OK;
