@@ -92,6 +92,7 @@ typedef struct redisearch_thpool_t {
   priority_queue jobqueue;             /* job queue                 */
   LogFunc log;                         /* log callback              */
   volatile unsigned long total_jobs_done;  /* statistics for observability, guarded by thcount_lock */
+  pthread_barrier_t shutdown_barrier; /* shutdown barrier */
 } redisearch_thpool_t;
 
 /* ========================== PROTOTYPES ============================ */
@@ -122,6 +123,16 @@ static void bsem_post_all(struct bsem* bsem_p);
 static void bsem_wait(struct bsem* bsem_p);
 
 /* ========================== THREADPOOL ============================ */
+
+/* Internal utility */
+static void push_shutdown_pills(redisearch_thpool_t *thpool_p) {
+  size_t n = thpool_p->total_threads_count;
+  for (size_t i = 0; i < n; ++i) {
+      /* priority doesn’t matter, put on any queue; func == NULL signals exit */
+      redisearch_thpool_add_work(thpool_p, NULL, NULL, THPOOL_PRIORITY_HIGH);
+  }
+  bsem_post_all(thpool_p->jobqueue.has_jobs);  // wake everybody
+}
 
 /* Create thread pool */
 struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t num_privileged_threads, LogFunc log) {
@@ -193,6 +204,10 @@ void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
   while (thpool_p->num_threads_alive != thpool_p->total_threads_count) {
     usleep(1); // avoid busy loop, wait for a very small amount of time.
   }
+
+  pthread_barrier_init(&thpool_p->shutdown_barrier, NULL,
+    thpool_p->total_threads_count + 1); // +1 for manager
+
   LOG_IF_EXISTS("verbose", "Thread pool of size %zu created successfully",
                 thpool_p->total_threads_count)
 }
@@ -310,14 +325,12 @@ void redisearch_thpool_drain(redisearch_thpool_t* thpool_p, long timeout,
 void redisearch_thpool_terminate_threads(redisearch_thpool_t* thpool_p) {
   RedisModule_Assert(thpool_p);
 
-  /* End each thread 's infinite loop */
-  thpool_p->keepalive = 0;
+  push_shutdown_pills(thpool_p);
 
-  /* Poll all threads and wait for them to finish */
-  bsem_post_all(thpool_p->jobqueue.has_jobs);
-  while (thpool_p->num_threads_alive) {
-    usleep(1);
-  }
+  /* Manager also waits on the barrier */
+  pthread_barrier_wait(&thpool_p->shutdown_barrier);
+
+  /* All workers are gone here */
 }
 
 void redisearch_thpool_terminate_when_empty(redisearch_thpool_t* thpool_p) {
@@ -330,21 +343,18 @@ void redisearch_thpool_terminate_when_empty(redisearch_thpool_t* thpool_p) {
 
 /* Destroy the threadpool */
 void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
+    if (!thpool_p) return;
 
-  // No need to destroy if it's NULL
-  if (!thpool_p) return;
+    redisearch_thpool_terminate_threads(thpool_p);
 
-  redisearch_thpool_terminate_threads(thpool_p);
+    pthread_barrier_destroy(&thpool_p->shutdown_barrier);
 
-  /* Job queue cleanup */
-  priority_queue_destroy(&thpool_p->jobqueue);
-  /* Deallocs */
-  size_t n;
-  for (n = 0; n < thpool_p->total_threads_count; n++) {
-    thread_destroy(thpool_p->threads[n]);
-  }
-  rm_free(thpool_p->threads);
-  rm_free(thpool_p);
+    priority_queue_destroy(&thpool_p->jobqueue);
+    for (size_t n = 0; n < thpool_p->total_threads_count; n++)
+        thread_destroy(thpool_p->threads[n]);
+
+    rm_free(thpool_p->threads);
+    rm_free(thpool_p);
 }
 
 /* Pause all threads in threadpool */
@@ -426,21 +436,18 @@ static void thread_hold(int sig_id) {
  * @return nothing
  */
 static void* thread_do(struct thread* thread_p) {
-
-  /* Set thread name for profiling and debuging */
+  /* Set thread name for profiling and debugging */
   char thread_name[128] = {0};
   sprintf(thread_name, "thread-pool-%d", thread_p->id);
 
 #if defined(__linux__)
-  /* Use prctl instead to prevent using _GNU_SOURCE flag and implicit declaration */
   prctl(PR_SET_NAME, thread_name);
 #elif defined(__APPLE__) && defined(__MACH__)
   pthread_setname_np(thread_name);
 #else
-	LOG_IF_EXISTS("warning", "thread_do(): pthread_setname_np is not supported on this system")
+  LOG_IF_EXISTS("warning", "thread_do(): pthread_setname_np is not supported on this system")
 #endif
 
-  /* Assure all threads have been created before starting serving */
   redisearch_thpool_t* thpool_p = thread_p->thpool_p;
   LOG_IF_EXISTS("verbose", "Creating background thread-%d", thread_p->id)
 
@@ -450,7 +457,7 @@ static void* thread_do(struct thread* thread_p) {
   act.sa_flags = 0;
   act.sa_handler = thread_hold;
   if (sigaction(SIGUSR2, &act, NULL) == -1) {
-    LOG_IF_EXISTS("warning", "thread_do(): cannot handle SIGUSR1")
+      LOG_IF_EXISTS("warning", "thread_do(): cannot handle SIGUSR1")
   }
 
   /* Mark thread as alive (initialized) */
@@ -458,41 +465,40 @@ static void* thread_do(struct thread* thread_p) {
   thpool_p->num_threads_alive += 1;
   pthread_mutex_unlock(&thpool_p->thcount_lock);
 
-  while (thpool_p->keepalive) {
+  while (1) {
+      bsem_wait(thpool_p->jobqueue.has_jobs);
+      LOG_IF_EXISTS("debug", "Thread-%d is running iteration", thread_p->id)
 
-    bsem_wait(thpool_p->jobqueue.has_jobs);
-    LOG_IF_EXISTS("debug", "Thread-%d is running iteration", thread_p->id)
-    if (thpool_p->keepalive) {
+      job* job_p = priority_queue_pull(&thpool_p->jobqueue, thread_p->id);
+
+      /* Shutdown signal (poison pill) */
+      if (job_p == NULL || job_p->function == NULL) {
+          if (job_p) rm_free(job_p);
+          break;
+      }
 
       pthread_mutex_lock(&thpool_p->thcount_lock);
       thpool_p->num_threads_working++;
       pthread_mutex_unlock(&thpool_p->thcount_lock);
 
-      /* Read job from queue and execute it */
-      void (*func_buff)(void*);
-      void* arg_buff;
-      job* job_p = priority_queue_pull(&thpool_p->jobqueue, thread_p->id);
-      if (job_p) {
-        func_buff = job_p->function;
-        arg_buff = job_p->arg;
-        func_buff(arg_buff);
-        rm_free(job_p);
-      }
+      job_p->function(job_p->arg);
+      rm_free(job_p);
 
       pthread_mutex_lock(&thpool_p->thcount_lock);
       thpool_p->num_threads_working--;
-      if (job_p) thpool_p->total_jobs_done++;
+      thpool_p->total_jobs_done++;
+
       if (thpool_p->num_threads_working == 0) {
-	      LOG_IF_EXISTS("debug", "All threads are idle")
-	      pthread_cond_signal(&thpool_p->threads_all_idle);
+          LOG_IF_EXISTS("debug", "All threads are idle")
+          pthread_cond_signal(&thpool_p->threads_all_idle);
       }
-	  if (priority_queue_len(&thpool_p->jobqueue) == 0 && thpool_p->terminate_when_empty) {
-		  LOG_IF_EXISTS("verbose", "Job queue is empty - terminating thread %d", thread_p->id);
-          thpool_p->keepalive = 0;
-	  }
+
       pthread_mutex_unlock(&thpool_p->thcount_lock);
-    }
   }
+
+  LOG_IF_EXISTS("verbose", "Thread-%d reached shutdown barrier", thread_p->id)
+  pthread_barrier_wait(&thpool_p->shutdown_barrier);
+
   pthread_mutex_lock(&thpool_p->thcount_lock);
   LOG_IF_EXISTS("verbose", "Terminating thread %d", thread_p->id)
   thpool_p->num_threads_alive--;
@@ -500,6 +506,7 @@ static void* thread_do(struct thread* thread_p) {
 
   return NULL;
 }
+
 
 /* Frees a thread  */
 static void thread_destroy(thread* thread_p) {
