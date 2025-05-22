@@ -535,7 +535,7 @@ static void IndexerYieldWhileLoading(RedisModuleCtx *ctx) {
   static size_t opCounter = 0;
 
   // If server is loading, Yield to Redis every RSGlobalConfig.indexerYieldEveryOps operations
-  if (g_isLoading && ++opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
+  if (RedisModule_Yield && g_isLoading && ++opCounter >= RSGlobalConfig.indexerYieldEveryOpsWhileLoading) {
     opCounter = 0;
     IncrementYieldCounter(); // Track that we called yield
     RedisModule_Yield(ctx, REDISMODULE_YIELD_FLAG_CLIENTS, NULL);
