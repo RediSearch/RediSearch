@@ -1280,7 +1280,7 @@ def test_mod_7882(env:Env):
 @skip(cluster=True)
 def test_mod_6783(env:Env):
   n_max_sortable = 1024
-  n_docs = 10
+  n_docs = 500
   step = 71 # Testing every possible number of sortables is too slow
 
   # Add documents with a unique values for each sortable field, in unique random orders
