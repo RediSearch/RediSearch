@@ -42,7 +42,7 @@ CONFIG_GETTER(getNumPartitions) {
   return sdsnew("AUTO");
 }
 
-// TIMEOUT
+// CLUSTER_TIMEOUT
 CONFIG_SETTER(setClusterTimeout) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   int acrc = AC_GetInt(ac, &realConfig->timeoutMS, AC_F_GE1);
@@ -201,7 +201,7 @@ static RSConfigOptions clusterOptions_g = {
              .setValue = setNumPartitions,
              .getValue = getNumPartitions,
              .flags = RSCONFIGVAR_F_IMMUTABLE},
-            {.name = "TIMEOUT",
+            {.name = "CLUSTER_TIMEOUT",
              .helpText = "Cluster synchronization timeout",
              .setValue = setClusterTimeout,
              .getValue = getClusterTimeout},
