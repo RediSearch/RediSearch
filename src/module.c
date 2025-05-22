@@ -1462,6 +1462,8 @@ void RediSearch_CleanupModule(void) {
 
   Dictionary_Free();
   RediSearch_LockDestory();
+
+  IndexError_freeNA();
 }
 
 // A reducer that just merges N sets of strings by chaining them into one big array with no

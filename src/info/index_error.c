@@ -28,6 +28,15 @@ char* const BackgroundIndexingOOMfailure_String = "background indexing status";
 char* const outOfMemoryFailure = "OOM failure";
 RedisModuleString* NA_rstr = NULL;
 
+
+void IndexError_freeNA() {
+    if (NA_rstr) {
+
+        RedisModule_FreeString(RSDummyContext, NA_rstr);
+        NA_rstr = NULL;
+    }
+
+}
 static void initDefaultKey() {
     NA_rstr = RedisModule_CreateString(RSDummyContext, NA, strlen(NA));
     RedisModule_TrimStringAllocation(NA_rstr);
