@@ -69,6 +69,7 @@ def testGetConfigOptions(env):
     check_config('INDEX_CURSOR_LIMIT')
     check_config('ENABLE_UNSTABLE_FEATURES')
     check_config('BM25STD_TANH_FACTOR')
+    check_config('INDEXER_YIELD_EVERY_OPS')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
@@ -97,6 +98,7 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', 1).equal('OK')
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
@@ -158,6 +160,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
+    env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
 
 @skip(cluster=True)
 def testInitConfig():

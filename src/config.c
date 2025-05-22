@@ -677,6 +677,19 @@ CONFIG_GETTER(getBM25StdTanhFactor) {
   return sdscatprintf(ss, "%lu", config->requestConfigParams.BM25STD_TanhFactor);
 }
 
+// INDEXER_YIELD_EVERY_OPS
+CONFIG_SETTER(setIndexerYieldEveryOps) {
+  unsigned int yieldEveryOps;
+  int acrc = AC_GetUnsigned(ac, &yieldEveryOps, AC_F_GE1);
+  config->indexerYieldEveryOpsWhileLoading = yieldEveryOps;
+  RETURN_STATUS(acrc);
+}
+
+CONFIG_GETTER(getIndexerYieldEveryOps) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->indexerYieldEveryOpsWhileLoading);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -968,6 +981,10 @@ RSConfigOptions RSGlobalConfigOptions = {
                       "The default value is 4.",
           .setValue = setBM25StdTanhFactor,
           .getValue = getBM25StdTanhFactor},
+        {.name = "INDEXER_YIELD_EVERY_OPS",
+         .helpText = "The number of operations to perform before yielding to Redis during indexing while loading",
+         .setValue = setIndexerYieldEveryOps,
+         .getValue = getIndexerYieldEveryOps},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {

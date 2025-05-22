@@ -142,6 +142,8 @@ typedef struct {
   // If set, we use an optimization that sorts the children of an intersection iterator in a way
   // where union iterators are being factorize by the number of their own children.
   int prioritizeIntersectUnionChildren;
+    // The number of indexing operations per field to perform before yielding to Redis during indexing while loading (so redis can be responsive)
+  unsigned int indexerYieldEveryOpsWhileLoading;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
   // Enable to execute unstable features
@@ -242,6 +244,7 @@ void UpgradeDeprecatedMTConfigs();
 #define DEFAULT_BM25STD_TANH_FACTOR 4
 #define BM25STD_TANH_FACTOR_MAX 10000
 #define BM25STD_TANH_FACTOR_MIN 1
+#define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
 
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG \
@@ -293,6 +296,7 @@ void UpgradeDeprecatedMTConfigs();
     .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE ,                \
     .hideUserDataFromLog = false,                                               \
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,      \
+    .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
   }
 
 #define REDIS_ARRAY_LIMIT 7
