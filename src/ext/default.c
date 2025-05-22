@@ -39,24 +39,6 @@
 // normalize TF by number of tokens (weighted)
 #define NORM_DOCLEN 2
 
-#define EXPLAIN(exp, fmt, args...) \
-  {                                \
-    if (exp) {                     \
-      explain(exp, fmt, ##args);   \
-    }                              \
-  }
-
-static inline void explain(RSScoreExplain *scrExp, char *fmt, ...) {
-  void *tempStr = scrExp->str;
-
-  va_list ap;
-  va_start(ap, fmt);
-  rm_vasprintf((char **restrict) & scrExp->str, fmt, ap);
-  va_end(ap);
-
-  rm_free(tempStr);
-}
-
 static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **scrExp) {
   if (*scrExp) {
     RSScoreExplain *finalScrExp = rm_calloc(1, sizeof(RSScoreExplain));
@@ -707,6 +689,11 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
 
   /* Register BM25 scorer - NORMALIZED STANDARD VARIATION - TANH */
   if (ctx->RegisterScoringFunction(BM25_STD_NORMALIZED_TANH_SCORER_NAME, BM25StdTanhScorer, NULL, NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Register BM25 scorer - NORMALIZED STANDARD VARIATION - MAX */
+  if (ctx->RegisterScoringFunction(BM25_STD_NORMALIZED_MAX_SCORER_NAME, BM25StdScorer, NULL, NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 

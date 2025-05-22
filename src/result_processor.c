@@ -16,7 +16,6 @@
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
-
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -64,6 +63,15 @@ void SearchResult_Clear(SearchResult *r) {
 void SearchResult_Destroy(SearchResult *r) {
   SearchResult_Clear(r);
   RLookupRow_Cleanup(&r->rowdata);
+}
+
+// Overwrites the contents of 'dst' with those from 'src'.
+// Ensures proper cleanup of any existing data in 'dst'.
+static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
+  if (!src) return;
+  RLookupRow oldrow = dst->rowdata;
+  *dst = *src;
+  RLookupRow_Cleanup(&oldrow);
 }
 
 
@@ -376,11 +384,8 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   SearchResult *cur_best = mmh_pop_max(self->pq);
 
   if (cur_best) {
-    RLookupRow oldrow = r->rowdata;
-    *r = *cur_best;
-
+    SearchResult_Override(r, cur_best);
     rm_free(cur_best);
-    RLookupRow_Cleanup(&oldrow);
     return RS_RESULT_OK;
   }
   int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
@@ -1074,7 +1079,7 @@ void SetLoadersForMainThread(AREQ *r) {
 static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
                                      "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
                                      "Grouper", "Projector", "Filter",            "Profile",
-                                     "Network", "Metrics Applier", "Key Name Loader"};
+                                     "Network", "Metrics Applier", "Key Name Loader", "Score Max Normalizer"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -1317,4 +1322,108 @@ ResultProcessor *RPCrash_New() {
 void PipelineAddCrash(struct AREQ *r) {
   ResultProcessor *crash = RPCrash_New();
   addResultProcessor(r, crash);
+}
+
+ /*******************************************************************************************************************
+   *  Max Score Normalizer Result Processor
+   *
+   * This result processor normalizes the scores of search results using division by
+   * the max score. It gathers all results from the upstream processor, finds the
+   * maximum score, and divides each score by the maximum. This ensures that all scores
+   * fall within the range [0, 1].
+   *
+   * The processor works in two phases:
+   * 1. Accumulation: Gather all results from upstream and find the max score.
+   * 2. Yield: Normalize each result’s score by division with the max score, then pass
+   *    it downstream.
+  *******************************************************************************************************************/
+ typedef struct {
+   ResultProcessor base;
+   // Stores the max value found (if needed in the future)
+   double maxValue;
+   const RLookupKey *scoreKey;
+   SearchResult *pooledResult;
+   arrayof(SearchResult *) pool;
+   bool timedOut;
+ } RPMaxScoreNormalizer;
+
+
+ static void RPMaxScoreNormalizer_Free(ResultProcessor *base) {
+   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)base;
+   array_free_ex(self->pool, srDtor(*(char **)ptr));
+   srDtor(self->pooledResult);
+   rm_free(self);
+ }
+
+ static int RPMaxScoreNormalizer_Yield(ResultProcessor *rp, SearchResult *r){
+   RPMaxScoreNormalizer* self = (RPMaxScoreNormalizer*)rp;
+   size_t length = array_len(self->pool);
+   if (length == 0) {
+    // We've already yielded all results, return EOF
+    int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    self->timedOut = false;
+    return ret;
+   }
+  SearchResult *poppedResult = array_pop(self->pool);
+  SearchResult_Override(r, poppedResult);
+  rm_free(poppedResult);
+  double oldScore = r->score;
+  if (self->maxValue != 0) {
+    r->score /= self->maxValue;
+  }
+  if (self->scoreKey) {
+    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
+  }
+  EXPLAIN(r->scoreExplain,
+        "Final BM25STD.NORM: %.2f = Original Score: %.2f / Max Score: %.2f",
+        r->score, oldScore, self->maxValue);
+  return RS_RESULT_OK;
+ }
+
+static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
+  RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
+  // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
+  int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
+  // if our upstream has finished - just change the state to not accumulating, and yield
+  if (rc == RS_RESULT_EOF) {
+    rp->Next = RPMaxScoreNormalizer_Yield;
+    return rp->Next(rp, r);
+  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+    self->timedOut = true;
+    rp->Next = RPMaxScoreNormalizer_Yield;
+    return rp->Next(rp, r);
+  } else if (rc != RS_RESULT_OK) {
+    return rc;
+  }
+
+  self->maxValue = MAX(self->maxValue, self->pooledResult->score);
+  // copy the index result to make it thread safe - but only if it is pushed to the heap
+  self->pooledResult->indexResult = NULL;
+  array_ensure_append_1(self->pool, self->pooledResult);
+
+  // we need to allocate a new result for the next iteration
+  self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
+  return RESULT_QUEUED;
+}
+
+static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
+  RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
+  uint32_t chunkLimit = rp->parent->resultLimit;
+  rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
+  int rc;
+  while ((rc = RPMaxScoreNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED) {};
+  rp->parent->resultLimit = chunkLimit; // restore the limit
+  return rc;
+}
+
+ /* Create a new Max Collector processor */
+ ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk) {
+  RPMaxScoreNormalizer *ret = rm_calloc(1, sizeof(*ret));
+  ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
+  ret->pool = array_new(SearchResult*, 0);
+  ret->base.Next = RPMaxScoreNormalizer_Accum;
+  ret->base.Free = RPMaxScoreNormalizer_Free;
+  ret->base.type = RP_MAX_SCORE_NORMALIZER;
+  ret->scoreKey = rlk;
+  return &ret->base;
 }
