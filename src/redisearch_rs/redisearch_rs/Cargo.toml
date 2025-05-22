@@ -21,11 +21,22 @@ bench = false
 
 [features]
 default = []
-trie = ["dep:trie_rs"]
+trie = []
+mock_allocator = ["dep:redis_mock"]
+
+[build-dependencies]
+cbindgen.workspace = true
 
 [dependencies]
+lending-iterator.workspace = true
 libc.workspace = true
-trie_rs = { workspace = true, optional = true }
+low_memory_thin_vec.workspace = true
+trie_rs = { workspace = true }
+redis_mock = { workspace = true, optional = true }
+wildcard = { workspace = true }
+
+[dev-dependencies]
+redisearch_rs = { path = ".", features = ["trie", "mock_allocator"] }
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,
