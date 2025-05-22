@@ -24,10 +24,9 @@
 // Print the profile of a single shard
 void Profile_Print(RedisModule_Reply *reply, void *ctx);
 // Print the profile of a single shard, in full format
-void Profile_PrintDefault(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions);
 
 void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime,
-                 PrintProfileConfig *config);
+                PrintProfileConfig *config);
 
 #define PROFILE_STR "Profile"
 #define PROFILE_SHARDS_STR "Shards"
@@ -39,7 +38,10 @@ typedef struct {
   AREQ *req;
   bool timedout;
   bool reachedMaxPrefixExpansions;
+  bool bgScanOOM;
 } ProfilePrinterCtx; // Context for the profile printing callback
+
+void Profile_PrintDefault(RedisModule_Reply *reply, void *ctx);
 
 typedef void (*ProfilePrinterCB)(RedisModule_Reply *reply, void *ctx);
 
