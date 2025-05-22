@@ -635,7 +635,7 @@ char *RMCK_Strdup(const char *s) {
 
 REPLY_FUNC(WithLongLong, long long)
 REPLY_FUNC(WithSimpleString, const char *)
-REPLY_FUNC(WithError, const char *);
+REPLY_FUNC(WithError, const char *)
 REPLY_FUNC(WithArray, size_t)
 REPLY_FUNC(WithStringBuffer, const char *, size_t)
 REPLY_FUNC(WithDouble, double)
