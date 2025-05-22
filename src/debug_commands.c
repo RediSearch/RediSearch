@@ -1003,14 +1003,14 @@ void ResetYieldCounter(void) {
  * Get or reset the counter for yields during loading operations
  */
 DEBUG_COMMAND(YieldCounter) {
-  if (argc > 3) {
+  if (argc > 1) {
     return RedisModule_WrongArity(ctx);
   }
   
   // Check if we need to reset the counter
-  if (argc == 3) {
+  if (argc == 1) {
     size_t len;
-    const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
+    const char *subCmd = RedisModule_StringPtrLen(argv[0], &len);
     if (STR_EQCASE(subCmd, len, "RESET")) {
       ResetYieldCounter();
       return RedisModule_ReplyWithSimpleString(ctx, "OK");
