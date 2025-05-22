@@ -1331,7 +1331,7 @@ def test_mod_9423(env:Env):
   env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF.DOCNORM', 'EXPLAINSCORE').equal(expected)
 
 # Test that RedisModule_Yield is called while indexing in order to prevent master from killing the replica [MOD-8809]
-@skip(cluster=True)
+@skip(cluster=True, redis_less_than="7.0.0")
 def test_mod_8809_single_index_single_field(env:Env):
 
     # Configure yield every 10 operations
@@ -1387,7 +1387,7 @@ def test_mod_8809_single_index_single_field(env:Env):
     env.assertGreaterEqual(yields_count, expected_min_yields, 
                           message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
 
-@skip(cluster=True)
+@skip(cluster=True, redis_less_than="7.0.0")
 def test_mod_8809_multi_index_multi_fields(env:Env):
 
     # Configure yield every 10 operations
