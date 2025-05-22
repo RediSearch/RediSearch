@@ -107,15 +107,6 @@ impl Buffer {
     }
 
     /// Returns the initialized portion of the buffer as a slice.
-    ///
-    /// # Safety
-    ///
-    /// This method assumes the safety invariants of `Buffer` are upheld:
-    /// * `data` points to a valid memory region of at least `capacity` bytes.
-    /// * The first `len` bytes of that memory are initialized.
-    ///
-    /// If these invariants are violated, this method may return an invalid slice,
-    /// leading to undefined behavior.
     pub fn as_slice(&self) -> &[u8] {
         // Safety: We assume `self.data` is a valid pointer as per `Buffer`'s invariants.
         let data = unsafe { self.data.as_ref() };
@@ -126,16 +117,6 @@ impl Buffer {
     }
 
     /// Returns the initialized portion of the buffer as a mutable slice.
-    ///
-    /// # Safety
-    ///
-    /// This method assumes the safety invariants of Buffer are upheld:
-    /// * `data` points to a valid memory region of at least `capacity` bytes.
-    /// * The first `len` bytes of that memory are initialized.
-    /// * The caller has exclusive access to the buffer (no aliasing).
-    ///
-    /// If these invariants are violated, this method may return an invalid mutable slice,
-    /// leading to undefined behavior.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         // Safety: We assume `self.data` is a valid pointer as per `Buffer`'s invariants
         // and that we have exclusive access to the buffer.
@@ -237,6 +218,10 @@ impl std::io::Write for BufferWriter {
         let buffer = unsafe { self.buf.as_mut() };
 
         // Check if we need to grow the buffer to accommodate the new data
+        debug_assert!(
+            buffer.len.checked_add(bytes.len()).is_some(),
+            "Buffer overflow"
+        );
         if buffer.len + bytes.len() > buffer.capacity {
             // Safety: `Buffer_Grow` is a C function that increases the buffer's capacity. It
             // expects a valid buffer pointer and returns the number of bytes added to capacity.
