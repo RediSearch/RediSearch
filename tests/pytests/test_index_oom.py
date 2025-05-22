@@ -5,8 +5,9 @@ bgIndexingStatusStr = "background indexing status"
 indexing_failures_str = 'indexing failures'
 last_indexing_error_key_str = 'last indexing error key'
 last_indexing_error_str = 'last indexing error'
-OOM_indexing_failure_str = 'Index background scan failed due to OOM. New documents will not be indexed.'
+OOM_indexing_failure_str = 'Index background scan did not complete due to OOM. New documents will not be indexed.'
 OOMfailureStr = "OOM failure"
+partial_results_warning_str = 'Index contains partial data due to an indexing failure caused by insufficient memory'
 
 def get_memory_consumption_ratio(env):
   used_memory = env.cmd('INFO', 'MEMORY')['used_memory']
@@ -69,6 +70,8 @@ def test_stop_background_indexing_on_low_mem(env):
 
 @skip(cluster=True)
 def test_stop_indexing_low_mem_verbosity(env):
+  # Change to resp3
+  env = Env(protocol=3)
   oom_test_config(env)
 
   # Create OOM
@@ -142,6 +145,22 @@ def test_stop_indexing_low_mem_verbosity(env):
                         bgIndexingStatusStr: OOMfailureStr,
                         }
   env.assertEqual(error_dict, expected_error_dict)
+  # Check resp3 warning for OOM
+  res = env.cmd('FT.SEARCH', 'idx','*')
+  warning = res['warning'][0]
+  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  # Check resp3 warning in FT.PROFILE
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
+  warning = res['Results']['warning'][0]
+  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  # Check resp2 warning in FT.PROFILE
+  env.cmd('HELLO', '2')
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
+  results_str = res[1][1][0]
+  # find warning index
+  warning_index = results_str.index('Warning')+1
+  warning = results_str[warning_index]
+  env.assertEqual(warning, partial_results_warning_str)
 
 @skip(cluster=True)
 def test_idx_delete_during_bg_indexing(env):
@@ -258,56 +277,6 @@ def test_change_config_during_bg_indexing(env):
   # Verify memory consumption
   memory_ratio = get_memory_consumption_ratio(env)
   env.assertAlmostEqual(memory_ratio, 0.85, delta=0.1)
-
-@skip(cluster=True)
-def test_oom_query_error(env):
-  oom_test_config(env)
-
-  idx_name = 'idx'
-  error_querys_star = ['SEARCH', 'AGGREGATE', 'TAGVALS', 'MGET']
-  queries_params = {
-                    'PROFILE': f'{idx_name} SEARCH QUERY * ',
-                    'SYNDUMP': f'{idx_name}',
-                    'ALTER': f'{idx_name} SCHEMA ADD field1 TEXT',
-                  }
-  queries_params.update({query: f'{idx_name} *' for query in error_querys_star})
-  # Using a large number of docs to make sure the test is not flaky
-  n_docs = 10000
-  for i in range(n_docs):
-    env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
-  # Set pause before indexing
-  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
-  # Set pause on OOM
-  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
-  # Create an index with a text field.
-  env.expect('ft.create', idx_name, 'SCHEMA', 't', 'text').ok()
-  waitForIndexStatus(env, 'NEW', idx_name)
-  # Set tight memory limit
-  set_tight_maxmemory_for_oom(env, 0.85)
-  # Resume indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-  # Wait for OOM
-  waitForIndexStatus(env, 'PAUSED_ON_OOM', idx_name)
-  # Resume the indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-  # Wait for the indexing to finish
-  waitForIndexFinishScan(env, idx_name)
-
-  for query,param in queries_params.items():
-    parsed_query = f'FT.{query} {param}'
-    env.expect(parsed_query).error().equal(f'Background scan for index {idx_name} failed due to OOM.'
-                                           ' Queries cannot be executed on an incomplete index.')
-
-  # Test FT.DEBUG FT.SEARCH/AGGREGATE command
-  for query_type in ['SEARCH', 'AGGREGATE']:
-    parsed_query = f'_FT.DEBUG FT.{query_type} {idx_name} * TIMEOUT_AFTER_N 3 DEBUG_PARAMS_COUNT 2 '
-    env.expect(parsed_query).error().equal(f'Background scan for index {idx_name} failed due to OOM.'
-                                           ' Queries cannot be executed on an incomplete index.')
-
-  # Verify ft info possible
-  env.expect('FT.INFO', idx_name).noError()
-  # Verify ft dropindex possible
-  env.expect('FT.DROPINDEX', idx_name).ok()
 
 def test_cluster_oom_all_shards(env):
   # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
