@@ -464,8 +464,9 @@ def testCursorDepletionBM25NORMNonStrictTimeoutPolicy():
     # returns timeout_res_count results.
     # Cursor read replies from each shard sequentially. It continues
     # reading from a shard until that shard reaches its timeout_res_count.
-    # For example, with 3 shards, a cursor count of 3, and timeout_res_count of 5,
-    # the reads might return: 3, 2, 3, 2, 3, 2, 0 — totaling 5 results from each
+    # timeout_res_count must be less than cursor_count (expecting a timeout to occur)
+    # For example, with 3 shards, a cursor count of 5, and timeout_res_count of 3,
+    # the reads might return: shard1: 3, 2, shard2: 3, 2, shard3: 3, 2, any shard: 0 — totaling 5 results from each
     # shard. The final 0 appears because the cursor read is triggered again, but
     # no shard has more results left. Once all shards reach timeout_res_count,
     # the cursor is fully depleted.

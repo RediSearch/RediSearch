@@ -600,7 +600,7 @@ class TestBM25NormMax:
         self.env.assertEqual(res[0], 0)
 
         agg = self.env.cmd('FT.AGGREGATE', 'idx', query, 'ADDSCORES', 'SCORER', 'BM25STD.NORM')
-        self.env.assertEqual(len(agg), 1)
+        self.env.assertEqual(agg[0], 0)
 
     def test_cursor(self):
         agg_norm = self.env.cmd('FT.AGGREGATE', 'idx', 'hello world', 'ADDSCORES', 'SCORER', 'BM25STD.NORM',
