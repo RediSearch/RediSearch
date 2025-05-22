@@ -76,6 +76,10 @@ void IndexError_Clear(IndexError error);
 // Reply the index errors to the client.
 void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate, bool withOOMstatus);
 
+// Clears global variables used in the IndexError module.
+// This function should be called on shutdown.
+void IndexError_GlobalCleanup();
+
 #include "coord/rmr/reply.h"
 
 // Adds the error message of the other IndexError to the IndexError. The error_count is incremented and the last_error is set to the error_message.
