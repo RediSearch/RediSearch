@@ -26,11 +26,11 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx);
 // Print the profile of a single shard, in full format
 
 void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime,
-  PrintProfileConfig *config);
+                PrintProfileConfig *config);
 
-  #define PROFILE_STR "Profile"
-  #define PROFILE_SHARDS_STR "Shards"
-  #define PROFILE_COORDINATOR_STR "Coordinator"
+#define PROFILE_STR "Profile"
+#define PROFILE_SHARDS_STR "Shards"
+#define PROFILE_COORDINATOR_STR "Coordinator"
 
 void Profile_PrepareMapForReply(RedisModule_Reply *reply);
 
