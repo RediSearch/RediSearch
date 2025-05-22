@@ -53,6 +53,7 @@ class TestDebugCommands(object):
             "TTL_EXPIRE",
             "VECSIM_INFO",
             "DELETE_LOCAL_CURSORS",
+            'YIELDS_ON_LOAD_COUNTER',
             'FT.AGGREGATE',
             'FT.SEARCH',
         ]
@@ -61,7 +62,7 @@ class TestDebugCommands(object):
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:
-            if cmd in ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS']:
+            if cmd in ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'GC_WAIT_FOR_JOBS', 'DELETE_LOCAL_CURSORS', 'YIELDS_ON_LOAD_COUNTER']:
                 # 'GIT_SHA' and 'DUMP_PREFIX_TRIE' do not return err_msg
                 continue
             self.env.expect('FT.DEBUG', cmd).raiseError().contains(err_msg)
@@ -565,3 +566,12 @@ class TestQueryDebugCommands(object):
         def listResults(res):
             return [{res[i]: res[i + 1]} for i in range(1, len(res[1:]), 2)]
         self.Resp2("SEARCH", ['SORTBY', 'n'], listResults)
+
+@skip(cluster=True)
+def test_yield_counter(env):
+    # Giving wrong arity
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER','ExtraARG1','ExtraARG2').error()\
+    .contains('wrong number of arguments')
+    # Giving wrong subcommand
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'NOT_A_COMMAND').error()\
+    .contains('Unknown subcommand')

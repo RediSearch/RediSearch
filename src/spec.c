@@ -2706,7 +2706,8 @@ int CompareVestions(Version v1, Version v2) {
 
   return 0;
 }
-// This funciton is called in case the server is started or
+
+// This function is called in case the server is started or
 // when the replica is loading the RDB file from the master.
 static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint64_t subevent,
                                  void *data) {
@@ -2720,6 +2721,7 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
       legacySpecDict = dictCreate(&dictTypeHeapStrings, NULL);
     }
     RedisModule_Log(RSDummyContext, "notice", "Loading event starts");
+    g_isLoading = true;
 #ifdef MT_BUILD
     workersThreadPool_InitIfRequired();
 #endif
@@ -2739,12 +2741,14 @@ static void Indexes_LoadingEvent(RedisModuleCtx *ctx, RedisModuleEvent eid, uint
 #ifdef MT_BUILD
     workersThreadPool_waitAndTerminate(ctx);
 #endif
+    g_isLoading = false;
     RedisModule_Log(RSDummyContext, "notice", "Loading event ends");
   }
 #ifdef MT_BUILD
   else if (subevent == REDISMODULE_SUBEVENT_LOADING_FAILED) {
     // Clear pending jobs from job queue in case of short read.
     workersThreadPool_waitAndTerminate(ctx);
+    g_isLoading = false;
   }
 #endif
 }

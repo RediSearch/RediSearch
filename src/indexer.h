@@ -13,6 +13,9 @@
 #include "concurrent_ctx.h"
 #include "util/arr.h"
 #include "geometry_index.h"
+
+extern bool g_isLoading;
+
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
   int isMulti;
@@ -104,5 +107,12 @@ typedef int (*IndexerFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const Do
 int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
                    QueryError *status);
+
+/**
+ * Yield to Redis after a certain number of operations during indexing while loading.
+ * This helps keep Redis responsive during long indexing operations.
+ * @param ctx The Redis context
+ */
+static void IndexerYieldWhileLoading(RedisModuleCtx *ctx);
 
 #endif
