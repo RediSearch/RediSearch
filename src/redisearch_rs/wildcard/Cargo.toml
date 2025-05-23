@@ -15,6 +15,9 @@ harness = false
 [lints]
 workspace = true
 
+[dependencies]
+memchr.workspace = true
+
 [dev-dependencies]
 criterion.workspace = true
 proptest = { workspace = true, features = ["std"] }
