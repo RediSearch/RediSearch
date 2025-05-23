@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 
+use pretty_assertions::Comparison;
 use redis::{FromRedisValue, RedisResult, Value};
 
 use crate::redis_client::RedisClient;
@@ -69,9 +70,10 @@ impl TestRunner {
         let changeset_response: RedisResult<T> = self.changeset_client.query(command, args);
 
         if base_response != changeset_response {
-            eprintln!("Command: {:?} failed", command);
-            eprintln!("Base response: {:#?}", base_response);
-            eprintln!("Changeset response: {:#?}", changeset_response);
+            let diff = Comparison::new(&base_response, &changeset_response);
+
+            println!("'{command} {}' has different responses!", args.join(" "));
+            println!("{diff}");
 
             false
         } else {
