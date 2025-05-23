@@ -24,17 +24,39 @@ jobs:
         id: get-artifact-url
         if: github.event_name == 'pull_request'
         run: |
-          RUN_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          # Fetch the 50 most recent commits on master
+          COMMITS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs?per_page=1&branch=master&status=success")
-          echo "Run API Response: $RUN_RESPONSE"
-          RUN_ID=$(echo "$RUN_RESPONSE" | jq -r '.workflow_runs[0].id')
-          ARTIFACT_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts")
-          echo "Artifact API Response: $ARTIFACT_RESPONSE"
-          ARTIFACT_URL=$(echo "$ARTIFACT_RESPONSE" | jq -r '.artifacts[] | select(.name == "rust-benchmark-results-master") | .archive_download_url')
+            "https://api.github.com/repos/${{ github.repository }}/commits?sha=master&per_page=50" \
+            | jq -r '.[].sha')
+    
+          # Loop through commits to find the first artifact
+          ARTIFACT_URL=""
+          for COMMIT_SHA in $COMMITS; do
+            # Get workflow runs for this commit
+            RUNS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs?head_sha=$COMMIT_SHA&status=success" \
+            | jq -r '.workflow_runs[] | select(.event == "push") | .id')
+      
+            # Check each run for the artifact
+            for RUN_ID in $RUNS; do
+              ARTIFACT_URL=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" \
+                | jq -r '.artifacts[] | select(.name == "rust-benchmark-results-master") | .archive_download_url')
+              if [ -n "$ARTIFACT_URL" ]; then
+                break 2 # Exit both loops if artifact is found
+              fi
+            done
+          done
+    
           echo "artifact-url=$ARTIFACT_URL" >> $GITHUB_OUTPUT
+          if [ -z "$ARTIFACT_URL" ]; then
+            echo "No artifact found for rust-benchmark-results-master in the last 25 commits"
+          else
+            echo "Found artifact for commit $COMMIT_SHA: $ARTIFACT_URL"
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true # Prevent failure if no artifact exists
