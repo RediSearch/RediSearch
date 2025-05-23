@@ -13,7 +13,7 @@ use std::path::PathBuf;
 ///   part_len: 323     // Paragraph length
 /// }
 /// ```
-pub fn get_1984_index() -> Result<Vec<String>, ureq::Error> {
+pub fn get_1984_index() -> Result<Vec<(String, Vec<String>)>, ureq::Error> {
     let text = get_1984_text()?;
 
     let mut part_num = 0;
@@ -21,13 +21,54 @@ pub fn get_1984_index() -> Result<Vec<String>, ureq::Error> {
     let mut index_pos = 0;
     let mut part_text = vec![];
 
-    let mut setup_queries = vec!["flushall".to_string()];
+    let mut setup_queries = vec![
+        ("flushall".to_string(), vec![]),
+        // Create the index first so that it is updated as new entries are added. If the index is
+        // created after the entries, then it will update in the background and the test queries
+        // will return inconsistent results based on the partial index.
+        (
+            "FT.CREATE".to_string(),
+            vec![
+                "idx:1984".to_string(),
+                "ON".to_string(),
+                "HASH".to_string(),
+                "PREFIX".to_string(),
+                "1".to_string(),
+                "1984:part:".to_string(),
+                "SCHEMA".to_string(),
+                "text".to_string(),
+                "TEXT".to_string(),
+                "WEIGHT".to_string(),
+                "1.0".to_string(),
+                "part_num".to_string(),
+                "NUMERIC".to_string(),
+                "SORTABLE".to_string(),
+                "index_pos".to_string(),
+                "NUMERIC".to_string(),
+                "SORTABLE".to_string(),
+                "length".to_string(),
+                "NUMERIC".to_string(),
+                "SORTABLE".to_string(),
+            ],
+        ),
+    ];
 
     for line in text.lines() {
         if line.is_empty() {
             let t = part_text.join(" ");
-            setup_queries.push(format!(
-                "HSET 1984:part:{part_num} text '{t}' part_num {part_num} index_pos {index_pos} part_len {part_len}"
+            setup_queries.push((
+                "HSET".to_string(),
+                vec![
+                    format!("1984:part:{part_num}"),
+                    "text".to_string(),
+                    t,
+                    "part_num".to_string(),
+                    part_num.to_string(),
+                    "index_pos".to_string(),
+                    index_pos.to_string(),
+                    "part_len".to_string(),
+                    part_len.to_string(),
+                ],
             ));
 
             part_num += 1;
@@ -41,14 +82,22 @@ pub fn get_1984_index() -> Result<Vec<String>, ureq::Error> {
     }
 
     let t = part_text.join(" ");
-    setup_queries.push(format!(
-        "HSET 1984:part:{part_num} text '{t}' part_num {part_num} index_pos {index_pos} part_len {part_len}"
+    setup_queries.push((
+        "HSET".to_string(),
+        vec![
+            format!("1984:part:{part_num}"),
+            "text".to_string(),
+            t,
+            "part_num".to_string(),
+            part_num.to_string(),
+            "index_pos".to_string(),
+            index_pos.to_string(),
+            "part_len".to_string(),
+            part_len.to_string(),
+        ],
     ));
 
-    Ok(vec![
-        setup_queries.join("\n"),
-        "FT.CREATE idx:1984 ON HASH PREFIX 1 '1984:part:' SCHEMA text TEXT WEIGHT 1.0 part_num NUMERIC SORTABLE index_pos NUMERIC SORTABLE length NUMERIC SORTABLE".to_string()
-    ])
+    Ok(setup_queries)
 }
 
 /// Gets the 1984 book text from the cache if it exists, otherwise fetches it from the Gutenberg

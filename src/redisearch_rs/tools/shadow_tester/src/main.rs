@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let queries = get_1984_index()?;
 
     let mut test_runner = TestRunner::new(queries, base_client, changeset_client);
-    test_runner.add_command("FT.SEARCH idx:1984 'thoughtcrime'");
+    test_runner.add_command("FT.SEARCH", &["idx:1984", "thoughtcrime"]);
 
     let success = test_runner.run()?;
 

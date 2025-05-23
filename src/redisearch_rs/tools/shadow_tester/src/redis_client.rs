@@ -1,19 +1,19 @@
-use std::io::{Read, Write};
-use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::thread::sleep;
 use std::time::Duration;
 
+use redis::{cmd, Client, Connection, FromRedisValue, RedisResult, ToRedisArgs};
+
 pub struct RedisClient {
-    stream: TcpStream,
     server_process: Child,
+    connection: Connection,
 }
 
 impl RedisClient {
     pub fn new(port: u16, rltest_path: &PathBuf, so_path: PathBuf) -> std::io::Result<Self> {
         // Start a RLTest server in the background
-        let mut server_process = Command::new(rltest_path)
+        let server_process = Command::new(rltest_path)
             .env("ENV_ONLY", "1")
             .env("REJSON", "0")
             .env("MODULE", so_path)
@@ -21,17 +21,15 @@ impl RedisClient {
             .spawn()?;
 
         // Wait a few seconds for the connection to be ready
+        let address = format!("redis://127.0.0.1:{port}");
         for _ in 0..5 {
-            let address = format!("127.0.0.1:{port}");
-
-            match TcpStream::connect(&address) {
-                Ok(stream) => {
+            let client = Client::open(address.clone()).expect("To create redis client");
+            match client.get_connection() {
+                Ok(connection) => {
                     println!("Redis server connnection ready at {address}");
-                    stream.set_read_timeout(Some(Duration::from_millis(350)))?;
-
                     return Ok(Self {
-                        stream,
                         server_process,
+                        connection,
                     });
                 }
                 Err(_) => {
@@ -41,36 +39,18 @@ impl RedisClient {
             }
         }
 
-        kill_process(&mut server_process)?;
-
         Err(std::io::Error::new(
             std::io::ErrorKind::Other,
-            "Server not ready",
+            "Failed to connect to RLTest server",
         ))
     }
 
-    pub fn query(&mut self, command: &str) -> std::io::Result<String> {
-        self.stream.write_all(command.as_bytes())?;
-        self.stream.write_all(b"\r\n")?;
-
-        // Read all available data
-        let mut buffer = Vec::new();
-        loop {
-            let mut chunk = [0; 1024];
-            match self.stream.read(&mut chunk) {
-                Ok(0) => break, // Connection closed (shouldn't happen with Redis)
-                Ok(n) => buffer.extend_from_slice(&chunk[0..n]),
-                Err(e)
-                    if e.kind() == std::io::ErrorKind::WouldBlock
-                        || e.kind() == std::io::ErrorKind::TimedOut =>
-                {
-                    break;
-                } // No more data available
-                Err(e) => return Err(e), // Actual error
-            }
-        }
-
-        Ok(String::from_utf8_lossy(&buffer).to_string())
+    pub fn query<T: FromRedisValue>(
+        &mut self,
+        command: &str,
+        args: impl ToRedisArgs,
+    ) -> RedisResult<T> {
+        cmd(command).arg(args).query(&mut self.connection)
     }
 }
 
