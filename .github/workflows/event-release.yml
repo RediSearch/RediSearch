@@ -160,8 +160,8 @@ jobs:
                       if obj["Key"].endswith(suffix):
                           yield obj["Key"]
 
-          def list_snapshots_by_branch(dir):
-              return list_files_by_branch(f"{dir}/snapshots/{dir}")
+          def list_snapshots_by_branch(dir, package):
+              return list_files_by_branch(f"{dir}/snapshots/{package}")
 
           # Return the git sha from the module.json file in the zip file (build sha)
           def extract_sha(key):
@@ -188,7 +188,8 @@ jobs:
 
           files = []
           for dir in [oss_dir, ent_dir]:
-              files.extend(list_snapshots_by_branch(dir))
+              package = "redisearch-community" if dir == oss_dir else ent_dir
+              files.extend(list_snapshots_by_branch(dir, package))
 
           group_print("${{ env.checkout_target }} Build Candidates", files)
 
