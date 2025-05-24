@@ -97,7 +97,7 @@ MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
       RedisModule_GetClusterNodeInfo(ctx, id_str, NULL, NULL, &port, NULL);
 
       // print the host and port received for node i
-      RedisModule_Log(ctx, "warning", "(RAZ) Received for node %d: Node %s, host: %s, port: %d\n", i, id_str, host, port);
+      RedisModule_Log(ctx, "warning", "(RAZ) Received for node %d: Node %.*s, host: %.*s, port: %d\n", i, (int)idlen, id, (int)hostlen, host, port);
 
       MRClusterNode node = {
           .endpoint =
