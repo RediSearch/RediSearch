@@ -47,6 +47,7 @@ MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
     RedisModule_Log(ctx, "warning", "Got no slots in CLUSTER SLOTS");
     return NULL;
   }
+
   // printf("Creating a topology of %zd slots\n", len);
   MRClusterTopology *topo = rm_calloc(1, sizeof(MRClusterTopology));
   topo->hashFunc = MRHashFunc_CRC16;
@@ -94,6 +95,9 @@ MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
       // For for information refer to: https://github.com/redis/redis/pull/12233
       int port = 0;
       RedisModule_GetClusterNodeInfo(ctx, id_str, NULL, NULL, &port, NULL);
+
+      // print the host and port received for node i
+      printf("(RAZ) Received for node %d: Node %s, host: %s, port: %d\n", i, id_str, host, port);
 
       MRClusterNode node = {
           .endpoint =
