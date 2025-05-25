@@ -44,7 +44,7 @@ jobs:
       VERBOSE: 1 # For logging
       RELEASE: 0 # We build snapshots. This variable is used in the pack name (see `make pack`)
       # Build command
-      BUILD_CMD: echo '::group::Build' && make build VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
+      BUILD_CMD: echo '::group::Build' && ./build.sh VERBOSE= GIT_BRANCH=$BRANCH && echo '::endgroup::'
     steps:
       # Setup
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
