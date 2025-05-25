@@ -1656,7 +1656,6 @@ void IndexSpec_Free(IndexSpec *spec) {
     for (size_t i = 0; i < spec->numFields; i++) {
       IndexError_Clear((spec->fields[i]).indexError);
     }
-    rm_free(spec->fields);
   }
 
   // Free unlinked index spec on a second thread
