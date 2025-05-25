@@ -23,6 +23,11 @@ typedef struct IndexError {
 // Global constant to place an index error object in maps/dictionaries.
 extern char* const IndexError_ObjectName;
 
+/***************************************************************
+ *  This API is NOT THREAD SAFE as it utilizes RedisModuleString objects
+ * which are not thread safe.
+***************************************************************/
+
 // Initializes an IndexError. The error_count is set to 0 and the last_error is set to NA.
 IndexError IndexError_Init();
 
@@ -43,6 +48,9 @@ struct timespec IndexError_LastErrorTime(const IndexError *error);
 
 // Clears an IndexError. If the last_error is not NA, it is freed.
 void IndexError_Clear(IndexError error);
+// Clears global variables used in the IndexError module.
+// This function should be called on shutdown.
+void IndexError_GlobalCleanup();
 
 #ifdef __cplusplus
 }

@@ -21,8 +21,6 @@ void FieldSpec_Cleanup(FieldSpec* fs) {
     rm_free(fs->name);
     fs->name = NULL;
   }
-
-  IndexError_Clear(fs->indexError);
 }
 
 void FieldSpec_SetSortable(FieldSpec* fs) {
