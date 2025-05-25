@@ -1281,6 +1281,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
 reset:
   for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
+    IndexError_Clear(sp->fields[ii].indexError);
     FieldSpec_Cleanup(&sp->fields[ii]);
   }
 
@@ -1653,6 +1654,11 @@ void IndexSpec_Free(IndexSpec *spec) {
   }
 
   IndexError_Clear(spec->stats.indexError);
+  if (spec->fields != NULL) {
+    for (size_t i = 0; i < spec->numFields; i++) {
+      IndexError_Clear((spec->fields[i]).indexError);
+    }
+  }
 
   // Free unlinked index spec on a second thread
   if (RSGlobalConfig.freeResourcesThread == false) {
