@@ -184,19 +184,27 @@ setup_build_environment() {
   BINDIR="${BINROOT}/${FULL_VARIANT}/${OUTDIR}"
 }
 
+start_group() {
+  if [[ -n $GITHUB_ACTIONS ]]; then
+    echo "::group::$1"
+  fi
+}
+
+end_group() {
+  if [[ -n $GITHUB_ACTIONS ]]; then
+    echo "::endgroup::"
+  fi
+}
+
 #-----------------------------------------------------------------------------
 # Function: prepare_coverage_capture
 # Run lcov preparations before testing for coverage
 #-----------------------------------------------------------------------------
 prepare_coverage_capture() {
-  if [[ -n $GITHUB_ACTIONS ]]; then
-    echo "::group::Code Coverage Preparation"
-  fi
+  start_group "Code Coverage Preparation"
   lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
   lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info
-  if [[ -n $GITHUB_ACTIONS ]]; then
-    echo "::endgroup::"
-  fi
+  end_group
 }
 
 #-----------------------------------------------------------------------------
@@ -206,7 +214,7 @@ prepare_coverage_capture() {
 capture_coverage() {
   NAME=${1:-cov} # Get output name. Defaults to `cov.info`
 
-  [[ -n $GITHUB_ACTIONS ]] && echo "::group::Code Coverage Capture ($NAME)"
+  start_group "Code Coverage Capture ($NAME)"
 
   # Capture coverage collected while running tests previously
   lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info
@@ -224,7 +232,7 @@ capture_coverage() {
   lcov -o $BINROOT/$NAME.info --ignore-errors unused --remove $BINROOT/source.info \
     "*/tests/*" \
 
-  [[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::"
+  end_group
 
   # Clean up temporary files
   rm $BINROOT/base.info $BINROOT/test.info $BINROOT/full.info $BINROOT/source.info

@@ -34,6 +34,8 @@
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
+// Number of attempts to wait for the child to exit gracefully before trying to terminate it
+#define GC_WAIT_ATTEMPTS 4
 
 typedef enum {
   // Terms have been collected
@@ -290,12 +292,7 @@ static void sendHeaderString(ForkGC *gc, void *arg) {
 }
 
 static void FGC_reportProgress(ForkGC *gc) {
-#if defined(COV) || defined(COVERAGE)
-  // Don't send heartbeats when running coverage tests, as it can mess with the coverage report.
-  return;
-#else
   RedisModule_SendChildHeartbeat(gc->progress);
-#endif
 }
 
 static void FGC_setProgress(ForkGC *gc, float progress) {
@@ -1346,6 +1343,12 @@ static int periodicCb(void *privdata) {
       gcrv = 0;
     }
     close(gc->pipefd[GC_READERFD]);
+    // give the child some time to exit gracefully
+    for (int attempt = 0; attempt < GC_WAIT_ATTEMPTS; ++attempt) {
+      if (waitpid(cpid, NULL, WNOHANG) == 0) {
+        usleep(500);
+      }
+    }
     // KillForkChild must be called when holding the GIL
     // otherwise it might cause a pipe leak and eventually run
     // out of file descriptor
