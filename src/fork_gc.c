@@ -66,7 +66,7 @@ static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
     perror("broken pipe, exiting GC fork: write() failed");
     // just exit, do not abort(), which will trigger a watchdog on RLEC, causing adverse effects
     RedisModule_Log(fgc->ctx, "warning", "GC fork: broken pipe, exiting");
-    exit(1);
+    RedisModule_ExitFromChild(1);
   }
 }
 
@@ -290,7 +290,12 @@ static void sendHeaderString(ForkGC *gc, void *arg) {
 }
 
 static void FGC_reportProgress(ForkGC *gc) {
+#if defined(COV) || defined(COVERAGE)
+  // Don't send heartbeats when running coverage tests, as it can mess with the coverage report.
+  return;
+#else
   RedisModule_SendChildHeartbeat(gc->progress);
+#endif
 }
 
 static void FGC_setProgress(ForkGC *gc, float progress) {

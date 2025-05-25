@@ -189,10 +189,14 @@ setup_build_environment() {
 # Run lcov preparations before testing for coverage
 #-----------------------------------------------------------------------------
 prepare_coverage_capture() {
-  [[ -n $GITHUB_ACTIONS ]] && echo "::group::Code Coverage Preparation"
+  if [[ -n $GITHUB_ACTIONS ]]; then
+    echo "::group::Code Coverage Preparation"
+  fi
   lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
   lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info
-  [[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::"
+  if [[ -n $GITHUB_ACTIONS ]]; then
+    echo "::endgroup::"
+  fi
 }
 
 #-----------------------------------------------------------------------------
@@ -583,6 +587,7 @@ run_python_tests() {
   if [[ $COV == 1 ]]; then
     prepare_coverage_capture
   fi
+  echo "hello"
 
   # Use the runtests.sh script for Python tests
   TESTS_SCRIPT="$ROOT/tests/pytests/runtests.sh"

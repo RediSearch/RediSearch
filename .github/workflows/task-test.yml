@@ -236,8 +236,8 @@ jobs:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
           path: | 
             tests/**/logs/*.log*
-            bin/**/*.so
-            bin/**/*.so.debug
+            bin/**/redisearch.so
+            bin/**/redisearch.so.debug
           
           if-no-files-found: ignore
       # If node20 is not supported, we can only use version 3.
