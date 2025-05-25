@@ -997,14 +997,10 @@ static void RMCK_SendChildHeartbeat(double progress) {
 // like in Redis' `exitFromChild`, we exit from children using _exit() instead of
 // exit(), because the latter may interact with the same file objects used by
 // the parent process (may yield errors when testing with sanitizer).
-// However if we are testing the coverage normal exit() is
-// used in order to obtain the right coverage information.
+// We shouldn't use exit() since it can intefere with the same file objects used by
+// the parent process (may yield errors when testing with sanitizer or with coverage).
 static int RMCK_ExitFromChild(int retcode) {
-#if defined(COV) || defined(COVERAGE)
-  exit(retcode);
-#else
   _exit(retcode);
-#endif
   return REDISMODULE_OK; // never reached, but following the API "behavior"
 }
 
