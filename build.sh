@@ -587,7 +587,6 @@ run_python_tests() {
   if [[ $COV == 1 ]]; then
     prepare_coverage_capture
   fi
-  echo "hello"
 
   # Use the runtests.sh script for Python tests
   TESTS_SCRIPT="$ROOT/tests/pytests/runtests.sh"
