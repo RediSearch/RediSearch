@@ -459,11 +459,11 @@ static void* thread_do(struct thread* thread_p) {
   thpool_p->num_threads_alive += 1;
   pthread_mutex_unlock(&thpool_p->thcount_lock);
 
-  while (atomic_load_explicit(&thpool_p->keepalive, memory_order_acquire) == 1) {
+  while (atomic_load_explicit(&thpool_p->keepalive, memory_order_relaxed) == 1) {
 
     bsem_wait(thpool_p->jobqueue.has_jobs);
     LOG_IF_EXISTS("debug", "Thread-%d is running iteration", thread_p->id)
-    if (atomic_load_explicit(&thpool_p->keepalive, memory_order_acquire) == 1) {
+    if (atomic_load_explicit(&thpool_p->keepalive, memory_order_relaxed) == 1) {
 
       pthread_mutex_lock(&thpool_p->thcount_lock);
       thpool_p->num_threads_working++;
