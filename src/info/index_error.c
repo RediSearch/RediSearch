@@ -32,6 +32,10 @@ IndexError IndexError_Init() {
     error.last_error = NA;  // Last error message set to NA.
     // Key of the document that caused the error set to NA.
     error.key = RedisModule_HoldString(RSDummyContext, NA_rstr);
+    if (error.key != NA_rstr) {
+        RedisModule_Log(RSDummyContext, REDISMODULE_LOGLEVEL_WARNING,
+                        "NA_rstr was re-allocated");
+    }
     return error;
 }
 void IndexError_AddError(IndexError *error, const char *error_message, RedisModuleString *key) {
@@ -53,15 +57,13 @@ void IndexError_AddError(IndexError *error, const char *error_message, RedisModu
 }
 
 void IndexError_Clear(IndexError error) {
+    RS_ASSERT(error.last_error);
     if (!NA_rstr) initDefaultKey();
-    if (error.last_error != NA && error.last_error != NULL) {
+    if (error.last_error != NA) {
         rm_free(error.last_error);
-        error.last_error = NA;
     }
-    if (error.key != NA_rstr) {
-        RedisModule_FreeString(RSDummyContext, error.key);
-        error.key = RedisModule_HoldString(RSDummyContext, NA_rstr);
-    }
+    RS_ASSERT(error.key);
+    RedisModule_FreeString(RSDummyContext, error.key);
 }
 
 void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool with_timestamp) {
@@ -140,6 +142,13 @@ void IndexError_SetKey(IndexError *error, RedisModuleString *key) {
 }
 void IndexError_SetErrorTime(IndexError *error, struct timespec error_time) {
     error->last_error_time = error_time;
+}
+
+void IndexError_GlobalCleanup() {
+    if (NA_rstr) {
+        RedisModule_FreeString(RSDummyContext, NA_rstr);
+        NA_rstr = NULL;
+    }
 }
 
 IndexError IndexError_Deserialize(MRReply *reply) {
