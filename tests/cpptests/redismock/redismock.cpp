@@ -997,7 +997,7 @@ static void RMCK_SendChildHeartbeat(double progress) {
 // like in Redis' `exitFromChild`, we exit from children using _exit() instead of
 // exit(), because the latter may interact with the same file objects used by
 // the parent process (may yield errors when testing with sanitizer).
-// We shouldn't use exit() since it can intefere with the same file objects used by
+// We shouldn't use exit() since it can interfere with the same file objects used by
 // the parent process (may yield errors when testing with sanitizer or with coverage).
 static int RMCK_ExitFromChild(int retcode) {
   _exit(retcode);
