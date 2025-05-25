@@ -1280,6 +1280,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
 reset:
   for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
+    IndexError_Clear(sp->fields[ii].indexError);
     FieldSpec_Cleanup(&sp->fields[ii]);
   }
 
