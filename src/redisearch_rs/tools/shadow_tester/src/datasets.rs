@@ -76,7 +76,7 @@ pub fn get_1984_index() -> Result<Vec<(String, Vec<String>)>, ureq::Error> {
             part_text.clear();
             part_len = 0;
         } else {
-            part_text.push(line.replace("'", "\\'")); // Be sure to escape the single quote since it is used in the query
+            part_text.push(line);
             part_len += line.len() + 1;
         }
     }
