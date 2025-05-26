@@ -6,7 +6,6 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#include "triemap.h"
 #define REDISMODULE_MAIN
 
 #include <stdio.h>
@@ -18,6 +17,7 @@
 #include "document.h"
 #include "tag_index.h"
 #include "index.h"
+#include "triemap.h"
 #include "query.h"
 #include "redis_index.h"
 #include "redismodule.h"
