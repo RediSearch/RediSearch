@@ -14,6 +14,8 @@
 //! You can create a [`WildcardPattern`] from a pattern using [`WildcardPattern::parse`] and
 //! then rely on [`WildcardPattern::matches`] to determine if a string matches the pattern.
 
+use memchr::arch::all::is_prefix;
+
 mod fmt;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -245,14 +247,17 @@ impl<'pattern> WildcardPattern<'pattern> {
                     bt_state = Some((i_t, i_k));
                 }
                 Token::Literal(chunk) => {
-                    for i in 0..chunk.len() {
-                        let Some(key_char) = key.get(i_k + i) else {
-                            // It may have matched if we had more characters in the key
-                            return MatchOutcome::PartialMatch;
-                        };
-                        if &chunk[i] != key_char {
-                            try_backtrack!(bt_state, i_t, i_k, 'outer);
-                        }
+                    let remaining_key_len = key.len() - i_k;
+                    let (min_len, is_partial_match) = if chunk.len() > remaining_key_len {
+                        (remaining_key_len, true)
+                    } else {
+                        (chunk.len(), false)
+                    };
+                    if !is_prefix(&key[i_k..], &chunk[..min_len]) {
+                        try_backtrack!(bt_state, i_t, i_k, 'outer);
+                    }
+                    if is_partial_match {
+                        return MatchOutcome::PartialMatch;
                     }
 
                     i_t += 1;
