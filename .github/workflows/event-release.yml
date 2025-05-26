@@ -31,6 +31,7 @@ jobs:
       next_patch: ${{ steps.verify.outputs.next_patch }}
       should_bump: ${{ steps.verify.outputs.should_bump }}
       expected_sha: ${{ steps.get_sha.outputs.sha }}
+      release_branch: ${{ steps.verify.outputs.release_branch }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -65,6 +66,7 @@ jobs:
             print(f"next_version={major}.{minor}.{patch+1}", file=fp)
             print(f"next_patch={patch+1}", file=fp)
             print(f"should_bump={str(valid_version_branch(version_branch)).lower()}", file=fp)
+            print(f"release_branch={major}.{minor}", file=fp)
 
   update-version:
     # Generate a PR to bump the version for the next patch (if releasing from a version branch)
@@ -76,7 +78,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.checkout_target }}
+          ref: ${{ needs.validate-tag.outputs.release_branch }}
       - name: Update version for next patch
         env:
           PATCH_LINE_PREFIX: '#define REDISEARCH_VERSION_PATCH'
@@ -101,7 +103,7 @@ jobs:
             --title    "Bump version from ${{ needs.validate-tag.outputs.cur_version }} to ${{ needs.validate-tag.outputs.next_version }}" \
             --body     "This PR was automatically created by the release workflow of ${{ inputs.tag || github.ref_name }}." \
             --head     "${{ env.BRANCH }}" \
-            --base     "${{ env.checkout_target }}" \
+            --base     "${{ needs.validate-tag.outputs.release_branch }}" \
             --reviewer "${{ vars.TEAM_LEADERS }},${{ vars.ISSUES_SHIFT_ASSIGNEE }},${{ github.actor }}" \
             --draft
 
@@ -132,6 +134,8 @@ jobs:
       - name: Get boto3
         run: pip install boto3
       - name: Set Version Artifacts
+        env:
+          SOURCE: ${{ inputs.snapshot_of || inputs.tag || needs.validate-tag.outputs.release_branch }}
         shell: python
         run: |
           import boto3
@@ -144,7 +148,7 @@ jobs:
           oss_dir = "redisearch-oss"
           ent_dir = "redisearch"
 
-          suffix = ".${{ env.checkout_target }}.zip"
+          suffix = ".${{ env.SOURCE }}.zip"
           new_suffix = ".${{ needs.validate-tag.outputs.cur_version }}.zip"
           expected_sha = "${{ needs.validate-tag.outputs.expected_sha }}"
 
@@ -190,7 +194,9 @@ jobs:
           for dir in [oss_dir, ent_dir]:
               files.extend(list_snapshots_by_branch(dir))
 
-          group_print("${{ env.checkout_target }} Build Candidates", files)
+          group_print("${{ env.SOURCE }} Build Candidates", files)
+          if not files:
+              raise Exception("::error title=No candidates found!")
 
           with ThreadPoolExecutor() as executor:
               sha_list = executor.map(extract_sha, files)
