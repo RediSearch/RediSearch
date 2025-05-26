@@ -26,15 +26,15 @@ jobs:
           # Get workflow ID for flow-micro-benchmarks.yml
           WORKFLOW_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/flow-micro-benchmark.yml")
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/flow-micro-benchmarks.yml")
           echo "Workflow API Response: $WORKFLOW_RESPONSE"
-          WORKFLOW_ID=$(echo "$WORKFLOW_RESPONSE" | jq -r '.workflows[] | select(.path == ".github/workflows/flow-micro-benchmarks.yml") | .id')
+          WORKFLOW_ID=$(echo "$WORKFLOW_RESPONSE" | jq -r '.id')
           echo "Workflow ID: $WORKFLOW_ID"
           
           # Fetch the 50 most recent commits on master
           COMMITS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/commits?sha=main&per_page=50" \
+            "https://api.github.com/repos/${{ github.repository }}/commits?sha=master&per_page=50" \
             | jq -r '.[].sha')
           
           ARTIFACT_URL=""
