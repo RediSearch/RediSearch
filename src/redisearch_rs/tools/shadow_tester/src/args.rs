@@ -17,5 +17,5 @@ pub struct Options {
     /// Path to a script which start up a RLTest server which will start a Redis server for each
     /// .so file.
     #[arg(long)]
-    pub rltest_path: PathBuf,
+    pub rltest: PathBuf,
 }
