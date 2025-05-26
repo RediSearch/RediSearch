@@ -22,7 +22,12 @@ pub fn get_1984_index() -> Result<Vec<(String, Vec<String>)>, ureq::Error> {
     let mut part_text = vec![];
 
     let mut setup_queries = vec![
-        ("flushall".to_string(), vec![]),
+        // Drop the index and all the entries associated with it. This ensures we are starting with
+        // a clean slate.
+        (
+            "FT.DROPINDEX".to_string(),
+            vec!["idx:1984".to_string(), "DD".to_string()],
+        ),
         // Create the index first so that it is updated as new entries are added. If the index is
         // created after the entries, then it will update in the background and the test queries
         // will return inconsistent results based on the partial index.
