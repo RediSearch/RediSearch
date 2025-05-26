@@ -69,6 +69,13 @@ impl TestRunner {
         let base_response: RedisResult<T> = self.base_client.query(command, args);
         let changeset_response: RedisResult<T> = self.changeset_client.query(command, args);
 
+        if let Err(e) = &base_response {
+            println!(
+                "Error in base response for '{command} {}': {e}",
+                args.join(" ")
+            );
+        }
+
         if base_response != changeset_response {
             let diff = Comparison::new(&base_response, &changeset_response);
 
