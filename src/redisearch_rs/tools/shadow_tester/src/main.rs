@@ -12,8 +12,8 @@ mod test_runner;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = args::Options::parse();
 
-    let base_client = RedisClient::new(6379, &options.rltest_path, options.baseline_so)?;
-    let changeset_client = RedisClient::new(6380, &options.rltest_path, options.changeset_so)?;
+    let base_client = RedisClient::new(6379, &options.rltest, options.baseline_so)?;
+    let changeset_client = RedisClient::new(6380, &options.rltest, options.changeset_so)?;
 
     let queries = get_1984_index()?;
 
