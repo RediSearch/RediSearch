@@ -15,27 +15,35 @@
 //! This is particularly useful when benchmarking a Rust re-implementation against the original
 //! C code, since it levels the playing field by forcing both to use the same memory allocator.
 
-use std::os::raw::c_void;
-mod allocator;
+pub mod allocator;
 
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut RedisModule_Alloc: Option<unsafe extern "C" fn(bytes: usize) -> *mut c_void> =
-    Some(allocator::alloc_shim);
+#[macro_export]
+/// A macro to define Redis' allocation symbols in terms of Rust's global allocator.
+///
+/// It's designed to be used in tests and benchmarks.
+macro_rules! bind_redis_alloc_symbols_to_mock_impl {
+    () => {
+        #[unsafe(no_mangle)]
+        #[allow(non_upper_case_globals)]
+        pub static mut RedisModule_Alloc: Option<
+            unsafe extern "C" fn(bytes: usize) -> *mut c_void,
+        > = Some(redis_mock::allocator::alloc_shim);
 
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut RedisModule_Realloc: Option<
-    unsafe extern "C" fn(ptr: *mut c_void, bytes: usize) -> *mut c_void,
-> = Some(allocator::realloc_shim);
+        #[unsafe(no_mangle)]
+        #[allow(non_upper_case_globals)]
+        pub static mut RedisModule_Realloc: Option<
+            unsafe extern "C" fn(ptr: *mut c_void, bytes: usize) -> *mut c_void,
+        > = Some(redis_mock::allocator::realloc_shim);
 
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut RedisModule_Free: Option<unsafe extern "C" fn(ptr: *mut c_void)> =
-    Some(allocator::free_shim);
+        #[unsafe(no_mangle)]
+        #[allow(non_upper_case_globals)]
+        pub static mut RedisModule_Free: Option<unsafe extern "C" fn(ptr: *mut c_void)> =
+            Some(redis_mock::allocator::free_shim);
 
-#[unsafe(no_mangle)]
-#[allow(non_upper_case_globals)]
-pub static mut RedisModule_Calloc: Option<
-    unsafe extern "C" fn(count: usize, size: usize) -> *mut c_void,
-> = Some(allocator::calloc_shim);
+        #[unsafe(no_mangle)]
+        #[allow(non_upper_case_globals)]
+        pub static mut RedisModule_Calloc: Option<
+            unsafe extern "C" fn(count: usize, size: usize) -> *mut c_void,
+        > = Some(redis_mock::allocator::calloc_shim);
+    };
+}
