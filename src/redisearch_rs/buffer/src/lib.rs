@@ -32,14 +32,14 @@ pub struct Buffer {
     ///
     /// # Safety
     ///
-    /// This should ideally be actual allocated length of the underlying byte buffer
-    /// but if not, it must not exceed it.
+    /// The capacity must not exceed the size of the allocation behind [`Self::data`].
     capacity: usize,
     /// The length of the buffer (i-e the total used memory from allocated memory)
     ///
     /// # Safety
     ///
-    /// Must not exceed the `capacity`.
+    /// - Must not exceed [`Self::capacity`].
+    /// - All elements up to [`Self::len`] must be correctly initialized.
     len: usize,
 }
 
@@ -66,14 +66,14 @@ pub struct BufferReader {
 impl std::io::Read for BufferReader {
     fn read(&mut self, dest_buf: &mut [u8]) -> std::io::Result<usize> {
         // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
-        let buffer = unsafe { self.buf.as_mut() };
+        let buffer = unsafe { self.buf.as_ref() };
 
         // Safety: `self.pos` was just checked to be within the limits of the buffer's
         // initialized range, so this pointer arithmetic is safe.
         let src = unsafe { buffer.data.add(self.pos) };
 
         // Safety: We just verified that `src` points to valid memory within the buffer.
-        let src = unsafe { src.as_ref() };
+        let src = src.as_ptr();
         let dest = dest_buf.as_mut_ptr();
         let len = cmp::min(dest_buf.len(), buffer.len - self.pos);
 
@@ -120,7 +120,7 @@ impl Buffer {
 
         // Safety: We assume `self.len` is a valid length within the allocated memory.
         // Creates a slice referencing the initialized portion of the buffer.
-        unsafe { slice::from_raw_parts(data, self.len) }
+        unsafe { slice::from_raw_parts(self.data.as_ptr(), self.len) }
     }
 
     /// Returns the initialized portion of the buffer as a mutable slice.
@@ -130,7 +130,7 @@ impl Buffer {
         let data = unsafe { self.data.as_mut() };
 
         // Safety: We assume `self.len` is a valid length within the allocated memory.
-        unsafe { slice::from_raw_parts_mut(data, self.len) }
+        unsafe { slice::from_raw_parts_mut(self.data.as_ptr(), self.len) }
     }
 
     /// Returns the length of the buffer (number of initialized bytes).
@@ -178,7 +178,7 @@ impl Buffer {
 ///
 /// * `buf` must point to a valid, properly initialized `Buffer`.
 /// * `cursor` must point to a valid position within the Buffer's allocated memory.
-/// * The `BufferWriter` does not own the `Buffer`, only borrows it.
+/// * The `BufferWriter` does not own the `Buffer`, only borrows it mutably.
 /// * If the buffer is grown (implicitly) as part of a write operation, all previously obtained
 ///   pointers into the buffer are invalidated.
 ///
