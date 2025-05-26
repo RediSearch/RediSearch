@@ -142,6 +142,13 @@ struct timespec IndexError_LastErrorTime(const IndexError *error) {
     return error->last_error_time;
 }
 
+void IndexError_GlobalCleanup() {
+    if (NA_rstr) {
+        RedisModule_FreeString(RSDummyContext, NA_rstr);
+        NA_rstr = NULL;
+    }
+}
+
 #ifdef RS_COORDINATOR
 
 void IndexError_OpPlusEquals(IndexError *error, const IndexError *other) {
@@ -183,13 +190,6 @@ void IndexError_SetKey(IndexError *error, RedisModuleString *key) {
 }
 void IndexError_SetErrorTime(IndexError *error, struct timespec error_time) {
     error->last_error_time = error_time;
-}
-
-void IndexError_GlobalCleanup() {
-    if (NA_rstr) {
-        RedisModule_FreeString(RSDummyContext, NA_rstr);
-        NA_rstr = NULL;
-    }
 }
 
 IndexError IndexError_Deserialize(MRReply *reply) {
