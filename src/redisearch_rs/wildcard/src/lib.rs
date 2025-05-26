@@ -258,10 +258,10 @@ impl<'pattern> WildcardPattern<'pattern> {
                     }
                     if is_partial_match {
                         return MatchOutcome::PartialMatch;
-                    } else {
-                        i_t += 1;
-                        i_k += chunk.len();
                     }
+
+                    i_t += 1;
+                    i_k += chunk.len();
                 }
                 Token::One => {
                     // Advance both indices, since `?` matches exactly one character
