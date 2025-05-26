@@ -7,9 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "redise.h"
-#include "rmalloc.h"
-#include "rmutil/args.h"
-#include <strings.h>
 
 typedef struct {
   int startSlot;
