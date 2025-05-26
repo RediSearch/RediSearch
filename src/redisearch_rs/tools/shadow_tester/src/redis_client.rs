@@ -26,7 +26,7 @@ impl RedisClient {
             let client = Client::open(address.clone()).expect("To create redis client");
             match client.get_connection() {
                 Ok(connection) => {
-                    println!("Redis server connnection ready at {address}");
+                    println!("Redis server connection ready at {address}");
                     return Ok(Self {
                         server_process,
                         connection,
