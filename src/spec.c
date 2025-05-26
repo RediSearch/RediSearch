@@ -101,9 +101,10 @@ static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *
   uint32_t sleepTime = RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry;
   RedisModule_Log(ctx, "notice", "Scanning index %s in background: paused for %u seconds due to OOM, waiting for memory allocation",
                   scanner->spec_name_for_logs, sleepTime);
-  sleep(sleepTime);
 
-  return;
+  RedisModule_ThreadSafeContextUnlock(ctx);
+  sleep(sleepTime);
+  RedisModule_ThreadSafeContextLock(ctx);
 }
 
 // This function should be called after the second background scan OOM error
@@ -1280,6 +1281,7 @@ static int IndexSpec_AddFieldsInternal(IndexSpec *sp, StrongRef spec_ref, ArgsCu
 
 reset:
   for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
+    IndexError_Clear(sp->fields[ii].indexError);
     FieldSpec_Cleanup(&sp->fields[ii]);
   }
 
@@ -1652,6 +1654,11 @@ void IndexSpec_Free(IndexSpec *spec) {
   }
 
   IndexError_Clear(spec->stats.indexError);
+  if (spec->fields != NULL) {
+    for (size_t i = 0; i < spec->numFields; i++) {
+      IndexError_Clear((spec->fields[i]).indexError);
+    }
+  }
 
   // Free unlinked index spec on a second thread
   if (RSGlobalConfig.freeResourcesThread == false) {
@@ -3122,7 +3129,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   QueryError status = {0};
 
   if(spec->scan_failed_OOM) {
-    QueryError_SetWithoutUserDataFmt(&status, QUERY_INDEXBGOOMFAIL, "Index background scan failed due to OOM. New documents will not be indexed.");
+    QueryError_SetWithoutUserDataFmt(&status, QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM. New documents will not be indexed.");
     IndexError_AddQueryError(&spec->stats.indexError, &status, key);
     QueryError_ClearError(&status);
     return REDISMODULE_ERR;
@@ -3545,7 +3552,7 @@ void IndexSpecRef_Release(StrongRef ref) {
   StrongRef_Release(ref);
 }
 
-// If this function is called, it means that the scan failed due to OOM, should be verified by the caller
+// If this function is called, it means that the scan did not complete due to OOM, should be verified by the caller
 static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx, bool pauseField, DebugIndexScannerCode code) {
   if (!dScanner || !pauseField) {
     return;

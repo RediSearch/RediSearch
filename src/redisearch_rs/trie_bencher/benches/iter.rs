@@ -13,6 +13,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use trie_bencher::OperationBencher;
 
 use trie_bencher::corpus::CorpusType;
+use trie_rs::iter::{RangeBoundary, RangeFilter};
 
 fn iter_benches_wiki1k(c: &mut Criterion) {
     let corpus = CorpusType::RedisBench1kWiki;
@@ -36,6 +37,40 @@ fn iter_benches_gutenberg(c: &mut Criterion) {
     bencher.find_prefixes_group(c, "everlastingly", "Find prefixes");
     // Requires backtracking to perform, de facto, suffix matching
     bencher.wildcard_group(c, "*ly");
+
+    bencher.range_group(
+        c,
+        RangeFilter {
+            min: Some(RangeBoundary::excluded("enemies".as_bytes())),
+            max: Some(RangeBoundary::included("syllable".as_bytes())),
+        },
+    );
+
+    // The minimum is a prefix of the maximum, allowing for an optimization.
+    bencher.range_group(
+        c,
+        RangeFilter {
+            min: Some(RangeBoundary::excluded("en".as_bytes())),
+            max: Some(RangeBoundary::included("enemies".as_bytes())),
+        },
+    );
+
+    // The minimum and the maximum share a prefix, allowing for an optimization.
+    bencher.range_group(
+        c,
+        RangeFilter {
+            min: Some(RangeBoundary::included("aback".as_bytes())),
+            max: Some(RangeBoundary::included("abyss".as_bytes())),
+        },
+    );
+
+    // It's a prefix of many titles, we will therefore be able to skip
+    // the check for all children of the prefix node.
+    bencher.contains_group(c, "An");
+
+    // Rarely a prefix, we have to scan ~all nodes.
+    bencher.contains_group(c, "of");
+
     bencher.into_values_group(c, "IntoValues iterator");
 }
 

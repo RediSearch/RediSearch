@@ -658,16 +658,16 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
-void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions) {
+void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // profileRP replace netRP as end PR
-  RPNet *rpnet = (RPNet *)req->qiter.rootProc;
-  ProfilePrinterCtx cCtx = {req, timedout, reachedMaxPrefixExpansions};
+  ProfilePrinterCtx *cCtx = ctx;
+  RPNet *rpnet = (RPNet *)cCtx->req->qiter.rootProc;
   PrintShardProfile_ctx sCtx = {
     .count = array_len(rpnet->shardsProfile),
     .replies = rpnet->shardsProfile,
     .isSearch = false,
   };
-  Profile_PrintInFormat(reply, PrintShardProfile, &sCtx, Profile_Print, &cCtx);
+  Profile_PrintInFormat(reply, PrintShardProfile, &sCtx, Profile_Print, cCtx);
 }
 
 static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {

@@ -313,6 +313,8 @@ def debug_cmd():
 def config_cmd():
     return '_FT.CONFIG'
 
+def enable_unstable_features(env):
+    run_command_on_all_shards(env, 'CONFIG', 'SET', 'search-enable-unstable-features', 'yes')
 
 def run_command_on_all_shards(env, *args):
     return [con.execute_command(*args) for con in env.getOSSMasterNodesConnectionList()]
@@ -845,7 +847,9 @@ def shardsConnections(env):
       yield env.getConnection(shardId=s)
 
 def waitForIndexFinishScan(env, idx = 'idx'):
-    while index_info(env, idx)['percent_indexed'] != '1':
+    # Wait for the index to finish scan
+    # Check if equals 1 for RESP3 support
+    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
         time.sleep(0.1)
 
 def bgScanCommand():
@@ -902,7 +906,9 @@ def allShards_waitForIndexStatus(env, status, idx='idx'):
         shard_waitForIndexStatus(env, shardId, status, idx)
 
 def shard_waitForIndexFinishScan(env, shardId, idx = 'idx'):
-    while index_info(env, idx)['percent_indexed'] != '1':
+    # Wait for the index to finish scan
+    # Check if equals 1 for RESP3 support
+    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
         time.sleep(0.1)
 
 def allShards_waitForIndexFinishScan(env, idx = 'idx'):

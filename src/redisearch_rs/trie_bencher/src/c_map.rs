@@ -72,6 +72,41 @@ impl CTrieMap {
         }
     }
 
+    pub fn contains_iter(&self, target: TrieTermView) -> ContainsCIter {
+        let iter = unsafe { crate::ffi::TrieMap_Iterate(self.0, target.ptr(), target.len()) };
+        (unsafe { *iter }).mode = crate::ffi::tm_iter_mode_TM_CONTAINS_MODE;
+        ContainsCIter {
+            iterator: iter,
+            finished: false,
+        }
+    }
+
+    pub fn range_iter(
+        &self,
+        min: Option<TrieTermView>,
+        max: Option<TrieTermView>,
+        include_min: bool,
+        include_max: bool,
+    ) {
+        let min_ptr = min.map(|m| m.ptr()).unwrap_or(std::ptr::null_mut());
+        let min_len = min.map(|m| m.len()).unwrap_or(0);
+        let max_ptr = max.map(|m| m.ptr()).unwrap_or(std::ptr::null_mut());
+        let max_len = max.map(|m| m.len()).unwrap_or(0);
+        unsafe {
+            crate::ffi::TrieMap_IterateRange(
+                self.0,
+                min_ptr,
+                min_len.into(),
+                include_min,
+                max_ptr,
+                max_len.into(),
+                include_max,
+                Some(do_nothing_callback),
+                std::ptr::null_mut(),
+            )
+        };
+    }
+
     pub fn n_nodes(&self) -> usize {
         unsafe { (*self.0).size }
     }
@@ -140,6 +175,46 @@ impl Drop for WildcardCIter {
     }
 }
 
+pub struct ContainsCIter {
+    iterator: *mut crate::ffi::TrieMapIterator,
+    finished: bool,
+}
+
+#[gat]
+// The 'tm lifetime parameter is not actually needless.
+#[allow(clippy::needless_lifetimes)]
+impl LendingIterator for ContainsCIter {
+    type Item<'next>
+    where
+        Self: 'next,
+    = (&'next [u8], *mut c_void);
+
+    fn next(&mut self) -> Option<Self::Item<'_>> {
+        if self.finished {
+            return None;
+        }
+
+        let mut ptr: *mut c_char = std::ptr::null_mut();
+        let mut len = 0;
+        let mut value: *mut c_void = std::ptr::null_mut();
+        let should_continue = unsafe {
+            crate::ffi::TrieMapIterator_NextContains(self.iterator, &mut ptr, &mut len, &mut value)
+        };
+
+        if should_continue != 1 {
+            self.finished = false;
+        }
+        let key: &[u8] = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
+        Some((key, value))
+    }
+}
+
+impl Drop for ContainsCIter {
+    fn drop(&mut self) {
+        unsafe { crate::ffi::TrieMapIterator_Free(self.iterator) };
+    }
+}
+
 unsafe extern "C" fn do_nothing(oldval: *mut c_void, _newval: *mut c_void) -> *mut c_void {
     // Just return the old value, since it's a null pointer and we don't want
     // the C map implementation to try to free it.
@@ -148,6 +223,15 @@ unsafe extern "C" fn do_nothing(oldval: *mut c_void, _newval: *mut c_void) -> *m
 
 unsafe extern "C" fn do_not_free(_val: *mut c_void) {
     // We're using the null pointer as value, so we don't want to free it.
+}
+
+unsafe extern "C" fn do_nothing_callback(
+    _arg1: *const ::std::os::raw::c_char,
+    _arg2: usize,
+    _arg3: *mut ::std::os::raw::c_void,
+    _arg4: *mut ::std::os::raw::c_void,
+) {
+    // A callback for `TrieMap_IterateRange` that, as the name implies, does nothing with its input.
 }
 
 #[allow(clippy::len_without_is_empty)]
@@ -188,7 +272,7 @@ pub trait AsTrieTermView {
 /// which is useful for FFI operations.
 ///
 /// Panics if the argument contains a null byte.
-impl<T: AsRef<str>> IntoCString for T {
+impl<T: AsRef<[u8]>> IntoCString for T {
     fn into_cstring(self) -> CString {
         CString::new(self.as_ref()).expect("null byte found")
     }

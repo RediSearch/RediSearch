@@ -29,9 +29,10 @@ mod bindings {
 // It allows us to keep the bindings module private while still exposing the necessary functions and types.
 pub(crate) use bindings::{
     NewTrieMap, TrieMap, TrieMap_Add, TrieMap_Delete, TrieMap_ExactMemUsage, TrieMap_Find,
-    TrieMap_FindPrefixes, TrieMap_Free, TrieMap_Iterate, TrieMapIterator, TrieMapIterator_Free,
-    TrieMapIterator_NextWildcard, array_free, array_new_sz,
-    tm_iter_mode_TM_WILDCARD_FIXED_LEN_MODE, tm_iter_mode_TM_WILDCARD_MODE,
+    TrieMap_FindPrefixes, TrieMap_Free, TrieMap_Iterate, TrieMap_IterateRange, TrieMapIterator,
+    TrieMapIterator_Free, TrieMapIterator_NextContains, TrieMapIterator_NextWildcard, array_free,
+    array_new_sz, tm_iter_mode_TM_CONTAINS_MODE, tm_iter_mode_TM_WILDCARD_FIXED_LEN_MODE,
+    tm_iter_mode_TM_WILDCARD_MODE,
 };
 // used in outside binary crate (main.rs)
 pub use bindings::TRIEMAP_NOTFOUND;
