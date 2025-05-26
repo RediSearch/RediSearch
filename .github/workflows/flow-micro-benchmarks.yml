@@ -18,16 +18,67 @@ jobs:
         run: ./install_script.sh sudo
       - name: Build RediSearch
         run: ./build.sh
-      - name: Download Latest Baseline Artifact
+        
+       # Step to fetch the latest artifact from master
+      - name: Get Latest Baseline Artifact URL
+        id: get-artifact-url
         if: github.event_name == 'pull_request'
-        #v9 is 07ab29fd4a977ae4d2b275087cf67563dfdf0295 
-        uses: dawidd6/action-download-artifact@07ab29fd4a977ae4d2b275087cf67563dfdf0295
-        with:
-          branch: master
-          name: rust-benchmark-results-master
-          path: bin/redisearch_rs/criterion
-          check_artifacts: true
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Fetch the 50 most recent commits on master
+          COMMITS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/commits?sha=master&per_page=50" \
+            | jq -r '.[].sha')
+    
+          # Loop through commits to find the first artifact
+          ARTIFACT_URL=""
+          for COMMIT_SHA in $COMMITS; do
+            # Get workflow runs for this commit
+            RUNS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runs?head_sha=$COMMIT_SHA&status=success" \
+            | jq -r '.workflow_runs[] | select(.event == "push") | .id')
+      
+            # Check each run for the artifact
+            for RUN_ID in $RUNS; do
+              ARTIFACT_URL=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" \
+                | jq -r '.artifacts[] | select(.name == "rust-benchmark-results-master") | .archive_download_url')
+              if [ -n "$ARTIFACT_URL" ]; then
+                break 2 # Exit both loops if artifact is found
+              fi
+            done
+          done
+    
+          echo "artifact-url=$ARTIFACT_URL" >> $GITHUB_OUTPUT
+          if [ -z "$ARTIFACT_URL" ]; then
+            echo "No artifact found for rust-benchmark-results-master in the last 25 commits"
+          else
+            echo "Found artifact for commit $COMMIT_SHA: $ARTIFACT_URL"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true # Prevent failure if no artifact exists
+
+      - name: Debug GITHUB_OUTPUT and artifact-url
+        if: github.event_name == 'pull_request'
+        run: |
+          echo "Contents of GITHUB_OUTPUT:"
+          cat $GITHUB_OUTPUT
+          echo "Value of artifact-url: ${{ steps.get-artifact-url.outputs.artifact-url }}"
+        continue-on-error: true
+
+      - name: Download Latest Baseline Artifact
+        id: download-baseline
+        if: github.event_name == 'pull_request' && steps.get-artifact-url.outputs.artifact-url != ''
+        run: |
+          curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "${{ steps.get-artifact-url.outputs.artifact-url }}" -o rust-benchmark-results-master.zip
+          unzip rust-benchmark-results-master.zip -d bin/redisearch_rs/criterion
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
       - name: Check if Baseline Exists
         id: check_baseline
