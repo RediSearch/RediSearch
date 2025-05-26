@@ -3,7 +3,7 @@ use std::process::{Child, Command};
 use std::thread::sleep;
 use std::time::Duration;
 
-use redis::{cmd, Client, Connection, FromRedisValue, RedisResult, ToRedisArgs};
+use redis::{Client, Cmd, Connection, FromRedisValue, RedisResult};
 
 pub struct RedisClient {
     server_process: Child,
@@ -45,12 +45,8 @@ impl RedisClient {
         ))
     }
 
-    pub fn query<T: FromRedisValue>(
-        &mut self,
-        command: &str,
-        args: impl ToRedisArgs,
-    ) -> RedisResult<T> {
-        cmd(command).arg(args).query(&mut self.connection)
+    pub fn query<T: FromRedisValue>(&mut self, command: &Cmd) -> RedisResult<T> {
+        command.query(&mut self.connection)
     }
 }
 

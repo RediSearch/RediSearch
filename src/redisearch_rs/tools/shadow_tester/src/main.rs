@@ -1,5 +1,6 @@
 use clap::Parser;
 use datasets::get_1984_index;
+use redis::cmd;
 use redis_client::RedisClient;
 use test_runner::TestRunner;
 
@@ -17,7 +18,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let queries = get_1984_index()?;
 
     let mut test_runner = TestRunner::new(queries, base_client, changeset_client);
-    test_runner.add_command("FT.SEARCH", &["idx:1984", "thoughtcrime"]);
+    test_runner.add_command(
+        cmd("FT.SEARCH")
+            .arg("idx:1984")
+            .arg("thoughtcrime")
+            .to_owned(),
+    );
 
     let success = test_runner.run()?;
 

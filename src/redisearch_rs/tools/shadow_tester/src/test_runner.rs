@@ -2,55 +2,43 @@ use std::collections::HashMap;
 use std::fmt::Debug;
 
 use pretty_assertions::Comparison;
-use redis::{FromRedisValue, RedisResult, Value};
+use redis::{Arg, Cmd, FromRedisValue, RedisResult, Value};
 
 use crate::redis_client::RedisClient;
 
-/// Command and arguments for a Redis query
-#[derive(Clone)]
-struct Command {
-    command: String,
-    args: Vec<String>,
-}
-
 pub struct TestRunner {
-    commands: Vec<Command>,
+    commands: Vec<Cmd>,
     base_client: RedisClient,
     changeset_client: RedisClient,
 }
 
 impl TestRunner {
-    pub fn new(
-        dataset: Vec<(String, Vec<String>)>,
-        base_client: RedisClient,
-        changeset_client: RedisClient,
-    ) -> Self {
-        let commands = dataset
-            .into_iter()
-            .map(|(command, args)| Command { command, args })
-            .collect();
-
+    pub fn new(dataset: Vec<Cmd>, base_client: RedisClient, changeset_client: RedisClient) -> Self {
         TestRunner {
-            commands,
+            commands: dataset,
             base_client,
             changeset_client,
         }
     }
 
-    pub fn add_command(&mut self, command: &str, args: &[&str]) {
-        self.commands.push(Command {
-            command: command.to_string(),
-            args: args.iter().map(|s| s.to_string()).collect(),
-        });
+    pub fn add_command(&mut self, command: Cmd) {
+        self.commands.push(command);
     }
 
     pub fn run(mut self) -> RedisResult<bool> {
         let mut success = true;
 
-        for Command { command, args } in &self.commands.clone() {
-            let s = match command.as_str() {
-                "FT.SEARCH" => self.run_command::<FtSearchResponse>(command, args),
-                _ => self.run_command::<Value>(command, args),
+        for command in self.commands.split_off(0) {
+            let command_name = arg_to_str(
+                command
+                    .args_iter()
+                    .next()
+                    .expect("Command to startwith a command name"),
+            );
+
+            let s = match command_name.as_str() {
+                "FT.SEARCH" => self.run_command::<FtSearchResponse>(command),
+                _ => self.run_command::<Value>(command),
             };
 
             if !s {
@@ -61,25 +49,32 @@ impl TestRunner {
         Ok(success)
     }
 
-    fn run_command<T: FromRedisValue + PartialEq + Debug>(
-        &mut self,
-        command: &str,
-        args: &[String],
-    ) -> bool {
-        let base_response: RedisResult<T> = self.base_client.query(command, args);
-        let changeset_response: RedisResult<T> = self.changeset_client.query(command, args);
+    fn run_command<T: FromRedisValue + PartialEq + Debug>(&mut self, command: Cmd) -> bool {
+        let base_response: RedisResult<T> = self.base_client.query(&command);
+        let changeset_response: RedisResult<T> = self.changeset_client.query(&command);
 
         if let Err(e) = &base_response {
             println!(
-                "Error in base response for '{command} {}': {e}",
-                args.join(" ")
+                "Error in base response for '{}': {e}",
+                command
+                    .args_iter()
+                    .map(arg_to_str)
+                    .collect::<Vec<_>>()
+                    .join(" ")
             );
         }
 
         if base_response != changeset_response {
             let diff = Comparison::new(&base_response, &changeset_response);
 
-            println!("'{command} {}' has different responses!", args.join(" "));
+            println!(
+                "'{}' has different responses!",
+                command
+                    .args_iter()
+                    .map(arg_to_str)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
             println!("{diff}");
 
             false
@@ -87,6 +82,15 @@ impl TestRunner {
             true
         }
     }
+}
+
+/// Helper to turn a [redis::Arg] into a [String]
+fn arg_to_str(arg: Arg<&[u8]>) -> String {
+    let Arg::Simple(s) = arg else {
+        panic!("Expected a simple argument");
+    };
+
+    String::from_utf8(s.to_vec()).expect("Arg to be valid UTF-8")
 }
 
 /// Response from the FT.SEARCH command
