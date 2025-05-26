@@ -28,6 +28,8 @@
 #define TAG_FIELD_NAME1 "tag1"
 #define TAG_FIELD_NAME2 "tag2"
 #define INITIAL_DOC_TABLE_SIZE 1000
+// `usize` to track unique keys + optional pointer slot set to `None`
+#define EMPTY_TRIE_SIZE 16
 
 class LLApiTest : public ::testing::Test {
   virtual void SetUp() {
@@ -1362,9 +1364,7 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
   RediSearch_CreateTextField(index, FIELD_NAME_1);
 
-  // `usize` to track unique keys + optional pointer slot set to `None`
-  size_t empty_trie_size = 16;
-  size_t doc_table_size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain)) + empty_trie_size;
+  size_t doc_table_size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain)) + EMPTY_TRIE_SIZE;
   EXPECT_EQ(RediSearch_MemUsage(index), doc_table_size);
 
   // adding document to the index
@@ -1424,9 +1424,7 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
   RediSearch_CreateTextField(index, FIELD_NAME_1);
 
-  // `usize` to track unique keys + optional pointer slot set to `None`
-  size_t empty_trie_size = 16;
-  size_t doc_table_size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain)) + empty_trie_size;
+  size_t doc_table_size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain)) + EMPTY_TRIE_SIZE;
   ASSERT_EQ(RediSearch_MemUsage(index), doc_table_size);
 
   // adding document to the index
