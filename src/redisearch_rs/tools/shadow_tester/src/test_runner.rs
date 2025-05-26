@@ -84,7 +84,7 @@ impl TestRunner {
     }
 }
 
-/// Helper to turn a [redis::Arg] into a [String]
+/// Helper to turn a [`redis::Arg`] into a [`String`]
 fn arg_to_str(arg: Arg<&[u8]>) -> String {
     let Arg::Simple(s) = arg else {
         panic!("Expected a simple argument");
