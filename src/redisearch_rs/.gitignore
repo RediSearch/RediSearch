@@ -12,6 +12,3 @@ Cargo.lock
 .vscode
 
 **/proptest-regressions/**
-
-# Cache files for some tests
-/cache/
