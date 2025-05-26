@@ -17,49 +17,48 @@ jobs:
         working-directory: .install
         run: ./install_script.sh sudo
       - name: Build RediSearch
-        run: ./build.sh
-        
-       # Step to fetch the latest artifact from master
+        run: ./build.sh  
+      # Step to fetch the latest artifact from master
       - name: Get Latest Baseline Artifact URL
         id: get-artifact-url
         if: github.event_name == 'pull_request'
         run: |
+          # Get workflow ID for flow-micro-benchmarks.yml
+          WORKFLOW_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows")
+          echo "Workflow API Response: $WORKFLOW_RESPONSE"
+          WORKFLOW_ID=$(echo "$WORKFLOW_RESPONSE" | jq -r '.workflows[] | select(.path == ".github/workflows/flow-micro-benchmarks.yml") | .id')
+          echo "Workflow ID: $WORKFLOW_ID"
+          
           # Fetch the 50 most recent commits on master
           COMMITS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/commits?sha=master&per_page=50" \
+            "https://api.github.com/repos/${{ github.repository }}/commits?sha=main&per_page=50" \
             | jq -r '.[].sha')
-    
-          # Loop through commits to find the first artifact
+          
           ARTIFACT_URL=""
           for COMMIT_SHA in $COMMITS; do
-            # Get workflow runs for this commit
-            RUNS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            RUN_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
               -H "Accept: application/vnd.github+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/runs?head_sha=$COMMIT_SHA&status=success" \
-            | jq -r '.workflow_runs[] | select(.event == "push") | .id')
-      
-            # Check each run for the artifact
-            for RUN_ID in $RUNS; do
-              ARTIFACT_URL=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-                -H "Accept: application/vnd.github+json" \
-                "https://api.github.com/repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" \
-                | jq -r '.artifacts[] | select(.name == "rust-benchmark-results-master") | .archive_download_url')
-              if [ -n "$ARTIFACT_URL" ]; then
-                break 2 # Exit both loops if artifact is found
-              fi
-            done
+              "https://api.github.com/repos/${{ github.repository }}/actions/runs?head_sha=$COMMIT_SHA&status=success&workflow_id=$WORKFLOW_ID")
+            ARTIFACT_URL=$(echo "$RUN_RESPONSE" | jq -r '.workflow_runs[0].artifacts_url' \
+              | xargs -I {} curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Accept: application/vnd.github+json" {} \
+              | jq -r '.artifacts[] | select(.name == "rust-benchmark-results-master") | .archive_download_url')
+            if [ -n "$ARTIFACT_URL" ]; then
+              echo "Found artifact for commit $COMMIT_SHA: $ARTIFACT_URL"
+              break
+            fi
           done
-    
+          
           echo "artifact-url=$ARTIFACT_URL" >> $GITHUB_OUTPUT
           if [ -z "$ARTIFACT_URL" ]; then
-            echo "No artifact found for rust-benchmark-results-master in the last 25 commits"
-          else
-            echo "Found artifact for commit $COMMIT_SHA: $ARTIFACT_URL"
+            echo "No artifact found for rust-benchmark-results-master in the last 50 commits"
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true # Prevent failure if no artifact exists
+        continue-on-error: true
 
       - name: Debug GITHUB_OUTPUT and artifact-url
         if: github.event_name == 'pull_request'
