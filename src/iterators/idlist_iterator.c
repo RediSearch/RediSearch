@@ -38,6 +38,7 @@ static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
   }
 
   if (docId > it->docIds[it->size - 1]) {
+      //TODO(Joan): Should we update atEOF here?
       it->base.atEOF = true;
       return ITERATOR_EOF;
   }
@@ -50,22 +51,27 @@ static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
       did = it->docIds[i];
 
       if (did == docId) {
-      break;
+        break;
       }
       if (docId < did) {
-      top = i - 1;
+        top = i - 1;
       } else {
-      bottom = i + 1;
+        bottom = i + 1;
       }
   }
   if (did < docId) did = it->docIds[++i];
   it->offset = i + 1;
-  if (it->offset >= it->size) {
+  if (it->offset >= it->size) {// && docId == did) {
+      //TODO(Joan): Should we update EOF here?
       it->base.atEOF = true;
   }
 
-  it->base.current->docId = base->lastDocId = did;
-  return docId == did ? ITERATOR_OK : ITERATOR_NOTFOUND;
+  if (docId == did) {
+    // If not ITERATOR_OK current and lastDocId should remain untouched
+    it->base.current->docId = base->lastDocId = did;
+    return ITERATOR_OK;
+  }
+  return ITERATOR_NOTFOUND;
 }
 
 /* release the iterator's context and free everything needed */
@@ -93,7 +99,10 @@ static void IL_Rewind(QueryIterator *base) {
 }
  
 QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weight) {
+  // Assume the ids are not null and num > 0 otherwise these Iterator would not be created, avoid validation
   // first sort the ids, so the caller will not have to deal with it
+
+  //TODO(Joan): Should we check for duplicates?
   qsort(ids, (size_t)num, sizeof(t_docId), cmp_docids);
 
   IdListIterator *it = rm_new(IdListIterator);
