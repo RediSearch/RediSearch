@@ -784,10 +784,8 @@ def test_mod4296_badexpr(env):
 
 @skip(cluster=True)
 def test_mod5062(env):
-  run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
   env.expect(config_cmd(), 'SET', 'MAXSEARCHRESULTS', '0').ok()
   env.expect(config_cmd(), 'SET', 'MAXAGGREGATERESULTS', '0').ok()
-
   n = 100
 
   env.expect('FT.CREATE', 'idx', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT').ok()
@@ -960,7 +958,6 @@ def test_mod5910(env):
     env.assertEqual(iterators_profile[7][0][1], 'NUMERIC')
     env.assertEqual(iterators_profile[7][1][1], 'UNION')
 
-
 @skip(cluster=True)
 def test_mod5880(env):
     env.cmd(config_cmd(), "set", "FORK_GC_CLEAN_THRESHOLD", "0")
@@ -1066,6 +1063,7 @@ def test_mod6186(env):
 def test_mod6510_vecsim_hybrid_adhoc_timeout(env):
     dim = 1000
     n_vectors = 50000
+    env.expect(config_cmd(), 'set', 'ON_TIMEOUT', 'FAIL').ok()
 
     # Create HNSW index which is large enough, so we'll get timeout later on.
     env.expect(f'FT.CREATE idx SCHEMA v VECTOR HNSW 10 DIM {dim} DISTANCE_METRIC L2 TYPE FLOAT32 M 2 EF_CONSTRUCTION 5'
@@ -1308,7 +1306,7 @@ def test_mod_6783(env:Env):
 def test_mod_8589(env:Env):
   env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
   env.cmd('HSET', 'doc1', 'v', '????????', 't', 'foo bar foo') # Max frequency is 2 (foo)
-  docinfo = to_dict(env.cmd(debug_cmd(), 'DOCINFO', 'idx', 'doc1'))
+  docinfo = to_dict(env.cmd(debug_cmd(), 'DOCINFO', 'idx', 'doc1', 'REVEAL'))
   env.assertEqual(docinfo['max_freq'], 2)
 
 @skip(cluster=True)
@@ -1321,7 +1319,7 @@ def test_mod_8568(env:Env):
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km').equal(expected)
   env.expect('FT.SEARCH', 'idx', '*', 'GEOFILTER', 'g', '1.1', '1.1', '1', 'km',
                                       'GEOFILTER', 'g', '1.1', '1.1', '1000', 'km').equal(expected)
- 
+
 @skip(cluster=True)
 def test_mod_6786(env:Env):
   # Test search of long term (>128) inside text field
@@ -1333,8 +1331,21 @@ def test_mod_6786(env:Env):
   env.cmd('HSET', 'doc1', 't', text_with_long_term)
 
   # Searching for the long term should return the document
-  # Before fix, the long term was partialy normalized and the document was not found
+  # Before fix, the long term was partially normalized and the document was not found
   env.expect('FT.SEARCH', 'idx', long_term).equal([1, 'doc1', ['t', text_with_long_term]])
+
+@skip(cluster=False)
+def test_mod_7609(env:Env):
+  # Create the same named index on all shards, but with different schemas
+  for i in range(1, env.shardsCount + 1):
+    con = env.getConnection(i)
+    con.execute_command('DEBUG', 'MARK-INTERNAL-CLIENT') # required for running the internal `_FT.CREATE` command
+    schema = []
+    for j in range(i):
+      schema.extend(['f'+str(j), 'TEXT'])
+    con.execute_command('_FT.CREATE', 'idx', 'SCHEMA', *schema)
+
+  env.expect('FT.INFO', 'idx').error().contains('Inconsistent index state')
 
 @skip(cluster=True)
 def test_mod_8561(env:Env):
@@ -1360,3 +1371,189 @@ def test_mod_8561(env:Env):
   expected = [1, '2', ['t', 'foo,bar']]
   env.expect('FT.SEARCH', 'idx1', 'bar foo').noError().equal(expected)
   env.expect('FT.SEARCH', 'idx2', "@t:{bar} @t:{foo}").noError().equal(expected)
+
+import time
+@skip(cluster=True)
+def test_mod_8695():
+  env = Env(moduleArgs='DEFAULT_DIALECT 2')
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT',
+                                           'v', 'VECTOR', 'FLAT', '6', 'TYPE', 'FLOAT32', 'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
+
+  env.cmd('HSET', 'doc1', 't', 'foo', 'v', '????????')
+  env.cmd('HSET', 'doc2', 't', 'bar', 'v', '????????')
+  env.cmd('HSET', 'doc3', 't', 'foo bar', 'v', '????????')
+
+  # Test highlighting
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo',
+                 'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  res2 = env.cmd('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', '????????',
+                 'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  env.assertEqual(res1, res2)
+
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo|bar',
+                 'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  res2 = env.cmd('FT.SEARCH', 'idx', '(foo|bar)=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', '????????',
+                  'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  env.assertEqual(res1, res2)
+
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo bar',
+                  'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  res2 = env.cmd('FT.SEARCH', 'idx', '(foo bar)=>[KNN 10 @v $BLOB]', 'PARAMS', 2, 'BLOB', '????????',
+                  'HIGHLIGHT', 'FIELDS', 1, 't', 'RETURN', 1, 't')
+  env.assertEqual(res1, res2)
+
+  # Test vector with highlight only (implicit return)
+  env.expect('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                  'HIGHLIGHT', 'FIELDS', 1, 't', ).noError().equal(
+               [2, 'doc1', ['score', '0', 't', '<b>foo</b>', 'v', '????????'], 'doc3', ['score', '0', 't', '<b>foo</b> bar', 'v', '????????']])
+
+  # Test vector with highlight and explicit return
+  env.expect('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                  'RETURN', 2, 't', 'score', 'HIGHLIGHT', 'FIELDS', 1, 't').noError().equal(
+               [2, 'doc1', ['score', '0', 't', '<b>foo</b>'], 'doc3', ['score', '0', 't', '<b>foo</b> bar']])
+
+  # Test that we get the same results (with scores) regardless of the order of the arguments
+  res1 = env.cmd('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                    'SORTBY', 'score', 'WITHSCORES')
+  res2 = env.cmd('FT.SEARCH', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????',
+                                    'WITHSCORES', 'SORTBY', 'score')
+  env.assertEqual(res1, res2)
+
+  # Test vector with AGGREGATE and scores
+  env.expect('FT.AGGREGATE', 'idx', 'foo=>[KNN 10 @v $BLOB as score]', 'PARAMS', 2, 'BLOB', '????????', 'ADDSCORES', 'SCORER', 'TFIDF', 'TIMEOUT', 0).noError().apply(lambda res: res[1:]).equal(
+               [['score', '0', '__score', '1'], ['score', '0', '__score', '1']])
+
+@skip(cluster=True)
+def test_mod_9423(env:Env):
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+  env.cmd('HSET', 'doc1', 'n', '1') # Document with no text
+
+  # Expect the document score to be 0, since it has no text
+  expected = [1, 'doc1', '0', ['n', '1']]
+  env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF').equal(expected)
+  env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF.DOCNORM').equal(expected)
+
+  expected = [1, 'doc1', ['0', 'Document max frequency is 0'], ['n', '1']]
+  env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF', 'EXPLAINSCORE').equal(expected)
+  expected = [1, 'doc1', ['0', 'Document length is 0'], ['n', '1']]
+  env.expect('FT.SEARCH', 'idx', '*', 'WITHSCORES', 'SCORER', 'TFIDF.DOCNORM', 'EXPLAINSCORE').equal(expected)
+
+# Test that RedisModule_Yield is called while indexing in order to prevent master from killing the replica [MOD-8809]
+@skip(cluster=True)
+def test_mod_8809_single_index_single_field(env:Env):
+
+    # Configure yield every 10 operations
+    yield_every_n_ops = 10
+    env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
+    env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
+
+    # Reset yield counter
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
+    initial_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.assertEqual(initial_count, 0, message="Initial yield counter should be 0")
+    
+    # Create index
+    dimension = 128
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+    
+    # Add enough documents to trigger yields
+    num_docs = 1000
+    for i in range(num_docs):
+        vector = np.random.rand(1, dimension).astype(np.float32)
+        env.execute_command('HSET', f'doc{i}', 'v', vector.tobytes())
+    waitForIndex(env, 'idx')
+
+    
+    # Check that yield was not called
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.assertEqual(yields_count, 0, message="Yield should not have been called")
+    
+    # Reload and check 
+    env.broadcast('SAVE')
+    env.broadcast('DEBUG RELOAD NOSAVE')
+    waitForIndex(env, 'idx')
+    env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
+    
+    # Verify the number of yields 
+    expected_min_yields = num_docs // yield_every_n_ops
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.assertGreaterEqual(yields_count, expected_min_yields, 
+                          message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
+    
+    # Test with different configuration
+    yields_every_n_ops = 5
+    env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
+
+    # Reload and check 
+    env.broadcast('SAVE')
+    env.broadcast('DEBUG RELOAD NOSAVE')
+    waitForIndex(env, 'idx')
+
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    expected_min_yields = num_docs // yield_every_n_ops
+    env.assertGreaterEqual(yields_count, expected_min_yields, 
+                          message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
+
+@skip(cluster=True)
+def test_mod_8809_multi_index_multi_fields(env:Env):
+
+    # Configure yield every 10 operations
+    yield_every_n_ops = 10
+    env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
+    env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
+
+    # Reset yield counter
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
+    initial_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.assertEqual(initial_count, 0, message="Initial yield counter should be 0")
+    
+    # Create index
+    dimension = 128
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'num', 'NUMERIC', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+    env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT', 'v', 'VECTOR', 'HNSW', '6', 'TYPE', 'FLOAT32', 'DIM', dimension, 'DISTANCE_METRIC', 'L2')
+    env.cmd('FT.CREATE', 'idx3', 'SCHEMA', 'geom', 'GEOSHAPE', 'tag', 'TAG' ,'t2', 'TEXT')
+
+    # Add enough documents to trigger yields
+    num_docs = 1000
+    for i in range(num_docs):
+        vector = np.random.rand(1, dimension).astype(np.float32)
+        env.execute_command('HSET', f'doc{i}', 'v', vector.tobytes(), 'num', i, 't', f'text {i}', 't2', f'text2 {i}', 'geom', f'POINT({i%10} {i%15})', 'tag', f'tag{i%10}')
+    waitForIndex(env, 'idx')
+    waitForIndex(env, 'idx2')
+    waitForIndex(env, 'idx3')
+
+    # Reload and check 
+    env.broadcast('SAVE')
+    env.broadcast('DEBUG RELOAD NOSAVE')
+    waitForIndex(env, 'idx')
+    waitForIndex(env, 'idx2')
+    waitForIndex(env, 'idx3')
+
+    # Check that yield was called
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    env.assertGreater(yields_count, 0, message="Yield should have been called at least once")
+    
+    # Verify the number of yields 
+    expected_min_yields = 7 * num_docs // yield_every_n_ops
+    env.assertGreaterEqual(yields_count, expected_min_yields, 
+                          message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
+    
+    # Test with different configuration
+    yield_every_n_ops = 5
+    env.expect(config_cmd(), 'SET', 'INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}').ok()
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'RESET').ok()
+
+    # Reload and check 
+    env.broadcast('SAVE')
+    env.broadcast('DEBUG RELOAD NOSAVE')
+    waitForIndex(env, 'idx')
+    waitForIndex(env, 'idx2')
+    waitForIndex(env, 'idx3')
+    env.expect(config_cmd(), 'GET', 'INDEXER_YIELD_EVERY_OPS').equal([['INDEXER_YIELD_EVERY_OPS', f'{yield_every_n_ops}']])
+    
+    yields_count = env.cmd(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER')
+    expected_min_yields = 7 * num_docs // yield_every_n_ops
+    env.assertGreaterEqual(yields_count, expected_min_yields, 
+                          message=f"Expected at least {expected_min_yields} yields, got {yields_count}")
+

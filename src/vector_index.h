@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #pragma once
 #include "search_ctx.h"
 #include "VecSim/vec_sim.h"
@@ -41,7 +43,7 @@
 #define VECSIM_DISTANCE_METRIC "DISTANCE_METRIC"
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
-  QERR_MKBADARGS_FMT(status, "Missing mandatory parameter: cannot create %s index without specifying %s argument", algorithm, arg)
+  QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)
 
 #define VECSIM_KNN_K_TOO_LARGE_ERR_MSG "KNN K parameter is too large"
 

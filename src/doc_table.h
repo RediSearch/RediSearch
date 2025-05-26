@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef __DOC_TABLE_H__
 #define __DOC_TABLE_H__
 #include <stdlib.h>
@@ -66,10 +68,10 @@ typedef struct {
 typedef struct {
   size_t size;
   t_docId maxSize;          // the maximum size this table is allowed to grow to
-  t_docId maxDocId;
-  size_t cap;
-  size_t memsize;
-  size_t sortablesSize;
+  t_docId maxDocId;         // the maximum docId assigned
+  size_t cap;               // current capacity of buckets
+  size_t memsize;           // total memory size occupied by the table
+  size_t sortablesSize;     // total memory size occupied by the sortables
 
   DMDChain *buckets;
   DocIdMap dim;             // Mapping between document name to internal id
@@ -145,7 +147,7 @@ bool DocTable_IsDocExpired(DocTable* t, const RSDocumentMetadata* dmd, struct ti
 // missing predicate - one of the fields did expire -> entry is valid in the context of missing
 bool DocTable_VerifyFieldExpirationPredicate(const DocTable *t, t_docId docId, const t_fieldIndex* fieldIndices, size_t fieldCount, enum FieldExpirationPredicate predicate, const struct timespec* expirationPoint);
 
-/** Get the docId of a key if it exists in the table, or 0 if it doesnt */
+/** Get the docId of a key if it exists in the table, or 0 if it doesn't */
 t_docId DocTable_GetId(const DocTable *dt, const char *s, size_t n);
 
 #define STRVARS_FROM_RSTRING(r) \

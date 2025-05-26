@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "gtest/gtest.h"
 #include "redismock/redismock.h"
 #include "redismock/util.h"
@@ -55,11 +64,11 @@ TEST_F(DocumentTest, testLoadAll) {
   ASSERT_EQ(2, d.numFields);
   auto f = Document_GetField(&d, "ni2");
   ASSERT_FALSE(f == NULL);
-  ASSERT_STREQ("ni2", f->name);
+  ASSERT_STREQ("ni2", RediSearch_HiddenStringGet(f->docFieldName));
   ASSERT_TRUE(0 == RedisModule_StringCompare(f->text, RMCK::RString("foo2")));
   f = Document_GetField(&d, "ni1");
   ASSERT_FALSE(f == NULL);
-  ASSERT_STREQ("ni1", f->name);
+  ASSERT_STREQ("ni1", RediSearch_HiddenStringGet(f->docFieldName));
   ASSERT_TRUE(0 == RedisModule_StringCompare(f->text, RMCK::RString("foo1")));
   ASSERT_EQ(DOCUMENT_F_OWNSTRINGS, d.flags);
   Document_Free(&d);
@@ -95,12 +104,12 @@ TEST_F(DocumentTest, testLoadSchema) {
   ASSERT_EQ(NULL, Document_GetField(&d, "secondfield"));
   auto f = Document_GetField(&d, "t1");
   ASSERT_FALSE(f == NULL);
-  ASSERT_STREQ("t1", f->name);
+  ASSERT_STREQ("t1", RediSearch_HiddenStringGet(f->docFieldName));
   ASSERT_EQ(0, RedisModule_StringCompare(RMCK::RString("Hello World"), f->text));
 
   f = Document_GetField(&d, "t2");
   ASSERT_FALSE(f == NULL);
-  ASSERT_STREQ("t2", f->name);
+  ASSERT_STREQ("t2", RediSearch_HiddenStringGet(f->docFieldName));
   ASSERT_EQ(0, RedisModule_StringCompare(RMCK::RString("foobar"), f->text));
 
   ASSERT_EQ(DOCUMENT_F_OWNSTRINGS, d.flags);

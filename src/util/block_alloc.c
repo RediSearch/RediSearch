@@ -1,13 +1,16 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "block_alloc.h"
 #include <assert.h>
 #include <stdio.h>
 #include "rmalloc.h"
+#include "rmutil/rm_assert.h"
 
 static void freeCommon(BlkAlloc *blocks, BlkAllocCleaner cleaner, void *arg, size_t elemSize,
                        int reuse) {
@@ -67,7 +70,7 @@ static BlkAllocBlock *getNewBlock(BlkAlloc *alloc, size_t blockSize) {
         if (cur == alloc->avail) {
           alloc->avail = cur->next;
         } else {
-          assert(prev != NULL);
+          RS_ASSERT(prev != NULL);
           prev->next = cur->next;
         }
         break;
@@ -92,7 +95,7 @@ static BlkAllocBlock *getNewBlock(BlkAlloc *alloc, size_t blockSize) {
 }
 
 void *BlkAlloc_Alloc(BlkAlloc *blocks, size_t elemSize, size_t blockSize) {
-  assert(blockSize >= elemSize);
+  RS_ASSERT(blockSize >= elemSize);
   if (!blocks->root) {
     blocks->root = blocks->last = getNewBlock(blocks, blockSize);
 

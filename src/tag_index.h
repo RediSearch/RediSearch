@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef RS_TAG_INDEX_H_
 #define RS_TAG_INDEX_H_
 
@@ -108,7 +110,7 @@ typedef struct {
 
 #define TAG_INDEX_KEY_FMT "tag:%s/%s"
 /* Format the key name for a tag index */
-RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field);
+RedisModuleString *TagIndex_FormatName(const IndexSpec *spec, const HiddenString *field);
 
 /* Create a new tag index*/
 TagIndex *NewTagIndex();
@@ -138,7 +140,7 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
 void TagIndex_RegisterConcurrentIterators(TagIndex *idx, ConcurrentSearchCtx *conc, array_t *iters);
 
 /* Open the tag index key in redis */
-TagIndex *TagIndex_Open(const RedisSearchCtx *sctx, RedisModuleString *formattedKey, bool create_if_missing);
+TagIndex *TagIndex_Open(const IndexSpec *spec, RedisModuleString *formattedKey, bool create_if_missing);
 
 /* Find and index containing value, if the index is not found and create == 1,
  * a new index is created.
@@ -160,7 +162,7 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx);
 * Calculates the overhead used by the TrieMaps of the TAG field named `name`, in
 * IndexSpec `sp`.
 */
-size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs);
+size_t TagIndex_GetOverhead(const IndexSpec *sp, FieldSpec *fs);
 
 #ifdef __cplusplus
 }

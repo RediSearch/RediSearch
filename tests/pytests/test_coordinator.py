@@ -53,14 +53,7 @@ def testCommandStatsOnRedis(env):
     env.expect('FT.SEARCH', 'idx', 'hello', 'LIMIT', 0, 0).equal([100])
     check_info_commandstats(env, 'FT.SEARCH')
 
-    # Aggregate on coordinator can timeout or return a valid result
-    # We only care about the time spent on the coordinator
-    # setting the timeout policy on every shard seems like unnecessary overhead
-    # Just try catch around the cmd
-    try:
-        env.cmd('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0)
-    except:
-        pass
+    env.expect('FT.AGGREGATE', 'idx', 'hello', 'LIMIT', 0, 0).noError()
     check_info_commandstats(env, 'FT.AGGREGATE')
 
     conn.execute_command('FT.INFO', 'idx')
@@ -118,8 +111,8 @@ def test_error_propagation_from_shards(env):
     SkipOnNonCluster(env)
 
     # indexing an index that doesn't exist (today revealed only in the shards)
-    env.expect('FT.AGGREGATE', 'idx', '*').error().contains('idx: no such index')
-    env.expect('FT.SEARCH', 'idx', '*').error().contains('idx: no such index')
+    env.expect('FT.AGGREGATE', 'idx', '*').error().contains('No such index idx')
+    env.expect('FT.SEARCH', 'idx', '*').error().contains('No such index idx')
 
     # Bad query
     # create the index
@@ -175,7 +168,6 @@ def test_mod_6287(env):
     such a scenario depicted in PR #4324 results in a crash since the `depleted`
     and `pending` flags/counter were not aligned."""
 
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     conn = getConnectionByEnv(env)
     con2 = env.getConnection(2)
 

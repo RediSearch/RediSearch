@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #pragma once
 
@@ -56,6 +58,10 @@ typedef enum {
   RP_PROFILE,
   RP_NETWORK,
   RP_METRICS,
+  RP_KEY_NAME_LOADER,
+  RP_MAX_SCORE_NORMALIZER,
+  RP_TIMEOUT, // DEBUG ONLY
+  RP_CRASH, // DEBUG ONLY
   RP_MAX,
 } ResultProcessorType;
 
@@ -78,15 +84,19 @@ typedef struct {
   struct timespec initTime; //used with clock_gettime(CLOCK_MONOTONIC, ...)
   struct timespec GILTime;  //milliseconds
 
-  // the minimal score applicable for a result. It can be used to optimize the scorers
+  // the minimal score applicable for a result. It can be used to optimize the
+  // scorers
   double minScore;
 
-  // the total results found in the query, incremented by the root processors and decremented by
-  // others who might disqualify results
+  // the total results found in the query, incremented by the root processors
+  // and decremented by others who might disqualify results
   uint32_t totalResults;
 
-  // the number of results we requested to return at the current chunk. This value may be used by
-  // processors to optimize their work and to signal RP in the upstream their limit.
+  // the number of results we requested to return at the current chunk.
+  // This value is meant to be used by the RP to limit the number of results
+  // returned by its upstream RP ONLY.
+  // It should be restored after using it for local aggregation etc., as done in
+  // the Safe-Loader, Sorter, and Pager.
   uint32_t resultLimit;
 
   // Object which contains the error
@@ -276,6 +286,30 @@ void Profile_AddRPs(QueryIterator *qiter);
 
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);
+
+/*******************************************************************************************************************
+ *  Timeout Processor - DEBUG ONLY
+ *
+ * returns timeout after N results, N >= 0.
+ *******************************************************************************************************************/
+ResultProcessor *RPTimeoutAfterCount_New(size_t count);
+void PipelineAddTimeoutAfterCount(struct AREQ *r, size_t results_count);
+
+/*******************************************************************************************************************
+ *  Crash Processor - DEBUG ONLY
+ *
+ * crash the at the start of the query
+ *******************************************************************************************************************/
+ResultProcessor *RPCrash_New();
+void PipelineAddCrash(struct AREQ *r);
+
+ /*******************************************************************************************************************
+  *  Normalizer Result Processor
+  *
+  * Normalizes search result scores to [0, 1] range by dividing each score by the maximum score.
+  * First accumulates all results from the upstream, then normalizes and yields them.
+  *******************************************************************************************************************/
+ ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
 
 #ifdef __cplusplus
 }

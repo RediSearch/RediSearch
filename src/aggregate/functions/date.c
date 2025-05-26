@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <util/minmax.h>
 #include <util/array.h>
 #include <util/block_alloc.h>
@@ -15,7 +17,7 @@
 #define ISOFMT "%FT%TZ"
 #define ISOFMT_LEN sizeof(ISOFMT) - 1
 
-// TIME(propert, [fmt_string])
+// TIME(property, [fmt_string])
 static int timeFormat(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   const char *fmt = ISOFMT;
   if (argc == 2) {

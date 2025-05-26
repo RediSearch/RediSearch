@@ -1,0 +1,41 @@
+[package]
+name = "trie_bencher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+
+[lib]
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[[bin]]
+name = "trie_bencher"
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[[bench]]
+name = "operations"
+harness = false
+
+[[bench]]
+name = "iter"
+harness = false
+
+[dependencies]
+crc32fast.workspace = true
+criterion.workspace = true
+csv.workspace = true
+fs-err.workspace = true
+lending-iterator.workspace = true
+redis_mock.workspace = true
+trie_rs.workspace = true
+ureq.workspace = true
+wildcard.workspace = true
+
+[build-dependencies]
+cc.workspace = true
+bindgen.workspace = true
+
+[lints]
+workspace = true

@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -252,7 +254,7 @@ QueryNode *NewWildcardNode_WithParams(QueryParseCtx *q, QueryToken *qt) {
     s[qt->len] = '\0';
     ret->verb.tok = (RSToken){.str = s, .len = qt->len, .expanded = 0, .flags = 0};
   } else {
-    assert(qt->type == QT_PARAM_WILDCARD);
+    RS_ASSERT(qt->type == QT_PARAM_WILDCARD);
     QueryNode_InitParams(ret, 1);
     QueryNode_SetParam(q, &ret->params[0], &ret->verb.tok.str, &ret->verb.tok.len, qt);
     ret->params[0].type = PARAM_WILDCARD;
@@ -278,7 +280,7 @@ QueryNode *NewFuzzyNode_WithParams(QueryParseCtx *q, QueryToken *qt, int maxDist
     };
   } else {
     ret->fz.maxDist = maxDist;
-    assert(qt->type == QT_PARAM_TERM);
+    RS_ASSERT(qt->type == QT_PARAM_TERM);
     QueryNode_InitParams(ret, 1);
     QueryNode_SetParam(q, &ret->params[0], &ret->fz.tok.str, &ret->fz.tok.len, qt);
   }
@@ -297,11 +299,11 @@ QueryNode *NewTagNode(const FieldSpec *field) {
   return ret;
 }
 
-QueryNode *NewNumericNode(QueryParam *p) {
+QueryNode *NewNumericNode(QueryParam *p, const FieldSpec *fs) {
   QueryNode *ret = NewQueryNode(QN_NUMERIC);
-  // Move data and params pointers
   ret->nn.nf = p->nf;
   ret->params = p->params;
+  ret->nn.nf->fieldSpec = fs;
   p->nf = NULL;
   p->params = NULL;
   rm_free(p);
@@ -309,7 +311,7 @@ QueryNode *NewNumericNode(QueryParam *p) {
 }
 
 QueryNode *NewGeofilterNode(QueryParam *p) {
-  assert(p->type == QP_GEO_FILTER);
+  RS_ASSERT(p->type == QP_GEO_FILTER);
   QueryNode *ret = NewQueryNode(QN_GEO);
   // Move data and params pointers
   ret->gn.gf = p->gf;
@@ -628,7 +630,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   size_t nstr;
   rune *str = qn->pfx.tok.str ? strToLowerRunes(qn->pfx.tok.str, &nstr) : NULL;
   if (!str) {
-    QueryError_SetErrorFmt(q->status, QUERY_ELIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
+    QueryError_SetWithoutUserDataFmt(q->status, QUERY_ELIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
     return NULL;
   }
 
@@ -652,7 +654,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
       };
       Suffix_IterateContains(&sufCtx);
     } else {
-      QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
+      QueryError_SetError(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
   } else {
     TrieNode_IterateContains(t->root, str, nstr, qn->pfx.prefix, qn->pfx.suffix,
@@ -723,7 +725,7 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
         fallbackBruteForce = true;
       }
     } else {
-      QueryError_SetErrorFmt(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
+      QueryError_SetError(q->status, QUERY_EGENERIC, "Contains query on fields without WITHSUFFIXTRIE support");
     }
   }
 
@@ -929,7 +931,7 @@ static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
   RS_LOG_ASSERT(node->type == QN_NUMERIC, "query node type should be numeric")
 
-  const FieldSpec *fs = node->nn.nf->field;
+  const FieldSpec *fs = node->nn.nf->fieldSpec;
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   return NewNumericFilterIterator(q->sctx, node->nn.nf, q->conc, INDEXFLD_T_NUMERIC, q->config, &filterCtx);
 }
@@ -951,7 +953,7 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   const FieldSpec *fs = node->gmn.geomq->fs;
 
   // TODO: open with DONT_CREATE_INDEX once the query string is validated before we get here.
-  // Currently, if  we use DONT_CREATE_INDEX, and the index was not initalized yet, and the query is invalid,
+  // Currently, if  we use DONT_CREATE_INDEX, and the index was not initialized yet, and the query is invalid,
   // we return results as if the index was empty, instead of raising an error.
   const GeometryIndex *index = OpenGeometryIndex(q->sctx->spec, fs, CREATE_INDEX);
   const GeometryApi *api = GeometryApi_Get(index);
@@ -960,7 +962,7 @@ static IndexIterator *Query_EvalGeometryNode(QueryEvalCtx *q, QueryNode *node) {
   FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   IndexIterator *ret = api->query(q->sctx, &filterCtx, index, gq->query_type, gq->format, gq->str, gq->str_len, &errMsg);
   if (ret == NULL) {
-    QueryError_SetErrorFmt(q->status, QUERY_EBADVAL, "Error querying geoshape index: %s",
+    QueryError_SetWithUserDataFmt(q->status, QUERY_EBADVAL, "Error querying geoshape index", ": %s",
                            RedisModule_StringPtrLen(errMsg, NULL));
     RedisModule_FreeString(NULL, errMsg);
   }
@@ -975,12 +977,14 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
     if (qn->vn.vq->scoreField) {
       // Since the KNN syntax allows specifying the distance field in two ways (...=>[KNN ... AS <dist_field>] and
       // ...=>[KNN ...]=>{$YIELD_DISTANCE_AS:<dist_field>), we validate that we got it only once.
-      char default_score_field[strlen(qn->vn.vq->field->name) + 9];  // buffer for __<field>_score
-      sprintf(default_score_field, "__%s_score", qn->vn.vq->field->name);
+      size_t len;
+      const char *fieldName = HiddenString_GetUnsafe(qn->vn.vq->field->fieldName, &len);
+      char default_score_field[len + 9];  // buffer for __<field>_score
+      sprintf(default_score_field, "__%s_score", fieldName);
       // If the saved score field is NOT the default one, we return an error, otherwise, just override it.
       if (strcasecmp(qn->vn.vq->scoreField, default_score_field) != 0) {
-        QueryError_SetErrorFmt(q->status, QUERY_EDUPFIELD,
-                               "Distance field was specified twice for vector query: %s and %s",
+        QueryError_SetWithUserDataFmt(q->status, QUERY_EDUPFIELD,
+                               "Distance field was specified twice for vector query", ": %s and %s",
                                qn->vn.vq->scoreField, qn->opts.distField);
         return NULL;
       }
@@ -999,7 +1003,7 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
 
   IndexIterator *child_it = NULL;
   if (QueryNode_NumChildren(qn) > 0) {
-    RedisModule_Assert(QueryNode_NumChildren(qn) == 1);
+    RS_ASSERT(QueryNode_NumChildren(qn) == 1);
     child_it = Query_EvalNode(q, qn->children[0]);
     // If child iterator is in valid or empty, the hybrid iterator is empty as well.
     if (child_it == NULL) {
@@ -1087,6 +1091,7 @@ static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
   *str = '\0';
 
   if (!caseSensitive) {
+    // TODO: MOD-8799 Support longer dst
     size_t newLen = unicode_tolower(origStr, origLen, NULL);
     if (newLen) {
       origStr[newLen] = '\0';
@@ -1388,7 +1393,7 @@ static IndexIterator *Query_EvalTagNode(QueryEvalCtx *q, QueryNode *qn) {
   }
   QueryTagNode *node = &qn->tag;
   RedisModuleString *kstr = IndexSpec_GetFormattedKey(q->sctx->spec, node->fs, INDEXFLD_T_TAG);
-  TagIndex *idx = TagIndex_Open(q->sctx, kstr, DONT_CREATE_INDEX);
+  TagIndex *idx = TagIndex_Open(q->sctx->spec, kstr, DONT_CREATE_INDEX);
 
   IndexIterator **total_its = NULL;
   IndexIterator *ret = NULL;
@@ -1444,7 +1449,7 @@ static IndexIterator *Query_EvalMissingNode(QueryEvalCtx *q, QueryNode *qn) {
   const FieldSpec *fs = qn->miss.field;
 
   // Get the InvertedIndex corresponding to the queried field.
-  InvertedIndex *missingII = dictFetchValue(q->sctx->spec->missingFieldDict, fs->name);
+  InvertedIndex *missingII = dictFetchValue(q->sctx->spec->missingFieldDict, fs->fieldName);
 
   if (!missingII) {
     // There are no missing values for this field.
@@ -1634,7 +1639,7 @@ int QueryNode_EvalParams(dict *params, QueryNode *n, unsigned int dialectVersion
       break;
     case QN_UNION:
       // no immediately owned params to resolve
-      assert(n->params == NULL);
+      RS_ASSERT(n->params == NULL);
       break;
     case QN_NULL:
     case QN_MISSING:
@@ -1693,7 +1698,7 @@ static inline bool QueryNode_DoesIndexEmpty(QueryNode *n, IndexSpec *spec, RSSea
 // empty strings, we should return an error
 static inline bool QueryNode_ValidateToken(QueryNode *n, IndexSpec *spec, RSSearchOptions *opts, QueryError *status) {
   if (n->tn.len == 0 && n->tn.str && !strcmp(n->tn.str, "") && !QueryNode_DoesIndexEmpty(n, spec, opts)) {
-    QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Use `%s` in field creation in order to index and query for empty strings", SPEC_INDEXEMPTY_STR);
+    QueryError_SetError(status, QUERY_ESYNTAX, "Use `" SPEC_INDEXEMPTY_STR "` in field creation in order to index and query for empty strings");
     return false;
   }
   return true;
@@ -1738,8 +1743,8 @@ static int QueryNode_CheckIsValid(QueryNode *n, IndexSpec *spec, RSSearchOptions
       break;
     case QN_NUMERIC: {
         if (n->nn.nf->min > n->nn.nf->max) {
-          QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric range (min > max): @%s:[%f %f]",
-                                 n->nn.nf->field->name, n->nn.nf->min, n->nn.nf->max);
+          QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid numeric range (min > max)", ": @%s:[%f %f]",
+                                 HiddenString_GetUnsafe(n->nn.nf->fieldSpec->fieldName, NULL), n->nn.nf->min, n->nn.nf->max);
           res = REDISMODULE_ERR;
         }
       }
@@ -1927,7 +1932,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
     case QN_NUMERIC: {
       const NumericFilter *f = qs->nn.nf;
       s = sdscatprintf(s, "NUMERIC {%f %s @%s %s %f}", f->min, f->inclusiveMin ? "<=" : "<",
-                       f->field->name, f->inclusiveMax ? "<=" : "<", f->max);
+                       HiddenString_GetUnsafe(f->fieldSpec->fieldName, NULL), f->inclusiveMax ? "<=" : "<", f->max);
     } break;
     case QN_UNION:
       s = sdscat(s, "UNION {\n");
@@ -1936,14 +1941,13 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscat(s, "}");
       break;
     case QN_TAG:
-      s = sdscatprintf(s, "TAG:@%s {\n", qs->tag.fs->name);
+      s = sdscatprintf(s, "TAG:@%s {\n", HiddenString_GetUnsafe(qs->tag.fs->fieldName, NULL));
       s = QueryNode_DumpChildren(s, spec, qs, depth + 1);
       s = doPad(s, depth);
       s = sdscat(s, "}");
       break;
     case QN_GEO:
-
-      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", qs->gn.gf->field->name, qs->gn.gf->lon,
+      s = sdscatprintf(s, "GEO %s:{%f,%f --> %f %s}", HiddenString_GetUnsafe(qs->gn.gf->fieldSpec->fieldName, NULL), qs->gn.gf->lon,
                        qs->gn.gf->lat, qs->gn.gf->radius,
                        GeoDistance_ToString(qs->gn.gf->unitType));
       break;
@@ -1990,7 +1994,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
           break;
         }
       } // switch (qs->vn.vq->type). Next is a common part for both types.
-      s = sdscatprintf(s, "in vector index associated with field @%s", qs->vn.vq->field->name);
+      s = sdscatprintf(s, "in vector index associated with field @%s", HiddenString_GetUnsafe(qs->vn.vq->field->fieldName, NULL));
       for (size_t i = 0; i < array_len(qs->vn.vq->params.params); i++) {
         s = sdscatprintf(s, ", %s = ", qs->vn.vq->params.params[i].name);
         s = sdscatlen(s, qs->vn.vq->params.params[i].value, qs->vn.vq->params.params[i].valLen);
@@ -2016,7 +2020,7 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
       s = sdscatprintf(s, "GEOSHAPE{%d %s}", qs->gmn.geomq->query_type, qs->gmn.geomq->str);
       break;
     case QN_MISSING:
-      s = sdscatprintf(s, "ISMISSING{%s}", qs->miss.field->name);
+      s = sdscatprintf(s, "ISMISSING{%s}", HiddenString_GetUnsafe(qs->miss.field->fieldName, NULL));
       break;
   }
 
@@ -2117,8 +2121,8 @@ static int QueryVectorNode_ApplyAttribute(VectorQuery *vq, QueryAttribute *attr)
 
 static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryError *status) {
 
-#define MK_INVALID_VALUE()                                                         \
-  QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid value (%.*s) for `%.*s`", \
+#define MK_INVALID_VALUE()                                                             \
+  QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid value", " (%.*s) for `%.*s`", \
                          (int)attr->vallen, attr->value, (int)attr->namelen, attr->name)
 
   int res = 0;
@@ -2187,7 +2191,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
   }
 
   if (!res) {
-    QueryError_SetErrorFmt(status, QUERY_ENOOPTION, "Invalid attribute %.*s", (int)attr->namelen,
+    QueryError_SetWithUserDataFmt(status, QUERY_ENOOPTION, "Invalid attribute", " %.*s", (int)attr->namelen,
                            attr->name);
   }
   return res;

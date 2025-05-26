@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "info_command.h"
 #include "resp3.h"
 #include "info/field_spec_info.h"
@@ -104,7 +106,7 @@ typedef struct {
   MRReply *indexOptions;
   size_t *errorIndexes;
   InfoValue toplevelValues[NUM_FIELDS_SPEC];
-  FieldSpecInfo *fieldSpecInfo_arr;
+  AggregatedFieldSpecInfo *fieldSpecInfo_arr;
   IndexError indexError;
   InfoValue gcValues[NUM_GC_FIELDS_SPEC];
   InfoValue cursorValues[NUM_CURSOR_FIELDS_SPEC];
@@ -121,7 +123,7 @@ typedef struct {
  * - onlyScalars - because special handling is done in toplevel mode
  */
 static void processKvArray(InfoFields *fields, MRReply *array, InfoValue *dsts,
-                           InfoFieldSpec *specs, size_t numFields, int onlyScalars);
+                           InfoFieldSpec *specs, size_t numFields, int onlyScalars, QueryError *error);
 
 /** Reply with a KV array, the values are emitted per name and type */
 static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue *values,
@@ -162,26 +164,31 @@ static void convertField(InfoValue *dst, MRReply *src, InfoFieldType type) {
 }
 
 // Extract an array of FieldSpecInfo from MRReply
-void handleFieldStatistics(MRReply *src, InfoFields *fields) {
+void handleFieldStatistics(InfoFields *fields, MRReply *src, QueryError *error) {
   // Input validations
-  RedisModule_Assert(src && fields);
-  RedisModule_Assert(MRReply_Type(src) == MR_REPLY_ARRAY);
+  RS_ASSERT(src && fields);
+  RS_ASSERT(MRReply_Type(src) == MR_REPLY_ARRAY);
 
   size_t len = MRReply_Length(src);
   if (!fields->fieldSpecInfo_arr) {
     // Lazy initialization
-    fields->fieldSpecInfo_arr = array_new(FieldSpecInfo, len);
+    fields->fieldSpecInfo_arr = array_newlen(AggregatedFieldSpecInfo, len);
     for (size_t i = 0; i < len; i++) {
-      FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Init();
-      array_append(fields->fieldSpecInfo_arr, fieldSpecInfo);
+      fields->fieldSpecInfo_arr[i] = AggregatedFieldSpecInfo_Init();
     }
+  }
+
+  // Something went wrong (number of fields mismatch)
+  if (array_len(fields->fieldSpecInfo_arr) != len) {
+    QueryError_SetError(error, QUERY_EBADVAL, "Inconsistent index state");
+    return;
   }
 
   for (size_t i = 0; i < len; i++) {
     MRReply *serializedFieldSpecInfo = MRReply_ArrayElement(src, i);
-    FieldSpecInfo fieldSpecInfo = FieldSpecInfo_Deserialize(serializedFieldSpecInfo);
-    FieldSpecInfo_OpPlusEquals(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
-    FieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources
+    AggregatedFieldSpecInfo fieldSpecInfo = AggregatedFieldSpecInfo_Deserialize(serializedFieldSpecInfo);
+    AggregatedFieldSpecInfo_Combine(&fields->fieldSpecInfo_arr[i], &fieldSpecInfo);
+    AggregatedFieldSpecInfo_Clear(&fieldSpecInfo); // Free Resources
   }
 }
 
@@ -190,8 +197,8 @@ static void handleIndexError(InfoFields *fields, MRReply *src) {
   if (!IndexError_LastError(&fields->indexError)) {
     fields->indexError = IndexError_Init();
   }
-  IndexError indexError = IndexError_Deserialize(src);
-  IndexError_OpPlusEquals(&fields->indexError, &indexError);
+  IndexError indexError = IndexError_Deserialize(src, INDEX_ERROR_WITH_OOM_STATUS);
+  IndexError_Combine(&fields->indexError, &indexError);
   IndexError_Clear(indexError); // Free Resources
 }
 
@@ -230,7 +237,7 @@ static void recomputeAverageCycleTimeMs(InfoValue* gcValues, InfoFieldSpec* gcSp
 }
 
 // Handle fields which aren't InfoValue types
-static void handleSpecialField(InfoFields *fields, const char *name, MRReply *value) {
+static void handleSpecialField(InfoFields *fields, const char *name, MRReply *value, QueryError *error) {
   if (!strcmp(name, "index_name")) {
     if (fields->indexName) {
       return;
@@ -253,21 +260,21 @@ static void handleSpecialField(InfoFields *fields, const char *name, MRReply *va
       fields->stopWordList = value;
     }
   } else if (!strcmp(name, "gc_stats")) {
-    processKvArray(fields, value, fields->gcValues, gcSpecs, NUM_GC_FIELDS_SPEC, 1);
+    processKvArray(fields, value, fields->gcValues, gcSpecs, NUM_GC_FIELDS_SPEC, 1, error);
     recomputeAverageCycleTimeMs(fields->gcValues, gcSpecs, NUM_GC_FIELDS_SPEC);
   } else if (!strcmp(name, "cursor_stats")) {
-    processKvArray(fields, value, fields->cursorValues, cursorSpecs, NUM_CURSOR_FIELDS_SPEC, 1);
+    processKvArray(fields, value, fields->cursorValues, cursorSpecs, NUM_CURSOR_FIELDS_SPEC, 1, error);
   } else if (!strcmp(name, "dialect_stats")) {
-    processKvArray(fields, value, fields->dialectValues, dialectSpecs, NUM_DIALECT_FIELDS_SPEC, 1);
+    processKvArray(fields, value, fields->dialectValues, dialectSpecs, NUM_DIALECT_FIELDS_SPEC, 1, error);
   } else if (!strcmp(name, "field statistics")) {
-    handleFieldStatistics(value, fields);
+    handleFieldStatistics(fields, value, error);
   } else if (!strcmp(name, IndexError_ObjectName)) {
     handleIndexError(fields, value);
   }
 }
 
 static void processKvArray(InfoFields *fields, MRReply *array, InfoValue *dsts, InfoFieldSpec *specs,
-                           size_t numFields, int onlyScalarValues) {
+                           size_t numFields, int onlyScalarValues, QueryError *error) {
   if (MRReply_Type(array) != MR_REPLY_ARRAY && MRReply_Type(array) != MR_REPLY_MAP) {
     return;
   }
@@ -284,7 +291,10 @@ static void processKvArray(InfoFields *fields, MRReply *array, InfoValue *dsts, 
     if (field.value) {
       convertField(field.value, value, field.type);
     } else if (!onlyScalarValues) {
-      handleSpecialField(fields, s, value);
+      handleSpecialField(fields, s, value, error);
+      if (QueryError_HasError(error)) {
+        break;
+      }
     }
   }
 }
@@ -293,7 +303,7 @@ static void cleanInfoReply(InfoFields *fields) {
   if (fields->fieldSpecInfo_arr) {
     // Clear the info fields
     for (size_t i = 0; i < array_len(fields->fieldSpecInfo_arr); i++) {
-      FieldSpecInfo_Clear(&fields->fieldSpecInfo_arr[i]);
+      AggregatedFieldSpecInfo_Clear(&fields->fieldSpecInfo_arr[i]);
     }
     array_free(fields->fieldSpecInfo_arr);
     fields->fieldSpecInfo_arr = NULL;
@@ -329,7 +339,7 @@ static void replyKvArray(RedisModule_Reply *reply, InfoFields *fields, InfoValue
   }
 }
 
-static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
+static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply, bool obfuscate) {
   RedisModule_Reply_Map(reply);
 
   // Respond with the name, schema, and options
@@ -370,12 +380,12 @@ static void generateFieldsReply(InfoFields *fields, RedisModule_Reply *reply) {
 
   // Global index error stats
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-  IndexError_Reply(&fields->indexError, reply, 0);
+  IndexError_Reply(&fields->indexError, reply, 0, obfuscate, INDEX_ERROR_WITH_OOM_STATUS);
 
   if (fields->fieldSpecInfo_arr) {
     RedisModule_ReplyKV_Array(reply, "field statistics"); //Field statistics
     for (size_t i = 0; i < array_len(fields->fieldSpecInfo_arr); ++i) {
-      FieldSpecInfo_Reply(&fields->fieldSpecInfo_arr[i], reply, 0);
+      AggregatedFieldSpecInfo_Reply(&fields->fieldSpecInfo_arr[i], reply, 0, obfuscate);
     }
     RedisModule_Reply_ArrayEnd(reply); // >Field statistics
   }
@@ -396,6 +406,7 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  QueryError error = {0};
 
   for (size_t ii = 0; ii < count; ++ii) {
     int type = MRReply_Type(replies[ii]);
@@ -419,17 +430,24 @@ int InfoReplyReducer(struct MRCtx *mc, int count, MRReply **replies) {
     if (numElems % 2 != 0) {
       printf("Uneven INFO Reply!!!?\n");
     }
-    processKvArray(&fields, replies[ii], fields.toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC, 0);
+    processKvArray(&fields, replies[ii], fields.toplevelValues, toplevelSpecs_g, NUM_FIELDS_SPEC, 0, &error);
+    if (QueryError_HasError(&error)) {
+      break;
+    }
   }
 
   // Now we've received all the replies.
   if (numErrored == count) {
     // Reply with error
     MR_ReplyWithMRReply(reply, firstError);
+  } else if (QueryError_HasError(&error)) {
+    // Reply with error
+    RedisModule_Reply_Error(reply, QueryError_GetUserError(&error));
   } else {
-    generateFieldsReply(&fields, reply);
+    generateFieldsReply(&fields, reply, false);
   }
 
+  QueryError_ClearError(&error);
   cleanInfoReply(&fields);
   RedisModule_EndReply(reply);
   return REDISMODULE_OK;

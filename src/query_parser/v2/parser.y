@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 // The priorities here are very important. please modify with care and test your changes!
 
@@ -55,13 +57,13 @@
 %stack_size 256
 
 %stack_overflow {
-  QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
+  QueryError_SetError(ctx->status, QUERY_ESYNTAX,
     "Parser stack overflow. Try moving nested parentheses more to the left");
 }
 
 %syntax_error {
-  QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
-    "Syntax error at offset %d near %.*s",
+  QueryError_SetWithUserDataFmt(ctx->status, QUERY_ESYNTAX,
+    "Syntax error", " at offset %d near %.*s",
     TOKEN.pos, TOKEN.len, TOKEN.s);
 }
 
@@ -93,35 +95,38 @@ static size_t unescapen(char *s, size_t sz) {
   return (size_t)(dst - s);
 }
 
-#define NODENN_BOTH_VALID 0
-#define NODENN_BOTH_INVALID -1
-#define NODENN_ONE_NULL 1
-// Returns:
-// 0 if a && b
-// -1 if !a && !b
-// 1 if a ^ b (i.e. !(a&&b||!a||!b)). The result is stored in `out`
-static int one_not_null(void *a, void *b, void *out) {
-    if (a && b) {
-        return NODENN_BOTH_VALID;
-    } else if (a == NULL && b == NULL) {
-        return NODENN_BOTH_INVALID;
-    } if (a) {
-        *(void **)out = a;
-        return NODENN_ONE_NULL;
+// reduce B and C to a single intersection node
+// if one of them is a phrase node, we will use it as the base node and add the other as a child.
+// if some of them is Null, we will return the other one.
+static inline struct RSQueryNode* intersection_step(struct RSQueryNode* B, struct RSQueryNode* C) {
+    struct RSQueryNode* A;
+    if (B && C) {
+        struct RSQueryNode* child;
+        if (B->type == QN_PHRASE && B->pn.exact == 0 && B->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = B;
+            child = C;
+        } else if (C->type == QN_PHRASE && C->pn.exact == 0 && C->opts.fieldMask == RS_FIELDMASK_ALL) {
+            A = C;
+            child = B;
+        } else {
+            A = NewPhraseNode(0);
+            QueryNode_AddChild(A, B);
+            child = C;
+        }
+        // Handle child
+        QueryNode_AddChild(A, child);
     } else {
-        *(void **)out = b;
-        return NODENN_ONE_NULL;
+        A = B ?: C;
     }
+    return A;
 }
 
-static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode* C) {
+// reduce B and C to a single union node
+// if one of them is a union node, we will use it as the base node and add the other as a child.
+// if some of them is Null, we will return the other one.
+static inline struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode* C) {
     struct RSQueryNode* A;
-    int rv = one_not_null(B, C, (void**)&A);
-    if (rv == NODENN_BOTH_INVALID) {
-        return NULL;
-    } else if (rv == NODENN_ONE_NULL) {
-        // Nothing - `A` is already assigned
-    } else {
+    if (B && C) {
         struct RSQueryNode* child;
         if (B->type == QN_UNION && B->opts.fieldMask == RS_FIELDMASK_ALL) {
             A = B;
@@ -136,6 +141,8 @@ static struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQueryNode*
         }
         // Handle child
         QueryNode_AddChild(A, child);
+    } else {
+        A = B ?: C;
     }
     return A;
 }
@@ -150,13 +157,13 @@ static void setup_trace(QueryParseCtx *ctx) {
 
 static void reportSyntaxError(QueryError *status, QueryToken* tok, const char *msg) {
   if (tok->type == QT_TERM || tok->type == QT_TERM_CASE) {
-    QueryError_SetErrorFmt(status, QUERY_ESYNTAX,
-      "%s at offset %d near %.*s", msg, tok->pos, tok->len, tok->s);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+      " at offset %d near %.*s", tok->pos, tok->len, tok->s);
   } else if (tok->type == QT_NUMERIC) {
-    QueryError_SetErrorFmt(status, QUERY_ESYNTAX,
-      "%s at offset %d near %f", msg, tok->pos, tok->numval);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg,
+      " at offset %d near %f", tok->pos, tok->numval);
   } else {
-    QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "%s at offset %d", msg, tok->pos);
+    QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, msg, " at offset %d", tok->pos);
   }
 }
 
@@ -266,7 +273,7 @@ static inline char *toksep2(char **s, size_t *tokLen) {
 
 %type vector_attribute { SingleVectorQueryParam }
 // This destructor is commented out because it's not reachable: every vector_attribute that created
-// successfuly can successfuly be reduced to vector_attribute_list.
+// successfully can successfully be reduced to vector_attribute_list.
 // %destructor vector_attribute { rm_free((char*)($$.param.value)); rm_free((char*)($$.param.name)); }
 
 %type vector_attribute_list { VectorQueryParams }
@@ -310,7 +317,7 @@ star ::= STAR.
 
 star ::= LP star RP.
 
-// This rule switches from text contex to regular context.
+// This rule switches from text context to regular context.
 // In general, we want to stay in text context as long as we can (mostly for use of field modifiers).
 expr(A) ::= text_expr(B). [TEXTEXPR] {
   A = B;
@@ -321,79 +328,23 @@ expr(A) ::= text_expr(B). [TEXTEXPR] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= expr(B) expr(C) . [AND] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-    A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-    // Nothing- `out` is already assigned
-  } else {
-    if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-      B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-      A = B;
-    } else {
-      A = NewPhraseNode(0);
-      QueryNode_AddChild(A, B);
-    }
-    QueryNode_AddChild(A, C);
-  }
+  A = intersection_step(B, C);
 }
 
 // This rule is needed for queries like "hello (world @loc:[15.65 -15.65 30 ft])", when we discover too late that
 // inside the parentheses there is expr and not text_expr. this can lead to right recursion ONLY with parentheses.
 expr(A) ::= text_expr(B) expr(C) . [AND] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-    A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-    // Nothing- `out` is already assigned
-  } else {
-    if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-      B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-      A = B;
-    } else {
-      A = NewPhraseNode(0);
-      QueryNode_AddChild(A, B);
-    }
-    QueryNode_AddChild(A, C);
-  }
+  A = intersection_step(B, C);
 }
 
 expr(A) ::= expr(B) text_expr(C) . [AND] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-    A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-    // Nothing- `out` is already assigned
-  } else {
-    if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-      B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-      A = B;
-    } else {
-      A = NewPhraseNode(0);
-      QueryNode_AddChild(A, B);
-    }
-    QueryNode_AddChild(A, C);
-  }
+  A = intersection_step(B, C);
 }
 
 // This rule is identical to "expr ::= expr expr",  "expr ::= text_expr expr", "expr ::= expr text_expr",
 // but keeps the text context
 text_expr(A) ::= text_expr(B) text_expr(C) . [AND] {
-  int rv = one_not_null(B, C, (void**)&A);
-  if (rv == NODENN_BOTH_INVALID) {
-    A = NULL;
-  } else if (rv == NODENN_ONE_NULL) {
-    // Nothing- `out` is already assigned
-  } else {
-    if (B && B->type == QN_PHRASE && B->pn.exact == 0 &&
-      B->opts.fieldMask == RS_FIELDMASK_ALL ) {
-      A = B;
-    } else {
-      A = NewPhraseNode(0);
-      QueryNode_AddChild(A, B);
-    }
-    QueryNode_AddChild(A, C);
-  }
+  A = intersection_step(B, C);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -830,8 +781,7 @@ expr(A) ::= modifier(B) COLON numeric_range(C). {
     QueryParam_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    C->nf->field = B.fs;
-    A = NewNumericNode(C);
+    A = NewNumericNode(C, B.fs);
   }
 }
 
@@ -885,8 +835,7 @@ expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-    qp->nf->field = B.fs;
-    QueryNode* E = NewNumericNode(qp);
+    QueryNode* E = NewNumericNode(qp, B.fs);
     A = NewNotNode(E);
   }
 }
@@ -897,8 +846,7 @@ expr(A) ::= modifier(B) EQUALS param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
-    qp->nf->field = B.fs;
-    A = NewNumericNode(qp);
+    A = NewNumericNode(qp, B.fs);
   }
 }
 
@@ -908,8 +856,7 @@ expr(A) ::= modifier(B) GT param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 0, 1);
-    qp->nf->field = B.fs;
-    A = NewNumericNode(qp);
+    A = NewNumericNode(qp, B.fs);
   }
 }
 
@@ -919,8 +866,7 @@ expr(A) ::= modifier(B) GE param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, NULL, 1, 1);
-    qp->nf->field = B.fs;
-    A = NewNumericNode(qp);
+    A = NewNumericNode(qp, B.fs);
   }
 }
 
@@ -930,8 +876,7 @@ expr(A) ::= modifier(B) LT param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 0);
-    qp->nf->field = B.fs;
-    A = NewNumericNode(qp);
+    A = NewNumericNode(qp, B.fs);
   }
 }
 
@@ -941,8 +886,7 @@ expr(A) ::= modifier(B) LE param_num(C) . {
     A = NULL;
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, NULL, &C, 1, 1);
-    qp->nf->field = B.fs;
-    A = NewNumericNode(qp);
+    A = NewNumericNode(qp, B.fs);
   }
 }
 
@@ -957,7 +901,7 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     QueryParam_Free(C);
   } else if (C) {
     // we keep the capitalization as is
-    C->gf->field = B.fs;
+    C->gf->fieldSpec = B.fs;
     A = NewGeofilterNode(C);
   }
 }
@@ -1134,7 +1078,8 @@ vector_command(A) ::= TERM(T) param_size(B) modifier(C) ATTRIBUTE(D). {
     D.type = QT_PARAM_VEC;
     A = NewVectorNode_WithParams(ctx, VECSIM_QT_KNN, &B, &D);
     A->vn.vq->field = C.fs;
-    RedisModule_Assert(-1 != (rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.tok.len, C.tok.s)));
+    int n_written = rm_asprintf(&A->vn.vq->scoreField, "__%.*s_score", C.tok.len, C.tok.s);
+    RS_ASSERT(n_written != -1);
   } else {
     reportSyntaxError(ctx->status, &T, "Syntax error: Expecting Vector Similarity command");
     A = NULL;

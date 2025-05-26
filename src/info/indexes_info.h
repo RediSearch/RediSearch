@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #pragma once
 #include <stddef.h>
 #include "fork_gc.h"
@@ -35,7 +37,7 @@ typedef struct {
   // Indexing Errors
   size_t indexing_failures;      // Total count of indexing errors
   size_t max_indexing_failures;  // Maximum number of indexing errors among all specs
-
+  size_t background_indexing_failures_OOM;  // Total count of background indexing errors due to OOM
   // Index
   size_t num_active_indexes;           // Number of active indexes
   size_t num_active_indexes_querying;  // Number of active read indexes
@@ -45,7 +47,7 @@ typedef struct {
   size_t total_active_queries;         // Total number of active queries (reads)
 } TotalIndexesInfo;
 
-// Retrunes an aggregated statistics of all the currently existing indexes
+// Returns an aggregated statistics of all the currently existing indexes
 TotalIndexesInfo IndexesInfo_TotalInfo();
 
 #ifdef __cplusplus

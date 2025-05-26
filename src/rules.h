@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #pragma once
 
@@ -14,6 +16,7 @@
 #include "json.h"
 #include "redisearch.h"
 #include "util/references.h"
+#include "obfuscation/hidden_unicode.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -47,8 +50,8 @@ typedef struct {
 
 typedef struct SchemaRule {
   DocumentType type;
-  arrayof(sds) prefixes;
-  char *filter_exp_str;
+  arrayof(HiddenUnicodeString*) prefixes;
+  HiddenString *filter_exp_str;
   struct RSExpr *filter_exp;
   char **filter_fields;
   int *filter_fields_index;
@@ -93,7 +96,7 @@ extern TrieMap *SchemaPrefixes_g;
 
 void SchemaPrefixes_Create();
 void SchemaPrefixes_Free(TrieMap *t);
-void SchemaPrefixes_Add(const char *prefix, size_t len, StrongRef spec);
+void SchemaPrefixes_Add(HiddenUnicodeString *prefix, StrongRef spec);
 void SchemaPrefixes_RemoveSpec(StrongRef spec);
 
 typedef struct {

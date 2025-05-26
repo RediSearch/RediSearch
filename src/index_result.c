@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "index_result.h"
 #include "varint.h"
 #include "rmalloc.h"
@@ -322,7 +324,7 @@ int IndexResult_MinOffsetDelta(const RSIndexResult *r) {
     dist += cd * cd;
   }
 
-  // we return 1 if ditance could not be calculate, to avoid division by zero
+  // we return 1 if distance could not be calculate, to avoid division by zero
   return dist ? sqrt(dist) : agg->numChildren - 1;
 }
 

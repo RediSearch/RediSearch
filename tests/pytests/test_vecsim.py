@@ -495,7 +495,7 @@ def test_index_errors():
     env.assertEqual(index_errors(env)['indexing failures'], error_count)
     env.assertEqual(index_errors(env)['last indexing error'], 'N/A')
     env.assertEqual(index_errors(env)['last indexing error key'], 'N/A')
-    env.assertEqual(field_errors(env), index_errors(env))
+    assertEqual_dicts_on_intersection(env, field_errors(env), index_errors(env))
 
     for i in range(0, 5, 2):
         conn.execute_command('HSET', i, 'v', create_np_array_typed([0]).tobytes())
@@ -504,7 +504,7 @@ def test_index_errors():
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
         env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 4 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i))
-        env.assertEqual(cur_index_errors, field_errors(env))
+        assertEqual_dicts_on_intersection(env, cur_index_errors, field_errors(env))
 
         conn.execute_command('HSET', i + 1, 'v', create_np_array_typed([0, 0, 0]).tobytes())
         error_count += 1
@@ -512,7 +512,7 @@ def test_index_errors():
         env.assertEqual(cur_index_errors['indexing failures'], error_count)
         env.assertEqual(cur_index_errors['last indexing error'], f'Could not add vector with blob size 12 (expected size 8)')
         env.assertEqual(cur_index_errors['last indexing error key'], str(i + 1))
-        env.assertEqual(cur_index_errors, field_errors(env))
+        assertEqual_dicts_on_intersection(env, cur_index_errors, field_errors(env))
 
 
 def test_search_errors():
@@ -952,13 +952,13 @@ def test_hybrid_query_with_geo():
     index_size = 1000   # for this index size, ADHOC BF mode will always be selected by the heuristics.
     p = conn.pipeline(transaction=False)
     for i in range(1, index_size+1):
-        vector = create_np_array_typed([i]*dim, data_type)
+        vector = create_np_array_typed([i/100]*dim, data_type)
         p.execute_command('HSET', i, 'v', vector.tobytes(), 'coordinate', str(i/100)+","+str(i/100))
     p.execute()
     if not env.isCluster():
         env.assertEqual(get_vecsim_index_size(env, 'idx', 'v'), index_size)
 
-    query_data = create_np_array_typed([index_size]*dim, data_type)
+    query_data = create_np_array_typed([index_size/100]*dim, data_type)
     # Expect that ids 1-31 will pass the geo filter, and that the top 10 from these will return.
     expected_res = [10]
     for i in range(10):
@@ -1101,7 +1101,7 @@ def test_hybrid_query_non_vector_score():
         compare_lists(env, res, expected_res_4, delta=0.01)
 
         # use BM25STD scorer
-        expected_res_5 = [10, '100', '2.6410360891609486', ['__v_score', '0', 't', 'other'], '91', '0.005028044957743152', ['__v_score', '10368', 't', 'text value'], '92', '0.005028044957743152', ['__v_score', '8192', 't', 'text value'], '93', '0.005028044957743152', ['__v_score', '6272', 't', 'text value'], '94', '0.005028044957743152', ['__v_score', '4608', 't', 'text value'], '95', '0.005028044957743152', ['__v_score', '3200', 't', 'text value'], '96', '0.005028044957743152', ['__v_score', '2048', 't', 'text value'], '97', '0.005028044957743152', ['__v_score', '1152', 't', 'text value'], '98', '0.005028044957743152', ['__v_score', '512', 't', 'text value'], '99', '0.005028044957743152', ['__v_score', '128', 't', 'text value']]
+        expected_res_5 = [10, '100', '2.8811302846039606', ['__v_score', '0', 't', 'other'], '91', '0.005061343269334967', ['__v_score', '10368', 't', 'text value'], '92', '0.005061343269334967', ['__v_score', '8192', 't', 'text value'], '93', '0.005061343269334967', ['__v_score', '6272', 't', 'text value'], '94', '0.005061343269334967', ['__v_score', '4608', 't', 'text value'], '95', '0.005061343269334967', ['__v_score', '3200', 't', 'text value'], '96', '0.005061343269334967', ['__v_score', '2048', 't', 'text value'], '97', '0.005061343269334967', ['__v_score', '1152', 't', 'text value'], '98', '0.005061343269334967', ['__v_score', '512', 't', 'text value'], '99', '0.005061343269334967', ['__v_score', '128', 't', 'text value']]
         res = env.cmd('FT.SEARCH', 'idx', '(text|other)=>[KNN 10 @v $vec_param]', 'SCORER', 'BM25STD', 'WITHSCORES',
                   'PARAMS', 2, 'vec_param', query_data.tobytes(),
                   'RETURN', 2, 't', '__v_score', 'LIMIT', 0, 10)
@@ -1904,6 +1904,7 @@ def test_range_query_basic():
     conn = getConnectionByEnv(env)
     dim = 4
     n = 99
+    id_diff = 46
 
     for data_type in VECSIM_DATA_TYPES:
         for index in VECSIM_ALGOS:
@@ -1920,26 +1921,25 @@ def test_range_query_basic():
             # load vectors, where vector with id i is [i, i, ..., i]
             load_vectors_with_texts_into_redis(conn, 'v', dim, n, data_type)
 
-            # Expect to get the 49 docs with the highest ids.
-            dist_range = dim * 49**2
+            # Expect to get the `id_diff` docs with the highest ids.
+            dist_range = dim * id_diff**2
             query_data = create_np_array_typed([n+1]*dim, data_type)
             res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]=>{$YIELD_DISTANCE_AS:$score_field}',
             'SORTBY', 'score', 'PARAMS', 6, 'vec_param', query_data.tobytes(), 'r', dist_range, 'score_field', 'score',
             'RETURN', 1, 'score', 'LIMIT', 0, n)
-            env.assertEqual(res[0], 49, message=msg)
+            env.assertEqual(res[0], id_diff, message=msg)
             for i, doc_id in enumerate(res[1::2]):
                 env.assertEqual(str(n-i), doc_id, message=msg)
-            for i, score in enumerate(res[2::2]):
-                env.assertEqual(['score', str(dim * (i+1)**2)], score, message=msg)
+            for i, score in enumerate(res[2::2], 1):
+                env.assertEqual(['score', str(dim * i**2)], score, message=msg)
 
             # Run again without score field
             res = conn.execute_command('FT.SEARCH', 'idx', '@v:[VECTOR_RANGE $r $vec_param]',
                                        'PARAMS', 4, 'vec_param', query_data.tobytes(), 'r', dist_range,
                                        'RETURN', 0, 'LIMIT', 0, n)
-            env.assertEqual(res[0], 49, message=msg)
-            for i, doc_id in enumerate(res[1:]):
-                env.assertEqual(str(50 + i + 1), doc_id, message=msg)  # results should be sorted by id (by default)
-
+            env.assertEqual(res[0], id_diff, message=msg)
+            for expected_id, doc_id in enumerate(res[1:], n - id_diff + 1):
+                env.assertEqual(str(expected_id), doc_id, message=msg)  # results should be sorted by id (by default)
             conn.flushall()
 
 
@@ -2429,7 +2429,7 @@ def test_switch_write_mode_multiple_indexes(env):
     if bg_indexing == 0:
         prefix = "::warning title=Bad scenario in test_vecsim:test_switch_write_mode_multiple_indexes::" if GHA else ''
         print(f"{prefix}All vectors were done reindex before switching back to in-place mode")
-        
+
 def test_max_knn_k():
     env = Env(moduleArgs='DEFAULT_DIALECT 3')
     conn = getConnectionByEnv(env)
@@ -2461,18 +2461,18 @@ def test_vector_index_ptr_valid(env):
 
     res = conn.execute_command('HSET', 'doc', 'n', 0)
     env.assertEqual(res, 1)
-    # efore bug fix, the following command would cause a server crash due to null pointer access to the vector index that filed to be created.
+    # before bug fix, the following command would cause a server crash due to null pointer access to the vector index that filed to be created.
     res = conn.execute_command('HSET', 'doc', 'n', 1)
     env.assertEqual(res, 0)
 
-    # Sanity check - insert a vector, expect indexing faliure
+    # Sanity check - insert a vector, expect indexing failure
     res = conn.execute_command('HSET', 'doc1', 'v', create_np_array_typed([0]*dim,'FLOAT16').tobytes())
     env.assertEqual(res, 1)
 
     index_errors_dict = index_errors(env, 'idx')
     env.assertEqual(index_errors_dict['last indexing error'], "Could not open vector for indexing")
 
-    # Check FlushAll - before bug fix, the following command would cause a server crash due to the null pointer accsess
+    # Check FlushAll - before bug fix, the following command would cause a server crash due to the null pointer access
     # Server will reply OK but crash afterwards, so a PING is required to verify
     env.expect('FLUSHALL').noError()
     env.expect('PING').noError()

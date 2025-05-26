@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "optimizer_reader.h"
 #include "aggregate/aggregate.h"
 
@@ -233,11 +235,10 @@ IndexIterator *NewOptimizerIterator(QOptimizer *qOpt, IndexIterator *root, Itera
   oi->numDocs = qOpt->sctx->spec->docs.size;
   oi->childEstimate = root->NumEstimated(root->ctx);
 
-  const FieldSpec *field = IndexSpec_GetField(qOpt->sctx->spec, qOpt->fieldName);
+  const FieldSpec *field = IndexSpec_GetFieldWithLength(qOpt->sctx->spec, qOpt->fieldName, strlen(qOpt->fieldName));
   // if there is no numeric range query but sortby, create a Numeric Filter
   if (!qOpt->nf) {
-    qOpt->nf = NewNumericFilter(-INFINITY, INFINITY, 1, 1, qOpt->asc);
-    qOpt->nf->field = field;
+    qOpt->nf = NewNumericFilter(-INFINITY, INFINITY, 1, 1, qOpt->asc, field);
     oi->flags |= OPTIM_OWN_NF;
   }
   oi->lastLimitEstimate = qOpt->nf->limit =

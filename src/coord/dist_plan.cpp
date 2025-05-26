@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "aggregate/aggregate.h"
 #include "aggregate/aggregate_plan.h"
@@ -108,7 +116,7 @@ static void distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep
 
   // Add new local step
   AGPLN_AddAfter(origPlan, step, &grLocal->base);  // Add the new local step
-  AGPLN_PopStep(origPlan, step);
+  AGPLN_PopStep(step);
 
   ReducerDistCtx rdctx;
   rdctx.alloc = &dstp->alloc;
@@ -137,18 +145,18 @@ static void distributeGroupStep(AGGPlan *origPlan, AGGPlan *remote, PLN_BaseStep
 cleanup:
     // printf("Couldn't find distribution implementation for %s\n", gr->reducers[ii].name);
     AGPLN_AddBefore(origPlan, &grLocal->base, step);
-    AGPLN_PopStep(origPlan, &grLocal->base);
+    AGPLN_PopStep(&grLocal->base);
     grLocal->base.dtor(&grLocal->base);
     grRemote->base.dtor(&grRemote->base);
 
     // Clear any added steps..
     for (auto stp : rdctx.addedRemoteSteps) {
-      AGPLN_PopStep(remote, stp);
+      AGPLN_PopStep(stp);
       stp->dtor(stp);
     }
 
     for (auto stp : rdctx.addedLocalSteps) {
-      AGPLN_PopStep(origPlan, stp);
+      AGPLN_PopStep(stp);
       stp->dtor(stp);
     }
 }
@@ -159,8 +167,8 @@ cleanup:
  */
 static PLN_BaseStep *moveStep(AGGPlan *dst, AGGPlan *src, PLN_BaseStep *step) {
   PLN_BaseStep *next = PLN_NEXT_STEP(step);
-  assert(next != step);
-  AGPLN_PopStep(src, step);
+  RS_ASSERT(next != step);
+  AGPLN_PopStep(step);
   AGPLN_AddStep(dst, step);
   return next;
 }
@@ -196,7 +204,7 @@ static RLookup *distStepGetLookup(PLN_BaseStep *bstp) {
 
 #define CHECK_ARG_COUNT(N)                                                               \
   if (src->args.argc != N) {                                                             \
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Invalid arguments for reducer %s", \
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Invalid arguments for reducer %s", \
                            src->name);                                                   \
     return REDISMODULE_ERR;                                                              \
   }
@@ -204,7 +212,7 @@ static RLookup *distStepGetLookup(PLN_BaseStep *bstp) {
 /* Distribute COUNT into remote count and local SUM */
 static int distributeCount(ReducerDistCtx *rdctx, QueryError *status) {
   if (rdctx->srcReducer->args.argc != 0) {
-    QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Count accepts 0 values only");
+    QueryError_SetError(status, QUERY_EPARSEARGS, "Count accepts 0 values only");
     return REDISMODULE_ERR;
   }
   const char *countAlias;
@@ -315,14 +323,14 @@ static int distributeAvg(ReducerDistCtx *rdctx, QueryError *status) {
   }
   array_tail(rdctx->localGroup->reducers).isHidden = 1; // Don't show this in the output
   std::string ss = std::string("(@") + localSumSumAlias + "/@" + localCountSumAlias + ")";
-  char *expr = rm_strdup(ss.c_str());
+  HiddenString *expr = NewHiddenString(ss.c_str(), ss.length(), false);
   PLN_MapFilterStep *applyStep = PLNMapFilterStep_New(expr, PLN_T_APPLY);
-  applyStep->shouldFreeRaw = 1;
+  HiddenString_Free(expr, false);
   applyStep->noOverride = 1; // Don't override the alias. Usually we do, but in this case we don't because reducers
                              // are not allowed to override aliases
   applyStep->base.alias = rm_strdup(src->alias);
 
-  assert(rdctx->currentLocal);
+  RS_ASSERT(rdctx->currentLocal);
   AGPLN_AddAfter(rdctx->localPlan, rdctx->currentLocal, &applyStep->base);
   rdctx->currentLocal = PLN_NEXT_STEP(rdctx->currentLocal);
   rdctx->addedLocalSteps.push_back(&applyStep->base);
@@ -375,6 +383,8 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
   dstp->base.getLookup = distStepGetLookup;
   BlkAlloc_Init(&dstp->alloc);
 
+  // TODO: The while condition is buggy, since it returns the `AGGPlan`, not the `PLN_BaseStep` that is actually needed
+  // Should be fixed to `DLLIST_FOREACH(it, ll) {}`.
   while (current != PLN_END_STEP(src)) {
     switch (current->type) {
       case PLN_T_ROOT:
@@ -387,7 +397,7 @@ int AGGPLN_Distribute(AGGPlan *src, QueryError *status) {
         if (!hadArrange) {
           // Step 1: parse the filter expression and extract the required keys
           PLN_MapFilterStep *fstp = (PLN_MapFilterStep *)current;
-          RSExpr *tmpExpr = ExprAST_Parse(fstp->rawExpr, strlen(fstp->rawExpr), status);
+          RSExpr *tmpExpr = ExprAST_Parse(fstp->expr, status);
           if (tmpExpr == NULL) {
             goto error;
           }
@@ -481,7 +491,7 @@ error:
   return REDISMODULE_ERR;
 }
 
-// We have splitted the logic plan into a remote and local plans. Now we need to make final
+// We have split the logic plan into a remote and local plans. Now we need to make final
 // preparations and setups for the plans and the distributed step.
 static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_DistributeStep *dstp) {
   RLookup_Init(&dstp->lk, nullptr);
@@ -540,7 +550,7 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
     }
   }
 
-  AGPLN_PopStep(local, &local->firstStep_s.base);
+  AGPLN_PopStep(&local->firstStep_s.base);
   AGPLN_Prepend(local, &dstp->base);
   auto tmp = (char **)AGPLN_Serialize(dstp->plan);
   auto &v = *dstp->serialized;
@@ -553,7 +563,7 @@ static void finalize_distribution(AGGPlan *local, AGGPlan *remote, PLN_Distribut
 int AREQ_BuildDistributedPipeline(AREQ *r, AREQDIST_UpstreamInfo *us, QueryError *status) {
 
   auto dstp = (PLN_DistributeStep *)AGPLN_FindStep(&r->ap, NULL, NULL, PLN_T_DISTRIBUTE);
-  assert(dstp);
+  RS_ASSERT(dstp);
 
   dstp->lk.options |= RLOOKUP_OPT_UNRESOLVED_OK;
   int rc = AREQ_BuildPipeline(r, status);

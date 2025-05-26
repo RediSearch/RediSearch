@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef SRC_FIELD_SPEC_H_
 #define SRC_FIELD_SPEC_H_
 
@@ -12,7 +14,7 @@
 #include "VecSim/vec_sim.h"
 #include "geometry/geometry_types.h"
 #include "info/index_error.h"
-#include "info/field_spec_info.h"
+#include "obfuscation/hidden.h"
 
 #ifdef __cplusplus
 #define RS_ENUM_BITWISE_HELPER(T)   \
@@ -89,8 +91,8 @@ Each field has a unique id that's a power of two, so we can filter fields
 by a bit mask.
 */
 typedef struct FieldSpec {
-  char *name;
-  char *path;
+  HiddenString *fieldName;
+  HiddenString *fieldPath;
   FieldType types : 8;
   FieldSpecOptions options : 16;
 
@@ -133,7 +135,7 @@ typedef struct FieldSpec {
 
 #define TAG_FIELD_DEFAULT_FLAGS (TagFieldFlags)(TagField_TrimSpace | TagField_RemoveAccents);
 #define TAG_FIELD_DEFAULT_HASH_SEP ','
-#define TAG_FIELD_DEFAULT_JSON_SEP '\0' // by default, JSON fields have no separetor
+#define TAG_FIELD_DEFAULT_JSON_SEP '\0' // by default, JSON fields have no separator
 
 #define FieldSpec_IsSortable(fs) ((fs)->options & FieldSpec_Sortable)
 #define FieldSpec_IsNoStem(fs) ((fs)->options & FieldSpec_NoStemming)
@@ -152,12 +154,17 @@ void FieldSpec_Cleanup(FieldSpec* fs);
  */
 const char *FieldSpec_GetTypeNames(int idx);
 
-FieldSpecInfo FieldSpec_GetInfo(const FieldSpec *fs);
+char *FieldSpec_FormatName(const FieldSpec *fs, bool obfuscate);
+char *FieldSpec_FormatPath(const FieldSpec *fs, bool obfuscate);
 
 /**Adds an error message to the IndexError of the FieldSpec.
  * This function also updates the global field's type index error counter.
  */
-void FieldSpec_AddError(FieldSpec *, const char *error_message, RedisModuleString *key);
+void FieldSpec_AddError(FieldSpec *, ConstErrorMessage withoutUserData, ConstErrorMessage withUserData, RedisModuleString *key);
+
+static inline void FieldSpec_AddQueryError(FieldSpec *fs, const QueryError *queryError, RedisModuleString *key) {
+  FieldSpec_AddError(fs, QueryError_GetDisplayableError(queryError, true), QueryError_GetDisplayableError(queryError, false), key);
+}
 
 size_t FieldSpec_GetIndexErrorCount(const FieldSpec *);
 

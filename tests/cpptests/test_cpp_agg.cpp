@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 
 #include "gtest/gtest.h"
 #include "aggregate/aggregate.h"
@@ -48,15 +57,15 @@ TEST_F(AggTest, testBasic) {
   AREQ *rr = AREQ_New();
   RMCK::ArgvList aggArgs(ctx, "*");
   rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
-  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
+  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
   ASSERT_FALSE(QueryError_HasError(&qerr));
-  RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->name, true);
+  RedisSearchCtx *sctx = NewSearchCtxC(ctx, spec->specName, true);
   ASSERT_FALSE(sctx == NULL);
   rv = AREQ_ApplyContext(rr, sctx, &qerr);
   ASSERT_EQ(REDISMODULE_OK, rv);
 
   rv = AREQ_BuildPipeline(rr, &qerr);
-  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetError(&qerr);
+  ASSERT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
 
   auto rp = AREQ_RP(rr);
   ASSERT_FALSE(rp == NULL);
@@ -71,8 +80,9 @@ TEST_F(AggTest, testBasic) {
     //   RSValue *vv = RLookup_GetItem(kk, &res.rowdata);
     //   if (vv != NULL) {
     //     std::cerr << "  " << kk->name << ": ";
-    //     RSValue_Print(vv);
-    //     std::cerr << std::endl;
+    //     sds s = RSValue_DumpSds(vv);
+    //     std::cerr << s << std::endl;
+    //     sdsfree(s)
     //   }
     // }
     SearchResult_Clear(&res);
@@ -165,14 +175,13 @@ TEST_F(AggTest, testGroupBy) {
   Grouper_AddReducer(gr, RDCRCount_New(&opt), count_out);
   ReducerOptionsCXX sumOptions("SUM", &rk_in, "score");
   auto sumReducer = RDCRSum_New(&sumOptions);
-  ASSERT_TRUE(sumReducer != NULL) << QueryError_GetError(sumOptions.status);
+  ASSERT_TRUE(sumReducer != NULL) << QueryError_GetUserError(sumOptions.status);
   Grouper_AddReducer(gr, sumReducer, score_out);
   SearchResult res = {0};
   ResultProcessor *gp = Grouper_GetRP(gr);
   QITR_PushRP(&qitr, gp);
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
-    // RLookupRow_Dump(&res.rowdata);
     SearchResult_Clear(&res);
   }
   SearchResult_Destroy(&res);
@@ -225,7 +234,6 @@ TEST_F(AggTest, testGroupSplit) {
   QITR_PushRP(&qitr, gp);
 
   while (gp->Next(gp, &res) == RS_RESULT_OK) {
-    // RLookupRow_Dump(&res.rowdata);
     RSValue *rv = RLookup_GetItem(val_out, &res.rowdata);
     ASSERT_FALSE(NULL == rv);
     ASSERT_FALSE(RSValue_IsNull(rv));
@@ -280,3 +288,39 @@ int testAggregatePlan() {
   RETURN_TEST_SUCCESS
 }
 #endif
+
+TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(NULL);
+
+  auto scenario = [&](QEFlags flags, auto... args) -> bool {
+    QueryError qerr = {QueryErrorCode(0)};
+    AREQ *rr = AREQ_New();
+    rr->reqflags = flags;
+    RMCK::ArgvList aggArgs(ctx, "*", args...);
+    int rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
+    EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);
+    bool res = rr->searchopts.flags & Search_CanSkipRichResults;
+    QueryError_ClearError(&qerr);
+    AREQ_Free(rr);
+    return res;
+  };
+
+  // Default search command, we have an implicit sorter by scores
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, "LIMIT", "0", "100"));
+
+  // Explicit sorting, no need for scores
+  EXPECT_TRUE(scenario(QEXEC_F_IS_SEARCH, "SORTBY", "foo", "ASC"));
+  // Explicit sorting, with explicit request for scores
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, "WITHSCORES", "SORTBY", "foo", "ASC"));
+  // Explicit sorting, with explicit request for scores in a different order
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, "SORTBY", "foo", "ASC", "WITHSCORES"));
+  // Requesting HIGHLIGHT, which requires rich results
+  EXPECT_FALSE(scenario(QEXEC_F_IS_SEARCH, "SORTBY", "foo", "HIGHLIGHT", "FIELDS", "1", "foo"));
+
+  // Default aggregate command, no need for scores
+  EXPECT_TRUE(scenario(QEXEC_F_IS_AGGREGATE, "LIMIT", "0", "100"));
+  // Explicit request for scores
+  EXPECT_FALSE(scenario(QEXEC_F_IS_AGGREGATE, "ADDSCORES"));
+
+  RedisModule_FreeThreadSafeContext(ctx);
+}

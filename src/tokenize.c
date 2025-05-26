@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "forward_index.h"
 #include "stopwords.h"
 #include "tokenize.h"
@@ -37,6 +39,8 @@ static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uin
  * Normalizes text.
  * - s contains the raw token
  * - dst is the destination buffer which contains the normalized text
+ * - len on input contains the length of the raw token, on output contains the
+ *   length of the normalized token
  * - len on input contains the length of the raw token, on output contains the
  *   length of the normalized token
  */

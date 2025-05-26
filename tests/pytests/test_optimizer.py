@@ -70,7 +70,6 @@ def compare_optimized_to_not(env, query, params, msg=None):
 @skip(cluster=True)
 def testOptimizer(env):
     env.cmd(config_cmd(), 'SET', 'TIMEOUT', '0')
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     env.cmd(config_cmd(), 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true')
     repeat = 20000
@@ -167,7 +166,7 @@ def testOptimizer(env):
                             ['Type', 'NUMERIC', 'Term', '12 - 52', 'Counter', 7, 'Size', 8400]]]]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 9]]}
+                    ['Type', 'Pager/Limiter', 'Counter', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo} @n:[10 15]', *params)
     env.assertEqual(res[0][1:], ['10', '12', '14', '110', '112', '114', '210', '212', '214', '310'])
     actual_profiler = to_dict(res[1][1][0])
@@ -210,7 +209,7 @@ def testOptimizer(env):
                         ['Type', 'NUMERIC', 'Term', '12 - 52', 'Counter', 6, 'Size', 8400]]],
                  'Result processors profile': [
                     ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 9]]}
+                    ['Type', 'Pager/Limiter', 'Counter', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@n:[10 15]', *params)
     env.assertEqual(res[0], [1, '10', '11', '12', '13', '14', '15', '110', '111', '112', '113'])
     actual_profiler = to_dict(res[1][1][0])
@@ -294,7 +293,7 @@ def testOptimizer(env):
                     ['Type', 'TAG', 'Term', 'foo', 'Counter', 10, 'Size', 10000],
                  'Result processors profile': [
                     ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 9]]}
+                    ['Type', 'Pager/Limiter', 'Counter', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '@tag:{foo}', *params)
     env.assertEqual(res[0][1:], ['0', '2', '4', '6', '8', '10', '12', '14', '16', '18'])
     actual_profiler = to_dict(res[1][1][0])
@@ -334,7 +333,7 @@ def testOptimizer(env):
                     ['Type', 'WILDCARD', 'Counter', 10],
                  'Result processors profile': [
                     ['Type', 'Index', 'Counter', 9],
-                    ['Type', 'Pager/Limiter', 'Counter', 9]]}
+                    ['Type', 'Pager/Limiter', 'Counter', 10]]}
     res = env.cmd('ft.profile', 'idx', 'search', 'query', '*', *params)
     env.assertEqual(res[0][1:], ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
     actual_profiler = to_dict(res[1][1][0])
@@ -350,7 +349,6 @@ def testOptimizer(env):
 @skip(cluster=True)
 def testWOLimit(env):
     env.cmd(config_cmd(), 'set', 'timeout', '0')
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     repeat = 100
     conn = getConnectionByEnv(env)
@@ -670,7 +668,6 @@ def testOptimizeArgs(env):
     ''' Test enabling/disabling optimization according to args and dialect '''
 
     conn = getConnectionByEnv(env)
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     for i in range(0, 20):
         conn.execute_command('HSET', i, 'n', i)
@@ -693,7 +690,6 @@ def testOptimizeArgsDefault():
     ''' Test enabling/disabling optimization according to args and default dialect '''
 
     env = Env(moduleArgs='DEFAULT_DIALECT 4')
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     for i in range(0, 20):

@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef RS_AGG_EXPRESSION_H_
 #define RS_AGG_EXPRESSION_H_
 
@@ -70,8 +72,7 @@ static const char *getRSConditionStrings(RSCondition type) {
   case RSCondition_And: return "&&";
   case RSCondition_Or: return "||";
   default:
-    RS_LOG_ASSERT(0, "oops");
-    break;
+    RS_ABORT_ALWAYS("oops");
   }
 }
 
@@ -148,11 +149,11 @@ typedef struct EvalCtx {
 
 EvalCtx *EvalCtx_Create();
 EvalCtx *EvalCtx_FromExpr(RSExpr *expr);
-EvalCtx *EvalCtx_FromString(const char *exprstr);
+EvalCtx *EvalCtx_FromString(const HiddenString *exprstr);
 void EvalCtx_Destroy(EvalCtx *r);
 int EvalCtx_Eval(EvalCtx *r);
 int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr);
-int EvalCtx_EvalExprStr(EvalCtx *r, const char *exprstr);
+int EvalCtx_EvalExprStr(EvalCtx *r, const HiddenString *exprstr);
 
 /**
  * Scan through the expression and generate any required lookups for the keys.
@@ -165,8 +166,8 @@ int ExprAST_GetLookupKeys(RSExpr *root, RLookup *lookup, QueryError *err);
 int ExprEval_Eval(ExprEval *evaluator, RSValue *result);
 
 void ExprAST_Free(RSExpr *expr);
-void ExprAST_Print(const RSExpr *expr);
-RSExpr * ExprAST_Parse(const char *e, size_t n, QueryError *status);
+char *ExprAST_Dump(const RSExpr *expr, bool obfuscate);
+RSExpr *ExprAST_Parse(const HiddenString* expr, QueryError *status);
 
 /* Parse an expression string, returning a prased expression tree on success. On failure (syntax
  * err, etc) we set and error in err, and return NULL */

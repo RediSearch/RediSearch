@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "forward_index.h"
 #include "index.h"
 #include "varint.h"
@@ -1092,7 +1094,7 @@ ok:
     // This doc-id was deleted
     return INDEXREAD_NOTFOUND;
   }
-  RS_LOG_ASSERT_FMT(nc->lastDocId == docId, "Expected docId to be %llu, got %llu", docId, nc->lastDocId);
+  RS_LOG_ASSERT_FMT(nc->lastDocId == docId, "Expected docId to be %zu, got %zu", docId, nc->lastDocId);
   return INDEXREAD_OK;
 }
 
@@ -1848,8 +1850,7 @@ PRINT_PROFILE_FUNC(printUnionIt) {
   case QN_LEXRANGE : unionTypeStr = "LEXRANGE"; break;
   case QN_WILDCARD_QUERY : unionTypeStr = "WILDCARD"; break;
   default:
-    RS_LOG_ASSERT(0, "Invalid type for union");
-    break;
+    RS_ABORT_ALWAYS("Invalid type for union");
   }
   if (!ui->qstr) {
     RedisModule_Reply_SimpleString(reply, unionTypeStr);
@@ -1917,7 +1918,7 @@ PRINT_PROFILE_FUNC(printMetricIt) {
       break;
     }
     default: {
-      RS_LOG_ASSERT(0, "Invalid type for metric");
+      RS_ABORT("Invalid type for metric");
       break;
     }
   }
@@ -2013,7 +2014,7 @@ void printIteratorProfile(RedisModule_Reply *reply, IndexIterator *root, size_t 
     case HYBRID_ITERATOR:     { printHybridIt(reply, root, counter, cpuTime, depth, limited, config);     break; }
     case METRIC_ITERATOR:     { printMetricIt(reply, root, counter, cpuTime, depth, limited, config);     break; }
     case OPTIMUS_ITERATOR:    { printOptimusIt(reply, root, counter, cpuTime, depth, limited, config);    break; }
-    case MAX_ITERATOR:        { RS_LOG_ASSERT(0, "nope");   break; }
+    case MAX_ITERATOR:        { RS_ABORT("nope");   break; }
   }
 }
 
@@ -2059,7 +2060,8 @@ void Profile_AddIters(IndexIterator **root) {
       break;
     case PROFILE_ITERATOR:
     case MAX_ITERATOR:
-      RS_LOG_ASSERT(0, "Error");
+      RS_ABORT("Error");
+      break;
   }
 
   // Create a profile iterator and update outparam pointer

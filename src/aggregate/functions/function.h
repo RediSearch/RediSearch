@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef RS_FUNCTION_H_
 #define RS_FUNCTION_H_
 
@@ -20,7 +22,7 @@ extern "C" {
     RSValue *dref = RSValue_Dereference(&args[idx]);                                           \
     if (!verifier(dref, varg)) {                                                               \
                                                                                                \
-      QueryError_SetErrorFmt(                                                                  \
+      QueryError_SetWithoutUserDataFmt(                                                      \
           ctx->err, QUERY_EPARSEARGS,                                                          \
           "Invalid type (%d) for argument %d in function '%s'. %s(v, %s) was false.", dref->t, \
           idx, fname, #verifier, #varg);                                                       \

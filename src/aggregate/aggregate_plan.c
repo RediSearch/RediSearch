@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "aggregate_plan.h"
 #include "reducer.h"
 #include "expr/expression.h"
@@ -34,7 +36,7 @@ static const char *steptypeToString(PLN_StepType type) {
 
 /* add a step to the plan at its end (before the dummy tail) */
 void AGPLN_AddStep(AGGPlan *plan, PLN_BaseStep *step) {
-  RS_LOG_ASSERT(step->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
+  RS_LOG_ASSERT(step->type > PLN_T_INVALID, "Step type cannot be PLN_T_INVALID");
   dllist_append(&plan->steps, &step->llnodePln);
   plan->steptypes |= (1 << (step->type - 1));
 }
@@ -44,7 +46,7 @@ int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t) {
 }
 
 void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
-  RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
+  RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type cannot be PLN_T_INVALID");
   if (posstp == NULL || DLLIST_IS_FIRST(&pln->steps, &posstp->llnodePln)) {
     dllist_prepend(&pln->steps, &posstp->llnodePln);
   } else {
@@ -53,7 +55,7 @@ void AGPLN_AddBefore(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
 }
 
 void AGPLN_AddAfter(AGGPlan *pln, PLN_BaseStep *posstp, PLN_BaseStep *newstp) {
-  RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type connot be PLN_T_INVALID");
+  RS_LOG_ASSERT(newstp->type > PLN_T_INVALID, "Step type cannot be PLN_T_INVALID");
   if (posstp == NULL || DLLIST_IS_LAST(&pln->steps, &posstp->llnodePln)) {
     AGPLN_AddStep(pln, newstp);
   } else {
@@ -65,9 +67,8 @@ void AGPLN_Prepend(AGGPlan *pln, PLN_BaseStep *newstp) {
   dllist_prepend(&pln->steps, &newstp->llnodePln);
 }
 
-void AGPLN_PopStep(AGGPlan *pln, PLN_BaseStep *step) {
+void AGPLN_PopStep(PLN_BaseStep *step) {
   dllist_delete(&step->llnodePln);
-  (void)pln;
 }
 
 static void rootStepDtor(PLN_BaseStep *bstp) {
@@ -236,7 +237,7 @@ void AGPLN_Dump(const AGGPlan *pln) {
     switch (stp->type) {
       case PLN_T_APPLY:
       case PLN_T_FILTER:
-        printf("  EXPR:%s\n", ((PLN_MapFilterStep *)stp)->rawExpr);
+        printf("  EXPR:%s\n", HiddenString_GetUnsafe(((PLN_MapFilterStep *)stp)->expr, NULL));
         if (stp->alias) {
           printf("  AS:%s\n", stp->alias);
         }
@@ -315,7 +316,7 @@ static void serializeMapFilter(myArgArray_t *arr, const PLN_BaseStep *stp) {
   } else {
     append_string(arr, "FILTER");
   }
-  append_string(arr, mstp->rawExpr);
+  append_string(arr, HiddenString_GetUnsafe(mstp->expr, NULL));
   if (stp->alias) {
     append_string(arr, "AS");
     append_string(arr, stp->alias);

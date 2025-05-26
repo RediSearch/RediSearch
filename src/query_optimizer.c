@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "query_optimizer.h"
 #include "optimizer_reader.h"
 #include "numeric_index.h"
@@ -28,7 +37,7 @@ void QOptimizer_Parse(AREQ *req) {
     }
     if (arng->sortKeys) {
       const char *name = arng->sortKeys[0];
-      const FieldSpec *field = IndexSpec_GetField(req->sctx->spec, name);
+      const FieldSpec *field = IndexSpec_GetFieldWithLength(req->sctx->spec, name, strlen(name));
       if (field && field->types == INDEXFLD_T_NUMERIC) {
         opt->field = field;
         opt->fieldName = name;
@@ -74,7 +83,7 @@ static QueryNode *checkQueryTypes(QueryNode *node, const char *name, QueryNode *
   switch (node->type) {
     case QN_NUMERIC:
       // add support for multiple ranges on field
-      if (name && !strcmp(name, node->nn.nf->field->name)) {
+      if (name && !HiddenString_CompareC(node->nn.nf->fieldSpec->fieldName, name, strlen(name))) {
         ret = node;
       }
       break;
@@ -217,7 +226,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
 
   switch (opt->type) {
     case Q_OPT_HYBRID:
-      RS_LOG_ASSERT(0, "cannot be decided earlier");
+      RS_ABORT("cannot be decided earlier");
 
     // Nothing to do here
     case Q_OPT_NO_SORTER:
@@ -243,7 +252,7 @@ void QOptimizer_Iterators(AREQ *req, QOptimizer *opt) {
       if (!opt->field) {
         // TODO: For now set to NONE. Maybe add use of FILTER
         opt->type = Q_OPT_NONE;
-        const FieldSpec *fs = opt->sortbyNode->nn.nf->field;
+        const FieldSpec *fs = opt->sortbyNode->nn.nf->fieldSpec;
         FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index= fs->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
         IndexIterator *numericIter = NewNumericFilterIterator(req->sctx, opt->sortbyNode->nn.nf,
                                                              &req->conc, INDEXFLD_T_NUMERIC, &req->ast.config,

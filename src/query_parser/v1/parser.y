@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 %left LOWEST.
 %left TILDE.
 %left TAGLIST.
@@ -32,8 +34,8 @@
 %name RSQueryParser_v1_
 
 %syntax_error {
-    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
-        "Syntax error at offset %d near %.*s",
+    QueryError_SetWithUserDataFmt(ctx->status, QUERY_ESYNTAX,
+        "Syntax error", " at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
 }
 
@@ -530,20 +532,20 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
-    A = NewNumericNode(C);
-    if (ctx->sctx->spec) {
-        A->nn.nf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
-        if (!A->nn.nf->field) {
-            QueryNode_Free(A);
-            A = NULL;
-        }
+    A = NULL;
+    const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len) : NULL;
+    if (fs) {
+        A = NewNumericNode(C, fs);
+    } else if (C) {
+        QueryParam_Free(C);
+        C = NULL;
     }
 }
 
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
   A = NewQueryParam(QP_NUMERIC_FILTER);
-  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive, true);
+  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive, true, NULL);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -555,8 +557,8 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
     A = NewGeofilterNode(C);
     if (ctx->sctx->spec) {
-        A->gn.gf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
-        if (!A->gn.gf->field) {
+        A->gn.gf->fieldSpec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
+        if (!A->gn.gf->fieldSpec) {
             QueryNode_Free(A);
             A = NULL;
         }

@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef RS_MODULE_H_
 #define RS_MODULE_H_
 
@@ -31,10 +33,13 @@ extern "C" {
 // docs and code.
 #define CMD_INTERNAL "internal"
 
-int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfig, int isClusterEnabled);
+int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 
 int IsMaster();
 bool IsEnterprise();
+
+size_t GetNumShards_UnSafe();
 
 void GetFormattedRedisVersion(char *buf, size_t len);
 void GetFormattedRedisEnterpriseVersion(char *buf, size_t len);
@@ -45,9 +50,9 @@ void RediSearch_CleanupModule(void);
 // Local spellcheck command
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-/** Module-level dummy context for certain dummy RM_XXX operations */
+// Module-level dummy context for certain dummy RM_XXX operations
 extern RedisModuleCtx *RSDummyContext;
-/** Indicates that RediSearch_Init was called */
+// Indicates that RediSearch_Init was called
 extern int RS_Initialized;
 
 #define RS_AutoMemory(ctx)                      \
@@ -134,6 +139,9 @@ specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleStr
 void SpecialCaseCtx_Free(specialCaseCtx* ctx);
 
 void processResultFormat(uint32_t *flags, MRReply *map);
+
+int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 #ifdef __cplusplus
 }

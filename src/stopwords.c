@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #define __REDISEARCH_STOPORWORDS_C__
 #include "stopwords.h"
 #include "triemap/triemap.h"
@@ -48,7 +50,13 @@ int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) 
     lowStr = rm_strndup(term, len);
   }
 
-  strtolower(lowStr);
+  // convert multi-byte characters to lowercase
+  // TODO: MOD-8799 Support longer dst
+  size_t newLen = unicode_tolower(lowStr, len, NULL);
+  if (newLen) {
+    len = newLen;
+  }
+
   int ret = TrieMap_Find(sl->m, (char *)lowStr, len) != TRIEMAP_NOTFOUND;
 
   // free memory if allocated
@@ -76,12 +84,13 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
     }
     size_t tlen = strlen(t);
 
-    // lowercase the letters
-    for (size_t pos = 0; pos < tlen; pos++) {
-      if (isalpha(t[pos])) {
-        t[pos] = tolower(t[pos]);
-      }
+    // convert multi-byte characters to lowercase
+    // TODO: MOD-8799 Support longer dst
+    size_t newLen = unicode_tolower(t, tlen, NULL);
+    if (newLen) {
+      tlen = newLen;
     }
+
     // printf("Adding stopword %s\n", t);
     TrieMap_Add(sl->m, t, tlen, NULL, NULL);
     rm_free(t);
@@ -186,7 +195,7 @@ void ReplyWithStopWordsList(RedisModule_Reply *reply, struct StopWordList *sl) {
       RedisModule_Reply_StringBuffer(reply, str, len);
     }
   RedisModule_Reply_ArrayEnd(reply);
-  
+
   TrieMapIterator_Free(it);
 
 }

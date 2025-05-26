@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "reducer.h"
 
 typedef struct {
@@ -61,7 +63,7 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   ArgsCursor *ac = options->args;
   const char *s;
   if (AC_GetString(ac, &s, NULL, 0) != AC_OK) {
-    QERR_MKBADARGS_FMT(options->status, "Missing arguments for %s", options->name);
+    QueryError_SetWithUserDataFmt(options->status, QUERY_EPARSEARGS, "Missing arguments", " for %s", options->name);
     return 0;
   }
 
@@ -78,7 +80,7 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
     // We currently allow implicit loading only for known fields from the schema.
     // If we can't load keys, or the key we loaded is not in the schema, we fail.
     if (!options->loadKeys || !((*out)->flags & RLOOKUP_F_SCHEMASRC)) {
-      QueryError_SetErrorFmt(options->status, QUERY_ENOPROPKEY, "Property `%s` not present in document or pipeline", s);
+      QueryError_SetWithUserDataFmt(options->status, QUERY_ENOPROPKEY, "Property is not present in document or pipeline", ": `%s`", s);
       return 0;
     }
   }

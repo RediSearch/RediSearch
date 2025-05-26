@@ -1,14 +1,17 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "geometry_index.h"
 #include "geometry/geometry_api.h"
 #include "rmalloc.h"
 #include "field_spec.h"
 #include "redis_index.h"
+#include "obfuscation/obfuscation_api.h"
 
 void GeometryQuery_Free(GeometryQuery *geomq) {
   if (geomq->str) {
@@ -20,8 +23,8 @@ void GeometryQuery_Free(GeometryQuery *geomq) {
 RedisModuleType *GeometryIndexType = NULL;
 #define GEOMETRYINDEX_KEY_FMT "gm:%s/%s"
 
-RedisModuleString *fmtRedisGeometryIndexKey(const RedisSearchCtx *ctx, const char *field) {
-  return RedisModule_CreateStringPrintf(ctx->redisCtx, GEOMETRYINDEX_KEY_FMT, ctx->spec->name, field);
+RedisModuleString *fmtRedisGeometryIndexKey(const RedisSearchCtx *ctx, const HiddenString *field) {
+  return RedisModule_CreateStringPrintf(ctx->redisCtx, GEOMETRYINDEX_KEY_FMT, HiddenString_GetUnsafe(ctx->spec->specName, NULL), HiddenString_GetUnsafe(field, NULL));
 }
 
 static GeometryIndex *openGeometryKeysDict(const IndexSpec *spec, RedisModuleString *keyName,

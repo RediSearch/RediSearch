@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include <string.h>
 #include <stdbool.h>
@@ -35,24 +37,6 @@
 #define NORM_MAXFREQ 1
 // normalize TF by number of tokens (weighted)
 #define NORM_DOCLEN 2
-
-#define EXPLAIN(exp, fmt, args...) \
-  {                                \
-    if (exp) {                     \
-      explain(exp, fmt, ##args);   \
-    }                              \
-  }
-
-static inline void explain(RSScoreExplain *scrExp, char *fmt, ...) {
-  void *tempStr = scrExp->str;
-
-  va_list ap;
-  va_start(ap, fmt);
-  rm_vasprintf((char **restrict) & scrExp->str, fmt, ap);
-  va_end(ap);
-
-  rm_free(tempStr);
-}
 
 static void strExpCreateParent(const ScoringFunctionArgs *ctx, RSScoreExplain **scrExp) {
   if (*scrExp) {
@@ -103,6 +87,10 @@ static inline double tfIdfInternal(const ScoringFunctionArgs *ctx, const RSIndex
     return 0;
   }
   uint32_t norm = normMode == NORM_MAXFREQ ? dmd->maxFreq : dmd->len;
+  if (norm == 0) {
+    EXPLAIN(scrExp, "Document %s is 0", normMode == NORM_MAXFREQ ? "max frequency" : "length");
+    return 0;
+  }
   double rawTfidf = tfidfRecursive(h, dmd, scrExp);
   double tfidf = dmd->score * rawTfidf / norm;
   strExpCreateParent(ctx, &scrExp);
@@ -154,11 +142,11 @@ static double bm25Recursive(const ScoringFunctionArgs *ctx, const RSIndexResult 
   double ret = 0;
   if (r->type == RSResultType_Term) {
     double idf = (r->term.term ? r->term.term->idf : 0);
-
-    ret = idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
+    ret = r->weight * idf * f / (f + k1 * (1.0f - b + b * ctx->indexStats.avgDocLen));
     EXPLAIN(scrExp,
-            "(%.2f = IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
-            ret, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
+            "(%.2f = Weight %.2f * IDF %.2f * F %d / (F %d + k1 1.2 * (1 - b 0.5 + b 0.5 * Average Len %.2f)))",
+            ret, r->weight, idf, r->freq, r->freq, ctx->indexStats.avgDocLen);
+
   } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
     int numChildren = r->agg.numChildren;
     if (!scrExp) {
@@ -216,26 +204,26 @@ static double BM25Scorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
  ******************************************************************************************/
 
 static double inline CalculateBM25Std(float b, float k1, double idf, double f, int doc_len,
-                                      double avg_doc_len, RSScoreExplain *scrExp, const char *term) {
-  double ret = idf * f * (k1 + 1) / (f + k1 * (1.0f - b + b * (float)doc_len/avg_doc_len));
+                                      double avg_doc_len, double weight, RSScoreExplain *scrExp, const char *term) {
+  double ret = weight * idf * f * (k1 + 1) / (f + k1 * (1.0f - b + b * (float)doc_len/avg_doc_len));
   EXPLAIN(scrExp,
-          "%s: (%.2f = IDF %.2f * (F %.2f * (k1 1.2 + 1)) / (F %.2f + k1 1.2 * (1 - b 0.5 + b 0.5 *"
+          "%s: (%.2f = Weight %.2f * IDF %.2f * (F %.2f * (k1 1.2 + 1)) / (F %.2f + k1 1.2 * (1 - b 0.75 + b 0.75 *"
           " Doc Len %d / Average Doc Len %.2f)))",
-          term, ret, idf, f, f, doc_len, avg_doc_len);
+          term, ret, weight, idf, f, f, doc_len, avg_doc_len);
   return ret;
 }
 
 /* recursively calculate score for each token, summing up sub tokens */
 static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
                             const RSDocumentMetadata *dmd, RSScoreExplain *scrExp) {
-  static const float b = 0.5f;
+  static const float b = 0.75f;
   static const float k1 = 1.2f;
   double f = (double)r->freq;
   double ret = 0;
   if (r->type == RSResultType_Term) {
     // Compute IDF based on total number of docs in the index and the term's total frequency.
     double idf = r->term.term->bm25_idf;
-    ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, scrExp,
+    ret = CalculateBM25Std(b, k1, idf, f, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp,
                            r->term.term->str);
   } else if (r->type & (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)) {
     int numChildren = r->agg.numChildren;
@@ -256,9 +244,7 @@ static double bm25StdRecursive(const ScoringFunctionArgs *ctx, const RSIndexResu
     // For wildcard, score should be determined only by the weight
     // and the document's length (so we set idf and f to be 1).
     double idf = 1.0;
-    double bm25 = CalculateBM25Std(b, k1, idf, 1, dmd->len, ctx->indexStats.avgDocLen, scrExp,
-                                   "*");
-    ret = r->weight * bm25;
+    ret = CalculateBM25Std(b, k1, idf, 1, dmd->len, ctx->indexStats.avgDocLen, r->weight, scrExp, "*");
   } else {
     // Record is either optional term with no match or non text token.
     // For optional term with no match - we would expect 0 contribution to the score
@@ -283,6 +269,48 @@ static double BM25StdScorer(const ScoringFunctionArgs *ctx, const RSIndexResult 
   return score;
 }
 
+/******************************************************************************************
+ *
+ * Normalized BM25 Scoring Function
+ *
+ ******************************************************************************************/
+
+/* Stretched tanh.
+ * The stretching is in the sense that we increase the range in which the tanh
+ * function behaves as a linear function, thus more suiting to our scoring
+ * expectations.
+ */
+static inline double tanhStretched(double x, double stretch) {
+  return tanh((1 / stretch) * x);
+}
+
+/* Normalized BM25 scoring function (of the standard version)
+ * The normalization is done by applying the stretched hyperbolic tangent function
+ * on the standard BM25 score of the result, resulting in a score in the range [0,1].
+ * The stretch factor is used to control the range of the linear part of the
+ * tanh function, after which the scores are mapped to ~1.
+*/
+static double BM25StdTanhScorer(const ScoringFunctionArgs *ctx, const RSIndexResult *r,
+                         const RSDocumentMetadata *dmd, double minScore) {
+  RSScoreExplain *scrExp = (RSScoreExplain *)ctx->scrExp;
+  double bm25res = bm25StdRecursive(ctx, r, dmd, scrExp);
+  double score = dmd->score * bm25res;
+  strExpCreateParent(ctx, &scrExp);
+
+  EXPLAIN(scrExp, "Final BM25 : words BM25 %.2f * document score %.2f", bm25res,
+          dmd->score);
+
+  // Normalize the score
+  double normalizedScore = tanhStretched(score, ctx->tanhFactor);
+
+  // Modify the explanation to include the normalization
+  strExpCreateParent(ctx, &scrExp);
+  EXPLAIN(scrExp,
+    "Final Normalized BM25 : tanh(stretch factor 1/%d * Final BM25 %.2f)",
+    ctx->tanhFactor, score);
+
+  return normalizedScore;
+}
 
 /******************************************************************************************
  *
@@ -655,6 +683,16 @@ int DefaultExtensionInit(RSExtensionCtx *ctx) {
 
   /* Register BM25 scorer - STANDARD VARIATION */
   if (ctx->RegisterScoringFunction(BM25_STD_SCORER_NAME, BM25StdScorer, NULL, NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Register BM25 scorer - NORMALIZED STANDARD VARIATION - TANH */
+  if (ctx->RegisterScoringFunction(BM25_STD_NORMALIZED_TANH_SCORER_NAME, BM25StdTanhScorer, NULL, NULL) == REDISEARCH_ERR) {
+    return REDISEARCH_ERR;
+  }
+
+  /* Register BM25 scorer - NORMALIZED STANDARD VARIATION - MAX */
+  if (ctx->RegisterScoringFunction(BM25_STD_NORMALIZED_MAX_SCORER_NAME, BM25StdScorer, NULL, NULL) == REDISEARCH_ERR) {
     return REDISEARCH_ERR;
   }
 

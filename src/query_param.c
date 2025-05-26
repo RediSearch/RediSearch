@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "query_param.h"
 #include "query_error.h"
 #include "geo_index.h"
@@ -38,7 +40,7 @@ QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToke
 
 QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *min, QueryToken *max, int inclusiveMin, int inclusiveMax) {
   QueryParam *ret = NewQueryParam(QP_NUMERIC_FILTER);
-  NumericFilter *nf = NewNumericFilter(0, 0, inclusiveMin, inclusiveMax, true);
+  NumericFilter *nf = NewNumericFilter(0, 0, inclusiveMin, inclusiveMax, true, NULL);
   ret->nf = nf;
   QueryParam_InitParams(ret, 2);
   if(min != NULL) {
@@ -206,7 +208,7 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
     case PARAM_NUMERIC:
     case PARAM_GEO_COORD:
       if (!checkNumericAndGeoValueValid(val, dialectVersion) || !ParseDouble(val, (double*)param->target, param->sign)) {
-        QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
+        QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
         val, param->name);
         return -1;
       }
@@ -214,7 +216,7 @@ int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, 
 
     case PARAM_SIZE:
       if (!checkNumericAndGeoValueValid(val, dialectVersion) || !ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
-        QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
+        QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
         val, param->name);
         return -1;
       }
@@ -248,7 +250,7 @@ int parseParams (dict **destParams, ArgsCursor *ac, QueryError *status) {
   ArgsCursor paramsArgs = {0};
   int rv = AC_GetVarArgs(ac, &paramsArgs);
   if (rv != AC_OK) {
-    QERR_MKBADARGS_AC(status, "PARAMS", rv);
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for PARAMS: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
   if (*destParams) {

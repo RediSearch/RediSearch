@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #pragma once
 
@@ -32,13 +34,15 @@ extern RedisModuleString *config_dummy_password;
 
 #define COORDINATOR_POOL_DEFAULT_SIZE 20
 #define DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT 30000
+#define DEFAULT_CURSOR_REPLY_THRESHOLD 1
+#define DEFAULT_CONN_PER_SHARD 0
 
 #define DEFAULT_CLUSTER_CONFIG                                                 \
   (SearchClusterConfig) {                                                      \
-    .connPerShard = 0,                                                         \
+    .connPerShard = DEFAULT_CONN_PER_SHARD,                                    \
     .type = DetectClusterType(),                                               \
     .timeoutMS = 0,                                                            \
-    .cursorReplyThreshold = 1,                                                 \
+    .cursorReplyThreshold = DEFAULT_CURSOR_REPLY_THRESHOLD,                    \
     .coordinatorPoolSize = COORDINATOR_POOL_DEFAULT_SIZE,                      \
     .topologyValidationTimeoutMS = DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,        \
   }

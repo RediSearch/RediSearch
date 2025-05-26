@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "config.h"
 #include "util/config_macros.h"
@@ -94,6 +96,21 @@ CONFIG_GETTER(getConnPerShard) {
   return sdsfromlonglong(realConfig->connPerShard);
 }
 
+// search-conn-per-shard
+int set_conn_per_shard(const char *name, long long val, void *privdata,
+  RedisModuleString **err) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  realConfig->connPerShard = (size_t)val;
+  return triggerConnPerShard(config);
+}
+
+long long get_conn_per_shard(const char *name, void *privdata) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  return (long long)realConfig->connPerShard;
+}
+
 // CURSOR_REPLY_THRESHOLD
 CONFIG_SETTER(setCursorReplyThreshold) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
@@ -104,6 +121,21 @@ CONFIG_SETTER(setCursorReplyThreshold) {
 CONFIG_GETTER(getCursorReplyThreshold) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
   return sdsfromlonglong(realConfig->cursorReplyThreshold);
+}
+
+// search-cursor-reply-threshold
+int set_cursor_reply_threshold(const char *name, long long val, void *privdata,
+  RedisModuleString **err) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  realConfig->cursorReplyThreshold = (size_t)val;
+  return REDISMODULE_OK;
+}
+
+long long get_cursor_reply_threshold(const char *name, void *privdata) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  return (long long)realConfig->cursorReplyThreshold;
 }
 
 // SEARCH_THREADS
@@ -251,11 +283,30 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig (
       ctx, "search-topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
+      REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
       get_topology_validation_timeout, set_topology_validation_timeout, NULL,
       (void*)&RSGlobalConfig
     )
   )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-cursor-reply-threshold", DEFAULT_CURSOR_REPLY_THRESHOLD,
+      REDISMODULE_CONFIG_UNPREFIXED, 1, LLONG_MAX,
+      get_cursor_reply_threshold, set_cursor_reply_threshold, NULL,
+      (void*)&RSGlobalConfig
+    )
+  )
+
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-conn-per-shard", DEFAULT_CONN_PER_SHARD,
+      REDISMODULE_CONFIG_UNPREFIXED, 0, UINT32_MAX,
+      get_conn_per_shard, set_conn_per_shard, NULL,
+      (void*)&RSGlobalConfig
+    )
+  )
+
 
   return REDISMODULE_OK;
 }

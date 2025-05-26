@@ -1,20 +1,23 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "document.h"
 #include "err.h"
 #include "util/logging.h"
 #include "rmutil/rm_assert.h"
+#include "info/info_redis/threads/current_thread.h"
 
 // Forward declaration.
 bool ACLUserMayAccessIndex(RedisModuleCtx *ctx, IndexSpec *sp);
 
 /*
 ## FT.ADD <index> <docId> <score> [NOSAVE] [REPLACE] [PARTIAL] [IF <expr>] [LANGUAGE <lang>]
-[PAYLOAD {payload}] FIELDS <field> <text> ....] Add a documet to the index.
+[PAYLOAD {payload}] FIELDS <field> <text> ....] Add a document to the index.
 
 ## Parameters:
 
@@ -44,7 +47,7 @@ indexed.
 part of the document,
     or ignored if NOSAVE is set
 
-    - LANGUAGE lang: If set, we use a stemmer for the supplied langauge during
+    - LANGUAGE lang: If set, we use a stemmer for the supplied language during
 indexing. Defaults to
 English.
    If an unsupported language is sent, the command returns an error.
@@ -99,13 +102,13 @@ static int parseDocumentOptions(AddDocumentOptions *opts, ArgsCursor *ac, QueryE
         break;
 
       } else {
-        QueryError_SetErrorFmt(status, QUERY_EADDARGS, "Unknown keyword `%.*s` provided", (int)narg,
-                               s);
+        QueryError_SetWithUserDataFmt(status, QUERY_EADDARGS, "Unknown keyword", " `%.*s` provided", (int)narg, s);
         return REDISMODULE_ERR;
       }
       // Argument not found, that's ok. We'll handle it below
     } else {
-      QueryError_SetErrorFmt(status, QUERY_EADDARGS, "%s: %s", errArg->name, AC_Strerror(rv));
+      char message[1024];
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EADDARGS, "Parsing error for document option %s: %s", errArg->name, AC_Strerror(rv));
       return REDISMODULE_ERR;
     }
   }
@@ -172,7 +175,10 @@ int RS_AddDocument(RedisSearchCtx *sctx, RedisModuleString *name, const AddDocum
   // handle update condition, only if the document exists
   if (exists && opts->evalExpr) {
     int res = 0;
-    if (Document_EvalExpression(sctx, name, opts->evalExpr, &res, status) == REDISMODULE_OK) {
+    HiddenString* expr = NewHiddenString(opts->evalExpr, strlen(opts->evalExpr), false);
+    const int rc = Document_EvalExpression(sctx, name, expr, &res, status);
+    HiddenString_Free(expr, false);
+    if (rc == REDISMODULE_OK) {
       if (res == 0) {
         QueryError_SetError(status, QUERY_EDOCNOTADDED, NULL);
         goto done;
@@ -206,7 +212,7 @@ static void replyCallback(RSAddDocumentCtx *aCtx, RedisModuleCtx *ctx, void *unu
     if (aCtx->status.code == QUERY_EDOCNOTADDED) {
       RedisModule_ReplyWithError(ctx, "NOADD");
     } else {
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&aCtx->status));
+      RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&aCtx->status));
     }
   } else {
     RedisModule_ReplyWithSimpleString(ctx, "OK");
@@ -246,9 +252,11 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   }
 
   if (QueryError_HasError(&status)) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     goto cleanup;
   }
+
+  CurrentThread_SetIndexSpec(ref);
 
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
   rv = RS_AddDocument(&sctx, argv[2], &opts, &status);
@@ -256,7 +264,7 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     if (status.code == QUERY_EDOCNOTADDED) {
       RedisModule_ReplyWithSimpleString(ctx, "NOADD");
     } else {
-      RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+      RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     }
   } else {
     // Replicate *here*
@@ -267,6 +275,8 @@ int RSAddDocumentCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     // RS 2.0 - HSET replicates using `!v`
     RedisModule_ReplyWithSimpleString(ctx, "OK");
   }
+
+  CurrentThread_ClearIndexSpec();
 
 cleanup:
   QueryError_ClearError(&status);

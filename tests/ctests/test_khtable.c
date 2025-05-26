@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "test_util.h"
 #include "src/util/khtable.h"
@@ -29,7 +31,7 @@ static uint32_t myHash(const KHTableEntry *e) {
   return ((const MyEntry *)e)->hash;
 }
 
-static KHTableEntry *myAlloc() {
+static KHTableEntry *myAlloc(void *ctx) {
   return calloc(1, sizeof(MyEntry));
 }
 

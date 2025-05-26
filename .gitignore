@@ -19,6 +19,7 @@
 /.idea/
 .project
 .cproject
+.cache
 VSCODE.DB*
 callgrind.out.*
 **/.ipynb_checkpoints/

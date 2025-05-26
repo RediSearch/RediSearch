@@ -1,0 +1,24 @@
+[package]
+name = "wildcard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[[bench]]
+name = "matching"
+harness = false
+
+[lints]
+workspace = true
+
+[dependencies]
+memchr.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+proptest = { workspace = true, features = ["std"] }
+wildcard_cloudflare.workspace = true

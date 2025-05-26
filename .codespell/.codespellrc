@@ -1,0 +1,8 @@
+[codespell]
+# Ignore certain files and directories.
+skip = .git,./deps/*,*.csv,./srcutil/*,./bin/*,./sbin/*,*/parser.c,*/parser.h,*/parser.out,*/lexer.c,*/Makefile,src/redisearch_rs/trie_bencher/data/*,src/redisearch_rs/wildcard/tests/integration/*,src/redisearch_rs/wildcard/benches/*
+# Ignore words.
+ignore-words = .codespell/ignore_wordlist.txt
+
+# Set the quiet level to ignore encoding and binary files.
+quiet-level = 3

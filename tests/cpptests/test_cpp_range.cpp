@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 
 #include "gtest/gtest.h"
 
@@ -98,7 +107,7 @@ void testRangeIteratorHelper(bool isMulti) {
     double min = (double)(1 + prng() % (N / 5));
     double max = (double)(1 + prng() % (N / 5));
     memset(&matched[0], 0, sizeof(uint8_t) * (N + 1));
-    NumericFilter *flt = NewNumericFilter(std::min(min, max), std::max(min, max), 1, 1, true);
+    NumericFilter *flt = NewNumericFilter(std::min(min, max), std::max(min, max), 1, 1, true, NULL);
 
     // count the number of elements in the range
     size_t count = 0;
@@ -195,10 +204,10 @@ void testRangeIteratorHelper(bool isMulti) {
   for (size_t i = 0; i < 6; i++) {
     for (int j = 0; j < 2; ++j) {
       // j==1 for ascending order, j==0 for descending order
-      NumericFilter *flt = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j);
+      NumericFilter *flt = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j, NULL);
       IndexIterator *it = createNumericIterator(NULL, t, flt, &config, &filterCtx);
       size_t numEstimated = it->NumEstimated(it->ctx);
-      NumericFilter *fltLimited = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j);
+      NumericFilter *fltLimited = NewNumericFilter(rangeArray[i][0], rangeArray[i][1], 1, 1, j, NULL);
       fltLimited->limit = 50;
       IndexIterator *itLimited = createNumericIterator(NULL, t, fltLimited, &config, &filterCtx);
       size_t numEstimatedLimited = itLimited->NumEstimated(itLimited->ctx);
@@ -253,7 +262,7 @@ protected:
   }
 
   void TearDown() override {
-    IndexSpec_RemoveFromGlobals({index});
+    IndexSpec_RemoveFromGlobals({index}, false);
   }
 };
 

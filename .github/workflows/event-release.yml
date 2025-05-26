@@ -7,8 +7,9 @@ permissions:
   pull-requests:  write   # This is required for creating a PR
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
   workflow_dispatch:
     inputs:
       tag:
@@ -18,18 +19,19 @@ on:
         description: 'The branch/tag/commit of the snapshots to release. Defaults to the given tag'
 
 env:
-  checkout_target: ${{ inputs.snapshot_of || inputs.tag || github.event.release.target_commitish }}
+  checkout_target: ${{ inputs.snapshot_of || inputs.tag || github.ref_name }}
 
 jobs:
   validate-tag:
     # Verify that the tag matches the version in src/version.h
-    runs-on: ${{ vars.RUNS_ON }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     outputs:
       cur_version: ${{ steps.verify.outputs.cur_version }}
       next_version: ${{ steps.verify.outputs.next_version }}
       next_patch: ${{ steps.verify.outputs.next_patch }}
       should_bump: ${{ steps.verify.outputs.should_bump }}
       expected_sha: ${{ steps.get_sha.outputs.sha }}
+      release_branch: ${{ steps.verify.outputs.release_branch }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,13 +51,14 @@ jobs:
           def valid_tag(tag):
             return tag == f"v{major}.{minor}.{patch}"
           def valid_version_branch(branch):
-            return branch == f"{major}.{minor}"
-          tag = '${{ inputs.tag || github.event.release.tag_name }}'
+            return branch == f"refs/heads/{major}.{minor}"
+          tag = '${{ inputs.tag || github.ref_name }}'
           if not valid_tag(tag):
             raise Exception(f"Tag {tag} does not match version v{major}.{minor}.{patch}")
-          version_branch = '${{ env.checkout_target }}'
-          if not valid_version_branch(version_branch) and '${{ github.event_name }}' == 'release':
-            raise Exception(f"Version branch {version_branch} does not match the tag {tag}")
+          version_branch = '${{ github.event.base_ref }}'
+          if '${{ github.event_name }}' == 'push' and not valid_version_branch(version_branch):
+            start = version_branch.rfind("/") + 1 # get the branch name, not the full ref
+            raise Exception(f"Tag {tag} does not match the head of version branch {major}.{minor} (Got {version_branch[start:]})")
 
           import os
           with open(os.environ["GITHUB_OUTPUT"], "a") as fp:
@@ -63,10 +66,11 @@ jobs:
             print(f"next_version={major}.{minor}.{patch+1}", file=fp)
             print(f"next_patch={patch+1}", file=fp)
             print(f"should_bump={str(valid_version_branch(version_branch)).lower()}", file=fp)
+            print(f"release_branch={major}.{minor}", file=fp)
 
   update-version:
     # Generate a PR to bump the version for the next patch (if releasing from a version branch)
-    runs-on: ${{ vars.RUNS_ON }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     needs: validate-tag
     if: needs.validate-tag.outputs.should_bump == 'true'
     env:
@@ -74,7 +78,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.checkout_target }}
+          ref: ${{ needs.validate-tag.outputs.release_branch }}
       - name: Update version for next patch
         env:
           PATCH_LINE_PREFIX: '#define REDISEARCH_VERSION_PATCH'
@@ -97,9 +101,9 @@ jobs:
         run: |
           gh pr create \
             --title    "Bump version from ${{ needs.validate-tag.outputs.cur_version }} to ${{ needs.validate-tag.outputs.next_version }}" \
-            --body     "This PR was automatically created by the release workflow of ${{ inputs.tag || github.event.release.tag_name }}." \
+            --body     "This PR was automatically created by the release workflow of ${{ inputs.tag || github.ref_name }}." \
             --head     "${{ env.BRANCH }}" \
-            --base     "${{ env.checkout_target }}" \
+            --base     "${{ needs.validate-tag.outputs.release_branch }}" \
             --reviewer "alonre24,DvirDukhan,oshadmi,${{ github.actor }}" \
             --draft
 
@@ -112,7 +116,7 @@ jobs:
 
   set-artifacts:
     needs: validate-tag
-    runs-on: ${{ vars.RUNS_ON }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:
       - name: Configure AWS Credentials Using Role
         if: vars.USE_AWS_ROLE == 'true'
@@ -130,6 +134,8 @@ jobs:
       - name: Get boto3
         run: pip install boto3
       - name: Set Version Artifacts
+        env:
+          SOURCE: ${{ inputs.snapshot_of || inputs.tag || needs.validate-tag.outputs.release_branch }}
         shell: python
         run: |
           import boto3
@@ -142,7 +148,7 @@ jobs:
           oss_dir = "redisearch-oss"
           ent_dir = "redisearch"
 
-          suffix = ".${{ env.checkout_target }}.zip"
+          suffix = ".${{ env.SOURCE }}.zip"
           new_suffix = ".${{ needs.validate-tag.outputs.cur_version }}.zip"
           expected_sha = "${{ needs.validate-tag.outputs.expected_sha }}"
 
@@ -188,7 +194,9 @@ jobs:
           for dir in [oss_dir, ent_dir]:
               files.extend(list_snapshots_by_branch(dir))
 
-          group_print("${{ env.checkout_target }} Build Candidates", files)
+          group_print("${{ env.SOURCE }} Build Candidates", files)
+          if not files:
+              raise Exception("::error title=No candidates found!")
 
           with ThreadPoolExecutor() as executor:
               sha_list = executor.map(extract_sha, files)

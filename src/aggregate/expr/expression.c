@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "expression.h"
 #include "result_processor.h"
 #include "rlookup.h"
@@ -136,7 +138,7 @@ static int getPredicateBoolean(ExprEval *eval, const RSValue *l, const RSValue *
       return RSValue_BoolTest(l) || RSValue_BoolTest(r);
 
     default:
-      RS_LOG_ASSERT(0, "invalid RSCondition");
+      RS_ABORT("invalid RSCondition");
       return 0;
   }
 }
@@ -203,7 +205,7 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
   if (!value) {
     if (eval->err) {
-      QueryError_SetErrorFmt(eval->err, QUERY_ENOPROPVAL, "%s: has no value, consider using EXISTS if applicable", e->lookupObj->name);
+      QueryError_SetWithUserDataFmt(eval->err, QUERY_ENOPROPVAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", e->lookupObj->name);
     }
     res->t = RSValue_Null;
     return EXPR_EVAL_NULL;
@@ -238,20 +240,20 @@ int ExprEval_Eval(ExprEval *evaluator, RSValue *result) {
 }
 
 int ExprAST_GetLookupKeys(RSExpr *expr, RLookup *lookup, QueryError *err) {
-#define RECURSE(v)                                                                             \
-  if (!v) {                                                                                    \
-    QueryError_SetErrorFmt(err, QUERY_EEXPR, "Missing (or badly formatted) value for %s", #v); \
-    return EXPR_EVAL_ERR;                                                                      \
-  }                                                                                            \
-  if (ExprAST_GetLookupKeys(v, lookup, err) != EXPR_EVAL_OK) {                                 \
-    return EXPR_EVAL_ERR;                                                                      \
+#define RECURSE(v)                                                                                 \
+  if (!v) {                                                                                        \
+    QueryError_SetWithUserDataFmt(err, QUERY_EEXPR, "Missing (or badly formatted) value for", " %s", #v); \
+    return EXPR_EVAL_ERR;                                                                          \
+  }                                                                                                \
+  if (ExprAST_GetLookupKeys(v, lookup, err) != EXPR_EVAL_OK) {                                     \
+    return EXPR_EVAL_ERR;                                                                          \
   }
 
   switch (expr->t) {
     case RSExpr_Property:
       expr->property.lookupObj = RLookup_GetKey(lookup, expr->property.key, RLOOKUP_M_READ, RLOOKUP_F_NOFLAGS);
       if (!expr->property.lookupObj) {
-        QueryError_SetErrorFmt(err, QUERY_ENOPROPKEY, "Property `%s` not loaded nor in pipeline",
+        QueryError_SetWithUserDataFmt(err, QUERY_ENOPROPKEY, "Property", " `%s` not loaded nor in pipeline",
                                expr->property.key);
         return EXPR_EVAL_ERR;
       }
@@ -321,12 +323,12 @@ EvalCtx *EvalCtx_FromExpr(RSExpr *expr) {
   return r;
 }
 
-EvalCtx *EvalCtx_FromString(const char *expr) {
+EvalCtx *EvalCtx_FromString(const HiddenString *expr) {
   EvalCtx *r = EvalCtx_Create();
   if (!expr) {
   	r->ee.root = NULL;
   } else {
-    r->_expr = ExprAST_Parse(expr, strlen(expr), r->ee.err);
+    r->_expr = ExprAST_Parse(expr, r->ee.err);
     if (r->ee.root == NULL) {
   	  goto error;
     }
@@ -371,11 +373,11 @@ int EvalCtx_EvalExpr(EvalCtx *r, RSExpr *expr) {
   return EvalCtx_Eval(r);
 }
 
-int EvalCtx_EvalExprStr(EvalCtx *r, const char *expr) {
+int EvalCtx_EvalExprStr(EvalCtx *r, const HiddenString *expr) {
   if (r->_expr && r->_own_expr) {
     ExprAST_Free(r->_expr);
   }
-  r->_expr = ExprAST_Parse(expr, strlen(expr), r->ee.err);
+  r->_expr = ExprAST_Parse(expr, r->ee.err);
   r->_own_expr = true;
 
   return EvalCtx_Eval(r);
@@ -516,7 +518,7 @@ void RPEvaluator_Reply(RedisModule_Reply *reply, const char *title, const Result
       RedisModule_Reply_SimpleStringf(reply, "%s - Inverted", typeStr);
       break;
     default:
-      RS_LOG_ASSERT(0, "error");
+      RS_ABORT("error");
       break;
   }
 }

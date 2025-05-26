@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef __INVERTED_INDEX_H__
 #define __INVERTED_INDEX_H__
 
@@ -84,7 +86,7 @@ typedef struct {
 static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
   bool useFieldMask = flags & Index_StoreFieldFlags;
   bool useNumEntries = flags & Index_StoreNumeric;
-  RedisModule_Assert(!(useFieldMask && useNumEntries));
+  RS_ASSERT(!(useFieldMask && useNumEntries));
   // Avoid some of the allocation if not needed
   const size_t base = sizeof(InvertedIndex) - sizeof(t_fieldMask); // Size without the union
   if (useFieldMask) return base + sizeof(t_fieldMask);

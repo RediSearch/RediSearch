@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef __RS_DOCUMENT_H__
 #define __RS_DOCUMENT_H__
 #include <pthread.h>
@@ -54,9 +56,8 @@ typedef enum {
   FLD_VAR_T_NULL = 0x80,
 } FieldVarType;
 
-typedef struct DocumentField{
-  const char *name;  // Can either be char or RMString
-  const char *path;
+typedef struct DocumentField {
+  const HiddenString *docFieldName;
   union {
     // TODO: consider removing RMS altogether
     RedisModuleString *text;
@@ -140,6 +141,13 @@ typedef struct {
   RedisModuleString *languageStr;  // Language string for HSET
 } AddDocumentOptions;
 
+// When indexing the document we are okay with open key returning null
+// If the fields lazily expire then we simply don't index them
+#define DOCUMENT_OPEN_KEY_INDEXING_FLAGS REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS
+// When loading the document we are after the iterators phase, where we already verified the expiration time of the field and document
+// We don't allow any lazy expiration to happen here
+#define DOCUMENT_OPEN_KEY_QUERY_FLAGS REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS | REDISMODULE_OPEN_KEY_NOEXPIRE | REDISMODULE_OPEN_KEY_ACCESS_EXPIRED
+
 void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
                        uint32_t typemask);
 
@@ -207,14 +215,10 @@ void Document_LoadPairwiseArgs(Document *doc, RedisModuleString **args, size_t n
 void Document_LoadHSetParams(Document *d, const AddDocumentOptions *opts);
 
 /**
- * Print contents of document to screen
- */
-void Document_Dump(const Document *doc);  // LCOV_EXCL_LINE debug
-/**
  * Free any copied data within the document. anyCtx is any non-NULL
  * RedisModuleCtx. The reason for requiring a context is more related to the
  * Redis Module API requiring a context for AutoMemory purposes, though in
- * this case, the pointers are already removed from AutoMemory manangement
+ * this case, the pointers are already removed from AutoMemory management
  * anyway.
  *
  * This function also calls Document_Free
@@ -255,8 +259,6 @@ struct FieldIndexerData;
 
 #define ACTX_F_NOFREEDOC 0x80
 
-struct DocumentIndexer;
-
 /** Context used when indexing documents */
 typedef struct RSAddDocumentCtx {
   struct RSAddDocumentCtx *next;  // Next context in the queue
@@ -264,14 +266,11 @@ typedef struct RSAddDocumentCtx {
   RedisSearchCtx *sctx;
 
   IndexSpec *spec;
-  char *specName;
+  HiddenString *specName;
   size_t specNameLen;
-  uint64_t specId;
 
   // Forward index. This contains all the terms found in the document
   struct ForwardIndex *fwIdx;
-
-  struct DocumentIndexer *indexer;
 
   // Sorting vector for the document. If the document has sortable fields, they
   // are added to here as well
@@ -354,7 +353,7 @@ void AddDocumentCtx_Free(RSAddDocumentCtx *aCtx);
  * of it internally
  *
  * Returns  REDISMODULE_ERR on failure, OK otherwise*/
-int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const char *expr,
+int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const HiddenString *expr,
                             int *result, QueryError *err);
 
 // Don't create document if it does not exist. Replace only
@@ -364,7 +363,7 @@ int Document_EvalExpression(RedisSearchCtx *sctx, RedisModuleString *key, const 
  */
 int Redis_SaveDocument(RedisSearchCtx *ctx, const AddDocumentOptions *opts, QueryError *status);
 
-/* Serialzie the document's fields to a redis client */
+/* Serialize the document's fields to a redis client */
 int Document_ReplyAllFields(RedisModuleCtx *ctx, IndexSpec *spec, RedisModuleString *id);
 
 DocumentField *Document_GetField(Document *d, const char *fieldName);
@@ -375,7 +374,7 @@ const char *DocumentField_GetValueCStr(const DocumentField *df, size_t *len);
 /* return an array value as c string */
 const char *DocumentField_GetArrayValueCStr(const DocumentField *df, size_t *len, size_t index);
 
-/* return the sum of all c string lenths in array */
+/* return the sum of all c string lengths in array */
 size_t DocumentField_GetArrayValueCStrTotalLen(const DocumentField *df);
 
 // Document add functions:

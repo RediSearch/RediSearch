@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 extern "C" {
 #include "hiredis/sds.h"
 }
@@ -294,8 +303,15 @@ TEST_F(IndexTest, testGetEncoderAndDecoders) {
 
     // invalid flags combination
     default:
-      ASSERT_ANY_THROW(InvertedIndex_GetDecoder(IndexFlags(curFlags)));
-      ASSERT_ANY_THROW(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
+      // TODO: We currently test only with sanitizer since the sanitizer is
+      // running in debug mode always, while the regular tests are running in
+      // release mode.
+      #ifdef __SANITIZE_ADDRESS__
+        ASSERT_ANY_THROW(InvertedIndex_GetDecoder(IndexFlags(curFlags)));
+        ASSERT_ANY_THROW(InvertedIndex_GetEncoder(IndexFlags(curFlags)));
+      #else
+        continue;
+      #endif
     }
   }
 }
@@ -303,7 +319,7 @@ TEST_F(IndexTest, testGetEncoderAndDecoders) {
 TEST_F(IndexTest, testReadIterator) {
   InvertedIndex *idx = createPopulateTermsInvIndex(10, 1);
 
-  IndexReader *r1 = NewTermIndexReader(idx);  //
+  IndexReader *r1 = NewTermIndexReader(idx);
 
   RSIndexResult *h = NULL;
 
@@ -827,13 +843,13 @@ TEST_F(IndexTest, testHybridVector) {
                                   .query = top_k_query,
                                   .qParams = queryParams,
                                   .vectorScoreField = (char *)"__v_score",
-                                  .ignoreDocScore = true,
+                                  .canTrimDeepResults = true,
                                   .childIt = NULL,
                                   .filterCtx = &filterCtx
   };
   QueryError err = {QUERY_OK};
   IndexIterator *vecIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
   RSIndexResult *h = NULL;
   size_t count = 0;
@@ -860,7 +876,7 @@ TEST_F(IndexTest, testHybridVector) {
   IndexIterator *ir = NewReadIterator(r);
   hParams.childIt = ir;
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
   HybridIterator *hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
@@ -908,10 +924,10 @@ TEST_F(IndexTest, testHybridVector) {
   // Rerun without ignoring document scores.
   r = NewTermIndexReader(w);
   ir = NewReadIterator(r);
-  hParams.ignoreDocScore = false;
+  hParams.canTrimDeepResults = false;
   hParams.childIt = ir;
   hybridIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   hr = (HybridIterator *)hybridIt->ctx;
   hr->searchMode = VECSIM_HYBRID_BATCHES;
 
@@ -987,12 +1003,12 @@ TEST_F(IndexTest, testInvalidHybridVector) {
                                   .query = top_k_query,
                                   .qParams = queryParams,
                                   .vectorScoreField = (char *)"__v_score",
-                                  .ignoreDocScore = true,
+                                  .canTrimDeepResults = true,
                                   .childIt = ii,
                                   .filterCtx = &filterCtx};
   QueryError err = {QUERY_OK};
   IndexIterator *hybridIt = NewHybridVectorIterator(hParams, &err);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_FALSE(hybridIt);
 
   ii->Free(ii);
@@ -1031,7 +1047,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
 
   float query[] = {(float)n, (float)n, (float)n, (float)n};
   RangeVectorQuery range_query = {.vector = query, .vecLen = d, .radius = 0.2, .order = BY_ID};
-  VecSimQueryParams queryParams;
+  VecSimQueryParams queryParams = {0};
   queryParams.hnswRuntimeParams.efRuntime = n;
   VecSimQueryReply *results =
       VecSimIndex_RangeQuery(index, range_query.vector, range_query.radius, &queryParams, range_query.order);
@@ -1202,9 +1218,10 @@ TEST_F(IndexTest, testIndexSpec) {
                         "2.0",       foo,      "text",  "sortable", bar,      "numeric",
                         "sortable",  name,     "text",  "nostem"};
   QueryError err = {QUERY_OK};
-  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  const char* spec_name = "idx";
+  StrongRef ref = IndexSpec_ParseC(spec_name, args, sizeof(args) / sizeof(const char *), &err);
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == 5);
   ASSERT_TRUE(s->stopwords != NULL);
@@ -1217,78 +1234,83 @@ TEST_F(IndexTest, testIndexSpec) {
   ASSERT_TRUE(StopWordList_Contains(s->stopwords, "world", 5));
   ASSERT_TRUE(!StopWordList_Contains(s->stopwords, "werld", 5));
 
-  const FieldSpec *f = IndexSpec_GetField(s, body);
+  const char *realName = IndexSpec_FormatName(s, false);
+  ASSERT_STREQ(realName, spec_name);
+
+  const char *obfuscatedName = IndexSpec_FormatName(s, true);
+  ASSERT_STREQ(obfuscatedName, "Index@4e7f626df794f6491574a236f22c100c34ed804f");
+
+  const FieldSpec *f = IndexSpec_GetFieldWithLength(s, body, strlen(body));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_STREQ(f->name, body);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), body);
   ASSERT_EQ(f->ftWeight, 2.0);
   ASSERT_EQ(FIELD_BIT(f), 2);
   ASSERT_EQ(f->options, 0);
   ASSERT_EQ(f->sortIdx, -1);
 
-  f = IndexSpec_GetField(s, title);
+  f = IndexSpec_GetFieldWithLength(s, title, strlen(title));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_TRUE(strcmp(f->name, title) == 0);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), title);
   ASSERT_TRUE(f->ftWeight == 0.1);
   ASSERT_TRUE(FIELD_BIT(f) == 1);
   ASSERT_TRUE(f->options == 0);
   ASSERT_TRUE(f->sortIdx == -1);
 
-  f = IndexSpec_GetField(s, foo);
+  f = IndexSpec_GetFieldWithLength(s, foo, strlen(foo));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_TRUE(strcmp(f->name, foo) == 0);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), foo);
   ASSERT_TRUE(f->ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 4);
   ASSERT_TRUE(f->options == FieldSpec_Sortable);
   ASSERT_TRUE(f->sortIdx == 0);
 
-  f = IndexSpec_GetField(s, bar);
+  f = IndexSpec_GetFieldWithLength(s, bar, strlen(bar));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_NUMERIC));
 
-  ASSERT_TRUE(strcmp(f->name, bar) == 0);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), bar);
   ASSERT_EQ(f->options, FieldSpec_Sortable | FieldSpec_UNF); // UNF is set implicitly for sortable numerics
   ASSERT_TRUE(f->sortIdx == 1);
   ASSERT_TRUE(IndexSpec_GetFieldWithLength(s, "fooz", 4) == NULL);
 
-  f = IndexSpec_GetField(s, name);
+  f = IndexSpec_GetFieldWithLength(s, name, strlen(name));
   ASSERT_TRUE(f != NULL);
   ASSERT_TRUE(FIELD_IS(f, INDEXFLD_T_FULLTEXT));
-  ASSERT_TRUE(strcmp(f->name, name) == 0);
+  ASSERT_STREQ(RediSearch_HiddenStringGet(f->fieldName), name);
   ASSERT_TRUE(f->ftWeight == 1);
   ASSERT_TRUE(FIELD_BIT(f) == 8);
   ASSERT_TRUE(f->options == FieldSpec_NoStemming);
   ASSERT_TRUE(f->sortIdx == -1);
-
   ASSERT_TRUE(s->numSortableFields == 2);
 
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 
   QueryError_ClearError(&err);
   const char *args2[] = {
       "NOOFFSETS", "NOFIELDS", "SCHEMA", title, "text",
   };
-  ref = IndexSpec_Parse("idx", args2, sizeof(args2) / sizeof(const char *), &err);
+  ref = IndexSpec_ParseC("idx", args2, sizeof(args2) / sizeof(const char *), &err);
   s = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == 1);
 
   ASSERT_TRUE(!(s->flags & Index_StoreFieldFlags));
   ASSERT_TRUE(!(s->flags & Index_StoreTermOffsets));
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 
   // User-reported bug
   const char *args3[] = {"SCHEMA", "ha", "NUMERIC", "hb", "TEXT", "WEIGHT", "1", "NOSTEM"};
   QueryError_ClearError(&err);
-  ref = IndexSpec_Parse("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
+  ref = IndexSpec_ParseC("idx", args3, sizeof(args3) / sizeof(args3[0]), &err);
   s = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(FieldSpec_IsNoStem(s->fields + 1));
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 }
 
 static void fillSchema(std::vector<char *> &args, size_t nfields) {
@@ -1331,12 +1353,12 @@ TEST_F(IndexTest, testHugeSpec) {
   fillSchema(args, N);
 
   QueryError err = {QUERY_OK};
-  StrongRef ref = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  StrongRef ref = IndexSpec_ParseC("idx", (const char **)&args[0], args.size(), &err);
   IndexSpec *s = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   ASSERT_TRUE(s);
   ASSERT_TRUE(s->numFields == N);
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
   freeSchemaArgs(args);
 
   // test too big a schema
@@ -1344,14 +1366,14 @@ TEST_F(IndexTest, testHugeSpec) {
   fillSchema(args, N);
 
   QueryError_ClearError(&err);
-  ref = IndexSpec_Parse("idx", (const char **)&args[0], args.size(), &err);
+  ref = IndexSpec_ParseC("idx", (const char **)&args[0], args.size(), &err);
   s = (IndexSpec *)StrongRef_Get(ref);
   ASSERT_TRUE(s == NULL);
   ASSERT_TRUE(QueryError_HasError(&err));
 #if (defined(__x86_64__) || defined(__aarch64__) || defined(__arm64__)) && !defined(RS_NO_U128)
-  ASSERT_STREQ("Schema is limited to 128 TEXT fields", QueryError_GetError(&err));
+  ASSERT_STREQ("Schema is limited to 128 TEXT fields", QueryError_GetUserError(&err));
 #else
-  ASSERT_STREQ("Schema is limited to 64 TEXT fields", QueryError_GetError(&err));
+  ASSERT_STREQ("Schema is limited to 64 TEXT fields", QueryError_GetUserError(&err));
 #endif
   freeSchemaArgs(args);
   QueryError_ClearError(&err);
@@ -1448,12 +1470,14 @@ TEST_F(IndexTest, testIndexFlags) {
 TEST_F(IndexTest, testDocTable) {
   char buf[16];
   DocTable dt = NewDocTable(10, 10);
+  size_t doc_table_size = sizeof(DocTable) + (10 * sizeof(DMDChain));
+  ASSERT_EQ(doc_table_size, (int)dt.memsize);
   t_docId did = 0;
   // N is set to 100 and the max cap of the doc table is 10 so we surely will
   // get overflow and check that everything works correctly
   int N = 100;
   for (int i = 0; i < N; i++) {
-    size_t nkey = sprintf(buf, "doc_%d", i);
+    size_t nkey = snprintf(buf, sizeof(buf), "doc_%d", i);
     RSDocumentMetadata *dmd = DocTable_Put(&dt, buf, nkey, (double)i, Document_DefaultFlags, buf, strlen(buf), DocumentType_Hash);
     t_docId nd = dmd->id;
     DMD_Return(dmd);
@@ -1464,10 +1488,10 @@ TEST_F(IndexTest, testDocTable) {
   ASSERT_EQ(N + 1, dt.size);
   ASSERT_EQ(N, dt.maxDocId);
 #ifdef __x86_64__
-  ASSERT_EQ(10180, (int)dt.memsize);
+  ASSERT_EQ(10180 + doc_table_size, (int)dt.memsize);
 #endif
   for (int i = 0; i < N; i++) {
-    sprintf(buf, "doc_%d", i);
+    snprintf(buf, sizeof(buf), "doc_%d", i);
     const sds key = DocTable_GetKey(&dt, i + 1, NULL);
     ASSERT_STREQ(key, buf);
     sdsfree(key);
@@ -1500,7 +1524,7 @@ TEST_F(IndexTest, testDocTable) {
   RSDocumentMetadata *dmd = DocTable_Put(&dt, "Hello", 5, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   t_docId strDocId = dmd->id;
   ASSERT_TRUE(0 != strDocId);
-  ASSERT_EQ(71, (int)dt.memsize);
+  ASSERT_EQ(71 + doc_table_size, (int)dt.memsize);
 
   // Test that binary keys also work here
   static const char binBuf[] = {"Hello\x00World"};
@@ -1509,7 +1533,7 @@ TEST_F(IndexTest, testDocTable) {
   DMD_Return(dmd);
   dmd = DocTable_Put(&dt, binBuf, binBufLen, 1.0, Document_DefaultFlags, NULL, 0, DocumentType_Hash);
   ASSERT_TRUE(dmd);
-  ASSERT_EQ(148, (int)dt.memsize);
+  ASSERT_EQ(148 + doc_table_size, (int)dt.memsize);
   ASSERT_NE(dmd->id, strDocId);
   ASSERT_EQ(dmd->id, DocIdMap_Get(&dt.dim, binBuf, binBufLen));
   ASSERT_EQ(strDocId, DocIdMap_Get(&dt.dim, "Hello", 5));

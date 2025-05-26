@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "result_processor.h"
 #include "rmr/rmr.h"
 #include "rmutil/util.h"
@@ -17,6 +19,8 @@
 #include "coord/config.h"
 #include "dist_profile.h"
 #include "util/misc.h"
+#include "aggregate/aggregate_debug.h"
+#include "info/info_redis/threads/current_thread.h"
 
 #include <err.h>
 
@@ -43,7 +47,6 @@ static bool getCursorCommand(long long cursorId, MRCommand *cmd, MRIteratorCtx *
   // command instead of a READ command (here we know it has more results)
   if (timedout && !cmd->forCursor) {
     newCmd = MR_NewCommand(4, "_FT.CURSOR", "DEL", idx, buf);
-    newCmd.depleted = true;
     // Mark that the last command was a DEL command
     newCmd.rootCommand = C_DEL;
   } else {
@@ -235,23 +238,26 @@ typedef struct {
   arrayof(MRReply *) shardsProfile;
 } RPNet;
 
+static void RPNet_resetCurrent(RPNet *nc) {
+    nc->current.root = NULL;
+    nc->current.rows = NULL;
+}
+
 static int getNextReply(RPNet *nc) {
   if (nc->cmd.forCursor) {
     // if there are no more than `clusterConfig.cursorReplyThreshold` replies, trigger READs at the shards.
     // TODO: could be replaced with a query specific configuration
     if (!MR_ManuallyTriggerNextIfNeeded(nc->it, clusterConfig.cursorReplyThreshold)) {
       // No more replies
-      nc->current.root = NULL;
-      nc->current.rows = NULL;
+      RPNet_resetCurrent(nc);
       return 0;
     }
   }
   MRReply *root = MRIterator_Next(nc->it);
   if (root == NULL) {
     // No more replies
-    nc->current.root = NULL;
-    nc->current.rows = NULL;
-    return 0;
+    RPNet_resetCurrent(nc);
+    return MRIterator_GetPending(nc->it);
   }
 
   // Check if an error was returned
@@ -289,7 +295,7 @@ static int getNextReply(RPNet *nc) {
   nc->current.root = root;
   nc->current.rows = rows;
 
-  assert(   !nc->current.rows
+  RS_ASSERT(!nc->current.rows
          || MRReply_Type(nc->current.rows) == MR_REPLY_ARRAY
          || MRReply_Type(nc->current.rows) == MR_REPLY_MAP);
   return 1;
@@ -368,7 +374,8 @@ static int rpnetNext(ResultProcessor *self, SearchResult *r) {
         } else {
           MRReply_Free(root);
         }
-        nc->current.root = nc->current.rows = root = rows = NULL;
+        root = rows = NULL;
+        RPNet_resetCurrent(nc);
 
         if (timed_out) {
           return RS_RESULT_TIMEDOUT;
@@ -479,6 +486,7 @@ static void rpnetFree(ResultProcessor *rp) {
   RPNet *nc = (RPNet *)rp;
 
   if (nc->it) {
+    RS_DEBUG_LOG("rpnetFree: calling MRIterator_Release");
     MRIterator_Release(nc->it);
   }
 
@@ -536,12 +544,12 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
 
   // Add the index prefixes to the command, for validation in the shard
   array_append(tmparr, "_INDEX_PREFIXES");
-  arrayof(sds) prefixes = sp->rule->prefixes;
+  arrayof(HiddenUnicodeString*) prefixes = sp->rule->prefixes;
   char *n_prefixes;
   rm_asprintf(&n_prefixes, "%u", array_len(prefixes));
   array_append(tmparr, n_prefixes);
   for (uint i = 0; i < array_len(prefixes); i++) {
-    array_append(tmparr, (const char *)prefixes[i]);
+    array_append(tmparr, HiddenUnicodeString_GetUnsafe(prefixes[i], NULL));
   }
 
   int argOffset = RMUtil_ArgIndex("DIALECT", argv + 3 + profileArgs, argc - 3 - profileArgs);
@@ -596,6 +604,13 @@ static void buildMRCommand(RedisModuleString **argv, int argc, int profileArgs,
     MRCommand_AppendRstr(xcmd, argv[timeout_index + 4 + profileArgs]);
   }
 
+  // Check for the `BM25STD_TANH_FACTOR` argument
+  int bm25std_tanh_factor_index = RMUtil_ArgIndex("BM25STD_TANH_FACTOR", argv + 3 + profileArgs, argc - 4 - profileArgs);
+  if (bm25std_tanh_factor_index != -1) {
+    MRCommand_AppendRstr(xcmd, argv[bm25std_tanh_factor_index + 3 + profileArgs]);
+    MRCommand_AppendRstr(xcmd, argv[bm25std_tanh_factor_index + 4 + profileArgs]);
+  }
+
   MRCommand_SetPrefix(xcmd, "_FT");
 
   rm_free(n_prefixes);
@@ -614,7 +629,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
     rpProfile = RPProfile_New(&rpRoot->base, &r->qiter);
   }
 
-  assert(!r->qiter.rootProc);
+  RS_ASSERT(!r->qiter.rootProc);
   // Get the deepest-most root:
   int found = 0;
   for (ResultProcessor *rp = r->qiter.endProc; rp; rp = rp->upstream) {
@@ -643,16 +658,16 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, AREQDIST_UpstreamInfo *us
 
 void PrintShardProfile(RedisModule_Reply *reply, void *ctx);
 
-void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions) {
+void printAggProfile(RedisModule_Reply *reply, void *ctx) {
   // profileRP replace netRP as end PR
-  RPNet *rpnet = (RPNet *)req->qiter.rootProc;
-  ProfilePrinterCtx cCtx = {req, timedout, reachedMaxPrefixExpansions};
+  ProfilePrinterCtx *cCtx = ctx;
+  RPNet *rpnet = (RPNet *)cCtx->req->qiter.rootProc;
   PrintShardProfile_ctx sCtx = {
     .count = array_len(rpnet->shardsProfile),
     .replies = rpnet->shardsProfile,
     .isSearch = false,
   };
-  Profile_PrintInFormat(reply, PrintShardProfile, &sCtx, Profile_Print, &cCtx);
+  Profile_PrintInFormat(reply, PrintShardProfile, &sCtx, Profile_Print, cCtx);
 }
 
 static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
@@ -673,32 +688,16 @@ static int parseProfile(RedisModuleString **argv, int argc, AREQ *r) {
   return profileArgs;
 }
 
-void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
-                         struct ConcurrentCmdCtx *cmdCtx) {
-  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
-  bool has_map = RedisModule_HasMap(reply);
-
-  // CMD, index, expr, args...
-  AREQ *r = AREQ_New();
-  QueryError status = {0};
-  specialCaseCtx *knnCtx = NULL;
-
-  // Check if the index still exists, and promote the ref accordingly
-  StrongRef strong_ref = WeakRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  IndexSpec *sp = StrongRef_Get(strong_ref);
-  if (!sp) {
-    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
-    goto err;
-  }
-
-  r->qiter.err = &status;
+static int prepareForExecution(AREQ *r, RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                         IndexSpec *sp, specialCaseCtx **knnCtx_ptr, QueryError *status) {
+  r->qiter.err = status;
   r->reqflags |= QEXEC_F_IS_AGGREGATE | QEXEC_F_BUILDPIPELINE_NO_ROOT;
   r->initClock = clock();
 
   int profileArgs = parseProfile(argv, argc, r);
-  if (profileArgs == -1) goto err;
-  int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, &status);
-  if (rc != REDISMODULE_OK) goto err;
+  if (profileArgs == -1) return REDISMODULE_ERR;
+  int rc = AREQ_Compile(r, argv + 2 + profileArgs, argc - 2 - profileArgs, status);
+  if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
   r->profile = printAggProfile;
 
   unsigned int dialect = r->reqConfig.dialectVersion;
@@ -706,9 +705,10 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     // Check if we have KNN in the query string, and if so, parse the query string to see if it is
     // a KNN section in the query. IN that case, we treat this as a SORTBY+LIMIT step.
     if(strcasestr(r->query, "KNN")) {
-      knnCtx = prepareOptionalTopKCase(r->query, argv, argc, dialect, &status);
-      if (QueryError_HasError(&status)) {
-        goto err;
+      specialCaseCtx *knnCtx = prepareOptionalTopKCase(r->query, argv, argc, dialect, status);
+      *knnCtx_ptr = knnCtx;
+      if (QueryError_HasError(status)) {
+        return REDISMODULE_ERR;
       }
       if (knnCtx != NULL) {
         // If we found KNN, add an arange step, so it will be the first step after
@@ -718,12 +718,12 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     }
   }
 
-  rc = AGGPLN_Distribute(&r->ap, &status);
-  if (rc != REDISMODULE_OK) goto err;
+  rc = AGGPLN_Distribute(&r->ap, status);
+  if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
   AREQDIST_UpstreamInfo us = {NULL};
-  rc = AREQ_BuildDistributedPipeline(r, &us, &status);
-  if (rc != REDISMODULE_OK) goto err;
+  rc = AREQ_BuildDistributedPipeline(r, &us, status);
+  if (rc != REDISMODULE_OK) return REDISMODULE_ERR;
 
   // Construct the command string
   MRCommand xcmd;
@@ -747,36 +747,138 @@ void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   r->qiter.sctx = r->sctx;
   // r->sctx->expanded should be received from shards
 
+  return REDISMODULE_OK;
+}
+
+static int executePlan(AREQ *r, struct ConcurrentCmdCtx *cmdCtx, RedisModule_Reply *reply, QueryError *status) {
   if (r->reqflags & QEXEC_F_IS_CURSOR) {
     // Keep the original concurrent context
     ConcurrentCmdCtx_KeepRedisCtx(cmdCtx);
 
     StrongRef dummy_spec_ref = {.rm = NULL};
-    rc = AREQ_StartCursor(r, reply, dummy_spec_ref, &status, true);
 
-    if (rc != REDISMODULE_OK) {
-      goto err;
+    if (AREQ_StartCursor(r, reply, dummy_spec_ref, status, true) != REDISMODULE_OK) {
+      return REDISMODULE_ERR;
     }
   } else {
     sendChunk(r, reply, UINT64_MAX);
     AREQ_Free(r);
   }
+  return REDISMODULE_OK;
+}
+
+static void DistAggregateCleanups(RedisModuleCtx *ctx, struct ConcurrentCmdCtx *cmdCtx, IndexSpec *sp,
+                          StrongRef *strong_ref, specialCaseCtx *knnCtx, AREQ *r, RedisModule_Reply *reply, QueryError *status) {
+  RS_ASSERT(QueryError_HasError(status));
+  QueryError_ReplyAndClear(ctx, status);
+  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  if (sp) {
+    IndexSpecRef_Release(*strong_ref);
+  }
+  SpecialCaseCtx_Free(knnCtx);
+  if (r) AREQ_Free(r);
+  RedisModule_EndReply(reply);
+  return;
+}
+
+void RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                         struct ConcurrentCmdCtx *cmdCtx) {
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  bool has_map = RedisModule_HasMap(reply);
+
+  // CMD, index, expr, args...
+  AREQ *r = AREQ_New();
+  QueryError status = {0};
+  specialCaseCtx *knnCtx = NULL;
+
+  // Check if the index still exists, and promote the ref accordingly
+  StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  IndexSpec *sp = StrongRef_Get(strong_ref);
+  if (!sp) {
+    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
+    goto err;
+  }
+
+  if (prepareForExecution(r, ctx, argv, argc, sp, &knnCtx, &status) != REDISMODULE_OK) {
+    goto err;
+  }
+
+  if (executePlan(r, cmdCtx, reply, &status) != REDISMODULE_OK) {
+    goto err;
+  }
+
   SpecialCaseCtx_Free(knnCtx);
   WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  StrongRef_Release(strong_ref);
+  IndexSpecRef_Release(strong_ref);
   RedisModule_EndReply(reply);
   return;
 
 // See if we can distribute the plan...
 err:
-  assert(QueryError_HasError(&status));
-  QueryError_ReplyAndClear(ctx, &status);
-  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
-  if (sp) {
-    StrongRef_Release(strong_ref);
+  DistAggregateCleanups(ctx, cmdCtx, sp, &strong_ref, knnCtx, r, reply, &status);
+  return;
+}
+
+/* ======================= DEBUG ONLY ======================= */
+void DEBUG_RSExecDistAggregate(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
+                         struct ConcurrentCmdCtx *cmdCtx) {
+  RedisModule_Reply _reply = RedisModule_NewReply(ctx), *reply = &_reply;
+  bool has_map = RedisModule_HasMap(reply);
+
+  AREQ *r = NULL;
+  IndexSpec *sp = NULL;
+  specialCaseCtx *knnCtx = NULL;
+
+  // debug_req and &debug_req->r are allocated in the same memory block, so it will be freed
+  // when AREQ_Free is called
+  QueryError status = {0};
+  AREQ_Debug *debug_req = AREQ_Debug_New(argv, argc, &status);
+  if (!debug_req) {
+    goto err;
   }
+  // CMD, index, expr, args...
+  r = &debug_req->r;
+  AREQ_Debug_params debug_params = debug_req->debug_params;
+  // Check if the index still exists, and promote the ref accordingly
+  StrongRef strong_ref = IndexSpecRef_Promote(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  sp = StrongRef_Get(strong_ref);
+  if (!sp) {
+    QueryError_SetCode(&status, QUERY_EDROPPEDBACKGROUND);
+    goto err;
+  }
+
+  int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
+  if (prepareForExecution(r, ctx, argv, argc - debug_argv_count, sp, &knnCtx, &status) != REDISMODULE_OK) {
+    goto err;
+  }
+
+  // rpnet now owns the command
+  MRCommand *cmd = &(((RPNet *)r->qiter.rootProc)->cmd);
+
+  MRCommand_Insert(cmd, 0, "_FT.DEBUG", sizeof("_FT.DEBUG") - 1);
+  // insert also debug params at the end
+  for (size_t i = 0; i < debug_argv_count; i++) {
+    size_t n;
+    const char *arg = RedisModule_StringPtrLen(debug_params.debug_argv[i], &n);
+    MRCommand_Append(cmd, arg, n);
+  }
+
+  if (parseAndCompileDebug(debug_req, &status) != REDISMODULE_OK) {
+    goto err;
+  }
+
+  if (executePlan(r, cmdCtx, reply, &status) != REDISMODULE_OK) {
+    goto err;
+  }
+
   SpecialCaseCtx_Free(knnCtx);
-  AREQ_Free(r);
+  WeakRef_Release(ConcurrentCmdCtx_GetWeakRef(cmdCtx));
+  IndexSpecRef_Release(strong_ref);
   RedisModule_EndReply(reply);
+  return;
+
+// See if we can distribute the plan...
+err:
+  DistAggregateCleanups(ctx, cmdCtx, sp, &strong_ref, knnCtx, r, reply, &status);
   return;
 }

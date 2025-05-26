@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef RS_SCORE_EXPLAIN_H_
 #define RS_SCORE_EXPLAIN_H_
 
@@ -30,6 +32,16 @@ void SEReply(RedisModule_Reply *reply, RSScoreExplain *scrExp);
  * Release allocated resources.
  */
 void SEDestroy(RSScoreExplain *scrExp);
+
+
+#define EXPLAIN(exp, fmt, args...) \
+  {                                \
+    if (exp) {                     \
+      explain(exp, fmt, ##args);   \
+    }                              \
+  }
+
+void explain(RSScoreExplain *scrExp, char *fmt, ...);
 
 #ifdef __cplusplus
 }

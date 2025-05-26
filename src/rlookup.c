@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "rlookup.h"
 #include "module.h"
 #include "document.h"
@@ -82,7 +84,7 @@ const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
 
   const FieldSpec *fs = NULL;
   for (size_t ii = 0; ii < cc->nfields; ++ii) {
-    if (!strcmp(cc->fields[ii].name, name)) {
+    if (!HiddenString_CompareC(cc->fields[ii].fieldName, name, strlen(name))) {
       fs = cc->fields + ii;
       break;
     }
@@ -94,7 +96,8 @@ const FieldSpec *findFieldInSpecCache(const RLookup *lookup, const char *name) {
 
 static void setKeyByFieldSpec(RLookupKey *key, const FieldSpec *fs) {
   key->flags |= RLOOKUP_F_DOCSRC | RLOOKUP_F_SCHEMASRC;
-  key->path = key->flags & RLOOKUP_F_NAMEALLOC ? rm_strdup(fs->path) : fs->path;
+  const char *path = HiddenString_GetUnsafe(fs->fieldPath, NULL);
+  key->path = key->flags & RLOOKUP_F_NAMEALLOC ? rm_strdup(path) : path;
   if (FieldSpec_IsSortable(fs)) {
     key->flags |= RLOOKUP_F_SVSRC;
     key->svidx = fs->sortIdx;
@@ -240,12 +243,12 @@ RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *f
 }
 
 RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t name_len, RLookupMode mode, uint32_t flags) {
-  assert(mode != RLOOKUP_M_LOAD);
+  RS_ASSERT(mode != RLOOKUP_M_LOAD);
   return RLookup_GetKey_common(lookup, name, name_len, NULL, mode, flags);
 }
 
 RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, RLookupMode mode, uint32_t flags) {
-  assert(mode != RLOOKUP_M_LOAD);
+  RS_ASSERT(mode != RLOOKUP_M_LOAD);
   return RLookup_GetKey_common(lookup, name, strlen(name), NULL, mode, flags);
 }
 
@@ -257,7 +260,7 @@ size_t RLookup_GetLength(const RLookup *lookup, const RLookupRow *r, int *skipFi
   size_t nfields = 0;
   for (const RLookupKey *kk = lookup->head; kk; kk = kk->next, ++i) {
     if (kk->name == NULL) {
-      // Overriden key. Skip without incrementing the index
+      // Overridden key. Skip without incrementing the index
       --i;
       continue;
     }
@@ -349,22 +352,24 @@ void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
   RLookupRow_Wipe(src);
 }
 
-void RLookupRow_Dump(const RLookupRow *rr) {
-  printf("Row @%p\n", rr);
+sds RLookupRow_DumpSds(const RLookupRow *rr, bool obfuscate) {
+  sds s = sdsempty();
+  s = sdscatfmt(s, "Row @%p\n", rr);
   if (rr->dyn) {
-    printf("  DYN @%p\n", rr->dyn);
+    s = sdscatfmt(s, "  DYN @%p\n", rr->dyn);
     for (size_t ii = 0; ii < array_len(rr->dyn); ++ii) {
-      printf("  [%lu]: %p\n", ii, rr->dyn[ii]);
+      s = sdscatfmt(s, "  [%lu]: %p\n", ii, rr->dyn[ii]);
       if (rr->dyn[ii]) {
-        printf("    ");
-        RSValue_Print(rr->dyn[ii]);
-        printf("\n");
+        s = sdscat(s, "    ");
+        s = RSValue_DumpSds(rr->dyn[ii], s, obfuscate);
+        s = sdscat(s, "\n");
       }
     }
   }
   if (rr->sv) {
-    printf("  SV @%p\n", rr->sv);
+    s = sdscatfmt(s, "  SV @%p\n", rr->sv);
   }
+  return s;
 }
 
 static void RLookupKey_Cleanup(RLookupKey *k) {
@@ -441,7 +446,8 @@ static RSValue *jsonValToValue(RedisModuleCtx *ctx, RedisJSON json) {
     case JSONType__EOF:
       break;
   }
-  RS_LOG_ASSERT(0, "Cannot get here");
+  RS_ABORT("Cannot get here");
+  return NULL;
 }
 
 // {"a":1, "b":[2, 3, {"c": "foo"}, 4], "d": null}
@@ -461,12 +467,12 @@ static RSValue *jsonValToValueExpanded(RedisModuleCtx *ctx, RedisJSON json) {
       RedisJSON value;
       pairs = rm_malloc(sizeof(RSValue*) * len * 2);
       for (; (value = japi->nextKeyValue(iter, &keyName)); ++i) {
-        assert(i < len);
+        RS_ASSERT(i < len);
         pairs[RSVALUE_MAP_KEYPOS(i)] = RS_StealRedisStringVal(keyName);
         pairs[RSVALUE_MAP_VALUEPOS(i)] = jsonValToValueExpanded(ctx, value);
       }
       japi->freeKeyValuesIter(iter);
-      assert(i == len && !value);
+      RS_ASSERT(i == len && !value);
     }
     ret = RSValue_NewMap(pairs, len);
   } else if (type == JSONType_Array) {
@@ -623,7 +629,7 @@ static int getKeyCommonHash(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
     RedisModuleCtx *ctx = options->sctx->redisCtx;
     RedisModuleString *keyName =
         RedisModule_CreateString(ctx, keyPtr, strlen(keyPtr));
-    *keyobj = RedisModule_OpenKey(ctx, keyName, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
+    *keyobj = RedisModule_OpenKey(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
     RedisModule_FreeString(ctx, keyName);
     if (!*keyobj) {
       QueryError_SetCode(options->status, QUERY_ENODOC);
@@ -679,7 +685,7 @@ static int getKeyCommonJSON(const RLookupKey *kk, RLookupRow *dst, RLookupLoadOp
 
     if (japi_ver >= 5) {
       RedisModuleString* keyName = RedisModule_CreateString(ctx, keyPtr, strlen(keyPtr));
-      *keyobj = japi->openKeyWithFlags(ctx, keyName, REDISMODULE_OPEN_KEY_NOEFFECTS);
+      *keyobj = japi->openKeyWithFlags(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
       RedisModule_FreeString(ctx, keyName);
     } else {
       *keyobj = japi->openKeyFromStr(ctx, keyPtr);
@@ -842,7 +848,7 @@ static int RLookup_HGETALL(RLookup *it, RLookupRow *dst, RLookupLoadOptions *opt
       RLookup_WriteOwnKey(rlk, dst, vptr);
     }
   } else {
-    RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
+    RedisModuleKey *key = RedisModule_OpenKey(ctx, krstr, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
     if (!key || RedisModule_KeyType(key) != REDISMODULE_KEYTYPE_HASH) {
       // key does not exist or is not a hash
       if (key) {
@@ -884,7 +890,7 @@ static int RLookup_JSON_GetAll(RLookup *it, RLookupRow *dst, RLookupLoadOptions 
   RedisJSON jsonRoot;
   if (japi_ver >= 5) {
     RedisModuleString* keyName = RedisModule_CreateString(ctx, options->dmd->keyPtr, strlen(options->dmd->keyPtr));
-    jsonRoot = japi->openKeyWithFlags(ctx, keyName, REDISMODULE_OPEN_KEY_NOEFFECTS);
+    jsonRoot = japi->openKeyWithFlags(ctx, keyName, DOCUMENT_OPEN_KEY_QUERY_FLAGS);
     RedisModule_FreeString(ctx, keyName);
   } else {
     jsonRoot = japi->openKeyFromStr(ctx, options->dmd->keyPtr);
@@ -949,8 +955,10 @@ int RLookup_LoadRuleFields(RedisModuleCtx *ctx, RLookup *it, RLookupRow *dst, In
       continue;
     }
     FieldSpec *fs = spec->fields + idx;
-    keys[i] = createNewKey(it, fs->name, strlen(fs->name), RLOOKUP_F_NOFLAGS);
-    keys[i]->path = fs->path;
+    size_t length = 0;
+    const char *name = HiddenString_GetUnsafe(fs->fieldName, &length);
+    keys[i] = createNewKey(it, name, length, RLOOKUP_F_NOFLAGS);
+    keys[i]->path = HiddenString_GetUnsafe(fs->fieldPath, NULL);
   }
 
   // load

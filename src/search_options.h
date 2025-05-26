@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef RS_QUERY_OPTIONS_H_
 #define RS_QUERY_OPTIONS_H_
 
@@ -14,6 +16,7 @@
 #include "config.h"
 #include "rlookup.h"
 #include "util/dict.h"
+#include "obfuscation/hidden.h"
 
 typedef enum {
   // No summaries
@@ -75,11 +78,10 @@ int ParseSummarize(ArgsCursor *ac, FieldList *fields);
 int ParseHighlight(ArgsCursor *ac, FieldList *fields);
 
 typedef enum {
-  Search_Verbatim = 0x02,
-  Search_NoStopwrods = 0x04,
-  Search_InOrder = 0x20,
-  Search_HasSlop = 0x200,
-  Search_IgnoreScores = 0x400
+  Search_Verbatim           = (1 << 0),
+  Search_NoStopWords        = (1 << 1),
+  Search_InOrder            = (1 << 2),
+  Search_CanSkipRichResults = (1 << 3), // No need to bubble up full result structure (used by the scorer and highlighter)
 } RSSearchFlags;
 
 #define RS_DEFAULT_QUERY_FLAGS 0x00
@@ -106,8 +108,8 @@ typedef struct {
 
   /** Legacy options */
   struct {
-    NumericFilter **filters;
-    GeoFilter **geo_filters;
+    LegacyNumericFilter **filters;
+    LegacyGeoFilter **geo_filters;
     const char **infields;
     size_t ninfields;
   } legacy;

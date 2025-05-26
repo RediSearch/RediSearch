@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "src/extension.h"
 #include "src/redisearch.h"
@@ -128,7 +136,7 @@ TEST_F(ExtTest, testQueryExpander_v1) {
 
   QueryError err = {QUERY_OK};
   int rc = QAST_Parse(&qast, NULL, &opts, qt, strlen(qt), 1, &err);
-  ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetError(&err);
+  ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetUserError(&err);
 
   ASSERT_EQ(qast.numTokens, 2);
   ASSERT_EQ(REDISMODULE_OK, QAST_Expand(&qast, opts.expanderName, &opts, NULL, &err));
@@ -170,7 +178,7 @@ TEST_F(ExtTest, testQueryExpander_v2) {
 
   QueryError err = {QUERY_OK};
   int rc = QAST_Parse(&qast, NULL, &opts, qt, strlen(qt), 2, &err);
-  ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetError(&err);
+  ASSERT_EQ(REDISMODULE_OK, rc) << QueryError_GetUserError(&err);
 
   ASSERT_EQ(qast.numTokens, 2);
   ASSERT_EQ(REDISMODULE_OK, QAST_Expand(&qast, opts.expanderName, &opts, NULL, &err));

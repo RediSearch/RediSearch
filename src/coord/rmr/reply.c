@@ -1,14 +1,17 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #define __RMR_REPLY_C__
 #include "reply.h"
 
 #include "redismodule.h"
 #include "hiredis/hiredis.h"
+#include "fast_float/fast_float_strtod.h"
 
 #include <string.h>
 #include <errno.h>
@@ -179,7 +182,7 @@ int _parseInt(const char *str, size_t len, long long *i) {
 int _parseFloat(const char *str, size_t len, double *d) {
   errno = 0; /* To distinguish success/failure after call */
   char *endptr = (char *)str + len;
-  double val = strtod(str, &endptr);
+  double val = fast_float_strtod(str, &endptr);
 
   /* Check for various possible errors */
   if (errno != 0 || (endptr == str && val == 0)) {

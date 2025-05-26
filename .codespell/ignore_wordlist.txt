@@ -1,0 +1,15 @@
+# Add words to ignore here, one per line
+sugget
+numver
+ist
+ths
+anId
+nd
+te
+curent
+childRes
+specfield
+runn
+te
+valu
+hel

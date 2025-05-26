@@ -1,188 +1,279 @@
 #!/bin/bash
 
+#------------------------------------------------------------------------------
+# RediSearch Unit Tests Runner
+#
+# This script runs unit tests for the RediSearch project. It supports running
+# all unit tests with options for debugging and sanitizer support.
+#
+# Author: RediSearch Team
+#------------------------------------------------------------------------------
+
+# Get script location and set up paths
 PROGNAME="${BASH_SOURCE[0]}"
-HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
-ROOT=$(cd $HERE/.. && pwd)
-READIES=$ROOT/deps/readies
-. $READIES/shibumi/defs
+SCRIPT_DIR="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
+ROOT_DIR=$(cd $SCRIPT_DIR/.. && pwd)
 
-cd $HERE
+cd $SCRIPT_DIR
 
-#----------------------------------------------------------------------------------------------
-
-help() {
-	cat <<-'END'
-		Run unit tests
-
-		[ARGVARS...] unit-tests [--help|help]
-
-		Argument variables:
-		BINROOT=path   Path to repo binary root dir
-		TEST=name      Operate in single-test mode
-
-		C_TESTS=1      Run C tests
-		CPP_TESTS=1    Run C++ tests (gtest)
-		BENCH=1        Run micro-benchmark
-		TEST_LEAK=1    Run test that leaks (for sanitizer diagnostics)
-
-		STATFILE=file  Write test status (0|1) into `file`
-
-		GDB=1          Enable interactive gdb debugging (in single-test mode)
-		CLANG=1        Implies use of lldb debugger
-
-		VERBOSE=1      Print commands and Redis output
-		NOP=1          Dry run
-		HELP=1         Show help
-
-
-	END
+#------------------------------------------------------------------------------
+# Print separator line for better readability
+#------------------------------------------------------------------------------
+print_separator() {
+    local cols=80
+    # Try to get terminal width
+    if command -v tput >/dev/null 2>&1; then
+        cols=$(tput cols 2>/dev/null || echo 80)
+    fi
+    printf "\n%s\n" "$(printf '%0.s-' $(seq 1 $((cols-1))))"
 }
 
-#----------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------
+# Display help information
+#------------------------------------------------------------------------------
+show_help() {
+    cat <<'END'
+        RediSearch Unit Tests Runner
 
-sanitizer_defs() {
-	if [[ -n $SAN ]]; then
-		ASAN_LOG=${LOGS_DIR}/${TEST_NAME}.asan.log
-		export ASAN_OPTIONS="detect_odr_violation=0:alloc_dealloc_mismatch=0:halt_on_error=0:detect_leaks=1:log_path=${ASAN_LOG}:verbosity=1:log_thread=1"
-		export LSAN_OPTIONS="suppressions=$ROOT/tests/memcheck/asan.supp:verbosity=1:log_thread=1"
-		# :use_tls=0
+        Usage: [ARGVARS...] unit-tests [--help|help]
 
-	fi
+        Arguments:
+        BINDIR=path   Path to repo binary dir
+        TEST=name      Run only the specified test
+        VERBOSE=1      Show more detailed output
+        HELP=1         Show this help message
+END
 }
 
-#------------------------------------------------------------------------------------ Arguments
+#------------------------------------------------------------------------------
+# Configure sanitizer options for memory error detection
+#------------------------------------------------------------------------------
+setup_sanitizer() {
+    if [[ -n $SAN ]]; then
+        ASAN_LOG=${LOGS_DIR}/${TEST_NAME}.asan.log
+        export ASAN_OPTIONS="detect_odr_violation=0:alloc_dealloc_mismatch=0:halt_on_error=0:detect_leaks=1:log_path=${ASAN_LOG}:verbosity=1:log_thread=1"
+        export LSAN_OPTIONS="suppressions=$ROOT_DIR/tests/memcheck/asan.supp:verbosity=1:log_thread=1"
+    fi
+}
 
-[[ $1 == --help || $1 == help || $HELP == 1 ]] && { help; exit 0; }
+#------------------------------------------------------------------------------
+# Detect system architecture and OS using get-platform script
+#------------------------------------------------------------------------------
+detect_platform() {
+    # Use the get-platform script to detect platform information
+    ARCH=$($SCRIPT_DIR/get-platform --arch)
+    OS=$($SCRIPT_DIR/get-platform --os)
+    OSNICK=$($SCRIPT_DIR/get-platform --osnick)
 
-OP=
-[[ $NOP == 1 ]] && OP=echo
+    if [[ $VERBOSE == 1 ]]; then
+        echo "Platform: $OS ($OSNICK) on $ARCH"
+    fi
+}
 
-#--------------------------------------------------------------------------------- Environments
+#------------------------------------------------------------------------------
+# Run a single test and report results
+#------------------------------------------------------------------------------
+run_single_test() {
+    local test_path=$1
+    local test_name=$(basename $test_path)
+    local log_prefix=$2
 
-ARCH=$($READIES/bin/platform --arch)
-OS=$($READIES/bin/platform --os)
-OSNICK=$($READIES/bin/platform --osnick)
+    # We always run all tests
+    # (TEST_LEAK option has been removed)
 
-#---------------------------------------------------------------------------------------- Setup
+    # Setup test environment
+    TEST_NAME="$test_name" setup_sanitizer
+    LOG_FILE="${LOGS_DIR}/${log_prefix}${test_name}.log"
 
-export EXT_TEST_PATH=${BINROOT}/search-community/example_extension/libexample_extension.so
+    # Run the test
+    echo -n "Running test: $test_name (log: $LOG_FILE) ... "
+    { $test_path > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
 
-SKIP_CPP_TESTS=""
-#---------------------------------------------------------------------------------- Tests scope
+    # Report results
+    if [[ $test_result -eq 0 ]]; then
+        echo "PASS"
+    else
+        echo "FAIL"
+        echo "Test failed! Log output:"
+        cat "$LOG_FILE"
+    fi
+}
 
-TEST_LEAK=${TEST_LEAK:-0}
+#------------------------------------------------------------------------------
+# Run C unit tests
+#------------------------------------------------------------------------------
+run_c_tests() {
+    print_separator
+    echo "# Running C unit tests"
+    C_TESTS_DIR="$(cd $BINDIR/tests/ctests; pwd)"
+    cd $ROOT_DIR/tests/ctests
 
-[[ $C_TESTS == 1 ]] && CPP_TESTS=${CPP_TESTS:-0}
-[[ $CPP_TESTS == 1 ]] && C_TESTS=${C_TESTS:-0}
-C_TESTS=${C_TESTS:-1}
-CPP_TESTS=${CPP_TESTS:-1}
+    if [[ -z $TEST ]]; then
+        # Run all C tests
+        for test in $(find $C_TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
+            run_single_test "$test" ""
+        done
+    elif [[ -f $C_TESTS_DIR/$TEST ]]; then
+        # Run single C test
+        run_single_test "$C_TESTS_DIR/$TEST" ""
+    else
+        echo "Test not found: $TEST in $C_TESTS_DIR"
+    fi
+}
 
-#------------------------------------------------------------------------------------ Debugging
+#------------------------------------------------------------------------------
+# Run C++ unit tests
+#------------------------------------------------------------------------------
+run_cpp_tests() {
+    print_separator
+    echo "# Running C++ unit tests"
+    CPP_TESTS_DIR="$(cd $BINDIR/tests/cpptests; pwd)"
+    cd $ROOT_DIR/tests/cpptests
+    TEST_NAME=rstest setup_sanitizer
 
-if [[ $GDB == 1 ]]; then
-	if [[ $CLANG == 1 ]]; then
-		GDB_CMD="lldb -o run --"
-	else
-		GDB_CMD="gdb -ex r --args"
-	fi
-else
-	GDB_CMD=""
-fi
+    # C++ tests are special because they use Google Test framework
+    # which runs multiple tests in a single binary
+    if [[ -z $TEST ]]; then
+        # Run all C++ tests
+        LOG_FILE="${LOGS_DIR}/rstest.log"
+        echo "Running all C++ tests (log: $LOG_FILE)"
+        { $CPP_TESTS_DIR/rstest > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
 
-#-------------------------------------------------------------------------------- Platform Mode
+        # Parse and display individual test results
+        parse_cpp_test_results "$LOG_FILE"
+    else
+        # Run single C++ test if requested
+        if [[ -f $CPP_TESTS_DIR/rstest ]]; then
+            LOG_FILE="${LOGS_DIR}/rstest_${TEST}.log"
+            echo "Running C++ test: $TEST (log: $LOG_FILE)"
+            { $CPP_TESTS_DIR/rstest --gtest_filter=$TEST > "$LOG_FILE" 2>&1; test_result=$?; (( EXIT_CODE |= $test_result )); } || true
 
-STATFILE=${STATFILE:-$ROOT/bin/artifacts/tests/status}
+            # Parse and display results
+            parse_cpp_test_results "$LOG_FILE"
+        else
+            echo "C++ test binary not found: $CPP_TESTS_DIR/rstest"
+        fi
+    fi
+}
 
-#----------------------------------------------------------------------------------------- Logs
+#------------------------------------------------------------------------------
+# Parse and display C++ test results
+#------------------------------------------------------------------------------
+parse_cpp_test_results() {
+    local log_file=$1
 
-LOGS_DIR=$ROOT/tests/logs
+    echo "Individual test results:"
 
+    # Extract all test results (both passed and failed)
+    grep -E "\[ *OK *\]|\[ *FAILED *\]" "$log_file" | while read -r line; do
+        if [[ $line == *"[       OK ]"* ]]; then
+            # Extract test name from passed test
+            test_name=$(echo "$line" | sed -e 's/\[ *OK *\] \(.*\) (.* ms)/\1/')
+            echo "$test_name ... PASS"
+        elif [[ $line == *"[  FAILED  ]"* ]]; then
+            # Extract test name from failed test
+            test_name=$(echo "$line" | sed -e 's/\[ *FAILED *\] \(.*\)/\1/')
+            echo "$test_name ... FAIL"
+        fi
+    done
+
+    # Show the full output for failed tests if any
+    if grep -q "\[ *FAILED *\]" "$log_file"; then
+        printf "\nFailed tests output:\n"
+        # Extract sections for failed tests
+        awk '/\[ *RUN *\]/{test=$0} /\[ *FAILED *\]/{print test; print $0; print "----- Error details -----"; flag=1; next} flag{print} /\[ *RUN *\]/{flag=0}' "$log_file"
+    fi
+
+    # Show summary
+    printf "\nTest summary:\n"
+    grep "\[==========\]" "$log_file" | tail -n 2
+}
+
+#------------------------------------------------------------------------------
+# Run coordinator unit tests
+#------------------------------------------------------------------------------
+run_coordinator_tests() {
+    print_separator
+    echo "# Running coordinator unit tests"
+
+    for TESTS_DIR in "$(cd $BINDIR/tests/ctests/coord_tests; pwd)" "$(cd $BINDIR/tests/cpptests; pwd)"; do
+        if [[ -z $TEST ]]; then
+            # Run all coordinator tests
+            for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
+                run_single_test "$test" "coord_"
+            done
+        elif [[ -f $TESTS_DIR/$TEST ]]; then
+            # Run single coordinator test
+            run_single_test "$TESTS_DIR/$TEST" "coord_"
+        fi
+    done
+}
+
+#------------------------------------------------------------------------------
+# Run all unit tests
+#------------------------------------------------------------------------------
+run_all_tests() {
+    # Run C tests
+    run_c_tests
+
+    # Run C++ tests
+    run_cpp_tests
+
+    # Run coordinator tests
+    run_coordinator_tests
+}
+
+#------------------------------------------------------------------------------
+# Generate test summary and collect logs if needed
+#------------------------------------------------------------------------------
+generate_summary() {
+    # Run memory check summary if needed
+    if [[ -n $SAN || $VG == 1 ]]; then
+        { UNIT=1 $ROOT_DIR/sbin/memcheck-summary; (( EXIT_CODE |= $? )); } || true
+    fi
+
+    # Collect logs if requested
+    if [[ $COLLECT_LOGS == 1 ]]; then
+        cd $ROOT_DIR
+        mkdir -p bin/artifacts/tests
+        test_tar="bin/artifacts/tests/unit-tests-logs-${ARCH}-${OSNICK}.tgz"
+        rm -f "$test_tar"
+        find tests/logs -name "*.log*" | tar -czf "$test_tar" -T -
+        echo "Tests logs:"
+        du -ah --apparent-size bin/artifacts/tests
+    fi
+}
+
+#------------------------------------------------------------------------------
+# Main execution starts here
+#------------------------------------------------------------------------------
+
+# Check for help request
+[[ $1 == --help || $1 == help || $HELP == 1 ]] && { show_help; exit 0; }
+
+# Detect platform information
+detect_platform
+
+# Setup paths and variables
+export EXT_TEST_PATH=${BINDIR}/example_extension/libexample_extension.so
+
+# No test scope configuration needed
+
+# Set up logs directory
+LOGS_DIR=$ROOT_DIR/tests/logs
 if [[ $CLEAR_LOGS != 0 ]]; then
-	rm -rf $LOGS_DIR
+    rm -rf $LOGS_DIR
 fi
-
 mkdir -p $LOGS_DIR
 
-#-------------------------------------------------------------------------------- Running tests
+# Initialize exit code
+EXIT_CODE=0
 
-E=0
+# Run all tests
+run_all_tests
 
-if [[ $C_TESTS == 1 ]]; then
-	$READIES/bin/sep1
-	echo "# Running C unit tests"
-	TESTS_DIR="$(cd $BINROOT/search-community/tests/ctests; pwd)"
-	cd $ROOT/tests/ctests
-	if [[ -z $TEST ]]; then
-		if [[ $NOP != 1 ]]; then
-			for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
-				test_name="$(basename $test)"
-				if [[ $TEST_LEAK == 1 || $test_name != test_leak ]]; then
-					TEST_NAME="$test_name" sanitizer_defs
-					{ $test; (( E |= $? )); } || true
-				fi
-			done
-		else
-			find $TESTS_DIR -name "test_*" -type f -executable -print
-		fi
-	else
-		$OP $GDB_CMD $TESTS_DIR/$TEST
-	fi
-fi
+# Generate summary and handle logs
+generate_summary
 
-if [[ $CPP_TESTS == 1 ]]; then
-	$READIES/bin/sep1
-	echo "# Running C++ unit tests"
-	TESTS_DIR="$(cd $BINROOT/search-community/tests/cpptests; pwd)"
-	cd $ROOT/tests/cpptests
-	TEST_NAME=rstest sanitizer_defs
-	if [[ -z $TEST ]]; then
-		{ $OP $GDB_CMD $TESTS_DIR/rstest --gtest_filter="-$SKIP_CPP_TESTS"; (( E |= $? )); } || true
-	else
-		{ $OP $GDB_CMD $TESTS_DIR/rstest --gtest_filter=$TEST; (( E |= $? )); } || true
-	fi
-fi
-
-echo "# Running coordinator unit tests"
-for TESTS_DIR in "$(cd $BINROOT/search-community/tests/ctests/coord_tests; pwd)" "$(cd $BINROOT/search-community/tests/cpptests; pwd)"; do
-  if [[ -z $TEST ]]; then
-    if [[ $NOP != 1 ]]; then
-  	  for test in $(find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print); do
-  		  TEST_NAME="$(basename $test)" sanitizer_defs
-  		  echo $TEST_NAME
-  		  { $test; (( E |= $? )); } || true
-  	  done
-    else
-  	  find $TESTS_DIR -maxdepth 1 -name "test_*" -type f -print
-    fi
-  else
-    $OP $GDB_CMD $TESTS_DIR/$TEST
-  fi
-done
-
-#-------------------------------------------------------------------------------------- Summary
-
-if [[ $NOP != 1 ]]; then
-	if [[ -n $SAN || $VG == 1 ]]; then
-		{ UNIT=1 $ROOT/sbin/memcheck-summary; (( E |= $? )); } || true
-	fi
-fi
-
-if [[ $COLLECT_LOGS == 1 ]]; then
-	cd $ROOT
-	mkdir -p bin/artifacts/tests
-	test_tar="bin/artifacts/tests/unit-tests-logs-${ARCH}-${OSNICK}.tgz"
-	rm -f "$test_tar"
-	find tests/logs -name "*.log*" | tar -czf "$test_tar" -T -
-	echo "Tests logs:"
-	du -ah --apparent-size bin/artifacts/tests
-fi
-
-if [[ -n $STATFILE ]]; then
-	mkdir -p "$(dirname "$STATFILE")"
-	if [[ -f $STATFILE ]]; then
-		(( E |= $(cat $STATFILE || echo 1) )) || true
-	fi
-	echo $E > $STATFILE
-fi
-
-exit $E
+# Exit with the accumulated status code
+exit $EXIT_CODE

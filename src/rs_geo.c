@@ -1,10 +1,13 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "rs_geo.h"
+#include "fast_float/fast_float_strtod.h"
 
 int encodeGeo(double lon, double lat, double *bits) {
   GeoHashBits hash;
@@ -107,7 +110,7 @@ bool isWithinRadiusLonLat(double lon1, double lat1, double lon2, double lat2, do
 extern RedisModuleCtx *RSDummyContext;
 
 int parseGeo(const char *c, size_t len, double *lon, double *lat, QueryError *status) {
-  // pretect the heap from a large string. 128 is sufficient
+  // protect the heap from a large string. 128 is sufficient
   if (len > 128) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Geo string cannot be longer than 128 bytes");
     return REDISMODULE_ERR;
@@ -123,8 +126,8 @@ int parseGeo(const char *c, size_t len, double *lon, double *lat, QueryError *st
   pos++;
 
   char *end1 = NULL, *end2 = NULL;
-  *lon = strtod(str, &end1);
-  *lat = strtod(pos, &end2);
+  *lon = fast_float_strtod(str, &end1);
+  *lat = fast_float_strtod(pos, &end2);
   if (*end1 || *end2) {
     QueryError_SetError(status, QUERY_EPARSEARGS, "Invalid geo string");
     return REDISMODULE_ERR;

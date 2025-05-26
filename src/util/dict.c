@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 // clang-format off
 
 /* Hash Tables Implementation.
@@ -57,6 +59,7 @@
 #include "redismodule.h"
 #include <assert.h>
 #include "../rmalloc.h"
+#include "obfuscation/hidden.h"
 
 uint64_t stringsHashFunction(const void *key){
     return dictGenHashFunction(key, strlen((char*)key));
@@ -69,11 +72,24 @@ uint64_t redisStringsHashFunction(const void *key){
   return dictGenHashFunction(str, len);
 }
 
+uint64_t hiddenNameHashFunction(const void *key) {
+  const HiddenString* keyStr = key;
+  size_t len;
+  const char *value = HiddenString_GetUnsafe(keyStr, &len);
+  return dictGenHashFunction(value, len);
+}
+
 int stringsKeyCompare(void *privdata, const void *key1, const void *key2){
     const char* strKey1 = key1;
     const char* strKey2 = key2;
 
     return strcmp(strKey1, strKey2) == 0;
+}
+
+int hiddenNameKeyCompare(void *privdata, const void *key1, const void *key2){
+  const HiddenString* strKey1 = key1;
+  const HiddenString* strKey2 = key2;
+  return HiddenString_Compare(strKey1, strKey2) == 0;
 }
 
 int redisStringsKeyCompare(void *privdata, const void *key1, const void *key2){
@@ -87,6 +103,11 @@ void stringsKeyDestructor(void *privdata, void *key){
     rm_free(key);
 }
 
+void hiddenNameKeyDestructor(void *privdata, void *key){
+  HiddenString* keyStr = key;
+  HiddenString_Free(keyStr, true);
+}
+
 void redisStringsKeyDestructor(void *privdata, void *key){
   const RedisModuleString* keyStr = key;
   RedisModule_FreeString(NULL, (RedisModuleString*)keyStr);
@@ -96,6 +117,11 @@ void* stringsKeyDup(void *privdata, const void *key){
     return rm_strdup((char*)key);
 }
 
+void* hiddenNameKeyDup(void *privdata, const void *key){
+  const HiddenString* keyStr = key;
+  return HiddenString_Duplicate(keyStr);
+}
+
 void* redisStringsKeyDup(void *privdata, const void *key){
   const RedisModuleString* keyStr = key;
   RedisModule_RetainString(NULL, (RedisModuleString*)keyStr);
@@ -103,21 +129,30 @@ void* redisStringsKeyDup(void *privdata, const void *key){
 }
 
 dictType dictTypeHeapStrings = {
-        .hashFunction = stringsHashFunction,
-        .keyDup = stringsKeyDup,
-        .valDup = NULL,
-        .keyCompare = stringsKeyCompare,
-        .keyDestructor = stringsKeyDestructor,
-        .valDestructor = NULL,
+  .hashFunction = stringsHashFunction,
+  .keyDup = stringsKeyDup,
+  .valDup = NULL,
+  .keyCompare = stringsKeyCompare,
+  .keyDestructor = stringsKeyDestructor,
+  .valDestructor = NULL,
+};
+
+dictType dictTypeHeapHiddenStrings = {
+  .hashFunction = hiddenNameHashFunction,
+  .keyDup = hiddenNameKeyDup,
+  .valDup = NULL,
+  .keyCompare = hiddenNameKeyCompare,
+  .keyDestructor = hiddenNameKeyDestructor,
+  .valDestructor = NULL,
 };
 
 dictType dictTypeHeapRedisStrings = {
-    .hashFunction = redisStringsHashFunction,
-    .keyDup = redisStringsKeyDup,
-    .valDup = NULL,
-    .keyCompare = redisStringsKeyCompare,
-    .keyDestructor = redisStringsKeyDestructor,
-    .valDestructor = NULL,
+  .hashFunction = redisStringsHashFunction,
+  .keyDup = redisStringsKeyDup,
+  .valDup = NULL,
+  .keyCompare = redisStringsKeyCompare,
+  .keyDestructor = redisStringsKeyDestructor,
+  .valDestructor = NULL,
 };
 
 /* Using dictEnableResize() / dictDisableResize() we make possible to

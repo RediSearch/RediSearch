@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
 
@@ -88,6 +90,9 @@ typedef enum {
   // The query is internal (responding to a command from the coordinator)
   QEXEC_F_INTERNAL = 0x400000,
 
+  // The query is for debugging. Note that this is the last bit of uint32_t
+  QEXEC_F_DEBUG = 0x80000000,
+
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
@@ -101,6 +106,7 @@ typedef enum {
 #define IsScorerNeeded(r) ((r)->reqflags & (QEXEC_F_SEND_SCORES | QEXEC_F_SEND_SCORES_AS_FIELD))
 #define HasScoreInPipeline(r) ((r)->reqflags & QEXEC_F_SEND_SCORES_AS_FIELD)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
+#define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
 // Get the index search context from the result processor
 #define RP_SCTX(rpctx) ((rpctx)->parent->sctx)
 
@@ -108,7 +114,7 @@ typedef enum {
 // will also guarantee that there is a running thread pool with al least 1 thread.
 #define RunInThread() (RSGlobalConfig.numWorkerThreads)
 
-typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req, bool has_timedout, bool reachedMaxPrefixExpansions);
+typedef void (*profiler_func)(RedisModule_Reply *reply, void *ctx);
 
 typedef enum {
   /* Pipeline has a loader */
@@ -165,6 +171,7 @@ typedef struct AREQ {
   RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
   int printProfileClock;
+  uint64_t BM25STD_TanhFactor;
   */
 
   RequestConfig reqConfig;

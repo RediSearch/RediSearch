@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "redismodule.h"
 #include "dist_plan.h"
@@ -35,7 +43,7 @@ static void testAverage() {
   QueryError status{QueryErrorCode(0)};
   int rc = AREQ_Compile(r, vv, vv.size(), &status);
   if (rc != REDISMODULE_OK) {
-    printf("Couldn't compile: %s\n", QueryError_GetError(&status));
+    printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
     abort();
   }
 
@@ -70,7 +78,7 @@ static void testAverage() {
   dstp->lk.options &= ~RLOOKUP_OPT_UNRESOLVED_OK;
   printf("Built pipeline.. rc=%d\n", rc);
   if (rc != REDISMODULE_OK) {
-    printf("ERROR!!!: %s\n", QueryError_GetError(&status));
+    printf("ERROR!!!: %s\n", QueryError_GetUserError(&status));
     AGPLN_Dump(&r->ap);
   }
   AREQ_Free(r);
@@ -95,7 +103,7 @@ static void testCountDistinct() {
   QueryError status{QueryErrorCode(0)};
   int rc = AREQ_Compile(r, vv, vv.size(), &status);
   if (rc != REDISMODULE_OK) {
-    printf("Couldn't compile: %s\n", QueryError_GetError(&status));
+    printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
     abort();
   }
 
@@ -111,7 +119,7 @@ static void testCountDistinct() {
   AREQDIST_UpstreamInfo us = {0};
   rc = AREQ_BuildDistributedPipeline(r, &us, &status);
   if (rc != REDISMODULE_OK) {
-    printf("Couldn't build distributed pipeline: %s\n", QueryError_GetError(&status));
+    printf("Couldn't build distributed pipeline: %s\n", QueryError_GetUserError(&status));
   }
   assert(rc == REDISMODULE_OK);
   AGPLN_Dump(&r->ap);
@@ -133,7 +141,7 @@ static void testSplit() {
   QueryError status{QueryErrorCode(0)};
   int rc = AREQ_Compile(r, vv, vv.size(), &status);
   if (rc != REDISMODULE_OK) {
-    printf("Couldn't compile: %s\n", QueryError_GetError(&status));
+    printf("Couldn't compile: %s\n", QueryError_GetUserError(&status));
     abort();
   }
 
@@ -149,7 +157,7 @@ static void testSplit() {
   AREQDIST_UpstreamInfo us = {0};
   rc = AREQ_BuildDistributedPipeline(r, &us, &status);
   if (rc != REDISMODULE_OK) {
-    printf("Couldn't build distributed pipeline: %s\n", QueryError_GetError(&status));
+    printf("Couldn't build distributed pipeline: %s\n", QueryError_GetUserError(&status));
   }
   assert(rc == REDISMODULE_OK);
   AGPLN_Dump(&r->ap);

@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "conn.h"
 #include "reply.h"
 #include "src/coord/config.h"
@@ -524,10 +526,14 @@ static int checkTLS(char** client_key, char** client_cert, char** ca_cert, char*
   char* clusterTls = NULL;
   char* tlsPort = NULL;
 
+  // If `tls-cluster` is not set to `yes`, we do not connect to the other nodes
+  // with TLS on OSS-cluster. On Enterprise, we always want to connect with TLS
+  // when the tls-port is set to a non-zero value, since this is the port we
+  // get from the proxy.
   clusterTls = getRedisConfigValue(ctx, "tls-cluster");
   if (!clusterTls || strcmp(clusterTls, "yes")) {
     tlsPort = getRedisConfigValue(ctx, "tls-port");
-    if (!tlsPort || !strcmp(tlsPort, "0")) {
+    if (!IsEnterprise() || !tlsPort || !strcmp(tlsPort, "0")) {
       ret = 0;
       goto done;
     }
@@ -660,7 +666,7 @@ static MRConn *MR_NewConn(MREndpoint *ep) {
 
 /* Connect to a cluster node. Return REDIS_OK if either connected, or if  */
 static int MRConn_Connect(MRConn *conn) {
-  assert(!conn->conn);
+  RS_ASSERT(!conn->conn);
   // fprintf(stderr, "Connectig to %s:%d\n", conn->ep.host, conn->ep.port);
 
   redisOptions options = {.type = REDIS_CONN_TCP,

@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #define QINT_API static
 #include "inverted_index.h"
 #include "math.h"
@@ -45,10 +47,10 @@ IndexBlock *InvertedIndex_AddBlock(InvertedIndex *idx, t_docId firstId, size_t *
 }
 
 InvertedIndex *NewInvertedIndex(IndexFlags flags, int initBlock, size_t *memsize) {
-  RedisModule_Assert(memsize != NULL);
+  RS_ASSERT(memsize != NULL);
   int useFieldMask = flags & Index_StoreFieldFlags;
   int useNumEntries = flags & Index_StoreNumeric;
-  RedisModule_Assert(!(useFieldMask && useNumEntries));
+  RS_ASSERT(!(useFieldMask && useNumEntries));
   size_t size = sizeof_InvertedIndex(flags);
   InvertedIndex *idx = rm_malloc(size);
   *memsize = size;
@@ -282,7 +284,7 @@ typedef struct {
 // EncodingHeader internal structs must all be of the same size, beginning with common "base" fields, followed by specific fields per "derived" struct.
 // The specific types are:
 //  tiny - for tiny positive integers, including zero (the value is encoded in the header itself)
-//  posint and negint - for none-zero integer nubmers
+//  posint and negint - for none-zero integer numbers
 //  float - for floating point numbers
 typedef union {
   // Alternative representation as a primitive number (used for writing)
@@ -893,6 +895,37 @@ size_t IR_NumEstimated(void *ctx) {
 
 #define FIELD_MASK_BIT_COUNT (sizeof(t_fieldMask) * 8)
 
+// Used to determine if the field mask for the given doc id are valid based on their ttl:
+// ir->filterCtx.predicate
+// returns true if the we don't have expiration information for the document
+// otherwise will return the same as DocTable_VerifyFieldExpirationPredicate
+// if predicate is default then it means at least one of the fields need to not be expired for us to return true
+// if predicate is missing then it means at least one of the fields needs to be expired for us to return true
+static inline bool VerifyFieldMaskExpirationForDocId(IndexReader *ir, t_docId docId, t_fieldMask docFieldMask) {
+  // If there isn't a ttl information then the doc fields are valid
+  if (!ir->sctx || !ir->sctx->spec || !DocTable_HasExpiration(&ir->sctx->spec->docs, docId)) {
+    return true;
+  }
+
+  // doc has expiration information, create a field id array to check for expiration predicate
+  size_t numFieldIndices = 0;
+  // Use a stack allocated array for the field indices, if the field mask is not a single field
+  t_fieldIndex fieldIndicesArray[FIELD_MASK_BIT_COUNT];
+  t_fieldIndex* sortedFieldIndices = fieldIndicesArray;
+  if (ir->filterCtx.field.isFieldMask) {
+    const t_fieldMask relevantMask = docFieldMask & ir->filterCtx.field.value.mask;
+    numFieldIndices = IndexSpec_TranslateMaskToFieldIndices(ir->sctx->spec,
+                                                            relevantMask,
+                                                            fieldIndicesArray);
+  } else if (ir->filterCtx.field.value.index != RS_INVALID_FIELD_INDEX) {
+    sortedFieldIndices = &ir->filterCtx.field.value.index;
+    numFieldIndices = 1;
+  }
+  return DocTable_VerifyFieldExpirationPredicate(&ir->sctx->spec->docs, docId,
+                                                 sortedFieldIndices, numFieldIndices,
+                                                 ir->filterCtx.predicate, &ir->sctx->time.current);
+}
+
 int IR_Read(void *ctx, RSIndexResult **e) {
 
   IndexReader *ir = ctx;
@@ -933,21 +966,8 @@ int IR_Read(void *ctx, RSIndexResult **e) {
       ir->sameId = ir->lastId;
     }
 
-    if (ir->sctx && ir->sctx->spec && DocTable_HasExpiration(&ir->sctx->spec->docs, record->docId)) {
-      size_t numFieldIndices = 0;
-      // Use a stack allocated array for the field indices, if the field mask is not a single field
-      t_fieldIndex fieldIndicesArray[FIELD_MASK_BIT_COUNT];
-      t_fieldIndex* sortedFieldIndices = fieldIndicesArray;
-      if (ir->filterCtx.field.isFieldMask) {
-        numFieldIndices = IndexSpec_TranslateMaskToFieldIndices(ir->sctx->spec, ir->filterCtx.field.value.mask, fieldIndicesArray);
-      } else if (ir->filterCtx.field.value.index != RS_INVALID_FIELD_INDEX) {
-        sortedFieldIndices = &ir->filterCtx.field.value.index;
-        ++numFieldIndices;
-      }
-      const bool validValue = DocTable_VerifyFieldExpirationPredicate(&ir->sctx->spec->docs, record->docId, sortedFieldIndices, numFieldIndices, ir->filterCtx.predicate, &ir->sctx->time.current);
-      if (!validValue) {
-        continue;
-      }
+    if (!VerifyFieldMaskExpirationForDocId(ir, record->docId, record->fieldMask)) {
+      continue;
     }
 
     ++ir->len;
@@ -962,7 +982,50 @@ eof:
 
 #define BLOCK_MATCHES(blk, docId) ((blk).firstId <= docId && docId <= (blk).lastId)
 
-// Assumes there is a valid block to skip to (maching or past the requested docId)
+// Will use the seeker to reach a valid doc id that is greater or equal to the requested doc id
+// returns true if a valid doc id was found, false if eof was reached
+// The validity of the document relies on the predicate the reader was initialized with.
+// Invariant: We only go forward, never backwards
+static bool IndexReader_ReadWithSeeker(IndexReader *ir, t_docId docId) {
+  bool found = false;
+  while (!found) {
+    // try and find docId using seeker
+    found = ir->decoders.seeker(&ir->br, &ir->decoderCtx, ir, docId, ir->record);
+    // ensure the entry is valid
+    if (found && !VerifyFieldMaskExpirationForDocId(ir, ir->record->docId, ir->record->fieldMask)) {
+      // the doc id is not valid, filter out the doc id and continue scanning
+      // we set docId to be the next doc id to search for to avoid infinite loop
+      // we rely on the doc id ordering inside the inverted index
+      // IMPORTANT:
+      // we still perform the AtEnd check to avoid the case the non valid doc id was at the end of the block
+      // block: [1, 4, 7, ..., 564]
+      //                        ^-- we are here, and 564 is not valid
+      found = false;
+      docId = ir->record->docId + 1;
+    }
+
+    // if found is true we found a doc id that is greater or equal to the searched doc id
+    // if found is false we need to continue scanning the inverted index, possibly advancing to the next block
+    if (!found && BufferReader_AtEnd(&ir->br)) {
+      if (ir->currentBlock < ir->idx->size - 1) {
+        // We reached the end of the current block but we have more blocks to advance to
+        // advance to the next block and continue the search using the seeker from there
+      	IndexReader_AdvanceBlock(ir);
+      } else {
+        // we reached the end of the inverted index
+        // we are at the end of the last block
+        // break out of the loop and return found (found = false)
+        break;
+      }
+    }
+  }
+  // if found is true we found a doc id that is greater or equal to the searched doc id
+  // if found is false we are at the end of the inverted index, no more blocks or doc ids
+  // we could not find a valid doc id that is greater or equal to the doc id we were called with
+  return found;
+}
+
+// Assumes there is a valid block to skip to (matching or past the requested docId)
 static void IndexReader_SkipToBlock(IndexReader *ir, t_docId docId) {
   InvertedIndex *idx = ir->idx;
   uint32_t top = idx->size - 1;
@@ -1055,12 +1118,8 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
     // the seeker will return 1 only when it found a docid which is greater or equals the
     // searched docid and the field mask matches the searched fields mask. We need to continue
     // scanning only when we found such an id or we reached the end of the inverted index.
-    while (!ir->decoders.seeker(&ir->br, &ir->decoderCtx, ir, docId, ir->record)) {
-      if (ir->currentBlock < ir->idx->size - 1) {
-        IndexReader_AdvanceBlock(ir);
-      } else {
-        goto eof;
-      }
+    if (!IndexReader_ReadWithSeeker(ir, docId)) {
+      goto eof;
     }
     // Found a document that match the field mask and greater or equal the searched docid
     *hit = ir->record;

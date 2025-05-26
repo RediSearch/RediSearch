@@ -10,7 +10,6 @@ on:
           - ubuntu:noble
           - ubuntu:jammy
           - ubuntu:focal
-          - ubuntu:bionic
           - rockylinux:8
           - rockylinux:9
           - debian:bullseye
@@ -18,6 +17,7 @@ on:
           - amazonlinux:2
           - amazonlinux:2023
           - mariner:2
+          - azurelinux:3
           - alpine:3
           - macos
         description: 'Platform to build on. Use "all" to build on all'
@@ -42,7 +42,7 @@ on:
 jobs:
   setup:
     # Sets SHA and Validates the reference Input (branch or tag)
-    runs-on: ${{ vars.RUNS_ON }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
       redis-ref: ${{ steps.get-redis.outputs.tag }}
@@ -61,7 +61,7 @@ jobs:
         run: |
           from re import fullmatch
           ref = '${{ github.ref_name }}'
-          if bool(fullmatch('[0-9]+\.[0-9]+', ref)) or ref == 'master': # e.g. 2.8, 2.10, master
+          if bool(fullmatch(r'[0-9]+\.[0-9]+', ref)) or ref == 'master': # e.g. 2.8, 2.10, master
             if '${{ inputs.architecture }}' != 'all' or '${{ inputs.platform }}' != 'all':
               print("::error title=Invalid Request::"
                     "You can only build all configurations for master or a release branch")
@@ -75,7 +75,7 @@ jobs:
       architecture: ${{ inputs.architecture }}
 
   decide-macos:
-    runs-on: ${{ vars.RUNS_ON }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ contains(fromJson('["macos", "all"]'), inputs.platform) }}
     outputs:
       platforms: ${{ steps.decide.outputs.platforms }}
@@ -121,7 +121,7 @@ jobs:
     uses: ./.github/workflows/task-build-artifacts.yml
     secrets: inherit
     with:
-      env: ${{ vars.RUNS_ON_ARM }}
+      env: ${{ vars.RUNS_ON_ARM || 'ubuntu24-arm64-2-8' }}
       container: ${{ matrix.OS }}
       pre-steps-script: ${{ matrix.pre-deps }}
       sha: ${{ needs.setup.outputs.sha }}

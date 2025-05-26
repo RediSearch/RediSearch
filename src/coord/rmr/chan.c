@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <pthread.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -88,6 +90,7 @@ void *MRChannel_Pop(MRChannel *chan) {
   pthread_mutex_lock(&chan->lock);
   while (!chan->size) {
     if (!chan->wait) {
+      chan->wait = true;  // reset the flag
       pthread_mutex_unlock(&chan->lock);
       return NULL;
     }
@@ -110,6 +113,6 @@ void MRChannel_Unblock(MRChannel *chan) {
   pthread_mutex_lock(&chan->lock);
   chan->wait = false;
   // unblock any waiting readers
-  pthread_cond_broadcast(&chan->cond);
+  pthread_cond_signal(&chan->cond);
   pthread_mutex_unlock(&chan->lock);
 }
