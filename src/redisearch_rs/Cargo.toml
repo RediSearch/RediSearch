@@ -54,6 +54,7 @@ wildcard = { path = "./wildcard" }
 
 bindgen = "0.71.1"
 cc = "1"
+clap = { version = "4.5.38", features = ["derive"] }
 crc32fast = "1.4.2"
 criterion = { version = "0.5", features = ["html_reports"] }
 csv = "1.3.1"
@@ -62,9 +63,11 @@ insta = "1.42.2"
 lending-iterator = "0.1.7"
 libc = "0.2.170"
 memchr = "2.7.4"
+pretty_assertions = "1.4.1"
 proptest = { version = "1.6.0", default-features = false }
 proptest-derive = { version = "0.5.1", default-features = false }
 rand = "0.9.1"
+redis = "0.31.0"
 ureq = "3.0.10"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
 

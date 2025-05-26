@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-clap = { version = "4.5.38", features = ["derive"] }
-pretty_assertions = "1.4.1"
-redis = "0.31.0"
+clap.workspace = true
+pretty_assertions.workspace = true
+redis.workspace = true
 ureq.workspace = true
