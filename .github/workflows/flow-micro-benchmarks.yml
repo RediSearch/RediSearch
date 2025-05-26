@@ -27,9 +27,7 @@ jobs:
           WORKFLOW_RESPONSE=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ github.repository }}/actions/workflows/flow-micro-benchmarks.yml")
-          echo "Workflow API Response: $WORKFLOW_RESPONSE"
           WORKFLOW_ID=$(echo "$WORKFLOW_RESPONSE" | jq -r '.id')
-          echo "Workflow ID: $WORKFLOW_ID"
           
           # Fetch the 50 most recent commits on master
           COMMITS=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
@@ -58,14 +56,6 @@ jobs:
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-
-      - name: Debug GITHUB_OUTPUT and artifact-url
-        if: github.event_name == 'pull_request'
-        run: |
-          echo "Contents of GITHUB_OUTPUT:"
-          cat $GITHUB_OUTPUT
-          echo "Value of artifact-url: ${{ steps.get-artifact-url.outputs.artifact-url }}"
         continue-on-error: true
 
       - name: Download Latest Baseline Artifact
