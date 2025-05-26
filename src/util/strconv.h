@@ -22,7 +22,7 @@
 #define STR_EQ(str, len, other) (len == strlen(other) && !strncmp(str, other, len))
 
 // Threshold for Small String Optimization (SSO)
-#define SSO_MAX_LENGTH 128
+#define SSO_MAX_LENGTH 256
 
 /* Parse string into int, returning 1 on success, 0 otherwise */
 static int ParseInteger(const char *arg, long long *val) {
@@ -123,17 +123,17 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
   }
 
   const char *encoded_char = encoded;
-  ssize_t u_len = nu_strtransformnlen(encoded, in_len, nu_utf8_read,
-                                              nu_tolower, nu_casemap_read);
 
-  if (u_len >= (SSO_MAX_LENGTH - 1)) {
-    u_buffer = (uint32_t *)rm_malloc(sizeof(*u_buffer) * (u_len + 1));
+  // Each unicode codepoint can expand by up to 4 bytes when transformed.
+  const size_t max_expansion = 4;
+  if (in_len * max_expansion + 1 > SSO_MAX_LENGTH) {
+    u_buffer = (uint32_t *)rm_malloc(sizeof(uint32_t) * (in_len * max_expansion + 1));
   }
 
   // Decode utf8 string into Unicode codepoints and transform to lower
   uint32_t codepoint;
   unsigned i = 0;
-  for (ssize_t j = 0; j < u_len; j++) {
+  for (ssize_t j = 0; j < in_len; j++) {
     // Read unicode codepoint from utf8 string
     encoded_char = nu_utf8_read(encoded_char, &codepoint);
     // Transform unicode codepoint to lower case
@@ -161,9 +161,9 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
   }
 
   // Encode Unicode codepoints back to utf8 string
-  ssize_t reencoded_len = nu_bytenlen(u_buffer, u_len, nu_utf8_write);
-  if (reencoded_len > 0 && reencoded_len <= in_len) {
-    nu_writenstr(u_buffer, u_len, encoded, nu_utf8_write);
+  ssize_t reencoded_len = nu_bytenlen(u_buffer, i, nu_utf8_write);
+  if (reencoded_len > 0 && reencoded_len <= i) {
+    nu_writenstr(u_buffer, i, encoded, nu_utf8_write);
   } else {
     reencoded_len = 0;
   }
