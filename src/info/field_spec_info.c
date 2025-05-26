@@ -93,7 +93,7 @@ void AggregatedFieldSpecInfo_Combine(AggregatedFieldSpecInfo *info, const Aggreg
 
 // Deserializes a FieldSpecInfo from a MRReply.
 AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply) {
-    AggregatedFieldSpecInfo info = AggregatedFieldSpecInfo_Init();
+    AggregatedFieldSpecInfo info = {0};
     RS_ASSERT(reply);
     // Validate the reply type - array or map.
     RS_ASSERT(MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0));

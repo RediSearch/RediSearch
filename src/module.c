@@ -1172,4 +1172,6 @@ void RediSearch_CleanupModule(void) {
 
   Dictionary_Free();
   RediSearch_LockDestory();
+
+  IndexError_GlobalCleanup();
 }
