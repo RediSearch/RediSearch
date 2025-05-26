@@ -1538,6 +1538,8 @@ def testBooleanArgDeprecationMessage():
     # create module arguments
     moduleArgs = ''
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        # `search-partial-indexed-docs` has its own test because
+        # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
         if configName == 'search-partial-indexed-docs':
             continue
         # use non-default value as argument value
@@ -1552,6 +1554,8 @@ def testBooleanArgDeprecationMessage():
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
     logFilePath = os.path.join(logDir, logFileName)
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        # `search-partial-indexed-docs` has its own test because
+        # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
         if configName == 'search-partial-indexed-docs':
             continue
         expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}` instead'
@@ -1717,8 +1721,9 @@ def testConfigIndependence_default():
         # Test min value
         checkConfigChange(env, configName, argName, minValue, defaultConfigDict)
 
-        # Test max value
-        checkConfigChange(env, configName, argName, maxValue, defaultConfigDict)
+        # Test max value. Skip for search-conn-per-shard because it may open too many connections
+        if configName != 'search-conn-per-shard':
+            checkConfigChange(env, configName, argName, maxValue, defaultConfigDict)
 
         # Reset to default value
         env.expect('CONFIG', 'SET', configName, default).ok()
@@ -1764,8 +1769,9 @@ def testConfigIndependence_min_values():
             if not env.isCluster():
                 continue
 
-        # Test max value
-        checkConfigChange(env, configName, argName, maxValue, minValueConfigDict)
+        # Test max value. Skip for search-conn-per-shard because it may open too many connections
+        if configName != 'search-conn-per-shard':
+            checkConfigChange(env, configName, argName, maxValue, minValueConfigDict)
 
         # Reset to min value
         env.expect('CONFIG', 'SET', configName, minValue).ok()
@@ -1794,6 +1800,8 @@ def testConfigIndependence_max_values():
         if clusterConfig:
             if not env.isCluster():
                 continue
+        if configName == 'search-conn-per-shard': # Skip search-conn-per-shard because it may open too many connections
+            continue
         env.expect('CONFIG', 'SET', configName, maxValue).ok()
     # set all boolean configs to true (yes)
     for configName, argName, _, immutable, _ in booleanConfigs:
@@ -1808,6 +1816,8 @@ def testConfigIndependence_max_values():
         if clusterConfig:
             if not env.isCluster():
                 continue
+        if configName == 'search-conn-per-shard': # Skip search-conn-per-shard because it may open too many connections
+            continue
 
         # Test min value
         checkConfigChange(env, configName, argName, minValue, maxValueConfigDict)
