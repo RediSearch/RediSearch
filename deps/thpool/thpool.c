@@ -139,7 +139,7 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
   thpool_p->total_threads_count = num_threads;
   thpool_p->num_threads_alive = 0;
   thpool_p->num_threads_working = 0;
-  atomic_store_explicit(&thpool_p->keepalive, 0, memory_order_release);;
+  atomic_store_explicit(&thpool_p->keepalive, 0, memory_order_relaxed);;
   thpool_p->terminate_when_empty = 0;
   thpool_p->total_jobs_done = 0;
 
@@ -181,8 +181,8 @@ struct redisearch_thpool_t* redisearch_thpool_create(size_t num_threads, size_t 
 
 /* Initialise thread pool */
 void redisearch_thpool_init(struct redisearch_thpool_t* thpool_p) {
-  assert(atomic_load_explicit(&thpool_p->keepalive, memory_order_acquire) == 0);
-  atomic_store_explicit(&thpool_p->keepalive, 1, memory_order_release);
+  assert(atomic_load_explicit(&thpool_p->keepalive, memory_order_relaxed) == 0);
+  atomic_store_explicit(&thpool_p->keepalive, 1, memory_order_relaxed);
   thpool_p->terminate_when_empty = 0;
 
   /* Thread init */
@@ -312,7 +312,7 @@ void redisearch_thpool_terminate_threads(redisearch_thpool_t* thpool_p) {
   RedisModule_Assert(thpool_p);
 
   /* End each thread 's infinite loop */
-  atomic_store_explicit(&thpool_p->keepalive, 0, memory_order_release);
+  atomic_store_explicit(&thpool_p->keepalive, 0, memory_order_relaxed);
 
   /* Poll all threads and wait for them to finish */
   bsem_post_all(thpool_p->jobqueue.has_jobs);
@@ -374,7 +374,7 @@ size_t redisearch_thpool_num_threads_working(redisearch_thpool_t* thpool_p) {
 }
 
 int redisearch_thpool_running(redisearch_thpool_t *thpool_p) {
-  return atomic_load_explicit(&thpool_p->keepalive, memory_order_acquire);
+  return atomic_load_explicit(&thpool_p->keepalive, memory_order_relaxed);
 }
 
 thpool_stats redisearch_thpool_get_stats(redisearch_thpool_t *thpool_p) {
@@ -489,7 +489,7 @@ static void* thread_do(struct thread* thread_p) {
       }
 	  if (priority_queue_len(&thpool_p->jobqueue) == 0 && thpool_p->terminate_when_empty) {
 		  LOG_IF_EXISTS("verbose", "Job queue is empty - terminating thread %d", thread_p->id);
-          atomic_store_explicit(&thpool_p->keepalive, 0, memory_order_release);;
+          atomic_store_explicit(&thpool_p->keepalive, 0, memory_order_relaxed);;
 	  }
       pthread_mutex_unlock(&thpool_p->thcount_lock);
     }
