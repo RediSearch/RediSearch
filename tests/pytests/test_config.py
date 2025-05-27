@@ -1749,7 +1749,7 @@ def testConfigIndependence_min_values():
     """Test that changing one configuration value doesn't affect other configuration values"""
     env = Env(noDefaultModuleArgs=True)
     # set all numeric configs to min value
-    for configName, argName, _, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+    for configName, argName, _, minValue, _, immutable, clusterConfig in numericConfigs:
         if immutable:
             continue
         if clusterConfig:
@@ -1770,7 +1770,7 @@ def testConfigIndependence_min_values():
             if not env.isCluster():
                 continue
         if configName == 'search-conn-per-shard': # change search-conn-per-shard max value because it may open too many connections
-            continue
+            maxValue = 20
 
         # Test max value.
         checkConfigChange(env, configName, argName, maxValue, minValueConfigDict)
@@ -1796,7 +1796,7 @@ def testConfigIndependence_max_values():
     """Test that changing one configuration value doesn't affect other configuration values"""
     env = Env(noDefaultModuleArgs=True)
     # set all numeric configs to max value
-    for configName, argName, _, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+    for configName, argName, _, _, maxValue, immutable, clusterConfig in numericConfigs:
         if immutable:
             continue
         if clusterConfig:
