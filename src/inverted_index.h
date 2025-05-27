@@ -63,11 +63,6 @@ typedef union {
   const NumericFilter *filter;
 } IndexDecoderCtx;
 
-/**
- * Called when an entry is removed
- */
-typedef void (*RepairCallback)(const RSIndexResult *res, void *arg);
-
 typedef struct {
   size_t bytesBeforFix;
   size_t bytesAfterFix;
@@ -244,15 +239,8 @@ void IR_Abort(void *ctx);
 /* free an index reader */
 void IR_Free(IndexReader *ir);
 
-/* Read an entry from an inverted index */
-int IR_GenericRead(IndexReader *ir, RSIndexResult *res);
-
 /* Read an entry from an inverted index into RSIndexResult */
 int IR_Read(void *ctx, RSIndexResult **e);
-
-/* Move to the next entry in an inverted index, without reading the whole entry
- */
-int IR_Next(void *ctx);
 
 /**
  * Skip to a specific document ID in the index, or one position after it
@@ -268,8 +256,6 @@ int IR_Next(void *ctx);
 int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 
 void IR_Rewind(void *ctx);
-
-RSIndexResult *IR_Current(void *ctx);
 
 /* The number of docs in an inverted index entry */
 size_t IR_NumDocs(void *ctx);
