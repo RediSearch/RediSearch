@@ -257,26 +257,10 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 
 void IR_Rewind(void *ctx);
 
-/* The number of docs in an inverted index entry */
-size_t IR_NumDocs(void *ctx);
-
-/* LastDocId of an inverted index stateful reader */
-t_docId IR_LastDocId(void *ctx);
-
 /* Create a reader iterator that iterates an inverted index record */
 IndexIterator *NewReadIterator(IndexReader *ir);
 
 size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
-
-static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
-  return logb(1.0F + totalDocs / (termDocs ? termDocs : (double)1));
-}
-
-// IDF computation for BM25 standard scoring algorithm (which is slightly different from the regular
-// IDF computation).
-static inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
-  return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
-}
 
 #ifdef __cplusplus
 }
