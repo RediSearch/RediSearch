@@ -1128,5 +1128,4 @@ void RediSearch_CleanupModule(void) {
   RedisModule_FreeThreadSafeContext(RSDummyContext);
   Dictionary_Free();
   RediSearch_LockDestory();
-
 }
