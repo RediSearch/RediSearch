@@ -20,8 +20,9 @@ test = false
 bench = false
 
 [features]
-default = []
+default = ["trie", "result_processor"]
 trie = []
+result_processor = ["dep:result_processor"]
 mock_allocator = ["dep:redis_mock"]
 
 [build-dependencies]
@@ -31,7 +32,7 @@ cbindgen.workspace = true
 lending-iterator.workspace = true
 libc.workspace = true
 low_memory_thin_vec.workspace = true
-rp_base = { workspace = true }
+result_processor = { workspace = true, optional = true }
 trie_rs = { workspace = true }
 redis_mock = { workspace = true, optional = true }
 wildcard = { workspace = true }
