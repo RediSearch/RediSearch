@@ -665,8 +665,8 @@ static int cmpIter(IndexIterator **it1, IndexIterator **it2) {
 
   double factor1 = 1;
   double factor2 = 1;
-  enum iteratorType it_1_type = (*it1)->type;
-  enum iteratorType it_2_type = (*it2)->type;
+  enum IteratorType it_1_type = (*it1)->type;
+  enum IteratorType it_2_type = (*it2)->type;
 
   /*
    * on INTERSECT iterator, we divide the estimate by the number of children
