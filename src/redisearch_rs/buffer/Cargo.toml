@@ -11,3 +11,4 @@ workspace = true
 crate-type = ["staticlib", "rlib"]
 
 [dependencies]
+ffi.workspace = true

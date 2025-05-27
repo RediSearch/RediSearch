@@ -14,34 +14,14 @@
 
 use std::{
     cmp,
+    ffi::c_char,
     ptr::{NonNull, copy_nonoverlapping},
     slice,
 };
 
-/// Redefines the `Buffer` struct from `buffer.h`
-#[repr(C)]
-pub struct Buffer {
-    /// A pointer to the underlying data buffer. This is typically allocated by C and hence should
-    /// not be freed by Rust code.
-    ///
-    /// # Safety
-    ///
-    /// It must point to a valid, properly initialized `Buffer`.
-    data: NonNull<u8>,
-    /// The capacity of the buffer (i-e allocated size)
-    ///
-    /// # Safety
-    ///
-    /// The capacity must not exceed the size of the allocation behind [`Self::data`].
-    capacity: usize,
-    /// The length of the buffer (i-e the total used memory from allocated memory)
-    ///
-    /// # Safety
-    ///
-    /// - Must not exceed [`Self::capacity`].
-    /// - All elements up to [`Self::len`] must be correctly initialized.
-    len: usize,
-}
+/// Thin wrapper around the `Buffer` struct from `buffer.h`.
+#[repr(transparent)]
+pub struct Buffer(ffi::Buffer);
 
 /// Redefines the `BufferReader` struct from `buffer.h`
 ///
@@ -49,33 +29,26 @@ pub struct Buffer {
 ///
 /// # Safety Invariants
 ///
-/// * `buf` must point to a valid, properly initialized `Buffer`.
-/// * `pos` must not exceed the length of the Buffer.
+/// * `ffi::BufferReader::buf` must point to a valid, properly initialized `Buffer`.
+/// * `ffi::BufferReader::pos` must not exceed the length of the Buffer.
 /// * The `BufferReader` does not own the `Buffer`, only borrows it.
 ///
 /// It's best to use this through the `std::io::Read` implementation.
 #[repr(C)]
-pub struct BufferReader {
-    /// A pointer to a [`Buffer`]. If the `BufferReader` is coming from the C side, we must not
-    /// free or move it.
-    pub buf: NonNull<Buffer>,
-    /// The read position in the `buf` pointer.
-    pub pos: usize,
-}
+pub struct BufferReader(ffi::BufferReader);
 
 impl std::io::Read for BufferReader {
     fn read(&mut self, dest_buf: &mut [u8]) -> std::io::Result<usize> {
         // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
-        let buffer = unsafe { self.buf.as_ref() };
+        let buffer = unsafe { &*self.0.buf };
 
         // Safety: `self.pos` was just checked to be within the limits of the buffer's
         // initialized range, so this pointer arithmetic is safe.
-        let src = unsafe { buffer.data.add(self.pos) };
+        let src = unsafe { buffer.data.add(self.0.pos) } as *const u8;
 
         // Safety: We just verified that `src` points to valid memory within the buffer.
-        let src = src.as_ptr();
         let dest = dest_buf.as_mut_ptr();
-        let len = cmp::min(dest_buf.len(), buffer.len - self.pos);
+        let len = cmp::min(dest_buf.len(), buffer.offset - self.0.pos);
 
         // Safety:
         // * `src` points to initialized memory in the buffer.
@@ -85,7 +58,7 @@ impl std::io::Read for BufferReader {
         unsafe { copy_nonoverlapping(src, dest, len) };
 
         // Update position after successful read
-        self.pos += len;
+        self.0.pos += len;
 
         Ok(len)
     }
@@ -106,44 +79,44 @@ impl Buffer {
     /// Panics if `len` is greater than `capacity`.
     pub unsafe fn new(data: NonNull<u8>, len: usize, capacity: usize) -> Self {
         debug_assert!(len <= capacity, "len must not exceed capacity");
-        Self {
-            data,
-            len,
-            capacity,
-        }
+        Self(ffi::Buffer {
+            data: data.as_ptr() as *mut c_char,
+            offset: len,
+            cap: capacity,
+        })
     }
 
     /// Returns the initialized portion of the buffer as a slice.
     pub fn as_slice(&self) -> &[u8] {
         // Safety: We assume `self.len` is a valid length within the allocated memory.
         // Creates a slice referencing the initialized portion of the buffer.
-        unsafe { slice::from_raw_parts(self.data.as_ptr(), self.len) }
+        unsafe { slice::from_raw_parts(self.0.data as *const u8, self.len()) }
     }
 
     /// Returns the initialized portion of the buffer as a mutable slice.
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        // Safety: We assume `self.len` is a valid length within the allocated memory.
-        unsafe { slice::from_raw_parts_mut(self.data.as_ptr(), self.len) }
+        // Safety: We assume `self.0.offset` is a valid length within the allocated memory.
+        unsafe { slice::from_raw_parts_mut(self.0.data as *mut u8, self.len()) }
     }
 
     /// Returns the length of the buffer (number of initialized bytes).
     pub fn len(&self) -> usize {
-        self.len
+        self.0.offset
     }
 
     /// Returns true if the buffer is empty (length is zero).
     pub fn is_empty(&self) -> bool {
-        self.len == 0
+        self.0.offset == 0
     }
 
     /// Returns the total capacity of the buffer (maximum number of bytes it can hold).
     pub fn capacity(&self) -> usize {
-        self.capacity
+        self.0.cap
     }
 
     /// Returns the remaining capacity of the buffer (capacity - length).
     pub fn remaining_capacity(&self) -> usize {
-        self.capacity - self.len
+        self.0.cap - self.0.offset
     }
 
     /// Advance the buffer by `n` bytes.
@@ -158,7 +131,7 @@ impl Buffer {
     /// * The new bytes added by this call must be initialized.
     pub unsafe fn advance(&mut self, n: usize) {
         debug_assert!(n <= self.remaining_capacity());
-        self.len += n;
+        self.0.offset += n;
     }
 }
 
@@ -169,8 +142,8 @@ impl Buffer {
 ///
 /// # Safety Invariants
 ///
-/// * `buf` must point to a valid, properly initialized `Buffer`.
-/// * `cursor` must point to a valid position within the Buffer's allocated memory.
+/// * `ffi::BufferWriter::buf` must point to a valid, properly initialized `Buffer`.
+/// * `ffi::BufferWriter::cursor` must point to a valid position within the Buffer's allocated memory.
 /// * The `BufferWriter` does not own the `Buffer`, only borrows it mutably.
 /// * If the buffer is grown (implicitly) as part of a write operation, all previously obtained
 ///   pointers into the buffer are invalidated.
@@ -190,12 +163,9 @@ impl Buffer {
 /// // Write data to the buffer
 /// writer.write(b"Hello, world!").unwrap();
 /// ```
-#[repr(C)]
+#[repr(transparent)]
 #[derive(Debug, Clone, Copy)]
-pub struct BufferWriter {
-    pub buf: NonNull<Buffer>,
-    pub cursor: NonNull<u8>,
-}
+pub struct BufferWriter(ffi::BufferWriter);
 
 impl BufferWriter {
     /// Create a new `BufferWriter` for the given buffer.
@@ -203,46 +173,67 @@ impl BufferWriter {
     /// # Safety
     ///
     /// We assume `buf` is a valid pointer to a properly initialized `Buffer`.
-    pub unsafe fn for_buffer(buffer: NonNull<Buffer>) -> Self {
-        Self {
-            buf: buffer,
+    pub unsafe fn for_buffer(mut buffer: NonNull<Buffer>) -> Self {
+        Self(ffi::BufferWriter {
             // Safety: We assume `buf` is a valid pointer to a properly initialized `Buffer`.
-            cursor: unsafe { buffer.as_ref() }.data,
-        }
+            buf: &mut unsafe { buffer.as_mut().0 } as *mut _,
+            // Safety: We assume `buf` is a valid pointer to a properly initialized `Buffer`.
+            pos: unsafe { buffer.as_ref() }.0.data,
+        })
+    }
+
+    /// Get a reference to the underlying buffer.
+    ///
+    /// # Safety
+    ///
+    /// We assume `buf` is a valid pointer to a properly initialized `Buffer`.
+    pub unsafe fn buffer(&self) -> &Buffer {
+        // Safety: We assume `buf` is a valid pointer to a properly initialized `Buffer`.
+        unsafe { &*(self.0.buf as *const Buffer) }
+    }
+
+    /// Get a mutable reference to the underlying buffer.
+    ///
+    /// # Safety
+    ///
+    /// We assume `buf` is a valid pointer to a properly initialized `Buffer`.
+    pub unsafe fn buffer_mut(&mut self) -> &mut Buffer {
+        // Safety: We assume `buf` is a valid pointer to a properly initialized `Buffer`.
+        unsafe { &mut *(self.0.buf as *mut Buffer) }
     }
 }
 
 impl std::io::Write for BufferWriter {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
-        let buffer = unsafe { self.buf.as_ref() };
+        let buffer = unsafe { &mut *(self.0.buf as *mut Buffer) };
 
         // Check if we need to grow the buffer to accommodate the new data
         debug_assert!(
-            buffer.len.checked_add(bytes.len()).is_some(),
+            buffer.len().checked_add(bytes.len()).is_some(),
             "Buffer overflow"
         );
-        if buffer.len + bytes.len() > buffer.capacity {
+        if buffer.len() + bytes.len() > buffer.capacity() {
             // Safety: `Buffer_Grow` is a C function that increases the buffer's capacity. It
             // expects a valid buffer pointer and returns the number of bytes added to capacity.
             // This number can be 0 if the buffer is already large enough but since it reallocates
             // unconditionally, we need to update our cursor in either case.
             //
             // Note that this may invalidate previously held pointers into the buffer.
-            unsafe { Buffer_Grow(self.buf, bytes.len()) };
+            unsafe { Buffer_Grow(self.0.buf, bytes.len()) };
 
             // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
-            let buffer = unsafe { self.buf.as_ref() };
+            let buffer = unsafe { &mut *(self.0.buf as *mut Buffer) };
 
             // The buffer has relocated, so we need to update our cursor.
             // Safety: After growth, `buffer.len()` points just past the end of the valid data,
             // which is a valid position to write to.
-            self.cursor = unsafe { buffer.data.add(buffer.len) };
+            self.0.pos = unsafe { buffer.0.data.add(buffer.len()) };
         }
 
         // Now copy the bytes into the buffer
         let src = bytes.as_ptr();
-        let dest = self.cursor.as_ptr();
+        let dest = self.0.pos as *mut u8;
 
         // Safety:
         // * `src` is a valid pointer to the input slice.
@@ -252,14 +243,15 @@ impl std::io::Write for BufferWriter {
         unsafe { copy_nonoverlapping(src, dest, bytes.len()) };
 
         // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
-        let buffer = unsafe { self.buf.as_mut() };
+        let buffer = unsafe { &mut *(self.0.buf as *mut Buffer) };
         // Update the buffer length.
-        buffer.len += bytes.len();
+        // Safety: We've ensured that the buffer has enough capacity.
+        unsafe { buffer.advance(bytes.len()) };
 
         // Update the cursor position.
         // Safety: The cursor is moved forward by the number of bytes written, which is still within
         // the valid buffer memory.
-        self.cursor = unsafe { self.cursor.add(bytes.len()) };
+        self.0.pos = unsafe { self.0.pos.add(bytes.len()) };
 
         Ok(bytes.len())
     }
@@ -271,30 +263,7 @@ impl std::io::Write for BufferWriter {
 }
 
 #[cfg(not(test))]
-unsafe extern "C" {
-    /// Ensure that at least extraLen new bytes can be added to the buffer.
-    ///
-    /// This function grows the buffer's capacity if needed to accommodate at least `extraLen`
-    /// additional bytes beyond the current length.
-    ///
-    /// # Safety
-    ///
-    /// This function must be called with a valid buffer pointer. It reallocate the buffer's memory
-    /// (even if the buffer is already large enough), which invalidates any existing pointers into
-    /// the buffer. After calling this function, any previously obtained pointers or references to
-    /// the buffer's data may be invalid.
-    ///
-    /// The caller must ensure:
-    /// * `b` points to a valid `Buffer` struct.
-    /// * The `Buffer`'s data pointer is valid and was allocated by the C side.
-    /// * After calling this function, update any pointers that may have been invalidated.
-    ///
-    /// # Returns
-    ///
-    /// Returns the number of bytes added to the capacity, or 0 if the buffer
-    /// already had enough capacity.
-    fn Buffer_Grow(b: NonNull<Buffer>, extraLen: usize) -> usize;
-}
+use ffi::Buffer_Grow;
 
 #[cfg(test)]
 mod mock;

@@ -7,22 +7,25 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use super::*;
-use std::alloc::{Layout, realloc};
+use std::{
+    alloc::{Layout, realloc},
+    ffi::c_char,
+};
 
 /// Mock implementation of Buffer_Grow for tests
 #[allow(non_snake_case)]
-pub unsafe fn Buffer_Grow(mut b: NonNull<Buffer>, extra_len: usize) -> usize {
-    let buffer = unsafe { b.as_mut() };
-    let old_capacity = buffer.capacity;
+pub unsafe fn Buffer_Grow(buffer: *mut ffi::Buffer, extra_len: usize) -> usize {
+    // Safety: buffer is a valid pointer to a Buffer.
+    let buffer = unsafe { &mut *buffer };
+    let old_capacity = buffer.cap;
 
     // Double the capacity or add extra_len, whichever is greater
-    let new_capacity = std::cmp::max(buffer.capacity * 2, buffer.capacity + extra_len);
+    let new_capacity = std::cmp::max(buffer.cap * 2, buffer.cap + extra_len);
 
-    let layout = Layout::array::<u8>(old_capacity).unwrap();
-    let new_data = unsafe { realloc(buffer.data.as_ptr(), layout, new_capacity) };
-    buffer.data = NonNull::new(new_data).unwrap();
-    buffer.capacity = new_capacity;
+    let layout = Layout::array::<c_char>(old_capacity).unwrap();
+    let new_data = unsafe { realloc(buffer.data as *mut _, layout, new_capacity) };
+    buffer.data = new_data as *mut c_char;
+    buffer.cap = new_capacity;
 
     // Return bytes added
     new_capacity - old_capacity
