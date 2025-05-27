@@ -8,7 +8,7 @@
 */
 
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 fn main() {
     let root = git_root();
@@ -27,22 +27,6 @@ fn main() {
     if target_os != "macos" {
         println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
     }
-
-    let bin_root = {
-        let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-        let target_arch = match target_arch.as_str() {
-            "x86_64" => "x64",
-            _ => &target_arch,
-        };
-
-        root.join(format!(
-            "bin/{target_os}-{target_arch}-release/search-community/"
-        ))
-    };
-
-    link_static_lib(&bin_root, "deps/triemap", "trie");
-    link_static_lib(&bin_root, "src/util/arr", "arr");
-    link_static_lib(&bin_root, "src/wildcard", "wildcard");
 
     let redis_modules = root.join("deps").join("RedisModulesSDK");
     let src = root.join("src");
@@ -78,15 +62,6 @@ fn main() {
     bindings
         .write_to_file(out_dir.join("bindings.rs"))
         .expect("Couldn't write bindings!");
-}
-
-fn link_static_lib(bin_root: &Path, lib_subdir: &str, lib_name: &str) {
-    let lib_dir = bin_root.join(lib_subdir);
-    let lib = lib_dir.join(format!("lib{lib_name}.a"));
-    assert!(std::fs::exists(&lib).unwrap());
-    println!("cargo:rustc-link-lib=static={lib_name}");
-    println!("cargo:rerun-if-changed={}", lib.display());
-    println!("cargo:rustc-link-search=native={}", lib_dir.display());
 }
 
 fn git_root() -> std::path::PathBuf {
