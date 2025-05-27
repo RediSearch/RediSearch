@@ -1,36 +1,11 @@
 pub mod counter;
+pub mod ffi;
 
-use std::{ffi::c_void, marker::PhantomPinned, mem::MaybeUninit, ptr::NonNull, time::Duration};
-
-#[derive(Default)]
-pub struct SearchResult {
-    // stub
-}
+use std::{ffi::c_void, marker::PhantomData, mem::MaybeUninit, ptr::NonNull};
 
 pub enum Error {
     // stub
-
-    // Result is empty, and the last result has already been returned.
-    //     EOF,
-    //     // Execution paused due to rate limiting (or manual pause from ext. thread??)
-    //     PAUSED,
-    //     // Execution halted because of timeout
-    //     TIMEDOUT,
-    //     // Aborted because of error. The QueryState (parent->status) should have
-    //     // more information.
-    //     ERROR,
-    //     // Not a return code per se, but a marker signifying the end of the 'public'
-    //     // return codes. Implementations can use this for extensions.
-    //     MAX,
 }
-
-pub type Result<T> = std::result::Result<T, Error>;
-
-pub trait ResultProcessor {
-    fn next(&mut self) -> Result<Option<SearchResult>>;
-}
-
-// ===== Types to remove when all ResultProcessors are rewritten to Rust =====
 
 #[repr(i32)]
 #[non_exhaustive]
@@ -56,69 +31,62 @@ pub enum ResultProcessorType {
     Max,
 }
 
-pub type FFIResultProcessorNext =
-    unsafe extern "C" fn(NonNull<Header>, res: NonNull<MaybeUninit<SearchResult>>) -> i32;
+/// This is the main trait that Rust result processors need to implement
+pub trait ResultProcessor {
+    const TYPE: ResultProcessorType;
 
-pub type FFIResultProcessorFree = unsafe extern "C" fn(NonNull<Header>);
-
-#[repr(C)]
-pub struct Header {
-    /// Reference to the parent structure
-    /// TODO Check if Option needed
-    parent: Option<NonNull<c_void>>, // QueryIterator*
-
-    /// Previous result processor in the chain
-    upstream: Option<NonNull<Self>>,
-
-    /// Type of result processor
-    ty: ResultProcessorType,
-
-    /// time measurements
-    /// TODO find ffi type
-    timespec: Duration,
-
-    next: FFIResultProcessorNext,
-    free: FFIResultProcessorFree,
-
-    // TODO check if we need to worry about <https://github.com/rust-lang/rust/issues/63818>
-    _unpin: PhantomPinned,
+    fn next(&mut self, cx: Context) -> Result<Option<ffi::SearchResult>, Error>;
 }
 
-impl Header {
-    pub const fn new(
-        ty: ResultProcessorType,
-        next: FFIResultProcessorNext,
-        free: FFIResultProcessorFree,
-    ) -> Self {
-        Self {
-            parent: None,
-            upstream: None,
-            ty,
-            timespec: Duration::ZERO,
-            next,
-            free,
-            _unpin: PhantomPinned,
-        }
+/// This type allows result processors to access its context (the owning QueryIterator, upstream result processors, etc.)
+pub struct Context<'a> {
+    rp: &'a mut ffi::Header,
+}
+
+impl Context<'_> {
+    /// The QueryIterator that owns this result processor
+    pub fn parent(&mut self) -> NonNull<c_void> {
+        todo!()
     }
 
-    pub fn upstream(&mut self) -> Option<Upstream> {
+    /// The previous result processor in the pipeline
+    pub fn upstream(&mut self) -> Option<Upstream<'_>> {
+        let rp = self.rp.upstream?;
+
         Some(Upstream {
-            hdr: self.upstream?,
+            rp,
+            _m: PhantomData,
         })
     }
 }
 
-pub struct Upstream {
-    hdr: NonNull<Header>,
+/// The previous result processor in the pipeline
+pub struct Upstream<'a> {
+    rp: NonNull<ffi::Header>,
+    _m: PhantomData<&'a mut ffi::Header>,
 }
 
-impl ResultProcessor for Upstream {
-    fn next(&mut self) -> Result<Option<SearchResult>> {
-        let next = unsafe { self.hdr.as_mut() }.next;
+impl Upstream<'_> {
+    /// Allows you to follow the chain of upstream result processors
+    pub fn upstream(&mut self) -> Option<Upstream<'_>> {
+        // Safety: TODO
+        let rp = unsafe { self.rp.as_mut().upstream? };
 
-        let mut res: MaybeUninit<SearchResult> = MaybeUninit::uninit();
+        Some(Upstream {
+            rp,
+            _m: PhantomData,
+        })
+    }
 
-        let ret = unsafe { next(NonNull::from(self.hdr), NonNull::from(&mut res)) };
+    #[allow(clippy::should_implement_trait, reason = "yes thank you I know")]
+    pub fn next(&mut self) -> Result<Option<ffi::SearchResult>, Error> {
+        // Safety: TODO
+        let next = unsafe { self.rp.as_mut() }.next;
+
+        let mut res: MaybeUninit<ffi::SearchResult> = MaybeUninit::uninit();
+
+        // Safety: TODO clarify safety constraints on `next`
+        let ret = unsafe { next(self.rp.as_ptr(), NonNull::from(&mut res)) };
 
         const RS_RESULT_OK: i32 = 0;
 

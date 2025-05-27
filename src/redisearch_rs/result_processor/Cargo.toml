@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+pin-project-lite = "0.2"
 
 [lints]
 workspace = true
