@@ -31,6 +31,7 @@ cbindgen.workspace = true
 lending-iterator.workspace = true
 libc.workspace = true
 low_memory_thin_vec.workspace = true
+rp_base = { workspace = true }
 trie_rs = { workspace = true }
 redis_mock = { workspace = true, optional = true }
 wildcard = { workspace = true }
