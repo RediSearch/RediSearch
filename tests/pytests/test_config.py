@@ -1717,13 +1717,14 @@ def testConfigIndependence_default():
         if clusterConfig:
             if not env.isCluster():
                 continue
+        if configName == 'search-conn-per-shard': # change search-conn-per-shard max value because it may open too many connections
+            maxValue = 20
 
         # Test min value
         checkConfigChange(env, configName, argName, minValue, defaultConfigDict)
 
         # Test max value. Skip for search-conn-per-shard because it may open too many connections
-        if configName != 'search-conn-per-shard':
-            checkConfigChange(env, configName, argName, maxValue, defaultConfigDict)
+        checkConfigChange(env, configName, argName, maxValue, defaultConfigDict)
 
         # Reset to default value
         env.expect('CONFIG', 'SET', configName, default).ok()
@@ -1768,10 +1769,11 @@ def testConfigIndependence_min_values():
         if clusterConfig:
             if not env.isCluster():
                 continue
+        if configName == 'search-conn-per-shard': # change search-conn-per-shard max value because it may open too many connections
+            continue
 
-        # Test max value. Skip for search-conn-per-shard because it may open too many connections
-        if configName != 'search-conn-per-shard':
-            checkConfigChange(env, configName, argName, maxValue, minValueConfigDict)
+        # Test max value.
+        checkConfigChange(env, configName, argName, maxValue, minValueConfigDict)
 
         # Reset to min value
         env.expect('CONFIG', 'SET', configName, minValue).ok()
@@ -1800,8 +1802,8 @@ def testConfigIndependence_max_values():
         if clusterConfig:
             if not env.isCluster():
                 continue
-        if configName == 'search-conn-per-shard': # Skip search-conn-per-shard because it may open too many connections
-            continue
+        if configName == 'search-conn-per-shard': # change search-conn-per-shard max value because it may open too many connections
+            maxValue = 20
         env.expect('CONFIG', 'SET', configName, maxValue).ok()
     # set all boolean configs to true (yes)
     for configName, argName, _, immutable, _ in booleanConfigs:
@@ -1816,8 +1818,8 @@ def testConfigIndependence_max_values():
         if clusterConfig:
             if not env.isCluster():
                 continue
-        if configName == 'search-conn-per-shard': # Skip search-conn-per-shard because it may open too many connections
-            continue
+        if configName == 'search-conn-per-shard': # change search-conn-per-shard max value because it may open too many connections
+            maxValue = 20
 
         # Test min value
         checkConfigChange(env, configName, argName, minValue, maxValueConfigDict)
