@@ -60,6 +60,26 @@ static IteratorStatus MR_SkipTo(QueryIterator *base, t_docId docId) {
   return (cur_id == docId) ? ITERATOR_OK : ITERATOR_NOTFOUND;
 }
 
+static void SetYield(QueryIterator *mr) {
+  ResultMetrics_Add(mr->current, mr->ownKey, RS_NumVal(mr->current->num.value));
+}
+
+static IteratorStatus MR_Read_With_Yield(QueryIterator *mr) {
+  IteratorStatus rc = MR_Read(mr);
+  if (ITERATOR_OK == rc) {
+    SetYield(mr);
+  }
+  return rc;
+}
+
+static IteratorStatus MR_SkipTo_With_Yield(QueryIterator *mr, t_docId docId) {
+  int rc = MR_SkipTo(mr, docId);
+  if (ITERATOR_OK == rc) {
+    SetYield(mr);
+  }
+  return rc;
+}
+
 static void MR_Free(QueryIterator *self) {
   MetricIterator *mr = (MetricIterator *)self;
   if (mr == NULL) {
@@ -86,16 +106,14 @@ QueryIterator *IT_V2(NewMetricIterator)(t_docId *ids_list, double *metric_list, 
   ri->type = METRIC_ITERATOR;
   ri->current = NewMetricResult();
   mi->type = metric_type;
-  ri->Read = MR_Read;
-  ri->SkipTo = MR_SkipTo;
   // If we interested in yielding score
-  /*if (yields_metric) {
+  if (yields_metric) {
     ri->Read = MR_Read_With_Yield;
     ri->SkipTo = MR_SkipTo_With_Yield;
   } else {
     ri->Read = MR_Read;
     ri->SkipTo = MR_SkipTo;
-  }*/
+  }
   ri->Rewind = MR_Rewind;
   ri->Free = MR_Free;
   ri->NumEstimated = MR_NumEstimated;

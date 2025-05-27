@@ -26,8 +26,9 @@ typedef struct {
 } MetricIterator;
 
 /**
- * @param ids_list - the list of doc ids to iterate over
- * @param metric_list - the list of scores in the iterator
+ * @param ids_list - the list of doc ids to iterate over. The implementation assumes they are sorted.
+ * @param metric_list - the list of scores in the iterator. The implementation assumes the number of
+ * entries in this list is the same as the number of entries in ids_list.
  * @param metric_type - the Metric type represented by these scores
  * @param yields_metric - whether the iterator should yield the metric as the score
  */
