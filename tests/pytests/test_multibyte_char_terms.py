@@ -1445,7 +1445,7 @@ def testLongTags(env):
     env.expect('HSET', '{doc}:1', 't', t).equal(1)
     if not env.isCluster():
         res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
-        # The conversion to lowercase occuppies more space than the original
+        # The conversion to lowercase occupies more space than the original
         # term, so the term is stored in its original form
         env.assertEqual(res, [[t, [1]]])
 
@@ -1483,8 +1483,7 @@ def testLongTexts(env):
     env.expect('HSET', '{doc}:1', 't', t_escaped).equal(1)
     if not env.isCluster():
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
-        print(res)
-        # The conversion to lowercase occuppies more space than the original
+        # The conversion to lowercase occupies more space than the original
         # term, so the term is stored in its original form
         env.assertEqual(res, [t])
 
