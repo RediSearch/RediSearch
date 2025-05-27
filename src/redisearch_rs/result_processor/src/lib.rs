@@ -108,6 +108,7 @@ impl Header {
     }
 }
 
+/// Just a type that fowards the `ResultProcessor` method to the unsafe `ResultProcessorNext` function
 pub struct Upstream {
     hdr: NonNull<Header>,
 }

@@ -3,6 +3,8 @@ mod counter;
 use result_processor::{ResultProcessor, SearchResult};
 use std::{mem::MaybeUninit, ptr::NonNull};
 
+/// Utility function that implement the `ResultProcessorNext` FFI function
+/// for any type that implements `ResultProcessor`
 unsafe extern "C" fn result_processor_next<T: ResultProcessor>(
     ptr: NonNull<result_processor::Header>,
     mut out: NonNull<MaybeUninit<SearchResult>>,
@@ -27,15 +29,17 @@ unsafe extern "C" fn result_processor_next<T: ResultProcessor>(
     }
 }
 
-unsafe extern "C" fn result_processor_free<T: ResultProcessor>(
-    ptr: NonNull<result_processor::Header>,
-) {
+/// Utility function that implement the `ResultProcessorFree` FFI function
+/// MUST BE KEPT IN SYNC WITH `result_processor_alloc` below
+unsafe extern "C" fn result_processor_free<T>(ptr: NonNull<result_processor::Header>) {
     let me = ptr.cast::<T>();
 
     // Safety: TODO
     drop(unsafe { Box::from_raw(me.as_ptr()) });
 }
 
-fn result_processor_alloc<T: ResultProcessor>(t: T) -> *mut T {
+/// Utility function that allocates a ResultProcessor
+/// MUST BE KEPT IN SYNC WITH `result_processor_free` above
+fn result_processor_alloc<T>(t: T) -> *mut T {
     Box::into_raw(Box::new(t))
 }
