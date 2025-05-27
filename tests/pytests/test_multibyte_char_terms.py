@@ -1514,7 +1514,7 @@ def testLongTexts(env):
         'NOCONTENT', 'DIALECT', '1')
     env.assertEqual(res, expected, message='Search lowercase escaped term')
 
-
+@skip(cluster=True)
 def testToLowerSize(env):
     '''Test that the toLower function returns the correct size for multi-byte
     characters.'''
