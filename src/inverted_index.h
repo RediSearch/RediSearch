@@ -257,6 +257,9 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 
 void IR_Rewind(void *ctx);
 
+/* LastDocId of an inverted index stateful reader */
+t_docId IR_LastDocId(void *ctx);
+
 /* Create a reader iterator that iterates an inverted index record */
 IndexIterator *NewReadIterator(IndexReader *ir);
 
