@@ -22,7 +22,7 @@
 #define STR_EQ(str, len, other) (len == strlen(other) && !strncmp(str, other, len))
 
 // Threshold for Small String Optimization (SSO)
-#define SSO_MAX_LENGTH 256
+#define SSO_MAX_LENGTH 128
 
 /* Parse string into int, returning 1 on success, 0 otherwise */
 static int ParseInteger(const char *arg, long long *val) {
@@ -115,33 +115,32 @@ static char *rm_strndup_unescape(const char *s, size_t len) {
 // returns the bytes written to encoded, or 0 if the length of the transformed
 // string is greater than in_len and no transformation was done
 static size_t unicode_tolower(char *encoded, size_t in_len) {
-  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
-  uint32_t *u_buffer = u_stack_buffer;
-
   if (in_len == 0) {
     return 0;
   }
+  
+  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
+  uint32_t *u_buffer = u_stack_buffer;
 
-  const char *encoded_char = encoded;
-
-  // Each unicode codepoint can expand by up to 4 bytes when transformed.
-  const size_t max_expansion = 4;
-  if (in_len * max_expansion + 1 > SSO_MAX_LENGTH) {
-    u_buffer = (uint32_t *)rm_malloc(sizeof(uint32_t) * (in_len * max_expansion + 1));
+  ssize_t u_len = nu_strtransformnlen(encoded, in_len, nu_utf8_read,
+nu_tolower, nu_casemap_read);
+    
+  if (u_len > (SSO_MAX_LENGTH - 1)) {
+    u_buffer = (uint32_t *)rm_malloc(sizeof(uint32_t) * (u_len + 1));
   }
-
+  
   // Decode utf8 string into Unicode codepoints and transform to lower
-  uint32_t codepoint;
+  const char *encoded_char = encoded;
   unsigned i = 0;
-  for (ssize_t j = 0; j < in_len; j++) {
+  while (encoded_char < encoded + in_len) {
+    uint32_t codepoint = 0;
     // Read unicode codepoint from utf8 string
+    // This might read more than one char.
     encoded_char = nu_utf8_read(encoded_char, &codepoint);
     // Transform unicode codepoint to lower case
     const char *map = nu_tolower(codepoint);
 
     // Read the transformed codepoint and store it in the unicode buffer
-    // map would be NULL if no transformation is needed,
-    // i.e.: lower case is the same as the original, emoji, etc.
     if (map != NULL) {
       uint32_t mu;
       while (1) {
@@ -149,23 +148,27 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
         if (mu == 0) {
           break;
         }
-        u_buffer[i] = mu;
-        ++i;
+        u_buffer[i++] = mu;
       }
-    }
-    else {
+    } else {
       // If no transformation is needed, just copy the unicode codepoint
-      u_buffer[i] = codepoint;
-      ++i;
+      u_buffer[i++] = codepoint;
     }
   }
-
+  // RS_LOG_ASSERT_FMT(i == u_len, "i (%u) should be less equal to u_len (%zd)", i, u_len);
   // Encode Unicode codepoints back to utf8 string
-  ssize_t reencoded_len = nu_bytenlen(u_buffer, i, nu_utf8_write);
-  if (reencoded_len > 0 && reencoded_len <= i) {
-    nu_writenstr(u_buffer, i, encoded, nu_utf8_write);
+  ssize_t reencoded_len = nu_bytenlen(u_buffer, u_len, nu_utf8_write);
+  if (reencoded_len > 0 && reencoded_len <= in_len) {
+    nu_writenstr(u_buffer, u_len, encoded, nu_utf8_write);
   } else {
     reencoded_len = 0;
+    // reallocate the string to fit the transformed string
+    // rm_free(encoded);
+    // encoded = (char *)rm_malloc(reencoded_len + 1);
+    // nu_writenstr(u_buffer, u_len, encoded, nu_utf8_write);
+
+    // encoded[reencoded_len] = '\0'; // Null-terminate the string
+    // // Update the length to the new length
   }
 
   // Free heap-allocated memory if needed

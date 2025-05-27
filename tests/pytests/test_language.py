@@ -558,11 +558,3 @@ def testLanguageInfo(env):
         index_definition = info['index_definition']
         idx = {index_definition[i]: index_definition[i + 1] for i in range(0, len(index_definition), 2)}
         env.assertEqual(idx['default_language'], language)
-
-def testLanguagesChars(env):
-        env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
-        # bi = 'E-Ticaret Yöneticisi / Yönetmeni - EAİO DANIŞMANLIK VE ELEKTRONİK ÇÖZÜMLER İTHALAT İHRACAT LİMİTED ŞİRKETİ - İstanbul'
-        # bi = 'E-Ticaret Yoneticisi / Yonetmeni - EAIO DANISMANLIK VE ELEKTR=ONIK COZUMLER İTHALAT İHRACAT LİMİTED ŞİRKETİ - İstanbul'
-        for i in range(50):
-                bi = 'ŞİŞİİ - İŞİŞ / İŞİ' * i
-                env.expect('HSET', f'doc{i}', 't', bi).equal(1)

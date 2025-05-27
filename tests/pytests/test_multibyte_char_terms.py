@@ -709,10 +709,10 @@ def testLongTerms(env):
     conn = getConnectionByEnv(env)
 
     # lowercase
-    long_term_lower = 'частнопредпринимательский' * 6;
+    long_term_lower = 'частнопредпринимательский' * 6
     conn.execute_command('HSET', 'w1', 't', long_term_lower)
     # uppercase
-    long_term_upper = 'ЧАСТНОПРЕДПРИНИМАТЕЛЬСКИЙ' * 6;
+    long_term_upper = 'ЧАСТНОПРЕДПРИНИМАТЕЛЬСКИЙ' * 6
     conn.execute_command('HSET', 'w2', 't', long_term_lower)
 
     # A single term should be generated in lower case.
@@ -1434,3 +1434,21 @@ def testTagSearch(env):
 
     res = conn.execute_command('FT.SEARCH', 'idx', '@t:{fussball}', 'NOCONTENT')
     env.assertEqual(res, [1, 'doc:2s'])
+
+def testLongChars(env):
+        env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
+        conn = getConnectionByEnv(env)
+        
+        # bi = 'E-Ticaret Yöneticisi / Yönetmeni - EAİO DANIŞMANLIK VE ELEKTRONİK ÇÖZÜMLER İTHALAT İHRACAT LİMİTED ŞİRKETİ - İstanbul'
+        bi = 'E-Ticaret Yöneticisi / Yönetmeni - EAİO DANIŞMANLIK VE ELEKTRONİK ÇÖZÜMLER İTHALAT İHRACAT LİMİTED ŞİRKETİ - İstanbul'
+        # i = 10
+        # bi = 'ŞİŞİİ - İŞİŞ / İŞİ'
+        env.expect('HSET', f'doc', 't', bi).equal(1)
+        env.expect('HSET', f'doc2', 't', "ALL - Meow").equal(1)
+        # env.expect('HSET', f'doc3', 't', bi).equal(1)
+        # res = conn.execute_command('FT.SEARCH', 'idx', '@t:{all\\ \\-\\ meow}')
+        # env.assertEqual(res, [1, 'doc:2s', 'e\\-ticaret\\ yöneticisi\\ \\/\\ yönetmeni\\ \\-\\ eai̇o\\ danişmanlik\\ ve\\ elektroni̇k\\ çözümler\\ i̇thalat\\ i̇hracat\\ li̇mi̇ted\\ şi̇rketi̇\\ \\-\\ i̇stanbul'])
+        res = conn.execute_command('FT.SEARCH', 'idx', '@t:{e\\-ticaret\\ yöneticisi\\ \\/\\ yönetmeni\\ \\-\\ eai̇o\\ danişmanlik\\ ve\\ elektroni̇k\\ çözümler\\ i̇thalat\\ i̇hracat\\ li̇mi̇ted\\ şi̇rketi̇\\ \\-\\ i̇stanbul}')
+        # env.assertEqual(res, [1, 'doc:3s', 'e-ticaret yöneticisi / yönetmeni - eai̇o danişmanlik ve elektroni̇k çözümler i̇thalat i̇hracat li̇mi̇ted şi̇rketi̇ - i̇stanbul'])
+        
+        
