@@ -52,7 +52,6 @@ TEST_P(IDListIteratorCommonTest, Read) {
 }
 
 TEST_P(IDListIteratorCommonTest, SkipTo) {
-  t_docId not_present_docId = 99999;
   auto sorted_docIds = docIds;
   std::sort(sorted_docIds.begin(), sorted_docIds.end(), cmp_docids);
   IdListIterator *iterator = (IdListIterator *)iterator_base;
@@ -63,24 +62,79 @@ TEST_P(IDListIteratorCommonTest, SkipTo) {
   ASSERT_EQ(iterator->base.lastDocId, sorted_docIds[0]);
   ASSERT_EQ(iterator->offset, 1);
   ASSERT_FALSE(iterator->base.atEOF);
+
   // Skip To to higher than last docID returns EOF, but the lastDocId and EOF is not updated
   ASSERT_EQ(iterator_base->SkipTo(iterator_base, sorted_docIds.back() + 1), ITERATOR_EOF);
   ASSERT_EQ(iterator->base.lastDocId, sorted_docIds[0]);
   ASSERT_EQ(iterator->offset, 1);
-  ASSERT_FALSE(iterator->base.atEOF);
+  ASSERT_TRUE(iterator->base.atEOF);
 
-  //Skip To to a docID that does not exist returns NOTFOUND, but the lastDocId and EOF? is not updated
-  ASSERT_EQ(iterator_base->SkipTo(iterator_base, not_present_docId), ITERATOR_NOTFOUND);
-  ASSERT_EQ(iterator->base.lastDocId, sorted_docIds.back());
-  ASSERT_EQ(iterator->offset, sorted_docIds.size());
-  ASSERT_FALSE(iterator->base.atEOF);
-  
-  //TODO(Joan): Add more tests here
+  iterator_base->Rewind(iterator_base);
+
+  //TODO(Joan): At least test for doc purposes how to behave with i = 0
+  t_docId i = 1;
+  for (size_t index = 0; index < sorted_docIds.size(); index++) {
+    t_docId id = sorted_docIds[index];
+    while (i < id) {
+      // Skip To from last sorted_id to the next one, should move the current iterator to id
+      iterator_base->Rewind(iterator_base);
+      rc = iterator_base->SkipTo(iterator_base, i);
+      ASSERT_EQ(rc, ITERATOR_NOTFOUND);
+      ASSERT_EQ(iterator->base.lastDocId, id);
+      ASSERT_EQ(iterator->base.current->docId, id);
+      ASSERT_EQ(iterator->offset, index + 1); //offset is pointing to the next already
+      ASSERT_EQ(iterator->base.atEOF, index == sorted_docIds.size() - 1); // When I skip towards the last one, it sets to the EOF
+      iterator_base->Rewind(iterator_base);
+      i++;
+    }
+    iterator_base->Rewind(iterator_base);
+    rc = iterator_base->SkipTo(iterator_base, id);
+    ASSERT_EQ(rc, ITERATOR_OK);
+    ASSERT_EQ(iterator->base.lastDocId, id);
+    ASSERT_EQ(iterator->base.current->docId, id);
+    ASSERT_EQ(iterator->offset, index + 1); //offset is pointing to the next already
+    ASSERT_EQ(iterator->base.atEOF, index == sorted_docIds.size() - 1); // When I skip towards the last one, it sets to the EOF
+    i++;
+  }
+
+  iterator_base->Rewind(iterator_base);
+  for (t_docId id : sorted_docIds) {
+    rc = iterator_base->SkipTo(iterator_base, id);
+    ASSERT_EQ(rc, ITERATOR_OK);
+    ASSERT_EQ(iterator->base.lastDocId, id);
+    ASSERT_EQ(iterator->base.current->docId, id);
+  }
 }
 
 TEST_P(IDListIteratorCommonTest, Rewind) {
-  //TODO(Joan): Implement here
-
+  auto sorted_docIds = docIds;
+  std::sort(sorted_docIds.begin(), sorted_docIds.end(), cmp_docids);
+  IdListIterator *iterator = (IdListIterator *)iterator_base;
+  IteratorStatus rc;
+  for (t_docId id : sorted_docIds) {
+    rc = iterator_base->SkipTo(iterator_base, id);
+    ASSERT_EQ(rc, ITERATOR_OK);
+    ASSERT_EQ(iterator->base.lastDocId, id);
+    ASSERT_EQ(iterator->base.current->docId, id);
+    iterator_base->Rewind(iterator_base);
+    ASSERT_EQ(iterator->base.lastDocId, 0);
+    ASSERT_FALSE(iterator->base.atEOF);
+  }
+  for (t_docId id : sorted_docIds) {
+    rc = iterator_base->Read(iterator_base);
+    ASSERT_EQ(rc, ITERATOR_OK);
+    ASSERT_EQ(iterator->base.lastDocId, id);
+    ASSERT_EQ(iterator->base.current->docId, id);
+  }
+  // Rewind after EOF read
+  rc = iterator_base->Read(iterator_base);
+  ASSERT_EQ(rc, ITERATOR_EOF);
+  ASSERT_TRUE(iterator->base.atEOF);
+  ASSERT_EQ(iterator->base.lastDocId, sorted_docIds.back());
+  ASSERT_EQ(iterator->base.current->docId, sorted_docIds.back());
+  iterator_base->Rewind(iterator_base);
+  ASSERT_EQ(iterator->base.lastDocId, 0);
+  ASSERT_FALSE(iterator->base.atEOF);
 }
 
 // Parameters for the tests above. Some set of docIDs sorted and unsorted
