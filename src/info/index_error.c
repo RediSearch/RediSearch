@@ -7,6 +7,7 @@
 #include "index_error.h"
 #include "rmalloc.h"
 #include "util/timeout.h"
+#include "rmutil/rm_assert.h"
 
 extern RedisModuleCtx *RSDummyContext;
 
