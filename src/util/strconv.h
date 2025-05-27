@@ -137,42 +137,39 @@ static uint32_t __simple_tolower(uint32_t in) {
 // returns a pointer to the lower case string, which may be the same as the input string
 // if no new memory allocation is needed.
 static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
-  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
-  uint32_t *u_buffer = u_stack_buffer;
-  char *longer_dst = NULL;
-
   if (in_len == 0) {
     return NULL;
   }
 
-  const char *encoded_char = encoded;
-  const char *encoded_end = encoded + in_len;
+  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
+  uint32_t *u_buffer = u_stack_buffer;
+  char *longer_dst = NULL;
+
   ssize_t u_len = nu_strtransformnlen(encoded, in_len, nu_utf8_read,
                                               nu_tolower, nu_casemap_read);
 
   if (u_len >= (SSO_MAX_LENGTH - 1)) {
-    u_buffer = (uint32_t *)rm_malloc(sizeof(*u_buffer) * (u_len + 1));
+    u_buffer = (uint32_t *)rm_malloc(sizeof(uint32_t) * (u_len + 1));
   }
 
   // Decode utf8 string into Unicode codepoints and transform to lower
-  uint32_t codepoint;
+  const char *encoded_char = encoded;
   unsigned i = 0;
-  while (encoded_char < encoded_end) {
+  while (encoded_char < encoded + in_len) {
+    uint32_t codepoint = 0;
     // Read unicode codepoint from utf8 string
-    const char *next_char = nu_utf8_read(encoded_char, &codepoint);
-    if (next_char == encoded_char) {
-      // Invalid UTF-8, break to avoid infinite loop
+    // This might read more than one char.
+    encoded_char = nu_utf8_read(encoded_char, &codepoint);
+    if (codepoint == 0) {
+      // If we reach the end of the string, break
       break;
     }
-    encoded_char = next_char;
     // Transform unicode codepoint to most common lower case codepoint
-    codepoint = __simple_tolower(codepoint);
+    // codepoint = __simple_tolower(codepoint);
     // Transform unicode codepoint to lower case
     const char *map = nu_tolower(codepoint);
 
     // Read the transformed codepoint and store it in the unicode buffer
-    // map would be NULL if no transformation is needed,
-    // i.e.: lower case is the same as the original, emoji, etc.
     if (map != NULL) {
       uint32_t mu;
       while (1) {
@@ -180,17 +177,14 @@ static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
         if (mu == 0) {
           break;
         }
-        u_buffer[i] = mu;
-        ++i;
+        u_buffer[i++] = mu;
       }
-    }
-    else {
+    } else {
       // If no transformation is needed, just copy the unicode codepoint
-      u_buffer[i] = codepoint;
-      ++i;
+      u_buffer[i++] = codepoint;
     }
   }
-
+  RS_LOG_ASSERT_FMT(i <= u_len, "i (%u) should be less equal to u_len (%zd)", i, u_len);
   // Encode Unicode codepoints back to utf8 string
   ssize_t reencoded_len = nu_bytenlen(u_buffer, i, nu_utf8_write);
   if (reencoded_len != 0) {
