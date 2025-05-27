@@ -30,8 +30,8 @@ static inline void AdvanceBlock(InvIndIterator *it) {
 
 void InvIndIterator_Rewind(QueryIterator *base) {
   InvIndIterator *it = (InvIndIterator *)base;
-  QITER_CLEAR_EOF(base);
-  base->LastDocId = 0;
+  base->atEOF = false;
+  base->lastDocId = 0;
   base->current->docId = 0;
   it->currentBlock = 0;
   it->gcMarker = it->idx->gcMarker;
@@ -81,7 +81,7 @@ static inline bool VerifyFieldMaskExpirationForDocId(InvIndIterator *it, t_docId
 
 IteratorStatus InvIndIterator_Read(QueryIterator *base) {
   InvIndIterator *it = (InvIndIterator *)base;
-  if (QITER_AT_EOF(base)) {
+  if (base->atEOF) {
     return ITERATOR_EOF;
   }
   RSIndexResult *record = base->current;
@@ -113,10 +113,10 @@ IteratorStatus InvIndIterator_Read(QueryIterator *base) {
       continue;
     }
 
-    base->LastDocId = record->docId;
+    base->lastDocId = record->docId;
     return ITERATOR_OK;
   }
-  QITER_SET_EOF(base);
+  base->atEOF = true;
   return ITERATOR_EOF;
 }
 
@@ -124,7 +124,7 @@ IteratorStatus InvIndIterator_Read(QueryIterator *base) {
 
 // Assumes there is a valid block to skip to (maching or past the requested docId)
 static inline void SkipToBlock(InvIndIterator *it, t_docId docId) {
-  InvertedIndex *idx = it->idx;
+  const InvertedIndex *idx = it->idx;
   uint32_t top = idx->size - 1;
   uint32_t bottom = it->currentBlock + 1;
 
@@ -164,12 +164,12 @@ new_block:
 
 IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId) {
   InvIndIterator *it = (InvIndIterator*)base;
-  if (QITER_AT_EOF(base)) {
+  if (base->atEOF) {
     return ITERATOR_EOF;
   }
 
   if (docId > it->idx->lastId) {
-    QITER_SET_EOF(base);
+    base->atEOF = true;
     return ITERATOR_EOF;
   }
 
@@ -180,8 +180,8 @@ IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId)
   }
 
   while (ITERATOR_EOF != InvIndIterator_Read(base)) {
-    if (base->LastDocId < docId) continue;
-    if (base->LastDocId == docId) return ITERATOR_OK;
+    if (base->lastDocId < docId) continue;
+    if (base->lastDocId == docId) return ITERATOR_OK;
     return ITERATOR_NOTFOUND;
   }
   return ITERATOR_EOF;
@@ -232,7 +232,7 @@ static inline bool ReadWithSeeker(InvIndIterator *it, t_docId docId) {
 
 IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId docId) {
   InvIndIterator *it = (InvIndIterator*)base;
-  if (QITER_AT_EOF(base)) {
+  if (base->atEOF) {
     return ITERATOR_EOF;
   }
 
@@ -253,11 +253,11 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId doc
     goto eof;
   }
   // Found a document that match the field mask and greater or equal the searched docid
-  base->LastDocId = it->base.current->docId;
+  base->lastDocId = it->base.current->docId;
   return (it->base.current->docId == docId) ? ITERATOR_OK : ITERATOR_NOTFOUND;
 
 eof:
-  QITER_SET_EOF(base);
+  base->atEOF = true;
   return ITERATOR_EOF;
 }
 
@@ -276,8 +276,8 @@ static QueryIterator *NewInvIndIterator(InvertedIndex *idx, RSIndexResult *res, 
 
   it->base.current = res;
   it->base.type = READ_ITERATOR;
-  it->base.isValid = true;
-  it->base.LastDocId = 0;
+  it->base.atEOF = false;
+  it->base.lastDocId = 0;
   it->base.NumEstimated = InvIndIterator_NumEstimated;
   it->base.Read = InvIndIterator_Read;
   it->base.SkipTo = it->decoders.seeker ? InvIndIterator_SkipTo_withSeeker : InvIndIterator_SkipTo_Default;
