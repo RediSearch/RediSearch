@@ -1077,7 +1077,6 @@ typedef IndexIterator **IndexIteratorArray;
  * should be performed. If true, the string remains case-sensitive.
  */
 static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
-  size_t origLen = *len;
   char *origStr = str;
   char *p = str;
 
@@ -1091,7 +1090,7 @@ static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
   *str = '\0';
 
   if (!caseSensitive) {
-    size_t newLen = unicode_tolower(origStr, origLen);
+    size_t newLen = unicode_tolower(origStr, *len);
     if (newLen) {
       origStr[newLen] = '\0';
       *len = newLen;

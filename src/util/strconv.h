@@ -13,6 +13,7 @@
 #include <ctype.h>
 #include "fast_float/fast_float_strtod.h"
 #include "libnu/libnu.h"
+#include "rmutil/rm_assert.h"
 /* Strconv - common simple string conversion utils */
 
 // Case insensitive string equal
@@ -118,17 +119,17 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
   if (in_len == 0) {
     return 0;
   }
-  
+
   uint32_t u_stack_buffer[SSO_MAX_LENGTH];
   uint32_t *u_buffer = u_stack_buffer;
 
   ssize_t u_len = nu_strtransformnlen(encoded, in_len, nu_utf8_read,
-nu_tolower, nu_casemap_read);
-    
+                                              nu_tolower, nu_casemap_read);
+
   if (u_len > (SSO_MAX_LENGTH - 1)) {
     u_buffer = (uint32_t *)rm_malloc(sizeof(uint32_t) * (u_len + 1));
   }
-  
+
   // Decode utf8 string into Unicode codepoints and transform to lower
   const char *encoded_char = encoded;
   unsigned i = 0;
@@ -137,6 +138,10 @@ nu_tolower, nu_casemap_read);
     // Read unicode codepoint from utf8 string
     // This might read more than one char.
     encoded_char = nu_utf8_read(encoded_char, &codepoint);
+    if (codepoint == 0) {
+      // If we reach the end of the string, break
+      break;
+    }
     // Transform unicode codepoint to lower case
     const char *map = nu_tolower(codepoint);
 
@@ -155,7 +160,7 @@ nu_tolower, nu_casemap_read);
       u_buffer[i++] = codepoint;
     }
   }
-  // RS_LOG_ASSERT_FMT(i == u_len, "i (%u) should be less equal to u_len (%zd)", i, u_len);
+  RS_LOG_ASSERT_FMT(i <= u_len, "i (%u) should be less equal to u_len (%zd)", i, u_len);
   // Encode Unicode codepoints back to utf8 string
   ssize_t reencoded_len = nu_bytenlen(u_buffer, u_len, nu_utf8_write);
   if (reencoded_len > 0 && reencoded_len <= in_len) {

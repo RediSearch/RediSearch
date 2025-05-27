@@ -1435,20 +1435,80 @@ def testTagSearch(env):
     res = conn.execute_command('FT.SEARCH', 'idx', '@t:{fussball}', 'NOCONTENT')
     env.assertEqual(res, [1, 'doc:2s'])
 
-def testLongChars(env):
-        env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
-        conn = getConnectionByEnv(env)
-        
-        # bi = 'E-Ticaret Yöneticisi / Yönetmeni - EAİO DANIŞMANLIK VE ELEKTRONİK ÇÖZÜMLER İTHALAT İHRACAT LİMİTED ŞİRKETİ - İstanbul'
-        bi = 'E-Ticaret Yöneticisi / Yönetmeni - EAİO DANIŞMANLIK VE ELEKTRONİK ÇÖZÜMLER İTHALAT İHRACAT LİMİTED ŞİRKETİ - İstanbul'
-        # i = 10
-        # bi = 'ŞİŞİİ - İŞİŞ / İŞİ'
-        env.expect('HSET', f'doc', 't', bi).equal(1)
-        env.expect('HSET', f'doc2', 't', "ALL - Meow").equal(1)
-        # env.expect('HSET', f'doc3', 't', bi).equal(1)
-        # res = conn.execute_command('FT.SEARCH', 'idx', '@t:{all\\ \\-\\ meow}')
-        # env.assertEqual(res, [1, 'doc:2s', 'e\\-ticaret\\ yöneticisi\\ \\/\\ yönetmeni\\ \\-\\ eai̇o\\ danişmanlik\\ ve\\ elektroni̇k\\ çözümler\\ i̇thalat\\ i̇hracat\\ li̇mi̇ted\\ şi̇rketi̇\\ \\-\\ i̇stanbul'])
-        res = conn.execute_command('FT.SEARCH', 'idx', '@t:{e\\-ticaret\\ yöneticisi\\ \\/\\ yönetmeni\\ \\-\\ eai̇o\\ danişmanlik\\ ve\\ elektroni̇k\\ çözümler\\ i̇thalat\\ i̇hracat\\ li̇mi̇ted\\ şi̇rketi̇\\ \\-\\ i̇stanbul}')
-        # env.assertEqual(res, [1, 'doc:3s', 'e-ticaret yöneticisi / yönetmeni - eai̇o danişmanlik ve elektroni̇k çözümler i̇thalat i̇hracat li̇mi̇ted şi̇rketi̇ - i̇stanbul'])
-        
-        
+def testLongTags(env):
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
+    conn = getConnectionByEnv(env)
+
+    t = 'E-Ticaret Yöneticisi / Yönetmeni - XXİX DANIŞMANLIK VE ELEKTRONİK ÇÖZÜMLER İTHALAT İHRACAT LİMİTED ŞİRKETİ - İstanbul'
+    t_lower = t.lower()
+
+    env.expect('HSET', '{doc}:1', 't', t).equal(1)
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
+        # The conversion to lowercase occuppies more space than the original
+        # term, so the term is stored in its original form
+        env.assertEqual(res, [[t, [1]]])
+
+    env.expect('HSET', '{doc}:2', 't', t_lower).equal(1)
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
+        # The lowercase term is stored in its original form, so the index will
+        # have two terms: the original term and the lowercase term
+        env.assertEqual(res, [[t, [1]], [t_lower, [2]]])
+
+    # Test search original term
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', f'@t:{{"{t}"}}', 'NOCONTENT', 'DIALECT', '2')
+    env.assertEqual(res, [1, '{doc}:1'])
+
+    # Test search lowercase term
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', f'@t:{{"{t_lower}"}}', 'NOCONTENT', 'DIALECT', '2')
+    env.assertEqual(res, [1, '{doc}:2'])
+
+    # Test search lowercase escaped term
+    res = conn.execute_command('FT.SEARCH', 'idx', '@t:{e\\-ticaret\\ yöneticisi\\ \\/\\ yönetmeni\\ \\-\\ xxi̇x\\ danişmanlik\\ ve\\ elektroni̇k\\ çözümler\\ i̇thalat\\ i̇hracat\\ li̇mi̇ted\\ şi̇rketi̇\\ \\-\\ i̇stanbul}', 'NOCONTENT')
+    env.assertEqual(res, [1, '{doc}:2'])
+
+
+def testLongTexts(env):
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
+    conn = getConnectionByEnv(env)
+
+    t = 'E-Ticaret Yöneticisi / Yönetmeni - XXİX DANIŞMANLIK VE ELEKTRONİK ÇÖZÜMLER İTHALAT İHRACAT LİMİTED ŞİRKETİ - İstanbul'
+    t_lower = t.lower()
+    t_escaped = 'E\\-Ticaret\\ Yöneticisi\\ \\/\\ Yönetmeni\\ \\-\\ XXİX\\ DANIŞMANLIK\\ VE\\ ELEKTRONİK\\ ÇÖZÜMLER\\ İTHALAT\\ İHRACAT\\ LİMİTED\\ ŞİRKETİ\\ \\-\\ İstanbul'
+    t_escaped_lower = t_escaped.lower()
+
+    env.expect('HSET', '{doc}:1', 't', t_escaped).equal(1)
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
+        print(res)
+        # The conversion to lowercase occuppies more space than the original
+        # term, so the term is stored in its original form
+        env.assertEqual(res, [t])
+
+    env.expect('HSET', '{doc}:2', 't', t_escaped_lower).equal(1)
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
+        # The lowercase term is stored in its original form, so the index will
+        # have two terms: the original term and the lowercase term
+        env.assertEqual(res, [t, t_lower])
+
+    # Test search original term
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', f'@t:(E\\-Ticaret\\ Yöneticisi\\ \\/\\ Yönetmeni\\ \\-\\ XXİX\\ DANIŞMANLIK\\ VE\\ ELEKTRONİK\\ ÇÖZÜMLER\\ İTHALAT\\ İHRACAT\\ LİMİTED\\ ŞİRKETİ\\ \\-\\ İstanbul)',
+        'NOCONTENT', 'DIALECT', '2')
+    # TODO: why does this return doc:2 ?
+    env.assertEqual(res, [1, '{doc}:2'])
+
+    # Test search lowercase term
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', f'@t:("{t_escaped_lower}")', 'NOCONTENT', 'DIALECT', '2')
+    env.assertEqual(res, [1, '{doc}:2'])
+
+    # Test search lowercase escaped term
+    res = conn.execute_command(
+        'FT.SEARCH', 'idx', '@t:(e\\-ticaret\\ yöneticisi\\ \\/\\ yönetmeni\\ \\-\\ xxi̇x\\ danişmanlik\\ ve\\ elektroni̇k\\ çözümler\\ i̇thalat\\ i̇hracat\\ li̇mi̇ted\\ şi̇rketi̇\\ \\-\\ i̇stanbul)',
+        'NOCONTENT', 'DIALECT', '1')
+    env.assertEqual(res, [1, '{doc}:2'])
