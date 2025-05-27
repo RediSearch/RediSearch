@@ -20,7 +20,7 @@ protected:
 
   void SetUp() override {
     docIds = GetParam();
-      iterator_base = IT_V2(NewIdListIterator)(docIds.data(), docIds.size(), 1.0);
+    iterator_base = IT_V2(NewIdListIterator)(docIds.data(), docIds.size(), 1.0);
   }
   void TearDown() override {
     iterator_base->Free(iterator_base);
