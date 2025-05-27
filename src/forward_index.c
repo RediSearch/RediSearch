@@ -280,6 +280,23 @@ int forwardIndexTokenFunc(void *ctx, const Token *tokInfo) {
   return 0;
 }
 
+/** Write a forward-index entry to the index */
+size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
+                                            ForwardIndexEntry *ent) {
+  RSIndexResult rec = {.type = RSResultType_Term,
+                       .docId = ent->docId,
+                       .offsetsSz = VVW_GetByteLength(ent->vw),
+                       .freq = ent->freq,
+                       .fieldMask = ent->fieldMask};
+
+  rec.term.term = NULL;
+  if (ent->vw) {
+    rec.term.offsets.data = VVW_GetByteData(ent->vw);
+    rec.term.offsets.len = VVW_GetByteLength(ent->vw);
+  }
+  return InvertedIndex_WriteEntryGeneric(idx, encoder, ent->docId, &rec);
+}
+
 ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, uint32_t hash) {
   KHTableEntry *baseEnt = KHTable_GetEntry(i->hits, s, n, hash, NULL);
   if (!baseEnt) {

@@ -12,7 +12,6 @@
 #include "redisearch.h"
 #include "buffer.h"
 #include "doc_table.h"
-#include "forward_index.h"
 #include "index_iterator.h"
 #include "index_result.h"
 #include "spec.h"
@@ -206,11 +205,6 @@ void IndexReader_OnReopen(IndexReader *ir);
 /* An index encoder is a callback that writes records to the index. It accepts a pre-calculated
  * delta for encoding */
 typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId delta, RSIndexResult *record);
-
-/* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
- */
-size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
-                                            ForwardIndexEntry *ent);
 
 /* Write a numeric index entry to the index. it includes only a float value and docId. Returns the
  * number of bytes written */
