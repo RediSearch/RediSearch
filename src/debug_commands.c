@@ -34,6 +34,20 @@
 
 #include "commands.h"
 
+
+DebugCTX globalDebugCtx = {0};
+
+void validateDebugMode(DebugCTX *debugCtx) {
+  // Debug mode is enabled if any of its field is non-default
+  // Should be called after each debug command that changes the debugCtx
+  debugCtx->debugMode =
+    (debugCtx->bgIndexing.maxDocsTBscanned > 0) ||
+    (debugCtx->bgIndexing.maxDocsTBscannedPause > 0) ||
+    (debugCtx->bgIndexing.pauseBeforeScan);
+
+}
+
+
 #define GET_SEARCH_CTX(name)                                        \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
   if (!sctx) {                                                      \
@@ -1315,7 +1329,7 @@ DEBUG_COMMAND(YieldCounter) {
   if (argc > 3) {
     return RedisModule_WrongArity(ctx);
   }
-  
+
   // Check if we need to reset the counter
   if (argc == 3) {
     size_t len;
@@ -1327,11 +1341,153 @@ DEBUG_COMMAND(YieldCounter) {
       return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
     }
   }
-  
+
   // Return the current counter value
   return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
 }
 
+DEBUG_COMMAND(setMaxScannedDocs) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long max_scanned_docs;
+  if (RedisModule_StringToLongLong(argv[2], &max_scanned_docs) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_MAX_SCANNED_DOCS'");
+  }
+
+  // Negative maxDocsTBscanned represents no limit
+
+  globalDebugCtx.bgIndexing.maxDocsTBscanned = (int) max_scanned_docs;
+
+  // Check if we need to enable debug mode
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+DEBUG_COMMAND(setPauseOnScannedDocs) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long pause_scanned_docs;
+  if (RedisModule_StringToLongLong(argv[2], &pause_scanned_docs) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_ON_SCANNED_DOCS'");
+  }
+
+  globalDebugCtx.bgIndexing.maxDocsTBscannedPause = (int) pause_scanned_docs;
+
+  // Check if we need to enable debug mode
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+DEBUG_COMMAND(setBgIndexResume) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.pause = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_BG_INDEX_RESUME'");
+  }
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+DEBUG_COMMAND(getDebugScannerStatus) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  if (!sp->scanner) {
+    return RedisModule_ReplyWithError(ctx, "Scanner is not initialized");
+  }
+
+  if(!(sp->scanner->isDebug)) {
+    return RedisModule_ReplyWithError(ctx, "Debug mode enabled but scanner is not a debug scanner");
+  }
+
+  // Assuming this file is aware of spec.h, via direct or in-direct include
+  DebugIndexesScanner *dScanner = (DebugIndexesScanner*)sp->scanner;
+
+
+  return RedisModule_ReplyWithSimpleString(ctx, DEBUG_INDEX_SCANNER_STATUS_STRS[dScanner->status]);
+}
+
+DEBUG_COMMAND(setPauseBeforeScan) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.pauseBeforeScan = true;
+  } else if (!strcasecmp(op, "false")) {
+    globalDebugCtx.bgIndexing.pauseBeforeScan = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_SCAN'");
+  }
+
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+DEBUG_COMMAND(bgScanController) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  // Check here all background indexing possible commands
+  if (!strcmp("SET_MAX_SCANNED_DOCS", op)) {
+    return setMaxScannedDocs(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_PAUSE_ON_SCANNED_DOCS", op)) {
+    return setPauseOnScannedDocs(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_BG_INDEX_RESUME", op)) {
+    return setBgIndexResume(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("GET_DEBUG_SCANNER_STATUS", op)) {
+    return getDebugScannerStatus(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_PAUSE_BEFORE_SCAN", op)) {
+    return setPauseBeforeScan(ctx, argv+1, argc-1);
+  }
+  return RedisModule_ReplyWithError(ctx, "Invalid command for 'BG_SCAN_CONTROLLER'");
+
+}
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
                                {"DUMP_NUMIDX", DumpNumericIndex}, // Print all the headers (optional) + entries of the numeric tree.
                                {"DUMP_NUMIDXTREE", DumpNumericIndexTree}, // Print tree general info, all leaves + nodes + stats
@@ -1365,6 +1521,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
+                               {"BG_SCAN_CONTROLLER", bgScanController},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
