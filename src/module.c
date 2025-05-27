@@ -1123,9 +1123,10 @@ void RediSearch_CleanupModule(void) {
   freeGlobalAddStrings();
   SchemaPrefixes_Free(ScemaPrefixes_g);
 
+  IndexError_GlobalCleanup();
+
   RedisModule_FreeThreadSafeContext(RSDummyContext);
   Dictionary_Free();
   RediSearch_LockDestory();
 
-  IndexError_GlobalCleanup();
 }
