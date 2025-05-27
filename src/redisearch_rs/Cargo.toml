@@ -3,7 +3,8 @@ members = [
     "low_memory_thin_vec",
     "qint",
     "redis_mock",
-    "redisearch_rs", "rp_base",
+    "redisearch_rs",
+    "result_processor",
     "tools/license_header_linter",
     "trie_bencher",
     "trie_rs",
@@ -54,6 +55,7 @@ redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }
 wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
+result_processor = { path = "./result_processor" }
 
 cbindgen = "0.28.0"
 cc = "1"

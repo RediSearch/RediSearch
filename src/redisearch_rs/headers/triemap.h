@@ -360,6 +360,8 @@ void TrieMap_IterateRange(struct TrieMap *trie,
                           TrieMapRangeCallback callback,
                           void *ctx);
 
+struct Header *RPCounter_New(void);
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif  // __cplusplus
