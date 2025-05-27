@@ -18,6 +18,10 @@
 #include "document.h"
 #include "inverted_index.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct ForwardIndexEntry {
   struct ForwardIndexEntry *next;
   t_docId docId;
@@ -90,4 +94,7 @@ void ForwardIndex_NormalizeFreq(ForwardIndex *, ForwardIndexEntry *);
 size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
                                             ForwardIndexEntry *ent);
 
+#ifdef __cplusplus
+}
+#endif
 #endif
