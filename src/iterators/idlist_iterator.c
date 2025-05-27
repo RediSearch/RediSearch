@@ -6,6 +6,10 @@
 
 #include "idlist_iterator.h"
 
+static inline void setEof(IdListIterator *it, int value) {
+  it->base.atEOF = value;
+}
+
 static inline int isEof(const IdListIterator *it) {
   return it->base.atEOF;
 }
@@ -20,8 +24,8 @@ static size_t IL_NumEstimated(QueryIterator *base) {
 static IteratorStatus IL_Read(QueryIterator *base) {
   IdListIterator *it = (IdListIterator *)base;
   if (isEof(it) || it->offset >= it->size) {
-      it->base.atEOF = true;
-      return ITERATOR_EOF;
+    setEof(it, 1);
+    return ITERATOR_EOF;
   }
 
   base->lastDocId = it->docIds[it->offset++];
@@ -34,35 +38,34 @@ static IteratorStatus IL_Read(QueryIterator *base) {
 static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
   IdListIterator *it = (IdListIterator *)base;
   if (isEof(it) || it->offset >= it->size) {
-      return ITERATOR_EOF;
+    return ITERATOR_EOF;
   }
 
   if (docId > it->docIds[it->size - 1]) {
-      //TODO(Joan): Should we update atEOF here?
-      it->base.atEOF = true;
-      return ITERATOR_EOF;
+    setEof(it, 1);
+    return ITERATOR_EOF;
   }
 
   int64_t top = it->size - 1, bottom = it->offset;
   int64_t i;
   t_docId did;
   while (bottom <= top) {
-      i = (bottom + top) / 2;
-      did = it->docIds[i];
+    i = (bottom + top) / 2;
+    did = it->docIds[i];
 
-      if (did == docId) {
-        break;
-      }
-      if (docId < did) {
-        top = i - 1;
-      } else {
-        bottom = i + 1;
-      }
+    if (did == docId) {
+      break;
+    }
+    if (docId < did) {
+      top = i - 1;
+    } else {
+      bottom = i + 1;
+    }
   }
   if (did < docId) did = it->docIds[++i];
   it->offset = i + 1;
   if (it->offset >= it->size) {
-    it->base.atEOF = true;
+    setEof(it, 1);
   }
 
   it->base.current->docId = it->base.lastDocId = did;
@@ -87,9 +90,9 @@ static int cmp_docids(const void *p1, const void *p2) {
 
 static void IL_Rewind(QueryIterator *base) {
   IdListIterator *il = (IdListIterator *)base;
-  il->base.atEOF = false;
+  setEof(il, 0);
   il->base.lastDocId = 0;
-  il->base.current = NewVirtualResult(il->base.current->weight, RS_FIELDMASK_ALL);
+  il->base.current->docId = 0;
   il->offset = 0;
 }
  
@@ -105,7 +108,7 @@ QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weig
   it->size = num;
   it->docIds = rm_calloc(num, sizeof(t_docId));
   if (num > 0) memcpy(it->docIds, ids, num * sizeof(t_docId));
-  it->base.atEOF = false;
+  setEof(it, 0);
   it->base.current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   it->base.lastDocId = 0;
 
