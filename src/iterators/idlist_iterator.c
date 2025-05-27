@@ -100,7 +100,6 @@ QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weig
   // Assume the ids are not null and num > 0 otherwise these Iterator would not be created, avoid validation
   // first sort the ids, so the caller will not have to deal with it
   
-  //TODO(Joan): Should we check for duplicates?
   qsort(ids, (size_t)num, sizeof(t_docId), cmp_docids);
 
   IdListIterator *it = rm_new(IdListIterator);

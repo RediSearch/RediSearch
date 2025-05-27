@@ -24,6 +24,7 @@ public:
 
   void SetUp(::benchmark::State &state) {
     if (!initialized) {
+      //TODO: Joan. Can I check if RMCK is initialized?
       RMCK::init();
       initialized = true;
     }

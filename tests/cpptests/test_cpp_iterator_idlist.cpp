@@ -56,7 +56,6 @@ TEST_P(IDListIteratorCommonTest, SkipTo) {
   std::sort(sorted_docIds.begin(), sorted_docIds.end(), cmp_docids);
   IdListIterator *iterator = (IdListIterator *)iterator_base;
   IteratorStatus rc;
-  //TODO(Joan): Check if EOF should be updated when ITERATOR_OK is not returned
 
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
   ASSERT_EQ(iterator->base.lastDocId, sorted_docIds[0]);
@@ -71,7 +70,6 @@ TEST_P(IDListIteratorCommonTest, SkipTo) {
 
   iterator_base->Rewind(iterator_base);
 
-  //TODO(Joan): At least test for doc purposes how to behave with i = 0
   t_docId i = 1;
   for (size_t index = 0; index < sorted_docIds.size(); index++) {
     t_docId id = sorted_docIds[index];
