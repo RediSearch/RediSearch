@@ -13,6 +13,7 @@
 #include <ctype.h>
 #include "fast_float/fast_float_strtod.h"
 #include "libnu/libnu.h"
+#include "rmutil/rm_assert.h"
 /* Strconv - common simple string conversion utils */
 
 // Case insensitive string equal
@@ -130,20 +131,22 @@ static uint32_t __simple_tolower(uint32_t in) {
 }
 
 // transform utf8 string to lower case using nunicode library
-// encoded: the utf8 string to transform, if the transformation is successful
-//          the transformed string will be written back to this buffer
-// in_len: the length of the utf8 string
-// returns the bytes written to encoded, or 0 if the length of the transformed
-// string is greater than in_len and no transformation was done
-static size_t unicode_tolower(char *encoded, size_t in_len, char** dst) {
+// encoded: the utf8 string to transform
+// in_len:
+// out_len: output parameter,
+// returns a pointer to the lower case string, which may be the same as the input string
+// if no new memory allocation is needed.
+static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
   uint32_t u_stack_buffer[SSO_MAX_LENGTH];
   uint32_t *u_buffer = u_stack_buffer;
+  char *longer_dst = NULL;
 
   if (in_len == 0) {
-    return 0;
+    return NULL;
   }
 
   const char *encoded_char = encoded;
+  const char *encoded_end = encoded + in_len;
   ssize_t u_len = nu_strtransformnlen(encoded, in_len, nu_utf8_read,
                                               nu_tolower, nu_casemap_read);
 
@@ -154,9 +157,14 @@ static size_t unicode_tolower(char *encoded, size_t in_len, char** dst) {
   // Decode utf8 string into Unicode codepoints and transform to lower
   uint32_t codepoint;
   unsigned i = 0;
-  for (ssize_t j = 0; j < u_len; j++) {
+  while (encoded_char < encoded_end) {
     // Read unicode codepoint from utf8 string
-    encoded_char = nu_utf8_read(encoded_char, &codepoint);
+    const char *next_char = nu_utf8_read(encoded_char, &codepoint);
+    if (next_char == encoded_char) {
+      // Invalid UTF-8, break to avoid infinite loop
+      break;
+    }
+    encoded_char = next_char;
     // Transform unicode codepoint to most common lower case codepoint
     codepoint = __simple_tolower(codepoint);
     // Transform unicode codepoint to lower case
@@ -184,13 +192,21 @@ static size_t unicode_tolower(char *encoded, size_t in_len, char** dst) {
   }
 
   // Encode Unicode codepoints back to utf8 string
-  ssize_t reencoded_len = nu_bytenlen(u_buffer, u_len, nu_utf8_write);
+  ssize_t reencoded_len = nu_bytenlen(u_buffer, i, nu_utf8_write);
   if (reencoded_len != 0) {
-    if (reencoded_len <= in_len) {
-      nu_writenstr(u_buffer, u_len, encoded, nu_utf8_write);
+    if (reencoded_len <= in_len && u_buffer == u_stack_buffer) {
+      // If the reencoded length is less than or equal to the original length
+      // and we used the stack buffer, we can write directly to the original buffer
+      // Write the reencoded string back to the original buffer
+      // Note: nu_writenstr does not null-terminate the string, so we handle that separately
+      // it should be updated by the caller if needed
+      nu_writenstr(u_buffer, i, encoded, nu_utf8_write);
     } else {
-      *dst = (char *)rm_malloc((reencoded_len + 1) * sizeof(char));
-      nu_writenstr(u_buffer, u_len, *dst, nu_utf8_write);
+      longer_dst = (char *)rm_malloc((reencoded_len + 1) * sizeof(char));
+      nu_writenstr(u_buffer, i, longer_dst, nu_utf8_write);
+      longer_dst[reencoded_len] = '\0';
+      ssize_t x = strlen(longer_dst);
+      RS_LOG_ASSERT_FMT(x == reencoded_len, "reencoded length mismatch: %zu != %zu", x, reencoded_len);
     }
   }
 
@@ -198,8 +214,10 @@ static size_t unicode_tolower(char *encoded, size_t in_len, char** dst) {
   if (u_buffer != u_stack_buffer) {
     rm_free(u_buffer);
   }
-
-  return reencoded_len;
+  if (out_len) {
+    *out_len = reencoded_len;
+  }
+  return longer_dst;
 }
 
 
@@ -221,15 +239,16 @@ static char *rm_normalize(const char *s, size_t len) {
   *dst = '\0';
 
   // convert to lower case
-  char *longer_dst = NULL;
-  size_t newLen = unicode_tolower(ret, len, &longer_dst);
-  if (newLen) {
-    if(longer_dst) {
-      rm_free(ret);
-      ret = longer_dst;
+  size_t newLen = 0;
+  char *longerDst = unicode_tolower(ret, len, &newLen);
+    if (longerDst) {
+        rm_free(ret);
+        ret = longerDst;
     }
-    ret[newLen] = '\0';
-  }
+    if (len != newLen) {
+      len = newLen;
+      ret[newLen] = '\0';
+    }
 
   return ret;
 }

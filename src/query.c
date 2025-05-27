@@ -1092,11 +1092,17 @@ static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
 
   if (!caseSensitive) {
     // TODO: MOD-8799 Support longer dst
-    size_t newLen = unicode_tolower(origStr, origLen, NULL);
-    if (newLen) {
-      origStr[newLen] = '\0';
-      *len = newLen;
+    size_t newLen = 0;
+    char *dst = unicode_tolower(origStr, origLen, &newLen);
+    if (dst) {
+        rm_free(origStr);
+        origStr = dst;
     }
+    if (origLen != newLen) {
+      *len = newLen;
+      origStr[newLen] = '\0';
+    }
+
   }
 }
 

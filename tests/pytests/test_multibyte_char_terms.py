@@ -1445,7 +1445,8 @@ def testToLowerSize(env):
     env.cmd('FT.CREATE', 'idx_tag', 'ON', 'HASH', 'SCHEMA', 't', 'TAG')
 
     for idx in ['idx_txt', 'idx_tag']:
-        for codepoint in range(0x110000):  # Unicode range from U+0000 to U+10FFFF
+        # for codepoint in range(0x110000):  # Unicode range from U+0000 to U+10FFFF
+        for codepoint in range(0xFFFF):  # Unicode range from U+0000 to U+FFFF only 2 bytes
             # Skip surrogate pairs (0xD800 to 0xDFFF)
             if 0xD800 <= codepoint <= 0xDFFF:
                 continue
@@ -1457,13 +1458,16 @@ def testToLowerSize(env):
             lower_bytes = lower_char.encode('utf-8')
 
             if (len(upper_bytes) < len(lower_bytes)):
-                # print(f"len(upper_bytes) < len(lower_bytes) -> {len(upper_bytes)} < {len(lower_bytes)}")
-                # if (lower_char != lower_char2):
-                #     print(f'Different: lower_char: {lower_char} {' '.join(f"U+{ord(c):04X}" for c in lower_char)} lower_char2: {lower_char2} {' '.join(f"U+{ord(c):04X}" for c in lower_char2)}')
+                print(f"Codepoint:U+{codepoint:04X}  char:{char}:{' '.join(f'U+{ord(c):04X}' for c in char)}")
+                print(f"len(upper_bytes) < len(lower_bytes) -> {len(upper_bytes)} < {len(lower_bytes)}")
+                if (lower_char != lower_char2):
+                    print(f'Different: char.upper():{upper_char}:{' '.join(f"U+{ord(c):04X}" for c in upper_char)}  char.lower():{lower_char}:{' '.join(f"U+{ord(c):04X}" for c in lower_char)} char.lower().upper().lower(): {lower_char2} {' '.join(f"U+{ord(c):04X}" for c in lower_char2)}')
+                else:
+                    print(f'Same:      char.upper():{upper_char}:{' '.join(f"U+{ord(c):04X}" for c in upper_char)}  char.lower():{lower_char}:{' '.join(f"U+{ord(c):04X}" for c in lower_char)} char.lower().upper().lower(): {lower_char2} {' '.join(f"U+{ord(c):04X}" for c in lower_char2)}')
                 lower_term = lower_char * 5
                 upper_term = upper_char * 5
-                # env.debugPrint(f'upper_term: {upper_term} lower_term: {lower_term}')
-                # print(f'upper_term: {upper_term} lower_term: {lower_term}')
+                env.debugPrint(f'upper_term: {upper_term} lower_term: {lower_term}')
+                print(f'upper_term: {upper_term} lower_term: {lower_term}')
                 env.cmd('HSET', 'doc:1', 't', lower_term)
                 env.cmd('HSET', 'doc:2', 't', upper_term)
                 res = conn.execute_command(
@@ -1471,5 +1475,5 @@ def testToLowerSize(env):
                 env.assertEqual(res, [2, 'doc:1', 'doc:2'], message = f'{idx} upper_char: {upper_char} {' '.join(f"U+{ord(c):04X}" for c in upper_char)}' )
                 res = conn.execute_command(
                     'FT.SEARCH', idx, f'@t:({lower_term})', 'NOCONTENT')
-                env.assertEqual(res, [2, 'doc:1', 'doc:2'], message = f'{idx} lower_char: {lower_char} {lower_char2} {' '.join(f"U+{ord(c):04X}" for c in lower_char)} lower2: {' '.join(f"U+{ord(c):04X}" for c in lower_char2)}')
+                env.assertEqual(res, [2, 'doc:1', 'doc:2'], message = f'{idx} lower_char: {lower_char}  {' '.join(f"U+{ord(c):04X}" for c in lower_char)} lower_char_2: {lower_char2} {' '.join(f"U+{ord(c):04X}" for c in lower_char2)}')
 

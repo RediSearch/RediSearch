@@ -95,15 +95,16 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
   if (sep == TAG_FIELD_DEFAULT_JSON_SEP) {
     char *tok = rm_strdup(str);
     if (!(flags & TagField_CaseSensitive)) { // check case sensitive
-      char *longer_dst = NULL;
-      size_t newLen = unicode_tolower(tok, strlen(tok), &longer_dst);
-      if (newLen) {
-        if (longer_dst) {
-          rm_free(tok);
-          tok = longer_dst;
-        }
-        tok[newLen] = '\0';
-      }
+      size_t origLen = strlen(tok);
+      size_t newLen = 0;
+      char *dst = unicode_tolower(tok, origLen, &newLen);
+      if (dst) {
+        rm_free(tok);
+        tok = dst;
+    }
+    if (origLen != newLen) {
+      tok[newLen] = '\0';
+    }
     }
     array_append(*resArray, tok);
     return REDISMODULE_OK;
@@ -122,15 +123,17 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
     if (tok) {
       // normalize the string
       if (!(flags & TagField_CaseSensitive)) { // check case sensitive
-        char *longer_dst = NULL;
-        size_t newLen = unicode_tolower(tok, strlen(tok), &longer_dst);
-        if (newLen) {
+        size_t origLen = strlen(tok);
+        size_t newLen = 0;
+        char *longer_dst = unicode_tolower(tok, origLen, &newLen);
+        if (longer_dst) {
+          tok = longer_dst;
+        } else {
+          tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
+        }
+        if (origLen != newLen) {
           toklen = newLen;
-          if (!longer_dst) {
-            tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
-          } else {
-            tok = longer_dst;
-          }
+          tok[newLen] = '\0';
         }
       } else {
         tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));

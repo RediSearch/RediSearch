@@ -71,9 +71,9 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len, int *allocated) {
 
   *len = dstLen;
 
-  char *longer_dst = NULL;
-  size_t newLen = unicode_tolower(dst, dstLen, &longer_dst);
-  if (newLen) {
+  size_t newLen = 0;
+  char *longer_dst = unicode_tolower(dst, dstLen, &newLen);
+  if (dstLen != newLen) {
     *len = newLen;
   }
 
@@ -150,9 +150,9 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
       PhoneticManager_ExpandPhonetics(NULL, tok, normLen, &t->phoneticsPrimary, NULL);
     }
 
-    if (allocated) {
-      rm_free((void *)t->tok);
-    }
+    // if (allocated) {
+    //   rm_free((void *)t->tok);
+    // }
 
     return ctx->lastOffset;
   }

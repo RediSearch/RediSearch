@@ -148,13 +148,15 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, con
   int ret;
   for (size_t i = 0; i < size; i++) {
     char *lowerSynonym = rm_strdup(synonyms[i]);
-    char *longer_dst = NULL;
-    size_t newLen = unicode_tolower(lowerSynonym, strlen(lowerSynonym), &longer_dst);
-    if (newLen) {
-      if (longer_dst) {
+    size_t origLen = strlen(lowerSynonym);
+    size_t newLen = 0;
+    char *dst = unicode_tolower(lowerSynonym, origLen, &newLen);
+    if (dst) {
         rm_free(lowerSynonym);
-        lowerSynonym = longer_dst;
-      }
+        lowerSynonym = dst;
+    }
+    if (origLen != newLen) {
+      origLen = newLen;
       lowerSynonym[newLen] = '\0';
     }
     TermData* termData = dictFetchValue(smap->h_table, lowerSynonym);

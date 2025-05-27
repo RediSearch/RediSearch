@@ -1788,7 +1788,7 @@ int RegisterModuleConfig(RedisModuleCtx *ctx) {
       (void *)&(RSGlobalConfig.indexerYieldEveryOpsWhileLoading)
     )
   )
-  
+
   // String parameters
   RM_TRY(
     RedisModule_RegisterStringConfig(
