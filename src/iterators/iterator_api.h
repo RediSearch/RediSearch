@@ -51,10 +51,6 @@ typedef struct QueryIterator {
   // Current result. Should always point to a valid current result, except when `lastDocId` is 0
   RSIndexResult *current;
 
-  // Used if the iterator yields some value.
-  // Consider placing in a union with an array of keys, if a field want to yield multiple metrics
-  struct RLookupKey *ownKey;
-
   /** Return an upper-bound estimation for the number of results the iterator is going to yield */
   size_t (*NumEstimated)(struct QueryIterator *self);
 

@@ -6,75 +6,96 @@
 
 #include "metric_iterator.h"
 
+static inline void setEof(MetricIterator *it, int value) {
+  it->base.atEOF = value;
+}
+
+static inline int isEof(const MetricIterator *it) {
+  return it->base.atEOF;
+}
+
 static size_t MR_NumEstimated(QueryIterator *base) {
   MetricIterator *mr = (MetricIterator *)base;
-  return mr->resultsNum;
+  return mr->size;
 }
 
 static void MR_Rewind(QueryIterator *base) {
   MetricIterator *mr = (MetricIterator *)base;
   base->lastDocId = 0;
-  mr->curIndex = 0;
+  mr->offset = 0;
   mr->base.atEOF = 0;
 }
 
 static IteratorStatus MR_Read(QueryIterator *base) {
-  if (base->atEOF) {
+  MetricIterator *mr = (MetricIterator *)base;
+  if (isEof(mr) || mr->offset >= mr->size) {
+    setEof(mr, 1);
     return ITERATOR_EOF;
   }
-  MetricIterator *mr = (MetricIterator *)base;
 
-  // Set the item that we read in the current RSIndexResult
-  base->lastDocId = mr->idsList[mr->curIndex];
-
-  // Advance the current index in the doc ids array, so it will point to the next id to be returned.
-  // If we reached the total number of results, iterator is depleted.
-  mr->curIndex++;
-  if (mr->curIndex == mr->resultsNum) {
-    mr->base.atEOF = 1;
-  }
+  base->lastDocId = mr->docIds[mr->offset++];
+  mr->base.current->docId = base->lastDocId;
   return ITERATOR_OK;
 }
 
 static IteratorStatus MR_SkipTo(QueryIterator *base, t_docId docId) {
-  if (base->atEOF) {
+  MetricIterator *mr = (MetricIterator *)base;
+  if (isEof(mr) || mr->offset >= mr->size) {
+    setEof(mr, 1);
     return ITERATOR_EOF;
   }
-  MetricIterator *mr = (MetricIterator *)base;
-  t_docId cur_id = mr->idsList[mr->curIndex];
-  while(cur_id < docId) {
-    // consider binary search for next value (skip exponentially to 2,4,8,...).
-    mr->curIndex++;
-    if (mr->curIndex == mr->resultsNum) {
-      base->atEOF = 1;
-      return ITERATOR_EOF;
+
+  if (docId > mr->docIds[mr->size - 1]) {
+    setEof(mr, 1);
+    return ITERATOR_EOF;
+  }
+
+  int64_t top = mr->size - 1, bottom = mr->offset;
+  int64_t i;
+  t_docId did;
+  while (bottom <= top) {
+    i = (bottom + top) / 2;
+    did = mr->docIds[i];
+
+    if (did == docId) {
+      break;
     }
-    cur_id = mr->idsList[mr->curIndex];
+    if (docId < did) {
+      top = i - 1;
+    } else {
+      bottom = i + 1;
+    }
   }
-  // Set the item that we skipped to it in hit.
-  base->lastDocId = cur_id;
-  mr->curIndex++;
-  if (mr->curIndex == mr->resultsNum) {
-    base->atEOF = 1;
+  if (did < docId) did = mr->docIds[++i];
+  mr->offset = i + 1;
+  if (mr->offset >= mr->size) {
+    setEof(mr, 1);
   }
-  return (cur_id == docId) ? ITERATOR_OK : ITERATOR_NOTFOUND;
+
+  mr->base.current->docId = mr->base.lastDocId = did;
+  return docId == did ? ITERATOR_OK : ITERATOR_NOTFOUND;
 }
 
 static void SetYield(QueryIterator *mr) {
-  ResultMetrics_Add(mr->current, mr->ownKey, RS_NumVal(mr->current->num.value));
+  ResultMetrics_Reset(mr->current);
+  ResultMetrics_Add(mr->current, NULL, RS_NumVal(mr->current->num.value));
 }
 
-static IteratorStatus MR_Read_With_Yield(QueryIterator *mr) {
-  IteratorStatus rc = MR_Read(mr);
+static IteratorStatus MR_Read_With_Yield(QueryIterator *base) {
+  IteratorStatus rc = MR_Read(base);
   if (ITERATOR_OK == rc) {
+    MetricIterator *mr = (MetricIterator *)base;
+    base->current->num.value = mr->metricList[mr->offset - 1];
     SetYield(mr);
   }
   return rc;
 }
 
-static IteratorStatus MR_SkipTo_With_Yield(QueryIterator *mr, t_docId docId) {
-  int rc = MR_SkipTo(mr, docId);
-  if (ITERATOR_OK == rc) {
+static IteratorStatus MR_SkipTo_With_Yield(QueryIterator *base, t_docId docId) {
+  int rc = MR_SkipTo(base, docId);
+  if (ITERATOR_OK == rc || ITERATOR_NOTFOUND == rc) {
+    MetricIterator *mr = (MetricIterator *)base;
+    base->current->num.value = mr->metricList[mr->offset - 1];
     SetYield(mr);
   }
   return rc;
@@ -87,20 +108,30 @@ static void MR_Free(QueryIterator *self) {
   }
   IndexResult_Free(mr->base.current);
 
-  array_free(mr->idsList);
-  array_free(mr->metricList);
+  if (mr->docIds) {
+    rm_free(mr->docIds);
+  }
+  
+  if (mr->metricList) {
+    rm_free(mr->metricList);
+  }
 
   rm_free(mr);
 }
 
-QueryIterator *IT_V2(NewMetricIterator)(t_docId *ids_list, double *metric_list, Metric metric_type, bool yields_metric) {
+QueryIterator *IT_V2(NewMetricIterator)(t_docId *docIds, double *metric_list, size_t num_results, Metric metric_type, bool yields_metric) {
   MetricIterator *mi = rm_new(MetricIterator);
   mi->base.lastDocId = 0;
   mi->base.atEOF = 0;
-  mi->idsList = ids_list;
+  mi->docIds = docIds;
   mi->metricList = metric_list;
-  mi->resultsNum = array_len(ids_list);
-  mi->curIndex = 0;
+  // I am copying and get ownership
+  /*mi->idsList = rm_calloc(num_results, sizeof(t_docId));
+  if (num_results > 0) memcpy(mi->idsList, ids_list, num_results * sizeof(t_docId));
+  mi->metricList = rm_calloc(num_results, sizeof(double));
+  if (num_results > 0) memcpy(mi->metricList, metric_list, num_results * sizeof(double));*/
+  mi->size = num_results;
+  mi->offset = 0;
 
   QueryIterator *ri = &mi->base;
   ri->type = METRIC_ITERATOR;
