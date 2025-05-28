@@ -173,6 +173,9 @@ impl BufferWriter {
     /// # Safety
     ///
     /// We assume `buf` is a valid pointer to a properly initialized `Buffer`.
+    ///
+    /// Note that it is assumed that `buffer` will not be written to or invalidated throughout the
+    /// lifetime of the returned `BufferWriter` after this call.
     pub unsafe fn for_buffer(mut buffer: NonNull<Buffer>) -> Self {
         Self(ffi::BufferWriter {
             // Safety: We assume `buf` is a valid pointer to a properly initialized `Buffer`.
