@@ -32,21 +32,6 @@ fn main() {
     let src = root.join("src");
     let deps = root.join("deps");
     let bindings = bindgen::Builder::default()
-        .header(
-            root.join("deps")
-                .join("triemap")
-                .join("triemap.h")
-                .to_str()
-                .unwrap(),
-        )
-        .header(
-            root.join("src")
-                .join("util")
-                .join("arr")
-                .join("arr.h")
-                .to_str()
-                .unwrap(),
-        )
         .header(root.join("src").join("buffer.h").to_str().unwrap())
         .clang_arg(format!("-I{}", src.display()))
         .clang_arg(format!("-I{}", deps.display()))
