@@ -33,6 +33,7 @@ fn main() {
     let deps = root.join("deps");
     let bindings = bindgen::Builder::default()
         .header(root.join("src").join("buffer.h").to_str().unwrap())
+        .header(root.join("src").join("redisearch.h").to_str().unwrap())
         .clang_arg(format!("-I{}", src.display()))
         .clang_arg(format!("-I{}", deps.display()))
         .clang_arg(format!("-I{}", redis_modules.display()))
