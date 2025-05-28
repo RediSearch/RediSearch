@@ -50,7 +50,6 @@ env:
   # flags, and therefore reuse the same intermediate build artifacts.
   RUSTFLAGS: "-D warnings"
   RUST_BACKTRACE: "full"
-  CARGO_PROFILE_OPTIMISED_TEST_BUILD_OVERRIDE_DEBUG: "true"
 
 jobs:
   common-flow:
