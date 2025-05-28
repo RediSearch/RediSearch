@@ -1188,15 +1188,15 @@ static void rpcountFree(ResultProcessor *rp) {
   rm_free(self);
 }
 
-/* Create a new counter. */
-ResultProcessor *RPCounter_New() {
-  RPCounter *ret = rm_calloc(1, sizeof(*ret));
-  ret->count = 0;
-  ret->base.Next = rpcountNext;
-  ret->base.Free = rpcountFree;
-  ret->base.type = RP_COUNTER;
-  return &ret->base;
-}
+// /* Create a new counter. */
+// ResultProcessor *RPCounter_New() {
+//   RPCounter *ret = rm_calloc(1, sizeof(*ret));
+//   ret->count = 0;
+//   ret->base.Next = rpcountNext;
+//   ret->base.Free = rpcountFree;
+//   ret->base.type = RP_COUNTER;
+//   return &ret->base;
+// }
 
 /*******************************************************************************************************************
  *  Timeout Processor - DEBUG ONLY

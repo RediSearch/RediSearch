@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 pin-project-lite = "0.2"
+libc.workspace = true
 
 [lints]
 workspace = true

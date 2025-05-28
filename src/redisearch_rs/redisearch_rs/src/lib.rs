@@ -13,7 +13,6 @@
 //! It exposes an FFI module for each workspace crate that must be consumed (directly) by the C code.
 pub mod trie;
 
-#[cfg(feature = "result_processor")]
 pub mod result_processor;
 
 /// Registers the Redis module allocator as the global allocator for the application.

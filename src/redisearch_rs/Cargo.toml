@@ -86,6 +86,7 @@ default-features = false
 [profile.release]
 lto = "fat"
 codegen-units = 1
+debug-assertions = true
 
 [profile.profiling]
 inherits = "release"
