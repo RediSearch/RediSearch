@@ -1474,7 +1474,7 @@ def testLongTags(env):
             'FT.SEARCH', 'idx', f'@t:{{{t_escaped_lower}}}', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, [1, '{doc}:2'])
 
-        # Search using TAG autoescape, which is only availabne in dialect 2 and above
+        # Search using TAG autoescape, which is only available in dialect 2 and above
         if dialect > 1:
             res = conn.execute_command(
                 'FT.SEARCH', 'idx', f'@t:{{"{t}"}}', 'NOCONTENT', 'DIALECT', '2')
