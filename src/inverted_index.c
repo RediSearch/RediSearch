@@ -498,23 +498,6 @@ size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder,
   return sz;
 }
 
-/** Write a forward-index entry to the index */
-size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
-                                            ForwardIndexEntry *ent) {
-  RSIndexResult rec = {.type = RSResultType_Term,
-                       .docId = ent->docId,
-                       .offsetsSz = VVW_GetByteLength(ent->vw),
-                       .freq = ent->freq,
-                       .fieldMask = ent->fieldMask};
-
-  rec.term.term = NULL;
-  if (ent->vw) {
-    rec.term.offsets.data = VVW_GetByteData(ent->vw);
-    rec.term.offsets.len = VVW_GetByteLength(ent->vw);
-  }
-  return InvertedIndex_WriteEntryGeneric(idx, encoder, ent->docId, &rec);
-}
-
 /* Write a numeric entry to the index */
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value) {
 
@@ -1171,6 +1154,16 @@ static IndexReader *NewIndexReaderGeneric(const RedisSearchCtx *sctx, InvertedIn
   IndexReader *ret = rm_malloc(sizeof(IndexReader));
   IndexReader_Init(sctx, ret, idx, decoder, decoderCtx, skipMulti, record, filterCtx);
   return ret;
+}
+
+static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
+  return logb(1.0F + totalDocs / (double)(termDocs ?: 1));
+}
+
+// IDF computation for BM25 standard scoring algorithm (which is slightly different from the regular
+// IDF computation).
+static inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
+  return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
 }
 
 IndexReader *NewTermIndexReaderEx(InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
