@@ -8,7 +8,7 @@ license.workspace = true
 workspace = true
 
 [lib]
-crate-type = ["staticlib", "rlib"]
+crate-type = ["rlib"]
 
 [dependencies]
 ffi.workspace = true
