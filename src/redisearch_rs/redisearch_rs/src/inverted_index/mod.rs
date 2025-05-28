@@ -1,18 +1,5 @@
-use std::io::Write;
-
+use buffer::BufferWriter;
 use inverted_index::{Encoder, RSIndexResult, t_docId};
-
-pub struct BufferWriter;
-
-impl Write for &BufferWriter {
-    fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
-        todo!("Coming from Zeeshan's PR")
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        todo!("Coming from Zeeshan's PR")
-    }
-}
 
 #[repr(C)]
 pub struct IndexEncoder {
@@ -53,7 +40,7 @@ impl<E: Encoder> From<E> for IndexEncoder {
             let writer = unsafe { &*writer };
             let record = unsafe { &*record };
 
-            match E::encode(writer, delta, record) {
+            match E::encode(*writer, delta, record) {
                 Ok(bytes_written) => bytes_written,
                 Err(_) => 0, // TODO: handle correctly
             }
