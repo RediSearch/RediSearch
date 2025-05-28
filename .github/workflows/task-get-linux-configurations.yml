@@ -71,7 +71,7 @@ jobs:
           requested_arch = '${{ inputs.architecture }}'
           all_x86_images = ${{ env.ALL_X86_IMAGES }}
           all_arm_images = ${{ env.ALL_ARM_IMAGES }}
-          if ${{ inputs.add_nightly_platforms }}:
+          if '${{ inputs.add_nightly_platforms }}' == 'true':
             all_x86_images += ${{ env.NIGHTLY_X86_IMAGES }}
             all_arm_images += ${{ env.NIGHTLY_ARM_IMAGES }}
           x86_platforms = []
