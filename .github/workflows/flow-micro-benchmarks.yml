@@ -1,59 +1,72 @@
-name: Run a Micro Benchmark Flow
-
 on:
   workflow_call:
+    inputs:
+      architecture:
+        type: string
+        required: false
+        default: 'all'
+        description: 'Run only on specific architecture'
+  workflow_dispatch:
+    inputs:
+      architecture:
+          type: choice
+          options:
+            - all
+            - arm64
+            - x86_64
+          description: 'Run only on specific architecture'
+          default: 'all'
 
 jobs:
-  benchmarks:
-    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-    env:
-      RUST_BACKTRACE: full
+  prepare_runner_configurations:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Setup specific
-        working-directory: .install
-        run: ./install_script.sh sudo
-      - name: Build RediSearch
-        run: ./build.sh
-      - name: Get Latest Baseline
-        uses: actions/download-artifact@v4
-        with:
-          name: rust-benchmark-results-master
-          path: bin/redisearch_rs/criterion
-        continue-on-error: true # Prevent failure if no baseline exists yet
-      - name: Check if Baseline Exists
-        id: check_baseline
+      - name: Set matrix
+        id: set-matrix
         run: |
-          if [ -d bin/redisearch_rs/criterion ]; then
-            echo "baseline_exists=true" >> $GITHUB_OUTPUT
+          # Define the full matrix as a JSON string
+          FULL_MATRIX='
+          {
+            "include": [
+              {
+                "architecture": "arm64",
+                "instance-type": "i8g.xlarge",
+                "ami-id": "ami-0d6c92b636b74f843"
+              },
+              {
+                "architecture": "x86_64",
+                "instance-type": "r7i.xlarge",
+                "ami-id": "ami-09fabd03bb09b3704"
+              }
+            ]
+          }
+          '
+          
+          # Filter the matrix based on architecture
+          if [ "${{ inputs.architecture }}" = "all" ]; then
+            # Use the full matrix
+            FILTERED_MATRIX="$FULL_MATRIX"
           else
-            echo "baseline_exists=false" >> $GITHUB_OUTPUT
+            # Filter to only the selected architecture
+            FILTERED_MATRIX=$(echo "$FULL_MATRIX" | jq -c '{include: [.include[] | select(.architecture | contains("${{ inputs.architecture }}"))]}')
           fi
-      - name: Run benchmark on PR with baseline from master
-        if: github.event_name == 'pull_request' && steps.check_baseline.outputs.baseline_exists == 'true'
-        run: cargo bench --workspace -- --baseline master
-        working-directory: src/redisearch_rs
-      - name: Run benchmark on PR without baseline
-        if: github.event_name == 'pull_request' && steps.check_baseline.outputs.baseline_exists == 'false'
-        run: cargo bench --workspace
-        working-directory: src/redisearch_rs
-      - name: Run benchmark on master
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push' && success()
-        run: cargo bench --workspace -- --save-baseline master
-        working-directory: src/redisearch_rs
+          
+          # Use multiline output delimiter syntax for GitHub Actions
+          echo "matrix<<EOF" >> $GITHUB_OUTPUT
+          echo "$FILTERED_MATRIX" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Upload rust baseline benchmarks for master
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        uses: actions/upload-artifact@v4
-        with:
-          name: "rust-benchmark-results-master"
-          path: bin/redisearch_rs/criterion
-      - name: Upload benchmarks for PR comparison
-        if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: "rust-benchmark-results-pr-${{ github.event.pull_request.number }}"
-          path: bin/redisearch_rs/criterion
+  run_micro_benchmarks:
+    name: Run ${{ matrix.architecture }} micro-benchmarks
+    needs: prepare_runner_configurations
+    uses: ./.github/workflows/micro-benchmark-runner.yml
+    secrets: inherit
+    strategy:
+      matrix: ${{ fromJson(needs.prepare_runner_configurations.outputs.matrix) }}
+    with:
+      architecture: ${{ matrix.architecture }}
+      instance-type: ${{ matrix.instance-type }}
+      ami-id: ${{ matrix.ami-id }}
+
