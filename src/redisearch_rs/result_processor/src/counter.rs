@@ -7,8 +7,14 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{ResultProcessor, ResultProcessorType};
+use crate::{Context, ResultProcessor, ResultProcessorType};
+use std::mem::MaybeUninit;
 
+unsafe extern "C" {
+    unsafe fn SearchResult_Clear(r: *mut crate::ffi::SearchResult);
+}
+
+#[derive(Debug)]
 pub struct Counter {
     count: usize,
 }
@@ -18,15 +24,19 @@ impl ResultProcessor for Counter {
 
     fn next(
         &mut self,
-        mut cx: crate::Context,
-    ) -> Result<Option<crate::ffi::SearchResult>, crate::Error> {
+        mut cx: Context,
+        res: &mut MaybeUninit<crate::ffi::SearchResult>,
+    ) -> Result<(), crate::Error> {
         let mut upstream = cx.upstream().unwrap();
 
-        while upstream.next()?.is_some() {
+        while upstream.next(res).is_ok() {
             self.count += 1;
+            unsafe {
+                SearchResult_Clear(res.as_mut_ptr());
+            }
         }
 
-        Ok(Some(crate::ffi::SearchResult::default()))
+        Ok(())
     }
 }
 

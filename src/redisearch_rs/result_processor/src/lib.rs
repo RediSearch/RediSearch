@@ -10,13 +10,24 @@
 pub mod counter;
 pub mod ffi;
 
-use std::{ffi::c_void, marker::PhantomData, mem::MaybeUninit, ptr::NonNull};
+use std::{
+    mem::MaybeUninit,
+    pin::Pin,
+    ptr::{self, NonNull},
+};
 
+use crate::ffi::QueryIterator;
+
+#[derive(Debug)]
 pub enum Error {
-    // stub
+    Eof,
+    Paused,
+    TimedOut,
+    Error,
 }
 
-#[repr(i32)]
+#[derive(Debug)]
+#[repr(C)]
 #[non_exhaustive]
 pub enum ResultProcessorType {
     Index,
@@ -44,55 +55,59 @@ pub enum ResultProcessorType {
 pub trait ResultProcessor {
     const TYPE: ResultProcessorType;
 
-    fn next(&mut self, cx: Context) -> Result<Option<ffi::SearchResult>, Error>;
+    fn next(&mut self, cx: Context, res: &mut MaybeUninit<ffi::SearchResult>) -> Result<(), Error>;
 }
 
 /// This type allows result processors to access its context (the owning QueryIterator, upstream result processors, etc.)
 pub struct Context<'a> {
-    rp: &'a mut ffi::Header,
+    rp: Pin<&'a mut ffi::Header>,
 }
 
 impl Context<'_> {
     /// The QueryIterator that owns this result processor
-    pub fn parent(&mut self) -> NonNull<c_void> {
-        todo!()
+    pub fn parent(&mut self) -> NonNull<QueryIterator> {
+        NonNull::new(self.rp.parent).unwrap()
     }
 
     /// The previous result processor in the pipeline
     pub fn upstream(&mut self) -> Option<Upstream<'_>> {
-        let rp = self.rp.upstream?;
+        let rp = unsafe { Pin::new_unchecked(self.rp.upstream.as_mut()?) };
 
-        Some(Upstream {
-            rp,
-            _m: PhantomData,
-        })
+        Some(Upstream { rp })
     }
 }
 
 /// The previous result processor in the pipeline
+#[derive(Debug)]
 pub struct Upstream<'a> {
-    rp: NonNull<ffi::Header>,
-    _m: PhantomData<&'a mut ffi::Header>,
+    rp: Pin<&'a mut ffi::Header>,
 }
 
 impl Upstream<'_> {
     #[allow(clippy::should_implement_trait, reason = "yes thank you I know")]
-    pub fn next(&mut self) -> Result<Option<ffi::SearchResult>, Error> {
-        // Safety: TODO
-        let next = unsafe { self.rp.as_mut() }.next;
+    pub fn next(&mut self, res: &mut MaybeUninit<ffi::SearchResult>) -> Result<(), Error> {
+        eprintln!(
+            "Upstream::next self_addr={:p} self={self:?} self.parent={:?} self.parent.err={:?}",
+            self.rp,
+            unsafe { self.rp.parent.as_ref() },
+            unsafe { self.rp.parent.as_ref().unwrap().err.as_ref() }
+        );
 
-        let mut res: MaybeUninit<ffi::SearchResult> = MaybeUninit::uninit();
+        let next = self.rp.next;
 
         // Safety: TODO clarify safety constraints on `next`
-        let ret = unsafe { next(self.rp.as_ptr(), NonNull::from(&mut res)) };
+        let ret = unsafe { next(ptr::from_mut(self.rp.as_mut().get_unchecked_mut()), res) };
 
-        const RS_RESULT_OK: i32 = 0;
-
-        if ret == RS_RESULT_OK {
-            // Safety: next returned `RS_RESULT_OK` and guarantees the ptr is "filled with valid data"
-            Ok(Some(unsafe { res.assume_init() }))
-        } else {
-            todo!("map the return code to rust error")
+        eprintln!("C rp retcode {ret:?}");
+        match ret {
+            ffi::RPStatus::RS_RESULT_OK => Ok(()),
+            ffi::RPStatus::RS_RESULT_EOF => Err(Error::Eof),
+            ffi::RPStatus::RS_RESULT_PAUSED => Err(Error::Paused),
+            ffi::RPStatus::RS_RESULT_TIMEDOUT => Err(Error::TimedOut),
+            ffi::RPStatus::RS_RESULT_ERROR => Err(Error::Error),
+            ffi::RPStatus(code) => {
+                unimplemented!("result processor returned unknown error code {code}")
+            }
         }
     }
 }
