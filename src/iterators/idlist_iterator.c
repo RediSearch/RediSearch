@@ -6,11 +6,11 @@
 
 #include "idlist_iterator.h"
 
-static inline void setEof(IdListIterator *it, int value) {
+static inline void setEof(IdListIterator *it, bool value) {
   it->base.atEOF = value;
 }
 
-static inline int isEof(const IdListIterator *it) {
+static inline bool isEof(const IdListIterator *it) {
   return it->base.atEOF;
 }
 
@@ -24,7 +24,7 @@ static size_t IL_NumEstimated(QueryIterator *base) {
 static IteratorStatus IL_Read(QueryIterator *base) {
   IdListIterator *it = (IdListIterator *)base;
   if (isEof(it) || it->offset >= it->size) {
-    setEof(it, 1);
+    setEof(it, true);
     return ITERATOR_EOF;
   }
 
@@ -38,12 +38,12 @@ static IteratorStatus IL_Read(QueryIterator *base) {
 static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
   IdListIterator *it = (IdListIterator *)base;
   if (isEof(it) || it->offset >= it->size) {
-    setEof(it, 1);
+    setEof(it, true);
     return ITERATOR_EOF;
   }
 
   if (docId > it->docIds[it->size - 1]) {
-    setEof(it, 1);
+    setEof(it, true);
     return ITERATOR_EOF;
   }
 
@@ -63,10 +63,12 @@ static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
       bottom = i + 1;
     }
   }
-  if (did < docId) did = it->docIds[++i];
+  if (did < docId) {
+    did = it->docIds[++i];
+  }
   it->offset = i + 1;
   if (it->offset >= it->size) {
-    setEof(it, 1);
+    setEof(it, true);
   }
 
   it->base.current->docId = it->base.lastDocId = did;
