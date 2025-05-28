@@ -146,6 +146,8 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
     const char *map = nu_tolower(codepoint);
 
     // Read the transformed codepoint and store it in the unicode buffer
+    // map would be NULL if no transformation is needed,
+    // i.e.: lower case is the same as the original, emoji, etc.
     if (map != NULL) {
       uint32_t mu;
       while (1) {
@@ -167,13 +169,16 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
     nu_writenstr(u_buffer, u_len, encoded, nu_utf8_write);
   } else {
     reencoded_len = 0;
-    // reallocate the string to fit the transformed string
-    // rm_free(encoded);
-    // encoded = (char *)rm_malloc(reencoded_len + 1);
-    // nu_writenstr(u_buffer, u_len, encoded, nu_utf8_write);
-
-    // encoded[reencoded_len] = '\0'; // Null-terminate the string
-    // // Update the length to the new length
+    // If the reencoded length is greater than in_len, we cannot write it back
+    // to the original buffer, so we return 0.
+    // It could happen if the original string contains characters that
+    // require more bytes to represent in lower case than the original string.
+    // For example, if the original string contains a character that is
+    // represented by 2 bytes in utf8, and the lower case version of that
+    // character is represented by 3 bytes, the reencoded length will be
+    // greater than in_len, and we cannot write it back to the original buffer.
+    // To support this, we need to allocate a new buffer, and it is considered
+    // as part of MOD-8799 which has not been implemented yet.
   }
 
   // Free heap-allocated memory if needed
