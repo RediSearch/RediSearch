@@ -7,6 +7,7 @@
 #include "gtest/gtest.h"
 #include "iterator_util.h"
 
+#include "src/forward_index.h"
 #include "src/iterators/inverted_index_iterator.h"
 
 typedef enum IndexType {
