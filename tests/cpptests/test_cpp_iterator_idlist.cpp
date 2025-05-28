@@ -137,6 +137,10 @@ TEST_P(IDListIteratorCommonTest, Rewind) {
 // Parameters for the tests above. Some set of docIDs sorted and unsorted
 INSTANTIATE_TEST_SUITE_P(IDListIteratorP, IDListIteratorCommonTest, ::testing::Values(
         std::vector<t_docId>{1, 2, 3, 40, 50},
+        std::vector<t_docId>{6, 5, 1, 98, 20, 1000, 500, 3, 2},
+        std::vector<t_docId>{42},
+        std::vector<t_docId>{1000000, 2000000, 3000000},
+        std::vector<t_docId>{10, 20, 30, 40, 50},
         std::vector<t_docId>{6, 5, 1, 98, 20, 1000, 500, 3, 2}
     )
 );

@@ -38,6 +38,7 @@ static IteratorStatus IL_Read(QueryIterator *base) {
 static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
   IdListIterator *it = (IdListIterator *)base;
   if (isEof(it) || it->offset >= it->size) {
+    setEof(it, 1);
     return ITERATOR_EOF;
   }
 
