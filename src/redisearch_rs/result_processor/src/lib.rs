@@ -10,12 +10,21 @@
 pub mod counter;
 pub mod ffi;
 
-use std::{ffi::c_void, marker::PhantomData, mem::MaybeUninit, ptr::NonNull};
+use std::{
+    ffi::c_void,
+    mem::MaybeUninit,
+    pin::Pin,
+    ptr::{self, NonNull},
+};
 
+#[derive(Debug)]
 pub enum Error {
-    // stub
+    Paused,
+    TimedOut,
+    Error,
 }
 
+#[derive(Debug)]
 #[repr(i32)]
 #[non_exhaustive]
 pub enum ResultProcessorType {
@@ -49,7 +58,7 @@ pub trait ResultProcessor {
 
 /// This type allows result processors to access its context (the owning QueryIterator, upstream result processors, etc.)
 pub struct Context<'a> {
-    rp: &'a mut ffi::Header,
+    rp: Pin<&'a mut ffi::Header>,
 }
 
 impl Context<'_> {
@@ -60,39 +69,43 @@ impl Context<'_> {
 
     /// The previous result processor in the pipeline
     pub fn upstream(&mut self) -> Option<Upstream<'_>> {
-        let rp = self.rp.upstream?;
+        let rp = unsafe { Pin::new_unchecked(self.rp.upstream.as_mut()?) };
 
-        Some(Upstream {
-            rp,
-            _m: PhantomData,
-        })
+        Some(Upstream { rp })
     }
 }
 
 /// The previous result processor in the pipeline
+#[derive(Debug)]
 pub struct Upstream<'a> {
-    rp: NonNull<ffi::Header>,
-    _m: PhantomData<&'a mut ffi::Header>,
+    rp: Pin<&'a mut ffi::Header>,
 }
 
 impl Upstream<'_> {
     #[allow(clippy::should_implement_trait, reason = "yes thank you I know")]
     pub fn next(&mut self) -> Result<Option<ffi::SearchResult>, Error> {
-        // Safety: TODO
-        let next = unsafe { self.rp.as_mut() }.next;
+        eprintln!("Upstream::next self_addr={:p} self={self:?}", self.rp);
 
+        let next = self.rp.next;
         let mut res: MaybeUninit<ffi::SearchResult> = MaybeUninit::uninit();
 
         // Safety: TODO clarify safety constraints on `next`
-        let ret = unsafe { next(self.rp.as_ptr(), NonNull::from(&mut res)) };
+        let ret = unsafe {
+            next(
+                ptr::from_mut(self.rp.as_mut().get_unchecked_mut()),
+                res.as_mut_ptr(),
+            )
+        };
 
-        const RS_RESULT_OK: i32 = 0;
-
-        if ret == RS_RESULT_OK {
-            // Safety: next returned `RS_RESULT_OK` and guarantees the ptr is "filled with valid data"
-            Ok(Some(unsafe { res.assume_init() }))
-        } else {
-            todo!("map the return code to rust error")
+        match ret {
+            ffi::RPStatus::RS_RESULT_OK => Ok(Some(unsafe { res.assume_init() })),
+            ffi::RPStatus::RS_RESULT_EOF => Ok(None),
+            ffi::RPStatus::RS_RESULT_PAUSED => Err(Error::Paused),
+            ffi::RPStatus::RS_RESULT_TIMEDOUT => Err(Error::TimedOut),
+            ffi::RPStatus::RS_RESULT_ERROR => Err(Error::Error),
+            ffi::RPStatus(code) => {
+                unimplemented!("result processor returned unknown error code {code}")
+            }
         }
     }
 }

@@ -18,7 +18,6 @@
 #[cfg(feature = "trie")]
 pub mod trie;
 
-#[cfg(feature = "result_processor")]
 pub mod result_processor;
 
 /// Registers the Redis module allocator as the global allocator for the application.

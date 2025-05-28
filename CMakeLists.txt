@@ -209,6 +209,7 @@ set(Boost_NO_WARN_NEW_VERSIONS ON)
 include_directories(
     ${root}/src
     ${root}/src/coord
+    ${root}/src/redisearch_rs/headers
     ${root}/src/redisearch_rs
     ${root}/deps/libuv/include
     ${root}/deps

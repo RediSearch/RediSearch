@@ -7,8 +7,9 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use crate::{ResultProcessor, ResultProcessorType};
+use crate::{Context, ResultProcessor, ResultProcessorType};
 
+#[derive(Debug)]
 pub struct Counter {
     count: usize,
 }
@@ -16,17 +17,14 @@ pub struct Counter {
 impl ResultProcessor for Counter {
     const TYPE: ResultProcessorType = ResultProcessorType::Counter;
 
-    fn next(
-        &mut self,
-        mut cx: crate::Context,
-    ) -> Result<Option<crate::ffi::SearchResult>, crate::Error> {
+    fn next(&mut self, mut cx: Context) -> Result<Option<crate::ffi::SearchResult>, crate::Error> {
         let mut upstream = cx.upstream().unwrap();
 
         while upstream.next()?.is_some() {
             self.count += 1;
         }
 
-        Ok(Some(crate::ffi::SearchResult::default()))
+        Ok(None)
     }
 }
 
