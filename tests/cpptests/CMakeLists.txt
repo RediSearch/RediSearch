@@ -15,7 +15,7 @@ endif()
 # redismock is a mock library for using redis module API in tests, defined in main CMakeLists.txt.
 
 file(GLOB TEST_SOURCES "test_cpp_*.cpp")
-add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp)
+add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp iterator_util.cpp)
 target_link_libraries(rstest gtest ${TEST_MODULE} redismock ${CMAKE_LD_LIBS})
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
 add_dependencies(rstest example_extension)

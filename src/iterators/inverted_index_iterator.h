@@ -9,6 +9,10 @@
 
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include "iterator_api.h"
 #include "inverted_index.h"
 
@@ -66,3 +70,7 @@ QueryIterator *NewInvIndIterator_TermQuery(InvertedIndex *idx, const RedisSearch
 // the specific functions NewInvIndIterator_TermQuery/NewInvIndIterator_NumericQuery
 QueryIterator *NewInvIndIterator_GenericQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, t_fieldIndex fieldIndex,
                                               enum FieldExpirationPredicate predicate);
+
+#ifdef __cplusplus
+}
+#endif
