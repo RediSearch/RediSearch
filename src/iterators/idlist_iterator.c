@@ -93,7 +93,7 @@ static int cmp_docids(const void *p1, const void *p2) {
 
 static void IL_Rewind(QueryIterator *base) {
   IdListIterator *il = (IdListIterator *)base;
-  setEof(il, 0);
+  setEof(il, false);
   il->base.lastDocId = 0;
   il->base.current->docId = 0;
   il->offset = 0;
@@ -110,7 +110,7 @@ QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weig
   it->size = num;
   it->docIds = rm_calloc(num, sizeof(t_docId));
   if (num > 0) memcpy(it->docIds, ids, num * sizeof(t_docId));
-  setEof(it, 0);
+  setEof(it, false);
   it->base.current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   it->base.lastDocId = 0;
 
