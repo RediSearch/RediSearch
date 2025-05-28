@@ -320,6 +320,16 @@ QueryIterator *NewInvIndIterator_NumericQuery(InvertedIndex *idx, const RedisSea
   return ret;
 }
 
+static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
+  return logb(1.0F + totalDocs / (double)(termDocs ?: 1));
+}
+
+// IDF computation for BM25 standard scoring algorithm (which is slightly different from the regular
+// IDF computation).
+static inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
+  return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
+}
+
 QueryIterator *NewInvIndIterator_TermQuery(InvertedIndex *idx, const RedisSearchCtx *sctx, FieldMaskOrIndex fieldMaskOrIndex,
                                            RSQueryTerm *term, double weight) {
   FieldFilterContext fieldCtx = {
