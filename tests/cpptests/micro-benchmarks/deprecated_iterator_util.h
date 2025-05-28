@@ -94,7 +94,8 @@ public:
         base.ctx = this;
         docIds = {args...};
         std::sort(docIds.begin(), docIds.end());
-        std::unique(docIds.begin(), docIds.end());
+        auto new_end = std::unique(docIds.begin(), docIds.end());
+        docIds.erase(new_end, docIds.end());
     }
 };
 
