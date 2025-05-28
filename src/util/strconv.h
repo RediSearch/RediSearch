@@ -160,7 +160,7 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
       u_buffer[i++] = codepoint;
     }
   }
-  RS_LOG_ASSERT_FMT(i <= u_len, "i (%u) should be less equal to u_len (%zd)", i, u_len);
+  RS_LOG_ASSERT_FMT(i <= u_len, "i (%u) should be equal to u_len (%zd)", i, u_len);
   // Encode Unicode codepoints back to utf8 string
   ssize_t reencoded_len = nu_bytenlen(u_buffer, u_len, nu_utf8_write);
   if (reencoded_len > 0 && reencoded_len <= in_len) {
