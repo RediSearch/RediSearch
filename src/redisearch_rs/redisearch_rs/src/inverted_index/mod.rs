@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use inverted_index::{t_doc_id, Encoder, RSIndexResult};
+use inverted_index::{Encoder, RSIndexResult, t_docId};
 
 pub struct BufferWriter;
 
@@ -18,7 +18,7 @@ impl Write for &BufferWriter {
 pub struct IndexEncoder {
     encode_fn: unsafe extern "C" fn(
         writer: *mut BufferWriter,
-        delta: t_doc_id,
+        delta: t_docId,
         record: *const RSIndexResult,
     ) -> usize,
 }
@@ -34,7 +34,7 @@ pub struct IndexEncoder {
 pub unsafe extern "C" fn IndexEncoder_Encode(
     ie: *const IndexEncoder,
     writer: *mut BufferWriter,
-    delta: t_doc_id,
+    delta: t_docId,
     record: *const RSIndexResult,
 ) -> usize {
     let encoder = unsafe { &*ie };
@@ -47,7 +47,7 @@ impl<E: Encoder> From<E> for IndexEncoder {
         // `[Encoder]` implementation.
         unsafe extern "C" fn encode_impl<E: Encoder>(
             writer: *mut BufferWriter,
-            delta: t_doc_id,
+            delta: t_docId,
             record: *const RSIndexResult,
         ) -> usize {
             let writer = unsafe { &*writer };
