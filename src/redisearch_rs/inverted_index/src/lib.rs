@@ -1,10 +1,12 @@
 use std::io::Write;
 
+/// TODO: generate using bindgen
 pub struct RSIndexResult {
     // Stub
 }
 
-type t_doc_id = u64;
+/// TODO: generate using bindgen
+pub type t_doc_id = u64;
 
 /// Encoder to write a record into an index
 pub trait Encoder {

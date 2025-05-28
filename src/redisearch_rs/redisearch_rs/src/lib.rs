@@ -11,6 +11,9 @@
 //! that's implemented in Rust.
 //!
 //! It exposes an FFI module for each workspace crate that must be consumed (directly) by the C code.
+
+pub mod inverted_index;
+
 pub mod trie;
 
 /// Registers the Redis module allocator as the global allocator for the application.
