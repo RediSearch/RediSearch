@@ -14,6 +14,7 @@
 
 #include "src/iterators/iterator_api.h"
 #include "src/iterators/metric_iterator.h"
+#include "src/metric_iterator.h"
 
 #include "src/index.h"
 
@@ -21,8 +22,12 @@ class BM_MetricIterator : public benchmark::Fixture {
 public:
   std::vector<t_docId> docIds;
   std::vector<double> scores;
+  t_docId *docIdsArray;
+  double *scoresArray;
+
   t_docId *old_docIds;
   double *old_metrics;
+  size_t numDocuments;
 
   static bool initialized;
 
@@ -32,7 +37,7 @@ public:
       initialized = true;
     }
 
-    auto numDocuments = state.range(0);
+    numDocuments = state.range(0);
     std::mt19937 rng(46);
     std::uniform_int_distribution<t_docId> dist(1, 2'000'000);
     std::uniform_real_distribution<double> score_dist(0.0, 1.0);
@@ -64,6 +69,13 @@ public:
       array_append(old_docIds, docIds[i]);
       array_append(old_metrics, scores[i]);
     }
+
+    docIdsArray = (t_docId*)rm_malloc(numDocuments * sizeof(t_docId));
+    scoresArray = (double*)rm_malloc(numDocuments * sizeof(double));
+
+    // Copy data from vectors to arrays
+    memcpy(docIdsArray, docIds.data(), numDocuments * sizeof(t_docId));
+    memcpy(scoresArray, scores.data(), numDocuments * sizeof(double));
   }
 };
 
@@ -74,7 +86,7 @@ bool BM_MetricIterator::initialized = false;
 #define METRIC_SCENARIOS() RangeMultiplier(2)->Range(2, 20)->DenseRange(25, 100, 25)
 
 BENCHMARK_DEFINE_F(BM_MetricIterator, Read_NotYield)(benchmark::State &state) {
-  QueryIterator * iterator_base = IT_V2(NewMetricIterator)(docIds.data(), scores.data(), scores.size(), VECTOR_DISTANCE, false);
+  QueryIterator * iterator_base = IT_V2(NewMetricIterator)(docIdsArray, scoresArray, numDocuments, VECTOR_DISTANCE, false);
   for (auto _ : state) {
     IteratorStatus rc = iterator_base->Read(iterator_base);
     if (rc == ITERATOR_EOF) {
@@ -86,7 +98,7 @@ BENCHMARK_DEFINE_F(BM_MetricIterator, Read_NotYield)(benchmark::State &state) {
 }
 
 BENCHMARK_DEFINE_F(BM_MetricIterator, SkipTo_NotYield)(benchmark::State &state) {
-  QueryIterator * iterator_base = IT_V2(NewMetricIterator)(docIds.data(), scores.data(), scores.size(), VECTOR_DISTANCE, false);
+  QueryIterator * iterator_base = IT_V2(NewMetricIterator)(docIdsArray, scoresArray, numDocuments, VECTOR_DISTANCE, false);
   t_docId docId = 10;
   for (auto _ : state) {
     IteratorStatus rc = iterator_base->SkipTo(iterator_base, docId);
@@ -101,7 +113,7 @@ BENCHMARK_DEFINE_F(BM_MetricIterator, SkipTo_NotYield)(benchmark::State &state) 
 }
 
 BENCHMARK_DEFINE_F(BM_MetricIterator, Read_Yield)(benchmark::State &state) {
-  QueryIterator * iterator_base = IT_V2(NewMetricIterator)(docIds.data(), scores.data(), scores.size(), VECTOR_DISTANCE, true);
+  QueryIterator * iterator_base = IT_V2(NewMetricIterator)(docIdsArray, scoresArray, numDocuments, VECTOR_DISTANCE, false);
   for (auto _ : state) {
     IteratorStatus rc = iterator_base->Read(iterator_base);
     if (rc == ITERATOR_EOF) {
@@ -113,7 +125,7 @@ BENCHMARK_DEFINE_F(BM_MetricIterator, Read_Yield)(benchmark::State &state) {
 }
 
 BENCHMARK_DEFINE_F(BM_MetricIterator, SkipTo_Yield)(benchmark::State &state) {
-  QueryIterator * iterator_base = IT_V2(NewMetricIterator)(docIds.data(), scores.data(), scores.size(), VECTOR_DISTANCE, true);
+  QueryIterator * iterator_base = IT_V2(NewMetricIterator)(docIdsArray, scoresArray, numDocuments, VECTOR_DISTANCE, false);
   t_docId docId = 10;
   for (auto _ : state) {
     IteratorStatus rc = iterator_base->SkipTo(iterator_base, docId);
@@ -193,4 +205,4 @@ BENCHMARK_DEFINE_F(BM_MetricIterator, SkipTo_Old_Yield)(benchmark::State &state)
 BENCHMARK_REGISTER_F(BM_MetricIterator, Read_Old_NotYield)->METRIC_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_MetricIterator, Read_Old_Yield)->METRIC_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_MetricIterator, SkipTo_Old_NotYield)->METRIC_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_MetricIterator, SkipTo_Old_Yield)->METRIC_SCENARIOS();*/
+BENCHMARK_REGISTER_F(BM_MetricIterator, SkipTo_Old_Yield)->METRIC_SCENARIOS();
