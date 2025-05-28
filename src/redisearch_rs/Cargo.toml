@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "inverted_index",
     "low_memory_thin_vec",
     "qint",
     "redis_mock",
