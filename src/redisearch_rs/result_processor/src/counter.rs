@@ -1,15 +1,14 @@
-use crate::{Header, ResultProcessor, SearchResult};
+use crate::{ResultProcessor, ResultProcessorType, SearchResult, upstream::Upstream};
 
-#[repr(C)]
 pub struct Counter {
-    // THIS MUST BE THE FIRST FIELD
-    header: Header,
     count: usize,
 }
 
 impl ResultProcessor for Counter {
-    fn next(&mut self) -> crate::Result<Option<SearchResult>> {
-        let mut upstream = self.header.upstream().unwrap();
+    fn next(&mut self, upstream: Option<Upstream>) -> crate::Result<Option<SearchResult>> {
+        let Some(mut upstream) = upstream else {
+            return Ok(None);
+        };
 
         while let Some(_) = upstream.next()? {
             self.count += 1;
@@ -17,10 +16,14 @@ impl ResultProcessor for Counter {
 
         Ok(Some(SearchResult::default()))
     }
+
+    fn type_() -> crate::ResultProcessorType {
+        ResultProcessorType::Counter
+    }
 }
 
 impl Counter {
-    pub const fn new(header: Header) -> Self {
-        Self { header, count: 0 }
+    pub const fn new() -> Self {
+        Self { count: 0 }
     }
 }
