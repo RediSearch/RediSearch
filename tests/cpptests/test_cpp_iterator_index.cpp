@@ -69,8 +69,8 @@ private:
         for (size_t i = 0; i < n_docs; ++i) {
             ForwardIndexEntry h = {0};
             h.docId = resultSet[i];
-            h.fieldMask = i;
-            h.freq = i;
+            h.fieldMask = i + 1;
+            h.freq = i + 1;
             h.term = "term";
             h.len = 4; // Length of the term "term"
 
@@ -100,6 +100,15 @@ private:
         }
     }
 };
+
+
+INSTANTIATE_TEST_SUITE_P(IndexIterator, IndexIteratorTest, ::testing::Values(
+    INDEX_TYPE_TERM_FULL,
+    INDEX_TYPE_NUMERIC_FULL,
+    INDEX_TYPE_TERM,
+    INDEX_TYPE_NUMERIC,
+    INDEX_TYPE_GENERIC
+));
 
 
 TEST_P(IndexIteratorTest, Read) {
