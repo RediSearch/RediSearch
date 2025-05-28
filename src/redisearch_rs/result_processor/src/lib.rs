@@ -67,17 +67,6 @@ pub struct Upstream<'a> {
 }
 
 impl Upstream<'_> {
-    /// Allows you to follow the chain of upstream result processors
-    pub fn upstream(&mut self) -> Option<Upstream<'_>> {
-        // Safety: TODO
-        let rp = unsafe { self.rp.as_mut().upstream? };
-
-        Some(Upstream {
-            rp,
-            _m: PhantomData,
-        })
-    }
-
     #[allow(clippy::should_implement_trait, reason = "yes thank you I know")]
     pub fn next(&mut self) -> Result<Option<ffi::SearchResult>, Error> {
         // Safety: TODO
