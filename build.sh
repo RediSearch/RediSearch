@@ -29,6 +29,7 @@ RUN_UNIT_TESTS=0 # Run C/C++ unit tests
 RUN_RUST_TESTS=0 # Run Rust tests
 RUN_PYTEST=0     # Run Python tests
 RUN_ALL_TESTS=0  # Run all test types
+RUN_MICRO_BENCHMARKS=0 # Run micro-benchmarks
 
 # Rust configuration
 RUST_PROFILE=""  # Which profile should be used to build/test Rust code
@@ -59,6 +60,9 @@ parse_arguments() {
         ;;
       RUN_RUST_TESTS|run_rust_tests)
         RUN_RUST_TESTS=1
+        ;;
+      RUN_MICRO_BENCHMARKS|run_micro_benchmarks|RUN_MICROBENCHMARKS|run_microbenchmarks)
+        RUN_MICRO_BENCHMARKS=1
         ;;
       COV=*)
         COV="${arg#*=}"
@@ -104,7 +108,7 @@ parse_arguments() {
 #-----------------------------------------------------------------------------
 setup_test_configuration() {
   # If any tests will be run, ensure BUILD_TESTS is enabled
-  if [[ "$RUN_ALL_TESTS" == "1" || "$RUN_UNIT_TESTS" == "1" || "$RUN_RUST_TESTS" == "1" || "$RUN_PYTEST" == "1" ]]; then
+  if [[ "$RUN_ALL_TESTS" == "1" || "$RUN_UNIT_TESTS" == "1" || "$RUN_RUST_TESTS" == "1" || "$RUN_PYTEST" == "1" || "$RUN_MICRO_BENCHMARKS" == "1" ]]; then
     if [[ "$BUILD_TESTS" != "1" ]]; then
       echo "Test execution requested, enabling test build automatically"
       BUILD_TESTS="1"
@@ -641,6 +645,49 @@ run_tests() {
 }
 
 #-----------------------------------------------------------------------------
+# Function: run_micro_benchmarks
+# Run micro-benchmarks
+#-----------------------------------------------------------------------------
+run_micro_benchmarks() {
+  if [[ "$RUN_MICRO_BENCHMARKS" != "1" ]]; then
+    return 0
+  fi
+
+  echo "Running micro-benchmarks..."
+
+  # Update the binary directory path for ARM architectures
+  UPDATED_BINDIR=$(echo "$BINDIR" | sed 's/arm64v8/aarch64/')
+
+  # Check if micro-benchmarks directory exists
+  MICRO_BENCH_DIR="$UPDATED_BINDIR/micro-benchmarks"
+  if [[ ! -d "$MICRO_BENCH_DIR" ]]; then
+    echo "Error: Micro-benchmarks directory not found at $MICRO_BENCH_DIR"
+    echo "Make sure to build with BUILD_TESTS=1"
+    HAS_FAILURES=1
+    return 1
+  fi
+
+  # Run each benchmark executable
+  echo "Running benchmarks from $MICRO_BENCH_DIR"
+  cd "$MICRO_BENCH_DIR" || return 1
+
+  for benchmark in benchmark_*; do
+    if [[ -x "$benchmark" ]]; then
+      benchmark_name=$(basename "$benchmark" | sed 's/^benchmark_//')
+      echo "Running benchmark_$benchmark_name..."
+      ./"$benchmark" --benchmark_out_format=json --benchmark_out="${benchmark_name}_results.json" || HAS_FAILURES=1
+    fi
+  done
+
+  if [[ "$HAS_FAILURES" == "1" ]]; then
+    echo "Some micro-benchmarks failed. Check the logs above for details."
+  else
+    echo "All micro-benchmarks completed successfully."
+    echo "Results saved to $MICRO_BENCH_DIR/*_results.json"
+  fi
+}
+
+#-----------------------------------------------------------------------------
 # Main execution flow
 #-----------------------------------------------------------------------------
 
@@ -664,5 +711,8 @@ build_project
 
 # Run tests if requested
 run_tests
+
+# Run micro-benchmarks if requested
+run_micro_benchmarks
 
 exit 0
