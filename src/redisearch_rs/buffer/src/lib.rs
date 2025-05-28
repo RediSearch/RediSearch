@@ -41,8 +41,9 @@ impl std::io::Read for BufferReader {
         // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
         let buffer = unsafe { &*self.0.buf };
 
-        // Safety: `self.pos` was just checked to be within the limits of the buffer's
-        // initialized range, so this pointer arithmetic is safe.
+        debug_assert!(self.0.pos <= buffer.offset);
+        // Safety: We assume that `self.pos` is within the limits of the buffer's initialized range
+        // so this pointer arithmetic is safe.
         let src = unsafe { buffer.data.add(self.0.pos) } as *const u8;
 
         // Safety: We just verified that `src` points to valid memory within the buffer.
@@ -247,6 +248,9 @@ impl std::io::Write for BufferWriter {
         // Safety: We've ensured that the buffer has enough capacity.
         unsafe { buffer.advance(bytes.len()) };
 
+        // Unlikely that we overflow the `isize::MAX` but let's ensure in debug mode.
+        debug_assert!(bytes.len() < isize::MAX as usize);
+        debug_assert!((self.0.pos as usize).saturating_add(bytes.len()) < isize::MAX as usize);
         // Update the cursor position.
         // Safety: The cursor is moved forward by the number of bytes written, which is still within
         // the valid buffer memory.
