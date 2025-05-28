@@ -1,14 +1,18 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
+use std::io::Write;
+
+pub struct RSIndexResult {
+    // Stub
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+type t_doc_id = u64;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
+/// Encoder to write a record into an index
+pub trait Encoder {
+    /// Write the record to the writer and return the number of bytes written. The delta is the
+    /// pre-computed difference between the current document ID and the last document ID written.
+    fn encode(
+        writer: impl Write,
+        delta: t_doc_id,
+        record: &RSIndexResult,
+    ) -> std::io::Result<usize>;
 }
