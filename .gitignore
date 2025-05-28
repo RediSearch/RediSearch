@@ -28,3 +28,4 @@ callgrind.out.*
 /deps/RedisJSON/
 /1/
 /.install/boost*
+/tests/deps/RedisJSON

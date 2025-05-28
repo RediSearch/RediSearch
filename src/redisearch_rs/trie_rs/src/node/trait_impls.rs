@@ -31,7 +31,7 @@ impl<Data: fmt::Debug> fmt::Debug for Node<Data> {
                 .map_or("(-)".to_string(), |data| format!("({data:?})"));
 
             let prefix = if white_indentation == 0 && line_indentation == 0 {
-                "".to_string()
+                String::new()
             } else {
                 let whitespace = " ".repeat(white_indentation);
                 let line = "–".repeat(line_indentation - 1);
