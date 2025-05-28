@@ -20,5 +20,5 @@ FetchContent_MakeAvailable(googlebench)
 include_directories("${googlebench_SOURCE_DIR}/include")
 
 file(GLOB BENCHMARK_ITER_SOURCES "benchmark_*_iterator.cpp")
-add_executable(micro_bench_iterators ${BENCHMARK_ITER_SOURCES} ../index_utils.cpp )
+add_executable(micro_bench_iterators ${BENCHMARK_ITER_SOURCES} ../index_utils.cpp ../iterator_util.cpp)
 target_link_libraries(micro_bench_iterators redisearch redismock benchmark::benchmark)
