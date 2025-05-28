@@ -14,7 +14,6 @@
 
 use std::{
     cmp,
-    ffi::c_char,
     ptr::{NonNull, copy_nonoverlapping},
     slice,
 };
