@@ -9,6 +9,7 @@
 #include "suffix.h"
 #include "rmutil/rm_assert.h"
 #include "config.h"
+#include "triemap.h"
 #include "wildcard.h"
 
 #include <string.h>
@@ -427,7 +428,7 @@ arrayof(char**) GetList_SuffixTrieMap(TrieMap *trie, const char *str, uint32_t l
       return arr;
     }
   } else {
-    TrieMapIterator *it = TrieMap_Iterate(trie, str, len);
+    TrieMapIterator *it = TrieMap_IterateWithFilter(trie, str, len, TM_PREFIX_MODE);
     TrieMapIterator_SetTimeout(it, timeout);
     if (!it) {
       return NULL;
@@ -456,7 +457,7 @@ static arrayof(char*) _getWildcardArray(TrieMapIterator *it, const char *pattern
   suffixData *nodeData;;
   arrayof(char*) resArray = NULL;
 
-  while (TrieMapIterator_NextWildcard(it, &s, &sl, (void **)&nodeData)) {
+  while (TrieMapIterator_Next(it, &s, &sl, (void **)&nodeData)) {
     for (int i = 0; i < array_len(nodeData->array); ++i) {
       if (array_len(resArray) > maxPrefixExpansions) {
         goto end;
@@ -488,10 +489,9 @@ arrayof(char*) GetList_SuffixTrieMap_Wildcard(TrieMap *trie, const char *pattern
   // if token end with '*', we iterate all its children
   int prefix = pattern[tokenidx + tokenlen] == '*';
 
-  TrieMapIterator *it = TrieMap_Iterate(trie, pattern + tokenidx, tokenlen + prefix);
+  TrieMapIterator *it = TrieMap_IterateWithFilter(trie, pattern + tokenidx, tokenlen + prefix, TM_WILDCARD_MODE);
   if (!it) return NULL;
   TrieMapIterator_SetTimeout(it, timeout);
-  it->mode = prefix ? TM_WILDCARD_MODE : TM_WILDCARD_FIXED_LEN_MODE;
 
   arrayof(char*) arr = _getWildcardArray(it, pattern, len, maxPrefixExpansions);
 

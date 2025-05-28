@@ -9,6 +9,7 @@
 #include "rules.h"
 #include "aggregate/expr/expression.h"
 #include "aggregate/expr/exprast.h"
+#include "document.h"
 #include "json.h"
 #include "rdb.h"
 #include "fast_float/fast_float_strtod.h"

@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "fork_gc.h"
+#include "triemap.h"
 #include "util/arr.h"
 #include "search_ctx.h"
 #include "inverted_index.h"
@@ -464,7 +465,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
                              .field = HiddenString_GetUnsafe(tagFields[i]->fieldName, NULL),
                              .uniqueId = tagIdx->uniqueId};
 
-      TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values, "", 0);
+      TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values);
       char *ptr;
       tm_len_t len;
       InvertedIndex *value;

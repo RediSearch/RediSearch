@@ -73,7 +73,10 @@ static int my_OnLoad(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     err = REDISMODULE_ERR;
   }
 
-  for (auto db : KVDB::dbs) delete db;
+  for (auto &db : KVDB::dbs) {
+    delete db;
+  }
+  KVDB::dbs.clear();
   return err;
 }
 }

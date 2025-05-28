@@ -11,6 +11,7 @@
 #include <math.h>
 #include <ctype.h>
 
+#include "triemap.h"
 #include "util/logging.h"
 #include "util/misc.h"
 #include "rmutil/vector.h"
@@ -3279,12 +3280,11 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
 
   size_t n;
   const char *key_p = RedisModule_StringPtrLen(key, &n);
-  arrayof(SchemaPrefixNode *) prefixes = array_new(SchemaPrefixNode *, 1);
   // collect specs that their name is prefixed by the key name
   // `prefixes` includes list of arrays of specs, one for each prefix of key name
-  int nprefixes = TrieMap_FindPrefixes(SchemaPrefixes_g, key_p, n, (arrayof(void *) *)&prefixes);
-  for (int i = 0; i < array_len(prefixes); ++i) {
-    SchemaPrefixNode *node = prefixes[i];
+  TrieMapResultBuf prefixes = TrieMap_FindPrefixes(SchemaPrefixes_g, key_p, n);
+  for (int i = 0; i < TrieMapResultBuf_Len(&prefixes); ++i) {
+    SchemaPrefixNode *node = TrieMapResultBuf_GetByIndex(&prefixes, i);
     for (int j = 0; j < array_len(node->index_specs); ++j) {
       StrongRef global = node->index_specs[j];
       IndexSpec *spec = StrongRef_Get(global);
@@ -3301,7 +3301,7 @@ SpecOpIndexingCtx *Indexes_FindMatchingSchemaRules(RedisModuleCtx *ctx, RedisMod
       }
     }
   }
-  array_free(prefixes);
+  TrieMapResultBuf_Free(prefixes);
 
   if (runFilters) {
 

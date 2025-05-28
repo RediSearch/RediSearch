@@ -6,7 +6,6 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
-#![cfg(feature = "trie")]
 use redis_mock::bind_redis_alloc_symbols_to_mock_impl;
 use redisearch_rs::trie::*;
 use std::ffi::{c_char, c_int, c_void};
