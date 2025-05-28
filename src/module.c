@@ -17,6 +17,7 @@
 #include "document.h"
 #include "tag_index.h"
 #include "index.h"
+#include "triemap.h"
 #include "query.h"
 #include "redis_index.h"
 #include "redismodule.h"
@@ -1490,7 +1491,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
   }
 
   // if there are no values - either reply with an empty set or an error
-  if (dict->cardinality == 0) {
+  if (TrieMap_NUniqueKeys(dict) == 0) {
 
     if (nArrs > 0) {
       // the sets were empty - return an empty set
@@ -1507,7 +1508,7 @@ int uniqueStringsReducer(struct MRCtx *mc, int count, MRReply **replies) {
     char *s;
     tm_len_t sl;
     void *p;
-    TrieMapIterator *it = TrieMap_Iterate(dict, "", 0);
+    TrieMapIterator *it = TrieMap_Iterate(dict);
     while (TrieMapIterator_Next(it, &s, &sl, &p)) {
       RedisModule_Reply_StringBuffer(reply, s, sl);
     }

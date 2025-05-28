@@ -12,10 +12,15 @@
 #include "util/block_alloc.h"
 #include "util/khtable.h"
 #include "util/mempool.h"
-#include "triemap/triemap.h"
+#include "triemap.h"
 #include "varint.h"
 #include "tokenize.h"
 #include "document.h"
+#include "inverted_index.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct ForwardIndexEntry {
   struct ForwardIndexEntry *next;
@@ -84,4 +89,12 @@ ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, u
 
 void ForwardIndex_NormalizeFreq(ForwardIndex *, ForwardIndexEntry *);
 
+/* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
+ */
+size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
+                                            ForwardIndexEntry *ent);
+
+#ifdef __cplusplus
+}
+#endif
 #endif
