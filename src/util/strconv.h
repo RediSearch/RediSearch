@@ -185,7 +185,7 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
 }
 
 
-// strndup + unescape + fold
+// strndup + unescape + tolower
 static char *rm_normalize(const char *s, size_t len) {
   char *ret = rm_strndup(s, len);
   char *dst = ret;
@@ -203,7 +203,7 @@ static char *rm_normalize(const char *s, size_t len) {
   *dst = '\0';
 
   // convert to lower case
-  size_t newLen = unicode_tolower(ret, len);
+  size_t newLen = unicode_tolower(ret, strlen(ret));
   if (newLen) {
     ret[newLen] = '\0';
   }

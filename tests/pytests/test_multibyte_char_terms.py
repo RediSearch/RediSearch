@@ -3,6 +3,13 @@
 from common import *
 from RLTest import Env
 
+# These are the unescaped and escaped versions of a long term with multibyte
+# characters where the length of the converted term to lowercase is greater
+# than its original length.
+unescaped_long_term = 'E-Ticaret Yöneticisi / Yönetmeni - XXİX DANIŞMANLIK VE ELEKTRONİK ÇÖZÜMLER İTHALAT İHRACAT LİMİTED ŞİRKETİ - İstanbul'
+escaped_long_term = 'E\\-Ticaret\\ Yöneticisi\\ \\/\\ Yönetmeni\\ \\-\\ XXİX\\ DANIŞMANLIK\\ VE\\ ELEKTRONİK\\ ÇÖZÜMLER\\ İTHALAT\\ İHRACAT\\ LİMİTED\\ ŞİRKETİ\\ \\-\\ İstanbul'
+
+
 def testMultibyteText(env):
     '''Test that multibyte characters are correctly converted to lowercase and
     that queries are case-insensitive using TEXT fields'''
@@ -1439,8 +1446,10 @@ def testLongTags(env):
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn = getConnectionByEnv(env)
 
-    t = 'E-Ticaret Yöneticisi / Yönetmeni - XXİX DANIŞMANLIK VE ELEKTRONİK ÇÖZÜMLER İTHALAT İHRACAT LİMİTED ŞİRKETİ - İstanbul'
+    t = unescaped_long_term
     t_lower = t.lower()
+    t_escaped = escaped_long_term
+    t_escaped_lower = t_escaped.lower()
 
     env.expect('HSET', '{doc}:1', 't', t).equal(1)
     if not env.isCluster():
@@ -1456,28 +1465,36 @@ def testLongTags(env):
         # have two terms: the original term and the lowercase term
         env.assertEqual(res, [[t, [1]], [t_lower, [2]]])
 
-    # Test search original term
-    res = conn.execute_command(
-        'FT.SEARCH', 'idx', f'@t:{{"{t}"}}', 'NOCONTENT', 'DIALECT', '2')
-    env.assertEqual(res, [1, '{doc}:1'])
+    for dialect in range(1, 5):
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:{{{t_escaped}}}', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:1'])
 
-    # Test search lowercase term
-    res = conn.execute_command(
-        'FT.SEARCH', 'idx', f'@t:{{"{t_lower}"}}', 'NOCONTENT', 'DIALECT', '2')
-    env.assertEqual(res, [1, '{doc}:2'])
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:{{{t_escaped_lower}}}', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:2'])
 
-    # Test search lowercase escaped term
-    res = conn.execute_command('FT.SEARCH', 'idx', '@t:{e\\-ticaret\\ yöneticisi\\ \\/\\ yönetmeni\\ \\-\\ xxi̇x\\ danişmanlik\\ ve\\ elektroni̇k\\ çözümler\\ i̇thalat\\ i̇hracat\\ li̇mi̇ted\\ şi̇rketi̇\\ \\-\\ i̇stanbul}', 'NOCONTENT')
-    env.assertEqual(res, [1, '{doc}:2'])
+        # Search using TAG autoescape, which is only availabne in dialect 2 and above
+        if dialect > 1:
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', f'@t:{{"{t}"}}', 'NOCONTENT', 'DIALECT', '2')
+            # The term is stored in its original form, so the search will return the
+            # document with the original term
+            env.assertEqual(res, [1, '{doc}:1'])
+
+            # Search lowercase term
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', f'@t:{{"{t_lower}"}}', 'NOCONTENT', 'DIALECT', '2')
+            env.assertEqual(res, [1, '{doc}:2'])
 
 
 def testLongTexts(env):
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
     conn = getConnectionByEnv(env)
 
-    t = 'E-Ticaret Yöneticisi / Yönetmeni - XXİX DANIŞMANLIK VE ELEKTRONİK ÇÖZÜMLER İTHALAT İHRACAT LİMİTED ŞİRKETİ - İstanbul'
+    t = unescaped_long_term
     t_lower = t.lower()
-    t_escaped = 'E\\-Ticaret\\ Yöneticisi\\ \\/\\ Yönetmeni\\ \\-\\ XXİX\\ DANIŞMANLIK\\ VE\\ ELEKTRONİK\\ ÇÖZÜMLER\\ İTHALAT\\ İHRACAT\\ LİMİTED\\ ŞİRKETİ\\ \\-\\ İstanbul'
+    t_escaped = escaped_long_term
     t_escaped_lower = t_escaped.lower()
 
     env.expect('HSET', '{doc}:1', 't', t_escaped).equal(1)
@@ -1494,20 +1511,22 @@ def testLongTexts(env):
         # have two terms: the original term and the lowercase term
         env.assertEqual(res, [t, t_lower])
 
-    # Test search original term
-    res = conn.execute_command(
-        'FT.SEARCH', 'idx', f'@t:(E\\-Ticaret\\ Yöneticisi\\ \\/\\ Yönetmeni\\ \\-\\ XXİX\\ DANIŞMANLIK\\ VE\\ ELEKTRONİK\\ ÇÖZÜMLER\\ İTHALAT\\ İHRACAT\\ LİMİTED\\ ŞİRKETİ\\ \\-\\ İstanbul)',
-        'NOCONTENT', 'DIALECT', '2')
-    # TODO: why does this return doc:2 ?
-    env.assertEqual(res, [1, '{doc}:2'])
+    for dialect in range(1, 5):
+        # Search escaped original case  term
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t_escaped})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:1'])
 
-    # Test search lowercase term
-    res = conn.execute_command(
-        'FT.SEARCH', 'idx', f'@t:("{t_escaped_lower}")', 'NOCONTENT', 'DIALECT', '2')
-    env.assertEqual(res, [1, '{doc}:2'])
+        # Search lowercase escaped term
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t_escaped_lower})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:2'])
 
-    # Test search lowercase escaped term
-    res = conn.execute_command(
-        'FT.SEARCH', 'idx', '@t:(e\\-ticaret\\ yöneticisi\\ \\/\\ yönetmeni\\ \\-\\ xxi̇x\\ danişmanlik\\ ve\\ elektroni̇k\\ çözümler\\ i̇thalat\\ i̇hracat\\ li̇mi̇ted\\ şi̇rketi̇\\ \\-\\ i̇stanbul)',
-        'NOCONTENT', 'DIALECT', '1')
-    env.assertEqual(res, [1, '{doc}:2'])
+        # If we don't escape the term, each word is treated as a separate term,
+        # so the search will return no results
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [0])
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t_lower})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [0])
