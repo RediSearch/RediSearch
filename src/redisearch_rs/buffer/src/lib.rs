@@ -23,7 +23,7 @@ use std::{
 #[repr(transparent)]
 pub struct Buffer(ffi::Buffer);
 
-/// Redefines the `BufferReader` struct from `buffer.h`
+/// Thin wrapper around the `BufferReader` struct from `buffer.h`
 ///
 /// Provides read functionality over a Buffer with position tracking.
 ///
@@ -80,7 +80,7 @@ impl Buffer {
     pub unsafe fn new(data: NonNull<u8>, len: usize, capacity: usize) -> Self {
         debug_assert!(len <= capacity, "len must not exceed capacity");
         Self(ffi::Buffer {
-            data: data.as_ptr() as *mut c_char,
+            data: data.as_ptr().cast(),
             offset: len,
             cap: capacity,
         })
