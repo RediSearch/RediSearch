@@ -125,7 +125,7 @@ IteratorStatus InvIndIterator_Read(QueryIterator *base) {
 
 #define BLOCK_MATCHES(blk, docId) ((blk).firstId <= docId && docId <= (blk).lastId)
 
-// Assumes there is a valid block to skip to (maching or past the requested docId)
+// Assumes there is a valid block to skip to (matching or past the requested docId)
 static inline void SkipToBlock(InvIndIterator *it, t_docId docId) {
   const InvertedIndex *idx = it->idx;
   uint32_t top = idx->size - 1;
