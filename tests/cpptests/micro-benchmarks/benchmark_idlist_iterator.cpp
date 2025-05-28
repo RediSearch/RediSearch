@@ -24,7 +24,6 @@ public:
 
   void SetUp(::benchmark::State &state) {
     if (!initialized) {
-      //TODO: Joan. Can I check if RMCK is initialized?
       RMCK::init();
       initialized = true;
     }
@@ -36,10 +35,10 @@ public:
     docIds.resize(numDocuments);
     for (int i = 0; i < numDocuments; ++i) {
       for (auto &id : docIds) {
-        //TODO(Joan): Should I make sure they are unique?
         id = dist(rng);
       }
     }
+    std::sort(docIds.begin(), docIds.end());
   }
 };
 bool BM_IdListIterator::initialized = false;
