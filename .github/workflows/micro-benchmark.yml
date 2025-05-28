@@ -1,0 +1,76 @@
+on:
+  workflow_call:
+    inputs:
+      setup:
+        type: string
+        required: true
+      architecture:
+        type: string
+        required: false
+        default: 'all'
+        description: 'Run only on specific architecture'
+  workflow_dispatch:
+    inputs:
+      architecture:
+          type: choice
+          options:
+            - all
+            - arm64
+            - x86_64
+          description: 'Run only on specific architecture'
+          default: 'all'
+
+jobs:
+  prepare_runner_configurations:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          # Define the full matrix as a JSON string
+          FULL_MATRIX='
+          {
+            "include": [
+              {
+                "architecture": "arm64",
+                "instance-type": "i8g.xlarge",
+                "ami-id": "ami-0d6c92b636b74f843"
+              },
+              {
+                "architecture": "x86_64",
+                "instance-type": "r7i.xlarge",
+                "ami-id": "ami-09fabd03bb09b3704"
+              }
+            ]
+          }
+          '
+          
+          # Filter the matrix based on architecture
+          if [ "${{ inputs.architecture }}" = "all" ]; then
+            # Use the full matrix
+            FILTERED_MATRIX="$FULL_MATRIX"
+          else
+            # Filter to only the selected architecture
+            FILTERED_MATRIX=$(echo "$FULL_MATRIX" | jq -c '{include: [.include[] | select(.architecture | contains("${{ inputs.architecture }}"))]}')
+          fi
+          
+          # Use multiline output delimiter syntax for GitHub Actions
+          echo "matrix<<EOF" >> $GITHUB_OUTPUT
+          echo "$FILTERED_MATRIX" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+  run_micro_benchmarks:
+    name: Run ${{ matrix.architecture }} micro-benchmarks
+    needs: prepare_runner_configurations
+    uses: ./.github/workflows/micro-benchmark-runner.yml
+    secrets: inherit
+    strategy:
+      matrix: ${{ fromJson(needs.prepare_runner_configurations.outputs.matrix) }}
+    with:
+      setup: ${{ inputs.setup }}
+      architecture: ${{ matrix.architecture }}
+      instance-type: ${{ matrix.instance-type }}
+      ami-id: ${{ matrix.ami-id }}
+
