@@ -428,20 +428,22 @@ REJSON_BRANCH ?= master
 REJSON_PATH ?=
 REJSON_ARGS ?=
 
+UPDATED_TARGET:=$(subst arm64v8,aarch64,$(TARGET))
+
 run:
 ifeq ($(WITH_RLTEST),1)
 	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) REJSON_BRANCH=$(REJSON_BRANCH) REJSON_ARGS=$(REJSON_ARGS) \
 	 FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
-		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
+		$(ROOT)/tests/pytests/runtests.sh $(abspath $(UPDATED_TARGET))
 else
 ifeq ($(GDB),1)
 ifeq ($(CLANG),1)
-	$(SHOW)lldb -o run -- redis-server --loadmodule $(abspath $(TARGET))
+	$(SHOW)lldb -o run -- redis-server --loadmodule $(abspath $(UPDATED_TARGET))
 else
-	$(SHOW)gdb -ex r --args redis-server --loadmodule $(abspath $(TARGET))
+	$(SHOW)gdb -ex r --args redis-server --loadmodule $(abspath $(UPDATED_TARGET))
 endif
 else
-	$(SHOW)redis-server --loadmodule $(abspath $(TARGET))
+	$(SHOW)redis-server --loadmodule $(abspath $(UPDATED_TARGET))
 endif
 endif
 
