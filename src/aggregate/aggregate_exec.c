@@ -743,7 +743,8 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
     AREQ_Free(BCRctx->req);
   }
   RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
-  RedisModule_UnblockClient(BCRctx->blockedClient, NULL);
+  void *privdata = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
+  RedisModule_UnblockClient(BCRctx->blockedClient, privdata);
   WeakRef_Release(BCRctx->spec_ref);
   rm_free(BCRctx);
 }
@@ -974,7 +975,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       rs_timersub(&time, &r->qiter.initTime, &time);
       rs_timeradd(&time, &r->qiter.GILTime, &r->qiter.GILTime);
     }
-    workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
+    const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
+    RS_ASSERT(rc == 0);
   } else {
     // Take a read lock on the spec (to avoid conflicts with the GC).
     // This is released in AREQ_Free or while executing the query.
@@ -1207,7 +1209,8 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModule_EndReply(reply);
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
-  RedisModule_UnblockClient(cr_ctx->bc, NULL);
+  void *privdata = RedisModule_BlockClientGetPrivateData(cr_ctx->bc);
+  RedisModule_UnblockClient(cr_ctx->bc, privdata);
   rm_free(cr_ctx);
 }
 

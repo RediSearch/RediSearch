@@ -90,6 +90,7 @@ void BlockedQueries_RemoveQuery(BlockedQueryNode* blockedQueryNode) {
 }
 
 void BlockedQueries_RemoveCursor(BlockedCursorNode* blockedCursorNode) {
+  StrongRef_Release(blockedCursorNode->spec);
   if (blockedCursorNode->query) {
     rm_free(blockedCursorNode->query);
   }
