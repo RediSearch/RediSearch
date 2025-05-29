@@ -105,7 +105,7 @@ position if where is outside bounds
 
 typedef struct {
   Buffer *buf;
-  char *pos;
+  size_t pos;
 } BufferWriter;
 
 size_t Buffer_Truncate(Buffer *b, size_t newlen);
@@ -121,16 +121,15 @@ static inline size_t Buffer_Reserve(Buffer *buf, size_t n) {
   return Buffer_Grow(buf, n);
 }
 
+#define BufferWriter_Current(b) (b)->buf->data + (b)->pos
+
 // Write len bytes from data to the buffer. If the buffer is not large enough,
 // it will be grown to accommodate the new data.
 // Returns the number of bytes added, or 0 if the buffer is already large enough.
 static inline size_t Buffer_Write(BufferWriter *bw, const void *data, size_t len) {
   Buffer *buf = bw->buf;
   size_t mem_growth = Buffer_Reserve(buf, len);
-  if (mem_growth != 0) {
-    bw->pos = buf->data + buf->offset;
-  }
-  memcpy(bw->pos, data, len);
+  memcpy(BufferWriter_Current(bw), data, len);
   bw->pos += len;
   buf->offset += len;
   return mem_growth;
@@ -172,7 +171,7 @@ BufferReader NewBufferReader(Buffer *b);
 #define BufferReader_Current(b) (b)->buf->data + (b)->pos
 
 static inline size_t BufferWriter_Offset(BufferWriter *b) {
-  return b->pos - b->buf->data;
+  return b->pos;
 }
 
 static inline char *BufferWriter_PtrAt(BufferWriter *b, size_t pos) {

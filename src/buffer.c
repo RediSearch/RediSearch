@@ -43,7 +43,7 @@ size_t Buffer_Truncate(Buffer *b, size_t newlen) {
 }
 
 BufferWriter NewBufferWriter(Buffer *b) {
-  BufferWriter ret = {.buf = b, .pos = b->data + b->offset};
+  BufferWriter ret = {.buf = b, .pos = b->offset};
   return ret;
 }
 
@@ -94,7 +94,7 @@ size_t BufferWriter_Seek(BufferWriter *b, size_t offset) {
   if (offset > b->buf->cap) {
     return b->buf->offset;
   }
-  b->pos = b->buf->data + offset;
+  b->pos = offset;
   b->buf->offset = offset;
 
   return offset;
