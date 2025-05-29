@@ -12,9 +12,15 @@
 //!
 //! It exposes an FFI module for each workspace crate that must be consumed (directly) by the C code.
 
+pub mod buffer;
 pub mod inverted_index;
 
-pub mod trie;
+// The feature flag is needed to disable this module when linking `redisearch_rs.a` against the C code,
+// since including it would cause a conflict between `deps/triemap.c` and the symbols defined
+// in the `trie` module—they satisfy the same header file, `deps/triemap.h`.
+// We will enable it unconditionally once `deps/triemap.c` is removed in favour of the `trie` module.
+// #[cfg(feature = "trie")]
+// pub mod trie;
 
 /// Registers the Redis module allocator as the global allocator for the application.
 #[cfg(not(feature = "mock_allocator"))]

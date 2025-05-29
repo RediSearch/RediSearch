@@ -185,6 +185,15 @@ impl BufferWriter {
         })
     }
 
+    pub fn from_ffi_buffer(buf: NonNull<ffi::Buffer>) -> Self {
+        unsafe {
+            Self(ffi::BufferWriter {
+                buf: buf.as_ptr(),
+                pos: buf.as_ref().data,
+            })
+        }
+    }
+
     /// Get a reference to the underlying buffer.
     ///
     /// # Safety
