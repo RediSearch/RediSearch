@@ -11,25 +11,19 @@
 #include "index_iterator.h"
 
 // The metric type that this iterator yields.
+#ifndef MICRO_BENCHMARKS
 typedef enum {
   VECTOR_DISTANCE,
 } Metric;
-
-typedef struct {
-  IndexIterator base;
-  Metric type;
-  t_docId *idsList;
-  double *metricList;    // metric_list[i] is the metric that ids_list[i] yields.
-  t_docId lastDocId;
-  size_t resultsNum;
-  size_t curIndex;       // Index of the next doc_id to return.
-} MetricIterator;
+#endif
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric metric_type, bool yields_metric);
+
+Metric GetMetric(IndexIterator *it);
 
 #ifdef __cplusplus
 }

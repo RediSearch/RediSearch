@@ -11,6 +11,7 @@
 
 #include <random>
 #include <vector>
+#include <iostream>
 
 #include "src/iterators/iterator_api.h"
 #include "src/iterators/idlist_iterator.h"
@@ -30,7 +31,7 @@ public:
       initialized = true;
     }
 
-    auto numDocuments = state.range(0);
+    auto numDocuments = 100000;
     std::mt19937 rng(46);
     std::uniform_int_distribution<t_docId> dist(1, 2'000'000);
 
@@ -58,10 +59,6 @@ public:
 template <typename IteratorType>
 bool BM_IdListIterator<IteratorType>::initialized = false;
 
-#define READ_DOCIDS_SCENARIOS() Arg(100)
-#define SKIPTO_DOCIDS_SCENARIOS() Arg(100)->Arg(1000)
-
-
 BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read, QueryIterator)(benchmark::State &state) {
   for (auto _ : state) {
     auto rc = iterator_base->Read(iterator_base);
@@ -72,19 +69,19 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read, QueryIterator)(benchmark::
 }
 
 BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo, QueryIterator)(benchmark::State &state) {
-  t_docId docId = 10;
+  t_docId docId = 100;
   for (auto _ : state) {
     auto rc = iterator_base->SkipTo(iterator_base, docId);
-    docId += 10;
+    docId += 100;
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10;
+      docId = 100;
     }
   }
 }
 
-BENCHMARK_REGISTER_F(BM_IdListIterator, Read)->READ_DOCIDS_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo)->SKIPTO_DOCIDS_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_IdListIterator, Read);
+BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo);
 
 BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read_Old, IndexIterator)(benchmark::State &state) {
   RSIndexResult *hit;
@@ -98,17 +95,16 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read_Old, IndexIterator)(benchma
 
 BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo_Old, IndexIterator)(benchmark::State &state) {
   RSIndexResult *hit;
-  t_docId docId = 10;
+  t_docId docId = 100;
   for (auto _ : state) {
     auto rc = iterator_base->SkipTo(iterator_base, docId, &hit);
-    docId += 10;
+    docId += 100;
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10;
+      docId = 100;
     }
   }
 }
 
-BENCHMARK_REGISTER_F(BM_IdListIterator, Read_Old)->READ_DOCIDS_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo_Old)->SKIPTO_DOCIDS_SCENARIOS();
-
+BENCHMARK_REGISTER_F(BM_IdListIterator, Read_Old);
+BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo_Old);
