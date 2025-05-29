@@ -22,19 +22,19 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION_BENCHMARK }}
+          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-west-2
       - name: Start EC2 runner
         id: start-ec2-runner
         uses: machulav/ec2-github-runner@v2
         with:
           mode: start
-          github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           ec2-image-id: ${{ inputs.ami-id }}
           ec2-instance-type: ${{ inputs.instance-type }}
-          subnet-id: ${{ secrets.AWS_EC2_SUBNET_ID_BENCHMARK }}
-          security-group-id: ${{ secrets.AWS_EC2_SG_ID_BENCHMARK }}
+          subnet-id: ${{ secrets.CI_CTO_AWS_EC2_SUBNET_ID }}
+          security-group-id: ${{ secrets.CI_CTO_AWS_EC2_SG_ID }}
 
   micro-benchmark:
     name: Run micro-benchmarks on runner
@@ -153,7 +153,7 @@ jobs:
         uses: machulav/ec2-github-runner@v2
         with:
           mode: stop
-          github-token: ${{ secrets.GH_PERSONAL_ACCESS_TOKEN }}
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
           label: ${{ needs.start-runner.outputs.runner_label }}
           ec2-instance-id: ${{ needs.start-runner.outputs.ec2_instance_id }}
 
