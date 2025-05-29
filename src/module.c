@@ -65,7 +65,7 @@
 #include "info/info_redis/threads/current_thread.h"
 #include "info/info_redis/threads/main_thread.h"
 
-#define VERIFY_ACL(ctx, idxR, checkOOM)                                                                     \
+#define VERIFY_ACL(ctx, idxR)                                                                     \
   do {                                                                                                      \
     const char *idxName = RedisModule_StringPtrLen(idxR, NULL);                                             \
     IndexLoadOptions lopts =                                                                                \
@@ -75,16 +75,11 @@
     if (!sp) {                                                                                              \
       return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idxName);                           \
     }                                                                                                       \
-    if (checkOOM && sp->scan_failed_OOM) {                                                                  \
-      return RedisModule_ReplyWithErrorFormat(ctx, "Background scan for index %s failed due to OOM."        \
-                                           " Queries cannot be executed on an incomplete index.", idxName );\
-    }                                                                                                       \
     if (!ACLUserMayAccessIndex(ctx, sp)) {                                                                  \
       return RedisModule_ReplyWithError(ctx, NOPERM_ERR);                                                   \
     }                                                                                                       \
   } while(0);
-#define CHECK_OOM true
-#define IGNORE_OOM false
+
 
 extern RSConfig RSGlobalConfig;
 
@@ -349,7 +344,7 @@ static int queryExplainCommon(RedisModuleCtx *ctx, RedisModuleString **argv, int
   if (argc < 3) {
     return RedisModule_WrongArity(ctx);
   }
-  VERIFY_ACL(ctx, argv[1], CHECK_OOM)
+  VERIFY_ACL(ctx, argv[1])
 
   QueryError status = {0};
   char *explainRoot = RS_GetExplainOutput(ctx, argv, argc, &status);
@@ -2994,7 +2989,7 @@ int MGetCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
   RS_AutoMemory(ctx);
 
-  VERIFY_ACL(ctx, argv[1], CHECK_OOM)
+  VERIFY_ACL(ctx, argv[1])
 
   if (NumShards == 1) {
     return genericCallUnderscoreVariant(ctx, argv, argc);
@@ -3021,7 +3016,7 @@ int SpellCheckCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   }
   RS_AutoMemory(ctx);
 
-  VERIFY_ACL(ctx, argv[1], CHECK_OOM)
+  VERIFY_ACL(ctx, argv[1])
 
   if (NumShards == 1) {
     return SpellCheckCommand(ctx, argv, argc);
@@ -3056,7 +3051,7 @@ static int MastersFanoutCommandHandler(RedisModuleCtx *ctx,
     if (indexNamePos >= argc) {
       return RedisModule_WrongArity(ctx);
     }
-    VERIFY_ACL(ctx, argv[indexNamePos], IGNORE_OOM)
+    VERIFY_ACL(ctx, argv[indexNamePos])
   }
 
   if (NumShards == 1) {
@@ -3108,7 +3103,7 @@ static int SingleShardCommandHandler(RedisModuleCtx *ctx,
     if (indexNamePos >= argc) {
       return RedisModule_WrongArity(ctx);
     }
-    VERIFY_ACL(ctx, argv[indexNamePos], IGNORE_OOM)
+    VERIFY_ACL(ctx, argv[indexNamePos])
   }
 
   if (NumShards == 1) {
@@ -3203,7 +3198,7 @@ static int CursorCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
     return RedisModule_ReplyWithError(ctx, CLUSTERDOWN_ERR);
   }
 
-  VERIFY_ACL(ctx, argv[2], CHECK_OOM)
+  VERIFY_ACL(ctx, argv[2])
 
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
@@ -3226,7 +3221,7 @@ int TagValsCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
   }
   RS_AutoMemory(ctx);
 
-  VERIFY_ACL(ctx, argv[1], CHECK_OOM)
+  VERIFY_ACL(ctx, argv[1])
 
   if (NumShards == 1) {
     return genericCallUnderscoreVariant(ctx, argv, argc);
@@ -3253,7 +3248,7 @@ int InfoCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) 
   }
   RS_AutoMemory(ctx);
 
-  VERIFY_ACL(ctx, argv[1], IGNORE_OOM)
+  VERIFY_ACL(ctx, argv[1])
 
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
@@ -3491,11 +3486,6 @@ int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     // Reply with error
     return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
   }
-  if (sp->scan_failed_OOM) {
-    return RedisModule_ReplyWithErrorFormat(ctx,
-      "Background scan for index %s failed due to OOM. Queries cannot be executed on an incomplete index.",
-      idx);
-  }
 
   bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);
   // Check the ACL key permissions of the user w.r.t the queried index (only if
@@ -3540,7 +3530,7 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
     return RedisModule_ReplyWithError(ctx, "FT.PROFILE does not support cursor");
   }
 
-  VERIFY_ACL(ctx, argv[1], CHECK_OOM)
+  VERIFY_ACL(ctx, argv[1])
 
   if (NumShards == 1) {
     // There is only one shard in the cluster. We can handle the command locally.
