@@ -139,7 +139,7 @@ jobs:
     name: Stop self-hosted EC2 runner
     needs:
       - start-runner # required to get output from the start-runner job
-      - benchmark # required to wait when the main job is done
+      - micro-benchmark # required to wait when the main job is done
     runs-on: ubuntu-latest
     if: ${{ always() }} # required to stop the runner even if the error happened in the previous jobs
     steps:
