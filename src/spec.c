@@ -1000,11 +1000,13 @@ reset:
   // and reached this block, then free it
   if (fs) {
     // if we have a field spec it means that we increased the number of fields, so we need to
-    // decreas it.
+    // decrease it.
     --sp->numFields;
+    IndexError_Clear(fs->indexError);
     FieldSpec_Cleanup(fs);
   }
   for (size_t ii = prevNumFields; ii < sp->numFields; ++ii) {
+    IndexError_Clear(sp->fields[ii].indexError);
     FieldSpec_Cleanup(&sp->fields[ii]);
   }
 
@@ -1323,6 +1325,11 @@ void IndexSpec_FreeInternals(IndexSpec *spec) {
   }
 
   IndexError_Clear(spec->stats.indexError);
+  if (spec->fields != NULL) {
+    for (size_t i = 0; i < spec->numFields; i++) {
+      IndexError_Clear((spec->fields[i]).indexError);
+    }
+  }
 
   // Reset fields stats
   if (spec->fields != NULL) {
