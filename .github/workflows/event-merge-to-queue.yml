@@ -64,7 +64,7 @@ jobs:
       - get-latest-redis-tag
       - test-linux
       - test-macos
-#      - coverage   # temporary disabled until flaky tests are fixed
+      - coverage
       - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{ !cancelled() }}

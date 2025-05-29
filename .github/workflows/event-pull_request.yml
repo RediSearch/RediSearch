@@ -75,7 +75,7 @@ jobs:
       - spellcheck
       - basic-test
       - lint
-#      - coverage   # temporary disabled until flaky tests are fixed
+      - coverage
       - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{!cancelled()}}
