@@ -1463,6 +1463,8 @@ def test_utf8_lowercase_longer_than_uppercase_tags(env):
         res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
         # The lowercase term is stored in its original form, so the index will
         # have two terms: the original term and the lowercase term
+        # After we implement MOD-8799 to support memory reallocation, a single
+        # lowercase term will be stored.
         env.assertEqual(res, [[t, [1]], [t_lower, [2]]])
 
     for dialect in range(1, 5):
@@ -1558,6 +1560,8 @@ def test_utf8_lowercase_longer_than_uppercase_texts(env):
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
         # The lowercase term is stored in its original form, so the index will
         # have two terms: the original term and the lowercase term
+        # After we implement MOD-8799 to support memory reallocation, a single
+        # lowercase term will be stored.
         env.assertEqual(res, [t, t_lower])
 
     for dialect in range(1, 5):
