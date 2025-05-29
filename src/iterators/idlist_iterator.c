@@ -37,7 +37,7 @@ static IteratorStatus IL_Read(QueryIterator *base) {
 * matches */
 static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
   IdListIterator *it = (IdListIterator *)base;
-  if (isEof(it)) {
+  if (isEof(base)) {
     return ITERATOR_EOF;
   }
   if (it->offset >= it->size || docId > it->docIds[it->size - 1]) {
@@ -56,9 +56,6 @@ static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
       break;
     }
     if (docId < did) {
-      if (i == 0) {
-         break;
-      }
       top = i - 1;
     } else {
       bottom = i + 1;
@@ -120,6 +117,83 @@ QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weig
   ret->Read = IL_Read;
   ret->SkipTo = IL_SkipTo;
   ret->Rewind = IL_Rewind;
+
+  return ret;
+}
+
+static void SetYield(QueryIterator *mr) {
+  ResultMetrics_Reset(mr->current);
+  ResultMetrics_Add(mr->current, NULL, RS_NumVal(mr->current->num.value));
+}
+
+static IteratorStatus MR_Read(QueryIterator *base) {
+  MetricIterator *mr = (MetricIterator *)base;
+  IdListIterator *it = &mr->base;
+  IteratorStatus rc = IL_Read(base);
+  if (ITERATOR_OK == rc) {
+    base->current->num.value = mr->metricList[it->offset - 1];
+    SetYield(base);
+  }
+  return rc;
+}
+
+static IteratorStatus MR_SkipTo(QueryIterator *base, t_docId docId) {
+  MetricIterator *mr = (MetricIterator *)base;
+  IdListIterator *it = &mr->base;
+  int rc = IL_SkipTo(base, docId);
+  if (ITERATOR_OK == rc || ITERATOR_NOTFOUND == rc) {
+    base->current->num.value = mr->metricList[it->offset - 1];
+    SetYield(base);
+  }
+  return rc;
+}
+
+static void MR_Free(QueryIterator *self) {
+  MetricIterator *mi = (MetricIterator *)self;
+  if (mi == NULL) {
+    return;
+  }
+  IdListIterator *it = &mi->base;
+  QueryIterator *base = &it->base;
+
+  IndexResult_Free(base->current);
+
+  if (it->docIds) {
+    rm_free(it->docIds);
+  }
+
+  if (mi->metricList) {
+    rm_free(mi->metricList);
+  }
+
+  rm_free(mi);
+}
+
+QueryIterator *IT_V2(NewMetricIterator)(t_docId *docIds, double *metric_list, size_t num_results, Metric metric_type, bool yields_metric) {
+  MetricIterator *mi = rm_new(MetricIterator);
+  IdListIterator *it = &mi->base;
+  QueryIterator *ret = &it->base;
+  mi->type = metric_type;
+  mi->metricList = metric_list;
+  it->docIds = docIds;
+  it->size = num_results;
+  it->offset = 0;
+
+  ret->lastDocId = 0;
+  setEof(ret, false);
+  ret->type = METRIC_ITERATOR;
+  ret->current = NewMetricResult();
+  // If we interested in yielding score
+  if (yields_metric) {
+    ret->Read = MR_Read;
+    ret->SkipTo = MR_SkipTo;
+  } else {
+    ret->Read = IL_Read;
+    ret->SkipTo = IL_SkipTo;
+  }
+  ret->Rewind = IL_Rewind;
+  ret->Free = MR_Free;
+  ret->NumEstimated = IL_NumEstimated;
 
   return ret;
 }

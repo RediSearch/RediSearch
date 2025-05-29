@@ -38,13 +38,13 @@ TEST_P(IDListIteratorCommonTest, Read) {
   // Test reading until EOF
   size_t i = 0;
   while ((rc = iterator_base->Read(iterator_base)) == ITERATOR_OK) {
-      ASSERT_EQ(iterator->base.current->docId, sorted_docIds[i]);
-      ASSERT_EQ(iterator->base.lastDocId, sorted_docIds[i]);
-      ASSERT_FALSE(iterator->base.atEOF);
+      ASSERT_EQ(iterator_base->current->docId, sorted_docIds[i]);
+      ASSERT_EQ(iterator_base->lastDocId, sorted_docIds[i]);
+      ASSERT_FALSE(iterator_base->atEOF);
       i++;
   }
   ASSERT_EQ(rc, ITERATOR_EOF);
-  ASSERT_TRUE(iterator->base.atEOF);
+  ASSERT_TRUE(iterator_base->atEOF);
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_EOF); // Reading after EOF should return EOF
   ASSERT_EQ(iterator_base->SkipTo(iterator_base, sorted_docIds[0]), ITERATOR_EOF); // SkipTo after EOF should return EOF
   ASSERT_EQ(i, docIds.size()) << "Expected to read " << docIds.size() << " documents";
@@ -57,17 +57,17 @@ TEST_P(IDListIteratorCommonTest, SkipTo) {
   IteratorStatus rc;
 
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
-  ASSERT_EQ(iterator->base.current->docId, sorted_docIds[0]);
-  ASSERT_EQ(iterator->base.lastDocId, sorted_docIds[0]);
+  ASSERT_EQ(iterator_base->current->docId, sorted_docIds[0]);
+  ASSERT_EQ(iterator_base->lastDocId, sorted_docIds[0]);
   ASSERT_EQ(iterator->offset, 1);
-  ASSERT_FALSE(iterator->base.atEOF);
+  ASSERT_FALSE(iterator_base->atEOF);
 
   // Skip To to higher than last docID returns EOF, but the lastDocId and EOF is not updated
   ASSERT_EQ(iterator_base->SkipTo(iterator_base, sorted_docIds.back() + 1), ITERATOR_EOF);
-  ASSERT_EQ(iterator->base.current->docId, sorted_docIds[0]);
-  ASSERT_EQ(iterator->base.lastDocId, sorted_docIds[0]);
+  ASSERT_EQ(iterator_base->current->docId, sorted_docIds[0]);
+  ASSERT_EQ(iterator_base->lastDocId, sorted_docIds[0]);
   ASSERT_EQ(iterator->offset, 1);
-  ASSERT_TRUE(iterator->base.atEOF);
+  ASSERT_TRUE(iterator_base->atEOF);
 
   iterator_base->Rewind(iterator_base);
 
@@ -79,37 +79,31 @@ TEST_P(IDListIteratorCommonTest, SkipTo) {
       iterator_base->Rewind(iterator_base);
       rc = iterator_base->SkipTo(iterator_base, i);
       ASSERT_EQ(rc, ITERATOR_NOTFOUND);
-      ASSERT_EQ(iterator->base.current->docId, id);
-      ASSERT_EQ(iterator->base.lastDocId, id);
+      ASSERT_EQ(iterator_base->current->docId, id);
+      ASSERT_EQ(iterator_base->lastDocId, id);
       ASSERT_EQ(iterator->offset, index + 1); //offset is pointing to the next already
-      ASSERT_FALSE(iterator->base.atEOF); // EOF would be set in another iteration
-      if (index == sorted_docIds.size() - 1) {
-        ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_EOF);
-        ASSERT_TRUE(iterator->base.atEOF);
-      }
+      ASSERT_FALSE(iterator_base->atEOF); // EOF would be set in another iteration
       iterator_base->Rewind(iterator_base);
       i++;
     }
     iterator_base->Rewind(iterator_base);
     rc = iterator_base->SkipTo(iterator_base, id);
     ASSERT_EQ(rc, ITERATOR_OK);
-    ASSERT_EQ(iterator->base.current->docId, id);
-    ASSERT_EQ(iterator->base.lastDocId, id);
+    ASSERT_EQ(iterator_base->current->docId, id);
+    ASSERT_EQ(iterator_base->lastDocId, id);
     ASSERT_EQ(iterator->offset, index + 1); //offset is pointing to the next already
-    ASSERT_FALSE(iterator->base.atEOF); // EOF would be set in another iteration
-    if (index == sorted_docIds.size() - 1) {
-      ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_EOF);
-      ASSERT_TRUE(iterator->base.atEOF);
-    }
+    ASSERT_FALSE(iterator_base->atEOF); // EOF would be set in another iteration
     i++;
   }
+  ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_EOF);
+  ASSERT_TRUE(iterator_base->atEOF);
 
   iterator_base->Rewind(iterator_base);
   for (t_docId id : sorted_docIds) {
     rc = iterator_base->SkipTo(iterator_base, id);
     ASSERT_EQ(rc, ITERATOR_OK);
-    ASSERT_EQ(iterator->base.current->docId, id);
-    ASSERT_EQ(iterator->base.lastDocId, id);
+    ASSERT_EQ(iterator_base->current->docId, id);
+    ASSERT_EQ(iterator_base->lastDocId, id);
   }
 }
 
@@ -121,27 +115,27 @@ TEST_P(IDListIteratorCommonTest, Rewind) {
   for (t_docId id : sorted_docIds) {
     rc = iterator_base->SkipTo(iterator_base, id);
     ASSERT_EQ(rc, ITERATOR_OK);
-    ASSERT_EQ(iterator->base.current->docId, id);
-    ASSERT_EQ(iterator->base.lastDocId, id);
+    ASSERT_EQ(iterator_base->current->docId, id);
+    ASSERT_EQ(iterator_base->lastDocId, id);
     iterator_base->Rewind(iterator_base);
-    ASSERT_EQ(iterator->base.lastDocId, 0);
-    ASSERT_FALSE(iterator->base.atEOF);
+    ASSERT_EQ(iterator_base->lastDocId, 0);
+    ASSERT_FALSE(iterator_base->atEOF);
   }
   for (t_docId id : sorted_docIds) {
     rc = iterator_base->Read(iterator_base);
     ASSERT_EQ(rc, ITERATOR_OK);
-    ASSERT_EQ(iterator->base.current->docId, id);
-    ASSERT_EQ(iterator->base.lastDocId, id);
+    ASSERT_EQ(iterator_base->current->docId, id);
+    ASSERT_EQ(iterator_base->lastDocId, id);
   }
   // Rewind after EOF read
   rc = iterator_base->Read(iterator_base);
   ASSERT_EQ(rc, ITERATOR_EOF);
-  ASSERT_TRUE(iterator->base.atEOF);
-  ASSERT_EQ(iterator->base.current->docId, sorted_docIds.back());
-  ASSERT_EQ(iterator->base.lastDocId, sorted_docIds.back());
+  ASSERT_TRUE(iterator_base->atEOF);
+  ASSERT_EQ(iterator_base->current->docId, sorted_docIds.back());
+  ASSERT_EQ(iterator_base->lastDocId, sorted_docIds.back());
   iterator_base->Rewind(iterator_base);
-  ASSERT_EQ(iterator->base.lastDocId, 0);
-  ASSERT_FALSE(iterator->base.atEOF);
+  ASSERT_EQ(iterator_base->lastDocId, 0);
+  ASSERT_FALSE(iterator_base->atEOF);
 }
 
 // Parameters for the tests above. Some set of docIDs sorted and unsorted

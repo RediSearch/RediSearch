@@ -42,9 +42,8 @@ recursively */
 typedef struct QueryIterator {
   enum IteratorType type;
 
-  // Can the iterator yield more results? This is to be used privately by the iterator implementation. Do not check this
-  // flag to determine if the iterator has more results. Instead, call `Read` or `SkipTo` and check the returned status.
-  // Some iterators may set this flag lazily
+  // Can the iterator yield more results? The Iterator must ensure that `atEOF` is set correctly when it is sure that the Next Read returns `ITERATOR_EOF`.
+  // For instance, NotIterator needs to know if the ChildIterator finishes, otherwise it may not skip the last result correctly.
   bool atEOF;
 
   // the last docId read. Initially should be 0.
