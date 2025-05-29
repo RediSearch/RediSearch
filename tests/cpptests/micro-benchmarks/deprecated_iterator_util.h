@@ -1,14 +1,20 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+#pragma once
 
 #include "src/index_iterator.h"
 
 #include <stdint.h>
 #include <vector>
 #include <stdexcept>
+#include <algorithm>
 
 extern "C" {
     int MockOldIterator_Read(void *base, RSIndexResult **hit);
