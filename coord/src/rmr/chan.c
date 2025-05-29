@@ -88,6 +88,7 @@ void *MRChannel_Pop(MRChannel *chan) {
   pthread_mutex_lock(&chan->lock);
   while (!chan->size) {
     if (!chan->wait) {
+      chan->wait = true;  // reset the flag
       pthread_mutex_unlock(&chan->lock);
       return NULL;
     }
@@ -110,6 +111,6 @@ void MRChannel_Unblock(MRChannel *chan) {
   pthread_mutex_lock(&chan->lock);
   chan->wait = false;
   // unblock any waiting readers
-  pthread_cond_broadcast(&chan->cond);
+  pthread_cond_signal(&chan->cond);
   pthread_mutex_unlock(&chan->lock);
 }

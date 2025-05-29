@@ -475,3 +475,40 @@ def index_errors(env, idx = 'idx'):
     return to_dict(index_info(env, idx)['Index Errors'])
 def field_errors(env, idx = 'idx', fld_index = 0):
     return to_dict(to_dict(to_dict(index_info(env, idx)['field statistics'][fld_index]))['Index Errors'])
+
+def resValuesList(res, mode: str):
+    mode = mode.lower()
+    if mode == 'search':
+        # res format: [N, <key>, <values>, ...]
+        assert len(res[1:]) % 2 == 0, f"Unexpected result format: {res}"
+        return res[2::2]
+    elif mode == 'aggregate' or mode == 'agg':
+        # res format: [N, <values>, ...]
+        return res[1:]
+    else:
+        raise ValueError(f"Invalid mode '{mode}'.")
+
+def resultLen(res, mode: str):
+    mode = mode.lower()
+    res_len = len(res[1:])
+    if mode == 'search':
+        # res format: [N, <key>, <values>, ...]
+        assert res_len % 2 == 0, f"Unexpected result format: {res}"
+        return res_len // 2
+    elif mode == 'aggregate' or mode == 'agg':
+        # res format: [N, <values>, ...]
+        return res_len
+    else:
+        raise ValueError(f"Invalid mode '{mode}'.")
+
+def verifyResultLen(env, res, expected_results_count, mode: str, message="", depth=0):
+    assert mode != None, "mode cannot be None"
+    res_len = resultLen(res, mode)
+    env.assertEqual(res_len, expected_results_count, depth=depth+1, message=message + " unexpected results count")
+
+def runDebugQueryCommand(env, query_cmd, debug_params):
+    return env.cmd(debug_cmd(), *query_cmd, *debug_params, 'DEBUG_PARAMS_COUNT', len(debug_params))
+
+def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count):
+    debug_params = ['TIMEOUT_AFTER_N', timeout_res_count]
+    return runDebugQueryCommand(env, query_cmd, debug_params)

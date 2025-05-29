@@ -62,12 +62,17 @@ typedef enum {
 
   // The query is internal (responding to a command from the coordinator)
   QEXEC_F_INTERNAL = 0x400000,
+
+  // The query is for debugging. Note that this is the last bit of uint32_t
+  QEXEC_F_DEBUG = 0x80000000,
+
 } QEFlags;
 
 #define IsCount(r) ((r)->reqflags & QEXEC_F_NOROWS)
 #define IsSearch(r) ((r)->reqflags & QEXEC_F_IS_SEARCH)
 #define IsProfile(r) ((r)->reqflags & QEXEC_F_PROFILE)
 #define IsInternal(r) ((r)->reqflags & QEXEC_F_INTERNAL)
+#define IsDebug(r) ((r)->reqflags & QEXEC_F_DEBUG)
 #define IsScorerNeeded(r) ((r)->reqflags & QEXEC_F_SEND_SCORES)
 
 typedef enum {
@@ -75,7 +80,7 @@ typedef enum {
   QEXEC_S_ITERDONE = 0x02,
 } QEStateFlags;
 
-typedef struct {
+typedef struct AREQ {
   /* plan containing the logical sequence of steps */
   AGGPlan ap;
 

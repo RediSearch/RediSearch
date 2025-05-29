@@ -52,6 +52,8 @@ static inline void rs_timersub(struct timespec *a, struct timespec *b, struct ti
 #define NOT_TIMED_OUT 0
 #define TIMED_OUT 1
 
+#define TIMEOUT_COUNTER_LIMIT 100
+
 typedef struct TimeoutCtx {
   size_t counter;
   struct timespec timeout;
@@ -68,11 +70,11 @@ static inline int TimedOut(struct timespec *timeout) {
   return NOT_TIMED_OUT;
 }
 
-// Check if time has been reached (run once every 100 calls)
+// Check if time has been reached (run once every TIMEOUT_COUNTER_LIMIT calls)
 static inline int TimedOut_WithCounter(struct timespec *timeout, size_t *counter) {
   if (RS_IsMock) return 0;
 
-  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == 100) {
+  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == TIMEOUT_COUNTER_LIMIT) {
     *counter = 0;
     return TimedOut(timeout);
   }
