@@ -11,4 +11,35 @@ pub trait Encoder {
         record: &RSIndexResult,
     ) -> std::io::Result<usize>;
 }
+
+pub struct EncodeDocIdsOnly;
+
+impl Encoder for EncodeDocIdsOnly {
+    fn encode(
+        mut writer: impl BufferWrite,
+        delta: t_docId,
+        _record: &RSIndexResult,
+    ) -> std::io::Result<usize> {
+        let var_enc = varint_encode_u64(delta);
+        let (_bytes_written, memory_growth) = writer.write_and_track(&var_enc)?;
+
+        Ok(memory_growth)
+    }
+}
+
+const MSB: u8 = 0b1000_0000;
+
+/// Does varint encoding for a u64
+fn varint_encode_u64(mut value: u64) -> Vec<u8> {
+    let mut buffer = Vec::new();
+
+    while value >= 128 {
+        buffer.push((value as u8) | MSB);
+        value >>= 7;
+    }
+
+    buffer.push(value as u8);
+    buffer.reverse();
+
+    buffer
 }

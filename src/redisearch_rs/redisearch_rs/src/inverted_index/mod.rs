@@ -32,6 +32,12 @@ pub unsafe extern "C" fn IndexEncoder_RS_Encode(
     unsafe { (encoder.encode_fn)(writer, delta, record) }
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Get_DocsIdOnly_Encoder() -> *mut IndexEncoderRS {
+    let b = Box::new(IndexEncoderRS::from(EncodeDocIdsOnly));
+    Box::into_raw(b)
+}
+
 impl<E: Encoder> From<E> for IndexEncoderRS {
     fn from(_value: E) -> Self {
         // We can't expose generic types for C, so we are generating this function for each
