@@ -20,7 +20,7 @@ struct RLookupKey; // Forward declaration
 #define INDEXREAD_NOTFOUND 2
 #define INDEXREAD_TIMEOUT 3
 
-#ifndef MICRO_BENCHMARKS
+#ifndef __ITERATOR_API_H__
 enum IteratorType {
   READ_ITERATOR,
   HYBRID_ITERATOR,
