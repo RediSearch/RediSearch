@@ -215,10 +215,16 @@ impl BufferWriter {
     }
 }
 
-impl std::io::Write for BufferWriter {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+pub trait BufferWrite {
+    fn write_and_track(&mut self, bytes: &[u8]) -> std::io::Result<(usize, usize)>;
+}
+
+impl BufferWrite for BufferWriter {
+    fn write_and_track(&mut self, bytes: &[u8]) -> std::io::Result<(usize, usize)> {
         // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
         let buffer = unsafe { self.buffer_mut() };
+
+        let mut mem_growth = 0;
 
         // Check if we need to grow the buffer to accommodate the new data
         debug_assert!(
@@ -232,7 +238,7 @@ impl std::io::Write for BufferWriter {
             // unconditionally, we need to update our cursor in either case.
             //
             // Note that this may invalidate previously held pointers into the buffer.
-            unsafe { Buffer_Grow(self.0.buf, bytes.len()) };
+            mem_growth = unsafe { Buffer_Grow(self.0.buf, bytes.len()) };
 
             // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
             let buffer = unsafe { self.buffer_mut() };
@@ -268,12 +274,7 @@ impl std::io::Write for BufferWriter {
         // the valid buffer memory.
         self.0.pos = unsafe { self.0.pos.add(bytes.len()) };
 
-        Ok(bytes.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        // BufferWriter is unbuffered, so flush is a no-op
-        Ok(())
+        Ok((bytes.len(), mem_growth))
     }
 }
 

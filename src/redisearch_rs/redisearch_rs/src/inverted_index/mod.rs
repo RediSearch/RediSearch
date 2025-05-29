@@ -1,8 +1,9 @@
 use buffer::BufferWriter;
-use inverted_index::{Encoder, RSIndexResult, t_docId};
+use inverted_index::{t_docId, EncodeDocIdsOnly, Encoder, RSIndexResult};
 
-#[repr(C)]
-pub struct IndexEncoder {
+use crate::buffer::BufferWriterRS;
+
+pub struct IndexEncoderRS {
     encode_fn: unsafe extern "C" fn(
         writer: *mut BufferWriter,
         delta: t_docId,
@@ -18,17 +19,20 @@ pub struct IndexEncoder {
 ///
 /// The change being that we now also have to pass in the index encoder as the first arg
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexEncoder_Encode(
-    ie: *const IndexEncoder,
-    writer: *mut BufferWriter,
+pub unsafe extern "C" fn IndexEncoder_RS_Encode(
+    ie: *const IndexEncoderRS,
+    writer: *mut BufferWriterRS,
     delta: t_docId,
-    record: *const RSIndexResult,
+    record: *mut RSIndexResult,
 ) -> usize {
+    let writer = unsafe { &mut *writer };
+    let writer = &mut writer.0;
+
     let encoder = unsafe { &*ie };
     unsafe { (encoder.encode_fn)(writer, delta, record) }
 }
 
-impl<E: Encoder> From<E> for IndexEncoder {
+impl<E: Encoder> From<E> for IndexEncoderRS {
     fn from(_value: E) -> Self {
         // We can't expose generic types for C, so we are generating this function for each
         // `[Encoder]` implementation.
@@ -41,7 +45,7 @@ impl<E: Encoder> From<E> for IndexEncoder {
             let record = unsafe { &*record };
 
             match E::encode(*writer, delta, record) {
-                Ok(bytes_written) => bytes_written,
+                Ok(memory_growth) => memory_growth,
                 Err(_) => 0, // TODO: handle correctly
             }
         }

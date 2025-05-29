@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+buffer.workspace = true
 ffi.workspace = true
 
 [lints]
