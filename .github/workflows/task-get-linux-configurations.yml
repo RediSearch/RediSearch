@@ -26,6 +26,8 @@ env:
                     'amazonlinux:2023',
                     'mcr.microsoft.com/azurelinux/base/core:3.0',
                     'alpine:3']"
+  NIGHTLY_X86_IMAGES: "['gcc:11-bullseye']"
+  NIGHTLY_ARM_IMAGES: "['gcc:11-bullseye']"
 
 on:
   workflow_call:
@@ -36,6 +38,9 @@ on:
       architecture:
         type: string
         default: all
+      add_nightly_platforms:
+        type: boolean
+        default: false
     outputs:
       platforms_arm:
         value: ${{ jobs.get-required-envs.outputs.platforms_arm }}
@@ -66,7 +71,9 @@ jobs:
           requested_arch = '${{ inputs.architecture }}'
           all_x86_images = ${{ env.ALL_X86_IMAGES }}
           all_arm_images = ${{ env.ALL_ARM_IMAGES }}
-
+          if '${{ inputs.add_nightly_platforms }}' == 'true':
+            all_x86_images += ${{ env.NIGHTLY_X86_IMAGES }}
+            all_arm_images += ${{ env.NIGHTLY_ARM_IMAGES }}
           x86_platforms = []
           arm_platforms = []
           def needs_arch(arch):
@@ -157,7 +164,7 @@ jobs:
               'pre-deps': "apk add bash gcompat libstdc++ libgcc git"})
 
           # Ubuntu and Debian distributions need git pre-checkout dependencies
-          debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'debian:bullseye', 'gcc:12-bookworm']
+          debian_based_os = ['ubuntu:noble', 'ubuntu:jammy', 'ubuntu:focal', 'debian:bullseye', 'gcc:12-bookworm', 'gcc:11-bullseye']
           for os_name in debian_based_os:
             if os_name in x86_platforms:
               x86_include.append({

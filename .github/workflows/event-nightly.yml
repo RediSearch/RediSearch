@@ -16,6 +16,7 @@ jobs:
       redis-ref: unstable
       test-config: QUICK=1
       fail-fast: false
+      add_nightly_platforms: true
 
   test-macos:
     uses: ./.github/workflows/flow-macos.yml

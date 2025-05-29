@@ -34,6 +34,9 @@ on:
       fail-fast:
         type: boolean
         default: true # Default to true on workflow call (as in matrix, and unlike manual trigger)
+      add_nightly_platforms:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       platform:
@@ -88,6 +91,10 @@ on:
         description: 'Whether to fail fast on first failure'
         type: boolean
         default: false # Default to false on manual trigger
+      add_nightly_platforms:
+        description: 'Add nightly platforms'
+        type: boolean
+        default: false
 
 jobs:
   get-required-envs:
@@ -95,6 +102,7 @@ jobs:
     with:
       platform: ${{ inputs.platform }}
       architecture: ${{ inputs.architecture }}
+      add_nightly_platforms: ${{ inputs.add_nightly_platforms }}
 
   linux-matrix-x86_64:
     if: inputs.architecture == 'all' || inputs.architecture == 'x86_64'
