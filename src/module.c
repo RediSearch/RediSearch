@@ -1188,7 +1188,10 @@ void RediSearch_CleanupModule(void) {
   SchemaPrefixes_Free(SchemaPrefixes_g);
   // GeometryApi_Free();
 
+  IndexError_GlobalCleanup();
+
   RedisModule_FreeThreadSafeContext(RSDummyContext);
   Dictionary_Free();
   RediSearch_LockDestory();
+
 }
