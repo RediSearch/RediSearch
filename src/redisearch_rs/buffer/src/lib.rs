@@ -209,7 +209,7 @@ impl BufferWriter {
 impl std::io::Write for BufferWriter {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
-        let buffer = unsafe { &mut *(self.0.buf as *mut Buffer) };
+        let buffer = unsafe { self.buffer_mut() };
 
         // Check if we need to grow the buffer to accommodate the new data
         debug_assert!(
@@ -226,7 +226,7 @@ impl std::io::Write for BufferWriter {
             unsafe { Buffer_Grow(self.0.buf, bytes.len()) };
 
             // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
-            let buffer = unsafe { &mut *(self.0.buf as *mut Buffer) };
+            let buffer = unsafe { self.buffer_mut() };
 
             // The buffer has relocated, so we need to update our cursor.
             // Safety: After growth, `buffer.len()` points just past the end of the valid data,
@@ -246,7 +246,7 @@ impl std::io::Write for BufferWriter {
         unsafe { copy_nonoverlapping(src, dest, bytes.len()) };
 
         // Safety: We assume `buf` is a valid pointer to a properly initialized Buffer.
-        let buffer = unsafe { &mut *(self.0.buf as *mut Buffer) };
+        let buffer = unsafe { self.buffer_mut() };
         // Update the buffer length.
         // Safety: We've ensured that the buffer has enough capacity.
         unsafe { buffer.advance(bytes.len()) };
