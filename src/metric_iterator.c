@@ -9,6 +9,16 @@
 #include "metric_iterator.h"
 #include "vector_index.h"
 
+typedef struct {
+  IndexIterator base;
+  Metric type;
+  t_docId *idsList;
+  double *metricList;    // metric_list[i] is the metric that ids_list[i] yields.
+  t_docId lastDocId;
+  size_t resultsNum;
+  size_t curIndex;       // Index of the next doc_id to return.
+} MetricIterator;
+
 static int MR_HasNext(void *ctx) {
   MetricIterator *mr = ctx;
   return mr->base.isValid;
@@ -151,4 +161,9 @@ IndexIterator *NewMetricIterator(t_docId *ids_list, double *metric_list, Metric 
   ri->LastDocId = MR_LastDocId;
 
   return ri;
+}
+
+Metric GetMetric(IndexIterator *it) {
+  MetricIterator *mr = (MetricIterator *)it;
+  return mr->type;
 }
