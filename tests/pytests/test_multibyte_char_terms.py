@@ -1477,15 +1477,64 @@ def test_utf8_lowercase_longer_than_uppercase_tags(env):
         # Search using TAG autoescape, which is only available in dialect 2 and above
         if dialect > 1:
             res = conn.execute_command(
-                'FT.SEARCH', 'idx', f'@t:{{"{t}"}}', 'NOCONTENT', 'DIALECT', '2')
+                'FT.SEARCH', 'idx', f'@t:{{"{t}"}}', 'NOCONTENT', 'DIALECT', dialect)
             # The term is stored in its original form, so the search will return the
             # document with the original term
             env.assertEqual(res, [1, '{doc}:1'])
 
             # Search lowercase term
             res = conn.execute_command(
-                'FT.SEARCH', 'idx', f'@t:{{"{t_lower}"}}', 'NOCONTENT', 'DIALECT', '2')
+                'FT.SEARCH', 'idx', f'@t:{{"{t_lower}"}}', 'NOCONTENT', 'DIALECT', dialect)
             env.assertEqual(res, [1, '{doc}:2'])
+
+        # Test the edge cases where the length is around the limit to require
+        # memory reallocation
+        for length in range(126, 129):
+            # Create a long text with multi-byte characters
+            t1 = ('A' * (length - 2)) + 'İ'
+            t1_lower = t1.lower()
+            conn.execute_command('HSET', '{doc}:upper:1', 't', t1)
+            conn.execute_command('HSET', '{doc}:lower:1', 't', t1_lower)
+
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', f'@t:{{{t1}}}', 'NOCONTENT', 'DIALECT', dialect)
+            env.assertEqual(res, [1, '{doc}:upper:1'])
+
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', f'@t:{{{t1_lower}}}', 'NOCONTENT', 'DIALECT', dialect)
+            env.assertEqual(res, [1, '{doc}:lower:1'])
+
+            # Search using long text with multi-byte character and one escaped character
+            t2 = 'E-' + ('B' * (length - 4)) + 'İ'
+            t2_lower = t2.lower()
+            conn.execute_command('HSET', '{doc}:upper:2', 't', t2)
+            conn.execute_command('HSET', '{doc}:lower:2', 't', t2_lower)
+
+            query = f'@t:{{{t2.replace('-', '\\-')}}}'
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', query, 'NOCONTENT', 'DIALECT', dialect)
+            env.assertEqual(res, [1, '{doc}:upper:2'])
+
+            query = f'@t:{{{t2_lower.replace('-', '\\-')}}}'
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', query, 'NOCONTENT', 'DIALECT', dialect)
+            env.assertEqual(res, [1, '{doc}:lower:2'])
+
+            # Search using TAG autoescape, which is only available in dialect 2
+            # and above
+            if dialect > 1:
+                # The term is stored in its original form, so the search will
+                # return only the document with the original term
+                res = conn.execute_command(
+                    'FT.SEARCH', 'idx', f'@t:{{"{t2}"}}', 'NOCONTENT',
+                    'DIALECT', dialect)
+                env.assertEqual(res, [1, '{doc}:upper:2'])
+
+                # Search lowercase term
+                res = conn.execute_command(
+                    'FT.SEARCH', 'idx', f'@t:{{"{t2_lower}"}}', 'NOCONTENT',
+                    'DIALECT', dialect)
+                env.assertEqual(res, [1, '{doc}:lower:2'])
 
 
 def test_utf8_lowercase_longer_than_uppercase_texts(env):
@@ -1530,3 +1579,34 @@ def test_utf8_lowercase_longer_than_uppercase_texts(env):
         res = conn.execute_command(
             'FT.SEARCH', 'idx', f'@t:({t_lower})', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, [0])
+
+        # Test the edge cases where the length is around the limit to require
+        # memory reallocation
+        for length in range(126, 129):
+            # Create a long text with multi-byte characters
+            t1 = 'A' * (length - 2) + 'İ'
+            t1_lower = t1.lower()
+            conn.execute_command('HSET', '{doc}:upper:1', 't', t1)
+            conn.execute_command('HSET', '{doc}:lower:1', 't', t1_lower)
+
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', f'@t:({t1})', 'NOCONTENT', 'DIALECT', dialect)
+            env.assertEqual(res, [1, '{doc}:upper:1'])
+
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', f'@t:({t1_lower})', 'NOCONTENT', 'DIALECT', dialect)
+            env.assertEqual(res, [1, '{doc}:lower:1'])
+
+            # Test using long text with multi-byte character and one escaped character
+            t2 = 'E\\-' + ('B' * (length - 4)) + 'İ'
+            t2_lower = t2.lower()
+            conn.execute_command('HSET', '{doc}:upper:2', 't', t2)
+            conn.execute_command('HSET', '{doc}:lower:2', 't', t2_lower)
+
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', f'@t:({t2})', 'NOCONTENT')
+            env.assertEqual(res, [1, '{doc}:upper:2'])
+
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', f'@t:({t2_lower})', 'NOCONTENT', 'DIALECT', dialect)
+            env.assertEqual(res, [1, '{doc}:lower:2'])
