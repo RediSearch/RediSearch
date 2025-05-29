@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
+#include "buffer.h"
 #include "rmalloc.h"
 
 // static int msb = (int)(~0ULL << 25);
@@ -65,10 +66,10 @@ size_t WriteVarint(uint32_t value, BufferWriter *w) {
   size_t mem_growth = 0;
   // we assume buffer reserve will not fail
   if (!!(mem_growth = Buffer_Reserve(w->buf, nw))) {
-    w->pos = w->buf->data + w->buf->offset;
+    w->pos = w->buf->offset;
   }
 
-  memcpy(w->pos, VARINT_BUF(varint, pos), nw);
+  memcpy(BufferWriter_Current(w), VARINT_BUF(varint, pos), nw);
 
   w->buf->offset += nw;
   w->pos += nw;

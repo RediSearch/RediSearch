@@ -1173,7 +1173,7 @@ TEST_F(IndexTest, testBuffer) {
   ASSERT_TRUE(w.buf->cap == 2) << "Wrong capacity";
   ASSERT_TRUE(w.buf->data != NULL);
   ASSERT_TRUE(Buffer_Offset(w.buf) == 0);
-  ASSERT_TRUE(w.buf->data == w.pos);
+  ASSERT_TRUE(w.buf->data == BufferWriter_Current(&w));
 
   const char *x = "helololoolo";
   size_t l = Buffer_Write(&w, (void *)x, strlen(x) + 1);
