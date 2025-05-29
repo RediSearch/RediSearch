@@ -1442,7 +1442,7 @@ def testTagSearch(env):
     res = conn.execute_command('FT.SEARCH', 'idx', '@t:{fussball}', 'NOCONTENT')
     env.assertEqual(res, [1, 'doc:2s'])
 
-def testLongTags(env):
+def test_utf8_lowercase_longer_than_uppercase_tags(env):
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn = getConnectionByEnv(env)
 
@@ -1488,7 +1488,7 @@ def testLongTags(env):
             env.assertEqual(res, [1, '{doc}:2'])
 
 
-def testLongTexts(env):
+def test_utf8_lowercase_longer_than_uppercase_texts(env):
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
     conn = getConnectionByEnv(env)
 
