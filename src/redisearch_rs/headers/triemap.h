@@ -7,6 +7,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
+#include "buffer.h"
+#include "redisearch.h"
 
 /**
  * Used by [`TrieMapIterator`] to determine type of query.
@@ -18,6 +20,8 @@ typedef enum tm_iter_mode {
   TM_WILDCARD_MODE = 3,
 } tm_iter_mode;
 
+typedef struct IndexEncoderRS IndexEncoderRS;
+
 /**
  * Opaque type TrieMap. Can be instantiated with [`NewTrieMap`].
  */
@@ -28,6 +32,10 @@ typedef struct TrieMap TrieMap;
  * [`TrieMap_IterateWithFilter`].
  */
 typedef struct TrieMapIterator TrieMapIterator;
+
+typedef struct BufferWriterRS {
+  BufferWriter _0;
+} BufferWriterRS;
 
 /**
  * The length of a key string in the trie.
@@ -82,6 +90,24 @@ extern "C" {
  * This special pointer is returned when [`TrieMap_Find`] cannot find anything.
  */
 extern void *TRIEMAP_NOTFOUND;
+
+struct BufferWriterRS *NewBufferWriter_RS(Buffer *buf);
+
+/**
+ * Replaces this C:
+ *
+ * ```c
+ * typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId delta, RSIndexResult *record);
+ * ````
+ *
+ * The change being that we now also have to pass in the index encoder as the first arg
+ */
+uintptr_t IndexEncoder_RS_Encode(const struct IndexEncoderRS *ie,
+                                 struct BufferWriterRS *writer,
+                                 t_docId delta,
+                                 RSIndexResult *record);
+
+struct IndexEncoderRS *Get_DocsIdOnly_Encoder(void);
 
 /**
  * Create a new [`TrieMap`]. Returns an opaque pointer to the newly created trie.

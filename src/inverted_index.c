@@ -20,7 +20,7 @@
 #include "rmutil/rm_assert.h"
 #include "geo_index.h"
 
-#include "inverted_index_rs.h"
+#include "triemap.h" // Actually liking to the Rust bindings
 
 uint64_t TotalIIBlocks = 0;
 

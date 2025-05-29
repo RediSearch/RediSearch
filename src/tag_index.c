@@ -19,7 +19,7 @@
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
 
-#include "inverted_index_rs.h"
+#include "triemap.h" // Actually liking to the Rust bindings
 
 extern RedisModuleCtx *RSDummyContext;
 

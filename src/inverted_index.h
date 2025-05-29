@@ -18,7 +18,7 @@
 #include <stdint.h>
 #include <math.h>
 
-#include "inverted_index_rs.h"
+#include "triemap.h" // Actually liking to the Rust bindings
 
 #ifdef __cplusplus
 extern "C" {
