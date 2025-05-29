@@ -57,12 +57,14 @@ TEST_P(IDListIteratorCommonTest, SkipTo) {
   IteratorStatus rc;
 
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
+  ASSERT_EQ(iterator->base.current->docId, sorted_docIds[0]);
   ASSERT_EQ(iterator->base.lastDocId, sorted_docIds[0]);
   ASSERT_EQ(iterator->offset, 1);
   ASSERT_FALSE(iterator->base.atEOF);
 
   // Skip To to higher than last docID returns EOF, but the lastDocId and EOF is not updated
   ASSERT_EQ(iterator_base->SkipTo(iterator_base, sorted_docIds.back() + 1), ITERATOR_EOF);
+  ASSERT_EQ(iterator->base.current->docId, sorted_docIds[0]);
   ASSERT_EQ(iterator->base.lastDocId, sorted_docIds[0]);
   ASSERT_EQ(iterator->offset, 1);
   ASSERT_TRUE(iterator->base.atEOF);
@@ -77,20 +79,28 @@ TEST_P(IDListIteratorCommonTest, SkipTo) {
       iterator_base->Rewind(iterator_base);
       rc = iterator_base->SkipTo(iterator_base, i);
       ASSERT_EQ(rc, ITERATOR_NOTFOUND);
-      ASSERT_EQ(iterator->base.lastDocId, id);
       ASSERT_EQ(iterator->base.current->docId, id);
+      ASSERT_EQ(iterator->base.lastDocId, id);
       ASSERT_EQ(iterator->offset, index + 1); //offset is pointing to the next already
-      ASSERT_EQ(iterator->base.atEOF, index == sorted_docIds.size() - 1); // When I skip towards the last one, it sets to the EOF
+      ASSERT_FALSE(iterator->base.atEOF); // EOF would be set in another iteration
+      if (index == sorted_docIds.size() - 1) {
+        ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_EOF);
+        ASSERT_TRUE(iterator->base.atEOF);
+      }
       iterator_base->Rewind(iterator_base);
       i++;
     }
     iterator_base->Rewind(iterator_base);
     rc = iterator_base->SkipTo(iterator_base, id);
     ASSERT_EQ(rc, ITERATOR_OK);
-    ASSERT_EQ(iterator->base.lastDocId, id);
     ASSERT_EQ(iterator->base.current->docId, id);
+    ASSERT_EQ(iterator->base.lastDocId, id);
     ASSERT_EQ(iterator->offset, index + 1); //offset is pointing to the next already
-    ASSERT_EQ(iterator->base.atEOF, index == sorted_docIds.size() - 1); // When I skip towards the last one, it sets to the EOF
+    ASSERT_FALSE(iterator->base.atEOF); // EOF would be set in another iteration
+    if (index == sorted_docIds.size() - 1) {
+      ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_EOF);
+      ASSERT_TRUE(iterator->base.atEOF);
+    }
     i++;
   }
 
@@ -98,8 +108,8 @@ TEST_P(IDListIteratorCommonTest, SkipTo) {
   for (t_docId id : sorted_docIds) {
     rc = iterator_base->SkipTo(iterator_base, id);
     ASSERT_EQ(rc, ITERATOR_OK);
-    ASSERT_EQ(iterator->base.lastDocId, id);
     ASSERT_EQ(iterator->base.current->docId, id);
+    ASSERT_EQ(iterator->base.lastDocId, id);
   }
 }
 
@@ -111,8 +121,8 @@ TEST_P(IDListIteratorCommonTest, Rewind) {
   for (t_docId id : sorted_docIds) {
     rc = iterator_base->SkipTo(iterator_base, id);
     ASSERT_EQ(rc, ITERATOR_OK);
-    ASSERT_EQ(iterator->base.lastDocId, id);
     ASSERT_EQ(iterator->base.current->docId, id);
+    ASSERT_EQ(iterator->base.lastDocId, id);
     iterator_base->Rewind(iterator_base);
     ASSERT_EQ(iterator->base.lastDocId, 0);
     ASSERT_FALSE(iterator->base.atEOF);
@@ -120,15 +130,15 @@ TEST_P(IDListIteratorCommonTest, Rewind) {
   for (t_docId id : sorted_docIds) {
     rc = iterator_base->Read(iterator_base);
     ASSERT_EQ(rc, ITERATOR_OK);
-    ASSERT_EQ(iterator->base.lastDocId, id);
     ASSERT_EQ(iterator->base.current->docId, id);
+    ASSERT_EQ(iterator->base.lastDocId, id);
   }
   // Rewind after EOF read
   rc = iterator_base->Read(iterator_base);
   ASSERT_EQ(rc, ITERATOR_EOF);
   ASSERT_TRUE(iterator->base.atEOF);
-  ASSERT_EQ(iterator->base.lastDocId, sorted_docIds.back());
   ASSERT_EQ(iterator->base.current->docId, sorted_docIds.back());
+  ASSERT_EQ(iterator->base.lastDocId, sorted_docIds.back());
   iterator_base->Rewind(iterator_base);
   ASSERT_EQ(iterator->base.lastDocId, 0);
   ASSERT_FALSE(iterator->base.atEOF);

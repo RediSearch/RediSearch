@@ -58,7 +58,9 @@ public:
 template <typename IteratorType>
 bool BM_IdListIterator<IteratorType>::initialized = false;
 
-#define DOCIDS_SCENARIOS() Arg(10)->Arg(100)->Arg(1000)->Arg(100000)
+#define READ_DOCIDS_SCENARIOS() Arg(100)
+#define SKIPTO_DOCIDS_SCENARIOS() Arg(100)->Arg(1000)
+
 
 BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read, QueryIterator)(benchmark::State &state) {
   for (auto _ : state) {
@@ -81,8 +83,8 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo, QueryIterator)(benchmark
   }
 }
 
-BENCHMARK_REGISTER_F(BM_IdListIterator, Read)->DOCIDS_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo)->DOCIDS_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_IdListIterator, Read)->READ_DOCIDS_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo)->SKIPTO_DOCIDS_SCENARIOS();
 
 BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read_Old, IndexIterator)(benchmark::State &state) {
   RSIndexResult *hit;
@@ -92,7 +94,6 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read_Old, IndexIterator)(benchma
       iterator_base->Rewind(iterator_base);
     }
   }
-  iterator_base->Free(iterator_base);
 }
 
 BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo_Old, IndexIterator)(benchmark::State &state) {
@@ -106,10 +107,8 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo_Old, IndexIterator)(bench
       docId = 10;
     }
   }
-
-  iterator_base->Free(iterator_base);
 }
 
-BENCHMARK_REGISTER_F(BM_IdListIterator, Read_Old)->DOCIDS_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo_Old)->DOCIDS_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_IdListIterator, Read_Old)->READ_DOCIDS_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo_Old)->SKIPTO_DOCIDS_SCENARIOS();
 

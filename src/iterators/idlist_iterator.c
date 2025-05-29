@@ -6,12 +6,12 @@
 
 #include "idlist_iterator.h"
 
-static inline void setEof(IdListIterator *it, bool value) {
-  it->base.atEOF = value;
+static inline void setEof(QueryIterator *base, bool value) {
+  base->atEOF = value;
 }
 
-static inline bool isEof(const IdListIterator *it) {
-  return it->base.atEOF;
+static inline bool isEof(const QueryIterator *base) {
+  return base->atEOF;
 }
 
 static size_t IL_NumEstimated(QueryIterator *base) {
@@ -23,14 +23,13 @@ static size_t IL_NumEstimated(QueryIterator *base) {
 *  Returns ITERATOR_EOF if at the end */
 static IteratorStatus IL_Read(QueryIterator *base) {
   IdListIterator *it = (IdListIterator *)base;
-  RS_ASSERT(it->offset < it->size);
-  if (isEof(it) || it->offset >= it->size) {
-    setEof(it, true);
+  if (isEof(base) || it->offset >= it->size) {
+    setEof(base, true);
     return ITERATOR_EOF;
   }
 
   base->lastDocId = it->docIds[it->offset++];
-  it->base.current->docId = base->lastDocId;
+  base->current->docId = base->lastDocId;
   return ITERATOR_OK;
 }
  
@@ -42,7 +41,7 @@ static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
     return ITERATOR_EOF;
   }
   if (it->offset >= it->size || docId > it->docIds[it->size - 1]) {
-    setEof(it, true);
+    setEof(base, true);
     return ITERATOR_EOF;
   }
 
@@ -57,6 +56,9 @@ static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
       break;
     }
     if (docId < did) {
+      if (i == 0) {
+         break;
+      }
       top = i - 1;
     } else {
       bottom = i + 1;
@@ -66,14 +68,14 @@ static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
     did = it->docIds[++i];
   }
   it->offset = i + 1;
-  it->base.current->docId = it->base.lastDocId = did;
+  base->current->docId = base->lastDocId = did;
   return docId == did ? ITERATOR_OK : ITERATOR_NOTFOUND;
 }
 
 /* release the iterator's context and free everything needed */
 static void IL_Free(QueryIterator *self) {
   IdListIterator *it = (IdListIterator *)self;
-  IndexResult_Free(it->base.current);
+  IndexResult_Free(self->current);
   if (it->docIds) {
       rm_free(it->docIds);
   }
@@ -89,9 +91,9 @@ static int cmp_docids(const void *p1, const void *p2) {
 
 static void IL_Rewind(QueryIterator *base) {
   IdListIterator *il = (IdListIterator *)base;
-  setEof(il, false);
-  il->base.lastDocId = 0;
-  il->base.current->docId = 0;
+  setEof(base, false);
+  base->lastDocId = 0;
+  base->current->docId = 0;
   il->offset = 0;
 }
  
@@ -102,17 +104,16 @@ QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weig
   qsort(ids, (size_t)num, sizeof(t_docId), cmp_docids);
 
   IdListIterator *it = rm_new(IdListIterator);
+  QueryIterator *ret = &it->base;
 
   it->size = num;
   it->docIds = rm_calloc(num, sizeof(t_docId));
   if (num > 0) memcpy(it->docIds, ids, num * sizeof(t_docId));
-  setEof(it, false);
-  it->base.current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
-  it->base.lastDocId = 0;
-
   it->offset = 0;
 
-  QueryIterator *ret = &it->base;
+  setEof(ret, false);
+  ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
+  ret->lastDocId = 0;
   ret->type = ID_LIST_ITERATOR;
   ret->NumEstimated = IL_NumEstimated;
   ret->Free = IL_Free;
