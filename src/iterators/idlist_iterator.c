@@ -23,6 +23,7 @@ static size_t IL_NumEstimated(QueryIterator *base) {
 *  Returns ITERATOR_EOF if at the end */
 static IteratorStatus IL_Read(QueryIterator *base) {
   IdListIterator *it = (IdListIterator *)base;
+  RS_ASSERT(it->offset < it->size);
   if (isEof(it) || it->offset >= it->size) {
     setEof(it, true);
     return ITERATOR_EOF;
@@ -37,12 +38,10 @@ static IteratorStatus IL_Read(QueryIterator *base) {
 * matches */
 static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
   IdListIterator *it = (IdListIterator *)base;
-  if (isEof(it) || it->offset >= it->size) {
-    setEof(it, true);
+  if (isEof(it)) {
     return ITERATOR_EOF;
   }
-
-  if (docId > it->docIds[it->size - 1]) {
+  if (it->offset >= it->size || docId > it->docIds[it->size - 1]) {
     setEof(it, true);
     return ITERATOR_EOF;
   }
@@ -67,10 +66,6 @@ static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
     did = it->docIds[++i];
   }
   it->offset = i + 1;
-  if (it->offset >= it->size) {
-    setEof(it, true);
-  }
-
   it->base.current->docId = it->base.lastDocId = did;
   return docId == did ? ITERATOR_OK : ITERATOR_NOTFOUND;
 }
@@ -87,8 +82,9 @@ static void IL_Free(QueryIterator *self) {
  
 static int cmp_docids(const void *p1, const void *p2) {
   const t_docId *d1 = p1, *d2 = p2;
-
-  return (int)(*d1 - *d2);
+  if (*d1 < *d2) return -1;
+  if (*d1 > *d2) return 1;
+  return 0;
 }
 
 static void IL_Rewind(QueryIterator *base) {
@@ -102,7 +98,7 @@ static void IL_Rewind(QueryIterator *base) {
 QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weight) {
   // Assume the ids are not null and num > 0 otherwise these Iterator would not be created, avoid validation
   // first sort the ids, so the caller will not have to deal with it
-  
+  RS_ASSERT(num > 0);
   qsort(ids, (size_t)num, sizeof(t_docId), cmp_docids);
 
   IdListIterator *it = rm_new(IdListIterator);
