@@ -61,7 +61,7 @@ jobs:
   run_micro_benchmarks:
     name: Run ${{ matrix.architecture }} micro-benchmarks
     needs: prepare_runner_configurations
-    uses: ./.github/workflows/micro-benchmark-runner.yml
+    uses: ./.github/workflows/flow-micro-benchmarks-runner.yml
     secrets: inherit
     strategy:
       matrix: ${{ fromJson(needs.prepare_runner_configurations.outputs.matrix) }}
