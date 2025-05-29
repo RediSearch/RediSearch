@@ -13,7 +13,6 @@
 #include "buffer.h"
 #include "doc_table.h"
 #include "index_iterator.h"
-#include "index_result.h"
 #include "spec.h"
 #include "numeric_filter.h"
 #include <stdint.h>
