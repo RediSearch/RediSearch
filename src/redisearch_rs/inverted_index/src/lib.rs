@@ -1,29 +1,27 @@
-use buffer::BufferWrite;
+use std::io::Write;
+
 pub use ffi::{t_docId, RSIndexResult};
 
 /// Encoder to write a record into an index
 pub trait Encoder {
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
-    fn encode(
-        writer: impl BufferWrite,
-        delta: t_docId,
-        record: &RSIndexResult,
-    ) -> std::io::Result<usize>;
+    fn encode(writer: impl Write, delta: t_docId, record: &RSIndexResult)
+        -> std::io::Result<usize>;
 }
 
 pub struct EncodeDocIdsOnly;
 
 impl Encoder for EncodeDocIdsOnly {
     fn encode(
-        mut writer: impl BufferWrite,
+        mut writer: impl Write,
         delta: t_docId,
         _record: &RSIndexResult,
     ) -> std::io::Result<usize> {
         let var_enc = varint_encode_u64(delta);
-        let (_bytes_written, memory_growth) = writer.write_and_track(&var_enc)?;
+        let bytes_written = writer.write(&var_enc)?;
 
-        Ok(memory_growth)
+        Ok(bytes_written)
     }
 }
 

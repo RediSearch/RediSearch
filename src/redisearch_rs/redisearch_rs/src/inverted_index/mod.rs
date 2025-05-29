@@ -49,9 +49,14 @@ impl<E: Encoder> From<E> for IndexEncoderRS {
         ) -> usize {
             let writer = unsafe { &*writer };
             let record = unsafe { &*record };
+            let old_mem_size = unsafe { writer.mem_size() };
 
             match E::encode(*writer, delta, record) {
-                Ok(memory_growth) => memory_growth,
+                Ok(_bytes_written) => {
+                    let new_mem_size = unsafe { writer.mem_size() };
+
+                    new_mem_size - old_mem_size
+                }
                 Err(_) => 0, // TODO: handle correctly
             }
         }
