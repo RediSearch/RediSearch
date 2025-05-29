@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 PROGNAME="${BASH_SOURCE[0]}"
 HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
@@ -66,7 +67,17 @@ OSNICK=$($READIES/bin/platform --osnick)
 
 #---------------------------------------------------------------------------------------- Setup
 
-export EXT_TEST_PATH=${BINROOT}/search/example_extension/libexample_extension.so
+# Set the extension path based on the build type
+if [[ -z $COORD ]]; then
+    export EXT_TEST_PATH=${BINROOT}/search/example_extension/libexample_extension.so
+elif [[ $COORD == "oss" ]]; then
+    export EXT_TEST_PATH=${BINROOT}/coord-oss/example_extension/libexample_extension.so
+elif [[ $COORD == "rlec" ]]; then
+    export EXT_TEST_PATH=${BINROOT}/coord-rlec/example_extension/libexample_extension.so
+fi
+
+# Print the extension path for debugging
+echo "Using extension path: $EXT_TEST_PATH"
 
 SKIP_CPP_TESTS=""
 #---------------------------------------------------------------------------------- Tests scope
