@@ -20,6 +20,8 @@
 #include "rmutil/rm_assert.h"
 #include "geo_index.h"
 
+#include "inverted_index_rs.h"
+
 uint64_t TotalIIBlocks = 0;
 
 // The last block of the index
@@ -431,6 +433,57 @@ IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
       RS_LOG_ASSERT_FMT(0, "Invalid encoder flags: %d", flags);
       return NULL;
   }
+}
+
+/* Write a forward-index entry to an index writer */
+size_t InvertedIndex_WriteEntryGeneric_RS(InvertedIndex *idx, IndexEncoderRS *encoder,
+                                          t_docId docId, RSIndexResult *entry) {
+  size_t sz = 0;
+  bool same_doc = 0;
+  if (idx->lastId && idx->lastId == docId) {
+    // do not allow the same document to be written to the same index twice.
+    // this can happen with duplicate tags for example
+    return 0;
+  }
+
+  t_docId delta = 0;
+  IndexBlock *blk = &INDEX_LAST_BLOCK(idx);
+
+  // use proper block size. Index_DocIdsOnly == 0x00
+  uint16_t blockSize =
+      (idx->flags & INDEX_STORAGE_MASK) ? INDEX_BLOCK_SIZE : INDEX_BLOCK_SIZE_DOCID_ONLY;
+
+  // see if we need to grow the current block
+  if (blk->numEntries >= blockSize && !same_doc) {
+    // If same doc can span more than a single block - need to adjust IndexReader_SkipToBlock
+    blk = InvertedIndex_AddBlock(idx, docId, &sz);
+  } else if (blk->numEntries == 0) {
+    blk->firstId = blk->lastId = docId;
+  }
+
+  delta = docId - blk->lastId;
+
+  // For non-numeric encoders the maximal delta is UINT32_MAX (since it is encoded with 4 bytes)
+  // For numeric encoder the maximal delta has to fit in 7 bytes (since it is encoded with 0-7
+  // bytes)
+  const t_docId maxDelta = INT32_MAX;
+  if (delta > maxDelta) {
+    blk = InvertedIndex_AddBlock(idx, docId, &sz);
+    delta = 0;
+  }
+
+  BufferWriterRS *bw = NewBufferWriter_RS(&blk->buf);
+
+  sz += IndexEncoder_RS_Encode(encoder, bw, delta, entry);
+
+  idx->lastId = docId;
+  blk->lastId = docId;
+  ++blk->numEntries;
+  if (!same_doc) {
+    ++idx->numDocs;
+  }
+
+  return sz;
 }
 
 /* Write a forward-index entry to an index writer */

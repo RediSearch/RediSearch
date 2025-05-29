@@ -19,6 +19,8 @@
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
 
+#include "inverted_index_rs.h"
+
 extern RedisModuleCtx *RSDummyContext;
 
 static uint32_t tagUniqueId = 0;
@@ -192,10 +194,11 @@ struct InvertedIndex *TagIndex_OpenIndex(TagIndex *idx, const char *value,
 // the inverted index (if a new inverted index was created)
 static inline size_t tagIndex_Put(TagIndex *idx, const char *value, size_t len, t_docId docId) {
   size_t sz;
-  IndexEncoder enc = InvertedIndex_GetEncoder(Index_DocIdsOnly);
   RSIndexResult rec = {.type = RSResultType_Virtual, .docId = docId, .offsetsSz = 0, .freq = 0};
   InvertedIndex *iv = TagIndex_OpenIndex(idx, value, len, CREATE_INDEX, &sz);
-  return InvertedIndex_WriteEntryGeneric(iv, enc, docId, &rec) + sz;
+
+  IndexEncoderRS *e = Get_DocsIdOnly_Encoder();
+  return InvertedIndex_WriteEntryGeneric_RS(iv, e, docId, &rec) + sz;
 }
 
 /* Index a vector of pre-processed tags for a docId */
