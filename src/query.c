@@ -1078,26 +1078,27 @@ typedef IndexIterator **IndexIteratorArray;
  * should be performed. If true, the string remains case-sensitive.
  */
 static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
-  size_t origLen = *len;
+  size_t length = *len;
   char *origStr = str;
   char *p = str;
 
   while (*p) {
     if (*p == '\\' && (ispunct(*(p+1)) || isspace(*(p+1)))) {
       ++p;
-      --*len;
+      --length;
     }
     *str++ = *p++;
   }
   *str = '\0';
 
   if (!caseSensitive) {
-    size_t newLen = unicode_tolower(origStr, origLen);
+    size_t newLen = unicode_tolower(origStr, length);
     if (newLen) {
       origStr[newLen] = '\0';
-      *len = newLen;
+      length = newLen;
     }
   }
+  *len = length;
 }
 
 static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, QueryNode *qn,
