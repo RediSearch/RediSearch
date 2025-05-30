@@ -2,6 +2,7 @@
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/../../.. ABSOLUTE)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/micro-benchmarks)
 
 include_directories("${gtest_SOURCE_DIR}/include")
 include_directories(${root}/src)
@@ -20,5 +21,8 @@ FetchContent_MakeAvailable(googlebench)
 include_directories("${googlebench_SOURCE_DIR}/include")
 
 file(GLOB BENCHMARK_ITER_SOURCES "benchmark_*_iterator.cpp")
-add_executable(micro_bench_iterators ${BENCHMARK_ITER_SOURCES} ../index_utils.cpp )
-target_link_libraries(micro_bench_iterators redisearch redismock benchmark::benchmark)
+foreach(benchmark_file ${BENCHMARK_ITER_SOURCES})
+    get_filename_component(benchmark_name ${benchmark_file} NAME_WE)
+    add_executable(${benchmark_name} ${benchmark_file} ../index_utils.cpp)
+    target_link_libraries(${benchmark_name} redisearch redismock benchmark::benchmark)
+endforeach()
