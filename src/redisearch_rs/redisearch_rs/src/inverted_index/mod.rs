@@ -1,27 +1,26 @@
-use buffer::BufferWriter;
 use inverted_index::{t_docId, Encoder, RSIndexResult};
 
-use crate::buffer::BufferWriterRS;
+use crate::buffer::BufferWriter;
 
-pub struct IndexEncoderRS {
+pub struct IndexEncoder {
     encode_fn: unsafe extern "C" fn(
-        writer: *mut BufferWriter,
+        writer: *mut buffer::BufferWriter,
         delta: t_docId,
         record: *const RSIndexResult,
     ) -> usize,
 }
 
-/// Replaces this C:
+/// Write the record and the delta using the given encoder to the writing buffer. The returned value
+/// is how many bytes the buffer grew after the write operation.
 ///
-/// ```c
-/// typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId delta, RSIndexResult *record);
-/// ````
-///
-/// The change being that we now also have to pass in the index encoder as the first arg
+/// # Safety
+/// - The `ie` pointer must point to a valid `IndexEncoder` instance.
+/// - The `writer` pointer must point to a valid `BufferWriter` instance.
+/// - The `record` pointer must point to a valid `RSIndexResult` instance.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn IndexEncoder_RS_Encode(
-    ie: *const IndexEncoderRS,
-    writer: *mut BufferWriterRS,
+pub unsafe extern "C" fn IndexEncoder_Encode(
+    ie: *const IndexEncoder,
+    writer: *mut BufferWriter,
     delta: t_docId,
     record: *mut RSIndexResult,
 ) -> usize {
@@ -32,12 +31,12 @@ pub unsafe extern "C" fn IndexEncoder_RS_Encode(
     unsafe { (encoder.encode_fn)(writer, delta, record) }
 }
 
-impl<E: Encoder> From<E> for IndexEncoderRS {
+impl<E: Encoder> From<E> for IndexEncoder {
     fn from(_value: E) -> Self {
         // We can't expose generic types for C, so we are generating this function for each
         // `[Encoder]` implementation.
         unsafe extern "C" fn encode_impl<E: Encoder>(
-            writer: *mut BufferWriter,
+            writer: *mut buffer::BufferWriter,
             delta: t_docId,
             record: *const RSIndexResult,
         ) -> usize {

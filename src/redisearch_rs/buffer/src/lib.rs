@@ -185,13 +185,17 @@ impl BufferWriter {
         })
     }
 
-    pub fn from_ffi_buffer(buf: NonNull<ffi::Buffer>) -> Self {
-        unsafe {
-            Self(ffi::BufferWriter {
-                buf: buf.as_ptr(),
-                pos: buf.as_ref().data,
-            })
-        }
+    /// Creates a new `BufferWriter` from a raw FFI buffer.
+    ///
+    /// # Safety
+    ///
+    /// The FFI buffer must not be written to or invalidated throughout the lifetime of the lifetime
+    /// of the returned `BufferWriter`.
+    pub unsafe fn from_ffi_buffer(buffer: *mut ffi::Buffer) -> Self {
+        Self(ffi::BufferWriter {
+            buf: buffer,
+            pos: unsafe { (*buffer).data },
+        })
     }
 
     /// Get a reference to the underlying buffer.
@@ -214,8 +218,13 @@ impl BufferWriter {
         unsafe { &mut *(self.0.buf as *mut Buffer) }
     }
 
+    /// Get how much memory is currently allocated for the buffer.
+    ///
+    /// # Safety
+    ///
+    /// We assume `buf` is a valid pointer to a properly initialized `Buffer`.
     pub unsafe fn mem_size(&self) -> usize {
-        // Safety: We assume `buf` is a valid pointer to a properly initialized `Buffer`.
+        // Safety: We assume `self.buf` is a valid pointer to a properly initialized `Buffer`.
         unsafe { self.buffer().capacity() }
     }
 }
