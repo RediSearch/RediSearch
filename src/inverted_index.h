@@ -18,8 +18,6 @@
 #include <stdint.h>
 #include <math.h>
 
-#include "triemap.h" // Actually liking to the Rust bindings
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -205,9 +203,6 @@ typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId delta, RSIndexResult *r
 /* Write a numeric index entry to the index. it includes only a float value and docId. Returns the
  * number of bytes written */
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value);
-
-size_t InvertedIndex_WriteEntryGeneric_RS(InvertedIndex *idx, IndexEncoderRS *encoder,
-                                          t_docId docId, RSIndexResult *entry);
 
 size_t InvertedIndex_WriteEntryGeneric(InvertedIndex *idx, IndexEncoder encoder, t_docId docId,
                                        RSIndexResult *entry);

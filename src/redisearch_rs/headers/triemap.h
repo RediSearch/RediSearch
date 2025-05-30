@@ -107,8 +107,6 @@ uintptr_t IndexEncoder_RS_Encode(const struct IndexEncoderRS *ie,
                                  t_docId delta,
                                  RSIndexResult *record);
 
-struct IndexEncoderRS *Get_DocsIdOnly_Encoder(void);
-
 /**
  * Create a new [`TrieMap`]. Returns an opaque pointer to the newly created trie.
  *

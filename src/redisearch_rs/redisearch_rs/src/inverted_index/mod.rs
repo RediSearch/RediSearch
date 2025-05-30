@@ -1,5 +1,5 @@
 use buffer::BufferWriter;
-use inverted_index::{t_docId, EncodeDocIdsOnly, Encoder, RSIndexResult};
+use inverted_index::{t_docId, Encoder, RSIndexResult};
 
 use crate::buffer::BufferWriterRS;
 
@@ -30,12 +30,6 @@ pub unsafe extern "C" fn IndexEncoder_RS_Encode(
 
     let encoder = unsafe { &*ie };
     unsafe { (encoder.encode_fn)(writer, delta, record) }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn Get_DocsIdOnly_Encoder() -> *mut IndexEncoderRS {
-    let b = Box::new(IndexEncoderRS::from(EncodeDocIdsOnly));
-    Box::into_raw(b)
 }
 
 impl<E: Encoder> From<E> for IndexEncoderRS {
