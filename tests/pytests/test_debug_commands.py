@@ -1,6 +1,6 @@
 from RLTest import Env
 from includes import *
-from common import waitForIndex, TimeLimit
+from common import waitForIndex, TimeLimit, debug_cmd
 
 class TestDebugCommands(object):
 
@@ -24,14 +24,35 @@ class TestDebugCommands(object):
 
     def testDebugHelp(self):
         err_msg = 'wrong number of arguments'
-        help_list = ['DUMP_INVIDX', 'DUMP_NUMIDX', 'DUMP_NUMIDXTREE', 'DUMP_TAGIDX', 'INFO_TAGIDX',
-                     'DUMP_PREFIX_TRIE', 'IDTODOCID', 'DOCIDTOID', 'DOCINFO', 'DUMP_PHONETIC_HASH', 'DUMP_SUFFIX_TRIE',
-                     'DUMP_TERMS', 'INVIDX_SUMMARY', 'NUMIDX_SUMMARY', 'GC_FORCEINVOKE', 'GC_FORCEBGINVOKE', 'GC_CLEAN_NUMERIC',
-                     'GIT_SHA', 'TTL', 'TTL_PAUSE', 'TTL_EXPIRE', 'VECSIM_INFO']
+        help_list = [
+            'DUMP_INVIDX', 
+            'DUMP_NUMIDX', 
+            'DUMP_NUMIDXTREE', 
+            'DUMP_TAGIDX', 
+            'INFO_TAGIDX',
+            'DUMP_PREFIX_TRIE', 
+            'IDTODOCID', 
+            'DOCIDTOID', 
+            'DOCINFO', 
+            'DUMP_PHONETIC_HASH', 
+            'DUMP_SUFFIX_TRIE',
+            'DUMP_TERMS', 
+            'INVIDX_SUMMARY', 
+            'NUMIDX_SUMMARY', 
+            'GC_FORCEINVOKE', 
+            'GC_FORCEBGINVOKE', 
+            'GC_CLEAN_NUMERIC',
+            'GIT_SHA', 
+            'TTL', 
+            'TTL_PAUSE', 
+            'TTL_EXPIRE', 
+            'VECSIM_INFO',
+            'YIELDS_ON_LOAD_COUNTER',
+        ]
         self.env.expect('FT.DEBUG', 'help').equal(help_list)
 
         for cmd in help_list:
-            if cmd in ['GIT_SHA', 'DUMP_PREFIX_TRIE']:
+            if cmd in ['GIT_SHA', 'DUMP_PREFIX_TRIE', 'YIELDS_ON_LOAD_COUNTER']:
                 # 'GIT_SHA' and 'DUMP_PREFIX_TRIE' do not return err_msg
                  continue
             self.env.expect('FT.DEBUG', cmd).raiseError().contains(err_msg)
@@ -216,3 +237,11 @@ class TestDebugCommands(object):
                     'TYPE', 'FLOAT32', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'M', M).ok()
         self.env.expect('ft.debug', 'VECSIM_INFO', 'vectorIdx','v').error() \
             .contains("Vector index not found")
+
+def test_yield_counter(env):
+    # Giving wrong arity
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER','ExtraARG1','ExtraARG2').error()\
+    .contains('wrong number of arguments')
+    # Giving wrong subcommand
+    env.expect(debug_cmd(), 'YIELDS_ON_LOAD_COUNTER', 'NOT_A_COMMAND').error()\
+    .contains('Unknown subcommand')

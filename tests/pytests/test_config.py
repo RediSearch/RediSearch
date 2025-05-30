@@ -133,6 +133,7 @@ def testAllConfig(env):
     #env.assertEqual(res_dict['SAFEMODE'][0], 'true')
     #env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
+    env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
 
 @skip(cluster=True)
 def testInitConfig(env):
