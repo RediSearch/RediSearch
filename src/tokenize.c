@@ -122,13 +122,20 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
       continue;
     }
 
+    // If unicode_tolower allocated new memory, we need to ensure the forward index copies it
+    uint32_t flags = Token_CopyStem;
+    if (allocated) {
+      flags |= Token_CopyRaw;
+    }
+
     *t = (Token){.tok = normalized,
                  .tokLen = normLen,
                  .raw = tok,
                  .rawLen = origLen,
                  .pos = ++ctx->lastOffset,
-                 .flags = Token_CopyStem,
-                 .phoneticsPrimary = t->phoneticsPrimary};
+                 .flags = flags,
+                 .phoneticsPrimary = t->phoneticsPrimary,
+                 .allocatedTok = allocated ? (char*)normalized : NULL};
 
     // if we support stemming - try to stem the word
     if (!(ctx->options & TOKENIZE_NOSTEM) && self->stemmer &&

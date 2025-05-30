@@ -170,6 +170,8 @@ static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
     const char *map = nu_tolower(codepoint);
 
     // Read the transformed codepoint and store it in the unicode buffer
+    // map would be NULL if no transformation is needed,
+    // i.e.: lower case is the same as the original, emoji, etc.
     if (map != NULL) {
       uint32_t mu;
       while (1) {

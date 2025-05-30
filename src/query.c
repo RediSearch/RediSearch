@@ -1098,8 +1098,8 @@ static void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
     if (dst) {
         rm_free(origStr);
         *pstr = dst;
-    }
-    if (*len != newLen) {
+        *len = newLen;
+    } else if (*len != newLen) {
       *len = newLen;
       origStr[newLen] = '\0';
     }
