@@ -11,19 +11,16 @@ static size_t EOI_NumEstimated(QueryIterator *base) {
 }
 
 static IteratorStatus EOI_Read(QueryIterator *base) {
-  return INDEXREAD_EOF;
+  return ITERATOR_EOF;
 }
 
 static IteratorStatus EOI_SkipTo(QueryIterator *base, t_docId docId) {
   return ITERATOR_EOF;
 }
 
-static void EOI_Rewind(void *ctx) {
-}
+static void EOI_Rewind(QueryIterator *base) {}
 
-static void EOI_Free(QueryIterator *base) {
-  // Nothing
-}
+static void EOI_Free(QueryIterator *base) {}
 
 static QueryIterator eofIterator = {.Read = EOI_Read,
                                     .Free = EOI_Free,

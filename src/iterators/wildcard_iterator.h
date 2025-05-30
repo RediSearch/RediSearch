@@ -7,8 +7,6 @@
 #pragma once
 
 #include "iterator_api.h"
-#include "util/timeout.h"
-#include "query_ctx.h"
 
 #ifdef __cplusplus
 extern "C" {
