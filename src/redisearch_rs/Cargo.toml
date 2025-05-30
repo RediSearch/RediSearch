@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "inverted_index",
     "low_memory_thin_vec",
     "qint",
     "redis_mock",
@@ -54,6 +55,7 @@ redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }
 wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
+inverted_index = { path = "./inverted_index" }
 
 cbindgen = "0.28.0"
 cc = "1"

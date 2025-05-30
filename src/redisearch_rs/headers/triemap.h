@@ -7,6 +7,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
+#include "buffer.h"
+#include "redisearch.h"
 
 /**
  * Used by [`TrieMapIterator`] to determine type of query.
@@ -18,6 +20,8 @@ typedef enum tm_iter_mode {
   TM_WILDCARD_MODE = 3,
 } tm_iter_mode;
 
+typedef struct IndexEncoder IndexEncoder;
+
 /**
  * Opaque type TrieMap. Can be instantiated with [`NewTrieMap`].
  */
@@ -28,6 +32,10 @@ typedef struct TrieMap TrieMap;
  * [`TrieMap_IterateWithFilter`].
  */
 typedef struct TrieMapIterator TrieMapIterator;
+
+typedef struct BufferWriter {
+  struct BufferWriter _0;
+} BufferWriter;
 
 /**
  * The length of a key string in the trie.
@@ -82,6 +90,30 @@ extern "C" {
  * This special pointer is returned when [`TrieMap_Find`] cannot find anything.
  */
 extern void *TRIEMAP_NOTFOUND;
+
+/**
+ * Returns a `BufferWriter` that wraps the given `ffi::Buffer`.
+ *
+ * # Safety
+ *
+ * The `buf` pointer must point to a valid `ffi::Buffer` instance and cannot be written to or
+ * be invalidaded while the `BufferWriter` is in use.
+ */
+struct BufferWriter *NewBufferWriter(Buffer *buf);
+
+/**
+ * Write the record and the delta using the given encoder to the writing buffer. The returned value
+ * is how many bytes the buffer grew after the write operation.
+ *
+ * # Safety
+ * - The `ie` pointer must point to a valid `IndexEncoder` instance.
+ * - The `writer` pointer must point to a valid `BufferWriter` instance.
+ * - The `record` pointer must point to a valid `RSIndexResult` instance.
+ */
+uintptr_t IndexEncoder_Encode(const struct IndexEncoder *ie,
+                              struct BufferWriter *writer,
+                              t_docId delta,
+                              RSIndexResult *record);
 
 /**
  * Create a new [`TrieMap`]. Returns an opaque pointer to the newly created trie.
