@@ -190,9 +190,9 @@ static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
   // Encode Unicode codepoints back to utf8 string
   ssize_t reencoded_len = nu_bytenlen(u_buffer, i, nu_utf8_write);
   if (reencoded_len != 0) {
-    if (reencoded_len <= in_len && u_buffer == u_stack_buffer) {
-      // If the reencoded length is less than or equal to the original length
-      // and we used the stack buffer, we can write directly to the original buffer
+    if (reencoded_len <= in_len) {
+      // If the reencoded length is less than or equal to the original length,
+      // we can write directly to the original buffer
       // Write the reencoded string back to the original buffer
       // Note: nu_writenstr does not null-terminate the string, so we handle that separately
       // it should be updated by the caller if needed

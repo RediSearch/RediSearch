@@ -114,11 +114,17 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
 
     // ignore tokens that turn into nothing, unless the whole string is empty.
     if ((normalized == NULL || normLen == 0) && !ctx->empty_input) {
+      if (allocated) {
+        rm_free(normalized);
+      }
       continue;
     }
 
     // skip stopwords
     if (!ctx->empty_input && StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
+      if (allocated) {
+        rm_free(normalized);
+      }
       continue;
     }
 
@@ -156,10 +162,6 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
       }
       PhoneticManager_ExpandPhonetics(NULL, tok, normLen, &t->phoneticsPrimary, NULL);
     }
-
-    // if (allocated) {
-    //   rm_free((void *)t->tok);
-    // }
 
     return ctx->lastOffset;
   }
