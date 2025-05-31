@@ -41,8 +41,10 @@ static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uin
  * - dst is the destination buffer which contains the normalized text
  * - len on input contains the length of the raw token, on output contains the
  *   length of the normalized token
+ * - len on input contains the length of the raw token, on output contains the
+ *   length of the normalized token
  */
-static char *DefaultNormalize(char *s, char *dst, size_t *len) {
+static char *DefaultNormalize(char *s, char *dst, size_t *len, int *allocated) {
   size_t origLen = *len;
   char *realDest = s;
   size_t dstLen = 0;
@@ -69,12 +71,19 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len) {
 
   *len = dstLen;
 
-  size_t newLen = unicode_tolower(dst, dstLen);
-  if (newLen) {
+  size_t newLen = 0;
+  char *longer_dst = unicode_tolower(dst, dstLen, &newLen);
+  if (dstLen != newLen) {
     *len = newLen;
   }
 
-  return dst;
+  if (!longer_dst) {
+    *allocated = 0;
+    return dst;
+  } else {
+    *allocated = 1;
+    return longer_dst;
+  }
 }
 
 // tokenize the text in the context
@@ -100,16 +109,29 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
       normBuf = tok;
     }
 
-    char *normalized = DefaultNormalize(tok, normBuf, &normLen);
+    int allocated = 0;
+    char *normalized = DefaultNormalize(tok, normBuf, &normLen, &allocated);
 
     // ignore tokens that turn into nothing, unless the whole string is empty.
     if ((normalized == NULL || normLen == 0) && !ctx->empty_input) {
+      if (allocated) {
+        rm_free(normalized);
+      }
       continue;
     }
 
     // skip stopwords
     if (!ctx->empty_input && StopWordList_Contains(ctx->stopwords, normalized, normLen)) {
+      if (allocated) {
+        rm_free(normalized);
+      }
       continue;
+    }
+
+    // If unicode_tolower allocated new memory, we need to ensure the forward index copies it
+    uint32_t flags = Token_CopyStem;
+    if (allocated) {
+      flags |= Token_CopyRaw;
     }
 
     *t = (Token){.tok = normalized,
@@ -117,8 +139,9 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
                  .raw = tok,
                  .rawLen = origLen,
                  .pos = ++ctx->lastOffset,
-                 .flags = Token_CopyStem,
-                 .phoneticsPrimary = t->phoneticsPrimary};
+                 .flags = flags,
+                 .phoneticsPrimary = t->phoneticsPrimary,
+                 .allocatedTok = allocated ? (char*)normalized : NULL};
 
     // if we support stemming - try to stem the word
     if (!(ctx->options & TOKENIZE_NOSTEM) && self->stemmer &&

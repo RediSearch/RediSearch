@@ -1077,8 +1077,8 @@ typedef IndexIterator **IndexIteratorArray;
  * @param caseSensitive A flag indicating whether the conversion to lowercase
  * should be performed. If true, the string remains case-sensitive.
  */
-static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
-  size_t origLen = *len;
+static void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
+  char *str = *pstr;
   char *origStr = str;
   char *p = str;
 
@@ -1092,10 +1092,16 @@ static void tag_strtolower(char *str, size_t *len, int caseSensitive) {
   *str = '\0';
 
   if (!caseSensitive) {
-    size_t newLen = unicode_tolower(origStr, origLen);
-    if (newLen) {
-      origStr[newLen] = '\0';
+    // TODO: MOD-8799 Support longer dst
+    size_t newLen = 0;
+    char *dst = unicode_tolower(origStr, *len, &newLen);
+    if (dst) {
+        rm_free(origStr);
+        *pstr = dst;
+        *len = newLen;
+    } else if (*len != newLen) {
       *len = newLen;
+      origStr[newLen] = '\0';
     }
   }
 }
@@ -1111,11 +1117,11 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
 
   if(qn->lxrng.begin) {
     size_t beginLen = strlen(qn->lxrng.begin);
-    tag_strtolower(qn->lxrng.begin, &beginLen, caseSensitive);
+    tag_strtolower(&(qn->lxrng.begin), &beginLen, caseSensitive);
   }
   if(qn->lxrng.end) {
     size_t endLen = strlen(qn->lxrng.end);
-    tag_strtolower(qn->lxrng.end, &endLen, caseSensitive);
+    tag_strtolower(&(qn->lxrng.end), &endLen, caseSensitive);
   }
 
   ctx.cap = 8;
@@ -1145,7 +1151,7 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
   RSToken *tok = &qn->pfx.tok;
 
-  tag_strtolower(tok->str, &tok->len, caseSensitive);
+  tag_strtolower(&(tok->str), &tok->len, caseSensitive);
 
   // we allow a minimum of 2 letters in the prefix by default (configurable)
   if (tok->len < q->config->minTermPrefix) {
@@ -1248,7 +1254,7 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
 
   RSToken *tok = &qn->verb.tok;
 
-  tag_strtolower(tok->str, &tok->len, caseSensitive);
+  tag_strtolower(&(tok->str), &tok->len, caseSensitive);
 
   tok->len = Wildcard_RemoveEscape(tok->str, tok->len);
 
@@ -1341,7 +1347,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
 
   switch (n->type) {
     case QN_TOKEN: {
-      tag_strtolower(n->tn.str, &n->tn.len, caseSensitive);
+      tag_strtolower(&(n->tn.str), &n->tn.len, caseSensitive);
       ret = TagIndex_OpenReader(idx, q->sctx, n->tn.str, n->tn.len, weight, fs->index);
       break;
     }
@@ -1360,7 +1366,7 @@ static IndexIterator *query_EvalSingleTagNode(QueryEvalCtx *q, TagIndex *idx, Qu
       char *terms[QueryNode_NumChildren(n)];
       for (size_t i = 0; i < QueryNode_NumChildren(n); ++i) {
         if (n->children[i]->type == QN_TOKEN) {
-          tag_strtolower(n->children[i]->tn.str, &n->children[i]->tn.len, caseSensitive);
+          tag_strtolower(&(n->children[i]->tn.str), &n->children[i]->tn.len, caseSensitive);
           terms[i] = n->children[i]->tn.str;
         } else {
           terms[i] = "";

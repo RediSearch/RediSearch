@@ -3,6 +3,13 @@
 from common import *
 from RLTest import Env
 
+# These are the unescaped and escaped versions of a long term with multibyte
+# characters where the length of the converted term to lowercase is greater
+# than its original length.
+unescaped_long_term = 'E-Ticaret Yöneticisi / Yönetmeni - XXİX DANIŞMANLIK VE ELEKTRONİK ÇÖZÜMLER İTHALAT İHRACAT LİMİTED ŞİRKETİ - İstanbul'
+escaped_long_term = 'E\\-Ticaret\\ Yöneticisi\\ \\/\\ Yönetmeni\\ \\-\\ XXİX\\ DANIŞMANLIK\\ VE\\ ELEKTRONİK\\ ÇÖZÜMLER\\ İTHALAT\\ İHRACAT\\ LİMİTED\\ ŞİRKETİ\\ \\-\\ İstanbul'
+
+
 def testMultibyteText(env):
     '''Test that multibyte characters are correctly converted to lowercase and
     that queries are case-insensitive using TEXT fields'''
@@ -1434,3 +1441,147 @@ def testTagSearch(env):
 
     res = conn.execute_command('FT.SEARCH', 'idx', '@t:{fussball}', 'NOCONTENT')
     env.assertEqual(res, [1, 'doc:2s'])
+
+
+def testLongTags(env):
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
+    conn = getConnectionByEnv(env)
+
+    t = unescaped_long_term
+    t_lower = t.lower()
+    t_escaped = escaped_long_term
+    t_escaped_lower = t_escaped.lower()
+
+    env.expect('HSET', '{doc}:1', 't', t).equal(1)
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
+        # The term is converted to lowercase
+        env.assertEqual(res, [[t_lower, [1]]])
+
+    env.expect('HSET', '{doc}:2', 't', t_lower).equal(1)
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
+        env.assertEqual(res, [[t_lower, [1, 2]]])
+
+    for dialect in range(1, 5):
+        if dialect != 4:
+            expected = [2, '{doc}:1', '{doc}:2']
+        else:
+            expected = [ANY, '{doc}:1', '{doc}:2']
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:{{{t_escaped}}}', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, expected, message=f'Dialect: {dialect}')
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:{{{t_escaped_lower}}}', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, expected)
+
+        # Search using TAG autoescape, which is only availabne in dialect 2 and above
+        if dialect > 1:
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', f'@t:{{"{t}"}}', 'NOCONTENT', 'DIALECT', '2')
+            # The term is stored in its original form, so the search will return the
+            # document with the original term
+            env.assertEqual(res, expected)
+
+            # Search lowercase term
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', f'@t:{{"{t_lower}"}}', 'NOCONTENT', 'DIALECT', '2')
+            env.assertEqual(res, expected)
+
+
+def testLongTexts(env):
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
+    conn = getConnectionByEnv(env)
+
+    t = unescaped_long_term
+    t_lower = t.lower()
+    t_escaped = escaped_long_term
+    t_escaped_lower = t_escaped.lower()
+
+    env.expect('HSET', '{doc}:1', 't', t_escaped).equal(1)
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
+        # The term is converted to lowercase
+        env.assertEqual(res, [t_lower])
+
+    env.expect('HSET', '{doc}:2', 't', t_escaped_lower).equal(1)
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
+        env.assertEqual(res, [t_lower])
+
+    expected = [2, '{doc}:1', '{doc}:2']
+    for dialect in range(1, 5):
+        # Search escaped original case  term
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t_escaped})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, expected)
+
+        # Search lowercase escaped term
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t_escaped_lower})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, expected)
+
+        # If we don't escape the term, each word is treated as a separate term,
+        # so the search will return no results
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [0])
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t_lower})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [0])
+
+@skip(cluster=True)
+def testToLowerSize(env):
+    '''Test that the toLower function returns the correct size for multi-byte
+    characters.'''
+
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx_txt', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT')
+    env.cmd('FT.CREATE', 'idx_tag', 'ON', 'HASH', 'SCHEMA', 't', 'TAG')
+
+    for idx in ['idx_txt', 'idx_tag']:
+        for codepoint in range(0x110000):  # Unicode range from U+0000 to U+10FFFF
+            # Skip surrogate pairs (0xD800 to 0xDFFF)
+            if 0xD800 <= codepoint <= 0xDFFF:
+                continue
+            char = chr(codepoint)
+            upper_char = char.upper()
+            lower_char = char.lower()
+            if char == lower_char:
+                # If the character is already lowercase, skip it
+                continue
+
+            lower_char2 = char.lower().upper().lower()
+            upper_bytes = upper_char.encode('utf-8')
+            lower_bytes = lower_char.encode('utf-8')
+
+            if (len(upper_bytes) < len(lower_bytes)):
+                print(f"Codepoint:U+{codepoint:04X}  char:{char}:{' '.join(f'U+{ord(c):04X}' for c in char)}")
+                print(f"len(upper_bytes) < len(lower_bytes) -> {len(upper_bytes)} < {len(lower_bytes)}")
+                if (lower_char != lower_char2):
+                    print(f'Different: char.upper():{upper_char}:{' '.join(f"U+{ord(c):04X}" for c in upper_char)}  char.lower():{lower_char}:{' '.join(f"U+{ord(c):04X}" for c in lower_char)} char.lower().upper().lower(): {lower_char2} {' '.join(f"U+{ord(c):04X}" for c in lower_char2)}')
+                else:
+                    print(f'Same:      char.upper():{upper_char}:{' '.join(f"U+{ord(c):04X}" for c in upper_char)}  char.lower():{lower_char}:{' '.join(f"U+{ord(c):04X}" for c in lower_char)} char.lower().upper().lower(): {lower_char2} {' '.join(f"U+{ord(c):04X}" for c in lower_char2)}')
+                lower_term = lower_char * 5
+                upper_term = upper_char * 5
+                env.debugPrint(f'upper_term: {upper_term} lower_term: {lower_term}')
+                print(f'upper_term: {upper_term} lower_term: {lower_term}')
+                env.cmd('HSET', 'doc:1', 't', lower_term)
+                env.cmd('HSET', 'doc:2', 't', upper_term)
+
+                if idx == 'idx_txt':
+                    query1 = f'@t:({lower_term})'
+                    query2 = f'@t:({upper_term})'
+                else:
+                    query1 = f'@t:{{{lower_term}}}'
+                    query2 = f'@t:{{{upper_term}}}'
+
+                res = conn.execute_command(
+                    'FT.SEARCH', idx, query1, 'NOCONTENT')
+                env.assertEqual(res, [2, 'doc:1', 'doc:2'], message = f'{idx} upper_char: {upper_char} {' '.join(f"U+{ord(c):04X}" for c in upper_char)}' )
+                res = conn.execute_command(
+                    'FT.SEARCH', idx, query2, 'NOCONTENT')
+                env.assertEqual(res, [2, 'doc:1', 'doc:2'], message = f'{idx} lower_char: {lower_char}  {' '.join(f"U+{ord(c):04X}" for c in lower_char)} lower_char_2: {lower_char2} {' '.join(f"U+{ord(c):04X}" for c in lower_char2)}')
+

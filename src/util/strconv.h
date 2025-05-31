@@ -13,6 +13,7 @@
 #include <ctype.h>
 #include "fast_float/fast_float_strtod.h"
 #include "libnu/libnu.h"
+#include "rmutil/rm_assert.h"
 /* Strconv - common simple string conversion utils */
 
 // Case insensitive string equal
@@ -108,34 +109,63 @@ static char *rm_strndup_unescape(const char *s, size_t len) {
   return ret;
 }
 
-// transform utf8 string to lower case using nunicode library
-// encoded: the utf8 string to transform, if the transformation is successful
-//          the transformed string will be written back to this buffer
-// in_len: the length of the utf8 string
-// returns the bytes written to encoded, or 0 if the length of the transformed
-// string is greater than in_len and no transformation was done
-static size_t unicode_tolower(char *encoded, size_t in_len) {
-  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
-  uint32_t *u_buffer = u_stack_buffer;
+// In some cases there are two lowercase versions of the same character
+// in Unicode, but nu_tolower returns only one of them.
+// i.e. uppercase('ſ') == 'S' but lowercase('S') == 's'
+// So, we need to map 'ſ' to 's' manually.
+// This is a simple map to handle these cases.
+static uint32_t __simpleToLowerMap[8] = {0x0432, 0x0434, 0x043E, 0x0441, 0x0442, 0x0442, 0x044A, 0x0463};
+static uint32_t __simple_tolower(uint32_t in) {
 
+  if (in == 0x0131) {
+    return 0x0069;
+  } else if (in == 0x017f) {
+    return 0x0073;
+  } else if (in >= 0x1c80 && in <= 0x1c87) {
+    return __simpleToLowerMap[in - 0x1c80];
+  } else if (in == 0x1fbe) {
+    return 0x03b9;
+  } else {
+    return in;
+  }
+}
+
+// transform utf8 string to lower case using nunicode library
+// encoded: the utf8 string to transform
+// in_len:
+// out_len: output parameter,
+// returns a pointer to the lower case string, which may be the same as the input string
+// if no new memory allocation is needed.
+static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
   if (in_len == 0) {
-    return 0;
+    return NULL;
   }
 
-  const char *encoded_char = encoded;
+  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
+  uint32_t *u_buffer = u_stack_buffer;
+  char *longer_dst = NULL;
+
   ssize_t u_len = nu_strtransformnlen(encoded, in_len, nu_utf8_read,
                                               nu_tolower, nu_casemap_read);
 
   if (u_len >= (SSO_MAX_LENGTH - 1)) {
-    u_buffer = (uint32_t *)rm_malloc(sizeof(*u_buffer) * (u_len + 1));
+    u_buffer = (uint32_t *)rm_malloc(sizeof(uint32_t) * (u_len + 1));
   }
 
   // Decode utf8 string into Unicode codepoints and transform to lower
-  uint32_t codepoint;
+  const char *encoded_char = encoded;
   unsigned i = 0;
-  for (ssize_t j = 0; j < u_len; j++) {
+  while (encoded_char < encoded + in_len) {
+    uint32_t codepoint = 0;
     // Read unicode codepoint from utf8 string
+    // This might read more than one char.
     encoded_char = nu_utf8_read(encoded_char, &codepoint);
+    if (codepoint == 0) {
+      // If we reach the end of the string, break
+      break;
+    }
+    // Transform unicode codepoint to most common lower case codepoint
+    // codepoint = __simple_tolower(codepoint);
     // Transform unicode codepoint to lower case
     const char *map = nu_tolower(codepoint);
 
@@ -149,35 +179,45 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
         if (mu == 0) {
           break;
         }
-        u_buffer[i] = mu;
-        ++i;
+        u_buffer[i++] = mu;
       }
-    }
-    else {
+    } else {
       // If no transformation is needed, just copy the unicode codepoint
-      u_buffer[i] = codepoint;
-      ++i;
+      u_buffer[i++] = codepoint;
     }
   }
-
+  RS_LOG_ASSERT_FMT(i <= u_len, "i (%u) should be less equal to u_len (%zd)", i, u_len);
   // Encode Unicode codepoints back to utf8 string
-  ssize_t reencoded_len = nu_bytenlen(u_buffer, u_len, nu_utf8_write);
-  if (reencoded_len > 0 && reencoded_len <= in_len) {
-    nu_writenstr(u_buffer, u_len, encoded, nu_utf8_write);
-  } else {
-    reencoded_len = 0;
+  ssize_t reencoded_len = nu_bytenlen(u_buffer, i, nu_utf8_write);
+  if (reencoded_len != 0) {
+    if (reencoded_len <= in_len) {
+      // If the reencoded length is less than or equal to the original length,
+      // we can write directly to the original buffer
+      // Write the reencoded string back to the original buffer
+      // Note: nu_writenstr does not null-terminate the string, so we handle that separately
+      // it should be updated by the caller if needed
+      nu_writenstr(u_buffer, i, encoded, nu_utf8_write);
+    } else {
+      longer_dst = (char *)rm_malloc((reencoded_len + 1) * sizeof(char));
+      nu_writenstr(u_buffer, i, longer_dst, nu_utf8_write);
+      longer_dst[reencoded_len] = '\0';
+      ssize_t x = strlen(longer_dst);
+      RS_LOG_ASSERT_FMT(x == reencoded_len, "reencoded length mismatch: %zu != %zu", x, reencoded_len);
+    }
   }
 
   // Free heap-allocated memory if needed
   if (u_buffer != u_stack_buffer) {
     rm_free(u_buffer);
   }
-
-  return reencoded_len;
+  if (out_len) {
+    *out_len = reencoded_len;
+  }
+  return longer_dst;
 }
 
 
-// strndup + unescape + fold
+// strndup + unescape + tolower
 static char *rm_normalize(const char *s, size_t len) {
   char *ret = rm_strndup(s, len);
   char *dst = ret;
@@ -195,10 +235,16 @@ static char *rm_normalize(const char *s, size_t len) {
   *dst = '\0';
 
   // convert to lower case
-  size_t newLen = unicode_tolower(ret, len);
-  if (newLen) {
-    ret[newLen] = '\0';
-  }
+  size_t newLen = 0;
+  size_t oldLen = strlen(ret);
+  char *longerDst = unicode_tolower(ret, oldLen, &newLen);
+    if (longerDst) {
+        rm_free(ret);
+        ret = longerDst;
+    }
+    if (oldLen != newLen) {
+      ret[newLen] = '\0';
+    }
 
   return ret;
 }
