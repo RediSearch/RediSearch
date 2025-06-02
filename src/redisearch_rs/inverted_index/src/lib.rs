@@ -1,6 +1,6 @@
 use std::io::{Read, Seek, Write};
 
-pub use ffi::{t_docId, t_fieldMask, NumericFilter, RSIndexResult};
+pub use ffi::{t_docId, RSIndexResult};
 
 /// Encoder to write a record into an index
 pub trait Encoder {
