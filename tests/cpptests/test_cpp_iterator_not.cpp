@@ -148,10 +148,129 @@ TEST_P(NotIteratorCommonTest, Rewind) {
     }
 }
 
+
 // Parameters for the tests - just the child iterator document IDs
 INSTANTIATE_TEST_SUITE_P(
   NotIteratorP, 
   NotIteratorCommonTest,
+  ::testing::Combine(
+      ::testing::Values(
+          std::vector<t_docId>{2, 4, 6, 8, 10},
+          std::vector<t_docId>{5, 10, 15, 20, 25, 30},
+          std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
+          std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150}
+      ),
+      ::testing::Values(false, true)
+  )
+);
+
+class NotIteratorChildTimeoutTest : public NotIteratorCommonTest {
+  protected:
+    void TimeoutChildTestRead() {
+      NotIterator *ni = (NotIterator *)iterator_base;
+      auto child = reinterpret_cast<MockIterator *>(ni->child);
+      IteratorStatus rc = iterator_base->Read(iterator_base);
+      ASSERT_EQ(rc, ITERATOR_OK);
+      child->whenDone = ITERATOR_TIMEOUT;
+      child->docIds.clear();
+      while (rc == ITERATOR_OK) {
+        rc = iterator_base->Read(iterator_base);
+      }
+      ASSERT_EQ(rc, ITERATOR_TIMEOUT);
+    }
+
+    void TimeoutChildTestSkipTo() {
+      NotIterator *ni = (NotIterator *)iterator_base;
+      auto child = reinterpret_cast<MockIterator *>(ni->child);
+      child->whenDone = ITERATOR_TIMEOUT;
+      child->docIds.clear();
+      t_docId next = 1;
+      IteratorStatus rc = ITERATOR_OK;
+      while (rc == ITERATOR_OK || rc == ITERATOR_NOTFOUND) {
+        rc = iterator_base->SkipTo(iterator_base, ++next);
+      }
+      ASSERT_EQ(rc, ITERATOR_TIMEOUT);
+    }
+};
+
+TEST_P(NotIteratorChildTimeoutTest, TimeOutChildRead) {
+  TimeoutChildTestRead();
+}
+
+TEST_P(NotIteratorChildTimeoutTest, TimeOutChildSkipTo) {
+  TimeoutChildTestSkipTo();
+}
+
+
+INSTANTIATE_TEST_SUITE_P(
+  NotIteratorChildTimeoutP, 
+  NotIteratorChildTimeoutTest,
+  ::testing::Combine(
+      ::testing::Values(
+          std::vector<t_docId>{2, 4, 6, 8, 10},
+          std::vector<t_docId>{5, 10, 15, 20, 25, 30},
+          std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
+          std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150}
+      ),
+      ::testing::Values(false, true)
+  )
+);
+
+class NotIteratorWildCardTimeoutTest : public NotIteratorCommonTest {
+  protected:
+    void TimeoutWildCardTestRead() {
+      if (!optimized) return;
+      NotIterator *ni = (NotIterator *)iterator_base;
+      if (ni->wcii) {
+        // The WCII should return all the documents from 1 to maxDocId.
+        ni->wcii->Free(ni->wcii);
+        MockIterator *mock_wcii = new MockIterator(std::vector<t_docId>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
+        ni->wcii = (QueryIterator*)mock_wcii;
+      }
+      IteratorStatus rc = iterator_base->Read(iterator_base);
+      ASSERT_EQ(rc, ITERATOR_OK);
+
+      auto wcii = reinterpret_cast<MockIterator *>(ni->wcii);
+      wcii->whenDone = ITERATOR_TIMEOUT;
+      wcii->docIds.clear();
+      while (rc == ITERATOR_OK) {
+        rc = iterator_base->Read(iterator_base);
+      }
+      ASSERT_EQ(rc, ITERATOR_TIMEOUT);
+    }
+
+    void TimeoutWildCardTestSkipTo() {
+      if (!optimized) return;
+      NotIterator *ni = (NotIterator *)iterator_base;
+      if (ni->wcii) {
+        // The WCII should return all the documents from 1 to maxDocId.
+        ni->wcii->Free(ni->wcii);
+        MockIterator *mock_wcii = new MockIterator(std::vector<t_docId>{});
+        ni->wcii = (QueryIterator*)mock_wcii;
+        mock_wcii->whenDone = ITERATOR_TIMEOUT;
+        mock_wcii->docIds.clear();
+      }
+      t_docId next = 1;
+      IteratorStatus rc = ITERATOR_OK;
+      while (rc == ITERATOR_OK || rc == ITERATOR_NOTFOUND) {
+        rc = iterator_base->SkipTo(iterator_base, ++next);
+      }
+      ASSERT_EQ(rc, ITERATOR_TIMEOUT);
+    }
+};
+
+TEST_P(NotIteratorWildCardTimeoutTest, TimeOutChildRead) {
+  TimeoutWildCardTestRead();
+}
+
+TEST_P(NotIteratorWildCardTimeoutTest, TimeOutWildCardSkipTo) {
+  TimeoutWildCardTestSkipTo();
+}
+
+
+INSTANTIATE_TEST_SUITE_P(
+  NotIteratorWildCardTimeoutP, 
+  NotIteratorWildCardTimeoutTest,
   ::testing::Combine(
       ::testing::Values(
           std::vector<t_docId>{2, 4, 6, 8, 10},
@@ -228,91 +347,3 @@ TEST_F(NotIteratorNoChildTest, Rewind) {
     ASSERT_FALSE(iterator_base->atEOF);
   }
 }
-
-/*class NotIteratorEdgesTest : public ::testing::Test {
-protected:
-    QueryIterator *iterator_base;
-    t_docId maxDocId = 50;
-
-    void SetUp() override {
-        MockIterator *child = new MockIterator(10UL, 20UL, 30UL, 40UL);
-        iterator_base = IT_V2(NewNotIterator)(
-            (QueryIterator *)child, maxDocId, 1.0, false, NULL);
-    }
-    
-    void TearDown() override {
-      iterator_base->Free(iterator_base);
-    }
-};
-
-TEST_F(NotIteratorEdgesTest, TimeoutChild) {
-    NotIterator *ni = (NotIterator *)iterator_base;
-    
-    // Set the child iterator to timeout
-    auto child = reinterpret_cast<MockIterator *>(ni->child);
-    child->whenDone = ITERATOR_TIMEOUT;
-    child->docIds.clear();
-
-    // Test reading with a timed-out child
-    auto rc = iterator_base->Read(iterator_base);
-    ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-
-    iterator_base->Rewind(iterator_base);
-
-    // Test skipping with a timed-out child
-    rc = iterator_base->SkipTo(iterator_base, 1);
-    ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-}
-
-TEST_F(NotIteratorEdgesTest, EmptyChild) {
-    NotIterator *ni = (NotIterator *)iterator_base;
-    
-    // Clear the child iterator's document IDs to simulate an empty iterator
-    auto child = reinterpret_cast<MockIterator *>(ni->child);
-    child->docIds.clear();
-
-    // Expected result: all document IDs from 1 to maxDocId
-    std::vector<t_docId> expected;
-    for (t_docId i = 1; i <= maxDocId; i++) {
-        expected.push_back(i);
-    }
-
-    // Test reading all documents
-    size_t i = 0;
-    IteratorStatus rc;
-    while ((rc = iterator_base->Read(iterator_base)) == ITERATOR_OK) {
-        ASSERT_EQ(iterator_base->current->docId, expected[i]);
-        ASSERT_EQ(iterator_base->lastDocId, expected[i]);
-        i++;
-    }
-    ASSERT_EQ(rc, ITERATOR_EOF);
-    ASSERT_EQ(i, expected.size());
-}
-
-class NotIteratorSingleTest : public ::testing::Test {};
-
-TEST_F(NotIteratorSingleTest, MaxDocIdBoundary) {
-    // Create a child iterator with documents 5, 10
-    MockIterator *child = new MockIterator(5UL, 10UL);
-    t_docId maxDocId = 10; // Set max doc ID to the last document in child
-    
-    // Create a NOT iterator
-    QueryIterator *ni_base = IT_V2(NewNotIterator)(
-        (QueryIterator *)child, maxDocId, 1.0, false, NULL);
-    NotIterator *ni = (NotIterator *)ni_base;
-    
-    // Expected result: documents 1-4, 6-9
-    std::vector<t_docId> expected = {1, 2, 3, 4, 6, 7, 8, 9};
-    
-    // Test reading all documents
-    size_t i = 0;
-    IteratorStatus rc;
-    while ((rc = ni_base->Read(ni_base)) == ITERATOR_OK) {
-        ASSERT_EQ(ni->base.current->docId, expected[i]);
-        i++;
-    }
-    ASSERT_EQ(rc, ITERATOR_EOF);
-    ASSERT_EQ(i, expected.size());
-    
-    ni_base->Free(ni_base);
-}*/
