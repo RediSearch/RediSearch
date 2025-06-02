@@ -15,6 +15,7 @@
 #include <vector>
 #include <algorithm>
 #include <stdexcept>
+#include <thread>
 
 extern "C" {
     IteratorStatus MockIterator_Read(QueryIterator *base);
@@ -31,6 +32,7 @@ public:
     size_t nextIndex;
     IteratorStatus whenDone;
     size_t readCount;
+    std::optional<std::chrono::milliseconds> sleepTime; // Sleep for this duration before returning from Read/SkipTo
 private:
 
     static void setBase(QueryIterator *base) {
@@ -47,57 +49,74 @@ private:
 public:
     // Public API
     IteratorStatus Read() {
-        readCount++;
-        if (nextIndex >= docIds.size() || base.atEOF) {
-            base.atEOF = true;
-            return whenDone;
-        }
-        base.lastDocId = base.current->docId = docIds[nextIndex++];
-        return ITERATOR_OK;
+      if (sleepTime.has_value()) {
+        std::this_thread::sleep_for(sleepTime.value());
+      }
+      readCount++;
+      if (nextIndex >= docIds.size() || base.atEOF) {
+        base.atEOF = true;
+        return whenDone;
+      }
+      base.lastDocId = base.current->docId = docIds[nextIndex++];
+      return ITERATOR_OK;
     }
     IteratorStatus SkipTo(t_docId docId) {
-        readCount++;
-        // Guarantee check
-        if (base.lastDocId >= docId) {
-            throw std::invalid_argument("SkipTo: requested to skip backwards");
-        }
-        if (base.atEOF) {
-            return whenDone;
-        }
-        while (nextIndex < docIds.size() && docIds[nextIndex] < docId) {
-            nextIndex++;
-        }
-        readCount--; // Decrement the read count before calling Read
-        auto status = Read();
-        if (status == ITERATOR_OK && base.lastDocId != docId) {
-            return ITERATOR_NOTFOUND;
-        }
-        return status;
+      if (sleepTime.has_value()) {
+        std::this_thread::sleep_for(sleepTime.value());
+      }
+      readCount++;
+      // Guarantee check
+      if (base.lastDocId >= docId) {
+        throw std::invalid_argument("SkipTo: requested to skip backwards");
+      }
+      if (base.atEOF) {
+        return whenDone;
+      }
+      while (nextIndex < docIds.size() && docIds[nextIndex] < docId) {
+        nextIndex++;
+      }
+      readCount--; // Decrement the read count before calling Read
+      auto status = Read();
+      if (status == ITERATOR_OK && base.lastDocId != docId) {
+        return ITERATOR_NOTFOUND;
+      }
+      return status;
     }
     size_t NumEstimated() {
-        return docIds.size();
+      return docIds.size();
     }
     void Rewind() {
-        nextIndex = 0;
-        readCount = 0;
-        base.lastDocId = base.current->docId = 0;
-        base.atEOF = false;
+      nextIndex = 0;
+      readCount = 0;
+      base.lastDocId = base.current->docId = 0;
+      base.atEOF = false;
     }
 
     ~MockIterator() noexcept {
-        IndexResult_Free(base.current);
+      IndexResult_Free(base.current);
     }
 
-    // Constructor
     template<typename... Args>
     MockIterator(Args&&... args)
-        : MockIterator(ITERATOR_EOF, std::forward<Args>(args)...) {}
+      : docIds({std::forward<Args>(args)...}), whenDone(ITERATOR_EOF), nextIndex(0), readCount(0), sleepTime(std::nullopt) {
+      setBase(&base);
+      auto new_end = std::unique(docIds.begin(), docIds.end());
+      docIds.erase(new_end, docIds.end());
+    }
 
     template<typename... Args>
-    MockIterator(IteratorStatus st, Args&&... ids_args)
-        : docIds({ids_args...}), whenDone(st), nextIndex(0), readCount(0) {
-        setBase(&base);
-        auto new_end = std::unique(docIds.begin(), docIds.end());
-        docIds.erase(new_end, docIds.end());
+    MockIterator(std::chrono::milliseconds sleep, Args&&... args)
+      : docIds({std::forward<Args>(args)...}), whenDone(ITERATOR_EOF), nextIndex(0), readCount(0), sleepTime(sleep) {
+      setBase(&base);
+      auto new_end = std::unique(docIds.begin(), docIds.end());
+      docIds.erase(new_end, docIds.end());
+    }
+
+    template<typename... Args>
+    MockIterator(IteratorStatus st, std::optional<std::chrono::milliseconds> sleep, Args&&... ids_args)
+      : docIds({ids_args...}), whenDone(st), nextIndex(0), readCount(0), sleepTime(sleep) {
+      setBase(&base);
+      auto new_end = std::unique(docIds.begin(), docIds.end());
+      docIds.erase(new_end, docIds.end());
     }
 };
