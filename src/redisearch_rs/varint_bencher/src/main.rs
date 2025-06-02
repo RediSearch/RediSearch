@@ -9,112 +9,13 @@
 
 use encode_decode::varint;
 use std::hint::black_box;
-use varint_bencher::{FieldMask, c_varint::c_varint_ops};
-
-// Force linking of Redis mock symbols by referencing the lib.
-extern crate varint_bencher;
-
-/// Show detailed differences between two byte arrays.
-fn show_byte_differences(rust_bytes: &[u8], c_bytes: &[u8], description: &str) {
-    println!("  {} byte-by-byte comparison:", description);
-    println!(
-        "    Rust length: {}, C length: {}",
-        rust_bytes.len(),
-        c_bytes.len()
-    );
-
-    if rust_bytes.len() != c_bytes.len() {
-        println!("    Different lengths detected");
-    }
-
-    let min_len = rust_bytes.len().min(c_bytes.len());
-    let mut differences = 0;
-
-    for i in 0..min_len {
-        if rust_bytes[i] != c_bytes[i] {
-            if differences < 5 {
-                // Show first 5 differences.
-                println!(
-                    "    Byte {}: Rust=0x{:02x}, C=0x{:02x}",
-                    i, rust_bytes[i], c_bytes[i]
-                );
-            }
-            differences += 1;
-        }
-    }
-
-    if differences > 5 {
-        println!("    ... and {} more differences", differences - 5);
-    } else if differences == 0 && rust_bytes.len() != c_bytes.len() {
-        println!("    All common bytes identical, but different lengths");
-    } else if differences == 0 {
-        println!("    No differences found (this shouldn't happen)");
-    } else {
-        println!("    Total differences: {}", differences);
-    }
-
-    // Show first few bytes of each for context.
-    let show_bytes = 16.min(rust_bytes.len()).min(c_bytes.len());
-    if show_bytes > 0 {
-        print!("    First {} bytes - Rust: ", show_bytes);
-        for i in 0..show_bytes {
-            print!("{:02x} ", rust_bytes[i]);
-        }
-        println!();
-        print!("    First {} bytes - C:    ", show_bytes);
-        for i in 0..show_bytes {
-            print!("{:02x} ", c_bytes[i]);
-        }
-        println!();
-    }
-}
+use varint_bencher::FieldMask;
 
 fn main() {
-    verify_implementations();
     compute_and_report_memory_usage();
 }
 
-/// Verify that Rust and C implementations produce identical results for basic test cases.
-fn verify_implementations() {
-    let test_values = [0, 1, 127, 128, 16383, 16384, u32::MAX];
-
-    for &value in &test_values {
-        // Test varint encoding.
-        let mut rust_buf = Vec::new();
-        varint::write(value, &mut rust_buf).unwrap();
-
-        let c_encoded = varint_bencher::c_varint::c_varint_ops::write_to_vec(value);
-
-        if rust_buf != c_encoded {
-            panic!(
-                "Varint encoding mismatch for value {}: Rust={:?}, C={:?}",
-                value, rust_buf, c_encoded
-            );
-        }
-
-        // Test field mask encoding.
-        let field_mask = value as FieldMask;
-        let mut rust_field_buf = Vec::new();
-        varint::write_field_mask(field_mask, &mut rust_field_buf).unwrap();
-
-        let c_field_encoded =
-            varint_bencher::c_varint::c_varint_ops::write_field_mask_to_vec(field_mask);
-
-        if rust_field_buf != c_field_encoded {
-            panic!(
-                "Field mask encoding mismatch for value {}: Rust={:?}, C={:?}",
-                field_mask, rust_field_buf, c_field_encoded
-            );
-        }
-    }
-
-    println!(
-        "✓ Implementation verification passed for {} test values",
-        test_values.len()
-    );
-}
-
-/// Generate test data and build varint encodings using both Rust and C implementations.
+/// Generate test data and build varint encodings using the Rust implementation.
 /// Report memory usage and encoding efficiency.
 fn compute_and_report_memory_usage() {
     let test_data = generate_comprehensive_test_data();
@@ -126,71 +27,84 @@ fn compute_and_report_memory_usage() {
         let _ = rust_writer.write(black_box(value));
     }
     let rust_encoded_size = rust_writer.bytes_len();
-    let rust_encoded_bytes = rust_writer.bytes();
 
-    // Encode with C implementation.
-    let mut c_writer = varint_bencher::c_varint::CVarintVectorWriter::new(test_data.len());
-    for &value in &test_data {
-        c_writer.write(black_box(value));
-    }
-    let c_encoded_size = c_writer.bytes_len();
-    let c_encoded_bytes = c_writer.bytes();
-
-    // Field mask encoding comparison.
+    // Field mask encoding.
     let field_masks: Vec<FieldMask> = test_data.iter().map(|&v| v as FieldMask).collect();
 
-    let mut rust_field_bytes = Vec::new();
     let mut rust_field_size = 0;
     for &mask in &field_masks {
         let mut buf = Vec::new();
         varint::write_field_mask(black_box(mask), &mut buf).unwrap();
         rust_field_size += buf.len();
-        rust_field_bytes.extend_from_slice(&buf);
-    }
-
-    let mut c_field_bytes = Vec::new();
-    let mut c_field_size = 0;
-    for &mask in &field_masks {
-        let encoded = c_varint_ops::write_field_mask_to_vec(black_box(mask));
-        c_field_size += encoded.len();
-        c_field_bytes.extend_from_slice(&encoded);
     }
 
     // Report statistics.
     println!(
-        r#"Varint Encoding Statistics:
+        r#"Varint Encoding Analysis:
 - Raw data size: {:.3} KB ({} u32 values)
-- Rust varint encoding: {:.3} KB ({:.2}x compression)
-- C varint encoding: {:.3} KB ({:.2}x compression)
-- Rust field mask encoding: {:.3} KB
-- C field mask encoding: {:.3} KB"#,
+- Varint encoded size: {:.3} KB ({:.2}x compression)
+- Field mask encoded size: {:.3} KB ({:.2}x compression)
+- Space savings: {:.1}% (varint), {:.1}% (field mask)"#,
         raw_size as f64 / 1024.0,
         test_data.len(),
         rust_encoded_size as f64 / 1024.0,
         raw_size as f64 / rust_encoded_size as f64,
-        c_encoded_size as f64 / 1024.0,
-        raw_size as f64 / c_encoded_size as f64,
         rust_field_size as f64 / 1024.0,
-        c_field_size as f64 / 1024.0,
+        raw_size as f64 / rust_field_size as f64,
+        (1.0 - rust_encoded_size as f64 / raw_size as f64) * 100.0,
+        (1.0 - rust_field_size as f64 / raw_size as f64) * 100.0,
     );
 
-    // Correctness verification.
-    let varint_identical = rust_encoded_bytes == c_encoded_bytes;
-    let field_mask_identical = rust_field_bytes == c_field_bytes;
+    // Encoding efficiency breakdown.
+    analyze_encoding_efficiency(&test_data);
 
-    if varint_identical {
-        println!("- Varint implementations produce identical encoded output");
-    } else {
-        show_byte_differences(rust_encoded_bytes, c_encoded_bytes, "Varint");
+    println!("\nRun `cargo bench` for detailed performance benchmarks.");
+}
+
+/// Analyze encoding efficiency by value ranges.
+fn analyze_encoding_efficiency(test_data: &[u32]) {
+    let mut single_byte = 0;
+    let mut two_byte = 0;
+    let mut three_byte = 0;
+    let mut four_byte = 0;
+    let mut five_byte = 0;
+
+    for &value in test_data {
+        let mut buf = Vec::new();
+        varint::write(value, &mut buf).unwrap();
+        match buf.len() {
+            1 => single_byte += 1,
+            2 => two_byte += 1,
+            3 => three_byte += 1,
+            4 => four_byte += 1,
+            5 => five_byte += 1,
+            _ => {}
+        }
     }
 
-    if field_mask_identical {
-        println!("- Field mask implementations produce identical encoded output");
-    } else {
-        show_byte_differences(&rust_field_bytes, &c_field_bytes, "Field mask");
-    }
-
-    println!("\nRun `cargo bench` for detailed performance comparisons.");
+    let total = test_data.len();
+    println!(
+        r#"
+Encoding Efficiency Breakdown:
+- 1-byte encodings: {} ({:.1}%) - values 0-127
+- 2-byte encodings: {} ({:.1}%) - values 128-16,383
+- 3-byte encodings: {} ({:.1}%) - values 16,384-2,097,151
+- 4-byte encodings: {} ({:.1}%) - values 2,097,152-268,435,455
+- 5-byte encodings: {} ({:.1}%) - values 268,435,456+
+- Average bytes per value: {:.2}"#,
+        single_byte,
+        single_byte as f64 / total as f64 * 100.0,
+        two_byte,
+        two_byte as f64 / total as f64 * 100.0,
+        three_byte,
+        three_byte as f64 / total as f64 * 100.0,
+        four_byte,
+        four_byte as f64 / total as f64 * 100.0,
+        five_byte,
+        five_byte as f64 / total as f64 * 100.0,
+        (single_byte + two_byte * 2 + three_byte * 3 + four_byte * 4 + five_byte * 5) as f64
+            / total as f64,
+    );
 }
 
 fn generate_comprehensive_test_data() -> Vec<u32> {

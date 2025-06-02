@@ -16,9 +16,7 @@ use std::{hint::black_box, time::Duration};
 
 use crate::FieldMask;
 
-use crate::c_varint::{CVarintVectorWriter, c_varint_ops};
-
-/// A helper struct for benchmarking varint operations against C implementation.
+/// A helper struct for benchmarking varint operations.
 pub struct VarintBencher {
     /// Test values for benchmarking.
     test_values: Vec<u32>,
@@ -59,11 +57,9 @@ impl VarintBencher {
     }
 
     /// Benchmark varint encoding operations.
-    /// Benchmark single varint encoding.
     pub fn encode_group(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Encode");
         encode_rust_benchmark(&mut group, &self.test_values);
-        encode_c_benchmark(&mut group, &self.test_values);
         group.finish();
     }
 
@@ -71,7 +67,6 @@ impl VarintBencher {
     pub fn encode_field_mask_group(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Encode FieldMask");
         encode_field_mask_rust_benchmark(&mut group, &self.field_mask_values);
-        encode_field_mask_c_benchmark(&mut group, &self.field_mask_values);
         group.finish();
     }
 
@@ -79,7 +74,6 @@ impl VarintBencher {
     pub fn decode_group(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Decode");
         decode_rust_benchmark(&mut group, &self.test_values);
-        decode_c_benchmark(&mut group, &self.test_values);
         group.finish();
     }
 
@@ -87,7 +81,6 @@ impl VarintBencher {
     pub fn decode_field_mask_group(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Decode FieldMask");
         decode_field_mask_rust_benchmark(&mut group, &self.field_mask_values);
-        decode_field_mask_c_benchmark(&mut group, &self.field_mask_values);
         group.finish();
     }
 
@@ -95,7 +88,6 @@ impl VarintBencher {
     pub fn vector_writer_group(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Vector Writer");
         vector_writer_rust_benchmark(&mut group, &self.test_values);
-        vector_writer_c_benchmark(&mut group, &self.test_values);
         group.finish();
     }
 }
@@ -147,37 +139,6 @@ fn encode_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, valu
     });
 }
 
-fn encode_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
-    // Allocate buffer once for the entire benchmark
-    // SAFETY: RedisModule_Alloc is a valid function pointer provided by Redis module system
-    let alloc_fn = unsafe { crate::RedisModule_Alloc.unwrap() };
-    // SAFETY: Calling Redis allocator with valid size parameter
-    let buffer_ptr = unsafe { alloc_fn(1024) };
-    let mut buffer = crate::ffi::Buffer {
-        data: buffer_ptr as *mut i8,
-        offset: 0,
-        cap: 1024,
-    };
-
-    group.bench_function("C", |b| {
-        b.iter(|| {
-            for &value in values {
-                let _bytes_written = c_varint_ops::write(black_box(value), &mut buffer);
-                black_box(buffer.offset);
-                buffer.offset = 0; // Reset the buffer.
-            }
-        })
-    });
-
-    // Free buffer after benchmark
-    // SAFETY: RedisModule_Free is a valid function pointer provided by Redis module system
-    let free_fn = unsafe { crate::RedisModule_Free.unwrap() };
-    // SAFETY: Freeing buffer that was allocated by RedisModule_Alloc
-    unsafe {
-        free_fn(buffer_ptr);
-    }
-}
-
 fn encode_field_mask_rust_benchmark<M: Measurement>(
     group: &mut BenchmarkGroup<'_, M>,
     values: &[FieldMask],
@@ -195,40 +156,6 @@ fn encode_field_mask_rust_benchmark<M: Measurement>(
     });
 }
 
-fn encode_field_mask_c_benchmark<M: Measurement>(
-    group: &mut BenchmarkGroup<'_, M>,
-    values: &[FieldMask],
-) {
-    // Allocate buffer once for the entire benchmark
-    // SAFETY: RedisModule_Alloc is a valid function pointer provided by Redis module system
-    let alloc_fn = unsafe { crate::RedisModule_Alloc.unwrap() };
-    // SAFETY: Calling Redis allocator with valid size parameter
-    let buffer_ptr = unsafe { alloc_fn(1024) };
-    let mut buffer = crate::ffi::Buffer {
-        data: buffer_ptr as *mut i8,
-        offset: 0,
-        cap: 1024,
-    };
-
-    group.bench_function("C", |b| {
-        b.iter(|| {
-            for &value in values {
-                let _bytes_written = c_varint_ops::write_field_mask(black_box(value), &mut buffer);
-                black_box(buffer.offset);
-                buffer.offset = 0; // Reset the buffer.
-            }
-        })
-    });
-
-    // Free buffer after benchmark
-    // SAFETY: RedisModule_Free is a valid function pointer provided by Redis module system
-    let free_fn = unsafe { crate::RedisModule_Free.unwrap() };
-    // SAFETY: Freeing buffer that was allocated by RedisModule_Alloc
-    unsafe {
-        free_fn(buffer_ptr);
-    }
-}
-
 fn vector_writer_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
     group.bench_function("Rust", |b| {
         b.iter_batched(
@@ -244,23 +171,8 @@ fn vector_writer_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M
     });
 }
 
-fn vector_writer_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
-    group.bench_function("C", |b| {
-        b.iter_batched(
-            || CVarintVectorWriter::new(1024),
-            |mut writer| {
-                for &value in values {
-                    let _size = writer.write(black_box(value));
-                }
-                black_box(writer.bytes_len());
-            },
-            BatchSize::SmallInput,
-        )
-    });
-}
-
 fn decode_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
-    // Pre-encode the values
+    // Pre-encode the values.
     let encoded_values: Vec<Vec<u8>> = values
         .iter()
         .map(|&value| {
@@ -285,7 +197,7 @@ fn decode_field_mask_rust_benchmark<M: Measurement>(
     group: &mut BenchmarkGroup<'_, M>,
     values: &[FieldMask],
 ) {
-    // Pre-encode the field masks
+    // Pre-encode the field masks.
     let encoded_values: Vec<Vec<u8>> = values
         .iter()
         .map(|&value| {
@@ -300,57 +212,6 @@ fn decode_field_mask_rust_benchmark<M: Measurement>(
             for encoded in &encoded_values {
                 let mut reader = encoded.as_slice();
                 let decoded = varint::read_field_mask(&mut reader).unwrap();
-                black_box(decoded);
-            }
-        })
-    });
-}
-
-fn decode_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
-    // Pre-encode the values using C implementation
-    let encoded_values: Vec<Vec<u8>> = values
-        .iter()
-        .map(|&value| c_varint_ops::write_to_vec(value))
-        .collect();
-
-    group.bench_function("C", |b| {
-        b.iter(|| {
-            for encoded in &encoded_values {
-                // Set up buffer to point to encoded data
-                let mut buffer = crate::ffi::Buffer {
-                    data: encoded.as_ptr() as *mut i8,
-                    offset: encoded.len(),
-                    cap: encoded.len(),
-                };
-                // Only time the actual decode operation
-                let decoded = c_varint_ops::read(&mut buffer);
-                black_box(decoded);
-            }
-        })
-    });
-}
-
-fn decode_field_mask_c_benchmark<M: Measurement>(
-    group: &mut BenchmarkGroup<'_, M>,
-    values: &[FieldMask],
-) {
-    // Pre-encode the field masks using C implementation
-    let encoded_values: Vec<Vec<u8>> = values
-        .iter()
-        .map(|&value| c_varint_ops::write_field_mask_to_vec(value))
-        .collect();
-
-    group.bench_function("C", |b| {
-        b.iter(|| {
-            for encoded in &encoded_values {
-                // Set up buffer to point to encoded data
-                let mut buffer = crate::ffi::Buffer {
-                    data: encoded.as_ptr() as *mut i8,
-                    offset: encoded.len(),
-                    cap: encoded.len(),
-                };
-                // Only time the actual decode operation
-                let decoded = c_varint_ops::read_field_mask(&mut buffer);
                 black_box(decoded);
             }
         })
