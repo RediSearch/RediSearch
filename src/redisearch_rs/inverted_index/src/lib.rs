@@ -1,6 +1,6 @@
 use std::io::{Read, Seek, Write};
 
-pub use ffi::{t_docId, t_fieldMask, RSIndexResult};
+pub use ffi::{t_docId, t_fieldMask, NumericFilter, RSIndexResult};
 
 /// Encoder to write a record into an index
 pub trait Encoder {
@@ -18,6 +18,7 @@ pub trait Encoder {
 pub struct DecoderCtx {
     mask: usize,
     wide_mask: t_fieldMask,
+    filter: NumericFilter,
 }
 
 /// Decoder to read records from an index
