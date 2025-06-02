@@ -19,24 +19,12 @@ jobs:
       - name: Build RediSearch
         run: ./build.sh  
       # Step to fetch the latest artifact from master
-      - name: Get Latest Baseline Artifact URL
-        id: get-artifact-url
+      - name: Download Latest Baseline Artifact
+        id: get-artifact
         if: github.event_name == 'pull_request'
         run: |
           chmod +x ./sbin/fetch_micro_bench_artifact.sh
-          ./sbin/fetch_micro_bench_artifact.sh >> $GITHUB_OUTPUT
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
-
-      - name: Download Latest Baseline Artifact
-        id: download-baseline
-        if: github.event_name == 'pull_request' && steps.get-artifact-url.outputs.artifact-url != ''
-        run: |
-          curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -H "Accept: application/vnd.github+json" \
-            "${{ steps.get-artifact-url.outputs.artifact-url }}" -o rust-benchmark-results-master.zip
-          unzip rust-benchmark-results-master.zip -d bin/redisearch_rs/criterion
+          ./sbin/fetch_micro_bench_artifact.sh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
