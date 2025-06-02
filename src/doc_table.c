@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include "redismodule.h"
 #include "util/fnv.h"
-#include "triemap/triemap.h"
+#include "triemap.h"
 #include "sortable.h"
 #include "rmalloc.h"
 #include "spec.h"

@@ -20,6 +20,7 @@
 #include "gc.h"
 #include "module.h"
 #include "suffix.h"
+#include "triemap.h"
 #include "util/workers.h"
 #include "cursor.h"
 #include "module.h"
@@ -347,8 +348,8 @@ DEBUG_COMMAND(DumpPrefixTrie) {
   TrieMap *prefixes_map = SchemaPrefixes_g;
 
   START_POSTPONED_LEN_ARRAY(prefixesMapDump);
-  REPLY_WITH_LONG_LONG("prefixes_count", prefixes_map->cardinality, ARRAY_LEN_VAR(prefixesMapDump));
-  REPLY_WITH_LONG_LONG("prefixes_trie_nodes", prefixes_map->size, ARRAY_LEN_VAR(prefixesMapDump));
+  REPLY_WITH_LONG_LONG("prefixes_count", TrieMap_NUniqueKeys(prefixes_map), ARRAY_LEN_VAR(prefixesMapDump));
+  REPLY_WITH_LONG_LONG("prefixes_trie_nodes", TrieMap_NNodes(prefixes_map), ARRAY_LEN_VAR(prefixesMapDump));
   END_POSTPONED_LEN_ARRAY(prefixesMapDump);
 
   return REDISMODULE_OK;
@@ -545,7 +546,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     goto end;
   }
 
-  TrieMapIterator *iter = TrieMap_Iterate(tagIndex->values, "", 0);
+  TrieMapIterator *iter = TrieMap_Iterate(tagIndex->values);
 
   char *tag;
   tm_len_t len;
@@ -625,7 +626,7 @@ DEBUG_COMMAND(DumpSuffix) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     long resultSize = 0;
 
-    TrieMapIterator *it = TrieMap_Iterate(idx->suffix, "", 0);
+    TrieMapIterator *it = TrieMap_Iterate(idx->suffix);
     char *str;
     tm_len_t len;
     void *value;
@@ -1082,7 +1083,7 @@ DEBUG_COMMAND(InfoTagIndex) {
   size_t nelem = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   RedisModule_ReplyWithLiteral(ctx, "num_values");
-  RedisModule_ReplyWithLongLong(ctx, idx->values->cardinality);
+  RedisModule_ReplyWithLongLong(ctx, TrieMap_NUniqueKeys(idx->values));
   nelem += 2;
 
   if (options.dumpIdEntries) {
@@ -1094,7 +1095,7 @@ DEBUG_COMMAND(InfoTagIndex) {
   }
 
   size_t limit = options.limit ? options.limit : 0;
-  TrieMapIterator *iter = TrieMap_Iterate(idx->values, "", 0);
+  TrieMapIterator *iter = TrieMap_Iterate(idx->values);
   char *tag;
   tm_len_t len;
   InvertedIndex *iv;

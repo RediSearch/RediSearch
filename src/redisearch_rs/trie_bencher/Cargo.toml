@@ -33,9 +33,5 @@ trie_rs.workspace = true
 ureq.workspace = true
 wildcard.workspace = true
 
-[build-dependencies]
-cc.workspace = true
-bindgen.workspace = true
-
 [lints]
 workspace = true

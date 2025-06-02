@@ -168,7 +168,6 @@ jobs:
         working-directory: redis
         run:  ${{ steps.mode.outputs.mode }} make install
               BUILD_TLS=yes
-              ${{ inputs.coverage && 'REDIS_CFLAGS=-DCOVERAGE_TEST' || '' }}
               SANITIZER=${{ inputs.san }}
 
       - name: Set Artifact Names
@@ -236,8 +235,8 @@ jobs:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
           path: | 
             tests/**/logs/*.log*
-            bin/**/*.so
-            bin/**/*.so.debug
+            bin/**/redisearch.so
+            bin/**/redisearch.so.debug
           
           if-no-files-found: ignore
       # If node20 is not supported, we can only use version 3.

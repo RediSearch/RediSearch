@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #include "fork_gc.h"
+#include "triemap.h"
 #include "util/arr.h"
 #include "search_ctx.h"
 #include "inverted_index.h"
@@ -34,6 +35,8 @@
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
+// Number of attempts to wait for the child to exit gracefully before trying to terminate it
+#define GC_WAIT_ATTEMPTS 4
 
 typedef enum {
   // Terms have been collected
@@ -66,7 +69,7 @@ static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
     perror("broken pipe, exiting GC fork: write() failed");
     // just exit, do not abort(), which will trigger a watchdog on RLEC, causing adverse effects
     RedisModule_Log(fgc->ctx, "warning", "GC fork: broken pipe, exiting");
-    exit(1);
+    RedisModule_ExitFromChild(1);
   }
 }
 
@@ -462,7 +465,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
                              .field = HiddenString_GetUnsafe(tagFields[i]->fieldName, NULL),
                              .uniqueId = tagIdx->uniqueId};
 
-      TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values, "", 0);
+      TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values);
       char *ptr;
       tm_len_t len;
       InvertedIndex *value;
@@ -1341,6 +1344,12 @@ static int periodicCb(void *privdata) {
       gcrv = 0;
     }
     close(gc->pipefd[GC_READERFD]);
+    // give the child some time to exit gracefully
+    for (int attempt = 0; attempt < GC_WAIT_ATTEMPTS; ++attempt) {
+      if (waitpid(cpid, NULL, WNOHANG) == 0) {
+        usleep(500);
+      }
+    }
     // KillForkChild must be called when holding the GIL
     // otherwise it might cause a pipe leak and eventually run
     // out of file descriptor

@@ -13,7 +13,7 @@
 #include "rmalloc.h"
 #include "redismodule.h"
 #include "index_result.h"
-#include "triemap/triemap.h"
+#include "triemap.h"
 #include "query.h"
 #include <err.h>
 
