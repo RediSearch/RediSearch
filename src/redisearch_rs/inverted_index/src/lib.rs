@@ -13,21 +13,38 @@ pub trait Encoder {
     ) -> std::io::Result<usize>;
 }
 
+pub enum DecoderResult {
+    /// The record was successfully decoded.
+    Record(RSIndexResult),
+    /// The record was filtered out and should not be returned.
+    FilteredOut,
+    /// There is nothing more left on the reader to decode.
+    EndOfStream,
+}
+
 /// Decoder to read records from an index
 pub trait Decoder {
     /// Decode the next record from the reader. The offset is the base value for any delta being
     /// decoded.
-    ///
-    /// Returns 'None' if the record is filtered out.
-    fn decode(&self, reader: impl Read, offset: t_docId) -> Option<RSIndexResult>;
+    fn decode(&self, reader: impl Read, offset: t_docId) -> std::io::Result<DecoderResult>;
 
     /// Like `[Decoder::decode]`, but seeks to a specific document ID and returns it.
     ///
     /// Returns `None` if there is no record greater than or equal to the target document ID.
     fn seek(
         &self,
-        reader: impl Read + Seek,
+        reader: impl Read + Seek + Copy,
         offset: t_docId,
         target: t_docId,
-    ) -> Option<RSIndexResult>;
+    ) -> std::io::Result<Option<RSIndexResult>> {
+        loop {
+            match self.decode(reader, offset)? {
+                DecoderResult::Record(record) if record.docId >= target => {
+                    return Ok(Some(record));
+                }
+                DecoderResult::Record(_) | DecoderResult::FilteredOut => continue,
+                DecoderResult::EndOfStream => return Ok(None),
+            }
+        }
+    }
 }
