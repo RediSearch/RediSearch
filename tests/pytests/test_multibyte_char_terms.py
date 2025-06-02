@@ -1443,7 +1443,7 @@ def testTagSearch(env):
     env.assertEqual(res, [1, 'doc:2s'])
 
 
-def testLongTags(env):
+def test_utf8_lowercase_longer_than_uppercase_tags(env):
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
     conn = getConnectionByEnv(env)
 
@@ -1477,21 +1477,38 @@ def testLongTags(env):
             'FT.SEARCH', 'idx', f'@t:{{{t_escaped_lower}}}', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, expected)
 
-        # Search using TAG autoescape, which is only availabne in dialect 2 and above
+        # Search using TAG autoescape, which is only available in dialect 2 and above
         if dialect > 1:
             res = conn.execute_command(
-                'FT.SEARCH', 'idx', f'@t:{{"{t}"}}', 'NOCONTENT', 'DIALECT', '2')
+                'FT.SEARCH', 'idx', f'@t:{{"{t}"}}', 'NOCONTENT', 'DIALECT', dialect)
             # The term is stored in its original form, so the search will return the
             # document with the original term
             env.assertEqual(res, expected)
 
             # Search lowercase term
             res = conn.execute_command(
-                'FT.SEARCH', 'idx', f'@t:{{"{t_lower}"}}', 'NOCONTENT', 'DIALECT', '2')
+                'FT.SEARCH', 'idx', f'@t:{{"{t_lower}"}}', 'NOCONTENT', 'DIALECT', dialect)
             env.assertEqual(res, expected)
 
+        # 1 character, occupying 2 bytes in UTF-8 + 1 byte for the null
+        # terminator, so the total length is 3 bytes
+        t1 = 'İ'
+        # 1 characters, occupying 3 bytes in UTF-8 + 1 byte for the null
+        # terminator, so the total length is 4 bytes
+        t1_lower = t1.lower()
+        conn.execute_command('HSET', '{doc}:upper:1', 't', t1)
+        conn.execute_command('HSET', '{doc}:lower:1', 't', t1_lower)
 
-def testLongTexts(env):
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:{{{t1}}}', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [ANY, '{doc}:upper:1', '{doc}:lower:1'])
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:{{{t1_lower}}}', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [ANY, '{doc}:upper:1', '{doc}:lower:1'])
+
+
+def test_utf8_lowercase_longer_than_uppercase_texts(env):
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
     conn = getConnectionByEnv(env)
 
@@ -1532,6 +1549,24 @@ def testLongTexts(env):
             'FT.SEARCH', 'idx', f'@t:({t_lower})', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, [0])
 
+        # 1 character, occupying 2 bytes in UTF-8 + 1 byte for the null
+        # terminator, so the total length is 3 bytes
+        t1 = 'İ'
+        # 1 characters, occupying 3 bytes in UTF-8 + 1 byte for the null
+        # terminator, so the total length is 4 bytes
+        t1_lower = t1.lower()
+        conn.execute_command('HSET', '{doc}:upper:1', 't', t1)
+        conn.execute_command('HSET', '{doc}:lower:1', 't', t1_lower)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t1})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [ANY, '{doc}:upper:1', '{doc}:lower:1'])
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t1_lower})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [ANY, '{doc}:upper:1', '{doc}:lower:1'])
+
+
 @skip(cluster=True)
 def testToLowerSize(env):
     '''Test that the toLower function returns the correct size for multi-byte
@@ -1544,8 +1579,8 @@ def testToLowerSize(env):
     for idx in ['idx_txt', 'idx_tag']:
         for codepoint in range(0x110000):  # Unicode range from U+0000 to U+10FFFF
             # Skip surrogate pairs (0xD800 to 0xDFFF)
-            if 0xD800 <= codepoint <= 0xDFFF:
-                continue
+            # if 0xD800 <= codepoint <= 0xDFFF:
+            #     continue
             char = chr(codepoint)
             upper_char = char.upper()
             lower_char = char.lower()

@@ -132,10 +132,11 @@ static uint32_t __simple_tolower(uint32_t in) {
 
 // transform utf8 string to lower case using nunicode library
 // encoded: the utf8 string to transform
-// in_len:
-// out_len: output parameter,
-// returns a pointer to the lower case string, which may be the same as the input string
-// if no new memory allocation is needed.
+// in_len:  length of the input string in bytes
+// out_len: output parameter, will be set to the length of the output string in
+// bytes
+// Returns a newly allocated string with the transformed content, or NULL if no
+// new memory was allocated (i.e., the output fits in the input buffer).
 static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
   if (in_len == 0) {
     return NULL;
@@ -189,7 +190,7 @@ static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
   RS_LOG_ASSERT_FMT(i <= u_len, "i (%u) should be less equal to u_len (%zd)", i, u_len);
   // Encode Unicode codepoints back to utf8 string
   ssize_t reencoded_len = nu_bytenlen(u_buffer, i, nu_utf8_write);
-  if (reencoded_len != 0) {
+  if (reencoded_len > 0) {
     if (reencoded_len <= in_len) {
       // If the reencoded length is less than or equal to the original length,
       // we can write directly to the original buffer
@@ -204,14 +205,14 @@ static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
       ssize_t x = strlen(longer_dst);
       RS_LOG_ASSERT_FMT(x == reencoded_len, "reencoded length mismatch: %zu != %zu", x, reencoded_len);
     }
+    if (out_len) {
+      *out_len = reencoded_len;
+    }
   }
 
   // Free heap-allocated memory if needed
   if (u_buffer != u_stack_buffer) {
     rm_free(u_buffer);
-  }
-  if (out_len) {
-    *out_len = reencoded_len;
   }
   return longer_dst;
 }
