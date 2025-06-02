@@ -7,8 +7,6 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#define MICRO_BENCHMARKS
-
 #include "benchmark/benchmark.h"
 #include "redismock/util.h"
 
@@ -113,3 +111,4 @@ BENCHMARK_DEFINE_F(BM_IdListIterator, SkipTo_Old)(benchmark::State &state) {
 BENCHMARK_REGISTER_F(BM_IdListIterator, Read_Old)->DOCIDS_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo_Old)->DOCIDS_SCENARIOS();
 
+BENCHMARK_MAIN();
