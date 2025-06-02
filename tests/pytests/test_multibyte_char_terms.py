@@ -1489,11 +1489,11 @@ def test_utf8_lowercase_longer_than_uppercase_tags(env):
                 'FT.SEARCH', 'idx', f'@t:{{"{t_lower}"}}', 'NOCONTENT', 'DIALECT', dialect)
             env.assertEqual(res, [1, '{doc}:2'])
 
-        # 64 characters, occupying 128 bytes in UTF-8 + 1 byte for the
-        # null terminator, so the total length is 129 bytes
-        t1 = 'İ' * 64
-        # 64 characters, occupying 192 bytes in UTF-8 + 1 byte for the
-        # null terminator, so the total length is 193 bytes
+        # 1 character, occupying 2 bytes in UTF-8 + 1 byte for the null
+        # terminator, so the total length is 3 bytes
+        t1 = 'İ'
+        # 1 characters, occupying 3 bytes in UTF-8 + 1 byte for the null
+        # terminator, so the total length is 4 bytes
         t1_lower = t1.lower()
         conn.execute_command('HSET', '{doc}:upper:1', 't', t1)
         conn.execute_command('HSET', '{doc}:lower:1', 't', t1_lower)
@@ -1552,11 +1552,11 @@ def test_utf8_lowercase_longer_than_uppercase_texts(env):
             'FT.SEARCH', 'idx', f'@t:({t_lower})', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, [0])
 
-        # 64 characters, occupying 128 bytes in UTF-8 + 1 byte for the
-        # null terminator, so the total length is 129 bytes
-        t1 = 'İ' * 64
-        # 64 characters, occupying 192 bytes in UTF-8 + 1 byte for the
-        # null terminator, so the total length is 193 bytes
+        # 1 character, occupying 2 bytes in UTF-8 + 1 byte for the null
+        # terminator, so the total length is 3 bytes
+        t1 = 'İ'
+        # 1 characters, occupying 3 bytes in UTF-8 + 1 byte for the null
+        # terminator, so the total length is 4 bytes
         t1_lower = t1.lower()
         conn.execute_command('HSET', '{doc}:upper:1', 't', t1)
         conn.execute_command('HSET', '{doc}:lower:1', 't', t1_lower)
