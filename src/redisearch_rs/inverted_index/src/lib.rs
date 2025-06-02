@@ -13,26 +13,20 @@ pub trait Encoder {
     ) -> std::io::Result<usize>;
 }
 
-/// Filter details the decoder should use to determine whether a record should be filtered out or
-/// not.
-pub struct DecoderCtx {
-    mask: usize,
-    wide_mask: t_fieldMask,
-    filter: NumericFilter,
-}
-
 /// Decoder to read records from an index
 pub trait Decoder {
-    /// Decode the next record from the reader, using the provided context. The offset is the base
-    /// value of any delta document IDs being read.
+    /// Decode the next record from the reader. The offset is the base value for any delta being
+    /// decoded.
     ///
     /// Returns 'None' if the record is filtered out.
-    fn decode(reader: impl Read, ctx: &DecoderCtx, offset: t_docId) -> Option<RSIndexResult>;
+    fn decode(&self, reader: impl Read, offset: t_docId) -> Option<RSIndexResult>;
 
-    /// Like `[Decoder::decode]`, but seeks to a specific document ID and return it.
+    /// Like `[Decoder::decode]`, but seeks to a specific document ID and returns it.
+    ///
+    /// Returns `None` if there is no record greater than or equal to the target document ID.
     fn seek(
+        &self,
         reader: impl Read + Seek,
-        ctx: &DecoderCtx,
         offset: t_docId,
         target: t_docId,
     ) -> Option<RSIndexResult>;
