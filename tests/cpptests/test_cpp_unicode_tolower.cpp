@@ -136,4 +136,5 @@ TEST_F(UnicodeToLowerTest, testTurkishDottedI) {
   ASSERT_EQ(newLen, strlen("i̇stanbul"));
   ASSERT_STREQ(str, "İSTANBUL"); // Original string should remain unchanged
   ASSERT_STREQ(dst, "i̇stanbul");
+  rm_free(dst); // Free the allocated memory for dst
 }

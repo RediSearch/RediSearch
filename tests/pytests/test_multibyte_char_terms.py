@@ -1464,10 +1464,10 @@ def test_utf8_lowercase_longer_than_uppercase_tags(env):
         env.assertEqual(res, [[t_lower, [1, 2]]])
 
     for dialect in range(1, 5):
-        if dialect != 4:
-            expected = [2, '{doc}:1', '{doc}:2']
-        else:
+        if dialect == 4:
             expected = [ANY, '{doc}:1', '{doc}:2']
+        else:
+            expected = [2, '{doc}:1', '{doc}:2']
 
         res = conn.execute_command(
             'FT.SEARCH', 'idx', f'@t:{{{t_escaped}}}', 'NOCONTENT', 'DIALECT', dialect)
@@ -1499,13 +1499,18 @@ def test_utf8_lowercase_longer_than_uppercase_tags(env):
         conn.execute_command('HSET', '{doc}:upper:1', 't', t1)
         conn.execute_command('HSET', '{doc}:lower:1', 't', t1_lower)
 
+        if not env.isCluster():
+            expected_2 = [ANY, '{doc}:upper:1', '{doc}:lower:1']
+        else:
+            expected_2 = [ANY, '{doc}:lower:1', '{doc}:upper:1']
+
         res = conn.execute_command(
             'FT.SEARCH', 'idx', f'@t:{{{t1}}}', 'NOCONTENT', 'DIALECT', dialect)
-        env.assertEqual(res, [ANY, '{doc}:upper:1', '{doc}:lower:1'])
+        env.assertEqual(res, expected_2)
 
         res = conn.execute_command(
             'FT.SEARCH', 'idx', f'@t:{{{t1_lower}}}', 'NOCONTENT', 'DIALECT', dialect)
-        env.assertEqual(res, [ANY, '{doc}:upper:1', '{doc}:lower:1'])
+        env.assertEqual(res, expected_2)
 
 
 def test_utf8_lowercase_longer_than_uppercase_texts(env):
@@ -1558,13 +1563,18 @@ def test_utf8_lowercase_longer_than_uppercase_texts(env):
         conn.execute_command('HSET', '{doc}:upper:1', 't', t1)
         conn.execute_command('HSET', '{doc}:lower:1', 't', t1_lower)
 
+        if not env.isCluster():
+            expected_2 = [ANY, '{doc}:upper:1', '{doc}:lower:1']
+        else:
+            expected_2 = [ANY, '{doc}:lower:1', '{doc}:upper:1']
+
         res = conn.execute_command(
             'FT.SEARCH', 'idx', f'@t:({t1})', 'NOCONTENT', 'DIALECT', dialect)
-        env.assertEqual(res, [ANY, '{doc}:upper:1', '{doc}:lower:1'])
+        env.assertEqual(res, expected_2, message=f'Dialect: {dialect}')
 
         res = conn.execute_command(
             'FT.SEARCH', 'idx', f'@t:({t1_lower})', 'NOCONTENT', 'DIALECT', dialect)
-        env.assertEqual(res, [ANY, '{doc}:upper:1', '{doc}:lower:1'])
+        env.assertEqual(res, expected_2, message=f'Dialect: {dialect}')
 
 
 @skip(cluster=True)
