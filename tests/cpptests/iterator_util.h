@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include <thread>
+#include <optional>
 
 extern "C" {
     IteratorStatus MockIterator_Read(QueryIterator *base);
