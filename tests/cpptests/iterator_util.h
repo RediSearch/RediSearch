@@ -1,8 +1,13 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
+#pragma once
 
 #include "src/iterators/iterator_api.h"
 
@@ -92,23 +97,7 @@ public:
     MockIterator(IteratorStatus st, Args&&... ids_args)
         : docIds({ids_args...}), whenDone(st), nextIndex(0), readCount(0) {
         setBase(&base);
-        std::sort(docIds.begin(), docIds.end());
-        std::unique(docIds.begin(), docIds.end());
+        auto new_end = std::unique(docIds.begin(), docIds.end());
+        docIds.erase(new_end, docIds.end());
     }
 };
-
-IteratorStatus MockIterator_Read(QueryIterator *base) {
-    return reinterpret_cast<MockIterator *>(base)->Read();
-}
-IteratorStatus MockIterator_SkipTo(QueryIterator *base, t_docId docId) {
-    return reinterpret_cast<MockIterator *>(base)->SkipTo(docId);
-}
-size_t MockIterator_NumEstimated(QueryIterator *base) {
-    return reinterpret_cast<MockIterator *>(base)->NumEstimated();
-}
-void MockIterator_Rewind(QueryIterator *base) {
-    reinterpret_cast<MockIterator *>(base)->Rewind();
-}
-void MockIterator_Free(QueryIterator *base) {
-    delete reinterpret_cast<MockIterator *>(base);
-}

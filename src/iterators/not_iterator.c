@@ -122,18 +122,17 @@ static IteratorStatus NI_ReadSorted_NO(QueryIterator *base) {
     return ITERATOR_EOF;
   }
 
-
-  //TODO(Joan): CHeck the need for this, is it here to avoid infinite loop?
-  /*if (base->lastDocId == ni->child->lastDocId) {
-    // read next entry from child, or EOF
-    //TODO(Joan): Review this comment
-    auto rc = ni->child->Read(ni->child);
-    if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
-  }*/
   IteratorStatus rc;
-  // Advance to the next and see if we have a match
+
+  if (ni->child->lastDocId == 0) {
+    // Read at least the first entry of the child
+    rc = ni->child->Read(ni->child);
+    if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
+  }
+  //Advance and see if it si valid
   base->lastDocId++;
-  while (base->lastDocId < ni->maxDocId) {
+
+  while (base->lastDocId <= ni->maxDocId) {
     // I have the risk of missing one lastDocID if childEOF is not accurate (if the child requires another Read to set the flag)
     if (base->lastDocId < ni->child->lastDocId || ni->child->atEOF) {
       ni->timeoutCtx.counter = 0;
@@ -148,6 +147,7 @@ static IteratorStatus NI_ReadSorted_NO(QueryIterator *base) {
       base->atEOF = true;
       return ITERATOR_TIMEOUT;
     }
+    // The lastDocID that we proposed is not valid, so we need to try another one
     base->lastDocId++;
   }
   base->atEOF = true;
@@ -165,40 +165,46 @@ static IteratorStatus NI_ReadSorted_O(QueryIterator *base) {
     return ITERATOR_EOF;
   }
 
-  //TODO(Joan): CHeck the need for this, is it here to avoid infinite loop?
-  /*if (base->lastDocId == ni->child->lastDocId) {
-    // read next entry from child, or EOF
+  IteratorStatus rc;
+
+  if (ni->child->lastDocId == 0) {
+    // Read at least the first entry of the child
     rc = ni->child->Read(ni->child);
     if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
-  }*/
+  }
+  //Advance and see if it si valid
+  rc = ni->wcii->Read(ni->wcii);
+  if (rc == ITERATOR_TIMEOUT) {
+    base->atEOF = true;
+    return ITERATOR_TIMEOUT;
+  }
+  base->lastDocId = base->current->docId = ni->wcii->current->docId;
 
-  IteratorStatus rc;
-  // Advance to the next and see if we have a match
-  base->lastDocId++;
-
-  while ((rc = ni->wcii->Read(ni->wcii)) == ITERATOR_OK) {
-    if (ni->wcii->current->docId <  ni->child->lastDocId || ni->child->atEOF) {
+  while (base->lastDocId <= ni->maxDocId) {
+    // I have the risk of missing one lastDocID if childEOF is not accurate (if the child requires another Read to set the flag)
+    if (base->lastDocId < ni->child->lastDocId || ni->child->atEOF) {
       ni->timeoutCtx.counter = 0;
-      base->lastDocId = base->current->docId = ni->wcii->current->docId;
+      base->current->docId = base->lastDocId;
       return ITERATOR_OK;
     }
-    // read next entry from child
-    // If the child docId is smaller than the wildcard docId, it was cleaned from
-    // the `existingDocs` inverted index but not yet from child -> skip it.
-    IteratorStatus child_rc;
-    do {
-      child_rc = ni->child->Read(ni->child);
-      if (child_rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
-    } while (child_rc != ITERATOR_EOF && ni->child->current->docId < ni->wcii->current->docId);
-
-    // Check for timeout
+    rc = ni->child->Read(ni->child);
+    if (rc == ITERATOR_TIMEOUT) return rc;
+    // Check for timeout with low granularity (MOD-5512)
+    //TODO(Joan): Ticket about magic number? Should it be a config?
     if (TimedOut_WithCtx_Gran(&ni->timeoutCtx, 5000)) {
       base->atEOF = true;
       return ITERATOR_TIMEOUT;
     }
+    // The lastDocID that we proposed is not valid, so we need to try another one
+    rc = ni->wcii->Read(ni->wcii);
+    if (rc == ITERATOR_TIMEOUT) {
+      base->atEOF = true;
+      return ITERATOR_TIMEOUT;
+    }
+    base->lastDocId = base->current->docId = ni->wcii->current->docId;
   }
   base->atEOF = true;
-  return rc;
+  return ITERATOR_EOF;
 }
 
 QueryIterator *IT_V2(NewNotIterator)(QueryIterator *it, t_docId maxDocId, double weight, struct timespec timeout, QueryEvalCtx *q) {
