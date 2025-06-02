@@ -16,9 +16,6 @@
 #include "fast_float/fast_float_strtod.h"
 #include "obfuscation/obfuscation_api.h"
 
-#include <errno.h>
-#include <math.h>
-
 ///////////////////////////////////////////////////////////////
 // Variant Values - will be used in documents as well
 ///////////////////////////////////////////////////////////////

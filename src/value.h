@@ -20,6 +20,12 @@
 #include "rmutil/rm_assert.h"
 #include "hiredis/sds.h"
 
+#include <string.h>
+#include <sys/param.h>
+#include <stdarg.h>
+#include <errno.h>
+#include <math.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
