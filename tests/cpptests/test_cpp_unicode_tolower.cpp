@@ -84,8 +84,15 @@ TEST_F(UnicodeToLowerTest, testSpecialUnicodeCase) {
   // Test with german (ẞ) and its lowercase form (ß)
   // Its lowercase form occupies fewer bytes in UTF-8 than its uppercase form
   char str[] = "STRAẞE";
-  size_t len = unicode_tolower(str, strlen(str));
-  ASSERT_EQ(len + 1, strlen(str));
+  size_t uppercaseLen = strlen(str);
+  size_t lowercaseLen = unicode_tolower(str, strlen(str));
+  ASSERT_EQ(lowercaseLen, strlen("straße"));
+  ASSERT_EQ(uppercaseLen, 8);
+  ASSERT_EQ(lowercaseLen, 7);
+  // Unicode to lower does not add the NULL terminator when the returned length
+  // is less than the original length, so we need to ensure the string is
+  // properly null-terminated after the conversion.
+  str[lowercaseLen] = '\0';
   ASSERT_STREQ(str, "straße");
 }
 
