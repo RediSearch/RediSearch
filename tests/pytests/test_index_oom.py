@@ -5,14 +5,36 @@ bgIndexingStatusStr = "background indexing status"
 indexing_failures_str = 'indexing failures'
 last_indexing_error_key_str = 'last indexing error key'
 last_indexing_error_str = 'last indexing error'
-OOM_indexing_failure_str = 'Index background scan failed due to OOM. New documents will not be indexed.'
+OOM_indexing_failure_str = 'Index background scan did not complete due to OOM. New documents will not be indexed.'
 OOMfailureStr = "OOM failure"
+partial_results_warning_str = 'Index contains partial data due to an indexing failure caused by insufficient memory'
 
+def get_memory_consumption_ratio(env):
+  used_memory = env.cmd('INFO', 'MEMORY')['used_memory']
+  max_memory = env.cmd('INFO', 'MEMORY')['maxmemory']
+  return used_memory/max_memory
+
+def get_index_errors_dict(env, idx = 'idx'):
+  info = index_info(env, idx)
+  error_dict = to_dict(info["Index Errors"])
+  return error_dict
+def get_index_num_docs(env, idx = 'idx'):
+  info = index_info(env, idx)
+  num_docs = info['num_docs']
+  return num_docs
+
+def oom_test_config(env):
+  # Set the memory limit to 80% so it can be tested without colliding with redis memory limit
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+
+def oom_pseudo_enterprise_config(env):
+  oom_test_config(env)
+  # Set the pause time to 1 second so we can test the retry
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_OOM_PAUSE_TIME', '1').ok()
 
 @skip(cluster=True)
 def test_stop_background_indexing_on_low_mem(env):
-  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+  oom_test_config(env)
 
   num_docs = 1000
   for i in range(num_docs):
@@ -30,7 +52,7 @@ def test_stop_background_indexing_on_low_mem(env):
 
   # At this point num_docs_scanned were scanned
   # Now we set the tight memory limit
-  set_tight_maxmemory_for_oom(env, 0.8)
+  set_tight_maxmemory_for_oom(env, 0.85)
   # After we resume, an OOM should trigger
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for OOM
@@ -40,18 +62,17 @@ def test_stop_background_indexing_on_low_mem(env):
   # Wait for the indexing to finish
   waitForIndexFinishScan(env, 'idx')
   # Verify that only num_docs_scanned were indexed
-  docs_in_index = index_info(env)['num_docs']
+  docs_in_index = get_index_num_docs(env)
   env.assertEqual(docs_in_index, num_docs_scanned)
   # Verify that used_memory is close to 80% (config set) of maxmemory
-  used_memory = env.cmd('INFO', 'MEMORY')['used_memory']
-  max_memory = env.cmd('INFO', 'MEMORY')['maxmemory']
-  memory_ratio = used_memory / max_memory
-  env.assertAlmostEqual(memory_ratio, 0.8, delta=0.1)
+  memory_ratio = get_memory_consumption_ratio(env)
+  env.assertAlmostEqual(memory_ratio, 0.85, delta=0.1)
 
 @skip(cluster=True)
 def test_stop_indexing_low_mem_verbosity(env):
-  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+  # Change to resp3
+  env = Env(protocol=3)
+  oom_test_config(env)
 
   # Create OOM
   num_docs = 10
@@ -66,7 +87,7 @@ def test_stop_indexing_low_mem_verbosity(env):
   # Wait for pause before scanning
   waitForIndexPauseScan(env, 'idx')
   # Set tight memory limit
-  set_tight_maxmemory_for_oom(env, 0.8)
+  set_tight_maxmemory_for_oom(env, 0.85)
   # Resume indexing
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for OOM
@@ -77,8 +98,7 @@ def test_stop_indexing_low_mem_verbosity(env):
   waitForIndexFinishScan(env, 'idx')
 
   # Verify ft info
-  info = index_info(env)
-  error_dict = to_dict(info["Index Errors"])
+  error_dict = get_index_errors_dict(env)
 
   expected_error_dict = {
                         indexing_failures_str: 1, # 1 OOM error
@@ -96,12 +116,11 @@ def test_stop_indexing_low_mem_verbosity(env):
 
   # Check verbosity of HSET after OOM
   env.expect('HSET', 'NewDoc', 'name', f'DoNotIndex').equal(1)
-  info = index_info(env)
   # Verify that the new doc was not indexed
-  docs_in_index = info['num_docs']
+  docs_in_index = get_index_num_docs(env)
   env.assertEqual(docs_in_index, 1)
 
-  error_dict = to_dict(info["Index Errors"])
+  error_dict = get_index_errors_dict(env)
   # Assert error dict
   expected_error_dict = {
                         indexing_failures_str: expected_error_dict[indexing_failures_str]+1, # Add 1 to the count
@@ -114,11 +133,10 @@ def test_stop_indexing_low_mem_verbosity(env):
   # Update a doc indexed
   # The doc should not be reindexed
   env.expect('HSET', 'doc0', 'name', 'newName').equal(0)
-  info = index_info(env)
-  docs_in_index = info['num_docs']
+  docs_in_index = get_index_num_docs(env)
   env.assertEqual(docs_in_index, 1)
   # Verify Index Errors
-  error_dict = to_dict(info["Index Errors"])
+  error_dict = get_index_errors_dict(env)
   # Assert error dict
   expected_error_dict = {
                         indexing_failures_str: expected_error_dict[indexing_failures_str]+1, # Add 1 to the count
@@ -127,11 +145,26 @@ def test_stop_indexing_low_mem_verbosity(env):
                         bgIndexingStatusStr: OOMfailureStr,
                         }
   env.assertEqual(error_dict, expected_error_dict)
+  # Check resp3 warning for OOM
+  res = env.cmd('FT.SEARCH', 'idx','*')
+  warning = res['warning'][0]
+  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  # Check resp3 warning in FT.PROFILE
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
+  warning = res['Results']['warning'][0]
+  env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
+  # Check resp2 warning in FT.PROFILE
+  env.cmd('HELLO', '2')
+  res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
+  results_str = res[1][1][0]
+  # find warning index
+  warning_index = results_str.index('Warning')+1
+  warning = results_str[warning_index]
+  env.assertEqual(warning, partial_results_warning_str)
 
 @skip(cluster=True)
 def test_idx_delete_during_bg_indexing(env):
-  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+  oom_test_config(env)
 
   # Test deleting an index while it is being indexed in the background
   n_docs = 10000
@@ -168,8 +201,7 @@ def test_idx_delete_during_bg_indexing(env):
 
 @skip(cluster=True)
 def test_delete_docs_during_bg_indexing(env):
-  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+  oom_test_config(env)
 
   # Test deleting docs while they are being indexed in the background
   # Using a large number of docs to make sure the test is not flaky
@@ -191,7 +223,7 @@ def test_delete_docs_during_bg_indexing(env):
   env.expect('ft.create', idx_str, 'SCHEMA', 't', 'text').ok()
   waitForIndexStatus(env, 'NEW')
   # Set tight memory limit
-  set_tight_maxmemory_for_oom(env, 0.8)
+  set_tight_maxmemory_for_oom(env, 0.85)
 
   # Delete the 1000 first docs
   for i in range(n_docs//10):
@@ -207,18 +239,14 @@ def test_delete_docs_during_bg_indexing(env):
   waitForIndexFinishScan(env, idx_str)
 
   # Verify OOM status
-  info = index_info(env,idx = idx_str)
-  error_dict = to_dict(info["Index Errors"])
-  bgIndexingStatusStr = "background indexing status"
-  OOMfailureStr = "OOM failure"
+  error_dict = get_index_errors_dict(env, idx_str)
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
 
 
 
 @skip(cluster=True)
 def test_change_config_during_bg_indexing(env):
-  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+  oom_test_config(env)
 
   # Test deleting docs while they are being indexed in the background
   # Using a large number of docs to make sure the test is not flaky
@@ -247,61 +275,8 @@ def test_change_config_during_bg_indexing(env):
   # Wait for the indexing to finish
   waitForIndexFinishScan(env, 'idx')
   # Verify memory consumption
-  used_memory = env.cmd('INFO', 'MEMORY')['used_memory']
-  max_memory = env.cmd('INFO', 'MEMORY')['maxmemory']
-  memory_ratio = used_memory / max_memory
-  env.assertAlmostEqual(memory_ratio, 0.8, delta=0.1)
-
-@skip(cluster=True)
-def test_oom_query_error(env):
-  # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
-
-  idx_name = 'idx'
-  error_querys_star = ['SEARCH', 'AGGREGATE', 'TAGVALS', 'MGET']
-  queries_params = {
-                    'PROFILE': f'{idx_name} SEARCH QUERY * ',
-                    'SYNDUMP': f'{idx_name}',
-                    'ALTER': f'{idx_name} SCHEMA ADD field1 TEXT',
-                  }
-  queries_params.update({query: f'{idx_name} *' for query in error_querys_star})
-  # Using a large number of docs to make sure the test is not flaky
-  n_docs = 10000
-  for i in range(n_docs):
-    env.expect('HSET', f'doc{i}', 't', f'hello{i}').equal(1)
-  # Set pause before indexing
-  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
-  # Set pause on OOM
-  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
-  # Create an index with a text field.
-  env.expect('ft.create', idx_name, 'SCHEMA', 't', 'text').ok()
-  waitForIndexStatus(env, 'NEW', idx_name)
-  # Set tight memory limit
-  set_tight_maxmemory_for_oom(env, 0.8)
-  # Resume indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-  # Wait for OOM
-  waitForIndexStatus(env, 'PAUSED_ON_OOM', idx_name)
-  # Resume the indexing
-  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
-  # Wait for the indexing to finish
-  waitForIndexFinishScan(env, idx_name)
-
-  for query,param in queries_params.items():
-    parsed_query = f'FT.{query} {param}'
-    env.expect(parsed_query).error().equal(f'Background scan for index {idx_name} failed due to OOM.'
-                                           ' Queries cannot be executed on an incomplete index.')
-
-  # Test FT.DEBUG FT.SEARCH/AGGREGATE command
-  for query_type in ['SEARCH', 'AGGREGATE']:
-    parsed_query = f'_FT.DEBUG FT.{query_type} {idx_name} * TIMEOUT_AFTER_N 3 DEBUG_PARAMS_COUNT 2 '
-    env.expect(parsed_query).error().equal(f'Background scan for index {idx_name} failed due to OOM.'
-                                           ' Queries cannot be executed on an incomplete index.')
-
-  # Verify ft info possible
-  env.expect('FT.INFO', idx_name).noError()
-  # Verify ft dropindex possible
-  env.expect('FT.DROPINDEX', idx_name).ok()
+  memory_ratio = get_memory_consumption_ratio(env)
+  env.assertAlmostEqual(memory_ratio, 0.85, delta=0.1)
 
 def test_cluster_oom_all_shards(env):
   # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
@@ -336,7 +311,7 @@ def test_cluster_oom_all_shards(env):
   # Wait for pause on docs scanned
   allShards_waitForIndexPauseScan(env, idx_str)
   # Set tight memory limit for all shards
-  allShards_set_tight_maxmemory_for_oom(env, 0.8)
+  allShards_set_tight_maxmemory_for_oom(env, 0.85)
   run_command_on_all_shards(env, resume_cmd)
   # Wait for OOM on all shards
   allShards_waitForIndexStatus(env, 'PAUSED_ON_OOM', idx_str)
@@ -347,10 +322,7 @@ def test_cluster_oom_all_shards(env):
   allShards_waitForIndexFinishScan(env, idx_str)
 
   # Verify OOM status
-  info = index_info(env,idx = idx_str)
-  error_dict = to_dict(info["Index Errors"])
-  bgIndexingStatusStr = "background indexing status"
-  OOMfailureStr = "OOM failure"
+  error_dict = get_index_errors_dict(env, idx_str)
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
   # Verify all shards individual OOM status
   for shard_id in range(1, env.shardsCount + 1):
@@ -393,7 +365,7 @@ def test_cluster_oom_single_shard(env):
   # Wait for pause on docs scanned
   allShards_waitForIndexPauseScan(env, idx_str)
   # Set tight memory limit for one shard
-  shard_set_tight_maxmemory_for_oom(env, oom_shard_id, 0.8)
+  shard_set_tight_maxmemory_for_oom(env, oom_shard_id, 0.85)
   # Resume all shards
   run_command_on_all_shards(env, resume_cmd)
   # Wait for OOM on shard
@@ -404,11 +376,7 @@ def test_cluster_oom_single_shard(env):
   # Wait for finish scan on all shards
   allShards_waitForIndexFinishScan(env, idx_str)
 
-
-  info = index_info(env,idx = idx_str)
-  error_dict = to_dict(info["Index Errors"])
-  bgIndexingStatusStr = "background indexing status"
-  OOMfailureStr = "OOM failure"
+  error_dict = get_index_errors_dict(env, idx_str)
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
   # Verify all shards individual OOM status
   # Cannot use FT.INFO on a specific shard, so we use the info metric
@@ -421,8 +389,7 @@ def test_cluster_oom_single_shard(env):
 
 @skip(cluster=True, no_json=True)
 def test_oom_json(env):
-  # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
-  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
+  oom_test_config(env)
 
   num_docs = 10
   for i in range(num_docs):
@@ -436,7 +403,7 @@ def test_oom_json(env):
   # Wait for pause before scanning
   waitForIndexPauseScan(env, 'idx')
   # Set tight memory limit
-  set_tight_maxmemory_for_oom(env, 0.8)
+  set_tight_maxmemory_for_oom(env, 0.85)
   # Resume indexing
   env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
   # Wait for OOM
@@ -447,8 +414,7 @@ def test_oom_json(env):
   waitForIndexFinishScan(env, 'idx')
 
   # Verify ft info
-  info = index_info(env)
-  error_dict = to_dict(info["Index Errors"])
+  error_dict = get_index_errors_dict(env)
 
   expected_error_dict = {
                         indexing_failures_str: 1, # 1 OOM error
@@ -459,15 +425,13 @@ def test_oom_json(env):
   # OOM is triggered after the first doc, the second doc is not indexed
   assertEqual_dicts_on_intersection(env, error_dict, expected_error_dict)
 
-
   # Check verbosity of json.set after OOM
   env.expect('JSON.SET', 'jsonDoc', '.', '{"name":"jsonName"}').ok()
   # Verify that the new doc was not indexed
-  info = index_info(env)
-  docs_in_index = info['num_docs']
+  docs_in_index = get_index_num_docs(env)
   env.assertEqual(docs_in_index, 1)
   # Verify Index Errors
-  error_dict = to_dict(info["Index Errors"])
+  error_dict = get_index_errors_dict(env)
   # Assert error dict
   expected_error_dict = {
                         indexing_failures_str: expected_error_dict[indexing_failures_str]+1, # Add 1 to the count
@@ -508,8 +472,458 @@ def test_oom_100_percent(env):
   # Wait for the indexing to finish
   waitForIndexFinishScan(env, 'idx')
   # Verify OOM status
-  info = index_info(env)
-  error_dict = to_dict(info["Index Errors"])
-  bgIndexingStatusStr = "background indexing status"
-  OOMfailureStr = "OOM failure"
+  error_dict = get_index_errors_dict(env)
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
+
+@skip(cluster=True)
+def test_pseudo_enterprise_oom_retry_success(env):
+  oom_pseudo_enterprise_config(env)
+
+  num_docs = 1000
+  for i in range(num_docs):
+    env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+  num_docs_scanned = num_docs//4
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'true').ok()
+
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+  waitForIndexPauseScan(env, 'idx')
+  # At this point num_docs_scanned were scanned
+  # Now we set the tight memory limit
+  set_tight_maxmemory_for_oom(env, 0.85)
+
+  # Resume PAUSE ON SCANNED DOCS
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Wait for OOM
+  waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY','idx')
+  # At this point the scan should be paused before OOM retry
+  # Increase memory during the pause, emulating resource allocation
+  set_unlimited_maxmemory_for_oom(env)
+  # Resume PAUSE BEFORE OOM RETRY
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+
+  # Verify that the indexing finished
+  waitForIndexFinishScan(env, 'idx')
+  # Verify that all docs were indexed
+  docs_in_index = get_index_num_docs(env)
+  index_errors = get_index_errors_dict(env)
+  env.assertEqual(docs_in_index, num_docs)
+  # Verify index BG indexing status is OK
+  env.assertEqual(index_errors[bgIndexingStatusStr], 'OK')
+
+@skip(cluster=True)
+def test_pseudo_enterprise_oom_retry_failure(env):
+  oom_pseudo_enterprise_config(env)
+
+  num_docs = 1000
+  for i in range(num_docs):
+    env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+  num_docs_scanned = num_docs//4
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'true').ok()
+
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+  waitForIndexPauseScan(env, 'idx')
+
+  # At this point num_docs_scanned were scanned
+  # Now we set the tight memory limit
+  set_tight_maxmemory_for_oom(env, 0.85)
+
+  # Resume PAUSE ON SCANNED DOCS
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY','idx')
+  # Resume PAUSE BEFORE OOM RETRY
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Since we are not increasing the memory, the scan should be paused on OOM
+  waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
+  # Resume PAUSE ON OOM
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+
+  # Wait for the indexing to finish
+  waitForIndexFinishScan(env, 'idx')
+  # Verify OOM status
+  error_dict = get_index_errors_dict(env)
+  env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
+
+@skip(cluster=True)
+def test_pseudo_enterprise_oom_multiple_retry_success(env):
+  oom_pseudo_enterprise_config(env)
+
+  num_docs = 1000
+  for i in range(num_docs):
+    env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'true').ok()
+
+  runs = 2
+  run = 1
+
+  num_docs_scanned = num_docs//(runs*2)
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+
+  while run <= runs:
+
+    waitForIndexPauseScan(env, 'idx')
+    # At this point num_docs_scanned were scanned
+    # Now we set the tight memory limit
+    set_tight_maxmemory_for_oom(env, 0.85)
+
+
+    # Update the number of scanned docs to pause on for the next run
+    if run < runs:
+      num_docs_scanned = ((run+1) * num_docs)//(runs*2)
+      env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+      env.expect(bgScanCommand(), 'DEBUG_SCANNER_UPDATE_CONFIG', 'idx').ok()
+
+    # Resume PAUSE ON SCANNED DOCS
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    # Wait for OOM
+    waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY','idx')
+    # At this point the scan should be paused before OOM retry
+    # Increase memory during the pause, emulating resource allocation
+    set_unlimited_maxmemory_for_oom(env)
+    # Resume PAUSE BEFORE OOM RETRY
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    run+=1
+
+  # Verify that the indexing finished
+  waitForIndexFinishScan(env, 'idx')
+  # Verify that all docs were indexed
+  docs_in_index = get_index_num_docs(env)
+  index_errors = get_index_errors_dict(env)
+  env.assertEqual(docs_in_index, num_docs)
+  # Verify index BG indexing status is OK
+  env.assertEqual(index_errors[bgIndexingStatusStr], 'OK')
+
+@skip(cluster=True)
+def test_pseudo_enterprise_oom_multiple_retry_failure(env):
+  oom_pseudo_enterprise_config(env)
+
+  num_docs = 1000
+  for i in range(num_docs):
+    env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'true').ok()
+
+  runs = 2
+  run = 1
+
+  num_docs_scanned = num_docs//(runs*2)
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+
+  while run <= runs:
+
+    waitForIndexPauseScan(env, 'idx')
+    # At this point num_docs_scanned were scanned
+    # Now we set the tight memory limit
+    set_tight_maxmemory_for_oom(env, 0.85)
+
+    # Update the number of scanned docs to pause on for the next run
+    if run < runs:
+      num_docs_scanned = ((run+1) * num_docs)//(runs*2)
+      env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+      env.expect(bgScanCommand(), 'DEBUG_SCANNER_UPDATE_CONFIG', 'idx').ok()
+
+    # Resume PAUSE ON SCANNED DOCS
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    # Wait for OOM
+    waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY','idx')
+    # At this point the scan should be paused before OOM retry
+
+    # Increase memory during the pause, emulating resource allocation, only if not in the last run
+    if run < runs:
+      set_unlimited_maxmemory_for_oom(env)
+    # Resume PAUSE BEFORE OOM RETRY
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    run+=1
+
+  # Since we are not increasing the memory, the scan should be paused on OOM
+  waitForIndexStatus(env, 'PAUSED_ON_OOM','idx')
+  # Resume PAUSE ON OOM
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+
+  # Wait for the indexing to finish
+  waitForIndexFinishScan(env, 'idx')
+  # Verify OOM status
+  error_dict = get_index_errors_dict(env)
+  env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
+
+@skip(cluster=True)
+def test_pseudo_enterprise_oom_retry_drop(env):
+  oom_pseudo_enterprise_config(env)
+
+  num_docs = 100
+  for i in range(num_docs):
+    env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+
+  num_docs_scanned = num_docs//4
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'true').ok()
+  for run in ['without', 'with']: # Run the test with and without increasing memory
+    idx = f'idx{run}'
+    # Create an index
+    env.expect('FT.CREATE', idx, 'SCHEMA', 'name', 'TEXT').ok()
+    waitForIndexPauseScan(env, idx)
+
+    # At this point num_docs_scanned were scanned
+    # Now we set the tight memory limit
+    set_tight_maxmemory_for_oom(env, 0.85)
+
+    # Resume PAUSE ON SCANNED DOCS
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+    # Wait for OOM
+    waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY',idx)
+    # At this point the scan should be paused before OOM retry
+    # If we are in the first run, we don't increase the memory
+    if run == 'with':
+      # Increase memory during the pause, emulating resource allocation
+      set_unlimited_maxmemory_for_oom(env)
+    # Drop the index
+    env.expect(f'FT.DROPINDEX', idx).ok()
+    # Resume PAUSE BEFORE OOM RETRY
+    env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+
+    # Validate that the index was dropped
+    env.expect('ft._list').equal([])
+    # Reset memory for next run
+    set_unlimited_maxmemory_for_oom(env)
+
+@skip(cluster=True)
+def test_pseudo_enterprise_oom_retry_alter_success(env):
+  oom_pseudo_enterprise_config(env)
+
+  num_docs = 100
+  for i in range(num_docs):
+    env.expect('HSET', f'doc{i}', 'name', f'name{i}', 'hello', f'hello{i}').equal(2)
+
+  # env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+  num_docs_scanned = num_docs//4
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'true').ok()
+
+  idx = f'idx'
+# Create an index
+  env.expect('FT.CREATE', idx, 'SCHEMA', 'name', 'TEXT').ok()
+  waitForIndexPauseScan(env, idx)
+
+  # At this point num_docs_scanned were scanned
+  # Now we set the tight memory limit
+  set_tight_maxmemory_for_oom(env, 0.85)
+
+  # Resume PAUSE ON SCANNED DOCS
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Wait for OOM
+  waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY',idx)
+  # At this point the scan should be paused before OOM retry
+  # Increase memory during the pause, emulating resource allocation
+  set_unlimited_maxmemory_for_oom(env)
+  # Remove pause configs
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', 0).ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'false').ok()
+
+  env.expect(f'FT.ALTER', idx, 'SCHEMA', 'ADD', 'hello', 'TEXT').ok()
+  # Resume PAUSE BEFORE OOM RETRY
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+
+  # Verify that the indexing finished
+  waitForIndexFinishScan(env, idx)
+  # Verify that all docs were indexed
+  docs_in_index = get_index_num_docs(env)
+  index_errors = get_index_errors_dict(env)
+  env.assertEqual(docs_in_index, num_docs)
+  # Verify index BG indexing status is OK
+  env.assertEqual(index_errors[bgIndexingStatusStr], 'OK')
+
+@skip(cluster=True)
+def test_pseudo_enterprise_oom_retry_alter_failure(env):
+  oom_pseudo_enterprise_config(env)
+
+  num_docs = 100
+  for i in range(num_docs):
+    env.expect('HSET', f'doc{i}', 'name', f'name{i}', 'hello', f'hello{i}').equal(2)
+
+  num_docs_scanned = num_docs//4
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_SCANNED_DOCS', num_docs_scanned).ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'true').ok()
+  env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'true').ok()
+
+  idx = f'idx'
+  # Create an index
+  env.expect('FT.CREATE', idx, 'SCHEMA', 'name', 'TEXT').ok()
+  waitForIndexPauseScan(env, idx)
+
+  # At this point num_docs_scanned were scanned
+  # Now we set the tight memory limit
+  set_tight_maxmemory_for_oom(env, 0.85)
+
+  # Resume PAUSE ON SCANNED DOCS
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Wait for OOM
+  waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY',idx)
+  # At this point the scan should be paused before OOM retry
+
+  # Remove pause configs
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_OOM_RETRY', 'false').ok()
+
+  # # Increase memory during the pause, to enable the ft.alter command
+  set_unlimited_maxmemory_for_oom(env)
+  env.expect(f'FT.ALTER', idx, 'SCHEMA', 'ADD', 'hello', 'TEXT').ok()
+  # Resume PAUSE BEFORE OOM RETRY
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+
+  # The scan should cancel due to the ft.alter command
+  # For the new scan, at this point, num_docs_scanned were scanned
+  waitForIndexPauseScan(env, idx)
+  # Set again the limit to 85% to trigger OOM (removed to enable the ft.alter command)
+  set_tight_maxmemory_for_oom(env, 0.85)
+
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # The scan should OOM
+  waitForIndexStatus(env, 'PAUSED_ON_OOM', idx)
+  # Resume PAUSE ON OOM
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+
+  # Verify that the indexing finished
+  waitForIndexFinishScan(env, idx)
+  # Verify OOM status
+  error_dict = get_index_errors_dict(env)
+  env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
+
+def test_pseudo_enterprise_cluster_oom_retry_success(env):
+    # Let background indexing go up to 80 % of Redis' limit
+    verify_command_OK_on_all_shards(
+        env, '_FT.CONFIG SET _BG_INDEX_MEM_PCT_THR 80')
+    # 1-second grace so the test doesn’t take too long
+    verify_command_OK_on_all_shards(
+        env, '_FT.CONFIG SET _BG_INDEX_OOM_PAUSE_TIME 1')
+
+    conn = getConnectionByEnv(env)
+    docs_per_shard = 1_000
+    total_docs = docs_per_shard * env.shardsCount
+    for i in range(total_docs):
+        conn.execute_command('HSET', f'doc{i}', 'name', f'name{i}')
+
+    # Instrument the scanner on every shard
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_PAUSE_ON_OOM true')
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_PAUSE_ON_SCANNED_DOCS {docs_per_shard//4}')
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_PAUSE_BEFORE_OOM_RETRY true')
+
+    idx = 'idx'
+    conn.execute_command('FT.CREATE', idx, 'SCHEMA', 'name', 'TEXT')
+
+    # Pause after the first chunk of documents
+    allShards_waitForIndexPauseScan(env, idx)
+
+    # Drop memory to 85 % of the configured threshold
+    allShards_set_tight_maxmemory_for_oom(env, 0.85)
+
+    # Resume – this will push every shard into PAUSED_BEFORE_OOM_RETRY
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_BG_INDEX_RESUME')
+    allShards_waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY', idx)
+
+    # While paused, free memory so the retry can succeed
+    allShards_set_unlimited_maxmemory_for_oom(env)
+
+    # Resume again – indexing should now complete
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_BG_INDEX_RESUME')
+    allShards_waitForIndexFinishScan(env, idx)
+
+    indexed_num_docs = get_index_num_docs(env, idx=idx)
+    index_errors = get_index_errors_dict(env, idx=idx)
+    env.assertEqual(indexed_num_docs, total_docs)
+    env.assertEqual(index_errors[bgIndexingStatusStr], 'OK')
+    # Every shard’s failure counter must stay at 0
+    for shard_id in range(1, env.shardsCount + 1):
+        failures = env.getConnection(shard_id).execute_command(
+            'INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+        env.assertEqual(failures, 0)
+
+def test_pseudo_enterprise_cluster_oom_retry_failure(env):
+    verify_command_OK_on_all_shards(
+        env, '_FT.CONFIG SET _BG_INDEX_MEM_PCT_THR 80')
+    verify_command_OK_on_all_shards(
+        env, '_FT.CONFIG SET _BG_INDEX_OOM_PAUSE_TIME 1')
+
+    conn = getConnectionByEnv(env)
+    docs_per_shard = 1_000
+    total_docs = docs_per_shard * env.shardsCount
+    for i in range(total_docs):
+        conn.execute_command('HSET', f'doc{i}', 'name', f'name{i}')
+
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_PAUSE_ON_OOM true')
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_PAUSE_ON_SCANNED_DOCS {docs_per_shard//4}')
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_PAUSE_BEFORE_OOM_RETRY true')
+
+    idx = 'idx'
+    conn.execute_command('FT.CREATE', idx, 'SCHEMA', 'name', 'TEXT')
+
+    # Pause after first docs chunk, then tighten memory
+    allShards_waitForIndexPauseScan(env, idx)
+    allShards_set_tight_maxmemory_for_oom(env, 0.85)
+
+    # Resume – shards pause *before* OOM retry
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_BG_INDEX_RESUME')
+    allShards_waitForIndexStatus(env, 'PAUSED_BEFORE_OOM_RETRY', idx)
+
+    # Resume again with memory still tight → PAUSED_ON_OOM
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_BG_INDEX_RESUME')
+    allShards_waitForIndexStatus(env, 'PAUSED_ON_OOM', idx)
+
+    # One last resume – the second OOM turns into failure
+    run_command_on_all_shards(env,
+        f'{bgScanCommand()} SET_BG_INDEX_RESUME')
+    allShards_waitForIndexFinishScan(env, idx)
+
+    errors = get_index_errors_dict(env, idx=idx)
+    env.assertEqual(errors[bgIndexingStatusStr], 'OOM failure')
+    # Shards must report exactly one failed index each
+    for shard_id in range(1, env.shardsCount + 1):
+        failures = env.getConnection(shard_id).execute_command(
+            'INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
+        env.assertEqual(failures, 1)
+
+@skip(cluster=True)
+def test_unlimited_memory_thrs(env):
+  # Set the threshold to 0
+  env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '0').ok()
+  # Set pause before scan
+  env.expect(bgScanCommand(), 'SET_PAUSE_BEFORE_SCAN', 'true').ok()
+  # insert 100 docs
+  for i in range(100):
+      env.expect('HSET', f'doc{i}', 'name', f'name{i}').equal(1)
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
+  # Wait for pause before scan
+  waitForIndexStatus(env, 'NEW')
+  # Set maxmemory to be equal to used memory
+  set_tight_maxmemory_for_oom(env, 1.0)
+  # Resume indexing
+  env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+  # Verify that the indexing finished even though we reached OOM
+  waitForIndexFinishScan(env, 'idx')
+  # Verify that all docs were indexed
+  docs_in_index = get_index_num_docs(env)
+  env.assertEqual(docs_in_index, 100)
