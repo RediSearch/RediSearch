@@ -38,14 +38,6 @@ jobs:
       rejson-branch: master
     secrets: inherit
 
-  micro-benchmarks:
-    needs: check-what-changed
-    if: ${{ needs.check-what-changed.outputs.RUST_CODE_CHANGED == 'true' }}
-    uses: ./.github/workflows/flow-micro-benchmarks.yml
-    with:
-      env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
-    secrets: inherit
-
   coverage:
     needs: [check-what-changed, get-latest-redis-tag]
     if: >
@@ -82,21 +74,11 @@ jobs:
       - check-what-changed
       - spellcheck
       - basic-test
-      - micro-benchmarks
       - lint
       - coverage
       - sanitize
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     if: ${{!cancelled()}}
     steps:
-      - name: Check job results
-        run: |
-          if [[ "${{ contains(needs.*.result, 'skipped') }}" == "true" ]]; then
-            echo "One or more jobs skipped, due to change checks."
-          fi
-
-          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
-            echo "One or more required jobs failed or were cancelled."
-            exit 1
-          fi
-          echo "All required jobs completed successfully or were skipped."
+      - if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
