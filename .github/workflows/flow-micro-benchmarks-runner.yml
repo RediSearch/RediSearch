@@ -72,7 +72,7 @@ jobs:
           if [[ "$OS_NAME" == "darwin" ]]; then
             OS_NAME="macos"
           fi
-          
+
           # Get architecture using uname -m
           ARCH=$(uname -m)
           if [[ "$ARCH" == "arm64" ]]; then
@@ -80,45 +80,45 @@ jobs:
           elif [[ "$ARCH" == "x86_64" ]]; then
             ARCH="x64"
           fi
-          
+
           # Set flavor (assuming release build for benchmarks)
           FLAVOR="release"
-          
+
           # Create full variant string for the build directory
           FULL_VARIANT="${OS_NAME}-${ARCH}-${FLAVOR}"
-          
+
           # Set coordinator type (assuming OSS)
           COORD="oss"
           OUTDIR="search-community"
-          
+
           # Set the final BINDIR
           BINDIR="bin/${FULL_VARIANT}/${OUTDIR}"
-          
+
           # Update the binary directory path for ARM architectures
           UPDATED_BINDIR=$(echo "$BINDIR" | sed 's/arm64v8/aarch64/')
-          
+
           echo "Looking for benchmark results in $UPDATED_BINDIR/micro-benchmarks"
-          
+
           # Find all JSON result files
           JSON_FILES=$(find $UPDATED_BINDIR/micro-benchmarks -name "*_results.json")
-          
+
           if [ -z "$JSON_FILES" ]; then
             echo "No benchmark result files found in $UPDATED_BINDIR/micro-benchmarks"
             exit 1
           fi
-          
+
           # Find all JSON result files
           JSON_FILES=$(find $BINDIR -name "*_results.json")
-          
+
           if [ -z "$JSON_FILES" ]; then
             echo "No benchmark result files found in $BINDIR"
             exit 1
           fi
-          
+
           # Print found files for debugging
           echo "Found the following result files:"
           echo "$JSON_FILES" | tr ' ' '\n'
-          
+
           # Process each file individually
           for file in $JSON_FILES; do
             echo "Processing $file..."
@@ -156,4 +156,3 @@ jobs:
           github-token: ${{ secrets.CI_GH_P_TOKEN }}
           label: ${{ needs.start-runner.outputs.runner_label }}
           ec2-instance-id: ${{ needs.start-runner.outputs.ec2_instance_id }}
-
