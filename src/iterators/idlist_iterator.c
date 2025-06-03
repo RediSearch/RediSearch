@@ -18,7 +18,7 @@ static size_t IL_NumEstimated(QueryIterator *base) {
   IdListIterator *it = (IdListIterator *)base;
   return (size_t)it->size;
 }
- 
+
 /* Read the next entry from the iterator, into hit *e.
 *  Returns ITERATOR_EOF if at the end */
 static IteratorStatus IL_Read(QueryIterator *base) {
@@ -32,7 +32,7 @@ static IteratorStatus IL_Read(QueryIterator *base) {
   base->current->docId = base->lastDocId;
   return ITERATOR_OK;
 }
- 
+
 /* Skip to a docid, potentially reading the entry into hit, if the docId
 * matches */
 static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
@@ -78,7 +78,7 @@ static void IL_Free(QueryIterator *self) {
   }
   rm_free(self);
 }
- 
+
 static int cmp_docids(const void *p1, const void *p2) {
   const t_docId *d1 = p1, *d2 = p2;
   if (*d1 < *d2) return -1;
@@ -93,7 +93,7 @@ static void IL_Rewind(QueryIterator *base) {
   base->current->docId = 0;
   il->offset = 0;
 }
- 
+
 QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weight) {
   // Assume the ids are not null and num > 0 otherwise these Iterator would not be created, avoid validation
   // first sort the ids, so the caller will not have to deal with it
@@ -121,9 +121,10 @@ QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weig
   return ret;
 }
 
-static void SetYield(QueryIterator *mr) {
-  ResultMetrics_Reset(mr->current);
-  ResultMetrics_Add(mr->current, NULL, RS_NumVal(mr->current->num.value));
+static void SetYield(QueryIterator *base, double value) {
+  base->current->num.value = value;
+  ResultMetrics_Reset(base->current);
+  ResultMetrics_Add(base->current, NULL, RS_NumVal(base->current->num.value));
 }
 
 static IteratorStatus MR_Read(QueryIterator *base) {
@@ -131,8 +132,7 @@ static IteratorStatus MR_Read(QueryIterator *base) {
   IdListIterator *it = &mr->base;
   IteratorStatus rc = IL_Read(base);
   if (ITERATOR_OK == rc) {
-    base->current->num.value = mr->metricList[it->offset - 1];
-    SetYield(base);
+    SetYield(base, mr->metricList[it->offset - 1]);
   }
   return rc;
 }
@@ -142,30 +142,18 @@ static IteratorStatus MR_SkipTo(QueryIterator *base, t_docId docId) {
   IdListIterator *it = &mr->base;
   int rc = IL_SkipTo(base, docId);
   if (ITERATOR_OK == rc || ITERATOR_NOTFOUND == rc) {
-    base->current->num.value = mr->metricList[it->offset - 1];
-    SetYield(base);
+    SetYield(base, mr->metricList[it->offset - 1]);
   }
   return rc;
 }
 
 static void MR_Free(QueryIterator *self) {
   MetricIterator *mi = (MetricIterator *)self;
-  if (mi == NULL) {
-    return;
-  }
   IdListIterator *it = &mi->base;
   QueryIterator *base = &it->base;
-
   IndexResult_Free(base->current);
-
-  if (it->docIds) {
-    rm_free(it->docIds);
-  }
-
-  if (mi->metricList) {
-    rm_free(mi->metricList);
-  }
-
+  rm_free(it->docIds);
+  rm_free(mi->metricList);
   rm_free(mi);
 }
 
