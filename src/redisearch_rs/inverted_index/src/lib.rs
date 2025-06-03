@@ -15,7 +15,20 @@ pub use ffi::{RSIndexResult, t_docId};
 /// because document IDs are usually sequential and the difference between them is small. With the
 /// help of encoding, we can store the difference (delta) efficiently instead of the full document
 /// ID.
-type Delta = usize;
+pub struct Delta(usize);
+
+impl Delta {
+    /// Make a new delta value
+    pub fn new(delta: usize) -> Self {
+        Delta(delta)
+    }
+}
+
+impl From<Delta> for usize {
+    fn from(delta: Delta) -> Self {
+        delta.0
+    }
+}
 
 /// Encoder to write a record into an index
 pub trait Encoder {
