@@ -344,6 +344,7 @@ run_tests() {
 		echo "::endgroup::"
 		if [[ $E != 0 ]]; then
 			echo "::error title=$title:: code: $E"
+			echo "$title failed, error: $E" >> $GITHUB_STEP_SUMMARY
 		fi
 	fi
 	return $E
@@ -530,19 +531,19 @@ echo "Running tests in parallel using $parallel Python processes"
 
 if [[ $REDIS_STANDALONE == 1 ]]; then
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
-		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
+		{ (run_tests "RediSearch tests"); (( E |= $? )); } || false
 	fi
 
 	if [[ $QUICK != 1 ]]; then
 
 		if [[ -z $CONFIG || $CONFIG == raw_docid ]]; then
 			{ (MODARGS="${MODARGS}; RAW_DOCID_ENCODING true;" \
-				run_tests "with raw DocID encoding"); (( E |= $? )); } || true
+				run_tests "with raw DocID encoding"); (( E |= $? )); } || false
 		fi
 
 		if [[ -z $CONFIG || $CONFIG == dialect_2 ]]; then
 			{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" \
-				run_tests "with Dialect v2"); (( E |= $? )); } || true
+				run_tests "with Dialect v2"); (( E |= $? )); } || false
 		fi
 	fi
 
