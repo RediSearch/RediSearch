@@ -15,19 +15,7 @@
 extern "C" {
 #endif
 
-typedef struct {
-  QueryIterator base;
-  t_docId *docIds;
-  t_offset size;
-  t_offset offset;
-} IdListIterator;
-
-/**
- * @param ids - the list of doc ids to iterate over
- * @param num - the number of doc ids in the list
- * @param weight - the weight of the node (assigned to the returned result)
- */
-QueryIterator *IT_V2(NewIdListIterator)(t_docId *ids, t_offset num, double weight);
+QueryIterator *IT_V2(NewEmptyIterator)(void);
 
 #ifdef __cplusplus
 }
