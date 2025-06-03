@@ -339,7 +339,7 @@ run_tests() {
 		kill -TERM $XREDIS_PID
 	fi
 
-	$E = 27
+	E = 27
 	if [[ -n $GITHUB_ACTIONS ]]; then
 		echo "::endgroup::"
 		if [[ $E != 0 ]]; then
