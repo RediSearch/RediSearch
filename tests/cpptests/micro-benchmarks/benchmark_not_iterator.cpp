@@ -48,6 +48,8 @@ public:
       id = dist(rng);
     }
     std::sort(childIds.begin(), childIds.end());
+    auto new_end = std::unique(childIds.begin(), childIds.end());
+    childIds.erase(new_end, childIds.end());
     IteratorType *child = createChild();
     struct timespec timeout = {LONG_MAX, 999999999}; // "infinite" timeout
 
@@ -100,9 +102,7 @@ public:
 template <typename IteratorType, bool optimized>
 bool BM_NotIterator<IteratorType, optimized>::initialized = false;
 
-// Translation - exponential range from 2 to 20 (double each time), then 25, 50, 75, and 100.
-// This is the number of documents in the child iterator
-#define NOT_SCENARIOS() RangeMultiplier(2)->Range(2, 20)->DenseRange(25, 100, 25)
+#define NOT_SCENARIOS() Arg(1000) -> Arg(10000) -> Arg(100000) -> Arg(1000000)
 
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, Read, QueryIterator, false)(benchmark::State &state) {
   IteratorStatus rc;
@@ -211,6 +211,5 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, SkipTo_Old_Optimized, IndexIterator
 
 BENCHMARK_REGISTER_F(BM_NotIterator, Read_Old_Optimized)->NOT_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_NotIterator, SkipTo_Old_Optimized)->NOT_SCENARIOS();
-
 
 BENCHMARK_MAIN();
