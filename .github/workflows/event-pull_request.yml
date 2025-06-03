@@ -46,8 +46,6 @@ jobs:
       env: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     secrets: inherit
 
-# Rust code review removed - now triggered by slash command /rust_review
-
   coverage:
     needs: [check-what-changed, get-latest-redis-tag]
     if: >
