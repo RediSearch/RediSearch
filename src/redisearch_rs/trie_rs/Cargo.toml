@@ -1,0 +1,25 @@
+[package]
+name = "trie_rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[lints]
+workspace = true
+
+[dependencies]
+lending-iterator.workspace = true
+libc.workspace = true
+memchr.workspace = true
+wildcard.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+proptest = { workspace = true, features = ["std"] }
+proptest-derive.workspace = true
+trie_rs.workspace = true
+fs-err.workspace = true

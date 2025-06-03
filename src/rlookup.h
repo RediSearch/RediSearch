@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef RLOOKUP_H
 #define RLOOKUP_H
 #include <stdint.h>
@@ -313,7 +315,7 @@ void RLookupRow_Wipe(RLookupRow *row);
  */
 void RLookupRow_Cleanup(RLookupRow *row);
 
-void RLookupRow_Dump(const RLookupRow *row);
+sds RLookupRow_DumpSds(const RLookupRow *row, bool obfuscate);
 
 typedef enum {
   /* Use keylist (keys/nkeys) for the fields to list */

@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "profile.h"
 #include "reply_macros.h"
 #include "util/units.h"
@@ -57,18 +59,20 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
   // Array is filled backward in pair of [common, profile] result processors
   if (rp->type != RP_PROFILE) {
-    RedisModule_Reply_Map(reply); // start of resursive map
+    RedisModule_Reply_Map(reply); // start of recursive map
 
     switch (rp->type) {
       case RP_INDEX:
       case RP_METRICS:
       case RP_LOADER:
+      case RP_KEY_NAME_LOADER:
       case RP_SCORER:
       case RP_SORTER:
       case RP_COUNTER:
       case RP_PAGER_LIMITER:
       case RP_HIGHLIGHTER:
       case RP_GROUP:
+      case RP_MAX_SCORE_NORMALIZER:
       case RP_NETWORK:
         printProfileType(RPTypeToString(rp->type));
         break;
@@ -85,7 +89,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
 
       case RP_PROFILE:
       case RP_MAX:
-        RS_LOG_ASSERT(0, "RPType error");
+        RS_ABORT("RPType error");
         break;
     }
 
@@ -97,7 +101,7 @@ static double _recursiveProfilePrint(RedisModule_Reply *reply, ResultProcessor *
     printProfileTime(totalRPTime - upstreamTime);
   }
   printProfileCounter(RPProfile_GetCount(rp) - 1);
-  RedisModule_Reply_MapEnd(reply); // end of resursive map
+  RedisModule_Reply_MapEnd(reply); // end of recursive map
   return totalRPTime;
 }
 
@@ -110,6 +114,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
   AREQ *req = profileCtx->req;
   bool timedout = profileCtx->timedout;
   bool reachedMaxPrefixExpansions = profileCtx->reachedMaxPrefixExpansions;
+  bool bgScanOOM = profileCtx->bgScanOOM;
   req->totalTime += clock() - req->initClock;
 
   //-------------------------------------------------------------------------------------------
@@ -144,6 +149,9 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         }
 
       // Print whether a warning was raised throughout command execution
+      if (bgScanOOM) {
+        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WINDEXING_FAILURE);
+      }
       if (timedout) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ETIMEDOUT));
       } else if (reachedMaxPrefixExpansions) {
@@ -202,8 +210,8 @@ void Profile_PrintInFormat(RedisModule_Reply *reply,
   RedisModule_Reply_MapEnd(reply); /* >profile */
 }
 
-void Profile_PrintDefault(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions) {
-  ProfilePrinterCtx ctx = {.req = req, .timedout = timedout,
-                           .reachedMaxPrefixExpansions = reachedMaxPrefixExpansions};
-  Profile_PrintInFormat(reply, Profile_Print, &ctx, NULL, NULL);
+// Receives context as void*
+// Will be used as ProfilePrinterCtx*
+void Profile_PrintDefault(RedisModule_Reply *reply, void *ctx) {
+  Profile_PrintInFormat(reply, Profile_Print, ctx, NULL, NULL);
 }

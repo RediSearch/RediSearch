@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef __INDEX_ITERATOR_H__
 #define __INDEX_ITERATOR_H__
 
@@ -18,7 +20,8 @@ struct RLookupKey; // Forward declaration
 #define INDEXREAD_NOTFOUND 2
 #define INDEXREAD_TIMEOUT 3
 
-enum iteratorType {
+#ifndef __ITERATOR_API_H__
+enum IteratorType {
   READ_ITERATOR,
   HYBRID_ITERATOR,
   UNION_ITERATOR,
@@ -33,6 +36,7 @@ enum iteratorType {
   OPTIMUS_ITERATOR,
   MAX_ITERATOR,
 };
+#endif
 
 /* An abstract interface used by readers / intersectors / unioners etc.
 Basically query execution creates a tree of iterators that activate each other
@@ -49,7 +53,7 @@ typedef struct indexIterator {
   // Cached value - used if Current() is not set
   RSIndexResult *current;
 
-  enum iteratorType type;
+  enum IteratorType type;
 
   // Used if the iterator yields some value.
   // Consider placing in a union with an array of keys, if a field want to yield multiple metrics

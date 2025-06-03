@@ -1,6 +1,7 @@
 [submodule "deps/readies"]
 	path = deps/readies
 	url = https://github.com/RedisLabsModules/readies.git
+	branch = search_readies
 [submodule "deps/googletest"]
 	path = deps/googletest
 	url = https://github.com/google/googletest.git

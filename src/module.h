@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef RS_MODULE_H_
 #define RS_MODULE_H_
 
@@ -22,12 +24,22 @@
 extern "C" {
 #endif
 
-#define PROXY_FILTERED "_proxy-filtered"
+// Filter from proxy listing and statistics (e.g., command-stats, latency report etc.)
+#define CMD_PROXY_FILTERED "_proxy-filtered"
+// Internal command - for internal use, i.e., should NOT be executed by the user
+// as it may bypass ACL validations (e.g., '_FT.SEARCH`), or result in an
+// unwanted situation such as an unsynchronized cluster (e.g., '_FT.CREATE').
+// Thus, these commands are not exposed to the user. For more info, see redis
+// docs and code.
+#define CMD_INTERNAL "internal"
 
-int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfig, int isClusterEnabled);
+int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
 
 int IsMaster();
-int IsEnterprise();
+bool IsEnterprise();
+
+size_t GetNumShards_UnSafe();
 
 void GetFormattedRedisVersion(char *buf, size_t len);
 void GetFormattedRedisEnterpriseVersion(char *buf, size_t len);
@@ -38,13 +50,9 @@ void RediSearch_CleanupModule(void);
 // Local spellcheck command
 int SpellCheckCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
-int RMCreateSearchCommand(RedisModuleCtx *ctx, const char *name,
-                  RedisModuleCmdFunc callback, const char *flags, int firstkey,
-                  int lastkey, int keystep, const char *aclCategories);
-
-/** Module-level dummy context for certain dummy RM_XXX operations */
+// Module-level dummy context for certain dummy RM_XXX operations
 extern RedisModuleCtx *RSDummyContext;
-/** Indicates that RediSearch_Init was called */
+// Indicates that RediSearch_Init was called
 extern int RS_Initialized;
 
 #define RS_AutoMemory(ctx)                      \
@@ -58,6 +66,10 @@ do {                                            \
 
 #define SEARCH_ACL_CATEGORY "search"
 #define SEARCH_ACL_INTERNAL_CATEGORY "_search_internal"
+
+#define NOPERM_ERR "NOPERM User does not have the required permissions to query the index"
+#define CLUSTERDOWN_ERR "ERRCLUSTER Uninitialized cluster state, could not perform command"
+#define NODEBUG_ERR "Debug commands are disabled, please follow the redis configuration guide to enable them"
 
 #define RM_TRY(expr)                                                  \
   if (expr == REDISMODULE_ERR) {                                      \
@@ -119,12 +131,17 @@ typedef struct {
   void *reducer;
 } searchRequestCtx;
 
-specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc,
+bool debugCommandsEnabled(RedisModuleCtx *ctx);
+
+specialCaseCtx *prepareOptionalTopKCase(const char *query_string, RedisModuleString **argv, int argc, uint dialectVersion,
                              QueryError *status);
 
 void SpecialCaseCtx_Free(specialCaseCtx* ctx);
 
 void processResultFormat(uint32_t *flags, MRReply *map);
+
+int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
+int DistSearchCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc);
 
 #ifdef __cplusplus
 }

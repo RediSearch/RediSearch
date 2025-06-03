@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <math.h>
 #include "hybrid_reader.h"
 #include "VecSim/vec_sim.h"
@@ -107,7 +109,7 @@ static void insertResultToHeap_Aggregate(HybridIterator *hr, RSIndexResult *res,
 
 static void insertResultToHeap(HybridIterator *hr, RSIndexResult *res, RSIndexResult *child_res,
                                RSIndexResult **vec_res, double *upper_bound) {
-  if (hr->ignoreScores) {
+  if (hr->canTrimDeepResults) {
     // If we ignore the document score, insert a single node of type DISTANCE.
     insertResultToHeap_Metric(hr, child_res, vec_res, upper_bound);
   } else {
@@ -444,7 +446,7 @@ void HybridIterator_Free(struct indexIterator *self) {
 IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError *status) {
   // If searchMode is out of the expected range.
   if (hParams.qParams.searchMode < 0 || hParams.qParams.searchMode >= VECSIM_LAST_SEARCHMODE) {
-    QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Creating new hybrid vector iterator has failed");
+    QueryError_SetError(status, QUERY_EGENERIC, "Creating new hybrid vector iterator has failed");
   }
 
   HybridIterator *hi = rm_new(HybridIterator);
@@ -464,7 +466,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   hi->topResults = NULL;
   hi->returnedResults = NULL;
   hi->numIterations = 0;
-  hi->ignoreScores = hParams.ignoreDocScore;
+  hi->canTrimDeepResults = hParams.canTrimDeepResults;
   hi->timeoutCtx = (TimeoutCtx){ .timeout = hParams.timeout, .counter = 0 };
   hi->runtimeParams.timeoutCtx = &hi->timeoutCtx;
   hi->sctx = hParams.sctx;
@@ -521,7 +523,7 @@ IndexIterator *NewHybridVectorIterator(HybridIteratorParams hParams, QueryError 
   } else {
     // Hybrid query - save the RSIndexResult subtree which is not the vector distance only if required.
     ri->Read = HR_ReadHybridUnsorted;
-    if (hParams.ignoreDocScore) {
+    if (hParams.canTrimDeepResults) {
       ri->current = NewMetricResult();
     } else {
       ri->current = NewHybridResult();

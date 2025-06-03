@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef __NUMERIC_INDEX_H__
 #define __NUMERIC_INDEX_H__
 
@@ -108,7 +110,7 @@ NRN_AddRv NumericRangeTree_TrimEmptyLeaves(NumericRangeTree *t);
 /* Create a new tree */
 NumericRangeTree *NewNumericRangeTree();
 
-/* Add a value to a tree. Returns 0 if no nodes were split, 1 if we splitted nodes */
+/* Add a value to a tree. Returns 0 if no nodes were split, 1 if we split nodes */
 NRN_AddRv NumericRangeTree_Add(NumericRangeTree *t, t_docId docId, double value, int isMulti);
 
 /* Recursively find all the leaves under tree's root, that correspond to a given min-max range.

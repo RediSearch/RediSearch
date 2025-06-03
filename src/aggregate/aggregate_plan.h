@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef AGGREGATE_PLAN_H_
 #define AGGREGATE_PLAN_H_
 #include <value.h>
@@ -11,6 +13,7 @@
 #include <search_options.h>
 #include <aggregate/expr/expression.h>
 #include <util/dllist.h>
+#include <obfuscation/hidden.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -82,9 +85,8 @@ typedef struct {
 
 typedef struct {
   PLN_BaseStep base;
-  const char *rawExpr;
+  HiddenString *expr;
   RSExpr *parsedExpr;
-  bool shouldFreeRaw;  // Whether we own the raw expression, used on coordinator only
   bool noOverride;     // Whether we should override the alias if it exists. We allow it by default
 } PLN_MapFilterStep;
 
@@ -141,7 +143,7 @@ PLN_GroupStep *PLNGroupStep_New(const char **props, size_t nprops);
 int PLNGroupStep_AddReducer(PLN_GroupStep *gstp, const char *name, ArgsCursor *ac,
                             QueryError *status);
 
-PLN_MapFilterStep *PLNMapFilterStep_New(const char *expr, int mode);
+PLN_MapFilterStep *PLNMapFilterStep_New(const HiddenString *expr, int mode);
 
 #ifdef __cplusplus
 typedef PLN_GroupStep::PLN_Reducer PLN_Reducer;
@@ -185,7 +187,7 @@ void AGPLN_AddAfter(AGGPlan *pln, PLN_BaseStep *step, PLN_BaseStep *add);
 void AGPLN_Prepend(AGGPlan *pln, PLN_BaseStep *newstp);
 
 /* Removes the step from the plan */
-void AGPLN_PopStep(AGGPlan *pln, PLN_BaseStep *step);
+void AGPLN_PopStep(PLN_BaseStep *step);
 
 /** Checks if a step with the given type is contained within the plan */
 int AGPLN_HasStep(const AGGPlan *pln, PLN_StepType t);

@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef INDEXER_H
 #define INDEXER_H
 
@@ -11,6 +13,9 @@
 #include "concurrent_ctx.h"
 #include "util/arr.h"
 #include "geometry_index.h"
+
+extern bool g_isLoading;
+
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
   int isMulti;
@@ -43,21 +48,12 @@ typedef struct FieldIndexerData {
 
 } FieldIndexerData;
 
-typedef struct DocumentIndexer {
-  ConcurrentSearchCtx concCtx;     // GIL locking. This is repopulated with the relevant key data
-  RedisModuleCtx *redisCtx;        // Context for keeping the spec key
-  RedisModuleString *specKeyName;  // Cached, used for opening/closing the spec key.
-  uint64_t specId;                 // Unique spec ID. Used to verify we haven't been replaced
-} DocumentIndexer;
-
-void Indexer_Free(DocumentIndexer *indexer);
-DocumentIndexer *NewIndexer(IndexSpec *spec);
 
 /**
  * Add a document to the indexing queue. If successful, the indexer now takes
  * ownership of the document context (until it DocumentAddCtx_Finish).
  */
-int Indexer_Add(DocumentIndexer *indexer, RSAddDocumentCtx *aCtx);
+int IndexDocument(RSAddDocumentCtx *aCtx);
 
 /**
  * Function to preprocess field data. This should do as much stateless processing
@@ -81,5 +77,12 @@ typedef int (*IndexerFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const Do
 int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
                    QueryError *status);
+
+/**
+ * Yield to Redis after a certain number of operations during indexing while loading.
+ * This helps keep Redis responsive during long indexing operations.
+ * @param ctx The Redis context
+ */
+static void IndexerYieldWhileLoading(RedisModuleCtx *ctx);
 
 #endif

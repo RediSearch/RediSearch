@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "json.h"
 #include "document.h"
@@ -53,9 +55,9 @@ int GetJSONAPIs(RedisModuleCtx *ctx, int subscribeToModuleChange) {
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
-JSONPath pathParse(const char *path, RedisModuleString **err_msg) {
+JSONPath pathParse(const HiddenString* path, RedisModuleString **err_msg) {
   if (japi_ver >= 2) {
-    return japi->pathParse(path, RSDummyContext, err_msg);
+    return japi->pathParse(HiddenString_GetUnsafe(path, NULL), RSDummyContext, err_msg);
   } else {
     *err_msg = NULL;
     return NULL;
@@ -67,7 +69,7 @@ void pathFree(JSONPath jsonpath) {
     japi->pathFree(jsonpath);
   } else {
     // Should not attempt to free none-null path when the required API to parse is not available
-    assert(jsonpath != NULL);
+    RS_ASSERT(jsonpath != NULL);
   }
 }
 
@@ -76,7 +78,7 @@ int pathIsSingle(JSONPath jsonpath) {
     return japi->pathIsSingle(jsonpath);
   } else {
     // Should not use none-null path when the required API to parse is not available
-    assert(jsonpath != NULL);
+    RS_ASSERT(jsonpath != NULL);
   }
   return false;
 }
@@ -86,7 +88,7 @@ int pathHasDefinedOrder(JSONPath jsonpath) {
     return japi->pathHasDefinedOrder(jsonpath);
   } else {
     // Should not use none-null path when the required API to parse is not available
-    assert(jsonpath != NULL);
+    RS_ASSERT(jsonpath != NULL);
   }
   return false;
 }
@@ -263,7 +265,7 @@ int JSON_StoreVectorAt(RedisJSON arr, size_t len, getJSONElementFunc getElement,
   for (int i = 0; i < len; ++i) {
     RedisJSON json = japi->getAt(arr, i);
     if (getElement(json, target) != REDISMODULE_OK) {
-      QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Invalid vector element at index %d", i);
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Invalid vector element at index %d", i);
       return REDISMODULE_ERR;
     }
     target += step;
@@ -322,7 +324,7 @@ int JSON_StoreSingleVectorInDocField(FieldSpec *fs, RedisJSON arr, struct Docume
   size_t arrLen;
   japi->getLen(arr, &arrLen);
   if (arrLen != dim) {
-    QueryError_SetErrorFmt(status, QUERY_EGENERIC, "Invalid vector length. Expected %lu, got %lu", dim, arrLen);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EGENERIC, "Invalid vector length. Expected %lu, got %lu", dim, arrLen);
     return REDISMODULE_ERR;
   }
 
@@ -607,7 +609,8 @@ int JSON_StoreInDocField(RedisJSON json, JSONType jsonType, FieldSpec *fs, struc
       rv = REDISMODULE_ERR;
       break;
     case JSONType__EOF:
-      RS_LOG_ASSERT(0, "Should not happen");
+      RS_ABORT("Should not happen");
+      rv = REDISMODULE_ERR;
   }
 
   return rv;
@@ -668,4 +671,11 @@ int JSON_LoadDocumentField(JSONResultsIterator jsonIter, size_t len,
     }
   }
   return rv;
+}
+
+void JSONParse_error(QueryError *status, RedisModuleString *err_msg, const HiddenString *path, const HiddenString *fieldName, const HiddenString *indexName) {
+  QueryError_SetWithUserDataFmt(status, QUERY_EINVALPATH,
+                         "Invalid JSONPath", " '%s' in attribute '%s' in index '%s'",
+                         HiddenString_GetUnsafe(path, NULL), HiddenString_GetUnsafe(fieldName, NULL), HiddenString_GetUnsafe(indexName, NULL));
+  RedisModule_FreeString(RSDummyContext, err_msg);
 }

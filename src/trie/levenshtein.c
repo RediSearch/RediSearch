@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <stdlib.h>
 #include <stdio.h>
 #include <sys/param.h>
@@ -226,7 +228,7 @@ void DFAFilter_Free(DFAFilter *fc) {
   Vector_Free(fc->distStack);
 }
 
-FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
+FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx, runeTransform rTransform) {
   DFAFilter *fc = ctx;
   dfaNode *dn;
   int minDist;
@@ -252,10 +254,10 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
     }
   }
 
-  rune foldedRune = runeFold(b);
+  rune transformedRune = rTransform(b);
 
   // get the next state change
-  dfaNode *next = __dfn_getEdge(dn, foldedRune);
+  dfaNode *next = __dfn_getEdge(dn, transformedRune);
   if (!next) next = dn->fallback;
 
   // we can continue - push the state on the stack
@@ -279,6 +281,16 @@ FilterCode FilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
   }
 
   return F_STOP;
+}
+
+// This function is used by FT.SUGGET flow
+FilterCode FoldingFilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
+  return FilterFunc(b, ctx, matched, matchCtx, runeFold);
+}
+
+// This function is used by TEXT fuzzy search flow
+FilterCode LoweringFilterFunc(rune b, void *ctx, int *matched, void *matchCtx) {
+  return FilterFunc(b, ctx, matched, matchCtx, runeLower);
 }
 
 void StackPop(void *ctx, int numLevels) {

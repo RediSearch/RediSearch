@@ -6,14 +6,9 @@ on:
   pull_request:
    types: [opened, reopened, synchronize, labeled] # Default ([opened, reopened, synchronize]) + labeled
 
-concurrency:
-  # Group by flow, PR number, and a trigger condition (so other labels don't cancel an in-progress job)
-  group: ${{ github.workflow }}-${{ github.event.number }}-${{ github.event.action != 'labeled' || github.event.label.name == 'action:run-benchmark' }}
-  cancel-in-progress: true # TODO: reconsider, currently we use the free tier and have 20 concurrent jobs limit
-
 jobs:
   perf-ci:
-    name: Trigger
+    name: Trigger Benchmarks
     if: >
       (
         github.event.action == 'labeled' &&
@@ -22,5 +17,24 @@ jobs:
         contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action) &&
         contains(github.event.pull_request.labels.*.name, 'action:run-benchmark')
       )
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.number }}-benchmark
+      cancel-in-progress: true
     uses: ./.github/workflows/benchmark-runner.yml
+    secrets: inherit
+
+  micro-benchmarks:
+    name: Trigger Micro Benchmarks
+    if: >
+      (
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'action:run-micro-benchmark'
+      ) || (
+        contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action) &&
+        contains(github.event.pull_request.labels.*.name, 'action:run-micro-benchmark')
+      )
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.number }}-micro-benchmark
+      cancel-in-progress: true
+    uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit

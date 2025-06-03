@@ -1,12 +1,15 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "indexes_info.h"
 #include "util/dict.h"
 #include "spec.h"
+#include "field_spec_info.h"
 
 // Assuming the GIL is held by the caller
 TotalIndexesInfo IndexesInfo_TotalInfo() {
@@ -34,8 +37,8 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     if (info.max_mem < cur_mem) info.max_mem = cur_mem;
     info.indexing_time += sp->stats.totalIndexTime;
 
-    // Vector index stats
-    VectorIndexStats vec_info = IndexSpec_GetVectorIndexStats(sp);
+    // Vector indexes stats
+    VectorIndexStats vec_info = IndexSpec_GetVectorIndexesStats(sp);
     info.fields_stats.total_vector_idx_mem += vec_info.memory;
     info.fields_stats.total_mark_deleted_vectors += vec_info.marked_deleted;
 
@@ -62,6 +65,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     if (info.max_indexing_failures < index_error_count) {
       info.max_indexing_failures = index_error_count;
     }
+    info.background_indexing_failures_OOM += sp->scan_failed_OOM;
 
     pthread_rwlock_unlock(&sp->rwlock);
   }

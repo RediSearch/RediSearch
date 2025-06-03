@@ -1,13 +1,16 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "redismodule.h"
 #include "circular_buffer.h"
 #include "src/rmalloc.h"
 #include "src/util/likely.h"
+#include "rmutil/rm_assert.h"
 
 #include <stdatomic.h>
 
@@ -26,14 +29,14 @@ struct _CircularBuffer {
 
 // Creates a new circular buffer, with `cap` items of size `item_size`
 CircularBuffer CircularBuffer_New(size_t item_size, uint cap) {
-  RedisModule_Assert(cap > 0 && item_size > 0);
+  RS_ASSERT(cap > 0 && item_size > 0);
   CircularBuffer cb = rm_calloc(1, sizeof(_CircularBuffer) + item_size * cap);
 
   cb->read       = cb->data;                      // initial read position
-  cb->write      = ATOMIC_VAR_INIT(0);            // write offset into data
+  cb->write      = 0;                             // write offset into data
   cb->item_cap   = cap;                           // buffer capacity
   cb->item_size  = item_size;                     // item size
-  cb->item_count = ATOMIC_VAR_INIT(0);            // no items in buffer
+  cb->item_count = 0;                             // no items in buffer
   cb->end_marker = cb->data + (item_size * cap);  // end of data marker
 
   return cb;
@@ -41,14 +44,14 @@ CircularBuffer CircularBuffer_New(size_t item_size, uint cap) {
 
 // Returns the number of items in the buffer. Thread-safe.
 uint64_t CircularBuffer_ItemCount(CircularBuffer cb) {
-  RedisModule_Assert(cb != NULL);
+  RS_ASSERT(cb != NULL);
 
   return atomic_load(&cb->item_count);
 }
 
 // Returns buffer capacity.
 uint64_t CircularBuffer_Cap(CircularBuffer cb) {
-  RedisModule_Assert(cb != NULL);
+  RS_ASSERT(cb != NULL);
 
   return cb->item_cap;
 }
@@ -60,7 +63,7 @@ uint CircularBuffer_ItemSize(const CircularBuffer cb) {
 
 // Returns true if buffer is empty. Thread-safe.
 inline bool CircularBuffer_Empty(const CircularBuffer cb) {
-  RedisModule_Assert(cb != NULL);
+  RS_ASSERT(cb != NULL);
 
   uint64_t item_count = atomic_load(&cb->item_count);
   return item_count == 0;
@@ -68,7 +71,7 @@ inline bool CircularBuffer_Empty(const CircularBuffer cb) {
 
 // Returns true if buffer is full. Thread-safe.
 inline bool CircularBuffer_Full(const CircularBuffer cb) {
-  RedisModule_Assert(cb != NULL);
+  RS_ASSERT(cb != NULL);
 
   uint64_t item_count = atomic_load(&cb->item_count);
   return item_count == cb->item_cap;
@@ -78,8 +81,8 @@ inline bool CircularBuffer_Full(const CircularBuffer cb) {
 // Returns 1 on success, 0 otherwise
 // This function is thread-safe and lock-free
 int CircularBuffer_Add(CircularBuffer cb, void *item) {
-  RedisModule_Assert(cb   != NULL);
-  RedisModule_Assert(item != NULL);
+  RS_ASSERT(cb   != NULL);
+  RS_ASSERT(item != NULL);
 
   // atomic update buffer item count
   // do not add item if buffer is full
@@ -129,7 +132,7 @@ int CircularBuffer_Add(CircularBuffer cb, void *item) {
 // This function is thread-safe and lock-free.
 // [OUTPUT] wasFull - set to true if buffer is full
 void *CircularBuffer_Reserve(CircularBuffer cb, bool *wasFull) {
-  RedisModule_Assert(cb != NULL);
+  RS_ASSERT(cb != NULL);
 
   // atomic update buffer item count
   // an item will be overwritten if buffer is full
@@ -179,7 +182,7 @@ void *CircularBuffer_Reserve(CircularBuffer cb, bool *wasFull) {
 // This function is not thread-safe.
 // This function pops the oldest item from the buffer.
 void *CircularBuffer_Read(CircularBuffer cb, void *item) {
-  RedisModule_Assert(cb != NULL);
+  RS_ASSERT(cb != NULL);
 
   // make sure there's data to return
   if (unlikely(CircularBuffer_Empty(cb))) {
@@ -255,7 +258,7 @@ void CircularBuffer_ResetReader(CircularBuffer cb) {
 
 // Frees buffer
 void CircularBuffer_Free(CircularBuffer cb) {
-  RedisModule_Assert(cb != NULL);
+  RS_ASSERT(cb != NULL);
 
   rm_free(cb);
 }

@@ -396,7 +396,7 @@ class TestAggregate():
         # Test Sorting by multiple properties
         res = self.env.cmd('ft.aggregate', 'games', '*', 'GROUPBY', '1', '@brand',
                            'REDUCE', 'sum', 1, '@price', 'as', 'price',
-                           'APPLY', '(@price % 10)', 'AS', 'price',
+                           'APPLY', '(floor(@price) % 10)', 'AS', 'price',
                            'SORTBY', 4, '@price', 'asc', '@brand', 'desc', 'MAX', 10,
                            )
         self.env.assertEqual([292, ['brand', 'zps', 'price', '0'], ['brand', 'zalman', 'price', '0'], ['brand', 'yoozoo', 'price', '0'], ['brand', 'white label', 'price', '0'], ['brand', 'stinky', 'price', '0'], [
@@ -659,7 +659,7 @@ class TestAggregate():
         # With Floats
         res = self.env.cmd('ft.aggregate', 'games', '*',
                                        'APPLY', '547758.3 % 5.1')
-        self.env.assertEqual(res[1][1], '3')
+        self.env.assertEqual(res[1][1], '3.00000000008')
 
 
     # def testLoadAfterSortBy(self):
@@ -1310,7 +1310,7 @@ def test_aggregate_filter_on_missing_values():
     # Search for the documents with the indexed fields (sanity)
     # document doc1 has no value for num1, so we expect to receive the mentioned error
     (env.expect('FT.AGGREGATE', 'idx', '@tag:{val}', 'LOAD', '1', 'num1', 'FILTER', '@num1 > 2').error().
-     contains('num1: has no value, consider using EXISTS if applicable'))
+     contains('Could not find the value for a parameter name, consider using EXISTS if applicable for num1'))
     env.flush()
 
 def test_aggregate_filter_on_missing_indexed_values():
@@ -1340,14 +1340,14 @@ def test_aggregate_group_by_on_missing_indexed_values():
 def test_aggregate_apply_on_missing_values():
     env = setup_missing_values_index(False)
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'num1', 'num2', 'APPLY', '(@num1+@num2)/2').error().contains(
-        "has no value, consider using EXISTS if applicable"
+        "Could not find the value for a parameter name, consider using EXISTS if applicable"
     )
     env.flush()
 
 def test_aggregate_apply_on_missing_indexed_values():
     env = setup_missing_values_index(True)
     env.expect('FT.AGGREGATE', 'idx', 'ismissing(@tag) | @tag:{val}', 'LOAD', '1', 'tag', 'APPLY',
-               'upper(@tag)', 'AS', 'T').error().contains("tag: has no value, consider using EXISTS if applicable")
+               'upper(@tag)', 'AS', 'T').error().contains("Could not find the value for a parameter name, consider using EXISTS if applicable for tag")
     env.flush()
 
 def testSortByTextField(env):
@@ -1380,7 +1380,7 @@ def testErrorStatsResp2():
     env = Env(protocol=2)
     conn = getConnectionByEnv(env)
     res = conn.execute_command('info', 'errorstats')
-    env.assertEqual(res, {'errorstat_ERR': {'count': 1 }})
+    env.assertEqual(res, {})
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC').ok()
     conn.execute_command('HSET', 'key1', 'n', 1.23)
     conn.execute_command('HSET', 'key2', 'n', 4.56)
@@ -1390,7 +1390,7 @@ def testErrorStatsResp2():
             'FT.AGGREGATE', 'idx', '*', 'GROUPBY', '1', '@n',
             'REDUCE', 'count', '0', 'AS', 'count', 'SORTBY', '2', '@n', 'DESC')
         res = conn.execute_command('info', 'errorstats')
-        env.assertEqual(res, {'errorstat_ERR': {'count': 1 + (i * 2)}})
+        env.assertEqual(res, {'errorstat_ERR': {'count': (i * 2)}})
 
 @skip(cluster=False)
 def testErrorStatsResp3():
@@ -1408,3 +1408,13 @@ def testErrorStatsResp3():
             'REDUCE', 'count', '0', 'AS', 'count', 'SORTBY', '2', '@n', 'DESC')
         res = conn.execute_command('info', 'errorstats')
         env.assertEqual(res, expected_errorstats)
+
+def testAggregateBadLoadArgs(env):
+    """Tests that we get a proper error message when passing bad arguments to LOAD"""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', '2', 'title').error() \
+        .contains('Bad arguments for LOAD: Expected an argument')
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD', 'lali').error() \
+        .contains("Bad arguments for LOAD: Expected number of fields or `*`")
+    env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD').error() \
+        .contains("Bad arguments for LOAD: Expected an argument, but none provided")

@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "redisearch.h"
 #include "module.h"
 #include "rmutil/util.h"
@@ -252,12 +254,12 @@ int parseSuggestOptions(RedisModuleString **argv, int argc, SuggestOptions *opti
   if (rv != AC_OK) {
     if (rv == AC_ERR_ENOENT) {
       // Argument not recognized
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Unrecognized argument: %s",
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unrecognized argument", ": %s",
                              AC_GetStringNC(&ac, NULL));
     } else if (errArg) {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "%s: %s", errArg->name, AC_Strerror(rv));
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, errArg->name, ": %s", AC_Strerror(rv));
     } else {
-      QueryError_SetErrorFmt(status, QUERY_EPARSEARGS, "Error parsing arguments: %s",
+      QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Error parsing arguments:", " %s",
                              AC_Strerror(rv));
     }
     return REDISMODULE_ERR;
@@ -289,7 +291,7 @@ int RSSuggestGetCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc)
 
 parse_error:
   if (QueryError_HasError(&status)) {
-    RedisModule_ReplyWithError(ctx, QueryError_GetError(&status));
+    RedisModule_ReplyWithError(ctx, QueryError_GetUserError(&status));
     QueryError_ClearError(&status);
     return REDISMODULE_OK;
   }

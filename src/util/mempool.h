@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef __RS_MEMPOOL_H__
 #define __RS_MEMPOOL_H__
 
@@ -27,7 +29,7 @@ typedef struct {
   mempool_alloc_fn alloc;
   mempool_free_fn free;
   size_t initialCap;  // Initial size of the pool
-  size_t maxCap;      // maxmimum size of the pool
+  size_t maxCap;      // maximum size of the pool
 } mempool_options;
 
 /* Create a new memory pool */

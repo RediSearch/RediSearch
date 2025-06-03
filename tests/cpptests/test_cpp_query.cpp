@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 
 #include "src/query.h"
 #include "src/query_parser/tokenizer.h"
@@ -54,7 +63,7 @@ class QASTCXX : public QueryAST {
   }
 
   const char *getError() const {
-    return QueryError_GetError(&m_status);
+    return QueryError_GetUserError(&m_status);
   }
 
   ~QASTCXX() {
@@ -93,11 +102,11 @@ TEST_F(QueryTest, testParser_delta) {
                                "body",    "text",  "weight", "2.0",    "bar",
                                "numeric", "loc",   "geo",    "tags",   "tag"};
   QueryError err = {QueryErrorCode(0)};
-  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
   ctx.spec = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
 
-  // wildcard with parentheses are avalible from version 2
+  // wildcard with parentheses are available from version 2
   assertInvalidQuery_v(1, "(*)");
   assertValidQuery_v(2, "(*)");
 
@@ -137,7 +146,7 @@ TEST_F(QueryTest, testParser_delta) {
   assertValidQuery_v(1,"hello world&good");
   assertValidQuery_v(2,"hello world&good");
 
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testParser_v1) {
@@ -146,9 +155,9 @@ TEST_F(QueryTest, testParser_v1) {
                                "body",    "text",  "weight", "2.0",    "bar",
                                "numeric", "loc",   "geo",    "tags",   "tag"};
   QueryError err = {QueryErrorCode(0)};
-  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
   ctx.spec = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   int version = 1;
 
   // test some valid queries
@@ -329,7 +338,7 @@ TEST_F(QueryTest, testParser_v1) {
   ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
   ASSERT_STREQ("boo", _n->children[1]->pfx.tok.str);
   QAST_Destroy(&ast);
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testParser_v2) {
@@ -343,9 +352,9 @@ TEST_F(QueryTest, testParser_v2) {
                                "v2", "vector", "HNSW", "6", "type", "float16", "dim", "46", "distance_metric", "cosine",
                                "KNN", "vector", "FLAT", "6", "type", "bfloat16", "dim", "46", "distance_metric", "cosine",};
   QueryError err = {QueryErrorCode(0)};
-  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
   ctx.spec = (IndexSpec *)StrongRef_Get(ref);
-  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetError(&err);
+  ASSERT_FALSE(QueryError_HasError(&err)) << QueryError_GetUserError(&err);
   int version = 2;
 
   // test some valid queries
@@ -636,14 +645,14 @@ TEST_F(QueryTest, testParser_v2) {
   ASSERT_EQ(_n->children[1]->type, QN_PREFIX);
   ASSERT_STREQ("boo", _n->children[1]->pfx.tok.str);
   QAST_Destroy(&ast);
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testVectorHybridQuery) {
   static const char *args[] = {"SCHEMA", "title", "text", "vec", "vector", "HNSW", "6",
                                "TYPE", "FLOAT32", "DIM", "5", "DISTANCE_METRIC", "L2"};
   QueryError err = {QueryErrorCode(0)};
-  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
   QASTCXX ast;
   ast.setContext(&ctx);
@@ -674,7 +683,7 @@ TEST_F(QueryTest, testVectorHybridQuery) {
   ASSERT_EQ(ast.root->children[0]->type, QN_TOKEN);
   ASSERT_EQ(ast.root->children[0]->opts.fieldMask, 0x01);
 
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testPureNegative) {
@@ -682,7 +691,7 @@ TEST_F(QueryTest, testPureNegative) {
   static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
                                "text",   "weight", "2.0",  "bar",    "numeric"};
   QueryError err = {QueryErrorCode(0)};
-  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
   for (size_t i = 0; qs[i] != NULL; i++) {
     QASTCXX ast;
@@ -693,13 +702,13 @@ TEST_F(QueryTest, testPureNegative) {
     ASSERT_EQ(n->type, QN_NOT);
     ASSERT_TRUE(QueryNode_GetChild(n, 0) != NULL);
   }
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testGeoQuery_v1) {
   static const char *args[] = {"SCHEMA", "title", "text", "loc", "geo"};
   QueryError err = {QueryErrorCode(0)};
-  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
   const char *qt = "@title:hello world @loc:[31.52 32.1342 10.01 km]";
   QASTCXX ast;
@@ -712,18 +721,18 @@ TEST_F(QueryTest, testGeoQuery_v1) {
 
   QueryNode *gn = n->children[1];
   ASSERT_EQ(gn->type, QN_GEO);
-  ASSERT_STREQ(gn->gn.gf->field->name, "loc");
+  ASSERT_STREQ(HiddenString_GetUnsafe(gn->gn.gf->fieldSpec->fieldName, NULL), "loc");
   ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
   ASSERT_EQ(gn->gn.gf->radius, 10.01);
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testGeoQuery_v2) {
   static const char *args[] = {"SCHEMA", "title", "text", "loc", "geo"};
   QueryError err = {QueryErrorCode(0)};
-  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
   const char *qt = "@title:hello world @loc:[31.52 32.1342 10.01 km]";
   QASTCXX ast;
@@ -738,19 +747,19 @@ TEST_F(QueryTest, testGeoQuery_v2) {
 
   QueryNode *gn = n->children[2];
   ASSERT_EQ(gn->type, QN_GEO);
-  ASSERT_STREQ(gn->gn.gf->field->name, "loc");
+  ASSERT_STREQ(HiddenString_GetUnsafe(gn->gn.gf->fieldSpec->fieldName, NULL), "loc");
   ASSERT_EQ(gn->gn.gf->unitType, GEO_DISTANCE_KM);
   ASSERT_EQ(gn->gn.gf->lon, 31.52);
   ASSERT_EQ(gn->gn.gf->lat, 32.1342);
   ASSERT_EQ(gn->gn.gf->radius, 10.01);
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testFieldSpec_v1) {
   static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
                                "text",   "weight", "2.0",  "bar",    "numeric"};
   QueryError err = {QUERY_OK};
-  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
   const char *qt = "@title:hello world";
   QASTCXX ast(ctx);
@@ -798,14 +807,14 @@ TEST_F(QueryTest, testFieldSpec_v1) {
   ASSERT_EQ(n->nn.nf->max, 500.0);
   ASSERT_EQ(n->nn.nf->inclusiveMin, 1);
   ASSERT_EQ(n->nn.nf->inclusiveMax, 0);
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testFieldSpec_v2) {
   static const char *args[] = {"SCHEMA", "title",  "text", "weight", "0.1",    "body",
                                "text",   "weight", "2.0",  "bar",    "numeric"};
   QueryError err = {QUERY_OK};
-  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
   const char *qt = "@title:hello world";
   QASTCXX ast(ctx);
@@ -857,13 +866,13 @@ TEST_F(QueryTest, testFieldSpec_v2) {
   ASSERT_EQ(n->nn.nf->max, 500.0);
   ASSERT_EQ(n->nn.nf->inclusiveMin, 1);
   ASSERT_EQ(n->nn.nf->inclusiveMax, 0);
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testAttributes) {
   static const char *args[] = {"SCHEMA", "title", "text", "body", "text"};
   QueryError err = {QUERY_OK};
-  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
 
   const char *qt =
@@ -880,13 +889,13 @@ TEST_F(QueryTest, testAttributes) {
   ASSERT_EQ(QueryNode_NumChildren(n), 2);
   ASSERT_EQ(0.5, n->children[0]->opts.weight);
   ASSERT_EQ(0.2, n->children[1]->opts.weight);
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testTags) {
   static const char *args[] = {"SCHEMA", "title", "text", "tags", "tag", "separator", ";"};
   QueryError err = {QUERY_OK};
-  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
 
   const char *qt = "@tags:{hello world  |foo| שלום|  lorem\\ ipsum    }";
@@ -908,13 +917,13 @@ TEST_F(QueryTest, testTags) {
 
   ASSERT_EQ(QN_TOKEN, n->children[3]->type);
   ASSERT_STREQ("lorem\\ ipsum", n->children[3]->tn.str);
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 }
 
 TEST_F(QueryTest, testWildcard) {
   static const char *args[] = {"SCHEMA", "title", "text"};
   QueryError err = {QUERY_OK};
-  StrongRef ref = IndexSpec_Parse("idx", args, sizeof(args) / sizeof(const char *), &err);
+  StrongRef ref = IndexSpec_ParseC("idx", args, sizeof(args) / sizeof(const char *), &err);
   RedisSearchCtx ctx = SEARCH_CTX_STATIC(NULL, (IndexSpec *)StrongRef_Get(ref));
 
   const char *qt = "w'hello world'";
@@ -932,5 +941,5 @@ TEST_F(QueryTest, testWildcard) {
   ASSERT_EQ(5, n->verb.tok.len);
   ASSERT_STREQ("?*?*?", n->verb.tok.str);
 
-  IndexSpec_RemoveFromGlobals(ref);
+  IndexSpec_RemoveFromGlobals(ref, false);
 }

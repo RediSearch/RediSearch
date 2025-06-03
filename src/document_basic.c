@@ -1,14 +1,17 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "document.h"
 #include "stemmer.h"
 #include "rmalloc.h"
 #include "module.h"
 #include "rmutil/rm_assert.h"
+#include "obfuscation/obfuscation_api.h"
 
 #define MILLISECOND_IN_ONE_SECOND 1000
 #define NANOSECOND_IN_ONE_MILLISECOND 1000000
@@ -25,22 +28,18 @@ void Document_Init(Document *doc, RedisModuleString *docKey, double score, RSLan
 }
 
 // Nor related to AS attribute. Used by LLAPI.
-static DocumentField *addFieldCommon(Document *d, const char *fieldname, uint32_t typemask) {
+static DocumentField *addFieldCommon(Document *d, const char *fieldName, uint32_t typemask) {
   d->fields = rm_realloc(d->fields, (++d->numFields) * sizeof(*d->fields));
   DocumentField *f = d->fields + d->numFields - 1;
   f->indexAs = typemask;
-  if (d->flags & DOCUMENT_F_OWNSTRINGS) {
-    f->name = rm_strdup(fieldname);
-  } else {
-    f->name = fieldname;
-  }
-  f->path = NULL;
+  bool takeOwnership = d->flags & DOCUMENT_F_OWNSTRINGS;
+  f->docFieldName = NewHiddenString(fieldName, strlen(fieldName), takeOwnership);
   return f;
 }
 
-void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fieldval,
+void Document_AddField(Document *d, const char *fieldName, RedisModuleString *fieldval,
                        uint32_t typemask) {
-  DocumentField *f = addFieldCommon(d, fieldname, typemask);
+  DocumentField *f = addFieldCommon(d, fieldName, typemask);
   if (d->flags & DOCUMENT_F_OWNSTRINGS) {
     f->text = RedisModule_CreateStringFromString(RSDummyContext, fieldval);
   } else {
@@ -48,25 +47,25 @@ void Document_AddField(Document *d, const char *fieldname, RedisModuleString *fi
   }
 }
 
-void Document_AddFieldC(Document *d, const char *fieldname, const char *val, size_t vallen,
+void Document_AddFieldC(Document *d, const char *fieldName, const char *val, size_t vallen,
                         uint32_t typemask) {
   RS_LOG_ASSERT(d->flags & DOCUMENT_F_OWNSTRINGS, "Document should own strings");
-  DocumentField *f = addFieldCommon(d, fieldname, typemask);
+  DocumentField *f = addFieldCommon(d, fieldName, typemask);
   f->strval = rm_strndup(val, vallen);
   f->strlen = vallen;
   f->unionType = FLD_VAR_T_CSTR;
 }
 
-void Document_AddNumericField(Document *d, const char *fieldname, double val,
+void Document_AddNumericField(Document *d, const char *fieldName, double val,
                         uint32_t typemask) {
-  DocumentField *f = addFieldCommon(d, fieldname, typemask);
+  DocumentField *f = addFieldCommon(d, fieldName, typemask);
   f->numval = val;
   f->unionType = FLD_VAR_T_NUM;
 }
 
-void Document_AddGeoField(Document *d, const char *fieldname,
+void Document_AddGeoField(Document *d, const char *fieldName,
                           double lon, double lat, uint32_t typemask) {
-  DocumentField *f = addFieldCommon(d, fieldname, typemask);
+  DocumentField *f = addFieldCommon(d, fieldName, typemask);
   f->lat = lat;
   f->lon = lon;
   f->unionType = FLD_VAR_T_GEO;
@@ -85,10 +84,9 @@ void Document_MakeStringsOwner(Document *d) {
 
   for (size_t ii = 0; ii < d->numFields; ++ii) {
     DocumentField *f = d->fields + ii;
-    if (f->path != f->name) {
-      f->name = rm_strdup(f->name);
-    }
-    f->path = rm_strdup(f->path);
+    const HiddenString* oldName = f->docFieldName;
+    f->docFieldName = HiddenString_Duplicate(f->docFieldName);
+    HiddenString_Free(oldName, false);
     if (f->text && f->unionType == FLD_VAR_T_RMS) {
       RedisModuleString *oldText = f->text;
       f->text = RedisModule_CreateStringFromString(RSDummyContext, oldText);
@@ -134,18 +132,17 @@ static inline t_expirationTimePoint getDocExpirationTime(RedisModuleCtx* ctx, Re
 int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError *status) {
   // must happen before opening the key, in case the call will cause a lazy expiration
   IndexSpec *spec = sctx->spec;
-  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey,
-    REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
+  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   int rv = REDISMODULE_ERR;
   // This is possible if the key has expired for example in previous redis API calls in this notification flow.
   if (!k || RedisModule_KeyType(k) != REDISMODULE_KEYTYPE_HASH) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key %s does not exist or is not a hash", RedisModule_StringPtrLen(doc->docKey, NULL));
+    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Key does not exist or is not a hash", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
 
   size_t nitems = sctx->spec->numFields;
   SchemaRule *rule = spec->rule;
-  assert(rule);
+  RS_ASSERT(rule);
   RedisModuleString *payload_rms = NULL;
   Document_MakeStringsOwner(doc); // TODO: necessary?
   const char *keyname = (const char *)RedisModule_StringPtrLen(doc->docKey, NULL);
@@ -166,14 +163,14 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
   for (size_t ii = 0; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
     RedisModuleString *v = NULL;
-    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, field->path, &v, NULL);
+    RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS, HiddenString_GetUnsafe(field->fieldPath, NULL), &v, NULL);
     if (v == NULL) {
       continue;
     }
 
     if (hasExpireTimeOnFields) {
       mstime_t expireAt = REDISMODULE_NO_EXPIRE;
-      RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXPIRE_TIME, field->path, &expireAt, NULL);
+      RedisModule_HashGet(k, REDISMODULE_HASH_CFIELDS | REDISMODULE_HASH_EXPIRE_TIME, HiddenString_GetUnsafe(field->fieldPath, NULL), &expireAt, NULL);
       if (expireAt != REDISMODULE_NO_EXPIRE) {
         FieldExpiration fieldExpiration = { .index = ii, .point = timespecFromMilliseconds(expireAt)};
         array_ensure_append_1(doc->fieldExpirations, fieldExpiration);
@@ -181,9 +178,7 @@ int Document_LoadSchemaFieldHash(Document *doc, RedisSearchCtx *sctx, QueryError
     }
 
     size_t oix = doc->numFields++;
-    doc->fields[oix].path = rm_strdup(field->path);
-    doc->fields[oix].name = (field->name == field->path) ? doc->fields[oix].path
-                                                         : rm_strdup(field->name);
+    doc->fields[oix].docFieldName = HiddenString_Duplicate(field->fieldName);
     // on crdt the return value might be the underline value, we must copy it!!!
     doc->fields[oix].text = RedisModule_CreateStringFromString(sctx->redisCtx, v);
     doc->fields[oix].unionType = FLD_VAR_T_RMS;
@@ -214,9 +209,9 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   size_t nitems = sctx->spec->numFields;
   JSONResultsIterator jsonIter = NULL;
 
-  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, REDISMODULE_READ | REDISMODULE_OPEN_KEY_NOEFFECTS);
+  RedisModuleKey *k = RedisModule_OpenKey(sctx->redisCtx, doc->docKey, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   if (!k) {
-    QueryError_SetErrorFmt(status, QUERY_EINVAL, "Key %s does not exist", RedisModule_StringPtrLen(doc->docKey, NULL));
+    QueryError_SetWithUserDataFmt(status, QUERY_EINVAL, "Key does not exist", ": %s", RedisModule_StringPtrLen(doc->docKey, NULL));
     goto done;
   }
 
@@ -226,7 +221,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
 
   RedisModule_CloseKey(k);
 
-  RedisJSON jsonRoot = japi->openKey(ctx, doc->docKey);
+  RedisJSON jsonRoot = japi->openKeyWithFlags(ctx, doc->docKey, DOCUMENT_OPEN_KEY_INDEXING_FLAGS);
   if (!jsonRoot) {
     goto done;
   }
@@ -242,7 +237,7 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
   for (; ii < spec->numFields; ++ii) {
     FieldSpec *field = &spec->fields[ii];
 
-    jsonIter = japi->get(jsonRoot, field->path);
+    jsonIter = japi->get(jsonRoot, HiddenString_GetUnsafe(field->fieldPath, NULL));
     // if field does not exist or is empty (can happen after JSON.DEL)
     if (!jsonIter) {
         continue;
@@ -256,15 +251,15 @@ int Document_LoadSchemaFieldJson(Document *doc, RedisSearchCtx *sctx, QueryError
     }
 
     size_t oix = doc->numFields++;
-    doc->fields[oix].path = rm_strdup(field->path);
-    doc->fields[oix].name = (field->name == field->path) ? doc->fields[oix].path
-                                                         : rm_strdup(field->name);
+    doc->fields[oix].docFieldName = HiddenString_Duplicate(field->fieldName);
 
     // on crdt the return value might be the underline value, we must copy it!!!
     // TODO: change `fs->text` to support hash or json not RedisModuleString
     if (JSON_LoadDocumentField(jsonIter, len, field, &doc->fields[oix], ctx, status) != REDISMODULE_OK) {
-      FieldSpec_AddError(field, QueryError_GetError(status), doc->docKey);
-      RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", field->path);
+      FieldSpec_AddError(field, QueryError_GetDisplayableError(status, true), QueryError_GetDisplayableError(status, false), doc->docKey);
+      char* path = FieldSpec_FormatPath(field, RSGlobalConfig.hideUserDataFromLog);
+      RedisModule_Log(ctx, "verbose", "Failed to load value from field %s", path);
+      rm_free(path);
       goto done;
     }
     japi->freeIter(jsonIter);
@@ -307,7 +302,7 @@ int Document_LoadAllFields(Document *doc, RedisModuleCtx *ctx) {
     v = RedisModule_CallReplyArrayElement(rep, i + 1);
     size_t nlen = 0;
     const char *name = RedisModule_CallReplyStringPtr(k, &nlen);
-    doc->fields[n].name = rm_strndup(name, nlen);
+    doc->fields[n].docFieldName = NewHiddenString(name, nlen, true);
     doc->fields[n].text = RedisModule_CreateStringFromCallReply(v);
     doc->fields[n].unionType = FLD_VAR_T_RMS;
   }
@@ -388,54 +383,53 @@ void Document_LoadPairwiseArgs(Document *d, RedisModuleString **args, size_t nar
   for (size_t ii = 0; ii < nargs; ii += 2, oix++) {
     DocumentField *dst = d->fields + oix;
     const char *name = RedisModule_StringPtrLen(args[ii], NULL);
-    dst->name = name;
+    dst->docFieldName = NewHiddenString(name, strlen(name), false);
     dst->text = args[ii + 1];
     dst->unionType = FLD_VAR_T_RMS;
   }
 }
 
-void Document_Clear(Document *d) {
-  if (d->flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
-    for (size_t ii = 0; ii < d->numFields; ++ii) {
-      DocumentField *field = &d->fields[ii];
-      if (d->flags & DOCUMENT_F_OWNSTRINGS) {
-        rm_free((void *)field->name);
-        if (field->path && (field->path != field->name)) {
-          rm_free((void *)field->path);
+void ClearOwnedField(DocumentField *field) {
+  switch (field->unionType) {
+    case FLD_VAR_T_RMS:
+      RedisModule_FreeString(RSDummyContext, field->text);
+    break;
+    case FLD_VAR_T_CSTR:
+      rm_free(field->strval);
+    break;
+    case FLD_VAR_T_ARRAY:
+      // TODO: GEOMETRY Handle multi-value geometry fields
+        if (field->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG | INDEXFLD_T_GEO)) {
+          for (int i = 0; i < field->arrayLen; ++i) {
+            rm_free(field->multiVal[i]);
+          }
+          rm_free(field->multiVal);
+          field->arrayLen = 0;
+        } else if (field->indexAs & INDEXFLD_T_NUMERIC) {
+          array_free(field->arrNumval);
         }
-      }
-      switch (field->unionType) {
-        case FLD_VAR_T_RMS:
-          RedisModule_FreeString(RSDummyContext, field->text);
-          break;
-        case FLD_VAR_T_CSTR:
-          rm_free(field->strval);
-          break;
-        case FLD_VAR_T_ARRAY:
-        // TODO: GEOMETRY Handle multi-value geometry fields
-          if (field->indexAs & (INDEXFLD_T_FULLTEXT | INDEXFLD_T_TAG | INDEXFLD_T_GEO)) {
-            for (int i = 0; i < field->arrayLen; ++i) {
-              rm_free(field->multiVal[i]);
-            }
-            rm_free(field->multiVal);
-            field->arrayLen = 0;
-          } else if (field->indexAs & INDEXFLD_T_NUMERIC) {
-            array_free(field->arrNumval);
-          }
-          if (field->multisv) {
-            RSValue_Free(field->multisv);
-          }
-          break;
-        case FLD_VAR_T_BLOB_ARRAY:
-          rm_free(field->blobArr);
-          field->blobArrLen = 0;
-          break;
-        case FLD_VAR_T_GEO:
-        case FLD_VAR_T_NUM:
-        case FLD_VAR_T_GEOMETRY:
-        case FLD_VAR_T_NULL:
-          break;
-      }
+    if (field->multisv) {
+      RSValue_Free(field->multisv);
+    }
+    break;
+    case FLD_VAR_T_BLOB_ARRAY:
+      rm_free(field->blobArr);
+    field->blobArrLen = 0;
+    break;
+    case FLD_VAR_T_GEO:
+    case FLD_VAR_T_NUM:
+    case FLD_VAR_T_GEOMETRY:
+    case FLD_VAR_T_NULL:
+      break;
+  }
+}
+
+void Document_Clear(Document *d) {
+  for (size_t ii = 0; ii < d->numFields; ++ii) {
+    DocumentField *field = &d->fields[ii];
+    HiddenString_Free(field->docFieldName, d->flags & DOCUMENT_F_OWNSTRINGS);
+    if (d->flags & (DOCUMENT_F_OWNSTRINGS | DOCUMENT_F_OWNREFS)) {
+      ClearOwnedField(field);
     }
   }
   rm_free(d->fields);

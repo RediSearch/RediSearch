@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 
 #include "src/redisearch_api.h"
 #include "gtest/gtest.h"
@@ -18,6 +27,9 @@
 #define GEO_FIELD_NAME "geo"
 #define TAG_FIELD_NAME1 "tag1"
 #define TAG_FIELD_NAME2 "tag2"
+#define INITIAL_DOC_TABLE_SIZE 1000
+// 2 `uintptr_t` fields
+#define EMPTY_TRIE_SIZE 16
 
 class LLApiTest : public ::testing::Test {
   virtual void SetUp() {
@@ -517,6 +529,19 @@ static void PopulateIndex(RSIndex* index) {
   }
 }
 
+static void PopulateIndexMultibyte(RSIndex* index) {
+  char buf[] = {"GRÜẞEN_"};
+  size_t nbuf = strlen(buf);
+  for (char c = 'a'; c <= 'z'; c++) {
+    buf[nbuf - 1] = c;
+    char did[64];
+    sprintf(did, "doc%c", c);
+    RSDoc* d = RediSearch_CreateDocument(did, strlen(did), 0, NULL);
+    RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, buf, RSFLDTYPE_DEFAULT);
+    RediSearch_SpecAddDocument(index, d);
+  }
+}
+
 static void ValidateResults(RSIndex* index, RSQNode* qn, char start, char end, int numResults) {
   RSResultsIterator* iter = RediSearch_GetResultsIterator(qn, index);
   ASSERT_FALSE(NULL == iter);
@@ -576,6 +601,35 @@ TEST_F(LLApiTest, testRangesOnTags) {
   // test without include max and min
   tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
   qn = RediSearch_CreateTagLexRangeNode(index, FIELD_NAME_1, "Markn", "Markx", 0, 0);
+  RediSearch_QueryNodeAddChild(tagQn, qn);
+
+  ValidateResults(index, tagQn, 'o', 'w', 9);
+
+  tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
+  qn = RediSearch_CreateTagLexRangeNode(index, FIELD_NAME_1, NULL, NULL, 1, 1);
+  RediSearch_QueryNodeAddChild(tagQn, qn);
+
+  ValidateResults(index, tagQn, 'a', 'z', 26);
+
+  RediSearch_DropIndex(index);
+}
+
+TEST_F(LLApiTest, testRangesOnTagsMultibyte) {
+  RSIndex* index = RediSearch_CreateIndex("index", NULL);
+  RediSearch_CreateTagField(index, FIELD_NAME_1);
+
+  PopulateIndexMultibyte(index);
+
+  // test with include max and min
+  RSQNode* tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
+  RSQNode* qn = RediSearch_CreateTagLexRangeNode(index, FIELD_NAME_1, "GRÜẞENn", "GRÜẞENx", 1, 1);
+  RediSearch_QueryNodeAddChild(tagQn, qn);
+
+  ValidateResults(index, tagQn, 'n', 'x', 11);
+
+  // test without include max and min
+  tagQn = RediSearch_CreateTagNode(index, FIELD_NAME_1);
+  qn = RediSearch_CreateTagLexRangeNode(index, FIELD_NAME_1, "GRÜẞENn", "GRÜẞENx", 0, 0);
   RediSearch_QueryNodeAddChild(tagQn, qn);
 
   ValidateResults(index, tagQn, 'o', 'w', 9);
@@ -977,7 +1031,7 @@ TEST_F(LLApiTest, testScorer) {
   Document* d1 = RediSearch_CreateDocumentSimple("doc1");
   Document* d2 = RediSearch_CreateDocumentSimple("doc2");
 
-  // adding document with a different TFIDF score
+  // adding document with a different score
   RediSearch_DocumentAddFieldCString(d1, FIELD_NAME_1, "hello world hello world", RSFLDTYPE_DEFAULT);
   ASSERT_EQ(RediSearch_SpecAddDocument(index, d1), REDISMODULE_OK);
   RediSearch_DocumentAddFieldCString(d2, FIELD_NAME_1, "hello world hello", RSFLDTYPE_DEFAULT);
@@ -986,9 +1040,9 @@ TEST_F(LLApiTest, testScorer) {
   const char *s = "hello world";
   RSResultsIterator *it = RediSearch_IterateQuery(index, s, strlen(s), NULL);
   RediSearch_ResultsIteratorNext(it, index, NULL);
-  ASSERT_EQ(RediSearch_ResultsIteratorGetScore(it), 2);
+  EXPECT_NEAR(RediSearch_ResultsIteratorGetScore(it), 0.4820176, 1e-6);
   RediSearch_ResultsIteratorNext(it, index, NULL);
-  ASSERT_EQ(RediSearch_ResultsIteratorGetScore(it), 1.5);
+  EXPECT_NEAR(RediSearch_ResultsIteratorGetScore(it), 0.4548243, 1e-6);
 
   RediSearch_ResultsIteratorFree(it);
   RediSearch_DropIndex(index);
@@ -1200,35 +1254,37 @@ TEST_F(LLApiTest, testInfo) {
 
   // fields stats
   ASSERT_EQ(info.numFields, 5);
-  ASSERT_STREQ(info.fields[0].path, "ft1");
+  ASSERT_STREQ(RediSearch_HiddenStringGet(info.fields[0].path), "ft1");
   ASSERT_EQ(info.fields[0].types, RSFLDTYPE_FULLTEXT);
   ASSERT_EQ(info.fields[0].options, RSFLDOPT_NONE);
   ASSERT_EQ(info.fields[0].textWeight, 2.3);
 
-  ASSERT_STREQ(info.fields[1].path, "ft2");
+  ASSERT_STREQ(RediSearch_HiddenStringGet(info.fields[1].path), "ft2");
   ASSERT_TRUE(info.fields[1].options & RSFLDOPT_TXTNOSTEM);
   ASSERT_EQ(info.fields[1].types, RSFLDTYPE_FULLTEXT);
 
-  ASSERT_STREQ(info.fields[2].path, "n1");
+  ASSERT_STREQ(RediSearch_HiddenStringGet(info.fields[2].path), "n1");
   ASSERT_EQ(info.fields[2].types, RSFLDTYPE_NUMERIC);
   ASSERT_TRUE(info.fields[2].options & RSFLDOPT_SORTABLE);
   ASSERT_TRUE(info.fields[2].options & RSFLDOPT_NOINDEX);
 
-  ASSERT_STREQ(info.fields[3].path, "tg1");
+  ASSERT_STREQ(RediSearch_HiddenStringGet(info.fields[3].path), "tg1");
   ASSERT_EQ(info.fields[3].types, RSFLDTYPE_TAG);
   ASSERT_EQ(info.fields[3].tagSeperator, '.');
   ASSERT_EQ(info.fields[3].tagCaseSensitive, 1);
 
-  ASSERT_STREQ(info.fields[4].path, "dynamic1");
+  ASSERT_STREQ(RediSearch_HiddenStringGet(info.fields[4].path), "dynamic1");
   ASSERT_EQ(info.fields[4].types, (RSFLDTYPE_FULLTEXT | RSFLDTYPE_NUMERIC |
                                     RSFLDTYPE_TAG | RSFLDTYPE_GEO));
+
+  size_t doc_table_size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain));
 
   // common stats
   ASSERT_EQ(info.numDocuments, 2);
   ASSERT_EQ(info.maxDocId, 2);
-  ASSERT_EQ(info.docTableSize, 140);
+  ASSERT_EQ(info.docTableSize, 140 + doc_table_size);
   ASSERT_EQ(info.sortablesSize, 48);
-  ASSERT_EQ(info.docTrieSize, 87);
+  ASSERT_EQ(info.docTrieSize, 112);
   ASSERT_EQ(info.numTerms, 5);
   ASSERT_EQ(info.numRecords, 7);
   ASSERT_EQ(info.invertedSize, 682);
@@ -1308,7 +1364,8 @@ TEST_F(LLApiTest, testInfoSize) {
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
   RediSearch_CreateTextField(index, FIELD_NAME_1);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 0);
+  size_t doc_table_size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain)) + EMPTY_TRIE_SIZE;
+  EXPECT_EQ(RediSearch_MemUsage(index), doc_table_size);
 
   // adding document to the index
   RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
@@ -1319,25 +1376,25 @@ TEST_F(LLApiTest, testInfoSize) {
   // The numeric range tree overhead was added to RediSearch_MemUsage when this test was already exist.
   // I'm not sure how the hardcoded memory value was calculated, so I preferred to better define the
   // additional memory so from now on it will be easier to track the expected memory.
-  size_t additional_overhead = sizeof(NumericRangeTree);
+  size_t additional_overhead = sizeof(NumericRangeTree) + doc_table_size;
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 335 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 330 + additional_overhead);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 604 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 613 + additional_overhead);
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 476 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 471 + additional_overhead);
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
-  EXPECT_EQ(RediSearch_MemUsage(index), 332 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 327 + additional_overhead);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);
@@ -1367,7 +1424,8 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   RediSearch_CreateNumericField(index, NUMERIC_FIELD_NAME);
   RediSearch_CreateTextField(index, FIELD_NAME_1);
 
-  ASSERT_EQ(RediSearch_MemUsage(index), 0);
+  size_t doc_table_size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain)) + EMPTY_TRIE_SIZE;
+  ASSERT_EQ(RediSearch_MemUsage(index), doc_table_size);
 
   // adding document to the index
   RSDoc* d = RediSearch_CreateDocument(DOCID1, strlen(DOCID1), 1.0, NULL);
@@ -1378,25 +1436,25 @@ TEST_F(LLApiTest, testInfoSizeWithExistingIndex) {
   // The numeric range tree overhead was added to RediSearch_MemUsage when this test was already exist.
   // I'm not sure how the hardcoded memory value was calculated, so I preferred to better define the
   // additional memory so from now on it will be easier to track the expected memory.
-  size_t additional_overhead = sizeof(NumericRangeTree);
+  size_t additional_overhead = sizeof(NumericRangeTree) + doc_table_size;
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 421 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 416 + additional_overhead);
 
   d = RediSearch_CreateDocument(DOCID2, strlen(DOCID2), 2.0, NULL);
   RediSearch_DocumentAddFieldCString(d, FIELD_NAME_1, "TXT", RSFLDTYPE_DEFAULT);
   RediSearch_DocumentAddFieldNumber(d, NUMERIC_FIELD_NAME, 1, RSFLDTYPE_DEFAULT);
   RediSearch_SpecAddDocument(index, d);
 
-  EXPECT_EQ(RediSearch_MemUsage(index), 690 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 699 + additional_overhead);
 
   // test MemUsage after deleting docs
   int ret = RediSearch_DropDocument(index, DOCID2, strlen(DOCID2));
   ASSERT_EQ(REDISMODULE_OK, ret);
-  EXPECT_EQ(RediSearch_MemUsage(index), 562 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 557 + additional_overhead);
   RSGlobalConfig.gcConfigParams.forkGc.forkGcCleanThreshold = 0;
   gc = get_spec(index)->gc;
   gc->callbacks.periodicCallback(gc->gcCtx);
-  EXPECT_EQ(RediSearch_MemUsage(index), 413 + additional_overhead);
+  EXPECT_EQ(RediSearch_MemUsage(index), 408 + additional_overhead);
 
   ret = RediSearch_DropDocument(index, DOCID1, strlen(DOCID1));
   ASSERT_EQ(REDISMODULE_OK, ret);

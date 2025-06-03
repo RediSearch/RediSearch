@@ -32,7 +32,7 @@ def test_search():
         {'id': 'doc2', 'extra_attributes': {'f1': '3', 'f2': '2', 'f3': '4'}, 'values': []},
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]}
-    env.expect('FT.search', 'idx1', "*").equal(exp)
+    env.expect('FT.search', 'idx1', "*", 'SCORER', 'TFIDF').equal(exp)
 
     # test withscores
     exp = {
@@ -69,7 +69,7 @@ def test_search():
       del exp['results'][0]['sortkey']
       del exp['results'][1]['sortkey']
 
-    env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "EXPLAINSCORE", "WITHPAYLOADS",
+    env.expect('FT.search', 'idx1', "*", "VERBATIM", 'SCORER', 'TFIDF', "WITHSCORES", "EXPLAINSCORE", "WITHPAYLOADS",
                "WITHSORTKEYS", "RETURN", 2, 'f1', 'f2', "FORMAT", "STRING").equal(exp)
 
     # test with sortby
@@ -92,7 +92,7 @@ def test_search():
         }
       ]
     }
-    env.expect('FT.search', 'idx1', "*", "VERBATIM", "WITHSCORES", "WITHPAYLOADS", "WITHSORTKEYS",
+    env.expect('FT.search', 'idx1', "*", "VERBATIM", 'SCORER', 'TFIDF', "WITHSCORES", "WITHPAYLOADS", "WITHSORTKEYS",
                "RETURN", 2, 'f1', 'f2', "SORTBY", 'f2', "DESC", "FORMAT", "STRING").equal(exp)
 
     # test with limit 0 0
@@ -111,7 +111,7 @@ def test_search():
         {'id': 'doc1', 'extra_attributes': {'f1': '3', 'f2': '3'}, 'values': []}
       ]
     }
-    env.expect('FT.search', 'idx1', "*").equal(exp)
+    env.expect('FT.search', 'idx1', "*", 'SCORER', 'TFIDF').equal(exp)
 
 @skip(redis_less_than="7.0.0")
 def test_search_timeout():
@@ -182,7 +182,7 @@ def test_profile(env):
         'Coordinator': {}
       }
     }
-    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING").equal(exp)
+    env.expect('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', "FORMAT", "STRING", 'SCORER', 'TFIDF').equal(exp)
 
 @skip(cluster=False, redis_less_than="7.0.0")
 def test_coord_profile():
@@ -219,15 +219,15 @@ def test_coord_profile():
         'Coordinator': {'Total Coordinator time': ANY, 'Post Processing time': ANY},
       },
     }
-    res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', 'FORMAT', 'STRING')
-    res['Results']['results'].sort(key=lambda x: "" if x['extra_attributes'].get('f1') == None else x['extra_attributes']['f1'])
+    res = env.cmd('FT.PROFILE', 'idx1', 'SEARCH', 'QUERY', '*', 'FORMAT', 'STRING', 'SCORER', 'TFIDF')
+    res['Results']['results'].sort(key=lambda x: x['extra_attributes'].get('f1', ''))
     env.assertEqual(res, exp)
 
     exp = {
       'Results': {
         'attributes': [],
         'warning': [],
-        'total_results': 1,
+        'total_results': 2,
         'format': 'STRING',
         'results': [
           {'extra_attributes': {}, 'values': []},
@@ -456,7 +456,8 @@ def test_info():
       'Index Errors': {
           'indexing failures': 0,
           'last indexing error': 'N/A',
-          'last indexing error key': 'N/A'
+          'last indexing error key': 'N/A',
+          'background indexing status': 'OK',
           }
       }
     res = env.cmd('FT.info', 'idx1')
@@ -480,8 +481,8 @@ def test_config():
     res = env.cmd(config_cmd(), "SET", "TIMEOUT", 501)
 
     res = env.cmd(config_cmd(), "GET", "*")
-    env.assertEqual(res['TIMEOUT'], '0') # FIXME: should be '501'. This is a bug in the RESP3 implementation because we have 2 configurations with the same name
-
+    env.assertEqual(res['TIMEOUT'], '501') 
+    
     res = env.cmd(config_cmd(), "GET", "TIMEOUT")
     env.assertEqual(res, {'TIMEOUT': '501'})
 
@@ -630,7 +631,7 @@ def test_profile_crash_mod5323():
         r.execute_command("HSET", "4", "t", "helowa")
     waitForIndex(env, 'idx')
 
-    res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT")
+    res = env.cmd("FT.PROFILE", "idx", "SEARCH", "LIMITED", "QUERY", "%hell% hel*", "NOCONTENT") # codespell:ignore hel
     exp = {
       'Results': {
         'warning': [],
@@ -960,11 +961,11 @@ def testExpandJson():
   env.assertEqual(res, exp_string_default_dialect)
 
   # Default FORMAT is STRING
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'RETURN', *load_args, 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.SEARCH', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'STRING', 'RETURN', *load_args, 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
@@ -979,7 +980,7 @@ def testExpandJson():
   del exp_string['results'][1]['id']
 
   # Default FORMAT is STRING
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC', 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
@@ -991,7 +992,7 @@ def testExpandJson():
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'EXPAND', 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC')
   env.assertEqual(res, exp_expand)
 
-  # Add DIALECT 3 to get multi values as with EXAPND
+  # Add DIALECT 3 to get multi values as with EXPAND
   res = env.cmd('FT.AGGREGATE', 'idx', '*', 'LIMIT', 0, 2, 'FORMAT', 'STRING', 'LOAD', *load_args, 'SORTBY', 2, '@str', 'DESC', 'DIALECT', 3)
   env.assertEqual(res, exp_string)
 
@@ -1271,7 +1272,20 @@ def test_ft_info():
     env = Env(protocol=3)
     env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'text')
     with env.getClusterConnectionIfNeeded() as r:
+      nodes = 1
+      if env.isCluster():
+         res = r.execute_command("cluster info")
+         nodes = float(res['cluster_known_nodes'])
+
+      # Initial size = sizeof(DocTable) + (INITIAL_DOC_TABLE_SIZE * sizeof(DMDChain *))
+      #              = 72 + (1000 * 16) = 16072 bytes
+      initial_doc_table_size_mb = 16072 / (1024 * 1024)
+      # Size of an empty TrieMap
+      key_table_sz_mb = 16 / (1024 * 1024)
+      total_index_memory_sz_mb = initial_doc_table_size_mb + key_table_sz_mb
+
       res = order_dict(r.execute_command('ft.info', 'idx'))
+
       exp = {
         'attributes': [
           { 'WEIGHT': 1.0,
@@ -1306,7 +1320,7 @@ def test_ft_info():
           'dialect_3': 0,
           'dialect_4': 0
         },
-        'doc_table_size_mb': 0.0,
+        'doc_table_size_mb': initial_doc_table_size_mb,
         'gc_stats': {
           'average_cycle_time_ms': nan,
           'bytes_collected': 0.0,
@@ -1327,10 +1341,10 @@ def test_ft_info():
         'index_options': [],
         'indexing': 0.0,
         'inverted_sz_mb': 0.0,
-        'key_table_size_mb': 0.0,
+        'key_table_size_mb': key_table_sz_mb,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
-        'total_index_memory_sz_mb': 0.0,
+        'total_index_memory_sz_mb': total_index_memory_sz_mb,
         'max_doc_id': 0.0,
         'num_docs': 0.0,
         'num_records': 0.0,
@@ -1349,7 +1363,8 @@ def test_ft_info():
         'Index Errors': {
               'indexing failures': 0,
               'last indexing error': 'N/A',
-              'last indexing error key': 'N/A'
+              'last indexing error key': 'N/A',
+              'background indexing status': 'OK',
         }
       }
 
@@ -1385,7 +1400,7 @@ def test_ft_info():
                           'dialect_2': 0,
                           'dialect_3': 0,
                           'dialect_4': 0},
-        'doc_table_size_mb': 0.0,
+        'doc_table_size_mb': nodes * initial_doc_table_size_mb,
         'gc_stats': {
               'average_cycle_time_ms': 0.0,
               'bytes_collected': 0.0,
@@ -1406,10 +1421,10 @@ def test_ft_info():
         'index_options': [],
         'indexing': 0,
         'inverted_sz_mb': 0.0,
-        'key_table_size_mb': 0.0,
+        'key_table_size_mb': nodes * key_table_sz_mb,
         'tag_overhead_sz_mb': 0.0,
         'text_overhead_sz_mb': 0.0,
-        'total_index_memory_sz_mb': 0.0,
+        'total_index_memory_sz_mb': nodes * total_index_memory_sz_mb,
         'max_doc_id': 0,
         'num_docs': 0,
         'num_records': 0,
@@ -1427,7 +1442,8 @@ def test_ft_info():
         'Index Errors': {
               'indexing failures': 0,
               'last indexing error': 'N/A',
-              'last indexing error key': 'N/A'
+              'last indexing error key': 'N/A',
+              'background indexing status': 'OK',
         }
       }
 
@@ -1501,24 +1517,26 @@ def test_error_with_partial_results():
       conn.execute_command('HSET', f'doc{i}', 't', str(i))
 
   # `FT.AGGREGATE`
-  res = conn.execute_command(
-    'FT.AGGREGATE', 'idx', '*', 'TIMEOUT', '1'
+  res = runDebugQueryCommandTimeoutAfterN(env,
+    ['FT.AGGREGATE', 'idx', '*'],
+    timeout_res_count=3,
   )
-
   # Assert that we got results
   env.assertGreater(len(res['results']), 0)
 
   # Assert that we got a warning
-  env.assertEqual(len(res['warning']), 1)
-  env.assertEqual(res['warning'][0], 'Timeout limit was reached')
+  VerifyTimeoutWarningResp3(env, res)
 
   # `FT.SEARCH`
-  res = conn.execute_command(
-    'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
+  res = runDebugQueryCommandTimeoutAfterN(env,
+    ['FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs)],
+    timeout_res_count=3,
   )
 
-  env.assertEqual(len(res['warning']), 1)
-  env.assertEqual(res['warning'][0], 'Timeout limit was reached')
+  # Assert that we got results
+  env.assertGreater(len(res['results']), 0)
+  # Assert that we got a warning
+  VerifyTimeoutWarningResp3(env, res)
 
 def test_warning_maxprefixexpansions():
   env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
@@ -1545,7 +1563,7 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}])
   env.assertEqual(res['warning'], [])
   # TAG
-  res = env.cmd('FT.SEARCH', 'idx', '@t2:{fo*}', 'nocontent')
+  res = env.cmd('FT.SEARCH', 'idx', '@t2:{fo*}', 'nocontent') # codespell:ignore
   env.assertEqual(res['total_results'], 1)
   env.assertEqual(res['results'], [{'id': 'doc1{3}', 'values': []}])
   env.assertEqual(res['warning'], [])
@@ -1560,7 +1578,7 @@ def test_warning_maxprefixexpansions():
   env.assertEqual(res['results'], [{'extra_attributes': {'t': 'foo', 't2': 'foo'}, 'values': []}])
   env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
   # TAG
-  res = env.cmd('FT.AGGREGATE', 'idx', '@t2:{fo*}', 'load', '*')
+  res = env.cmd('FT.AGGREGATE', 'idx', '@t2:{fo*}', 'load', '*') # codespell:ignore fo
   env.assertEqual(res['total_results'], 1)
   env.assertEqual(res['results'], [{'extra_attributes': {'t': 'foo', 't2': 'foo'}, 'values': []}])
   env.assertEqual(res['warning'], ['Max prefix expansions limit was reached'])
@@ -1598,3 +1616,33 @@ def test_warning_maxprefixexpansions():
     if shard['Warning']== 'Max prefix expansions limit was reached':
          n_warnings += 1
   env.assertEqual(n_warnings, 1)
+
+# TODO: `total_results` is currently not  on cluster - to be fixed in MOD-9094
+@skip(cluster=True)
+def test_totalResults_aggregate():
+  """Tests that the `total_results` field on `FT.AGGREGATE` is correct when
+  using the RESP3 protocol"""
+
+  env = Env(protocol=3, moduleArgs='DEFAULT_DIALECT 2')
+  conn = env.getClusterConnectionIfNeeded()
+
+  # Create an index
+  env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+
+  # Populate the index
+  n_docs = 15 * env.shardsCount
+  for i in range(n_docs):
+      conn.execute_command('HSET', f'doc{i}', 't', str(i))
+
+  # Test that the `total_results` field is correct
+  res = env.cmd('FT.AGGREGATE', 'idx', '*')
+  env.assertEqual(res['total_results'], n_docs)
+
+  # Test the `total_results` field for a cursor
+  res, cid = env.cmd('FT.AGGREGATE', 'idx', '*', 'WITHCURSOR', 'COUNT', '5')
+  while cid:
+    env.assertEqual(res['total_results'], 5)
+    res, cid = env.cmd('FT.CURSOR', 'READ', 'idx', cid)
+
+  # Cursor is depleted.
+  env.assertEqual(res['total_results'], 0)

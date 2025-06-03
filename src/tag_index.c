@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "tag_index.h"
 #include "suffix.h"
 #include "rmalloc.h"
@@ -11,6 +13,7 @@
 #include "inverted_index.h"
 #include "redis_index.h"
 #include "rmutil/util.h"
+#include "triemap.h"
 #include "util/misc.h"
 #include "util/arr.h"
 #include "rmutil/rm_assert.h"
@@ -93,7 +96,10 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
   if (sep == TAG_FIELD_DEFAULT_JSON_SEP) {
     char *tok = rm_strdup(str);
     if (!(flags & TagField_CaseSensitive)) { // check case sensitive
-      tok = strtolower(tok);
+      size_t newLen = unicode_tolower(tok, strlen(tok));
+      if (newLen) {
+        tok[newLen] = '\0';
+      }
     }
     array_append(*resArray, tok);
     return REDISMODULE_OK;
@@ -110,9 +116,12 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
     tok = TagIndex_SepString(sep, &p, &toklen, indexEmpty);
 
     if (tok) {
-      // lowercase the string (TODO: non latin lowercase)
+      // normalize the string
       if (!(flags & TagField_CaseSensitive)) { // check case sensitive
-        tok = strtolower(tok);
+        size_t newLen = unicode_tolower(tok, strlen(tok));
+        if (newLen) {
+          toklen = newLen;
+        }
       }
       tok = rm_strndup(tok, MIN(toklen, MAX_TAG_LEN));
       array_append(*resArray, tok);
@@ -158,7 +167,8 @@ int TagIndex_Preprocess(const FieldSpec *fs, const DocumentField *data, FieldInd
   case FLD_VAR_T_NUM:
   case FLD_VAR_T_BLOB_ARRAY:
   case FLD_VAR_T_GEOMETRY:
-    RS_LOG_ASSERT(0, "nope")
+    RS_ABORT("nope")
+    break;
   }
   fdata->tags = arr;
   return ret;
@@ -280,13 +290,13 @@ IndexIterator *TagIndex_OpenReader(TagIndex *idx, const RedisSearchCtx *sctx, co
 }
 
 /* Format the key name for a tag index */
-RedisModuleString *TagIndex_FormatName(RedisSearchCtx *sctx, const char *field) {
-  return RedisModule_CreateStringPrintf(sctx->redisCtx, TAG_INDEX_KEY_FMT, sctx->spec->name, field);
+RedisModuleString *TagIndex_FormatName(const IndexSpec *spec, const HiddenString* field) {
+  return RedisModule_CreateStringPrintf(RSDummyContext, TAG_INDEX_KEY_FMT, HiddenString_GetUnsafe(spec->specName, NULL), HiddenString_GetUnsafe(field, NULL));
 }
 
 /* Open the tag index */
-TagIndex *TagIndex_Open(const RedisSearchCtx *ctx, RedisModuleString *key, bool create_if_missing) {
-  KeysDictValue *kdv = dictFetchValue(ctx->spec->keysDict, key);
+TagIndex *TagIndex_Open(const IndexSpec *spec, RedisModuleString *key, bool create_if_missing) {
+  KeysDictValue *kdv = dictFetchValue(spec->keysDict, key);
   if (kdv) {
     return kdv->p;
   }
@@ -296,13 +306,13 @@ TagIndex *TagIndex_Open(const RedisSearchCtx *ctx, RedisModuleString *key, bool 
   kdv = rm_calloc(1, sizeof(*kdv));
   kdv->p = NewTagIndex();
   kdv->dtor = TagIndex_Free;
-  dictAdd(ctx->spec->keysDict, key, kdv);
+  dictAdd(spec->keysDict, key, kdv);
   return kdv->p;
 }
 
 /* Serialize all the tags in the index to the redis client */
 void TagIndex_SerializeValues(TagIndex *idx, RedisModuleCtx *ctx) {
-  TrieMapIterator *it = TrieMap_Iterate(idx->values, "", 0);
+  TrieMapIterator *it = TrieMap_Iterate(idx->values);
 
   char *str;
   tm_len_t slen;
@@ -337,8 +347,8 @@ void *TagIndex_RdbLoad(RedisModuleIO *rdb, int encver) {
 }
 void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
   TagIndex *idx = value;
-  RedisModule_SaveUnsigned(rdb, idx->values->cardinality);
-  TrieMapIterator *it = TrieMap_Iterate(idx->values, "", 0);
+  RedisModule_SaveUnsigned(rdb, TrieMap_NUniqueKeys(idx->values));
+  TrieMapIterator *it = TrieMap_Iterate(idx->values);
 
   char *str;
   tm_len_t slen;
@@ -350,7 +360,7 @@ void TagIndex_RdbSave(RedisModuleIO *rdb, void *value) {
     InvertedIndex *inv = ptr;
     InvertedIndex_RdbSave(rdb, inv);
   }
-  RS_LOG_ASSERT(count == idx->values->cardinality, "not all inverted indexes save to rdb");
+  RS_LOG_ASSERT(count == TrieMap_NUniqueKeys(idx->values), "not all inverted indexes save to rdb");
   TrieMapIterator_Free(it);
 }
 
@@ -365,7 +375,7 @@ size_t TagIndex_MemUsage(const void *value) {
   const TagIndex *idx = value;
   size_t sz = sizeof(*idx);
 
-  TrieMapIterator *it = TrieMap_Iterate(idx->values, "", 0);
+  TrieMapIterator *it = TrieMap_Iterate(idx->values);
 
   char *str;
   tm_len_t slen;
@@ -394,12 +404,11 @@ int TagIndex_RegisterType(RedisModuleCtx *ctx) {
   return REDISMODULE_OK;
 }
 
-size_t TagIndex_GetOverhead(IndexSpec *sp, FieldSpec *fs) {
+size_t TagIndex_GetOverhead(const IndexSpec *sp, FieldSpec *fs) {
   size_t overhead = 0;
   TagIndex *idx = NULL;
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(RSDummyContext, sp);
-  RedisModuleString *keyName = TagIndex_FormatName(&sctx, fs->name);
-  idx = TagIndex_Open(&sctx, keyName, DONT_CREATE_INDEX);
+  RedisModuleString *keyName = TagIndex_FormatName(sp, fs->fieldName);
+  idx = TagIndex_Open(sp, keyName, DONT_CREATE_INDEX);
   RedisModule_FreeString(RSDummyContext, keyName);
   if (idx) {
     overhead = TrieMap_MemUsage(idx->values);     // Values' size are counted in stats.invertedSize

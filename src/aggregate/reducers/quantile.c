@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <aggregate/reducer.h>
 #include "util/quantile.h"
 
@@ -66,7 +68,7 @@ Reducer *RDCRQuantile_New(const ReducerOptions *options) {
     goto error;
   }
   if (!(r->pct >= 0 && r->pct <= 1.0)) {
-    QERR_MKBADARGS_FMT(options->status, "Percentage must be between 0.0 and 1.0");
+    QueryError_SetError(options->status, QUERY_EPARSEARGS, "Percentage must be between 0.0 and 1.0");
     goto error;
   }
 
@@ -77,7 +79,7 @@ Reducer *RDCRQuantile_New(const ReducerOptions *options) {
       goto error;
     }
     if (r->resolution < 1 || r->resolution > MAX_SAMPLE_SIZE) {
-      QERR_MKBADARGS_FMT(options->status, "Invalid resolution");
+      QueryError_SetError(options->status, QUERY_EPARSEARGS, "Invalid resolution");
       goto error;
     }
   }

@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "aggregate/aggregate.h"
 #include "result_processor.h"
 #include "query.h"
@@ -13,7 +15,6 @@
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
-
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -61,6 +62,15 @@ void SearchResult_Clear(SearchResult *r) {
 void SearchResult_Destroy(SearchResult *r) {
   SearchResult_Clear(r);
   RLookupRow_Cleanup(&r->rowdata);
+}
+
+// Overwrites the contents of 'dst' with those from 'src'.
+// Ensures proper cleanup of any existing data in 'dst'.
+static void SearchResult_Override(SearchResult *dst, SearchResult *src) {
+  if (!src) return;
+  RLookupRow oldrow = dst->rowdata;
+  *dst = *src;
+  RLookupRow_Cleanup(&oldrow);
 }
 
 
@@ -262,7 +272,7 @@ static void rpscoreFree(ResultProcessor *rp) {
   rm_free(self);
 }
 
-/* Create a new scorer by name. If the name is not found in the scorer registry, we use the defalt
+/* Create a new scorer by name. If the name is not found in the scorer registry, we use the default
  * scorer */
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
@@ -373,14 +383,13 @@ static int rpsortNext_Yield(ResultProcessor *rp, SearchResult *r) {
   SearchResult *cur_best = mmh_pop_max(self->pq);
 
   if (cur_best) {
-    RLookupRow oldrow = r->rowdata;
-    *r = *cur_best;
-
+    SearchResult_Override(r, cur_best);
     rm_free(cur_best);
-    RLookupRow_Cleanup(&oldrow);
     return RS_RESULT_OK;
   }
-  return self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+  int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+  self->timedOut = false;
+  return ret;
 }
 
 static void rpsortFree(ResultProcessor *rp) {
@@ -498,12 +507,6 @@ static int cmpByFields(const void *e1, const void *e2, const void *udata) {
     }
 
     int rc = RSValue_Cmp(v1, v2, qerr);
-    // printf("asc? %d Compare: \n", ascending);
-    // RSValue_Print(v1);
-    // printf(" <=> ");
-    // RSValue_Print(v2);
-    // printf("\n");
-
     if (rc != 0) return ascending ? -rc : rc;
   }
 
@@ -577,8 +580,10 @@ static int rppagerNext_Limit(ResultProcessor *base, SearchResult *r) {
     return RS_RESULT_EOF;
   }
 
-  self->remaining--;
-  return base->upstream->Next(base->upstream, r);
+  int ret = base->upstream->Next(base->upstream, r);
+  // Account for the result only if we got one.
+  if (ret == RS_RESULT_OK) self->remaining--;
+  return ret;
 }
 
 static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
@@ -587,7 +592,10 @@ static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
   // Currently a pager is never called more than offset+limit times.
   // We limit the entire pipeline to offset+limit (upstream and downstream).
   uint32_t limit = MIN(self->remaining, base->parent->resultLimit);
+  // Save the previous limit, so that it will seem untouched to the downstream
+  uint32_t downstreamLimit = base->parent->resultLimit;
   base->parent->resultLimit = self->offset + limit;
+
   // If we've not reached the offset
   while (self->offset) {
     int rc = base->upstream->Next(base->upstream, r);
@@ -598,6 +606,8 @@ static int rppagerNext_Skip(ResultProcessor *base, SearchResult *r) {
     self->offset--;
     SearchResult_Clear(r);
   }
+
+  base->parent->resultLimit = downstreamLimit;
 
   base->Next = rppagerNext_Limit; // switch to second phase
   return base->Next(base, r);
@@ -612,6 +622,7 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit) {
   RPPager *ret = rm_calloc(1, sizeof(*ret));
   ret->offset = offset;
   ret->remaining = limit;
+
   ret->base.type = RP_PAGER_LIMITER;
   ret->base.Next = rppagerNext_Skip;
   ret->base.Free = rppagerFree;
@@ -802,7 +813,7 @@ static SearchResult *GetNextResult(RPSafeLoader *self) {
 
 static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res);  // Forward declaration
 
-static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self) {
+static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self, SearchResult *res) {
   // Reset the next function, in case we are in cursor mode
   if (self->becomePlainLoader) {
     self->base_loader.base.Next = rploaderNext;
@@ -814,6 +825,13 @@ static int rpSafeLoader_ResetAndReturnLastCode(RPSafeLoader *self) {
 
   int rc = self->last_buffered_rc;
   self->last_buffered_rc = RS_RESULT_OK;
+  // We CANNOT return `RS_RESULT_OK` HERE, since it will be interpreted as a
+  // success while no population of the result was done.
+  // So if the last rc was `RS_RESULT_OK`, we need to continue activating the
+  // pipeline.
+  if (rc == RS_RESULT_OK) {
+    return self->base_loader.base.Next(&self->base_loader.base, res);
+  }
   return rc;
 }
 
@@ -838,16 +856,16 @@ static int rpSafeLoaderNext_Yield(ResultProcessor *rp, SearchResult *result_outp
 
   if (curr_res) {
     SetResult(curr_res, result_output);
+    return RS_RESULT_OK;
+  } else {
+    return rpSafeLoader_ResetAndReturnLastCode(self, result_output);
   }
-  if (!curr_res || rp->parent->resultLimit <= 1) {
-    return rpSafeLoader_ResetAndReturnLastCode(self);
-  }
-  return RS_RESULT_OK;
 }
 
 /*********************************************************************************/
 
 static int rpSafeLoaderNext_Accumulate(ResultProcessor *rp, SearchResult *res) {
+  RS_LOG_ASSERT(rp->parent->resultLimit > 0, "Result limit should be greater than 0");
   RPSafeLoader *self = (RPSafeLoader *)rp;
 
   // Keep fetching results from the upstream result processor until EOF is reached
@@ -943,7 +961,46 @@ static ResultProcessor *RPSafeLoader_New(RedisSearchCtx *sctx, RLookup *lk, cons
 
 /*********************************************************************************/
 
+typedef struct {
+  ResultProcessor base;
+  const RLookupKey *out;
+} RPKeyNameLoader;
+
+static inline void RPKeyNameLoader_Free(ResultProcessor *self) {
+  rm_free(self);
+}
+
+static int RPKeyNameLoader_Next(ResultProcessor *base, SearchResult *res) {
+  int rc = base->upstream->Next(base->upstream, res);
+  if (RS_RESULT_OK == rc) {
+    RPKeyNameLoader *nl = (RPKeyNameLoader *)base;
+    size_t keyLen = sdslen(res->dmd->keyPtr); // keyPtr is an sds
+    RLookup_WriteOwnKey(nl->out, &res->rowdata, RS_NewCopiedString(res->dmd->keyPtr, keyLen));
+  }
+  return rc;
+}
+
+static ResultProcessor *RPKeyNameLoader_New(const RLookupKey *key) {
+  RPKeyNameLoader *rp = rm_calloc(1, sizeof(*rp));
+  rp->out = key;
+
+  ResultProcessor *base = &rp->base;
+  base->Free = RPKeyNameLoader_Free;
+  base->Next = RPKeyNameLoader_Next;
+  base->type = RP_KEY_NAME_LOADER;
+  return base;
+}
+
+/*********************************************************************************/
+
 ResultProcessor *RPLoader_New(AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad) {
+  if (RSGlobalConfig.enableUnstableFeatures) {
+    if (nkeys == 1 && !strcmp(keys[0]->path, UNDERSCORE_KEY)) {
+      // Return a thin RP that doesn't actually loads anything or access to the key space
+      // Returning without turning on the `QEXEC_S_HAS_LOAD` flag
+      return RPKeyNameLoader_New(keys[0]);
+    }
+  }
   r->stateflags |= QEXEC_S_HAS_LOAD;
   if (r->reqflags & QEXEC_F_RUN_IN_BACKGROUND) {
     // Assumes that Redis is *NOT* locked while executing the loader
@@ -987,7 +1044,7 @@ void SetLoadersForBG(AREQ *r) {
       // If the pipeline was originally built with a safe loader and later got set to run on
       // the main thread, we keep the safe loader and only change the next function.
       // Now we need to change the next function back to the safe loader's next function.
-      assert(cur->Next == rploaderNext);
+      RS_ASSERT(cur->Next == rploaderNext);
       cur->Next = rpSafeLoaderNext_Accumulate;
       ((RPSafeLoader *)cur)->becomePlainLoader = false;
     }
@@ -1021,7 +1078,7 @@ void SetLoadersForMainThread(AREQ *r) {
 static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
                                      "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
                                      "Grouper", "Projector", "Filter",            "Profile",
-                                     "Network", "Metrics Applier"};
+                                     "Network", "Metrics Applier", "Key Name Loader", "Score Max Normalizer"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -1138,5 +1195,234 @@ ResultProcessor *RPCounter_New() {
   ret->base.Next = rpcountNext;
   ret->base.Free = rpcountFree;
   ret->base.type = RP_COUNTER;
+  return &ret->base;
+}
+
+/*******************************************************************************************************************
+ *  Timeout Processor - DEBUG ONLY
+ *
+ * returns timeout after N results, N >= 0.
+ * If N is larger than the actual results, EOF is returned.
+ *******************************************************************************************************************/
+
+typedef struct {
+  ResultProcessor base;
+  uint32_t count;
+  uint32_t remaining;
+} RPTimeoutAfterCount;
+
+// Insert the result processor between the last result processor and its downstream result processor
+static void addResultProcessor(AREQ *r, ResultProcessor *rp) {
+  ResultProcessor *cur = r->qiter.endProc;
+  ResultProcessor dummyHead = { .upstream = cur };
+  ResultProcessor *downstream = &dummyHead;
+
+  // Search for the last result processor
+  while (cur) {
+    if (!cur->upstream) {
+      rp->parent = &r->qiter;
+      downstream->upstream = rp;
+      rp->upstream = cur;
+      break;
+    }
+    downstream = cur;
+    cur = cur->upstream;
+  }
+  // Update the endProc to the new head in case it was changed
+  r->qiter.endProc = dummyHead.upstream;
+}
+
+/** For debugging purposes
+ * Will add a result processor that will return timeout according to the results count specified.
+ * @param results_count: number of results to return. should be greater equal 0.
+ * The result processor will also change the query timing so further checks down the pipeline will also result in timeout.
+ */
+void PipelineAddTimeoutAfterCount(AREQ *r, size_t results_count) {
+  ResultProcessor *RPTimeoutAfterCount = RPTimeoutAfterCount_New(results_count);
+  addResultProcessor(r, RPTimeoutAfterCount);
+}
+
+static void RPTimeoutAfterCount_SimulateTimeout(ResultProcessor *rp_timeout) {
+    // set timeout to now for the RP up the chain to handle
+    static struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &now);
+    rp_timeout->parent->sctx->time.timeout = now;
+
+    // search upstream for rpidxNext to set timeout limiter
+    ResultProcessor *cur = rp_timeout->upstream;
+    while (cur && cur->type != RP_INDEX) {
+        cur = cur->upstream;
+    }
+
+    if (cur) { // This is a shard pipeline
+      RPIndexIterator *rp_index = (RPIndexIterator *)cur;
+      rp_index->timeoutLimiter = TIMEOUT_COUNTER_LIMIT - 1;
+    }
+}
+
+static int RPTimeoutAfterCount_Next(ResultProcessor *base, SearchResult *r) {
+  RPTimeoutAfterCount *self = (RPTimeoutAfterCount *)base;
+
+  // If we've reached COUNT:
+  if (!self->remaining) {
+
+    RPTimeoutAfterCount_SimulateTimeout(base);
+
+    int rc = base->upstream->Next(base->upstream, r);
+    if (rc == RS_RESULT_TIMEDOUT) {
+      // reset the counter for the next run in cursor mode
+      self->remaining = self->count;
+    }
+
+    return rc;
+  }
+
+  self->remaining--;
+  return base->upstream->Next(base->upstream, r);
+}
+
+static void RPTimeoutAfterCount_Free(ResultProcessor *base) {
+  rm_free(base);
+}
+
+ResultProcessor *RPTimeoutAfterCount_New(size_t count) {
+  RPTimeoutAfterCount *ret = rm_calloc(1, sizeof(RPTimeoutAfterCount));
+  ret->count = count;
+  ret->remaining = count;
+  ret->base.type = RP_TIMEOUT;
+  ret->base.Next = RPTimeoutAfterCount_Next;
+  ret->base.Free = RPTimeoutAfterCount_Free;
+
+  return &ret->base;
+}
+
+typedef struct {
+  ResultProcessor base;
+} RPCrash;
+
+static void RPCrash_Free(ResultProcessor *base) {
+  rm_free(base);
+}
+
+static int RPCrash_Next(ResultProcessor *base, SearchResult *r) {
+  RPCrash *self = (RPCrash *)base;
+  abort();
+  return base->upstream->Next(base->upstream, r);
+}
+
+ResultProcessor *RPCrash_New() {
+  RPCrash *ret = rm_calloc(1, sizeof(RPCrash));
+  ret->base.type = RP_CRASH;
+  ret->base.Next = RPCrash_Next;
+  ret->base.Free = RPCrash_Free;
+  return &ret->base;
+}
+
+void PipelineAddCrash(struct AREQ *r) {
+  ResultProcessor *crash = RPCrash_New();
+  addResultProcessor(r, crash);
+}
+
+ /*******************************************************************************************************************
+   *  Max Score Normalizer Result Processor
+   *
+   * This result processor normalizes the scores of search results using division by
+   * the max score. It gathers all results from the upstream processor, finds the
+   * maximum score, and divides each score by the maximum. This ensures that all scores
+   * fall within the range [0, 1].
+   *
+   * The processor works in two phases:
+   * 1. Accumulation: Gather all results from upstream and find the max score.
+   * 2. Yield: Normalize each result’s score by division with the max score, then pass
+   *    it downstream.
+  *******************************************************************************************************************/
+ typedef struct {
+   ResultProcessor base;
+   // Stores the max value found (if needed in the future)
+   double maxValue;
+   const RLookupKey *scoreKey;
+   SearchResult *pooledResult;
+   arrayof(SearchResult *) pool;
+   bool timedOut;
+ } RPMaxScoreNormalizer;
+
+
+ static void RPMaxScoreNormalizer_Free(ResultProcessor *base) {
+   RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)base;
+   array_free_ex(self->pool, srDtor(*(char **)ptr));
+   srDtor(self->pooledResult);
+   rm_free(self);
+ }
+
+ static int RPMaxScoreNormalizer_Yield(ResultProcessor *rp, SearchResult *r){
+   RPMaxScoreNormalizer* self = (RPMaxScoreNormalizer*)rp;
+   size_t length = array_len(self->pool);
+   if (length == 0) {
+    // We've already yielded all results, return EOF
+    int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+    self->timedOut = false;
+    return ret;
+   }
+  SearchResult *poppedResult = array_pop(self->pool);
+  SearchResult_Override(r, poppedResult);
+  rm_free(poppedResult);
+  double oldScore = r->score;
+  if (self->maxValue != 0) {
+    r->score /= self->maxValue;
+  }
+  if (self->scoreKey) {
+    RLookup_WriteOwnKey(self->scoreKey, &r->rowdata, RS_NumVal(r->score));
+  }
+  EXPLAIN(r->scoreExplain,
+        "Final BM25STD.NORM: %.2f = Original Score: %.2f / Max Score: %.2f",
+        r->score, oldScore, self->maxValue);
+  return RS_RESULT_OK;
+ }
+
+static int RPMaxScoreNormalizerNext_innerLoop(ResultProcessor *rp, SearchResult *r) {
+  RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
+  // get the next result from upstream. `self->pooledResult` is expected to be empty and allocated.
+  int rc = rp->upstream->Next(rp->upstream, self->pooledResult);
+  // if our upstream has finished - just change the state to not accumulating, and yield
+  if (rc == RS_RESULT_EOF) {
+    rp->Next = RPMaxScoreNormalizer_Yield;
+    return rp->Next(rp, r);
+  } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+    self->timedOut = true;
+    rp->Next = RPMaxScoreNormalizer_Yield;
+    return rp->Next(rp, r);
+  } else if (rc != RS_RESULT_OK) {
+    return rc;
+  }
+
+  self->maxValue = MAX(self->maxValue, self->pooledResult->score);
+  // copy the index result to make it thread safe - but only if it is pushed to the heap
+  self->pooledResult->indexResult = NULL;
+  array_ensure_append_1(self->pool, self->pooledResult);
+
+  // we need to allocate a new result for the next iteration
+  self->pooledResult = rm_calloc(1, sizeof(*self->pooledResult));
+  return RESULT_QUEUED;
+}
+
+static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
+  RPMaxScoreNormalizer *self = (RPMaxScoreNormalizer *)rp;
+  uint32_t chunkLimit = rp->parent->resultLimit;
+  rp->parent->resultLimit = UINT32_MAX; // we want to accumulate all results
+  int rc;
+  while ((rc = RPMaxScoreNormalizerNext_innerLoop(rp, r)) == RESULT_QUEUED) {};
+  rp->parent->resultLimit = chunkLimit; // restore the limit
+  return rc;
+}
+
+ /* Create a new Max Collector processor */
+ ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk) {
+  RPMaxScoreNormalizer *ret = rm_calloc(1, sizeof(*ret));
+  ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
+  ret->pool = array_new(SearchResult*, 0);
+  ret->base.Next = RPMaxScoreNormalizer_Accum;
+  ret->base.Free = RPMaxScoreNormalizer_Free;
+  ret->base.type = RP_MAX_SCORE_NORMALIZER;
+  ret->scoreKey = rlk;
   return &ret->base;
 }

@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "config.h"
 #include "util/config_macros.h"
@@ -40,7 +42,7 @@ CONFIG_GETTER(getNumPartitions) {
   return sdsnew("AUTO");
 }
 
-// TIMEOUT
+// CLUSTER_TIMEOUT
 CONFIG_SETTER(setClusterTimeout) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   int acrc = AC_GetInt(ac, &realConfig->timeoutMS, AC_F_GE1);
@@ -53,39 +55,20 @@ CONFIG_GETTER(getClusterTimeout) {
 }
 
 CONFIG_SETTER(setGlobalPass) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
-  if (realConfig->globalPass) {
-    rm_free((void *)realConfig->globalPass);
-  }
-  int acrc = AC_GetString(ac, &realConfig->globalPass, NULL, 0);
-  RETURN_STATUS(acrc);
+  // Deprecated, no scenario in which this config param should be set, nor should
+  // it affect something (replaced by internal connections)
+
+  RedisModule_Log(RSDummyContext, "warning",
+    "Notice: OSS_GLOBAL_PASSWORD is deprecated, inter-shard communication is now done via internal connections");
+  // Read next arg, but do nothing with it
+  int acrc = AC_Advance(ac);
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getGlobalPass) {
   RedisModule_Log(RSDummyContext, "warning",
-    "OSS_GLOBAL_PASSWORD is deprecated. Use `CONFIG GET search-oss-global-password` instead");
+    "Notice: OSS_GLOBAL_PASSWORD is deprecated, inter-shard communication is now done via internal connections");
   return sdsnew("Password: *******");
-}
-
-// global-password
-int set_immutable_cluster_string_config(const char *name, RedisModuleString *val,
-                                      void *privdata, RedisModuleString **err) {
-  REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(err);
-  char **ptr = (char **)privdata;
-  size_t len;
-  const char *ret = RedisModule_StringPtrLen(val, &len);
-  *ptr = rm_strndup(ret, len);
-  return REDISMODULE_OK;
-}
-
-RedisModuleString * get_oss_global_password(const char *name, void *privdata) {
-  REDISMODULE_NOT_USED(name);
-  REDISMODULE_NOT_USED(privdata);
-  if (!config_dummy_password) {
-    config_dummy_password = RedisModule_CreateString(NULL, "Password: *******", 17);
-  }
-  return config_dummy_password;
 }
 
 // CONN_PER_SHARD
@@ -113,6 +96,21 @@ CONFIG_GETTER(getConnPerShard) {
   return sdsfromlonglong(realConfig->connPerShard);
 }
 
+// search-conn-per-shard
+int set_conn_per_shard(const char *name, long long val, void *privdata,
+  RedisModuleString **err) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  realConfig->connPerShard = (size_t)val;
+  return triggerConnPerShard(config);
+}
+
+long long get_conn_per_shard(const char *name, void *privdata) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  return (long long)realConfig->connPerShard;
+}
+
 // CURSOR_REPLY_THRESHOLD
 CONFIG_SETTER(setCursorReplyThreshold) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
@@ -123,6 +121,21 @@ CONFIG_SETTER(setCursorReplyThreshold) {
 CONFIG_GETTER(getCursorReplyThreshold) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
   return sdsfromlonglong(realConfig->cursorReplyThreshold);
+}
+
+// search-cursor-reply-threshold
+int set_cursor_reply_threshold(const char *name, long long val, void *privdata,
+  RedisModuleString **err) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  realConfig->cursorReplyThreshold = (size_t)val;
+  return REDISMODULE_OK;
+}
+
+long long get_cursor_reply_threshold(const char *name, void *privdata) {
+  RSConfig *config = (RSConfig *)privdata;
+  SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
+  return (long long)realConfig->cursorReplyThreshold;
 }
 
 // SEARCH_THREADS
@@ -164,35 +177,6 @@ CONFIG_GETTER(getTopologyValidationTimeout) {
   return sdsfromlonglong(realConfig->topologyValidationTimeoutMS);
 }
 
-// ACL_USERNAME
-CONFIG_GETTER(getOSSACLUsername) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  return sdsnew(realConfig->aclUsername);
-}
-
-CONFIG_SETTER(setOSSACLUsername) {
-  SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
-  if (realConfig->aclUsername) {
-    rm_free((void *)realConfig->aclUsername);
-  }
-  int acrc = AC_GetString(ac, &realConfig->aclUsername, NULL, 0);
-  RETURN_STATUS(acrc);
-}
-
-// acl-username
-RedisModuleString * get_oss_acl_username(const char *name, void *privdata) {
-  char *str = *(char **)privdata;
-  if (config_oss_acl_username) {
-    RedisModule_FreeString(NULL, config_oss_acl_username);
-  }
-  if (!str) {
-    config_oss_acl_username = RedisModule_CreateString(NULL, "", 0);
-  } else {
-    config_oss_acl_username = RedisModule_CreateString(NULL, str, strlen(str));
-  }
-  return config_oss_acl_username;
-}
-
 // topology-validation-timeout
 int set_topology_validation_timeout(const char *name,
                       long long val, void *privdata, RedisModuleString **err) {
@@ -217,15 +201,14 @@ static RSConfigOptions clusterOptions_g = {
              .setValue = setNumPartitions,
              .getValue = getNumPartitions,
              .flags = RSCONFIGVAR_F_IMMUTABLE},
-            {.name = "TIMEOUT",
+            {.name = "CLUSTER_TIMEOUT",
              .helpText = "Cluster synchronization timeout",
              .setValue = setClusterTimeout,
              .getValue = getClusterTimeout},
             {.name = "OSS_GLOBAL_PASSWORD",
-             .helpText = "Global oss cluster password that will be used to connect to other shards",
+             .helpText = "Deprecated, Global oss cluster password that will be used to connect to other shards",
              .setValue = setGlobalPass,
-             .getValue = getGlobalPass,
-             .flags = RSCONFIGVAR_F_IMMUTABLE},
+             .getValue = getGlobalPass},
             {.name = "CONN_PER_SHARD",
              .helpText = "Number of connections to each shard in the cluster. Default to 0. "
                          "If 0, the number of connections is set to `WORKERS` + 1.",
@@ -246,11 +229,6 @@ static RSConfigOptions clusterOptions_g = {
                          "Default is 30000 (30 seconds). 0 means no timeout.",
              .setValue = setTopologyValidationTimeout,
              .getValue = getTopologyValidationTimeout,},
-             {.name = "OSS_ACL_USERNAME",
-             .helpText = "Set the username for the ACL user used by the coordinator to connect to the shards on OSS cluster.",
-             .setValue = setOSSACLUsername,
-             .getValue = getOSSACLUsername,
-             .flags = RSCONFIGVAR_F_IMMUTABLE},
             {.name = NULL}
             // fin
         }
@@ -305,31 +283,30 @@ int RegisterClusterModuleConfig(RedisModuleCtx *ctx) {
   RM_TRY(
     RedisModule_RegisterNumericConfig (
       ctx, "search-topology-validation-timeout", DEFAULT_TOPOLOGY_VALIDATION_TIMEOUT,
-      REDISMODULE_CONFIG_DEFAULT | REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
+      REDISMODULE_CONFIG_UNPREFIXED, 0, LLONG_MAX,
       get_topology_validation_timeout, set_topology_validation_timeout, NULL,
       (void*)&RSGlobalConfig
     )
   )
 
-  if (clusterConfig.type == ClusterType_RedisOSS) {
-    if (RedisModule_RegisterStringConfig (
-          ctx, "search-oss-global-password", "",
-          REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED | REDISMODULE_CONFIG_SENSITIVE,
-          get_oss_global_password, set_immutable_cluster_string_config, NULL,
-          (void*)&clusterConfig.globalPass) == REDISMODULE_ERR) {
-      return REDISMODULE_ERR;
-    }
-  }
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-cursor-reply-threshold", DEFAULT_CURSOR_REPLY_THRESHOLD,
+      REDISMODULE_CONFIG_UNPREFIXED, 1, LLONG_MAX,
+      get_cursor_reply_threshold, set_cursor_reply_threshold, NULL,
+      (void*)&RSGlobalConfig
+    )
+  )
 
-  if (clusterConfig.type == ClusterType_RedisOSS) {
-    if (RedisModule_RegisterStringConfig (
-          ctx, "search-oss-acl-username", DEFAULT_ACL_USERNAME,
-          REDISMODULE_CONFIG_IMMUTABLE | REDISMODULE_CONFIG_UNPREFIXED,
-          get_oss_acl_username, set_immutable_cluster_string_config, NULL,
-          (void*)&clusterConfig.aclUsername) == REDISMODULE_ERR) {
-      return REDISMODULE_ERR;
-    }
-  }
+  RM_TRY(
+    RedisModule_RegisterNumericConfig (
+      ctx, "search-conn-per-shard", DEFAULT_CONN_PER_SHARD,
+      REDISMODULE_CONFIG_UNPREFIXED, 0, UINT32_MAX,
+      get_conn_per_shard, set_conn_per_shard, NULL,
+      (void*)&RSGlobalConfig
+    )
+  )
+
 
   return REDISMODULE_OK;
 }

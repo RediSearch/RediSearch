@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef CURSOR_H
 #define CURSOR_H
 
@@ -13,6 +15,10 @@
 #include "util/array.h"
 #include "search_ctx.h"
 #include "aggregate/aggregate.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct CursorList;
 
@@ -36,11 +42,16 @@ typedef struct Cursor {
   /** Initial timeout interval */
   unsigned timeoutIntervalMs;
 
-  /** Position within idle list */
+  /** Position within idle list.
+   * Should only be accessed under cursor list lock */
   int pos;
 
   /** Is it an internal coordinator cursor or a user cursor*/
   bool is_coord;
+
+  /** If true, a call to `Cursor_Pause` should drop it instead.
+   *  Should only be accessed under cursor list lock */
+  bool delete_mark;
 } Cursor;
 
 KHASH_MAP_INIT_INT64(cursors, Cursor *);
@@ -170,15 +181,18 @@ int Cursor_Pause(Cursor *cur);
 int Cursor_Free(Cursor *cl);
 
 /**
- * Locate and free the cursor with the given ID
+ * Locate and free the cursor with the given ID.
+ * If the cursor is found but not idle, it is marked for deletion.
  */
 int Cursors_Purge(CursorList *cl, uint64_t cid);
 
 int Cursors_CollectIdle(CursorList *cl);
 
 typedef struct CursorsInfoStats {
-  size_t total;
-  size_t total_idle;
+  size_t total_user;                // total number of cursors created explicitly by user commands
+  size_t total_idle_user;           // number of cursors created by user commands that are currently idle
+  size_t total_internal;            // total number of internal cursors created by the coordinator
+  size_t total_idle_internal;       // number of internal cursors created by the coordinator that are currently idle
 } CursorsInfoStats;
 
 /**
@@ -189,11 +203,15 @@ CursorsInfoStats Cursors_GetInfoStats(void);
 /**
  * Assumed to be called by the main thread with a valid locked spec, under the cursors lock.
  */
-void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModule_Reply *reply);
+void Cursors_RenderStats(CursorList *cl, CursorList *cl_coord, const IndexSpec *spec, RedisModule_Reply *reply);
 
 #ifdef FTINFO_FOR_INFO_MODULES
-void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, IndexSpec *spec, RedisModuleInfoCtx *ctx);
+void Cursors_RenderStatsForInfo(CursorList *cl, CursorList *cl_coord, const IndexSpec *spec, RedisModuleInfoCtx *ctx);
 #endif
 
 #define getCursorList(coord) ((coord) ? &g_CursorsListCoord : &g_CursorsList)
+
+#ifdef __cplusplus
+}
+#endif
 #endif // CURSOR_H

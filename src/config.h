@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #pragma once
 
 #include "redismodule.h"
@@ -54,7 +56,7 @@ typedef struct {
 
 typedef struct {
   // If this is set, GC is enabled on all indexes (default: 1, disable with NOGC)
-  int enableGC;
+  bool enableGC;
   size_t gcScanSize;
   GCPolicy gcPolicy;
 
@@ -70,7 +72,9 @@ typedef struct {
   long long queryTimeoutMS;
   RSTimeoutPolicy timeoutPolicy;
   // reply with time on profile
-  int printProfileClock;
+  bool printProfileClock;
+  // BM25STD.TANH factor
+  unsigned int BM25STD_TanhFactor;
 } RequestConfig;
 
 // Configuration parameters related to the query execution.
@@ -122,18 +126,18 @@ typedef struct {
   // Chained configuration data
   void *chainedConfig;
 
-  int noMemPool;
+  bool noMemPool;
 
-  int filterCommands;
+  bool filterCommands;
 
   // free resource on shutdown
-  int freeResourcesThread;
+  bool freeResourcesThread;
   // compress double to float
-  int numericCompress;
+  bool numericCompress;
   // keep numeric ranges in parents of leafs
   size_t numericTreeMaxDepthRange;
   // disable compression for inverted index DocIdsOnly
-  int invertedIndexRawDocidEncoding;
+  bool invertedIndexRawDocidEncoding;
 
   // sets the memory limit for vector indexes to resize by (in bytes).
   // 0 indicates no limit. Default value is 0.
@@ -148,9 +152,20 @@ typedef struct {
   unsigned int numBGIndexingIterationsBeforeSleep;
   // If set, we use an optimization that sorts the children of an intersection iterator in a way
   // where union iterators are being factorize by the number of their own children.
-  int prioritizeIntersectUnionChildren;
+  bool prioritizeIntersectUnionChildren;
+    // The number of indexing operations per field to perform before yielding to Redis during indexing while loading (so redis can be responsive)
+  unsigned int indexerYieldEveryOpsWhileLoading;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
+  // The maximum ratio between current memory and max memory for which background indexing is allowed
+  uint8_t indexingMemoryLimit;
+  // Enable to execute unstable features
+  bool enableUnstableFeatures;
+  // Control user data obfuscation in logs
+  bool hideUserDataFromLog;
+  // Set how much time after OOM is detected we should wait to enable the resource manager to
+  // allocate more memory.
+  uint32_t bgIndexingOomPauseTimeBeforeRetry;
 } RSConfig;
 
 typedef enum {
@@ -229,6 +244,8 @@ void RSConfig_AddToInfo(RedisModuleInfoCtx *ctx);
 
 void UpgradeDeprecatedMTConfigs();
 
+char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
+
 #define DEFAULT_BG_INDEX_SLEEP_GAP 100
 #define DEFAULT_DIALECT_VERSION 1
 #define DEFAULT_DOC_TABLE_SIZE 1000000
@@ -257,6 +274,12 @@ void UpgradeDeprecatedMTConfigs();
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 #define MIN_MIN_STEM_LENGTH 2 // Minimum value for minStemLength
 #define MIN_OPERATION_WORKERS 4
+#define DEFAULT_INDEXING_MEMORY_LIMIT 100
+#define DEFAULT_BM25STD_TANH_FACTOR 4
+#define BM25STD_TANH_FACTOR_MAX 10000
+#define BM25STD_TANH_FACTOR_MIN 1
+#define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 5
+#define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
 
 // default configuration
 #define RS_DEFAULT_CONFIG {                                                    \
@@ -298,7 +321,13 @@ void UpgradeDeprecatedMTConfigs();
     .multiTextOffsetDelta = DEFAULT_MULTI_TEXT_SLOP,                           \
     .numBGIndexingIterationsBeforeSleep = DEFAULT_BG_INDEX_SLEEP_GAP,          \
     .prioritizeIntersectUnionChildren = false,                                 \
-    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT                             \
+    .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                            \
+    .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE,                \
+    .hideUserDataFromLog = false,                                              \
+    .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                      \
+    .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,     \
+    .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY,    \
+    .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
   }
 
 #define REDIS_ARRAY_LIMIT 7
@@ -317,6 +346,9 @@ extern "C" {
 // RSGlobalConfig.IteratorsConfig parameters values into it.
 // The size of the memory @param config points to must be at least sizeof(IteratorsConfig)
 void iteratorsConfig_init(IteratorsConfig *config);
+
+void LogWarningDeprecatedFTConfig(RedisModuleCtx *ctx, const char *action,
+                                  const char *name);
 
 #ifdef __cplusplus
 }

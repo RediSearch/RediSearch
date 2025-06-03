@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <util/minmax.h>
 #include <util/array.h>
 #include <util/block_alloc.h>
@@ -15,20 +17,18 @@
 #define ISOFMT "%FT%TZ"
 #define ISOFMT_LEN sizeof(ISOFMT) - 1
 
-// TIME(propert, [fmt_string])
-static int timeFormat(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
-                      QueryError *err) {
-  VALIDATE_ARGS("time", 1, 2, err);
+// TIME(property, [fmt_string])
+static int timeFormat(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   const char *fmt = ISOFMT;
   if (argc == 2) {
     VALIDATE_ARG_TYPE("time", argv, 1, RSValue_String);
-    fmt = RSValue_StringPtrLen(argv[1], NULL);
+    fmt = RSValue_StringPtrLen(&argv[1], NULL);
   }
   // Get the format
   char timebuf[1024] = {0};  // Should be enough for any human time string
   double n;
   // value is not a number
-  if (!RSValue_ToNumber(argv[0], &n)) {
+  if (!RSValue_ToNumber(&argv[0], &n)) {
     goto err;
   }
   time_t tt = (time_t)n;
@@ -76,11 +76,10 @@ static time_t fast_timegm(const struct tm *ltm) {
   return (days * (24 * 60 * 60)) + (ltm->tm_hour * (60 * 60)) + (ltm->tm_min * 60) + ltm->tm_sec;
 }
 
-static int func_hour(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
-  VALIDATE_ARGS("hour", 1, 1, err);
+static int func_hour(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -100,12 +99,10 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_minute(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
-                       QueryError *err) {
-  VALIDATE_ARGS("minute", 1, 1, err);
+static int func_minute(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
     goto err;
   }
   RSValue_SetNumber(result, floor(d - fmod(d, 60)));
@@ -118,11 +115,10 @@ err:
 }
 
 /* Round timestamp to its day start */
-static int func_day(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
-  VALIDATE_ARGS("day", 1, 1, err);
+static int func_day(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -142,12 +138,10 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_dayofmonth(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
-                           QueryError *err) {
-  VALIDATE_ARGS("dayofmonth", 1, 1, err);
+static int func_dayofmonth(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -163,12 +157,10 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_dayofweek(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
-                          QueryError *err) {
-  VALIDATE_ARGS("dayofweek", 1, 1, err);
+static int func_dayofweek(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -184,12 +176,10 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_dayofyear(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
-                          QueryError *err) {
-  VALIDATE_ARGS("dayofyear", 1, 1, err);
+static int func_dayofyear(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -205,11 +195,10 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_year(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
-  VALIDATE_ARGS("year", 1, 1, err);
+static int func_year(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -225,12 +214,10 @@ err:
 }
 
 /* Round a timestamp to the beginning of the month */
-static int func_month(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
-                      QueryError *err) {
-  VALIDATE_ARGS("month", 1, 1, err);
+static int func_month(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -250,12 +237,10 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int func_monthofyear(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc,
-                            QueryError *err) {
-  VALIDATE_ARGS("monthofyear", 1, 1, err);
+static int func_monthofyear(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
 
   double d;
-  if (!RSValue_ToNumber(argv[0], &d) || d < 0) {
+  if (!RSValue_ToNumber(&argv[0], &d) || d < 0) {
     goto err;
   }
   time_t ts = (time_t)d;
@@ -270,13 +255,12 @@ err:
   return EXPR_EVAL_OK;
 }
 
-static int parseTime(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err) {
-  VALIDATE_ARGS("parsetime", 2, 2, err);
+static int parseTime(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   VALIDATE_ARG_ISSTRING("parsetime", argv, 0);
   VALIDATE_ARG_ISSTRING("parsetime", argv, 1);
 
-  const char *val = RSValue_StringPtrLen(argv[0], NULL);
-  const char *fmt = RSValue_StringPtrLen(argv[1], NULL);
+  const char *val = RSValue_StringPtrLen(&argv[0], NULL);
+  const char *fmt = RSValue_StringPtrLen(&argv[1], NULL);
 
   struct tm tm = {0};
   char *rc = strptime(val, fmt, &tm);
@@ -293,16 +277,16 @@ err:
 }
 
 void RegisterDateFunctions() {
-  RSFunctionRegistry_RegisterFunction("timefmt", timeFormat, RSValue_String);
-  RSFunctionRegistry_RegisterFunction("parsetime", parseTime, RSValue_Number);
-  RSFunctionRegistry_RegisterFunction("hour", func_hour, RSValue_Number);
-  RSFunctionRegistry_RegisterFunction("minute", func_minute, RSValue_Number);
-  RSFunctionRegistry_RegisterFunction("day", func_day, RSValue_Number);
-  RSFunctionRegistry_RegisterFunction("month", func_month, RSValue_Number);
-  RSFunctionRegistry_RegisterFunction("monthofyear", func_monthofyear, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("timefmt", timeFormat, RSValue_String, 1, 2);
+  RSFunctionRegistry_RegisterFunction("parsetime", parseTime, RSValue_Number, 2, 2);
+  RSFunctionRegistry_RegisterFunction("hour", func_hour, RSValue_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("minute", func_minute, RSValue_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("day", func_day, RSValue_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("month", func_month, RSValue_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("monthofyear", func_monthofyear, RSValue_Number, 1, 1);
 
-  RSFunctionRegistry_RegisterFunction("year", func_year, RSValue_Number);
-  RSFunctionRegistry_RegisterFunction("dayofmonth", func_dayofmonth, RSValue_Number);
-  RSFunctionRegistry_RegisterFunction("dayofweek", func_dayofweek, RSValue_Number);
-  RSFunctionRegistry_RegisterFunction("dayofyear", func_dayofyear, RSValue_Number);
+  RSFunctionRegistry_RegisterFunction("year", func_year, RSValue_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("dayofmonth", func_dayofmonth, RSValue_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("dayofweek", func_dayofweek, RSValue_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("dayofyear", func_dayofyear, RSValue_Number, 1, 1);
 }

@@ -8,13 +8,29 @@ SRCDIR=.
 
 MACOS_PACKAGES=openssl
 
+IGNORE_MISSING_DEPS=1
+build: verify_build $(DEFAULT_TARGETS) $(MK_MAKEFILES) $(TARGET)
+	@echo "Build completed."
+verify_build:
+	@echo "Verifying build dependencies..."
+	@if ! $(ROOT)/.install/verify_build_deps.sh; then \
+		if [ "$(IGNORE_MISSING_DEPS)" = "1" ]; then \
+			echo -e "\033[0;33mIGNORE_MISSING_DEPS is set. Ignoring dependency check failure.\033[0m"; \
+		else \
+            echo ""; \
+			echo -e "\033[0;31mDependency check failed. You can bypass this check by running:\033[0m"; \
+			echo -e "\033[0;31m\033[1mmake IGNORE_MISSING_DEPS=1 ...\033[0m"; \
+            exit 1; \
+        fi; \
+    fi
+
 include deps/readies/mk/main
 
 #----------------------------------------------------------------------------------------------
 
 define HELPTEXT
 make setup         # install prerequisited (CAUTION: THIS WILL MODIFY YOUR SYSTEM)
-make fetch         # download and prepare dependant modules
+make fetch         # download and prepare dependent modules
 
 make build          # compile and link
   COORD=oss|rlec      # build coordinator (oss: Open Source, rlec: Enterprise) default: oss
@@ -34,7 +50,13 @@ make build          # compile and link
   BOOST_DIR= 		  # Custom boost headers location path (default value: .install/boost).
   					  # Can be left empty if boost is located in the standard system includes path.
   VERBOSE_UTESTS=1    # enable logging in cpp tests
-  REDIS_VER=		  # Hint the redis version to run against so we choose the appopriate build params.
+  REDIS_VER=		  # Hint the redis version to run against so we choose the appropriate build params.
+  RUST_PROFILE=       # Which Rust profile should be used to build (default: release)
+                      # All custom profiles are defined in `src/redisearch_rs/Cargo.toml`.
+                      # If both `RUST_PROFILE` and `DEBUG` are set, `RUST_PROFILE` takes precedence
+                      # for the Rust code.
+  RUST_DENY_WARNS=0   # Deny all Rust compiler warnings
+  RUST_DYN_CRT=0      # Link C runtime dynamically (default: 0)
 
 make parsers       # build parsers code
 make clean         # remove build artifacts
@@ -50,14 +72,24 @@ make test          # run all tests
   REDIS_STANDALONE=1|0 # test with standalone/cluster Redis
   SA=1|0               # alias for REDIS_STANDALONE
   TEST=name            # run specified test
+  RUST_DENY_WARNS=0   # Deny all Rust compiler warnings
+  RUST_DYN_CRT=0      # Link C runtime dynamically (default: 0)
+
+make license-check # check if all Rust files include a license header
+make lint          # run linters and exit with an error if warnings are found
+make fmt           # format the source files using the appropriate auto-formatter
+  CHECK=1              # don't modify the source files, but exit with an error if
+                       # running the auto-formatter would result in changes
 
 make pytest        # run python tests (tests/pytests)
   REDIS_STANDALONE=1|0 # test with standalone/cluster Redis
   SA=1|0               # alias for REDIS_STANDALONE
   TEST=name            # e.g. TEST=test:testSearch
   RLTEST_ARGS=...      # pass args to RLTest
-  REJSON=1|0|get       # also load RedisJSON module (default: 1)
-  REJSON_PATH=path     # use RedisJSON module at `path`
+  REJSON=1|0           # also load RedisJSON module (default: 1)
+  REJSON_BRANCH=branch # use RedisJSON module from branch (default: 'master')
+  REJSON_PATH=path     # use RedisJSON module at `path` (default: '' - build from source)
+  REJSON_ARGS=''       # pass args to RedisJSON module
   EXT=1                # External (existing) environment
   GDB=1                # RLTest interactive debugging
   VG=1                 # use Valgrind
@@ -66,11 +98,16 @@ make pytest        # run python tests (tests/pytests)
   ONLY_STABLE=1        # skip unstable tests
   TEST_PARALLEL=n      # test parallalization
   LOG_LEVEL=<level>    # server log level (default: debug)
+  ENABLE_ASSERT=1      # enable assertions
 
 make unit-tests    # run unit tests (C and C++)
   TEST=name          # e.g. TEST=FGCTest.testRemoveLastBlock
 make c-tests       # run C tests (from tests/ctests)
 make cpp-tests     # run C++ tests (from tests/cpptests)
+make rust-tests    # run Rust tests (from src/redisearch_rs)
+  RUN_MIRI=0|1         # run the Rust test suite again through miri to catch undefined behavior (default: 0)
+  RUST_DENY_WARNS=0    # Deny all Rust compiler warnings
+  RUST_DYN_CRT=0       # Link C runtime dynamically (default: 0)
 make vecsim-bench  # run VecSim micro-benchmark
 
 make callgrind     # produce a call graph
@@ -81,11 +118,6 @@ make pack             # create installation packages (default: 'redisearch-oss' 
   LITE=1                # pack RediSearchLight ('redisearch-light' package)
 
 make upload-artifacts   # copy snapshot packages to S3
-  OSNICK=nick             # copy snapshots for specific OSNICK
-make upload-release     # copy release packages to S3
-
-common options for upload operations:
-  STAGING=1             # copy to staging lab area (for validation)
   FORCE=1               # allow operation outside CI environment
   VERBOSE=1             # show more details
   NOP=1                 # do not copy, just print commands
@@ -157,6 +189,30 @@ LIBUV_DIR=$(ROOT)/deps/libuv
 export LIBUV_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/libuv
 include build/libuv/Makefile.defs
 
+REDISEARCH_RS_DIR=$(ROOT)/src/redisearch_rs
+export REDISEARCH_RS_TARGET_DIR=$(ROOT)/bin/redisearch_rs/
+export REDISEARCH_RS_BINDIR=$(BINDIR)/redisearch_rs/
+
+ifeq ($(RUST_PROFILE),)
+ifeq ($(DEBUG),1)
+RUST_PROFILE=dev
+else
+RUST_PROFILE=release
+endif
+endif
+
+ifeq ($(RUST_DYN_CRT),1)
+# Disable statically linking the C runtime.
+# Default behaviour or ignored on most platforms,
+# but necessary on Alpine Linux.
+# See: https://doc.rust-lang.org/reference/linkage.html#r-link.crt
+RUSTFLAGS+=-C target-feature=-crt-static
+endif
+
+ifeq ($(RUST_DENY_WARNS),1)
+	RUSTFLAGS+=-D warnings
+endif
+
 HIREDIS_DIR=$(ROOT)/deps/hiredis
 HIREDIS_BINDIR=$(ROOT)/bin/$(FULL_VARIANT.release)/hiredis
 include build/hiredis/Makefile.defs
@@ -186,6 +242,14 @@ ifeq ($(VERBOSE_UTESTS),1)
 CC_FLAGS.common += -DVERBOSE_UTESTS
 endif
 
+ifeq ($(ENABLE_ASSERT),1)
+CC_FLAGS.common += -DENABLE_ASSERT
+endif
+
+ifeq ($(COV),1)
+CC_FLAGS.common += -DCOVERAGE
+endif
+
 #----------------------------------------------------------------------------------------------
 
 ifeq ($(TESTS),0)
@@ -204,7 +268,7 @@ endif
 
 #----------------------------------------------------------------------------------------------
 BOOST_DIR ?= $(ROOT)/.install/boost
-_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR) -DMAX_WORKER_THREADS=$(MAX_WORKER_THREADS) -DSAN=$(SAN)
+_CMAKE_FLAGS += -DMODULE_NAME=$(MODULE_NAME) -DBOOST_DIR=$(BOOST_DIR) -DMAX_WORKER_THREADS=$(MAX_WORKER_THREADS) -DSAN=$(SAN) -DCOV=$(COV)
 
 ifeq ($(OS),macos)
 _CMAKE_FLAGS += -DLIBSSL_DIR=$(openssl_prefix) -DAPPLE=ON
@@ -212,6 +276,7 @@ endif
 
 CMAKE_COORD += -DCOORD_TYPE=$(COORD)
 _CMAKE_FLAGS += $(CMAKE_ARGS) $(CMAKE_STATIC) $(CMAKE_COORD) $(CMAKE_TEST) $(CMAKE_LITE)
+
 
 include $(MK)/defs
 
@@ -225,6 +290,10 @@ ifeq ($(wildcard $(LIBUV)),)
 MISSING_DEPS += $(LIBUV)
 endif
 
+ifeq ($(wildcard $(REDISEARCH_RS)),)
+MISSING_DEPS += $(REDISEARCH_RS)
+endif
+
 ifeq ($(wildcard $(HIREDIS)),)
 #@@ MISSING_DEPS += $(HIREDIS)
 endif
@@ -233,7 +302,7 @@ ifneq ($(MISSING_DEPS),)
 DEPS=1
 endif
 
-DEPENDENCIES=libuv #@@  s2geometry hiredis
+DEPENDENCIES=libuv redisearch_rs #@@ s2geometry hiredis
 
 ifneq ($(filter all deps $(DEPENDENCIES) pack,$(MAKECMDGOALS)),)
 DEPS=1
@@ -245,38 +314,19 @@ endif
 
 include $(MK)/rules
 
-#----------------------------------------------------------------------------------------------
-
-export REJSON ?= 1
-
-PLATFORM_TRI:=$(shell $(READIES)/bin/platform -t)
-REJSON_BINDIR=$(ROOT)/bin/$(PLATFORM_TRI)/RedisJSON
-
-ifneq ($(REJSON),0)
-
-ifneq ($(SAN),)
-REJSON_BRANCH ?= master
-REJSON_SO=$(BINROOT)/RedisJSON/$(REJSON_BRANCH)/rejson.so
-REJSON_PATH=$(REJSON_SO)
-
-$(REJSON_SO):
-	$(SHOW)BINROOT=$(BINROOT) SAN=$(SAN) ./sbin/build-redisjson
-else
-REJSON_SO=
-endif
-
-endif # REJSON=0
 
 #----------------------------------------------------------------------------------------------
 
-clean:
+clean: clean-rust
 ifeq ($(ALL),1)
 	$(SHOW)rm -rf $(BINROOT)
-else ifeq ($(ALL),all)
-	$(SHOW)rm -rf $(BINROOT) $(REJSON_BINDIR)
 else
 	$(SHOW)$(MAKE) -C $(BINDIR) clean
 endif
+
+clean-rust:
+	$(SHOW)rm -rf $(REDISEARCH_RS_TARGET_DIR)
+	$(SHOW)rm -rf $(REDISEARCH_RS_BINDIR)
 
 #----------------------------------------------------------------------------------------------
 
@@ -308,6 +358,26 @@ libuv: $(LIBUV)
 $(LIBUV):
 	@echo Building libuv...
 	$(SHOW)$(MAKE) --no-print-directory -C build/libuv DEBUG=''
+
+# Annoying Rust trivia: the artifact directory name always matches the profile name
+# with the exception of the `dev` profile, where it's instead called `debug`
+# for historical reasons.
+ifeq ($(RUST_PROFILE),dev)
+RUST_ARTIFACT_SUBDIR=debug
+else
+RUST_ARTIFACT_SUBDIR=$(RUST_PROFILE)
+endif
+
+redisearch_rs:
+	@echo Building redisearch_rs..
+	$(SHOW)
+	$(SHOW)mkdir -p $(REDISEARCH_RS_TARGET_DIR)
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && RUSTFLAGS="$(RUSTFLAGS)" cargo build --profile="$(RUST_PROFILE)"
+	$(SHOW)mkdir -p $(REDISEARCH_RS_BINDIR)
+	$(SHOW)cp $(REDISEARCH_RS_TARGET_DIR)/$(RUST_ARTIFACT_SUBDIR)/*.a $(REDISEARCH_RS_BINDIR)
+
+# Ensure that redisearch_rs is built before attempting to build the main module
+$(TARGET): $(MISSING_DEPS) $(BINDIR)/Makefile redisearch_rs
 
 hiredis: $(HIREDIS)
 
@@ -352,10 +422,16 @@ else ifeq ($(SA),0)
 WITH_RLTEST=1
 endif
 
+# RedisJSON defaults:
+REJSON ?= 1
+REJSON_BRANCH ?= master
+REJSON_PATH ?=
+REJSON_ARGS ?=
+
 run:
 ifeq ($(WITH_RLTEST),1)
-	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) \
-	MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
+	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) REJSON_BRANCH=$(REJSON_BRANCH) REJSON_ARGS=$(REJSON_ARGS) \
+	 FORCE='' RLTEST= ENV_ONLY=1 LOG_LEVEL=$(LOG_LEVEL) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 else
 ifeq ($(GDB),1)
@@ -399,16 +475,42 @@ else
 _TEST_PARALLEL=$(TEST_PARALLEL)
 endif
 
-test: unit-tests pytest
+test: unit-tests pytest rust-tests
+
+# Temp hack - replace the arm artifact directory with aarch64 as it comes from build.sh since unit tests
+# access it directly (todo: refactor unit test flow completely)
+UPDATED_BINROOT:=$(subst arm64v8,aarch64,$(BINROOT))
 
 unit-tests:
-	$(SHOW)BINROOT=$(BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
+	@echo "UPDATED_BINROOT: $(UPDATED_BINROOT)"
+	$(SHOW)BINROOT=$(UPDATED_BINROOT) BENCH=$(BENCHMARK) TEST=$(TEST) GDB=$(GDB) $(ROOT)/sbin/unit-tests
 
-pytest: $(REJSON_SO)
-ifneq ($(REJSON_PATH),)
-	@echo Testing with $(REJSON_PATH)
+RUST_TEST_OPTIONS=--profile=$(RUST_PROFILE)
+ifeq ($(COV),1)
+# We use the `nightly` compiler in order to include doc tests in the coverage computation.
+# See https://github.com/taiki-e/cargo-llvm-cov/issues/2 for more details.
+RUST_TEST_RUNNER=cargo +nightly llvm-cov
+RUST_TEST_OPTIONS+=--doctests \
+	--codecov \
+	--workspace \
+	--exclude="trie_bencher" \
+	--ignore-filename-regex="trie_bencher/*" \
+	--output-path="$(ROOT)/bin/$(FULL_VARIANT)/rust_cov.info"
+else
+RUST_TEST_RUNNER=cargo
 endif
-	$(SHOW)REJSON=$(REJSON) REJSON_PATH=$(REJSON_PATH) TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
+
+rust-tests:
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && RUSTFLAGS="$(RUSTFLAGS)" $(RUST_TEST_RUNNER) test $(RUST_TEST_OPTIONS) $(TEST_NAME)
+ifeq ($(RUN_MIRI),1)
+	@printf "\n-------------- Running rust tests through miri ------------------\n"
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && RUSTFLAGS="$(RUSTFLAGS)" cargo +nightly miri test $(TEST_NAME)
+endif
+
+pytest:
+	@printf "\n-------------- Running python flow test ------------------\n"
+	$(SHOW)REJSON=$(REJSON) REJSON_BRANCH=$(REJSON_BRANCH) REJSON_PATH=$(REJSON_PATH) REJSON_ARGS=$(REJSON_ARGS) \
+	TEST=$(TEST) $(FLOW_TESTS_DEFS) FORCE='' PARALLEL=$(_TEST_PARALLEL) \
 	LOG_LEVEL=$(LOG_LEVEL) TEST_TIMEOUT=$(TEST_TIMEOUT) MODULE=$(MODULE) REDIS_STANDALONE=$(REDIS_STANDALONE) SA=$(SA) \
 		$(ROOT)/tests/pytests/runtests.sh $(abspath $(TARGET))
 
@@ -423,7 +525,34 @@ cpp-tests:
 vecsim-bench:
 	$(SHOW)$(BINROOT)/search/tests/cpptests/rsbench
 
-.PHONY: test unit-tests pytest c_tests cpp_tests vecsim-bench
+.PHONY: test unit-tests pytest rust-tests c_tests cpp_tests vecsim-bench
+
+#----------------------------------------------------------------------------------------------
+
+lint:
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo clippy -- -D warnings
+
+.PHONY: lint
+
+#----------------------------------------------------------------------------------------------
+
+ifeq ($(CHECK),1)
+RUSTFMT_FLAGS="--check"
+else
+RUSTFMT_FLAGS=""
+endif
+
+fmt:
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo fmt -- $(RUSTFMT_FLAGS)
+
+.PHONY: license-header
+
+#----------------------------------------------------------------------------------------------
+
+license-check:
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo license-check
+
+.PHONY: license-check
 
 #----------------------------------------------------------------------------------------------
 
@@ -458,7 +587,7 @@ PACK_ARGS=\
 	RAMP_YAML=$(RAMP_YAML) \
 	RAMP_ARGS=$(RAMP_ARGS)
 
-RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 DEPS=0 RELEASE=1 SNAPSHOT=0 $(PACK_ARGS) $(ROOT)/sbin/pack.sh)
+RAMP.release:=$(shell JUST_PRINT=1 RAMP=1 $(PACK_ARGS) $(ROOT)/sbin/pack.sh)
 
 ifneq ($(FORCE),1)
 bin/artifacts/$(RAMP.release): $(RAMP_YAML) # $(TARGET)
@@ -478,16 +607,12 @@ pack:
 
 endif # RAML_YAML
 
-upload-release:
-	$(SHOW)RELEASE=1 ./sbin/upload-artifacts
-
 upload-artifacts:
-	$(SHOW)SNAPSHOT=1 ./sbin/upload-artifacts
+	./sbin/upload-artifacts
 
-.PHONY: pack upload-artifacts upload-release
+.PHONY: pack upload-artifacts
 
 #----------------------------------------------------------------------------------------------
-
 ifeq ($(REMOTE),1)
 BENCHMARK_ARGS=run-remote
 else
@@ -496,15 +621,18 @@ endif
 
 BENCHMARK_ARGS += --module_path $(realpath $(TARGET)) --required-module search
 
-ifeq ($(REJSON),1)
-BENCHMARK_ARGS += --module_path $(realpath $(REJSON_PATH)) --required-module ReJSON
-endif
-
 ifneq ($(BENCHMARK),)
 BENCHMARK_ARGS += --test $(BENCHMARK)
 endif
 
+
+# Todo: fix that, currently will not work manually with rejson
 benchmark:
+ifeq ($(REJSON),1)
+	ROOT=$(ROOT) REJSON_BRANCH=$(REJSON_BRANCH) $(shell $(ROOT)/tests/deps/setup_rejson.sh)
+	BENCHMARK_ARGS += --module_path $(realpath $(JSON_BIN_DIR)) --required-module ReJSON
+endif
+
 	$(SHOW)cd tests/benchmarks ;\
 	redisbench-admin $(BENCHMARK_ARGS)
 
@@ -520,23 +648,31 @@ COV_EXCLUDE_DIRS += \
 
 COV_EXCLUDE+=$(foreach D,$(COV_EXCLUDE_DIRS),'$(realpath $(ROOT))/$(D)/*')
 
-ifeq ($(REJSON_PATH),)
-REJSON_MODULE_FILE:=$(shell mktemp /tmp/rejson.XXXXXX)
-REJSON_COV_ARG=REJSON_PATH=$$(cat $(REJSON_MODULE_FILE))
-endif
+coverage-unit:
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
+	$(SHOW)$(MAKE) unit-tests COV=1
+	$(SHOW)lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/unit.info
+	$(SHOW)lcov -a $(BINROOT)/base.info -a $(BINROOT)/unit.info -o $(BINROOT)/unit.info.1
+	$(SHOW)lcov -o $(BINROOT)/unit.info.2 -r $(BINROOT)/unit.info.1 $(COV_EXCLUDE)
+	$(SHOW)mv $(BINROOT)/unit.info.2 $(BINROOT)/unit.info
+	$(SHOW)rm $(BINROOT)/unit.info.1
 
-coverage:
-ifeq ($(REJSON_PATH),)
-	$(SHOW)OSS=1 MODULE_FILE=$(REJSON_MODULE_FILE) ./sbin/get-redisjson
-endif
-	$(SHOW)$(MAKE) build COV=1
-	$(SHOW)$(COVERAGE_RESET)
-	-$(SHOW)$(MAKE) unit-tests COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 $(REJSON_COV_ARG)
-	-$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 $(REJSON_COV_ARG)
-	$(SHOW)$(COVERAGE_COLLECT_REPORT)
+coverage-rust:
+	$(SHOW)$(MAKE) rust-tests COV=1
 
-.PHONY: coverage
+coverage-flow:
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -z
+	$(SHOW)lcov --directory $(BINROOT) --base-directory $(SRCDIR) -c -i -o $(BINROOT)/base.info
+	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=1 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
+	$(SHOW)$(MAKE) pytest REDIS_STANDALONE=0 COV=1 REJSON_BRANCH=$(REJSON_BRANCH)
+	$(SHOW)lcov --capture --directory $(BINROOT) --base-directory $(SRCDIR) --output-file $(BINROOT)/flow.info
+	$(SHOW)lcov -a $(BINROOT)/base.info -a $(BINROOT)/flow.info -o $(BINROOT)/flow.info.1
+	$(SHOW)lcov -o $(BINROOT)/flow.info.2 -r $(BINROOT)/flow.info.1 $(COV_EXCLUDE)
+	$(SHOW)mv $(BINROOT)/flow.info.2 $(BINROOT)/flow.info
+	$(SHOW)rm $(BINROOT)/flow.info.1
+
+.PHONY: coverage-unit coverage-flow coverage-rust
 
 #----------------------------------------------------------------------------------------------
 
