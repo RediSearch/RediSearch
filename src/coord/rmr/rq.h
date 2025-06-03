@@ -8,20 +8,25 @@
 #pragma once
 
 #include <stdlib.h>
+#include <stddef.h>
 
 typedef void (*MRQueueCallback)(void *);
 
-#ifndef RQ_C__
 typedef struct MRWorkQueue MRWorkQueue;
 
 MRWorkQueue *RQ_New(int maxPending);
+void RQ_Free(MRWorkQueue *q);
+
 void RQ_UpdateMaxPending(MRWorkQueue *q, int maxPending);
 
 void RQ_Done(MRWorkQueue *q);
 
 void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata);
 struct MRClusterTopology;
-void RQ_Push_Topology(MRQueueCallback cb, struct MRClusterTopology *topo);
+void RQ_Push_Topology(MRWorkQueue *q, MRQueueCallback cb, struct MRClusterTopology *topo);
 
-void RQ_Debug_ClearPendingTopo();
-#endif // RQ_C__
+void RQ_Debug_ClearPendingTopo(MRWorkQueue *q);
+
+const void* RQ_GetRuntime(const MRWorkQueue *q);
+
+size_t RQ_GetMaxPending(const MRWorkQueue *q);

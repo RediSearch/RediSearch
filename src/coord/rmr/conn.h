@@ -50,14 +50,8 @@ static inline const char *MRConnState_Str(MRConnState state) {
       return "<UNKNOWN STATE (CRASHES AHEAD!!!!)";
   }
 }
-
-typedef struct {
-  MREndpoint ep;
-  redisAsyncContext *conn;
-  MRConnState state;
-  void *timer;
-  int protocol; // 0 (undetermined), 2, or 3
-} MRConn;
+// opaque type
+typedef struct MRConn MRConn;
 
 /* A pool indexes connections by the node id */
 typedef struct {

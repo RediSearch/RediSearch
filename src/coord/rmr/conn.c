@@ -19,13 +19,25 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
+#include "rq_pool.h"
+
+typedef struct MRConn{
+  MREndpoint ep;
+  redisAsyncContext *conn;
+  MRConnState state;
+  void *timer;
+  int protocol; // 0 (undetermined), 2, or 3
+  uv_loop_t *runtime; // the libuv runtime
+} MRConn;
+
+
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
 static void MRConn_DisconnectCallback(const redisAsyncContext *, int);
 static int MRConn_Connect(MRConn *conn);
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState);
 static void MRConn_Free(void *ptr);
 static void MRConn_Stop(MRConn *conn);
-static MRConn *MR_NewConn(MREndpoint *ep);
+static MRConn *MR_NewConn(MREndpoint *ep, const uv_loop_t *runtime);
 static int MRConn_StartNewConnection(MRConn *conn);
 static int MRConn_SendAuth(MRConn *conn);
 
@@ -70,7 +82,8 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
 
   /* Create the connection */
   for (size_t i = 0; i < num; i++) {
-    pool->conns[i] = MR_NewConn(ep);
+    const MRWorkQueue *q = RQPool_GetQueue(i);
+    pool->conns[i] = MR_NewConn(ep, RQ_GetRuntime(q));
   }
   return pool;
 }
@@ -245,6 +258,12 @@ int MRConnManager_Disconnect(MRConnManager *m, const char *id) {
   return REDIS_ERR;
 }
 
+void uvStopConn(void *p) {
+  MRConn *conn = (MRConn *)p;
+  MRConn_Stop(conn);
+
+}
+
 // Shrink the connection pool to the given number of connections
 // Assumes that the number of connections is less than the current number of connections,
 // and that the new number of connections is greater than 0
@@ -255,8 +274,11 @@ void MRConnManager_Shrink(MRConnManager *m, size_t num) {
     MRConnPool *pool = dictGetVal(entry);
 
     for (size_t i = num; i < pool->num; i++) {
-      MRConn_Stop(pool->conns[i]);
+      // Need to close connection from the queue itself
+      MRWorkQueue *q = RQPool_GetQueue(i);
+      RQ_Push(q, uvStopConn, pool->conns[i]);
     }
+
     pool->num = num;
     pool->rr %= num; // set the round robin counter to the new pool size bound
     pool->conns = rm_realloc(pool->conns, num * sizeof(MRConn *));
@@ -278,7 +300,9 @@ void MRConnManager_Expand(MRConnManager *m, size_t num) {
     // There should always be at least one connection in the pool
     MREndpoint *ep = &pool->conns[0]->ep;
     for (size_t i = pool->num; i < num; i++) {
-      pool->conns[i] = MR_NewConn(ep);
+      // Runtime should already be set
+      MRWorkQueue *q = RQPool_GetQueue(i);
+      pool->conns[i] = MR_NewConn(ep, RQ_GetRuntime(q));
       MRConn_StartNewConnection(pool->conns[i]);
     }
     pool->num = num;
@@ -340,7 +364,7 @@ static void signalCallback(uv_timer_t *tm) {
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   if (!conn->timer) {
     conn->timer = rm_malloc(sizeof(uv_timer_t));
-    uv_timer_init(uv_default_loop(), conn->timer);
+    uv_timer_init(conn->runtime, conn->timer);
     ((uv_timer_t *)conn->timer)->data = conn;
   }
   CONN_LOG(conn, "Switching state to %s", MRConnState_Str(nextState));
@@ -655,10 +679,11 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
   }
 }
 
-static MRConn *MR_NewConn(MREndpoint *ep) {
+static MRConn *MR_NewConn(MREndpoint *ep, const uv_loop_t *runtime) {
   MRConn *conn = rm_malloc(sizeof(MRConn));
   *conn = (MRConn){.state = MRConn_Disconnected, .conn = NULL, .protocol = 0};
   MREndpoint_Copy(&conn->ep, ep);
+  conn->runtime = (uv_loop_t *)runtime;
   return conn;
 }
 
@@ -682,7 +707,7 @@ static int MRConn_Connect(MRConn *conn) {
   conn->conn->data = conn;
   conn->state = MRConn_Connecting;
 
-  redisLibuvAttach(conn->conn, uv_default_loop());
+  redisLibuvAttach(conn->conn, conn->runtime);
   redisAsyncSetConnectCallback(conn->conn, MRConn_ConnectCallback);
   redisAsyncSetDisconnectCallback(conn->conn, MRConn_DisconnectCallback);
 

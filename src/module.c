@@ -2789,7 +2789,6 @@ cleanup:
   // and since we already replied with error in this case (in the beginning of this function),
   // we can't pass `mc` to the unblock function.
   searchRequestCtx_Free(req);
-  MR_requestCompleted();
   MRCtx_Free(mc);
   return res;
 }
@@ -3261,7 +3260,6 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
       RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
     }
     searchRequestCtx_Free(MRCtx_GetPrivData(mrctx));
-    MR_requestCompleted();
     MRCtx_Free(mrctx);
   }
   return REDISMODULE_OK;

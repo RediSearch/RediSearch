@@ -14,6 +14,7 @@
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
 #include "coord/config.h"
+#include "rq.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,10 +28,10 @@
 
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
+#include "rq_pool.h"
 
 /* Currently a single cluster is supported */
 static MRCluster *cluster_g = NULL;
-static MRWorkQueue *rq_g = NULL;
 
 /* Coordination request timeout */
 long long timeout_g = 5000; // unused value. will be set in MR_Init
@@ -48,6 +49,7 @@ typedef struct MRCtx {
   RedisModuleBlockedClient *bc;
   bool mastersOnly;
   MRCommand cmd;
+  MRWorkQueue *queue;
 
   /**
    * This is a reduce function inside the MRCtx.
@@ -80,6 +82,7 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->bc = bc;
   RedisModule_Assert(ctx || bc);
   ret->fn = NULL;
+  ret->queue = RQPool_GetRoundRobinQueue();
 
   return ret;
 }
@@ -127,7 +130,6 @@ void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn) {
 
 static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
   // printf("FreePrivData called!\n");
-  MR_requestCompleted();
   if (p) {
     MRCtx *mc = p;
     MRCtx_Free(mc);
@@ -189,7 +191,7 @@ void MR_Init(MRCluster *cl, long long timeoutMS) {
 
   cluster_g = cl;
   timeout_g = timeoutMS;
-  rq_g = RQ_New(cl->mgr.nodeConns * PENDING_FACTOR);
+  RQPool_Init(cl->mgr.nodeConns, cl->mgr.nodeConns * PENDING_FACTOR);
 }
 
 int MR_CheckTopologyConnections(bool mastersOnly) {
@@ -229,10 +231,6 @@ static void uvMapRequest(void *p) {
   }
 }
 
-void MR_requestCompleted() {
-  RQ_Done(rq_g);
-}
-
 /* Fanout map - send the same command to all the shards, sending the collective
  * reply to the reducer callback */
 int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool block) {
@@ -244,7 +242,8 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
   }
   mrctx->reducer = reducer;
   mrctx->cmd = cmd;
-  RQ_Push(rq_g, uvFanoutRequest, mrctx);
+  MRWorkQueue *q = mrctx->queue;
+  RQ_Push(q, uvFanoutRequest, mrctx);
   return REDIS_OK;
 }
 
@@ -254,7 +253,8 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   RedisModule_Assert(!ctx->bc);
   ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
   RedisModule_BlockedClientMeasureTimeStart(ctx->bc);
-  RQ_Push(rq_g, uvMapRequest, ctx);
+  MRWorkQueue *q = ctx->queue;
+  RQ_Push(q, uvMapRequest, ctx);
   return REDIS_OK;
 }
 
@@ -266,20 +266,20 @@ static void uvUpdateTopologyRequest(void *p) {
 /* Set a new topology for the cluster */
 void MR_UpdateTopology(MRClusterTopology *newTopo) {
   // enqueue a request on the io thread, this can't be done from the main thread
-  RQ_Push_Topology(uvUpdateTopologyRequest, newTopo);
+  MRWorkQueue *global_q = RQPool_GetGlobalQueue();
+  RQ_Push_Topology(global_q, uvUpdateTopologyRequest, newTopo);
 }
 
-/* Modifying the connection pools cannot be done from the main thread */
-static void uvUpdateConnPerShard(void *p) {
-  size_t connPerShard = (uintptr_t)p;
-  MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
-  RQ_UpdateMaxPending(rq_g, connPerShard * PENDING_FACTOR);
-  MR_requestCompleted();
-}
+// /* Modifying the connection pools cannot be done from the main thread */
+// static void uvUpdateConnPerShard(void *p) {
+//   size_t connPerShard = (uintptr_t)p;
+//   MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
+//   RQ_UpdateMaxPending(rq_g, connPerShard * PENDING_FACTOR);
+// }
 
 extern size_t NumShards;
 void MR_UpdateConnPerShard(size_t connPerShard) {
-  if (!rq_g) return; // not initialized yet, we have nothing to update yet.
+  if (!RQPool_Initialized()) return; // not initialized yet, we have nothing to update yet.
   if (NumShards == 1) {
     // If we observe that there is only one shard from the main thread,
     // we know the uv thread is not initialized yet (and may never be).
@@ -288,8 +288,26 @@ void MR_UpdateConnPerShard(size_t connPerShard) {
     // This call should only update the connection pool `size` for when the connection pool is initialized.
     MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
   } else {
-    void *p = (void *)(uintptr_t)connPerShard;
-    RQ_Push(rq_g, uvUpdateConnPerShard, p);
+    size_t old_conn_count = cluster_g->mgr.nodeConns;
+    if(connPerShard >= old_conn_count) {
+      // Increase the number of run queue before expanding the connection pool
+      RQPool_Expand(connPerShard);
+      // New runtimes are in place, we can now submit more connections
+      MRConnManager_Expand(&cluster_g->mgr, connPerShard);
+    }
+    else {
+      // First, close the connections. This needs to be done from the event loop thread
+      MRConnManager_Shrink(&cluster_g->mgr, connPerShard);
+      // Destroy runtimes
+      RQPool_Shrink(connPerShard);
+
+    }
+    size_t rq_pool_size = RQPool_GetQueueCount();
+    for (size_t i = 0; i < rq_pool_size; i++) {
+      MRWorkQueue *q = RQPool_GetQueue(i);
+      size_t max_pending = connPerShard * PENDING_FACTOR;
+      RQ_UpdateMaxPending(q, max_pending);
+    }
   }
 }
 
@@ -297,7 +315,6 @@ static void uvGetConnectionPoolState(void *p) {
   RedisModuleBlockedClient *bc = p;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MRConnManager_ReplyState(&cluster_g->mgr, ctx);
-  MR_requestCompleted();
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
@@ -306,14 +323,14 @@ static void uvGetConnectionPoolState(void *p) {
 void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   RedisModule_BlockedClientMeasureTimeStart(bc);
-  RQ_Push(rq_g, uvGetConnectionPoolState, bc);
+  MRWorkQueue *global_q = RQPool_GetGlobalQueue();
+  RQ_Push(global_q, uvGetConnectionPoolState, bc);
 }
 
 static void uvReplyClusterInfo(void *p) {
   RedisModuleBlockedClient *bc = p;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MR_ReplyClusterInfo(ctx, cluster_g->topo);
-  MR_requestCompleted();
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
@@ -322,7 +339,8 @@ static void uvReplyClusterInfo(void *p) {
 void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   RedisModule_BlockedClientMeasureTimeStart(bc);
-  RQ_Push(rq_g, uvReplyClusterInfo, bc);
+  MRWorkQueue *global_q = RQPool_GetGlobalQueue();
+  RQ_Push(global_q, uvReplyClusterInfo, bc);
 }
 
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
@@ -443,6 +461,7 @@ struct MRIteratorCtx {
   short inProcess;  // Number of currently running commands on shards
   bool timedOut;    // whether the coordinator experienced a timeout
   bool freeFlag;    // whether the MRIterator should be freed
+  MRWorkQueue *q;   // The work queue for the iterator
 };
 
 struct MRIteratorCallbackCtx {
@@ -476,7 +495,6 @@ void MRIteratorCallback_ProcessDone(MRIteratorCallbackCtx *ctx) {
   short inProcess = __atomic_sub_fetch(&ctx->it->ctx.inProcess, 1, __ATOMIC_RELEASE);
   if (!inProcess) {
     MRIterator_Release(ctx->it);
-    RQ_Done(rq_g);
   }
 }
 
@@ -583,7 +601,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
     // We have more commands to send
     it->ctx.inProcess = it->ctx.pending;
     it->ctx.freeFlag = false; // Give the writers their reference back
-    RQ_Push(rq_g, iterManualNextCb, it);
+    RQ_Push(it->ctx.q, iterManualNextCb, it);
     return true; // We may have more replies (and we surely will)
   }
   // We have no pending commands and no more than channelThreshold replies to process.
@@ -607,6 +625,7 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
       .inProcess = 1,
       .timedOut = false,
       .freeFlag = false,
+      .q = cmd->queue,
     },
     .cbxs = rm_new(MRIteratorCallbackCtx),
   };
@@ -616,7 +635,7 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
     .it = ret,
   };
 
-  RQ_Push(rq_g, iterStartCb, ret);
+  RQ_Push(cmd->queue, iterStartCb, ret);
   return ret;
 }
 
@@ -662,7 +681,7 @@ void MRIterator_Release(MRIterator *it) {
     }
     // Send the DEL commands without reseting the free flag,
     // so we free the iterator after the DEL commands are done
-    RQ_Push(rq_g, iterManualNextCb, it);
+    RQ_Push(it->ctx.q, iterManualNextCb, it);
   } else {
     // No pending shards, so no remote resources to free.
     // Free the iterator and we are done.

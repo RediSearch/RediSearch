@@ -11,6 +11,7 @@
 #include "coord/rmr/redis_cluster.h"
 #include "module.h"
 #include <assert.h>
+#include "coord/rmr/rq_pool.h"
 
 DEBUG_COMMAND(shardConnectionStates) {
   if (argc != 2) return RedisModule_WrongArity(ctx);
@@ -38,7 +39,8 @@ DEBUG_COMMAND(resumeTopologyUpdater) {
 
 DEBUG_COMMAND(clearTopology) {
   if (argc != 2) return RedisModule_WrongArity(ctx);
-  RQ_Debug_ClearPendingTopo();
+  MRWorkQueue *q = RQPool_GetGlobalQueue();
+  RQ_Debug_ClearPendingTopo(q);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 
