@@ -10,17 +10,11 @@
 #pragma once
 
 #include "iterator_api.h"
-#include "util/timeout.h"
-#include "query_ctx.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/**
- * @param maxId - The maxID to return
- * @param numDocs - the number of docs to return
- */
 QueryIterator *IT_V2(NewEmptyIterator)(void);
 
 #ifdef __cplusplus
