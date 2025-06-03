@@ -17,10 +17,8 @@
 #include "qint.c"
 #include "redis_index.h"
 #include "numeric_filter.h"
-#include "redismodule.h"
 #include "rmutil/rm_assert.h"
 #include "geo_index.h"
-#include "module.h"
 
 uint64_t TotalIIBlocks = 0;
 

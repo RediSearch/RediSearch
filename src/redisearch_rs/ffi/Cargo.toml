@@ -6,7 +6,17 @@ license.workspace = true
 
 [build-dependencies]
 cc.workspace = true
-bindgen.workspace = true
+
+[target.'cfg(all(target_env="musl", target_os="linux"))'.build-dependencies.bindgen]
+# Statically link to the libclang on aarch64-unknown-linux-musl,
+# necessary on Alpine.
+# See https://github.com/rust-lang/rust-bindgen/issues/2360
+features = ["static"]
+workspace = true
+
+[target.'cfg(not(all(target_env="musl", target_os="linux")))'.build-dependencies.bindgen]
+features = ["runtime"]
+workspace = true
 
 [lints]
 workspace = true
