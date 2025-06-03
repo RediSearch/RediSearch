@@ -27,7 +27,7 @@ static IteratorStatus WI_Read(QueryIterator *base) {
     base->atEOF = true;
     return ITERATOR_EOF;
   }
-  base->current->docId = ++wi->currentId;
+  base->lastDocId = base->current->docId = ++wi->currentId;
   return ITERATOR_OK;
 }
 
@@ -37,18 +37,12 @@ static IteratorStatus WI_SkipTo(QueryIterator *base, t_docId docId) {
   WildcardIterator *wi = (QueryIterator *)base;
 
   if (wi->currentId > wi->topId || docId > wi->topId) {
-    wi->currentId = wi->topId;
-    base->current->docId = docId;
     base->atEOF = true;
     return ITERATOR_EOF;
   }
 
-  if (docId == 0) {
-    return WI_Read(base);
-  }
-
   wi->currentId = docId;
-  base->current->docId = docId;
+  base->lastDocId = base->current->docId = docId;
   return ITERATOR_OK;
 }
 
@@ -58,6 +52,7 @@ static void WI_Rewind(QueryIterator *base) {
   base->atEOF = false;
   base->lastDocId = 0;
 }
+
 /* Create a new wildcard iterator */
 QueryIterator *IT_V2(NewWildcardIterator_NonOptimized)(t_docId maxId, size_t numDocs) {
   WildcardIterator *wi = rm_calloc(1, sizeof(*wi));

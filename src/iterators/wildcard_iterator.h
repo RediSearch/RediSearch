@@ -20,7 +20,7 @@ typedef struct {
   t_docId topId;
   t_docId currentId;
   t_docId numDocs;
-} WildcardIterator, WildCardIteratorCtx;
+} WildcardIterator;
 
 /**
  * @param maxId - The maxID to return
