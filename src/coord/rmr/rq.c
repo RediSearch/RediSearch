@@ -10,6 +10,7 @@
 #include "rmalloc.h"
 #include "rmr.h"
 #include "coord/config.h"
+#include "rq_pool.h"
 
 struct queueItem {
   void *privdata;
@@ -18,6 +19,7 @@ struct queueItem {
 };
 
 typedef struct MRWorkQueue {
+  size_t id;
   struct queueItem *head;
   struct queueItem *tail;
   int pending;
@@ -66,8 +68,8 @@ extern RedisModuleCtx *RSDummyContext;
 
 static void topologyFailureCB(uv_timer_t *timer) {
   
-  RedisModule_Log(RSDummyContext, "warning", "Topology validation failed: not all nodes connected");
   MRWorkQueue *q = (MRWorkQueue *)timer->data;
+  RedisModule_Log(RSDummyContext, "warning", "Queue ID %u: Topology validation failed: not all nodes connected", q->id);
   uv_timer_stop(&q->topologyValidationTimer); // stop the validation timer
   // Mark the event loop thread as ready. This will allow any pending requests to be processed
   // (and fail, but it will unblock clients)
@@ -76,16 +78,17 @@ static void topologyFailureCB(uv_timer_t *timer) {
 }
 
 static void topologyTimerCB(uv_timer_t *timer) {
+  MRWorkQueue *q = (MRWorkQueue *)timer->data;
   if (MR_CheckTopologyConnections(true) == REDIS_OK) {
     MRWorkQueue *q = (MRWorkQueue *)timer->data;
     // We are connected to all master nodes. We can mark the event loop thread as ready
     q->loop_th_ready = true;
-    RedisModule_Log(RSDummyContext, "verbose", "All nodes connected");
+    RedisModule_Log(RSDummyContext, "verbose", "Queue ID %u: All nodes connected", q->id);
     uv_timer_stop(&q->topologyValidationTimer); // stop the timer repetition
     uv_timer_stop(&q->topologyFailureTimer);    // stop failure timer (as we are connected)
     triggerPendingQueues(q);
   } else {
-    RedisModule_Log(RSDummyContext, "verbose", "Waiting for all nodes to connect");
+    RedisModule_Log(RSDummyContext, "verbose", "Queue ID %u: Waiting for all nodes to connect", q->id);
   }
 }
 
@@ -94,7 +97,7 @@ static void topologyAsyncCB(uv_async_t *async) {
   struct queueItem *topo = exchangePendingTopo(q, NULL); // take the topology
   if (topo) {
     // Apply new topology
-    RedisModule_Log(RSDummyContext, "verbose", "Applying new topology");
+    RedisModule_Log(RSDummyContext, "verbose", "Queue ID %u: Applying new topology", q->id);
     // Mark the event loop thread as not ready. This will ensure that the next event on the event loop
     // will be the topology check. If the topology hasn't changed, the topology check will quickly
     // mark the event loop thread as ready again.
@@ -116,20 +119,23 @@ static void sideThread(void *arg) {
   MRWorkQueue *q = arg;
   // Mark the event loop thread as running before triggering the topology check.
   q->loop_th_running = true;
-  uv_async_send(&q->topologyAsync); // start the topology check
+  if(q->id == 0 ) {
+    // Only the global queue needs to initialize the timers.
+    uv_timer_init(&q->loop, &q->topologyValidationTimer);
+    uv_timer_init(&q->loop, &q->topologyFailureTimer);
+    uv_async_init(&q->loop, &q->topologyAsync, topologyAsyncCB);
+    uv_async_send(&q->topologyAsync); // start the topology check
+  }
   uv_run(&q->loop, UV_RUN_DEFAULT);
 }
 
 static void verify_uv_thread(MRWorkQueue *q) {
   if (loopThreadUninitialized(q)) {
-    uv_timer_init(&q->loop, &q->topologyValidationTimer);
-    uv_timer_init(&q->loop, &q->topologyFailureTimer);
-    uv_async_init(&q->loop, &q->topologyAsync, topologyAsyncCB);
     // Verify that we are running on the event loop thread
     int uv_thread_create_status = uv_thread_create(&q->loop_th, sideThread, q);
     RedisModule_Assert(uv_thread_create_status == 0);
     REDISMODULE_NOT_USED(uv_thread_create_status);
-    RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread");
+    RedisModule_Log(RSDummyContext, "verbose", "Queue ID %u: Created event loop thread", q->id);
   }
 }
 
@@ -186,7 +192,7 @@ static struct queueItem *rqPop(MRWorkQueue *q) {
     // So it's safe to do without the lock.
     if (q->head == q->pendingInfo.head && q->sz > q->pendingInfo.warnSize) {
       // If we hit the same head multiple times, we may have a problem. Log it once.
-      RedisModule_Log(RSDummyContext, "warning", "Work queue at max pending with the same head. Size: %zu", q->sz);
+      RedisModule_Log(RSDummyContext, "warning", "Queue ID %u: Work queue at max pending with the same head. Size: %zu", q->id, q->sz);
       q->pendingInfo.warnSize = q->sz + (1 << 10);
     } else {
       q->pendingInfo.head = q->head;
@@ -230,9 +236,10 @@ static void rqAsyncCb(uv_async_t *async) {
   }
 }
 
-MRWorkQueue *RQ_New(int maxPending) {
+MRWorkQueue *RQ_New(size_t id, int maxPending) {
 
   MRWorkQueue *q = rm_calloc(1, sizeof(*q));
+  q->id = id;
   q->sz = 0;
   q->head = NULL;
   q->tail = NULL;
@@ -248,6 +255,7 @@ MRWorkQueue *RQ_New(int maxPending) {
   q->topologyAsync.data = q;
   q->topologyFailureTimer.data = q;
   q->topologyValidationTimer.data = q;
+  q->pendingTopo = NULL;
   return q;
 }
 
