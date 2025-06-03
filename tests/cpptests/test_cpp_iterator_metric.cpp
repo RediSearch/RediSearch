@@ -36,11 +36,14 @@ protected:
       sortedScores.push_back(scores[i]);
     }
     t_docId* ids_array = (t_docId*)rm_malloc(sortedDocIds.size() * sizeof(t_docId));
-    double* scores_array = (double*)rm_malloc(sortedScores.size() * sizeof(double));
-
-    // Copy data into the allocated memory
     std::copy(sortedDocIds.begin(), sortedDocIds.end(), ids_array);
-    std::copy(sortedScores.begin(), sortedScores.end(), scores_array);
+
+    double *scores_array = nullptr;
+
+    if (yields_metric) {
+      scores_array = (double*)rm_malloc(sortedScores.size() * sizeof(double));
+      std::copy(sortedScores.begin(), sortedScores.end(), scores_array);
+    }
     iterator_base = IT_V2(NewMetricIterator)(ids_array, scores_array, indices.size(), metric_type, yields_metric);
   }
   void TearDown() override {

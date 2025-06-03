@@ -73,9 +73,7 @@ static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
 static void IL_Free(QueryIterator *self) {
   IdListIterator *it = (IdListIterator *)self;
   IndexResult_Free(self->current);
-  if (it->docIds) {
-      rm_free(it->docIds);
-  }
+  rm_free(it->docIds);
   rm_free(self);
 }
 
