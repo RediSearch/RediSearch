@@ -538,7 +538,7 @@ static void IndexReader_AdvanceBlock(IndexReader *ir) {
 DECODER(readFreqsFlags) {
   uint32_t delta, fieldMask;
   qint_decode3(&blockReader->buffReader, &delta, &res->freq, &fieldMask);
-  blockReader->curOffset = res->docId = delta + blockReader->curOffset;
+  blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = fieldMask;
   return fieldMask & ctx->mask;
 }
@@ -546,7 +546,7 @@ DECODER(readFreqsFlags) {
 DECODER(readFreqsFlagsWide) {
   uint32_t delta;
   qint_decode2(&blockReader->buffReader, &delta, &res->freq);
-  blockReader->curOffset = res->docId = delta + blockReader->curOffset;
+  blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
   return res->fieldMask & ctx->wideMask;
 }
@@ -554,7 +554,7 @@ DECODER(readFreqsFlagsWide) {
 DECODER(readFreqOffsetsFlags) {
   uint32_t delta, fieldMask;
   qint_decode4(&blockReader->buffReader, &delta, &res->freq, &fieldMask, &res->offsetsSz);
-  blockReader->curOffset = res->docId = delta + blockReader->curOffset;
+  blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = fieldMask;
   res->term.offsets.data = BufferReader_Current(&blockReader->buffReader);
   res->term.offsets.len = res->offsetsSz;
@@ -569,7 +569,7 @@ SKIPPER(seekFreqOffsetsFlags) {
   while (!BufferReader_AtEnd(&blockReader->buffReader)) {
     qint_decode4(&blockReader->buffReader, &did, &freq, &fm, &offsz);
     Buffer_Skip(&blockReader->buffReader, offsz);
-    blockReader->curOffset = (did += blockReader->curOffset);
+    blockReader->curBaseId = (did += blockReader->curBaseId);
     if (!(ctx->mask & fm)) {
       continue;  // we just ignore it if it does not match the field mask
     }
@@ -593,7 +593,7 @@ SKIPPER(seekFreqOffsetsFlags) {
 DECODER(readFreqOffsetsFlagsWide) {
   uint32_t delta;
   qint_decode3(&blockReader->buffReader, &delta, &res->freq, &res->offsetsSz);
-  blockReader->curOffset = res->docId = delta + blockReader->curOffset;
+  blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
@@ -608,7 +608,7 @@ DECODER(readNumeric) {
   // Read the delta (if not zero)
   t_docId delta = 0;
   Buffer_Read(&blockReader->buffReader, &delta, header.encCommon.deltaEncoding);
-  blockReader->curOffset = res->docId = blockReader->curOffset + delta;
+  blockReader->curBaseId = res->docId = blockReader->curBaseId + delta;
 
   switch (header.encCommon.type) {
     case NUM_ENCODING_COMMON_TYPE_FLOAT:
@@ -660,20 +660,20 @@ DECODER(readNumeric) {
 DECODER(readFreqs) {
   uint32_t delta;
   qint_decode2(&blockReader->buffReader, &delta, &res->freq);
-  blockReader->curOffset = res->docId = delta + blockReader->curOffset;
+  blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   return 1;
 }
 
 DECODER(readFlags) {
   uint32_t delta, mask;
   qint_decode2(&blockReader->buffReader, &delta, &mask);
-  blockReader->curOffset = res->docId = delta + blockReader->curOffset;
+  blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = mask;
   return mask & ctx->mask;
 }
 
 DECODER(readFlagsWide) {
-  blockReader->curOffset = res->docId = ReadVarint(&blockReader->buffReader) + blockReader->curOffset;
+  blockReader->curBaseId = res->docId = ReadVarint(&blockReader->buffReader) + blockReader->curBaseId;
   res->freq = 1;
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
   return res->fieldMask & ctx->wideMask;
@@ -683,7 +683,7 @@ DECODER(readFlagsOffsets) {
   uint32_t delta, mask;
   qint_decode3(&blockReader->buffReader, &delta, &mask, &res->offsetsSz);
   res->fieldMask = mask;
-  blockReader->curOffset = res->docId = delta + blockReader->curOffset;
+  blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return mask & ctx->mask;
@@ -693,7 +693,7 @@ DECODER(readFlagsOffsetsWide) {
   uint32_t delta;
   qint_decode2(&blockReader->buffReader, &delta, &res->offsetsSz);
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
-  blockReader->curOffset = res->docId = delta + blockReader->curOffset;
+  blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
 
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
@@ -703,7 +703,7 @@ DECODER(readFlagsOffsetsWide) {
 DECODER(readOffsets) {
   uint32_t delta;
   qint_decode2(&blockReader->buffReader, &delta, &res->offsetsSz);
-  blockReader->curOffset = res->docId = delta + blockReader->curOffset;
+  blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return 1;
@@ -712,14 +712,14 @@ DECODER(readOffsets) {
 DECODER(readFreqsOffsets) {
   uint32_t delta;
   qint_decode3(&blockReader->buffReader, &delta, &res->freq, &res->offsetsSz);
-  blockReader->curOffset = res->docId = delta + blockReader->curOffset;
+  blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return 1;
 }
 
 SKIPPER(seekRawDocIdsOnly) {
-  int64_t delta = expid - blockReader->curOffset;
+  int64_t delta = expid - blockReader->curBaseId;
 
   uint32_t curVal;
   Buffer_Read(&blockReader->buffReader, &curVal, sizeof(curVal));
@@ -760,7 +760,7 @@ found:
   Buffer_Seek(&blockReader->buffReader, (cur + 1) * sizeof(uint32_t));
 
 final:
-  res->docId = curVal + blockReader->curOffset;
+  res->docId = curVal + blockReader->curBaseId;
   res->freq = 1;
   return 1;
 }
@@ -768,13 +768,13 @@ final:
 DECODER(readRawDocIdsOnly) {
   uint32_t delta;
   Buffer_Read(&blockReader->buffReader, &delta, sizeof delta);
-  res->docId = delta + blockReader->curOffset; // Not changing curOffset on raw docids
+  res->docId = delta + blockReader->curBaseId; // Base ID is not changing on raw docids
   res->freq = 1;
   return 1;  // Don't care about field mask
 }
 
 DECODER(readDocIdsOnly) {
-  blockReader->curOffset = res->docId = ReadVarint(&blockReader->buffReader) + blockReader->curOffset;
+  blockReader->curBaseId = res->docId = ReadVarint(&blockReader->buffReader) + blockReader->curBaseId;
   res->freq = 1;
   return 1;  // Don't care about field mask
 }
@@ -926,7 +926,7 @@ int IR_Read(void *ctx, RSIndexResult **e) {
 
     IndexBlockReader reader = (IndexBlockReader){
       .buffReader = ir->br,
-      .curOffset = (ir->decoders.decoder != readRawDocIdsOnly) ? ir->lastId : IR_CURRENT_BLOCK(ir).firstId,
+      .curBaseId = (ir->decoders.decoder != readRawDocIdsOnly) ? ir->lastId : IR_CURRENT_BLOCK(ir).firstId,
     };
     int rv = ir->decoders.decoder(&reader, &ir->decoderCtx, ir->record);
     RSIndexResult *record = ir->record;
@@ -976,7 +976,7 @@ static bool IndexReader_ReadWithSeeker(IndexReader *ir, t_docId docId) {
     // try and find docId using seeker
     IndexBlockReader reader = (IndexBlockReader){
       .buffReader = ir->br,
-      .curOffset = (ir->decoders.decoder != readRawDocIdsOnly) ? ir->lastId : IR_CURRENT_BLOCK(ir).firstId,
+      .curBaseId = (ir->decoders.decoder != readRawDocIdsOnly) ? ir->lastId : IR_CURRENT_BLOCK(ir).firstId,
     };
     found = ir->decoders.seeker(&reader, &ir->decoderCtx, docId, ir->record);
     ir->br = reader.buffReader;
@@ -1278,7 +1278,7 @@ IndexIterator *NewReadIterator(IndexReader *ir) {
 size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params) {
   static const IndexDecoderCtx empty = {0};
 
-  IndexBlockReader reader = { .buffReader = NewBufferReader(&blk->buf), .curOffset = blk->firstId };
+  IndexBlockReader reader = { .buffReader = NewBufferReader(&blk->buf), .curBaseId = blk->firstId };
   BufferReader *br = &reader.buffReader;
   Buffer repair = {0};
   BufferWriter bw = NewBufferWriter(&repair);

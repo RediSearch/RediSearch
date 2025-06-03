@@ -53,7 +53,7 @@ typedef struct InvertedIndex {
 
 typedef struct IndexBlockReader {
   BufferReader buffReader;
-  t_docId curOffset;
+  t_docId curBaseId; // The current value to add to the decoded delta, to get the actual docId.
 } IndexBlockReader;
 
 /**
