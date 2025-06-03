@@ -11,13 +11,15 @@ use std::io::{Read, Seek, Write};
 
 pub use ffi::{RSIndexResult, t_docId};
 
+type Delta = usize;
+
 /// Encoder to write a record into an index
 pub trait Encoder {
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
     fn encode<W: Write + Seek>(
         writer: W,
-        delta: t_docId,
+        delta: Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize>;
 }
