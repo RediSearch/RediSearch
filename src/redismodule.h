@@ -218,6 +218,10 @@ This flag should not be used directly by the module.
 #define REDISMODULE_AUX_BEFORE_RDB (1<<0)
 #define REDISMODULE_AUX_AFTER_RDB (1<<1)
 
+/* RM_Yield flags */
+#define REDISMODULE_YIELD_FLAG_NONE (1<<0)
+#define REDISMODULE_YIELD_FLAG_CLIENTS (1<<1)
+
 /* This type represents a timer handle, and is returned when a timer is
  * registered and used in order to invalidate a timer. It's just a 64 bit
  * number, because this is how each timer is represented inside the radix tree
@@ -809,6 +813,7 @@ REDISMODULE_API int (*RedisModule_GetKeyspaceNotificationFlagsAll)() REDISMODULE
 REDISMODULE_API int (*RedisModule_IsSubEventSupported)(RedisModuleEvent event, uint64_t subevent) REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetServerVersion)() REDISMODULE_ATTR;
 REDISMODULE_API int (*RedisModule_GetTypeMethodVersion)() REDISMODULE_ATTR;
+REDISMODULE_API void (*RedisModule_Yield)(RedisModuleCtx *ctx, int flags, const char *busy_reply) REDISMODULE_ATTR;
 
 /* Experimental APIs */
 #ifdef REDISMODULE_EXPERIMENTAL_API
@@ -1089,6 +1094,7 @@ static int RedisModule_Init(RedisModuleCtx *ctx, const char *name, int ver, int 
     REDISMODULE_GET_API(IsSubEventSupported);
     REDISMODULE_GET_API(GetServerVersion);
     REDISMODULE_GET_API(GetTypeMethodVersion);
+    REDISMODULE_GET_API(Yield);
 
 #ifdef REDISMODULE_EXPERIMENTAL_API
     REDISMODULE_GET_API(GetThreadSafeContext);
