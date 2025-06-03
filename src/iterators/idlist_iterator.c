@@ -94,6 +94,23 @@ static void IL_Rewind(QueryIterator *base) {
   il->offset = 0;
 }
 
+static void IL_Init(IdListIterator *it, t_docId *ids, t_offset num, double weight) {
+  it->size = num;
+  it->docIds = ids;
+  it->offset = 0;
+  QueryIterator *base = &it->base;
+
+  setEof(base, false);
+  base->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
+  base->lastDocId = 0;
+  base->type = ID_LIST_ITERATOR;
+  base->NumEstimated = IL_NumEstimated;
+  base->Free = IL_Free;
+  base->Read = IL_Read;
+  base->SkipTo = IL_SkipTo;
+  base->Rewind = IL_Rewind;
+}
+
 QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weight) {
   // Assume the ids are not null and num > 0 otherwise these Iterator would not be created, avoid validation
   // first sort the ids, so the caller will not have to deal with it
@@ -102,22 +119,10 @@ QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weig
 
   IdListIterator *it = rm_new(IdListIterator);
   QueryIterator *ret = &it->base;
+  t_docId *docIds = rm_calloc(num, sizeof(t_docId));
+  if (num > 0) memcpy(docIds, ids, num * sizeof(t_docId));
 
-  it->size = num;
-  it->docIds = rm_calloc(num, sizeof(t_docId));
-  if (num > 0) memcpy(it->docIds, ids, num * sizeof(t_docId));
-  it->offset = 0;
-
-  setEof(ret, false);
-  ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
-  ret->lastDocId = 0;
-  ret->type = ID_LIST_ITERATOR;
-  ret->NumEstimated = IL_NumEstimated;
-  ret->Free = IL_Free;
-  ret->Read = IL_Read;
-  ret->SkipTo = IL_SkipTo;
-  ret->Rewind = IL_Rewind;
-
+  IL_Init(it, docIds, num, weight);
   return ret;
 }
 
@@ -158,30 +163,30 @@ static void MR_Free(QueryIterator *self) {
 }
 
 QueryIterator *IT_V2(NewMetricIterator)(t_docId *docIds, double *metric_list, size_t num_results, Metric metric_type, bool yields_metric) {
-  MetricIterator *mi = rm_new(MetricIterator);
-  IdListIterator *it = &mi->base;
-  QueryIterator *ret = &it->base;
-  mi->type = metric_type;
-  mi->metricList = metric_list;
-  it->docIds = docIds;
-  it->size = num_results;
-  it->offset = 0;
-
-  ret->lastDocId = 0;
-  setEof(ret, false);
-  ret->type = METRIC_ITERATOR;
-  ret->current = NewMetricResult();
-  // If we interested in yielding score
+  QueryIterator *ret;
   if (yields_metric) {
+    MetricIterator *mi = rm_new(MetricIterator);
+    IdListIterator *it = &mi->base;
+    ret = &it->base;
+    mi->type = metric_type;
+    mi->metricList = metric_list;
+    it->docIds = docIds;
+    it->size = num_results;
+    it->offset = 0;
+
+    ret->lastDocId = 0;
+    setEof(ret, false);
+    ret->type = METRIC_ITERATOR;
+    ret->current = NewMetricResult();
     ret->Read = MR_Read;
     ret->SkipTo = MR_SkipTo;
+    ret->Rewind = IL_Rewind;
+    ret->Free = MR_Free;
+    ret->NumEstimated = IL_NumEstimated;
   } else {
-    ret->Read = IL_Read;
-    ret->SkipTo = IL_SkipTo;
+    IdListIterator *it = rm_new(IdListIterator);
+    ret = &it->base;
+    IL_Init(it, docIds, num_results, 1.0);
   }
-  ret->Rewind = IL_Rewind;
-  ret->Free = MR_Free;
-  ret->NumEstimated = IL_NumEstimated;
-
   return ret;
 }

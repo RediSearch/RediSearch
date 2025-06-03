@@ -17,7 +17,7 @@ class MetricIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std:
 protected:
   std::vector<t_docId> docIds;
   std::vector<double> scores;
-  Metric metric_type; 
+  Metric metric_type;
   bool yields_metric;
   QueryIterator *iterator_base;
 
@@ -63,7 +63,7 @@ TEST_P(MetricIteratorCommonTest, Read) {
     sorted_docIds.push_back(docIds[i]);
     sorted_scores.push_back(scores[i]);
   }
-  
+
   IteratorStatus rc;
   ASSERT_EQ(iterator_base->NumEstimated(iterator_base), docIds.size());
 
@@ -75,13 +75,13 @@ TEST_P(MetricIteratorCommonTest, Read) {
     ASSERT_FALSE(iterator_base->atEOF);
 
     // Check score value if yields_metric is true
-    ASSERT_EQ(iterator_base->current->type, RSResultType_Metric);
     if (yields_metric) {
+      ASSERT_EQ(iterator_base->current->type, RSResultType_Metric);
       ASSERT_EQ(iterator_base->current->num.value, sorted_scores[i]);
       ASSERT_EQ(iterator_base->current->metrics[0].key, nullptr);
       ASSERT_EQ(iterator_base->current->metrics[0].value->t, RSValue_Number);
       ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sorted_scores[i]);
-    } 
+    }
     i++;
   }
 
