@@ -1506,7 +1506,7 @@ def test_utf8_lowercase_longer_than_uppercase_tags(env):
             'FT.SEARCH', 'idx', f'@t:{{{t1_lower}}}', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, [1, '{doc}:lower:1'])
 
-        # 63 characteres, occupying 126 bytes in UTF-8 + 1 byte for the
+        # 63 characters, occupying 126 bytes in UTF-8 + 1 byte for the
         # null terminator, so the total length is 127 bytes
         t2 = 'İ' * 63
         # 63 characters, occupying 189 bytes in UTF-8 + 1 byte for the
@@ -1586,7 +1586,7 @@ def test_utf8_lowercase_longer_than_uppercase_texts(env):
             'FT.SEARCH', 'idx', f'@t:({t1_lower})', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, [1, '{doc}:lower:1'])
 
-        # 63 characteres, occupying 126 bytes in UTF-8 + 1 byte for the
+        # 63 characters, occupying 126 bytes in UTF-8 + 1 byte for the
         # null terminator, so the total length is 127 bytes
         t2 = 'İ' * 63
         # 63 characters, occupying 189 bytes in UTF-8 + 1 byte for the
