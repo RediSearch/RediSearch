@@ -6,8 +6,8 @@ pub use ffi::{t_docId, RSIndexResult};
 pub trait Encoder {
     /// Write the record to the writer and return the number of bytes written. The delta is the
     /// pre-computed difference between the current document ID and the last document ID written.
-    fn encode(
-        writer: impl Write + Seek,
+    fn encode<W: Write + Seek>(
+        writer: W,
         delta: t_docId,
         record: &RSIndexResult,
     ) -> std::io::Result<usize>;
@@ -26,14 +26,14 @@ pub enum DecoderResult {
 pub trait Decoder {
     /// Decode the next record from the reader. The offset is the base value for any delta being
     /// decoded.
-    fn decode(&self, reader: impl Read, offset: t_docId) -> std::io::Result<DecoderResult>;
+    fn decode<R: Read>(&self, reader: R, offset: t_docId) -> std::io::Result<DecoderResult>;
 
     /// Like `[Decoder::decode]`, but seeks to a specific document ID and returns it.
     ///
     /// Returns `None` if there is no record greater than or equal to the target document ID.
-    fn seek(
+    fn seek<R: Read + Seek + Copy>(
         &self,
-        reader: impl Read + Seek + Copy,
+        reader: R,
         offset: t_docId,
         target: t_docId,
     ) -> std::io::Result<Option<RSIndexResult>> {
