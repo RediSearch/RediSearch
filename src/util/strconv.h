@@ -127,7 +127,7 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
                                               nu_tolower, nu_casemap_read);
 
   if (u_len > (SSO_MAX_LENGTH - 1)) {
-    u_buffer = (uint32_t *)rm_malloc(sizeof(uint32_t) * (u_len + 1));
+    u_buffer = (uint32_t *)rm_malloc(sizeof(*u_buffer) * (u_len + 1));
   }
 
   // Decode utf8 string into Unicode codepoints and transform to lower
