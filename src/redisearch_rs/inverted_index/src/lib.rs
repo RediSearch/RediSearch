@@ -9,7 +9,7 @@
 
 use std::io::{Read, Seek, Write};
 
-pub use ffi::{t_docId, RSIndexResult};
+pub use ffi::{RSIndexResult, t_docId};
 
 /// Encoder to write a record into an index
 pub trait Encoder {
