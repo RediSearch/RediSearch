@@ -7,6 +7,7 @@ members = [
     "tools/license_header_linter",
     "trie_bencher",
     "trie_rs",
+    "varint_bencher",
     "wildcard",
     "buffer",
     "encode_decode",

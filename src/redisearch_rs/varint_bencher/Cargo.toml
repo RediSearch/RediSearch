@@ -1,0 +1,36 @@
+[package]
+name = "varint_bencher"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[[bin]]
+name = "varint_bencher"
+# See https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+bench = false
+
+[[bench]]
+name = "core_operations"
+harness = false
+
+[[bench]]
+name = "vector_writer"
+harness = false
+
+
+[build-dependencies]
+bindgen.workspace = true
+
+[dependencies]
+criterion.workspace = true
+encode_decode = { workspace = true }
+redis_mock = { workspace = true }
+libc.workspace = true
+buffer = { workspace = true }
+
+[lints]
+workspace = true
