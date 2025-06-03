@@ -17,6 +17,8 @@
 #include <pthread.h>
 #include <errno.h>
 #include <time.h>
+#include <stdatomic.h>
+
 #if defined(__linux__)
 #include <sys/prctl.h>
 #endif
@@ -76,7 +78,7 @@ typedef struct redisearch_thpool_t {
   thread** threads;                 /* pointer to threads        */
   volatile int num_threads_alive;   /* threads currently alive   */
   volatile int num_threads_working; /* threads currently working */
-  volatile int keepalive;           /* keep pool alive           */
+  _Atomic int keepalive;           /* keep pool alive           */
   pthread_mutex_t thcount_lock;     /* used for thread count etc */
   pthread_cond_t threads_all_idle;  /* signal to thpool_wait     */
   jobqueue jobqueue;                /* job queue                 */
@@ -121,7 +123,7 @@ struct redisearch_thpool_t* redisearch_thpool_init(int num_threads) {
   }
   thpool_p->num_threads_alive = 0;
   thpool_p->num_threads_working = 0;
-  thpool_p->keepalive = 1;
+  atomic_store_explicit(&thpool_p->keepalive, 1, memory_order_relaxed);
 
   /* Initialise the job queue */
   if (jobqueue_init(&thpool_p->jobqueue) == -1) {
@@ -196,7 +198,7 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
   volatile int threads_total = thpool_p->num_threads_alive;
 
   /* End each thread 's infinite loop */
-  thpool_p->keepalive = 0;
+  atomic_store_explicit(&thpool_p->keepalive, 0, memory_order_relaxed);
 
   /* Give one second to kill idle threads */
   double TIMEOUT = 1.0;
@@ -321,11 +323,11 @@ static void* thread_do(struct thread* thread_p) {
   thpool_p->num_threads_alive += 1;
   pthread_mutex_unlock(&thpool_p->thcount_lock);
 
-  while (thpool_p->keepalive) {
+  while (atomic_load_explicit(&thpool_p->keepalive, memory_order_relaxed) == 1) {
 
     bsem_wait(thpool_p->jobqueue.has_jobs);
 
-    if (thpool_p->keepalive) {
+    if (atomic_load_explicit(&thpool_p->keepalive, memory_order_relaxed) == 1) {
 
       pthread_mutex_lock(&thpool_p->thcount_lock);
       thpool_p->num_threads_working++;
