@@ -10,7 +10,7 @@ members = [
     "trie_bencher",
     "trie_rs",
     "wildcard",
-    "buffer",
+    "buffer", "result_processor",
 ]
 default-members = [
     "low_memory_thin_vec",
