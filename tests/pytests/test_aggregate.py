@@ -957,16 +957,14 @@ def test_aggregate_timeout():
             pipeline.execute()
             pipeline = conn.pipeline(transaction=False)
     pipeline.execute()
-
-    # On coordinator, we currently get a single empty result on timeout,
-    # because all the shards timed out but the coordinator doesn't report it.
+    # On coordinator, all shards return empty results due to timeout, but the coordinator doesn't report it.
     env.expect('FT.AGGREGATE', 'idx', '*',
                'LOAD', '2', '@t1', '@__key',
                'APPLY', '@t1 ^ @t1', 'AS', 't1exp',
                'groupby', '2', '@t1', '@t1exp',
                     'REDUCE', 'tolist', '1', '@__key', 'AS', 'keys',
                'TIMEOUT', '1',
-        ).equal( ['Timeout limit was reached'] if not env.isCluster() else [1, ['t1', None, 't1exp', None, 'keys', []]])
+        ).equal( ['Timeout limit was reached'] if not env.isCluster() else [0])
 
 def testGroupProperties(env):
     conn = getConnectionByEnv(env)
