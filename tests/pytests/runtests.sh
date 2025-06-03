@@ -343,7 +343,7 @@ run_tests() {
 	if [[ -n $GITHUB_ACTIONS ]]; then
 		echo "::endgroup::"
 		if [[ $E != 0 ]]; then
-			echo "$title failed, error: $E" >> $GITHUB_STEP_SUMMARY
+			echo "::error title=$title:: code: $E"
 		fi
 	fi
 	return $E
