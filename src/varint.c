@@ -65,9 +65,7 @@ size_t WriteVarint(uint32_t value, BufferWriter *w) {
 
   size_t mem_growth = 0;
   // we assume buffer reserve will not fail
-  if (!!(mem_growth = Buffer_Reserve(w->buf, nw))) {
-    w->pos = w->buf->offset;
-  }
+  mem_growth = Buffer_Reserve(w->buf, nw);
 
   memcpy(BufferWriter_Current(w), VARINT_BUF(varint, pos), nw);
 
