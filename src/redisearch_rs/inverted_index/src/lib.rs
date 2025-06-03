@@ -24,9 +24,9 @@ pub enum DecoderResult {
 
 /// Decoder to read records from an index
 pub trait Decoder {
-    /// Decode the next record from the reader. The offset is the base value for any delta being
-    /// decoded.
-    fn decode<R: Read>(&self, reader: R, offset: t_docId) -> std::io::Result<DecoderResult>;
+    /// Decode the next record from the reader. If any delta values are decoded, then they should
+    /// add to the `base` document ID to get the actual document ID.
+    fn decode<R: Read>(&self, reader: R, base: t_docId) -> std::io::Result<DecoderResult>;
 
     /// Like `[Decoder::decode]`, but seeks to a specific document ID and returns it.
     ///
@@ -34,11 +34,11 @@ pub trait Decoder {
     fn seek<R: Read + Seek + Copy>(
         &self,
         reader: R,
-        offset: t_docId,
+        base: t_docId,
         target: t_docId,
     ) -> std::io::Result<Option<RSIndexResult>> {
         loop {
-            match self.decode(reader, offset)? {
+            match self.decode(reader, base)? {
                 DecoderResult::Record(record) if record.docId >= target => {
                     return Ok(Some(record));
                 }
