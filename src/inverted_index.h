@@ -52,7 +52,7 @@ typedef struct InvertedIndex {
 } InvertedIndex;
 
 typedef struct IndexBlockReader {
-  BufferReader br;
+  BufferReader buffReader;
   t_docId curOffset;
 } IndexBlockReader;
 
@@ -122,7 +122,7 @@ void InvertedIndex_Free(void *idx);
  * If the record should not be processed, it should not be populated and 0 should
  * be returned. Otherwise, the function should return 1.
  */
-typedef bool (*IndexDecoder)(IndexBlockReader *br, const IndexDecoderCtx *ctx, RSIndexResult *res);
+typedef bool (*IndexDecoder)(IndexBlockReader *, const IndexDecoderCtx *, RSIndexResult *out);
 
 struct IndexReader;
 /**
@@ -132,7 +132,7 @@ struct IndexReader;
  * The implementation of this function is optional. If this is not used, then
  * the decoder() implementation will be used instead.
  */
-typedef bool (*IndexSeeker)(IndexBlockReader *br, const IndexDecoderCtx *ctx, t_docId to, RSIndexResult *res);
+typedef bool (*IndexSeeker)(IndexBlockReader *, const IndexDecoderCtx *, t_docId to, RSIndexResult *out);
 
 typedef struct {
   IndexDecoder decoder;
