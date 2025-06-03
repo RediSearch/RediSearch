@@ -1506,6 +1506,23 @@ def test_utf8_lowercase_longer_than_uppercase_tags(env):
             'FT.SEARCH', 'idx', f'@t:{{{t1_lower}}}', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, [1, '{doc}:lower:1'])
 
+        # 63 characteres, occupying 126 bytes in UTF-8 + 1 byte for the
+        # null terminator, so the total length is 127 bytes
+        t2 = 'İ' * 63
+        # 63 characters, occupying 189 bytes in UTF-8 + 1 byte for the
+        # null terminator, so the total length is 190 bytes
+        t2_lower = t2.lower()
+        conn.execute_command('HSET', '{doc}:upper:2', 't', t2)
+        conn.execute_command('HSET', '{doc}:lower:2', 't', t2_lower)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:{{{t2}}}', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:upper:2'])
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:{{{t2_lower}}}', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:lower:2'])
+
 
 def test_utf8_lowercase_longer_than_uppercase_texts(env):
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
@@ -1568,3 +1585,20 @@ def test_utf8_lowercase_longer_than_uppercase_texts(env):
         res = conn.execute_command(
             'FT.SEARCH', 'idx', f'@t:({t1_lower})', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, [1, '{doc}:lower:1'])
+
+        # 63 characteres, occupying 126 bytes in UTF-8 + 1 byte for the
+        # null terminator, so the total length is 127 bytes
+        t2 = 'İ' * 63
+        # 63 characters, occupying 189 bytes in UTF-8 + 1 byte for the
+        # null terminator, so the total length is 190 bytes
+        t2_lower = t2.lower()
+        conn.execute_command('HSET', '{doc}:upper:2', 't', t2)
+        conn.execute_command('HSET', '{doc}:lower:2', 't', t2_lower)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t2})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:upper:2'])
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t2_lower})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:lower:2'])
