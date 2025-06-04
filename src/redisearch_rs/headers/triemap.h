@@ -74,6 +74,13 @@ typedef struct LowMemoryThinVecCVoid TrieMapResultBuf;
  */
 typedef void (*TrieMapRangeCallback)(const char*, size_t, void*, void*);
 
+/**
+ * Represents a numeric value in an index record.
+ */
+typedef struct RSNumericRecord {
+  double value;
+} RSNumericRecord;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
