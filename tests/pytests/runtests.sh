@@ -325,7 +325,7 @@ run_tests() {
 
 	[[ $RLEC == 1 ]] && export RLEC_CLUSTER=1
 
-	local E=0
+	local E=27
 	if [[ $NOP != 1 ]]; then
 		{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
 	else
@@ -339,7 +339,6 @@ run_tests() {
 		kill -TERM $XREDIS_PID
 	fi
 
-	E = 27
 	if [[ -n $GITHUB_ACTIONS ]]; then
 		echo "::endgroup::"
 		if [[ $E != 0 ]]; then
@@ -531,19 +530,19 @@ echo "Running tests in parallel using $parallel Python processes"
 
 if [[ $REDIS_STANDALONE == 1 ]]; then
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
-		{ (run_tests "RediSearch tests"); (( E |= $? )); } || false
+		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi
 
 	if [[ $QUICK != 1 ]]; then
 
 		if [[ -z $CONFIG || $CONFIG == raw_docid ]]; then
 			{ (MODARGS="${MODARGS}; RAW_DOCID_ENCODING true;" \
-				run_tests "with raw DocID encoding"); (( E |= $? )); } || false
+				run_tests "with raw DocID encoding"); (( E |= $? )); } || true
 		fi
 
 		if [[ -z $CONFIG || $CONFIG == dialect_2 ]]; then
 			{ (MODARGS="${MODARGS}; DEFAULT_DIALECT 2;" \
-				run_tests "with Dialect v2"); (( E |= $? )); } || false
+				run_tests "with Dialect v2"); (( E |= $? )); } || true
 		fi
 	fi
 
