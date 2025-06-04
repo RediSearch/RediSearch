@@ -17,6 +17,8 @@
 #include "util/dllist.h"
 #include "stemmer.h"
 
+#include "triemap.h" // Import all the types defined in Rust
+
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;
 // used to represent the id of a single field.
@@ -290,10 +292,6 @@ typedef struct {
 typedef struct {
   char dummy;
 } RSVirtualRecord;
-
-typedef struct {
-  double value;
-} RSNumericRecord;
 
 typedef enum {
   RSResultType_Union = 0x1,

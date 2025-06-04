@@ -6,7 +6,10 @@ pragma_once = true
 
 [parse]
 parse_deps = true
-include = ["libc", "low_memory_thin_vec"]
+include = ["inverted_index", "libc", "low_memory_thin_vec"]
+
+[export]
+include = ["RSNumericRecord"]
 
 [export.rename]
 # Workaround for https://github.com/mozilla/cbindgen/issues/539

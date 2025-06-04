@@ -17,3 +17,5 @@ pub mod trie;
 #[cfg(not(feature = "mock_allocator"))]
 #[global_allocator]
 static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
+
+pub mod types;

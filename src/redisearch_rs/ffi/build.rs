@@ -33,7 +33,8 @@ fn main() {
         let redis_modules = root.join("deps").join("RedisModulesSDK");
         let src = root.join("src");
         let deps = root.join("deps");
-        [redis_modules, src, deps]
+        let redisearch_rs = root.join("src").join("redisearch_rs").join("headers");
+        [redis_modules, src, deps, redisearch_rs]
     };
 
     let headers = {

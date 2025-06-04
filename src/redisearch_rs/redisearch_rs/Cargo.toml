@@ -35,6 +35,7 @@ trie_rs = { workspace = true }
 redis_mock = { workspace = true, optional = true }
 wildcard = { workspace = true }
 buffer = { workspace = true }
+inverted_index = { version = "0.0.1", path = "../inverted_index" }
 
 [dev-dependencies]
 redisearch_rs = { path = ".", features = ["mock_allocator"] }
