@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <time.h>
 /**
- * Forward declaration of RSIndexResult. It will be correctly defined in `redisearch.h`
+ * Forward declaration of RSIndexResult. It will be defined in `redisearch.h`
  */
 typedef struct RSIndexResult RSIndexResult;
 
