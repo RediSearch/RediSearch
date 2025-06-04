@@ -15,6 +15,7 @@ jobs:
     uses: ./.github/workflows/task-get-latest-tag.yml
     with:
       repo: redis/redis
+      prefix: 8.2
 
   check-what-changed:
     uses: ./.github/workflows/task-check-changes.yml
