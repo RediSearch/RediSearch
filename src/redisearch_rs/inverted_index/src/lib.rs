@@ -66,16 +66,16 @@ pub struct RSTermRecord {
 #[repr(C)]
 pub struct RSAggregateResult {
     /// The number of child records
-    num_children: c_int,
+    pub num_children: c_int,
 
     /// The capacity of the records array. Has no use for extensions
-    children_cap: c_int,
+    pub children_cap: c_int,
 
     /// An array of records
-    children: *mut *mut RSIndexResult,
+    pub children: *mut *mut RSIndexResult,
 
     /// A map of the aggregate type of the underlying records
-    type_mask: u32,
+    pub type_mask: u32,
 }
 
 /// Encoder to write a record into an index
