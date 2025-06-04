@@ -9,7 +9,7 @@ parse_deps = true
 include = ["inverted_index", "libc", "low_memory_thin_vec"]
 
 [export]
-include = ["RSNumericRecord"]
+include = ["RSAggregateResult", "RSNumericRecord"]
 
 [export.rename]
 # Workaround for https://github.com/mozilla/cbindgen/issues/539

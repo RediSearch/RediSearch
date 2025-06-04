@@ -75,6 +75,28 @@ typedef struct LowMemoryThinVecCVoid TrieMapResultBuf;
 typedef void (*TrieMapRangeCallback)(const char*, size_t, void*, void*);
 
 /**
+ * Represents an aggregate array of values in an index record.
+ */
+typedef struct RSAggregateResult {
+  /**
+   * The number of child records
+   */
+  int numChildren;
+  /**
+   * The capacity of the records array. Has no use for extensions
+   */
+  int childrenCap;
+  /**
+   * An array of records
+   */
+  void **children;
+  /**
+   * A map of the aggregate type of the underlying records
+   */
+  uint32_t typeMask;
+} RSAggregateResult;
+
+/**
  * Represents a numeric value in an index record.
  */
 typedef struct RSNumericRecord {

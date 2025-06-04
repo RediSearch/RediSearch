@@ -7,8 +7,27 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::ffi::{c_int, c_void};
+
 /// Represents a numeric value in an index record.
 /// cbindgen:field-names=[value]
 #[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
 #[repr(C)]
 pub struct RSNumericRecord(pub f64);
+
+/// Represents an aggregate array of values in an index record.
+/// cbindgen:field-names=[numChildren, childrenCap, children, typeMask]
+#[repr(C)]
+pub struct RSAggregateResult {
+    /// The number of child records
+    num_children: c_int,
+
+    /// The capacity of the records array. Has no use for extensions
+    children_cap: c_int,
+
+    /// An array of records
+    children: *mut *mut c_void,
+
+    /// A map of the aggregate type of the underlying records
+    type_mask: u32,
+}
