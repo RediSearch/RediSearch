@@ -105,31 +105,36 @@ impl<'a> std::io::Write for BufferWriter<'a> {
     }
 }
 
-// Check, at compile-time, that `BufferWriter` and `ffi::BufferWriter` have the same representation.
-const _: () = {
+#[cfg(test)]
+mod tests {
+    use crate::BufferWriter;
     use std::mem::offset_of;
 
-    // Size and alignment check
-    const SIZE_MATCHES: bool = size_of::<BufferWriter>() == size_of::<ffi::BufferWriter>();
-    const ALIGN_MATCHES: bool = align_of::<BufferWriter>() == align_of::<ffi::BufferWriter>();
+    #[test]
+    // Check, at compile-time, that `BufferWriter` and `ffi::BufferWriter` have the same representation.
+    const fn check_repr() {
+        // Size and alignment check
+        const SIZE_MATCHES: bool = size_of::<BufferWriter>() == size_of::<ffi::BufferWriter>();
+        const ALIGN_MATCHES: bool = align_of::<BufferWriter>() == align_of::<ffi::BufferWriter>();
 
-    // Field offset checks
-    const BUFFER_OFFSET_MATCHES: bool =
-        offset_of!(BufferWriter<'static>, buffer) == offset_of!(ffi::BufferWriter, buf);
-    const POSITION_OFFSET_MATCHES: bool =
-        offset_of!(BufferWriter<'static>, position) == offset_of!(ffi::BufferWriter, pos);
+        // Field offset checks
+        const BUFFER_OFFSET_MATCHES: bool =
+            offset_of!(BufferWriter<'static>, buffer) == offset_of!(ffi::BufferWriter, buf);
+        const POSITION_OFFSET_MATCHES: bool =
+            offset_of!(BufferWriter<'static>, position) == offset_of!(ffi::BufferWriter, pos);
 
-    // Conditional compilation failure on mismatch for BufferWriter
-    if !SIZE_MATCHES {
-        panic!("Size mismatch between BufferWriter and ffi::BufferWriter");
+        // Conditional compilation failure on mismatch for BufferWriter
+        if !SIZE_MATCHES {
+            panic!("Size mismatch between BufferWriter and ffi::BufferWriter");
+        }
+        if !ALIGN_MATCHES {
+            panic!("Alignment mismatch between BufferWriter and ffi::BufferWriter");
+        }
+        if !BUFFER_OFFSET_MATCHES {
+            panic!("Field 'buffer' does not match offset of 'buf' in BufferWriter");
+        }
+        if !POSITION_OFFSET_MATCHES {
+            panic!("Field 'position' does not match offset of 'pos' in BufferWriter");
+        }
     }
-    if !ALIGN_MATCHES {
-        panic!("Alignment mismatch between BufferWriter and ffi::BufferWriter");
-    }
-    if !BUFFER_OFFSET_MATCHES {
-        panic!("Field 'buffer' does not match offset of 'buf' in BufferWriter");
-    }
-    if !POSITION_OFFSET_MATCHES {
-        panic!("Field 'position' does not match offset of 'pos' in BufferWriter");
-    }
-};
+}
