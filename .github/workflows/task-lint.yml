@@ -33,11 +33,31 @@ jobs:
         id: fmt
         continue-on-error: true
         run: make fmt CHECK=1
-
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        id: advisories
+        continue-on-error: true
+        with:
+          command: check advisories
+          arguments: --all-features
+          manifest-path: src/redisearch_rs/Cargo.toml
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        id: dep-licenses
+        continue-on-error: true
+        with:
+          command: check licenses
+          arguments: --all-features
+          manifest-path: src/redisearch_rs/Cargo.toml
       - name: Fail if any step failed
-        if: steps.lint.outcome == 'failure' || steps.license-header.outcome == 'failure' || steps.fmt.outcome == 'failure'
+        if: |
+          steps.lint.outcome == 'failure' ||
+          steps.license-header.outcome == 'failure' ||
+          steps.fmt.outcome == 'failure' ||
+          steps.advisories.outcome == 'failure' ||
+          steps.dep-licenses.outcome == 'failure'
         run: |
           echo "Linting: ${{ steps.lint.outcome }}"
           echo "License header: ${{ steps.license-header.outcome }}"
           echo "Formatting: ${{ steps.fmt.outcome }}"
+          echo "Security advisories: ${{ steps.advisories.outcome }}"
+          echo "Dependency licenses: ${{ steps.dep-licenses.outcome }}"
           exit 1
