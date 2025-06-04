@@ -11,11 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  get-latest-redis-tag:
-    uses: ./.github/workflows/task-get-latest-tag.yml
-    with:
-      repo: redis/redis
-      prefix: "8.2"
+
 
   check-what-changed:
     uses: ./.github/workflows/task-check-changes.yml
@@ -30,17 +26,17 @@ jobs:
     uses: ./.github/workflows/task-spellcheck.yml
 
   basic-test:
-    needs: [check-what-changed, get-latest-redis-tag]
+    needs: [check-what-changed]
     if: ${{ needs.check-what-changed.outputs.CODE_CHANGED == 'true' }}
     uses: ./.github/workflows/task-test.yml
     with:
       test-config: QUICK=1
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      get-redis: 8.2
       rejson-branch: master
     secrets: inherit
 
   coverage:
-    needs: [check-what-changed, get-latest-redis-tag]
+    needs: [check-what-changed]
     if: >
       vars.ENABLE_CODE_COVERAGE != 'false' && (
           (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') ||
@@ -49,13 +45,13 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     with:
       coverage: true
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      get-redis: 8.2
       rejson-branch: master
       test-config: QUICK=1
     secrets: inherit
 
   sanitize:
-    needs: [check-what-changed, get-latest-redis-tag]
+    needs: [check-what-changed]
     if: >
       (
         (!github.event.pull_request.draft && needs.check-what-changed.outputs.CODE_CHANGED == 'true') ||
@@ -65,13 +61,12 @@ jobs:
     uses: ./.github/workflows/task-test.yml
     with:
       san: address
-      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
+      get-redis: 8.2
       rejson-branch: master
       test-config: QUICK=1
 
   pr-validation:
     needs:
-      - get-latest-redis-tag
       - check-what-changed
       - spellcheck
       - basic-test
