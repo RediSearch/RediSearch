@@ -46,15 +46,19 @@ pub enum DecoderResult {
     Record(RSIndexResult),
     /// The record was filtered out and should not be returned.
     FilteredOut,
-    /// There is nothing more left on the reader to decode.
-    EndOfStream,
 }
 
 /// Decoder to read records from an index
 pub trait Decoder {
     /// Decode the next record from the reader. If any delta values are decoded, then they should
     /// add to the `base` document ID to get the actual document ID.
-    fn decode<R: Read>(&self, reader: &mut R, base: t_docId) -> std::io::Result<DecoderResult>;
+    ///
+    /// Returns `Ok(None)` if there is nothing left on the reader to decode.
+    fn decode<R: Read>(
+        &self,
+        reader: &mut R,
+        base: t_docId,
+    ) -> std::io::Result<Option<DecoderResult>>;
 
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
@@ -67,11 +71,11 @@ pub trait Decoder {
     ) -> std::io::Result<Option<RSIndexResult>> {
         loop {
             match self.decode(reader, base)? {
-                DecoderResult::Record(record) if record.docId >= target => {
+                Some(DecoderResult::Record(record)) if record.docId >= target => {
                     return Ok(Some(record));
                 }
-                DecoderResult::Record(_) | DecoderResult::FilteredOut => continue,
-                DecoderResult::EndOfStream => return Ok(None),
+                Some(DecoderResult::Record(_)) | Some(DecoderResult::FilteredOut) => continue,
+                None => return Ok(None),
             }
         }
     }
