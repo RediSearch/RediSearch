@@ -11,6 +11,17 @@ on:
         required: true
         type: string
 
+env:
+  TAGS: | # Make sure there is no trailing comma!
+    [
+      {"Key": "Name",         "Value": "redisearch-ci-runner"},
+      {"Key": "Environment",  "Value": "CI"},
+      {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
+      {"Key": "PR",           "Value": "${{ github.event.number }}"},
+      {"Key": "Owner",        "Value": "${{ github.actor }}"},
+      {"Key": "Project",      "Value": "${{ github.repository }}"}
+    ]
+
 jobs:
   start-runner:
     name: Start self-hosted EC2 runner
@@ -22,19 +33,20 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.ARTIFACT_UPLOAD_AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.ARTIFACT_UPLOAD_AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-west-2
+          aws-access-key-id: ${{ secrets.CI_CTO_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.CI_CTO_AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.CI_CTO_AWS_REGION }}
       - name: Start EC2 runner
         id: start-ec2-runner
         uses: machulav/ec2-github-runner@v2
         with:
           mode: start
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.CI_GH_P_TOKEN }}
           ec2-image-id: ${{ inputs.ami-id }}
           ec2-instance-type: ${{ inputs.instance-type }}
           subnet-id: ${{ secrets.CI_CTO_AWS_EC2_SUBNET_ID }}
           security-group-id: ${{ secrets.CI_CTO_AWS_EC2_SG_ID }}
+          aws-resource-tags: ${{ env.TAGS }}
 
   micro-benchmark:
     name: Run micro-benchmarks on runner
