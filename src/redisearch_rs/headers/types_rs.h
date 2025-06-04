@@ -6,6 +6,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
+/**
+ * Forward declaration of RSQueryTerm. It will be defined in `redisearch.h`
+ */
+typedef struct RSQueryTerm RSQueryTerm;
+
 
 /**
  * Represents a numeric value in an index record.
@@ -13,3 +18,26 @@
 typedef struct RSNumericRecord {
   double value;
 } RSNumericRecord;
+
+/**
+ * Represents the encoded offsets of a term in a document. You can read the offsets by iterating
+ * over it with RSOffsetVector_Iterator
+ */
+typedef struct RSOffsetVector {
+  char *data;
+  uint32_t len;
+} RSOffsetVector;
+
+/**
+ * Represents a single record of a document inside a term in the inverted index
+ */
+typedef struct RSTermRecord {
+  /**
+   * The term that brought up this record
+   */
+  RSQueryTerm *term;
+  /**
+   * The encoded offsets in which the term appeared in the document
+   */
+  struct RSOffsetVector offsets;
+} RSTermRecord;
