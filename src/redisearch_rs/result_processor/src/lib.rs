@@ -5,7 +5,7 @@
  * Licensed under your choice of the Redis Source Available License 2.0
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
- */
+*/
 
 use libc::{c_int, timespec};
 use pin_project_lite::pin_project;
@@ -30,14 +30,14 @@ pub enum Error {
 
 /// This is the main trait that Rust result processors need to implement
 pub trait ResultProcessor {
-    /// The type of this result processsor.
+    /// The type of this result processor.
     const TYPE: ffi::ResultProcessorType;
 
     /// Pull the next [`SearchResult`] from this result processor into the provided `res` location.
     ///
     /// Should return `Ok(Some(()))` if a search result was successfully pulled from the processor
     /// and `Ok(None)` to indicate the end of search results has been reached.
-    /// `Err(_)` cases should be returned to indicate expectional error.
+    /// `Err(_)` cases should be returned to indicate exceptional error.
     fn next(
         &mut self,
         cx: Context,
@@ -79,7 +79,7 @@ impl Upstream<'_> {
     ///
     /// # Errors
     ///
-    /// Returns `Err(_)` for expectional error cases.
+    /// Returns `Err(_)` for exceptional error cases.
     pub fn next(&mut self, res: &mut MaybeUninit<ffi::SearchResult>) -> Result<Option<()>, Error> {
         let next = self.result_processor.next.unwrap();
 
