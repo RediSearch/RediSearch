@@ -379,10 +379,12 @@ if [[ $RLEC != 1 ]]; then
 
 	if [[ -z $MODULE ]]; then
 		if [[ -n $BINROOT ]]; then
-			if [[ -z $COORD ]]; then
+			if [[ -z "$COORD" || "$COORD" == "0" ]]; then
 				MODULE=$BINROOT/search/redisearch.so
 			elif [[ $COORD == oss ]]; then
 				MODULE=$BINROOT/oss-coord/module-oss.so
+			elif [[ $COORD == rlec ]]; then
+				MODULE=$BINROOT/coord-enterprise/module-enterprise.so
 			fi
 		fi
 		if [[ -z $MODULE || ! -f $MODULE ]]; then
@@ -470,7 +472,7 @@ fi
 
 # Prepare RedisJSON module to be loaded into testing environment if required.
 if [[ $REJSON != 0 ]]; then
-  ROOT=$ROOT REJSON_BRANCH=$REJSON_BRANCH source $ROOT/tests/deps/setup_rejson.sh
+  ROOT="$ROOT" BINROOT="${BINROOT}/${FULL_VARIANT}" REJSON_BRANCH="$REJSON_BRANCH" source $ROOT/tests/deps/setup_rejson.sh
   echo "Using RedisJSON module at $JSON_BIN_PATH, with the following args: $REJSON_ARGS"
   RLTEST_REJSON_ARGS="--module ${JSON_BIN_PATH} --module-args $REJSON_ARGS"
 else
@@ -520,8 +522,7 @@ if [[ $GC == 0 ]]; then
 fi
 
 echo "Running tests in parallel using $parallel Python processes"
-if [[ -z $COORD ]]; then
-
+if [[ -z $COORD || $COORD == 0 ]]; then
 	if [[ $QUICK != "~1" && -z $CONFIG ]]; then
 		{ (run_tests "RediSearch tests"); (( E |= $? )); } || true
 	fi

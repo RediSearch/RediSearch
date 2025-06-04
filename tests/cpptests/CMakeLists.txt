@@ -16,13 +16,14 @@ file(GLOB TEST_SOURCES "test_cpp_*.cpp")
 add_executable(rstest ${TEST_SOURCES} common.cpp index_utils.cpp)
 target_link_libraries(rstest gtest ${TEST_MODULE} ${CMAKE_LD_LIBS} redismock)
 set_target_properties(rstest PROPERTIES LINKER_LANGUAGE CXX)
-# set_property(TARGET rstest PROPERTY CXX_STANDARD 11)
-add_dependencies(rstest example_extension)
+
+# Only add dependency on example_extension if it's being built
+if (BUILD_EXAMPLE_EXTENSION)
+    add_dependencies(rstest example_extension)
+endif()
 add_test(NAME rstest COMMAND rstest)
-# set_tests_properties(rstest PROPERTIES ENVIRONMENT "EXT_TEST_PATH=$<TARGET_FILE:example_extension>")
 
 file(GLOB BENCHMARK_SOURCES "benchmark_*.cpp")
 add_executable(rsbench ${BENCHMARK_SOURCES} index_utils.cpp)
 target_link_libraries(rsbench ${TEST_MODULE} redismock ${CMAKE_LD_LIBS} pthread)
 set_target_properties(rsbench PROPERTIES LINKER_LANGUAGE CXX)
-# set_property(TARGET rsbench PROPERTY CXX_STANDARD 11)
