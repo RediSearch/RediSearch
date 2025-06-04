@@ -33,6 +33,10 @@ impl From<Delta> for usize {
     }
 }
 
+/// Dummy type needed by `[RSAggregateResult]` else the C compiler will complain. This will be
+/// redefined in the C code at `redisearch.h`.
+struct RSIndexResult;
+
 /// Represents a numeric value in an index record.
 /// cbindgen:field-names=[value]
 #[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
@@ -68,7 +72,7 @@ pub struct RSAggregateResult {
     children_cap: c_int,
 
     /// An array of records
-    children: *mut *mut c_void,
+    children: *mut *mut RSIndexResult,
 
     /// A map of the aggregate type of the underlying records
     type_mask: u32,
