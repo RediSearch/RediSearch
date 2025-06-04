@@ -15,7 +15,7 @@ void RQPool_Init(size_t numQueues, int maxPending);
 bool RQPool_Initialized(void);
 
 // Get the global work queue - for cluster-control operations
-MRWorkQueue *RQPool_GetGlobalQueue(void);
+MRWorkQueue *RQPool_GetControlPlaneQueue(void);
 
 // Get the number or work queues
 size_t RQPool_GetQueueCount(void);

@@ -54,8 +54,8 @@ DEBUG_COMMAND(clearTopology) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   if (argc != 2) return RedisModule_WrongArity(ctx);
-  MRWorkQueue *q = RQPool_GetGlobalQueue();
-  RQ_Debug_ClearPendingTopo(q);
+  MRWorkQueue *control_plane_queue = RQPool_GetControlPlaneQueue();
+  RQ_Debug_ClearPendingTopo(control_plane_queue);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

@@ -29,7 +29,7 @@ typedef struct MRConn{
   MRConnState state;
   void *timer;
   int protocol; // 0 (undetermined), 2, or 3
-  uv_loop_t *runtime; // the libuv runtime
+  const uv_loop_t *runtime; // the libuv runtime, this is what connects a MRConnection to a specific ConnectionPool
 } MRConn;
 
 
@@ -73,6 +73,7 @@ typedef struct {
   size_t num;
   size_t rr;  // round robin counter
   MRConn **conns;
+  MRConn *control_plane_conn;
 } MRConnPool;
 
 static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
@@ -81,6 +82,7 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
       .num = num,
       .rr = 0,
       .conns = rm_calloc(num, sizeof(MRConn *)),
+      .control_plane_conn = NULL,
   };
 
   /* Create the connection */
@@ -88,6 +90,7 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
     const MRWorkQueue *q = RQPool_GetQueue(i);
     pool->conns[i] = MR_NewConn(ep, RQ_GetRuntime(q));
   }
+  pool->control_plane_conn = pool->conns[0];
   return pool;
 }
 
@@ -264,7 +267,6 @@ int MRConnManager_Disconnect(MRConnManager *m, const char *id) {
 void uvStopConn(void *p) {
   MRConn *conn = (MRConn *)p;
   MRConn_Stop(conn);
-
 }
 
 // Shrink the connection pool to the given number of connections
@@ -492,10 +494,10 @@ static int MRConn_TlsPasswordCallback(char *buf, int size, int rwflag, void *u) 
 }
 
 static SSL_CTX* MRConn_CreateSSLContext(const char *cacert_filename,
-				         const char *cert_filename,
-					 const char *private_key_filename,
-					 const char *private_key_pass,
-					 redisSSLContextError *error)
+                                        const char *cert_filename,
+                                        const char *private_key_filename,
+                                        const char *private_key_pass,
+                                        redisSSLContextError *error)
 {
     SSL_CTX *ssl_ctx = SSL_CTX_new(SSLv23_client_method());
     if (!ssl_ctx) {

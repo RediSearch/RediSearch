@@ -247,6 +247,7 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
         mrctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
     RedisModule_BlockedClientMeasureTimeStart(mrctx->bc);
   }
+  //Is possible that mrctx->fn may already be there and reducer to be null
   mrctx->reducer = reducer;
   mrctx->cmd = cmd;
   MRWorkQueue *q = mrctx->queue;
@@ -273,8 +274,8 @@ static void uvUpdateTopologyRequest(void *p) {
 /* Set a new topology for the cluster */
 void MR_UpdateTopology(MRClusterTopology *newTopo) {
   // enqueue a request on the io thread, this can't be done from the main thread
-  MRWorkQueue *global_q = RQPool_GetGlobalQueue();
-  RQ_Push_Topology(global_q, uvUpdateTopologyRequest, newTopo);
+  MRWorkQueue *control_plane_q = RQPool_GetControlPlaneQueue();
+  RQ_Push_Topology(control_plane_q, uvUpdateTopologyRequest, newTopo);
 }
 
 // /* Modifying the connection pools cannot be done from the main thread */
@@ -286,6 +287,7 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
 
 extern size_t NumShards;
 void MR_UpdateConnPerShard(size_t connPerShard) {
+  //TODO(Joan): Should we consider that for the RQPool we already have a control plane queue?
   if (!RQPool_Initialized()) return; // not initialized yet, we have nothing to update yet.
   if (NumShards == 1) {
     // If we observe that there is only one shard from the main thread,
@@ -307,12 +309,16 @@ void MR_UpdateConnPerShard(size_t connPerShard) {
       MRConnManager_Shrink(&cluster_g->mgr, connPerShard);
       // Destroy runtimes
       RQPool_Shrink(connPerShard);
-
     }
     size_t rq_pool_size = RQPool_GetQueueCount();
-    for (size_t i = 0; i < rq_pool_size; i++) {
+    size_t max_pending = connPerShard * PENDING_FACTOR;
+
+    MRWorkQueue * control_plane_q = RQPool_GetControlPlaneQueue();
+    RQ_UpdateMaxPending(control_plane_q, max_pending);
+
+    // Idx 0 is the control plane queue and may require different settings
+    for (size_t i = 1; i < rq_pool_size; i++) {
       MRWorkQueue *q = RQPool_GetQueue(i);
-      size_t max_pending = connPerShard * PENDING_FACTOR;
       RQ_UpdateMaxPending(q, max_pending);
     }
   }
@@ -330,8 +336,8 @@ static void uvGetConnectionPoolState(void *p) {
 void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   RedisModule_BlockedClientMeasureTimeStart(bc);
-  MRWorkQueue *global_q = RQPool_GetGlobalQueue();
-  RQ_Push(global_q, uvGetConnectionPoolState, bc);
+  MRWorkQueue *contorl_plane_q = RQPool_GetControlPlaneQueue();
+  RQ_Push(contorl_plane_q, uvGetConnectionPoolState, bc);
 }
 
 static void uvReplyClusterInfo(void *p) {
@@ -346,8 +352,8 @@ static void uvReplyClusterInfo(void *p) {
 void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   RedisModule_BlockedClientMeasureTimeStart(bc);
-  MRWorkQueue *global_q = RQPool_GetGlobalQueue();
-  RQ_Push(global_q, uvReplyClusterInfo, bc);
+  MRWorkQueue *contorl_plane_q = RQPool_GetControlPlaneQueue();
+  RQ_Push(contorl_plane_q, uvReplyClusterInfo, bc);
 }
 
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
