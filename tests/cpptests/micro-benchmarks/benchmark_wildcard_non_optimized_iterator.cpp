@@ -52,7 +52,7 @@ public:
 template <typename IteratorType>
 bool BM_WildcardIterator<IteratorType>::initialized = false;
 
-#define DOCS_SCENARIOS() Arg(10)->Arg(100)->Arg(1000)->Arg(10000)->Arg(100000)->Arg(1000000)
+#define DOCS_SCENARIOS() RangeMultiplier(10)->Range(10, 1'000'000)
 
 BENCHMARK_TEMPLATE1_DEFINE_F(BM_WildcardIterator, Read, QueryIterator)(benchmark::State &state) {
   IteratorStatus rc;
