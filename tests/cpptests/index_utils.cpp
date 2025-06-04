@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "index_utils.h"
 #include "common.h"
 #include "src/index.h"
@@ -10,7 +19,8 @@ std::string numToDocStr(unsigned id) {
 
 size_t addDocumentWrapper(RedisModuleCtx *ctx, RSIndex *index, const char *docid, const char *field, const char *value) {
     size_t beforAddMem = get_spec(index)->stats.invertedSize;
-    assert(RS::addDocument(ctx, index, docid, field, value));
+    bool rv = RS::addDocument(ctx, index, docid, field, value);
+    assert(rv);
     return (get_spec(index))->stats.invertedSize - beforAddMem;
 }
 
@@ -70,7 +80,7 @@ RefManager *createSpec(RedisModuleCtx *ctx) {
 }
 
 void freeSpec(RefManager *ism) {
-    IndexSpec_RemoveFromGlobals({ism});
+    IndexSpec_RemoveFromGlobals({ism}, false);
 }
 
 NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field) {

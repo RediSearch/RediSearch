@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "cluster_spell_check.h"
 #include "redismodule.h"
 #include "spell_check.h"
@@ -91,16 +93,16 @@ static bool spellCheckReplySanity_resp2(MRReply *reply, uint64_t *totalDocNum, Q
   }
 
   if (type != MR_REPLY_ARRAY) {
-    QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected array. Got %d",
-                            MRReply_Type(reply));
+    QueryError_SetWithoutUserDataFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected array. Got %d",
+                               MRReply_Type(reply));
     return false;
   }
 
   MRReply *ndocs = MRReply_ArrayElement(reply, 0);
 
   if (MRReply_Type(ndocs) != MR_REPLY_INTEGER) {
-    QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "Expected first reply as integer. Have %d",
-                           MRReply_Type(ndocs));
+    QueryError_SetWithoutUserDataFmt(qerr, QUERY_EGENERIC, "Expected first reply as integer. Have %d",
+                               MRReply_Type(ndocs));
     return false;
   }
 
@@ -117,16 +119,16 @@ static bool spellCheckReplySanity_resp3(MRReply *reply, uint64_t *totalDocNum, Q
   }
 
   if (type != MR_REPLY_MAP) {
-    QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected map. Got %d",
-                            MRReply_Type(reply));
+    QueryError_SetWithoutUserDataFmt(qerr, QUERY_EGENERIC, "wrong reply type. Expected map. Got %d",
+                               MRReply_Type(reply));
     return false;
   }
 
   MRReply *ndocs = MRReply_MapElement(reply, "total_docs");
 
   if (MRReply_Type(ndocs) != MR_REPLY_INTEGER) {
-    QueryError_SetErrorFmt(qerr, QUERY_EGENERIC, "Expected total_docs as integer. Have %d",
-                           MRReply_Type(ndocs));
+    QueryError_SetWithoutUserDataFmt(qerr, QUERY_EGENERIC, "Expected total_docs as integer. Have %d",
+                               MRReply_Type(ndocs));
     return false;
   }
 

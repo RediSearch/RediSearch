@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include <aggregate/reducer.h>
 
 typedef struct {
@@ -36,7 +38,7 @@ static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   if (sc->seen < r->len) {
     RSVALUE_ARRELEM(sc->samplesArray, sc->seen) = RSValue_IncrRef(v);
     RSVALUE_ARRLEN(sc->samplesArray)++;
-    assert(RSVALUE_ARRLEN(sc->samplesArray) <= r->len);
+    RS_ASSERT(RSVALUE_ARRLEN(sc->samplesArray) <= r->len);
   } else {
     size_t i = rand() % (sc->seen + 1);
     if (i < r->len) {
@@ -72,7 +74,7 @@ Reducer *RDCRRandomSample_New(const ReducerOptions *options) {
     return NULL;
   }
   if (samplesize > MAX_SAMPLE_SIZE) {
-    QERR_MKBADARGS_FMT(options->status, "Sample size too large");
+    QueryError_SetError(options->status, QUERY_EPARSEARGS, "Sample size too large");
     rm_free(ret);
     return NULL;
   }

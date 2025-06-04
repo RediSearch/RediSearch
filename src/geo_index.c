@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "index.h"
 #include "geo_index.h"
 #include "rmutil/util.h"
@@ -13,6 +15,71 @@
 #include "query_param.h"
 
 static double extractUnitFactor(GeoDistance unit);
+
+static void CheckAndSetEmptyFilterValue(ArgsCursor *ac, bool *hasEmptyFilterValue) {
+  const char *val;
+
+  int rv = AC_GetString(ac, &val, NULL, AC_F_NOADVANCE);
+  if (rv == AC_OK && !(*val)) {
+    *hasEmptyFilterValue = true;
+  }
+}
+
+/* Parse a geo filter from redis arguments. We assume the filter args start at argv[0], and FILTER
+ * is not passed to us.
+ * The GEO filter syntax is (FILTER) <property> LONG LAT DIST m|km|ft|mi
+ * Returns REDISMODUEL_OK or ERR  */
+int GeoFilter_LegacyParse(LegacyGeoFilter *gf, ArgsCursor *ac, bool *hasEmptyFilterValue, QueryError *status) {
+  *gf = (LegacyGeoFilter){0};
+
+  if (AC_NumRemaining(ac) < 5) {
+    QueryError_SetError(status, QUERY_EPARSEARGS, "GEOFILTER requires 5 arguments");
+    return REDISMODULE_ERR;
+  }
+
+  int rv;
+  // Store the field name at the field spec pointer, to validate later
+  const char *fieldName = NULL;
+  if ((rv = AC_GetString(ac, &fieldName, NULL, 0)) != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for <geo property>: %s", AC_Strerror(rv));
+    return REDISMODULE_ERR;
+  }
+  if ((rv = AC_GetDouble(ac, &gf->base.lon, AC_F_NOADVANCE) != AC_OK)) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for <lon>: %s", AC_Strerror(rv));
+    return REDISMODULE_ERR;
+  }
+  if (gf->base.lon == 0) {
+    CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
+  }
+  AC_Advance(ac);
+
+  if ((rv = AC_GetDouble(ac, &gf->base.lat, AC_F_NOADVANCE)) != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for <lat>: %s", AC_Strerror(rv));
+    return REDISMODULE_ERR;
+  }
+  if (gf->base.lat == 0) {
+    CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
+  }
+  AC_Advance(ac);
+
+  if ((rv = AC_GetDouble(ac, &gf->base.radius, AC_F_NOADVANCE)) != AC_OK) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for <radius>: %s", AC_Strerror(rv));
+    return REDISMODULE_ERR;
+  }
+  if (gf->base.radius == 0) {
+    CheckAndSetEmptyFilterValue(ac, hasEmptyFilterValue);
+  }
+  AC_Advance(ac);
+
+  const char *unitstr = AC_GetStringNC(ac, NULL);
+  if ((gf->base.unitType = GeoDistance_Parse(unitstr)) == GEO_DISTANCE_INVALID) {
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Unknown distance unit", " %s", unitstr);
+    return REDISMODULE_ERR;
+  }
+  // only allocate on the success path
+  gf->field = NewHiddenString(fieldName, strlen(fieldName), false);
+  return REDISMODULE_OK;
+}
 
 void GeoFilter_Free(GeoFilter *gf) {
   if (gf->numericFilters) {
@@ -25,11 +92,18 @@ void GeoFilter_Free(GeoFilter *gf) {
   rm_free(gf);
 }
 
+void LegacyGeoFilter_Free(LegacyGeoFilter *gf) {
+  if (gf->field) {
+    HiddenString_Free(gf->field, false);
+  }
+  GeoFilter_Free(&gf->base);
+}
+
 static t_docId *geoRangeLoad(const GeoIndex *gi, const GeoFilter *gf, size_t *num) {
   *num = 0;
   t_docId *docIds = NULL;
   RedisModuleString *s = IndexSpec_GetFormattedKey(gi->ctx->spec, gi->sp, INDEXFLD_T_GEO);
-  RS_LOG_ASSERT(s, "failed to retrive key");
+  RS_LOG_ASSERT(s, "failed to retrieve key");
   /*GEORADIUS key longitude latitude radius m|km|ft|mi */
   RedisModuleCtx *ctx = gi->ctx->redisCtx;
   RedisModuleString *slon = RedisModule_CreateStringPrintf(ctx, "%f", gf->lon);
@@ -79,12 +153,12 @@ IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *g
   IndexIterator **iters = rm_calloc(GEO_RANGE_COUNT, sizeof(*iters));
   ((GeoFilter *)gf)->numericFilters = rm_calloc(GEO_RANGE_COUNT, sizeof(*gf->numericFilters));
   size_t itersCount = 0;
-  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = gf->field->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
+  FieldFilterContext filterCtx = {.field = {.isFieldMask = false, .value = {.index = gf->fieldSpec->index}}, .predicate = FIELD_EXPIRATION_DEFAULT};
   for (size_t ii = 0; ii < GEO_RANGE_COUNT; ++ii) {
     if (ranges[ii].min != ranges[ii].max) {
       NumericFilter *filt = gf->numericFilters[ii] =
-              NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, true);
-      filt->field = gf->field;
+              NewNumericFilter(ranges[ii].min, ranges[ii].max, 1, 1, true, NULL);
+      filt->fieldSpec = gf->fieldSpec;
       filt->geoFilter = gf;
       struct indexIterator *numIter = NewNumericFilterIterator(ctx, filt, csx, INDEXFLD_T_GEO, config, &filterCtx);
       if (numIter != NULL) {
@@ -209,7 +283,7 @@ static double extractUnitFactor(GeoDistance unit) {
       break;
     default:
       rv = -1;
-      assert(0);
+      RS_ABORT("ERROR");
       break;
   }
   return rv;

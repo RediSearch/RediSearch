@@ -17,6 +17,10 @@ on:
         type: string
         description: 'if empty allows all setups. if not, will only trigger for a specific setup'
         default: ""
+      rejson_branch:
+        type: string
+        default: master
+        description: 'branch to use for rejson'
   workflow_call:
     inputs:
       extended:
@@ -29,6 +33,10 @@ on:
         type: string
         description: 'if empty allows all setups. if not, will only trigger for a specific setup'
         default: ""
+      notify_failure:
+        type: boolean
+        default: false
+        description: 'if true, will notify failure on slack'
 
 jobs:
   benchmark-search-oss-standalone:
@@ -36,7 +44,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        member_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
@@ -62,11 +70,12 @@ jobs:
       benchmark_runner_group_total: ${{ strategy.job-total }}
 
   benchmark-search-oss-cluster-02-primaries:
+    needs: benchmark-search-oss-standalone
     if: ${{ inputs.allowed_setup == '' || inputs.allowed_setup == 'oss-cluster-02-primaries' }}
     strategy:
       fail-fast: false
       matrix:
-        member_id: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        member_id: [1, 2, 3]
     uses: ./.github/workflows/benchmark-flow.yml
     secrets: inherit
     with:
@@ -191,3 +200,28 @@ jobs:
       allowed_setups: oss-standalone
       benchmark_runner_group_member_id: ${{ matrix.member_id }}
       benchmark_runner_group_total: ${{ strategy.job-total }}
+
+  notify-failure:
+    needs:
+      - benchmark-search-oss-standalone
+      - benchmark-vecsim-oss-standalone
+      - benchmark-search-oss-cluster-02-primaries
+      - benchmark-search-oss-cluster-04-primaries
+      - benchmark-search-oss-cluster-08-primaries
+      - benchmark-search-oss-cluster-16-primaries
+      - benchmark-search-oss-cluster-20-primaries
+      - benchmark-search-oss-cluster-24-primaries
+      - benchmark-search-oss-standalone-profiler
+      - benchmark-vecsim-oss-standalone-profiler
+    if: ${{ failure() && inputs.notify_failure }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
+    steps:
+      - name: Notify Failure
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "failed_workflow": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_BENCHMARK_FAILED }}

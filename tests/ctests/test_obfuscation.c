@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "test_util.h"
 #include "src/query_node.h"
 #include "src/obfuscation/obfuscation_api.h"
@@ -6,7 +15,7 @@
 #include <string.h>
 
 struct RSQueryNode;
-char *Obfuscate_QueryNode(struct RSQueryNode *node);
+const char *Obfuscate_QueryNode(struct RSQueryNode *node);
 
 enum {
     IndexSize = MAX_OBFUSCATED_INDEX_NAME,
@@ -27,38 +36,45 @@ int testMax ## name ## Obfuscation() {                             \
     return strcmp(obfuscated, #name"@18446744073709551615");       \
 }
 
-DEFINE_OBJECT_OBFUSCATION_TESTS(Index)
 DEFINE_OBJECT_OBFUSCATION_TESTS(Field)
 DEFINE_OBJECT_OBFUSCATION_TESTS(FieldPath)
 DEFINE_OBJECT_OBFUSCATION_TESTS(Document)
 
+int testSimpleIndexObfuscation() {
+  Sha1 sha;
+  Sha1_Compute("idx", 3, &sha);
+  char buffer[MAX_OBFUSCATED_INDEX_NAME];
+  Obfuscate_Index(&sha, buffer);
+  return strcmp(buffer, "Index@4e7f626df794f6491574a236f22c100c34ed804f");
+}
+
 int testTextObfuscation() {
-    char *obfuscated = Obfuscate_Text("hello");
+    const char *obfuscated = Obfuscate_Text("hello");
     return strcmp(obfuscated, "Text");
 }
 
 int testNumberObfuscation() {
-    char *obfuscated = Obfuscate_Number(rand());
+    const char *obfuscated = Obfuscate_Number(rand());
     return strcmp(obfuscated, "Number");
 }
 
 int testVectorObfuscation() {
-    char *obfuscated = Obfuscate_Vector("hello", 5);
+    const char *obfuscated = Obfuscate_Vector("hello", 5);
     return strcmp(obfuscated, "Vector");
 }
 
 int testTagObfuscation() {
-    char *obfuscated = Obfuscate_Tag("hello");
+    const char *obfuscated = Obfuscate_Tag("hello");
     return strcmp(obfuscated, "Tag");
 }
 
 int testGeoObfuscation() {
-    char *obfuscated = Obfuscate_Geo(1, 2);
+    const char *obfuscated = Obfuscate_Geo(1, 2);
     return strcmp(obfuscated, "Geo");
 }
 
 int testGeoShapeObfuscation() {
-    char *obfuscated = Obfuscate_GeoShape();
+    const char *obfuscated = Obfuscate_GeoShape();
     return strcmp(obfuscated, "GeoShape");
 }
 
@@ -87,7 +103,7 @@ int testQueryNodeObfuscation() {
         struct RSQueryNode node = {
             .type = i,
         };
-        char *obfuscated = Obfuscate_QueryNode(&node);
+        const char *obfuscated = Obfuscate_QueryNode(&node);
         ASSERT(strcmp(obfuscated, expected[i - 1]) == 0);
     }
     return 0;
@@ -95,7 +111,6 @@ int testQueryNodeObfuscation() {
 
 TEST_MAIN({
     TESTFUNC(testSimpleIndexObfuscation);
-    TESTFUNC(testMaxIndexObfuscation);
     TESTFUNC(testSimpleFieldObfuscation);
     TESTFUNC(testMaxFieldObfuscation);
     TESTFUNC(testSimpleFieldPathObfuscation);

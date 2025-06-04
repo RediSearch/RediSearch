@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "spec.h"
 #include "synonym_map.h"
 #include "rmalloc.h"
@@ -146,7 +148,10 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, con
   int ret;
   for (size_t i = 0; i < size; i++) {
     char *lowerSynonym = rm_strdup(synonyms[i]);
-    strtolower(lowerSynonym);
+    size_t newLen = unicode_tolower(lowerSynonym, strlen(lowerSynonym));
+    if (newLen) {
+      lowerSynonym[newLen] = '\0';
+    }
     TermData* termData = dictFetchValue(smap->h_table, lowerSynonym);
     if (termData) {
       // if term exists in dictionary, we should release the lower cased string

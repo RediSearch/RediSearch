@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "../config.h"
 #include "cluster.h"
 #include "redismodule.h"
@@ -90,17 +92,11 @@ static MRClusterTopology *RedisCluster_GetTopology(RedisModuleCtx *ctx) {
       int port = 0;
       RedisModule_GetClusterNodeInfo(ctx, id_str, NULL, NULL, &port, NULL);
 
-      const char *globalPass = NULL;
-      if (clusterConfig.globalPass && strlen(clusterConfig.globalPass) > 0) {
-        globalPass = clusterConfig.globalPass;
-      }
-
       MRClusterNode node = {
           .endpoint =
               (MREndpoint){
                   .host = rm_strndup(host, hostlen),
                   .port = port,
-                  .password = (globalPass ? rm_strdup(globalPass) : NULL),
                   .unixSock = NULL},
           .id = id_str,
           .flags = 0,

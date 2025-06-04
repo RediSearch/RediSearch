@@ -193,3 +193,67 @@ def testIssue_490(env):
     env.assertEqual(res, 1)
     res = conn.execute_command('ft.sugget', 'sug', 'Redis', 'WITHPAYLOADS')
     env.assertEqual(res, ['RediSearch', 'RediSearch 2.0, next gen search engine'])
+
+def testUnexistentSuggestionDict(env):
+    skipOnCrdtEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
+
+    # Test on unexistent suggestion dictionary
+    res = conn.execute_command('exists', 'unexistent_sug')
+    env.assertEqual(res, 0)
+    res = conn.execute_command('ft.suglen', 'unexistent_sug')
+    env.assertEqual(res, 0)
+    res = conn.execute_command('ft.sugget', 'unexistent_sug', 'hello')
+    env.assertEqual(res, [])
+    res = conn.execute_command('ft.sugdel', 'unexistent_sug', 'hello')
+    env.assertEqual(res, 0)
+
+def testEmptySuggestionDict(env):
+    skipOnCrdtEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
+
+    res = conn.execute_command('ft.sugadd', 'sug', 'hello world', '1')
+    env.assertEqual(res, 1)
+    res = conn.execute_command('ft.sugdel', 'sug', 'hello world')
+    env.assertEqual(res, 1)
+    # The key is deleted when the suggestion dict is emptied
+    res = conn.execute_command('exists', 'sug')
+    env.assertEqual(res, 0)
+    res = conn.execute_command('ft.suglen', 'sug')
+    env.assertEqual(res, 0)
+    res = conn.execute_command('ft.sugget', 'sug', 'hello')
+    env.assertEqual(res, [])
+    res = conn.execute_command('ft.sugdel', 'sug', 'hello world')
+    env.assertEqual(res, 0)
+
+def testWrongType(env):
+    skipOnCrdtEnv(env)
+    conn = env.getClusterConnectionIfNeeded()
+
+    errMsg = 'WRONGTYPE Operation against a key holding the wrong kind of value'
+
+    # Test on wrong type
+    conn.execute_command('set', 'sug', 'hello')
+    try:
+        conn.execute_command('ft.sugadd', 'sug', 'hello world', '1')
+        env.assertTrue(False)
+    except Exception as e:
+        env.assertContains(errMsg, str(e))
+
+    try:
+        conn.execute_command('ft.suglen', 'sug')
+        env.assertTrue(False)
+    except Exception as e:
+        env.assertContains(errMsg, str(e))
+
+    try:
+        conn.execute_command('ft.sugget', 'sug', 'hello')
+        env.assertTrue(False)
+    except Exception as e:
+        env.assertContains(errMsg, str(e))
+
+    try:
+        conn.execute_command('ft.sugdel', 'sug', 'hello world')
+        env.assertTrue(False)
+    except Exception as e:
+        env.assertContains(errMsg, str(e))

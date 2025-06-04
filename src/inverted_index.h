@@ -1,18 +1,18 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef __INVERTED_INDEX_H__
 #define __INVERTED_INDEX_H__
 
 #include "redisearch.h"
 #include "buffer.h"
 #include "doc_table.h"
-#include "forward_index.h"
 #include "index_iterator.h"
-#include "index_result.h"
 #include "spec.h"
 #include "numeric_filter.h"
 #include <stdint.h>
@@ -62,11 +62,6 @@ typedef union {
   const NumericFilter *filter;
 } IndexDecoderCtx;
 
-/**
- * Called when an entry is removed
- */
-typedef void (*RepairCallback)(const RSIndexResult *res, void *arg);
-
 typedef struct {
   size_t bytesBeforFix;
   size_t bytesAfterFix;
@@ -84,7 +79,7 @@ typedef struct {
 static inline size_t sizeof_InvertedIndex(IndexFlags flags) {
   bool useFieldMask = flags & Index_StoreFieldFlags;
   bool useNumEntries = flags & Index_StoreNumeric;
-  RedisModule_Assert(!(useFieldMask && useNumEntries));
+  RS_ASSERT(!(useFieldMask && useNumEntries));
   // Avoid some of the allocation if not needed
   const size_t base = sizeof(InvertedIndex) - sizeof(t_fieldMask); // Size without the union
   if (useFieldMask) return base + sizeof(t_fieldMask);
@@ -131,6 +126,8 @@ struct IndexReader;
  *
  * The implementation of this function is optional. If this is not used, then
  * the decoder() implementation will be used instead.
+ *
+ * Note: This function must update the reader's `lastId`.
  */
 typedef bool (*IndexSeeker)(BufferReader *br, const IndexDecoderCtx *ctx, struct IndexReader *ir,
                             t_docId to, RSIndexResult *res);
@@ -203,11 +200,6 @@ void IndexReader_OnReopen(IndexReader *ir);
  * delta for encoding */
 typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId delta, RSIndexResult *record);
 
-/* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
- */
-size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
-                                            ForwardIndexEntry *ent);
-
 /* Write a numeric index entry to the index. it includes only a float value and docId. Returns the
  * number of bytes written */
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value);
@@ -246,15 +238,8 @@ void IR_Abort(void *ctx);
 /* free an index reader */
 void IR_Free(IndexReader *ir);
 
-/* Read an entry from an inverted index */
-int IR_GenericRead(IndexReader *ir, RSIndexResult *res);
-
 /* Read an entry from an inverted index into RSIndexResult */
 int IR_Read(void *ctx, RSIndexResult **e);
-
-/* Move to the next entry in an inverted index, without reading the whole entry
- */
-int IR_Next(void *ctx);
 
 /**
  * Skip to a specific document ID in the index, or one position after it
@@ -271,11 +256,6 @@ int IR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit);
 
 void IR_Rewind(void *ctx);
 
-RSIndexResult *IR_Current(void *ctx);
-
-/* The number of docs in an inverted index entry */
-size_t IR_NumDocs(void *ctx);
-
 /* LastDocId of an inverted index stateful reader */
 t_docId IR_LastDocId(void *ctx);
 
@@ -283,16 +263,6 @@ t_docId IR_LastDocId(void *ctx);
 IndexIterator *NewReadIterator(IndexReader *ir);
 
 size_t IndexBlock_Repair(IndexBlock *blk, DocTable *dt, IndexFlags flags, IndexRepairParams *params);
-
-static inline double CalculateIDF(size_t totalDocs, size_t termDocs) {
-  return logb(1.0F + totalDocs / (termDocs ? termDocs : (double)1));
-}
-
-// IDF computation for BM25 standard scoring algorithm (which is slightly different from the regular
-// IDF computation).
-static inline double CalculateIDF_BM25(size_t totalDocs, size_t termDocs) {
-  return log(1.0F + (totalDocs - termDocs + 0.5F) / (termDocs + 0.5F));
-}
 
 #ifdef __cplusplus
 }

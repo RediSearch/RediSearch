@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "redismodule.h"
 
@@ -6,6 +14,7 @@
 #include "redisearch_api.h"
 #include <assert.h>
 #include <ctype.h>
+#include <dlfcn.h>
 #include "concurrent_ctx.h"
 #include "cursor.h"
 #include "extension.h"
@@ -22,7 +31,8 @@
 #include "fork_gc.h"
 #include "info/info_command.h"
 #include "profile.h"
-#include "info/info_redis.h"
+#include "info/info_redis/info_redis.h"
+
 
 /**
  * Check if we can run under the current AOF configuration. Returns true
@@ -45,9 +55,9 @@ static int validateAofSettings(RedisModuleCtx *ctx) {
   // Can't execute commands on the loading context, so make a new one
   RedisModuleCallReply *reply =
       RedisModule_Call(RSDummyContext, "CONFIG", "cc", "GET", "aof-use-rdb-preamble");
-  assert(reply);
-  assert(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
-  assert(RedisModule_CallReplyLength(reply) == 2);
+  RS_ASSERT(reply);
+  RS_ASSERT(RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ARRAY);
+  RS_ASSERT(RedisModule_CallReplyLength(reply) == 2);
   const char *value =
       RedisModule_CallReplyStringPtr(RedisModule_CallReplyArrayElement(reply, 1), NULL);
 
@@ -111,6 +121,12 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
   // Print version string!
   DO_LOG("notice", "RediSearch version %d.%d.%d (Git=%s)", REDISEARCH_VERSION_MAJOR,
          REDISEARCH_VERSION_MINOR, REDISEARCH_VERSION_PATCH, RS_GetExtraVersion());
+#ifdef __USE_GNU
+  // we print the base addesss to allow easier translation of backtrace symbols
+  Dl_info info;
+  dladdr((void *)RediSearch_Init, &info);
+  DO_LOG("debug", "RediSearch base address: %p", info.dli_fbase);
+#endif
   RS_Initialized = 1;
 
   if (!RSDummyContext) {
@@ -180,7 +196,7 @@ int RediSearch_Init(RedisModuleCtx *ctx, int mode) {
     return REDISMODULE_ERR;
   }
 
-  Initialize_KeyspaceNotifications(ctx);
+  Initialize_ServerEventNotifications(ctx);
   Initialize_CommandFilter(ctx);
   Initialize_RdbNotifications(ctx);
   Initialize_RoleChangeNotifications(ctx);

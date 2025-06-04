@@ -3,24 +3,14 @@ from common import *
 READ_SEARCH_COMMANDS = ['FT.SEARCH', 'FT.AGGREGATE', 'FT.CURSOR', 'FT.CURSOR',
                  'FT.PROFILE', 'FT.SUGGET', 'FT.SUGLEN']
 WRITE_SEARCH_COMMANDS = ['FT.DROPINDEX', 'FT.SUGADD', 'FT.SUGDEL']
-INTERNAL_SEARCH_COMMANDS = [
-        '_FT.ALIASDEL', '_FT.AGGREGATE', '_FT.ALIASADD', '_FT.ALIASUPDATE',
-        '_FT.CURSOR', '_FT.INFO', '_FT.ALTER', '_FT.DICTDEL', '_FT.SYNUPDATE',
-        '_FT.SPELLCHECK', '_FT.CREATE', '_FT.DICTADD', '_FT.PROFILE',
-        '_FT.SEARCH', '_FT.DEBUG', '_FT.CONFIG', '_FT.TAGVALS', '_FT._ALTERIFNX',
-        '_FT._ALIASDELIFX', '_FT._ALIASADDIFNX', '_FT._DROPINDEXIFX',
-        '_FT.DROPINDEX', '_FT.ADD', '_FT.DROP', '_FT.GET', '_FT._CREATEIFNX',
-        '_FT.MGET', '_FT.DEL', '_FT._DROPIFX', '_FT.SAFEADD'
-    ]
 
 def test_acl_category(env):
     """Test that the `search` category was added appropriately in module
     load"""
     res = env.cmd('ACL', 'CAT')
-    for category in ['search', '_search_internal']:
-        env.assertContains(category, res)
+    env.assertContains('search', res)
 
-@skip(redis_less_than="8.0")
+@skip(redis_less_than="7.9.227")
 def test_acl_search_commands(env):
     """Tests that the RediSearch commands are registered to the `search`
     ACL category"""
@@ -33,26 +23,20 @@ def test_acl_search_commands(env):
         'FT.DICTDUMP', 'FT.EXPLAIN', 'FT.AGGREGATE', 'FT.SUGLEN',
         'FT.PROFILE', 'FT.ALTER', 'FT.SUGGET', 'FT.DICTDEL', 'FT.CURSOR',
         'FT.ALIASDEL', 'FT.SUGADD', 'FT.SYNDUMP', 'FT.CREATE', 'FT.DICTADD',
-        'FT._ALIASDELIFX', 'FT._CREATEIFNX', 'search.CLUSTERREFRESH',
-        'FT._ALIASADDIFNX', 'FT._ALTERIFNX', 'search.CLUSTERSET',
-        'search.CLUSTERINFO', 'FT._DROPINDEXIFX', 'FT.DROPINDEX', 'FT.TAGVALS',
-        'FT._DROPIFX', 'FT.DROP', 'FT.GET', 'FT.SYNADD', 'FT.ADD', 'FT.MGET',
-        'FT.DEL'
+        'FT._ALIASDELIFX', 'FT._CREATEIFNX', 'FT._ALIASADDIFNX', 'FT._ALTERIFNX',
+        'FT._DROPINDEXIFX', 'FT.DROPINDEX', 'FT.TAGVALS', 'FT._DROPIFX',
+        'FT.DROP', 'FT.GET', 'FT.SYNADD', 'FT.ADD', 'FT.MGET', 'FT.DEL',
+        '_FT.CONFIG', '_FT.DEBUG', '_FT.SAFEADD'
     ]
     if not env.isCluster():
         commands.append('FT.CONFIG')
+    if env.env != 'enterprise':
+        commands.extend(['search.CLUSTERINFO', 'search.CLUSTERREFRESH', 'search.CLUSTERSET'])
 
     # Use a set since the order of the response is not consistent.
     env.assertEqual(set(res), set(commands))
 
-    # ---------------- internal search command category ----------------
-    res = env.cmd('ACL', 'CAT', '_search_internal')
-    commands = INTERNAL_SEARCH_COMMANDS
-
-    # Use a set since the order of the response is not consistent.
-    env.assertEqual(set(res), set(commands))
-
-    # Check that one of our commands is listed in a non-search category
+    # Check that one of our commands is listed in a non-search category (sanity)
     res = env.cmd('ACL', 'CAT', 'read')
     env.assertTrue('FT.SEARCH' in res)
 
@@ -111,7 +95,7 @@ def test_acl_non_default_user(env):
 
         # Add `test` search permissions
         conn.execute_command('AUTH', 'default', '')
-        conn.execute_command('ACL', 'SETUSER', 'test', '+@search', '+@_search_internal')
+        conn.execute_command('ACL', 'SETUSER', 'test', '+@search')
         conn.execute_command('AUTH', 'test', '123')
 
         # `test` should now be able to run `search` commands like `FT.CREATE`
@@ -175,37 +159,23 @@ def test_sug_commands_acl(env):
         env.assertEqual(res, 1)
 
 def test_internal_commands(env):
-    """Tests the internal commands' category"""
+    """
+    Tests that internal commands are not allowed for non-internal
+    connections, and are by internal connections.
+    """
 
-    # Create a user with all command permissions (full keyspace and pubsub access)
-    env.expect('ACL', 'SETUSER', 'test', 'on', '>123', '~*', '&*', '+@all').ok()
-    env.expect('AUTH', 'test', '123').true()
+    # Internal commands are treated as unknown commands for non-internal
+    # connections
+    env.expect('_FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').error().contains("unknown command")
 
-    # `test` user should be able to execute internal commands
-    env.expect('_FT.SEARCH', 'idx', '*').error().contains("idx: no such index")
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    env.expect('_FT.SEARCH', 'idx', '*').error().contains("unknown command")
 
-    # Remove the `_search_internal` permissions from the `test` user
-    env.expect('ACL', 'SETUSER', 'test', '-@_search_internal').ok()
+    # Promote the connection to internal
+    env.expect('DEBUG', 'MARK-INTERNAL-CLIENT').ok()
+    env.expect('_FT.SEARCH', 'idx', '*').equal([0])
 
-    # `test` user should still be able to run non-internal commands
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
-    env.expect('FT.SEARCH', 'idx', '*').equal([0])
-
-    # Now `test` should not be able to execute RediSearch internal commands
-    # `_FT.DEBUG` has only subcommands, so we check it separately.
-    internal_commands = INTERNAL_SEARCH_COMMANDS[::]
-    internal_commands.remove('_FT.DEBUG')
-    for command in internal_commands:
-        env.expect(command).error().contains("User test has no permissions to run")
-
-    # Check `_FT.DEBUG`
-    env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').error().contains("User test has no permissions to run")
-
-    # Authenticate as `default`, and run the internal debug command
-    env.expect('AUTH', 'default', 'nopass').true()
-    env.expect(debug_cmd(), 'DUMP_TERMS', 'idx').equal([])
-
-@skip(redis_less_than="8.0")
+@skip(redis_less_than="7.9.227")
 def test_acl_key_permissions_validation(env):
     """Tests that the key permission validation works properly"""
 
@@ -248,14 +218,14 @@ def test_acl_key_permissions_validation(env):
         ['FT.DROPINDEX', 'index_to_drop'],
     ]
     for command in index_commands:
-        env.expect(*command).error().contains("-NOPERM User does not have the required permissions to query the index")
+        env.expect(*command).error().contains("User does not have the required permissions to query the index")
 
     # the `test` user should be able to execute all commands that do not refer to a
     # specific index
     non_index_commands = [
         [config_cmd(), 'GET', 'TIMEOUT'],
         [config_cmd(), 'SET', 'TIMEOUT', '1000'],
-        ['FT.CREATE', 'idx2', 'SCHEMA', 'n', 'NUMERIC'],  # TODO: Currently here - consider moving and validating ACL key permissions
+        ['FT.CREATE', 'idx2', 'SCHEMA', 'n', 'NUMERIC'],
         ['FT.DICTADD', 'dict', 'hello'],
         ['FT.DICTDEL', 'dict', 'hello'],
         ['FT.DICTDUMP', 'dict'],

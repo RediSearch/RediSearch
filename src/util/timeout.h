@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #pragma once
 
 #include <time.h>
@@ -49,8 +51,14 @@ static inline void rs_timersub(struct timespec *a, struct timespec *b, struct ti
   }
 }
 
+static inline double rs_timer_ms(struct timespec *a){
+  return a->tv_sec * 1000 + (double)a->tv_nsec / 1000000.0;
+}
+
 #define NOT_TIMED_OUT 0
 #define TIMED_OUT 1
+
+#define TIMEOUT_COUNTER_LIMIT 100
 
 typedef struct TimeoutCtx {
   size_t counter;
@@ -68,11 +76,11 @@ static inline int TimedOut(const struct timespec *timeout) {
   return NOT_TIMED_OUT;
 }
 
-// Check if time has been reached (run once every 100 calls)
+// Check if time has been reached (run once every TIMEOUT_COUNTER_LIMIT calls)
 static inline int TimedOut_WithCounter(const struct timespec *timeout, size_t *counter) {
   if (RS_IsMock) return 0;
 
-  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == 100) {
+  if (*counter != REDISEARCH_UNINITIALIZED && ++(*counter) == TIMEOUT_COUNTER_LIMIT) {
     *counter = 0;
     return TimedOut(timeout);
   }

@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef __QUERY_H__
 #define __QUERY_H__
 
@@ -28,7 +30,7 @@ extern "C" {
 
 // Holds a yieldable field name, and the address to write the RLookupKey pointer later.
 typedef struct MetricRequest{
-  char *metric_name;
+  const char *metric_name;
   RLookupKey **key_ptr;
 } MetricRequest;
 
@@ -82,6 +84,13 @@ IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
  * to set global properties for the entire query
  */
 typedef struct {
+  // Used only to support legacy FILTER keyword. Should not be used by newer code
+  NumericFilter *numeric;
+  // Used only to support legacy GEOFILTER keyword. Should not be used by newer code
+  GeoFilter *geo;
+  // Used to set an empty iterator when a legacy filter's field is not found with Dialect 1
+  bool empty;
+
   /** List of IDs to limit to, and the length of that array */
   t_docId *ids;
   size_t nids;
@@ -117,8 +126,8 @@ IndexIterator *QAST_Iterate(QueryAST *ast, const RSSearchOptions *options,
 int QAST_Expand(QueryAST *q, const char *expander, RSSearchOptions *opts, RedisSearchCtx *sctx,
                 QueryError *status);
 
-int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, QueryError *status);
-int QueryNode_EvalParams(dict *params, QueryNode *node, QueryError *status);
+int QAST_EvalParams(QueryAST *q, RSSearchOptions *opts, unsigned int dialectVersion, QueryError *status);
+int QueryNode_EvalParams(dict *params, QueryNode *node, unsigned int dialectVersion, QueryError *status);
 
 int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, QueryError *status);
 

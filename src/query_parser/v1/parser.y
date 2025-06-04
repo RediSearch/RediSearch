@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 %left LOWEST.
 %left TILDE.
 %left TAGLIST.
@@ -32,8 +34,8 @@
 %name RSQueryParser_v1_
 
 %syntax_error {
-    QueryError_SetErrorFmt(ctx->status, QUERY_ESYNTAX,
-        "Syntax error at offset %d near %.*s",
+    QueryError_SetWithUserDataFmt(ctx->status, QUERY_ESYNTAX,
+        "Syntax error", " at offset %d near %.*s",
         TOKEN.pos, TOKEN.len, TOKEN.s);
 }
 
@@ -48,27 +50,6 @@
 #include "util/arr.h"
 #include "rmutil/vector.h"
 #include "query_node.h"
-
-// strndup + lowercase in one pass!
-static char *strdupcase(const char *s, size_t len) {
-  char *ret = rm_strndup(s, len);
-  char *dst = ret;
-  char *src = dst;
-  while (*src) {
-      // unescape
-      if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
-          ++src;
-          continue;
-      }
-      *dst = tolower(*src);
-      ++dst;
-      ++src;
-
-  }
-  *dst = '\0';
-
-  return ret;
-}
 
 // unescape a string (non null terminated) and return the new length (may be shorter than the original. This manipulates the string itself
 static size_t unescapen(char *s, size_t sz) {
@@ -217,13 +198,10 @@ union(A) ::= expr(B) OR expr(C) . [OR] {
         } else {
             A = NewUnionNode();
             QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
         }
 
         // Handle C
         QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
 }
 
@@ -239,13 +217,10 @@ union(A) ::= union(B) OR expr(C). [ORX] {
         } else {
             A = NewUnionNode();
             QueryNode_AddChild(A, B);
-            A->opts.fieldMask |= B->opts.fieldMask;
         }
 
         // Handle C
         QueryNode_AddChild(A, C);
-        A->opts.fieldMask |= C->opts.fieldMask;
-        QueryNode_SetFieldMask(A, A->opts.fieldMask);
     }
 }
 
@@ -343,13 +318,13 @@ expr(A) ::= QUOTE termlist(B) QUOTE. [TERMLIST] {
 }
 
 expr(A) ::= QUOTE term(B) QUOTE. [TERMLIST] {
-    A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+    A = NewTokenNode(ctx, rm_normalize(B.s, B.len), -1);
     A->opts.flags |= QueryNode_Verbatim;
 
 }
 
 expr(A) ::= term(B) . [LOWEST]  {
-   A = NewTokenNode(ctx, strdupcase(B.s, B.len), -1);
+   A = NewTokenNode(ctx, rm_normalize(B.s, B.len), -1);
 }
 
 expr(A) ::= affix(B) . [PREFIX]  {
@@ -366,13 +341,13 @@ expr(A) ::= STOPWORD . [STOPWORD] {
 
 termlist(A) ::= term(B) term(C). [TERMLIST]  {
     A = NewPhraseNode(0);
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(B.s, B.len), -1));
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_normalize(B.s, B.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_normalize(C.s, C.len), -1));
 }
 
 termlist(A) ::= termlist(B) term(C) . [TERMLIST] {
     A = B;
-    QueryNode_AddChild(A, NewTokenNode(ctx, strdupcase(C.s, C.len), -1));
+    QueryNode_AddChild(A, NewTokenNode(ctx, rm_normalize(C.s, C.len), -1));
 }
 
 termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
@@ -494,11 +469,10 @@ expr(A) ::= modifier(B) COLON tag_list(C) . {
         QueryNode_Free(C);
 
         if (ctx->sctx->spec) {
-            // Tag field names must be case sensitive, we we can't do strdupcase
+            // Tag field names must be case sensitive, we can't do strdupcase
             B.len = unescapen((char*)B.s, B.len);
             A->tag.fs = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
             if (!A->tag.fs) {
-                QueryError_SetErrorFmt(ctx->status, QUERY_EINVAL, "Unknown field at offset %d near %.*s", B.pos, B.len, B.s);
                 QueryNode_Free(A);
                 A = NULL;
             }
@@ -558,21 +532,20 @@ tag_list(A) ::= tag_list(B) RB . [TAGLIST] {
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 expr(A) ::= modifier(B) COLON numeric_range(C). {
     // we keep the capitalization as is
-    A = NewNumericNode(C);
-    if (ctx->sctx->spec) {
-        A->nn.nf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
-        if (!A->nn.nf->field) {
-            QueryError_SetErrorFmt(ctx->status, QUERY_EINVAL, "Unknown field at offset %d near %.*s", B.pos, B.len, B.s);
-            QueryNode_Free(A);
-            A = NULL;
-        }
+    A = NULL;
+    const FieldSpec *fs = ctx->sctx->spec ? IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len) : NULL;
+    if (fs) {
+        A = NewNumericNode(C, fs);
+    } else if (C) {
+        QueryParam_Free(C);
+        C = NULL;
     }
 }
 
 // v2.2.9 diff - geo_filter type changed to match current functions usage
 numeric_range(A) ::= LSQB num(B) num(C) RSQB. [NUMBER] {
   A = NewQueryParam(QP_NUMERIC_FILTER);
-  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive, true);
+  A->nf = NewNumericFilter(B.num, C.num, B.inclusive, C.inclusive, true, NULL);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -584,9 +557,8 @@ expr(A) ::= modifier(B) COLON geo_filter(C). {
     // we keep the capitalization as is
     A = NewGeofilterNode(C);
     if (ctx->sctx->spec) {
-        A->gn.gf->field = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
-        if (!A->gn.gf->field) {
-            QueryError_SetErrorFmt(ctx->status, QUERY_EINVAL, "Unknown field at offset %d near %.*s", B.pos, B.len, B.s);
+        A->gn.gf->fieldSpec = IndexSpec_GetFieldWithLength(ctx->sctx->spec, B.s, B.len);
+        if (!A->gn.gf->fieldSpec) {
             QueryNode_Free(A);
             A = NULL;
         }

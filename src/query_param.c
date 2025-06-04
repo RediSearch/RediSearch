@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "query_param.h"
 #include "query_error.h"
 #include "geo_index.h"
@@ -38,7 +40,7 @@ QueryParam *NewGeoFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToke
 
 QueryParam *NewNumericFilterQueryParam_WithParams(struct QueryParseCtx *q, QueryToken *min, QueryToken *max, int inclusiveMin, int inclusiveMax) {
   QueryParam *ret = NewQueryParam(QP_NUMERIC_FILTER);
-  NumericFilter *nf = NewNumericFilter(0, 0, inclusiveMin, inclusiveMax, true);
+  NumericFilter *nf = NewNumericFilter(0, 0, inclusiveMin, inclusiveMax, true, NULL);
   ret->nf = nf;
   QueryParam_InitParams(ret, 2);
   if(min != NULL) {
@@ -83,7 +85,7 @@ bool QueryParam_SetParam(QueryParseCtx *q, Param *target_param, void *target_val
 
   case QT_TERM:
     target_param->type = PARAM_NONE;
-    *(char**)target_value = rm_strdupcase(source->s, source->len);
+    *(char**)target_value = rm_normalize(source->s, source->len);
     if (target_len) *target_len = strlen(target_value);
     return false; // done
 
@@ -159,7 +161,15 @@ void QueryParam_InitParams(QueryParam *p, size_t num) {
   memset(p->params, 0, sizeof(*p->params) * num);
 }
 
-int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
+/**
+ * Checks if the given numeric and geo value is not empty.
+ * If the dialect version is 2 or higher, the value must not be empty, otherwise it can be 0 for backward compatibility.
+ */
+static inline bool checkNumericAndGeoValueValid(const char *val, unsigned int dialectVersion) {
+  return (dialectVersion < 2 || *val);
+}
+
+int QueryParam_Resolve(Param *param, dict *params, unsigned int dialectVersion, QueryError *status) {
   if (param->type == PARAM_NONE)
     return 0;
   size_t val_len;
@@ -168,6 +178,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     return -1;
 
   int val_is_numeric = 0;
+
   switch(param->type) {
 
     case PARAM_NONE:
@@ -179,7 +190,7 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
         // parsed as double to check +inf, -inf
         val_is_numeric = 1;
       }
-      *(char**)param->target = rm_strdupcase(val, val_len);
+      *(char**)param->target = rm_normalize(val, val_len);
       if (param->target_len) *param->target_len = strlen(*(char**)param->target);
       return 1 + val_is_numeric;
 
@@ -196,16 +207,16 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
 
     case PARAM_NUMERIC:
     case PARAM_GEO_COORD:
-      if (!ParseDouble(val, (double*)param->target, param->sign)) {
-        QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
+      if (!checkNumericAndGeoValueValid(val, dialectVersion) || !ParseDouble(val, (double*)param->target, param->sign)) {
+        QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
         val, param->name);
         return -1;
       }
       return 1;
 
     case PARAM_SIZE:
-      if (!ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
-        QueryError_SetErrorFmt(status, QUERY_ESYNTAX, "Invalid numeric value (%s) for parameter `%s`", \
+      if (!checkNumericAndGeoValueValid(val, dialectVersion) || !ParseInteger(val, (long long *)param->target) || *(long long *)param->target < 0) {
+        QueryError_SetWithUserDataFmt(status, QUERY_ESYNTAX, "Invalid numeric value", " (%s) for parameter `%s`", \
         val, param->name);
         return -1;
       }
@@ -214,8 +225,9 @@ int QueryParam_Resolve(Param *param, dict *params, QueryError *status) {
     case PARAM_NUMERIC_MIN_RANGE:
     case PARAM_NUMERIC_MAX_RANGE:
     {
+      bool inclusive = true; // TODO: use?
       int isMin = param->type == PARAM_NUMERIC_MIN_RANGE ? 1 : 0;
-      if (parseDoubleRange(val, (double*)param->target, isMin, param->sign, status) == REDISMODULE_OK)
+      if (!checkNumericAndGeoValueValid(val, dialectVersion) || parseDoubleRange(val, &inclusive, (double*)param->target, isMin, param->sign, status) == REDISMODULE_OK)
         return 1;
       else
         return -1;
@@ -238,7 +250,7 @@ int parseParams (dict **destParams, ArgsCursor *ac, QueryError *status) {
   ArgsCursor paramsArgs = {0};
   int rv = AC_GetVarArgs(ac, &paramsArgs);
   if (rv != AC_OK) {
-    QERR_MKBADARGS_AC(status, "PARAMS", rv);
+    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for PARAMS: %s", AC_Strerror(rv));
     return REDISMODULE_ERR;
   }
   if (*destParams) {

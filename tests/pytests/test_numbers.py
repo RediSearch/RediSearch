@@ -217,9 +217,8 @@ def testNumberFormat(env):
     env.assertEqual(res, expected)
     res = env.cmd('FT.SEARCH', 'idx', '@n:[1e0 1]', 'NOCONTENT', 'WITHCOUNT')
     env.assertEqual(res, expected)
-    # Breaking change, should be solved in major version
-    # res = env.cmd('FT.SEARCH', 'idx', '@n:[.1e1 .1e+1]', 'NOCONTENT', 'WITHCOUNT')
-    # env.assertEqual(res, expected)
+    res = env.cmd('FT.SEARCH', 'idx', '@n:[.1e1 .1e+1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res, expected)
 
     # Test signed numbers
     res = env.cmd('FT.SEARCH', 'idx', '@n:[+1e0 +1]', 'NOCONTENT', 'WITHCOUNT')
@@ -250,11 +249,26 @@ def testNumberFormat(env):
     res1 = env.cmd('FT.SEARCH', 'idx', '@n:[-0.1 0.1]', 'NOCONTENT', 'WITHCOUNT')
     expected = [2, 'doc06', 'doc07']
     env.assertEqual(res1, expected)
-    # Breaking change, should be solved in major version
-    # res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-.1 +.1]', 'NOCONTENT', 'WITHCOUNT')
-    # env.assertEqual(res2, expected)
-    # res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-  .1 +  .1]', 'NOCONTENT', 'WITHCOUNT')
-    # env.assertEqual(res2, expected)
+    # Leading zero are optional
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-.1 +.1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
+    res2 = env.cmd('FT.AGGREGATE', 'idx', '@n:[-.1 +.1]', 'LIMIT', 0, 0)
+    env.assertEqual(res2, [2])
+    res2 = env.cmd('FT.SEARCH', 'idx', '@n:[-  .1 +  .1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res2, expected)
+    res2 = env.cmd('FT.AGGREGATE', 'idx', '@n:[-  .1 +  .1]', 'LIMIT', 0, 0)
+    env.assertEqual(res2, [2])
+
+    # Test float numbers with exponent
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[1.5e2 1.5e2]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res1, [1, 'doc05'])
+    res1 = env.cmd('FT.AGGREGATE', 'idx', '@n:[1.5e2 1.5e2]', 'LIMIT', 0, 0)
+    env.assertEqual(res1, [1])
+    res1 = env.cmd('FT.SEARCH', 'idx', '@n:[1.5e+2 1500e-1]', 'NOCONTENT', 'WITHCOUNT')
+    env.assertEqual(res1, [1, 'doc05'])
+    res = env.cmd('FT.AGGREGATE', 'idx', '@n:[1.5e+2 1500e-1]', 'LIMIT', 0, 0)
+    env.assertEqual(res, [1])
+
 
 def testNumericOperators():
     env = Env(moduleArgs = 'DEFAULT_DIALECT 2')

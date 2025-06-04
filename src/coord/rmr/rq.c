@@ -1,8 +1,17 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+#define RQ_C__
+
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
+#include <pthread.h>
 
 #include <stdlib.h>
 #include <uv.h>
@@ -10,6 +19,7 @@
 #include "rmalloc.h"
 #include "rmr.h"
 #include "coord/config.h"
+#include "rmutil/rm_assert.h"
 #include "rq_pool.h"
 
 struct queueItem {
@@ -67,7 +77,7 @@ static void triggerPendingQueues(MRWorkQueue *q) {
 extern RedisModuleCtx *RSDummyContext;
 
 static void topologyFailureCB(uv_timer_t *timer) {
-  
+
   MRWorkQueue *q = (MRWorkQueue *)timer->data;
   RedisModule_Log(RSDummyContext, "warning", "Queue ID %u: Topology validation failed: not all nodes connected", q->id);
   uv_timer_stop(&q->topologyValidationTimer); // stop the validation timer
@@ -116,6 +126,19 @@ static void topologyAsyncCB(uv_async_t *async) {
 
 /* start the event loop side thread */
 static void sideThread(void *arg) {
+  /* Set thread name for profiling and debugging */
+  char *thread_name = REDISEARCH_MODULE_NAME "-uv";
+
+#if defined(__linux__)
+  /* Use prctl instead to prevent using _GNU_SOURCE flag and implicit
+   * declaration */
+  prctl(PR_SET_NAME, thread_name);
+#elif defined(__APPLE__) && defined(__MACH__)
+  pthread_setname_np(thread_name);
+#else
+  RedisModule_Log(RSDummyContext, "verbose",
+      "sideThread(): pthread_setname_np is not supported on this system");
+#endif
   MRWorkQueue *q = arg;
   // Mark the event loop thread as running before triggering the topology check.
   q->loop_th_running = true;
@@ -133,7 +156,7 @@ static void verify_uv_thread(MRWorkQueue *q) {
   if (loopThreadUninitialized(q)) {
     // Verify that we are running on the event loop thread
     int uv_thread_create_status = uv_thread_create(&q->loop_th, sideThread, q);
-    RedisModule_Assert(uv_thread_create_status == 0);
+    RS_ASSERT(uv_thread_create_status == 0);
     REDISMODULE_NOT_USED(uv_thread_create_status);
     RedisModule_Log(RSDummyContext, "verbose", "Queue ID %u: Created event loop thread", q->id);
   }
@@ -222,7 +245,7 @@ void RQ_Done(MRWorkQueue *q) {
 }
 
 static void rqAsyncCb(uv_async_t *async) {
-  
+
   MRWorkQueue *q = async->data;
   if (!q->loop_th_ready) {
     array_ensure_append_1(q->pendingQueues, async); // try again later

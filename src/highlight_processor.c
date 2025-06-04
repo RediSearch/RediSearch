@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "result_processor.h"
 #include "fragmenter.h"
 #include "value.h"
@@ -278,10 +280,20 @@ static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
     return NULL;
   }
   it->Rewind(it->ctx);
-  if (INDEXREAD_OK != it->SkipTo(it->ctx, docId, &ir)) {
-    return NULL;
+  int rc;
+  if (it->SkipTo) {
+    rc = it->SkipTo(it->ctx, docId, &ir);
+  } else {
+    // If the root iterator does not support SkipTo, we have to read the iterator until we find the
+    // document. This is logically equivalent to SkipTo, especially in this context where we know
+    // that the document was found in the root iterator before.
+    // This is not efficient, but if the root iterator does not support SkipTo, we have no other
+    // choice. Look for "SkipTo = NULL" in the codebase for examples.
+    do {
+      rc = it->Read(it->ctx, &ir);
+    } while (rc == INDEXREAD_OK && ir->docId != docId);
   }
-  return ir;
+  return rc == INDEXREAD_OK ? ir : NULL;
 }
 
 static int hlpNext(ResultProcessor *rbase, SearchResult *r) {

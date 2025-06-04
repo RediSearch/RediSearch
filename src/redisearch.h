@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef REDISEARCH_H__
 #define REDISEARCH_H__
 
@@ -412,13 +414,16 @@ typedef struct {
   /* The GetSlop() callback. Returns the cumulative "slop" or distance between the query terms,
    * that can be used to factor the result score */
   int (*GetSlop)(const RSIndexResult *res);
+
+  /* Tanh factor (used only in the `BM25STD.TANH` scorer)*/
+  uint64_t tanhFactor;
 } ScoringFunctionArgs;
 
 /* RSScoringFunction is a callback type for query custom scoring function modules */
 typedef double (*RSScoringFunction)(const ScoringFunctionArgs *ctx, const RSIndexResult *res,
                                     const RSDocumentMetadata *dmd, double minScore);
 
-/* The extension registeration context, containing the callbacks avaliable to the extension for
+/* The extension registration context, containing the callbacks available to the extension for
  * registering query expanders and scorers. */
 typedef struct RSExtensionCtx {
   int (*RegisterScoringFunction)(const char *alias, RSScoringFunction func, RSFreeFunction ff,
