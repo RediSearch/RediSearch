@@ -7,6 +7,11 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
+/**
+ * Forward declaration of RSIndexResult. It will be correctly defined in `redisearch.h`
+ */
+typedef struct RSIndexResult RSIndexResult;
+
 
 /**
  * Used by [`TrieMapIterator`] to determine type of query.
@@ -17,12 +22,6 @@ typedef enum tm_iter_mode {
   TM_SUFFIX_MODE = 2,
   TM_WILDCARD_MODE = 3,
 } tm_iter_mode;
-
-/**
- * Dummy type needed by `[RSAggregateResult]` else the C compiler will complain. This will be
- * redefined in the C code at `redisearch.h`.
- */
-typedef struct RSIndexResult RSIndexResult;
 
 /**
  * Opaque type TrieMap. Can be instantiated with [`NewTrieMap`].
@@ -95,7 +94,7 @@ typedef struct RSAggregateResult {
   /**
    * An array of records
    */
-  struct RSIndexResult **children;
+  RSIndexResult **children;
   /**
    * A map of the aggregate type of the underlying records
    */

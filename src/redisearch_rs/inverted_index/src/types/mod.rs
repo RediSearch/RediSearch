@@ -8,16 +8,13 @@
 */
 
 use std::ffi::c_int;
+use ffi::RSIndexResult;
 
 /// Represents a numeric value in an index record.
 /// cbindgen:field-names=[value]
 #[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
 #[repr(C)]
 pub struct RSNumericRecord(pub f64);
-
-/// Dummy type needed by `[RSAggregateResult]` else the C compiler will complain. This will be
-/// redefined in the C code at `redisearch.h`.
-pub struct RSIndexResult;
 
 /// Represents an aggregate array of values in an index record.
 /// cbindgen:rename-all=CamelCase
