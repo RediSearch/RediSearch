@@ -25,9 +25,13 @@ jobs:
       test-config: QUICK=1
 
   coverage:
-    if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' }}
-    uses: ./.github/workflows/flow-coverage.yml
+    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
+    uses: ./.github/workflows/task-test.yml
     secrets: inherit
+    with:
+      coverage: true
+      test-config: QUICK=1
+      get-redis: unstable
 
   sanitize:
     secrets: inherit

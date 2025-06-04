@@ -12,6 +12,9 @@ on:
         type: string
       san:
         type: string
+      coverage:
+        type: boolean
+        default: false
       get-redis:
         type: string
       test-config:
@@ -42,6 +45,7 @@ on:
 env:
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
+  COV: ${{ inputs.coverage && 1 || 0 }}  # convert the boolean input to numeric
 
 jobs:
   common-flow:
@@ -146,24 +150,28 @@ jobs:
         run: |
           REPO_URL="https://github.com/redis/redis.git"
           DEST_DIR="redis"  # Directory to clone into
-          
+
           # Clone the repository (shallow clone without tags)
           git clone $REPO_URL $DEST_DIR
           cd $DEST_DIR
-          
+
           # Checkout the REF
           git fetch origin ${{ inputs.get-redis }}
           git checkout ${{ inputs.get-redis }}
       - name: Build Redis
         working-directory: redis
-        run: |
-          ${{ steps.mode.outputs.mode }} SANITIZER=${{ inputs.san }} BUILD_TLS=yes make install
+        run:  ${{ steps.mode.outputs.mode }} make install
+              BUILD_TLS=yes
+              SANITIZER=${{ inputs.san }}
+
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
         # We also remove invalid characters from the name.
         id: artifact-names
         run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
-          echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }} ${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }}- Redis ${{ inputs.get-redis || 'unstable' }}" | \
+          echo "name=$(echo "${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }} \
+                             ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
+                             ${{ inputs.container || inputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
       - name: Build
         env:
@@ -189,7 +197,7 @@ jobs:
           SAN: ${{ inputs.san }}
           LOG: 1
           CLEAR_LOGS: 0
-          SA: 1
+          REDIS_STANDALONE: 1
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
@@ -203,7 +211,7 @@ jobs:
           SAN: ${{ inputs.san }}
           LOG: 1
           CLEAR_LOGS: 0
-          SA: 0
+          REDIS_STANDALONE: 0
           REJSON: ${{ env.REJSON }}
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
@@ -235,3 +243,22 @@ jobs:
           echo "Standalone: ${{ steps.standalone_tests.outcome }}"
           echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
           exit 1
+
+      - name: Upload flow coverage
+        if: inputs.coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_standalone.info,bin/flow_coordinator.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload unit coverage
+        if: inputs.coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/unit.info
+          disable_search: true
+          flags: unit
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
