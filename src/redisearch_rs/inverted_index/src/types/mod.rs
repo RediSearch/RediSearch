@@ -7,13 +7,17 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::{c_int, c_void};
+use std::ffi::c_int;
 
 /// Represents a numeric value in an index record.
 /// cbindgen:field-names=[value]
 #[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
 #[repr(C)]
 pub struct RSNumericRecord(pub f64);
+
+/// Dummy type needed by `[RSAggregateResult]` else the C compiler will complain. This will be
+/// redefined in the C code at `redisearch.h`.
+struct RSIndexResult;
 
 /// Represents an aggregate array of values in an index record.
 /// cbindgen:rename-all=CamelCase
@@ -26,7 +30,7 @@ pub struct RSAggregateResult {
     children_cap: c_int,
 
     /// An array of records
-    children: *mut *mut c_void,
+    children: *mut *mut RSIndexResult,
 
     /// A map of the aggregate type of the underlying records
     type_mask: u32,

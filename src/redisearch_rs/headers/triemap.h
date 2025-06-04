@@ -19,6 +19,12 @@ typedef enum tm_iter_mode {
 } tm_iter_mode;
 
 /**
+ * Dummy type needed by `[RSAggregateResult]` else the C compiler will complain. This will be
+ * redefined in the C code at `redisearch.h`.
+ */
+typedef struct RSIndexResult RSIndexResult;
+
+/**
  * Opaque type TrieMap. Can be instantiated with [`NewTrieMap`].
  */
 typedef struct TrieMap TrieMap;
@@ -89,7 +95,7 @@ typedef struct RSAggregateResult {
   /**
    * An array of records
    */
-  void **children;
+  struct RSIndexResult **children;
   /**
    * A map of the aggregate type of the underlying records
    */
