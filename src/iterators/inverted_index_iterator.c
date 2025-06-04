@@ -11,7 +11,7 @@
 
 // pointer to the current block while reading the index
 #define CURRENT_BLOCK(it) ((it)->idx->blocks[(it)->currentBlock])
-#define CURRENT_BLOCK_READER_AT_END(it) BufferReader_AtEnd(&(it)->blockReader.br)
+#define CURRENT_BLOCK_READER_AT_END(it) BufferReader_AtEnd(&(it)->blockReader.buffReader)
 
 void InvIndIterator_Free(QueryIterator *it) {
   if (!it) return;
@@ -97,8 +97,9 @@ IteratorStatus InvIndIterator_Read(QueryIterator *base) {
       }
       AdvanceBlock(it);
     }
-    t_docId lastId = record->docId;
 
+    // Hold the last docId read, to check for multi-value skipping after the decoder
+    t_docId lastId = record->docId;
     // The decoder also acts as a filter. If the decoder returns false, the
     // current record should not be processed.
     if (!it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
@@ -140,13 +141,12 @@ static inline void SkipToBlock(InvIndIterator *it, t_docId docId) {
   uint32_t i;
   while (bottom <= top) {
     i = (bottom + top) / 2;
-    const IndexBlock *blk = idx->blocks + i;
-    if (BLOCK_MATCHES(*blk, docId)) {
+    if (BLOCK_MATCHES(idx->blocks[i], docId)) {
       it->currentBlock = i;
       goto new_block;
     }
 
-    if (docId < blk->firstId) {
+    if (docId < idx->blocks[i].firstId) {
       top = i - 1;
     } else {
       bottom = i + 1;
@@ -187,7 +187,7 @@ IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId)
     if (base->lastDocId == docId) return ITERATOR_OK;
     return ITERATOR_NOTFOUND;
   }
-  return ITERATOR_EOF;
+  return ITERATOR_EOF; // Assumes the call to "Read" set the `atEOF` flag
 }
 
 // Will use the seeker to reach a valid doc id that is greater or equal to the requested doc id
@@ -218,7 +218,6 @@ static inline bool ReadWithSeeker(InvIndIterator *it, t_docId docId) {
     if (found && !VerifyFieldMaskExpirationForDocId(it, it->base.current->docId, it->base.current->fieldMask)) {
       // the doc id is not valid, filter out the doc id and continue scanning
       // we set docId to be the next doc id to search for to avoid infinite loop
-      // we rely on the doc id ordering inside the inverted index
       // IMPORTANT:
       // we still perform the AtEnd check to avoid the case the non valid doc id was at the end of the block
       // block: [1, 4, 7, ..., 564]
@@ -266,6 +265,7 @@ eof:
 
 static QueryIterator *NewInvIndIterator(InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
                                         bool skipMulti, const RedisSearchCtx *sctx, IndexDecoderCtx *decoderCtx) {
+  RS_ASSERT(idx && idx->size > 0);
   InvIndIterator *it = rm_calloc(1, sizeof(*it));
   it->idx = idx;
   it->currentBlock = 0;
