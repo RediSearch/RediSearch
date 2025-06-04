@@ -11,6 +11,11 @@
  */
 typedef struct RSQueryTerm RSQueryTerm;
 
+/**
+ * Forward declaration of RSIndexResult. It will be defined in `redisearch.h`
+ */
+typedef struct RSIndexResult RSIndexResult;
+
 
 /**
  * Represents an aggregate array of values in an index record.
@@ -27,7 +32,7 @@ typedef struct RSAggregateResult {
   /**
    * An array of records
    */
-  void **children;
+  RSIndexResult **children;
   /**
    * A map of the aggregate type of the underlying records
    */

@@ -8,6 +8,11 @@ after_includes = """
  * Forward declaration of RSQueryTerm. It will be defined in `redisearch.h`
  */
 typedef struct RSQueryTerm RSQueryTerm;
+
+/**
+ * Forward declaration of RSIndexResult. It will be defined in `redisearch.h`
+ */
+typedef struct RSIndexResult RSIndexResult;
 """
 
 [parse]
