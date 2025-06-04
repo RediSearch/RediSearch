@@ -11,6 +11,8 @@ use std::io::{Read, Seek, Write};
 
 pub use ffi::{RSIndexResult, t_docId};
 
+pub mod types;
+
 /// A delta is the difference between document IDs. It is mostly used to save space in the index
 /// because document IDs are usually sequential and the difference between them are small. With the
 /// help of encoding, we can optionally store the difference (delta) efficiently instead of the full document
