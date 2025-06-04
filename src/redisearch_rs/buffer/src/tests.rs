@@ -203,7 +203,7 @@ fn buffer_writer() {
         // Create writer
         let mut writer = BufferWriter(ffi::BufferWriter {
             buf: (&mut buffer.0) as *mut _,
-            pos: buffer.0.data,
+            pos: 0,
         });
 
         // Write data
@@ -235,7 +235,7 @@ fn buffer_writer_grow() {
         // Create writer
         let mut writer = BufferWriter(ffi::BufferWriter {
             buf: (&mut buffer.0) as *mut _,
-            pos: buffer.0.data,
+            pos: 0,
         });
 
         // Write data that fits within initial capacity
@@ -257,13 +257,8 @@ fn buffer_writer_grow() {
         let expected = b"HelloWorldMoreData";
         assert_eq!(&buf.as_slice()[..18], expected);
 
-        // Verify that the cursor has been updated to point within the new allocation and is
-        // positioned at the end of the written data.
-        let cursor_ptr = writer.0.pos as *const u8;
-        assert_eq!(cursor_ptr as usize - buffer.0.data as usize, 18);
-        // Make sure cursor is pointing to a location within the new allocation.
-        assert!(cursor_ptr >= buffer.0.data as *const u8);
-        assert!(cursor_ptr <= (buffer.0.data as *const u8).add(buffer.capacity()));
+        // Verify that the position is at the end of the written data.
+        assert_eq!(writer.0.pos, 18);
 
         free_test_buffer(buffer);
     }
@@ -283,10 +278,7 @@ fn buffer_grow_edge_cases() {
         buffer.advance(initial_capacity);
 
         // Create writer at exact end of buffer
-        let mut writer = BufferWriter(ffi::BufferWriter {
-            buf: (&mut buffer.0) as *mut _,
-            pos: buffer.0.data,
-        });
+        let mut writer = BufferWriter::for_buffer(&mut buffer);
 
         // Write 1 more byte - should trigger grow
         let test_data = b"!";
@@ -299,34 +291,25 @@ fn buffer_grow_edge_cases() {
 
         // Verify all data is preserved
         for i in 0..initial_capacity {
-            assert_eq!(buffer.as_slice()[i], (i % 255) as u8);
+            assert_eq!(writer.buffer().as_slice()[i], (i % 255) as u8);
         }
-        assert_eq!(buffer.as_slice()[initial_capacity], b'!');
+        assert_eq!(writer.buffer().as_slice()[initial_capacity], b'!');
 
         // Test growing by large amount
         let large_data = vec![b'x'; 100];
         assert_eq!(writer.write(&large_data).unwrap(), 100);
 
         // Buffer capacity should accommodate all data
-        let buf = writer.buffer();
-        assert!(buf.capacity() >= initial_capacity + 1 + 100);
-        assert_eq!(buf.len(), initial_capacity + 1 + 100);
+        assert!(writer.buffer().capacity() >= initial_capacity + 1 + 100);
+        assert_eq!(writer.buffer().len(), initial_capacity + 1 + 100);
 
         // Verify the large data was written correctly
         for i in 0..100 {
-            assert_eq!(buffer.as_slice()[initial_capacity + 1 + i], b'x');
+            assert_eq!(writer.buffer().as_slice()[initial_capacity + 1 + i], b'x');
         }
 
-        // Verify that the cursor has been updated to point within the new allocation and is
-        // positioned at the end of the written data.
-        let cursor_ptr = writer.0.pos as *const u8;
-        assert_eq!(
-            cursor_ptr as usize - buffer.0.data as usize,
-            initial_capacity + 1 + 100
-        );
-        // Make sure cursor is pointing to a location within the new allocation.
-        assert!(cursor_ptr >= buffer.0.data as *const u8);
-        assert!(cursor_ptr <= (buffer.0.data as *const u8).add(buffer.capacity()));
+        // Verify that the position matches the end of the written data.
+        assert_eq!(writer.0.pos, initial_capacity + 1 + 100);
 
         free_test_buffer(buffer);
     }
