@@ -8,7 +8,7 @@
 */
 
 use std::{
-    ffi::c_char,
+    ffi::{c_char, c_int, c_void},
     io::{Read, Seek, Write},
 };
 
@@ -55,6 +55,23 @@ pub struct RSTermRecord {
 
     /// The encoded offsets in which the term appeared in the document
     pub offsets: RSOffsetVector,
+}
+
+/// Represents an aggregate array of values in an index record.
+/// cbindgen:field-names=[numChildren, childrenCap, children, typeMask]
+#[repr(C)]
+pub struct RSAggregateResult {
+    /// The number of child records
+    num_children: c_int,
+
+    /// The capacity of the records array. Has no use for extensions
+    children_cap: c_int,
+
+    /// An array of records
+    children: *mut *mut c_void,
+
+    /// A map of the aggregate type of the underlying records
+    type_mask: u32,
 }
 
 /// Encoder to write a record into an index

@@ -288,18 +288,6 @@ typedef enum {
 #define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)
 #define RS_RESULT_NUMERIC (RSResultType_Numeric | RSResultType_Metric)
 
-typedef struct {
-  /* The number of child records */
-  int numChildren;
-  /* The capacity of the records array. Has no use for extensions */
-  int childrenCap;
-  /* An array of recods */
-  struct RSIndexResult **children;
-
-  // A map of the aggregate type of the underlying results
-  uint32_t typeMask;
-} RSAggregateResult;
-
 // Forward declaration of needed structs
 struct RLookupKey;
 struct RSValue;
