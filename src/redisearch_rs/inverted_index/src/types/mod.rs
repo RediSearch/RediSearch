@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ffi::c_int;
 use ffi::RSIndexResult;
+use std::ffi::c_int;
 
 /// Represents a numeric value in an index record.
 /// cbindgen:field-names=[value]
