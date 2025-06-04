@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 pin-project-lite = "0.2"
 libc = { workspace = true, features = ["extra_traits"] }
+ffi.workspace = true
 
 [lints]
 workspace = true

@@ -7,12 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
  */
 
-pub mod ffi;
-
+use libc::{c_int, timespec};
+use pin_project_lite::pin_project;
 use std::{
+    marker::PhantomPinned,
     mem::MaybeUninit,
     pin::Pin,
-    ptr::{self},
+    ptr::{self, NonNull},
 };
 
 /// Errors that can be returned by [`ResultProcessor`]
@@ -46,7 +47,7 @@ pub trait ResultProcessor {
 
 /// This type allows result processors to access its context (the owning QueryIterator, upstream result processors, etc.)
 pub struct Context<'a> {
-    result_processor: Pin<&'a mut ffi::Header>,
+    result_processor: Pin<&'a mut Header>,
 }
 
 impl Context<'_> {
@@ -67,7 +68,7 @@ impl Context<'_> {
 /// The previous result processor in the pipeline
 #[derive(Debug)]
 pub struct Upstream<'a> {
-    result_processor: Pin<&'a mut ffi::Header>,
+    result_processor: Pin<&'a mut Header>,
 }
 
 impl Upstream<'_> {
@@ -86,17 +87,211 @@ impl Upstream<'_> {
         let result_processor = unsafe { self.result_processor.as_mut().get_unchecked_mut() };
         // Safety: At the end of the day we're calling to arbitrary code at this point... But provided
         // the QueryIterator and other result processors are implemented correctly, this should be safe.
-        let ret_code = unsafe { next(ptr::from_mut(result_processor), res) };
+        let ret_code = unsafe { next(ptr::from_mut(result_processor), res.as_mut_ptr()) };
 
-        match ret_code {
-            ffi::RPStatus::RS_RESULT_OK => Ok(Some(())),
-            ffi::RPStatus::RS_RESULT_EOF => Ok(None),
-            ffi::RPStatus::RS_RESULT_PAUSED => Err(Error::Paused),
-            ffi::RPStatus::RS_RESULT_TIMEDOUT => Err(Error::TimedOut),
-            ffi::RPStatus::RS_RESULT_ERROR => Err(Error::Error),
-            ffi::RPStatus(code) => {
+        match ret_code as ffi::RPStatus {
+            ffi::RPStatus_RS_RESULT_OK => Ok(Some(())),
+            ffi::RPStatus_RS_RESULT_EOF => Ok(None),
+            ffi::RPStatus_RS_RESULT_PAUSED => Err(Error::Paused),
+            ffi::RPStatus_RS_RESULT_TIMEDOUT => Err(Error::TimedOut),
+            ffi::RPStatus_RS_RESULT_ERROR => Err(Error::Error),
+            code => {
                 unimplemented!("result processor returned unknown error code {code}")
             }
         }
+    }
+}
+
+/// Properties of Result Processors that are accessed by C code through FFI. This type is named `Header` because it
+/// must be the first member of the [`ResultProcessor`] struct in order to guarantee that we can cast a `*mut ResultProcessor<P>`
+/// to a `*mut Header` (which is what the C code expects to receive).
+///
+/// Duplicates [`ffi::ResultProcessor`] to add pinning-related safety features.
+///
+/// # Safety
+///
+/// Result processors intrusively linked, where one result processor has the pointer to the
+/// previous (forming an intrusively singly-linked list). This places a big safety invariant on all code
+/// that touches this data structure: Result processors must *never* be moved while part of a QueryIterator
+/// chain. Accidentally moving a processor will remove in a broken link and undefined behaviour.
+///
+/// This invariant is implicit in the C code where its uncommon to move the heap allocated objects (which would
+/// mean memcopying them around); In Rust we need to explicitly manage this invariant however, as move semantics make
+/// it easy to break accidentally. For details refer to the [`Pin`] documentation which explains the concept of "pinning"
+/// a Rust value in memory and its implications.
+///
+/// This crate has to ensure that these pinning invariants are upheld internally, but when sending pointers through the FFI boundary
+/// this is impossible to guarantee. Thankfully, as mentioned above its quite rare to move out of pointers, so its reasonably safe.
+#[repr(C)]
+#[derive(Debug)]
+struct Header {
+    /// Reference to the parent QueryIterator that owns this result processor
+    parent: *mut ffi::QueryIterator,
+    /// Previous result processor in the chain
+    upstream: *mut Header,
+    /// Type of result processor
+    ty: ffi::ResultProcessorType,
+    gil_time: timespec,
+    /// "VTable" function. Pulls [`ffi::SearchResult`]s out of this result processor.
+    ///
+    /// Populates the result pointed to by `res`. The existing data of `res` is
+    /// not read, so it is the responsibility of the caller to ensure that there
+    /// are no refcount leaks in the structure.
+    ///
+    /// Users can use [`ffi::SearchResult_Clear`] to reset the structure without freeing it.
+    ///
+    /// The populated structure (if [`ffi::RPStatus_RS_RESULT_OK`] is returned) does contain references
+    /// to document data. Callers *MUST* ensure they are eventually freed.
+    next: Option<unsafe extern "C" fn(self_: *mut Header, res: *mut ffi::SearchResult) -> c_int>,
+    /// "VTable" function. Frees the processor and any internal data related to it.
+    free: Option<unsafe extern "C" fn(self_: *mut Header)>,
+    /// ResultProcessor *must* be !Unpin to ensure they can never be moved, and they never receive
+    /// LLVM `noalias` annotations; See <https://github.com/rust-lang/rust/issues/63818>.
+    /// FIXME: Remove once <https://github.com/rust-lang/rust/issues/63818> is closed and replace with the recommended fix.
+    _unpin: PhantomPinned,
+}
+
+// Header duplicates ffi::ResultProcessor, so we need to make sure it has the exact same size, alignment and field layout.
+const _: () = {
+    assert!(std::mem::size_of::<Header>() == std::mem::size_of::<ffi::ResultProcessor>(),);
+    assert!(std::mem::align_of::<Header>() == std::mem::align_of::<ffi::ResultProcessor>(),);
+    assert!(
+        ::std::mem::offset_of!(Header, parent)
+            == ::std::mem::offset_of!(ffi::ResultProcessor, parent)
+    );
+    assert!(
+        ::std::mem::offset_of!(Header, upstream)
+            == ::std::mem::offset_of!(ffi::ResultProcessor, upstream)
+    );
+    assert!(
+        ::std::mem::offset_of!(Header, ty) == ::std::mem::offset_of!(ffi::ResultProcessor, type_)
+    );
+    assert!(
+        ::std::mem::offset_of!(Header, gil_time)
+            == ::std::mem::offset_of!(ffi::ResultProcessor, GILTime)
+    );
+    assert!(
+        ::std::mem::offset_of!(Header, next) == ::std::mem::offset_of!(ffi::ResultProcessor, Next)
+    );
+    assert!(
+        ::std::mem::offset_of!(Header, free) == ::std::mem::offset_of!(ffi::ResultProcessor, Free)
+    );
+};
+
+pin_project! {
+    #[derive(Debug)]
+    #[repr(C)]
+    pub struct ResultProcessorWrapper<P> {
+        #[pin]
+        header: Header,
+        result_processor: P,
+    }
+}
+
+impl<P> ResultProcessorWrapper<P>
+where
+    P: ResultProcessor,
+{
+    /// Construct a new FFI-ResultProcessor from the provided [`crate::ResultProcessor`] implementer.
+    pub fn new(result_processor: P) -> Self {
+        Self {
+            header: Header {
+                parent: ptr::null_mut(), // will be set by `QITR_PushRP` when inserting this result processor into the chain
+                upstream: ptr::null_mut(), // will be set by `QITR_PushRP` when inserting this result processor into the chain
+                ty: P::TYPE,
+                gil_time: timespec {
+                    tv_sec: 0,
+                    tv_nsec: 0,
+                },
+                next: Some(Self::result_processor_next),
+                free: Some(Self::result_processor_free),
+                _unpin: PhantomPinned,
+            },
+            result_processor,
+        }
+    }
+
+    /// Converts a heap-allocated `ResultProcessor` into a raw pointer.
+    ///
+    /// The caller is responsible for the memory previously managed by the `Box`, in particular
+    /// the caller should properly destroy the `ResultProcessor` and deallocate the memory by calling
+    /// `Self::from_ptr`.
+    ///
+    /// # Safety
+    ///
+    /// The caller *must* continue to treat the pointer as pinned.
+    pub unsafe fn into_ptr(me: Pin<Box<Self>>) -> *mut Self {
+        // This function must be kept in sync with `Self::from_ptr` below.
+
+        // Safety: The caller promised to continue to treat the returned pointer
+        // as pinned and never move out of it.
+        Box::into_raw(unsafe { Pin::into_inner_unchecked(me) })
+    }
+
+    /// Constructs a `Box<ResultProcessor>` from a raw pointer.
+    ///
+    /// The returned `Box` will own the raw pointer, in particular dropping the `Box`
+    /// will deallocate the `ResultProcessor`. This function should only be used by the [`Self::result_processor_free`].
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the pointer was previously created through [`Self::into_ptr`]. Furthermore,
+    /// callers have to be careful to never call this method twice for the same pointer, otherwise a double-free
+    /// or other memory corruptions will occur.
+    /// The caller *must* also ensure that `ptr` continues to be treated as pinned.
+    #[inline]
+    unsafe fn from_ptr(ptr: *mut Self) -> Pin<Box<Self>> {
+        // This function must be kept in sync with `Self::into_ptr` above.
+
+        // Safety: The caller has to ensure they never call this function twice in a memory-unsafe way. But since this
+        // is not public anyway, it should be easier to verify.
+        let b = unsafe { Box::from_raw(ptr.cast()) };
+        // Safety: Also responsibility of the caller.
+        unsafe { Pin::new_unchecked(b) }
+    }
+
+    unsafe extern "C" fn result_processor_next(
+        me: *mut Header,
+        res: *mut ffi::SearchResult,
+    ) -> c_int {
+        let me = NonNull::new(me).unwrap();
+        debug_assert!(me.is_aligned());
+
+        let res = NonNull::new(res).unwrap();
+        debug_assert!(res.is_aligned());
+
+        // Safety: This function is called through the ResultProcessor "VTable" which - through the generics on this type -
+        // ensures that we can safely cast to `Self` here.
+        let me = unsafe { me.cast::<Self>().as_mut() };
+        // Safety: We must ensure that the `me` pointer remains pinned even if its cast to a mutable reference now
+        let mut me = unsafe { Pin::new_unchecked(me) };
+
+        // Through the magic of pin-projection we can mutable access the result processor in a fully Rust-compatible
+        // safe way.
+        let me = me.as_mut().project();
+
+        let cx = Context {
+            result_processor: me.header,
+        };
+
+        // Safety: We have done as much checking as we can at the start of the function (checking alignment & non-null-ness).
+        let res = unsafe { res.cast::<MaybeUninit<ffi::SearchResult>>().as_mut() };
+
+        match me.result_processor.next(cx, res) {
+            Ok(Some(())) => ffi::RPStatus_RS_RESULT_OK as c_int,
+            Ok(None) => ffi::RPStatus_RS_RESULT_EOF as c_int,
+            Err(Error::Paused) => ffi::RPStatus_RS_RESULT_PAUSED as c_int,
+            Err(Error::TimedOut) => ffi::RPStatus_RS_RESULT_TIMEDOUT as c_int,
+            Err(Error::Error) => ffi::RPStatus_RS_RESULT_ERROR as c_int,
+        }
+    }
+
+    unsafe extern "C" fn result_processor_free(me: *mut Header) {
+        debug_assert!(me.is_aligned());
+
+        // Safety: This function is called through the ResultProcessor "VTable" which - through the generics
+        //  and constructor of this type - ensures that we can safely cast to `Self` here.
+        //  For all other safety guarantees we have to trust the QueryIterator implementation to be correct.
+        drop(unsafe { Self::from_ptr(me.cast::<Self>()) });
     }
 }
