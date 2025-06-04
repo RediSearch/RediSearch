@@ -63,9 +63,8 @@ size_t WriteVarint(uint32_t value, BufferWriter *w) {
   size_t pos = varintEncode(value, varint);
   size_t nw = VARINT_LEN(pos);
 
-  size_t mem_growth = 0;
   // we assume buffer reserve will not fail
-  mem_growth = Buffer_Reserve(w->buf, nw);
+  size_t mem_growth = Buffer_Reserve(w->buf, nw);
 
   memcpy(BufferWriter_Current(w), VARINT_BUF(varint, pos), nw);
 
