@@ -89,7 +89,7 @@ public:
             }
         } else {
             // Populate the index with term data
-            for (size_t i = 0; i < n_ids; ++i) {
+            for (size_t i = 0; i < ids.size(); ++i) {
                 ForwardIndexEntry h = {0};
                 h.docId = ids[i];
                 h.fieldMask = i + 1;

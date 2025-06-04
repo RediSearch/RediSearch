@@ -20,7 +20,7 @@ typedef enum IndexType {
 
 class IndexIteratorTest : public ::testing::TestWithParam<IndexType> {
 protected:
-    static constexpr size_t n_docs = 1234;
+    static constexpr size_t n_docs = 2.45 * std::max(INDEX_BLOCK_SIZE, INDEX_BLOCK_SIZE_DOCID_ONLY);
     std::array<t_docId, n_docs> resultSet;
     InvertedIndex *idx;
     QueryIterator *it_base;
