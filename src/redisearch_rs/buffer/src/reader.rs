@@ -16,7 +16,7 @@ use crate::Buffer;
 /// # Invariants
 ///
 /// 1. Position is smaller than or equal to the length of the buffer we're reading from.
-/// 2. `BufferReader` has the same memory layout of [`ffi::BufferReader`].
+/// 2. `BufferReader` has the same memory layout as [`ffi::BufferReader`].
 #[repr(C)]
 pub struct BufferReader<'a> {
     buffer: &'a Buffer,
