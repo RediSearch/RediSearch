@@ -16,7 +16,7 @@ use std::ffi::{c_int, c_void};
 pub struct RSNumericRecord(pub f64);
 
 /// Represents an aggregate array of values in an index record.
-/// cbindgen:field-names=[numChildren, childrenCap, children, typeMask]
+/// cbindgen:rename-all=CamelCase
 #[repr(C)]
 pub struct RSAggregateResult {
     /// The number of child records
