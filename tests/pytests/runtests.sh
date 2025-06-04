@@ -325,10 +325,9 @@ run_tests() {
 
 	[[ $RLEC == 1 ]] && export RLEC_CLUSTER=1
 
-	local E=27
+	local E=0
 	if [[ $NOP != 1 ]]; then
-		echo "hello"
-		#{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
+		{ $OP python3 -m RLTest @$rltest_config; (( E |= $? )); } || true
 	else
 		$OP python3 -m RLTest @$rltest_config
 	fi
