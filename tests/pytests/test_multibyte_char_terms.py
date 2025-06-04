@@ -1576,11 +1576,69 @@ def test_utf8_lowercase_longer_than_uppercase_texts(env):
             'FT.SEARCH', 'idx', f'@t:({t1_lower})', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, expected_2, message=f'Dialect: {dialect}')
 
+# These characters are not supported by Unicode 12.1.0
+# Reference https://www.unicode.org/Public/12.1.0/ucd/UnicodeData.txt
+UNSUPPORTED_UNICODE_12_1_0_CODEPOINTS = {
+    0x2C2F,  # COPTIC CAPITAL LETTER SHEI
+    0xA7C0,  # COPTIC CAPITAL LETTER OLD COPTIC SHEI
+    0xA7C7,  # COPTIC CAPITAL LETTER OLD COPTIC KHEI
+    0xA7C8,  # COPTIC CAPITAL LETTER OLD COPTIC HORI
+    0xA7C9,  # COPTIC CAPITAL LETTER OLD COPTIC GANGIA
+    0xA7D0,  # COPTIC CAPITAL LETTER OLD COPTIC SHIMA
+    0xA7D6,  # COPTIC CAPITAL LETTER OLD COPTIC KHEI
+    0xA7D8,  # COPTIC CAPITAL LETTER OLD COPTIC HORI
+    0xA7F5,  # COPTIC CAPITAL LETTER OLD COPTIC GANGIA
+    0x10570,  # CUNEIFORM SIGN A
+    0x10571,  # CUNEIFORM SIGN A2
+    0x10572,  # CUNEIFORM SIGN A3
+    0x10573,  # CUNEIFORM SIGN A4
+    0x10574,  # CUNEIFORM SIGN A5
+    0x10575,  # CUNEIFORM SIGN A6
+    0x10576,  # CUNEIFORM SIGN A7
+    0x10577,  # CUNEIFORM SIGN A8
+    0x10578,  # CUNEIFORM SIGN A9
+    0x10579,  # CUNEIFORM SIGN AA
+    0x1057A,  # CUNEIFORM SIGN AB
+    0x1057B,  # CUNEIFORM SIGN AC
+    0x1057C,  # CUNEIFORM SIGN AD
+    0x1057D,  # CUNEIFORM SIGN AE
+    0x1057E,  # CUNEIFORM SIGN AF
+    0x1057F,  # CUNEIFORM SIGN AG
+    0x10580,  # CUNEIFORM SIGN AH
+    0x10581,  # CUNEIFORM SIGN AI
+    0x10582,  # CUNEIFORM SIGN AJ
+    0x10583,  # CUNEIFORM SIGN AK
+    0x10584,  # CUNEIFORM SIGN AL
+    0x10585,  # CUNEIFORM SIGN AM
+    0x10586,  # CUNEIFORM SIGN AN
+    0x10587,  # CUNEIFORM SIGN AO
+    0x10588,  # CUNEIFORM SIGN AP
+    0x10589,  # CUNEIFORM SIGN AQ
+    0x1058A,  # CUNEIFORM SIGN AR
+    0x1058B,  # CUNEIFORM SIGN AS
+    0x1058C,  # CUNEIFORM SIGN AT
+    0x1058D,  # CUNEIFORM SIGN AU
+    0x1058E,  # CUNEIFORM SIGN AV
+    0x1058F,  # CUNEIFORM SIGN AW
+    0x10590,  # CUNEIFORM SIGN AX
+    0x10591,  # CUNEIFORM SIGN AY
+    0x10592,  # CUNEIFORM SIGN AZ
+    0x10593,  # CUNEIFORM SIGN BA
+    0x10594,  # CUNEIFORM SIGN BB
+    0x10595,  # CUNEIFORM SIGN BC
+}
+
 
 @skip(cluster=True)
-def testToLowerSize(env):
-    '''Test that the toLower function returns the correct size for multi-byte
-    characters.'''
+def testToLowerConversion(env):
+    '''Test that tolower conversion works correctly for all unicode characters.
+    This test skips surrogate pairs, which are not valid unicode characters
+    and are not supported by the tolower conversion.
+    It also skips lowercase characters, because the tolower conversion
+    is not expected to change them.
+    The test creates a document with a term that contains a single unicode
+    character, and then searches for the term in both upper and lower case.
+    '''
 
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx_txt', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT')
@@ -1589,44 +1647,38 @@ def testToLowerSize(env):
     for idx in ['idx_txt', 'idx_tag']:
         for codepoint in range(0x110000):  # Unicode range from U+0000 to U+10FFFF
             # Skip surrogate pairs (0xD800 to 0xDFFF)
-            # if 0xD800 <= codepoint <= 0xDFFF:
-            #     continue
+            if 0xD800 <= codepoint <= 0xDFFF:
+                continue
+
             char = chr(codepoint)
-            upper_char = char.upper()
             lower_char = char.lower()
             if char == lower_char:
                 # If the character is already lowercase, skip it
                 continue
 
-            lower_char2 = char.lower().upper().lower()
-            upper_bytes = upper_char.encode('utf-8')
-            lower_bytes = lower_char.encode('utf-8')
+            upper_term = char * 5
+            lower_term = lower_char * 5
+            env.cmd('HSET', 'doc:u', 't', upper_term)
+            env.cmd('HSET', 'doc:l', 't', lower_term)
 
-            if (len(upper_bytes) < len(lower_bytes)):
-                print(f"Codepoint:U+{codepoint:04X}  char:{char}:{' '.join(f'U+{ord(c):04X}' for c in char)}")
-                print(f"len(upper_bytes) < len(lower_bytes) -> {len(upper_bytes)} < {len(lower_bytes)}")
-                if (lower_char != lower_char2):
-                    print(f'Different: char.upper():{upper_char}:{' '.join(f"U+{ord(c):04X}" for c in upper_char)}  char.lower():{lower_char}:{' '.join(f"U+{ord(c):04X}" for c in lower_char)} char.lower().upper().lower(): {lower_char2} {' '.join(f"U+{ord(c):04X}" for c in lower_char2)}')
-                else:
-                    print(f'Same:      char.upper():{upper_char}:{' '.join(f"U+{ord(c):04X}" for c in upper_char)}  char.lower():{lower_char}:{' '.join(f"U+{ord(c):04X}" for c in lower_char)} char.lower().upper().lower(): {lower_char2} {' '.join(f"U+{ord(c):04X}" for c in lower_char2)}')
-                lower_term = lower_char * 5
-                upper_term = upper_char * 5
-                env.debugPrint(f'upper_term: {upper_term} lower_term: {lower_term}')
-                print(f'upper_term: {upper_term} lower_term: {lower_term}')
-                env.cmd('HSET', 'doc:1', 't', lower_term)
-                env.cmd('HSET', 'doc:2', 't', upper_term)
+            if idx == 'idx_txt':
+                query_u = f'@t:({upper_term})'
+                query_l = f'@t:({lower_term})'
+            else:
+                query_u = f'@t:{{{upper_term}}}'
+                query_l = f'@t:{{{lower_term}}}'
 
-                if idx == 'idx_txt':
-                    query1 = f'@t:({lower_term})'
-                    query2 = f'@t:({upper_term})'
-                else:
-                    query1 = f'@t:{{{lower_term}}}'
-                    query2 = f'@t:{{{upper_term}}}'
+            if codepoint in UNSUPPORTED_UNICODE_12_1_0_CODEPOINTS:
+                # For unsupported codepoints, different terms are created
+                # for upper and lower case, so the search will return
+                # a single result for each case.
+                expected_u = [1, 'doc:u']
+                expected_l = [1, 'doc:l']
+            else:
+                expected_u = [2, 'doc:u', 'doc:l']
+                expected_l = expected_u
 
-                res = conn.execute_command(
-                    'FT.SEARCH', idx, query1, 'NOCONTENT')
-                env.assertEqual(res, [2, 'doc:1', 'doc:2'], message = f'{idx} upper_char: {upper_char} {' '.join(f"U+{ord(c):04X}" for c in upper_char)}' )
-                res = conn.execute_command(
-                    'FT.SEARCH', idx, query2, 'NOCONTENT')
-                env.assertEqual(res, [2, 'doc:1', 'doc:2'], message = f'{idx} lower_char: {lower_char}  {' '.join(f"U+{ord(c):04X}" for c in lower_char)} lower_char_2: {lower_char2} {' '.join(f"U+{ord(c):04X}" for c in lower_char2)}')
-
+            res = conn.execute_command('FT.SEARCH', idx, query_u, 'NOCONTENT')
+            env.assertEqual(res, expected_u, message = f'{idx} char: {char} {' '.join(f"U+{ord(c):04X}" for c in char)}' )
+            res = conn.execute_command('FT.SEARCH', idx, query_l, 'NOCONTENT')
+            env.assertEqual(res, expected_l, message = f'{idx} upper: {char} {' '.join(f"U+{ord(c):04X}" for c in char)}')

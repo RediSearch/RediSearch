@@ -109,27 +109,6 @@ static char *rm_strndup_unescape(const char *s, size_t len) {
   return ret;
 }
 
-// In some cases there are two lowercase versions of the same character
-// in Unicode, but nu_tolower returns only one of them.
-// i.e. uppercase('ſ') == 'S' but lowercase('S') == 's'
-// So, we need to map 'ſ' to 's' manually.
-// This is a simple map to handle these cases.
-static uint32_t __simpleToLowerMap[8] = {0x0432, 0x0434, 0x043E, 0x0441, 0x0442, 0x0442, 0x044A, 0x0463};
-static uint32_t __simple_tolower(uint32_t in) {
-
-  if (in == 0x0131) {
-    return 0x0069;
-  } else if (in == 0x017f) {
-    return 0x0073;
-  } else if (in >= 0x1c80 && in <= 0x1c87) {
-    return __simpleToLowerMap[in - 0x1c80];
-  } else if (in == 0x1fbe) {
-    return 0x03b9;
-  } else {
-    return in;
-  }
-}
-
 // transform utf8 string to lower case using nunicode library
 // encoded: the utf8 string to transform
 // in_len:  length of the input string in bytes
@@ -150,7 +129,7 @@ static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
                                               nu_tolower, nu_casemap_read);
 
   if (u_len >= (SSO_MAX_LENGTH - 1)) {
-    u_buffer = (uint32_t *)rm_malloc(sizeof(uint32_t) * (u_len + 1));
+    u_buffer = (uint32_t *)rm_malloc(sizeof(*u_buffer) * (u_len + 1));
   }
 
   // Decode utf8 string into Unicode codepoints and transform to lower
@@ -165,8 +144,7 @@ static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
       // If we reach the end of the string, break
       break;
     }
-    // Transform unicode codepoint to most common lower case codepoint
-    // codepoint = __simple_tolower(codepoint);
+
     // Transform unicode codepoint to lower case
     const char *map = nu_tolower(codepoint);
 
@@ -199,7 +177,7 @@ static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
       // it should be updated by the caller if needed
       nu_writenstr(u_buffer, i, encoded, nu_utf8_write);
     } else {
-      longer_dst = (char *)rm_malloc((reencoded_len + 1) * sizeof(char));
+      longer_dst = (char *)rm_malloc((reencoded_len + 1) * sizeof(*longer_dst));
       nu_writenstr(u_buffer, i, longer_dst, nu_utf8_write);
       longer_dst[reencoded_len] = '\0';
       ssize_t x = strlen(longer_dst);
