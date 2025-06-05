@@ -27,6 +27,49 @@ fn buffer_creation() {
 }
 
 #[test]
+#[should_panic]
+fn reader_position_must_be_in_bounds() {
+    let buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
+    BufferReader::new_at(&buffer, 6);
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic = "The requested buffer capacity would overflow usize::MAX"]
+fn cannot_overflow_usize() {
+    let mut buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
+    buffer.reserve(usize::MAX - 3);
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic = "The requested buffer capacity would overflow isize::MAX"]
+fn cannot_overflow_isize() {
+    let mut buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
+    buffer.reserve(isize::MAX as usize);
+}
+
+#[test]
+fn read_from_arbitrary_position() {
+    let buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
+    let initial_position = 2;
+    let mut reader = BufferReader::new_at(&buffer, initial_position);
+
+    let mut bytes = Vec::new();
+    let n_bytes_read = reader.read_to_end(&mut bytes).unwrap();
+
+    assert_eq!(n_bytes_read, buffer.len() - initial_position);
+    assert_eq!(bytes, [3, 4, 5]);
+}
+
+#[test]
+#[should_panic]
+fn writer_position_must_be_in_bounds() {
+    let mut buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
+    BufferWriter::new_at(&mut buffer, 6);
+}
+
+#[test]
 fn buffer_as_slice() {
     let test_data = [1u8, 2, 3, 4, 5];
     let buffer = buffer_from_array(test_data);
