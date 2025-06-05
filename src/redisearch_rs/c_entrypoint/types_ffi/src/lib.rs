@@ -11,3 +11,4 @@
 
 pub use inverted_index::{RSAggregateResult, RSNumericRecord, RSResultType, RSTermRecord};
 pub use result_processor::rlookup::RLookupRow;
+pub use result_processor::search_result::SearchResult;

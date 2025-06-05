@@ -17,10 +17,13 @@ typedef struct RSQueryTerm RSQueryTerm;
 typedef struct RSIndexResult RSIndexResult;
 
 /*
- * Forward declaration of RLookupRow. It will be defined in `redisearch.h`
+ * Forward declaration of RLookupRow and SearchResult. It will be defined in `redisearch.h`
  */
 typedef struct RSSortingVector RSSortingVector;
 typedef struct RSValue RSValue;
+typedef struct RSIndexResult RSIndexResult;
+typedef struct RSScoreExplain RSScoreExplain;
+typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 
 
 enum RSResultType
@@ -41,11 +44,19 @@ typedef uint32_t RSResultType;
 #endif // __cplusplus
 
 /**
- * Row data for a lookup key. This abstracts the question of "where" the
- * data comes from.
+ * Row data for a lookup key. This abstracts the question of "where" the data comes from.
+ *
+ * This stores the values received by an iteration over a RLookup.
+ *
  */
 typedef struct RLookupRow {
+  /**
+   * contains sortable values for the row, is depending on the filed sorting
+   */
   const RSSortingVector *sv;
+  /**
+   * contains the dynamic values of the row
+   */
   RSValue **dyn;
   /**
    * the number of dynamic values in the row
@@ -221,3 +232,20 @@ typedef struct RSTermRecord {
    */
   struct RSOffsetVector offsets;
 } RSTermRecord;
+
+typedef uint64_t DocId;
+
+/**
+ * SearchResult - the object all the processing chain is working on.
+ * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc,
+ * and a list of fields loaded by the chain
+ */
+typedef struct SearchResult {
+  DocId docId;
+  double score;
+  RSScoreExplain *scoreExplain;
+  const RSDocumentMetadata *dmd;
+  RSIndexResult *indexResult;
+  struct RLookupRow rowdata;
+  uint8_t flags;
+} SearchResult;
