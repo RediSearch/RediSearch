@@ -145,7 +145,7 @@ fn encode_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, valu
 
 fn encode_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
     // Allocate buffer once for the entire benchmark
-    let buffer_ptr = unsafe { crate::RedisModule_Alloc(1024) };
+    let buffer_ptr = unsafe { crate::RedisModule_Alloc.unwrap()(1024) };
 
     group.bench_function("C", |b| {
         b.iter(|| {
@@ -164,7 +164,7 @@ fn encode_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values:
 
     // Free buffer after benchmark
     unsafe {
-        crate::RedisModule_Free(buffer_ptr);
+        crate::RedisModule_Free.unwrap()(buffer_ptr);
     }
 }
 
@@ -188,7 +188,7 @@ fn encode_field_mask_c_benchmark<M: Measurement>(
     values: &[FieldMask],
 ) {
     // Allocate buffer once for the entire benchmark
-    let buffer_ptr = unsafe { crate::RedisModule_Alloc(1024) };
+    let buffer_ptr = unsafe { crate::RedisModule_Alloc.unwrap()(1024) };
 
     group.bench_function("C", |b| {
         b.iter(|| {
@@ -207,7 +207,7 @@ fn encode_field_mask_c_benchmark<M: Measurement>(
 
     // Free buffer after benchmark
     unsafe {
-        crate::RedisModule_Free(buffer_ptr);
+        crate::RedisModule_Free.unwrap()(buffer_ptr);
     }
 }
 

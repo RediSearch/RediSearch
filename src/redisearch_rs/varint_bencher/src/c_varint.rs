@@ -120,7 +120,7 @@ pub mod c_varint_ops {
         unsafe {
             // Create buffer for single varint (max 5 bytes)
             let initial_capacity = 16;
-            let data_ptr = crate::RedisModule_Alloc(initial_capacity);
+            let data_ptr = crate::RedisModule_Alloc.unwrap()(initial_capacity);
             if data_ptr.is_null() {
                 return Vec::new();
             }
@@ -140,7 +140,7 @@ pub mod c_varint_ops {
             let result = result_data.to_vec();
 
             // Free the C buffer
-            crate::RedisModule_Free(data_ptr);
+            crate::RedisModule_Free.unwrap()(data_ptr);
 
             result
         }
@@ -152,7 +152,7 @@ pub mod c_varint_ops {
         unsafe {
             // Create initial buffer using C allocation so it can be grown by Buffer_Grow
             let initial_capacity = 32;
-            let data_ptr = crate::RedisModule_Alloc(initial_capacity);
+            let data_ptr = crate::RedisModule_Alloc.unwrap()(initial_capacity);
             if data_ptr.is_null() {
                 return Vec::new();
             }
@@ -172,7 +172,7 @@ pub mod c_varint_ops {
             let result = result_data.to_vec();
 
             // Free the C buffer
-            crate::RedisModule_Free(data_ptr);
+            crate::RedisModule_Free.unwrap()(data_ptr);
 
             result
         }
