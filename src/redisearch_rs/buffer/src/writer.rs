@@ -106,6 +106,9 @@ impl<'a> std::io::Write for BufferWriter<'a> {
 }
 
 // Check, at compile-time, that `BufferWriter` and `ffi::BufferWriter` have the same representation.
+// This check will alert us if the C or the Rust definition changed without a corresponding patch
+// to the representation in the other language.
+// In that scenario, you should make sure to align both on the same memory layout.
 const _: () = {
     use std::mem::offset_of;
 
