@@ -264,24 +264,6 @@ fn decode_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, valu
     });
 }
 
-fn decode_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
-    // Pre-encode the values using C implementation
-    let encoded_values: Vec<Vec<u8>> = values
-        .iter()
-        .map(|&value| c_varint_ops::write_to_vec(value))
-        .collect();
-
-    group.bench_function("C", |b| {
-        b.iter(|| {
-            for encoded in &encoded_values {
-                let mut reader = encoded.as_slice();
-                let decoded = varint::read(&mut reader).unwrap();
-                black_box(decoded);
-            }
-        })
-    });
-}
-
 fn decode_field_mask_rust_benchmark<M: Measurement>(
     group: &mut BenchmarkGroup<'_, M>,
     values: &[FieldMask],
@@ -307,6 +289,23 @@ fn decode_field_mask_rust_benchmark<M: Measurement>(
     });
 }
 
+fn decode_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
+    // Pre-encode the values using C implementation
+    let encoded_values: Vec<Vec<u8>> = values
+        .iter()
+        .map(|&value| c_varint_ops::write_to_vec(value))
+        .collect();
+
+    group.bench_function("C", |b| {
+        b.iter(|| {
+            for encoded in &encoded_values {
+                let decoded = c_varint_ops::read(encoded);
+                black_box(decoded);
+            }
+        })
+    });
+}
+
 fn decode_field_mask_c_benchmark<M: Measurement>(
     group: &mut BenchmarkGroup<'_, M>,
     values: &[FieldMask],
@@ -320,8 +319,7 @@ fn decode_field_mask_c_benchmark<M: Measurement>(
     group.bench_function("C", |b| {
         b.iter(|| {
             for encoded in &encoded_values {
-                let mut reader = encoded.as_slice();
-                let decoded = varint::read_field_mask(&mut reader).unwrap();
+                let decoded = c_varint_ops::read_field_mask(encoded);
                 black_box(decoded);
             }
         })

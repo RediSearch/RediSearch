@@ -19,37 +19,22 @@
 extern "C" {
 #endif
 /* Read an encoded integer from the buffer. It is assumed that the buffer will not overflow */
-static inline uint32_t ReadVarint(BufferReader *b) {
+uint32_t ReadVarint(BufferReader *b);
 
-  unsigned char c = BUFFER_READ_BYTE(b);
+t_fieldMask ReadVarintFieldMask(BufferReader *b);
 
-  uint32_t val = c & 127;
-  while (c >> 7) {
-    ++val;
-    c = BUFFER_READ_BYTE(b);
-    val = (val << 7) | (c & 127);
-  }
+/* Non-inline wrapper functions for FFI to ensure these are available as exported symbols */
+uint32_t ReadVarintNonInline(BufferReader *b);
 
-  return val;
-}
-
-static inline t_fieldMask ReadVarintFieldMask(BufferReader *b) {
-
-  unsigned char c = BUFFER_READ_BYTE(b);
-
-  t_fieldMask val = c & 127;
-  while (c >> 7) {
-    ++val;
-    c = BUFFER_READ_BYTE(b);
-    val = (val << 7) | (c & 127);
-  }
-
-  return val;
-}
+t_fieldMask ReadVarintFieldMaskNonInline(BufferReader *b);
 
 size_t WriteVarint(uint32_t value, BufferWriter *w);
 
 size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *w);
+
+uint32_t ReadVarintRaw(const char **pos, const char *end);
+
+t_fieldMask ReadVarintFieldMaskRaw(const char **pos, const char *end);
 
 typedef struct {
   Buffer buf;

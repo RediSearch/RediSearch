@@ -120,3 +120,76 @@ size_t VVW_Write(VarintVectorWriter *w, uint32_t i) {
 size_t VVW_Truncate(VarintVectorWriter *w) {
   return Buffer_Truncate(&w->buf, 0);
 }
+
+uint32_t ReadVarint(BufferReader *b) {
+
+  unsigned char c = BUFFER_READ_BYTE(b);
+
+  uint32_t val = c & 127;
+  while (c >> 7) {
+    ++val;
+    c = BUFFER_READ_BYTE(b);
+    val = (val << 7) | (c & 127);
+  }
+
+  return val;
+}
+
+// Non-inline wrapper functions for FFI to ensure these are available as exported symbols.
+uint32_t ReadVarintNonInline(BufferReader *b) {
+  return ReadVarint(b);
+}
+
+t_fieldMask ReadVarintFieldMaskNonInline(BufferReader *b) {
+  return ReadVarintFieldMask(b);
+}
+
+t_fieldMask ReadVarintFieldMask(BufferReader *b) {
+
+  unsigned char c = BUFFER_READ_BYTE(b);
+
+  t_fieldMask val = c & 127;
+  while (c >> 7) {
+    ++val;
+    c = BUFFER_READ_BYTE(b);
+    val = (val << 7) | (c & 127);
+  }
+
+  return val;
+}
+
+uint32_t ReadVarintRaw(const char **pos, const char *end) {
+  if (*pos >= end) return 0;
+
+  unsigned char c = (unsigned char)**pos;
+  (*pos)++;
+
+  uint32_t val = c & 127;
+  while (c >> 7) {
+    if (*pos >= end) return val; // Prevent buffer overflow
+    ++val;
+    c = (unsigned char)**pos;
+    (*pos)++;
+    val = (val << 7) | (c & 127);
+  }
+
+  return val;
+}
+
+t_fieldMask ReadVarintFieldMaskRaw(const char **pos, const char *end) {
+  if (*pos >= end) return 0;
+
+  unsigned char c = (unsigned char)**pos;
+  (*pos)++;
+
+  t_fieldMask val = c & 127;
+  while (c >> 7) {
+    if (*pos >= end) return val; // Prevent buffer overflow
+    ++val;
+    c = (unsigned char)**pos;
+    (*pos)++;
+    val = (val << 7) | (c & 127);
+  }
+
+  return val;
+}
