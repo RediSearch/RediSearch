@@ -39,7 +39,9 @@ fn main() {
     let headers = {
         let buffer_h = root.join("src").join("buffer.h");
         let redisearch_h = root.join("src").join("redisearch.h");
-        [buffer_h, redisearch_h]
+        let rlookup_h = root.join("src").join("rlookup.h");
+        let score_explain_h = root.join("src").join("score_explain.h");
+        [buffer_h, redisearch_h, score_explain_h, rlookup_h]
     };
 
     let mut bindings = bindgen::Builder::default();

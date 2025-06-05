@@ -6,6 +6,9 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+
+#include <search_ctx.h>
+
 #include "query_iterator.hpp"
 #include "doc_table.h"
 #include "util/timeout.h"

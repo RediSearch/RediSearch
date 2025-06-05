@@ -4,6 +4,9 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
+ 
+#include <search_ctx.h>
+
 #include "union_iterator.h"
 
 static inline int cmpLastDocId(const void *e1, const void *e2, const void *udata) {
