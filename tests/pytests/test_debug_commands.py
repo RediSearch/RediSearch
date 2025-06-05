@@ -1006,7 +1006,7 @@ def test_terminate_bg_pool(env):
     # Check if the scan is finished
     env.assertEqual(index_info(env, 'idx')['indexing'], 0)
 
-@skip(cluster=True)Add commentMore actions
+@skip(cluster=True)
 def test_pause_before_oom_retry(env):
     # Check error handling
     # Giving invalid argument
