@@ -22,7 +22,7 @@ static size_t WI_NumEstimated(QueryIterator *base) {
 
 /* Read reads the next consecutive id, unless we're at the end */
 static IteratorStatus WI_Read(QueryIterator *base) {
-  WildcardIterator *wi = (QueryIterator *)base;
+  WildcardIterator *wi = (WildcardIterator *)base;
   if (wi->currentId >= wi->topId) {
     base->atEOF = true;
     return ITERATOR_EOF;
@@ -34,7 +34,7 @@ static IteratorStatus WI_Read(QueryIterator *base) {
 /* Skipto for wildcard iterator - always succeeds, but this should normally not happen as it has
  * no meaning */
 static IteratorStatus WI_SkipTo(QueryIterator *base, t_docId docId) {
-  WildcardIterator *wi = (QueryIterator *)base;
+  WildcardIterator *wi = (WildcardIterator *)base;
 
   if (wi->currentId > wi->topId || docId > wi->topId) {
     base->atEOF = true;
@@ -47,7 +47,7 @@ static IteratorStatus WI_SkipTo(QueryIterator *base, t_docId docId) {
 }
 
 static void WI_Rewind(QueryIterator *base) {
-  WildcardIterator *wi = (QueryIterator *)base;
+  WildcardIterator *wi = (WildcardIterator *)base;
   wi->currentId = 0;
   base->atEOF = false;
   base->lastDocId = 0;
