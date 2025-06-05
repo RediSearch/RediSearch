@@ -10,7 +10,7 @@
 use crate::node::Node;
 use memchr::arch::all::is_prefix;
 
-/// Iterate over all trie entries whose key is a prefix of [`Self::target`].
+/// Iterate over all trie entries whose key is a prefix of `target`.
 ///
 /// It can be instantiated by calling [`TrieMap::prefixes_iter`](crate::TrieMap::prefixes_iter).
 pub struct PrefixesIter<'tm, Data> {

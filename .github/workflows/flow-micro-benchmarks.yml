@@ -43,7 +43,7 @@ jobs:
             ]
           }
           '
-          
+
           # Filter the matrix based on architecture
           if [ "${{ inputs.architecture }}" = "all" ]; then
             # Use the full matrix
@@ -52,7 +52,7 @@ jobs:
             # Filter to only the selected architecture
             FILTERED_MATRIX=$(echo "$FULL_MATRIX" | jq -c '{include: [.include[] | select(.architecture | contains("${{ inputs.architecture }}"))]}')
           fi
-          
+
           # Use multiline output delimiter syntax for GitHub Actions
           echo "matrix<<EOF" >> $GITHUB_OUTPUT
           echo "$FILTERED_MATRIX" >> $GITHUB_OUTPUT
@@ -69,4 +69,3 @@ jobs:
       architecture: ${{ matrix.architecture }}
       instance-type: ${{ matrix.instance-type }}
       ami-id: ${{ matrix.ami-id }}
-

@@ -176,8 +176,6 @@ impl<'pattern> WildcardPattern<'pattern> {
     }
 
     /// Matches a key against the pattern.
-    /// See [`Self::matches_fixed_len`] if you're certain
-    /// your pattern does not contain any [`Token::Any`].
     ///
     /// Implementation was adapted from the iterative
     /// algorithm described by [Dogan Kurt]. The major difference

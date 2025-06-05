@@ -532,6 +532,7 @@ vecsim-bench:
 
 lint:
 	$(SHOW)cd $(REDISEARCH_RS_DIR) && cargo clippy -- -D warnings
+	$(SHOW)cd $(REDISEARCH_RS_DIR) && RUSTDOCFLAGS="-Dwarnings" cargo doc
 
 .PHONY: lint
 
