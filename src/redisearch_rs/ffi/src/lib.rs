@@ -21,7 +21,8 @@
     clippy::multiple_unsafe_ops_per_block,
     clippy::undocumented_unsafe_blocks,
     clippy::missing_safety_doc,
-    clippy::len_without_is_empty
+    clippy::len_without_is_empty,
+    rustdoc::broken_intra_doc_links
 )]
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
