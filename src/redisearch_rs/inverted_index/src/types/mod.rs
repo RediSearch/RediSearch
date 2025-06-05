@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use enumflags2::{bitflags, BitFlags};
 use ffi::RSIndexResult;
 use std::ffi::c_int;
 
@@ -16,17 +17,21 @@ use std::ffi::c_int;
 #[repr(C)]
 pub struct RSNumericRecord(pub f64);
 
-#[repr(C)]
+#[bitflags]
+#[repr(u8)]
+#[derive(Copy, Clone)]
 /// cbindgen:prefix-with-name=true
 pub enum RSResultType {
-    Union = 0x1,
-    Intersection = 0x2,
-    Term = 0x4,
-    Virtual = 0x8,
-    Numeric = 0x10,
-    Metric = 0x20,
-    HybridMetric = 0x40,
+    Union = 1,
+    Intersection = 2,
+    Term = 4,
+    Virtual = 8,
+    Numeric = 16,
+    Metric = 32,
+    HybridMetric = 64,
 }
+
+pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 
 /// Represents an aggregate array of values in an index record.
 /// cbindgen:rename-all=CamelCase
@@ -42,5 +47,5 @@ pub struct RSAggregateResult {
     pub children: *mut *mut RSIndexResult,
 
     /// A map of the aggregate type of the underlying records
-    pub type_mask: RSResultType,
+    pub type_mask: RSResultTypeMask,
 }

@@ -94,7 +94,7 @@ static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult
   }
   agg->children[agg->numChildren++] = child;
   // update the parent's type mask
-  agg->typeMask = (RSResultType)(agg->typeMask | child->type);
+  agg->typeMask |= child->type;
   parent->freq += child->freq;
   parent->docId = child->docId;
   parent->fieldMask |= child->fieldMask;

@@ -13,7 +13,7 @@ typedef struct RSIndexResult RSIndexResult;
 
 [parse]
 parse_deps = true
-include = ["inverted_index", "libc", "low_memory_thin_vec"]
+include = ["enumflags2", "inverted_index", "libc", "low_memory_thin_vec"]
 
 [export]
 include = ["RSAggregateResult", "RSNumericRecord", "RSResultType"]
