@@ -20,6 +20,7 @@ default-members = [
     "redisearch_rs",
     "wildcard",
     "buffer",
+    "result_processor",
 ]
 resolver = "3"
 
