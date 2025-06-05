@@ -1,4 +1,5 @@
 
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 get_filename_component(root ${CMAKE_CURRENT_LIST_DIR}/../../.. ABSOLUTE)
@@ -20,8 +21,8 @@ FetchContent_MakeAvailable(googlebench)
 include_directories("${googlebench_SOURCE_DIR}/include")
 
 file(GLOB BENCHMARK_ITER_SOURCES "benchmark_*_iterator.cpp")
-foreach(benchmark_source ${BENCHMARK_ITER_SOURCES})
-    get_filename_component(benchmark_name ${benchmark_source} NAME_WE)
-    add_executable(${benchmark_name} ${benchmark_source} ../index_utils.cpp ../iterator_util.cpp)
+foreach(benchmark_file ${BENCHMARK_ITER_SOURCES})
+    get_filename_component(benchmark_name ${benchmark_file} NAME_WE)
+    add_executable(${benchmark_name} ${benchmark_file} ../index_utils.cpp ../iterator_util.cpp)
     target_link_libraries(${benchmark_name} redisearch redismock benchmark::benchmark)
 endforeach()
