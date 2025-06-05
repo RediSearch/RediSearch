@@ -7,6 +7,12 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
+/**
+ * Forward declaration of RSIndexResult. It will be defined in `redisearch.h`
+ */
+typedef struct RSSortingVector RSSortingVector;
+typedef struct RSValue RSValue;
+
 
 /**
  * Used by [`TrieMapIterator`] to determine type of query.

@@ -17,6 +17,8 @@
 #include "sortable.h"
 #include "util/arr.h"
 
+#include "types_rs.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -105,24 +107,6 @@ typedef struct RLookup {
 // If a loader was added to load the entire document, this flag will allow
 // later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
 #define RLOOKUP_OPT_ALL_LOADED 0x02
-
-/**
- * Row data for a lookup key. This abstracts the question of "where" the
- * data comes from.
- */
-typedef struct {
-  /** Sorting vector attached to document */
-  const RSSortingVector *sv;
-
-  /** Dynamic values obtained from prior processing */
-  RSValue **dyn;
-
-  /**
-   * How many values actually exist in dyn. Note that this
-   * is not the length of the array!
-   */
-  size_t ndyn;
-} RLookupRow;
 
 typedef enum {
   RLOOKUP_M_READ,   // Get key for reading (create only if in schema and sortable)

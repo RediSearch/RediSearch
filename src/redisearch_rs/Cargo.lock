@@ -1616,6 +1616,7 @@ version = "0.0.1"
 dependencies = [
  "cbindgen",
  "inverted_index",
+ "result_processor",
 ]
 
 [[package]]

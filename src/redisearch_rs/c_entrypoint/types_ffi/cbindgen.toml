@@ -13,11 +13,17 @@ typedef struct RSQueryTerm RSQueryTerm;
  * Forward declaration of RSIndexResult. It will be defined in `redisearch.h`
  */
 typedef struct RSIndexResult RSIndexResult;
+
+/*
+ * Forward declaration of RLookupRow. It will be defined in `redisearch.h`
+ */
+typedef struct RSSortingVector RSSortingVector;
+typedef struct RSValue RSValue;
 """
 
 [parse]
 parse_deps = true
-include = ["enumflags2", "inverted_index"]
+include = ["enumflags2", "inverted_index", "result_processor"]
 
 [export]
-include = ["RSAggregateResult", "RSNumericRecord", "RSResultType", "RSTermRecord"]
+include = ["RLookupRow", "RSAggregateResult", "RSNumericRecord", "RSResultType", "RSTermRecord"]
