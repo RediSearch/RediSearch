@@ -68,6 +68,7 @@ jobs:
           printf "Runner arch:\n$(arch)\n"
       - name: Install benchmark dependencies
         run: |
+          export HOME=/home/ubuntu
           cd .install
           ./install_script.sh sudo
           cd ..
