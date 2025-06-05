@@ -9,5 +9,6 @@
 
 /// Represents a numeric value in an index record.
 /// cbindgen:field-names=[value]
+#[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
 #[repr(C)]
 pub struct RSNumericRecord(pub f64);
