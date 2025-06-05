@@ -7,6 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+pub mod counter;
+
 use libc::{c_int, timespec};
 use pin_project_lite::pin_project;
 use std::{
