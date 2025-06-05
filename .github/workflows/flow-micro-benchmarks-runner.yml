@@ -82,6 +82,7 @@ jobs:
           ARCH: ${{ inputs.architecture }}
         timeout-minutes: 300
         run: |
+          export HOME=/home/ubuntu
           ./build.sh run_microbenchmarks
       - name: Collect results
         run: |
