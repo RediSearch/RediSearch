@@ -41,19 +41,16 @@ static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue 
   r->metrics = array_ensure_append_1(r->metrics, new_element);
 }
 
-static inline void ResultMetrics_Update(RSIndexResult *r, RLookupKey *key, RSValue* val) {
+static inline void ResultMetrics_UpdateDouble(RSIndexResult *r, RLookupKey *key, double value) {
   if (!r->metrics) return;
 
   for (size_t i = 0; i < array_len(r->metrics); i++) {
     const RSYieldableMetric *metric = r->metrics + i;
     if (metric->key == key) {
-      *metric->value = *val;
+      metric->value->numval = value;
       return;
     }
   }
-
-  // If key not found, add it
-  ResultMetrics_Add(r, key, val);
 }
 
 static inline void ResultMetrics_Reset(RSIndexResult *r) {
