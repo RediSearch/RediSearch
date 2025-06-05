@@ -14,6 +14,7 @@
 #include "fast_float/fast_float_strtod.h"
 #include "libnu/libnu.h"
 #include "rmutil/rm_assert.h"
+#include "rmutil/rm_assert.h"
 /* Strconv - common simple string conversion utils */
 
 // Case insensitive string equal
@@ -128,7 +129,7 @@ static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
   ssize_t u_len = nu_strtransformnlen(encoded, in_len, nu_utf8_read,
                                               nu_tolower, nu_casemap_read);
 
-  if (u_len >= (SSO_MAX_LENGTH - 1)) {
+  if (u_len > (SSO_MAX_LENGTH - 1)) {
     u_buffer = (uint32_t *)rm_malloc(sizeof(*u_buffer) * (u_len + 1));
   }
 
@@ -165,7 +166,7 @@ static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
       u_buffer[i++] = codepoint;
     }
   }
-  RS_LOG_ASSERT_FMT(i <= u_len, "i (%u) should be less equal to u_len (%zd)", i, u_len);
+  RS_LOG_ASSERT_FMT(i == u_len, "i (%u) should be equal to u_len (%zd)", i, u_len);
   // Encode Unicode codepoints back to utf8 string
   ssize_t reencoded_len = nu_bytenlen(u_buffer, i, nu_utf8_write);
   if (reencoded_len > 0) {

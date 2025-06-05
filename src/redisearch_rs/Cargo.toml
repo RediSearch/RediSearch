@@ -1,5 +1,7 @@
 [workspace]
 members = [
+    "ffi",
+    "inverted_index",
     "low_memory_thin_vec",
     "qint",
     "redis_mock",
@@ -45,7 +47,8 @@ multiple_unsafe_ops_per_block = "warn"
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
-license = "Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1) or the GNU Affero General Public License version 3 (AGPLv3)"
+license-file = "../../LICENSE.txt"
+publish = false
 
 [workspace.dependencies]
 ffi = { path = "./ffi" }
