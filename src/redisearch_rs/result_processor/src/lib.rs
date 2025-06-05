@@ -11,7 +11,6 @@ use libc::{c_int, timespec};
 use pin_project_lite::pin_project;
 use std::{
     marker::PhantomPinned,
-    mem::MaybeUninit,
     pin::Pin,
     ptr::{self, NonNull},
 };
@@ -38,11 +37,7 @@ pub trait ResultProcessor {
     /// Should return `Ok(Some(()))` if a search result was successfully pulled from the processor
     /// and `Ok(None)` to indicate the end of search results has been reached.
     /// `Err(_)` cases should be returned to indicate exceptional error.
-    fn next(
-        &mut self,
-        cx: Context,
-        res: &mut MaybeUninit<ffi::SearchResult>,
-    ) -> Result<Option<()>, Error>;
+    fn next(&mut self, cx: Context, res: &mut ffi::SearchResult) -> Result<Option<()>, Error>;
 }
 
 /// This type allows result processors to access its context (the owning QueryIterator, upstream result processors, etc.)
@@ -80,14 +75,17 @@ impl Upstream<'_> {
     /// # Errors
     ///
     /// Returns `Err(_)` for exceptional error cases.
-    pub fn next(&mut self, res: &mut MaybeUninit<ffi::SearchResult>) -> Result<Option<()>, Error> {
-        let next = self.result_processor.next.unwrap();
+    pub fn next(&mut self, res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+        let next = self
+            .result_processor
+            .next
+            .expect("result processor `Next` vtable function was null");
 
         // Safety: The `next` function is required to treat the `*mut Header` pointer as pinned.
         let result_processor = unsafe { self.result_processor.as_mut().get_unchecked_mut() };
         // Safety: At the end of the day we're calling to arbitrary code at this point... But provided
         // the QueryIterator and other result processors are implemented correctly, this should be safe.
-        let ret_code = unsafe { next(ptr::from_mut(result_processor), res.as_mut_ptr()) };
+        let ret_code = unsafe { next(ptr::from_mut(result_processor), res) };
 
         match ret_code as ffi::RPStatus {
             ffi::RPStatus_RS_RESULT_OK => Ok(Some(())),
@@ -257,7 +255,7 @@ where
         let me = NonNull::new(me).unwrap();
         debug_assert!(me.is_aligned());
 
-        let res = NonNull::new(res).unwrap();
+        let mut res = NonNull::new(res).unwrap();
         debug_assert!(res.is_aligned());
 
         // Safety: This function is called through the ResultProcessor "VTable" which - through the generics on this type -
@@ -275,7 +273,7 @@ where
         };
 
         // Safety: We have done as much checking as we can at the start of the function (checking alignment & non-null-ness).
-        let res = unsafe { res.cast::<MaybeUninit<ffi::SearchResult>>().as_mut() };
+        let res = unsafe { res.as_mut() };
 
         match me.result_processor.next(cx, res) {
             Ok(Some(())) => ffi::RPStatus_RS_RESULT_OK as c_int,
@@ -293,5 +291,73 @@ where
         //  and constructor of this type - ensures that we can safely cast to `Self` here.
         //  For all other safety guarantees we have to trust the QueryIterator implementation to be correct.
         drop(unsafe { Self::from_ptr(me.cast::<Self>()) });
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test {
+    use super::*;
+    use ffi::SearchResult;
+
+    // Header duplicates ffi::ResultProcessor, so we need to make sure it has the exact same size, alignment and field layout.
+    const _: () = {
+        assert!(std::mem::size_of::<Header>() == std::mem::size_of::<ffi::ResultProcessor>(),);
+        assert!(std::mem::align_of::<Header>() == std::mem::align_of::<ffi::ResultProcessor>(),);
+        assert!(
+            ::std::mem::offset_of!(Header, parent)
+                == ::std::mem::offset_of!(ffi::ResultProcessor, parent)
+        );
+        assert!(
+            ::std::mem::offset_of!(Header, upstream)
+                == ::std::mem::offset_of!(ffi::ResultProcessor, upstream)
+        );
+        assert!(
+            ::std::mem::offset_of!(Header, ty)
+                == ::std::mem::offset_of!(ffi::ResultProcessor, type_)
+        );
+        assert!(
+            ::std::mem::offset_of!(Header, gil_time)
+                == ::std::mem::offset_of!(ffi::ResultProcessor, GILTime)
+        );
+        assert!(
+            ::std::mem::offset_of!(Header, next)
+                == ::std::mem::offset_of!(ffi::ResultProcessor, Next)
+        );
+        assert!(
+            ::std::mem::offset_of!(Header, free)
+                == ::std::mem::offset_of!(ffi::ResultProcessor, Free)
+        );
+    };
+
+    /// Create a ResultProcessor from an `Iterator` for testing purposes
+    pub fn from_iter<I>(i: I) -> IterResultProcessor<I::IntoIter>
+    where
+        I: IntoIterator<Item = SearchResult>,
+    {
+        IterResultProcessor {
+            iter: i.into_iter(),
+        }
+    }
+
+    /// ResultProcessor that yields items from an inner `Iterator`
+    #[derive(Debug)]
+    pub struct IterResultProcessor<I> {
+        iter: I,
+    }
+
+    impl<I> ResultProcessor for IterResultProcessor<I>
+    where
+        I: Iterator<Item = SearchResult>,
+    {
+        const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX + 1;
+
+        fn next(&mut self, _cx: Context, out: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+            if let Some(res) = self.iter.next() {
+                *out = res;
+                Ok(Some(()))
+            } else {
+                Ok(None)
+            }
+        }
     }
 }
