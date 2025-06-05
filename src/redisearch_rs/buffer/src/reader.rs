@@ -72,36 +72,31 @@ impl<'a> std::io::Read for BufferReader<'a> {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::BufferReader;
+// Check, at compile-time, that `BufferReader` and `ffi::BufferReader` have the same representation.
+const _: () = {
     use std::mem::offset_of;
 
-    #[test]
-    // Check, at compile-time, that `BufferReader` and `ffi::BufferReader` have the same representation.
-    const fn check_repr() {
-        // Size and alignment check
-        const SIZE_MATCHES: bool = size_of::<BufferReader>() == size_of::<ffi::BufferReader>();
-        const ALIGN_MATCHES: bool = align_of::<BufferReader>() == align_of::<ffi::BufferReader>();
+    // Size and alignment check
+    const SIZE_MATCHES: bool = size_of::<BufferReader>() == size_of::<ffi::BufferReader>();
+    const ALIGN_MATCHES: bool = align_of::<BufferReader>() == align_of::<ffi::BufferReader>();
 
-        // Field offset checks
-        const BUFFER_OFFSET_MATCHES: bool =
-            offset_of!(BufferReader<'static>, buffer) == offset_of!(ffi::BufferReader, buf);
-        const POSITION_OFFSET_MATCHES: bool =
-            offset_of!(BufferReader<'static>, position) == offset_of!(ffi::BufferReader, pos);
+    // Field offset checks
+    const BUFFER_OFFSET_MATCHES: bool =
+        offset_of!(BufferReader<'static>, buffer) == offset_of!(ffi::BufferReader, buf);
+    const POSITION_OFFSET_MATCHES: bool =
+        offset_of!(BufferReader<'static>, position) == offset_of!(ffi::BufferReader, pos);
 
-        // Conditional compilation failure on mismatch
-        if !SIZE_MATCHES {
-            panic!("Size mismatch between BufferReader and ffi::BufferReader");
-        }
-        if !ALIGN_MATCHES {
-            panic!("Alignment mismatch between BufferReader and ffi::BufferReader");
-        }
-        if !BUFFER_OFFSET_MATCHES {
-            panic!("Field 'buffer' does not match offset of 'buf'");
-        }
-        if !POSITION_OFFSET_MATCHES {
-            panic!("Field 'position' does not match offset of 'pos'");
-        }
+    // Conditional compilation failure on mismatch
+    if !SIZE_MATCHES {
+        panic!("Size mismatch between BufferReader and ffi::BufferReader");
     }
-}
+    if !ALIGN_MATCHES {
+        panic!("Alignment mismatch between BufferReader and ffi::BufferReader");
+    }
+    if !BUFFER_OFFSET_MATCHES {
+        panic!("Field 'buffer' does not match offset of 'buf'");
+    }
+    if !POSITION_OFFSET_MATCHES {
+        panic!("Field 'position' does not match offset of 'pos'");
+    }
+};
