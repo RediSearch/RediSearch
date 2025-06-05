@@ -33,7 +33,7 @@ public:
       initialized = true;
     }
 
-    numDocuments = 100000;
+    numDocuments = 1000000;
     std::mt19937 rng(46);
     std::uniform_int_distribution<t_docId> dist(1, 2'000'000);
     std::uniform_real_distribution<double> score_dist(0.0, 1.0);
@@ -103,13 +103,13 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, Read_NotYield, QueryIterator, fa
 }
 
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_NotYield, QueryIterator, false)(benchmark::State &state) {
-  t_docId docId = 10;
+  t_docId docId = 10000;
   for (auto _ : state) {
     IteratorStatus rc = iterator_base->SkipTo(iterator_base, docId);
-    docId += 10;
+    docId += 10000;
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10;
+      docId = 10000;
     }
   }
 }
@@ -124,13 +124,13 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, Read_Yield, QueryIterator, true)
 }
 
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_Yield, QueryIterator, true)(benchmark::State &state) {
-  t_docId docId = 10;
+  t_docId docId = 10000;
   for (auto _ : state) {
     IteratorStatus rc = iterator_base->SkipTo(iterator_base, docId);
-    docId += 10;
+    docId += 10000;
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10;
+      docId = 10000;
     }
   }
 }
@@ -154,13 +154,13 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, Read_Old_NotYield, IndexIterator
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_Old_NotYield, IndexIterator, false)(benchmark::State &state) {
   RSIndexResult *hit;
 
-  t_docId docId = 10;
+  t_docId docId = 10000;
   for (auto _ : state) {
     int rc = iterator_base->SkipTo(iterator_base, docId, &hit);
-    docId += 10;
+    docId += 10000;
     if (rc == INDEXREAD_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10;
+      docId = 10000;
     }
   }
 }
@@ -177,13 +177,13 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, Read_Old_Yield, IndexIterator, t
 
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_Old_Yield, IndexIterator, true)(benchmark::State &state) {
   RSIndexResult *hit;
-  t_docId docId = 10;
+  t_docId docId = 10000;
   for (auto _ : state) {
     int rc = iterator_base->SkipTo(iterator_base, docId, &hit);
-    docId += 10;
+    docId += 10000;
     if (rc == INDEXREAD_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10;
+      docId = 10000;
     }
   }
 }

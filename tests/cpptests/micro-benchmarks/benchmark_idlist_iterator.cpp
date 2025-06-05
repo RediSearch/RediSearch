@@ -31,7 +31,7 @@ public:
       initialized = true;
     }
 
-    auto numDocuments = 100000;
+    auto numDocuments = 1000000;
     std::mt19937 rng(46);
     std::uniform_int_distribution<t_docId> dist(1, 2'000'000);
 
@@ -71,13 +71,13 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read, QueryIterator)(benchmark::
 }
 
 BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo, QueryIterator)(benchmark::State &state) {
-  t_docId docId = 100;
+  t_docId docId = 10000;
   for (auto _ : state) {
     auto rc = iterator_base->SkipTo(iterator_base, docId);
-    docId += 100;
+    docId += 10000;
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 100;
+      docId = 10000;
     }
   }
 }
@@ -97,13 +97,13 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read_Old, IndexIterator)(benchma
 
 BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo_Old, IndexIterator)(benchmark::State &state) {
   RSIndexResult *hit;
-  t_docId docId = 100;
+  t_docId docId = 10000;
   for (auto _ : state) {
     auto rc = iterator_base->SkipTo(iterator_base, docId, &hit);
-    docId += 100;
+    docId += 10000;
     if (rc == INDEXREAD_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 100;
+      docId = 10000;
     }
   }
 }
