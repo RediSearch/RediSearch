@@ -51,7 +51,6 @@ int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) 
   }
 
   // convert multi-byte characters to lowercase
-  // TODO: MOD-8799 Support longer dst
   size_t newLen = 0;
   char *longerDst = unicode_tolower(lowStr, len, &newLen);
   if (longerDst) {
@@ -93,7 +92,6 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
     size_t tlen = strlen(t);
 
     // convert multi-byte characters to lowercase
-    // TODO: MOD-8799 Support longer dst
     size_t newLen = 0;
     char *dst = unicode_tolower(t, tlen, &newLen);
     if (dst) {

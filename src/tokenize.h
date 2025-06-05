@@ -58,8 +58,8 @@ typedef struct {
 } Token;
 
 #define Token_Destroy(t) do { \
-  if ((t)->phoneticsPrimary) rm_free((t)->phoneticsPrimary); \
-  if ((t)->allocatedTok) rm_free((t)->allocatedTok); \
+  rm_free((t)->phoneticsPrimary); \
+  rm_free((t)->allocatedTok); \
 } while(0)
 
 // A NormalizeFunc converts a raw token to the normalized form in which it will be stored

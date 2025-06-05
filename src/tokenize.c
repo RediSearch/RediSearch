@@ -41,8 +41,7 @@ static void simpleTokenizer_Start(RSTokenizer *base, char *text, size_t len, uin
  * - dst is the destination buffer which contains the normalized text
  * - len on input contains the length of the raw token, on output contains the
  *   length of the normalized token
- * - len on input contains the length of the raw token, on output contains the
- *   length of the normalized token
+ * - allocated is set to 1 if the function allocated new memory, 0 otherwise
  */
 static char *DefaultNormalize(char *s, char *dst, size_t *len, int *allocated) {
   size_t origLen = *len;

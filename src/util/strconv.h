@@ -14,7 +14,6 @@
 #include "fast_float/fast_float_strtod.h"
 #include "libnu/libnu.h"
 #include "rmutil/rm_assert.h"
-#include "rmutil/rm_assert.h"
 /* Strconv - common simple string conversion utils */
 
 // Case insensitive string equal
@@ -114,11 +113,15 @@ static char *rm_strndup_unescape(const char *s, size_t len) {
 // encoded: the utf8 string to transform
 // in_len:  length of the input string in bytes
 // out_len: output parameter, will be set to the length of the output string in
-// bytes
+// bytes, if the input string is not modified, it will be set to the same
+// length as in_len.
 // Returns a newly allocated string with the transformed content, or NULL if no
 // new memory was allocated (i.e., the output fits in the input buffer).
 static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
   if (in_len == 0) {
+    if (out_len) {
+      *out_len = 0;
+    }
     return NULL;
   }
 
@@ -181,11 +184,15 @@ static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
       longer_dst = (char *)rm_malloc((reencoded_len + 1) * sizeof(*longer_dst));
       nu_writenstr(u_buffer, i, longer_dst, nu_utf8_write);
       longer_dst[reencoded_len] = '\0';
-      ssize_t x = strlen(longer_dst);
-      RS_LOG_ASSERT_FMT(x == reencoded_len, "reencoded length mismatch: %zu != %zu", x, reencoded_len);
     }
     if (out_len) {
       *out_len = reencoded_len;
+    }
+  } else {
+    // If the reencoded length is less than or equal to 0, output length is the
+    // same as the input length, because the encoded string is not modified
+    if (out_len) {
+      *out_len = in_len; // No change in length
     }
   }
 
@@ -195,7 +202,6 @@ static char* unicode_tolower(char *encoded, size_t in_len, size_t *out_len) {
   }
   return longer_dst;
 }
-
 
 // strndup + unescape + tolower
 static char *rm_normalize(const char *s, size_t len) {
