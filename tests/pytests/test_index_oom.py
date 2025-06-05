@@ -312,7 +312,7 @@ def test_oom_query_error(env):
 
 def test_cluster_oom_all_shards(env):
   # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
-  verify_command_OK_on_all_shards(env,' '.join(['_FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80']))
+  verify_command_OK_on_all_shards(env,' '.join(['FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80']))
 
   conn = getConnectionByEnv(env)
   n_docs_per_shard = 1000
@@ -364,7 +364,7 @@ def test_cluster_oom_all_shards(env):
 
 def test_cluster_oom_single_shard(env):
   # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
-  verify_command_OK_on_all_shards(env,' '.join(['_FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80']))
+  verify_command_OK_on_all_shards(env,' '.join(['FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80']))
 
   conn = getConnectionByEnv(env)
   n_docs_per_shard = 1000
@@ -837,10 +837,10 @@ def test_pseudo_enterprise_oom_retry_alter_failure(env):
 def test_pseudo_enterprise_cluster_oom_retry_success(env):
     # Let background indexing go up to 80 % of Redis' limit
     verify_command_OK_on_all_shards(
-        env, '_FT.CONFIG SET _BG_INDEX_MEM_PCT_THR 80')
+        env, 'FT.CONFIG SET _BG_INDEX_MEM_PCT_THR 80')
     # 1-second grace so the test doesn’t take too long
     verify_command_OK_on_all_shards(
-        env, '_FT.CONFIG SET _BG_INDEX_OOM_PAUSE_TIME 1')
+        env, 'FT.CONFIG SET _BG_INDEX_OOM_PAUSE_TIME 1')
 
     conn = getConnectionByEnv(env)
     docs_per_shard = 1_000
@@ -890,9 +890,9 @@ def test_pseudo_enterprise_cluster_oom_retry_success(env):
 
 def test_pseudo_enterprise_cluster_oom_retry_failure(env):
     verify_command_OK_on_all_shards(
-        env, '_FT.CONFIG SET _BG_INDEX_MEM_PCT_THR 80')
+        env, 'FT.CONFIG SET _BG_INDEX_MEM_PCT_THR 80')
     verify_command_OK_on_all_shards(
-        env, '_FT.CONFIG SET _BG_INDEX_OOM_PAUSE_TIME 1')
+        env, 'FT.CONFIG SET _BG_INDEX_OOM_PAUSE_TIME 1')
 
     conn = getConnectionByEnv(env)
     docs_per_shard = 1_000
