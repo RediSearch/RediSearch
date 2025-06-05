@@ -57,6 +57,8 @@ pub struct RSTermRecord {
     pub offsets: RSOffsetVector,
 }
 
+#[repr(C)]
+/// cbindgen:prefix-with-name=true
 pub enum RSResultType {
     Union = 0x1,
     Intersection = 0x2,
