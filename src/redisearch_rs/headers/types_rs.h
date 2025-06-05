@@ -41,19 +41,11 @@ typedef uint32_t RSResultType;
 #endif // __cplusplus
 
 /**
- * Row data for a lookup key. This abstracts the question of "where" the data comes from.
- *
- * This stores the values received by an iteration over a RLookup.
- *
+ * Row data for a lookup key. This abstracts the question of "where" the
+ * data comes from.
  */
 typedef struct RLookupRow {
-  /**
-   * contains sortable values for the row, is depending on the filed sorting
-   */
   const RSSortingVector *sv;
-  /**
-   * contains the dynamic values of the row
-   */
   RSValue **dyn;
   /**
    * the number of dynamic values in the row

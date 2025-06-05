@@ -6,7 +6,7 @@ pragma_once = true
 
 [parse]
 parse_deps = true
-include = ["libc", "low_memory_thin_vec"]
+include = ["libc", "low_memory_thin_vec", "result_processor"]
 
 [export.rename]
 # Workaround for https://github.com/mozilla/cbindgen/issues/539
