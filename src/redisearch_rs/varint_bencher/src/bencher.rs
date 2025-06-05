@@ -54,6 +54,7 @@ impl VarintBencher {
     ) -> BenchmarkGroup<'a, WallTime> {
         let mut group = c.benchmark_group(format!("{}|{}", self.prefix, label));
         group.measurement_time(self.measurement_time);
+        group.warm_up_time(Duration::from_secs(5));
         group
     }
 
