@@ -124,6 +124,7 @@ typedef enum {
     DEBUG_INDEX_SCANNER_CODE_CANCELLED,
     DEBUG_INDEX_SCANNER_CODE_PAUSED,
     DEBUG_INDEX_SCANNER_CODE_RESUMED,
+    DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM,
 
     //Insert new codes here (before COUNT)
     DEBUG_INDEX_SCANNER_CODE_COUNT  // Helps with array size checks
@@ -306,7 +307,7 @@ typedef struct IndexSpec {
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
   bool scan_in_progress;
-  bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
+  bool scan_failed_OOM;           // background indexing failed due to Out Of Memory
   bool isDuplicate;               // Marks that this index is a duplicate of an existing one
 
   struct DocumentIndexer *indexer;// Indexer of fields into inverted indexes
@@ -641,18 +642,9 @@ typedef struct DebugIndexesScanner {
   int maxDocsTBscanned;
   int maxDocsTBscannedPause;
   bool wasPaused;
+  bool pauseOnOOM;
   int status;
 } DebugIndexesScanner;
-
-
-typedef struct DebugIndexesScanner {
-  IndexesScanner base;
-  int maxDocsTBscanned;
-  int maxDocsTBscannedPause;
-  bool wasPaused;
-  int status;
-} DebugIndexesScanner;
-
 
 double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, const IndexSpec *sp);
 
@@ -707,6 +699,9 @@ void Indexes_List(RedisModule_Reply* reply, bool obfuscate);
 void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
 size_t CleanInProgressOrPending();
+
+// Expose reindexpool for debug
+void ReindexPool_ThreadPoolDestroy();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 

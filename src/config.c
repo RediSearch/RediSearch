@@ -690,6 +690,24 @@ CONFIG_GETTER(getIndexerYieldEveryOps) {
   return sdscatprintf(ss, "%u", config->indexerYieldEveryOpsWhileLoading);
 }
 
+// SET MEMORY LIMIT PERCENTAGE
+CONFIG_SETTER(setIndexingMemoryLimit) {
+  uint8_t newLimit;
+  int acrc = AC_GetU8(ac, &newLimit, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  if (newLimit > 100) {
+    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Memory limit for indexing cannot be greater then 100%%");
+    return REDISMODULE_ERR;
+  }
+  config->indexingMemoryLimit = newLimit;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getIndexingMemoryLimit) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->indexingMemoryLimit);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -985,6 +1003,11 @@ RSConfigOptions RSGlobalConfigOptions = {
          .helpText = "The number of operations to perform before yielding to Redis during indexing while loading",
          .setValue = setIndexerYieldEveryOps,
          .getValue = getIndexerYieldEveryOps},
+        {.name = "_BG_INDEX_MEM_PCT_THR",
+        .helpText = "Set the percentage of memory usage threshold (out of maxmemory) at which background indexing will stop. Once this limit is reached,"
+                      " any queries on the affected index will result in an error. The default is 80 percent.",
+        .setValue = setIndexingMemoryLimit,
+        .getValue = getIndexingMemoryLimit},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {

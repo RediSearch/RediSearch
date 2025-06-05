@@ -146,6 +146,8 @@ typedef struct {
   unsigned int indexerYieldEveryOpsWhileLoading;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
+  // The maximum ratio between current memory and max memory for which background indexing is allowed
+  uint8_t indexingMemoryLimit;
   // Enable to execute unstable features
   bool enableUnstableFeatures;
   // Control user data obfuscation in logs
@@ -245,6 +247,7 @@ void UpgradeDeprecatedMTConfigs();
 #define BM25STD_TANH_FACTOR_MAX 10000
 #define BM25STD_TANH_FACTOR_MIN 1
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
+#define DEFAULT_INDEXING_MEMORY_LIMIT 80
 
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG \
@@ -296,7 +299,8 @@ void UpgradeDeprecatedMTConfigs();
     .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE ,                \
     .hideUserDataFromLog = false,                                               \
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,      \
-    .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
+    .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,        \
+    .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                       \
   }
 
 #define REDIS_ARRAY_LIMIT 7

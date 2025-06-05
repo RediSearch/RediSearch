@@ -57,7 +57,7 @@ void FieldSpecInfo_Reply(const FieldSpecInfo *info, RedisModule_Reply *reply, bo
     REPLY_KVSTR_SAFE("attribute", info->attribute);
     // Set the error as a new object.
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-    IndexError_Reply(&info->error, reply, withTimestamp, obfuscate);
+    IndexError_Reply(&info->error, reply, withTimestamp, obfuscate, INDEX_ERROR_WITHOUT_OOM_STATUS);
 
     RedisModule_Reply_MapEnd(reply);
 }
@@ -69,7 +69,7 @@ void AggregatedFieldSpecInfo_Reply(const AggregatedFieldSpecInfo *info, RedisMod
     REPLY_KVSTR("attribute", info->attribute);
     // Set the error as a new object.
     RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-    IndexError_Reply(&info->error, reply, withTimestamp, obfuscate);
+    IndexError_Reply(&info->error, reply, withTimestamp, obfuscate, INDEX_ERROR_WITHOUT_OOM_STATUS);
 
     RedisModule_Reply_MapEnd(reply);
 }
@@ -114,7 +114,7 @@ AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply
 
     MRReply *error = MRReply_MapElement(reply, IndexError_ObjectName);
     RS_ASSERT(error);
-    info.error = IndexError_Deserialize(error);
+    info.error = IndexError_Deserialize(error, INDEX_ERROR_WITHOUT_OOM_STATUS);
 
     return info;
 }

@@ -869,6 +869,8 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     QueryError_SetWithUserDataFmt(status, QUERY_ENOINDEX, "No such index", " %s", indexname);
     goto done;
   }
+  // OOM should be checked before
+  RS_ASSERT(!(sctx->spec->scan_failed_OOM));
 
   rc = AREQ_ApplyContext(*r, sctx, status);
   thctx = NULL;
@@ -1286,6 +1288,17 @@ static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv
   AREQ_Debug_params debug_params = debug_req->debug_params;
 
   int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
+
+  const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
+  IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOALIAS};
+  StrongRef spec_ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(spec_ref);
+  if (sp && sp->scan_failed_OOM) {
+    QueryError_SetWithUserDataFmt(&status, QUERY_INDEXBGOOMFAIL,
+      "Background scan for index ","%s failed due to OOM. Queries cannot be executed on an incomplete index.", idx);
+    goto error;
+  }
+
   // Parse the query, not including debug params
   if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, execOptions, &status) != REDISMODULE_OK) {
     goto error;
