@@ -7,6 +7,15 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
+/**
+ * Forward declaration of RSIndexResult. It will be defined in `redisearch.h`
+ */
+typedef struct RSIndexResult RSIndexResult;
+typedef struct RSSortingVector RSSortingVector;
+typedef struct RSValue RSValue;
+typedef struct RSScoreExplain RSScoreExplain;
+typedef struct RSDocumentMetadata_s RSDocumentMetadata;
+
 
 /**
  * Used by [`TrieMapIterator`] to determine type of query.
@@ -73,6 +82,33 @@ typedef struct LowMemoryThinVecCVoid TrieMapResultBuf;
  * Callback type for passing to [`TrieMap_IterateRange`].
  */
 typedef void (*TrieMapRangeCallback)(const char*, size_t, void*, void*);
+
+/**
+ * Row data for a lookup key. This abstracts the question of "where" the
+ * data comes from.
+ */
+typedef struct RLookupRow {
+  const RSSortingVector *sv;
+  RSValue **dyn;
+  uintptr_t ndyn;
+} RLookupRow;
+
+typedef uint64_t DocId;
+
+/**
+ * SearchResult - the object all the processing chain is working on.
+ * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc,
+ * and a list of fields loaded by the chain
+ */
+typedef struct SearchResult {
+  DocId docId;
+  double score;
+  RSScoreExplain *scoreExplain;
+  RSDocumentMetadata *dmd;
+  RSIndexResult *indexResult;
+  struct RLookupRow rowdata;
+  uint8_t flags;
+} SearchResult;
 
 #ifdef __cplusplus
 extern "C" {

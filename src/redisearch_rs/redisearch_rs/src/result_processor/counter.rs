@@ -6,7 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
  */
-
+/*
 use result_processor::{counter::Counter, ffi};
 
 /// Crate a new heap-allocated `Counter` result processor
@@ -22,3 +22,4 @@ pub unsafe extern "C" fn RPCounter_New() -> *mut ffi::Header {
     // Safety: The safety contract requires the caller to treat the returned pointer as pinned
     unsafe { ffi::ResultProcessor::into_ptr(rp) }.cast()
 }
+*/

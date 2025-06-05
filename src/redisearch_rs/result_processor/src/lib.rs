@@ -8,6 +8,7 @@
 */
 
 pub mod counter;
+pub mod types;
 
 use libc::{c_int, timespec};
 use pin_project_lite::pin_project;

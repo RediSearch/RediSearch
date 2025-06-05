@@ -19,6 +19,8 @@
 
 #include "rmutil/rm_assert.h"
 
+#include "triemap.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif

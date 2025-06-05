@@ -20,6 +20,10 @@
 #include "extension.h"
 #include "score_explain.h"
 
+#include "triemap.h"
+
+typedef struct SearchResult SearchResult;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -66,7 +70,6 @@ typedef enum {
 } ResultProcessorType;
 
 struct ResultProcessor;
-struct RLookup;
 
 typedef struct {
   // First processor
@@ -109,31 +112,6 @@ typedef struct {
 IndexIterator *QITR_GetRootFilter(QueryIterator *it);
 void QITR_PushRP(QueryIterator *it, struct ResultProcessor *rp);
 void QITR_FreeChain(QueryIterator *qitr);
-
-/*
- * SearchResult - the object all the processing chain is working on.
- * It has the indexResult which is what the index scan brought - scores, vectors, flags, etc,
- * and a list of fields loaded by the chain
- */
-typedef struct {
-  t_docId docId;
-
-  // not all results have score - TBD
-  double score;
-  RSScoreExplain *scoreExplain;
-
-  const RSDocumentMetadata *dmd;
-
-  // index result should cover what you need for highlighting,
-  // but we will add a method to duplicate index results to make
-  // them thread safe
-  RSIndexResult *indexResult;
-
-  // Row data. Use RLookup_* functions to access
-  RLookupRow rowdata;
-
-  uint8_t flags;
-} SearchResult;
 
 /* SearchResult flags */
 static const uint8_t Result_ExpiredDoc = 1 << 0;

@@ -17,6 +17,10 @@
 #include "sortable.h"
 #include "util/arr.h"
 
+#include "triemap.h"
+
+typedef struct RLookupRow RLookupRow;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -105,24 +109,6 @@ typedef struct RLookup {
 // If a loader was added to load the entire document, this flag will allow
 // later calls to GetKey in read mode to create a key (from the schema) even if it is not sortable
 #define RLOOKUP_OPT_ALL_LOADED 0x02
-
-/**
- * Row data for a lookup key. This abstracts the question of "where" the
- * data comes from.
- */
-typedef struct {
-  /** Sorting vector attached to document */
-  const RSSortingVector *sv;
-
-  /** Dynamic values obtained from prior processing */
-  RSValue **dyn;
-
-  /**
-   * How many values actually exist in dyn. Note that this
-   * is not the length of the array!
-   */
-  size_t ndyn;
-} RLookupRow;
 
 typedef enum {
   RLOOKUP_M_READ,   // Get key for reading (create only if in schema and sortable)
@@ -284,23 +270,7 @@ void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RL
  * @param row the row data which contains the value
  * @return the value if found, NULL otherwise.
  */
-static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
-  RSValue *ret = NULL;
-  if (row->dyn && array_len(row->dyn) > key->dstidx) {
-    ret = row->dyn[key->dstidx];
-  }
-  if (!ret) {
-    if (key->flags & RLOOKUP_F_SVSRC) {
-      if (row->sv && row->sv->len > key->svidx) {
-        ret = row->sv->values[key->svidx];
-        if (ret != NULL && ret == RS_NullVal()) {
-          ret = NULL;
-        }
-      }
-    }
-  }
-  return ret;
-}
+RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row);
 
 /**
  * Wipes the row, retaining its memory but decrefing any included values.

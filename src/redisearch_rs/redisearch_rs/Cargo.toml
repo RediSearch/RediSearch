@@ -20,7 +20,7 @@ test = false
 bench = false
 
 [features]
-default = []
+default = ["result_processor"]
 mock_allocator = ["dep:redis_mock"]
 result_processor = ["dep:result_processor"]
 

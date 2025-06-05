@@ -15,6 +15,24 @@
 #include "value.h"
 #include "util/arr.h"
 
+RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
+  RSValue *ret = NULL;
+  if (row->dyn && array_len(row->dyn) > key->dstidx) {
+    ret = row->dyn[key->dstidx];
+  }
+  if (!ret) {
+    if (key->flags & RLOOKUP_F_SVSRC) {
+      if (row->sv && row->sv->len > key->svidx) {
+        ret = row->sv->values[key->svidx];
+        if (ret != NULL && ret == RS_NullVal()) {
+          ret = NULL;
+        }
+      }
+    }
+  }
+  return ret;
+}
+
 // Allocate a new RLookupKey and add it to the RLookup table.
 static RLookupKey *createNewKey(RLookup *lookup, const char *name, size_t name_len, uint32_t flags) {
   RLookupKey *ret = rm_calloc(1, sizeof(*ret));

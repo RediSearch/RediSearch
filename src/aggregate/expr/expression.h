@@ -14,6 +14,8 @@
 #include "aggregate/functions/function.h"
 #include "reply.h"
 
+#include "triemap.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
