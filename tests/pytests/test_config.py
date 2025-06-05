@@ -164,7 +164,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
-    env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '80')
+    env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -200,7 +200,7 @@ def testInitConfig():
     test_arg_num('MINSTEMLEN', 3)
     test_arg_num('INDEX_CURSOR_LIMIT', 128)
     test_arg_num('BM25STD_TANH_FACTOR', 8)
-    test_arg_num('_BG_INDEX_MEM_PCT_THR', 80)
+    test_arg_num('_BG_INDEX_MEM_PCT_THR', 100)
 
 # True/False arguments
     def test_arg_true_false(arg_name, res):

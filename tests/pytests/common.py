@@ -781,7 +781,7 @@ def waitForIndexPauseScan(env, idx = 'idx'):
     while getDebugScannerStatus(env, idx)!='PAUSED':
         time.sleep(0.1)
 
-def set_tight_maxmemory_for_oom(env, memory_limit_per = 0.8):
+def set_tight_maxmemory_for_oom(env, memory_limit_per = 1):
     # Get current memory consumption value
     memory_usage = env.cmd('INFO', 'MEMORY')['used_memory']
     # Set memory limit to less then memory limit
@@ -828,7 +828,7 @@ def allShards_waitForIndexFinishScan(env, idx = 'idx'):
     for shardId in range(1, env.shardsCount + 1):
         shard_waitForIndexFinishScan(env, shardId, idx)
 
-def shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per = 0.8):
+def shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per = 1):
     # Get current memory consumption value
     memory_usage = env.getConnection(shardId).execute_command('INFO', 'MEMORY')['used_memory']
     # Set memory limit to less then memory limit
@@ -838,7 +838,7 @@ def shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per = 0.8):
     res = env.getConnection(shardId).execute_command('config', 'set', 'maxmemory', new_memory)
     env.assertEqual(res, 'OK')
 
-def allShards_set_tight_maxmemory_for_oom(env, memory_limit_per = 0.8):
+def allShards_set_tight_maxmemory_for_oom(env, memory_limit_per = 1):
     for shardId in range(1, env.shardsCount + 1):
         shard_set_tight_maxmemory_for_oom(env, shardId, memory_limit_per)
 
