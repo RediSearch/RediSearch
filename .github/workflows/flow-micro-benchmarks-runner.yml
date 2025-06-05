@@ -66,14 +66,16 @@ jobs:
           printf "Runner nproc:\n$(nproc)\n"
           printf "Runner uname:\n$(uname -a)\n"
           printf "Runner arch:\n$(arch)\n"
-      - name: Setup specific
-        working-directory: .install
-        run: ./install_script.sh
       - name: Install benchmark dependencies
         run: |
+          cd .install
+          ./install_script.sh sudo
+          cd ..
           # Then install Python dependencies
           sudo apt install python3-pip -y
           pip3 install --upgrade pip PyYAML setuptools redisbench-admin
+        env:
+          DEBIAN_FRONTEND: noninteractive
       - name: Run Micro Benchmark
         env:
           ARCH: ${{ inputs.architecture }}
