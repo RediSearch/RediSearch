@@ -18,15 +18,16 @@ jobs:
         run: ./install_script.sh sudo
       - name: Build RediSearch
         run: ./build.sh  
-      # Step to fetch the latest artifact from master
-      - name: Download Latest Baseline Artifact
+      - name: Download Latest Baseline Artifact from master
         id: get-artifact
         if: github.event_name == 'pull_request'
-        run: |
-          chmod +x ./sbin/fetch_micro_bench_artifact.sh
-          ./sbin/fetch_micro_bench_artifact.sh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: dawidd6/action-download-artifact@4c1e823582f43b179e2cbb49c3eade4e41f992e2 # refs @v10
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: master
+          name: rust-benchmark-results-master
+          path: ./bin/redisearch_rs/criterion
+          workflow: event-push-to-integ.yml
         continue-on-error: true
       - name: Check if Baseline Exists
         id: check_baseline
