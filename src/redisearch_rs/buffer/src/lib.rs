@@ -87,10 +87,15 @@ impl Buffer {
     /// After calling this function, all previously held pointers into the buffer data
     /// must be considered invalid.
     pub fn reserve(&mut self, additional_capacity: usize) {
-        debug_assert!(
-            self.len().checked_add(additional_capacity).is_some(),
-            "Buffer overflow"
-        );
+        #[cfg(debug_assertions)]
+        {
+            let Some(new_length) = self.len().checked_add(additional_capacity) else {
+                panic!("The requested buffer capacity would overflow usize::MAX")
+            };
+            if new_length > isize::MAX as usize {
+                panic!("The requested buffer capacity would overflow isize::MAX")
+            }
+        }
         // We have enough space, no need to resize.
         if additional_capacity <= self.remaining_capacity() {
             return;
