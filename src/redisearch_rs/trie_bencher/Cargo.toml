@@ -2,7 +2,8 @@
 name = "trie_bencher"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
+publish.workspace = true
 
 
 [lib]
@@ -32,6 +33,7 @@ redis_mock.workspace = true
 trie_rs.workspace = true
 ureq.workspace = true
 wildcard.workspace = true
+ffi.workspace = true
 
 [lints]
 workspace = true

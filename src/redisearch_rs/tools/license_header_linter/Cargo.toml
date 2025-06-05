@@ -2,7 +2,8 @@
 name = "license_header_linter"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
+publish.workspace = true
 
 [[bin]]
 name = "license_header_linter"

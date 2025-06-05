@@ -37,12 +37,12 @@ public:
 
     docIds.resize(numDocuments);
     for (int i = 0; i < numDocuments; ++i) {
-      for (auto &id : docIds) {
-        id = dist(rng);
-      }
+      docIds[i] = dist(rng);
     }
+
     std::sort(docIds.begin(), docIds.end());
     docIds.erase(std::unique(docIds.begin(), docIds.end()), docIds.end());
+
     t_docId* ids_array = (t_docId*)rm_malloc(docIds.size() * sizeof(t_docId));
     std::copy(docIds.begin(), docIds.end(), ids_array);
 

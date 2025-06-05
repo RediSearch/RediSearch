@@ -123,7 +123,7 @@ int TrieMap_Add(struct TrieMap *t,
  * Returns the tree root if the key is empty.
  *
  * NOTE: If the key does not exist in the trie, we return the special
- * constant value TRIEMAP_NOTFOUND, so checking if the key exists is done by
+ * constant value [`TRIEMAP_NOTFOUND`], so checking if the key exists is done by
  * comparing to it, because NULL can be a valid result.
  *
  * # Safety
@@ -134,7 +134,7 @@ int TrieMap_Add(struct TrieMap *t,
  * - `len` can be 0. If so, `str` is regarded as an empty string.
  * - The value behind the returned pointer must not be destroyed by the caller.
  *   Use [`TrieMap_Delete`] to remove it instead.
- * - In case [`TRIE_NOTFOUND`] is returned, the key does not exist in the trie,
+ * - In case [`TRIEMAP_NOTFOUND`] is returned, the key does not exist in the trie,
  *   and the pointer must not be dereferenced.
  */
 void *TrieMap_Find(struct TrieMap *t, const char *str, tm_len_t len);
@@ -208,6 +208,8 @@ uintptr_t TrieMap_NNodes(struct TrieMap *t);
  * - `t` must point to a valid TrieMap obtained from [`NewTrieMap`] and cannot be NULL.
  * - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
  * - `len` can be 0. If so, `str` is regarded as an empty string.
+ *
+ * [`NewTrieMap`]: crate::trie::NewTrieMap
  */
 TrieMapResultBuf TrieMap_FindPrefixes(struct TrieMap *t, const char *str, tm_len_t len);
 
@@ -349,6 +351,8 @@ int TrieMapIterator_Next(struct TrieMapIterator *it,
  * - `max` can be NULL only if `maxlen == 0` or `maxlen == -1`. It is not necessarily NULL-terminated.
  * - `maxlen` can be 0. If so, `max` is regarded as an empty string.
  * - `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
+ *
+ * [`NewTrieMap`]: crate::trie::NewTrieMap
  */
 void TrieMap_IterateRange(struct TrieMap *trie,
                           const char *min,
