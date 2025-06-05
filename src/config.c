@@ -708,6 +708,19 @@ CONFIG_GETTER(getIndexingMemoryLimit) {
   return sdscatprintf(ss, "%u", config->indexingMemoryLimit);
 }
 
+CONFIG_SETTER(setBgOOMpauseTimeForRetry) {
+  uint32_t newPauseTime;
+  int acrc = AC_GetU32(ac, &newPauseTime, AC_F_GE0);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  config->bgIndexingOomPauseTimeBeforeRetry = newPauseTime;
+  return REDISMODULE_OK;
+}
+
+CONFIG_GETTER(getBgOOMpauseTimeForRetry) {
+  sds ss = sdsempty();
+  return sdscatprintf(ss, "%u", config->bgIndexingOomPauseTimeBeforeRetry);
+}
+
 RSConfig RSGlobalConfig = RS_DEFAULT_CONFIG;
 
 static RSConfigVar *findConfigVar(const RSConfigOptions *config, const char *name) {
@@ -1008,6 +1021,11 @@ RSConfigOptions RSGlobalConfigOptions = {
                       " any queries on the affected index will result in an error. The default is 100 percent.",
         .setValue = setIndexingMemoryLimit,
         .getValue = getIndexingMemoryLimit},
+        {.name = "_BG_INDEX_OOM_PAUSE_TIME",
+          .helpText = "Set the time (in seconds) given to the background indexing thread to sleep when it reaches the memory limit, giving time to reallocate memory."
+                      "The default value is 5 seconds in Redis Enterprise, 0 in Redis OS.",
+          .setValue = setBgOOMpauseTimeForRetry,
+          .getValue = getBgOOMpauseTimeForRetry},
         {.name = NULL}}};
 
 void RSConfigOptions_AddConfigs(RSConfigOptions *src, RSConfigOptions *dst) {

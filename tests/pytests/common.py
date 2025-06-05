@@ -773,8 +773,12 @@ def bgScanCommand():
 def getDebugScannerStatus(env, idx = 'idx'):
     return env.cmd(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx)
 
-def checkDebugScannerError(env, idx = 'idx', expected_error = ''):
+def checkDebugScannerStatusError(env, idx = 'idx', expected_error = ''):
     env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS', idx).error() \
+        .contains(expected_error)
+
+def checkDebugScannerUpdateError(env, idx = 'idx', expected_error = ''):
+    env.expect(bgScanCommand(), 'DEBUG_SCANNER_UPDATE_CONFIG', idx).error() \
         .contains(expected_error)
 
 def waitForIndexPauseScan(env, idx = 'idx'):
