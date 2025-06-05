@@ -420,7 +420,7 @@ def test_cluster_oom_single_shard(env):
   res = env.getConnection(oom_shard_id).execute_command('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
   env.assertEqual(res, 1)
 
-@skip(cluster=True, no_json=True)
+@skip(cluster=True)
 def test_oom_json(env):
   # Change the memory limit to 80% so it can be tested without colliding with redis memory limit
   env.expect('FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80').ok()
