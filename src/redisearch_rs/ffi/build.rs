@@ -33,13 +33,18 @@ fn main() {
         let redis_modules = root.join("deps").join("RedisModulesSDK");
         let src = root.join("src");
         let deps = root.join("deps");
-        [redis_modules, src, deps]
+
+        let redisearch_rs = src.join("redisearch_rs").join("headers");
+        let vecsim = deps.join("VectorSimilarity").join("src");
+
+        [redis_modules, src, deps, redisearch_rs, vecsim]
     };
 
     let headers = {
         let buffer_h = root.join("src").join("buffer.h");
         let redisearch_h = root.join("src").join("redisearch.h");
-        [buffer_h, redisearch_h]
+        let result_processor_h = root.join("src").join("result_processor.h");
+        [buffer_h, redisearch_h, result_processor_h]
     };
 
     let mut bindings = bindgen::Builder::default();
