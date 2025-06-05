@@ -129,7 +129,7 @@ pub unsafe extern "C" fn TrieMap_Add(
 /// Returns the tree root if the key is empty.
 ///
 /// NOTE: If the key does not exist in the trie, we return the special
-/// constant value TRIEMAP_NOTFOUND, so checking if the key exists is done by
+/// constant value [`TRIEMAP_NOTFOUND`], so checking if the key exists is done by
 /// comparing to it, because NULL can be a valid result.
 ///
 /// # Safety
@@ -140,7 +140,7 @@ pub unsafe extern "C" fn TrieMap_Add(
 /// - `len` can be 0. If so, `str` is regarded as an empty string.
 /// - The value behind the returned pointer must not be destroyed by the caller.
 ///   Use [`TrieMap_Delete`] to remove it instead.
-/// - In case [`TRIE_NOTFOUND`] is returned, the key does not exist in the trie,
+/// - In case [`TRIEMAP_NOTFOUND`] is returned, the key does not exist in the trie,
 ///   and the pointer must not be dereferenced.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_Find(
