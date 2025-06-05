@@ -1186,7 +1186,10 @@ name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
  "buffer",
+ "cbindgen",
  "redis-module",
+ "redisearch_rs",
+ "result_processor",
  "triemap_ffi",
  "types_ffi",
 ]
