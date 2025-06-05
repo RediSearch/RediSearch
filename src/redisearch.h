@@ -16,7 +16,7 @@
 #include <time.h>
 #include "util/dllist.h"
 #include "stemmer.h"
-#include "inverted_index_ffi.h"
+#include "inverted_index_rs.h"
 
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;
