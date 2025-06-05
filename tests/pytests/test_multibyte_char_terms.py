@@ -3,6 +3,13 @@
 from common import *
 from RLTest import Env
 
+# These are the unescaped and escaped versions of a long term with multibyte
+# characters where the length of the converted term to lowercase is greater
+# than its original length.
+unescaped_long_term = 'E-Ticaret Yöneticisi / Yönetmeni - XXİX DANIŞMANLIK VE ELEKTRONİK ÇÖZÜMLER İTHALAT İHRACAT LİMİTED ŞİRKETİ - İstanbul'
+escaped_long_term = 'E\\-Ticaret\\ Yöneticisi\\ \\/\\ Yönetmeni\\ \\-\\ XXİX\\ DANIŞMANLIK\\ VE\\ ELEKTRONİK\\ ÇÖZÜMLER\\ İTHALAT\\ İHRACAT\\ LİMİTED\\ ŞİRKETİ\\ \\-\\ İstanbul'
+
+
 def testMultibyteText(env):
     '''Test that multibyte characters are correctly converted to lowercase and
     that queries are case-insensitive using TEXT fields'''
@@ -707,10 +714,10 @@ def testLongTerms(env):
     conn = getConnectionByEnv(env)
 
     # lowercase
-    long_term_lower = 'частнопредпринимательский' * 6;
+    long_term_lower = 'частнопредпринимательский' * 6
     conn.execute_command('HSET', 'w1', 't', long_term_lower)
     # uppercase
-    long_term_upper = 'ЧАСТНОПРЕДПРИНИМАТЕЛЬСКИЙ' * 6;
+    long_term_upper = 'ЧАСТНОПРЕДПРИНИМАТЕЛЬСКИЙ' * 6
     conn.execute_command('HSET', 'w2', 't', long_term_lower)
 
     # A single term should be generated in lower case.
@@ -1438,3 +1445,164 @@ def testTagSearch(env):
 
     res = conn.execute_command('FT.SEARCH', 'idx', '@t:{fussball}', 'NOCONTENT')
     env.assertEqual(res, [1, 'doc:2s'])
+
+def test_utf8_lowercase_longer_than_uppercase_tags(env):
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TAG')
+    conn = getConnectionByEnv(env)
+
+    t = unescaped_long_term
+    t_lower = t.lower()
+    t_escaped = escaped_long_term
+    t_escaped_lower = t_escaped.lower()
+
+    env.expect('HSET', '{doc}:1', 't', t).equal(1)
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
+        # The conversion to lowercase occupies more space than the original
+        # term, so the term is stored in its original form
+        env.assertEqual(res, [[t, [1]]])
+
+    env.expect('HSET', '{doc}:2', 't', t_lower).equal(1)
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TAGIDX', 'idx', 't')
+        # The lowercase term is stored in its original form, so the index will
+        # have two terms: the original term and the lowercase term
+        # After we implement MOD-8799 to support memory reallocation, a single
+        # lowercase term will be stored.
+        env.assertEqual(res, [[t, [1]], [t_lower, [2]]])
+
+    for dialect in range(1, 5):
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:{{{t_escaped}}}', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:1'])
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:{{{t_escaped_lower}}}', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:2'])
+
+        # Search using TAG autoescape, which is only available in dialect 2 and above
+        if dialect > 1:
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', f'@t:{{"{t}"}}', 'NOCONTENT', 'DIALECT', dialect)
+            # The term is stored in its original form, so the search will return the
+            # document with the original term
+            env.assertEqual(res, [1, '{doc}:1'])
+
+            # Search lowercase term
+            res = conn.execute_command(
+                'FT.SEARCH', 'idx', f'@t:{{"{t_lower}"}}', 'NOCONTENT', 'DIALECT', dialect)
+            env.assertEqual(res, [1, '{doc}:2'])
+
+        # 1 character, occupying 2 bytes in UTF-8 + 1 byte for the null
+        # terminator, so the total length is 3 bytes
+        t1 = 'İ'
+        # 1 characters, occupying 3 bytes in UTF-8 + 1 byte for the null
+        # terminator, so the total length is 4 bytes
+        t1_lower = t1.lower()
+        conn.execute_command('HSET', '{doc}:upper:1', 't', t1)
+        conn.execute_command('HSET', '{doc}:lower:1', 't', t1_lower)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:{{{t1}}}', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:upper:1'])
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:{{{t1_lower}}}', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:lower:1'])
+
+        # 63 characters, occupying 126 bytes in UTF-8 + 1 byte for the
+        # null terminator, so the total length is 127 bytes
+        t2 = 'İ' * 63
+        # 63 characters, occupying 189 bytes in UTF-8 + 1 byte for the
+        # null terminator, so the total length is 190 bytes
+        t2_lower = t2.lower()
+        conn.execute_command('HSET', '{doc}:upper:2', 't', t2)
+        conn.execute_command('HSET', '{doc}:lower:2', 't', t2_lower)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:{{{t2}}}', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:upper:2'])
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:{{{t2_lower}}}', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:lower:2'])
+
+
+def test_utf8_lowercase_longer_than_uppercase_texts(env):
+    env.cmd('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT', 'NOSTEM')
+    conn = getConnectionByEnv(env)
+
+    t = unescaped_long_term
+    t_lower = t.lower()
+    t_escaped = escaped_long_term
+    t_escaped_lower = t_escaped.lower()
+
+    env.expect('HSET', '{doc}:1', 't', t_escaped).equal(1)
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
+        # The conversion to lowercase occupies more space than the original
+        # term, so the term is stored in its original form
+        env.assertEqual(res, [t])
+
+    env.expect('HSET', '{doc}:2', 't', t_escaped_lower).equal(1)
+    if not env.isCluster():
+        res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx')
+        # The lowercase term is stored in its original form, so the index will
+        # have two terms: the original term and the lowercase term
+        # After we implement MOD-8799 to support memory reallocation, a single
+        # lowercase term will be stored.
+        env.assertEqual(res, [t, t_lower])
+
+    for dialect in range(1, 5):
+        # Search escaped original case  term
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t_escaped})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:1'])
+
+        # Search lowercase escaped term
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t_escaped_lower})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:2'])
+
+        # If we don't escape the term, each word is treated as a separate term,
+        # so the search will return no results
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [0])
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t_lower})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [0])
+
+        # 1 character, occupying 2 bytes in UTF-8 + 1 byte for the null
+        # terminator, so the total length is 3 bytes
+        t1 = 'İ'
+        # 1 characters, occupying 3 bytes in UTF-8 + 1 byte for the null
+        # terminator, so the total length is 4 bytes
+        t1_lower = t1.lower()
+        conn.execute_command('HSET', '{doc}:upper:1', 't', t1)
+        conn.execute_command('HSET', '{doc}:lower:1', 't', t1_lower)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t1})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:upper:1'])
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t1_lower})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:lower:1'])
+
+        # 63 characters, occupying 126 bytes in UTF-8 + 1 byte for the
+        # null terminator, so the total length is 127 bytes
+        t2 = 'İ' * 63
+        # 63 characters, occupying 189 bytes in UTF-8 + 1 byte for the
+        # null terminator, so the total length is 190 bytes
+        t2_lower = t2.lower()
+        conn.execute_command('HSET', '{doc}:upper:2', 't', t2)
+        conn.execute_command('HSET', '{doc}:lower:2', 't', t2_lower)
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t2})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:upper:2'])
+
+        res = conn.execute_command(
+            'FT.SEARCH', 'idx', f'@t:({t2_lower})', 'NOCONTENT', 'DIALECT', dialect)
+        env.assertEqual(res, [1, '{doc}:lower:2'])
