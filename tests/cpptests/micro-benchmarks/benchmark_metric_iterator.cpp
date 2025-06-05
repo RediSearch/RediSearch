@@ -33,7 +33,7 @@ public:
       initialized = true;
     }
 
-    numDocuments = 10000;
+    numDocuments = 100000;
     std::mt19937 rng(46);
     std::uniform_int_distribution<t_docId> dist(1, 2'000'000);
     std::uniform_real_distribution<double> score_dist(0.0, 1.0);
