@@ -8,7 +8,6 @@
 */
 
 #include "benchmark/benchmark.h"
-#include "iterator_util.h"
 #include "redismock/util.h"
 
 #include <random>
@@ -68,7 +67,7 @@ BENCHMARK_DEFINE_F(BM_OptionalIterator, ReadEmpty)(benchmark::State &state) {
   QueryIterator *iterator_base = createOptionalEmpty();
 
   for (auto _ : state) {
-    int rc = iterator_base->Read(iterator_base);
+    IteratorStatus rc = iterator_base->Read(iterator_base);
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
     }
@@ -81,7 +80,7 @@ BENCHMARK_DEFINE_F(BM_OptionalIterator, ReadWithChild)(benchmark::State &state) 
   QueryIterator *iterator_base = createOptionalWithChild();
 
   for (auto _ : state) {
-    int rc = iterator_base->Read(iterator_base);
+    IteratorStatus rc = iterator_base->Read(iterator_base);
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
     }
@@ -95,7 +94,7 @@ BENCHMARK_DEFINE_F(BM_OptionalIterator, SkipToEmpty)(benchmark::State &state) {
 
   t_docId docId = 1;
   for (auto _ : state) {
-    int rc = iterator_base->SkipTo(iterator_base, docId);
+    IteratorStatus rc = iterator_base->SkipTo(iterator_base, docId);
     docId += 100;
     if (rc == ITERATOR_EOF || docId > maxDocId) {
       iterator_base->Rewind(iterator_base);
@@ -111,7 +110,7 @@ BENCHMARK_DEFINE_F(BM_OptionalIterator, SkipToWithChild)(benchmark::State &state
 
   t_docId docId = 1;
   for (auto _ : state) {
-    int rc = iterator_base->SkipTo(iterator_base, docId);
+    IteratorStatus rc = iterator_base->SkipTo(iterator_base, docId);
     docId += 100;
     if (rc == ITERATOR_EOF || docId > maxDocId) {
       iterator_base->Rewind(iterator_base);
@@ -133,7 +132,7 @@ BENCHMARK_DEFINE_F(BM_OptionalIterator, SkipToRealHits)(benchmark::State &state)
     }
 
     t_docId target = childDocIds[childIndex++];
-    int rc = iterator_base->SkipTo(iterator_base, target);
+    IteratorStatus rc = iterator_base->SkipTo(iterator_base, target);
     benchmark::DoNotOptimize(rc);
   }
   iterator_base->Free(iterator_base);
@@ -158,7 +157,7 @@ BENCHMARK_DEFINE_F(BM_OptionalIterator, SkipToVirtualHits)(benchmark::State &sta
     }
 
     t_docId target = virtualDocIds[virtualIndex++];
-    int rc = iterator_base->SkipTo(iterator_base, target);
+    IteratorStatus rc = iterator_base->SkipTo(iterator_base, target);
     benchmark::DoNotOptimize(rc);
   }
   iterator_base->Free(iterator_base);
@@ -173,7 +172,7 @@ BENCHMARK_DEFINE_F(BM_OptionalIterator, MixedOperations)(benchmark::State &state
 
   for (auto _ : state) {
     int operation = opDist(rng);
-    int rc;
+    IteratorStatus rc;
 
     if (operation == 0) {
       rc = iterator_base->Read(iterator_base);
@@ -239,5 +238,3 @@ BENCHMARK_REGISTER_F(BM_OptionalIterator, MixedOperations)->CHILD_DOCS_SCENARIOS
 BENCHMARK_REGISTER_F(BM_OptionalIterator, FullIteration)->CHILD_DOCS_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_OptionalIterator, RewindPerformance)->CHILD_DOCS_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_OptionalIterator, CreateAndDestroy)->CHILD_DOCS_SCENARIOS();
-
-BENCHMARK_MAIN();
