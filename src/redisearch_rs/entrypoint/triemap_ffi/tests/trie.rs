@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 use redis_mock::bind_redis_alloc_symbols_to_mock_impl;
-use redisearch_rs::trie::*;
 use std::ffi::{c_char, c_int, c_void};
+use triemap_ffi::*;
 
 bind_redis_alloc_symbols_to_mock_impl!();
 
