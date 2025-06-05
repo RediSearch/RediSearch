@@ -498,14 +498,14 @@ def testStopWords(env):
     conn = getConnectionByEnv(env)
     # test with multi-byte lowercase stopwords
     env.cmd('FT.CREATE', 'idx1', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
-            'STOPWORDS', 4, 'и', 'не', 'от', 'fußball',
+            'STOPWORDS', 5, 'и', 'не', 'от', 'fußball', 'şi̇rketi̇',
             'SCHEMA', 't', 'TEXT', 'NOSTEM')
 
-    conn.execute_command('HSET', 'doc:1', 't', 'не ясно fußball') # 1 term
+    conn.execute_command('HSET', 'doc:1', 't', 'не ясно fußball şi̇rketi̇') # 1 term
     conn.execute_command('HSET', 'doc:2', 't', 'Мужчины и женщины') # 2 terms
     conn.execute_command('HSET', 'doc:3', 't', 'от одного до десяти') # 3 terms
     # create the same text with different case
-    conn.execute_command('HSET', 'doc:4', 't', 'НЕ ЯСНО FUßBALL')
+    conn.execute_command('HSET', 'doc:4', 't', 'НЕ ЯСНО FUßBALL ŞİRKETİ')
     conn.execute_command('HSET', 'doc:5', 't', 'МУЖЧИНЫ И ЖЕНЩИНЫ')
     conn.execute_command('HSET', 'doc:6', 't', 'ОТ ОДНОГО ДО ДЕСЯТИ')
 
@@ -516,7 +516,7 @@ def testStopWords(env):
     env.assertEqual(res, expected_terms)
 
     # check the stopwords list - lowercase
-    expected_stopwords = ['fußball', 'и', 'не', 'от']
+    expected_stopwords = ['fußball', 'şi̇rketi̇', 'и', 'не', 'от']
     res = index_info(env, 'idx1')['stopwords_list']
     env.assertEqual(res, expected_stopwords)
 
@@ -526,16 +526,16 @@ def testStopWords(env):
 
         # search for a stopword term should return 0 results
         res = conn.execute_command(
-            'FT.SEARCH', 'idx1', '@t:(не | от | и | fußball)',)
+            'FT.SEARCH', 'idx1', '@t:(не | от | и | fußball | şi̇rketi̇)')
         env.assertEqual(res, [0])
         res = conn.execute_command(
-            'FT.SEARCH', 'idx1', '@t:(НЕ | ОТ | И | FUßBALL)')
+            'FT.SEARCH', 'idx1', '@t:(НЕ | ОТ | И | FUßBALL | ŞİRKETİ)')
         env.assertEqual(res, [0])
 
 
     # test with multi-byte uppercase stopwords.
     env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
-            'STOPWORDS', 4, 'И', 'НЕ', 'ОТ', 'FUßBALL',
+            'STOPWORDS', 5, 'И', 'НЕ', 'ОТ', 'FUßBALL', 'ŞİRKETİ',
             'SCHEMA', 't', 'TEXT', 'NOSTEM')
     waitForIndex(env, 'idx2')
     # only 6 terms are indexed, the stopwords are not indexed, the same terms
@@ -555,13 +555,13 @@ def testStopWords(env):
         # In idx2, the stopwords were created with uppercase, but they are
         # converted to lowercase.
         # So the search for the stopwords in lowercase returns 0 docs.
-        res = conn.execute_command('FT.SEARCH', 'idx2', '@t:(не | от | и)',
+        res = conn.execute_command('FT.SEARCH', 'idx2', '@t:(не | от | и | fußball | şi̇rketi̇)',
                                    'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, [0])
 
         # Search for the stopwords in uppercase should return 0 results, because
         # they were not indexed.
-        res = conn.execute_command('FT.SEARCH', 'idx2', '@t:(НЕ | ОТ | И | FÜßBALL)',
+        res = conn.execute_command('FT.SEARCH', 'idx2', '@t:(НЕ | ОТ | И | FÜßBALL | ŞİRKETİ)',
                                    'NOCONTENT', 'SORTBY', 't')
         env.assertEqual(res, [0])
 
