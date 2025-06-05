@@ -17,6 +17,16 @@ typedef struct RSQueryTerm RSQueryTerm;
 typedef struct RSIndexResult RSIndexResult;
 
 
+typedef enum RSResultType {
+  Union = 1,
+  Intersection = 2,
+  Term = 4,
+  Virtual = 8,
+  Numeric = 16,
+  Metric = 32,
+  HybridMetric = 64,
+} RSResultType;
+
 /**
  * Represents an aggregate array of values in an index record.
  */

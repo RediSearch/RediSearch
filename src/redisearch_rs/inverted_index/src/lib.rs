@@ -57,6 +57,16 @@ pub struct RSTermRecord {
     pub offsets: RSOffsetVector,
 }
 
+pub enum RSResultType {
+    Union = 0x1,
+    Intersection = 0x2,
+    Term = 0x4,
+    Virtual = 0x8,
+    Numeric = 0x10,
+    Metric = 0x20,
+    HybridMetric = 0x40,
+}
+
 /// Represents an aggregate array of values in an index record.
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]

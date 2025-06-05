@@ -20,4 +20,4 @@ parse_deps = true
 include = ["inverted_index"]
 
 [export]
-include = ["RSAggregateResult", "RSNumericRecord", "RSTermRecord"]
+include = ["RSAggregateResult", "RSNumericRecord", "RSResultType", "RSTermRecord"]
