@@ -68,7 +68,10 @@ jobs:
           printf "Runner arch:\n$(arch)\n"
       - name: Install benchmark dependencies
         run: |
-          ./build.sh tests
+          # Install all dependencies using the install script
+          cd .install && ./install_script.sh sudo
+          cd ..
+          # Then install Python dependencies
           sudo apt install python3-pip -y
           pip3 install --upgrade pip PyYAML setuptools redisbench-admin
       - name: Run Micro Benchmark
