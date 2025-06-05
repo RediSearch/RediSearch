@@ -14,13 +14,13 @@ typedef struct RSIndexResult RSIndexResult;
 
 
 typedef enum RSResultType {
-  Union = 1,
-  Intersection = 2,
-  Term = 4,
-  Virtual = 8,
-  Numeric = 16,
-  Metric = 32,
-  HybridMetric = 64,
+  RSResultType_Union = 1,
+  RSResultType_Intersection = 2,
+  RSResultType_Term = 4,
+  RSResultType_Virtual = 8,
+  RSResultType_Numeric = 16,
+  RSResultType_Metric = 32,
+  RSResultType_HybridMetric = 64,
 } RSResultType;
 
 /**

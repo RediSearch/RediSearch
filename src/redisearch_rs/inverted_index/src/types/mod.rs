@@ -17,6 +17,7 @@ use std::ffi::c_int;
 pub struct RSNumericRecord(pub f64);
 
 #[repr(C)]
+/// cbindgen:prefix-with-name=true
 pub enum RSResultType {
     Union = 0x1,
     Intersection = 0x2,
