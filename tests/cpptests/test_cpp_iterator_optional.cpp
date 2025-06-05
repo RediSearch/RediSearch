@@ -11,11 +11,11 @@
 #include <vector>
 #include "rmutil/alloc.h"
 #include "gtest/gtest.h"
+#include "iterator_util.h"
 
 #include "src/iterators/optional_iterator.h"
 #include "src/iterators/empty_iterator.h"
 #include "src/iterators/idlist_iterator.h"
-#include "iterator_util.h"
 
 // Test optional iterator with no child (empty child)
 class OptionalIteratorEmptyTest : public ::testing::Test {
@@ -142,7 +142,7 @@ protected:
   void SetUp() override {
     // Create child iterator with specific docIds
     childDocIds = {10, 20, 30, 50, 80};
-    QueryIterator *child = (QueryIterator *)new MockIterator(childDocIds);
+    QueryIterator *child = IT_V2(NewIdListIterator)(childDocIds.data(), childDocIds.size(), 1.0);
 
     // Create optional iterator with child
     iterator_base = IT_V2(NewOptionalIterator)(child, maxDocId, numDocs, weight);
