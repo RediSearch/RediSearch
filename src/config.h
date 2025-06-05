@@ -153,7 +153,7 @@ typedef struct {
   // Control user data obfuscation in logs
   bool hideUserDataFromLog;
   // Set how much time after OOM is detected we should wait to enable the resource manager to
-  // allocate more memory.
+  // allocate more memory. Note: has different default values for OSS and Enterprise.
   uint32_t bgIndexingOomPauseTimeBeforeRetry;
 } RSConfig;
 
@@ -251,7 +251,7 @@ void UpgradeDeprecatedMTConfigs();
 #define BM25STD_TANH_FACTOR_MIN 1
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
 #define DEFAULT_INDEXING_MEMORY_LIMIT 100
-#define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 5
+#define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 0 // Note: The config value default is changed to 5 in enterprise
 
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG \
@@ -305,7 +305,7 @@ void UpgradeDeprecatedMTConfigs();
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,      \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,        \
     .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                       \
-    .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY, \
+    .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY  \
   }
 
 #define REDIS_ARRAY_LIMIT 7
