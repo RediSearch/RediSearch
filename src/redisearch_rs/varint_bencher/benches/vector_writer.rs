@@ -14,7 +14,7 @@ use std::time::Duration;
 use varint_bencher::VarintBencher;
 
 fn benchmark_vector_writer(c: &mut Criterion) {
-    let bencher = VarintBencher::new("Vector Writer".to_owned(), Duration::from_secs(5));
+    let bencher = VarintBencher::new("Vector Writer".to_owned(), Duration::from_secs(10));
     bencher.vector_writer_group(c);
 }
 
