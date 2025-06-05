@@ -11,7 +11,6 @@
 //! that's implemented in Rust.
 //!
 //! It exposes an FFI module for each workspace crate that must be consumed (directly) by the C code.
-pub mod trie;
 
 /// Registers the Redis module allocator as the global allocator for the application.
 #[cfg(not(feature = "mock_allocator"))]
@@ -19,3 +18,4 @@ pub mod trie;
 static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
 
 pub use inverted_index_ffi as inverted_index;
+pub use triemap_ffi as triemap;
