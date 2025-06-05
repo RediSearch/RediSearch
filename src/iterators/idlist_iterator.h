@@ -36,7 +36,7 @@ typedef struct {
  */
 QueryIterator *IT_V2(NewIdListIterator)(t_docId *ids, t_offset num, double weight);
 
-QueryIterator *IT_V2(NewMetricIterator)(t_docId *docIds, double *metric_list, size_t num_results, Metric metric_type, bool yields_metric);
+QueryIterator *IT_V2(NewMetricIterator)(t_docId *docIds, double *metric_list, size_t num_results, Metric metric_type);
 
 #ifdef __cplusplus
 }

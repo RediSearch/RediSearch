@@ -43,11 +43,13 @@ public:
     }
     std::sort(docIds.begin(), docIds.end());
     docIds.erase(std::unique(docIds.begin(), docIds.end()), docIds.end());
+    t_docId* ids_array = (t_docId*)rm_malloc(docIds.size() * sizeof(t_docId));
+    std::copy(docIds.begin(), docIds.end(), ids_array);
 
     if constexpr (std::is_same_v<IteratorType, QueryIterator>) {
-      iterator_base = IT_V2(NewIdListIterator)(docIds.data(), docIds.size(), 1.0);
+      iterator_base = IT_V2(NewIdListIterator)(ids_array, docIds.size(), 1.0);
     } else if constexpr (std::is_same_v<IteratorType, IndexIterator>) {
-      iterator_base = NewIdListIterator(docIds.data(), docIds.size(), 1.0);
+      iterator_base = NewIdListIterator(ids_array, docIds.size(), 1.0);
     }
   }
 
@@ -108,3 +110,5 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo_Old, IndexIterator)(bench
 
 BENCHMARK_REGISTER_F(BM_IdListIterator, Read_Old);
 BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo_Old);
+
+BENCHMARK_MAIN();

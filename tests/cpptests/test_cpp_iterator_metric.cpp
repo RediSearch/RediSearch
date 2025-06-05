@@ -13,7 +13,7 @@ static bool cmp_docids(const t_docId& d1, const t_docId& d2) {
   return d1 < d2;
 }
 
-class MetricIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<double>, Metric, bool>>  {
+class MetricIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<double>, Metric>>  {
 protected:
   std::vector<t_docId> docIds;
   std::vector<double> scores;
@@ -22,7 +22,7 @@ protected:
   QueryIterator *iterator_base;
 
   void SetUp() override {
-    std::tie(docIds, scores, metric_type, yields_metric) = GetParam();
+    std::tie(docIds, scores, metric_type) = GetParam();
     std::vector<size_t> indices(docIds.size());
     std::vector<t_docId> sortedDocIds;
     std::vector<double> sortedScores;
@@ -36,15 +36,10 @@ protected:
       sortedScores.push_back(scores[i]);
     }
     t_docId* ids_array = (t_docId*)rm_malloc(sortedDocIds.size() * sizeof(t_docId));
+    double *scores_array = (double*)rm_malloc(sortedScores.size() * sizeof(double));
     std::copy(sortedDocIds.begin(), sortedDocIds.end(), ids_array);
-
-    double *scores_array = nullptr;
-
-    if (yields_metric) {
-      scores_array = (double*)rm_malloc(sortedScores.size() * sizeof(double));
-      std::copy(sortedScores.begin(), sortedScores.end(), scores_array);
-    }
-    iterator_base = IT_V2(NewMetricIterator)(ids_array, scores_array, indices.size(), metric_type, yields_metric);
+    std::copy(sortedScores.begin(), sortedScores.end(), scores_array);
+    iterator_base = IT_V2(NewMetricIterator)(ids_array, scores_array, indices.size(), metric_type);
   }
   void TearDown() override {
     iterator_base->Free(iterator_base);
@@ -234,62 +229,27 @@ INSTANTIATE_TEST_SUITE_P(MetricIteratorP, MetricIteratorCommonTest,
   std::make_tuple(
     std::vector<t_docId>{1, 2, 3, 40, 50},
     std::vector<double>{0.1, 0.2, 0.3, 0.4, 0.5},
-    VECTOR_DISTANCE,
-    false
-  ),
-  std::make_tuple(
-    std::vector<t_docId>{1, 2, 3, 40, 50},
-    std::vector<double>{0.1, 0.2, 0.3, 0.4, 0.5},
-    VECTOR_DISTANCE,
-    true
+    VECTOR_DISTANCE
   ),
   std::make_tuple(
     std::vector<t_docId>{6, 5, 1, 98, 20, 1000, 500, 3, 2},
     std::vector<double>{0.6, 0.5, 0.1, 0.98, 0.2, 1.0, 0.5, 0.3, 0.2},
-    VECTOR_DISTANCE,
-    false
-  ),
-  std::make_tuple(
-    std::vector<t_docId>{6, 5, 1, 98, 20, 1000, 500, 3, 2},
-    std::vector<double>{0.6, 0.5, 0.1, 0.98, 0.2, 1.0, 0.5, 0.3, 0.2},
-    VECTOR_DISTANCE,
-    true
+    VECTOR_DISTANCE
   ),
   std::make_tuple(
     std::vector<t_docId>{10, 20, 30, 40, 50},
     std::vector<double>{0.9, 0.8, 0.7, 0.6, 0.5},
-    VECTOR_DISTANCE,
-    false
-  ),
-  std::make_tuple(
-    std::vector<t_docId>{10, 20, 30, 40, 50},
-    std::vector<double>{0.9, 0.8, 0.7, 0.6, 0.5},
-    VECTOR_DISTANCE,
-    true
+    VECTOR_DISTANCE
   ),
   std::make_tuple(
     std::vector<t_docId>{1000000, 2000000, 3000000},
     std::vector<double>{0.1, 0.5, 0.9},
-    VECTOR_DISTANCE,
-    false
-  ),
-  std::make_tuple(
-    std::vector<t_docId>{1000000, 2000000, 3000000},
-    std::vector<double>{0.1, 0.5, 0.9},
-    VECTOR_DISTANCE,
-    true
+    VECTOR_DISTANCE
   ),
   std::make_tuple(
     std::vector<t_docId>{42},
     std::vector<double>{1.0},
-    VECTOR_DISTANCE,
-    false
-  ),
-  std::make_tuple(
-    std::vector<t_docId>{42},
-    std::vector<double>{1.0},
-    VECTOR_DISTANCE,
-    true
+    VECTOR_DISTANCE
   )
  )
 );
