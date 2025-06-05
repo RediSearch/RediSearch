@@ -23,13 +23,14 @@
 
 #include "rq_pool.h"
 
+//TODO(Joan): Should the MRConn be attached to a Runtime, or should a MRQueue be attached to a Connection?
 typedef struct MRConn{
   MREndpoint ep;
   redisAsyncContext *conn;
   MRConnState state;
   void *timer;
   int protocol; // 0 (undetermined), 2, or 3
-  const uv_loop_t *runtime; // the libuv runtime, this is what connects a MRConnection to a specific ConnectionPool
+  size_t rqPoolIdx;  // the link between the connection and the queue pool
 } MRConn;
 
 
@@ -39,7 +40,7 @@ static int MRConn_Connect(MRConn *conn);
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState);
 static void MRConn_Free(void *ptr);
 static void MRConn_Stop(MRConn *conn);
-static MRConn *MR_NewConn(MREndpoint *ep, const uv_loop_t *runtime);
+static MRConn *MR_NewConn(MREndpoint *ep, size_t rqPoolIdx);
 static int MRConn_StartNewConnection(MRConn *conn);
 static int MRConn_SendAuth(MRConn *conn);
 
@@ -47,6 +48,7 @@ static int MRConn_SendAuth(MRConn *conn);
 #define RSCONN_REAUTH_TIMEOUT 1000
 #define INTERNALAUTH_USERNAME "internal connection"
 #define UNUSED(x) (void)(x)
+#define CONN_RUNTIME(conn) RQPool_GetQueue(conn->rqPoolIdx)->loop
 
 #define CONN_LOG(conn, fmt, ...)                                                \
   fprintf(stderr, "[%p %s:%d %s]" fmt "\n", conn, conn->ep.host, conn->ep.port, \
@@ -69,6 +71,7 @@ static redisAsyncContext *detachFromConn(MRConn *conn, int shouldFree) {
   }
 }
 
+//TODO(Joan): Is the round robin assignment the correct one, shouldn't these be linked to a MRQueue (Would it make sense to have a Connection Pool x MRQueue?)
 typedef struct {
   size_t num;
   size_t rr;  // round robin counter
@@ -87,8 +90,8 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
 
   /* Create the connection */
   for (size_t i = 0; i < num; i++) {
-    const MRWorkQueue *q = RQPool_GetQueue(i);
-    pool->conns[i] = MR_NewConn(ep, RQ_GetRuntime(q));
+    //TODO(Joan): Here it used to get the runtime from the queue pool, but now we just assign the index
+    pool->conns[i] = MR_NewConn(ep, i);
   }
   pool->control_plane_conn = pool->conns[0];
   return pool;
@@ -306,8 +309,7 @@ void MRConnManager_Expand(MRConnManager *m, size_t num) {
     MREndpoint *ep = &pool->conns[0]->ep;
     for (size_t i = pool->num; i < num; i++) {
       // Runtime should already be set
-      MRWorkQueue *q = RQPool_GetQueue(i);
-      pool->conns[i] = MR_NewConn(ep, RQ_GetRuntime(q));
+      pool->conns[i] = MR_NewConn(ep, i);
       MRConn_StartNewConnection(pool->conns[i]);
     }
     pool->num = num;
@@ -369,7 +371,7 @@ static void signalCallback(uv_timer_t *tm) {
 static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
   if (!conn->timer) {
     conn->timer = rm_malloc(sizeof(uv_timer_t));
-    uv_timer_init(conn->runtime, conn->timer);
+    uv_timer_init(CONN_RUNTIME(conn), conn->timer);
     ((uv_timer_t *)conn->timer)->data = conn;
   }
   CONN_LOG(conn, "Switching state to %s", MRConnState_Str(nextState));
@@ -683,11 +685,11 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
   }
 }
 
-static MRConn *MR_NewConn(MREndpoint *ep, const uv_loop_t *runtime) {
+static MRConn *MR_NewConn(MREndpoint *ep, size_t rqPoolIdx) {
   MRConn *conn = rm_malloc(sizeof(MRConn));
   *conn = (MRConn){.state = MRConn_Disconnected, .conn = NULL, .protocol = 0};
   MREndpoint_Copy(&conn->ep, ep);
-  conn->runtime = (uv_loop_t *)runtime;
+  conn->rqPoolIdx = rqPoolIdx;
   return conn;
 }
 
@@ -711,7 +713,7 @@ static int MRConn_Connect(MRConn *conn) {
   conn->conn->data = conn;
   conn->state = MRConn_Connecting;
 
-  redisLibuvAttach(conn->conn, conn->runtime);
+  redisLibuvAttach(conn->conn, CONN_RUNTIME(conn));
   redisAsyncSetConnectCallback(conn->conn, MRConn_ConnectCallback);
   redisAsyncSetDisconnectCallback(conn->conn, MRConn_DisconnectCallback);
 

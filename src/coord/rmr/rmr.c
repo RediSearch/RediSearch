@@ -56,7 +56,8 @@ typedef struct MRCtx {
   RedisModuleBlockedClient *bc;
   bool mastersOnly;
   MRCommand cmd;
-  MRWorkQueue *queue;
+  size_t rqPoolIdx;
+  //MRWorkQueue *queue;
 
   /**
    * This is a reduce function inside the MRCtx.
@@ -89,7 +90,8 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->bc = bc;
   RS_ASSERT(ctx || bc);
   ret->fn = NULL;
-  ret->queue = RQPool_GetRoundRobinQueue();
+  ret->rqPoolIdx = RQPool_AssignRoundRobinIdx();
+  //ret->queue = RQPool_GetRoundRobinQueue();
 
   return ret;
 }
@@ -250,7 +252,7 @@ int MR_Fanout(struct MRCtx *mrctx, MRReduceFunc reducer, MRCommand cmd, bool blo
   //Is possible that mrctx->fn may already be there and reducer to be null
   mrctx->reducer = reducer;
   mrctx->cmd = cmd;
-  MRWorkQueue *q = mrctx->queue;
+  MRWorkQueue *q = RQPool_GetQueue(mrctx->rqPoolIdx);
   RQ_Push(q, uvFanoutRequest, mrctx);
   return REDIS_OK;
 }
@@ -261,7 +263,7 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
   RS_ASSERT(!ctx->bc);
   ctx->bc = RedisModule_BlockClient(ctx->redisCtx, unblockHandler, timeoutHandler, freePrivDataCB, 0); // timeout_g);
   RedisModule_BlockedClientMeasureTimeStart(ctx->bc);
-  MRWorkQueue *q = ctx->queue;
+  MRWorkQueue *q = RQPool_GetQueue(ctx->rqPoolIdx);
   RQ_Push(q, uvMapRequest, ctx);
   return REDIS_OK;
 }

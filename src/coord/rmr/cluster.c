@@ -205,6 +205,7 @@ int MRCluster_FanoutCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd,
       if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
         continue;
       }
+      //TODO(Joan): This FanoutCommand is working in a libuv runtime that should come with its own connection?
       MRConn *conn = MRConn_Get(&cl->mgr, sh->nodes[j].id);
       if (conn) {
         if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {

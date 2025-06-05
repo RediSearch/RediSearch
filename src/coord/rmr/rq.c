@@ -52,6 +52,7 @@ typedef struct MRWorkQueue {
   uv_async_t topologyAsync;
   struct queueItem *pendingTopo;
   arrayof(uv_async_t *) pendingQueues;
+  MRConnManager *conn_manager;
 
 } MRWorkQueue;
 

@@ -31,3 +31,6 @@ void RQPool_Shrink(size_t numQueues);
 
 // Gets a queue from a pool in a round-robin fashion
 MRWorkQueue *RQPool_GetRoundRobinQueue(void);
+
+// Assigns a round-robin index to a request
+size_t RQPool_AssignRoundRobinIdx(void);

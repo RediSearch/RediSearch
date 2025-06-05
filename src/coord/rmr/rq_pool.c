@@ -74,6 +74,17 @@ void RQPool_Shrink(size_t numQueues) {
   rq_pool_len = numQueues;
 }
 
+size_t RQPool_AssignRoundRobinIdx(void) {
+  assert(rq_pool != NULL && "RQPool_GetRoundRobinQueue called before RQPool_Init");
+  if (rq_pool_len == 1) {
+    return 0;
+  }
+  // Idea is to skip the control plane queue
+  size_t idx = current_round_robin + 1;
+  current_round_robin = (current_round_robin + 1) % (rq_pool_len - 1);
+  return idx;
+}
+
 MRWorkQueue *RQPool_GetRoundRobinQueue(void) {
   assert(rq_pool != NULL && "RQPool_GetRoundRobinQueue called before RQPool_Init");
   if (rq_pool_len == 1) {
