@@ -48,10 +48,10 @@ static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
     return ITERATOR_EOF;
   }
 
-  uint64_t top = it->size - 1, bottom = it->offset;
-  uint64_t i = 0;
+  uint64_t top = it->size, bottom = it->offset;
+  uint64_t i;
   t_docId did;
-  while (bottom <= top) {
+  while (bottom < top) {
     i = (bottom + top) / 2;
     did = it->docIds[i];
 
@@ -59,8 +59,7 @@ static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
       break;
     }
     if (docId < did) {
-      if (i == 0) break;
-      top = i - 1;
+      top = i;
     } else {
       bottom = i + 1;
     }
