@@ -11,6 +11,7 @@ members = [
     "trie_rs",
     "wildcard",
     "buffer",
+    "result_processor"
 ]
 default-members = [
     "low_memory_thin_vec",
@@ -54,6 +55,7 @@ publish = false
 ffi = { path = "./ffi" }
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 redis_mock = { path = "./redis_mock" }
+result_processor = { path = "./result_processor" }
 trie_rs = { path = "./trie_rs" }
 wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }

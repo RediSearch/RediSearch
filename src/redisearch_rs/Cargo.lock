@@ -1173,6 +1173,7 @@ dependencies = [
  "redis-module",
  "redis_mock",
  "redisearch_rs",
+ "result_processor",
  "trie_rs",
  "wildcard 0.0.1",
 ]
@@ -1205,6 +1206,13 @@ name = "regex-syntax"
 version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b15c43186be67a4fd63bee50d0303afffcef381492ebe2c5d87f324e1b8815c"
+
+[[package]]
+name = "result_processor"
+version = "0.0.1"
+dependencies = [
+ "ffi",
+]
 
 [[package]]
 name = "ring"
