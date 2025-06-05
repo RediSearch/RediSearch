@@ -134,7 +134,7 @@ fn generate_test_values() -> Vec<u32> {
 }
 
 fn encode_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
-    let mut buf = Vec::new();
+    let mut buf = Vec::with_capacity(1024);
     group.bench_function("Rust", |b| {
         b.iter(|| {
             for &value in values {
