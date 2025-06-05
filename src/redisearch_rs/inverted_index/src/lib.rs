@@ -12,6 +12,7 @@ use std::{
     io::{Read, Seek, Write},
 };
 
+use enumflags2::{BitFlags, bitflags};
 pub use ffi::{RSIndexResult, RSQueryTerm, t_docId};
 
 /// A delta is the difference between document IDs. It is mostly used to save space in the index
@@ -58,16 +59,21 @@ pub struct RSTermRecord {
 }
 
 #[repr(C)]
+#[bitflags]
+#[repr(u32)]
+#[derive(Copy, Clone)]
 /// cbindgen:prefix-with-name=true
 pub enum RSResultType {
-    Union = 0x1,
-    Intersection = 0x2,
-    Term = 0x4,
-    Virtual = 0x8,
-    Numeric = 0x10,
-    Metric = 0x20,
-    HybridMetric = 0x40,
+    Union = 1,
+    Intersection = 2,
+    Term = 4,
+    Virtual = 8,
+    Numeric = 16,
+    Metric = 32,
+    HybridMetric = 64,
 }
+
+pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 
 /// Represents an aggregate array of values in an index record.
 /// cbindgen:rename-all=CamelCase
@@ -83,7 +89,7 @@ pub struct RSAggregateResult {
     pub children: *mut *mut RSIndexResult,
 
     /// A map of the aggregate type of the underlying records
-    pub type_mask: u32,
+    pub type_mask: RSResultTypeMask,
 }
 
 /// Encoder to write a record into an index

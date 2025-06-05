@@ -17,7 +17,7 @@ typedef struct RSIndexResult RSIndexResult;
 
 [parse]
 parse_deps = true
-include = ["inverted_index"]
+include = ["enumflags2", "inverted_index"]
 
 [export]
 include = ["RSAggregateResult", "RSNumericRecord", "RSResultType", "RSTermRecord"]
