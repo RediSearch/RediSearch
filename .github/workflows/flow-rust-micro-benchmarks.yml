@@ -31,23 +31,6 @@ jobs:
         continue-on-error: true
       - name: Check if Baseline Exists
         id: check_baseline
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Setup specific
-        working-directory: .install
-        run: ./install_script.sh sudo
-      - name: Build RediSearch
-        run: ./build.sh
-      - name: Get Latest Baseline
-        uses: actions/download-artifact@v4
-        with:
-          name: rust-benchmark-results-master
-          path: bin/redisearch_rs/criterion
-        continue-on-error: true # Prevent failure if no baseline exists yet
-      - name: Check if Baseline Exists
-        id: check_baseline
         run: |
           if [ -d bin/redisearch_rs/criterion ]; then
             echo "baseline_exists=true" >> $GITHUB_OUTPUT
