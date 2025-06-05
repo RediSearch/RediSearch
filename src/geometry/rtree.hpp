@@ -8,6 +8,8 @@
 */
 #pragma once
 
+#include <search_ctx.h>
+
 #include "allocator/allocator.hpp"
 #include "allocator/stateful_allocator.hpp"
 #include "allocator/tracking_allocator.hpp"

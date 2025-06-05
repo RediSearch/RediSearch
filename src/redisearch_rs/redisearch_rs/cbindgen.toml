@@ -10,6 +10,9 @@ after_includes = """
  */
 typedef struct RSSortingVector RSSortingVector;
 typedef struct RSValue RSValue;
+typedef struct RSIndexResult RSIndexResult;
+typedef struct RSScoreExplain RSScoreExplain;
+typedef struct RSDocumentMetadata_s RSDocumentMetadata;
 """
 
 [parse]
@@ -17,7 +20,7 @@ parse_deps = true
 include = ["libc", "low_memory_thin_vec", "result_processor"]
 
 [export]
-include = ["RLookupRow"]
+include = ["RLookupRow", "SearchResult"]
 
 [export.rename]
 # Workaround for https://github.com/mozilla/cbindgen/issues/539

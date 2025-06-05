@@ -11,8 +11,13 @@
 #include <stdint.h>
 #include <assert.h>
 
-#include <spec.h>
-#include <search_ctx.h>
+// Forwards:
+typedef struct IndexSpecCache IndexSpecCache;
+typedef struct SchemaRule SchemaRule;
+typedef struct IndexSpec IndexSpec;
+typedef const void* JSONResultsIterator;
+typedef struct FieldSpec FieldSpec;
+
 #include "value.h"
 #include "sortable.h"
 #include "util/arr.h"

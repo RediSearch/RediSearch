@@ -4,6 +4,8 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
+#include <search_ctx.h>
+
 #include "benchmark/benchmark.h"
 #include "iterator_util.h"
 #include "redismock/util.h"

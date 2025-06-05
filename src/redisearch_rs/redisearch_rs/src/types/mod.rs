@@ -7,4 +7,4 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-pub use result_processor::RLookupRow;
+pub use result_processor::{RLookupRow, SearchResult};
