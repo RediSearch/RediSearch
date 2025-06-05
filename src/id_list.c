@@ -137,6 +137,7 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
   IdListIterator *it = rm_new(IdListIterator);
 
   it->size = num;
+  setEof(it, 0);
   it->docIds = ids;
   it->lastDocId = 0;
   it->base.current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
