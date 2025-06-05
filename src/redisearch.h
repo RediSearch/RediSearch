@@ -293,15 +293,6 @@ typedef struct {
   char dummy;
 } RSVirtualRecord;
 
-typedef enum {
-  RSResultType_Union = 0x1,
-  RSResultType_Intersection = 0x2,
-  RSResultType_Term = 0x4,
-  RSResultType_Virtual = 0x8,
-  RSResultType_Numeric = 0x10,
-  RSResultType_Metric = 0x20,
-  RSResultType_HybridMetric = 0x40,
-} RSResultType;
 
 #define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)
 #define RS_RESULT_NUMERIC (RSResultType_Numeric | RSResultType_Metric)

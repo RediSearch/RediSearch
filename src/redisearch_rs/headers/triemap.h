@@ -13,6 +13,16 @@
 typedef struct RSIndexResult RSIndexResult;
 
 
+typedef enum RSResultType {
+  Union = 1,
+  Intersection = 2,
+  Term = 4,
+  Virtual = 8,
+  Numeric = 16,
+  Metric = 32,
+  HybridMetric = 64,
+} RSResultType;
+
 /**
  * Used by [`TrieMapIterator`] to determine type of query.
  */
@@ -98,7 +108,7 @@ typedef struct RSAggregateResult {
   /**
    * A map of the aggregate type of the underlying records
    */
-  uint32_t typeMask;
+  enum RSResultType typeMask;
 } RSAggregateResult;
 
 /**
