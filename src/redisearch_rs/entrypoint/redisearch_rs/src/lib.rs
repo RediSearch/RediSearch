@@ -18,4 +18,4 @@ pub mod trie;
 #[global_allocator]
 static REDIS_MODULE_ALLOCATOR: redis_module::alloc::RedisAlloc = redis_module::alloc::RedisAlloc;
 
-pub mod types;
+pub use inverted_index_ffi as inverted_index;

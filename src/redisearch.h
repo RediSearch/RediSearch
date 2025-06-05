@@ -16,8 +16,7 @@
 #include <time.h>
 #include "util/dllist.h"
 #include "stemmer.h"
-
-#include "triemap.h" // Import all the types defined in Rust
+#include "inverted_index_ffi.h"
 
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;
