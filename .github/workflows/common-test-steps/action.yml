@@ -1,5 +1,5 @@
 name: Common Test Previous steps
-description: 'Common steps for all tests'∫
+description: 'Common steps for all tests'
 inputs:
   env:
     default: "${{ vars.RUNS_ON }}"
