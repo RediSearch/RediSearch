@@ -1066,12 +1066,16 @@ typedef IndexIterator **IndexIteratorArray;
 /**
  * Converts a given string to lowercase and handles escape sequences.
  *
- * This function processes the input string `str` and converts it to lowercase
+ * This function processes the input string and converts it to lowercase
  * if `caseSensitive` is false.
+ * If no memory allocation is needed for lowerconversion, the string is modified
+ * in place.
+ * If memory allocation is needed, the original string is freed and replaced
+ * with the new lowercase string.
  * It also handles escape sequences by removing the backslash character if it
  * precedes a punctuation or whitespace character.
  *
- * @param str The input string to be processed. The string is modified in place.
+ * @param pstr A pointer to the input string.
  * @param len A pointer to the length of the input string. The length is updated
  * to reflect any changes made to the string.
  * @param caseSensitive A flag indicating whether the conversion to lowercase
