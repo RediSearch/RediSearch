@@ -60,6 +60,54 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+      - name: Check if node20 is Supported
+        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
+        run: |
+          for platform in amazonlinux:2 alpine:3; do
+            if [[ "${{ inputs.container }}" == "$platform" ]]; then
+              echo "supported=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          done
+          echo "supported=true" >> $GITHUB_OUTPUT
+      - name: Full checkout (node20)
+        if: steps.node20.outputs.supported == 'true'
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Full checkout (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
+        run: |
+          # Execute the logic based on the detected platform
+          echo "Detected platform: ${{ inputs.container }}"
+          case "${{ inputs.container }}" in
+            amazonlinux:2 | alpine:3)
+
+              # Configure the safe directory
+              git config --global --add safe.directory /__w/${{ github.repository }}
+
+              # Checkout
+              REPO_URL="https://github.com/${{ github.repository }}.git"
+
+              # Initialize a Git repository
+              git init
+              git remote add origin "$REPO_URL"
+
+              # Fetch and checkout ref
+              git fetch origin "${{ github.ref }}" || {
+                echo "Failed to fetch ref: '${{ github.ref }}'";
+                exit 1;
+              }
+              git checkout FETCH_HEAD  # Check out the fetched ref
+
+              # Update submodules
+              git submodule update --init --recursive
+              ;;
+            *)
+              echo "Unsupported platform: '${{ inputs.container }}'"
+              exit 1
+              ;;
+          esac
       - name: Pre-steps script
         uses: ./.github/workflows/common-test-steps
         with:
@@ -105,6 +153,54 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+      - name: Check if node20 is Supported
+        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
+        run: |
+          for platform in amazonlinux:2 alpine:3; do
+            if [[ "${{ inputs.container }}" == "$platform" ]]; then
+              echo "supported=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          done
+          echo "supported=true" >> $GITHUB_OUTPUT
+      - name: Full checkout (node20)
+        if: steps.node20.outputs.supported == 'true'
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Full checkout (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
+        run: |
+          # Execute the logic based on the detected platform
+          echo "Detected platform: ${{ inputs.container }}"
+          case "${{ inputs.container }}" in
+            amazonlinux:2 | alpine:3)
+
+              # Configure the safe directory
+              git config --global --add safe.directory /__w/${{ github.repository }}
+
+              # Checkout
+              REPO_URL="https://github.com/${{ github.repository }}.git"
+
+              # Initialize a Git repository
+              git init
+              git remote add origin "$REPO_URL"
+
+              # Fetch and checkout ref
+              git fetch origin "${{ github.ref }}" || {
+                echo "Failed to fetch ref: '${{ github.ref }}'";
+                exit 1;
+              }
+              git checkout FETCH_HEAD  # Check out the fetched ref
+
+              # Update submodules
+              git submodule update --init --recursive
+              ;;
+            *)
+              echo "Unsupported platform: '${{ inputs.container }}'"
+              exit 1
+              ;;
+          esac
       - name: Pre-steps script
         uses: ./.github/workflows/common-test-steps
         with:
@@ -153,6 +249,54 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
+      - name: Check if node20 is Supported
+        id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
+        run: |
+          for platform in amazonlinux:2 alpine:3; do
+            if [[ "${{ inputs.container }}" == "$platform" ]]; then
+              echo "supported=false" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          done
+          echo "supported=true" >> $GITHUB_OUTPUT
+      - name: Full checkout (node20)
+        if: steps.node20.outputs.supported == 'true'
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Full checkout (node20 not supported)
+        if: steps.node20.outputs.supported == 'false'
+        run: |
+          # Execute the logic based on the detected platform
+          echo "Detected platform: ${{ inputs.container }}"
+          case "${{ inputs.container }}" in
+            amazonlinux:2 | alpine:3)
+
+              # Configure the safe directory
+              git config --global --add safe.directory /__w/${{ github.repository }}
+
+              # Checkout
+              REPO_URL="https://github.com/${{ github.repository }}.git"
+
+              # Initialize a Git repository
+              git init
+              git remote add origin "$REPO_URL"
+
+              # Fetch and checkout ref
+              git fetch origin "${{ github.ref }}" || {
+                echo "Failed to fetch ref: '${{ github.ref }}'";
+                exit 1;
+              }
+              git checkout FETCH_HEAD  # Check out the fetched ref
+
+              # Update submodules
+              git submodule update --init --recursive
+              ;;
+            *)
+              echo "Unsupported platform: '${{ inputs.container }}'"
+              exit 1
+              ;;
+          esac
       - name: Pre-steps script
         uses: ./.github/workflows/common-test-steps
         with:
