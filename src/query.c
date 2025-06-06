@@ -1023,8 +1023,21 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   return it;
 }
 
+static int cmp_docids(const void *p1, const void *p2) {
+  const t_docId *d1 = p1, *d2 = p2;
+
+  return (int)(*d1 - *d2);
+}
+
 static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {
-  return NewIdListIterator(node->ids, node->len, 1);
+  t_docId *ids = node->ids;
+  size_t num = node->len;
+  qsort(ids, (size_t)num, sizeof(t_docId), cmp_docids);
+
+  t_docId* it_ids = rm_calloc(num, sizeof(t_docId));
+  if (num > 0) memcpy(it_ids, ids, num * sizeof(t_docId));
+  //Passing the ownership of the ids to the iterator.
+  return NewIdListIterator(it_ids, num, 1);
 }
 
 static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {

@@ -1908,11 +1908,9 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
 }
 
 PRINT_PROFILE_FUNC(printMetricIt) {
-  MetricIterator *mi = (MetricIterator *)root;
-
   RedisModule_Reply_Map(reply);
 
-  switch (mi->type) {
+  switch (GetMetric(root)) {
     case VECTOR_DISTANCE: {
       printProfileType("METRIC - VECTOR DISTANCE");
       break;

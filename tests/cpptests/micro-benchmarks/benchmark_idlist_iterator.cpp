@@ -11,16 +11,19 @@
 
 #include <random>
 #include <vector>
+#include <iostream>
 
 #include "src/iterators/iterator_api.h"
 #include "src/iterators/idlist_iterator.h"
 
 #include "src/index.h"
 
+template <typename IteratorType>
 class BM_IdListIterator : public benchmark::Fixture {
 public:
   std::vector<t_docId> docIds;
   static bool initialized;
+  IteratorType *iterator_base;
 
   void SetUp(::benchmark::State &state) {
     if (!initialized) {
@@ -28,86 +31,84 @@ public:
       initialized = true;
     }
 
-    auto numDocuments = state.range(0);
+    auto numDocuments = 1000000;
     std::mt19937 rng(46);
     std::uniform_int_distribution<t_docId> dist(1, 2'000'000);
 
     docIds.resize(numDocuments);
     for (int i = 0; i < numDocuments; ++i) {
-      for (auto &id : docIds) {
-        id = dist(rng);
-      }
+      docIds[i] = dist(rng);
     }
+
     std::sort(docIds.begin(), docIds.end());
+    docIds.erase(std::unique(docIds.begin(), docIds.end()), docIds.end());
+
+    t_docId* ids_array = (t_docId*)rm_malloc(docIds.size() * sizeof(t_docId));
+    std::copy(docIds.begin(), docIds.end(), ids_array);
+
+    if constexpr (std::is_same_v<IteratorType, QueryIterator>) {
+      iterator_base = IT_V2(NewIdListIterator)(ids_array, docIds.size(), 1.0);
+    } else if constexpr (std::is_same_v<IteratorType, IndexIterator>) {
+      iterator_base = NewIdListIterator(ids_array, docIds.size(), 1.0);
+    }
+  }
+
+  void TearDown(::benchmark::State &state) {
+    iterator_base->Free(iterator_base);
   }
 };
-bool BM_IdListIterator::initialized = false;
 
-// Translation - exponential range from 2 to 20 (double each time), then 25, 50, 75, and 100.
-// This is the number of docIds to iterate on in each scenario
-#define DOCIDS_SCENARIOS() RangeMultiplier(2)->Range(2, 20)->DenseRange(25, 100, 25)
+template <typename IteratorType>
+bool BM_IdListIterator<IteratorType>::initialized = false;
 
-BENCHMARK_DEFINE_F(BM_IdListIterator, Read)(benchmark::State &state) {
-  QueryIterator *iterator_base = IT_V2(NewIdListIterator)(docIds.data(), docIds.size(), 1.0);
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read, QueryIterator)(benchmark::State &state) {
   for (auto _ : state) {
-    IteratorStatus rc = iterator_base->Read(iterator_base);
+    auto rc = iterator_base->Read(iterator_base);
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
     }
   }
-
-  iterator_base->Free(iterator_base);
 }
 
-BENCHMARK_DEFINE_F(BM_IdListIterator, SkipTo)(benchmark::State &state) {
-  QueryIterator *iterator_base = IT_V2(NewIdListIterator)(docIds.data(), docIds.size(), 1.0);
-
-  t_docId docId = 10;
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo, QueryIterator)(benchmark::State &state) {
+  t_docId docId = 10000;
   for (auto _ : state) {
-    IteratorStatus rc = iterator_base->SkipTo(iterator_base, docId);
-    docId += 10;
+    auto rc = iterator_base->SkipTo(iterator_base, docId);
+    docId += 10000;
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10;
+      docId = 10000;
     }
   }
-
-  iterator_base->Free(iterator_base);
 }
 
-BENCHMARK_REGISTER_F(BM_IdListIterator, Read)->DOCIDS_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo)->DOCIDS_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_IdListIterator, Read);
+BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo);
 
-BENCHMARK_DEFINE_F(BM_IdListIterator, Read_Old)(benchmark::State &state) {
-  IndexIterator *iterator_base = NewIdListIterator(docIds.data(), docIds.size(), 1.0);
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read_Old, IndexIterator)(benchmark::State &state) {
   RSIndexResult *hit;
   for (auto _ : state) {
-    int rc = iterator_base->Read(iterator_base, &hit);
-    if (rc == ITERATOR_EOF) {
+    auto rc = iterator_base->Read(iterator_base, &hit);
+    if (rc == INDEXREAD_EOF) {
       iterator_base->Rewind(iterator_base);
     }
   }
-  iterator_base->Free(iterator_base);
 }
 
-BENCHMARK_DEFINE_F(BM_IdListIterator, SkipTo_Old)(benchmark::State &state) {
-  IndexIterator *iterator_base = NewIdListIterator(docIds.data(), docIds.size(), 1.0);
+BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo_Old, IndexIterator)(benchmark::State &state) {
   RSIndexResult *hit;
-
-  t_docId docId = 10;
+  t_docId docId = 10000;
   for (auto _ : state) {
-    int rc = iterator_base->SkipTo(iterator_base, docId, &hit);
-    docId += 10;
-    if (rc == ITERATOR_EOF) {
+    auto rc = iterator_base->SkipTo(iterator_base, docId, &hit);
+    docId += 10000;
+    if (rc == INDEXREAD_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10;
+      docId = 10000;
     }
   }
-
-  iterator_base->Free(iterator_base);
 }
 
-BENCHMARK_REGISTER_F(BM_IdListIterator, Read_Old)->DOCIDS_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo_Old)->DOCIDS_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_IdListIterator, Read_Old);
+BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo_Old);
 
 BENCHMARK_MAIN();
