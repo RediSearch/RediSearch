@@ -1093,15 +1093,13 @@ static void tag_strtolower(char **pstr, size_t *len, int caseSensitive) {
   *str = '\0';
 
   if (!caseSensitive) {
-    size_t newLen = 0;
-    char *dst = unicode_tolower(origStr, length, &newLen);
+    char *dst = unicode_tolower(origStr, &length);
     if (dst) {
         rm_free(origStr);
         *pstr = dst;
-        length = newLen;
-    } else if (*len != newLen) {
-      length = newLen;
-      origStr[newLen] = '\0';
+    } else {
+      // No memory allocation, just ensure null termination
+      origStr[length] = '\0';
     }
   }
   *len = length;

@@ -68,13 +68,8 @@ static char *DefaultNormalize(char *s, char *dst, size_t *len, int *allocated) {
     escaped = 0;
   }
 
+  char *longer_dst = unicode_tolower(dst, &dstLen);
   *len = dstLen;
-
-  size_t newLen = 0;
-  char *longer_dst = unicode_tolower(dst, dstLen, &newLen);
-  if (dstLen != newLen) {
-    *len = newLen;
-  }
 
   if (!longer_dst) {
     *allocated = 0;

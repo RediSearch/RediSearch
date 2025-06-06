@@ -17,19 +17,20 @@ TEST_F(UnicodeToLowerTest, testBasicLowercase) {
   // Test with ASCII characters
   char str1[] = "HELLO WORLD";
   char *dst = NULL;
-  size_t newLen = 0;
+  size_t newLen = strlen(str1);
 
-  dst = unicode_tolower(str1, strlen(str1), &newLen);
+  dst = unicode_tolower(str1, &newLen);
   // Function should return nullptr because no memory allocation is needed
   ASSERT_EQ(dst, nullptr);
-  ASSERT_EQ(newLen, strlen(str1));
+  ASSERT_EQ(newLen, strlen("hello world"));
   ASSERT_STREQ(str1, "hello world");
 
   // Test with already lowercase
   char str2[] = "already lowercase";
-  dst = unicode_tolower(str2, strlen(str2), &newLen);
+  newLen = strlen(str2);
+  dst = unicode_tolower(str2, &newLen);
   ASSERT_EQ(dst, nullptr); // No memory allocation needed
-  ASSERT_EQ(newLen, strlen(str2));
+  ASSERT_EQ(newLen, strlen("already lowercase"));
   ASSERT_STREQ(str2, "already lowercase");
 }
 
@@ -37,26 +38,28 @@ TEST_F(UnicodeToLowerTest, testUnicodeCharacters) {
   // Test with mixed case unicode characters
   char str[] = "ÄÖÜäöüÇçÑñ";
   char *dst = NULL;
-  size_t newLen = 0;
+  size_t newLen = strlen(str);
 
-  dst = unicode_tolower(str, strlen(str), &newLen);
+  dst = unicode_tolower(str, &newLen);
   ASSERT_EQ(dst, nullptr); // No memory allocation needed
-  ASSERT_EQ(newLen, strlen(str));
+  ASSERT_EQ(newLen, strlen("äöüäöüççññ"));
   ASSERT_STREQ(str, "äöüäöüççññ");
 
   // Test with Hebrew and Russian characters
   char hebrew[] = "שָׁלוֹם";
-  dst = unicode_tolower(hebrew, strlen(hebrew), &newLen);
+  newLen = strlen(hebrew);
+  dst = unicode_tolower(hebrew, &newLen);
   ASSERT_EQ(dst, nullptr);  // No memory allocation needed
-  ASSERT_EQ(newLen, strlen(hebrew));
+  ASSERT_EQ(newLen, strlen("שָׁלוֹם"));
   // Hebrew doesn't have case distinctions like Latin scripts,
   // but we can verify the string remains intact after processing
   ASSERT_STREQ(hebrew, "שָׁלוֹם");
 
   char russian[] = "ПРИВЕТ мир";
-  dst = unicode_tolower(russian, strlen(russian), &newLen);
+  newLen = strlen(russian);
+  dst = unicode_tolower(russian, &newLen);
   ASSERT_EQ(dst, nullptr);  // No memory allocation needed
-  ASSERT_EQ(newLen, strlen(russian));
+  ASSERT_EQ(newLen, strlen("привет мир"));
   ASSERT_STREQ(russian, "привет мир");
 }
 
@@ -66,15 +69,16 @@ TEST_F(UnicodeToLowerTest, testEmptyAndSpecialCases) {
   char *dst = NULL;
   size_t newLen = 0;
 
-  dst = unicode_tolower(empty, 0, &newLen);
+  dst = unicode_tolower(empty, &newLen);
   ASSERT_EQ(dst, nullptr); // No memory allocation needed
   ASSERT_EQ(newLen, 0);
 
   // Test with mixed symbols and numbers (should remain unchanged)
   char symbols[] = "123!@#$%^&*()";
-  dst = unicode_tolower(symbols, strlen(symbols), &newLen);
+  newLen = strlen(symbols);
+  dst = unicode_tolower(symbols, &newLen);
   ASSERT_EQ(dst, nullptr); // No memory allocation needed
-  ASSERT_EQ(newLen, strlen(symbols));
+  ASSERT_EQ(newLen, strlen("123!@#$%^&*()"));
   ASSERT_STREQ(symbols, "123!@#$%^&*()");
 }
 
@@ -89,9 +93,11 @@ TEST_F(UnicodeToLowerTest, testLongString) {
   }
   longStr[SSO_MAX_LENGTH * 2 - 1] = '\0';
 
-  dst = unicode_tolower(longStr, strlen(longStr), &newLen);
+  newLen = strlen(longStr);
+  size_t originalLen = newLen;
+  dst = unicode_tolower(longStr, &newLen);
   ASSERT_EQ(dst, nullptr); // No memory allocation needed
-  ASSERT_EQ(newLen, strlen(longStr));
+  ASSERT_EQ(newLen, originalLen);
 
   // Verify first few characters are lowercase
   ASSERT_EQ(longStr[0], 'a');
@@ -108,8 +114,8 @@ TEST_F(UnicodeToLowerTest, testSpecialUnicodeCase) {
   char *dst = NULL;
 
   size_t uppercaseLen = strlen(str);
-  size_t lowercaseLen = 0;
-  dst = unicode_tolower(str, strlen(str), &lowercaseLen);
+  size_t lowercaseLen = strlen(str);
+  dst = unicode_tolower(str, &lowercaseLen);
   ASSERT_EQ(dst, nullptr); // No memory allocation needed
   ASSERT_EQ(lowercaseLen, strlen("straße"));
   ASSERT_EQ(uppercaseLen, 8);
@@ -126,12 +132,12 @@ TEST_F(UnicodeToLowerTest, testTurkishDottedI) {
   // Its lowercase form occupies more bytes in UTF-8 than its uppercase form
   char str[] = "İSTANBUL";
   char *dst = NULL;
-  size_t newLen = 0;
+  size_t newLen = strlen(str);
 
   // The lowercase version should have more bytes than the original
   // because 'İ' (2 bytes in UTF-8) becomes 'i' + combining dot above
   // (3 bytes in UTF-8)
-  dst = unicode_tolower(str, strlen(str), &newLen);
+  dst = unicode_tolower(str, &newLen);
   ASSERT_NE(dst, nullptr);
   ASSERT_EQ(newLen, strlen("i̇stanbul"));
   ASSERT_STREQ(str, "İSTANBUL"); // Original string should remain unchanged
