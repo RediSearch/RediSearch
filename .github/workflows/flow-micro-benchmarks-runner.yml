@@ -68,6 +68,7 @@ jobs:
           printf "Runner arch:\n$(arch)\n"
       - name: Install benchmark dependencies
         run: |
+          export HOME=/home/ubuntu
           cd .install
           ./install_script.sh sudo
           cd ..
@@ -81,6 +82,8 @@ jobs:
           ARCH: ${{ inputs.architecture }}
         timeout-minutes: 300
         run: |
+          export HOME=/home/ubuntu
+          export PATH="$HOME/.cargo/bin:$PATH"
           ./build.sh run_microbenchmarks
       - name: Collect results
         run: |
