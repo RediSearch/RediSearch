@@ -52,24 +52,7 @@ env:
   RUST_BACKTRACE: "full"
 
 jobs:
-  setup-matrix:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - id: set-matrix
-        run: |
-          matrix='["unit"'
-          if [[ "${{ inputs.standalone }}" == "true" ]]; then
-            matrix+=', "standalone"'
-          fi
-          if [[ "${{ inputs.coordinator }}" == "true" ]]; then
-            matrix+=', "coordinator"'
-          fi
-          matrix+=']'
-          echo "matrix=$matrix" >> $GITHUB_OUTPUT
   common-flow:
-    needs: setup-matrix
     name: Test ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ inputs.env }}
     container: ${{ inputs.container || null }}
@@ -78,9 +61,6 @@ jobs:
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
-    strategy:
-      matrix:
-        test-type: ${{ fromJson(needs.setup.outputs.matrix) }}
     steps:
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Pre-steps Dependencies (Alpine)
@@ -206,7 +186,6 @@ jobs:
           ENABLE_ASSERT: 1
         run: ./build.sh TESTS
       - name: Unit tests
-        if: matrix.test-type == 'unit'
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
         continue-on-error: true
@@ -219,7 +198,7 @@ jobs:
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
-        if: matrix.test-type == 'standalone'
+        if: ${{ inputs.standalone }}
         continue-on-error: true
         env:
           SAN: ${{ inputs.san }}
@@ -233,7 +212,7 @@ jobs:
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
-        if: matrix.test-type == 'coordinator'
+        if: ${{ inputs.coordinator }}
         continue-on-error: true
         env:
           SAN: ${{ inputs.san }}
@@ -254,11 +233,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Test Logs ${{ steps.artifact-names.outputs.name }}
-          path: |
+          path: | 
             tests/**/logs/*.log*
             bin/**/redisearch.so
             bin/**/redisearch.so.debug
-
+          
           if-no-files-found: ignore
       # If node20 is not supported, we can only use version 3.
       # Here we only upload the artifacts if the tests had failed, since it is very slow
@@ -276,33 +255,21 @@ jobs:
           echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
           exit 1
 
-      # Upload coverage files based on matrix test type
-      - name: Upload unit test coverage
-        if: inputs.coverage && matrix.test-type == 'unit'
+      - name: Upload flow coverage
+        if: inputs.coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_standalone.info,bin/flow_coordinator.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload unit coverage
+        if: inputs.coverage
         uses: codecov/codecov-action@v5
         with:
           files: bin/unit.info,bin/rust_cov.info
           disable_search: true
           flags: unit
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Upload standalone flow coverage
-        if: inputs.coverage && matrix.test-type == 'standalone'
-        uses: codecov/codecov-action@v5
-        with:
-          files: bin/flow_standalone.info
-          disable_search: true
-          flags: flow
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: Upload coordinator flow coverage
-        if: inputs.coverage && matrix.test-type == 'coordinator'
-        uses: codecov/codecov-action@v5
-        with:
-          files: bin/flow_coordinator.info
-          disable_search: true
-          flags: flow
-          fail_ci_if_error: true
+          fail_ci_if_error: true # Fail on upload errors
           token: ${{ secrets.CODECOV_TOKEN }}
