@@ -53,11 +53,11 @@ publish = false
 [workspace.dependencies]
 ffi = { path = "./ffi" }
 inverted_index = { path = "./inverted_index" }
-inverted_index_ffi = { path = "./c_entrypoint/inverted_index_ffi" }
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }
 triemap_ffi = { path = "./c_entrypoint/triemap_ffi" }
+types_ffi = { path = "./c_entrypoint/types_ffi" }
 wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
 
