@@ -74,7 +74,7 @@ jobs:
           cd ..
           # Then install Python dependencies
           sudo apt install python3-pip -y
-          pip3 install --upgrade pip PyYAML setuptools redisbench-admin
+          pip3 install --upgrade pip PyYAML setuptools redisbench-admin>=0.11.37
         env:
           DEBIAN_FRONTEND: noninteractive
       - name: Run Micro Benchmark
@@ -153,7 +153,8 @@ jobs:
               --github_actor ${{ github.triggering_actor }} \
               --results-format google.benchmark \
               --benchmark-result-file "$file" \
-              --triggering_env redisearch-micro-benchmarks
+              --triggering_env redisearch-micro-benchmarks \
+              --architecture ${{ inputs.architecture }}
           done
 
   stop-runner:
