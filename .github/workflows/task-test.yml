@@ -60,7 +60,8 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - uses: ./.github/workflows/common-test-steps.yml
+      - name: Pre-steps script
+        uses: ./.github/workflows/actions/common-test-steps.yml
         with:
           env: ${{ inputs.env }}
           container: ${{ inputs.container }}
@@ -104,7 +105,8 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - uses: ./.github/workflows/common-test-steps.yml
+      - name: Pre-steps script
+        uses: ./.github/workflows/actions/common-test-steps.yml
         with:
           env: ${{ inputs.env }}
           container: ${{ inputs.container }}
@@ -151,7 +153,8 @@ jobs:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - uses: ./.github/workflows/common-test-steps.yml
+      - name: Pre-steps script
+        uses: ./.github/workflows/actions/common-test-steps.yml
         with:
           env: ${{ inputs.env }}
           container: ${{ inputs.container }}
