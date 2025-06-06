@@ -26,7 +26,7 @@ mock_allocator = []
 
 [dependencies]
 buffer = { workspace = true }
-inverted_index_ffi.workspace = true
+types_ffi.workspace = true
 triemap_ffi.workspace = true
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
