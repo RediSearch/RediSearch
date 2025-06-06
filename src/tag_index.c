@@ -96,14 +96,14 @@ static int tokenizeTagString(const char *str, const FieldSpec *fs, char ***resAr
   if (sep == TAG_FIELD_DEFAULT_JSON_SEP) {
     char *tok = rm_strdup(str);
     if (!(flags & TagField_CaseSensitive)) { // check case sensitive
-      size_t origLen = strlen(tok);
-      char *dst = unicode_tolower(tok, &origLen);
+      size_t len = strlen(tok);
+      char *dst = unicode_tolower(tok, &len);
       if (dst) {
         rm_free(tok);
         tok = dst;
       } else {
         // No memory allocation, just ensure null termination
-        tok[origLen] = '\0';
+        tok[len] = '\0';
       }
     }
     array_append(*resArray, tok);
