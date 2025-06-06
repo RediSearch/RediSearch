@@ -52,8 +52,8 @@ env:
   RUST_BACKTRACE: "full"
 
 jobs:
-  common-flow:
-    name: Test ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
+  setup:
+    name: Setup ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ inputs.env }}
     container: ${{ inputs.container || null }}
     # Nothing to do if both are `false`, skip
@@ -61,6 +61,10 @@ jobs:
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
+    outputs:
+      mode: ${{ steps.mode.outputs.mode }}
+      node20_supported: ${{ steps.node20.outputs.supported }}
+      artifact_name: ${{ steps.artifact-names.outputs.name }}
     steps:
       # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
       - name: Pre-steps Dependencies (Alpine)
@@ -185,6 +189,21 @@ jobs:
           REDIS_VER: ${{ inputs.get-redis }}
           ENABLE_ASSERT: 1
         run: ./build.sh TESTS
+
+  unit-tests:
+    needs: setup
+    name: Unit Tests
+    runs-on: ${{ inputs.env }}
+    container: ${{ inputs.container || null }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      # Re-use the build artifacts
+      # [Add steps to restore the build environment]
       - name: Unit tests
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: unit_tests
@@ -195,10 +214,35 @@ jobs:
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
         run: ./build.sh RUN_UNIT_TESTS RUN_RUST_TESTS
+      - name: Upload unit test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Unit Test Logs ${{ needs.setup.outputs.artifact_name }}
+          path: |
+            tests/**/logs/*.log*
+            bin/**/redisearch.so
+            bin/**/redisearch.so.debug
+          if-no-files-found: ignore
+
+  standalone-tests:
+    needs: setup
+    name: Standalone Tests
+    if: ${{ inputs.standalone }}
+    runs-on: ${{ inputs.env }}
+    container: ${{ inputs.container || null }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      # Re-use the build artifacts
+      # [Add steps to restore the build environment]
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
-        if: ${{ inputs.standalone }}
         continue-on-error: true
         env:
           SAN: ${{ inputs.san }}
@@ -209,10 +253,35 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
+      - name: Upload standalone test artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Standalone Test Logs ${{ needs.setup.outputs.artifact_name }}
+          path: |
+            tests/**/logs/*.log*
+            bin/**/redisearch.so
+            bin/**/redisearch.so.debug
+          if-no-files-found: ignore
+
+  coordinator-tests:
+    needs: setup
+    name: Coordinator Tests
+    if: ${{ inputs.coordinator }}
+    runs-on: ${{ inputs.env }}
+    container: ${{ inputs.container || null }}
+    defaults:
+      run:
+        shell: bash -l -eo pipefail {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      # Re-use the build artifacts
+      # [Add steps to restore the build environment]
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
-        if: ${{ inputs.coordinator }}
         continue-on-error: true
         env:
           SAN: ${{ inputs.san }}
@@ -223,38 +292,35 @@ jobs:
           REJSON_BRANCH: ${{ inputs.rejson-branch }}
           ENABLE_ASSERT: 1
         run: ./build.sh RUN_PYTEST ${{ inputs.test-config }}
-
-      # Using version 4 if node20 is supported, since it is MUCH faster (15m vs 25s)
-      - name: Upload Artifacts (node20)
-        # Upload artifacts only if node20 is supported and tests failed (including sanitizer failures)
-        if: >
-          steps.node20.outputs.supported == 'true' &&
-          (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
+      - name: Upload coordinator test artifacts
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: Test Logs ${{ steps.artifact-names.outputs.name }}
-          path: | 
+          name: Coordinator Test Logs ${{ needs.setup.outputs.artifact_name }}
+          path: |
             tests/**/logs/*.log*
             bin/**/redisearch.so
             bin/**/redisearch.so.debug
-          
           if-no-files-found: ignore
-      # If node20 is not supported, we can only use version 3.
-      # Here we only upload the artifacts if the tests had failed, since it is very slow
-      - name: Upload Artifacts (node20 not supported) (temporarily disabled)
-        if: >
-          steps.node20.outputs.supported == 'false' &&
-          (steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure')
-        run: echo "Currently not available..."
 
-      - name: Fail flow if tests failed
-        if: steps.unit_tests.outcome == 'failure' || steps.standalone_tests.outcome == 'failure' || steps.coordinator_tests.outcome == 'failure'
+  results:
+    needs: [setup, unit-tests, standalone-tests, coordinator-tests]
+    if: always()
+    runs-on: ${{ inputs.env }}
+    container: ${{ inputs.container || null }}
+    steps:
+      - name: Check test results
         run: |
-          echo "Unit Tests: ${{ steps.unit_tests.outcome }}"
-          echo "Standalone: ${{ steps.standalone_tests.outcome }}"
-          echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
-          exit 1
+          if [[ "${{ needs.unit-tests.result }}" == "failure" ||
+                "${{ needs.standalone-tests.result }}" == "failure" ||
+                "${{ needs.coordinator-tests.result }}" == "failure" ]]; then
+            echo "Unit Tests: ${{ needs.unit-tests.result }}"
+            echo "Standalone: ${{ needs.standalone-tests.result }}"
+            echo "Coordinator: ${{ needs.coordinator-tests.result }}"
+            exit 1
+          fi
 
+      # Coverage upload steps if needed
       - name: Upload flow coverage
         if: inputs.coverage
         uses: codecov/codecov-action@v5
