@@ -11,6 +11,7 @@ members = [
     "trie_rs",
     "wildcard",
     "buffer",
+    "result_processor",
 ]
 default-members = [
     "low_memory_thin_vec",
@@ -19,6 +20,7 @@ default-members = [
     "redisearch_rs",
     "wildcard",
     "buffer",
+    "result_processor",
 ]
 resolver = "3"
 
@@ -57,6 +59,7 @@ redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }
 wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
+result_processor = { path = "./result_processor" }
 
 cbindgen = "0.28.0"
 cc = "1"
@@ -73,6 +76,7 @@ proptest-derive = { version = "0.5.1", default-features = false }
 rand = "0.9.1"
 ureq = "3.0.10"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
+pin-project-lite = "0.2"
 
 [workspace.dependencies.bindgen]
 version = "0.71.1"

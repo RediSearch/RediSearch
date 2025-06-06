@@ -1,0 +1,13 @@
+[package]
+name = "result_processor"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+pin-project-lite.workspace = true
+libc = { workspace = true, features = ["extra_traits"] }
+ffi.workspace = true
+
+[lints]
+workspace = true
