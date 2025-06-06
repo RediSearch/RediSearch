@@ -58,21 +58,20 @@ jobs:
           echo "$FILTERED_MATRIX" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-  # run_micro_benchmarks:
-  #   name: Run ${{ matrix.architecture }} micro-benchmarks
-  #   needs: prepare_runner_configurations
-  #   uses: ./.github/workflows/flow-micro-benchmarks-runner.yml
-  #   secrets: inherit
-  #   strategy:
-  #     matrix: ${{ fromJson(needs.prepare_runner_configurations.outputs.matrix) }}
-  #   with:
-  #     architecture: ${{ matrix.architecture }}
-  #     instance-type: ${{ matrix.instance-type }}
-  #     ami-id: ${{ matrix.ami-id }}
+  run_micro_benchmarks:
+    name: Run ${{ matrix.architecture }} micro-benchmarks
+    needs: prepare_runner_configurations
+    uses: ./.github/workflows/flow-micro-benchmarks-runner.yml
+    secrets: inherit
+    strategy:
+      matrix: ${{ fromJson(needs.prepare_runner_configurations.outputs.matrix) }}
+    with:
+      architecture: ${{ matrix.architecture }}
+      instance-type: ${{ matrix.instance-type }}
+      ami-id: ${{ matrix.ami-id }}
 
-  # ${{ github.event.pull_request.base.ref }} // Once there is something with master label put this as baseline branch
   compare_micro_benchmarks:
-    #needs: run_micro_benchmarks
+    needs: run_micro_benchmarks
     if: github.event.number
     runs-on: ubuntu-latest
     env:
@@ -88,7 +87,7 @@ jobs:
         run: |
           redisbench-admin compare \
           --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }} \
-          --baseline-branch ${{ github.event.pull_request.head.ref || github.ref_name }} \
+          --baseline-branch ${{ github.event.pull_request.base.ref }} \
           --auto-approve \
           --pull-request ${{ github.event.number }} \
           --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }} \
