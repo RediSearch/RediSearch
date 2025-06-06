@@ -152,7 +152,7 @@ jobs:
               --github_branch ${{ github.head_ref || github.ref_name }} \
               --github_actor ${{ github.triggering_actor }} \
               --results-format google.benchmark \
-              --benchmark-result-file "$file"
+              --benchmark-result-file "$file" \
               --triggering_env redisearch-micro-benchmarks
           done
 
