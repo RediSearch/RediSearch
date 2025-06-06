@@ -6,7 +6,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <time.h>
 
 /**
  * Represents a numeric value in an index record.
