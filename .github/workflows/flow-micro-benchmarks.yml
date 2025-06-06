@@ -79,6 +79,11 @@ jobs:
       PERFORMANCE_GH_TOKEN: ${{ secrets.PERFORMANCE_GH_TOKEN }}
       PERFORMANCE_WH_TOKEN: ${{ secrets.PERFORMANCE_WH_TOKEN }}
     steps:
+      - name: Install benchmark dependencies
+        run: |
+          # Then install Python dependencies
+          sudo apt install python3-pip -y
+          pip3 install --upgrade pip PyYAML setuptools redisbench-admin
       - name: Compare benchmark results
         run: |
           redisbench-admin compare \
