@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "entrypoint/*",
+    "c_entrypoint/*",
     "ffi",
     "inverted_index",
     "low_memory_thin_vec",
@@ -16,7 +16,7 @@ default-members = [
     "low_memory_thin_vec",
     "qint",
     "trie_rs",
-    "entrypoint/*",
+    "c_entrypoint/*",
     "wildcard",
     "buffer",
 ]
@@ -53,11 +53,11 @@ publish = false
 [workspace.dependencies]
 ffi = { path = "./ffi" }
 inverted_index = { path = "./inverted_index" }
-inverted_index_ffi = { path = "./entrypoint/inverted_index_ffi" }
+inverted_index_ffi = { path = "./c_entrypoint/inverted_index_ffi" }
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }
-triemap_ffi = { path = "./entrypoint/triemap_ffi" }
+triemap_ffi = { path = "./c_entrypoint/triemap_ffi" }
 wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
 
