@@ -153,6 +153,7 @@ jobs:
               --github_actor ${{ github.triggering_actor }} \
               --results-format google.benchmark \
               --benchmark-result-file "$file"
+              --triggering_env redisearch-micro-benchmarks
           done
 
   stop-runner:
