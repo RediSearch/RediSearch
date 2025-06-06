@@ -164,6 +164,15 @@ jobs:
             bin/**/redisearch.so
             bin/**/redisearch.so.debug
           if-no-files-found: ignore
+      - name: Upload unit coverage
+        if: inputs.coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/unit.info,bin/rust_cov.info
+          disable_search: true
+          flags: unit
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   standalone-tests:
     name: Standalone Tests
@@ -223,7 +232,6 @@ jobs:
               ;;
           esac
       - name: Get Redis (node20 not supported)
-        shell: bash
         if: ${{ steps.node20.outputs.supported == 'false' }}
         run: |
           REPO_URL="https://github.com/redis/redis.git"
@@ -281,6 +289,16 @@ jobs:
             bin/**/redisearch.so
             bin/**/redisearch.so.debug
           if-no-files-found: ignore
+      # Coverage upload steps if needed
+      - name: Upload flow coverage
+        if: inputs.coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_standalone.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   coordinator-tests:
     name: Coordinator Tests
@@ -340,7 +358,6 @@ jobs:
               ;;
           esac
       - name: Get Redis (node20 not supported)
-        shell: bash
         if: ${{ steps.node20.outputs.supported == 'false' }}
         run: |
           REPO_URL="https://github.com/redis/redis.git"
@@ -398,6 +415,15 @@ jobs:
             bin/**/redisearch.so
             bin/**/redisearch.so.debug
           if-no-files-found: ignore
+      - name: Upload flow coverage
+        if: inputs.coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_coordinator.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   results:
     needs: [unit-tests, standalone-tests, coordinator-tests]
@@ -415,23 +441,3 @@ jobs:
             echo "Coordinator: ${{ needs.coordinator-tests.result }}"
             exit 1
           fi
-
-      # Coverage upload steps if needed
-      - name: Upload flow coverage
-        if: inputs.coverage
-        uses: codecov/codecov-action@v5
-        with:
-          files: bin/flow_standalone.info,bin/flow_coordinator.info
-          disable_search: true
-          flags: flow
-          fail_ci_if_error: true # Fail on upload errors
-          token: ${{ secrets.CODECOV_TOKEN }}
-      - name: Upload unit coverage
-        if: inputs.coverage
-        uses: codecov/codecov-action@v5
-        with:
-          files: bin/unit.info,bin/rust_cov.info
-          disable_search: true
-          flags: unit
-          fail_ci_if_error: true # Fail on upload errors
-          token: ${{ secrets.CODECOV_TOKEN }}
