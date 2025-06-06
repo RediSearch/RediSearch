@@ -108,6 +108,27 @@ jobs:
               exit 1
               ;;
           esac
+      - name: Get Redis (node20 not supported)
+        shell: bash
+        if: ${{ steps.node20.outputs.supported == 'false' }}
+        run: |
+          REPO_URL="https://github.com/redis/redis.git"
+          DEST_DIR="redis"  # Directory to clone into
+
+          # Clone the repository (shallow clone without tags)
+          git clone $REPO_URL $DEST_DIR
+          cd $DEST_DIR
+
+          # Checkout the REF
+          git fetch origin ${{ inputs.get-redis }}
+          git checkout ${{ inputs.get-redis }}
+      - name: Get Redis (node20)
+        if: ${{ steps.node20.outputs.supported == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: ${{ inputs.get-redis }}
+          path: redis
       - name: Pre-steps script
         uses: ./.github/workflows/common-test-steps
         with:
@@ -201,6 +222,27 @@ jobs:
               exit 1
               ;;
           esac
+      - name: Get Redis (node20 not supported)
+        shell: bash
+        if: ${{ steps.node20.outputs.supported == 'false' }}
+        run: |
+          REPO_URL="https://github.com/redis/redis.git"
+          DEST_DIR="redis"  # Directory to clone into
+
+          # Clone the repository (shallow clone without tags)
+          git clone $REPO_URL $DEST_DIR
+          cd $DEST_DIR
+
+          # Checkout the REF
+          git fetch origin ${{ inputs.get-redis }}
+          git checkout ${{ inputs.get-redis }}
+      - name: Get Redis (node20)
+        if: ${{ steps.node20.outputs.supported == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: ${{ inputs.get-redis }}
+          path: redis
       - name: Pre-steps script
         uses: ./.github/workflows/common-test-steps
         with:
@@ -297,6 +339,27 @@ jobs:
               exit 1
               ;;
           esac
+      - name: Get Redis (node20 not supported)
+        shell: bash
+        if: ${{ steps.node20.outputs.supported == 'false' }}
+        run: |
+          REPO_URL="https://github.com/redis/redis.git"
+          DEST_DIR="redis"  # Directory to clone into
+
+          # Clone the repository (shallow clone without tags)
+          git clone $REPO_URL $DEST_DIR
+          cd $DEST_DIR
+
+          # Checkout the REF
+          git fetch origin ${{ inputs.get-redis }}
+          git checkout ${{ inputs.get-redis }}
+      - name: Get Redis (node20)
+        if: ${{ steps.node20.outputs.supported == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          repository: redis/redis
+          ref: ${{ inputs.get-redis }}
+          path: redis
       - name: Pre-steps script
         uses: ./.github/workflows/common-test-steps
         with:

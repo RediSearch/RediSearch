@@ -2,7 +2,7 @@ name: Common Test Previous steps
 description: 'Common steps for all tests'
 inputs:
   env:
-    default: "${{ vars.RUNS_ON }}"
+    default: ubuntu-latest
     type: string
   container:
     type: string
@@ -38,18 +38,31 @@ inputs:
     type: number
     default: 50
 
-env:
-  REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
-  VERBOSE_UTESTS: 1
-  COV: ${{ inputs.coverage && 1 || 0 }}  # convert the boolean input to numeric
-  # Setting RUSTFLAGS here to ensure that all `cargo` invocations use the same
-  # flags, and therefore reuse the same intermediate build artifacts.
-  RUSTFLAGS: "-D warnings"
-  RUST_BACKTRACE: "full"
-
 runs:
   using: "composite"
   steps:
+    # Set environment variables that were previously in the env section
+    - name: Set environment variables
+      shell: bash
+      run: |
+        # Convert boolean inputs to numeric values
+        if [[ "${{ inputs.rejson }}" == "true" ]]; then
+          echo "REJSON=1" >> $GITHUB_ENV
+        else
+          echo "REJSON=0" >> $GITHUB_ENV
+        fi
+
+        if [[ "${{ inputs.coverage }}" == "true" ]]; then
+          echo "COV=1" >> $GITHUB_ENV
+        else
+          echo "COV=0" >> $GITHUB_ENV
+        fi
+
+        # Set other environment variables
+        echo "VERBOSE_UTESTS=1" >> $GITHUB_ENV
+        echo "RUSTFLAGS=-D warnings" >> $GITHUB_ENV
+        echo "RUST_BACKTRACE=full" >> $GITHUB_ENV
+
     # Split to alpine and non-alpine due to different default shells, once the dependency installation is done, we can use the same shell in the rest of the flow
     - name: Pre-steps Dependencies (Alpine)
       if: inputs.pre-steps-script && inputs.container == 'alpine:3'
@@ -57,23 +70,29 @@ runs:
       run: ${{ inputs.pre-steps-script }}
     - name: Pre-steps Dependencies (Non-Alpine)
       if: inputs.pre-steps-script && inputs.container != 'alpine:3'
+      shell: bash
       run: ${{ inputs.pre-steps-script }}
     - name: Enable dynamic linking to C runtime in Alpine
       if: inputs.container == 'alpine:3'
+      shell: bash
       run: echo RUST_DYN_CRT=1 >> $GITHUB_ENV
     - name: Get Installation Mode
       id: mode
+      shell: bash
       run: |
         [[ -z "${{ inputs.container }}" ]] && echo "mode=sudo" >> $GITHUB_OUTPUT || echo "mode=" >> $GITHUB_OUTPUT
     - name: Setup
       working-directory: .install
+      shell: bash
       run: |
         ./install_script.sh ${{ steps.mode.outputs.mode }}
     - name: Setup tests dependencies
+      shell: bash
       run: |
         .install/test_deps/common_installations.sh ${{ steps.mode.outputs.mode }}
     - name: Install LLVM for sanitizer
       if: inputs.san == 'address'
+      shell: bash
       working-directory: .install
       run: |
         ./install_llvm.sh ${{ steps.mode.outputs.mode }}
@@ -83,28 +102,9 @@ runs:
         echo "CC=$CLANG_BIN" >> $GITHUB_ENV
         echo "CXX=$(dirname $CLANG_BIN)/clang++-$CLANG_VERSION" >> $GITHUB_ENV
         echo "LD=$CLANG_BIN" >> $GITHUB_ENV
-    - name: Get Redis (node20)
-      if: ${{ steps.node20.outputs.supported == 'true' }}
-      uses: actions/checkout@v4
-      with:
-        repository: redis/redis
-        ref: ${{ inputs.get-redis }}
-        path: redis
-    - name: Get Redis (node20 not supported)
-      if: ${{ steps.node20.outputs.supported == 'false' }}
-      run: |
-        REPO_URL="https://github.com/redis/redis.git"
-        DEST_DIR="redis"  # Directory to clone into
-
-        # Clone the repository (shallow clone without tags)
-        git clone $REPO_URL $DEST_DIR
-        cd $DEST_DIR
-
-        # Checkout the REF
-        git fetch origin ${{ inputs.get-redis }}
-        git checkout ${{ inputs.get-redis }}
 
     - name: Build Redis
+      shell: bash
       working-directory: redis
       run:  ${{ steps.mode.outputs.mode }} make install
             BUILD_TLS=yes
@@ -114,12 +114,14 @@ runs:
       # Artifact names have to be unique, so we base them on the environment.
       # We also remove invalid characters from the name.
       id: artifact-names
+      shell: bash
       run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
         echo "name=$(echo "${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }} \
                             ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
                             ${{ inputs.container || inputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
                       sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
     - name: Build
+      shell: bash
       env:
         SAN: ${{ inputs.san }}
         REDIS_VER: ${{ inputs.get-redis }}
