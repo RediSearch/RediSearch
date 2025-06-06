@@ -185,10 +185,6 @@ static char* unicode_tolower(char *encoded, size_t *inout_len) {
       longer_dst[reencoded_len] = '\0';
     }
     *inout_len = reencoded_len;
-  } else {
-    // If the reencoded length is less than or equal to 0, output length is the
-    // same as the input length, because the encoded string is not modified
-    *inout_len = in_len; // No change in length
   }
 
   // Free heap-allocated memory if needed

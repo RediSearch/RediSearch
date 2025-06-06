@@ -78,7 +78,7 @@ TEST_F(UnicodeToLowerTest, testEmptyAndSpecialCases) {
   newLen = strlen(symbols);
   dst = unicode_tolower(symbols, &newLen);
   ASSERT_EQ(dst, nullptr); // No memory allocation needed
-  ASSERT_EQ(newLen, strlen("123!@#$%^&*()"));
+  ASSERT_EQ(newLen, strlen(symbols));
   ASSERT_STREQ(symbols, "123!@#$%^&*()");
 }
 
