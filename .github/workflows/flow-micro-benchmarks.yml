@@ -58,21 +58,21 @@ jobs:
           echo "$FILTERED_MATRIX" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-  run_micro_benchmarks:
-    name: Run ${{ matrix.architecture }} micro-benchmarks
-    needs: prepare_runner_configurations
-    uses: ./.github/workflows/flow-micro-benchmarks-runner.yml
-    secrets: inherit
-    strategy:
-      matrix: ${{ fromJson(needs.prepare_runner_configurations.outputs.matrix) }}
-    with:
-      architecture: ${{ matrix.architecture }}
-      instance-type: ${{ matrix.instance-type }}
-      ami-id: ${{ matrix.ami-id }}
+  # run_micro_benchmarks:
+  #   name: Run ${{ matrix.architecture }} micro-benchmarks
+  #   needs: prepare_runner_configurations
+  #   uses: ./.github/workflows/flow-micro-benchmarks-runner.yml
+  #   secrets: inherit
+  #   strategy:
+  #     matrix: ${{ fromJson(needs.prepare_runner_configurations.outputs.matrix) }}
+  #   with:
+  #     architecture: ${{ matrix.architecture }}
+  #     instance-type: ${{ matrix.instance-type }}
+  #     ami-id: ${{ matrix.ami-id }}
 
-  # ${{ github.event.pull_request.head.ref || github.ref_name }} // Once there is something with master label put this as baseline branch
+  # ${{ github.event.pull_request.base.ref }} // Once there is something with master label put this as baseline branch
   compare_micro_benchmarks:
-    needs: run_micro_benchmarks
+    #needs: run_micro_benchmarks
     if: github.event.number
     runs-on: ubuntu-latest
     env:
@@ -87,8 +87,8 @@ jobs:
       - name: Compare benchmark results
         run: |
           redisbench-admin compare \
-          --comparison-branch ${{ github.event.pull_request.base.ref }} \
-          --baseline-branch ${{ github.event.pull_request.base.ref }} \
+          --comparison-branch ${{ github.event.pull_request.head.ref || github.ref_name }} \
+          --baseline-branch ${{ github.event.pull_request.head.ref || github.ref_name }} \
           --auto-approve \
           --pull-request ${{ github.event.number }} \
           --redistimeseries_host ${{ secrets.PERFORMANCE_RTS_HOST }} \
@@ -96,8 +96,6 @@ jobs:
           --redistimeseries_pass '${{ secrets.PERFORMANCE_RTS_AUTH }}' \
           --github_repo ${{ github.event.repository.name }} \
           --github_org ${{ github.repository_owner }} \
-          --github_branch ${{ github.head_ref || github.ref_name }} \
-          --github_actor ${{ github.triggering_actor }} \
           --triggering_env redisearch-micro-benchmarks \
           --metric_name cpu_time \
           --metric_mode 'lower-better'
