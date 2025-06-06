@@ -276,21 +276,33 @@ jobs:
           echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
           exit 1
 
-      - name: Upload flow coverage
-        if: inputs.coverage
-        uses: codecov/codecov-action@v5
-        with:
-          files: bin/flow_standalone.info,bin/flow_coordinator.info
-          disable_search: true
-          flags: flow
-          fail_ci_if_error: true # Fail on upload errors
-          token: ${{ secrets.CODECOV_TOKEN }}
-      - name: Upload unit coverage
-        if: inputs.coverage
+      # Upload coverage files based on matrix test type
+      - name: Upload unit test coverage
+        if: inputs.coverage && matrix.test-type == 'unit'
         uses: codecov/codecov-action@v5
         with:
           files: bin/unit.info,bin/rust_cov.info
           disable_search: true
           flags: unit
-          fail_ci_if_error: true # Fail on upload errors
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload standalone flow coverage
+        if: inputs.coverage && matrix.test-type == 'standalone'
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_standalone.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload coordinator flow coverage
+        if: inputs.coverage && matrix.test-type == 'coordinator'
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_coordinator.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
