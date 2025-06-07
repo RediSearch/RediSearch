@@ -1600,27 +1600,31 @@ def test_utf8_lowercase_longer_than_uppercase_texts(env):
             'FT.SEARCH', 'idx', f'@t:({t1_lower})', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, expected_2, message=f'Dialect: {dialect}')
 
-# This can be removed after upgrading to nunicode 1.10 which support Unicode 12.1.0
 # The following code points are not supported by Unicode 9.0.0
 # Reference https://www.unicode.org/Public/9.0.0/ucd/UnicodeData.txt
 UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS = set(range(0x1C90, 0x1D00))
-UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xA7B8, 0xA7F6))
+UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0x2C2F)
+UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xA7B8, 0xA7F7))
+# Surrogate pairs (always invalid in Unicode)
+UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xD800, 0xE000))
+
+# Noncharacters in BMP
+UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xFDD0, 0xFDF0))
+UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0xFFFE)
+UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(0xFFFF)
+
+UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x10570, 0x10600))
 UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x16B90, 0x16F00))
 
-# These characters are not supported by Unicode 12.1.0
-# Reference https://www.unicode.org/Public/12.1.0/ucd/UnicodeData.txt
-UNSUPPORTED_UNICODE_12_1_0_CODEPOINTS = {
-    0x2C2F,  # COPTIC CAPITAL LETTER SHEI
-    0xA7C0,  # COPTIC CAPITAL LETTER OLD COPTIC SHEI
-    0xA7C7,  # COPTIC CAPITAL LETTER OLD COPTIC KHEI
-    0xA7C8,  # COPTIC CAPITAL LETTER OLD COPTIC HORI
-    0xA7C9,  # COPTIC CAPITAL LETTER OLD COPTIC GANGIA
-    0xA7D0,  # COPTIC CAPITAL LETTER OLD COPTIC SHIMA
-    0xA7D6,  # COPTIC CAPITAL LETTER OLD COPTIC KHEI
-    0xA7D8,  # COPTIC CAPITAL LETTER OLD COPTIC HORI
-    0xA7F5,  # COPTIC CAPITAL LETTER OLD COPTIC GANGIA
-}
-UNSUPPORTED_UNICODE_12_1_0_CODEPOINTS.update(range(0x10570, 0x105FF + 1))  # CUNEIFORM SIGNS
+# Noncharacters in each plane
+for plane in range(0x10000, 0x110000, 0x10000):
+    UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(plane + 0xFFFE)
+    UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.add(plane + 0xFFFF)
+
+# Unassigned supplementary planes (as of Unicode 9.0.0)
+UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0x2FA1E, 0xE0000))
+UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xE0080, 0xE0100))
+UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS.update(range(0xE01F0, 0x10FFFE))
 
 
 @skip(cluster=True)
@@ -1677,3 +1681,124 @@ def testToLowerConversionExactMatch(env):
             env.assertEqual(res, expected_u, message = f'{idx} query_u char: {char} {' '.join(f"U+{ord(c):04X}" for c in char)}')
             res = conn.execute_command('FT.SEARCH', idx, query_l, 'NOCONTENT')
             env.assertEqual(res, expected_l, message = f'{idx} query_l char: {char} {' '.join(f"U+{ord(c):04X}" for c in char)}')
+
+
+@skip(cluster=True)
+def testTagToLowerConversionSimilarMatch(env):
+    '''Test that tolower conversion works correctly for all unicode characters
+    when using TAG fields and running a query with a prefix, infix or suffix.
+    This test skips surrogate pairs, which are not valid unicode characters
+    and are not supported by the tolower conversion.
+    It also skips lowercase characters, because the tolower conversion
+    is not expected to change them.
+    The test creates a document with a term that contains a single unicode
+    character, and then searches for the term in both upper and lower case
+    using a prefix, infix or suffix query.
+    '''
+
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx_tag', 'ON', 'HASH', 'SCHEMA', 't', 'TAG')
+
+    idx = 'idx_tag'
+    error = False
+    for codepoint in range(0x110000):  # Unicode range from U+0000 to U+10FFFF
+        if codepoint in UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS:
+            # Skip unsupported codepoints:
+            continue
+
+        char = chr(codepoint)
+        lower_char = char.lower()
+        if char == lower_char:
+            # If the character is already lowercase, skip it
+            continue
+
+        upper_term = char * 5
+        lower_term = lower_char * 5
+        env.cmd('HSET', f'doc:u:{codepoint:04X}', 't', upper_term)
+        env.cmd('HSET', f'doc:l:{codepoint:04X}', 't', lower_term)
+
+        queries = [
+            # prefix
+            (f'@t:{{"{upper_term[:-1]}"*}}'),
+            (f'@t:{{"{lower_term[:-1]}"*}}'),
+            # infix
+            (f'@t:{{*"{upper_term[1:-1]}"*}}'),
+            (f'@t:{{*"{lower_term[1:-1]}"*}}'),
+            # suffix
+            (f'@t:{{*"{upper_term[1:]}"}}'),
+            (f'@t:{{*"{lower_term[1:]}"}}'),
+        ]
+
+        for query in queries:
+            expected = [2, f'doc:u:{codepoint:04X}', f'doc:l:{codepoint:04X}']
+
+            # Test query results
+            res = conn.execute_command('FT.SEARCH', idx, query, 'NOCONTENT', 'DIALECT', 2)
+            env.assertEqual(res, expected)
+
+        env.cmd('DEL', f'doc:u:{codepoint:04X}')
+        env.cmd('DEL', f'doc:l:{codepoint:04X}')
+
+@skip(cluster=True)
+def testTextToLowerConversionSimilarMatch(env):
+    '''Test that tolower conversion works correctly for all unicode characters
+    when using TEXT fields and running a query with a prefix, infix or suffix.
+    This test skips surrogate pairs, which are not valid unicode characters
+    and are not supported by the tolower conversion.
+    It also skips lowercase characters, because the tolower conversion
+    is not expected to change them.
+    The test creates a document with a term that contains a single unicode
+    character, and then searches for the term in both upper and lower case
+    '''
+
+    conn = getConnectionByEnv(env)
+    env.cmd('FT.CREATE', 'idx_txt', 'ON', 'HASH', 'SCHEMA', 't', 'TEXT')
+
+    idx = 'idx_txt'
+    for codepoint in range(0x110000):  # Unicode range from U+0000 to U+10FFFF
+        # Skip unsupported codepoints:
+        if codepoint in UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS:
+            continue
+
+        char = chr(codepoint)
+        lower_char = char.lower()
+        if char == lower_char:
+            # If the character is already lowercase, skip it
+            continue
+
+        upper_term = char * 5
+        lower_term = lower_char * 5
+        env.cmd('HSET', f'doc:u:{codepoint:04X}', 't', upper_term)
+        env.cmd('HSET', f'doc:l:{codepoint:04X}', 't', lower_term)
+
+        queries = [
+            # query, doc_id
+            (f'@t:({upper_term[:-1]}*)', f'doc:u:{codepoint:04X}'),
+            (f'@t:({lower_term[:-1]}*)', f'doc:l{codepoint:04X}'),
+            (f'@t:(*{upper_term[1:-1]}*)', 'doc:u'),
+            (f'@t:(*{lower_term[1:-1]}*)', 'doc:l'),
+            (f'@t:(*{upper_term[1:]})', f'doc:u:{codepoint:04X}'),
+            (f'@t:(*{lower_term[1:]})', f'doc:l{codepoint:04X}'),
+        ]
+
+        lower_char_utf8_bytes = lower_char.encode('utf-8')
+        lower_char_num_bytes = len(lower_char_utf8_bytes)
+
+        for query, doc_id in queries:
+            # TODO: Why 3 bytes and not only 2?
+            if lower_char_num_bytes <= 3:
+                # If the lower character is 3 bytes or less, we expect both
+                # upper and lower case terms to be found
+                expected = [2, f'doc:u:{codepoint:04X}', f'doc:l:{codepoint:04X}']
+            else:
+                expected = [0]
+
+            # Test query results
+            # print(f'Testing prefix char: {char} {" ".join(f"U+{ord(c):04X}" for c in char)} idx: {idx} query: {query}')
+            res = conn.execute_command('FT.SEARCH', idx, query, 'NOCONTENT')
+            # if res != expected:
+            #     print(f'Failed for char: {char} {" ".join(f"U+{ord(c):04X}" for c in char)} query: {query} expected: {expected} got: {res} num_bytes: {lower_char_num_bytes} lower_char: {lower_char}')
+            env.assertEqual(res, expected)
+
+        env.cmd('DEL', f'doc:u:{codepoint:04X}')
+        env.cmd('DEL', f'doc:l:{codepoint:04X}')
