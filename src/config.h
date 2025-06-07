@@ -146,10 +146,15 @@ typedef struct {
   unsigned int indexerYieldEveryOpsWhileLoading;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
+  // The maximum ratio between current memory and max memory for which background indexing is allowed
+  uint8_t indexingMemoryLimit;
   // Enable to execute unstable features
   bool enableUnstableFeatures;
   // Control user data obfuscation in logs
   bool hideUserDataFromLog;
+  // Set how much time after OOM is detected we should wait to enable the resource manager to
+  // allocate more memory. Note: has different default values for OSS and Enterprise.
+  uint32_t bgIndexingOomPauseTimeBeforeRetry;
 } RSConfig;
 
 typedef enum {
@@ -245,6 +250,8 @@ void UpgradeDeprecatedMTConfigs();
 #define BM25STD_TANH_FACTOR_MAX 10000
 #define BM25STD_TANH_FACTOR_MIN 1
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
+#define DEFAULT_INDEXING_MEMORY_LIMIT 100
+#define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 0 // Note: The config value default is changed to 5 in enterprise
 
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG \
@@ -296,7 +303,9 @@ void UpgradeDeprecatedMTConfigs();
     .enableUnstableFeatures = DEFAULT_UNSTABLE_FEATURES_ENABLE ,                \
     .hideUserDataFromLog = false,                                               \
     .requestConfigParams.BM25STD_TanhFactor = DEFAULT_BM25STD_TANH_FACTOR,      \
-    .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,       \
+    .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,        \
+    .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                       \
+    .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY  \
   }
 
 #define REDIS_ARRAY_LIMIT 7

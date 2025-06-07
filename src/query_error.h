@@ -14,8 +14,8 @@
 #include <stdbool.h>
 
 #ifdef __cplusplus
-extern "C" {      
-#endif      
+extern "C" {
+#endif
 
 #define QUERY_XERRS(X)                                                                          \
   X(QUERY_EGENERIC, "Generic error evaluating the query")                                       \
@@ -63,6 +63,8 @@ extern "C" {
   X(QUERY_EADHOCWEFRUNTIME, "'EF_RUNTIME' is irrelevant for 'ADHOC_BF' policy")                 \
   X(QUERY_ENRANGE, "range query attributes were sent for a non-range query")                    \
   X(QUERY_EMISSING, "'ismissing' requires field to be defined with 'INDEXMISSING'")             \
+  X(QUERY_INDEXBGOOMFAIL, "Index background scan failed due to OOM. Queries cannot be executed on\
+    an incomplete index.")
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
 

@@ -574,6 +574,10 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
+  if (sp->scan_failed_OOM) {
+    return RedisModule_ReplyWithErrorFormat(ctx,
+      "Background scan for index failed due to OOM. Queries cannot be executed on an incomplete index.");
+  }
 
   if (!sp->smap) {
     return RedisModule_ReplyWithMapOrArray(ctx, 0, false);
@@ -621,6 +625,10 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+  if (sp->scan_failed_OOM) {
+    return RedisModule_ReplyWithErrorFormat(ctx,
+      "Background scan for index failed due to OOM. Queries cannot be executed on an incomplete index.");
   }
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
 
@@ -948,6 +956,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   if (IsEnterprise()) {
     GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
     RedisModule_Log(ctx, "notice", "Redis Enterprise version found by RedisSearch : %s", ver);
+
+    // Changing the default bg indexing oom pause time to 5 seconds as we're in enterprise.
+    RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry = 5;
   }
 
   if (CheckSupportedVestion() != REDISMODULE_OK) {

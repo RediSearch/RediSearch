@@ -70,6 +70,7 @@ def testGetConfigOptions(env):
     check_config('ENABLE_UNSTABLE_FEATURES')
     check_config('BM25STD_TANH_FACTOR')
     check_config('INDEXER_YIELD_EVERY_OPS')
+    check_config('_BG_INDEX_MEM_PCT_THR')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
@@ -99,6 +100,8 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', 1).equal('OK')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 1).equal('OK')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
@@ -113,6 +116,10 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', 'INDEX_CURSOR_LIMIT', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 10001).contains('BM25STD_TANH_FACTOR must be between 1 and 10000')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', -1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 101).contains('Memory limit for indexing cannot be greater then 100%')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', -1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', (2**32)+1).contains('Value is outside acceptable bounds')
 
 @skip(cluster=True)
 def testAllConfig(env):
@@ -161,6 +168,8 @@ def testAllConfig(env):
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
     env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
+    env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
+    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -196,6 +205,9 @@ def testInitConfig():
     test_arg_num('MINSTEMLEN', 3)
     test_arg_num('INDEX_CURSOR_LIMIT', 128)
     test_arg_num('BM25STD_TANH_FACTOR', 8)
+    test_arg_num('_BG_INDEX_MEM_PCT_THR', 100)
+    test_arg_num('_BG_INDEX_OOM_PAUSE_TIME', 0)
+
 
 # True/False arguments
     def test_arg_true_false(arg_name, res):
