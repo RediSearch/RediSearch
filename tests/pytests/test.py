@@ -1206,6 +1206,11 @@ def testInKeys(env):
 
         env.assertEqual(0, env.cmd(
             'ft.search', 'idx', 'hello world', 'NOCONTENT', 'LIMIT', 0, 100, 'INKEYS', 3, 'foo', 'bar', 'baz')[0])
+        # Test deduplication
+        env.assertEqual([1, 'doc0'], env.cmd(
+            'ft.search', 'idx', 'hello world', 'NOCONTENT', 'INKEYS', 2, 'doc0', 'doc0'))
+        env.assertEqual([1, 'doc0'], env.cmd(
+            'ft.search', 'idx', 'hello world', 'NOCONTENT', 'INKEYS', 5, 'doc0', 'doc0', 'doc0', 'doc0', 'doc0'))
 
     with env.assertResponseError():
         env.cmd('ft.search', 'idx', 'hello', 'INKEYS', 99)

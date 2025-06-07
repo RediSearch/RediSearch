@@ -91,9 +91,9 @@ typedef struct {
   // Used to set an empty iterator when a legacy filter's field is not found with Dialect 1
   bool empty;
 
-  /** List of IDs to limit to, and the length of that array */
-  t_docId *ids;
-  size_t nids;
+  /** List of keys to limit to, and the length of that array */
+  const sds *keys;
+  size_t nkeys;
 } QAST_GlobalFilterOptions;
 
 /** Set global filters on the AST */

@@ -84,8 +84,7 @@ IndexIterator *NewWildcardIterator(QueryEvalCtx *q);
 IndexIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs);
 
 /* Create a new IdListIterator from a pre populated list of document ids of size num. The doc ids
- * are sorted in this function, so there is no need to sort them. They are automatically freed in
- * the end and assumed to be allocated using rm_malloc */
+ * are assumed to be sorted and unique. The function takes ownership over the `ids` allocation */
 IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight);
 
 /** Create a new iterator which returns no results */

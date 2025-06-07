@@ -441,10 +441,10 @@ void QAST_SetGlobalFilters(QueryAST *ast, const QAST_GlobalFilterOptions *option
     n->gn.gf = options->geo;
     setFilterNode(ast, n);
   }
-  if (options->ids) {
+  if (options->keys) {
     QueryNode *n = NewQueryNode(QN_IDS);
-    n->fn.ids = options->ids;
-    n->fn.len = options->nids;
+    n->fn.keys = options->keys;
+    n->fn.len = options->nkeys;
     setFilterNode(ast, n);
   }
 }
@@ -1023,8 +1023,45 @@ static IndexIterator *Query_EvalVectorNode(QueryEvalCtx *q, QueryNode *qn) {
   return it;
 }
 
+static int cmp_docids(const void *p1, const void *p2) {
+  const t_docId *d1 = p1, *d2 = p2;
+  return (int)(*d1 - *d2);
+}
+
+static inline size_t deduplicateDocIdsFrom(t_docId *ids, size_t num, size_t start) {
+  size_t j = start;
+  for (size_t i = start + 1; i < num; ++i) {
+    if (ids[i] != ids[j]) {
+      ids[j++] = ids[i];
+    }
+  }
+  return j;
+}
+
+static inline size_t deduplicateDocIds(t_docId *ids, size_t num) {
+  for (size_t i = 1; i < num; ++i) {
+    if (ids[i] == ids[i - 1]) {
+      return deduplicateDocIdsFrom(ids, num, i);
+    }
+  }
+  return num;
+}
+
 static IndexIterator *Query_EvalIdFilterNode(QueryEvalCtx *q, QueryIdFilterNode *node) {
-  return NewIdListIterator(node->ids, node->len, 1);
+  size_t num = 0;
+  t_docId* it_ids = rm_malloc(sizeof(*it_ids) * node->len);
+  for (size_t ii = 0; ii < node->len; ++ii) {
+    t_docId did = DocTable_GetId(&q->sctx->spec->docs, node->keys[ii], sdslen(node->keys[ii]));
+    if (did) {
+      it_ids[num++] = did;
+    }
+  }
+  if (num) {
+    qsort(it_ids, num, sizeof(t_docId), cmp_docids);
+    num = deduplicateDocIds(it_ids, num);
+  }
+  // Passing the ownership of the ids to the iterator.
+  return NewIdListIterator(it_ids, num, 1);
 }
 
 static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
@@ -1953,7 +1990,10 @@ static sds QueryNode_DumpSds(sds s, const IndexSpec *spec, const QueryNode *qs, 
 
       s = sdscat(s, "IDS {");
       for (int i = 0; i < qs->fn.len; i++) {
-        s = sdscatprintf(s, "%llu,", (unsigned long long)qs->fn.ids[i]);
+        t_docId id = DocTable_GetId(&spec->docs, qs->fn.keys[i], sdslen(qs->fn.keys[i]));
+        if (id != 0) {
+          s = sdscatprintf(s, "%llu,", id);
+        }
       }
       s = sdscat(s, "}");
       break;
