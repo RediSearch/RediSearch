@@ -1166,15 +1166,9 @@ name = "redisearch_rs"
 version = "0.0.1"
 dependencies = [
  "buffer",
- "cbindgen",
- "lending-iterator",
- "libc",
- "low_memory_thin_vec",
  "redis-module",
- "redis_mock",
- "redisearch_rs",
- "trie_rs",
- "wildcard 0.0.1",
+ "triemap_ffi",
+ "types_ffi",
 ]
 
 [[package]]
@@ -1549,6 +1543,28 @@ dependencies = [
  "proptest-derive",
  "trie_rs",
  "wildcard 0.0.1",
+]
+
+[[package]]
+name = "triemap_ffi"
+version = "0.0.1"
+dependencies = [
+ "cbindgen",
+ "lending-iterator",
+ "libc",
+ "low_memory_thin_vec",
+ "redis-module",
+ "redis_mock",
+ "trie_rs",
+ "wildcard 0.0.1",
+]
+
+[[package]]
+name = "types_ffi"
+version = "0.0.1"
+dependencies = [
+ "cbindgen",
+ "inverted_index",
 ]
 
 [[package]]
