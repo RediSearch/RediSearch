@@ -1666,7 +1666,7 @@ def testToLowerConversionExactMatch(env):
                 query_u = f'@t:{{{upper_term}}}'
                 query_l = f'@t:{{{lower_term}}}'
 
-            if codepoint in UNSUPPORTED_UNICODE_12_1_0_CODEPOINTS or codepoint in UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS:
+            if codepoint in UNSUPPORTED_UNICODE_9_0_0_CODEPOINTS:
                 # For unsupported codepoints, different terms are created
                 # for upper and lower case, so the search will return
                 # a single result for each case.
