@@ -1687,8 +1687,7 @@ def testToLowerConversionExactMatch(env):
 def testTagToLowerConversionSimilarMatch(env):
     '''Test that tolower conversion works correctly for all unicode characters
     when using TAG fields and running a query with a prefix, infix or suffix.
-    This test skips surrogate pairs, which are not valid unicode characters
-    and are not supported by the tolower conversion.
+    This test skips characters not supported by Unicode 9.0.0.
     It also skips lowercase characters, because the tolower conversion
     is not expected to change them.
     The test creates a document with a term that contains a single unicode
@@ -1743,8 +1742,7 @@ def testTagToLowerConversionSimilarMatch(env):
 def testTextToLowerConversionSimilarMatch(env):
     '''Test that tolower conversion works correctly for all unicode characters
     when using TEXT fields and running a query with a prefix, infix or suffix.
-    This test skips surrogate pairs, which are not valid unicode characters
-    and are not supported by the tolower conversion.
+    This test skips characters not supported by Unicode 9.0.0..
     It also skips lowercase characters, because the tolower conversion
     is not expected to change them.
     The test creates a document with a term that contains a single unicode
@@ -1794,10 +1792,7 @@ def testTextToLowerConversionSimilarMatch(env):
                 expected = [0]
 
             # Test query results
-            # print(f'Testing prefix char: {char} {" ".join(f"U+{ord(c):04X}" for c in char)} idx: {idx} query: {query}')
             res = conn.execute_command('FT.SEARCH', idx, query, 'NOCONTENT')
-            # if res != expected:
-            #     print(f'Failed for char: {char} {" ".join(f"U+{ord(c):04X}" for c in char)} query: {query} expected: {expected} got: {res} num_bytes: {lower_char_num_bytes} lower_char: {lower_char}')
             env.assertEqual(res, expected)
 
         env.cmd('DEL', f'doc:u:{codepoint:04X}')
