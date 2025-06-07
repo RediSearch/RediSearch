@@ -1771,18 +1771,18 @@ def testTextToLowerConversionSimilarMatch(env):
 
         queries = [
             # query, doc_id
-            (f'@t:({upper_term[:-1]}*)', f'doc:u:{codepoint:04X}'),
-            (f'@t:({lower_term[:-1]}*)', f'doc:l{codepoint:04X}'),
-            (f'@t:(*{upper_term[1:-1]}*)', 'doc:u'),
-            (f'@t:(*{lower_term[1:-1]}*)', 'doc:l'),
-            (f'@t:(*{upper_term[1:]})', f'doc:u:{codepoint:04X}'),
-            (f'@t:(*{lower_term[1:]})', f'doc:l{codepoint:04X}'),
+            (f'@t:({upper_term[:-1]}*)'),
+            (f'@t:({lower_term[:-1]}*)'),
+            (f'@t:(*{upper_term[1:-1]}*)'),
+            (f'@t:(*{lower_term[1:-1]}*)'),
+            (f'@t:(*{upper_term[1:]})'),
+            (f'@t:(*{lower_term[1:]})'),
         ]
 
         lower_char_utf8_bytes = lower_char.encode('utf-8')
         lower_char_num_bytes = len(lower_char_utf8_bytes)
 
-        for query, doc_id in queries:
+        for query in queries:
             # TODO: Why 3 bytes and not only 2?
             if lower_char_num_bytes <= 3:
                 # If the lower character is 3 bytes or less, we expect both
