@@ -310,6 +310,7 @@ def test_oom_query_error(env):
   # Verify ft dropindex possible
   env.expect('FT.DROPINDEX', idx_name).ok()
 
+@skip(cluster=False)
 def test_cluster_oom_all_shards(env):
   # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
   verify_command_OK_on_all_shards(env,' '.join(['_FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80']))
@@ -361,7 +362,7 @@ def test_cluster_oom_all_shards(env):
     res = env.getConnection(shard_id).execute_command('INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
     env.assertEqual(res,1)
 
-
+@skip(cluster=False)
 def test_cluster_oom_single_shard(env):
   # Change the memory limit to 80% so it can be tested without redis memory limit taking effect
   verify_command_OK_on_all_shards(env,' '.join(['_FT.CONFIG', 'SET', '_BG_INDEX_MEM_PCT_THR', '80']))
@@ -834,6 +835,7 @@ def test_pseudo_enterprise_oom_retry_alter_failure(env):
   error_dict = get_index_errors_dict(env)
   env.assertEqual(error_dict[bgIndexingStatusStr], OOMfailureStr)
 
+@skip(cluster=False)
 def test_pseudo_enterprise_cluster_oom_retry_success(env):
     # Let background indexing go up to 80 % of Redis' limit
     verify_command_OK_on_all_shards(
@@ -888,6 +890,7 @@ def test_pseudo_enterprise_cluster_oom_retry_success(env):
             'INFO', 'modules')['search_OOM_indexing_failures_indexes_count']
         env.assertEqual(failures, 0)
 
+@skip(cluster=False)
 def test_pseudo_enterprise_cluster_oom_retry_failure(env):
     verify_command_OK_on_all_shards(
         env, '_FT.CONFIG SET _BG_INDEX_MEM_PCT_THR 80')
