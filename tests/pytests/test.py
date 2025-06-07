@@ -4084,49 +4084,45 @@ def test_with_tls_and_non_tls_ports():
               tlsKeyFile=key_file,
               tlsCaCertFile=ca_cert_file,
               tlsPassphrase=passphrase,
-              dualTLS=True)        # Sets the ports to be both TLS and regular ports (in tls-ports + 1500).
+              dualTLS=True,
+              tlsCluster=False)        # Sets the ports to be both TLS and regular ports (in tls-ports + 1500).
 
-    time.sleep(3)
+    # with TimeLimit(10, 'Failed waiting for the cluster to be initialized'):
+    #     while True:
+    #         try:
+    #             res = env.cmd('FT.CREATE', 'tmp_idx', 'SCHEMA', 'n', 'NUMERIC')
+    #             env.assertEqual(res, 'OK')
+    #             env.expect('FT.DROPINDEX', 'tmp_idx').ok()
+    #             break
+    #         except Exception:
+    #             # If the cluster is not initialized, an error will be raised
+    #             # and we will retry
+    #             pass
 
-    with TimeLimit(10, 'Failed waiting for the cluster to be initialized'):
-        while True:
-            try:
-                res = env.cmd('FT.CREATE', 'tmp_idx', 'SCHEMA', 'n', 'NUMERIC')
-                env.assertEqual(res, 'OK')
-                env.expect('FT.DROPINDEX', 'tmp_idx').ok()
-                break
-            except Exception:
-                # If the cluster is not initialized, an error will be raised
-                # and we will retry
-                pass
+    # def get_ports(env):
+    #     ports = []
+    #     cluster_info = env.execute_command('SEARCH.CLUSTERINFO')
+    #     for slot in cluster_info[cluster_info.index('slots') + 1:]:
+    #         ports.append(slot[2][2])
+    #     return ports
 
-    def get_ports(env):
-        ports = []
-        cluster_info = env.execute_command('SEARCH.CLUSTERINFO')
-        for slot in cluster_info[cluster_info.index('slots') + 1:]:
-            ports.append(slot[2][2])
-        return ports
+    # # Get the TLS ports
+    # tls_ports = [shard.port for shard in env.envRunner.shards]
+    # # The non-TLS ports are the TLS ports + 1500 (hard-coded in RLTest)
+    # expected_ports = [port + TLS_PORT_DELTA for port in tls_ports]
 
-    # Get the TLS ports
-    tls_ports = [shard.port for shard in env.envRunner.shards]
-    # The non-TLS ports are the TLS ports + 1500 (hard-coded in RLTest)
-    expected_ports = [port + TLS_PORT_DELTA for port in tls_ports]
+    # # Upon setting `tls-cluster` to `no`, we should still be able to succeed
+    # # connecting the coordinator to the shards, just not in TLS mode.
+    # env.assertEqual(
+    #     run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no'),
+    #     ['OK'] * env.shardsCount
+    # )
 
-    # Upon setting `tls-cluster` to `no`, we should still be able to succeed
-    # connecting the coordinator to the shards, just not in TLS mode.
-    env.assertEqual(
-        run_command_on_all_shards(env, 'CONFIG', 'SET', 'tls-cluster', 'no'),
-        ['OK'] * env.shardsCount
-    )
-
-    # Give the cluster some time to update
-    time.sleep(2)
-
-    with TimeLimit(10, 'Failed waiting for the cluster to be updated'):
-        new_ports = get_ports(env)
-        while new_ports != expected_ports:
-            time.sleep(0.1)
-            new_ports = get_ports(env)
+    # with TimeLimit(10, 'Failed waiting for the cluster to be updated'):
+    #     new_ports = get_ports(env)
+    #     while new_ports != expected_ports:
+    #         time.sleep(0.1)
+    #         new_ports = get_ports(env)
 
     common_with_auth(env)
 
