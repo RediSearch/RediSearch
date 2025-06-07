@@ -62,13 +62,11 @@ BENCHMARK_DEFINE_F(BM_IdListIterator, Read)(benchmark::State &state) {
 BENCHMARK_DEFINE_F(BM_IdListIterator, SkipTo)(benchmark::State &state) {
   QueryIterator *iterator_base = IT_V2(NewIdListIterator)(docIds.data(), docIds.size(), 1.0);
 
-  t_docId docId = 10;
+  t_offset step = 10;
   for (auto _ : state) {
-    IteratorStatus rc = iterator_base->SkipTo(iterator_base, docId);
-    docId += 10;
+    IteratorStatus rc = iterator_base->SkipTo(iterator_base, iterator_base->lastDocId + step);
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10;
     }
   }
 
@@ -92,15 +90,13 @@ BENCHMARK_DEFINE_F(BM_IdListIterator, Read_Old)(benchmark::State &state) {
 
 BENCHMARK_DEFINE_F(BM_IdListIterator, SkipTo_Old)(benchmark::State &state) {
   IndexIterator *iterator_base = NewIdListIterator(docIds.data(), docIds.size(), 1.0);
-  RSIndexResult *hit;
+  RSIndexResult *hit = iterator_base->current;
 
-  t_docId docId = 10;
+  t_offset step = 10;
   for (auto _ : state) {
-    int rc = iterator_base->SkipTo(iterator_base, docId, &hit);
-    docId += 10;
+    int rc = iterator_base->SkipTo(iterator_base, hit->docId + step, &hit);
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10;
     }
   }
 
