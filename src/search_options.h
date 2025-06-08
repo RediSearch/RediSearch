@@ -95,13 +95,8 @@ typedef struct {
   t_fieldMask fieldmask;
   int slop;
 
-  const char **inkeys;
+  const sds *inkeys;
   size_t ninkeys;
-
-  // Keys are converted into arrays. This is done when the actual
-  // search ctx is available
-  t_docId *inids;
-  size_t nids;
 
   const StopWordList *stopwords;
   dict *params;
