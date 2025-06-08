@@ -373,3 +373,156 @@ TEST_F(OptionalIteratorEdgeCasesTest, SkipBackwards) {
   ASSERT_EQ(iterator_base->current->docId, 2);
   ASSERT_EQ(iterator_base->lastDocId, 2);
 }
+
+// Test timeout scenarios
+class OptionalIteratorTimeoutTest : public ::testing::Test {
+protected:
+  QueryIterator *iterator_base;
+  const t_docId maxDocId = 100;
+  const size_t numDocs = 50;
+  const double weight = 2.0;
+
+  void SetUp() override {
+    // Create child iterator that returns ITERATOR_TIMEOUT after exhausting its documents
+    QueryIterator *child = (QueryIterator *)new MockIterator(ITERATOR_TIMEOUT, 10UL, 20UL, 30UL);
+
+    // Create optional iterator with timeout child
+    iterator_base = IT_V2(NewOptionalIterator_NonOptimized)(child, maxDocId, numDocs, weight);
+  }
+
+  void TearDown() override {
+    if (iterator_base) {
+      iterator_base->Free(iterator_base);
+    }
+  }
+};
+
+TEST_F(OptionalIteratorTimeoutTest, ReadTimeoutFromChild) {
+  OptionalIterator *oi = (OptionalIterator *)iterator_base;
+
+  // Read the real hits first (10, 20, 30)
+  ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
+  ASSERT_EQ(iterator_base->current->docId, 1);
+  ASSERT_EQ(iterator_base->current, oi->virt); // Virtual hit
+
+  // Continue reading - should get virtual hits until we reach child's documents
+  for (t_docId i = 2; i <= 9; i++) {
+    ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
+    ASSERT_EQ(iterator_base->current->docId, i);
+    // Should be virtual hits
+    ASSERT_EQ(iterator_base->current, oi->virt);
+  }
+
+  // Read docId 10 - should be a real hit
+  ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
+  ASSERT_EQ(iterator_base->current->docId, 10);
+  ASSERT_EQ(iterator_base->current, oi->child->current);
+
+  // Continue reading virtual hits
+  for (t_docId i = 11; i <= 19; i++) {
+    ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
+    ASSERT_EQ(iterator_base->current->docId, i);
+    ASSERT_EQ(iterator_base->current, oi->virt);
+  }
+
+  // Read docId 20 - should be a real hit
+  ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
+  ASSERT_EQ(iterator_base->current->docId, 20);
+  ASSERT_EQ(iterator_base->current, oi->child->current);
+
+  // Continue reading virtual hits
+  for (t_docId i = 21; i <= 29; i++) {
+    ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
+    ASSERT_EQ(iterator_base->current->docId, i);
+    ASSERT_EQ(iterator_base->current, oi->virt);
+  }
+
+  // Read docId 30 - should be a real hit
+  ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
+  ASSERT_EQ(iterator_base->current->docId, 30);
+  ASSERT_EQ(iterator_base->current, oi->child->current);
+
+  // Now the child iterator is exhausted, next read should trigger timeout
+  // when the optional iterator tries to advance the child beyond its documents
+  IteratorStatus rc = iterator_base->Read(iterator_base);
+  ASSERT_EQ(rc, ITERATOR_TIMEOUT); // Should timeout when child times out
+}
+
+TEST_F(OptionalIteratorTimeoutTest, SkipToTimeoutFromChild) {
+  OptionalIterator *oi = (OptionalIterator *)iterator_base;
+
+  // Skip to a document that exists in child (should work)
+  ASSERT_EQ(iterator_base->SkipTo(iterator_base, 20), ITERATOR_OK);
+  ASSERT_EQ(iterator_base->current->docId, 20);
+  ASSERT_EQ(iterator_base->current, oi->child->current);
+
+  // Skip to a document beyond child's range
+  // This should trigger timeout when trying to advance the child
+  IteratorStatus rc = iterator_base->SkipTo(iterator_base, 50);
+  ASSERT_EQ(rc, ITERATOR_TIMEOUT); // Should timeout when child times out
+}
+
+TEST_F(OptionalIteratorTimeoutTest, RewindAfterTimeout) {
+  // Read past the child's documents to trigger timeout handling
+  for (int i = 0; i < 35; i++) {
+    iterator_base->Read(iterator_base);
+  }
+  ASSERT_EQ(iterator_base->lastDocId, 35);
+
+  // Rewind should reset everything
+  iterator_base->Rewind(iterator_base);
+  ASSERT_EQ(iterator_base->lastDocId, 0);
+  ASSERT_FALSE(iterator_base->atEOF);
+
+  // Should be able to read from beginning again
+  ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
+  ASSERT_EQ(iterator_base->current->docId, 1);
+}
+
+
+// Test with immediate timeout child
+class OptionalIteratorImmediateTimeoutTest : public ::testing::Test {
+protected:
+  QueryIterator *iterator_base;
+  const t_docId maxDocId = 100;
+  const size_t numDocs = 50;
+  const double weight = 2.0;
+
+  void SetUp() override {
+    // Create child iterator that returns ITERATOR_TIMEOUT immediately (no documents)
+    QueryIterator *child = (QueryIterator *)new MockIterator(ITERATOR_TIMEOUT);
+
+    // Create optional iterator with immediate timeout child
+    iterator_base = IT_V2(NewOptionalIterator_NonOptimized)(child, maxDocId, numDocs, weight);
+  }
+
+  void TearDown() override {
+    if (iterator_base) {
+      iterator_base->Free(iterator_base);
+    }
+  }
+};
+
+TEST_F(OptionalIteratorImmediateTimeoutTest, ReadWithImmediateTimeout) {
+  // Even with immediate timeout child, optional iterator should return virtual hits
+  for (t_docId i = 1; i <= 10; i++) {
+    ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
+    ASSERT_EQ(iterator_base->current->docId, i);
+    // Should be virtual hits since child times out immediately
+    OptionalIterator *oi = (OptionalIterator *)iterator_base;
+    ASSERT_EQ(iterator_base->current, oi->virt);
+  }
+}
+
+TEST_F(OptionalIteratorImmediateTimeoutTest, SkipToWithImmediateTimeout) {
+  // Skip to various documents - should all be virtual hits
+  std::vector<t_docId> targets = {5, 15, 25, 50, 75};
+
+  for (t_docId target : targets) {
+    ASSERT_EQ(iterator_base->SkipTo(iterator_base, target), ITERATOR_OK);
+    ASSERT_EQ(iterator_base->current->docId, target);
+    // Should be virtual hits since child times out immediately
+    OptionalIterator *oi = (OptionalIterator *)iterator_base;
+    ASSERT_EQ(iterator_base->current, oi->virt);
+  }
+}
