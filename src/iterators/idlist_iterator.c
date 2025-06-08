@@ -119,11 +119,8 @@ QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weig
 
 static void SetYield(QueryIterator *base, double value) {
   base->current->num.value = value;
-  if (!base->current->metrics) {
-    ResultMetrics_Add(base->current, NULL, RS_NumVal(value));
-  } else {
-    ResultMetrics_UpdateDouble(base->current, NULL, value);
-  }
+  ResultMetrics_Reset(base->current);
+  ResultMetrics_Add(base->current, NULL, RS_NumVal(value));
 }
 
 static IteratorStatus MR_Read(QueryIterator *base) {
