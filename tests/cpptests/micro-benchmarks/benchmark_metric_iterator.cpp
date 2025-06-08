@@ -103,13 +103,13 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, Read_NotYield, QueryIterator, fa
 }
 
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_NotYield, QueryIterator, false)(benchmark::State &state) {
-  t_docId docId = 10000;
+  t_docId step = 10;
   for (auto _ : state) {
-    IteratorStatus rc = iterator_base->SkipTo(iterator_base, docId);
-    docId += 10000;
+    IteratorStatus rc = iterator_base->SkipTo(iterator_base, iterator_base->lastDocId + step);
+    step += 10;
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10000;
+      step = 10;
     }
   }
 }
@@ -124,13 +124,13 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, Read_Yield, QueryIterator, true)
 }
 
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_Yield, QueryIterator, true)(benchmark::State &state) {
-  t_docId docId = 10000;
+  t_docId step = 10;
   for (auto _ : state) {
-    IteratorStatus rc = iterator_base->SkipTo(iterator_base, docId);
-    docId += 10000;
+    IteratorStatus rc = iterator_base->SkipTo(iterator_base, iterator_base->lastDocId + step);
+    step += 10;
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10000;
+      step = 10;
     }
   }
 }
@@ -154,13 +154,16 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, Read_Old_NotYield, IndexIterator
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_Old_NotYield, IndexIterator, false)(benchmark::State &state) {
   RSIndexResult *hit;
 
-  t_docId docId = 10000;
+  t_docId step = 10;
+  t_docId lastDocId = 10;
   for (auto _ : state) {
-    int rc = iterator_base->SkipTo(iterator_base, docId, &hit);
-    docId += 10000;
+    int rc = iterator_base->SkipTo(iterator_base, lastDocId + step, &hit);
+    step += 10;
+    lastDocId = hit->docId;
     if (rc == INDEXREAD_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10000;
+      step = 10;
+      lastDocId = 0;
     }
   }
 }
@@ -177,13 +180,16 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, Read_Old_Yield, IndexIterator, t
 
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_Old_Yield, IndexIterator, true)(benchmark::State &state) {
   RSIndexResult *hit;
-  t_docId docId = 10000;
+  t_docId step = 10;
+  t_docId lastDocId = 10;
   for (auto _ : state) {
-    int rc = iterator_base->SkipTo(iterator_base, docId, &hit);
-    docId += 10000;
+    int rc = iterator_base->SkipTo(iterator_base, lastDocId + step, &hit);
+    step += 10;
+    lastDocId = hit->docId;
     if (rc == INDEXREAD_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10000;
+      step = 10;
+      lastDocId = 0;
     }
   }
 }
