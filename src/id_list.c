@@ -119,12 +119,6 @@ size_t IL_Len(void *ctx) {
   return (size_t)((IdListIterator *)ctx)->size;
 }
 
-static int cmp_docids(const void *p1, const void *p2) {
-  const t_docId *d1 = p1, *d2 = p2;
-
-  return (int)(*d1 - *d2);
-}
-
 void IL_Rewind(void *p) {
   IdListIterator *il = p;
   setEof(il, 0);
@@ -137,8 +131,8 @@ IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
   IdListIterator *it = rm_new(IdListIterator);
 
   it->size = num;
-  setEof(it, 0);
   it->docIds = ids;
+  setEof(it, 0);
   it->lastDocId = 0;
   it->base.current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
 

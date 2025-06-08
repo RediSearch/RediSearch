@@ -50,7 +50,7 @@ static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
 
   t_offset top = MIN(it->size, it->offset + (docId - base->lastDocId) + 1);
   t_offset bottom = it->offset;
-  t_offset i;
+  t_offset i = 0;
   t_docId did;
   while (bottom < top) {
     i = (bottom + top) / 2;

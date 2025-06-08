@@ -71,9 +71,9 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read, QueryIterator)(benchmark::
 }
 
 BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo, QueryIterator)(benchmark::State &state) {
-  t_docId step = 10;
+  t_offset step = 10;
   for (auto _ : state) {
-    auto rc = iterator_base->SkipTo(iterator_base, iterator_base->lastDocId + step);
+    IteratorStatus rc = iterator_base->SkipTo(iterator_base, iterator_base->lastDocId + step);
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
     }
@@ -95,12 +95,15 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read_Old, IndexIterator)(benchma
 
 BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo_Old, IndexIterator)(benchmark::State &state) {
   RSIndexResult *hit = iterator_base->current;
-  hit->docId = 0;
-  t_docId step = 10;
+  hit->docId = 0; // Ensure initial docId is set to 0
+
+  t_offset step = 10;
   for (auto _ : state) {
-    auto rc = iterator_base->SkipTo(iterator_base, hit->docId + step, &hit);
+    int rc = iterator_base->SkipTo(iterator_base, hit->docId + step, &hit);
     if (rc == INDEXREAD_EOF) {
       iterator_base->Rewind(iterator_base);
+      // Don't rely on the old iterator's Rewind to reset hit->docId
+      hit = iterator_base->current;
       hit->docId = 0;
     }
   }
