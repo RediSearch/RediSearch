@@ -65,14 +65,12 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_WildcardIterator, Read, QueryIterator)(benchmark
 }
 
 BENCHMARK_TEMPLATE1_DEFINE_F(BM_WildcardIterator, SkipTo, QueryIterator)(benchmark::State &state) {
-  t_docId docId = 10;
+  t_offset step = 10;
   IteratorStatus rc;
   for (auto _ : state) {
-    rc = iterator_base->SkipTo(iterator_base, docId);
-    docId += 10;
+    rc = iterator_base->SkipTo(iterator_base, iterator_base->lastDocId + step);
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10;
     }
   }
 }
@@ -92,15 +90,17 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_WildcardIterator, Read_Old, IndexIterator)(bench
 }
 
 BENCHMARK_TEMPLATE_DEFINE_F(BM_WildcardIterator, SkipTo_Old, IndexIterator)(benchmark::State &state) {
-  RSIndexResult *hit;
-  t_docId docId = 10;
+  RSIndexResult *hit = iterator_base->current;
+  hit->docId = 0; // Ensure initial docId is set to 0
+  t_offset step = 10;
   int rc;
   for (auto _ : state) {
-    rc = iterator_base->SkipTo(iterator_base, docId, &hit);
-    docId += 10;
+    rc = iterator_base->SkipTo(iterator_base, hit->docId + step, &hit);
     if (rc == INDEXREAD_EOF) {
       iterator_base->Rewind(iterator_base);
-      docId = 10;
+      // Don't rely on the old iterator's Rewind to reset hit->docId
+      hit = iterator_base->current;
+      hit->docId = 0;
     }
   }
 }
