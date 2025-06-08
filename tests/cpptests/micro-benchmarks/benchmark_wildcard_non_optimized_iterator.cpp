@@ -91,12 +91,16 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_WildcardIterator, Read_Old, IndexIterator)(bench
 
 BENCHMARK_TEMPLATE_DEFINE_F(BM_WildcardIterator, SkipTo_Old, IndexIterator)(benchmark::State &state) {
   RSIndexResult *hit = iterator_base->current;
+  hit->docId = 0; // Ensure initial docId is set to 0
   t_offset step = 10;
   int rc;
   for (auto _ : state) {
     rc = iterator_base->SkipTo(iterator_base, hit->docId + step, &hit);
     if (rc == INDEXREAD_EOF) {
       iterator_base->Rewind(iterator_base);
+      // Don't rely on the old iterator's Rewind to reset hit->docId
+      hit = iterator_base->current;
+      hit->docId = 0;
     }
   }
 }
