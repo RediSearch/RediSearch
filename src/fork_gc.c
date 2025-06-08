@@ -1243,9 +1243,34 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
   return status;
 }
 
+static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
+  #define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
+  RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
+
+  size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
+  size_t max_process_mem = RedisModule_ServerInfoGetFieldUnsigned(info, "max_process_mem", NULL); // Enterprise limit
+  maxmemory = MIN_NOT_0(maxmemory, max_process_mem);
+
+  size_t total_system_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "total_system_memory", NULL);
+  maxmemory = MIN_NOT_0(maxmemory, total_system_memory);
+
+  size_t used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
+
+  RedisModule_FreeServerInfo(ctx, info);
+
+  return used_memory > maxmemory;
+}
+
 static int periodicCb(void *privdata) {
   ForkGC *gc = privdata;
   RedisModuleCtx *ctx = gc->ctx;
+
+  // Check if we are out of memory before even trying to fork
+  if (isOutOfMemory(ctx)) {
+    RedisModule_Log(ctx, "warning", "fork failed - not enough memory, aborting fork GC");
+    gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval;
+    return 1;
+  }
 
   // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
   // early termination might never change after index deletion and will cause periodicCb to always return 1,

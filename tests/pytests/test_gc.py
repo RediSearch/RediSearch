@@ -277,3 +277,34 @@ def testAutoMemory_MOD_3951():
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', '2nd', 'TEXT').equal('OK')
 
     # This test should catch some leaks on the sanitizer
+
+@skip(cluster=True)
+def test_gc_oom(env):
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+    env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
+    num_docs = 10
+    for i in range(num_docs):
+        env.expect('HSET', f'doc{i}', 't', f'name{i}').equal(1)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+    for i in range(num_docs):
+        env.expect('DEL', f'doc{i}').equal(1)
+
+    set_tight_maxmemory_for_oom(env, 1)
+    forceInvokeGC(env, 'idx')
+
+    # Verify no bytes collected by GC
+    info = index_info(env, 'idx')
+    gc_dict = to_dict(info["gc_stats"])
+    bytes_collected = int(gc_dict['bytes_collected'])
+    env.assertEqual(bytes_collected, 0)
+
+    # Increase memory and rerun GC
+    set_unlimited_maxmemory_for_oom(env)
+    forceInvokeGC(env, 'idx')
+
+    # Verify bytes collected by GC is more than 0
+    info = index_info(env, 'idx')
+    gc_dict = to_dict(info["gc_stats"])
+    bytes_collected = int(gc_dict['bytes_collected'])
+    env.assertGreater(bytes_collected, 0)
