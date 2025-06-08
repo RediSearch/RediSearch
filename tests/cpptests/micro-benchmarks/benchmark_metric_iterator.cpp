@@ -33,26 +33,24 @@ public:
       initialized = true;
     }
 
-    numDocuments = 1000000;
+    numDocuments = 1'000'000; // Target number of documents, before removing duplicates
     std::mt19937 rng(46);
     std::uniform_int_distribution<t_docId> dist(1, 2'000'000);
     std::uniform_real_distribution<double> score_dist(0.0, 1.0);
 
+    std::vector<std::pair<t_docId, double>> pairs;
+    pairs.reserve(numDocuments);
+    for (int i = 0; i < numDocuments; ++i) {
+      pairs.emplace_back(dist(rng), score_dist(rng));
+    }
+
+    std::sort(pairs.begin(), pairs.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    auto new_end = std::unique(pairs.begin(), pairs.end(), [](const auto& a, const auto& b) { return a.first == b.first; });
+    pairs.erase(new_end, pairs.end());
+    numDocuments = pairs.size(); // Update numDocuments after removing duplicates
+
     docIds.resize(numDocuments);
     scores.resize(numDocuments);
-    for (int i = 0; i < numDocuments; ++i) {
-      docIds[i] = dist(rng);
-      scores[i] = score_dist(rng);
-    }
-
-    std::vector<std::pair<t_docId, double>> pairs(numDocuments);
-    for (int i = 0; i < numDocuments; ++i) {
-      pairs[i] = std::make_pair(docIds[i], scores[i]);
-    }
-
-    std::sort(pairs.begin(), pairs.end(),
-              [](const auto& a, const auto& b) { return a.first < b.first; });
-
     for (int i = 0; i < numDocuments; ++i) {
       docIds[i] = pairs[i].first;
       scores[i] = pairs[i].second;
@@ -106,10 +104,8 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_NotYield, QueryIterator, 
   t_docId step = 10;
   for (auto _ : state) {
     IteratorStatus rc = iterator_base->SkipTo(iterator_base, iterator_base->lastDocId + step);
-    step += 10;
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
-      step = 10;
     }
   }
 }
@@ -127,10 +123,8 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_Yield, QueryIterator, tru
   t_docId step = 10;
   for (auto _ : state) {
     IteratorStatus rc = iterator_base->SkipTo(iterator_base, iterator_base->lastDocId + step);
-    step += 10;
     if (rc == ITERATOR_EOF) {
       iterator_base->Rewind(iterator_base);
-      step = 10;
     }
   }
 }
@@ -157,10 +151,9 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_Old_NotYield, IndexIterat
   t_docId step = 10;
   for (auto _ : state) {
     int rc = iterator_base->SkipTo(iterator_base, hit->docId + step, &hit);
-    step += 10;
     if (rc == INDEXREAD_EOF) {
       iterator_base->Rewind(iterator_base);
-      step = 10;
+      hit = iterator_base->current;
       hit->docId = 0;
     }
   }
@@ -182,10 +175,9 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_MetricIterator, SkipTo_Old_Yield, IndexIterator,
   t_docId step = 10;
   for (auto _ : state) {
     int rc = iterator_base->SkipTo(iterator_base, hit->docId + step, &hit);
-    step += 10;
     if (rc == INDEXREAD_EOF) {
       iterator_base->Rewind(iterator_base);
-      step = 10;
+      hit = iterator_base->current;
       hit->docId = 0;
     }
   }
