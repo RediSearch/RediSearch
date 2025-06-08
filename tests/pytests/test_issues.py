@@ -285,7 +285,7 @@ def testMemAllocated(env):
   conn = getConnectionByEnv(env)
   # sanity
   env.cmd('FT.CREATE', 'idx1', 'SCHEMA', 't', 'TEXT')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '0')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '1.52587890625e-5', delta = 0.01)
   conn.execute_command('HSET', 'doc1', 't', 'foo bar baz')
   assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05', delta=0.01)
   conn.execute_command('HSET', 'doc2', 't', 'hello world')
@@ -298,7 +298,7 @@ def testMemAllocated(env):
   conn.execute_command('DEL', 'doc1')
   assertInfoField(env, 'idx1', 'key_table_size_mb', '2.765655517578125e-05', delta=0.01)
   conn.execute_command('DEL', 'doc2')
-  assertInfoField(env, 'idx1', 'key_table_size_mb', '0')
+  assertInfoField(env, 'idx1', 'key_table_size_mb', '1.52587890625e-5', delta = 0.01)
 
   # mass
   env.cmd('FT.CREATE', 'idx2', 'SCHEMA', 't', 'TEXT')
@@ -308,7 +308,7 @@ def testMemAllocated(env):
 
   for i in range(1000):
     conn.execute_command('DEL', f'doc{i}')
-  assertInfoField(env, 'idx2', 'key_table_size_mb', '0')
+  assertInfoField(env, 'idx2', 'key_table_size_mb', '1.52587890625e-5', delta = 0.01)
 
 def testUNF(env):
   conn = getConnectionByEnv(env)

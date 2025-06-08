@@ -1,0 +1,15 @@
+[package]
+name = "buffer"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+ffi.workspace = true

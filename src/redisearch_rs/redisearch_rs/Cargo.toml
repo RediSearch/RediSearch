@@ -2,7 +2,8 @@
 name = "redisearch_rs"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
+publish.workspace = true
 
 [lints]
 workspace = true
@@ -21,7 +22,6 @@ bench = false
 
 [features]
 default = []
-trie = []
 mock_allocator = ["dep:redis_mock"]
 
 [build-dependencies]
@@ -34,9 +34,10 @@ low_memory_thin_vec.workspace = true
 trie_rs = { workspace = true }
 redis_mock = { workspace = true, optional = true }
 wildcard = { workspace = true }
+buffer = { workspace = true }
 
 [dev-dependencies]
-redisearch_rs = { path = ".", features = ["trie", "mock_allocator"] }
+redisearch_rs = { path = ".", features = ["mock_allocator"] }
 
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,

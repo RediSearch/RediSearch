@@ -460,17 +460,17 @@ impl<Data> PtrWithMetadata<Data> {
     }
 
     /// Manipulate the buffer portion related to this node's label.
-    pub(super) fn label(&self) -> LabelBuffer<Data> {
+    pub(super) fn label(&self) -> LabelBuffer<'_, Data> {
         LabelBuffer(self)
     }
 
     /// Manipulate the buffer portion related to this node's children first bytes.
-    pub(super) fn children_first_bytes(&self) -> ChildrenFirstBytesBuffer<Data> {
+    pub(super) fn children_first_bytes(&self) -> ChildrenFirstBytesBuffer<'_, Data> {
         ChildrenFirstBytesBuffer(self)
     }
 
     /// Manipulate the buffer portion related to this node's children.
-    pub(super) fn children(&self) -> ChildrenBuffer<Data> {
+    pub(super) fn children(&self) -> ChildrenBuffer<'_, Data> {
         ChildrenBuffer(self)
     }
 
