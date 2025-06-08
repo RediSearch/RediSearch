@@ -69,6 +69,7 @@ public:
             index = nullptr;
         }
         ids.clear();
+        RSGlobalConfig.invertedIndexRawDocidEncoding = false;
     }
 
     void createIndex(IndexFlags flags) {
@@ -84,6 +85,14 @@ public:
             }
         } else if (flags == Index_DocIdsOnly) {
             // Populate the index with document IDs only
+            for (size_t i = 0; i < ids.size(); ++i) {
+                InvertedIndex_WriteEntryGeneric(index, encoder, ids[i], nullptr);
+            }
+        } else if (flags == (Index_DocIdsOnly | Index_Temporary)) {
+            // Spacial case reserved for `Index_DocIdsOnly` with raw doc IDs
+            RSGlobalConfig.invertedIndexRawDocidEncoding = true; // Enable raw doc ID encoding, until the benchmark's tearDown
+            RS_ASSERT_ALWAYS(encoder != InvertedIndex_GetEncoder(Index_DocIdsOnly)); // Ensure we are using the raw doc ID encoder
+            encoder = InvertedIndex_GetEncoder(Index_DocIdsOnly);
             for (size_t i = 0; i < ids.size(); ++i) {
                 InvertedIndex_WriteEntryGeneric(index, encoder, ids[i], nullptr);
             }
@@ -125,6 +134,7 @@ bool BM_IndexIterator_Base::initialized = false;
     ->Arg(Index_StoreTermOffsets) \
     ->Arg(Index_StoreFreqs | Index_StoreTermOffsets) \
     ->Arg(Index_DocIdsOnly) \
+    ->Arg(Index_DocIdsOnly | Index_Temporary) \
     ->Arg(Index_StoreNumeric)
 
 class BM_IndexIterator : public BM_IndexIterator_Base {
@@ -135,7 +145,7 @@ protected:
             FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
             FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
             iterator = NewInvIndIterator_NumericQuery(index, nullptr, &fieldCtx, nullptr, -INFINITY, INFINITY);
-        } else if (flags == Index_DocIdsOnly) {
+        } else if (flags == Index_DocIdsOnly || flags == (Index_DocIdsOnly | Index_Temporary)) {
             iterator = NewInvIndIterator_GenericQuery(index, nullptr, 0, FIELD_EXPIRATION_DEFAULT);
         } else {
             iterator = NewInvIndIterator_TermQuery(index, nullptr, {true, RS_FIELDMASK_ALL}, nullptr, 1.0);
@@ -173,7 +183,7 @@ protected:
             FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
             FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
             reader = NewNumericReader(nullptr, index, nullptr, -INFINITY, INFINITY, true, &fieldCtx);
-        } else if (flags == Index_DocIdsOnly) {
+        } else if (flags == Index_DocIdsOnly || flags == (Index_DocIdsOnly | Index_Temporary)) {
             reader = NewGenericIndexReader(index, nullptr, 1, 1, 1, FIELD_EXPIRATION_DEFAULT);
         } else {
             reader = NewTermIndexReaderEx(index, nullptr, {true, RS_FIELDMASK_ALL}, nullptr, 1.0);

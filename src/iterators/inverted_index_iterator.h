@@ -49,6 +49,7 @@ typedef struct InvIndIterator {
 
   const RedisSearchCtx *sctx;
 
+  // The context for the field/s filter, used to determine if the field/s is/are expired
   FieldFilterContext filterCtx;
 } InvIndIterator;
 

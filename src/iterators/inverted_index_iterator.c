@@ -160,6 +160,7 @@ static inline void SkipToBlock(InvIndIterator *it, t_docId docId) {
   it->currentBlock = i;
   if (CURRENT_BLOCK(it).lastId < docId) {
     it->currentBlock++; // It's not the current block. Advance
+    RS_ASSERT(CURRENT_BLOCK(it).firstId > docId); // Not a match but has to be past it
   }
 
 new_block:
@@ -168,6 +169,7 @@ new_block:
 }
 
 IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId) {
+  RS_ASSERT(base->lastDocId < docId);
   InvIndIterator *it = (InvIndIterator*)base;
   if (base->atEOF) {
     return ITERATOR_EOF;
@@ -235,6 +237,7 @@ static inline bool ReadWithSeeker(InvIndIterator *it, t_docId docId) {
 }
 
 IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId docId) {
+  RS_ASSERT(base->lastDocId < docId);
   InvIndIterator *it = (InvIndIterator*)base;
   if (base->atEOF) {
     return ITERATOR_EOF;
