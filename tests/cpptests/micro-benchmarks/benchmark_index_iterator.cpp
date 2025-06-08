@@ -152,13 +152,11 @@ BENCHMARK_DEFINE_F(BM_IndexIterator, Read)(benchmark::State &state) {
 }
 
 BENCHMARK_DEFINE_F(BM_IndexIterator, SkipTo)(benchmark::State &state) {
-    t_docId docId = 10;
+    t_offset step = 10;
     for (auto _ : state) {
-        IteratorStatus rc = iterator->SkipTo(iterator, docId);
-        docId += 10;
+        IteratorStatus rc = iterator->SkipTo(iterator, iterator->lastDocId + step);
         if (rc == ITERATOR_EOF) {
             iterator->Rewind(iterator);
-            docId = 10;
         }
     }
 }
@@ -195,14 +193,12 @@ BENCHMARK_DEFINE_F(BM_IndexIterator_Old, Read)(benchmark::State &state) {
 }
 
 BENCHMARK_DEFINE_F(BM_IndexIterator_Old, SkipTo)(benchmark::State &state) {
-    RSIndexResult *hit;
-    t_docId docId = 10;
+    RSIndexResult *hit = iterator_old->current;
+    t_offset step = 10;
     for (auto _ : state) {
-        int rc = iterator_old->SkipTo(iterator_old->ctx, docId, &hit);
-        docId += 10;
+        int rc = iterator_old->SkipTo(iterator_old->ctx, hit->docId + step, &hit);
         if (rc == INDEXREAD_EOF) {
             iterator_old->Rewind(iterator_old->ctx);
-            docId = 10;
         }
     }
 }
