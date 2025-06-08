@@ -3072,7 +3072,7 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   QueryError status = {0};
 
   if(spec->scan_failed_OOM) {
-    QueryError_SetWithoutUserDataFmt(&status, QUERY_INDEXBGOOMFAIL, "Index background scan failed due to OOM. New documents will not be indexed.");
+    QueryError_SetWithoutUserDataFmt(&status, QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM. New documents will not be indexed.");
     IndexError_AddQueryError(&spec->stats.indexError, &status, key);
     QueryError_ClearError(&status);
     return REDISMODULE_ERR;
@@ -3479,7 +3479,7 @@ static void DebugIndexes_ScanProc(RedisModuleCtx *ctx, RedisModuleString *keynam
   Indexes_ScanProc(ctx, keyname, key, &(dScanner->base));
 }
 
-// If this function is called, it means that the scan failed due to OOM, should be verified by the caller
+// If this function is called, it means that the scan did not complete due to OOM, should be verified by the caller
 static inline void DebugIndexesScanner_pauseCheck(DebugIndexesScanner* dScanner, RedisModuleCtx *ctx, bool pauseField, DebugIndexScannerCode code) {
   if (!dScanner || !pauseField) {
     return;

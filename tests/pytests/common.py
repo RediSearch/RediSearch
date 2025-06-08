@@ -764,7 +764,7 @@ def runDebugQueryCommandTimeoutAfterN(env, query_cmd, timeout_res_count, interna
     return runDebugQueryCommand(env, query_cmd, debug_params)
 
 def waitForIndexFinishScan(env, idx = 'idx'):
-    while index_info(env, idx)['percent_indexed'] != '1':
+    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
         time.sleep(0.1)
 
 def bgScanCommand():
@@ -825,7 +825,7 @@ def allShards_waitForIndexStatus(env, status, idx='idx'):
         shard_waitForIndexStatus(env, shardId, status, idx)
 
 def shard_waitForIndexFinishScan(env, shardId, idx = 'idx'):
-    while index_info(env, idx)['percent_indexed'] != '1':
+    while index_info(env, idx)['percent_indexed'] not in (1, '1'):
         time.sleep(0.1)
 
 def allShards_waitForIndexFinishScan(env, idx = 'idx'):

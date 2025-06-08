@@ -5,10 +5,9 @@
  */
 
 #pragma once
-
-
 #include "value.h"
 #include "aggregate/aggregate.h"
+
 
 #define printProfileType(vtype) RedisModule_ReplyKV_SimpleString(reply, "Type", (vtype))
 #define printProfileTime(vtime) RedisModule_ReplyKV_Double(reply, "Time", (vtime))
@@ -18,7 +17,14 @@
 #define printProfileOptimizationType(oi) \
   RedisModule_ReplyKV_SimpleString(reply, "Optimizer mode", QOptimizer_PrintType((oi)->optim))
 
-void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions);
+typedef struct ProfilePrinterCtx {
+  AREQ *req;
+  bool timedout;
+  bool reachedMaxPrefixExpansions;
+  bool bgScanOOM;
+} ProfilePrinterCtx; // Context for the profile printing callback
+
+void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx);
 
 void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter,
                  double cpuTime, PrintProfileConfig *config);

@@ -102,8 +102,9 @@ static double printProfileRP(RedisModule_Reply *reply, ResultProcessor *rp, int 
   return _recursiveProfilePrint(reply, rp, printProfileClock);
 }
 
-void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions) {
+void Profile_Print(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
   bool has_map = RedisModule_HasMap(reply);
+  AREQ *req = ctx->req;
   req->totalTime += clock() - req->initClock;
 
   //-------------------------------------------------------------------------------------------
@@ -127,9 +128,12 @@ void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reac
             (double)(req->pipelineBuildTime / CLOCKS_PER_MILLISEC));
 
       // Print whether a warning was raised throughout command execution
-      if (timedout) {
+      if (ctx->bgScanOOM) {
+        RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WINDEXING_FAILURE);
+      }
+      if (ctx->timedout) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QueryError_Strerror(QUERY_ETIMEDOUT));
-      } else if (reachedMaxPrefixExpansions) {
+      } else if (ctx->reachedMaxPrefixExpansions) {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", QUERY_WMAXPREFIXEXPANSIONS);
       } else {
         RedisModule_ReplyKV_SimpleString(reply, "Warning", "None");
@@ -186,9 +190,11 @@ void Profile_Print(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reac
     // Print whether a warning was raised throughout command execution
     RedisModule_Reply_Array(reply);
     RedisModule_Reply_SimpleString(reply, "Warning");
-    if (timedout) {
+    if (ctx->bgScanOOM) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
+    } else if (ctx->timedout) {
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
-    } else if (reachedMaxPrefixExpansions) {
+    } else if (ctx->reachedMaxPrefixExpansions) {
       RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
     }
     RedisModule_Reply_ArrayEnd(reply);

@@ -1017,8 +1017,7 @@ RSConfigOptions RSGlobalConfigOptions = {
          .setValue = setIndexerYieldEveryOps,
          .getValue = getIndexerYieldEveryOps},
         {.name = "_BG_INDEX_MEM_PCT_THR",
-        .helpText = "Set the percentage of memory usage threshold (out of maxmemory) at which background indexing will stop. Once this limit is reached,"
-                      " any queries on the affected index will result in an error. The default is 100 percent.",
+        .helpText = "Set the percentage of memory usage threshold (out of maxmemory) at which background indexing will stop. The default is 100 percent.",
         .setValue = setIndexingMemoryLimit,
         .getValue = getIndexingMemoryLimit},
         {.name = "_BG_INDEX_OOM_PAUSE_TIME",
