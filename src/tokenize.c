@@ -137,11 +137,13 @@ uint32_t simpleTokenizer_Next(RSTokenizer *base, Token *t) {
                  .phoneticsPrimary = t->phoneticsPrimary,
                  .allocatedTok = allocated ? (char*)normalized : NULL};
 
+    const char *normalizedTok = allocated ? normalized : tok;
+
     // if we support stemming - try to stem the word
     if (!(ctx->options & TOKENIZE_NOSTEM) && self->stemmer &&
           normLen >= RSGlobalConfig.iteratorsConfigParams.minStemLength) {
       size_t sl;
-      const char *stem = self->stemmer->Stem(self->stemmer->ctx, tok, normLen, &sl);
+      const char *stem = self->stemmer->Stem(self->stemmer->ctx, normalizedTok, normLen, &sl);
       if (stem) {
         t->stem = stem;
         t->stemLen = sl;
