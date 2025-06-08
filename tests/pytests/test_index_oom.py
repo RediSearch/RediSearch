@@ -152,15 +152,15 @@ def test_stop_indexing_low_mem_verbosity(env):
   env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
   # Check resp3 warning in FT.PROFILE
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
-  warning = res['Results']['warning'][0]
+  warning = res['warning'][0]
   env.assertEqual(warning, 'Index contains partial data due to an indexing failure caused by insufficient memory')
   # Check resp2 warning in FT.PROFILE
   env.cmd('HELLO', '2')
   res = env.cmd('FT.PROFILE', 'idx', 'SEARCH','QUERY', '*')
-  results_str = res[1][1][0]
-  # find warning index
-  warning_index = results_str.index('Warning')+1
-  warning = results_str[warning_index]
+  results_str = res[1]
+  # find warning index (results_str is a list of pairs)
+  warning_index = [pair[0] for pair in results_str].index('Warning')
+  warning = results_str[warning_index][1]
   env.assertEqual(warning, partial_results_warning_str)
 
 @skip(cluster=True)
