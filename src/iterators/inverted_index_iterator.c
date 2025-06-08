@@ -102,6 +102,8 @@ IteratorStatus InvIndIterator_Read(QueryIterator *base) {
     t_docId lastId = record->docId;
     // The decoder also acts as a filter. If the decoder returns false, the
     // current record should not be processed.
+    // Since we are not at the end of the block (previous check), the decoder is guaranteed
+    // to read a record (advanced by at least one entry).
     if (!it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
       continue;
     }
