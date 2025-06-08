@@ -116,7 +116,10 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   RedisModule_ReplyKV_Array(reply, "attributes"); // >attributes
   size_t geom_idx_sz = 0;
-
+  
+  // Lock the spec
+  RedisSearchCtx_LockSpecRead(sctx);
+  
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_Reply_Map(reply); // >>field
 
@@ -228,9 +231,6 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   }
 
   RedisModule_Reply_ArrayEnd(reply); // >attributes
-
-  // Lock the spec
-  RedisSearchCtx_LockSpecRead(sctx);
 
   REPLY_KVINT("num_docs", sp->stats.numDocuments);
   REPLY_KVINT("max_doc_id", sp->docs.maxDocId);
