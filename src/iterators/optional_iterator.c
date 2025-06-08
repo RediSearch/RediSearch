@@ -2,29 +2,29 @@
 #include "empty_iterator.h"
 
 static void OI_Free(QueryIterator *base) {
-  OptionalIterator *nc = (OptionalIterator *)base;
-  if (nc->child) {
-    nc->child->Free(nc->child);
+  OptionalIterator *oi = (OptionalIterator *)base;
+  if (oi->child) {
+    oi->child->Free(oi->child);
   }
   // Only free our virtual result, not the child's result
-  if (nc->virt) {
-    IndexResult_Free(nc->virt);
+  if (oi->virt) {
+    IndexResult_Free(oi->virt);
   }
   rm_free(base);
 }
 
 static size_t OI_NumEstimated(QueryIterator *base) {
-  OptionalIterator *nc = (OptionalIterator *)base;
-  return nc->maxDocId;
+  OptionalIterator *oi = (OptionalIterator *)base;
+  return oi->maxDocId;
 }
 
 static void OI_Rewind(QueryIterator *base) {
-  OptionalIterator *nc = (OptionalIterator *)base;
+  OptionalIterator *oi = (OptionalIterator *)base;
   base->atEOF = false;
   base->lastDocId = 0;
-  nc->virt->docId = 0;
-  if (nc->child) {
-    nc->child->Rewind(nc->child);
+  oi->virt->docId = 0;
+  if (oi->child) {
+    oi->child->Rewind(oi->child);
   }
 }
 
@@ -32,26 +32,26 @@ static void OI_Rewind(QueryIterator *base) {
 
 // SkipTo for OPTIONAL iterator - Non-optimized version.
 static IteratorStatus OI_SkipTo_NO(QueryIterator *base, t_docId docId) {
-  OptionalIterator *nc = (OptionalIterator *)base;
+  OptionalIterator *oi = (OptionalIterator *)base;
 
-  if (docId > nc->maxDocId || base->atEOF) {
+  if (docId > oi->maxDocId || base->atEOF) {
     base->atEOF = true;
     return ITERATOR_EOF;
   }
 
-  if (docId > nc->child->lastDocId) {
-    IteratorStatus rc = nc->child->SkipTo(nc->child, docId);
+  if (docId > oi->child->lastDocId) {
+    IteratorStatus rc = oi->child->SkipTo(oi->child, docId);
     if (rc == ITERATOR_TIMEOUT) return rc;
   }
 
-  if (docId > 0 && docId == nc->child->lastDocId) {
+  if (docId > 0 && docId == oi->child->lastDocId) {
     // Has a real hit on the child iterator
-    nc->base.current = nc->child->current;
-    nc->base.current->weight = nc->weight;
+    base->current = oi->child->current;
+    base->current->weight = oi->weight;
   } else {
     // Virtual hit
-    nc->virt->docId = docId;
-    nc->base.current = nc->virt;
+    oi->virt->docId = docId;
+    base->current = oi->virt;
   }
   // Set the current ID
   base->lastDocId = docId;
@@ -60,8 +60,8 @@ static IteratorStatus OI_SkipTo_NO(QueryIterator *base, t_docId docId) {
 
 // Read from an OPTIONAL iterator - Non-Optimized version.
 static IteratorStatus OI_ReadSorted_NO(QueryIterator *base) {
-  OptionalIterator *nc = (OptionalIterator *)base;
-  if (base->atEOF || base->lastDocId >= nc->maxDocId) {
+  OptionalIterator *oi = (OptionalIterator *)base;
+  if (base->atEOF || base->lastDocId >= oi->maxDocId) {
     base->atEOF = true;
     return ITERATOR_EOF;
   }
@@ -69,36 +69,36 @@ static IteratorStatus OI_ReadSorted_NO(QueryIterator *base) {
   // Increase the size by one
   base->lastDocId++;
 
-  if (base->lastDocId > nc->child->lastDocId && !base->atEOF) {
-    IteratorStatus rc = nc->child->Read(nc->child);
+  if (base->lastDocId > oi->child->lastDocId && !base->atEOF) {
+    IteratorStatus rc = oi->child->Read(oi->child);
     if (rc == ITERATOR_TIMEOUT) return rc;
   }
 
-  if (base->lastDocId != nc->child->lastDocId) {
-    nc->base.current = nc->virt;
+  if (base->lastDocId != oi->child->lastDocId) {
+    base->current = oi->virt;
   } else {
-    nc->base.current = nc->child->current;
-    nc->base.current->weight = nc->weight;
+    base->current = oi->child->current;
+    base->current->weight = oi->weight;
   }
 
-  nc->base.current->docId = base->lastDocId;
+  base->current->docId = base->lastDocId;
   return ITERATOR_OK;
 }
 
 // Create a new OPTIONAL iterator - Non-Optimized version.
 QueryIterator *IT_V2(NewOptionalIterator_NonOptimized)(QueryIterator *it, t_docId maxDocId, size_t numDocs, double weight) {
-  OptionalIterator *nc = rm_calloc(1, sizeof(*nc));
-  nc->child = it ? it : IT_V2(NewEmptyIterator)();
-  nc->maxDocId = maxDocId;
-  nc->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);
-  nc->virt->freq = 1;
-  nc->weight = weight;
+  OptionalIterator *oi = rm_calloc(1, sizeof(*oi));
+  oi->child = it ? it : IT_V2(NewEmptyIterator)();
+  oi->maxDocId = maxDocId;
+  oi->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);
+  oi->virt->freq = 1;
+  oi->weight = weight;
 
-  QueryIterator *ret = &nc->base;
+  QueryIterator *ret = &oi->base;
   ret->type = OPTIONAL_ITERATOR;
   ret->atEOF = false;
   ret->lastDocId = 0;
-  ret->current = nc->virt;
+  ret->current = oi->virt;
   ret->NumEstimated = OI_NumEstimated;
   ret->Free = OI_Free;
   ret->Read = OI_ReadSorted_NO;
