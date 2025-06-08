@@ -17,11 +17,11 @@
 #include <stdexcept>
 
 extern "C" {
-    static IteratorStatus MockIterator_Read(QueryIterator *base);
-    static IteratorStatus MockIterator_SkipTo(QueryIterator *base, t_docId docId);
-    static size_t MockIterator_NumEstimated(QueryIterator *base);
-    static void MockIterator_Rewind(QueryIterator *base);
-    static void MockIterator_Free(QueryIterator *base);
+    IteratorStatus MockIterator_Read(QueryIterator *base);
+    IteratorStatus MockIterator_SkipTo(QueryIterator *base, t_docId docId);
+    size_t MockIterator_NumEstimated(QueryIterator *base);
+    void MockIterator_Rewind(QueryIterator *base);
+    void MockIterator_Free(QueryIterator *base);
 }
 
 class MockIterator {
