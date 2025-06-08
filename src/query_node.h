@@ -131,7 +131,7 @@ typedef struct {
 } QueryVectorNode;
 
 typedef struct {
-  t_docId *ids;
+  const sds *keys;
   size_t len;
 } QueryIdFilterNode;
 
