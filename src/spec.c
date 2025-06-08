@@ -97,9 +97,9 @@ static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *
   uint32_t sleepTime = RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry;
   RedisModule_Log(ctx, "notice", "Scanning index %s in background: paused for %u seconds due to OOM, waiting for memory allocation",
                   scanner->spec_name_for_logs, sleepTime);
+  RedisModule_ThreadSafeContextUnlock(ctx);
   sleep(sleepTime);
-
-  return;
+  RedisModule_ThreadSafeContextLock(ctx);
 }
 
 // This function should be called after the second background scan OOM error
