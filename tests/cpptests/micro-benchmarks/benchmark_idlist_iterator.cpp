@@ -96,17 +96,16 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, Read_Old, IndexIterator)(benchma
 }
 
 BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo_Old, IndexIterator)(benchmark::State &state) {
-  RSIndexResult *hit;
-  t_docId lastDocId = 0;
+  RSIndexResult *hit = iterator_base->current;
+  hit->docId = 0;
   t_docId step = 10;
   for (auto _ : state) {
-    auto rc = iterator_base->SkipTo(iterator_base, lastDocId + step, &hit);
-    lastDocId = hit->docId;
+    auto rc = iterator_base->SkipTo(iterator_base, hit->docId + step, &hit);
     step += 10;
     if (rc == INDEXREAD_EOF) {
       iterator_base->Rewind(iterator_base);
       step = 10;
-      lastDocId = 0;
+      hit->docId = 0;
     }
   }
 }

@@ -39,8 +39,6 @@ static IteratorStatus IL_Read(QueryIterator *base) {
 /* Skip to a docid, potentially reading the entry into hit, if the docId
 * matches */
 static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
-  RS_ASSERT(base->lastDocId < docId);
-
   IdListIterator *it = (IdListIterator *)base;
   if (isEof(base)) {
     return ITERATOR_EOF;
