@@ -3,6 +3,7 @@ name = "triemap_ffi"
 version.workspace = true
 edition.workspace = true
 license-file.workspace = true
+publish = false
 
 [lints]
 workspace = true
