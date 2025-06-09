@@ -47,12 +47,15 @@ static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
     setEof(base, true);
     return ITERATOR_EOF;
   }
+  RS_ASSERT(base->lastDocId < docId);
 
-  t_offset top = MIN(it->size, it->offset + (docId - base->lastDocId) + 1);
+  // The top of the binary search is limited, The worst case scenario is when the List contains every DocId, and in that worst case
+  // the search range is limited to a range of (docId - lastDocId) elements starting from current offset
+  t_offset top = MIN(it->size, it->offset + (docId - base->lastDocId));
   t_offset bottom = it->offset;
   t_offset i = 0;
   t_docId did;
-  while (bottom < top) {
+  do {
     i = (bottom + top) / 2;
     did = it->docIds[i];
 
@@ -64,7 +67,7 @@ static IteratorStatus IL_SkipTo(QueryIterator *base, t_docId docId) {
     } else {
       bottom = i + 1;
     }
-  }
+  } while (bottom < top);
   if (did < docId) {
     did = it->docIds[++i];
   }

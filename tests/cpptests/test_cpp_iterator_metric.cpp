@@ -17,6 +17,8 @@ class MetricIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std:
 protected:
   std::vector<t_docId> docIds;
   std::vector<double> scores;
+  std::vector<double> sortedScores;
+  std::vector<t_docId> sortedDocIds;
   Metric metric_type;
   bool yields_metric;
   QueryIterator *iterator_base;
@@ -24,8 +26,6 @@ protected:
   void SetUp() override {
     std::tie(docIds, scores, metric_type) = GetParam();
     std::vector<size_t> indices(docIds.size());
-    std::vector<t_docId> sortedDocIds;
-    std::vector<double> sortedScores;
     for (size_t i = 0; i < indices.size(); ++i) {
       indices[i] = i;
     }
@@ -47,38 +47,23 @@ protected:
 };
 
 TEST_P(MetricIteratorCommonTest, Read) {
-  auto sorted_docIds = docIds;
-  auto sorted_scores = scores;
-  std::vector<size_t> indices(docIds.size());
-  for (size_t i = 0; i < indices.size(); ++i) {
-    indices[i] = i;
-  }
-  std::sort(indices.begin(), indices.end(), [this](size_t i1, size_t i2) { return docIds[i1] < docIds[i2]; });
-
-  sorted_docIds.clear();
-  sorted_scores.clear();
-  for (size_t i : indices) {
-    sorted_docIds.push_back(docIds[i]);
-    sorted_scores.push_back(scores[i]);
-  }
-
   IteratorStatus rc;
   ASSERT_EQ(iterator_base->NumEstimated(iterator_base), docIds.size());
 
   // Test reading until EOF
   size_t i = 0;
   while ((rc = iterator_base->Read(iterator_base)) == ITERATOR_OK) {
-    ASSERT_EQ(iterator_base->current->docId, sorted_docIds[i]);
-    ASSERT_EQ(iterator_base->lastDocId, sorted_docIds[i]);
+    ASSERT_EQ(iterator_base->current->docId, sortedDocIds[i]);
+    ASSERT_EQ(iterator_base->lastDocId, sortedDocIds[i]);
     ASSERT_FALSE(iterator_base->atEOF);
 
     // Check score value if yields_metric is true
     if (yields_metric) {
       ASSERT_EQ(iterator_base->current->type, RSResultType_Metric);
-      ASSERT_EQ(iterator_base->current->num.value, sorted_scores[i]);
+      ASSERT_EQ(iterator_base->current->num.value, sortedScores[i]);
       ASSERT_EQ(iterator_base->current->metrics[0].key, nullptr);
       ASSERT_EQ(iterator_base->current->metrics[0].value->t, RSValue_Number);
-      ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sorted_scores[i]);
+      ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sortedScores[i]);
     }
     i++;
   }
@@ -86,42 +71,27 @@ TEST_P(MetricIteratorCommonTest, Read) {
   ASSERT_EQ(rc, ITERATOR_EOF);
   ASSERT_TRUE(iterator_base->atEOF);
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_EOF); // Reading after EOF should return EOF
-  ASSERT_EQ(iterator_base->SkipTo(iterator_base, sorted_docIds[0]), ITERATOR_EOF); // SkipTo after EOF should return EOF
-  ASSERT_EQ(i, docIds.size()) << "Expected to read " << docIds.size() << " documents";
+  ASSERT_EQ(iterator_base->SkipTo(iterator_base, sortedDocIds[0]), ITERATOR_EOF); // SkipTo after EOF should return EOF
+  ASSERT_EQ(i, sortedDocIds.size()) << "Expected to read " << sortedDocIds.size() << " documents";
 }
 
 TEST_P(MetricIteratorCommonTest, SkipTo) {
-  auto sorted_docIds = docIds;
-  auto sorted_scores = scores;
-  std::vector<size_t> indices(docIds.size());
-  for (size_t i = 0; i < indices.size(); ++i) {
-    indices[i] = i;
-  }
-  std::sort(indices.begin(), indices.end(), [this](size_t i1, size_t i2) { return docIds[i1] < docIds[i2]; });
-
-  sorted_docIds.clear();
-  sorted_scores.clear();
-  for (size_t i : indices) {
-    sorted_docIds.push_back(docIds[i]);
-    sorted_scores.push_back(scores[i]);
-  }
-
   IteratorStatus rc;
 
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
-  ASSERT_EQ(iterator_base->current->docId, sorted_docIds[0]);
-  ASSERT_EQ(iterator_base->lastDocId, sorted_docIds[0]);
+  ASSERT_EQ(iterator_base->current->docId, sortedDocIds[0]);
+  ASSERT_EQ(iterator_base->lastDocId, sortedDocIds[0]);
   ASSERT_FALSE(iterator_base->atEOF);
 
   // Skip To to higher than last docID returns EOF
-  ASSERT_EQ(iterator_base->SkipTo(iterator_base, sorted_docIds.back() + 1), ITERATOR_EOF);
+  ASSERT_EQ(iterator_base->SkipTo(iterator_base, sortedDocIds.back() + 1), ITERATOR_EOF);
   ASSERT_TRUE(iterator_base->atEOF);
 
   iterator_base->Rewind(iterator_base);
 
   t_docId i = 1;
-  for (size_t index = 0; index < sorted_docIds.size(); index++) {
-    t_docId id = sorted_docIds[index];
+  for (size_t index = 0; index < sortedDocIds.size(); index++) {
+    t_docId id = sortedDocIds[index];
     while (i < id) {
       // Skip To from last sorted_id to the next one, should move the current iterator to id
       iterator_base->Rewind(iterator_base);
@@ -131,8 +101,8 @@ TEST_P(MetricIteratorCommonTest, SkipTo) {
       ASSERT_EQ(iterator_base->current->docId, id);
       ASSERT_FALSE(iterator_base->atEOF); // EOF would be set in another iteration
       if (yields_metric) {
-        ASSERT_EQ(iterator_base->current->num.value, sorted_scores[index]);
-        ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sorted_scores[index]);
+        ASSERT_EQ(iterator_base->current->num.value, sortedScores[index]);
+        ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sortedScores[index]);
       }
 
       iterator_base->Rewind(iterator_base);
@@ -146,7 +116,7 @@ TEST_P(MetricIteratorCommonTest, SkipTo) {
     ASSERT_FALSE(iterator_base->atEOF); // EOF would be set in another iteration
 
     if (yields_metric) {
-      ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sorted_scores[index]);
+      ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sortedScores[index]);
     }
 
     i++;
@@ -155,46 +125,31 @@ TEST_P(MetricIteratorCommonTest, SkipTo) {
   ASSERT_TRUE(iterator_base->atEOF);
 
   iterator_base->Rewind(iterator_base);
-  for (size_t index = 0; index < sorted_docIds.size(); index++) {
-    t_docId id = sorted_docIds[index];
+  for (size_t index = 0; index < sortedDocIds.size(); index++) {
+    t_docId id = sortedDocIds[index];
     rc = iterator_base->SkipTo(iterator_base, id);
     ASSERT_EQ(rc, ITERATOR_OK);
     ASSERT_EQ(iterator_base->current->docId, id);
     ASSERT_EQ(iterator_base->lastDocId, id);
 
     if (yields_metric) {
-      ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sorted_scores[index]);
+      ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sortedScores[index]);
     }
   }
 }
 
 TEST_P(MetricIteratorCommonTest, Rewind) {
-  auto sorted_docIds = docIds;
-  auto sorted_scores = scores;
-  std::vector<size_t> indices(docIds.size());
-  for (size_t i = 0; i < indices.size(); ++i) {
-    indices[i] = i;
-  }
-  std::sort(indices.begin(), indices.end(), [this](size_t i1, size_t i2) { return docIds[i1] < docIds[i2]; });
-
-  sorted_docIds.clear();
-  sorted_scores.clear();
-  for (size_t i : indices) {
-    sorted_docIds.push_back(docIds[i]);
-    sorted_scores.push_back(scores[i]);
-  }
-
   IteratorStatus rc;
 
-  for (size_t index = 0; index < sorted_docIds.size(); index++) {
-    t_docId id = sorted_docIds[index];
+  for (size_t index = 0; index < sortedDocIds.size(); index++) {
+    t_docId id = sortedDocIds[index];
     rc = iterator_base->SkipTo(iterator_base, id);
     ASSERT_EQ(rc, ITERATOR_OK);
     ASSERT_EQ(iterator_base->current->docId, id);
     ASSERT_EQ(iterator_base->lastDocId, id);
 
     if (yields_metric) {
-      ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sorted_scores[index]);
+      ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sortedScores[index]);
     }
 
     iterator_base->Rewind(iterator_base);
@@ -202,14 +157,14 @@ TEST_P(MetricIteratorCommonTest, Rewind) {
     ASSERT_FALSE(iterator_base->atEOF);
   }
 
-  for (size_t index = 0; index < sorted_docIds.size(); index++) {
+  for (size_t index = 0; index < sortedDocIds.size(); index++) {
     rc = iterator_base->Read(iterator_base);
     ASSERT_EQ(rc, ITERATOR_OK);
-    ASSERT_EQ(iterator_base->current->docId, sorted_docIds[index]);
-    ASSERT_EQ(iterator_base->lastDocId, sorted_docIds[index]);
+    ASSERT_EQ(iterator_base->current->docId, sortedDocIds[index]);
+    ASSERT_EQ(iterator_base->lastDocId, sortedDocIds[index]);
 
     if (yields_metric) {
-      ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sorted_scores[index]);
+      ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sortedScores[index]);
     }
   }
 
@@ -217,8 +172,8 @@ TEST_P(MetricIteratorCommonTest, Rewind) {
   rc = iterator_base->Read(iterator_base);
   ASSERT_EQ(rc, ITERATOR_EOF);
   ASSERT_TRUE(iterator_base->atEOF);
-  ASSERT_EQ(iterator_base->current->docId, sorted_docIds.back());
-  ASSERT_EQ(iterator_base->lastDocId, sorted_docIds.back());
+  ASSERT_EQ(iterator_base->current->docId, sortedDocIds.back());
+  ASSERT_EQ(iterator_base->lastDocId, sortedDocIds.back());
   iterator_base->Rewind(iterator_base);
   ASSERT_EQ(iterator_base->lastDocId, 0);
   ASSERT_FALSE(iterator_base->atEOF);

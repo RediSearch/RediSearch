@@ -11,7 +11,7 @@
 #include "index_iterator.h"
 
 // The metric type that this iterator yields.
-#ifndef MICRO_BENCHMARKS
+#ifndef __ITERATOR_API_H__
 typedef enum {
   VECTOR_DISTANCE,
 } Metric;
