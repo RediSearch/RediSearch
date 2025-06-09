@@ -1314,6 +1314,7 @@ static int periodicCb(void *privdata) {
   if (isOutOfMemory(ctx)) {
     RedisModule_Log(ctx, "warning", "Not enough memory for GC fork, skipping GC job");
     gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval;
+    RedisModule_ThreadSafeContextUnlock(ctx);
     return 1;
   }
 
