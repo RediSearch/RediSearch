@@ -21,6 +21,7 @@ impl CVarintVectorWriter {
     /// Create a new C-backed varint vector writer with the given capacity.
     #[inline(always)]
     pub fn new(cap: usize) -> Self {
+        // SAFETY: NewVarintVectorWriter is a valid C function that creates a new vector writer
         let ptr = unsafe { ffi::NewVarintVectorWriter(cap) };
         assert!(!ptr.is_null(), "Failed to create C VarintVectorWriter");
         Self(ptr)
@@ -30,18 +31,21 @@ impl CVarintVectorWriter {
     /// Returns the number of bytes written.
     #[inline(always)]
     pub fn write(&mut self, value: u32) -> usize {
+        // SAFETY: VVW_Write is a valid C function and self.0 is a valid VarintVectorWriter pointer
         unsafe { ffi::VVW_Write(self.0, value) }
     }
 
     /// Get the number of values written to the vector.
     #[inline(always)]
     pub fn count(&self) -> usize {
+        // SAFETY: self.0 is a valid VarintVectorWriter pointer, accessing nmemb field
         unsafe { (*self.0).nmemb }
     }
 
     /// Get the total number of bytes written.
     #[inline(always)]
     pub fn bytes_len(&self) -> usize {
+        // SAFETY: self.0 is a valid VarintVectorWriter pointer, accessing buf.offset field
         unsafe { (*self.0).buf.offset }
     }
 
@@ -49,6 +53,7 @@ impl CVarintVectorWriter {
     /// The data is valid until the next write operation or until the writer is dropped.
     #[inline(always)]
     pub fn bytes_data(&self) -> *const u8 {
+        // SAFETY: self.0 is a valid VarintVectorWriter pointer, accessing buf.data field
         unsafe { (*self.0).buf.data as *const u8 }
     }
 
@@ -56,6 +61,7 @@ impl CVarintVectorWriter {
     /// Returns the new capacity.
     #[inline(always)]
     pub fn shrink_to_fit(&mut self) -> usize {
+        // SAFETY: VVW_Truncate is a valid C function and self.0 is a valid VarintVectorWriter pointer
         unsafe { ffi::VVW_Truncate(self.0) }
     }
 }
@@ -63,6 +69,7 @@ impl CVarintVectorWriter {
 impl Drop for CVarintVectorWriter {
     fn drop(&mut self) {
         if !self.0.is_null() {
+            // SAFETY: VVW_Free is a valid C function and self.0 is a valid VarintVectorWriter pointer
             unsafe {
                 ffi::VVW_Free(self.0);
             }
@@ -78,6 +85,7 @@ pub mod c_varint_ops {
     /// Returns the number of bytes written.
     #[inline(always)]
     pub fn write(value: u32, buffer: &mut ffi::Buffer) -> usize {
+        // SAFETY: WriteVarint is a valid C function, buffer is a valid Buffer pointer
         unsafe {
             // Set up C BufferWriter structure
             let mut writer = ffi::BufferWriter {
@@ -99,6 +107,7 @@ pub mod c_varint_ops {
     /// Returns the number of bytes written.
     #[inline(always)]
     pub fn write_field_mask(value: FieldMask, buffer: &mut ffi::Buffer) -> usize {
+        // SAFETY: WriteVarintFieldMask is a valid C function, buffer is a valid Buffer pointer
         unsafe {
             // Set up C BufferWriter structure
             let mut writer = ffi::BufferWriter {
@@ -120,6 +129,7 @@ pub mod c_varint_ops {
     /// This avoids allocation overhead in benchmarks.
     #[inline(always)]
     pub fn write_to_buffer(value: u32, buffer: &mut ffi::Buffer) -> &[u8] {
+        // SAFETY: buffer is a valid Buffer with valid data pointer and offset
         unsafe {
             buffer.offset = 0; // Reset buffer
             write(value, buffer);
@@ -131,36 +141,39 @@ pub mod c_varint_ops {
     /// Used by main.rs for memory analysis.
     #[inline(always)]
     pub fn write_to_vec(value: u32) -> Vec<u8> {
-        unsafe {
-            // Create buffer for single varint (max 5 bytes)
-            let initial_capacity = 16;
-            let data_ptr = crate::RedisModule_Alloc.unwrap()(initial_capacity);
-            if data_ptr.is_null() {
-                return Vec::new();
-            }
+        // SAFETY: RedisModule_Alloc is a valid function pointer provided by Redis module system
+        let alloc_fn = unsafe { crate::RedisModule_Alloc.unwrap() };
 
-            // Set up C Buffer structure
-            let mut buffer = ffi::Buffer {
-                data: data_ptr as *mut i8,
-                offset: 0,
-                cap: initial_capacity,
-            };
-
-            // Use the buffer-based write function
-            let encoded = write_to_buffer(value, &mut buffer);
-            let result = encoded.to_vec();
-
-            // Free the C buffer
-            crate::RedisModule_Free.unwrap()(data_ptr);
-
-            result
+        // SAFETY: Calling Redis allocator with valid size parameter
+        let data_ptr = unsafe { alloc_fn(16) };
+        if data_ptr.is_null() {
+            return Vec::new();
         }
+
+        // Set up C Buffer structure
+        let mut buffer = ffi::Buffer {
+            data: data_ptr as *mut i8,
+            offset: 0,
+            cap: 16,
+        };
+
+        // Use the buffer-based write function
+        let encoded = write_to_buffer(value, &mut buffer);
+        let result = encoded.to_vec();
+
+        // SAFETY: RedisModule_Free is a valid function pointer provided by Redis module system
+        let free_fn = unsafe { crate::RedisModule_Free.unwrap() };
+        // SAFETY: Freeing buffer that was allocated by RedisModule_Alloc
+        unsafe { free_fn(data_ptr) };
+
+        result
     }
 
     /// Encode a field mask using pre-allocated buffer and return the encoded bytes.
     /// This avoids allocation overhead in benchmarks.
     #[inline(always)]
     pub fn write_field_mask_to_buffer(value: FieldMask, buffer: &mut ffi::Buffer) -> &[u8] {
+        // SAFETY: buffer is a valid Buffer with valid data pointer and offset
         unsafe {
             buffer.offset = 0; // Reset buffer
             write_field_mask(value, buffer);
@@ -172,30 +185,32 @@ pub mod c_varint_ops {
     /// Used by main.rs for memory analysis.
     #[inline(always)]
     pub fn write_field_mask_to_vec(value: FieldMask) -> Vec<u8> {
-        unsafe {
-            // Create initial buffer using C allocation so it can be grown by Buffer_Grow
-            let initial_capacity = 32;
-            let data_ptr = crate::RedisModule_Alloc.unwrap()(initial_capacity);
-            if data_ptr.is_null() {
-                return Vec::new();
-            }
+        // SAFETY: RedisModule_Alloc is a valid function pointer provided by Redis module system
+        let alloc_fn = unsafe { crate::RedisModule_Alloc.unwrap() };
 
-            // Set up C Buffer structure
-            let mut buffer = ffi::Buffer {
-                data: data_ptr as *mut i8,
-                offset: 0,
-                cap: initial_capacity,
-            };
-
-            // Use the buffer-based write function
-            let encoded = write_field_mask_to_buffer(value, &mut buffer);
-            let result = encoded.to_vec();
-
-            // Free the C buffer
-            crate::RedisModule_Free.unwrap()(data_ptr);
-
-            result
+        // SAFETY: Calling Redis allocator with valid size parameter
+        let data_ptr = unsafe { alloc_fn(32) };
+        if data_ptr.is_null() {
+            return Vec::new();
         }
+
+        // Set up C Buffer structure
+        let mut buffer = ffi::Buffer {
+            data: data_ptr as *mut i8,
+            offset: 0,
+            cap: 32,
+        };
+
+        // Use the buffer-based write function
+        let encoded = write_field_mask_to_buffer(value, &mut buffer);
+        let result = encoded.to_vec();
+
+        // SAFETY: RedisModule_Free is a valid function pointer provided by Redis module system
+        let free_fn = unsafe { crate::RedisModule_Free.unwrap() };
+        // SAFETY: Freeing buffer that was allocated by RedisModule_Alloc
+        unsafe { free_fn(data_ptr) };
+
+        result
     }
 
     /// Decode a varint using the actual C ReadVarint function with BufferReader.
@@ -203,13 +218,11 @@ pub mod c_varint_ops {
     /// Buffer must already be set up to point to the data to decode.
     #[inline(always)]
     pub fn read(buffer: &mut ffi::Buffer) -> u32 {
-        unsafe {
-            // Create a BufferReader.
-            let mut reader = ffi::NewBufferReader(buffer);
+        // SAFETY: NewBufferReader is a valid C function that creates a BufferReader from a Buffer
+        let mut reader = unsafe { ffi::NewBufferReader(buffer) };
 
-            // Use the actual C ReadVarint function.
-            ffi::ReadVarintNonInline(&mut reader)
-        }
+        // SAFETY: ReadVarintNonInline is a valid C function that reads from a BufferReader
+        unsafe { ffi::ReadVarintNonInline(&mut reader) }
     }
 
     /// Decode a field mask using the actual C ReadVarintFieldMask function with BufferReader.
@@ -217,13 +230,11 @@ pub mod c_varint_ops {
     /// Buffer must already be set up to point to the data to decode.
     #[inline(always)]
     pub fn read_field_mask(buffer: &mut ffi::Buffer) -> FieldMask {
-        unsafe {
-            // Create a BufferReader.
-            let mut reader = ffi::NewBufferReader(buffer);
+        // SAFETY: NewBufferReader is a valid C function that creates a BufferReader from a Buffer
+        let mut reader = unsafe { ffi::NewBufferReader(buffer) };
 
-            // Use the actual C ReadVarintFieldMask function.
-            ffi::ReadVarintFieldMaskNonInline(&mut reader)
-        }
+        // SAFETY: ReadVarintFieldMaskNonInline is a valid C function that reads from a BufferReader
+        unsafe { ffi::ReadVarintFieldMaskNonInline(&mut reader) }
     }
 
     /// Convenience wrapper for single varint decoding that returns u32.

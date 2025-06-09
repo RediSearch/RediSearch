@@ -146,7 +146,10 @@ fn encode_rust_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, valu
 
 fn encode_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[u32]) {
     // Allocate buffer once for the entire benchmark
-    let buffer_ptr = unsafe { crate::RedisModule_Alloc.unwrap()(1024) };
+    // SAFETY: RedisModule_Alloc is a valid function pointer provided by Redis module system
+    let alloc_fn = unsafe { crate::RedisModule_Alloc.unwrap() };
+    // SAFETY: Calling Redis allocator with valid size parameter
+    let buffer_ptr = unsafe { alloc_fn(1024) };
 
     group.bench_function("C", |b| {
         b.iter(|| {
@@ -164,8 +167,11 @@ fn encode_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values:
     });
 
     // Free buffer after benchmark
+    // SAFETY: RedisModule_Free is a valid function pointer provided by Redis module system
+    let free_fn = unsafe { crate::RedisModule_Free.unwrap() };
+    // SAFETY: Freeing buffer that was allocated by RedisModule_Alloc
     unsafe {
-        crate::RedisModule_Free.unwrap()(buffer_ptr);
+        free_fn(buffer_ptr);
     }
 }
 
@@ -189,7 +195,10 @@ fn encode_field_mask_c_benchmark<M: Measurement>(
     values: &[FieldMask],
 ) {
     // Allocate buffer once for the entire benchmark
-    let buffer_ptr = unsafe { crate::RedisModule_Alloc.unwrap()(1024) };
+    // SAFETY: RedisModule_Alloc is a valid function pointer provided by Redis module system
+    let alloc_fn = unsafe { crate::RedisModule_Alloc.unwrap() };
+    // SAFETY: Calling Redis allocator with valid size parameter
+    let buffer_ptr = unsafe { alloc_fn(1024) };
 
     group.bench_function("C", |b| {
         b.iter(|| {
@@ -207,8 +216,11 @@ fn encode_field_mask_c_benchmark<M: Measurement>(
     });
 
     // Free buffer after benchmark
+    // SAFETY: RedisModule_Free is a valid function pointer provided by Redis module system
+    let free_fn = unsafe { crate::RedisModule_Free.unwrap() };
+    // SAFETY: Freeing buffer that was allocated by RedisModule_Alloc
     unsafe {
-        crate::RedisModule_Free.unwrap()(buffer_ptr);
+        free_fn(buffer_ptr);
     }
 }
 
