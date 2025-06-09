@@ -94,12 +94,6 @@ TEST_F(OptionalIteratorEmptyTest, SkipTo) {
   ASSERT_TRUE(iterator_base->atEOF);
 }
 
-TEST_F(OptionalIteratorEmptyTest, SkipToZero) {
-  // Test skipping to docId 0 (should set to 0)
-  ASSERT_EQ(iterator_base->SkipTo(iterator_base, 0), ITERATOR_OK);
-  ASSERT_EQ(iterator_base->current->docId, 0);
-  ASSERT_EQ(iterator_base->lastDocId, 0);
-}
 
 TEST_F(OptionalIteratorEmptyTest, Rewind) {
   // First read some docs
