@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <vector>
 #include <stdexcept>
+#include <algorithm>
 
 extern "C" {
     int MockOldIterator_Read(void *base, RSIndexResult **hit);

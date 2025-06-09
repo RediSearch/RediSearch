@@ -10,17 +10,17 @@
 #include "iterator_util.h"
 
 IteratorStatus MockIterator_Read(QueryIterator *base) {
-  return reinterpret_cast<MockIterator *>(base)->Read();
+    return reinterpret_cast<MockIterator *>(base)->Read();
 }
 IteratorStatus MockIterator_SkipTo(QueryIterator *base, t_docId docId) {
-  return reinterpret_cast<MockIterator *>(base)->SkipTo(docId);
+    return reinterpret_cast<MockIterator *>(base)->SkipTo(docId);
 }
 size_t MockIterator_NumEstimated(QueryIterator *base) {
-  return reinterpret_cast<MockIterator *>(base)->NumEstimated();
+    return reinterpret_cast<MockIterator *>(base)->NumEstimated();
 }
 void MockIterator_Rewind(QueryIterator *base) {
-  reinterpret_cast<MockIterator *>(base)->Rewind();
+    reinterpret_cast<MockIterator *>(base)->Rewind();
 }
 void MockIterator_Free(QueryIterator *base) {
-  delete reinterpret_cast<MockIterator *>(base);
+    delete reinterpret_cast<MockIterator *>(base);
 }
