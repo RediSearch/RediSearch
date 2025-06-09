@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 processor=$(uname -m)
 OS_TYPE=$(uname -s)
 
