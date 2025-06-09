@@ -89,7 +89,7 @@ public:
                 InvertedIndex_WriteEntryGeneric(index, encoder, ids[i], nullptr);
             }
         } else if (flags == (Index_DocIdsOnly | Index_Temporary)) {
-            // Spacial case reserved for `Index_DocIdsOnly` with raw doc IDs
+            // Special case reserved for `Index_DocIdsOnly` with raw doc IDs
             RSGlobalConfig.invertedIndexRawDocidEncoding = true; // Enable raw doc ID encoding, until the benchmark's tearDown
             RS_ASSERT_ALWAYS(encoder != InvertedIndex_GetEncoder(Index_DocIdsOnly)); // Ensure we are using the raw doc ID encoder
             encoder = InvertedIndex_GetEncoder(Index_DocIdsOnly);
