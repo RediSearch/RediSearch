@@ -37,15 +37,15 @@ public:
 private:
 
     static void setBase(QueryIterator *base) {
-        base->type = READ_ITERATOR;
-        base->atEOF = false;
-        base->lastDocId = 0;
-        base->current = NewVirtualResult(1, RS_FIELDMASK_ALL);
-        base->NumEstimated = MockIterator_NumEstimated;
-        base->Free = MockIterator_Free;
-        base->Read = MockIterator_Read;
-        base->SkipTo = MockIterator_SkipTo;
-        base->Rewind = MockIterator_Rewind;
+      base->type = READ_ITERATOR;
+      base->atEOF = false;
+      base->lastDocId = 0;
+      base->current = NewVirtualResult(1, RS_FIELDMASK_ALL);
+      base->NumEstimated = MockIterator_NumEstimated;
+      base->Free = MockIterator_Free;
+      base->Read = MockIterator_Read;
+      base->SkipTo = MockIterator_SkipTo;
+      base->Rewind = MockIterator_Rewind;
     }
 public:
     // Public API
@@ -54,13 +54,14 @@ public:
         std::this_thread::sleep_for(sleepTime.value());
       }
       readCount++;
-      if (nextIndex >= docIds.size() || base.atEOF) {
+      if (nextIndex >= docIds.size() || base.atEOF || docIds.size() == 0) {
         base.atEOF = true;
         return whenDone;
       }
       base.lastDocId = base.current->docId = docIds[nextIndex++];
       return ITERATOR_OK;
     }
+
     IteratorStatus SkipTo(t_docId docId) {
       if (sleepTime.has_value()) {
         std::this_thread::sleep_for(sleepTime.value());
@@ -83,9 +84,11 @@ public:
       }
       return status;
     }
+
     size_t NumEstimated() {
       return docIds.size();
     }
+
     void Rewind() {
       nextIndex = 0;
       readCount = 0;

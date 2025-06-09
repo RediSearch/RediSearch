@@ -187,7 +187,7 @@ static IteratorStatus NI_Read_Optimized(QueryIterator *base) {
     base->atEOF = true;
     return ITERATOR_TIMEOUT;
   }
-  // Keep advancing TruePointer until we find an element not in NegatePointer
+  // Keep advancing wcii until we find an element not in child
   while (!ni->wcii->atEOF) {
     // If child is exhausted or its current value is greater than wcii's,
     // then wcii's current value is not in child
