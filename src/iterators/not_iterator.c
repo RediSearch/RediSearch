@@ -34,17 +34,21 @@ static void NI_Free(QueryIterator *base) {
 
 static size_t NI_NumEstimated(QueryIterator *base) {
   NotIterator *ni = (NotIterator *)base;
-  return ni->maxDocId - ni->child->NumEstimated(ni->child);
+  return ni->maxDocId;
 }
 
-static IteratorStatus NI_ReadSorted_O(QueryIterator *base); // forward decl
-static IteratorStatus NI_ReadSorted_NO(QueryIterator *base); // forward decl
+static IteratorStatus NI_Read_Optimized(QueryIterator *base); // forward decl
+static IteratorStatus NI_Read_NotOptimized(QueryIterator *base); // forward decl
 
 /* SkipTo for NOT iterator - Non-optimized version. If we have a match - return
  * NOTFOUND. If we don't or we're at the end - return OK */
-static IteratorStatus NI_SkipTo_NO(QueryIterator *base, t_docId docId) {
+static IteratorStatus NI_SkipTo_NotOptimized(QueryIterator *base, t_docId docId) {
+  RS_ASSERT(base->lastDocId < docId);
   NotIterator *ni = (NotIterator *)base;
   // do not skip beyond max doc id
+  if (base->atEOF) {
+    return ITERATOR_EOF;
+  }
   if (docId > ni->maxDocId) {
     base->atEOF = true;
     return ITERATOR_EOF;
@@ -67,7 +71,7 @@ static IteratorStatus NI_SkipTo_NO(QueryIterator *base, t_docId docId) {
   // If the child docId is the one we are looking for, it's an anti match!
   // We need to return NOTFOUND and set the current result to the next valid docId
   base->current->docId = base->lastDocId = docId;
-  IteratorStatus rc = NI_ReadSorted_NO(base);
+  IteratorStatus rc = NI_Read_NotOptimized(base);
   if (rc == ITERATOR_OK) {
     return ITERATOR_NOTFOUND;
   }
@@ -76,7 +80,8 @@ static IteratorStatus NI_SkipTo_NO(QueryIterator *base, t_docId docId) {
 
 /* SkipTo for NOT iterator - Optimized version. If we have a match - return
  * NOTFOUND. If we don't or we're at the end - return OK */
-static IteratorStatus NI_SkipTo_O(QueryIterator *base, t_docId docId) {
+static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
+  RS_ASSERT(base->lastDocId < docId);
   NotIterator *ni = (NotIterator *)base;
 
   // do not skip beyond max doc id
@@ -108,7 +113,7 @@ static IteratorStatus NI_SkipTo_O(QueryIterator *base, t_docId docId) {
 
   // If the wildcard iterator is missing the docId, or the child iterator has it,
   // We need to return NOTFOUND and set hit to the next valid docId
-  rc = NI_ReadSorted_O(base);
+  rc = NI_Read_Optimized(base);
   if (rc == ITERATOR_OK) {
     return ITERATOR_NOTFOUND;
   }
@@ -117,7 +122,7 @@ static IteratorStatus NI_SkipTo_O(QueryIterator *base, t_docId docId) {
 
 /* Read from a NOT iterator - Non-Optimized version. We simply read until max
  * docId, skipping docIds that exist in the child */
-static IteratorStatus NI_ReadSorted_NO(QueryIterator *base) {
+static IteratorStatus NI_Read_NotOptimized(QueryIterator *base) {
   NotIterator *ni = (NotIterator *)base;
   if (base->atEOF || base->lastDocId >= ni->maxDocId) {
     base->atEOF = true;
@@ -160,7 +165,7 @@ static IteratorStatus NI_ReadSorted_NO(QueryIterator *base) {
  * inverted index. This is applicable only if the only or leftmost node of a
  * query is a NOT node. We simply read until max docId, skipping docIds that
  * exist in the child */
-static IteratorStatus NI_ReadSorted_O(QueryIterator *base) {
+static IteratorStatus NI_Read_Optimized(QueryIterator *base) {
   NotIterator *ni = (NotIterator *)base;
   if (base->atEOF || base->lastDocId >= ni->maxDocId) {
     base->atEOF = true;
@@ -220,7 +225,7 @@ QueryIterator *IT_V2(NewNotIterator)(QueryIterator *it, t_docId maxDocId, double
   ni->child = it ? it : IT_V2(NewEmptyIterator)();
   ni->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
   ni->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = 0 };
-  
+
   ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   ret->current->docId = 0;
   ret->atEOF = false;
@@ -228,8 +233,8 @@ QueryIterator *IT_V2(NewNotIterator)(QueryIterator *it, t_docId maxDocId, double
   ret->lastDocId = 0;
   ret->NumEstimated = NI_NumEstimated;
   ret->Free = NI_Free;
-  ret->Read = optimized ? NI_ReadSorted_O : NI_ReadSorted_NO;
-  ret->SkipTo = optimized ? NI_SkipTo_O : NI_SkipTo_NO;
+  ret->Read = optimized ? NI_Read_Optimized : NI_Read_NotOptimized;
+  ret->SkipTo = optimized ? NI_SkipTo_Optimized : NI_SkipTo_NotOptimized;
   ret->Rewind = NI_Rewind;
 
   return ret;

@@ -52,7 +52,7 @@ protected:
         spec = (IndexSpec*)rm_calloc(1, sizeof(IndexSpec));
         spec->rule = (SchemaRule*)rm_calloc(1, sizeof(SchemaRule));
         spec->rule->index_all = true;
-        
+
         sctx = (RedisSearchCtx*)rm_calloc(1, sizeof(RedisSearchCtx));
         sctx->spec = spec;
 
@@ -69,7 +69,7 @@ protected:
         iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, nullptr);
       }
     }
-    
+
     void TearDown() override {
       iterator_base->Free(iterator_base);
 
@@ -128,6 +128,11 @@ TEST_P(NotIteratorCommonTest, SkipTo) {
   ASSERT_TRUE(iterator_base->atEOF);
 }
 
+TEST_P(NotIteratorCommonTest, NumEstimated) {
+  NotIterator *ni = (NotIterator *)iterator_base;
+  ASSERT_EQ(iterator_base->NumEstimated(iterator_base), maxDocId);
+}
+
 TEST_P(NotIteratorCommonTest, Rewind) {
   NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
@@ -145,7 +150,7 @@ TEST_P(NotIteratorCommonTest, Rewind) {
 
 // Parameters for the tests - just the child iterator document IDs
 INSTANTIATE_TEST_SUITE_P(
-  NotIteratorP, 
+  NotIteratorP,
   NotIteratorCommonTest,
   ::testing::Combine(
     ::testing::Values(
@@ -196,7 +201,7 @@ TEST_P(NotIteratorChildTimeoutTest, TimeOutChildSkipTo) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-  NotIteratorChildTimeoutP, 
+  NotIteratorChildTimeoutP,
   NotIteratorChildTimeoutTest,
   ::testing::Combine(
     ::testing::Values(
@@ -302,7 +307,7 @@ class NotIteratorSelfTimeoutTest : public NotIteratorCommonTest {
       spec = (IndexSpec*)rm_calloc(1, sizeof(IndexSpec));
       spec->rule = (SchemaRule*)rm_calloc(1, sizeof(SchemaRule));
       spec->rule->index_all = true;
-      
+
       sctx = (RedisSearchCtx*)rm_calloc(1, sizeof(RedisSearchCtx));
       sctx->spec = spec;
 
@@ -356,7 +361,7 @@ TEST_P(NotIteratorSelfTimeoutTest, TimeOutSelfSkipTo) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-  NotIteratorSelfTimeoutP, 
+  NotIteratorSelfTimeoutP,
   NotIteratorSelfTimeoutTest,
   ::testing::Combine(
     ::testing::Values(

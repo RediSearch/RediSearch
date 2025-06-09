@@ -23,7 +23,7 @@ typedef struct {
   QueryIterator *child;       // child index iterator
   t_docId maxDocId;
   TimeoutCtx timeoutCtx;
-} NotIterator, NotContext;
+} NotIterator;
 
 /**
 * @param it - The iterator to negate
@@ -37,4 +37,3 @@ QueryIterator *IT_V2(NewNotIterator)(QueryIterator *it, t_docId maxDocId, double
 #ifdef __cplusplus
 }
 #endif
- 
