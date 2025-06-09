@@ -21,6 +21,9 @@ wildcard = { workspace = true }
 [dev-dependencies]
 redis_mock.workspace = true
 
+[target.'cfg(miri)'.dependencies]
+redis_mock.workspace = true
+
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,
 # necessary on Alpine.
