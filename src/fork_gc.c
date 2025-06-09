@@ -1243,6 +1243,7 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
   return status;
 }
 
+// GIL must be held before calling this function
 static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
   #define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
   RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
