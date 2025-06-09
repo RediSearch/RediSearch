@@ -174,41 +174,49 @@ static IteratorStatus NI_Read_Optimized(QueryIterator *base) {
 
   IteratorStatus rc;
 
+  // If child has not read any element, read one
   if (ni->child->lastDocId == 0) {
     // Read at least the first entry of the child
     rc = ni->child->Read(ni->child);
     if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
   }
-  //Advance and see if it si valid
+
+  // Advance wcii to next element
   rc = ni->wcii->Read(ni->wcii);
   if (rc == ITERATOR_TIMEOUT) {
     base->atEOF = true;
     return ITERATOR_TIMEOUT;
   }
-  base->lastDocId = base->current->docId = ni->wcii->current->docId;
-
-  while (base->lastDocId <= ni->maxDocId) {
-    // I have the risk of missing one lastDocID if childEOF is not accurate (if the child requires another Read to set the flag)
-    if (base->lastDocId < ni->child->lastDocId || ni->child->atEOF) {
-      ni->timeoutCtx.counter = 0;
-      base->current->docId = base->lastDocId;
-      return ITERATOR_OK;
+  // Keep advancing TruePointer until we find an element not in NegatePointer
+  while (!ni->wcii->atEOF) {
+    // If child is exhausted or its current value is greater than wcii's,
+    // then wcii's current value is not in child
+    if (ni->child->atEOF || ni->wcii->lastDocId < ni->child->lastDocId) {
+      base->lastDocId = base->current->docId = ni->wcii->lastDocId;
+      return ITERATOR_OK; // Found a valid difference element
     }
-    rc = ni->child->Read(ni->child);
-    if (rc == ITERATOR_TIMEOUT) return rc;
-    // Check for timeout with low granularity (MOD-5512)
-    //TODO(Joan): Ticket about magic number? Should it be a config?
+
+    // If both pointers are at the same element, advance wcii
+    else if (ni->wcii->lastDocId == ni->child->lastDocId) {
+      rc = ni->wcii->Read(ni->wcii);
+      if (rc == ITERATOR_TIMEOUT) {
+        base->atEOF = true;
+        return ITERATOR_TIMEOUT;
+      }
+    }
+    // If child is behind, advance it until it catches up or passes wcii
+    //else if (ni->child->lastDocId < ni->wcii->lastDocId) {
+    else {
+      rc = ni->child->Read(ni->child);
+      if (rc == ITERATOR_TIMEOUT) {
+        base->atEOF = true;
+        return ITERATOR_TIMEOUT;
+      }
+    }
     if (TimedOut_WithCtx_Gran(&ni->timeoutCtx, 5000)) {
       base->atEOF = true;
       return ITERATOR_TIMEOUT;
     }
-    // The lastDocID that we proposed is not valid, so we need to try another one
-    rc = ni->wcii->Read(ni->wcii);
-    if (rc == ITERATOR_TIMEOUT) {
-      base->atEOF = true;
-      return ITERATOR_TIMEOUT;
-    }
-    base->lastDocId = base->current->docId = ni->wcii->current->docId;
   }
   base->atEOF = true;
   return ITERATOR_EOF;
