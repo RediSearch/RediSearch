@@ -27,7 +27,7 @@ protected:
 
   void SetUp() override {
     // Create optional iterator with null child (will use empty iterator internally)
-    iterator_base = IT_V2(NewOptionalIterator_NonOptimized)(NULL, maxDocId, numDocs, weight);
+    iterator_base = IT_V2(NewOptionalIterator)(NULL, maxDocId, numDocs, weight);
   }
 
   void TearDown() override {
@@ -151,7 +151,7 @@ protected:
     QueryIterator *child = (QueryIterator *)new MockIterator(childDocIds);
 
     // Create optional iterator with child
-    iterator_base = IT_V2(NewOptionalIterator_NonOptimized)(child, maxDocId, numDocs, weight);
+    iterator_base = IT_V2(NewOptionalIterator)(child, maxDocId, numDocs, weight);
   }
 
   void TearDown() override {
@@ -316,7 +316,7 @@ protected:
 
   void SetUp() override {
     // Create optional iterator with small range for edge case testing
-    iterator_base = IT_V2(NewOptionalIterator_NonOptimized)(NULL, maxDocId, numDocs, weight);
+    iterator_base = IT_V2(NewOptionalIterator)(NULL, maxDocId, numDocs, weight);
   }
 
   void TearDown() override {
@@ -387,7 +387,7 @@ protected:
     QueryIterator *child = (QueryIterator *)new MockIterator(ITERATOR_TIMEOUT, 10UL, 20UL, 30UL);
 
     // Create optional iterator with timeout child
-    iterator_base = IT_V2(NewOptionalIterator_NonOptimized)(child, maxDocId, numDocs, weight);
+    iterator_base = IT_V2(NewOptionalIterator)(child, maxDocId, numDocs, weight);
   }
 
   void TearDown() override {

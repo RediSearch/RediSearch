@@ -23,7 +23,7 @@ typedef struct {
   double weight;
 } OptionalIterator;
 
-QueryIterator *IT_V2(NewOptionalIterator_NonOptimized)(QueryIterator *it, t_docId maxDocId, size_t numDocs, double weight);
+QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, t_docId maxDocId, size_t numDocs, double weight);
 
 #ifdef __cplusplus
 }
