@@ -81,13 +81,6 @@ static void IL_Free(QueryIterator *self) {
   rm_free(self);
 }
 
-static int cmp_docids(const void *p1, const void *p2) {
-  const t_docId *d1 = p1, *d2 = p2;
-  if (*d1 < *d2) return -1;
-  if (*d1 > *d2) return 1;
-  return 0;
-}
-
 static void IL_Rewind(QueryIterator *base) {
   IdListIterator *il = (IdListIterator *)base;
   setEof(base, false);
@@ -118,9 +111,10 @@ QueryIterator *IT_V2(NewIdListIterator) (t_docId *ids, t_offset num, double weig
 }
 
 static void SetYield(QueryIterator *base, double value) {
+  MetricIterator *mr = (MetricIterator *)base;
   base->current->num.value = value;
   ResultMetrics_Reset(base->current);
-  ResultMetrics_Add(base->current, NULL, RS_NumVal(value));
+  ResultMetrics_Add(base->current, mr->ownKey, RS_NumVal(value));
 }
 
 static IteratorStatus MR_Read(QueryIterator *base) {
@@ -128,7 +122,7 @@ static IteratorStatus MR_Read(QueryIterator *base) {
   IdListIterator *it = &mr->base;
   IteratorStatus rc = IL_Read(base);
   if (ITERATOR_OK == rc) {
-    SetYield(base, mr->metricList[it->offset - 1]);
+    SetYield(mr, mr->metricList[it->offset - 1]);
   }
   return rc;
 }
@@ -160,6 +154,7 @@ QueryIterator *IT_V2(NewMetricIterator)(t_docId *docIds, double *metric_list, si
   ret = &it->base;
   mi->type = metric_type;
   mi->metricList = metric_list;
+  mi->ownKey = NULL;
   it->docIds = docIds;
   it->size = num_results;
   it->offset = 0;

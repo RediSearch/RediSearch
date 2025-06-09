@@ -11,7 +11,6 @@
 
 #include <random>
 #include <vector>
-#include <iostream>
 
 #include "src/iterators/iterator_api.h"
 #include "src/iterators/idlist_iterator.h"

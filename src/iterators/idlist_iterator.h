@@ -30,6 +30,9 @@ typedef struct {
   IdListIterator base;
   Metric type;
   double *metricList;    // metric_list[i] is the metric that ids_list[i] yields.
+  // Used if the iterator yields some value.
+  // Consider placing in a union with an array of keys, if a field want to yield multiple metrics
+  struct RLookupKey *ownKey;
 } MetricIterator;
 
 /**
