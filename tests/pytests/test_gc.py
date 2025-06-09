@@ -367,7 +367,7 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
     # Now delete the indexes while FT.INFO calls are running
     for idx_name in index_names:
         try:
-            env.expect('FT.DROP', idx_name, 'DD').ok()  # DD = Delete Documents
+            env.expect('FT.DROP', idx_name).ok()
             env.debugPrint(f"Dropped index {idx_name}", force=True)
         except Exception as e:
             env.debugPrint(f"Error dropping index {idx_name}: {e}", force=True)
