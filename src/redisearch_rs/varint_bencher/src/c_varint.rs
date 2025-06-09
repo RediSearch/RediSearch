@@ -82,7 +82,7 @@ pub mod c_varint_ops {
             // Set up C BufferWriter structure
             let mut writer = ffi::BufferWriter {
                 buf: buffer,
-                pos: buffer.data.add(buffer.offset),
+                pos: buffer.offset,
             };
 
             // Use the C WriteVarint function
@@ -103,7 +103,7 @@ pub mod c_varint_ops {
             // Set up C BufferWriter structure
             let mut writer = ffi::BufferWriter {
                 buf: buffer,
-                pos: buffer.data.add(buffer.offset),
+                pos: buffer.offset,
             };
 
             // Use the C WriteVarintFieldMask function
@@ -113,6 +113,17 @@ pub mod c_varint_ops {
             buffer.offset += bytes_written;
 
             bytes_written
+        }
+    }
+
+    /// Encode a varint using pre-allocated buffer and return the encoded bytes.
+    /// This avoids allocation overhead in benchmarks.
+    #[inline(always)]
+    pub fn write_to_buffer(value: u32, buffer: &mut ffi::Buffer) -> &[u8] {
+        unsafe {
+            buffer.offset = 0; // Reset buffer
+            write(value, buffer);
+            std::slice::from_raw_parts(buffer.data as *const u8, buffer.offset)
         }
     }
 
@@ -136,16 +147,24 @@ pub mod c_varint_ops {
             };
 
             // Use the buffer-based write function
-            write(value, &mut buffer);
-
-            // Copy the result to a Rust Vec
-            let result_data = std::slice::from_raw_parts(buffer.data as *const u8, buffer.offset);
-            let result = result_data.to_vec();
+            let encoded = write_to_buffer(value, &mut buffer);
+            let result = encoded.to_vec();
 
             // Free the C buffer
             crate::RedisModule_Free.unwrap()(data_ptr);
 
             result
+        }
+    }
+
+    /// Encode a field mask using pre-allocated buffer and return the encoded bytes.
+    /// This avoids allocation overhead in benchmarks.
+    #[inline(always)]
+    pub fn write_field_mask_to_buffer(value: FieldMask, buffer: &mut ffi::Buffer) -> &[u8] {
+        unsafe {
+            buffer.offset = 0; // Reset buffer
+            write_field_mask(value, buffer);
+            std::slice::from_raw_parts(buffer.data as *const u8, buffer.offset)
         }
     }
 
@@ -169,11 +188,8 @@ pub mod c_varint_ops {
             };
 
             // Use the buffer-based write function
-            write_field_mask(value, &mut buffer);
-
-            // Copy the result to a Rust Vec
-            let result_data = std::slice::from_raw_parts(buffer.data as *const u8, buffer.offset);
-            let result = result_data.to_vec();
+            let encoded = write_field_mask_to_buffer(value, &mut buffer);
+            let result = encoded.to_vec();
 
             // Free the C buffer
             crate::RedisModule_Free.unwrap()(data_ptr);
@@ -184,18 +200,12 @@ pub mod c_varint_ops {
 
     /// Decode a varint using the actual C ReadVarint function with BufferReader.
     /// This matches the real-world usage pattern in the C codebase.
+    /// Buffer must already be set up to point to the data to decode.
     #[inline(always)]
-    pub fn read(data: &[u8]) -> u32 {
+    pub fn read(buffer: &mut ffi::Buffer) -> u32 {
         unsafe {
-            // Create a Buffer structure pointing to our data.
-            let mut buffer = ffi::Buffer {
-                data: data.as_ptr() as *mut i8,
-                offset: data.len(),
-                cap: data.len(),
-            };
-
             // Create a BufferReader.
-            let mut reader = ffi::NewBufferReader(&mut buffer);
+            let mut reader = ffi::NewBufferReader(buffer);
 
             // Use the actual C ReadVarint function.
             ffi::ReadVarintNonInline(&mut reader)
@@ -204,22 +214,38 @@ pub mod c_varint_ops {
 
     /// Decode a field mask using the actual C ReadVarintFieldMask function with BufferReader.
     /// This matches the real-world usage pattern in the C codebase.
+    /// Buffer must already be set up to point to the data to decode.
     #[inline(always)]
-    pub fn read_field_mask(data: &[u8]) -> FieldMask {
+    pub fn read_field_mask(buffer: &mut ffi::Buffer) -> FieldMask {
         unsafe {
-            // Create a Buffer structure pointing to our data.
-            let mut buffer = ffi::Buffer {
-                data: data.as_ptr() as *mut i8,
-                offset: data.len(),
-                cap: data.len(),
-            };
-
             // Create a BufferReader.
-            let mut reader = ffi::NewBufferReader(&mut buffer);
+            let mut reader = ffi::NewBufferReader(buffer);
 
             // Use the actual C ReadVarintFieldMask function.
             ffi::ReadVarintFieldMaskNonInline(&mut reader)
         }
+    }
+
+    /// Convenience wrapper for single varint decoding that returns u32.
+    /// Used by tests and non-performance-critical code.
+    pub fn read_to_u32(data: &[u8]) -> u32 {
+        let mut temp_buffer = ffi::Buffer {
+            data: data.as_ptr() as *mut i8,
+            offset: data.len(),
+            cap: data.len(),
+        };
+        read(&mut temp_buffer)
+    }
+
+    /// Convenience wrapper for single field mask decoding that returns FieldMask.
+    /// Used by tests and non-performance-critical code.
+    pub fn read_to_field_mask(data: &[u8]) -> FieldMask {
+        let mut temp_buffer = ffi::Buffer {
+            data: data.as_ptr() as *mut i8,
+            offset: data.len(),
+            cap: data.len(),
+        };
+        read_field_mask(&mut temp_buffer)
     }
 }
 
@@ -228,7 +254,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_buffer_reader_decode_matches_raw_decode() {
+    fn test_buffer_reader_decode_round_trip() {
         let test_values = [
             0,
             1,
@@ -247,25 +273,16 @@ mod tests {
             // Encode using C implementation.
             let encoded = c_varint_ops::write_to_vec(value);
 
-            // Decode using both methods.
-            let decoded_raw = c_varint_ops::read(&encoded);
-            let decoded_buffer_reader = c_varint_ops::read(&encoded);
+            // Decode using BufferReader-based function.
+            let decoded = c_varint_ops::read_to_u32(&encoded);
 
-            // They should match.
-            assert_eq!(
-                decoded_raw, decoded_buffer_reader,
-                "Mismatch for value {}: raw={}, buffer_reader={}",
-                value, decoded_raw, decoded_buffer_reader
-            );
-
-            // Both should match the original value.
-            assert_eq!(value, decoded_raw);
-            assert_eq!(value, decoded_buffer_reader);
+            // Should match the original value.
+            assert_eq!(value, decoded, "Round-trip failed for value {}", value);
         }
     }
 
     #[test]
-    fn test_buffer_reader_field_mask_decode_matches_raw_decode() {
+    fn test_buffer_reader_field_mask_decode_round_trip() {
         let test_values: Vec<FieldMask> = [
             0,
             1,
@@ -285,20 +302,11 @@ mod tests {
             // Encode using C implementation.
             let encoded = c_varint_ops::write_field_mask_to_vec(value);
 
-            // Decode using both methods.
-            let decoded_raw = c_varint_ops::read_field_mask(&encoded);
-            let decoded_buffer_reader = c_varint_ops::read_field_mask(&encoded);
+            // Decode using BufferReader-based function.
+            let decoded = c_varint_ops::read_to_field_mask(&encoded);
 
-            // They should match.
-            assert_eq!(
-                decoded_raw, decoded_buffer_reader,
-                "Mismatch for field mask {}: raw={}, buffer_reader={}",
-                value, decoded_raw, decoded_buffer_reader
-            );
-
-            // Both should match the original value.
-            assert_eq!(value, decoded_raw);
-            assert_eq!(value, decoded_buffer_reader);
+            // Should match the original value.
+            assert_eq!(value, decoded, "Round-trip failed for field mask {}", value);
         }
     }
 }

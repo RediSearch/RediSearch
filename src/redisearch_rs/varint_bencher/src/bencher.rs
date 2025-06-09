@@ -299,7 +299,14 @@ fn decode_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values:
     group.bench_function("C", |b| {
         b.iter(|| {
             for encoded in &encoded_values {
-                let decoded = c_varint_ops::read(encoded);
+                // Set up buffer to point to encoded data
+                let mut buffer = crate::ffi::Buffer {
+                    data: encoded.as_ptr() as *mut i8,
+                    offset: encoded.len(),
+                    cap: encoded.len(),
+                };
+                // Only time the actual decode operation
+                let decoded = c_varint_ops::read(&mut buffer);
                 black_box(decoded);
             }
         })
@@ -319,7 +326,14 @@ fn decode_field_mask_c_benchmark<M: Measurement>(
     group.bench_function("C", |b| {
         b.iter(|| {
             for encoded in &encoded_values {
-                let decoded = c_varint_ops::read_field_mask(encoded);
+                // Set up buffer to point to encoded data
+                let mut buffer = crate::ffi::Buffer {
+                    data: encoded.as_ptr() as *mut i8,
+                    offset: encoded.len(),
+                    cap: encoded.len(),
+                };
+                // Only time the actual decode operation
+                let decoded = c_varint_ops::read_field_mask(&mut buffer);
                 black_box(decoded);
             }
         })

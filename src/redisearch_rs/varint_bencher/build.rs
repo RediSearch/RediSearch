@@ -53,6 +53,7 @@ fn generate_c_bindings() -> Result<(), Box<dyn std::error::Error>> {
     let redis_modules = root.join("deps").join("RedisModulesSDK");
     let src = root.join("src");
     let deps = root.join("deps");
+    let headers_dir = root.join("src").join("redisearch_rs").join("headers");
 
     let bindings = bindgen::Builder::default()
         .header(
@@ -64,12 +65,14 @@ fn generate_c_bindings() -> Result<(), Box<dyn std::error::Error>> {
         .clang_arg(format!("-I{}", src.display()))
         .clang_arg(format!("-I{}", deps.display()))
         .clang_arg(format!("-I{}", redis_modules.display()))
+        .clang_arg(format!("-I{}", headers_dir.display()))
         .generate()?;
 
     // Re-run the build script if any of the files in those directories change
     println!("cargo:rerun-if-changed={}", src.display());
     println!("cargo:rerun-if-changed={}", deps.display());
     println!("cargo:rerun-if-changed={}", redis_modules.display());
+    println!("cargo:rerun-if-changed={}", headers_dir.display());
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     bindings.write_to_file(out_dir.join("bindings.rs"))?;
