@@ -68,7 +68,7 @@ private:
         size_t memsize;
         idx = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &memsize);
         IndexEncoder encoder = InvertedIndex_GetEncoder(idx->flags);
-        RS_ASSERT_ALWAYS(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr); // Expect a seeker with the default flags
+        ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr); // Expect a seeker with the default flags
         for (size_t i = 0; i < n_docs; ++i) {
             ForwardIndexEntry h = {0};
             h.docId = resultSet[i];
@@ -179,4 +179,90 @@ TEST_P(IndexIteratorTest, SkipTo) {
     ASSERT_EQ(rc, ITERATOR_EOF);
     ASSERT_EQ(it->base.lastDocId, 0); // we just rewound
     ASSERT_TRUE(it->base.atEOF);
+}
+
+
+class IndexIteratorTestEdges : public ::testing::Test {
+protected:
+    InvertedIndex *idx;
+    QueryIterator *iterator;
+    NumericFilter *flt;
+
+    void SetUp() override {
+        size_t memsize;
+        idx = NewInvertedIndex(Index_StoreNumeric, 1, &memsize);
+        ASSERT_TRUE(idx != nullptr);
+        iterator = nullptr;
+        flt = nullptr;
+    }
+
+    void TearDown() override {
+        if (flt) NumericFilter_Free(flt);
+        if (iterator) iterator->Free(iterator);
+        InvertedIndex_Free(idx);
+    }
+
+public:
+    void AddEntry(t_docId docId, double value) {
+        InvertedIndex_WriteNumericEntry(idx, docId, value);
+    }
+    void AddEntries(t_docId start, t_docId end, double value) {
+        for (t_docId docId = start; docId < end; ++docId) {
+            AddEntry(docId, value);
+        }
+    }
+    void CreateIterator(double value) {
+        CreateIterator(value, value);
+    }
+    void CreateIterator(double min, double max) {
+        ASSERT_TRUE(idx != nullptr);
+        FieldMaskOrIndex fieldMaskOrIndex = {.isFieldMask = false, .value = {.index = RS_INVALID_FIELD_INDEX}};
+        FieldFilterContext fieldCtx = {.field = fieldMaskOrIndex, .predicate = FIELD_EXPIRATION_DEFAULT};
+        flt = NewNumericFilter(min, max, 1, 1, 1, nullptr);
+        iterator = NewInvIndIterator_NumericQuery(idx, nullptr, &fieldCtx, flt, min, max);
+        ASSERT_TRUE(iterator != nullptr);
+    }
+};
+
+TEST_F(IndexIteratorTestEdges, SkipMultiValues) {
+    // Add multiple entries with the same docId
+    AddEntry(1, 1.0);
+    AddEntry(1, 2.0);
+    AddEntry(1, 3.0);
+    CreateIterator(1.0, 3.0);
+
+    // Read the first entry. Expect to get the entry with value 1.0
+    ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
+    ASSERT_EQ(iterator->current->docId, 1);
+    ASSERT_EQ(iterator->lastDocId, 1);
+    ASSERT_EQ(iterator->current->num.value, 1.0);
+
+    // Read the next entry. Expect EOF since we have only one unique docId
+    ASSERT_EQ(iterator->Read(iterator), ITERATOR_EOF);
+}
+
+TEST_F(IndexIteratorTestEdges, GetCorrectValue) {
+    // Add entries with the same ID but different values
+    AddEntry(1, 1.0);
+    AddEntry(1, 2.0);
+    AddEntry(1, 3.0);
+    // Create an iterator that reads only entries with value 2.0
+    CreateIterator(2.0, 3.0);
+    // Read the first entry. Expect to get the entry with value 2.0
+    ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
+    ASSERT_EQ(iterator->current->docId, 1);
+    ASSERT_EQ(iterator->lastDocId, 1);
+    ASSERT_EQ(iterator->current->num.value, 2.0);
+    // Read the next entry. Expect EOF since we have only one unique docId with value 2.0
+    ASSERT_EQ(iterator->Read(iterator), ITERATOR_EOF);
+}
+
+TEST_F(IndexIteratorTestEdges, EOFAfterFiltering) {
+    ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker == nullptr);
+    // Fill the index with entries, all with value 1.0
+    AddEntries(1, 1234, 1.0);
+    // Create an iterator that reads only entries with value 2.0
+    CreateIterator(2.0);
+    // Attempt to skip to the first entry, expecting EOF since no entries match the filter
+    ASSERT_EQ(iterator->SkipTo(iterator, 1), ITERATOR_EOF);
 }

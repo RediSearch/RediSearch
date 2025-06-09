@@ -98,8 +98,6 @@ IteratorStatus InvIndIterator_Read(QueryIterator *base) {
       AdvanceBlock(it);
     }
 
-    // Hold the last docId read, to check for multi-value skipping after the decoder
-    t_docId lastId = record->docId;
     // The decoder also acts as a filter. If the decoder returns false, the
     // current record should not be processed.
     // Since we are not at the end of the block (previous check), the decoder is guaranteed
@@ -108,7 +106,7 @@ IteratorStatus InvIndIterator_Read(QueryIterator *base) {
       continue;
     }
 
-    if (it->skipMulti && lastId == record->docId) {
+    if (it->skipMulti && base->lastDocId == record->docId) {
       // Avoid returning the same doc
       // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
       // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.
