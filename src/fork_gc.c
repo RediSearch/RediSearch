@@ -1265,12 +1265,6 @@ static int periodicCb(void *privdata) {
   ForkGC *gc = privdata;
   RedisModuleCtx *ctx = gc->ctx;
 
-  // Check if we are out of memory before even trying to fork
-  if (isOutOfMemory(ctx)) {
-    RedisModule_Log(ctx, "warning", "fork failed - not enough memory, aborting fork GC");
-    gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval;
-    return 1;
-  }
 
   // This check must be done first, because some values (like `deletedDocsFromLastRun`) that are used for
   // early termination might never change after index deletion and will cause periodicCb to always return 1,
@@ -1315,6 +1309,13 @@ static int periodicCb(void *privdata) {
 
   // We need to acquire the GIL to use the fork api
   RedisModule_ThreadSafeContextLock(ctx);
+
+  // Check if we are out of memory before even trying to fork
+  if (isOutOfMemory(ctx)) {
+    RedisModule_Log(ctx, "warning", "Not enough memory for GC fork, skipping GC job");
+    gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval;
+    return 1;
+  }
 
   gc->execState = FGC_STATE_SCANNING;
 
