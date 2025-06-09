@@ -31,7 +31,7 @@ static void OI_Rewind(QueryIterator *base) {
 
 
 // SkipTo for OPTIONAL iterator - Non-optimized version.
-static IteratorStatus OI_SkipTo_NO(QueryIterator *base, t_docId docId) {
+static IteratorStatus OI_SkipTo_NotOptimized(QueryIterator *base, t_docId docId) {
   OptionalIterator *oi = (OptionalIterator *)base;
 
   if (docId > oi->maxDocId || base->atEOF) {
@@ -59,7 +59,7 @@ static IteratorStatus OI_SkipTo_NO(QueryIterator *base, t_docId docId) {
 }
 
 // Read from an OPTIONAL iterator - Non-Optimized version.
-static IteratorStatus OI_ReadSorted_NO(QueryIterator *base) {
+static IteratorStatus OI_ReadSorted_NotOptimized(QueryIterator *base) {
   OptionalIterator *oi = (OptionalIterator *)base;
   if (base->atEOF || base->lastDocId >= oi->maxDocId) {
     base->atEOF = true;
@@ -69,7 +69,7 @@ static IteratorStatus OI_ReadSorted_NO(QueryIterator *base) {
   // Increase the size by one
   base->lastDocId++;
 
-  if (base->lastDocId > oi->child->lastDocId && !base->atEOF) {
+  if (base->lastDocId > oi->child->lastDocId) {
     IteratorStatus rc = oi->child->Read(oi->child);
     if (rc == ITERATOR_TIMEOUT) return rc;
   }
@@ -86,7 +86,7 @@ static IteratorStatus OI_ReadSorted_NO(QueryIterator *base) {
 }
 
 // Create a new OPTIONAL iterator - Non-Optimized version.
-QueryIterator *IT_V2(NewOptionalIterator_NonOptimized)(QueryIterator *it, t_docId maxDocId, size_t numDocs, double weight) {
+QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, t_docId maxDocId, size_t numDocs, double weight) {
   OptionalIterator *oi = rm_calloc(1, sizeof(*oi));
   oi->child = it ? it : IT_V2(NewEmptyIterator)();
   oi->maxDocId = maxDocId;
@@ -101,8 +101,8 @@ QueryIterator *IT_V2(NewOptionalIterator_NonOptimized)(QueryIterator *it, t_docI
   ret->current = oi->virt;
   ret->NumEstimated = OI_NumEstimated;
   ret->Free = OI_Free;
-  ret->Read = OI_ReadSorted_NO;
-  ret->SkipTo = OI_SkipTo_NO;
+  ret->Read = OI_ReadSorted_NotOptimized;
+  ret->SkipTo = OI_SkipTo_NotOptimized;
   ret->Rewind = OI_Rewind;
 
   return ret;
