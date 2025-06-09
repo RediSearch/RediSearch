@@ -65,7 +65,7 @@ static IteratorStatus NI_SkipTo_NO(QueryIterator *base, t_docId docId) {
     }
   }
   // If the child docId is the one we are looking for, it's an anti match!
-  // We need to return NOTFOUND and set hit to the next valid docId
+  // We need to return NOTFOUND and set the current result to the next valid docId
   base->current->docId = base->lastDocId = docId;
   IteratorStatus rc = NI_ReadSorted_NO(base);
   if (rc == ITERATOR_OK) {
@@ -115,8 +115,7 @@ static IteratorStatus NI_SkipTo_O(QueryIterator *base, t_docId docId) {
   return rc;
 }
 
-/* Read from a NOT iterator - Non-Optimized version. This is applicable only if
- * the only or leftmost node of a query is a NOT node. We simply read until max
+/* Read from a NOT iterator - Non-Optimized version. We simply read until max
  * docId, skipping docIds that exist in the child */
 static IteratorStatus NI_ReadSorted_NO(QueryIterator *base) {
   NotIterator *ni = (NotIterator *)base;
@@ -132,7 +131,7 @@ static IteratorStatus NI_ReadSorted_NO(QueryIterator *base) {
     rc = ni->child->Read(ni->child);
     if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
   }
-  //Advance and see if it si valid
+  // Advance and see if it is valid
   base->lastDocId++;
 
   while (base->lastDocId <= ni->maxDocId) {
