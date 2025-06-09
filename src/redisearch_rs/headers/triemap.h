@@ -209,7 +209,7 @@ uintptr_t TrieMap_NNodes(struct TrieMap *t);
  * - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
  * - `len` can be 0. If so, `str` is regarded as an empty string.
  *
- * [`NewTrieMap`]: crate::trie::NewTrieMap
+ * [`NewTrieMap`]: crate::NewTrieMap
  */
 TrieMapResultBuf TrieMap_FindPrefixes(struct TrieMap *t, const char *str, tm_len_t len);
 
@@ -352,7 +352,7 @@ int TrieMapIterator_Next(struct TrieMapIterator *it,
  * - `maxlen` can be 0. If so, `max` is regarded as an empty string.
  * - `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
  *
- * [`NewTrieMap`]: crate::trie::NewTrieMap
+ * [`NewTrieMap`]: crate::NewTrieMap
  */
 void TrieMap_IterateRange(struct TrieMap *trie,
                           const char *min,
