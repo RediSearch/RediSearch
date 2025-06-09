@@ -9,12 +9,12 @@ name: temporary testing
 
 on:
   push:
-    # branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
+    branches-ignore: ['**'] # ignore all branches. Comment this line to run your workflow below on every push.
 
 jobs:
-  test-azure:
-    uses: ./.github/workflows/flow-linux-platforms.yml
+  test-macos:
+    uses: ./.github/workflows/flow-macos.yml
     secrets: inherit
     with:
-      platform: azurelinux:3
-      architecture: x86_64
+      redis-ref: unstable
+      rejson-branch: master
