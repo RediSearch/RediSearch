@@ -622,6 +622,7 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
   }
+
   RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
 
   bool initialScan = true;
@@ -948,6 +949,9 @@ int RediSearch_InitModuleInternal(RedisModuleCtx *ctx, RedisModuleString **argv,
   if (IsEnterprise()) {
     GetFormattedRedisEnterpriseVersion(ver, sizeof(ver));
     RedisModule_Log(ctx, "notice", "Redis Enterprise version found by RedisSearch : %s", ver);
+
+    // Changing the default bg indexing oom pause time to 5 seconds as we're in enterprise.
+    RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry = 5;
   }
 
   if (CheckSupportedVestion() != REDISMODULE_OK) {

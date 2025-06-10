@@ -114,8 +114,9 @@ typedef enum {
 #define RunInThread() (RSGlobalConfig.numWorkerThreads)
 #endif
 
-typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req,
-                              bool has_timedout, bool reachedMaxPrefixExpansions);
+// Forward declaration of ProfilePrinterCtx
+typedef struct ProfilePrinterCtx ProfilePrinterCtx;
+typedef void (*profiler_func)(RedisModule_Reply *reply, ProfilePrinterCtx *ctx);
 
 typedef enum {
   /* Pipeline has a loader */

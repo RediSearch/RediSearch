@@ -515,11 +515,19 @@ done_2:
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
+    // Prepare profile printer context
+    ProfilePrinterCtx profileCtx = {
+      .req = req,
+      .timedout = has_timedout,
+      .reachedMaxPrefixExpansions = req->qiter.err->reachedMaxPrefixExpansions,
+      .bgScanOOM = req->sctx->spec && req->sctx->spec->scan_failed_OOM,
+    };
+
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
       if (cursor_done) {
         RedisModule_Reply_LongLong(reply, 0);
         if (IsProfile(req)) {
-          req->profile(reply, req, has_timedout, req->qiter.err->reachedMaxPrefixExpansions);
+          req->profile(reply, &profileCtx);
         }
       } else {
         RedisModule_Reply_LongLong(reply, req->cursor_id);
@@ -530,7 +538,7 @@ done_2:
       }
       RedisModule_Reply_ArrayEnd(reply);
     } else if (IsProfile(req)) {
-      req->profile(reply, req, has_timedout, req->qiter.err->reachedMaxPrefixExpansions);
+      req->profile(reply, &profileCtx);
       RedisModule_Reply_ArrayEnd(reply);
     }
 
@@ -621,6 +629,9 @@ done_3:
 
     // <error>
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
+    if (req->sctx->spec && req->sctx->spec->scan_failed_OOM) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
+    }
     if (rc == RS_RESULT_TIMEDOUT) {
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
     } else if (rc == RS_RESULT_ERROR) {
@@ -637,9 +648,17 @@ done_3:
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
+    // Prepare profile printer context
+    ProfilePrinterCtx profileCtx = {
+      .req = req,
+      .timedout = has_timedout,
+      .reachedMaxPrefixExpansions = req->qiter.err->reachedMaxPrefixExpansions,
+      .bgScanOOM = req->sctx->spec && req->sctx->spec->scan_failed_OOM,
+    };
+
     if (IsProfile(req)) {
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
-        req->profile(reply, req, has_timedout, req->qiter.err->reachedMaxPrefixExpansions);
+        req->profile(reply, &profileCtx);
       }
     }
 
@@ -1286,6 +1305,7 @@ static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv
   AREQ_Debug_params debug_params = debug_req->debug_params;
 
   int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
+
   // Parse the query, not including debug params
   if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, execOptions, &status) != REDISMODULE_OK) {
     goto error;
