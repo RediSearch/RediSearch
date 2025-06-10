@@ -16,91 +16,91 @@
 
 class NotIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<t_docId>, bool>> {
 protected:
-    std::vector<t_docId> childDocIds;
-    std::vector<t_docId> wcDocIds;
-    std::vector<t_docId> resultSet;
-    t_docId maxDocId;
-    QueryIterator *iterator_base;
-    bool optimized;
-    IndexSpec *spec = nullptr;
-    RedisSearchCtx *sctx = nullptr;
-    QueryEvalCtx *qctx = nullptr;
-    DocTable *docTable = nullptr;
+  std::vector<t_docId> childDocIds;
+  std::vector<t_docId> wcDocIds;
+  std::vector<t_docId> resultSet;
+  t_docId maxDocId;
+  QueryIterator *iterator_base;
+  bool optimized;
+  IndexSpec *spec = nullptr;
+  RedisSearchCtx *sctx = nullptr;
+  QueryEvalCtx *qctx = nullptr;
+  DocTable *docTable = nullptr;
 
-    void SetUp() override {
-      // Get child document IDs from parameter
-      std::tie(childDocIds, wcDocIds, optimized) = GetParam();
-      // Consider wcDocIds only if optimized is true
+  void SetUp() override {
+    // Get child document IDs from parameter
+    std::tie(childDocIds, wcDocIds, optimized) = GetParam();
+    // Consider wcDocIds only if optimized is true
 
-      // Find the maximum document ID
-      maxDocId = 0;
-      for (auto id : childDocIds) {
+    // Find the maximum document ID
+    maxDocId = 0;
+    for (auto id : childDocIds) {
+      maxDocId = std::max(maxDocId, id);
+    }
+    if (optimized) {
+      for (auto id : wcDocIds) {
         maxDocId = std::max(maxDocId, id);
       }
-      if (optimized) {
-        for (auto id : wcDocIds) {
-          maxDocId = std::max(maxDocId, id);
+    }
+    maxDocId += 5; // Add some buffer
+    if (!optimized) {
+      wcDocIds.clear();
+      for (auto i = 1; i < maxDocId; i++) {
+        wcDocIds.push_back(i);
+      }
+    }
+    // Compute resultSet from maxDocId and childDocIds
+    resultSet.clear();
+    if (!optimized) {
+      for (t_docId id = 1; id <= maxDocId; id++) {
+        if (std::find(childDocIds.begin(), childDocIds.end(), id) == childDocIds.end()) {
+          resultSet.push_back(id);
         }
       }
-      maxDocId += 5; // Add some buffer
-      if (!optimized) {
-        wcDocIds.clear();
-        for (auto i = 0; i < maxDocId; i++) {
-          wcDocIds.push_back(i);
+    } else {
+      for (auto wcId : wcDocIds) {
+        if (std::find(childDocIds.begin(), childDocIds.end(), wcId) == childDocIds.end()) {
+          resultSet.push_back(wcId);
         }
-      }
-      // Compute resultSet from maxDocId and childDocIds
-      resultSet.clear();
-      if (!optimized) {
-        for (t_docId id = 1; id <= maxDocId; id++) {
-          if (std::find(childDocIds.begin(), childDocIds.end(), id) == childDocIds.end()) {
-            resultSet.push_back(id);
-          }
-        }
-      } else {
-        for (auto wcId : wcDocIds) {
-          if (std::find(childDocIds.begin(), childDocIds.end(), wcId) == childDocIds.end()) {
-            resultSet.push_back(wcId);
-          }
-        }
-      }
-
-      auto child = (QueryIterator *) new MockIterator(childDocIds);
-      struct timespec timeout = {LONG_MAX, 999999999}; // Initialize with "infinite" timeout
-      // Store the wildcard iterator in the NotIterator structure instead of directly in QueryIterator
-      if (optimized) {
-        spec = (IndexSpec*)rm_calloc(1, sizeof(IndexSpec));
-        spec->rule = (SchemaRule*)rm_calloc(1, sizeof(SchemaRule));
-        spec->rule->index_all = true;
-
-        sctx = (RedisSearchCtx*)rm_calloc(1, sizeof(RedisSearchCtx));
-        sctx->spec = spec;
-
-        docTable = (DocTable*)rm_calloc(1, sizeof(DocTable));
-        docTable->maxDocId = maxDocId;
-        docTable->size = maxDocId;
-
-        qctx = (QueryEvalCtx*)rm_calloc(1, sizeof(QueryEvalCtx));
-        qctx->sctx = sctx;
-        qctx->docTable = docTable;
-
-        iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, qctx);
-        NotIterator *ni = (NotIterator *)iterator_base;
-        rm_free(ni->wcii);
-        ni->wcii = (QueryIterator *) new MockIterator(wcDocIds);
-      } else {
-        iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, nullptr);
       }
     }
 
-    void TearDown() override {
-      iterator_base->Free(iterator_base);
-      if (spec && spec->rule) rm_free(spec->rule);
-      if (spec) rm_free(spec);
-      if (sctx) rm_free(sctx);
-      if (docTable) rm_free(docTable);
-      if (qctx) rm_free(qctx);
+    auto child = (QueryIterator *) new MockIterator(childDocIds);
+    struct timespec timeout = {LONG_MAX, 999999999}; // Initialize with "infinite" timeout
+    // Store the wildcard iterator in the NotIterator structure instead of directly in QueryIterator
+    if (optimized) {
+      spec = (IndexSpec*)rm_calloc(1, sizeof(IndexSpec));
+      spec->rule = (SchemaRule*)rm_calloc(1, sizeof(SchemaRule));
+      spec->rule->index_all = true;
+
+      sctx = (RedisSearchCtx*)rm_calloc(1, sizeof(RedisSearchCtx));
+      sctx->spec = spec;
+
+      docTable = (DocTable*)rm_calloc(1, sizeof(DocTable));
+      docTable->maxDocId = maxDocId;
+      docTable->size = maxDocId;
+
+      qctx = (QueryEvalCtx*)rm_calloc(1, sizeof(QueryEvalCtx));
+      qctx->sctx = sctx;
+      qctx->docTable = docTable;
+
+      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, qctx);
+      NotIterator *ni = (NotIterator *)iterator_base;
+      rm_free(ni->wcii);
+      ni->wcii = (QueryIterator *) new MockIterator(wcDocIds);
+    } else {
+      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, nullptr);
     }
+  }
+
+  void TearDown() override {
+    iterator_base->Free(iterator_base);
+    if (spec && spec->rule) rm_free(spec->rule);
+    if (spec) rm_free(spec);
+    if (sctx) rm_free(sctx);
+    if (docTable) rm_free(docTable);
+    if (qctx) rm_free(qctx);
+  }
 };
 
 TEST_P(NotIteratorCommonTest, Read) {
@@ -337,15 +337,17 @@ INSTANTIATE_TEST_SUITE_P(
       std::vector<t_docId>{5, 10, 15, 20, 25, 30},
       std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
       std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
-      std::vector<t_docId>{1, 2, 3, 6, 10, 15}
+      std::vector<t_docId>{1, 2, 3, 6, 10, 15},
+      std::vector<t_docId>{500, 600, 700, 800, 900, 1000}
     ),
     ::testing::Values(
       std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
       std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
       std::vector<t_docId>{3, 4, 9, 25},
+      std::vector<t_docId>{50, 60, 70, 80, 90, 100, 600, 750, 950, 1200},
       std::vector<t_docId>{}
     ),
-    ::testing::Values(true, true)
+    ::testing::Values(false, true)
   )
 );
 
@@ -395,12 +397,14 @@ INSTANTIATE_TEST_SUITE_P(
       std::vector<t_docId>{5, 10, 15, 20, 25, 30},
       std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
       std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
-      std::vector<t_docId>{1, 2, 3, 6, 10, 15}
+      std::vector<t_docId>{1, 2, 3, 6, 10, 15},
+      std::vector<t_docId>{500, 600, 700, 800, 900, 1000}
     ),
     ::testing::Values(
       std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150, 1000, 2000},
       std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15, 1000, 2000},
-      std::vector<t_docId>{3, 4, 9, 25, 1000, 2000}
+      std::vector<t_docId>{3, 4, 9, 25, 1000, 2000},
+      std::vector<t_docId>{50, 60, 70, 80, 90, 100, 600, 750, 950, 1200}
     ),
     ::testing::Values(false)
   )
@@ -464,12 +468,14 @@ INSTANTIATE_TEST_SUITE_P(
       std::vector<t_docId>{5, 10, 15, 20, 25, 30},
       std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
       std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
-      std::vector<t_docId>{1, 2, 3, 6, 10, 15}
+      std::vector<t_docId>{1, 2, 3, 6, 10, 15},
+      std::vector<t_docId>{500, 600, 700, 800, 900, 1000}
     ),
     ::testing::Values(
       std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150, 1000, 2000},
       std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15, 1000, 2000},
-      std::vector<t_docId>{3, 4, 9, 25, 1000, 2000}
+      std::vector<t_docId>{3, 4, 9, 25, 1000, 2000},
+      std::vector<t_docId>{50, 60, 70, 80, 90, 100, 600, 750, 950, 1200}
     ),
     ::testing::Values(true)
   )
@@ -555,12 +561,14 @@ INSTANTIATE_TEST_SUITE_P(
       std::vector<t_docId>{5, 10, 15, 20, 25, 30},
       std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
       std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
-      std::vector<t_docId>{1, 2, 3, 6, 10, 15}
+      std::vector<t_docId>{1, 2, 3, 6, 10, 15},
+      std::vector<t_docId>{500, 600, 700, 800, 900, 1000}
     ),
     ::testing::Values(
       std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
       std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
       std::vector<t_docId>{3, 4, 9, 25},
+      std::vector<t_docId>{50, 60, 70, 80, 90, 100, 600, 750, 950, 1200},
       std::vector<t_docId>{}
     ),
     ::testing::Values(false, true)

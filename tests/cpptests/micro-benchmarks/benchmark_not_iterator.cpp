@@ -26,12 +26,9 @@ public:
   IteratorType *iterator_base;
   IteratorType *child;
   std::vector<t_docId> childIds;
+  std::vector<t_docId> wcIds;
   t_docId maxDocId = 2'000'000;
   static bool initialized;
-  QueryEvalCtx* qctx = NULL;
-  IndexSpec *spec = NULL;
-  DocTable* docTable = NULL;
-  RedisSearchCtx* sctx = NULL;
 
   void SetUp(::benchmark::State &state) {
     if (!initialized) {
@@ -39,11 +36,12 @@ public:
       initialized = true;
     }
 
-    auto numDocuments = state.range(0);
+    auto numChildDocuments = state.range(0);
+
     std::mt19937 rng(46);
     std::uniform_int_distribution<t_docId> dist(1, maxDocId);
 
-    childIds.resize(numDocuments);
+    childIds.resize(numChildDocuments);
     for (auto &id : childIds) {
       id = dist(rng);
     }
@@ -53,29 +51,27 @@ public:
     IteratorType *child = createChild();
     struct timespec timeout = {LONG_MAX, 999999999}; // "infinite" timeout
 
-    // Create QueryEvalCtx if optimized mode is enabled
     if constexpr (optimized) {
-      // Create a mock QueryEvalCtx to enable optimized mode
-      spec = (IndexSpec*)rm_calloc(1, sizeof(IndexSpec));
-      spec->rule = (SchemaRule*)rm_calloc(1, sizeof(SchemaRule));
-      spec->rule->index_all = true;
-
-      sctx = (RedisSearchCtx*)rm_calloc(1, sizeof(RedisSearchCtx));
-      sctx->spec = spec;
-
-      docTable = (DocTable*)rm_calloc(1, sizeof(DocTable));
-      docTable->maxDocId = maxDocId;
-      docTable->size = maxDocId;
-
-      qctx = (QueryEvalCtx*)rm_calloc(1, sizeof(QueryEvalCtx));
-      qctx->sctx = sctx;
-      qctx->docTable = docTable;
-    }
-
-    if constexpr (std::is_same_v<IteratorType, QueryIterator>) {
-      iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, qctx);
+      wcIds.resize(maxDocId);
+      for (auto &id : wcIds) {
+        id = dist(rng);
+      }
+      std::sort(wcIds.begin(), wcIds.end());
+      auto new_end = std::unique(wcIds.begin(), wcIds.end());
+      wcIds.erase(new_end, wcIds.end());
+      IteratorType *wcii = createWCII();
+      struct timespec timeout = {LONG_MAX, 999999999}; // "infinite" timeout
+      if constexpr (std::is_same_v<IteratorType, QueryIterator>) {
+        iterator_base = IT_V2(_New_NotIterator_With_WildCardIterator)(child, wcii, maxDocId, 1.0, timeout);
+      } else {
+        iterator_base = _New_NotIterator_With_WildCardIterator(child, wcii, maxDocId, 1.0, timeout);
+      }
     } else {
-      iterator_base = NewNotIterator(child, maxDocId, 1.0, timeout, qctx);
+      if constexpr (std::is_same_v<IteratorType, QueryIterator>) {
+        iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, nullptr);
+      } else {
+        iterator_base = NewNotIterator(child, maxDocId, 1.0, timeout, nullptr);
+      }
     }
   }
 
@@ -88,14 +84,17 @@ public:
     }
   }
 
+  IteratorType *createWCII() {
+    // Create a mock child iterator, depending on the iteratortype constexpr
+    if constexpr (std::is_same_v<IteratorType, QueryIterator>) {
+      return (QueryIterator *)new MockIterator(wcIds);
+    } else {
+      return (IndexIterator *)new MockOldIterator(wcIds);
+    }
+  }
+
   void TearDown(::benchmark::State &state) {
     iterator_base->Free(iterator_base);
-    //Delete if pointers are not NULL
-    if (spec && spec->rule) rm_free(spec->rule);
-    if (spec) rm_free(spec);
-    if (sctx) rm_free(sctx);
-    if (docTable) rm_free(docTable);
-    if (qctx) rm_free(qctx);
   }
 };
 
@@ -144,6 +143,7 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, SkipTo_Old, IndexIterator, false)(b
     int rc = iterator_base->SkipTo(iterator_base->ctx, hit->docId + step, &hit);
     if (rc == INDEXREAD_EOF) {
       iterator_base->Rewind(iterator_base->ctx);
+      hit = iterator_base->current;
       hit->docId = 0;
     }
   }
@@ -192,6 +192,7 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, SkipTo_Old_Optimized, IndexIterator
     int rc = iterator_base->SkipTo(iterator_base->ctx, hit->docId + step, &hit);
     if (rc == INDEXREAD_EOF) {
       iterator_base->Rewind(iterator_base->ctx);
+      hit = iterator_base->current;
       hit->docId = 0;
     }
   }
