@@ -27,7 +27,7 @@ public:
   IteratorType *child;
   std::vector<t_docId> childIds;
   std::vector<t_docId> wcIds;
-  t_docId maxDocId = 2'000'000;
+  t_docId maxDocId;
   static bool initialized;
 
   void SetUp(::benchmark::State &state) {
@@ -37,6 +37,7 @@ public:
     }
 
     auto numChildDocuments = state.range(0);
+    maxDocId = state.range(1);
 
     std::mt19937 rng(46);
     std::uniform_int_distribution<t_docId> dist(1, maxDocId);
@@ -101,7 +102,11 @@ public:
 template <typename IteratorType, bool optimized>
 bool BM_NotIterator<IteratorType, optimized>::initialized = false;
 
-#define NOT_SCENARIOS() Arg(1000) -> Arg(10000) -> Arg(100000) -> Arg(1000000)
+#define NOT_SCENARIOS() \
+  Args({1000, 100000}) -> \
+  Args({10000, 500000}) -> \
+  Args({100000, 1000000}) -> \
+  Args({1000000, 2000000})
 
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, Read, QueryIterator, false)(benchmark::State &state) {
   for (auto _ : state) {
