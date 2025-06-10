@@ -18,8 +18,6 @@ use std::{
 /// Errors that can be returned by [`ResultProcessor`]
 #[derive(Debug)]
 pub enum Error {
-    /// Execution paused due to rate limiting (or manual pause from ext. thread??)
-    Paused,
     /// Execution halted because of timeout
     TimedOut,
     /// Aborted because of error. The QueryState (parent->status) should have
@@ -112,7 +110,9 @@ impl Upstream<'_> {
         match ret_code as ffi::RPStatus {
             ffi::RPStatus_RS_RESULT_OK => Ok(Some(())),
             ffi::RPStatus_RS_RESULT_EOF => Ok(None),
-            ffi::RPStatus_RS_RESULT_PAUSED => Err(Error::Paused),
+            ffi::RPStatus_RS_RESULT_PAUSED => {
+                unimplemented!("result processor returned unsupported error code PAUSED")
+            }
             ffi::RPStatus_RS_RESULT_TIMEDOUT => Err(Error::TimedOut),
             ffi::RPStatus_RS_RESULT_ERROR => Err(Error::Error),
             code => {
@@ -273,7 +273,6 @@ where
         match me.result_processor.next(cx, res) {
             Ok(Some(())) => ffi::RPStatus_RS_RESULT_OK as c_int,
             Ok(None) => ffi::RPStatus_RS_RESULT_EOF as c_int,
-            Err(Error::Paused) => ffi::RPStatus_RS_RESULT_PAUSED as c_int,
             Err(Error::TimedOut) => ffi::RPStatus_RS_RESULT_TIMEDOUT as c_int,
             Err(Error::Error) => ffi::RPStatus_RS_RESULT_ERROR as c_int,
         }
