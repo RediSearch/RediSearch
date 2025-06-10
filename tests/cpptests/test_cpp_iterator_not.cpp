@@ -43,6 +43,12 @@ protected:
         }
       }
       maxDocId += 5; // Add some buffer
+      if (!optimized) {
+        wcDocIds.clear();
+        for (auto i = 0; i < maxDocId; i++) {
+          wcDocIds.push_back(i);
+        }
+      }
       // Compute resultSet from maxDocId and childDocIds
       resultSet.clear();
       if (!optimized) {
@@ -119,20 +125,7 @@ TEST_P(NotIteratorCommonTest, Read) {
 TEST_P(NotIteratorCommonTest, SkipToChildNotOK) {
   NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
-  //Print all ChildDocIds and WCDocIDs
-
-  printf("Child IDs: ");
-  for (auto childId : childDocIds) {
-    printf("%d ", childId);
-  }
-  if (optimized) {
-    printf("\nWC IDs: ");
-    for (auto wcId : wcDocIds) {
-      printf("%d ", wcId);
-    }
-  }
-  printf("\n");
-  // Test Skpping from 0
+  // Test skipping from 0
   for (t_docId id : childDocIds) {
     t_docId expectedId;
     for (auto rsId: resultSet) {
@@ -181,17 +174,14 @@ TEST_P(NotIteratorCommonTest, SkipToChildNotOK) {
     }
 
     NotIterator *ni = (NotIterator*) iterator_base;
-    if (optimized) {
-      printf("SkipTo %d from %d, child at %d and wcii at %d\n", skipToId, iterator_base->lastDocId, ni->child->lastDocId, ni->wcii->lastDocId);
-    }
-    if (skipToId < iterator_base->lastDocId) {
+    if (skipToId <= iterator_base->lastDocId) {
       break;
     }
     rc = iterator_base->SkipTo(iterator_base, skipToId);
     ASSERT_NE(rc, ITERATOR_OK);
     if (rc == ITERATOR_NOTFOUND) {
-      ASSERT_GT(iterator_base->current->docId, id);
-      ASSERT_GT(iterator_base->lastDocId, id);
+      ASSERT_GT(iterator_base->current->docId, skipToId);
+      ASSERT_GT(iterator_base->lastDocId, skipToId);
       ASSERT_EQ(iterator_base->current->docId, expectedId);
       ASSERT_EQ(iterator_base->lastDocId, expectedId);
     } else {
@@ -201,73 +191,121 @@ TEST_P(NotIteratorCommonTest, SkipToChildNotOK) {
   }
 }
 
-/*TEST_P(NotIteratorCommonTest, SkipTo) {
+
+TEST_P(NotIteratorCommonTest, SkipToWCIds) {
   NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
-
-  for (t_docId id : childDocIds) {
+  // Test skipping from 0
+  for (t_docId id : wcDocIds) {
+    t_docId expectedId;
+    for (auto rsId: resultSet) {
+      if (rsId >= id) {
+        expectedId = rsId;
+        break;
+      }
+    }
     iterator_base->Rewind(iterator_base);
     rc = iterator_base->SkipTo(iterator_base, id);
-    // Skipping to a doc that we know is in the child should never return ITERATOR_OK
-    ASSERT_NE(rc, ITERATOR_OK);
     if (rc == ITERATOR_NOTFOUND) {
       ASSERT_GT(iterator_base->current->docId, id);
       ASSERT_GT(iterator_base->lastDocId, id);
+      ASSERT_EQ(iterator_base->current->docId, expectedId);
+      ASSERT_EQ(iterator_base->lastDocId, expectedId);
+    } else if (rc == ITERATOR_OK) {
+      ASSERT_EQ(id, expectedId);
+      ASSERT_EQ(iterator_base->current->docId, id);
+      ASSERT_EQ(iterator_base->lastDocId, id);
     } else {
       ASSERT_EQ(rc, ITERATOR_EOF);
       ASSERT_TRUE(iterator_base->atEOF);
     }
   }
 
-  for (t_docId id = 1; id <= maxDocId; id++) {
-    iterator_base->Rewind(iterator_base);
-    printf("id %d", id);
-    if (std::find(childDocIds.begin(), childDocIds.end(), id) != childDocIds.end()) {
-      // Skip To document in Child, so should return NOTFOUND or EOF
-      rc = iterator_base->SkipTo(iterator_base, id);
-      ASSERT_NE(rc, ITERATOR_OK);
-      if (rc == ITERATOR_NOTFOUND) {
-        ASSERT_GT(iterator_base->current->docId, id);
-        ASSERT_GT(iterator_base->lastDocId, id);
-      } else {
-        ASSERT_EQ(rc, ITERATOR_EOF);
-        ASSERT_TRUE(iterator_base->atEOF);
-      }
+  // Test skipping from intermediate results
+  iterator_base->Rewind(iterator_base);
+  for (t_docId id : wcDocIds) {
+    if (iterator_base->atEOF) {
+      break;
+    }
+    t_docId skipToId;
+    if (id > iterator_base->lastDocId) {
+      skipToId = id;
     } else {
-      // Skip to Document not in Child, so u should find it if is not Optimized or in the WC
-      rc = iterator_base->SkipTo(iterator_base, id);
-      if (!optimized) {
-        ASSERT_EQ(rc, ITERATOR_OK);
-        ASSERT_GT(iterator_base->current->docId, id);
-        ASSERT_GT(iterator_base->lastDocId, id);
-      } else {
-        if (std::find(wcDocIds.begin(), wcDocIds.end(), id) == wcDocIds.end()) {
-          // If not in WC, you should find something beyond, except if you are beyond the last WC
-          if (id > wcDocIds.back()) {
-            ASSERT_EQ(rc, ITERATOR_EOF);
-            ASSERT_TRUE(iterator_base->atEOF);
-          } else {
-            printf("id %d, rc: %d and wc back: %d, and child back: %d\n", id, rc, wcDocIds.back(), childDocIds.back());
-            ASSERT_EQ(rc, ITERATOR_NOTFOUND);
-            ASSERT_GT(iterator_base->current->docId, id);
-            ASSERT_GT(iterator_base->lastDocId, id);
-          }
-        } else {
-          ASSERT_EQ(rc, ITERATOR_OK);
-          ASSERT_EQ(iterator_base->current->docId, id);
-          ASSERT_EQ(iterator_base->lastDocId, id);
+      for (auto wcid : wcDocIds) {
+        if (wcid > iterator_base->lastDocId) {
+          skipToId = wcid;
+          break;
         }
       }
     }
-  }
+    t_docId expectedId;
+    for (auto rsId: resultSet) {
+      if (rsId >= skipToId) {
+        expectedId = rsId;
+        break;
+      }
+    }
 
-  // Test skipping beyond maxID returns EOF
-  iterator_base->Rewind(iterator_base);
-  rc = iterator_base->SkipTo(iterator_base, maxDocId + 1);
-  ASSERT_EQ(rc, ITERATOR_EOF);
-  ASSERT_TRUE(iterator_base->atEOF);
+    NotIterator *ni = (NotIterator*) iterator_base;
+    if (skipToId <= iterator_base->lastDocId) {
+      break;
+    }
+    rc = iterator_base->SkipTo(iterator_base, skipToId);
+    if (rc == ITERATOR_NOTFOUND) {
+      ASSERT_GT(iterator_base->current->docId, skipToId);
+      ASSERT_GT(iterator_base->lastDocId, skipToId);
+      ASSERT_EQ(iterator_base->current->docId, expectedId);
+      ASSERT_EQ(iterator_base->lastDocId, expectedId);
+    } else if (rc == ITERATOR_OK) {
+      ASSERT_EQ(skipToId, expectedId);
+      ASSERT_EQ(iterator_base->current->docId, skipToId);
+      ASSERT_EQ(iterator_base->lastDocId, skipToId);
+    } else {
+      ASSERT_EQ(rc, ITERATOR_EOF);
+      ASSERT_TRUE(iterator_base->atEOF);
+    }
+  }
 }
-*/
+
+
+TEST_P(NotIteratorCommonTest, SkipToAll) {
+  NotIterator *ni = (NotIterator *)iterator_base;
+  IteratorStatus rc;
+  for (t_docId id = 1; id < maxDocId; id++) {
+    t_docId expectedId = 0;
+    t_docId return_ok = false;
+    for (auto rsId: resultSet) {
+      if (rsId == id) {
+        expectedId = rsId;
+        return_ok = true;
+        break;
+      } else if (rsId > id) {
+        expectedId = rsId;
+        return_ok = false;
+        break;
+      }
+    }
+
+    iterator_base->Rewind(iterator_base);
+    rc = iterator_base->SkipTo(iterator_base, id);
+    if (rc == ITERATOR_NOTFOUND) {
+      ASSERT_FALSE(return_ok);
+      ASSERT_GT(iterator_base->current->docId, id);
+      ASSERT_GT(iterator_base->lastDocId, id);
+      ASSERT_EQ(iterator_base->current->docId, expectedId);
+      ASSERT_EQ(iterator_base->lastDocId, expectedId);
+    } else if (rc == ITERATOR_OK) {
+      ASSERT_TRUE(return_ok);
+      ASSERT_EQ(id, expectedId);
+      ASSERT_EQ(iterator_base->current->docId, id);
+      ASSERT_EQ(iterator_base->lastDocId, id);
+    } else {
+      ASSERT_EQ(expectedId, 0);
+      ASSERT_EQ(rc, ITERATOR_EOF);
+      ASSERT_TRUE(iterator_base->atEOF);
+    }
+  }
+}
 
 TEST_P(NotIteratorCommonTest, NumEstimated) {
   NotIterator *ni = (NotIterator *)iterator_base;

@@ -151,7 +151,7 @@ static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
       if (rc == ITERATOR_OK) {
         base->lastDocId = base->current->docId = ni->wcii->lastDocId;
         return ITERATOR_OK;
-      } else {
+      } else if (rc == ITERATOR_NOTFOUND) {
         // We now make sure we did not surpass the child docId? or consider if Child reached EOF
         if (ni->wcii->lastDocId > ni->child->lastDocId) {
           rc = ni->child->SkipTo(ni->child, ni->wcii->lastDocId);
@@ -166,10 +166,22 @@ static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
             return rc;
           } else if (rc == ITERATOR_NOTFOUND || rc == ITERATOR_EOF) {
             base->lastDocId = base->current->docId = ni->wcii->lastDocId;
-            return ITERATOR_OK;
+            return ITERATOR_NOTFOUND;
           }
+        } else if (ni->wcii->lastDocId < ni->child->lastDocId) {
+          base->lastDocId = base->current->docId = ni->wcii->lastDocId;
+          return ITERATOR_NOTFOUND;
+        } else if (ni->wcii->lastDocId == ni->child->lastDocId) {
+          rc = NI_Read_Optimized(base);
+          if (rc == ITERATOR_OK) {
+            return ITERATOR_NOTFOUND;
+          } else if (rc == ITERATOR_EOF) {
+            base->atEOF = true;
+          }
+          return rc;
         }
-        base->atEOF = ni->wcii->atEOF;
+      } else if (rc == ITERATOR_EOF) {
+        base->atEOF = true;
         return rc;
       }
     }
