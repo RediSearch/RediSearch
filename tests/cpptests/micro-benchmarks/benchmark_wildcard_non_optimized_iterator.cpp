@@ -7,7 +7,6 @@
 * GNU Affero General Public License v3 (AGPLv3).
 */
 
-
 #include "benchmark/benchmark.h"
 #include "redismock/util.h"
 
