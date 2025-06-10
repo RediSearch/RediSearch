@@ -1678,9 +1678,10 @@ def testToLowerConversionExactMatch(env):
 
             # Test exact match for upper and lower case terms
             res = conn.execute_command('FT.SEARCH', idx, query_u, 'NOCONTENT')
-            env.assertEqual(res, expected_u, message = f'{idx} query_u char: {char} {' '.join(f"U+{ord(c):04X}" for c in char)}')
+            unicode_codes = ' '.join(f"U+{ord(c):04X}" for c in char)
+            env.assertEqual(res, expected_u, message = f'{idx} query_u char: {char} {unicode_codes}')
             res = conn.execute_command('FT.SEARCH', idx, query_l, 'NOCONTENT')
-            env.assertEqual(res, expected_l, message = f'{idx} query_l char: {char} {' '.join(f"U+{ord(c):04X}" for c in char)}')
+            env.assertEqual(res, expected_l, message = f'{idx} query_l char: {char} {unicode_codes}')
 
 
 @skip(cluster=True)
