@@ -96,13 +96,18 @@ static IteratorStatus NI_SkipTo_NotOptimized(QueryIterator *base, t_docId docId)
  * - ITERATOR_TIMEOUT if the operation timed out
  */
 static IteratorStatus NI_HandleRelativePositions(QueryIterator *base, NotIterator *ni, t_docId docId) {
-  IteratorStatus rc;
+  IteratorStatus rc = ni->wcii->SkipTo(ni->wcii, docId);
+  if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
+  if (rc == ITERATOR_EOF) {
+    base->atEOF = true;
+    return rc;
+  }
 
   // Case 1: Wildcard is behind child
   if (ni->wcii->lastDocId < ni->child->lastDocId) {
     // Wildcard found a document before child's position - valid result
     base->lastDocId = base->current->docId = ni->wcii->lastDocId;
-    return ITERATOR_NOTFOUND;
+    return base->lastDocId == docId ? ITERATOR_OK : ITERATOR_NOTFOUND;
   }
   // Case 2: Both iterators at same position
   else if (ni->wcii->lastDocId == ni->child->lastDocId) {
@@ -162,86 +167,15 @@ static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
     return ITERATOR_EOF;
   }
   RS_ASSERT(base->lastDocId < docId);
-
-  // Case 1: Child is ahead of docId or at EOF
-  // Child doesn't have this id, so check if it exists in wildcard iterator
-  if (ni->child->lastDocId > docId || ni->child->atEOF) {
-    IteratorStatus rc = ni->wcii->SkipTo(ni->wcii, docId);
+  IteratorStatus rc;
+  // If the child is behind docId, skip to docId to see if it exists on child iterator, otherwise we already know it does not
+  if (ni->child->lastDocId < docId && !ni->child->atEOF) {
+    rc = ni->child->SkipTo(ni->child, docId);
     if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
-    if (rc == ITERATOR_EOF) {
-      base->atEOF = true;
-      return rc;
-    }
-
-    // Document exists in wildcard iterator and not in child - valid result
-    if (rc == ITERATOR_OK) {
-      base->lastDocId = base->current->docId = ni->wcii->lastDocId;
-      return ITERATOR_OK;
-    }
-
-    // Handle relative positions of wildcard and child iterators
-    return NI_HandleRelativePositions(base, ni, docId);
   }
 
-  // Case 2: Child is behind docId - need to check if docId is in child
-  else if (ni->child->lastDocId < docId) {
-    IteratorStatus rc = ni->child->SkipTo(ni->child, docId);
-    if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
-
-    if (rc == ITERATOR_OK) {
-      // Child has this docId (anti-match) - check wildcard position
-      rc = ni->wcii->SkipTo(ni->wcii, docId);
-      if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
-      if (rc == ITERATOR_EOF) {
-        base->atEOF = true;
-        return rc;
-      }
-
-      // Handle relative positions after both skips
-      return NI_HandleRelativePositions(base, ni, docId);
-    } else {
-      // Child doesn't have exact docId but skipped to higher one
-      // Check if wildcard has this docId
-      rc = ni->wcii->SkipTo(ni->wcii, docId);
-      if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
-      if (rc == ITERATOR_OK) {
-        base->lastDocId = base->current->docId = ni->wcii->lastDocId;
-        return ITERATOR_OK;
-      } else if (rc == ITERATOR_NOTFOUND) {
-        // Handle relative positions after wildcard skip
-        return NI_HandleRelativePositions(base, ni, docId);
-      } else if (rc == ITERATOR_EOF) {
-        base->atEOF = true;
-        return rc;
-      }
-    }
-  }
-
-  // Case 3: Child is exactly at docId - anti-match
-  else {
-    // Check if wildcard has this docId
-    IteratorStatus rc = ni->wcii->SkipTo(ni->wcii, docId);
-    if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
-    if (rc == ITERATOR_OK) {
-      // Both have this docId - find next valid result
-      rc = NI_Read_Optimized(base);
-      if (rc == ITERATOR_OK) {
-        return ITERATOR_NOTFOUND;
-      } else if (rc == ITERATOR_EOF) {
-        base->atEOF = true;
-      }
-      return rc;
-    } else if (rc == ITERATOR_EOF) {
-      base->atEOF = true;
-      return rc;
-    } else if (rc == ITERATOR_NOTFOUND) {
-      // Wildcard advanced past child - check if child has this new position
-      return NI_HandleRelativePositions(base, ni, docId);
-    }
-  }
-
-  // Default fallback (should not reach here in normal execution)
-  return ITERATOR_EOF;
+  // Handle relative positions of wildcard and child iterators
+  return NI_HandleRelativePositions(base, ni, docId);
 }
 
 /* Read from a NOT iterator - Non-Optimized version. We simply read until max
