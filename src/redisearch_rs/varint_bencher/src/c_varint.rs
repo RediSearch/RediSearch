@@ -41,6 +41,17 @@ impl CVarintVectorWriter {
         // SAFETY: self.0 is a valid VarintVectorWriter pointer, accessing buf.offset field
         unsafe { (*self.0).buf.offset }
     }
+
+    /// Get the actual encoded bytes.
+    #[inline(always)]
+    pub fn bytes(&self) -> &[u8] {
+        // SAFETY: self.0 is a valid VarintVectorWriter pointer
+        unsafe {
+            let data = (*self.0).buf.data as *const u8;
+            let len = (*self.0).buf.offset;
+            std::slice::from_raw_parts(data, len)
+        }
+    }
 }
 
 impl Drop for CVarintVectorWriter {

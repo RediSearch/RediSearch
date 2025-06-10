@@ -11,7 +11,7 @@ This crate provides:
 - **Compression ratios**: Analyze how well varint encoding compresses different
   value ranges
 - **Implementation correctness**: Verify that Rust and C implementations produce
-  identical results
+  identical encoded byte sequences
 - **Performance benchmarks**: Use `cargo bench` for detailed timing analysis
 
 ## Quick Start
@@ -48,8 +48,8 @@ Varint Encoding Statistics:
 - C varint encoding: 4.451 KB (1.76x compression)
 - Rust field mask encoding: 5.817 KB
 - C field mask encoding: 5.817 KB
-- Varint implementations produce identical output sizes
-- Field mask implementations produce identical output sizes
+- Varint implementations produce identical encoded output
+- Field mask implementations produce identical encoded output
 
 Run `cargo bench` for detailed performance comparisons.
 ```
@@ -88,8 +88,9 @@ The tool requires C libraries built with `make build`. If C integration fails:
 - **Build fails**: Missing C libraries - run `make build` first
 - **Runtime panic**: C function calls fail - indicates FFI linking issues
 
-The memory analysis focuses on correctness and space efficiency rather than
-trying to replicate criterion's statistical timing analysis.
+The memory analysis focuses on encoding correctness (verifying byte-for-byte
+identical output) and space efficiency rather than trying to replicate
+criterion's statistical timing analysis.
 
 ## Project Structure
 

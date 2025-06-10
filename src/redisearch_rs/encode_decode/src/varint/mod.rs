@@ -183,4 +183,163 @@ mod tests {
             assert_eq!(read_field_mask(&buf[..]).unwrap(), *value);
         }
     }
+
+    #[test]
+    fn test_varint_encoded_bytes() {
+        // Test specific values and their expected encoded byte sequences.
+        let test_cases = [
+            (0u32, vec![0x00]),
+            (1u32, vec![0x01]),
+            (127u32, vec![0x7F]),
+            (128u32, vec![0x80, 0x00]),
+            (129u32, vec![0x80, 0x01]),
+            (255u32, vec![0x80, 0x7F]),
+            (256u32, vec![0x81, 0x00]),
+            (16383u32, vec![0xFE, 0x7F]),
+            (16384u32, vec![0xFF, 0x00]),
+            // 3-byte encoding boundary.
+            (2097151u32, vec![0xFE, 0xFE, 0x7F]),
+            (2097152u32, vec![0xFE, 0xFF, 0x00]),
+            // 4-byte encoding boundary.
+            (268435455u32, vec![0xFE, 0xFE, 0xFE, 0x7F]),
+            (268435456u32, vec![0xFE, 0xFE, 0xFF, 0x00]),
+            // Maximum u32 value (5-byte encoding).
+            (u32::MAX, vec![0x8E, 0xFE, 0xFE, 0xFE, 0x7F]),
+        ];
+
+        for (value, expected_bytes) in test_cases {
+            let mut buf = Vec::new();
+            write(value, &mut buf).unwrap();
+            assert_eq!(
+                buf, expected_bytes,
+                "Encoded bytes for value {} don't match expected: got {:?}, expected {:?}",
+                value, buf, expected_bytes
+            );
+
+            // Verify round-trip decoding still works.
+            assert_eq!(read(&buf[..]).unwrap(), value);
+        }
+    }
+
+    #[test]
+    fn test_field_mask_encoded_bytes() {
+        // Test specific field mask values and their expected encoded byte sequences.
+        let test_cases: &[(FieldMask, Vec<u8>)] = &[
+            (0, vec![0x00]),
+            (1, vec![0x01]),
+            (127, vec![0x7F]),
+            (128, vec![0x80, 0x00]),
+            (129, vec![0x80, 0x01]),
+            (255, vec![0x80, 0x7F]),
+            (256, vec![0x81, 0x00]),
+            (16383, vec![0xFE, 0x7F]),
+            (16384, vec![0xFF, 0x00]),
+            // 3-byte encoding boundary.
+            (2097151, vec![0xFE, 0xFE, 0x7F]),
+            (2097152, vec![0xFE, 0xFF, 0x00]),
+            // 4-byte encoding boundary.
+            (268435455, vec![0xFE, 0xFE, 0xFE, 0x7F]),
+            (268435456, vec![0xFE, 0xFE, 0xFF, 0x00]),
+            // Maximum u32 value (5-byte encoding).
+            (u32::MAX as FieldMask, vec![0x8E, 0xFE, 0xFE, 0xFE, 0x7F]),
+        ];
+
+        for (value, expected_bytes) in test_cases {
+            let mut buf = Vec::new();
+            write_field_mask(*value, &mut buf).unwrap();
+            assert_eq!(
+                &buf, expected_bytes,
+                "Encoded bytes for field mask {} don't match expected: got {:?}, expected {:?}",
+                value, buf, expected_bytes
+            );
+
+            // Verify round-trip decoding still works.
+            assert_eq!(read_field_mask(&buf[..]).unwrap(), *value);
+        }
+
+        // Platform-specific test cases for extended FieldMask ranges.
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        {
+            // On platforms where FieldMask is u64, test values beyond u32::MAX.
+            let u64_test_cases: &[(FieldMask, Vec<u8>)] = &[
+                // Values just beyond u32::MAX.
+                (
+                    u32::MAX as FieldMask + 1,
+                    vec![0x8E, 0xFE, 0xFE, 0xFF, 0x00],
+                ),
+                (
+                    u32::MAX as FieldMask + 100,
+                    vec![0x8E, 0xFE, 0xFE, 0xFF, 0x63],
+                ),
+                // Large u64 value.
+                (
+                    0x1FFFFFFFFFFFFF,
+                    vec![0x8E, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0x7F],
+                ),
+                // Maximum u64 value.
+                (
+                    u64::MAX as FieldMask,
+                    vec![0x80, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0x7F],
+                ),
+            ];
+
+            for &(value, ref expected_bytes) in u64_test_cases {
+                let mut buf = Vec::new();
+                write_field_mask(value, &mut buf).unwrap();
+                assert_eq!(
+                    buf, *expected_bytes,
+                    "Encoded bytes for large field mask {} don't match expected: got {:?}, expected {:?}",
+                    value, buf, expected_bytes
+                );
+
+                // Verify round-trip decoding still works.
+                assert_eq!(read_field_mask(&buf[..]).unwrap(), value);
+            }
+        }
+
+        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+        {
+            // On platforms where FieldMask is u128, test values beyond u64::MAX.
+            let u128_test_cases: &[(FieldMask, Vec<u8>)] = &[
+                // Values just beyond u64::MAX.
+                (
+                    u64::MAX as FieldMask + 1,
+                    vec![0x80, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFF, 0x00],
+                ),
+                (
+                    u64::MAX as FieldMask + 100,
+                    vec![0x80, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFF, 0x63],
+                ),
+                // Large u128 value.
+                (
+                    0x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
+                    vec![
+                        0xBE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE,
+                        0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0x7F,
+                    ],
+                ),
+                // Maximum u128 value.
+                (
+                    u128::MAX,
+                    vec![
+                        0x82, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE,
+                        0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0xFE, 0x7F,
+                    ],
+                ),
+            ];
+
+            for &(value, ref expected_bytes) in u128_test_cases {
+                let mut buf = Vec::new();
+                write_field_mask(value, &mut buf).unwrap();
+                assert_eq!(
+                    buf, *expected_bytes,
+                    "Encoded bytes for large field mask {} don't match expected: got {:?}, expected {:?}",
+                    value, buf, expected_bytes
+                );
+
+                // Verify round-trip decoding still works.
+                assert_eq!(read_field_mask(&buf[..]).unwrap(), value);
+            }
+        }
+    }
 }
