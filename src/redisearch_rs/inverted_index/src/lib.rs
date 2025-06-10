@@ -9,6 +9,7 @@
 
 use std::{
     ffi::{c_char, c_int},
+    fmt::Debug,
     io::{Read, Seek, Write},
     mem::ManuallyDrop,
 };
@@ -39,6 +40,7 @@ impl From<Delta> for usize {
 /// cbindgen:field-names=[value]
 #[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
 #[repr(C)]
+#[derive(Debug, PartialEq)]
 pub struct RSNumericRecord(pub f64);
 
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
@@ -61,7 +63,7 @@ pub struct RSTermRecord {
 
 #[bitflags]
 #[repr(u32)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 /// cbindgen:prefix-with-name=true
 pub enum RSResultType {
     Union = 1,
@@ -134,6 +136,82 @@ pub struct RSIndexResult {
 
     /// Relative weight for scoring calculations. This is derived from the result's iterator weight
     pub weight: f64,
+}
+
+impl RSIndexResult {
+    pub fn numeric(num: f64) -> Self {
+        Self {
+            doc_id: 0,
+            dmd: std::ptr::null(),
+            field_mask: 0,
+            freq: 0,
+            offsets_sz: 0,
+            data: RSIndexResultData {
+                num: ManuallyDrop::new(RSNumericRecord(num)),
+            },
+            result_type: RSResultType::Numeric,
+            is_copy: false,
+            metrics: std::ptr::null_mut(),
+            weight: 0.0,
+        }
+    }
+}
+
+impl Debug for RSIndexResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut d = f.debug_struct("RSIndexResult");
+
+        d.field("doc_id", &self.doc_id)
+            .field("dmd", &self.dmd)
+            .field("field_mask", &self.field_mask)
+            .field("freq", &self.freq)
+            .field("offsets_sz", &self.offsets_sz);
+
+        match self.result_type {
+            RSResultType::Union => todo!(),
+            RSResultType::Intersection => todo!(),
+            RSResultType::Term => todo!(),
+            RSResultType::Virtual => todo!(),
+            RSResultType::Numeric => {
+                d.field("data.num", unsafe { &self.data.num });
+            }
+            RSResultType::Metric => todo!(),
+            RSResultType::HybridMetric => todo!(),
+        }
+
+        d.field("result_type", &self.result_type)
+            .field("is_copy", &self.is_copy)
+            .field("metrics", &self.metrics)
+            .field("weight", &self.weight)
+            .finish()
+    }
+}
+
+impl PartialEq for RSIndexResult {
+    fn eq(&self, other: &Self) -> bool {
+        if !(self.doc_id == other.doc_id
+            && self.dmd == other.dmd
+            && self.field_mask == other.field_mask
+            && self.freq == other.freq
+            && self.offsets_sz == other.offsets_sz
+            && self.result_type == other.result_type
+            && self.is_copy == other.is_copy
+            && self.metrics == other.metrics
+            && self.weight == other.weight)
+        {
+            return false;
+        }
+
+        match self.result_type {
+            RSResultType::Union => todo!(),
+            RSResultType::Intersection => todo!(),
+            RSResultType::Term => todo!(),
+            RSResultType::Virtual => todo!(),
+            RSResultType::Numeric => unsafe { self.data.num == other.data.num },
+            RSResultType::Metric => todo!(),
+            RSResultType::HybridMetric => todo!(),
+        }
+    }
 }
 
 /// Encoder to write a record into an index

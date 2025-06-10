@@ -17,7 +17,7 @@
 #include "redismodule.h"
 #include "search_ctx.h"
 #include "concurrent_ctx.h"
-#include "inverted_index.h"
+#include "inverted_index/inverted_index.h"
 #include "numeric_filter.h"
 #include "hll/hll.h"
 

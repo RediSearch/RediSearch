@@ -202,6 +202,17 @@ void IndexReader_OnReopen(IndexReader *ir);
  * delta for encoding */
 typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId delta, RSIndexResult *record);
 
+
+IndexBlockReader NewIndexBlockReader(BufferReader *buff, t_docId curBaseId);
+
+IndexDecoderCtx NewIndexDecoderCtx_NumericFilter();
+
+/* Wrapper around the static encodeNumeric to be able to access it in the Rust benchmarks */
+size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res);
+
+/* Wrapper around the static readNumeric to be able to access it in the Rust benchmarks */
+bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res);
+
 /* Write a numeric index entry to the index. it includes only a float value and docId. Returns the
  * number of bytes written */
 size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double value);
