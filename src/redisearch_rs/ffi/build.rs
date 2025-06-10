@@ -62,6 +62,9 @@ fn main() {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
+        // FP_NAN, FP_ZERO etc. are causing duplicate definition errors on linux, we don't need them anyways
+        // so just blocklist them all
+        .blocklist_item("FP_.*")
         .generate()
         .expect("Unable to generate bindings")
         .write_to_file(out_dir.join("bindings.rs"))
