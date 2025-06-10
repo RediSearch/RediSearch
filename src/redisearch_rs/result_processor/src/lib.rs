@@ -43,7 +43,7 @@ pub enum Error {
 ///
 /// # Result storage
 ///
-/// The processing output is accumulated in a [`SearchResult`] object.
+/// The processing output is accumulated in a [`ffi::SearchResult`] object.
 pub trait ResultProcessor {
     /// The type of this result processor.
     const TYPE: ffi::ResultProcessorType;
@@ -224,7 +224,7 @@ where
     ///
     /// 1. The caller must ensure the pointer was previously created through [`Self::into_ptr`].
     /// 2. The caller has to be careful to never call this method twice for the same pointer, otherwise a
-    ///     double-free or other memory corruptions will occur.
+    ///    double-free or other memory corruptions will occur.
     /// 3. The caller *must* also ensure that `ptr` continues to be treated as pinned.
     #[inline]
     unsafe fn from_ptr(ptr: *mut Self) -> Pin<Box<Self>> {
