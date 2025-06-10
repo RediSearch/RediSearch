@@ -296,6 +296,8 @@ where
 
 #[cfg(test)]
 pub(crate) mod test {
+    #![allow(unused)]
+
     use super::*;
     use ffi::SearchResult;
 
