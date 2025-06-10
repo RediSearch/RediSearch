@@ -33,7 +33,6 @@ impl ResultProcessor for Counter {
             // Safety: This function should only be called on initialized SearchResults. Luckily,
             // a ResultProcessor returning `RPStatus_RS_RESULT_OK` means "Result is filled with valid data"
             // so it is safe to call this function inside this loop.
-            #[cfg(not(test))] // can we link Rust unit tests against the redis code?
             unsafe {
                 ffi::SearchResult_Clear(res);
             }
@@ -58,8 +57,11 @@ impl Counter {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::{ResultProcessorWrapper, test::from_iter};
-    use std::ptr;
+    use crate::{Context, ResultProcessorWrapper, test::from_iter};
+    use std::{
+        pin::Pin,
+        ptr::{self, NonNull},
+    };
 
     #[test]
     fn basically_works() {
@@ -79,20 +81,39 @@ pub(crate) mod test {
 
         // Set up the result processors on the heap
         let upstream = Box::pin(ResultProcessorWrapper::new(from_iter([INIT, INIT, INIT])));
-        let mut counter = Box::pin(ResultProcessorWrapper::new(Counter::new()));
+        let upstream =
+            unsafe { NonNull::new(Box::into_raw(Pin::into_inner_unchecked(upstream))).unwrap() };
 
-        // Now call the `next` method of `Counter` for the actual test!
-        let mut counter = counter.as_mut().project();
+        let mut rp = Box::pin(ResultProcessorWrapper::new(Counter::new()));
 
         // Emulate what `QITR_PushRP` would be doing
-        *counter.header.as_mut().project().upstream =
-            unsafe { ResultProcessorWrapper::into_ptr(upstream) }.cast();
+        rp.header.upstream = upstream.as_ptr().cast();
 
-        let cx = counter.header.as_context();
+        let mut rp = NonNull::new(unsafe { ResultProcessorWrapper::into_ptr(rp) }).unwrap();
 
-        #[allow(const_item_mutation)] // we don't care about the exact search result value here
-        counter.result_processor.next(cx, &mut INIT).unwrap();
+        let cx = unsafe { Context::from_raw(rp.cast()) };
 
-        assert_eq!(counter.result_processor.count, 3);
+        // we don't care about the exact search result value here
+        #[allow(const_item_mutation)]
+        unsafe {
+            assert!(
+                rp.as_mut()
+                    .result_processor
+                    .next(cx, &mut INIT)
+                    .unwrap()
+                    .is_none()
+            );
+        };
+
+        assert_eq!(unsafe { rp.as_mut() }.result_processor.count, 3);
+
+        // we need to correctly free both result processors at the end
+        unsafe {
+            let mut rp = rp.cast::<crate::Header>();
+            (rp.as_mut().free.unwrap())(rp.as_ptr());
+
+            let mut upstream = upstream.cast::<crate::Header>();
+            (upstream.as_mut().free.unwrap())(upstream.as_ptr());
+        }
     }
 }
