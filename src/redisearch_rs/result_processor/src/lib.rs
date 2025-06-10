@@ -50,9 +50,13 @@ pub trait ResultProcessor {
 
     /// Pull the next [`ffi::SearchResult`] from this result processor into the provided `res` location.
     ///
-    /// Should return `Ok(Some(()))` if a search result was successfully pulled from the processor
-    /// and `Ok(None)` to indicate the end of search results has been reached.
-    /// `Err(_)` cases should be returned to indicate exceptional error.
+    /// Calling this method should return `Ok(Some(ffi::SearchResult))` as long as there are search results,
+    /// and once they’ve all been exhausted, will return `Ok(None)` to indicate that iteration is finished.
+    ///
+    /// For exceptional error cases, this method should return `Err(Error)`.
+    ///
+    /// In both cases `Ok(None)` and `Err(_)` indicate to the caller that calling `next`
+    /// will not yield values anymore, thus ending iteration.
     fn next(&mut self, cx: Context, res: &mut ffi::SearchResult) -> Result<Option<()>, Error>;
 }
 
@@ -62,7 +66,9 @@ pub struct Context<'a> {
 }
 
 impl Context<'_> {
-    /// The previous result processor in the pipeline
+    /// The previous result processor in the pipeline if present.
+    ///
+    /// Returns `None` when the result processor has no upstream.
     pub fn upstream(&mut self) -> Option<Upstream<'_>> {
         // Safety: We have to trust that the upstream pointer set by our QueryIterator parent
         // is correct.
