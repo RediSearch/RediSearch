@@ -8,6 +8,8 @@
 */
 
 #include "wildcard_iterator.h"
+#include "inverted_index_iterator.h"
+#include "empty_iterator.h"
 
 /* Free a wildcard iterator */
 static void WI_Free(QueryIterator *base) {
@@ -71,4 +73,21 @@ QueryIterator *IT_V2(NewWildcardIterator_NonOptimized)(t_docId maxId, size_t num
   ret->SkipTo = WI_SkipTo;
   ret->NumEstimated = WI_NumEstimated;
   return ret;
+}
+
+// Returns a new wildcard iterator.
+// If the spec tracks all existing documents, it will return an iterator over those documents.
+// Otherwise, it will return a non-optimized wildcard iterator
+QueryIterator *IT_V2(NewWildcardIterator)(QueryEvalCtx *q) {
+  if (q->sctx->spec->rule->index_all == true) {
+    if (q->sctx->spec->existingDocs) {
+      return NewInvIndIterator_GenericQuery(q->sctx->spec->existingDocs, q->sctx,
+                                            RS_INVALID_FIELD_INDEX, FIELD_EXPIRATION_DEFAULT);
+    } else {
+      return IT_V2(NewEmptyIterator)(); // Index all and no index, means the spec is currently empty.
+    }
+  }
+
+  // Non-optimized wildcard iterator, using a simple doc-id increment as its base.
+  return IT_V2(NewWildcardIterator_NonOptimized)(q->docTable->maxDocId, q->docTable->size);
 }

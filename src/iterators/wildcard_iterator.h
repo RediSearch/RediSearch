@@ -10,6 +10,7 @@
 #pragma once
 
 #include "iterator_api.h"
+#include "query_ctx.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,6 +28,14 @@ typedef struct {
  * @param numDocs - the number of docs to return
  */
 QueryIterator *IT_V2(NewWildcardIterator_NonOptimized)(t_docId maxId, size_t numDocs);
+
+/**
+ * Create a new wildcard iterator. This API should be preferred over the non-optimized version.
+ * If possible, it will use the optimized wildcard iterator,
+ * otherwise it will fall back to the non-optimized version.
+ * @param q - The query evaluation context
+ */
+QueryIterator *IT_V2(NewWildcardIterator)(QueryEvalCtx *q);
 
 #ifdef __cplusplus
 }
