@@ -308,18 +308,19 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
         waitForIndex(env, idx_name)
 
     # Add documents to make the indexes substantial
-    for j in range(num_docs):
-        doc_id = f'doc_{j}'
-        env.execute_command('HSET', doc_id,
-                            'title', f'Product {j}',
-                            'price', j * 10.5,
-                            'category', f'cat{j % 5}')
+    with env.getClusterConnectionIfNeeded() as conn:
+        for j in range(num_docs):
+            doc_id = f'doc_{j}'
+            conn.execute_command('HSET', doc_id,
+                                'title', f'Product {j}',
+                                'price', j * 10.5,
+                                'category', f'cat{j % 5}')
 
-    # Verify all indexes are created and populated
-    for idx_name in index_names:
-        info = env.cmd('FT.INFO', idx_name)
-        info_dict = {info[i]: info[i + 1] for i in range(0, len(info), 2)}
-        env.assertEqual(int(info_dict['num_docs']), num_docs)
+        # Verify all indexes are created and populated
+        for idx_name in index_names:
+            info = env.cmd('FT.INFO', idx_name)
+            info_dict = {info[i]: info[i + 1] for i in range(0, len(info), 2)}
+            env.assertEqual(int(info_dict['num_docs']), num_docs)
 
     # Shared variables for thread coordination
     results = {'info_calls': 0, 'errors': 0, 'successful_calls': 0}
@@ -327,27 +328,27 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
 
     def ft_info_worker(idx_name):
         """Worker function that continuously calls FT.INFO on an index"""
-        local_conn = env.getConnection()
-        while not stop_threads.is_set():
-            try:
-                info_result = local_conn.execute_command('FT.INFO', idx_name)
-                results['info_calls'] += 1
-                results['successful_calls'] += 1
-                # Small delay to prevent overwhelming the system
-                time.sleep(0.01)
-            except Exception as e:
-                results['info_calls'] += 1
-                results['errors'] += 1
-                # Expected errors when index is being deleted:
-                # - "Unknown index name" or "no such index"
-                error_msg = str(e).lower()
-                if 'unknown index' in error_msg or 'no such index' in error_msg:
-                    # These are expected errors during index deletion
-                    pass
-                else:
-                    # Unexpected error - log it but don't fail the test
-                    env.debugPrint(f"Unexpected error in FT.INFO for {idx_name}: {e}", force=True)
-                time.sleep(0.01)
+        with env.getClusterConnectionIfNeeded() as local_conn:
+            while not stop_threads.is_set():
+                try:
+                    info_result = local_conn.execute_command('FT.INFO', idx_name)
+                    results['info_calls'] += 1
+                    results['successful_calls'] += 1
+                    # Small delay to prevent overwhelming the system
+                    time.sleep(0.01)
+                except Exception as e:
+                    results['info_calls'] += 1
+                    results['errors'] += 1
+                    # Expected errors when index is being deleted:
+                    # - "Unknown index name" or "no such index"
+                    error_msg = str(e).lower()
+                    if 'unknown index' in error_msg or 'no such index' in error_msg:
+                        # These are expected errors during index deletion
+                        pass
+                    else:
+                        # Unexpected error - log it but don't fail the test
+                        env.debugPrint(f"Unexpected error in FT.INFO for {idx_name}: {e}", force=True)
+                    time.sleep(0.01)
 
     # Start worker threads for each index
     threads = []
