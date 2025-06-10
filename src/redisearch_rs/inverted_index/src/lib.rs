@@ -8,7 +8,7 @@
 */
 
 use std::{
-    ffi::{c_char, c_int, c_void},
+    ffi::{c_char, c_int},
     io::{Read, Seek, Write},
 };
 
@@ -58,7 +58,6 @@ pub struct RSTermRecord {
     pub offsets: RSOffsetVector,
 }
 
-#[repr(C)]
 #[bitflags]
 #[repr(u32)]
 #[derive(Copy, Clone)]
