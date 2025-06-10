@@ -125,7 +125,7 @@ static IteratorStatus MR_Read(QueryIterator *base) {
   IdListIterator *it = &mr->base;
   IteratorStatus rc = IL_Read(base);
   if (ITERATOR_OK == rc) {
-    SetYield(mr, mr->metricList[it->offset - 1]);
+    SetYield(base, mr->metricList[it->offset - 1]);
   }
   return rc;
 }
