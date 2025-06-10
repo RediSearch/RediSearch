@@ -70,6 +70,8 @@ where
 
 /// Encode an integer into a varint format and write it to the given writer.
 ///
+/// # Return Value
+///
 /// The number of bytes written.
 pub fn write<W>(value: u32, mut write: W) -> io::Result<usize>
 where
