@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 version=3.25.1
 processor=$(uname -m)
 OS_TYPE=$(uname -s)

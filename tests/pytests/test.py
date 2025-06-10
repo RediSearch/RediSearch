@@ -1196,8 +1196,9 @@ def testInKeys(env):
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         for keys in (
-            [f"doc{i}" for i in range(10)], [f"doc{i}" for i in range(0, 30, 2)], [
-                f"doc{i}" for i in range(99, 0, -5)]
+            [f"doc{i}" for i in range(10)],
+            [f"doc{i}" for i in range(0, 30, 2)],
+            [f"doc{i}" for i in range(99, 0, -5)],
         ):
             res = env.cmd(
                 'ft.search', 'idx', 'hello world', 'NOCONTENT', 'LIMIT', 0, 100, 'INKEYS', len(keys), *keys)
@@ -1206,6 +1207,14 @@ def testInKeys(env):
 
         env.assertEqual(0, env.cmd(
             'ft.search', 'idx', 'hello world', 'NOCONTENT', 'LIMIT', 0, 100, 'INKEYS', 3, 'foo', 'bar', 'baz')[0])
+        # Test deduplication
+        env.assertEqual([1, 'doc0'], env.cmd(
+            'ft.search', 'idx', 'hello world', 'NOCONTENT', 'INKEYS', 2, 'doc0', 'doc0'))
+        env.assertEqual([1, 'doc0'], env.cmd(
+            'ft.search', 'idx', 'hello world', 'NOCONTENT', 'INKEYS', 5, 'doc0', 'doc0', 'doc0', 'doc0', 'doc0'))
+        res = env.cmd('ft.search', 'idx', 'hello world', 'NOCONTENT', 'INKEYS', 5, 'doc0', 'doc1', 'doc0', 'doc1', 'doc0')
+        env.assertEqual(2, res[0])
+        env.assertEqual(set(res[1:]), {'doc0', 'doc1'})
 
     with env.assertResponseError():
         env.cmd('ft.search', 'idx', 'hello', 'INKEYS', 99)

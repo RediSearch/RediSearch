@@ -600,7 +600,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     return REDISMODULE_ERR;
   }
 
-  searchOpts->inkeys = (const char **)inKeys.objs;
+  searchOpts->inkeys = (const sds*)inKeys.objs;
   searchOpts->ninkeys = inKeys.argc;
   searchOpts->legacy.infields = (const char **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
@@ -1061,14 +1061,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   }
 
   if (opts->inkeys) {
-    opts->inids = rm_malloc(sizeof(*opts->inids) * opts->ninkeys);
-    for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
-      t_docId did = DocTable_GetId(&sctx->spec->docs, opts->inkeys[ii], strlen(opts->inkeys[ii]));
-      if (did) {
-        opts->inids[opts->nids++] = did;
-      }
-    }
-    QAST_GlobalFilterOptions filterOpts = {.ids = opts->inids, .nids = opts->nids};
+    QAST_GlobalFilterOptions filterOpts = {.keys = opts->inkeys, .nkeys = opts->ninkeys};
     QAST_SetGlobalFilters(ast, &filterOpts);
   }
   return REDISMODULE_OK;
@@ -1786,7 +1779,6 @@ void AREQ_Free(AREQ *req) {
     array_foreach(req->searchopts.legacy.geo_filters, gf, if (gf) LegacyGeoFilter_Free(gf));
     array_free(req->searchopts.legacy.geo_filters);
   }
-  rm_free(req->searchopts.inids);
   if (req->searchopts.params) {
     Param_DictFree(req->searchopts.params);
   }

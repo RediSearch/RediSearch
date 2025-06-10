@@ -23,7 +23,7 @@ use std::ffi::c_void;
 /// - `str` can be NULL only if `len == 0`. It is not necessarily NULL-terminated.
 /// - `len` can be 0. If so, `str` is regarded as an empty string.
 ///
-/// [`NewTrieMap`]: crate::trie::NewTrieMap
+/// [`NewTrieMap`]: crate::NewTrieMap
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_FindPrefixes(
     t: *mut TrieMap,

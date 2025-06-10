@@ -16,6 +16,7 @@
 #include <time.h>
 #include "util/dllist.h"
 #include "stemmer.h"
+#include "types_rs.h"
 
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;
@@ -290,10 +291,6 @@ typedef struct {
 typedef struct {
   char dummy;
 } RSVirtualRecord;
-
-typedef struct {
-  double value;
-} RSNumericRecord;
 
 typedef enum {
   RSResultType_Union = 0x1,
