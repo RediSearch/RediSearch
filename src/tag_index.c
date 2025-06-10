@@ -233,8 +233,8 @@ static void TagReader_OnReopen(void *privdata) {
       size_t sz;
       // we need to reopen the inverted index to make sure its still valid.
       // the GC might have deleted it by now.
-      InvertedIndex *idx = TagIndex_OpenIndex(ctx->idx, ir->record->term.term->str,
-                                              ir->record->term.term->len, DONT_CREATE_INDEX, &sz);
+      InvertedIndex *idx = TagIndex_OpenIndex(ctx->idx, ir->record->data.term.term->str,
+                                              ir->record->data.term.term->len, DONT_CREATE_INDEX, &sz);
       if (idx == TRIEMAP_NOTFOUND || ir->idx != idx) {
         // The inverted index was collected entirely by GC.
         // All the documents that were inside were deleted and new ones were added.
