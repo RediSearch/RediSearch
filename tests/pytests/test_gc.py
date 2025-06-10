@@ -33,7 +33,7 @@ def testBasicGC(env):
 @skip(cluster=True)
 def testBasicGCWithEmptyInvIdx(env):
     if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs:
-        # this test is not relevent for legacy gc cause its not squeshing inverted index
+        # this test is not relevant for legacy gc cause its not squashing inverted index
         env.skip()
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text'))
@@ -127,14 +127,14 @@ def testDeleteEntireBlock(env):
     for i in range(700):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'test', 'checking', 'test2', 'checking%d' % i).ok()
 
-    # delete docs in the midle of the inverted index, make sure the binary search are not braken
+    # delete docs in the middle of the inverted index, make sure the binary search are not broken
     for i in range(400, 501):
         env.expect('FT.DEL', 'idx', 'doc%d' % i).equal(1)
     res = env.cmd('FT.SEARCH', 'idx', '@test:checking @test2:checking250')
     env.assertEqual(res[0:2],[1, 'doc250'])
     env.assertEqual(set(res[2]), set(['test', 'checking', 'test2', 'checking250']))
 
-    # actually clean the inverted index, make sure the binary search are not braken, check also after rdb reload
+    # actually clean the inverted index, make sure the binary search are not broken, check also after rdb reload
     for i in range(100):
         # gc is random so we need to do it long enough times for it to work
         forceInvokeGC(env, 'idx')
