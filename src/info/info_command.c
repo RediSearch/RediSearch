@@ -107,6 +107,10 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
 
   // Safe to access the spec directly since it is was already validated as a strong reference by the caller
   const IndexSpec *sp = sctx->spec;
+
+  // Lock the spec
+  RedisSearchCtx_LockSpecRead(sctx);
+
   IndexSpec *specForOpeningIndexes = sctx->spec;
   const char* specName = IndexSpec_FormatName(sp, obfuscate);
   REPLY_KVSTR_SAFE("index_name", specName);
@@ -117,8 +121,6 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
   RedisModule_ReplyKV_Array(reply, "attributes"); // >attributes
   size_t geom_idx_sz = 0;
   
-  // Lock the spec
-  RedisSearchCtx_LockSpecRead(sctx);
   
   for (int i = 0; i < sp->numFields; i++) {
     RedisModule_Reply_Map(reply); // >>field
