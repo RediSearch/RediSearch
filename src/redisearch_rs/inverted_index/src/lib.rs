@@ -30,6 +30,12 @@ impl From<Delta> for usize {
     }
 }
 
+/// Represents a numeric value in an index record.
+/// cbindgen:field-names=[value]
+#[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
+#[repr(C)]
+pub struct RSNumericRecord(pub f64);
+
 /// Encoder to write a record into an index
 pub trait Encoder {
     /// Write the record to the writer and return the number of bytes written. The delta is the

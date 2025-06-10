@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 ARCH=$(uname -m)
 MODE=$1 # whether to install using sudo or not
 set -e
