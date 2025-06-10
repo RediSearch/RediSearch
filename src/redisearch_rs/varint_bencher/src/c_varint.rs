@@ -35,34 +35,11 @@ impl CVarintVectorWriter {
         unsafe { ffi::VVW_Write(self.0, value) }
     }
 
-    /// Get the number of values written to the vector.
-    #[inline(always)]
-    pub fn count(&self) -> usize {
-        // SAFETY: self.0 is a valid VarintVectorWriter pointer, accessing nmemb field
-        unsafe { (*self.0).nmemb }
-    }
-
     /// Get the total number of bytes written.
     #[inline(always)]
     pub fn bytes_len(&self) -> usize {
         // SAFETY: self.0 is a valid VarintVectorWriter pointer, accessing buf.offset field
         unsafe { (*self.0).buf.offset }
-    }
-
-    /// Get a pointer to the internal byte data.
-    /// The data is valid until the next write operation or until the writer is dropped.
-    #[inline(always)]
-    pub fn bytes_data(&self) -> *const u8 {
-        // SAFETY: self.0 is a valid VarintVectorWriter pointer, accessing buf.data field
-        unsafe { (*self.0).buf.data as *const u8 }
-    }
-
-    /// Truncate the vector writer.
-    /// Returns the new capacity.
-    #[inline(always)]
-    pub fn shrink_to_fit(&mut self) -> usize {
-        // SAFETY: VVW_Truncate is a valid C function and self.0 is a valid VarintVectorWriter pointer
-        unsafe { ffi::VVW_Truncate(self.0) }
     }
 }
 
