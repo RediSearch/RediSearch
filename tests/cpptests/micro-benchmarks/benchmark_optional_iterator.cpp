@@ -10,6 +10,7 @@
 #include "benchmark/benchmark.h"
 #include "redismock/util.h"
 #include "iterator_util.h"
+#include "index_utils.h"
 
 #include <random>
 #include <vector>
@@ -19,35 +20,6 @@
 
 #include "deprecated_iterator_util.h"
 #include "src/index.h"
-
-class MockQueryEvalCtx {
-public:
-  QueryEvalCtx qctx;
-  RedisSearchCtx sctx;
-  IndexSpec spec;
-  DocTable docTable;
-  SchemaRule rule;
-
-  MockQueryEvalCtx(t_docId maxDocId, size_t numDocs, bool optimized = false) {
-    // Initialize DocTable
-    docTable.maxDocId = maxDocId;
-    docTable.size = numDocs;
-    
-    // Initialize SchemaRule
-    rule.index_all = optimized;
-    
-    // Initialize IndexSpec
-    spec.rule = &rule;
-    spec.existingDocs = nullptr; // For simplicity in benchmarks
-    
-    // Initialize RedisSearchCtx
-    sctx.spec = &spec;
-    
-    // Initialize QueryEvalCtx
-    qctx.sctx = &sctx;
-    qctx.docTable = &docTable;
-  }
-};
 
 template<bool WithChild>
 class BM_OptionalIterator : public benchmark::Fixture {
