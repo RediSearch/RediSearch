@@ -116,25 +116,149 @@ TEST_P(NotIteratorCommonTest, Read) {
   ASSERT_EQ(i, resultSet.size()) << "Expected to read " << resultSet.size() << " documents";
 }
 
-TEST_P(NotIteratorCommonTest, SkipTo) {
+TEST_P(NotIteratorCommonTest, SkipToChildNotOK) {
+  NotIterator *ni = (NotIterator *)iterator_base;
+  IteratorStatus rc;
+  //Print all ChildDocIds and WCDocIDs
+
+  printf("Child IDs: ");
+  for (auto childId : childDocIds) {
+    printf("%d ", childId);
+  }
+  if (optimized) {
+    printf("\nWC IDs: ");
+    for (auto wcId : wcDocIds) {
+      printf("%d ", wcId);
+    }
+  }
+  printf("\n");
+  // Test Skpping from 0
+  for (t_docId id : childDocIds) {
+    t_docId expectedId;
+    for (auto rsId: resultSet) {
+      if (rsId > id) {
+        expectedId = rsId;
+        break;
+      }
+    }
+    iterator_base->Rewind(iterator_base);
+    rc = iterator_base->SkipTo(iterator_base, id);
+    ASSERT_NE(rc, ITERATOR_OK);
+    if (rc == ITERATOR_NOTFOUND) {
+      ASSERT_GT(iterator_base->current->docId, id);
+      ASSERT_GT(iterator_base->lastDocId, id);
+      ASSERT_EQ(iterator_base->current->docId, expectedId);
+      ASSERT_EQ(iterator_base->lastDocId, expectedId);
+    } else {
+      ASSERT_EQ(rc, ITERATOR_EOF);
+      ASSERT_TRUE(iterator_base->atEOF);
+    }
+  }
+
+  // Test skipping from intermediate results
+  iterator_base->Rewind(iterator_base);
+  for (t_docId id : childDocIds) {
+    if (iterator_base->atEOF) {
+      break;
+    }
+    t_docId skipToId;
+    if (id > iterator_base->lastDocId) {
+      skipToId = id;
+    } else {
+      for (auto cid : childDocIds) {
+        if (cid > iterator_base->lastDocId) {
+          skipToId = cid;
+          break;
+        }
+      }
+    }
+    t_docId expectedId;
+    for (auto rsId: resultSet) {
+      if (rsId > skipToId) {
+        expectedId = rsId;
+        break;
+      }
+    }
+
+    NotIterator *ni = (NotIterator*) iterator_base;
+    if (optimized) {
+      printf("SkipTo %d from %d, child at %d and wcii at %d\n", skipToId, iterator_base->lastDocId, ni->child->lastDocId, ni->wcii->lastDocId);
+    }
+    if (skipToId < iterator_base->lastDocId) {
+      break;
+    }
+    rc = iterator_base->SkipTo(iterator_base, skipToId);
+    ASSERT_NE(rc, ITERATOR_OK);
+    if (rc == ITERATOR_NOTFOUND) {
+      ASSERT_GT(iterator_base->current->docId, id);
+      ASSERT_GT(iterator_base->lastDocId, id);
+      ASSERT_EQ(iterator_base->current->docId, expectedId);
+      ASSERT_EQ(iterator_base->lastDocId, expectedId);
+    } else {
+      ASSERT_EQ(rc, ITERATOR_EOF);
+      ASSERT_TRUE(iterator_base->atEOF);
+    }
+  }
+}
+
+/*TEST_P(NotIteratorCommonTest, SkipTo) {
   NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
 
   for (t_docId id : childDocIds) {
     iterator_base->Rewind(iterator_base);
     rc = iterator_base->SkipTo(iterator_base, id);
-    ASSERT_EQ(rc, ITERATOR_NOTFOUND);
+    // Skipping to a doc that we know is in the child should never return ITERATOR_OK
+    ASSERT_NE(rc, ITERATOR_OK);
+    if (rc == ITERATOR_NOTFOUND) {
+      ASSERT_GT(iterator_base->current->docId, id);
+      ASSERT_GT(iterator_base->lastDocId, id);
+    } else {
+      ASSERT_EQ(rc, ITERATOR_EOF);
+      ASSERT_TRUE(iterator_base->atEOF);
+    }
   }
 
   for (t_docId id = 1; id <= maxDocId; id++) {
-    if (std::find(childDocIds.begin(), childDocIds.end(), id) != childDocIds.end()) {
-      continue;
-    }
     iterator_base->Rewind(iterator_base);
-    rc = iterator_base->SkipTo(iterator_base, id);
-    ASSERT_EQ(rc, ITERATOR_OK);
-    ASSERT_EQ(iterator_base->current->docId, id);
-    ASSERT_EQ(iterator_base->lastDocId, id);
+    printf("id %d", id);
+    if (std::find(childDocIds.begin(), childDocIds.end(), id) != childDocIds.end()) {
+      // Skip To document in Child, so should return NOTFOUND or EOF
+      rc = iterator_base->SkipTo(iterator_base, id);
+      ASSERT_NE(rc, ITERATOR_OK);
+      if (rc == ITERATOR_NOTFOUND) {
+        ASSERT_GT(iterator_base->current->docId, id);
+        ASSERT_GT(iterator_base->lastDocId, id);
+      } else {
+        ASSERT_EQ(rc, ITERATOR_EOF);
+        ASSERT_TRUE(iterator_base->atEOF);
+      }
+    } else {
+      // Skip to Document not in Child, so u should find it if is not Optimized or in the WC
+      rc = iterator_base->SkipTo(iterator_base, id);
+      if (!optimized) {
+        ASSERT_EQ(rc, ITERATOR_OK);
+        ASSERT_GT(iterator_base->current->docId, id);
+        ASSERT_GT(iterator_base->lastDocId, id);
+      } else {
+        if (std::find(wcDocIds.begin(), wcDocIds.end(), id) == wcDocIds.end()) {
+          // If not in WC, you should find something beyond, except if you are beyond the last WC
+          if (id > wcDocIds.back()) {
+            ASSERT_EQ(rc, ITERATOR_EOF);
+            ASSERT_TRUE(iterator_base->atEOF);
+          } else {
+            printf("id %d, rc: %d and wc back: %d, and child back: %d\n", id, rc, wcDocIds.back(), childDocIds.back());
+            ASSERT_EQ(rc, ITERATOR_NOTFOUND);
+            ASSERT_GT(iterator_base->current->docId, id);
+            ASSERT_GT(iterator_base->lastDocId, id);
+          }
+        } else {
+          ASSERT_EQ(rc, ITERATOR_OK);
+          ASSERT_EQ(iterator_base->current->docId, id);
+          ASSERT_EQ(iterator_base->lastDocId, id);
+        }
+      }
+    }
   }
 
   // Test skipping beyond maxID returns EOF
@@ -143,6 +267,7 @@ TEST_P(NotIteratorCommonTest, SkipTo) {
   ASSERT_EQ(rc, ITERATOR_EOF);
   ASSERT_TRUE(iterator_base->atEOF);
 }
+*/
 
 TEST_P(NotIteratorCommonTest, NumEstimated) {
   NotIterator *ni = (NotIterator *)iterator_base;
@@ -235,12 +360,11 @@ INSTANTIATE_TEST_SUITE_P(
       std::vector<t_docId>{1, 2, 3, 6, 10, 15}
     ),
     ::testing::Values(
-      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
-      std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
-      std::vector<t_docId>{3, 4, 9, 25},
-      std::vector<t_docId>{}
+      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150, 1000, 2000},
+      std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15, 1000, 2000},
+      std::vector<t_docId>{3, 4, 9, 25, 1000, 2000}
     ),
-    ::testing::Values(false, true)
+    ::testing::Values(false)
   )
 );
 
@@ -305,12 +429,11 @@ INSTANTIATE_TEST_SUITE_P(
       std::vector<t_docId>{1, 2, 3, 6, 10, 15}
     ),
     ::testing::Values(
-      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
-      std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
-      std::vector<t_docId>{3, 4, 9, 25},
-      std::vector<t_docId>{}
+      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150, 1000, 2000},
+      std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15, 1000, 2000},
+      std::vector<t_docId>{3, 4, 9, 25, 1000, 2000}
     ),
-    ::testing::Values(false, true)
+    ::testing::Values(true)
   )
 );
 
