@@ -345,8 +345,6 @@ where
 
 #[cfg(test)]
 pub(crate) mod test {
-    #![expect(unused)]
-
     use super::*;
     use ffi::{RPStatus_RS_RESULT_OK, SearchResult};
 
