@@ -34,6 +34,22 @@
 
 #include "commands.h"
 
+
+DebugCTX globalDebugCtx = {0};
+
+void validateDebugMode(DebugCTX *debugCtx) {
+  // Debug mode is enabled if any of its field is non-default
+  // Should be called after each debug command that changes the debugCtx
+  debugCtx->debugMode =
+    (debugCtx->bgIndexing.maxDocsTBscanned > 0) ||
+    (debugCtx->bgIndexing.maxDocsTBscannedPause > 0) ||
+    (debugCtx->bgIndexing.pauseBeforeScan) ||
+    (debugCtx->bgIndexing.pauseOnOOM) ||
+    (debugCtx->bgIndexing.pauseBeforeOOMretry);
+
+}
+
+
 #define GET_SEARCH_CTX(name)                                        \
   RedisSearchCtx *sctx = NewSearchCtx(ctx, name, true);             \
   if (!sctx) {                                                      \
@@ -1315,7 +1331,7 @@ DEBUG_COMMAND(YieldCounter) {
   if (argc > 3) {
     return RedisModule_WrongArity(ctx);
   }
-  
+
   // Check if we need to reset the counter
   if (argc == 3) {
     size_t len;
@@ -1327,9 +1343,256 @@ DEBUG_COMMAND(YieldCounter) {
       return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
     }
   }
-  
+
   // Return the current counter value
   return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_MAX_SCANNED_DOCS <max_scanned_docs>
+ */
+DEBUG_COMMAND(setMaxScannedDocs) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long max_scanned_docs;
+  if (RedisModule_StringToLongLong(argv[2], &max_scanned_docs) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_MAX_SCANNED_DOCS'");
+  }
+
+  // Negative maxDocsTBscanned represents no limit
+
+  globalDebugCtx.bgIndexing.maxDocsTBscanned = (int) max_scanned_docs;
+
+  // Check if we need to enable debug mode
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_ON_SCANNED_DOCS <pause_scanned_docs>
+ */
+DEBUG_COMMAND(setPauseOnScannedDocs) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  long long pause_scanned_docs;
+  if (RedisModule_StringToLongLong(argv[2], &pause_scanned_docs) != REDISMODULE_OK) {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_ON_SCANNED_DOCS'");
+  }
+
+  globalDebugCtx.bgIndexing.maxDocsTBscannedPause = (int) pause_scanned_docs;
+
+  // Check if we need to enable debug mode
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_BG_INDEX_RESUME
+ */
+DEBUG_COMMAND(setBgIndexResume) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  globalDebugCtx.bgIndexing.pause = false;
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER GET_DEBUG_SCANNER_STATUS <index_name>
+ */
+DEBUG_COMMAND(getDebugScannerStatus) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  if (!sp->scanner) {
+    return RedisModule_ReplyWithError(ctx, "Scanner is not initialized");
+  }
+
+  if(!(sp->scanner->isDebug)) {
+    return RedisModule_ReplyWithError(ctx, "Debug mode enabled but scanner is not a debug scanner");
+  }
+
+  // Assuming this file is aware of spec.h, via direct or in-direct include
+  DebugIndexesScanner *dScanner = (DebugIndexesScanner*)sp->scanner;
+
+
+  return RedisModule_ReplyWithSimpleString(ctx, DEBUG_INDEX_SCANNER_STATUS_STRS[dScanner->status]);
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_BEFORE_SCAN <true/false>
+ */
+DEBUG_COMMAND(setPauseBeforeScan) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.pauseBeforeScan = true;
+  } else if (!strcasecmp(op, "false")) {
+    globalDebugCtx.bgIndexing.pauseBeforeScan = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_SCAN'");
+  }
+
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_ON_OOM <true/false>
+ */
+DEBUG_COMMAND(setPauseOnOOM) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.pauseOnOOM = true;
+  } else if (!strcasecmp(op, "false")) {
+    globalDebugCtx.bgIndexing.pauseOnOOM = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_ON_OOM'");
+  }
+
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER TERMINATE_BG_POOL
+ */
+DEBUG_COMMAND(terminateBgPool) {
+  if (argc != 2) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  ReindexPool_ThreadPoolDestroy();
+  // We do not create a new thread pool here, as it will automatically be created on the next background indexing job
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_BEFORE_OOM_RETRY <true/false>
+ */
+DEBUG_COMMAND(setPauseBeforeOOMretry) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.pauseBeforeOOMretry = true;
+  } else if (!strcasecmp(op, "false")) {
+    globalDebugCtx.bgIndexing.pauseBeforeOOMretry = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_OOM_RETRY'");
+  }
+
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER DEBUG_SCANNER_UPDATE_CONFIG <index_name>
+ */
+DEBUG_COMMAND(debugScannerUpdateConfig) {
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  if (!sp->scanner) {
+    return RedisModule_ReplyWithError(ctx, "Scanner is not initialized");
+  }
+
+  if(!(sp->scanner->isDebug)) {
+    return RedisModule_ReplyWithError(ctx, "Debug mode enabled but scanner is not a debug scanner");
+  }
+
+  // Assuming this file is aware of spec.h, via direct or in-direct include
+  DebugIndexesScanner *dScanner = (DebugIndexesScanner*)sp->scanner;
+  // Update the scanner with the new settings
+  dScanner->maxDocsTBscanned = globalDebugCtx.bgIndexing.maxDocsTBscanned;
+  dScanner->maxDocsTBscannedPause = globalDebugCtx.bgIndexing.maxDocsTBscannedPause;
+  dScanner->wasPaused = false;
+  dScanner->pauseOnOOM = globalDebugCtx.bgIndexing.pauseOnOOM;
+  dScanner->pauseBeforeOOMRetry = globalDebugCtx.bgIndexing.pauseBeforeOOMretry;
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER <command> [options]
+ */
+DEBUG_COMMAND(bgScanController) {
+  if (argc < 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  // Check here all background indexing possible commands
+  if (!strcmp("SET_MAX_SCANNED_DOCS", op)) {
+    return setMaxScannedDocs(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_PAUSE_ON_SCANNED_DOCS", op)) {
+    return setPauseOnScannedDocs(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_BG_INDEX_RESUME", op)) {
+    return setBgIndexResume(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("GET_DEBUG_SCANNER_STATUS", op)) {
+    return getDebugScannerStatus(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_PAUSE_BEFORE_SCAN", op)) {
+    return setPauseBeforeScan(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_PAUSE_ON_OOM", op)) {
+    return setPauseOnOOM(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("TERMINATE_BG_POOL", op)) {
+    return terminateBgPool(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("SET_PAUSE_BEFORE_OOM_RETRY", op)) {
+    return setPauseBeforeOOMretry(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("DEBUG_SCANNER_UPDATE_CONFIG", op)) {
+    return debugScannerUpdateConfig(ctx, argv+1, argc-1);
+  }
+  return RedisModule_ReplyWithError(ctx, "Invalid command for 'BG_SCAN_CONTROLLER'");
+
 }
 
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
@@ -1365,6 +1628,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
                                {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
+                               {"BG_SCAN_CONTROLLER", bgScanController},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */
