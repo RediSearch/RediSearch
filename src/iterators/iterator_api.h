@@ -45,7 +45,8 @@ recursively */
 typedef struct QueryIterator {
   enum IteratorType type;
 
-  // Can the iterator yield more results?
+  // Can the iterator yield more results? The Iterator must ensure that `atEOF` is set correctly when it is sure that the Next Read returns `ITERATOR_EOF`.
+  // For instance, NotIterator needs to know if the ChildIterator finishes, otherwise it may not skip the last result correctly.
   bool atEOF;
 
   // the last docId read. Initially should be 0.
