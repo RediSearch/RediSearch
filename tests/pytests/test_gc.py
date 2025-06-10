@@ -291,7 +291,7 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
 
     # Number of indexes to create and test with
     num_indexes = 5
-    docs_per_index = 100
+    num_docs = 100
 
     # Create multiple indexes with different field types
     index_names = []
@@ -304,25 +304,22 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
                    'SCHEMA',
                    'title', 'TEXT', 'SORTABLE',
                    'price', 'NUMERIC', 'SORTABLE',
-                   'category', 'TAG',
-                   'location', 'GEO').ok()
+                   'category', 'TAG').equal('OK')
         waitForIndex(env, idx_name)
 
-        # Add documents to make the indexes substantial
-        conn = env.getConnection()
-        for j in range(docs_per_index):
-            doc_id = f'doc_{i}_{j}'
-            conn.execute_command('HSET', doc_id,
-                               'title', f'Product {i} {j}',
-                               'price', j * 10.5,
-                               'category', f'cat{j % 5}',
-                               'location', f'{40.7128 + j * 0.001},{-74.0060 + j * 0.001}')
+    # Add documents to make the indexes substantial
+    for j in range(num_docs):
+        doc_id = f'doc_{j}'
+        env.execute_command('HSET', doc_id,
+                            'title', f'Product {j}',
+                            'price', j * 10.5,
+                            'category', f'cat{j % 5}')
 
     # Verify all indexes are created and populated
     for idx_name in index_names:
         info = env.cmd('FT.INFO', idx_name)
         info_dict = {info[i]: info[i + 1] for i in range(0, len(info), 2)}
-        env.assertEqual(int(info_dict['num_docs']), docs_per_index)
+        env.assertEqual(int(info_dict['num_docs']), num_docs)
 
     # Shared variables for thread coordination
     results = {'info_calls': 0, 'errors': 0, 'successful_calls': 0}
@@ -342,10 +339,9 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
                 results['info_calls'] += 1
                 results['errors'] += 1
                 # Expected errors when index is being deleted:
-                # - "Unknown index name"
-                # - Connection errors during cleanup
+                # - "Unknown index name" or "no such index"
                 error_msg = str(e).lower()
-                if 'unknown index' in error_msg or 'connection' in error_msg:
+                if 'unknown index' in error_msg or 'no such index' in error_msg:
                     # These are expected errors during index deletion
                     pass
                 else:
@@ -367,7 +363,7 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
     # Now delete the indexes while FT.INFO calls are running
     for idx_name in index_names:
         try:
-            env.expect('FT.DROP', idx_name).ok()
+            env.expect('FT.DROP', idx_name).equal('OK')
             env.debugPrint(f"Dropped index {idx_name}", force=True)
         except Exception as e:
             env.debugPrint(f"Error dropping index {idx_name}: {e}", force=True)
@@ -392,15 +388,14 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
 
     # Verify that we made a reasonable number of FT.INFO calls
     env.assertGreater(results['info_calls'], 50,
-                     f"Expected at least 50 FT.INFO calls, got {results['info_calls']}")
+                     message=f"Expected at least 50 FT.INFO calls, got {results['info_calls']}")
 
     # Verify that we had both successful calls and expected errors
     env.assertGreater(results['successful_calls'], 0,
-                     f"Expected some successful FT.INFO calls, got {results['successful_calls']}")
+                     message=f"Expected some successful FT.INFO calls, got {results['successful_calls']}")
 
     # Log the results for debugging
-    env.debugPrint(f"FT.INFO test results: {results['info_calls']} total calls, "
-                  f"{results['successful_calls']} successful, {results['errors']} errors", force=True)
+    env.debugPrint(f"FT.INFO test results: {results['info_calls']} total calls, {results['successful_calls']} successful, {results['errors']} errors", force=True)
 
     # Verify that all indexes are actually deleted
     for idx_name in index_names:
@@ -410,6 +405,6 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
         except Exception as e:
             # Expected - index should be gone
             env.assertTrue('unknown index' in str(e).lower() or 'no such index' in str(e).lower(),
-                          f"Unexpected error for deleted index {idx_name}: {e}")
+                          message=f"Unexpected error for deleted index {idx_name}: {e}")
 
     env.debugPrint("Concurrent FT.INFO during index deletion test completed successfully", force=True)
