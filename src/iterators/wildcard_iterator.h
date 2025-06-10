@@ -30,12 +30,19 @@ typedef struct {
 QueryIterator *IT_V2(NewWildcardIterator_NonOptimized)(t_docId maxId, size_t numDocs);
 
 /**
- * Create a new wildcard iterator. This API should be preferred over the non-optimized version.
+ * Create a new optimized wildcard iterator.
+ * This iterator can only be used when the index is configured to index all documents.
+ * @param sctx - The search context
+ */
+QueryIterator *IT_V2(NewWildcardIterator_Optimized)(const RedisSearchCtx *sctx);
+
+/**
+ * Create a new wildcard iterator.
  * If possible, it will use the optimized wildcard iterator,
  * otherwise it will fall back to the non-optimized version.
  * @param q - The query evaluation context
  */
-QueryIterator *IT_V2(NewWildcardIterator)(QueryEvalCtx *q);
+QueryIterator *IT_V2(NewWildcardIterator)(const QueryEvalCtx *q);
 
 #ifdef __cplusplus
 }
