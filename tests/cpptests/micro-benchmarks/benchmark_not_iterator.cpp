@@ -106,7 +106,8 @@ bool BM_NotIterator<IteratorType, optimized>::initialized = false;
   Args({1000, 100000}) -> \
   Args({10000, 500000}) -> \
   Args({100000, 1000000}) -> \
-  Args({1000000, 2000000})
+  Args({1000000, 2000000}) -> \
+  Args({10000000, 50000000})
 
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, Read, QueryIterator, false)(benchmark::State &state) {
   for (auto _ : state) {
