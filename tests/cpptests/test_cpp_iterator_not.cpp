@@ -12,6 +12,9 @@
 #include "gtest/gtest.h"
 #include "iterator_util.h"
 
+#include <random>
+#include <vector>
+
 #include "src/iterators/not_iterator.h"
 
 class NotIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<t_docId>, bool>> {
@@ -109,7 +112,6 @@ TEST_P(NotIteratorCommonTest, Read) {
 
   // Test reading until EOF
   size_t i = 0;
-  size_t not_results = 0;
   while ((rc = iterator_base->Read(iterator_base)) == ITERATOR_OK) {
     ASSERT_EQ(ni->base.current->docId, resultSet[i]);
     ASSERT_EQ(ni->base.lastDocId, resultSet[i]);
@@ -338,14 +340,82 @@ INSTANTIATE_TEST_SUITE_P(
       std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
       std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
       std::vector<t_docId>{1, 2, 3, 6, 10, 15},
-      std::vector<t_docId>{500, 600, 700, 800, 900, 1000}
+      std::vector<t_docId>{500, 600, 700, 800, 900, 1000},
+      // Add long random list
+      []() {
+        std::vector<t_docId> ids;
+        std::mt19937 gen(42); // Fixed seed for reproducibility
+        std::uniform_int_distribution<t_docId> dist(1, 10000);
+        for (int i = 0; i < 1000000; i++) {
+          ids.push_back(dist(gen));
+        }
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+        return ids;
+      }(),
+      []() {
+        std::vector<t_docId> ids;
+        std::mt19937 gen(42); // Fixed seed for reproducibility
+        std::uniform_int_distribution<t_docId> dist(1, 10000);
+        for (int i = 0; i < 50000; i++) {
+          ids.push_back(dist(gen));
+        }
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+        return ids;
+      }(),
+      []() {
+        std::vector<t_docId> ids;
+        std::mt19937 gen(42); // Fixed seed for reproducibility
+        std::uniform_int_distribution<t_docId> dist(1, 10000);
+        for (int i = 0; i < 10000; i++) {
+          ids.push_back(dist(gen));
+        }
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+        return ids;
+      }()
     ),
     ::testing::Values(
       std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
       std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
       std::vector<t_docId>{3, 4, 9, 25},
       std::vector<t_docId>{50, 60, 70, 80, 90, 100, 600, 750, 950, 1200},
-      std::vector<t_docId>{}
+      std::vector<t_docId>{},
+      // Add long random list for wildcard IDs
+      []() {
+        std::vector<t_docId> ids;
+        std::mt19937 gen(43); // Different seed
+        std::uniform_int_distribution<t_docId> dist(1, 20000);
+        for (int i = 0; i < 50000; i++) {
+          ids.push_back(dist(gen));
+        }
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+        return ids;
+      }(),
+      []() {
+        std::vector<t_docId> ids;
+        std::mt19937 gen(43); // Different seed
+        std::uniform_int_distribution<t_docId> dist(1, 20000);
+        for (int i = 0; i < 30000; i++) {
+          ids.push_back(dist(gen));
+        }
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+        return ids;
+      }(),
+      []() {
+        std::vector<t_docId> ids;
+        std::mt19937 gen(43); // Different seed
+        std::uniform_int_distribution<t_docId> dist(1, 20000);
+        for (int i = 0; i < 10000; i++) {
+          ids.push_back(dist(gen));
+        }
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+        return ids;
+      }()
     ),
     ::testing::Values(false, true)
   )
@@ -596,7 +666,6 @@ TEST_F(NotIteratorNoChildTest, Read) {
 
   // Test reading until EOF
   size_t i = 0;
-  size_t not_results = 0;
   while ((rc = iterator_base->Read(iterator_base)) == ITERATOR_OK) {
     ASSERT_EQ(ni->base.current->docId, i + 1);
     ASSERT_FALSE(ni->base.atEOF);
