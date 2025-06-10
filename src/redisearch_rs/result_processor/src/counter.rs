@@ -81,13 +81,16 @@ pub(crate) mod test {
         let upstream = Box::pin(ResultProcessorWrapper::new(from_iter([INIT, INIT, INIT])));
         let mut counter = Box::pin(ResultProcessorWrapper::new(Counter::new()));
 
-        // Emulate what `QITR_PushRP` would be doing
-        counter.header.upstream = unsafe { ResultProcessorWrapper::into_ptr(upstream) }.cast();
-
         // Now call the `next` method of `Counter` for the actual test!
-        let counter = counter.as_mut().project();
+        let mut counter = counter.as_mut().project();
+
+        // Emulate what `QITR_PushRP` would be doing
+        *counter.header.as_mut().project().upstream =
+            unsafe { ResultProcessorWrapper::into_ptr(upstream) }.cast();
+
         let cx = counter.header.as_context();
 
+        #[allow(const_item_mutation)] // we don't care about the exact search result value here
         counter.result_processor.next(cx, &mut INIT).unwrap();
 
         assert_eq!(counter.result_processor.count, 3);
