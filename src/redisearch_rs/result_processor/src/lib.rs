@@ -32,7 +32,7 @@ pub trait ResultProcessor {
     /// The type of this result processor.
     const TYPE: ffi::ResultProcessorType;
 
-    /// Pull the next [`SearchResult`] from this result processor into the provided `res` location.
+    /// Pull the next [`ffi::SearchResult`] from this result processor into the provided `res` location.
     ///
     /// Should return `Ok(Some(()))` if a search result was successfully pulled from the processor
     /// and `Ok(None)` to indicate the end of search results has been reached.
@@ -67,7 +67,7 @@ pub struct Upstream<'a> {
 }
 
 impl Upstream<'_> {
-    /// Pull the next [`SearchResult`] from this result processor into the provided `res` location.
+    /// Pull the next [`ffi::SearchResult`] from this result processor into the provided `res` location.
     ///
     /// Returns `Ok(Some(()))` if a search result was successfully pulled from the processor
     /// and `Ok(None)` to indicate the end of search results has been reached.
