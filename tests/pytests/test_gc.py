@@ -371,8 +371,8 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
     for idx_name in index_names:
         try:
             env.expect('FT.DROPINDEX', idx_name).equal('OK')
-            env.debugPrint(f"Dropped index {idx_name}", force=True)
         except Exception as e:
+            env.assertTrue(False, message=f"Unexpected error dropping index {idx_name}: {e}")
             env.debugPrint(f"Error dropping index {idx_name}: {e}", force=True)
 
         # Force GC to clean up the deleted index
@@ -402,7 +402,7 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
                      message=f"Expected some successful FT.INFO calls, got {results['successful_calls']}")
 
     # Log the results for debugging
-    env.debugPrint(f"FT.INFO test results: {results['info_calls']} total calls, {results['successful_calls']} successful, {results['errors']} errors", force=True)
+    # env.debugPrint(f"FT.INFO test results: {results['info_calls']} total calls, {results['successful_calls']} successful, {results['errors']} errors", force=True)
 
     # Verify that all indexes are actually deleted
     for idx_name in index_names:
