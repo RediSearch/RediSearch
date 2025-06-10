@@ -291,7 +291,7 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
 
     # Number of indexes to create and test with
     num_indexes = 5
-    num_docs = 100
+    num_docs = 1000
 
     # Create multiple indexes with different field types
     index_names = []
@@ -346,8 +346,9 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
                         # These are expected errors during index deletion
                         pass
                     else:
-                        # Unexpected error - log it but don't fail the test
-                        env.debugPrint(f"Unexpected error in FT.INFO for {idx_name}: {e}", force=True)
+                        # Unexpected error
+                        env.assertTrue(False, message=f"Unexpected error in FT.INFO for {idx_name}: {e}")
+                        break
                     time.sleep(0.01)
 
     # Start worker threads for each index
@@ -360,6 +361,11 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
 
     # Let the threads run for a short time to establish baseline
     time.sleep(0.5)
+
+    # Delete all documents
+    with env.getClusterConnectionIfNeeded() as local_conn:
+        for i in range(num_docs):
+            local_conn.execute_command('del', f'doc_{i}')
 
     # Now delete the indexes while FT.INFO calls are running
     for idx_name in index_names:
