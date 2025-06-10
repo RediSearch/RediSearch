@@ -15,6 +15,10 @@
 extern "C" {
 #endif
 
+typedef enum {
+  VECTOR_DISTANCE,
+} Metric;
+
 typedef struct {
   QueryIterator base;
   t_docId *docIds;
@@ -22,12 +26,23 @@ typedef struct {
   t_offset offset;
 } IdListIterator;
 
+typedef struct {
+  IdListIterator base;
+  Metric type;
+  double *metricList;    // metric_list[i] is the metric that ids_list[i] yields.
+  // Used if the iterator yields some value.
+  // Consider placing in a union with an array of keys, if a field want to yield multiple metrics
+  struct RLookupKey *ownKey;
+} MetricIterator;
+
 /**
  * @param ids - the list of doc ids to iterate over
  * @param num - the number of doc ids in the list
  * @param weight - the weight of the node (assigned to the returned result)
  */
 QueryIterator *IT_V2(NewIdListIterator)(t_docId *ids, t_offset num, double weight);
+
+QueryIterator *IT_V2(NewMetricIterator)(t_docId *docIds, double *metric_list, size_t num_results, Metric metric_type);
 
 #ifdef __cplusplus
 }
