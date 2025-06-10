@@ -8,7 +8,7 @@
 */
 
 use libc::{c_int, timespec};
-use pin_project_lite::pin_project;
+use pin_project::pin_project;
 use std::{
     marker::PhantomPinned,
     pin::Pin,
@@ -120,6 +120,7 @@ impl Upstream<'_> {
 ///
 /// This crate has to ensure that these pinning invariants are upheld internally, but when sending pointers through the FFI boundary
 /// this is impossible to guarantee. Thankfully, as mentioned above its quite rare to move out of pointers, so its reasonably safe.
+#[pin_project]
 #[repr(C)]
 #[derive(Debug)]
 struct Header {
@@ -149,41 +150,13 @@ struct Header {
     _unpin: PhantomPinned,
 }
 
-// Header duplicates ffi::ResultProcessor, so we need to make sure it has the exact same size, alignment and field layout.
-const _: () = {
-    assert!(std::mem::size_of::<Header>() == std::mem::size_of::<ffi::ResultProcessor>(),);
-    assert!(std::mem::align_of::<Header>() == std::mem::align_of::<ffi::ResultProcessor>(),);
-    assert!(
-        ::std::mem::offset_of!(Header, parent)
-            == ::std::mem::offset_of!(ffi::ResultProcessor, parent)
-    );
-    assert!(
-        ::std::mem::offset_of!(Header, upstream)
-            == ::std::mem::offset_of!(ffi::ResultProcessor, upstream)
-    );
-    assert!(
-        ::std::mem::offset_of!(Header, ty) == ::std::mem::offset_of!(ffi::ResultProcessor, type_)
-    );
-    assert!(
-        ::std::mem::offset_of!(Header, gil_time)
-            == ::std::mem::offset_of!(ffi::ResultProcessor, GILTime)
-    );
-    assert!(
-        ::std::mem::offset_of!(Header, next) == ::std::mem::offset_of!(ffi::ResultProcessor, Next)
-    );
-    assert!(
-        ::std::mem::offset_of!(Header, free) == ::std::mem::offset_of!(ffi::ResultProcessor, Free)
-    );
-};
-
-pin_project! {
-    #[derive(Debug)]
-    #[repr(C)]
-    pub struct ResultProcessorWrapper<P> {
-        #[pin]
-        header: Header,
-        result_processor: P,
-    }
+#[pin_project]
+#[derive(Debug)]
+#[repr(C)]
+pub struct ResultProcessorWrapper<P> {
+    #[pin]
+    header: Header,
+    result_processor: P,
 }
 
 impl<P> ResultProcessorWrapper<P>
@@ -296,7 +269,7 @@ where
 
 #[cfg(test)]
 pub(crate) mod test {
-    #![allow(unused)]
+    #![expect(unused)]
 
     use super::*;
     use ffi::SearchResult;

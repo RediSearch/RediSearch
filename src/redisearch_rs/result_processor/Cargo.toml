@@ -6,7 +6,7 @@ license-file.workspace = true
 publish.workspace = true
 
 [dependencies]
-pin-project-lite.workspace = true
+pin-project.workspace = true
 libc = { workspace = true, features = ["extra_traits"] }
 ffi.workspace = true
 
