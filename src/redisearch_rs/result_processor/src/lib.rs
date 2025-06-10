@@ -27,7 +27,23 @@ pub enum Error {
     Error,
 }
 
-/// This is the main trait that Rust result processors need to implement
+/// Result processors are in charge of transforming the entries retrieved from the inverted index when
+/// trying to fulfil a user-provided query.
+///
+/// The processing kind is varied—e.g. it may entail scoring, filtering, sorting, paginating, etc.
+///
+/// # Structure
+///
+/// Result processors are structured as a chain, assembled by the query planner.
+/// Processing is lazy: when the last processor in the chain is asked to yield a result, it
+/// will in turn ask for entries from the previous processor, recursively until it reached
+/// the beginning of the chain.
+/// At the head of the chain, you will always find an index iterator, yielding entries from
+/// the database indexes.
+///
+/// # Result storage
+///
+/// The processing output is accumulated in a [`SearchResult`] object.
 pub trait ResultProcessor {
     /// The type of this result processor.
     const TYPE: ffi::ResultProcessorType;
@@ -60,7 +76,7 @@ impl Context<'_> {
     }
 }
 
-/// The previous result processor in the pipeline
+/// The previous result processor in the pipeline.
 #[derive(Debug)]
 pub struct Upstream<'a> {
     result_processor: Pin<&'a mut Header>,
@@ -111,7 +127,7 @@ impl Upstream<'_> {
 /// Result processors intrusively linked, where one result processor has the pointer to the
 /// previous (forming an intrusively singly-linked list). This places a big safety invariant on all code
 /// that touches this data structure: Result processors must *never* be moved while part of a QueryIterator
-/// chain. Accidentally moving a processor will remove in a broken link and undefined behaviour.
+/// chain. Accidentally moving a processor will create a broken link and undefined behaviour.
 ///
 /// This invariant is implicit in the C code where its uncommon to move the heap allocated objects (which would
 /// mean memcopying them around); In Rust we need to explicitly manage this invariant however, as move semantics make
@@ -206,10 +222,10 @@ where
     ///
     /// # Safety
     ///
-    /// The caller must ensure the pointer was previously created through [`Self::into_ptr`]. Furthermore,
-    /// callers have to be careful to never call this method twice for the same pointer, otherwise a double-free
-    /// or other memory corruptions will occur.
-    /// The caller *must* also ensure that `ptr` continues to be treated as pinned.
+    /// 1. The caller must ensure the pointer was previously created through [`Self::into_ptr`].
+    /// 2. The caller has to be careful to never call this method twice for the same pointer, otherwise a
+    ///     double-free or other memory corruptions will occur.
+    /// 3. The caller *must* also ensure that `ptr` continues to be treated as pinned.
     #[inline]
     unsafe fn from_ptr(ptr: *mut Self) -> Pin<Box<Self>> {
         // This function must be kept in sync with `Self::into_ptr` above.
