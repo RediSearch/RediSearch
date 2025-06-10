@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 PROGNAME="${BASH_SOURCE[0]}"
 HERE="$(cd "$(dirname "$PROGNAME")" &>/dev/null && pwd)"
@@ -24,19 +24,19 @@ openssl req \
     -subj '/O=Redis Test/CN=Certificate Authority' \
     -out ca.crt
 
-PASSOUT=""
-PASSIN=""
+PASS_OUT=""
+PASS_IN=""
 if [[ $WITH_PASSPHRASE == 1 ]]; then
-    PASSOUT="-aes256 -passout pass:$PHRASE"
-    PASSIN="-passin pass:$PHRASE"
+    PASS_OUT="-aes256 -passout pass:$PHRASE"
+    PASS_IN="-passin pass:$PHRASE"
     echo -n $PHRASE > .passphrase
 fi
 
-openssl genrsa $PASSOUT -out redis.key 2048
+openssl genrsa $PASS_OUT -out redis.key 2048
 openssl req \
     -new -sha256 \
     -key redis.key \
-    $PASSIN \
+    $PASS_IN \
     -subj '/O=Redis Test/CN=Server' | \
 openssl x509 \
     -req -sha256 \

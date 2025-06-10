@@ -1,11 +1,11 @@
 [workspace]
 members = [
+    "c_entrypoint/*",
     "ffi",
     "inverted_index",
     "low_memory_thin_vec",
     "qint",
     "redis_mock",
-    "redisearch_rs",
     "tools/license_header_linter",
     "trie_bencher",
     "trie_rs",
@@ -17,7 +17,7 @@ default-members = [
     "low_memory_thin_vec",
     "qint",
     "trie_rs",
-    "redisearch_rs",
+    "c_entrypoint/*",
     "wildcard",
     "buffer",
     "result_processor",
@@ -49,10 +49,12 @@ multiple_unsafe_ops_per_block = "warn"
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
-license = "Redis Source Available License 2.0 (RSALv2) or the Server Side Public License v1 (SSPLv1) or the GNU Affero General Public License version 3 (AGPLv3)"
+license-file = "../../LICENSE.txt"
+publish = false
 
 [workspace.dependencies]
 ffi = { path = "./ffi" }
+inverted_index = { path = "./inverted_index" }
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }
