@@ -509,6 +509,7 @@ version = "0.0.1"
 dependencies = [
  "bindgen 0.71.1",
  "cc",
+ "enumflags2",
 ]
 
 [[package]]
