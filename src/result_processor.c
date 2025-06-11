@@ -75,14 +75,12 @@ typedef struct {
 static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
-
-  if (TimedOut_WithCounter(&self->timeout, &self->timeoutLimiter) == TIMED_OUT) {
-    return RS_RESULT_TIMEDOUT;
-  }
-
-  // No root filter - the query has 0 results
-  if (self->iiter == NULL) {
-    return RS_RESULT_EOF;
+  RedisSearchCtx *sctx = RP_SCTX(base);
+  if (sctx->flags == RS_CTX_UNSET) {
+    // If we need to read the iterators and we didn't lock the spec yet, lock it now
+    // and reopen the keys in the concurrent search context (iterators' validation)
+    RedisSearchCtx_LockSpecRead(RP_SCTX(base));
+    ConcurrentSearchCtx_ReopenKeys(base->parent->conc);
   }
 
   RSIndexResult *r;
@@ -91,6 +89,10 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
 
   // Read from the root filter until we have a valid result
   while (1) {
+    // check for timeout in case we are encountering a lot of deleted documents
+    if (TimedOut_WithCounter(&RP_SCTX(base)->time.timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
+    }
     rc = it->Read(it->ctx, &r);
     // This means we are done!
     switch (rc) {
