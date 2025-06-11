@@ -98,8 +98,6 @@ IteratorStatus InvIndIterator_Read(QueryIterator *base) {
       AdvanceBlock(it);
     }
 
-    // Hold the last docId read, to check for multi-value skipping after the decoder
-    t_docId lastId = record->docId;
     // The decoder also acts as a filter. If the decoder returns false, the
     // current record should not be processed.
     // Since we are not at the end of the block (previous check), the decoder is guaranteed

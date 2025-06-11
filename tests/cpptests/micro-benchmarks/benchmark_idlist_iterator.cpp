@@ -114,6 +114,4 @@ BENCHMARK_TEMPLATE1_DEFINE_F(BM_IdListIterator, SkipTo_Old, IndexIterator)(bench
 BENCHMARK_REGISTER_F(BM_IdListIterator, Read_Old);
 BENCHMARK_REGISTER_F(BM_IdListIterator, SkipTo_Old);
 
-
-
 BENCHMARK_MAIN();
