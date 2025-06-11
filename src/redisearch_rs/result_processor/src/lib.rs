@@ -742,5 +742,5 @@ pub struct RLookupRow {
     pub dyn_values: *mut *mut RSValue,
 
     /// the number of dynamic values in the row
-    pub num_values: usize,
+    pub num_values: libc::size_t,
 }
