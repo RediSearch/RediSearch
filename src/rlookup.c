@@ -342,36 +342,6 @@ void RLookupRow_Cleanup(RLookupRow *r) {
   }
 }
 
-void RLookupRow_Move(const RLookup *lk, RLookupRow *src, RLookupRow *dst) {
-  for (const RLookupKey *kk = lk->head; kk; kk = kk->next) {
-    RSValue *vv = RLookup_GetItem(kk, src);
-    if (vv) {
-      RLookup_WriteKey(kk, dst, vv);
-    }
-  }
-  RLookupRow_Wipe(src);
-}
-
-sds RLookupRow_DumpSds(const RLookupRow *rr, bool obfuscate) {
-  sds s = sdsempty();
-  s = sdscatfmt(s, "Row @%p\n", rr);
-  if (rr->dyn) {
-    s = sdscatfmt(s, "  DYN @%p\n", rr->dyn);
-    for (size_t ii = 0; ii < array_len(rr->dyn); ++ii) {
-      s = sdscatfmt(s, "  [%lu]: %p\n", ii, rr->dyn[ii]);
-      if (rr->dyn[ii]) {
-        s = sdscat(s, "    ");
-        s = RSValue_DumpSds(rr->dyn[ii], s, obfuscate);
-        s = sdscat(s, "\n");
-      }
-    }
-  }
-  if (rr->sv) {
-    s = sdscatfmt(s, "  SV @%p\n", rr->sv);
-  }
-  return s;
-}
-
 static void RLookupKey_Cleanup(RLookupKey *k) {
   if (k->flags & RLOOKUP_F_NAMEALLOC) {
     if (k->name != k->path) {
