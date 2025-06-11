@@ -898,6 +898,25 @@ void KVDB::debugDump() const {
   }
 }
 
+/*
+Server Info
+*/
+
+struct ServerInfo {
+};
+
+static RedisModuleServerInfoData* RMCK_GetServerInfo(RedisModuleCtx *, const char *section) {
+  return reinterpret_cast<RedisModuleServerInfoData*>(new ServerInfo());
+}
+
+static void RMCK_FreeServerInfo(RedisModuleCtx *, RedisModuleServerInfoData *si) {
+  delete reinterpret_cast<ServerInfo*>(si);
+}
+
+static unsigned long long RMCK_ServerInfoGetFieldUnsigned(RedisModuleServerInfoData *data, const char* field, int *out_err) {
+  return 0;
+}
+
 /**
  * ENTRY POINTS
  */
@@ -987,6 +1006,11 @@ static void registerApis() {
   REGISTER_API(Fork);
   REGISTER_API(Yield);
   REGISTER_API(GetContextFlags);
+
+  REGISTER_API(GetServerInfo);
+  REGISTER_API(ServerInfoGetFieldUnsigned);
+  REGISTER_API(FreeServerInfo);
+
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
