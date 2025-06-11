@@ -181,49 +181,12 @@ fn compute_and_report_memory_usage() {
     if varint_identical {
         println!("- Varint implementations produce identical encoded output");
     } else {
-        println!("- WARNING: Varint implementations produce different encoded output!");
-        if rust_encoded_size == c_encoded_size {
-            println!("  (Same size but different bytes - possible encoding difference)");
-        } else {
-            let diff_pct = ((rust_encoded_size as f64 - c_encoded_size as f64)
-                / c_encoded_size as f64)
-                * 100.0;
-            if rust_encoded_size < c_encoded_size {
-                println!(
-                    "  Rust varint encoding is {:.1}% more space efficient",
-                    -diff_pct
-                );
-            } else {
-                println!(
-                    "  C varint encoding is {:.1}% more space efficient",
-                    diff_pct
-                );
-            }
-        }
         show_byte_differences(rust_encoded_bytes, c_encoded_bytes, "Varint");
     }
 
     if field_mask_identical {
         println!("- Field mask implementations produce identical encoded output");
     } else {
-        println!("- WARNING: Field mask implementations produce different encoded output!");
-        if rust_field_size == c_field_size {
-            println!("  (Same size but different bytes - possible encoding difference)");
-        } else {
-            let field_diff_pct =
-                ((rust_field_size as f64 - c_field_size as f64) / c_field_size as f64) * 100.0;
-            if rust_field_size < c_field_size {
-                println!(
-                    "  Rust field mask encoding is {:.1}% more space efficient",
-                    -field_diff_pct
-                );
-            } else {
-                println!(
-                    "  C field mask encoding is {:.1}% more space efficient",
-                    field_diff_pct
-                );
-            }
-        }
         show_byte_differences(&rust_field_bytes, &c_field_bytes, "Field mask");
     }
 
