@@ -1290,6 +1290,7 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId,
   return ret;
 }
 
+// LCOV_EXCL_START
 IndexIterator* _New_NotIterator_With_WildCardIterator(IndexIterator *child, IndexIterator *wcii, t_docId maxDocId, double weight, struct timespec timeout) {
   NotContext *nc = rm_calloc(1, sizeof(*nc));
   nc->child = child;
@@ -1319,6 +1320,7 @@ IndexIterator* _New_NotIterator_With_WildCardIterator(IndexIterator *child, Inde
 
   return ret;
 }
+// LCOV_EXCL_STOP
 
 /**********************************************************
  * Optional clause iterator

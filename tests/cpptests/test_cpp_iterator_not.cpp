@@ -123,6 +123,14 @@ TEST_P(NotIteratorCommonTest, Read) {
   ASSERT_EQ(i, resultSet.size()) << "Expected to read " << resultSet.size() << " documents";
 }
 
+TEST_P(NotIteratorCommonTest, SkipToEOF) {
+  // Test skipping beyond maxDocId returns EOF
+  ASSERT_EQ(iterator_base->SkipTo(iterator_base, maxDocId + 1), ITERATOR_EOF);
+  ASSERT_TRUE(iterator_base->atEOF);
+  // Test returning after EOF gives EOF
+  ASSERT_EQ(iterator_base->SkipTo(iterator_base, 2), ITERATOR_EOF);
+}
+
 TEST_P(NotIteratorCommonTest, SkipToChildNotOK) {
   NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;

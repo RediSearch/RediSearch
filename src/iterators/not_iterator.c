@@ -74,10 +74,8 @@ static IteratorStatus NI_SkipTo_NotOptimized(QueryIterator *base, t_docId docId)
   // We need to return NOTFOUND and set the current result to the next valid docId
   base->current->docId = base->lastDocId = docId;
   IteratorStatus rc = NI_Read_NotOptimized(base);
-  if (rc == ITERATOR_OK) {
-    return ITERATOR_NOTFOUND;
-  }
-  return rc;
+
+  return rc == ITERATOR_OK ? ITERATOR_NOTFOUND : rc;
 }
 
 /* Handle relative positions between wildcard and child iterators.
@@ -143,7 +141,9 @@ static IteratorStatus NI_HandleRelativePositions(QueryIterator *base, NotIterato
   }
 
   // Default fallback (should not reach here in normal execution)
+  // LCOV_EXCL_START
   return ITERATOR_EOF;
+  // LCOV_EXCL_STOP
 }
 
 /* SkipTo for NOT iterator - Optimized version.
@@ -330,6 +330,7 @@ QueryIterator *IT_V2(NewNotIterator)(QueryIterator *it, t_docId maxDocId, double
   return ret;
 }
 
+// LCOV_EXCL_START
 QueryIterator *IT_V2(_New_NotIterator_With_WildCardIterator)(QueryIterator *child, QueryIterator *wcii, t_docId maxDocId, double weight, struct timespec timeout) {
   NotIterator *ni = rm_calloc(1, sizeof(*ni));
   QueryIterator *ret = &ni->base;
@@ -351,3 +352,4 @@ QueryIterator *IT_V2(_New_NotIterator_With_WildCardIterator)(QueryIterator *chil
 
   return ret;
 }
+// LCOV_EXCL_STOP
