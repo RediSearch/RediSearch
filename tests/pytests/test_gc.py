@@ -373,7 +373,6 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
             env.expect('FT.DROPINDEX', idx_name).equal('OK')
         except Exception as e:
             env.assertTrue(False, message=f"Unexpected error dropping index {idx_name}: {e}")
-            env.debugPrint(f"Error dropping index {idx_name}: {e}", force=True)
 
         # Force GC to clean up the deleted index
         try:
@@ -414,7 +413,6 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
             env.assertTrue('unknown index' in str(e).lower() or 'no such index' in str(e).lower(),
                           message=f"Unexpected error for deleted index {idx_name}: {e}")
 
-    env.debugPrint("Concurrent FT.INFO during index deletion test completed successfully", force=True)
 
 @skip(cluster=True)
 def test_gc_oom(env):
