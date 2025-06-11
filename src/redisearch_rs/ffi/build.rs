@@ -50,7 +50,10 @@ fn main() {
     let mut bindings = bindgen::Builder::default();
 
     for header in headers {
-        bindings = bindings.header(header.display().to_string());
+        bindings = bindings
+            .header(header.display().to_string())
+            .allowlist_file(header.display().to_string());
+
         println!("cargo:rerun-if-changed={}", header.display());
     }
     for include in includes {
@@ -62,9 +65,7 @@ fn main() {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
-        // FP_NAN, FP_ZERO etc. are causing duplicate definition errors on linux, we don't need them anyways
-        // so just blocklist them all
-        .blocklist_item("FP_.*")
+        .allowlist_file(".*/types_rs.h")
         .generate()
         .expect("Unable to generate bindings")
         .write_to_file(out_dir.join("bindings.rs"))

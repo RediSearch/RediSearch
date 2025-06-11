@@ -22,5 +22,8 @@ workspace = true
 features = ["runtime"]
 workspace = true
 
+[dev-dependencies]
+enumflags2.workspace = true
+
 [lints]
 workspace = true
