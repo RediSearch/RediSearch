@@ -366,6 +366,10 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
     with env.getClusterConnectionIfNeeded() as local_conn:
         for i in range(num_docs):
             local_conn.execute_command('del', f'doc_{i}')
+            if i % 100 == 0:
+                for idx_name in index_names:
+                    forceBGInvokeGC(env, idx_name)
+
 
     # Now delete the indexes while FT.INFO calls are running
     for idx_name in index_names:
