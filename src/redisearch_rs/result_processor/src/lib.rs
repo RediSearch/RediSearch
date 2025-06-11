@@ -16,7 +16,7 @@ use std::{
 };
 
 /// Errors that can be returned by [`ResultProcessor`]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Error {
     /// Execution halted because of timeout
     TimedOut,
@@ -172,6 +172,15 @@ struct Header {
     _unpin: PhantomPinned,
 }
 
+impl Header {
+    #[cfg(test)]
+    pub fn as_context(self: Pin<&mut Self>) -> Context<'_> {
+        Context {
+            result_processor: self,
+        }
+    }
+}
+
 #[pin_project]
 #[derive(Debug)]
 #[repr(C)]
@@ -293,7 +302,7 @@ pub(crate) mod test {
     #![expect(unused)]
 
     use super::*;
-    use ffi::SearchResult;
+    use ffi::{RPStatus_RS_RESULT_OK, SearchResult};
 
     // Header duplicates ffi::ResultProcessor, so we need to make sure it has the exact same size, alignment and field layout.
     const _: () = {
@@ -355,5 +364,214 @@ pub(crate) mod test {
                 Ok(None)
             }
         }
+    }
+
+    const SEARCH_RESULT_INIT: ffi::SearchResult = ffi::SearchResult {
+        docId: 0,
+        score: 0.0,
+        scoreExplain: ptr::null_mut(),
+        dmd: ptr::null(),
+        indexResult: ptr::null_mut(),
+        rowdata: ffi::RLookupRow {
+            sv: ptr::null(),
+            dyn_: ptr::null_mut(),
+            ndyn: 0,
+        },
+        flags: 0,
+    };
+
+    struct ResultRP {
+        res: Option<Result<Option<()>, Error>>,
+    }
+    impl ResultRP {
+        fn new_err(error: Error) -> Self {
+            Self {
+                res: Some(Err(error)),
+            }
+        }
+        fn new_ok_some() -> Self {
+            Self {
+                res: Some(Ok(Some(()))),
+            }
+        }
+        fn new_ok_none() -> Self {
+            Self {
+                res: Some(Ok(None)),
+            }
+        }
+    }
+    impl ResultProcessor for ResultRP {
+        const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
+
+        fn next(&mut self, cx: Context, res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+            self.res.take().unwrap()
+        }
+    }
+
+    /// Assert that Rust error types translate to the correct C ret code
+    #[test]
+    fn error_to_ret_code() {
+        fn check(error: Error, expected: i32) {
+            let mut res = SEARCH_RESULT_INIT;
+
+            let mut rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_err(error)));
+            let h = ptr::from_mut(&mut rp.header);
+            let found = unsafe { (rp.header.next.unwrap())(h, ptr::from_mut(&mut res)) };
+
+            assert_eq!(found, expected);
+        }
+
+        check(Error::Error, ffi::RPStatus_RS_RESULT_ERROR as i32);
+        check(Error::TimedOut, ffi::RPStatus_RS_RESULT_TIMEDOUT as i32);
+    }
+
+    /// Assert that returning `Ok(None)` from Rust translates to EOF in C
+    #[test]
+    fn none_signals_eof() {
+        let mut rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_none()));
+        let h = ptr::from_mut(&mut rp.header);
+        assert_eq!(
+            unsafe {
+                // we don't care about the exact search result value here
+                #[allow(const_item_mutation)]
+                (rp.header.next.unwrap())(h, ptr::from_mut(&mut SEARCH_RESULT_INIT))
+            },
+            ffi::RPStatus_RS_RESULT_EOF as i32
+        );
+    }
+
+    /// Assert that `Ok(Some(())` in Rust translates to the `OK` in C
+    #[test]
+    fn ok_some_signals_ok() {
+        let mut rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
+        let h = ptr::from_mut(&mut rp.header);
+        assert_eq!(
+            unsafe {
+                // we don't care about the exact search result value here
+                #[allow(const_item_mutation)]
+                (rp.header.next.unwrap())(h, ptr::from_mut(&mut SEARCH_RESULT_INIT))
+            },
+            ffi::RPStatus_RS_RESULT_OK as i32
+        );
+    }
+
+    /// Assert that C return codes translate to the correct Rust error types
+    #[test]
+    fn c_ret_code_to_error() {
+        fn new_upstream(ret_code: c_int) -> Header {
+            unsafe extern "C" fn result_processor_next(
+                me: *mut Header,
+                res: *mut ffi::SearchResult,
+            ) -> c_int {
+                unsafe { me.as_ref().unwrap().parent as c_int }
+            }
+
+            Header {
+                // encode the ret code as the parent pointer so we dont have to define a new wrapper type
+                parent: ret_code as *mut _,
+                upstream: ptr::null_mut(),
+                ty: ffi::ResultProcessorType_RP_MAX,
+                gil_time: timespec {
+                    tv_sec: 0,
+                    tv_nsec: 0,
+                },
+                next: Some(result_processor_next),
+                free: None,
+                _unpin: PhantomPinned,
+            }
+        }
+
+        struct RP;
+        impl ResultProcessor for RP {
+            const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
+
+            fn next(
+                &mut self,
+                mut cx: Context,
+                res: &mut ffi::SearchResult,
+            ) -> Result<Option<()>, Error> {
+                let mut upstream = cx.upstream().unwrap();
+                upstream.next(res)
+            }
+        }
+
+        fn check(code: i32, expected: Result<Option<()>, Error>) {
+            let mut upstream = new_upstream(code);
+
+            let mut rp = Box::pin(ResultProcessorWrapper::new(RP));
+            let mut rp = rp.as_mut().project();
+            // Emulate what `QITR_PushRP` would be doing
+            *rp.header.as_mut().project().upstream = ptr::from_mut(&mut upstream);
+
+            let cx = rp.header.as_context();
+            #[allow(const_item_mutation)] // we don't care about the exact search result value here
+            let res = rp.result_processor.next(cx, &mut SEARCH_RESULT_INIT);
+
+            assert_eq!(res, expected);
+        }
+
+        check(ffi::RPStatus_RS_RESULT_OK as i32, Ok(Some(())));
+        check(ffi::RPStatus_RS_RESULT_EOF as i32, Ok(None));
+        check(ffi::RPStatus_RS_RESULT_ERROR as i32, Err(Error::Error));
+        check(
+            ffi::RPStatus_RS_RESULT_TIMEDOUT as i32,
+            Err(Error::TimedOut),
+        );
+    }
+
+    /// Assert that the search result is passed correctly
+    #[test]
+    fn search_result_passing() {
+        fn new_upstream() -> Header {
+            unsafe extern "C" fn result_processor_next(
+                me: *mut Header,
+                res: *mut ffi::SearchResult,
+            ) -> c_int {
+                unsafe { res.as_mut() }.unwrap().score = 42.0;
+
+                RPStatus_RS_RESULT_OK as c_int
+            }
+
+            Header {
+                parent: ptr::null_mut(),
+                upstream: ptr::null_mut(),
+                ty: ffi::ResultProcessorType_RP_MAX,
+                gil_time: timespec {
+                    tv_sec: 0,
+                    tv_nsec: 0,
+                },
+                next: Some(result_processor_next),
+                free: None,
+                _unpin: PhantomPinned,
+            }
+        }
+
+        struct RP;
+        impl ResultProcessor for RP {
+            const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
+
+            fn next(
+                &mut self,
+                mut cx: Context,
+                res: &mut ffi::SearchResult,
+            ) -> Result<Option<()>, Error> {
+                let mut upstream = cx.upstream().unwrap();
+                upstream.next(res)
+            }
+        }
+
+        let mut upstream = new_upstream();
+
+        let mut rp = Box::pin(ResultProcessorWrapper::new(RP));
+        let mut rp = rp.as_mut().project();
+        // Emulate what `QITR_PushRP` would be doing
+        *rp.header.as_mut().project().upstream = ptr::from_mut(&mut upstream);
+
+        let cx = rp.header.as_context();
+
+        let mut res = SEARCH_RESULT_INIT;
+        rp.result_processor.next(cx, &mut res).unwrap().unwrap();
+
+        assert_eq!(res.score, 42.0);
     }
 }
