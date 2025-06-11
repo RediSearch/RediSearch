@@ -89,7 +89,7 @@ protected:
 
       iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, qctx);
       NotIterator *ni = (NotIterator *)iterator_base;
-      rm_free(ni->wcii);
+      ni->wcii->Free(ni->wcii);
       ni->wcii = (QueryIterator *) new MockIterator(wcDocIds);
     } else {
       iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, nullptr);
