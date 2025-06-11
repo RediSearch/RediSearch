@@ -103,11 +103,16 @@ template <typename IteratorType, bool optimized>
 bool BM_NotIterator<IteratorType, optimized>::initialized = false;
 
 #define NOT_SCENARIOS() \
-  Args({1000, 100000}) -> \
-  Args({10000, 500000}) -> \
-  Args({100000, 1000000}) -> \
-  Args({1000000, 2000000}) -> \
-  Args({10000000, 50000000})
+  Args({1'000, 100'000}) -> \
+  Args({100'000, 1'000}) -> \
+  Args({10'000, 500'000}) -> \
+  Args({500'000, 10'000}) -> \
+  Args({100'000, 1'000'000}) -> \
+  Args({1'000'000, 100'000}) -> \
+  Args({1'000'000, 2'000'000}) -> \
+  Args({2'000'000, 1'000'000}) -> \
+  Args({10'000'000, 50'000'000}) -> \
+  Args({50'000'000, 10'000'000})
 
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, Read, QueryIterator, false)(benchmark::State &state) {
   for (auto _ : state) {

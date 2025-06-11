@@ -110,7 +110,6 @@ TEST_P(NotIteratorCommonTest, Read) {
   NotIterator *ni = (NotIterator *)iterator_base;
   IteratorStatus rc;
 
-  // Test reading until EOF
   size_t i = 0;
   while ((rc = iterator_base->Read(iterator_base)) == ITERATOR_OK) {
     ASSERT_EQ(ni->base.current->docId, resultSet[i]);
@@ -335,6 +334,7 @@ INSTANTIATE_TEST_SUITE_P(
   NotIteratorCommonTest,
   ::testing::Combine(
     ::testing::Values(
+      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
       std::vector<t_docId>{2, 4, 6, 8, 10},
       std::vector<t_docId>{5, 10, 15, 20, 25, 30},
       std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
@@ -377,6 +377,7 @@ INSTANTIATE_TEST_SUITE_P(
       }()
     ),
     ::testing::Values(
+      std::vector<t_docId>{3, 4, 9},
       std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
       std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
       std::vector<t_docId>{3, 4, 9, 25},
