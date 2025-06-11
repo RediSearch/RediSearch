@@ -7,10 +7,20 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+//! Result processors transform entries retrieved from the inverted index when fulfilling
+//! a user-provided query (e.g. scoring, filtering, sorting, paginating, etc.).
+//!
+//! Result processors form a chain, assembled by the query planner.
+//! Processing is lazy: when the last processor in the chain is asked to yield a result, it
+//! will in turn ask for entries from the previous processor, recursively until it reached
+//! the beginning of the chain.
+//! At the head of the chain, you will always find an index iterator, yielding entries from
+//! the database indexes.
+
 use libc::{c_int, timespec};
 use pin_project::pin_project;
 use std::{
-    marker::PhantomPinned,
+    marker::{PhantomData, PhantomPinned},
     pin::Pin,
     ptr::{self, NonNull},
 };
@@ -25,23 +35,41 @@ pub enum Error {
     Error,
 }
 
-/// Result processors are in charge of transforming the entries retrieved from the inverted index when
-/// trying to fulfil a user-provided query.
+/// Implemented by types that participate in the result processor chain.
 ///
-/// The processing kind is varied—e.g. it may entail scoring, filtering, sorting, paginating, etc.
+/// # Search Result
 ///
-/// # Structure
+/// The search result storage is allocated by the caller of the result processor chain.
+/// The search result is populated by the very first result processor and a mutable reference
+/// to it is passed down from processor to processor. The `ResultProcessor::next` method receives
+/// this reference as the second argument. Calling upstream processors through `Upstream::next`
+/// likewise requires a mutable reference to a search result.
 ///
-/// Result processors are structured as a chain, assembled by the query planner.
-/// Processing is lazy: when the last processor in the chain is asked to yield a result, it
-/// will in turn ask for entries from the previous processor, recursively until it reached
-/// the beginning of the chain.
-/// At the head of the chain, you will always find an index iterator, yielding entries from
-/// the database indexes.
+/// # Example
 ///
-/// # Result storage
+/// ```rust
+/// # use result_processor::{ResultProcessor, Error, Context};
 ///
-/// The processing output is accumulated in a [`ffi::SearchResult`] object.
+/// /// A simple result processor that simply prints out the search result received from the previous processor
+/// /// before passing it on.
+/// struct Logger;
+///
+/// impl ResultProcessor for Logger {
+///    const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType::MAX;
+///
+///     fn next(&mut self, mut cx: Context, res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+///         let mut upstream = cx
+///             .upstream()
+///             .expect("There is no processor upstream of this counter.");
+///
+///         while upstream.next(res)?.is_some() {
+///             eprintln!("{res:?}");
+///         }
+///
+///         Ok(None)
+///     }
+/// }
+/// ```
 pub trait ResultProcessor {
     /// The type of this result processor.
     const TYPE: ffi::ResultProcessorType;
@@ -60,30 +88,43 @@ pub trait ResultProcessor {
 
 /// This type allows result processors to access its context (the owning QueryIterator, upstream result processors, etc.)
 pub struct Context<'a> {
-    result_processor: Pin<&'a mut Header>,
+    ptr: NonNull<Header>,
+    _borrow: PhantomData<&'a mut Header>,
 }
 
 impl Context<'_> {
+    /// Create a new context object from a raw `Header` pointer.
+    ///
+    /// # Safety
+    ///
+    /// 1. The caller must ensure that `ptr` remains valid for the entire lifetime of the returned `Context`
+    unsafe fn from_raw(ptr: NonNull<Header>) -> Self {
+        Self {
+            ptr,
+            _borrow: PhantomData,
+        }
+    }
+
     /// The previous result processor in the pipeline if present.
     ///
     /// Returns `None` when the result processor has no upstream.
     pub fn upstream(&mut self) -> Option<Upstream<'_>> {
         // Safety: We have to trust that the upstream pointer set by our QueryIterator parent
         // is correct.
-        let result_processor = unsafe { self.result_processor.upstream.as_mut()? };
+        let upstream = NonNull::new(unsafe { self.ptr.as_ref().upstream })?;
 
-        // Safety: Refer to the pinning comment of ffi::ResultProcessor for why
-        // this necessary and reasonably safe.
-        let result_processor = unsafe { Pin::new_unchecked(result_processor) };
-
-        Some(Upstream { result_processor })
+        Some(Upstream {
+            ptr: upstream,
+            _borrow: PhantomData,
+        })
     }
 }
 
 /// The previous result processor in the pipeline.
 #[derive(Debug)]
 pub struct Upstream<'a> {
-    result_processor: Pin<&'a mut Header>,
+    ptr: NonNull<Header>,
+    _borrow: PhantomData<&'a mut Header>,
 }
 
 impl Upstream<'_> {
@@ -96,16 +137,15 @@ impl Upstream<'_> {
     ///
     /// Returns `Err(_)` for exceptional error cases.
     pub fn next(&mut self, res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
-        let next = self
-            .result_processor
+        // Safety: We have to trust that the upstream pointer set by our QueryIterator parent
+        // is correct.
+        let next = unsafe { self.ptr.as_ref() }
             .next
             .expect("result processor `Next` vtable function was null");
 
-        // Safety: The `next` function is required to treat the `*mut Header` pointer as pinned.
-        let result_processor = unsafe { self.result_processor.as_mut().get_unchecked_mut() };
         // Safety: At the end of the day we're calling to arbitrary code at this point... But provided
         // the QueryIterator and other result processors are implemented correctly, this should be safe.
-        let ret_code = unsafe { next(ptr::from_mut(result_processor), res) };
+        let ret_code = unsafe { next(self.ptr.as_ptr(), res) };
 
         match ret_code as ffi::RPStatus {
             ffi::RPStatus_RS_RESULT_OK => Ok(Some(())),
@@ -137,11 +177,23 @@ impl Upstream<'_> {
 ///
 /// This invariant is implicit in the C code where its uncommon to move the heap allocated objects (which would
 /// mean memcopying them around); In Rust we need to explicitly manage this invariant however, as move semantics make
-/// it easy to break accidentally. For details refer to the [`Pin`] documentation which explains the concept of "pinning"
-/// a Rust value in memory and its implications.
+/// it easy to break accidentally. The compiler is free to move values as it sees fit (Rust calls this trivially moveable).
+/// As a result a Rust reference (&T or &mut T) is a stable "handle" to a value but a pointer (*const T or *mut T) is not.
 ///
-/// This crate has to ensure that these pinning invariants are upheld internally, but when sending pointers through the FFI boundary
-/// this is impossible to guarantee. Thankfully, as mentioned above its quite rare to move out of pointers, so its reasonably safe.
+/// For intrusive data types like this we need to tell the compiler "don't move this please I have pointers to it" which is called
+/// pinning in Rust.
+///
+/// We wrap a reference in the Pin<T> type (Pin<&mut T>) which disallows moving the pointee from its location in memory.
+/// Crucially though, the way Pin disallows is not magic, it simply doesn't implement any methods and traits that would
+/// allow a caller to move the value. Unfortunately this means banning all mutable access to the value T (you cannot get a
+/// &mut T from a Pin<&mut T> for example) since with a &mut T you can always move the value very easily (via mem::replace for example).
+///
+/// So Rust has another technique that lets you treat memory locations a "pinned" while still being able to mutate
+/// them through "pin projections" essentially a "proxy type" that behaves like a regular Rust type (including allowing
+/// moving & mutation) but will forward all accesses and mutations to the backing, actually pinned type
+/// (this is what the `#[pin_project]` below does!)
+///
+/// For details refer to the [`Pin`] documentation which explains the concept of "pinning" a Rust value in memory and its implications.
 #[pin_project]
 #[repr(C)]
 #[derive(Debug)]
@@ -172,15 +224,8 @@ struct Header {
     _unpin: PhantomPinned,
 }
 
-impl Header {
-    #[cfg(test)]
-    pub fn as_context(self: Pin<&mut Self>) -> Context<'_> {
-        Context {
-            result_processor: self,
-        }
-    }
-}
-
+/// Wrapper for [`ResultProcessor`] implementations performing required FFI translations
+/// so result processors written in Rust can be used by the rest of the C codebase.
 #[pin_project]
 #[derive(Debug)]
 #[repr(C)]
@@ -222,6 +267,7 @@ where
     /// # Safety
     ///
     /// The caller *must* continue to treat the pointer as pinned.
+    #[inline]
     pub unsafe fn into_ptr(me: Pin<Box<Self>>) -> *mut Self {
         // This function must be kept in sync with `Self::from_ptr` below.
 
@@ -245,36 +291,32 @@ where
     unsafe fn from_ptr(ptr: *mut Self) -> Pin<Box<Self>> {
         // This function must be kept in sync with `Self::into_ptr` above.
 
-        // Safety: The caller has to ensure they never call this function twice in a memory-unsafe way. But since this
-        // is not public anyway, it should be easier to verify.
+        // Safety:
+        // 1 -> This function will only ever be called through the `result_processor_free` vtable method below.
+        //      We therefore know - through construction - that the pointer was previously created through `into_ptr`.
+        // 2 -> Has to be upheld by the caller
         let b = unsafe { Box::from_raw(ptr.cast()) };
-        // Safety: Also responsibility of the caller.
+        // Safety: 3 -> Caller has to uphold the pin contract
         unsafe { Pin::new_unchecked(b) }
     }
 
+    /// VTable function exposing the [`ResultProcessor::next`] method. This is exposed through the `next` field of [`Header`].
     unsafe extern "C" fn result_processor_next(
-        me: *mut Header,
+        ptr: *mut Header,
         res: *mut ffi::SearchResult,
     ) -> c_int {
-        let me = NonNull::new(me).unwrap();
-        debug_assert!(me.is_aligned());
+        let ptr = NonNull::new(ptr).unwrap();
+        debug_assert!(ptr.is_aligned());
 
         let mut res = NonNull::new(res).unwrap();
         debug_assert!(res.is_aligned());
 
         // Safety: This function is called through the ResultProcessor "VTable" which - through the generics on this type -
         // ensures that we can safely cast to `Self` here.
-        let me = unsafe { me.cast::<Self>().as_mut() };
-        // Safety: We must ensure that the `me` pointer remains pinned even if its cast to a mutable reference now
-        let mut me = unsafe { Pin::new_unchecked(me) };
+        let me = unsafe { ptr.cast::<Self>().as_mut() };
 
-        // Through the magic of pin-projection we can mutable access the result processor in a fully Rust-compatible
-        // safe way.
-        let me = me.as_mut().project();
-
-        let cx = Context {
-            result_processor: me.header,
-        };
+        // Safety: ptr outlives the current scope
+        let cx = unsafe { Context::from_raw(ptr) };
 
         // Safety: We have done as much checking as we can at the start of the function (checking alignment & non-null-ness).
         let res = unsafe { res.as_mut() };
@@ -287,12 +329,14 @@ where
         }
     }
 
+    /// VTable function dropping the `Box` backing this result processor.
+    /// This is exposed through the `free` field of [`Header`] and only ever called by C code.
     unsafe extern "C" fn result_processor_free(me: *mut Header) {
         debug_assert!(me.is_aligned());
 
         // Safety: This function is called through the ResultProcessor "VTable" which - through the generics
         //  and constructor of this type - ensures that we can safely cast to `Self` here.
-        //  For all other safety guarantees we have to trust the QueryIterator implementation to be correct.
+        //  For all other safety guarantees (invariants 2. and 3.) we have to trust the QueryIterator implementation to be correct.
         drop(unsafe { Self::from_ptr(me.cast::<Self>()) });
     }
 }
@@ -304,7 +348,8 @@ pub(crate) mod test {
     use super::*;
     use ffi::{RPStatus_RS_RESULT_OK, SearchResult};
 
-    // Header duplicates ffi::ResultProcessor, so we need to make sure it has the exact same size, alignment and field layout.
+    // Compile time check to ensure that `Header` (which currently duplicates `ffi::ResultProcessor`)
+    // has the exact same size, alignment, and field layout.
     const _: () = {
         assert!(std::mem::size_of::<Header>() == std::mem::size_of::<ffi::ResultProcessor>(),);
         assert!(std::mem::align_of::<Header>() == std::mem::align_of::<ffi::ResultProcessor>(),);
@@ -415,10 +460,22 @@ pub(crate) mod test {
             let mut res = SEARCH_RESULT_INIT;
 
             let mut rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_err(error)));
-            let h = ptr::from_mut(&mut rp.header);
-            let found = unsafe { (rp.header.next.unwrap())(h, ptr::from_mut(&mut res)) };
+            let rp = NonNull::new(unsafe { ResultProcessorWrapper::into_ptr(rp) }).unwrap();
+            let mut rp: NonNull<Header> = rp.cast();
+
+            let cx = unsafe { Context::from_raw(rp) };
+
+            #[allow(const_item_mutation)] // we don't care about the exact search result value here
+            let found =
+                unsafe { (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut SEARCH_RESULT_INIT) };
 
             assert_eq!(found, expected);
+
+            // we need to correctly free the result processor at the end
+            unsafe {
+                let mut rp = rp.cast::<Header>();
+                (rp.as_mut().free.unwrap())(rp.as_ptr());
+            }
         }
 
         check(Error::Error, ffi::RPStatus_RS_RESULT_ERROR as i32);
@@ -428,57 +485,91 @@ pub(crate) mod test {
     /// Assert that returning `Ok(None)` from Rust translates to EOF in C
     #[test]
     fn none_signals_eof() {
-        let mut rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_none()));
-        let h = ptr::from_mut(&mut rp.header);
+        let rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_none()));
+        let rp = NonNull::new(unsafe { ResultProcessorWrapper::into_ptr(rp) }).unwrap();
+        let mut rp: NonNull<Header> = rp.cast();
+
+        let cx = unsafe { Context::from_raw(rp) };
+
         assert_eq!(
             unsafe {
                 // we don't care about the exact search result value here
                 #[allow(const_item_mutation)]
-                (rp.header.next.unwrap())(h, ptr::from_mut(&mut SEARCH_RESULT_INIT))
+                (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut SEARCH_RESULT_INIT)
             },
             ffi::RPStatus_RS_RESULT_EOF as i32
         );
+
+        // we need to correctly free the result processor at the end
+        unsafe {
+            let mut rp = rp.cast::<Header>();
+            (rp.as_mut().free.unwrap())(rp.as_ptr());
+        }
     }
 
     /// Assert that `Ok(Some(())` in Rust translates to the `OK` in C
     #[test]
     fn ok_some_signals_ok() {
-        let mut rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
-        let h = ptr::from_mut(&mut rp.header);
+        let rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
+        let rp = NonNull::new(unsafe { ResultProcessorWrapper::into_ptr(rp) }).unwrap();
+        let mut rp: NonNull<Header> = rp.cast();
+
+        let cx = unsafe { Context::from_raw(rp) };
+
         assert_eq!(
             unsafe {
                 // we don't care about the exact search result value here
                 #[allow(const_item_mutation)]
-                (rp.header.next.unwrap())(h, ptr::from_mut(&mut SEARCH_RESULT_INIT))
+                (rp.as_mut().next.unwrap())(rp.as_ptr(), &mut SEARCH_RESULT_INIT)
             },
             ffi::RPStatus_RS_RESULT_OK as i32
         );
+
+        // we need to correctly free the result processor at the end
+        unsafe {
+            let mut rp = rp.cast::<Header>();
+            (rp.as_mut().free.unwrap())(rp.as_ptr());
+        }
     }
 
     /// Assert that C return codes translate to the correct Rust error types
     #[test]
     fn c_ret_code_to_error() {
-        fn new_upstream(ret_code: c_int) -> Header {
+        fn new_upstream(ret_code: c_int) -> NonNull<Header> {
+            #[repr(C)]
+            struct RP {
+                header: Header,
+                ret_code: c_int,
+            }
+
             unsafe extern "C" fn result_processor_next(
                 me: *mut Header,
                 res: *mut ffi::SearchResult,
             ) -> c_int {
-                unsafe { me.as_ref().unwrap().parent as c_int }
+                unsafe { me.cast::<RP>().as_ref().unwrap().ret_code }
             }
 
-            Header {
-                // encode the ret code as the parent pointer so we dont have to define a new wrapper type
-                parent: ret_code as *mut _,
-                upstream: ptr::null_mut(),
-                ty: ffi::ResultProcessorType_RP_MAX,
-                gil_time: timespec {
-                    tv_sec: 0,
-                    tv_nsec: 0,
-                },
-                next: Some(result_processor_next),
-                free: None,
-                _unpin: PhantomPinned,
+            unsafe extern "C" fn result_processor_free(me: *mut Header) {
+                unsafe { drop(Box::from_raw(me.cast::<RP>())) }
             }
+
+            let b = Box::new(RP {
+                header: Header {
+                    parent: ptr::null_mut(),
+                    upstream: ptr::null_mut(),
+                    ty: ffi::ResultProcessorType_RP_MAX,
+                    gil_time: timespec {
+                        tv_sec: 0,
+                        tv_nsec: 0,
+                    },
+                    next: Some(result_processor_next),
+                    free: Some(result_processor_free),
+                    _unpin: PhantomPinned,
+                },
+
+                ret_code,
+            });
+            NonNull::new(Box::into_raw(b)).unwrap().cast()
         }
 
         struct RP;
@@ -499,15 +590,31 @@ pub(crate) mod test {
             let mut upstream = new_upstream(code);
 
             let mut rp = Box::pin(ResultProcessorWrapper::new(RP));
-            let mut rp = rp.as_mut().project();
-            // Emulate what `QITR_PushRP` would be doing
-            *rp.header.as_mut().project().upstream = ptr::from_mut(&mut upstream);
 
-            let cx = rp.header.as_context();
-            #[allow(const_item_mutation)] // we don't care about the exact search result value here
-            let res = rp.result_processor.next(cx, &mut SEARCH_RESULT_INIT);
+            // Emulate what `QITR_PushRP` would be doing
+            rp.header.upstream = upstream.as_ptr();
+
+            let mut rp = NonNull::new(unsafe { ResultProcessorWrapper::into_ptr(rp) }).unwrap();
+
+            let cx = unsafe { Context::from_raw(rp.cast()) };
+
+            let res = unsafe {
+                // we don't care about the exact search result value here
+                #[allow(const_item_mutation)]
+                rp.as_mut()
+                    .result_processor
+                    .next(cx, &mut SEARCH_RESULT_INIT)
+            };
 
             assert_eq!(res, expected);
+
+            // we need to correctly free both result processors at the end
+            unsafe {
+                let mut rp = rp.cast::<Header>();
+                (rp.as_mut().free.unwrap())(rp.as_ptr());
+
+                (upstream.as_mut().free.unwrap())(upstream.as_ptr());
+            }
         }
 
         check(ffi::RPStatus_RS_RESULT_OK as i32, Ok(Some(())));
@@ -522,7 +629,7 @@ pub(crate) mod test {
     /// Assert that the search result is passed correctly
     #[test]
     fn search_result_passing() {
-        fn new_upstream() -> Header {
+        fn new_upstream() -> NonNull<Header> {
             unsafe extern "C" fn result_processor_next(
                 me: *mut Header,
                 res: *mut ffi::SearchResult,
@@ -532,7 +639,11 @@ pub(crate) mod test {
                 RPStatus_RS_RESULT_OK as c_int
             }
 
-            Header {
+            unsafe extern "C" fn result_processor_free(me: *mut Header) {
+                unsafe { drop(Box::from_raw(me)) }
+            }
+
+            let b = Box::new(Header {
                 parent: ptr::null_mut(),
                 upstream: ptr::null_mut(),
                 ty: ffi::ResultProcessorType_RP_MAX,
@@ -541,9 +652,10 @@ pub(crate) mod test {
                     tv_nsec: 0,
                 },
                 next: Some(result_processor_next),
-                free: None,
+                free: Some(result_processor_free),
                 _unpin: PhantomPinned,
-            }
+            });
+            NonNull::new(Box::into_raw(b)).unwrap()
         }
 
         struct RP;
@@ -563,15 +675,32 @@ pub(crate) mod test {
         let mut upstream = new_upstream();
 
         let mut rp = Box::pin(ResultProcessorWrapper::new(RP));
-        let mut rp = rp.as_mut().project();
-        // Emulate what `QITR_PushRP` would be doing
-        *rp.header.as_mut().project().upstream = ptr::from_mut(&mut upstream);
 
-        let cx = rp.header.as_context();
+        // Emulate what `QITR_PushRP` would be doing
+        rp.header.upstream = upstream.as_ptr();
+
+        let mut rp = NonNull::new(unsafe { ResultProcessorWrapper::into_ptr(rp) }).unwrap();
+
+        let cx = unsafe { Context::from_raw(rp.cast()) };
 
         let mut res = SEARCH_RESULT_INIT;
-        rp.result_processor.next(cx, &mut res).unwrap().unwrap();
-
+        unsafe {
+            // we don't care about the exact search result value here
+            #[allow(const_item_mutation)]
+            rp.as_mut()
+                .result_processor
+                .next(cx, &mut res)
+                .unwrap()
+                .unwrap();
+        };
         assert_eq!(res.score, 42.0);
+
+        // we need to correctly free both result processors at the end
+        unsafe {
+            let mut rp = rp.cast::<Header>();
+            (rp.as_mut().free.unwrap())(rp.as_ptr());
+
+            (upstream.as_mut().free.unwrap())(upstream.as_ptr());
+        }
     }
 }
