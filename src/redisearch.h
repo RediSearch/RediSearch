@@ -275,30 +275,9 @@ typedef struct {
   char dummy;
 } RSVirtualRecord;
 
-typedef enum {
-  RSResultType_Union = 0x1,
-  RSResultType_Intersection = 0x2,
-  RSResultType_Term = 0x4,
-  RSResultType_Virtual = 0x8,
-  RSResultType_Numeric = 0x10,
-  RSResultType_Metric = 0x20,
-  RSResultType_HybridMetric = 0x40,
-} RSResultType;
 
 #define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)
 #define RS_RESULT_NUMERIC (RSResultType_Numeric | RSResultType_Metric)
-
-typedef struct {
-  /* The number of child records */
-  int numChildren;
-  /* The capacity of the records array. Has no use for extensions */
-  int childrenCap;
-  /* An array of recods */
-  struct RSIndexResult **children;
-
-  // A map of the aggregate type of the underlying results
-  uint32_t typeMask;
-} RSAggregateResult;
 
 // Forward declaration of needed structs
 struct RLookupKey;
