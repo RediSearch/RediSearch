@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 ARCH=$(uname -m)
 OS_TYPE=$(uname -s)
 OS_NAME=$(grep '^NAME=' /etc/os-release | sed 's/"//g')

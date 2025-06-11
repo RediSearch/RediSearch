@@ -21,6 +21,4 @@ jobs:
       notify_failure: true
 
   micro-benchmarks:
-    needs: check-what-changed
-    if: ${{ needs.check-what-changed.outputs.RUST_CODE_CHANGED == 'true'}}
     uses: ./.github/workflows/flow-micro-benchmarks.yml

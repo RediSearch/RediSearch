@@ -36,6 +36,8 @@ pub type TrieMapRangeCallback =
 /// - `max` can be NULL only if `maxlen == 0` or `maxlen == -1`. It is not necessarily NULL-terminated.
 /// - `maxlen` can be 0. If so, `max` is regarded as an empty string.
 /// - `callback` must be a valid pointer to a function of type [`TrieMapRangeCallback`]
+///
+/// [`NewTrieMap`]: crate::NewTrieMap
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn TrieMap_IterateRange(
     trie: *mut TrieMap,

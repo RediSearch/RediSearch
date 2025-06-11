@@ -1668,7 +1668,7 @@ static size_t WI_NumEstimated(void *p) {
 }
 
 /* Create a new wildcard iterator */
-static IndexIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs) {
+IndexIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs) {
   WildcardIteratorCtx *c = rm_calloc(1, sizeof(*c));
   c->current = 0;
   c->topId = maxId;
@@ -1908,11 +1908,9 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
 }
 
 PRINT_PROFILE_FUNC(printMetricIt) {
-  MetricIterator *mi = (MetricIterator *)root;
-
   RedisModule_Reply_Map(reply);
 
-  switch (mi->type) {
+  switch (GetMetric(root)) {
     case VECTOR_DISTANCE: {
       printProfileType("METRIC - VECTOR DISTANCE");
       break;

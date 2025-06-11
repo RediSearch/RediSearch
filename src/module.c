@@ -725,11 +725,6 @@ int SynDumpCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   if (!sp) {
     return RedisModule_ReplyWithErrorFormat(ctx, "%s: no such index", idx);
   }
-  if (sp->scan_failed_OOM) {
-    return RedisModule_ReplyWithErrorFormat(ctx,
-      "Background scan for index %s failed due to OOM. Queries cannot be executed on an incomplete index.",
-      idx);
-  }
 
   // Verify ACL keys permission
   if (!ACLUserMayAccessIndex(ctx, sp)) {
@@ -785,11 +780,6 @@ static int AlterIndexInternalCommand(RedisModuleCtx *ctx, RedisModuleString **ar
   IndexSpec *sp = StrongRef_Get(ref);
   if (!sp) {
     return RedisModule_ReplyWithError(ctx, "Unknown index name");
-  }
-  if (sp->scan_failed_OOM) {
-    return RedisModule_ReplyWithErrorFormat(ctx,
-      "Background scan for index %s failed due to OOM. Queries cannot be executed on an incomplete index.",
-      ixname);
   }
 
   if (!checkEnterpriseACL(ctx, sp)) {
@@ -3160,11 +3150,6 @@ int DistAggregateCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc
   if (!sp) {
     // Reply with error
     return RedisModule_ReplyWithErrorFormat(ctx, "No such index %s", idx);
-  }
-  if (sp->scan_failed_OOM) {
-    return RedisModule_ReplyWithErrorFormat(ctx,
-      "Background scan for index %s failed due to OOM. Queries cannot be executed on an incomplete index.",
-      idx);
   }
 
   bool isProfile = (RMUtil_ArgIndex("FT.PROFILE", argv, 1) != -1);

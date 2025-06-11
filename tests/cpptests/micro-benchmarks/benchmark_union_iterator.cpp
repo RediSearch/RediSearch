@@ -1,8 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "benchmark/benchmark.h"
 #include "iterator_util.h"
@@ -93,13 +96,11 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToFull)(benchmark::State &state) {
     QueryIterator **children = createChildren();
     QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, childrenIds.size(), false,
                                                     1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
-    t_docId docId = 10;
+    t_offset step = 10;
     for (auto _ : state) {
-        IteratorStatus rc = ui_base->SkipTo(ui_base, docId);
-        docId += 10;
+        IteratorStatus rc = ui_base->SkipTo(ui_base, ui_base->lastDocId + step);
         if (rc == ITERATOR_EOF) {
             ui_base->Rewind(ui_base);
-            docId = 10;
         }
     }
 
@@ -110,13 +111,11 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToQuick)(benchmark::State &state) {
     QueryIterator **children = createChildren();
     QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, childrenIds.size(), true,
                                                     1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
-    t_docId docId = 10;
+    t_offset step = 10;
     for (auto _ : state) {
-        IteratorStatus rc = ui_base->SkipTo(ui_base, docId);
-        docId += 10;
+        IteratorStatus rc = ui_base->SkipTo(ui_base, ui_base->lastDocId + step);
         if (rc == ITERATOR_EOF) {
             ui_base->Rewind(ui_base);
-            docId = 10;
         }
     }
 
@@ -162,14 +161,16 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToFull_old)(benchmark::State &state) {
     IndexIterator **children = createChildrenOld();
     IndexIterator *ui_base = NewUnionIterator(children, childrenIds.size(), false,
                                                 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
-    RSIndexResult *hit;
-    t_docId docId = 10;
+    RSIndexResult *hit = ui_base->current;
+    hit->docId = 0; // Ensure initial docId is set to 0
+    t_offset step = 10;
     for (auto _ : state) {
-        int rc = ui_base->SkipTo(ui_base->ctx, docId, &hit);
-        docId += 10;
+        int rc = ui_base->SkipTo(ui_base->ctx, hit->docId + step, &hit);
         if (rc == INDEXREAD_EOF) {
             ui_base->Rewind(ui_base->ctx);
-            docId = 10;
+            // Don't rely on the old iterator's Rewind to reset hit->docId
+            hit = ui_base->current;
+            hit->docId = 0;
         }
     }
 
@@ -180,14 +181,16 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToQuick_old)(benchmark::State &state) {
     IndexIterator **children = createChildrenOld();
     IndexIterator *ui_base = NewUnionIterator(children, childrenIds.size(), true,
                                                 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
-    RSIndexResult *hit;
-    t_docId docId = 10;
+    RSIndexResult *hit = ui_base->current;
+    hit->docId = 0; // Ensure initial docId is set to 0
+    t_offset step = 10;
     for (auto _ : state) {
-        int rc = ui_base->SkipTo(ui_base->ctx, docId, &hit);
-        docId += 10;
+        int rc = ui_base->SkipTo(ui_base->ctx, hit->docId + step, &hit);
         if (rc == INDEXREAD_EOF) {
             ui_base->Rewind(ui_base->ctx);
-            docId = 10;
+            // Don't rely on the old iterator's Rewind to reset hit->docId
+            hit = ui_base->current;
+            hit->docId = 0;
         }
     }
 
