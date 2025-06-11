@@ -435,7 +435,8 @@ dependencies = [
 [[package]]
 name = "enumflags2"
 version = "0.7.12"
-source = "git+https://github.com/meithecatte/enumflags2.git#332c37f47577e5f6b7104419da7e761963032086"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1027f7680c853e056ebcec683615fb6fbbc07dbaa13b4d5d9442b146ded4ecef"
 dependencies = [
  "enumflags2_derive",
 ]
@@ -443,7 +444,8 @@ dependencies = [
 [[package]]
 name = "enumflags2_derive"
 version = "0.7.12"
-source = "git+https://github.com/meithecatte/enumflags2.git#332c37f47577e5f6b7104419da7e761963032086"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "67c78a4d8fdf9953a5c9d458f9efe940fd97a0cab0941c075a813ac594733827"
 dependencies = [
  "proc-macro2",
  "quote 1.0.40",
