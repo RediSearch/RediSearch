@@ -448,7 +448,11 @@ pub(crate) mod test {
     impl ResultProcessor for ResultRP {
         const TYPE: ffi::ResultProcessorType = ffi::ResultProcessorType_RP_MAX;
 
-        fn next(&mut self, cx: Context, res: &mut ffi::SearchResult) -> Result<Option<()>, Error> {
+        fn next(
+            &mut self,
+            _cx: Context,
+            _res: &mut ffi::SearchResult,
+        ) -> Result<Option<()>, Error> {
             self.res.take().unwrap()
         }
     }
@@ -457,13 +461,9 @@ pub(crate) mod test {
     #[test]
     fn error_to_ret_code() {
         fn check(error: Error, expected: i32) {
-            let mut res = SEARCH_RESULT_INIT;
-
-            let mut rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_err(error)));
+            let rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_err(error)));
             let rp = NonNull::new(unsafe { ResultProcessorWrapper::into_ptr(rp) }).unwrap();
             let mut rp: NonNull<Header> = rp.cast();
-
-            let cx = unsafe { Context::from_raw(rp) };
 
             #[allow(const_item_mutation)] // we don't care about the exact search result value here
             let found =
@@ -489,8 +489,6 @@ pub(crate) mod test {
         let rp = NonNull::new(unsafe { ResultProcessorWrapper::into_ptr(rp) }).unwrap();
         let mut rp: NonNull<Header> = rp.cast();
 
-        let cx = unsafe { Context::from_raw(rp) };
-
         assert_eq!(
             unsafe {
                 // we don't care about the exact search result value here
@@ -513,8 +511,6 @@ pub(crate) mod test {
         let rp = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
         let rp = NonNull::new(unsafe { ResultProcessorWrapper::into_ptr(rp) }).unwrap();
         let mut rp: NonNull<Header> = rp.cast();
-
-        let cx = unsafe { Context::from_raw(rp) };
 
         assert_eq!(
             unsafe {
@@ -544,7 +540,7 @@ pub(crate) mod test {
 
             unsafe extern "C" fn result_processor_next(
                 me: *mut Header,
-                res: *mut ffi::SearchResult,
+                _res: *mut ffi::SearchResult,
             ) -> c_int {
                 unsafe { me.cast::<RP>().as_ref().unwrap().ret_code }
             }
@@ -631,7 +627,7 @@ pub(crate) mod test {
     fn search_result_passing() {
         fn new_upstream() -> NonNull<Header> {
             unsafe extern "C" fn result_processor_next(
-                me: *mut Header,
+                _me: *mut Header,
                 res: *mut ffi::SearchResult,
             ) -> c_int {
                 unsafe { res.as_mut() }.unwrap().score = 42.0;
@@ -685,8 +681,6 @@ pub(crate) mod test {
 
         let mut res = SEARCH_RESULT_INIT;
         unsafe {
-            // we don't care about the exact search result value here
-            #[allow(const_item_mutation)]
             rp.as_mut()
                 .result_processor
                 .next(cx, &mut res)
@@ -702,5 +696,29 @@ pub(crate) mod test {
 
             (upstream.as_mut().free.unwrap())(upstream.as_ptr());
         }
+    }
+
+    /// Mock implementation of `SearchResult_Clear` for tests
+    ///
+    /// this doesn't actually free anything, so will leak resources but hopefully this is fine for the few Rust
+    /// tests for now
+    #[unsafe(no_mangle)]
+    unsafe extern "C" fn SearchResult_Clear(r: *mut ffi::SearchResult) {
+        let r = unsafe { r.as_mut().unwrap() };
+
+        // This won't affect anything if the result is null
+        r.score = 0.0;
+
+        // SEDestroy(r->scoreExplain);
+        r.scoreExplain = ptr::null_mut();
+
+        // IndexResult_Free(r->indexResult);
+        r.indexResult = ptr::null_mut();
+
+        r.flags = 0;
+        // RLookupRow_Wipe(&r->rowdata);
+
+        r.dmd = ptr::null();
+        //   DMD_Return(r->dmd);
     }
 }
