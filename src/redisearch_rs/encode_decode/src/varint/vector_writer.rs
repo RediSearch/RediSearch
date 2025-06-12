@@ -32,7 +32,6 @@ impl VectorWriter {
     ///
     /// The number of bytes written to the vector.
     pub fn write(&mut self, value: u32) -> std::io::Result<usize> {
-        self.buffer.reserve_exact(16);
         let diff = value.wrapping_sub(self.last_value);
         let size = write(diff, &mut self.buffer)?;
         self.n_members += 1;
