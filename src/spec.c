@@ -159,9 +159,9 @@ static inline bool isBgIndexingMemoryOverLimit(RedisModuleCtx *ctx) {
     return false;
   }
   // Get the memory limit and memory usage
-  setMemoryInfo(ctx);
+  float memoryRatio = RedisModule_GetUsedMemoryRatio();
   // Check if used memory crossed the threshold
-  return (used_memory > ((float)RSGlobalConfig.indexingMemoryLimit / 100) * memoryLimit) ;
+  return (memoryRatio > ((float)RSGlobalConfig.indexingMemoryLimit / 100)) ;
 }
 /*
  * Initialize the spec's fields that are related to the cursors.
