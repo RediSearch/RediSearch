@@ -211,7 +211,7 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, SkipTo_Old, IndexIterator, false)(b
 BENCHMARK_REGISTER_F(BM_NotIterator, Read_Old)->NOT_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_NotIterator, SkipTo_Old)->NOT_SCENARIOS();
 
-BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, Read_Optimized, QueryIterator, true)(benchmark::State &state) {
+/*BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, Read_Optimized, QueryIterator, true)(benchmark::State &state) {
   for (auto _ : state) {
     IteratorStatus rc = iterator_base->Read(iterator_base);
     if (rc == ITERATOR_EOF) {
@@ -361,5 +361,5 @@ BENCHMARK_TEMPLATE3_DEFINE_F(BM_NotIterator, SkipTo_Old_Optimized_Subset, IndexI
 
 BENCHMARK_REGISTER_F(BM_NotIterator, Read_Old_Optimized_Subset)->SUBSET_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_NotIterator, SkipTo_Old_Optimized_Subset)->SUBSET_SCENARIOS();
-
+*/
 BENCHMARK_MAIN();
