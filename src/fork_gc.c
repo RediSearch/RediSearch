@@ -94,22 +94,15 @@ static void FGC_sendTerminator(ForkGC *fgc) {
 
 static int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *buf, size_t len) {
   fd_set set;
-  struct timeval timeout;
   int rv;
-
-  FD_ZERO(&set);
-  FD_SET(fgc->pipefd[GC_READERFD], &set);
-
-  timeout.tv_sec = 300;
-  timeout.tv_usec = 0;
   while (len) {
-      fd_set set;
-  
-
-    rv = select(fgc->pipefd[GC_READERFD] + 1, &set, NULL, NULL, &timeout);
-    if(rv <= 0)
+    FD_ZERO(&set);
+    FD_SET(fgc->pipefd[GC_READERFD], &set);
+    rv = select(fgc->pipefd[GC_READERFD] + 1, &set, NULL, NULL, &fgc->read_timeout);
+    if(rv <= 0) {
       RedisModule_Log(fgc->ctx, "verbose", "ForkGC - got error while reading from pipe (%s)", strerror(errno));
-      return REDISMODULE_ERR;   
+      return REDISMODULE_ERR;
+    }
     ssize_t nrecvd = read(fgc->pipefd[GC_READERFD], buf, len);
     if (nrecvd > 0) {
       buf += nrecvd;
@@ -1510,6 +1503,9 @@ ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
   forkGc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec;
   forkGc->retryInterval.tv_nsec = 0;
 
+  forkGc->read_timeout.tv_sec = 300;
+  forkGc->read_timeout.tv_usec = 0;
+  
   forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes;
   forkGc->ctx = RedisModule_GetDetachedThreadSafeContext(RSDummyContext);
 
