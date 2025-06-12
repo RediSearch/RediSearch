@@ -311,3 +311,79 @@ pub trait Decoder {
         }
     }
 }
+
+pub struct Numeric;
+
+impl Encoder for Numeric {
+    fn encode<W: Write + Seek>(
+        mut writer: W,
+        delta: Delta,
+        record: &RSIndexResult,
+    ) -> std::io::Result<usize> {
+        let bytes_written = match record.result_type {
+            RSResultType::Union => todo!(),
+            RSResultType::Intersection => todo!(),
+            RSResultType::Term => todo!(),
+            RSResultType::Virtual => todo!(),
+            RSResultType::Numeric => {
+                let num_record = unsafe { record.data.num };
+
+                match get_f64_value(num_record.0) {
+                    F64Value::Tiny(i) => {
+                        let header = TinyHeader {
+                            delta_bytes: 0,
+                            typ: 0,
+                            value: i,
+                        };
+
+                        writer.write(&[header.pack()])?
+                    }
+                    _ => todo!(),
+                }
+            }
+            RSResultType::Metric => todo!(),
+            RSResultType::HybridMetric => todo!(),
+        };
+
+        Ok(bytes_written)
+    }
+}
+
+enum F64Value {
+    Tiny(u8),
+    Int(u64),
+}
+
+fn get_f64_value(f: f64) -> F64Value {
+    if f.fract() == 0.0 {
+        let i = f as u64;
+
+        if i < 0b111 {
+            F64Value::Tiny(i as u8)
+        } else {
+            F64Value::Int(i)
+        }
+    } else {
+        todo!()
+    }
+}
+
+struct TinyHeader {
+    delta_bytes: u8,
+    typ: u8,
+    value: u8,
+}
+
+impl TinyHeader {
+    fn pack(self) -> u8 {
+        let mut packed = 0;
+        packed |= self.delta_bytes & 0b111; // 3 bits for delta bytes
+        packed |= (self.typ & 0b11) << 3; // 2 bits for type
+        packed |= (self.value & 0b111) << 5; // 3 bits for value
+
+        packed
+    }
+}
+
+#[cfg(test)]
+mod tests;
