@@ -43,8 +43,6 @@ typedef struct ForkGC {
   ForkGCStats stats;
 
   int pipefd[2];
-  struct timeval read_timeout;
-
   volatile uint32_t pauseState;
   volatile uint32_t execState;
 
