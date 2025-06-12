@@ -24,6 +24,20 @@ pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fie
 pub struct Delta(usize);
 
 impl Delta {
+    fn pack(self) -> Vec<u8> {
+        let mut delta = self.0;
+        let mut delta_vec = Vec::with_capacity(7);
+
+        while delta > 0 {
+            let byte = delta & 0b1111_1111;
+            delta_vec.push(byte as u8);
+            delta >>= 8;
+        }
+        delta_vec
+    }
+}
+
+impl Delta {
     /// Make a new delta value
     pub fn new(delta: usize) -> Self {
         Delta(delta)
@@ -320,15 +334,7 @@ impl Encoder for Numeric {
         delta: Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        let mut delta = delta.0;
-        let mut delta_vec = Vec::with_capacity(7);
-
-        while delta > 0 {
-            let byte = delta & 0b1111_1111;
-            delta_vec.push(byte as u8);
-            delta >>= 8;
-        }
-        let delta_bytes = delta_vec.len();
+        let delta = delta.pack();
 
         let mut bytes_written = match record.result_type {
             RSResultType::Union => todo!(),
@@ -341,7 +347,7 @@ impl Encoder for Numeric {
                 match get_f64_value(num_record.0) {
                     F64Value::Tiny(i) => {
                         let header = TinyHeader {
-                            delta_bytes: delta_bytes as _,
+                            delta_bytes: delta.len() as _,
                             typ: 0,
                             value: i,
                         };
@@ -355,7 +361,7 @@ impl Encoder for Numeric {
             RSResultType::HybridMetric => todo!(),
         };
 
-        bytes_written += writer.write(&delta_vec)?;
+        bytes_written += writer.write(&delta)?;
 
         Ok(bytes_written)
     }
