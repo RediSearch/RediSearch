@@ -260,7 +260,7 @@ def testGFreeEmpryTerms(env):
     env.expect('FT.DEBUG', 'DUMP_TERMS', 'idx').equal([])
 
 @skip(cluster=True)
-def testAutoMemory_MOD_3951():    
+def testAutoMemory_MOD_3951():
     env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
     conn = getConnectionByEnv(env)
 
@@ -290,7 +290,7 @@ def test_gc_oom(env):
     for i in range(num_docs):
         env.expect('DEL', f'doc{i}').equal(1)
 
-    set_tight_maxmemory_for_oom(env, 1)
+    env.expect('config', 'set', 'maxmemory', 1).ok()
     forceInvokeGC(env, 'idx')
 
     # Verify no bytes collected by GC
