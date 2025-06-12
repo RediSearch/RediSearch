@@ -75,14 +75,9 @@ typedef struct {
 static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
-  RedisSearchCtx *sctx = RP_SCTX(base);
-  if (sctx->flags == RS_CTX_UNSET) {
-    // If we need to read the iterators and we didn't lock the spec yet, lock it now
-    // and reopen the keys in the concurrent search context (iterators' validation)
-    RedisSearchCtx_LockSpecRead(RP_SCTX(base));
-    ConcurrentSearchCtx_ReopenKeys(base->parent->conc);
+  if (self->iiter == NULL) {
+    return RS_RESULT_EOF;
   }
-
   RSIndexResult *r;
   RSDocumentMetadata *dmd;
   int rc;
