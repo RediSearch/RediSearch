@@ -98,7 +98,7 @@ void SortingVector_Free(RSSortingVector *v) {
 }
 
 /* Load a sorting vector from RDB */
-RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver) {
+RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb) {
 
   int len = (int)RedisModule_LoadUnsigned(rdb);
   if (len > RS_SORTABLES_MAX || len <= 0) {

@@ -55,7 +55,7 @@ RSSortingVector *NewSortingVector(int len);
 void SortingVector_Free(RSSortingVector *v);
 
 /* Load a sorting vector from RDB. Used by legacy RDB load only */
-RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb, int encver);
+RSSortingVector *SortingVector_RdbLoad(RedisModuleIO *rdb);
 
 #ifdef __cplusplus
 }
