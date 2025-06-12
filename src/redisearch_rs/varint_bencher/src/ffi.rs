@@ -31,6 +31,6 @@ mod bindings {
 
 pub use bindings::{
     Buffer, BufferReader, BufferWriter, MAX_VARINT_LEN, NewBufferReader, NewVarintVectorWriter,
-    ReadVarint, ReadVarintFieldMask, ReadVarintFieldMaskNonInline, ReadVarintNonInline, VVW_Free,
-    VVW_Truncate, VVW_Write, VarintVectorWriter, WriteVarint, WriteVarintFieldMask, t_fieldMask,
+    ReadVarintFieldMaskNonInline, ReadVarintNonInline, VVW_Free, VVW_Truncate, VVW_Write,
+    VarintVectorWriter, WriteVarint, WriteVarintFieldMask, t_fieldMask,
 };

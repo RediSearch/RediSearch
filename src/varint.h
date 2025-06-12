@@ -19,9 +19,33 @@
 extern "C" {
 #endif
 /* Read an encoded integer from the buffer. It is assumed that the buffer will not overflow */
-uint32_t ReadVarint(BufferReader *b);
+static inline uint32_t ReadVarint(BufferReader *b) {
 
-t_fieldMask ReadVarintFieldMask(BufferReader *b);
+  unsigned char c = BUFFER_READ_BYTE(b);
+
+  uint32_t val = c & 127;
+  while (c >> 7) {
+    ++val;
+    c = BUFFER_READ_BYTE(b);
+    val = (val << 7) | (c & 127);
+  }
+
+  return val;
+}
+
+static inline t_fieldMask ReadVarintFieldMask(BufferReader *b) {
+
+  unsigned char c = BUFFER_READ_BYTE(b);
+
+  t_fieldMask val = c & 127;
+  while (c >> 7) {
+    ++val;
+    c = BUFFER_READ_BYTE(b);
+    val = (val << 7) | (c & 127);
+  }
+
+  return val;
+}
 
 /* Non-inline wrapper functions for FFI to ensure these are available as exported symbols */
 uint32_t ReadVarintNonInline(BufferReader *b);
