@@ -9,19 +9,26 @@ fn numeric_tiny_int() {
             crate::Delta(0),
             RSIndexResult::numeric(2.0),
             1,
-            vec![0b010_00_000],
+            vec![0b010_00_000], // Header bits 7→0: |010|00|000| = value:2, type:TINY, delta_bytes:0
         ),
         (
             crate::Delta(2),
             RSIndexResult::numeric(7.0),
             2,
-            vec![0b111_00_001, 0b0000_0010],
+            vec![
+                0b111_00_001, // Header bits 7→0: |111|00|001| = value:7, type:TINY, delta_bytes:1
+                0b0000_0010,  // Delta: 2
+            ],
         ),
         (
             crate::Delta(256),
             RSIndexResult::numeric(0.0),
             3,
-            vec![0b000_00_010, 0b0000_0000, 0b0000_0001],
+            vec![
+                0b000_00_010, // Header bits 7→0: |000|00|010| = value:0, type:TINY, delta_bytes:2
+                0b0000_0000,  // Delta byte 0 (LSB)
+                0b0000_0001,  // Delta byte 1 (MSB) → 256 = 0x0100
+            ],
         ),
     ];
 
