@@ -25,6 +25,11 @@ use std::{
     ptr::{self, NonNull},
 };
 
+use crate::rlookup::RLookupRow;
+
+pub mod rlookup;
+pub mod search_result;
+
 /// Errors that can be returned by [`ResultProcessor`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Error {
