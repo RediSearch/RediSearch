@@ -12,6 +12,7 @@
 #include "rmutil/rm_assert.h"
 
 #include <stdlib.h>
+#include "rq.h"
 
 void _MRCluster_UpdateNodes(MRCluster *cl) {
   /* Get all the current node ids from the connection manager.  We will remove all the nodes
@@ -20,7 +21,7 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
   dict *nodesToDisconnect = dictCreate(&dictTypeHeapStrings, NULL);
   // TODO(Joan): Potentially we will need to do some Thread synchronization here.
 
-  dictIterator *it = dictGetIterator(cl->control_plane_io_runtime->conn_mgr.map);
+  dictIterator *it = dictGetIterator(cl->control_plane_io_runtime->conn_mgr->map);
   dictEntry *de;
   while ((de = dictNext(it))) {
     dictAdd(nodesToDisconnect, dictGetKey(de), NULL);
@@ -33,9 +34,9 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
       // Update all the conn Manager in each of the runtimes.
       // TODO(Joan): Potentially we will need to do some Thread synchronization here.
       MRClusterNode *node = &cl->topo->shards[sh].nodes[n];
-      MRConnManager_Add(&cl->control_plane_io_runtime->conn_mgr, node->id, &node->endpoint, 0);
+      MRConnManager_Add(cl->control_plane_io_runtime->conn_mgr, node->id, &node->endpoint, 0);
       for (size_t i = 0; i < (cl->num_io_threads - 1); i++) {
-        MRConnManager_Add(&cl->io_runtimes_pool[i]->conn_mgr, node->id, &node->endpoint, 0);
+        MRConnManager_Add(cl->io_runtimes_pool[i]->conn_mgr, node->id, &node->endpoint, 0);
       }
 
       /* This node is still valid, remove it from the nodes to delete list */
@@ -48,9 +49,9 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
   it = dictGetIterator(nodesToDisconnect);
   while ((de = dictNext(it))) {
     // TODO(Joan): Potentially we will need to do some Thread synchronization here.
-    MRConnManager_Disconnect(&cl->control_plane_io_runtime->conn_mgr, dictGetKey(de));
+    MRConnManager_Disconnect(cl->control_plane_io_runtime->conn_mgr, dictGetKey(de));
     for (size_t i = 0; i < (cl->num_io_threads - 1); i++) {
-      MRConnManager_Disconnect(&cl->io_runtimes_pool[i]->conn_mgr, dictGetKey(de));
+      MRConnManager_Disconnect(cl->io_runtimes_pool[i]->conn_mgr, dictGetKey(de));
     }
   }
   dictReleaseIterator(it);
@@ -63,13 +64,13 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
   cl->topo = initialTopology;
   cl->num_io_threads = num_io_threads;
   if (num_io_threads <= 1) {
-    cl->control_plane_io_runtime = IORuntimeCtx_Create(conn_pool_size, num_io_threads * PENDING_FACTOR);
+    cl->control_plane_io_runtime = IORuntimeCtx_Create(conn_pool_size, num_io_threads * PENDING_FACTOR, 0);
     cl->io_runtimes_pool = NULL;
   } else {
     cl->io_runtimes_pool = rm_malloc((num_io_threads - 1) * sizeof(IORuntimeCtx*));
-    cl->control_plane_io_runtime = IORuntimeCtx_Create(conn_pool_size, num_io_threads * PENDING_FACTOR);
-    for (size_t i = 0; i < num_io_threads; i++) {
-      cl->io_runtimes_pool[i] = IORuntimeCtx_Create(conn_pool_size, num_io_threads * PENDING_FACTOR);
+    cl->control_plane_io_runtime = IORuntimeCtx_Create(conn_pool_size, num_io_threads * PENDING_FACTOR, 0);
+    for (size_t i = 1; i < num_io_threads; i++) {
+      cl->io_runtimes_pool[i - 1] = IORuntimeCtx_Create(conn_pool_size, num_io_threads * PENDING_FACTOR, i);
     }
   }
   if (cl->topo) {
@@ -181,7 +182,7 @@ MRConn* MRCluster_GetConn(MRClusterTopology *topo, IORuntimeCtx *ioRuntime, bool
   MRClusterNode *node = _MRClusterShard_SelectNode(sh, mastersOnly);
   if (!node) return NULL;
 
-  return MRConn_Get(&ioRuntime->conn_mgr, node->id);
+  return MRConn_Get(ioRuntime->conn_mgr, node->id);
 }
 
 /* Send a single command to the right shard in the cluster, with an optional control over node
@@ -206,7 +207,7 @@ int MRCluster_CheckConnections(MRClusterTopology *topo,
       if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
         continue;
       }
-      if (!MRConn_Get(&ioRuntime->conn_mgr, sh->nodes[j].id)) {
+      if (!MRConn_Get(ioRuntime->conn_mgr, sh->nodes[j].id)) {
         return REDIS_ERR;
       }
     }
@@ -229,8 +230,7 @@ int MRCluster_FanoutCommand(MRClusterTopology *topo,
       if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
         continue;
       }
-      //TODO(Joan): This FanoutCommand is working in a libuv runtime that should come with its own connection?
-      MRConn *conn = MRConn_Get(&ioRuntime->conn_mgr, sh->nodes[j].id);
+      MRConn *conn = MRConn_Get(ioRuntime->conn_mgr, sh->nodes[j].id);
       if (conn) {
         if (MRConn_SendCommand(conn, cmd, fn, privdata) != REDIS_ERR) {
           ret++;
@@ -243,7 +243,7 @@ int MRCluster_FanoutCommand(MRClusterTopology *topo,
 
 /* Initialize the connections to all shards */
 int MRCluster_ConnectAll(IORuntimeCtx *ioRuntime) {
-  return MRConnManager_ConnectAll(&ioRuntime->conn_mgr);
+  return MRConnManager_ConnectAll(ioRuntime->conn_mgr, RQ_GetLoop(ioRuntime->queue));
 }
 
 void MRClusterTopology_Free(MRClusterTopology *t) {
@@ -284,11 +284,11 @@ int MRCluster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopo) {
 
 void MRCluster_UpdateConnPerShard(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size) {
   RS_ASSERT(new_conn_pool_size > 0);
-  size_t old_conn_pool_size = ioRuntime->conn_mgr.nodeConns;
+  size_t old_conn_pool_size = ioRuntime->conn_mgr->nodeConns;
   if (old_conn_pool_size > new_conn_pool_size) {
-    MRConnManager_Shrink(&ioRuntime->conn_mgr, new_conn_pool_size);
+    MRConnManager_Shrink(ioRuntime->conn_mgr, new_conn_pool_size, RQ_GetLoop(ioRuntime->queue));
   } else if (old_conn_pool_size < new_conn_pool_size) {
-    MRConnManager_Expand(&ioRuntime->conn_mgr, new_conn_pool_size);
+    MRConnManager_Expand(ioRuntime->conn_mgr, new_conn_pool_size);
   }
 }
 

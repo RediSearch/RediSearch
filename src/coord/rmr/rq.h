@@ -16,7 +16,7 @@ typedef void (*MRQueueCallback)(void *);
 
 typedef struct MRWorkQueue MRWorkQueue;
 
-MRWorkQueue *RQ_New(int maxPending);
+MRWorkQueue *RQ_New(int maxPending, size_t id);
 void RQ_Free(MRWorkQueue *q);
 
 void RQ_UpdateMaxPending(MRWorkQueue *q, int maxPending);
@@ -29,6 +29,6 @@ void RQ_Push_Topology(MRWorkQueue *q, MRQueueCallback cb, struct MRClusterTopolo
 
 void RQ_Debug_ClearPendingTopo(MRWorkQueue *q);
 
-const void* RQ_GetRuntime(const MRWorkQueue *q);
+const void* RQ_GetLoop(const MRWorkQueue *q);
 
 size_t RQ_GetMaxPending(const MRWorkQueue *q);

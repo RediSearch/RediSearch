@@ -14,7 +14,6 @@
 #include "module.h"
 #include "src/config.h"
 #include <assert.h>
-#include "coord/rmr/rq_pool.h"
 
 DEBUG_COMMAND(shardConnectionStates) {
   if (!debugCommandsEnabled(ctx)) {
@@ -54,8 +53,8 @@ DEBUG_COMMAND(clearTopology) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   if (argc != 2) return RedisModule_WrongArity(ctx);
-  MRWorkQueue *control_plane_queue = RQPool_GetControlPlaneQueue();
-  RQ_Debug_ClearPendingTopo(control_plane_queue);
+  IORuntimeCtx *ioRuntime = MR_GetControlPlaneRuntime();
+  RQ_Debug_ClearPendingTopo(ioRuntime->queue);
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

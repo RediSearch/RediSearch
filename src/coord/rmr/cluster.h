@@ -71,11 +71,11 @@ typedef struct {
   MRClusterTopology *topo;
 } MRCluster;
 
-int MRCluster_CheckConnections(MRCluster *cl, bool mastersOnly);
+int MRCluster_CheckConnections(MRClusterTopology *topo, IORuntimeCtx *ioRuntime, bool mastersOnly);
 
 /* Multiplex a non-sharding command to all coordinators, using a specific coordination strategy. The
  * return value is the number of nodes we managed to successfully send the command to */
-int MRCluster_FanoutCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd, redisCallbackFn *fn,
+int MRCluster_FanoutCommand(MRClusterTopology *topo, IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *cmd, redisCallbackFn *fn,
                             void *privdata);
 
 /* Get a connected connection according to the cluster, strategy and command.
@@ -90,13 +90,13 @@ int MRCluster_SendCommand(MRClusterTopology *topo, IORuntimeCtx *ioRuntime, bool
 
 /* Asynchronously connect to all nodes in the cluster. This must be called before the io loop is
  * started */
-int MRCluster_ConnectAll(MRCluster *cl);
+int MRCluster_ConnectAll(IORuntimeCtx *ioRuntime);
 
 /* Create a new cluster using a node provider */
 MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, size_t num_io_threads);
 
 /* Update the number of connections per shard */
-void MRCluster_UpdateConnPerShard(MRCluster *cl, size_t new_conn_pool_size);
+void MRCluster_UpdateConnPerShard(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size);
 
 /* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the
  * provider's current context is used. Otherwise, we call its function with the given context */

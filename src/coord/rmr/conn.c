@@ -21,34 +21,31 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
-#include "rq_pool.h"
+#include "io_runtime_ctx.h"
 
-//TODO(Joan): Should the MRConn be attached to a Runtime, or should a MRQueue be attached to a Connection?
 typedef struct MRConn{
   MREndpoint ep;
   redisAsyncContext *conn;
   MRConnState state;
   void *timer;
   int protocol; // 0 (undetermined), 2, or 3
-  //size_t rqPoolIdx;  // the link between the connection and the queue pool
 } MRConn;
 
 
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
 static void MRConn_DisconnectCallback(const redisAsyncContext *, int);
-static int MRConn_Connect(MRConn *conn);
-static void MRConn_SwitchState(MRConn *conn, MRConnState nextState);
+static int MRConn_Connect(MRConn *conn, uv_loop_t *loop);
+static void MRConn_SwitchState(MRConn *conn, MRConnState nextState, uv_loop_t *loop);
 static void MRConn_Free(void *ptr);
-static void MRConn_Stop(MRConn *conn);
-static MRConn *MR_NewConn(MREndpoint *ep, size_t rqPoolIdx);
-static int MRConn_StartNewConnection(MRConn *conn);
-static int MRConn_SendAuth(MRConn *conn);
+static void MRConn_Stop(MRConn *conn, uv_loop_t *loop);
+static MRConn *MR_NewConn(MREndpoint *ep);
+static int MRConn_StartNewConnection(MRConn *conn, uv_loop_t *loop);
+static int MRConn_SendAuth(MRConn *conn, uv_loop_t *loop);
 
 #define RSCONN_RECONNECT_TIMEOUT 250
 #define RSCONN_REAUTH_TIMEOUT 1000
 #define INTERNALAUTH_USERNAME "internal connection"
 #define UNUSED(x) (void)(x)
-#define CONN_RUNTIME(conn) RQPool_GetQueue(conn->rqPoolIdx)->loop
 
 #define CONN_LOG(conn, fmt, ...)                                                \
   fprintf(stderr, "[%p %s:%d %s]" fmt "\n", conn, conn->ep.host, conn->ep.port, \
@@ -90,20 +87,19 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
 
   /* Create the connection */
   for (size_t i = 0; i < num; i++) {
-    //TODO(Joan): Here it used to get the runtime from the queue pool, but now we just assign the index
-    pool->conns[i] = MR_NewConn(ep, i);
+    pool->conns[i] = MR_NewConn(ep);
   }
   pool->control_plane_conn = pool->conns[0];
   return pool;
 }
 
-static void MRConnPool_Free(void *privdata, void *p) {
+static void MRConnPool_Free(void *privdata, void *p, uv_loop_t *loop) {
   UNUSED(privdata);
   MRConnPool *pool = p;
   if (!pool) return;
   for (size_t i = 0; i < pool->num; i++) {
     /* We stop the connections and the disconnect callback frees them */
-    MRConn_Stop(pool->conns[i]);
+    MRConn_Stop(pool->conns[i], loop);
   }
   rm_free(pool->conns);
   rm_free(pool);
@@ -133,6 +129,12 @@ static dictType nodeIdToConnPoolType = {
   .valDestructor = MRConnPool_Free,
 };
 
+MRConnManager *MRConnManager_New(size_t num_connections_per_shard) {
+  MRConnManager *mgr = rm_malloc(sizeof(*mgr));
+  MRConnManager_Init(mgr, num_connections_per_shard);
+  return mgr;
+}
+
 /* Init the connection manager */
 void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
   /* Create the connection map */
@@ -143,6 +145,7 @@ void MRConnManager_Init(MRConnManager *mgr, int nodeConns) {
 /* Free the entire connection manager */
 void MRConnManager_Free(MRConnManager *mgr) {
   dictRelease(mgr->map);
+  rm_free(mgr);
 }
 
 void MRConnManager_ReplyState(MRConnManager *mgr, RedisModuleCtx *ctx) {
@@ -202,6 +205,7 @@ int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *pri
 /* Add a node to the connection manager. Return 1 if it's been added or 0 if it hasn't */
 int MRConnManager_Add(MRConnManager *m, const char *id, MREndpoint *ep, int connect) {
   /* First try to see if the connection is already in the manager */
+  uv_loop_t *loop = NULL;
   dictEntry *ptr = dictFind(m->map, id);
   if (ptr) {
     MRConnPool *pool = dictGetVal(ptr);
@@ -219,7 +223,7 @@ int MRConnManager_Add(MRConnManager *m, const char *id, MREndpoint *ep, int conn
   MRConnPool *pool = _MR_NewConnPool(ep, m->nodeConns);
   if (connect) {
     for (size_t i = 0; i < pool->num; i++) {
-      MRConn_Connect(pool->conns[i]);
+      MRConn_Connect(pool->conns[i], loop);
     }
   }
 
@@ -229,10 +233,10 @@ int MRConnManager_Add(MRConnManager *m, const char *id, MREndpoint *ep, int conn
 /**
  * Start a new connection. Returns REDISMODULE_ERR if not a new connection
  */
-static int MRConn_StartNewConnection(MRConn *conn) {
+static int MRConn_StartNewConnection(MRConn *conn, uv_loop_t *loop) {
   if (conn && conn->state == MRConn_Disconnected) {
-    if (MRConn_Connect(conn) == REDIS_ERR) {
-      MRConn_SwitchState(conn, MRConn_Connecting);
+    if (MRConn_Connect(conn, loop) == REDIS_ERR) {
+      MRConn_SwitchState(conn, MRConn_Connecting, loop);
     }
     return REDIS_OK;
   }
@@ -242,7 +246,7 @@ static int MRConn_StartNewConnection(MRConn *conn) {
 /* Connect all connections in the manager. Return the number of connections we successfully
  * started.
  * If we cannot connect, we initialize a retry loop */
-int MRConnManager_ConnectAll(MRConnManager *m) {
+int MRConnManager_ConnectAll(MRConnManager *m, uv_loop_t *loop) {
 
   int n = 0;
   dictIterator *it = dictGetIterator(m->map);
@@ -250,7 +254,7 @@ int MRConnManager_ConnectAll(MRConnManager *m) {
   while ((entry = dictNext(it))) {
     MRConnPool *pool = dictGetVal(entry);
     for (size_t i = 0; i < pool->num; i++) {
-      if (MRConn_StartNewConnection(pool->conns[i]) == REDIS_OK) {
+      if (MRConn_StartNewConnection(pool->conns[i], loop) == REDIS_OK) {
         n++;
       }
     }
@@ -267,22 +271,22 @@ int MRConnManager_Disconnect(MRConnManager *m, const char *id) {
   return REDIS_ERR;
 }
 
-void uvStopConn(void *p) {
+/*void uvStopConn(void *p) {
   MRConn *conn = (MRConn *)p;
   MRConn_Stop(conn);
-}
+}*/
 
 // Shrink the connection pool to the given number of connections
 // Assumes that the number of connections is less than the current number of connections,
 // and that the new number of connections is greater than 0
-void MRConnManager_Shrink(MRConnManager *m, size_t num) {
+void MRConnManager_Shrink(MRConnManager *m, size_t num, uv_loop_t *loop) {
   dictIterator *it = dictGetIterator(m->map);
   dictEntry *entry;
   while ((entry = dictNext(it))) {
     MRConnPool *pool = dictGetVal(entry);
 
     for (size_t i = num; i < pool->num; i++) {
-      MRConn_Stop(pool->conns[i]);
+      MRConn_Stop(pool->conns[i], loop);
       // Need to close connection from the queue itself
       /*MRWorkQueue *q = RQPool_GetQueue(i);
       RQ_Push(q, uvStopConn, pool->conns[i]);*/
@@ -299,6 +303,7 @@ void MRConnManager_Shrink(MRConnManager *m, size_t num) {
 // Expand the connection pool to the given number of connections
 // Assumes that the number of connections is greater than the current number of connections
 void MRConnManager_Expand(MRConnManager *m, size_t num) {
+  uv_loop_t *loop = NULL;
   dictIterator *it = dictGetIterator(m->map);
   dictEntry *entry;
   while ((entry = dictNext(it))) {
@@ -309,9 +314,8 @@ void MRConnManager_Expand(MRConnManager *m, size_t num) {
     // There should always be at least one connection in the pool
     MREndpoint *ep = &pool->conns[0]->ep;
     for (size_t i = pool->num; i < num; i++) {
-      // Runtime should already be set
-      pool->conns[i] = MR_NewConn(ep, i);
-      MRConn_StartNewConnection(pool->conns[i]);
+      pool->conns[i] = MR_NewConn(ep);
+      MRConn_StartNewConnection(pool->conns[i], loop);
     }
     pool->num = num;
   }
@@ -319,9 +323,9 @@ void MRConnManager_Expand(MRConnManager *m, size_t num) {
   dictReleaseIterator(it);
 }
 
-static void MRConn_Stop(MRConn *conn) {
+static void MRConn_Stop(MRConn *conn, uv_loop_t *loop) {
   CONN_LOG(conn, "Requesting to stop");
-  MRConn_SwitchState(conn, MRConn_Freeing);
+  MRConn_SwitchState(conn, MRConn_Freeing, loop);
 }
 
 static void freeConn(MRConn *conn) {
@@ -335,7 +339,10 @@ static void freeConn(MRConn *conn) {
   rm_free(conn);
 }
 
+
+//TODO: Joan this is a callback how to pass IORuntime
 static void signalCallback(uv_timer_t *tm) {
+  uv_loop_t *loop = NULL;
   MRConn *conn = tm->data;
   if (conn->state == MRConn_Connected) {
     return;  // Nothing to do here!
@@ -354,14 +361,14 @@ static void signalCallback(uv_timer_t *tm) {
   }
 
   if (conn->state == MRConn_ReAuth) {
-    if (MRConn_SendAuth(conn) != REDIS_OK) {
+    if (MRConn_SendAuth(conn, loop) != REDIS_OK) {
       detachFromConn(conn, 1);
-      MRConn_SwitchState(conn, MRConn_Connecting);
+      MRConn_SwitchState(conn, MRConn_Connecting, loop);
     }
   } else if (conn->state == MRConn_Connecting) {
-    if (MRConn_Connect(conn) == REDIS_ERR) {
+    if (MRConn_Connect(conn, loop) == REDIS_ERR) {
       detachFromConn(conn, 1);
-      MRConn_SwitchState(conn, MRConn_Connecting);
+      MRConn_SwitchState(conn, MRConn_Connecting, loop);
     }
   } else {
     abort();  // Unknown state! - Can't transition
@@ -369,10 +376,10 @@ static void signalCallback(uv_timer_t *tm) {
 }
 
 /* Safely transition to current state */
-static void MRConn_SwitchState(MRConn *conn, MRConnState nextState) {
+static void MRConn_SwitchState(MRConn *conn, MRConnState nextState, uv_loop_t *loop) {
   if (!conn->timer) {
     conn->timer = rm_malloc(sizeof(uv_timer_t));
-    uv_timer_init(CONN_RUNTIME(conn), conn->timer);
+    uv_timer_init(loop, conn->timer);
     ((uv_timer_t *)conn->timer)->data = conn;
   }
   CONN_LOG(conn, "Switching state to %s", MRConnState_Str(nextState));
@@ -420,7 +427,9 @@ activate_timer:
   }
 }
 
+//TODO: Joan this is a callback how to pass IORuntime
 static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
+  uv_loop_t *loop = NULL;
   MRConn *conn = c->data;
   redisReply *rep = r;
   if (!conn || conn->state == MRConn_Freeing) {
@@ -430,7 +439,7 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
 
   if (c->err || !r) {
     detachFromConn(conn, !!r);
-    MRConn_SwitchState(conn, MRConn_Connecting);
+    MRConn_SwitchState(conn, MRConn_Connecting, loop);
     goto cleanup;
   }
 
@@ -439,21 +448,21 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
     size_t len;
     const char* s = MRReply_String(rep, &len);
     CONN_LOG(conn, "Error authenticating: %.*s", (int)len, s);
-    MRConn_SwitchState(conn, MRConn_ReAuth);
+    MRConn_SwitchState(conn, MRConn_ReAuth, loop);
     /*we don't try to reconnect to failed connections */
     goto cleanup;
   }
 
   /* Success! we are now connected! */
   // fprintf(stderr, "Connected and authenticated to %s:%d\n", conn->ep.host, conn->ep.port);
-  MRConn_SwitchState(conn, MRConn_Connected);
+  MRConn_SwitchState(conn, MRConn_Connected, loop);
 
 cleanup:
   // We run with `REDIS_OPT_NOAUTOFREEREPLIES` so we need to free the reply ourselves
   MRReply_Free(rep);
 }
 
-static int MRConn_SendAuth(MRConn *conn) {
+static int MRConn_SendAuth(MRConn *conn, uv_loop_t *loop) {
   CONN_LOG(conn, "Authenticating...");
 
   // if we failed to send the auth command, start a reconnect loop
@@ -467,7 +476,7 @@ static int MRConn_SendAuth(MRConn *conn) {
     int status = redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn,
         "AUTH %s %b", INTERNALAUTH_USERNAME, internal_secret, len);
     if (status == REDIS_ERR) {
-      MRConn_SwitchState(conn, MRConn_ReAuth);
+      MRConn_SwitchState(conn, MRConn_ReAuth, loop);
     }
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
     return status;
@@ -476,7 +485,7 @@ static int MRConn_SendAuth(MRConn *conn) {
     // If we got here, we know we have a password.
     if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn, "AUTH %s",
           conn->ep.password) == REDIS_ERR) {
-      MRConn_SwitchState(conn, MRConn_ReAuth);
+      MRConn_SwitchState(conn, MRConn_ReAuth, loop);
       return REDIS_ERR;
     }
     return REDIS_OK;
@@ -598,7 +607,9 @@ done:
 }
 
 /* hiredis async connect callback */
+//TODO: Joan this is a callback how to pass IORuntime
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
+  uv_loop_t *loop = NULL;
   MRConn *conn = c->data;
   if (!conn) {
     if (status == REDIS_OK) {
@@ -616,7 +627,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   if (status != REDIS_OK) {
     CONN_LOG(conn, "Error on connect: %s", c->errstr);
     detachFromConn(conn, 0);  // Free the connection as well - we have an error
-    MRConn_SwitchState(conn, MRConn_Connecting);
+    MRConn_SwitchState(conn, MRConn_Connecting, loop);
     return;
   }
 
@@ -635,7 +646,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
     if(ssl_context == NULL || ssl_error != 0) {
       CONN_LOG(conn, "Error on ssl context creation: %s", (ssl_error != 0) ? redisSSLContextGetError(ssl_error) : "Unknown error");
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
-      MRConn_SwitchState(conn, MRConn_Connecting);
+      MRConn_SwitchState(conn, MRConn_Connecting, loop);
       if (ssl_context) SSL_CTX_free(ssl_context);
       return;
     }
@@ -651,7 +662,7 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
 
       CONN_LOG(conn, "Error on tls auth, %s.", err);
       detachFromConn(conn, 0);  // Free the connection as well - we have an error
-      MRConn_SwitchState(conn, MRConn_Connecting);
+      MRConn_SwitchState(conn, MRConn_Connecting, loop);
       if (ssl_context) SSL_CTX_free(ssl_context);
       return;
     }
@@ -661,16 +672,18 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   // Authenticate on OSS always (as an internal connection), or on Enterprise if
   // a password is set to the `default` ACL user.
   if (!IsEnterprise() || conn->ep.password) {
-    if (MRConn_SendAuth(conn) != REDIS_OK) {
+    if (MRConn_SendAuth(conn, loop) != REDIS_OK) {
       detachFromConn(conn, 1);
-      MRConn_SwitchState(conn, MRConn_Connecting);
+      MRConn_SwitchState(conn, MRConn_Connecting, loop);
     }
   } else {
-    MRConn_SwitchState(conn, MRConn_Connected);
+    MRConn_SwitchState(conn, MRConn_Connected, loop);
   }
 }
 
+//TODO: Joan this is a callback how to pass IORuntime
 static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
+  uv_loop_t *loop = NULL;
   MRConn *conn = c->data;
   if (!conn) {
     /* Ignore */
@@ -680,22 +693,21 @@ static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
   // fprintf(stderr, "Disconnected from %s:%d\n", conn->ep.host, conn->ep.port);
   if (conn->state != MRConn_Freeing) {
     detachFromConn(conn, 0);
-    MRConn_SwitchState(conn, MRConn_Connecting);
+    MRConn_SwitchState(conn, MRConn_Connecting, loop);
   } else {
     freeConn(conn);
   }
 }
 
-static MRConn *MR_NewConn(MREndpoint *ep, size_t rqPoolIdx) {
+static MRConn *MR_NewConn(MREndpoint *ep) {
   MRConn *conn = rm_malloc(sizeof(MRConn));
   *conn = (MRConn){.state = MRConn_Disconnected, .conn = NULL, .protocol = 0};
   MREndpoint_Copy(&conn->ep, ep);
-  conn->rqPoolIdx = rqPoolIdx;
   return conn;
 }
 
 /* Connect to a cluster node. Return REDIS_OK if either connected, or if  */
-static int MRConn_Connect(MRConn *conn) {
+static int MRConn_Connect(MRConn *conn, uv_loop_t *loop) {
   RS_ASSERT(!conn->conn);
   // fprintf(stderr, "Connectig to %s:%d\n", conn->ep.host, conn->ep.port);
 
@@ -715,7 +727,7 @@ static int MRConn_Connect(MRConn *conn) {
   conn->state = MRConn_Connecting;
 
   // We need to attach the connection to the runtime that will be used with this connection
-  redisLibuvAttach(conn->conn, CONN_RUNTIME(conn));
+  redisLibuvAttach(conn->conn, loop);
   redisAsyncSetConnectCallback(conn->conn, MRConn_ConnectCallback);
   redisAsyncSetDisconnectCallback(conn->conn, MRConn_DisconnectCallback);
 

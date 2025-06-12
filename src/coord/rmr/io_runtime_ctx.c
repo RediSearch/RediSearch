@@ -8,10 +8,13 @@
 */
 
 #include "io_runtime_ctx.h"
+#include "rmalloc.h"
+#include "conn.h"
 
-IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, int max_pending) {
+
+IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, int max_pending, size_t id) {
   IORuntimeCtx *io_runtime_ctx = rm_malloc(sizeof(IORuntimeCtx));
-  io_runtime_ctx->queue = RQ_New(max_pending);
+  io_runtime_ctx->queue = RQ_New(max_pending, id);
   io_runtime_ctx->conn_mgr = MRConnManager_New(num_connections_per_shard);
   return io_runtime_ctx;
 }

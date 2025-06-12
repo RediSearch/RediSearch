@@ -18,7 +18,7 @@ typedef struct {
   MRConnManager *conn_mgr;
 } IORuntimeCtx;
 
-IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, int max_pending);
+IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, int max_pending, size_t id);
 
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx);
 

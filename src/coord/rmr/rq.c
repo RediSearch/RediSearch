@@ -20,7 +20,6 @@
 #include "rmr.h"
 #include "coord/config.h"
 #include "rmutil/rm_assert.h"
-#include "rq_pool.h"
 
 struct queueItem {
   void *privdata;
@@ -29,6 +28,7 @@ struct queueItem {
 };
 
 typedef struct MRWorkQueue {
+  size_t id;
   struct queueItem *head;
   struct queueItem *tail;
   int pending;
@@ -258,7 +258,7 @@ static void rqAsyncCb(uv_async_t *async) {
   }
 }
 
-MRWorkQueue *RQ_New(int maxPending) {
+MRWorkQueue *RQ_New(int maxPending, size_t id) {
 
   MRWorkQueue *q = rm_calloc(1, sizeof(*q));
   q->sz = 0;
@@ -277,6 +277,7 @@ MRWorkQueue *RQ_New(int maxPending) {
   q->topologyFailureTimer.data = q;
   q->topologyValidationTimer.data = q;
   q->pendingTopo = NULL;
+  q->id = id;
   return q;
 }
 
@@ -313,8 +314,7 @@ void RQ_Debug_ClearPendingTopo(MRWorkQueue *q) {
   }
 }
 
-
-const void* RQ_GetRuntime(const MRWorkQueue *q) {
+const void* RQ_GetLoop(const MRWorkQueue *q) {
   return &q->loop;
 }
 

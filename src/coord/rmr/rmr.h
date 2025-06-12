@@ -103,3 +103,5 @@ MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
 short MRIterator_GetPending(MRIterator *it);
 
 void MRIterator_Release(MRIterator *it);
+
+IORuntimeCtx *MR_GetControlPlaneRuntime();
