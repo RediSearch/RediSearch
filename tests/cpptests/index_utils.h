@@ -6,6 +6,7 @@
  * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
  * GNU Affero General Public License v3 (AGPLv3).
 */
+#include "index.h"
 #include "inverted_index.h"
 #include "numeric_index.h"
 #include <string>
@@ -47,3 +48,32 @@ size_t CalculateNumericInvertedIndexMemory(NumericRangeTree *rt, NumericRangeNod
 size_t NumericRangeGetMemory(const NumericRangeNode *Node);
 
 NumericRangeTree *getNumericTree(IndexSpec *spec, const char *field);
+
+class MockQueryEvalCtx {
+public:
+  QueryEvalCtx qctx;
+  RedisSearchCtx sctx;
+  IndexSpec spec;
+  DocTable docTable;
+  SchemaRule rule;
+
+  MockQueryEvalCtx(t_docId maxDocId, size_t numDocs) {
+    // Initialize DocTable
+    docTable.maxDocId = maxDocId;
+    docTable.size = numDocs;
+    
+    // Initialize SchemaRule
+    rule.index_all = false;
+    
+    // Initialize IndexSpec
+    spec.rule = &rule;
+    spec.existingDocs = nullptr; // For simplicity in benchmarks
+    
+    // Initialize RedisSearchCtx
+    sctx.spec = &spec;
+    
+    // Initialize QueryEvalCtx
+    qctx.sctx = &sctx;
+    qctx.docTable = &docTable;
+  }
+};
