@@ -416,6 +416,7 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
             # Expected - index should be gone
             env.assertTrue('unknown index' in str(e).lower() or 'no such index' in str(e).lower(),
                           message=f"Unexpected error for deleted index {idx_name}: {e}")
+    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
 
 
 @skip(cluster=True)
