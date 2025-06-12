@@ -18,5 +18,5 @@ fn main() {
         .with_config(Config::from_file("cbindgen.toml").expect("Failed to find cbindgen config"))
         .generate()
         .expect("Unable to generate bindings")
-        .write_to_file("../../headers/result_processor.h");
+        .write_to_file("../../headers/result_processor_rs.h");
 }
