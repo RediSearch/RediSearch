@@ -73,6 +73,10 @@ impl VectorWriter {
     }
 
     /// Truncate the vector.
+    ///
+    /// # Return value
+    ///
+    /// The new capacity of the vector.
     pub fn shrink_to_fit(&mut self) -> usize {
         self.buffer.shrink_to_fit();
 
