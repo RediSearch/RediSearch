@@ -314,7 +314,17 @@ impl Encoder for Numeric {
         delta: Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
-        let bytes_written = match record.result_type {
+        let mut delta = delta.0;
+        let mut delta_vec = Vec::with_capacity(7);
+
+        while delta > 0 {
+            let byte = delta & 0b1111_1111;
+            delta_vec.push(byte as u8);
+            delta >>= 8;
+        }
+        let delta_bytes = delta_vec.len();
+
+        let mut bytes_written = match record.result_type {
             RSResultType::Union => todo!(),
             RSResultType::Intersection => todo!(),
             RSResultType::Term => todo!(),
@@ -325,7 +335,7 @@ impl Encoder for Numeric {
                 match get_f64_value(num_record.0) {
                     F64Value::Tiny(i) => {
                         let header = TinyHeader {
-                            delta_bytes: 0,
+                            delta_bytes: delta_bytes as _,
                             typ: 0,
                             value: i,
                         };
@@ -338,6 +348,8 @@ impl Encoder for Numeric {
             RSResultType::Metric => todo!(),
             RSResultType::HybridMetric => todo!(),
         };
+
+        bytes_written += writer.write(&delta_vec)?;
 
         Ok(bytes_written)
     }
@@ -352,7 +364,7 @@ fn get_f64_value(f: f64) -> F64Value {
     if f.fract() == 0.0 {
         let i = f as u64;
 
-        if i < 0b111 {
+        if i <= 0b111 {
             F64Value::Tiny(i as u8)
         } else {
             F64Value::Int(i)
