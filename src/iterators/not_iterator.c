@@ -37,7 +37,8 @@ static size_t NI_NumEstimated(QueryIterator *base) {
   return ni->maxDocId;
 }
 
-/* Read from a NOT iterator - Non-Optimized version. We simply read until max
+/* Read from a NOT iterator - Non-Optimized version. This is applicable only if
+ * the only or leftmost node of a query is a NOT node. We simply read until max
  * docId, skipping docIds that exist in the child */
 static IteratorStatus NI_Read_NotOptimized(QueryIterator *base) {
   NotIterator *ni = (NotIterator *)base;
@@ -48,52 +49,27 @@ static IteratorStatus NI_Read_NotOptimized(QueryIterator *base) {
   }
 
   IteratorStatus rc;
-
-  // If child has not read any element, read one
-  if (ni->child->lastDocId == 0) {
-    // Read at least the first entry of the child
+  if (base->lastDocId == ni->child->lastDocId) {
+    // read next entry from child, or EOF
     rc = ni->child->Read(ni->child);
     if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
   }
 
-  // Advance to the next potential docId
-  base->lastDocId++;
-
-  // Search for a document that's not in the child iterator
-  while (base->lastDocId <= ni->maxDocId) {
-    // Case 1: Current docID is less than child's docID or child is exhauster.
-    // This means we found a document that is not in the child iterator
+  while (base->lastDocId < ni->maxDocId) {
+    base->lastDocId++;
     if (base->lastDocId < ni->child->lastDocId || ni->child->atEOF) {
       ni->timeoutCtx.counter = 0;
       base->current->docId = base->lastDocId;
       return ITERATOR_OK;
     }
-
-    // Case 2: Current docID is equal to child's docID.
-    // If we're at the same docId as the child, we need to advance both and in next loop iteration we will see how they compare
-    else if (base->lastDocId == ni->child->lastDocId) {
-      rc = ni->child->Read(ni->child);
-      if (rc == ITERATOR_TIMEOUT) return rc;
-      base->lastDocId++;
-    }
-    // Case 3: Current docID is ahead of child's docID
-    // This means we need to advance the child until it catches up, and in next loop we will see how they compare
-    else { // (base->lastDocId > ni->child->lastDocId)
-      // If our docId is greater than child's, advance the child until it catches up
-      while (!ni->child->atEOF && ni->child->lastDocId < base->lastDocId) {
-        rc = ni->child->Read(ni->child);
-        if (rc == ITERATOR_TIMEOUT) return rc;
-      }
-    }
-
-    // Check for timeout periodically
+    rc = ni->child->Read(ni->child);
+    if (rc == ITERATOR_TIMEOUT) return rc;
+    // Check for timeout with low granularity (MOD-5512)
     if (TimedOut_WithCtx_Gran(&ni->timeoutCtx, 5000)) {
       base->atEOF = true;
       return ITERATOR_TIMEOUT;
     }
   }
-
-  // If we've reached here, we've exceeded the maximum docId
   base->atEOF = true;
   return ITERATOR_EOF;
 }
