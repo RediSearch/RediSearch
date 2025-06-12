@@ -1503,7 +1503,7 @@ ForkGC *FGC_New(StrongRef spec_ref, GCCallbacks *callbacks) {
   forkGc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRunIntervalSec;
   forkGc->retryInterval.tv_nsec = 0;
 
-  forkGc->read_timeout.tv_sec = 300;
+  forkGc->read_timeout.tv_sec = 180;
   forkGc->read_timeout.tv_usec = 0;
   
   forkGc->cleanNumericEmptyNodes = RSGlobalConfig.gcConfigParams.forkGc.forkGCCleanNumericEmptyNodes;
