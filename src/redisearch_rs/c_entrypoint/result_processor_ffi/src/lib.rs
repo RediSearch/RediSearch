@@ -7,6 +7,4 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-#![allow(non_camel_case_types, non_snake_case)]
-
 mod counter;
