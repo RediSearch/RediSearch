@@ -31,6 +31,8 @@ use std::{
     ptr::{self, NonNull},
 };
 
+pub mod sorting_vector;
+
 /// Errors that can be returned by [`ResultProcessor`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Error {
