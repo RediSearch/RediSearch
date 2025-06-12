@@ -24,19 +24,11 @@ bench = false
 default = []
 mock_allocator = []
 
-[build-dependencies]
-cbindgen.workspace = true
-
 [dependencies]
 buffer = { workspace = true }
 triemap_ffi = { path = "../triemap_ffi" }
 types_ffi = { path = "../types_ffi" }
-result_processor = { workspace = true, optional = true }
 
-[dev-dependencies]
-
-
-redisearch_rs = { path = ".", features = ["mock_allocator"] }
 [target.'cfg(all(target_env="musl", target_os="linux"))'.dependencies.redis-module]
 # Statically link to the libclang on aarch64-unknown-linux-musl,
 # necessary on Alpine.
