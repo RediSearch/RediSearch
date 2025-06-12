@@ -7,4 +7,4 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-mod counter;
+pub mod counter;
