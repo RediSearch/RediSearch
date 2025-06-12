@@ -28,6 +28,7 @@ use std::{
 };
 
 /// Read an encoded integer from the given reader.
+#[inline(always)]
 pub fn read<R>(mut read: R) -> io::Result<u32>
 where
     R: Read,
@@ -49,6 +50,7 @@ where
 
 /// Same as `read` but reads the value into a `FieldMask`.
 // FIXME: The logic is identical to `read` so we can use a macro here to avoid code duplication.
+#[inline(always)]
 pub fn read_field_mask<R>(mut read: R) -> io::Result<FieldMask>
 where
     R: Read,
@@ -73,6 +75,7 @@ where
 /// # Return Value
 ///
 /// The number of bytes written.
+#[inline(always)]
 pub fn write<W>(value: u32, mut write: W) -> io::Result<usize>
 where
     W: Write,
@@ -89,6 +92,7 @@ where
 /// # Return Value
 ///
 /// The number of bytes written.
+#[inline(always)]
 pub fn write_field_mask<W>(value: FieldMask, mut write: W) -> io::Result<usize>
 where
     W: Write,
