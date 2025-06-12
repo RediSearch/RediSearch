@@ -160,7 +160,9 @@ static inline void RSValue_Decref(RSValue* v) {
   }
 }
 
-void RSValue_DecrRef_Rust(RSValue*);
+void RSValue_IncrRef_Rust(RSValue* v);
+
+void RSValue_DecrRef_Rust(RSValue* v);
 
 RSValue *RS_NewValue(RSValueType t);
 

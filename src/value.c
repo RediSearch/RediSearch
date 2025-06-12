@@ -108,6 +108,11 @@ void RSValue_Clear(RSValue *v) {
   v->t = RSValue_Undef;
 }
 
+
+void RSValue_IncrRef_Rust(RSValue* v) {
+  RSValue_IncrRef(v);
+}
+
 void RSValue_DecrRef_Rust(RSValue* v) {
   RSValue_Decref(v);
 }
