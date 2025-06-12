@@ -30,7 +30,7 @@ typedef struct MRConn{
   MRConnState state;
   void *timer;
   int protocol; // 0 (undetermined), 2, or 3
-  size_t rqPoolIdx;  // the link between the connection and the queue pool
+  //size_t rqPoolIdx;  // the link between the connection and the queue pool
 } MRConn;
 
 
@@ -282,9 +282,10 @@ void MRConnManager_Shrink(MRConnManager *m, size_t num) {
     MRConnPool *pool = dictGetVal(entry);
 
     for (size_t i = num; i < pool->num; i++) {
+      MRConn_Stop(pool->conns[i]);
       // Need to close connection from the queue itself
-      MRWorkQueue *q = RQPool_GetQueue(i);
-      RQ_Push(q, uvStopConn, pool->conns[i]);
+      /*MRWorkQueue *q = RQPool_GetQueue(i);
+      RQ_Push(q, uvStopConn, pool->conns[i]);*/
     }
 
     pool->num = num;
@@ -713,6 +714,7 @@ static int MRConn_Connect(MRConn *conn) {
   conn->conn->data = conn;
   conn->state = MRConn_Connecting;
 
+  // We need to attach the connection to the runtime that will be used with this connection
   redisLibuvAttach(conn->conn, CONN_RUNTIME(conn));
   redisAsyncSetConnectCallback(conn->conn, MRConn_ConnectCallback);
   redisAsyncSetDisconnectCallback(conn->conn, MRConn_DisconnectCallback);

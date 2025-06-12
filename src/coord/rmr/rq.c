@@ -29,7 +29,6 @@ struct queueItem {
 };
 
 typedef struct MRWorkQueue {
-  size_t id;
   struct queueItem *head;
   struct queueItem *tail;
   int pending;
@@ -52,7 +51,6 @@ typedef struct MRWorkQueue {
   uv_async_t topologyAsync;
   struct queueItem *pendingTopo;
   arrayof(uv_async_t *) pendingQueues;
-  MRConnManager *conn_manager;
 
 } MRWorkQueue;
 
@@ -260,10 +258,9 @@ static void rqAsyncCb(uv_async_t *async) {
   }
 }
 
-MRWorkQueue *RQ_New(size_t id, int maxPending) {
+MRWorkQueue *RQ_New(int maxPending) {
 
   MRWorkQueue *q = rm_calloc(1, sizeof(*q));
-  q->id = id;
   q->sz = 0;
   q->head = NULL;
   q->tail = NULL;

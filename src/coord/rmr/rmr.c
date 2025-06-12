@@ -16,7 +16,6 @@
 #include "rmutil/rm_assert.h"
 #include "resp3.h"
 #include "coord/config.h"
-#include "rq.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,7 +29,7 @@
 
 #include "hiredis/hiredis.h"
 #include "hiredis/async.h"
-#include "rq_pool.h"
+#include "io_runtime_ctx.h"
 
 #define REFCOUNT_INCR_MSG(caller, refcount) \
   RS_DEBUG_LOG_FMT("%s: increased refCount to == %d", caller, refcount);
@@ -56,8 +55,7 @@ typedef struct MRCtx {
   RedisModuleBlockedClient *bc;
   bool mastersOnly;
   MRCommand cmd;
-  size_t rqPoolIdx;
-  //MRWorkQueue *queue;
+  size_t ioRuntimeIdx;
 
   /**
    * This is a reduce function inside the MRCtx.
@@ -77,6 +75,7 @@ void MR_SetCoordinationStrategy(MRCtx *ctx, bool mastersOnly) {
 
 /* Create a new MapReduce context */
 MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *privdata, int replyCap) {
+  RS_ASSERT(cluster_g);
   MRCtx *ret = rm_malloc(sizeof(MRCtx));
   ret->numReplied = 0;
   ret->numErrored = 0;
@@ -90,7 +89,7 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   ret->bc = bc;
   RS_ASSERT(ctx || bc);
   ret->fn = NULL;
-  ret->rqPoolIdx = RQPool_AssignRoundRobinIdx();
+  ret->ioRuntimePoolIdx = IORuntimePool_AssignRoundRobinIdx(cluster_g);
   //ret->queue = RQPool_GetRoundRobinQueue();
 
   return ret;
@@ -138,7 +137,6 @@ void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn) {
 }
 
 static void freePrivDataCB(RedisModuleCtx *ctx, void *p) {
-  // printf("FreePrivData called!\n");
   if (p) {
     MRCtx *mc = p;
     MRCtx_Free(mc);
@@ -196,11 +194,11 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
 // #define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
 #define PENDING_FACTOR 50
 /* Initialize the MapReduce engine with a node provider */
-void MR_Init(MRCluster *cl, long long timeoutMS) {
+void MR_Init(size_t num_io_threads, size_t num_connections_per_shard, long long timeoutMS) {
 
-  cluster_g = cl;
+  cluster_g = MR_NewCluster(NULL, num_connections_per_shard);
   timeout_g = timeoutMS;
-  RQPool_Init(cl->mgr.nodeConns, cl->mgr.nodeConns * PENDING_FACTOR);
+  RQPool_Init(num_io_threads, num_io_threads * PENDING_FACTOR);
 }
 
 int MR_CheckTopologyConnections(bool mastersOnly) {
@@ -226,6 +224,7 @@ static void uvFanoutRequest(void *p) {
   }
 }
 
+// This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRCtx
 static void uvMapRequest(void *p) {
   MRCtx *mrctx = p;
 
@@ -478,7 +477,7 @@ struct MRIteratorCtx {
   // reference counter of the iterator.
   // When it reaches 0, both readers and the writer agree that the iterator can be released
   int8_t itRefCount;
-  MRWorkQueue *q;   // The work queue for the iterator
+  size_t ioRuntimeIdx; // The IO Runtime pool index for the iterator. This implies all the connections for a given Iterator will be in the same IO thread (Not inner-query parallelism)
 };
 
 struct MRIteratorCallbackCtx {
@@ -574,24 +573,27 @@ void MRIteratorCallback_AddReply(MRIteratorCallbackCtx *ctx, MRReply *rep) {
   MRChannel_Push(ctx->it->ctx.chan, rep);
 }
 
+// This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRIterator ctx
 void iterStartCb(void *p) {
   MRIterator *it = p;
 
-  size_t len = cluster_g->topo->numShards;
-  it->len = len;
-  it->ctx.pending = len;
-  it->ctx.inProcess = len; // Initially all commands are in process
+  size_t numShards = cluster_g->topo->numShards;
+  it->len = numShards;
+  it->ctx.pending = numShards;
+  it->ctx.inProcess = numShards; // Initially all commands are in process
 
-  it->cbxs = rm_realloc(it->cbxs, len * sizeof(*it->cbxs));
+  it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
   cmd->targetSlot = cluster_g->topo->shards[0].startSlot; // Set the first command to target the first shard
-  for (size_t i = 1; i < len; i++) {
+  // TODO(Joan): Why i starts at 1?
+  for (size_t i = 1; i < numShards; i++) {
     it->cbxs[i].it = it;
     it->cbxs[i].cmd = MRCommand_Copy(cmd);
     // Set each command to target a different shard
     it->cbxs[i].cmd.targetSlot = cluster_g->topo->shards[i].startSlot;
   }
 
+  // This implies that every connection to each shard will work inside a single IO thread
   for (size_t i = 0; i < it->len; i++) {
     if (MRCluster_SendCommand(cluster_g, true, &it->cbxs[i].cmd,
                               mrIteratorRedisCB, &it->cbxs[i]) == REDIS_ERR) {
@@ -601,6 +603,7 @@ void iterStartCb(void *p) {
   }
 }
 
+// This function already runs in one of the IO threads. We need to make sure that the adequate RuntimeCtx is used. This info can be found in the MRIterator ctx
 void iterManualNextCb(void *p) {
   MRIterator *it = p;
   for (size_t i = 0; i < it->len; i++) {
@@ -637,6 +640,7 @@ bool MR_ManuallyTriggerNextIfNeeded(MRIterator *it, size_t channelThreshold) {
     // We need to take a reference to the iterator for the next batch of commands.
     int8_t refCount = MRIterator_IncreaseRefCount(it);
     REFCOUNT_INCR_MSG("MR_ManuallyTriggerNextIfNeeded", refCount);
+    // TODO(Joan): Change RQ_Push for IORuntime_Schedule?
     RQ_Push(it->ctx.q, iterManualNextCb, it);
     return true; // We may have more replies (and we surely will)
   }
@@ -664,7 +668,7 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
       .inProcess = 1,
       .timedOut = false,
       .itRefCount = 2,
-      .q = cmd->queue,
+      .ioRuntimeIdx = IORuntimePool_AssignRoundRobinIdx(cluster_g),
     },
     .cbxs = rm_new(MRIteratorCallbackCtx),
   };
@@ -674,7 +678,8 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
     .it = ret,
   };
 
-  RQ_Push(cmd->queue, iterStartCb, ret);
+  //TODO(Joan): Change RQ_Push for IORuntime_Schedule
+  IORuntimeCtx_Schedule(IORuntimePool_GetCtx(cluster_g, ret->ctx.ioRuntimeIdx), iterStartCb, ret);
   return ret;
 }
 

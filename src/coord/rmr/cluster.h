@@ -15,6 +15,7 @@
 #include "endpoint.h"
 #include "command.h"
 #include "node.h"
+#include "io_runtime_ctx.h"
 
 typedef uint16_t mr_slot_t;
 
@@ -61,7 +62,11 @@ void MRClusterNode_Free(MRClusterNode *n);
 /* A cluster has nodes and connections that can be used by the engine to send requests */
 typedef struct {
   /* The connection manager holds a connection to each node, indexed by node id */
-  MRConnManager mgr;
+  /* An MRCluster holds an array of Connection Managers (one per each I/O thread)*/
+  IORuntimeCtx **io_runtimes_pool;
+  IORuntimeCtx *control_plane_io_runtime;
+  size_t num_io_threads; // Number of threads in the pool (including the control plane)
+  size_t current_round_robin;
   /* The latest topology of the cluster */
   MRClusterTopology *topo;
 } MRCluster;
@@ -75,12 +80,12 @@ int MRCluster_FanoutCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd, red
 
 /* Get a connected connection according to the cluster, strategy and command.
  * Returns NULL if no fitting connection exists at the moment */
-MRConn *MRCluster_GetConn(MRCluster *cl, bool mastersOnly, MRCommand *cmd);
+MRConn *MRCluster_GetConn(MRClusterTopology *topo, IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *cmd);
 
 /* Send a command to its appropriate shard, selecting a node based on the coordination strategy.
  * Returns REDIS_OK on success, REDIS_ERR on failure. Notice that that send is asynchronous so even
  * though we signal for success, the request may fail */
-int MRCluster_SendCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd, redisCallbackFn *fn,
+int MRCluster_SendCommand(MRClusterTopology *topo, IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *cmd, redisCallbackFn *fn,
                           void *privdata);
 
 /* Asynchronously connect to all nodes in the cluster. This must be called before the io loop is
@@ -88,13 +93,17 @@ int MRCluster_SendCommand(MRCluster *cl, bool mastersOnly, MRCommand *cmd, redis
 int MRCluster_ConnectAll(MRCluster *cl);
 
 /* Create a new cluster using a node provider */
-MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size);
+MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, size_t num_io_threads);
 
 /* Update the number of connections per shard */
 void MRCluster_UpdateConnPerShard(MRCluster *cl, size_t new_conn_pool_size);
 
 /* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the
  * provider's current context is used. Otherwise, we call its function with the given context */
-int MRCLuster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopology);
+int MRCluster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopology);
 
 void MRClust_Free(MRCluster *cl);
+
+size_t IORuntimePool_AssignRoundRobinIdx(MRCluster *cl);
+
+IORuntimeCtx *IORuntimePool_GetCtx(MRCluster *cl, size_t idx);

@@ -22,7 +22,7 @@ void RQPool_Init(size_t numQueues, int maxPending) {
   rq_pool = rm_malloc(numQueues * sizeof(MRWorkQueue*));
   rq_pool_len = numQueues;
   for (size_t i = 0; i < numQueues; i++) {
-    rq_pool[i] = RQ_New(i, maxPending);
+    rq_pool[i] = RQ_New(maxPending);
   }
   rq_control_plane = rq_pool[0];
 }
@@ -56,7 +56,7 @@ void RQPool_Expand(size_t numQueues) {
   rm_realloc(rq_pool, numQueues * sizeof(MRWorkQueue *));
   size_t max_pending = RQ_GetMaxPending(rq_control_plane);
   for (size_t i = oldLen; i < numQueues; i++) {
-    rq_pool[i] = RQ_New(i, max_pending);
+    rq_pool[i] = RQ_New(max_pending);
   }
   rq_pool_len = numQueues;
 }

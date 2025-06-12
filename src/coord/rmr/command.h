@@ -15,7 +15,7 @@
 #include <assert.h>
 #include <stdbool.h>
 
-#include "rq.h"
+//#include "rq.h"
 
 typedef enum { C_READ = 0, C_DEL = 1, C_AGG = 2 } MRRootCommand;
 
@@ -47,7 +47,7 @@ typedef struct {
   MRRootCommand rootCommand;
 
   sds cmd;
-  MRWorkQueue *queue; // the queue that the command is associated with
+  //MRWorkQueue *queue; // the queue that the command is associated with
 } MRCommand;
 
 /* Free the command and all its strings. Doesn't free the actual command struct, as it is usually
