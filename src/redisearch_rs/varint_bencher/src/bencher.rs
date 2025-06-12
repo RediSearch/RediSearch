@@ -150,18 +150,18 @@ fn encode_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values:
     let alloc_fn = unsafe { crate::RedisModule_Alloc.unwrap() };
     // SAFETY: Calling Redis allocator with valid size parameter
     let buffer_ptr = unsafe { alloc_fn(1024) };
+    let mut buffer = crate::ffi::Buffer {
+        data: buffer_ptr as *mut i8,
+        offset: 0,
+        cap: 1024,
+    };
 
     group.bench_function("C", |b| {
         b.iter(|| {
             for &value in values {
-                // Only time the encoding operation
-                let mut buffer = crate::ffi::Buffer {
-                    data: buffer_ptr as *mut i8,
-                    offset: 0,
-                    cap: 1024,
-                };
                 let _bytes_written = c_varint_ops::write(black_box(value), &mut buffer);
                 black_box(buffer.offset);
+                buffer.offset = 0; // Reset the buffer.
             }
         })
     });
@@ -179,8 +179,7 @@ fn encode_field_mask_rust_benchmark<M: Measurement>(
     group: &mut BenchmarkGroup<'_, M>,
     values: &[FieldMask],
 ) {
-    let mut buf = Vec::new();
-
+    let mut buf = Vec::with_capacity(1024);
     group.bench_function("Rust", |b| {
         b.iter(|| {
             for &value in values {
@@ -199,18 +198,18 @@ fn encode_field_mask_c_benchmark<M: Measurement>(
     let alloc_fn = unsafe { crate::RedisModule_Alloc.unwrap() };
     // SAFETY: Calling Redis allocator with valid size parameter
     let buffer_ptr = unsafe { alloc_fn(1024) };
+    let mut buffer = crate::ffi::Buffer {
+        data: buffer_ptr as *mut i8,
+        offset: 0,
+        cap: 1024,
+    };
 
     group.bench_function("C", |b| {
         b.iter(|| {
             for &value in values {
-                // Only time the encoding operation
-                let mut buffer = crate::ffi::Buffer {
-                    data: buffer_ptr as *mut i8,
-                    offset: 0,
-                    cap: 1024,
-                };
                 let _bytes_written = c_varint_ops::write_field_mask(black_box(value), &mut buffer);
                 black_box(buffer.offset);
+                buffer.offset = 0; // Reset the buffer.
             }
         })
     });
