@@ -32,10 +32,6 @@ size_t WriteVarint(uint32_t value, BufferWriter *w);
 
 size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *w);
 
-uint32_t ReadVarintRaw(const char **pos, const char *end);
-
-t_fieldMask ReadVarintFieldMaskRaw(const char **pos, const char *end);
-
 typedef struct {
   Buffer buf;
   // how many members we've put in

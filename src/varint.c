@@ -157,39 +157,3 @@ t_fieldMask ReadVarintFieldMask(BufferReader *b) {
 
   return val;
 }
-
-uint32_t ReadVarintRaw(const char **pos, const char *end) {
-  if (*pos >= end) return 0;
-
-  unsigned char c = (unsigned char)**pos;
-  (*pos)++;
-
-  uint32_t val = c & 127;
-  while (c >> 7) {
-    if (*pos >= end) return val; // Prevent buffer overflow
-    ++val;
-    c = (unsigned char)**pos;
-    (*pos)++;
-    val = (val << 7) | (c & 127);
-  }
-
-  return val;
-}
-
-t_fieldMask ReadVarintFieldMaskRaw(const char **pos, const char *end) {
-  if (*pos >= end) return 0;
-
-  unsigned char c = (unsigned char)**pos;
-  (*pos)++;
-
-  t_fieldMask val = c & 127;
-  while (c >> 7) {
-    if (*pos >= end) return val; // Prevent buffer overflow
-    ++val;
-    c = (unsigned char)**pos;
-    (*pos)++;
-    val = (val << 7) | (c & 127);
-  }
-
-  return val;
-}
