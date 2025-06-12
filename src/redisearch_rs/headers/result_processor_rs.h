@@ -6,7 +6,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <time.h>
+/**
+ * Forward declaration of ResultProcessor. It will be defined in `result_processor.h`
+ */
+typedef struct ResultProcessor;
+
 
 #ifdef __cplusplus
 extern "C" {
