@@ -42,8 +42,12 @@ typedef struct RSSortingVector {
 void RSSortingVector_Put(RSSortingVector *vec, int idx, const void *p, int type, int unf);
 
 /* Returns the value for a given index. Does not increment the refcount */
-static inline RSValue *RSSortingVector_Get(RSSortingVector *v, size_t index) {
+static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t index) {
   return v->len > index ? v->values[index] : NULL;
+}
+
+static inline size_t RSSortingVector_Length(const RSSortingVector* vec) {
+  return vec->len;
 }
 
 size_t RSSortingVector_GetMemorySize(RSSortingVector *v);

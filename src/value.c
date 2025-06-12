@@ -108,6 +108,10 @@ void RSValue_Clear(RSValue *v) {
   v->t = RSValue_Undef;
 }
 
+void RSValue_DecrRef_Rust(RSValue* v) {
+  RSValue_Decref(v);
+}
+
 /* Free a value's internal value. It only does anything in the case of a string, and doesn't free
  * the actual value object */
 void RSValue_Free(RSValue *v) {
