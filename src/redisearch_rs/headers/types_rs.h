@@ -16,6 +16,12 @@ typedef struct RSQueryTerm RSQueryTerm;
  */
 typedef struct RSIndexResult RSIndexResult;
 
+/*
+ * Forward declaration of RLookupRow. It will be defined in `redisearch.h`
+ */
+typedef struct RSSortingVector RSSortingVector;
+typedef struct RSValue RSValue;
+
 
 enum RSResultType
 #ifdef __cplusplus
@@ -33,6 +39,27 @@ enum RSResultType
 #ifndef __cplusplus
 typedef uint32_t RSResultType;
 #endif // __cplusplus
+
+/**
+ * Row data for a lookup key. This abstracts the question of "where" the data comes from.
+ *
+ * This stores the values received by an iteration over a RLookup.
+ *
+ */
+typedef struct RLookupRow {
+  /**
+   * contains sortable values for the row, is depending on the filed sorting
+   */
+  const RSSortingVector *sv;
+  /**
+   * contains the dynamic values of the row
+   */
+  RSValue **dyn;
+  /**
+   * the number of dynamic values in the row
+   */
+  size_t ndyn;
+} RLookupRow;
 
 /**
  * Represents a set of flags of some type `T`.
