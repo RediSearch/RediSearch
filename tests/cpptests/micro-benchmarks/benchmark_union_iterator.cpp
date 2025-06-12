@@ -32,15 +32,27 @@ public:
         }
 
         auto numChildren = state.range(0);
-        std::mt19937 rng(46);
-        std::uniform_int_distribution<t_docId> dist(1, 2'000'000);
+        auto idDistributionType = state.range(1); // 0 = consecutive, 1 = jumps of 100
 
         childrenIds.resize(numChildren);
         for (int i = 0; i < numChildren; ++i) {
-            childrenIds[i].resize(100'000);
-            for (auto &id : childrenIds[i]) {
-                id = dist(rng);
+            childrenIds[i].resize(10'000); // Reduced size for clearer performance differences
+
+            // Each child iterator gets a unique base range to avoid overlaps
+            t_docId baseOffset = i * 1'000'000;
+
+            for (size_t j = 0; j < childrenIds[i].size(); ++j) {
+                if (idDistributionType == 0) {
+                    // Consecutive IDs scenario
+                    childrenIds[i][j] = baseOffset + j + 1;
+                } else {
+                    // Jumps of 100 scenario
+                    childrenIds[i][j] = baseOffset + (j + 1) * 100;
+                }
             }
+
+            // Sort to ensure IDs are in order (though they should already be)
+            std::sort(childrenIds[i].begin(), childrenIds[i].end());
         }
     }
 
@@ -60,10 +72,16 @@ public:
     }
 };
 bool BM_UnionIterator::initialized = false;
-// Translation - exponential range from 2 to 20 (double each time), then 25, 50, 75, and 100.
-// This is the number of child iterators in each scenario
-#define UNION_SCENARIOS() RangeMultiplier(2)->Range(2, 20)->DenseRange(25, 100, 25)
+// First parameter: number of child iterators (2, 4, 8, 16)
+// Second parameter: ID distribution type (0 = consecutive, 1 = jumps of 100)
+#define UNION_SCENARIOS() \
+    Args({2, 0})->Args({2, 1})-> \
+    Args({4, 0})->Args({4, 1})-> \
+    Args({8, 0})->Args({8, 1})-> \
+    Args({16, 0})->Args({16, 1})
 
+// Benchmark union iterator Read() with full result collection
+// Tests performance difference between consecutive vs sparse (jumps of 100) document IDs
 BENCHMARK_DEFINE_F(BM_UnionIterator, ReadFull)(benchmark::State &state) {
     QueryIterator **children = createChildren();
     QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, childrenIds.size(), false,
@@ -78,6 +96,8 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, ReadFull)(benchmark::State &state) {
     ui_base->Free(ui_base);
 }
 
+// Benchmark union iterator Read() with quick exit (first match only)
+// Tests performance difference between consecutive vs sparse (jumps of 100) document IDs
 BENCHMARK_DEFINE_F(BM_UnionIterator, ReadQuick)(benchmark::State &state) {
     QueryIterator **children = createChildren();
     QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, childrenIds.size(), true,
@@ -92,6 +112,8 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, ReadQuick)(benchmark::State &state) {
     ui_base->Free(ui_base);
 }
 
+// Benchmark union iterator SkipTo() with full result collection
+// Tests random access performance difference between consecutive vs sparse document IDs
 BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToFull)(benchmark::State &state) {
     QueryIterator **children = createChildren();
     QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, childrenIds.size(), false,
@@ -107,6 +129,8 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToFull)(benchmark::State &state) {
     ui_base->Free(ui_base);
 }
 
+// Benchmark union iterator SkipTo() with quick exit (first match only)
+// Tests random access performance difference between consecutive vs sparse document IDs
 BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToQuick)(benchmark::State &state) {
     QueryIterator **children = createChildren();
     QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, childrenIds.size(), true,
