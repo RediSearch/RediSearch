@@ -17,7 +17,7 @@
 #include "buffer.h"
 
 /* Create a sorting vector of a given length for a document */
-RSSortingVector *NewSortingVector(int len) {
+RSSortingVector *NewSortingVector(size_t len) {
   if (len > RS_SORTABLES_MAX) {
     return NULL;
   }
@@ -61,32 +61,28 @@ char *normalizeStr(const char *str) {
   return lower_buffer;
 }
 
-/* Put a value in the sorting vector */
-void RSSortingVector_Put(RSSortingVector *vec, int idx, const void *p, int type, int unf) {
-  if (idx > vec->len) {
-    return;
-  }
-  if (vec->values[idx]) {
-    RSValue_Decref(vec->values[idx]);
-  }
-  switch (type) {
-    case RS_SORTABLE_NUM:
-      vec->values[idx] = RS_NumVal(*(double *)p);
+#define RSPUT_SANITY_CHECK \
+if (idx > vec->len) {\
+  return;\
+}\
+if (vec->values[idx]) {\
+  RSValue_Decref(vec->values[idx]);\
+}
 
-      break;
-    case RS_SORTABLE_STR: {
-      char *str = unf ? rm_strdup(p) : normalizeStr((const char *)p);
-      vec->values[idx] = RS_StringValT(str, strlen(str), RSString_RMAlloc);
-      break;
-    }
-    case RS_SORTABLE_RSVAL:
-      vec->values[idx] = (RSValue*)p;
-      break;
-    case RS_SORTABLE_NIL:
-    default:
-      vec->values[idx] = RS_NullVal();
-      break;
-  }
+void RSSortingVector_PutNum(RSSortingVector *vec, size_t idx, double num) {
+  RSPUT_SANITY_CHECK
+  vec->values[idx] = RS_NumVal(num);
+}
+
+void RSSortingVector_PutStr(RSSortingVector* vec, size_t idx, const char* str, bool is_normalized) {
+  RSPUT_SANITY_CHECK
+  char *param_str = is_normalized ? rm_strdup(str) : normalizeStr(str);
+  vec->values[idx] = RS_StringValT(param_str, strlen(param_str), RSString_RMAlloc);
+}
+
+void RSSortingVector_PutRSVal(RSSortingVector* vec, size_t idx, RSValue* val) {
+  RSPUT_SANITY_CHECK
+  vec->values[idx] = val;
 }
 
 /* Free a sorting vector */

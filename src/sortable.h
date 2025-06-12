@@ -38,8 +38,14 @@ typedef struct RSSortingVector {
 } RSSortingVector;
 #pragma pack()
 
-/* Put a value in the sorting vector */
-void RSSortingVector_Put(RSSortingVector *vec, int idx, const void *p, int type, int unf);
+/* Put a number in the sorting vector */
+void RSSortingVector_PutNum(RSSortingVector *vec, size_t idx, double num);
+
+/* Put a string in the sorting vector, set the flag is_normalized to false if string needs to be normalized */
+void RSSortingVector_PutStr(RSSortingVector* vec, size_t idx, const char* str, bool is_normalized);
+
+/* Put another RSValue instance in the sorting vector */
+void RSSortingVector_PutRSVal(RSSortingVector* vec, size_t idx, RSValue* val);
 
 /* Returns the value for a given index. Does not increment the refcount */
 static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t index) {
@@ -53,7 +59,7 @@ static inline size_t RSSortingVector_Length(const RSSortingVector* vec) {
 size_t RSSortingVector_GetMemorySize(RSSortingVector *v);
 
 /* Create a sorting vector of a given length for a document */
-RSSortingVector *NewSortingVector(int len);
+RSSortingVector *NewSortingVector(size_t len);
 
 /* Free a sorting vector */
 void SortingVector_Free(RSSortingVector *v);
