@@ -98,10 +98,6 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
 
-  if (TimedOut_WithCounter(&RP_SCTX(base)->timeout, &self->timeoutLimiter) == TIMED_OUT) {
-    return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
-  }
-
   if (RP_SCTX(base)->flags == RS_CTX_UNSET) {
     // If we need to read the iterators and we didn't lock the spec yet, lock it now
     // and reopen the keys in the concurrent search context (iterators' validation)
@@ -115,6 +111,10 @@ static int rpidxNext(ResultProcessor *base, SearchResult *res) {
 
   // Read from the root filter until we have a valid result
   while (1) {
+    // check for timeout in case we are encountering a lot of deleted documents
+    if (TimedOut_WithCounter(&RP_SCTX(base)->timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return UnlockSpec_and_ReturnRPResult(base, RS_RESULT_TIMEDOUT);
+    }
     rc = it->Read(it->ctx, &r);
     // This means we are done!
     switch (rc) {
