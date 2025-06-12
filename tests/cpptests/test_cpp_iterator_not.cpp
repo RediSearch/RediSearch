@@ -426,7 +426,7 @@ INSTANTIATE_TEST_SUITE_P(
         return ids;
       }()
     ),
-    ::testing::Values(false, true)
+    ::testing::Values(false)
   )
 );
 
@@ -486,77 +486,6 @@ INSTANTIATE_TEST_SUITE_P(
       std::vector<t_docId>{50, 60, 70, 80, 90, 100, 600, 750, 950, 1200}
     ),
     ::testing::Values(false)
-  )
-);
-
-class NotIteratorWildCardTimeoutTest : public NotIteratorCommonTest {
-  protected:
-  void TimeoutWildCardTestRead() {
-    if (!optimized) return;
-    NotIterator *ni = (NotIterator *)iterator_base;
-    if (ni->wcii) {
-      ni->wcii->Free(ni->wcii);
-      MockIterator *mock_wcii = new MockIterator(std::vector<t_docId>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
-      ni->wcii = (QueryIterator*)mock_wcii;
-    }
-    IteratorStatus rc = iterator_base->Read(iterator_base);
-    ASSERT_EQ(rc, ITERATOR_OK);
-
-    auto wcii = reinterpret_cast<MockIterator *>(ni->wcii);
-    wcii->whenDone = ITERATOR_TIMEOUT;
-    wcii->docIds.clear();
-    while (rc == ITERATOR_OK) {
-      rc = iterator_base->Read(iterator_base);
-    }
-    ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-  }
-
-  void TimeoutWildCardTestSkipTo() {
-    if (!optimized) return;
-    NotIterator *ni = (NotIterator *)iterator_base;
-    if (ni->wcii) {
-      ni->wcii->Free(ni->wcii);
-      MockIterator *mock_wcii = new MockIterator(std::vector<t_docId>{});
-      ni->wcii = (QueryIterator*)mock_wcii;
-      mock_wcii->whenDone = ITERATOR_TIMEOUT;
-      mock_wcii->docIds.clear();
-    }
-    t_docId next = 1;
-    IteratorStatus rc = ITERATOR_OK;
-    while (rc == ITERATOR_OK || rc == ITERATOR_NOTFOUND) {
-      rc = iterator_base->SkipTo(iterator_base, ++next);
-    }
-    ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-  }
-};
-
-TEST_P(NotIteratorWildCardTimeoutTest, TimeOutChildRead) {
-  TimeoutWildCardTestRead();
-}
-
-TEST_P(NotIteratorWildCardTimeoutTest, TimeOutWildCardSkipTo) {
-  TimeoutWildCardTestSkipTo();
-}
-
-INSTANTIATE_TEST_SUITE_P(
-  NotIteratorWildCardTimeoutP,
-  NotIteratorWildCardTimeoutTest,
-  ::testing::Combine(
-    ::testing::Values(
-      std::vector<t_docId>{2, 4, 6, 8, 10},
-      std::vector<t_docId>{5, 10, 15, 20, 25, 30},
-      std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
-      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
-      std::vector<t_docId>{1, 2, 3, 6, 10, 15},
-      std::vector<t_docId>{500, 600, 700, 800, 900, 1000}
-    ),
-    ::testing::Values(
-      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150, 1000, 2000},
-      std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15, 1000, 2000},
-      std::vector<t_docId>{3, 4, 9, 25, 1000, 2000},
-      std::vector<t_docId>{50, 60, 70, 80, 90, 100, 600, 750, 950, 1200}
-    ),
-    ::testing::Values(true)
   )
 );
 
@@ -650,7 +579,7 @@ INSTANTIATE_TEST_SUITE_P(
       std::vector<t_docId>{50, 60, 70, 80, 90, 100, 600, 750, 950, 1200},
       std::vector<t_docId>{}
     ),
-    ::testing::Values(false, true)
+    ::testing::Values(false)
   )
 );
 
