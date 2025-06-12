@@ -60,6 +60,7 @@ redis_mock = { path = "./redis_mock" }
 trie_rs = { path = "./trie_rs" }
 wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
+result_processor = { path = "./result_processor" }
 
 cbindgen = "0.28.0"
 cc = "1"
