@@ -54,7 +54,7 @@ public:
         std::this_thread::sleep_for(sleepTime.value());
       }
       readCount++;
-      if (nextIndex >= docIds.size() || base.atEOF || docIds.size() == 0) {
+      if (nextIndex >= docIds.size() || base.atEOF) {
         base.atEOF = true;
         return whenDone;
       }
@@ -104,6 +104,7 @@ public:
     MockIterator(Args&&... args)
       : docIds({std::forward<Args>(args)...}), whenDone(ITERATOR_EOF), nextIndex(0), readCount(0), sleepTime(std::nullopt) {
       setBase(&base);
+      std::sort(docIds.begin(), docIds.end());
       auto new_end = std::unique(docIds.begin(), docIds.end());
       docIds.erase(new_end, docIds.end());
     }
@@ -112,6 +113,7 @@ public:
     MockIterator(std::chrono::milliseconds sleep, Args&&... args)
       : docIds({std::forward<Args>(args)...}), whenDone(ITERATOR_EOF), nextIndex(0), readCount(0), sleepTime(sleep) {
       setBase(&base);
+      std::sort(docIds.begin(), docIds.end());
       auto new_end = std::unique(docIds.begin(), docIds.end());
       docIds.erase(new_end, docIds.end());
     }
@@ -120,6 +122,7 @@ public:
     MockIterator(IteratorStatus st, std::optional<std::chrono::milliseconds> sleep, Args&&... ids_args)
       : docIds({ids_args...}), whenDone(st), nextIndex(0), readCount(0), sleepTime(sleep) {
       setBase(&base);
+      std::sort(docIds.begin(), docIds.end());
       auto new_end = std::unique(docIds.begin(), docIds.end());
       docIds.erase(new_end, docIds.end());
     }

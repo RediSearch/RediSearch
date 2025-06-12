@@ -34,7 +34,7 @@ static void NI_Free(QueryIterator *base) {
 
 static size_t NI_NumEstimated(QueryIterator *base) {
   NotIterator *ni = (NotIterator *)base;
-  return ni->maxDocId;
+  return ni->wcii ? ni->wcii->NumEstimated(ni->wcii) : ni->maxDocId;
 }
 
 /* Read from a NOT iterator - Non-Optimized version. This is applicable only if
