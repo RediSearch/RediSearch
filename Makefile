@@ -132,7 +132,6 @@ make docker        # build for specified platform
 make box           # create container with volumen mapping into /search
   OSNICK=nick        # platform spec
 make sanbox        # create container with CLang Sanitizer
-make benchmarks    # run benchmarks and microbenchmarks
 
 endef
 
@@ -699,23 +698,3 @@ sanbox:
 	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE --security-opt seccomp=unconfined $(SANBOX_ARGS) redisfab/clang:16-$(ARCH)-bullseye bash
 
 .PHONY: box sanbox
-
-UPDATED_BINDIR:=$(subst arm64v8,aarch64,$(BINDIR))
-
-micro-benchmarks:
-		@printf "\n-------------- Running micro benchmarks ------------------\n"
-		@if [ -d "$(UPDATED_BINDIR)/micro-benchmarks" ]; then \
-				cd $(UPDATED_BINDIR)/micro-benchmarks && \
-				for benchmark in benchmark_*; do \
-						if [ -x "$$benchmark" ]; then \
-								 benchmark_name=$$(basename $$benchmark | sed 's/^benchmark_//'); \
-								echo "Running benchmark_$$benchmark_name..."; \
-								./$$benchmark --benchmark_out_format=json --benchmark_out=$$benchmark_name\_results.json || exit 255; \
-						fi; \
-				done; \
-		else \
-				echo "micro-benchmarks directory not found at $(UPDATED_BINDIR)/micro-benchmarks"; \
-				exit 1; \
-		fi
-
-.PHONY: micro-benchmarks

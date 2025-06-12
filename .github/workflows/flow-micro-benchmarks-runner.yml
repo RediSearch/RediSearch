@@ -19,7 +19,8 @@ env:
       {"Key": "Run ID",       "Value": "${{ github.run_id }}"},
       {"Key": "PR",           "Value": "${{ github.event.number }}"},
       {"Key": "Owner",        "Value": "${{ github.actor }}"},
-      {"Key": "Project",      "Value": "${{ github.repository }}"}
+      {"Key": "Project",      "Value": "${{ github.repository }}"},
+      {"Key": "Context",      "Value": "micro-benchmarks"}
     ]
 
 jobs:
@@ -115,23 +116,13 @@ jobs:
           BINDIR="bin/${FULL_VARIANT}/${OUTDIR}"
 
           # Update the binary directory path for ARM architectures
-          UPDATED_BINDIR=$(echo "$BINDIR" | sed 's/arm64v8/aarch64/')
-
-          echo "Looking for benchmark results in $UPDATED_BINDIR/micro-benchmarks"
+          echo "Looking for benchmark results in $BINDIR/micro-benchmarks"
 
           # Find all JSON result files
-          JSON_FILES=$(find $UPDATED_BINDIR/micro-benchmarks -name "*_results.json")
+          JSON_FILES=$(find $BINDIR/micro-benchmarks -name "*_results.json")
 
           if [ -z "$JSON_FILES" ]; then
-            echo "No benchmark result files found in $UPDATED_BINDIR/micro-benchmarks"
-            exit 1
-          fi
-
-          # Find all JSON result files
-          JSON_FILES=$(find $BINDIR -name "*_results.json")
-
-          if [ -z "$JSON_FILES" ]; then
-            echo "No benchmark result files found in $BINDIR"
+            echo "No benchmark result files found in $BINDIR/micro-benchmarks"
             exit 1
           fi
 

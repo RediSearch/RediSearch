@@ -1,3 +1,5 @@
+name: Run a Micro Benchmark Flow
+
 on:
   workflow_call:
     inputs:
@@ -12,7 +14,7 @@ on:
           type: choice
           options:
             - all
-            - arm64
+            - aarch64
             - x86_64
           description: 'Run only on specific architecture'
           default: 'all'
@@ -31,7 +33,7 @@ jobs:
           {
             "include": [
               {
-                "architecture": "arm64",
+                "architecture": "aarch64",
                 "instance-type": "i8g.xlarge",
                 "ami-id": "ami-0d6c92b636b74f843"
               },
@@ -97,4 +99,5 @@ jobs:
           --github_org ${{ github.repository_owner }} \
           --triggering_env redisearch-micro-benchmarks \
           --metric_name cpu_time \
-          --metric_mode 'lower-better'
+          --metric_mode 'lower-better' \
+          --grafana_uid fauA6yR4k

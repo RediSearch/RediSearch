@@ -654,27 +654,18 @@ run_micro_benchmarks() {
   fi
 
   echo "Running micro-benchmarks..."
-
-  # Update the binary directory path for ARM architectures
-  UPDATED_BINDIR=$(echo "$BINDIR" | sed 's/arm64v8/aarch64/')
-
   # Check if micro-benchmarks directory exists
-  MICRO_BENCH_DIR="$UPDATED_BINDIR/micro-benchmarks"
-  if [[ ! -d "$MICRO_BENCH_DIR" ]]; then
-    echo "Error: Micro-benchmarks directory not found at $MICRO_BENCH_DIR"
-    echo "Make sure to build with BUILD_TESTS=1"
-    HAS_FAILURES=1
-    return 1
-  fi
+  MICRO_BENCH_DIR="$BINDIR/micro-benchmarks"
 
   # Run each benchmark executable
   echo "Running benchmarks from $MICRO_BENCH_DIR"
-  cd "$MICRO_BENCH_DIR" || return 1
+  cd "$MICRO_BENCH_DIR"
 
   for benchmark in benchmark_*; do
     if [[ -x "$benchmark" ]]; then
-      benchmark_name=$(basename "$benchmark" | sed 's/^benchmark_//')
-      echo "Running benchmark_$benchmark_name..."
+      benchmark_name=${benchmark#benchmark_}
+
+      echo "Running $benchmark..."
       ./"$benchmark" --benchmark_out_format=json --benchmark_out="${benchmark_name}_results.json" || HAS_FAILURES=1
     fi
   done
