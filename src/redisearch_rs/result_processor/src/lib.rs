@@ -221,8 +221,8 @@ struct Header {
     /// "VTable" function. Frees the processor and any internal data related to it.
     free: Option<unsafe extern "C" fn(self_: *mut Header)>,
     /// ResultProcessor *must* be !Unpin to ensure they can never be moved, and they never receive
-    /// LLVM `noalias` annotations; See <https:///github.com/rust-lang/rust/issues/63818>.
-    /// FIXME: Remove once <https:///github.com/rust-lang/rust/issues/63818> is closed and replace with the recommended fix.
+    /// LLVM `noalias` annotations; See <https://github.com/rust-lang/rust/issues/63818>.
+    /// FIXME: Remove once <https://github.com/rust-lang/rust/issues/63818> is closed and replace with the recommended fix.
     _unpin: PhantomPinned,
 }
 
