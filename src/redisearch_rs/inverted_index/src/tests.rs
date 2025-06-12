@@ -17,6 +17,12 @@ fn numeric_tiny_int() {
             2,
             vec![0b111_00_001, 0b0000_0010],
         ),
+        (
+            crate::Delta(256),
+            RSIndexResult::numeric(0.0),
+            3,
+            vec![0b000_00_010, 0b0000_0000, 0b0000_0001],
+        ),
     ];
 
     for input in inputs {
