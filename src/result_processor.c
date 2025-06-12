@@ -75,9 +75,11 @@ typedef struct {
 static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
+  // No root filter - the query has 0 results
   if (self->iiter == NULL) {
     return RS_RESULT_EOF;
   }
+  
   RSIndexResult *r;
   RSDocumentMetadata *dmd;
   int rc;
