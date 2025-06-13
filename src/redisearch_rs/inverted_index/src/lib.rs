@@ -340,7 +340,7 @@ impl Encoder for Numeric {
     ) -> std::io::Result<usize> {
         let delta = delta.pack();
 
-        let mut bytes_written = match record.result_type {
+        let bytes_written = match record.result_type {
             RSResultType::Union => todo!(),
             RSResultType::Intersection => todo!(),
             RSResultType::Term => todo!(),
@@ -357,7 +357,7 @@ impl Encoder for Numeric {
 
                         writer.write(&[header.pack()])? + writer.write(&delta)?
                     }
-                    F64Value::Int(i) => {
+                    F64Value::PosInt(i) => {
                         let bytes = i.to_le_bytes();
                         let end = bytes.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
 
@@ -366,6 +366,21 @@ impl Encoder for Numeric {
                         let header = Header {
                             delta_bytes: delta.len() as _,
                             typ: HeaderType::PositiveInteger((end - 1) as _),
+                        };
+
+                        writer.write(&[header.pack()])?
+                            + writer.write(&delta)?
+                            + writer.write(bytes)?
+                    }
+                    F64Value::NegInt(i) => {
+                        let bytes = i.to_le_bytes();
+                        let end = bytes.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
+
+                        let bytes = &bytes[..end];
+
+                        let header = Header {
+                            delta_bytes: delta.len() as _,
+                            typ: HeaderType::NegativeInteger((end - 1) as _),
                         };
 
                         writer.write(&[header.pack()])?
@@ -411,6 +426,17 @@ impl Decoder for Numeric {
 
                 num as _
             }
+            HeaderType::NegativeInteger(len) => {
+                let mut bytes = vec![0; (len + 1) as usize];
+                let _bytes_read = reader.read(&mut bytes)?;
+                let mut num = 0;
+
+                for (i, byte) in bytes.iter().enumerate() {
+                    num |= (*byte as u64) << (8 * i);
+                }
+
+                (num as f64) * -1.0
+            }
         };
         let record = RSIndexResult::numeric(doc_id, num);
 
@@ -420,17 +446,22 @@ impl Decoder for Numeric {
 
 enum F64Value {
     Tiny(u8),
-    Int(u64),
+    PosInt(u64),
+    NegInt(u64),
 }
 
 fn get_f64_value(f: f64) -> F64Value {
     if f.fract() == 0.0 {
-        let i = f as u64;
+        if f >= 0.0 {
+            let i = f as u64;
 
-        if i <= 0b111 {
-            F64Value::Tiny(i as u8)
+            if i <= 0b111 {
+                F64Value::Tiny(i as u8)
+            } else {
+                F64Value::PosInt(i)
+            }
         } else {
-            F64Value::Int(i)
+            F64Value::NegInt((f * -1.0) as _)
         }
     } else {
         todo!()
@@ -440,6 +471,7 @@ fn get_f64_value(f: f64) -> F64Value {
 enum HeaderType {
     Tiny(u8),
     PositiveInteger(u8),
+    NegativeInteger(u8),
 }
 
 struct Header {
@@ -450,6 +482,7 @@ struct Header {
 impl Header {
     const TINY_TYPE: u8 = 0b00;
     const POS_INT_TYPE: u8 = 0b10;
+    const NEG_INT_TYPE: u8 = 0b11;
 
     fn pack(self) -> u8 {
         let mut packed = 0;
@@ -462,6 +495,10 @@ impl Header {
             }
             HeaderType::PositiveInteger(b) => {
                 packed |= Self::POS_INT_TYPE << 3; // 2 bits for type
+                packed |= (b & 0b111) << 5; // 3 bits for value bytes
+            }
+            HeaderType::NegativeInteger(b) => {
+                packed |= Self::NEG_INT_TYPE << 3; // 2 bits for type
                 packed |= (b & 0b111) << 5; // 3 bits for value bytes
             }
         }
@@ -483,6 +520,12 @@ impl Header {
                 Self {
                     delta_bytes,
                     typ: HeaderType::PositiveInteger(data >> 5 & 0b111), // 3 bits for the value bytes
+                }
+            }
+            Self::NEG_INT_TYPE => {
+                Self {
+                    delta_bytes,
+                    typ: HeaderType::NegativeInteger(data >> 5 & 0b111), // 3 bits for the value bytes
                 }
             }
             _ => todo!(),
