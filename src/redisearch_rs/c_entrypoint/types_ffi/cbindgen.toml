@@ -8,11 +8,16 @@ after_includes = """
  * Forward declaration of RSQueryTerm. It will be defined in `redisearch.h`
  */
 typedef struct RSQueryTerm RSQueryTerm;
+
+/**
+ * Forward declaration of RSIndexResult. It will be defined in `redisearch.h`
+ */
+typedef struct RSIndexResult RSIndexResult;
 """
 
 [parse]
 parse_deps = true
-include = ["inverted_index"]
+include = ["enumflags2", "inverted_index"]
 
 [export]
-include = ["RSNumericRecord", "RSTermRecord"]
+include = ["RSAggregateResult", "RSNumericRecord", "RSResultType", "RSTermRecord"]
