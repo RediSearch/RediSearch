@@ -41,7 +41,7 @@ void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, voi
 
 void IORuntimeCtx_Push_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo);
 void IORuntimeCtx__Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx);
-const uv_loop_t* IORuntimeCtx_GetLoop(const IORuntimeCtx *io_runtime_ctx);
+uv_loop_t* IORuntimeCtx_GetLoop(IORuntimeCtx *io_runtime_ctx);
 int IORuntimeCtx_ConnectAll(IORuntimeCtx *ioRuntime);
 void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime, struct MRClusterTopology *topo);
 /* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the

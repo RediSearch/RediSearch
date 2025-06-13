@@ -147,7 +147,7 @@ void IORuntimeCtx__Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx) {
   }
 }
 
-const uv_loop_t* IORuntimeCtx_GetLoop(const IORuntimeCtx *io_runtime_ctx) {
+uv_loop_t* IORuntimeCtx_GetLoop(IORuntimeCtx *io_runtime_ctx) {
   return &io_runtime_ctx->loop;
 }
 
