@@ -12,10 +12,12 @@
 #include "conn.h"
 #include "cluster.h"
 #include <rmutil/rm_assert.h>  // Include the assertion header
-//TODO(Joan): Check where to put the MRCluster_TOpology thingy
-#include "rmr.h"
-//TODO(Joan): Check
 #include "../config.h"
+
+typedef struct TopologyValidationTimerCBData {
+  IORuntimeCtx *io_runtime_ctx;
+  struct MRClusterTopology *topo;
+} TopologyValidationTimerCBData;
 
 // Atomically exchange the pending topology with a new topology.
 // Returns the old pending topology (or NULL if there was no pending topology).
@@ -48,10 +50,28 @@ static void topologyFailureCB(uv_timer_t *timer) {
   io_runtime_ctx->loop_th_ready = true;
   triggerPendingQueues(io_runtime_ctx);
 }
+static int CheckTopologyConnections(MRClusterTopology *topo,
+                                    IORuntimeCtx *ioRuntime,
+                                    bool mastersOnly) {
+  for (size_t i = 0; i < topo->numShards; i++) {
+    MRClusterShard *sh = &topo->shards[i];
+    for (size_t j = 0; j < sh->numNodes; j++) {
+      if (mastersOnly && !(sh->nodes[j].flags & MRNode_Master)) {
+        continue;
+      }
+      if (!MRConn_Get(ioRuntime->conn_mgr, sh->nodes[j].id)) {
+        return REDIS_ERR;
+      }
+    }
+  }
+  return REDIS_OK;
+}
 
 static void topologyTimerCB(uv_timer_t *timer) {
-  IORuntimeCtx *io_runtime_ctx = (IORuntimeCtx *)timer->data;
- if (MR_CheckTopologyConnections(true) == REDIS_OK) {
+  TopologyValidationTimerCBData *cbData = (TopologyValidationTimerCBData *)timer->data;
+  IORuntimeCtx *io_runtime_ctx = cbData->io_runtime_ctx;
+  MRClusterTopology *topo = cbData->topo;
+ if (CheckTopologyConnections(topo, io_runtime_ctx, true) == REDIS_OK) {
     // We are connected to all master nodes. We can mark the event loop thread as ready
     io_runtime_ctx->loop_th_ready = true;
     RedisModule_Log(RSDummyContext, "verbose", "Runtime ID %zu: All nodes connected", io_runtime_ctx->queue->id);
@@ -206,14 +226,16 @@ void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime, struct MRClusterTopology 
 
 /* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the
  * provider's current context is used. Otherwise, we call its function with the given context */
+
 //TOODO(Joan): Review this code, Should make sure about thread safety
 int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime, struct MRClusterTopology *topo) {
   IORuntimeCtx_UpdateNodes(ioRuntime, topo);
   IORuntimeCtx_ConnectAll(ioRuntime);
+  ((TopologyValidationTimerCBData *)ioRuntime->topologyValidationTimer.data)->topo = topo;
   return REDIS_OK;
 }
 
-IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, size_t id) {
+IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClusterTopology* topo, size_t id) {
   IORuntimeCtx *io_runtime_ctx = rm_malloc(sizeof(IORuntimeCtx));
   io_runtime_ctx->conn_mgr = MRConnManager_New(num_connections_per_shard);
   io_runtime_ctx->queue = RQ_New(io_runtime_ctx->conn_mgr->nodeConns * PENDING_FACTOR, id);
@@ -222,7 +244,10 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, size_t id) {
   io_runtime_ctx->async.data = io_runtime_ctx;
   io_runtime_ctx->topologyAsync.data = io_runtime_ctx;
   io_runtime_ctx->topologyFailureTimer.data = io_runtime_ctx;
-  io_runtime_ctx->topologyValidationTimer.data = io_runtime_ctx;
+  TopologyValidationTimerCBData *cbData = rm_malloc(sizeof(TopologyValidationTimerCBData));
+  cbData->io_runtime_ctx = io_runtime_ctx;
+  cbData->topo = topo;
+  io_runtime_ctx->topologyValidationTimer.data = cbData;
   io_runtime_ctx->pendingTopo = NULL;
   return io_runtime_ctx;
 }
@@ -232,6 +257,9 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
   MRConnManager_Free(io_runtime_ctx->conn_mgr);
   uv_close((uv_handle_t *)&io_runtime_ctx->async, NULL);
   uv_close((uv_handle_t *)&io_runtime_ctx->topologyAsync, NULL);
+  if (io_runtime_ctx->topologyValidationTimer.data) {
+    rm_free(io_runtime_ctx->topologyValidationTimer.data);
+  }
   uv_close((uv_handle_t *)&io_runtime_ctx->topologyValidationTimer, NULL);
   uv_close((uv_handle_t *)&io_runtime_ctx->topologyFailureTimer, NULL);
   uv_loop_close(&io_runtime_ctx->loop);

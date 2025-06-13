@@ -72,8 +72,6 @@ typedef struct {
   MRClusterTopology *topo;
 } MRCluster;
 
-int MRCluster_CheckConnections(MRClusterTopology *topo, IORuntimeCtx *ioRuntime, bool mastersOnly);
-
 /* Multiplex a non-sharding command to all coordinators, using a specific coordination strategy. The
  * return value is the number of nodes we managed to successfully send the command to */
 int MRCluster_FanoutCommand(MRClusterTopology *topo, IORuntimeCtx *ioRuntime, bool mastersOnly, MRCommand *cmd, redisCallbackFn *fn,

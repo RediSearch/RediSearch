@@ -199,12 +199,6 @@ void MR_Init(size_t num_io_threads, size_t num_connections_per_shard, long long 
   timeout_g = timeoutMS;
 }
 
-int MR_CheckTopologyConnections(bool mastersOnly) {
-  //TODO(Joan): Do not assume this is called from the control plane runtime
-  IORuntimeCtx *ioRuntime = IORuntimePool_GetCtx(cluster_g, 0); // Use control plane runtime
-  return MRCluster_CheckConnections(cluster_g->topo, ioRuntime, mastersOnly);
-}
-
 bool MR_CurrentTopologyExists() {
   return cluster_g->topo != NULL;
 }
@@ -277,6 +271,7 @@ static void uvUpdateTopologyRequest(void *p) {
   rm_free(ctx);
 }
 
+//TODO(Joan): Should we add some thread safety?
 /* Set a new topology for the cluster */
 void MR_UpdateTopology(MRClusterTopology *newTopo) {
   // enqueue a request on the io thread, this can't be done from the main thread

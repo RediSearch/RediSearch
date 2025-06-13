@@ -38,9 +38,6 @@ void MR_UpdateTopology(MRClusterTopology *newTopology);
 /* Get the current cluster topology */
 bool MR_CurrentTopologyExists();
 
-/* Get the current cluster topology connectivity status */
-int MR_CheckTopologyConnections(bool mastersOnly);
-
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
 
 void MR_GetConnectionPoolState(RedisModuleCtx *ctx);

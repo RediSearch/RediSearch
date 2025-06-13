@@ -38,7 +38,7 @@ typedef struct {
   arrayof(uv_async_t *) pendingQueues;
 } IORuntimeCtx;
 
-IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, size_t id);
+IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClusterTopology *topo, size_t id);
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx);
 
 void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);

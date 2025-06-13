@@ -21,8 +21,6 @@
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 
-#include "io_runtime_ctx.h"
-
 typedef struct MRConn{
   MREndpoint ep;
   redisAsyncContext *conn;
@@ -101,7 +99,6 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
 }
 
 static void MRConnPool_Free(void *privdata, void *p) {
-  //TODO: Joan this is a callback how to pass IORuntime
   uv_loop_t *loop = (uv_loop_t *)privdata;
   MRConnPool *pool = p;
   if (!pool) return;
