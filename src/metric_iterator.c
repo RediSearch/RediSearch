@@ -55,7 +55,7 @@ static int MR_Read(void *ctx, RSIndexResult **hit) {
   // Set the item that we read in the current RSIndexResult
   *hit = mr->base.current;
   (*hit)->docId = mr->lastDocId = mr->idsList[mr->curIndex];
-  (*hit)->num.value = mr->metricList[mr->curIndex];
+  (*hit)->data.num.value = mr->metricList[mr->curIndex];
 
   // Advance the current index in the doc ids array, so it will point to the next id to be returned.
   // If we reached the total number of results, iterator is depleted.
@@ -85,7 +85,7 @@ static int MR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
   // Set the item that we skipped to it in hit.
   *hit = mr->base.current;
   (*hit)->docId = mr->lastDocId = cur_id;
-  (*hit)->num.value = mr->metricList[mr->curIndex];
+  (*hit)->data.num.value = mr->metricList[mr->curIndex];
   mr->curIndex++;
   if (mr->curIndex == mr->resultsNum) {
     IITER_SET_EOF(&mr->base);
@@ -96,7 +96,7 @@ static int MR_SkipTo(void *ctx, t_docId docId, RSIndexResult **hit) {
 static void SetYield(void *ctx, RSIndexResult **hit) {
   MetricIterator *mr = ctx;
   ResultMetrics_Reset(*hit);
-  ResultMetrics_Add(*hit, mr->base.ownKey, RS_NumVal((*hit)->num.value));
+  ResultMetrics_Add(*hit, mr->base.ownKey, RS_NumVal((*hit)->data.num.value));
 }
 
 static int MR_Read_With_Yield(void *ctx, RSIndexResult **hit) {

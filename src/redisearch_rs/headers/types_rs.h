@@ -7,14 +7,13 @@
 #include <stdint.h>
 #include <stdlib.h>
 /**
- * Forward declaration of RSQueryTerm. It will be defined in `redisearch.h`
+ * Forward declarations which will be defined in `redisearch.h`
  */
 typedef struct RSQueryTerm RSQueryTerm;
-
-/**
- * Forward declaration of RSIndexResult. It will be defined in `redisearch.h`
- */
-typedef struct RSIndexResult RSIndexResult;
+typedef struct RSDocumentMetadata_s RSDocumentMetadata;
+typedef struct RSYieldableMetric RSYieldableMetric;
+typedef uint64_t t_docId;
+typedef __uint128_t t_fieldMask;
 
 
 enum RSResultType
@@ -166,19 +165,12 @@ typedef struct RSAggregateResult {
   /**
    * An array of records
    */
-  RSIndexResult **children;
+  struct RSIndexResult **children;
   /**
    * A map of the aggregate type of the underlying records
    */
   RSResultTypeMask typeMask;
 } RSAggregateResult;
-
-/**
- * Represents a numeric value in an index record.
- */
-typedef struct RSNumericRecord {
-  double value;
-} RSNumericRecord;
 
 /**
  * Represents the encoded offsets of a term in a document. You can read the offsets by iterating
@@ -202,3 +194,64 @@ typedef struct RSTermRecord {
    */
   struct RSOffsetVector offsets;
 } RSTermRecord;
+
+/**
+ * Represents a numeric value in an index record.
+ */
+typedef struct RSNumericRecord {
+  double value;
+} RSNumericRecord;
+
+/**
+ * Holds the actual data of an ['IndexResult']
+ */
+typedef union RSIndexResultData {
+  struct RSAggregateResult agg;
+  struct RSTermRecord term;
+  struct RSNumericRecord num;
+} RSIndexResultData;
+
+/**
+ * The result of an inverted index
+ */
+typedef struct RSIndexResult {
+  /**
+   * The document ID of the result
+   */
+  t_docId docId;
+  /**
+   * Some metadata about the result document
+   */
+  const RSDocumentMetadata *dmd;
+  /**
+   * The aggregate field mask of all the records in this result
+   */
+  t_fieldMask fieldMask;
+  /**
+   * The total frequency of all the records in this result
+   */
+  uint32_t freq;
+  /**
+   * For term records only. This is used as an optimization, allowing the result to be loaded
+   * directly into memory
+   */
+  uint32_t offsetsSz;
+  union RSIndexResultData data;
+  /**
+   * The type of data stored at ['Self::data']
+   */
+  RSResultType type;
+  /**
+   * We mark copied results so we can treat them a bit differently on deletion, and pool them if
+   * we want
+   */
+  bool isCopy;
+  /**
+   * Holds an array of metrics yielded by the different iterators in the AST
+   */
+  RSYieldableMetric *metrics;
+  /**
+   * Relative weight for scoring calculations. This is derived from the result's iterator weight
+   */
+  double weight;
+} RSIndexResult;

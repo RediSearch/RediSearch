@@ -289,10 +289,10 @@ size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder enc
                        .freq = ent->freq,
                        .fieldMask = ent->fieldMask};
 
-  rec.term.term = NULL;
+  rec.data.term.term = NULL;
   if (ent->vw) {
-    rec.term.offsets.data = VVW_GetByteData(ent->vw);
-    rec.term.offsets.len = VVW_GetByteLength(ent->vw);
+    rec.data.term.offsets.data = VVW_GetByteData(ent->vw);
+    rec.data.term.offsets.len = VVW_GetByteLength(ent->vw);
   }
   return InvertedIndex_WriteEntryGeneric(idx, encoder, ent->docId, &rec);
 }
