@@ -7,22 +7,111 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ops::{Index, IndexMut};
+use std::ops::{Deref, Index, IndexMut};
 
-use ffi::RSValue;
 use libc::c_char;
+
+/// A new-type for RSValue that ensures that the reference count is managed correctly.
+pub struct RSValue(*mut ffi::RSValue);
+
+impl RSValue {
+    pub fn as_num(&self) -> Option<f64> {
+        if self.is_number() {
+            // Safety: We are accessing the num field of an RSValue, which is safe as long as the type matches.
+            Some(unsafe { (*self.0).__bindgen_anon_1.numval })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_string(&self) -> Option<String> {
+        if self.is_string() {
+            // Safety: Access to strval is safe as the type is string (checked above)
+            let str_ptr = unsafe { (*self.0).__bindgen_anon_1.strval.str_ };
+            // Safety: We can safely convert a C string to a Rust string.
+            Some(unsafe {
+                std::ffi::CStr::from_ptr(str_ptr)
+                    .to_string_lossy()
+                    .into_owned()
+            })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_ref(&self) -> Option<RSValue> {
+        if self.is_reference() {
+            // Safety: We are accessing the ref_ field of an RSValue, which is safe as long as the type matches.
+            let ref_ptr = unsafe { (*self.0).__bindgen_anon_1.ref_ };
+            Some(RSValue(ref_ptr))
+        } else {
+            None
+        }
+    }
+
+    pub fn is_null(&self) -> bool {
+        // Safety: We are checking if the RSValue is null, which is safe as the pointer is valid.
+        unsafe { ffi::RSValue_IsNull(self.0) == 1 }
+    }
+
+    pub fn is_number(&self) -> bool {
+        // Safety: Inner pointer is valid as long as the RSValue is living
+        let value = unsafe { &*self.0 };
+        value.t() == ffi::RSValueType_RSValue_Number
+    }
+
+    pub fn is_string(&self) -> bool {
+        // Safety: Inner pointer is valid as long as the RSValue is living
+        let value = unsafe { &*self.0 };
+        value.t() == ffi::RSValueType_RSValue_String
+    }
+
+    pub fn is_reference(&self) -> bool {
+        // Safety: Inner pointer is valid as long as the RSValue is living
+        let value = unsafe { &*self.0 };
+        value.t() == ffi::RSValueType_RSValue_Reference
+    }
+
+    pub fn value_type(&self) -> ffi::RSValueType {
+        // Safety: We are accessing the type of an RSValue, which is safe as long as the pointer is valid.
+        unsafe { (*self.0).t() }
+    }
+}
+
+impl Clone for RSValue {
+    fn clone(&self) -> Self {
+        // Safety: We are cloning a pointer to an RSValue, which is safe as long as we increment the refcount.
+        unsafe { ffi::RSValue_IncrRef(self.0) };
+        RSValue(self.0)
+    }
+}
+
+impl Drop for RSValue {
+    fn drop(&mut self) {
+        // Safety: We are decrementing the refcount of an RSValue, which is safe as long as we don't use it after this.
+        unsafe { ffi::RSValue_Decref(self.0) };
+    }
+}
+
+impl Deref for RSValue {
+    type Target = ffi::RSValue;
+
+    fn deref(&self) -> &Self::Target {
+        // Safety: We are dereferencing a pointer to an RSValue, which is safe as long as the pointer is valid.
+        unsafe { &*self.0 }
+    }
+}
 
 /// A [`RSSortingVector`] is a vector of [`RSValue`] pointers.
 pub struct RSSortingVector {
-    values: Box<[*mut ffi::RSValue]>,
+    values: Box<[RSValue]>,
 }
 
 impl RSSortingVector {
     pub fn new(len: usize) -> Self {
         Self {
-            // Safety: The C side is responsible for allocating the memory for the RSValue instances,
-            // and we initialize them with null values of the C side.
-            values: vec![unsafe { ffi::RS_NullVal() }; len].into_boxed_slice(),
+            // Safety: We are creating a new RSSortingVector with a given length, all values are initialized to null and allocated by C.
+            values: vec![RSValue(unsafe { ffi::RS_NullVal() }); len].into_boxed_slice(),
         }
     }
 
@@ -31,31 +120,27 @@ impl RSSortingVector {
     ///
     /// Safety:
     /// If the function returns `true`, the caller must ensure that the RSValue at the index is replaced with a new value.
-    fn check_and_cleanup(&self, idx: usize) -> bool {
+    fn check(&self, idx: usize) -> bool {
         if idx >= self.values.len() {
             return false;
         }
 
-        let value = self.values[idx];
-        // Safety: We have a valid pointer to an RSValue, we can safely decrement the refcount.
-        // We need to ensure that the value will get replaced after calling this.
-        unsafe { ffi::RSValue_Decref(value) };
         true
     }
 
     /// Set a number (double) at the given index
     pub fn put_num(&mut self, idx: usize, num: f64) {
-        if !self.check_and_cleanup(idx) {
+        if !self.check(idx) {
             return;
         }
 
         // Safety: We are creating a new RSValue with a number, we need to ensure that
         // We ensure the previous value is decremented in `check_and_cleanup`.
-        self.values[idx] = unsafe { ffi::RS_NumVal(num) };
+        self.values[idx] = unsafe { RSValue(ffi::RS_NumVal(num)) };
     }
 
     pub fn put_string(&mut self, idx: usize, str: &str) {
-        if self.check_and_cleanup(idx) {
+        if self.check(idx) {
             return;
         }
 
@@ -63,11 +148,12 @@ impl RSSortingVector {
 
         // Safety: We are creating a new RSValue with a number, we need to ensure that
         // We ensure the previous value is decremented in `check_and_cleanup`.
-        self.values[idx] = unsafe { ffi::RS_StringVal(ptr as *mut std::ffi::c_char, len as u32) };
+        self.values[idx] =
+            unsafe { RSValue(ffi::RS_StringVal(ptr as *mut std::ffi::c_char, len as u32)) };
     }
 
     pub fn put_string_and_normalize(&mut self, idx: usize, str: &str) {
-        if !self.check_and_cleanup(idx) {
+        if !self.check(idx) {
             return;
         }
 
@@ -77,11 +163,12 @@ impl RSSortingVector {
 
         // Safety: We are creating a new RSValue with a number, we need to ensure that
         // We ensure the previous value is decremented in `check_and_cleanup`.
-        self.values[idx] = unsafe { ffi::RS_StringVal(ptr as *mut std::ffi::c_char, len as u32) };
+        self.values[idx] =
+            unsafe { RSValue(ffi::RS_StringVal(ptr as *mut std::ffi::c_char, len as u32)) };
     }
 
-    pub fn put_val(&mut self, idx: usize, value: *mut ffi::RSValue) {
-        if self.check_and_cleanup(idx) {
+    pub fn put_val(&mut self, idx: usize, value: RSValue) {
+        if self.check(idx) {
             return;
         }
 
@@ -89,13 +176,13 @@ impl RSSortingVector {
     }
 
     pub fn put_null(&mut self, idx: usize) {
-        if !self.check_and_cleanup(idx) {
+        if !self.check(idx) {
             return;
         }
 
         // Safety: We are creating a new RSValue with a null value, we need to ensure that
         // We ensure the previous value is decremented in `check_and_cleanup`.
-        self.values[idx] = unsafe { ffi::RS_NullVal() };
+        self.values[idx] = unsafe { RSValue(ffi::RS_NullVal()) };
     }
 
     pub fn len(&self) -> usize {
@@ -112,14 +199,14 @@ impl RSSortingVector {
 
         for idx in 0..self.values.len() {
             // Safety: The c-side is using a global pointer to identify the RSValue that is null.
-            if unsafe { ffi::RSValue_IsNull(self.values[idx]) } == 1 {
+            if unsafe { ffi::RSValue_IsNull(self.values[idx].0) } == 1 {
                 continue;
             }
 
             // Each RSValue has a refcount and a value, so we add the size of those
             sz += std::mem::size_of::<ffi::RSValue>();
 
-            let value = walk_down_rsvalue_ref_chain(self.values[idx]);
+            let value = walk_down_rsvalue_ref_chain(self.values[idx].0);
 
             // Safety: During creation in ['RSSortingVector::new'], we ensure that all values are valid pointers.
             let value = unsafe { &*value };
@@ -177,15 +264,14 @@ fn walk_down_rsvalue_ref_chain(origin: *mut ffi::RSValue) -> *mut RSValue {
         // Safety: We can safely dereference `tmp` because it is a valid pointer to an `RSValue`.
         origin = unsafe { &*tmp };
     }
-    origin as *const RSValue as *mut RSValue
+    origin as *const ffi::RSValue as *mut RSValue
 }
 
 impl<I> Index<I> for RSSortingVector
 where
-    I: std::slice::SliceIndex<[*mut ffi::RSValue]>,
+    I: std::slice::SliceIndex<[RSValue]>,
 {
-    type Output = <[*mut ffi::RSValue] as std::ops::Index<I>>::Output;
-
+    type Output = <I as std::slice::SliceIndex<[RSValue]>>::Output;
     fn index(&self, index: I) -> &Self::Output {
         self.values.index(index)
     }
@@ -193,7 +279,7 @@ where
 
 impl<I> IndexMut<I> for RSSortingVector
 where
-    I: std::slice::SliceIndex<[*mut ffi::RSValue]>,
+    I: std::slice::SliceIndex<[RSValue]>,
 {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         self.values.index_mut(index)
@@ -243,7 +329,7 @@ mod c_layer {
             return std::ptr::null_mut();
         }
 
-        vec.values[idx]
+        vec.values[idx].0
     }
 
     /// Returns the length of the sorting vector.
@@ -308,7 +394,7 @@ mod c_layer {
         // Safety: Caller must ensure 1. --> Deref is safe
         let vec = unsafe { vec.as_mut() };
         // ffi-side impl ensures to allocate strings from the c allocator, so we can safely use
-        if !vec.check_and_cleanup(idx) {
+        if !vec.check(idx) {
             return;
         }
 
@@ -320,7 +406,7 @@ mod c_layer {
             let strlen = unsafe { libc::strlen(dupl) };
 
             // Safety: THe constructor of RString Value with a c str and the right string length
-            vec.values[idx] = unsafe { ffi::RS_StringVal(dupl, strlen as u32) };
+            vec.values[idx] = super::RSValue(unsafe { ffi::RS_StringVal(dupl, strlen as u32) });
         } else {
             // Safety: Caller must ensure 2. --> We have a valid C string pointer to create a CStr
             let c_str = unsafe { std::ffi::CStr::from_ptr(str) };
@@ -343,7 +429,7 @@ mod c_layer {
     ) {
         // Safety: Caller must ensure 1. --> Deref is safe
         unsafe {
-            vec.as_mut().put_val(idx, val);
+            vec.as_mut().put_val(idx, super::RSValue(val));
         }
     }
 
@@ -367,13 +453,6 @@ mod c_layer {
     unsafe extern "C" fn SortingVector_Free(mut vector: NonNull<RSSortingVector>) {
         // Safety: Caller must ensure 1. --> Deref is safe
         let vector = unsafe { vector.as_mut() };
-
-        for idx in 0..vector.len() {
-            // Safety: We have valid RSValue pointers in the vector as the vector owns them.
-            unsafe {
-                ffi::RSValue_Decref(vector.values[idx]);
-            }
-        }
 
         // Safety:
         // Condition 1 --> Ensures this is a valid pointer to an RSSortingVector created by RSSortingVector_New
