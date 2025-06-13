@@ -285,15 +285,16 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
       MRClusterTopology_Free(old_topo);
     }
   }
-  UpdateTopologyCtx *ctx = rm_malloc(sizeof(UpdateTopologyCtx));
-  ctx->topo = cluster_g->topo;
-  ctx->ioRuntime = cluster_g->control_plane_io_runtime;
-  IORuntimeCtx_Schedule(cluster_g->control_plane_io_runtime, uvUpdateTopologyRequest, ctx);
+  UpdateTopologyCtx *controlPlaneCtx = rm_malloc(sizeof(UpdateTopologyCtx));
+  controlPlaneCtx->topo = cluster_g->topo;
+  controlPlaneCtx->ioRuntime = cluster_g->control_plane_io_runtime;
+  IORuntimeCtx_Schedule(cluster_g->control_plane_io_runtime, uvUpdateTopologyRequest, controlPlaneCtx);
   for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
     UpdateTopologyCtx *ctx = rm_malloc(sizeof(UpdateTopologyCtx));
+    IORuntimeCtx *ioRuntime = cluster_g->io_runtimes_pool[i];
     ctx->topo = cluster_g->topo;
-    ctx->ioRuntime = cluster_g->control_plane_io_runtime;
-    IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, ctx);
+    ctx->ioRuntime = ioRuntime;
+    IORuntimeCtx_Schedule(ioRuntime, uvUpdateTopologyRequest, ctx);
   }
 }
 

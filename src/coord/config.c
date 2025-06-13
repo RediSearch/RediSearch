@@ -81,7 +81,8 @@ int triggerConnPerShard(RSConfig *config) {
     connPerShard = config->numWorkerThreads + 1;
   }
   // The connPerShard will be applied to each of the ConnManager in each of the IO threads.
-  connPerShard = MAX(1, connPerShard/realConfig->coordinatorIOThreads);
+  connPerShard = MAX(1, (connPerShard + realConfig->coordinatorIOThreads - 1) / realConfig->coordinatorIOThreads);
+
   MR_UpdateConnPerShard(connPerShard);
   return REDISMODULE_OK;
 }
