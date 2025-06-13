@@ -15,6 +15,8 @@ extern "C" {
 #ifdef NU_WITH_UTF32HE_READER
 
 /**
+ * @note This is nunicode extenstion.
+ *
  * @ingroup utf32
  * @see nu_utf16le_read
  */
@@ -29,7 +31,9 @@ const char* nu_utf32he_read(const char *utf32, uint32_t *unicode) {
 
 #ifdef NU_WITH_REVERSE_READ
 
-/*
+/**
+ * @note This is nunicode extenstion.
+ *
  * @ingroup utf32
  * @see nu_utf16le_revread
  */
@@ -49,6 +53,8 @@ const char* nu_utf32he_revread(uint32_t *unicode, const char *utf32) {
 #ifdef NU_WITH_VALIDATION
 
 /**
+ * @note This is nunicode extenstion.
+ *
  * @ingroup utf32
  * @see nu_utf16le_validread
  */
@@ -61,6 +67,8 @@ int nu_utf32he_validread(const char *p, size_t max_len);
 #ifdef NU_WITH_UTF32HE_WRITER
 
 /**
+ * @note This is nunicode extenstion.
+ *
  * @ingroup utf32
  * @see nu_utf16le_write
  */
