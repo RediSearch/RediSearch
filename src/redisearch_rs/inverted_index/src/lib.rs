@@ -350,10 +350,9 @@ impl Encoder for Numeric {
 
                 match get_f64_value(num_record.0) {
                     F64Value::Tiny(i) => {
-                        let header = TinyHeader {
+                        let header = Header {
                             delta_bytes: delta.len() as _,
-                            typ: 0,
-                            value: i,
+                            typ: HeaderType::Tiny(i),
                         };
 
                         writer.write(&[header.pack()])? + writer.write(&delta)?
@@ -364,10 +363,9 @@ impl Encoder for Numeric {
 
                         let bytes = &bytes[..end];
 
-                        let header = PosIntHeader {
+                        let header = Header {
                             delta_bytes: delta.len() as _,
-                            typ: 2,
-                            value_bytes: (end - 1) as _,
+                            typ: HeaderType::PositiveInteger((end - 1) as _),
                         };
 
                         writer.write(&[header.pack()])?
@@ -392,14 +390,29 @@ impl Decoder for Numeric {
     ) -> std::io::Result<Option<DecoderResult>> {
         let mut header = [0u8; 1];
         let _bytes_read = reader.read(&mut header)?;
-        let header = TinyHeader::unpack(header[0]);
+        let header = Header::unpack(header[0]);
 
         let mut delta = vec![0; header.delta_bytes as _];
         let _bytes_read = reader.read(&mut delta)?;
         let delta = Delta::unpack(&delta);
 
         let doc_id = base + (delta.0 as u64);
-        let record = RSIndexResult::numeric(doc_id, header.value as _);
+
+        let num = match header.typ {
+            HeaderType::Tiny(i) => i as _,
+            HeaderType::PositiveInteger(len) => {
+                let mut bytes = vec![0; (len + 1) as usize];
+                let _bytes_read = reader.read(&mut bytes)?;
+                let mut num = 0;
+
+                for (i, byte) in bytes.iter().enumerate() {
+                    num |= (*byte as u64) << (8 * i);
+                }
+
+                num as _
+            }
+        };
+        let record = RSIndexResult::numeric(doc_id, num);
 
         Ok(Some(DecoderResult::Record(record)))
     }
@@ -424,52 +437,55 @@ fn get_f64_value(f: f64) -> F64Value {
     }
 }
 
-struct TinyHeader {
-    delta_bytes: u8,
-    typ: u8,
-    value: u8,
+enum HeaderType {
+    Tiny(u8),
+    PositiveInteger(u8),
 }
 
-impl TinyHeader {
+struct Header {
+    delta_bytes: u8,
+    typ: HeaderType,
+}
+
+impl Header {
+    const TINY_TYPE: u8 = 0b00;
+    const POS_INT_TYPE: u8 = 0b10;
+
     fn pack(self) -> u8 {
         let mut packed = 0;
         packed |= self.delta_bytes & 0b111; // 3 bits for delta bytes
-        packed |= (self.typ & 0b11) << 3; // 2 bits for type
-        packed |= (self.value & 0b111) << 5; // 3 bits for value
 
-        packed
-    }
-
-    fn unpack(data: u8) -> Self {
-        Self {
-            delta_bytes: data & 0b111,  // 3 bits for the delta bytes
-            typ: (data >> 3) & 0b11,    // 2 bits for the type
-            value: (data >> 5) & 0b111, // 3 bits for the value
+        match self.typ {
+            HeaderType::Tiny(t) => {
+                packed |= Self::TINY_TYPE << 3; // 2 bits for type
+                packed |= (t & 0b111) << 5; // 3 bits for value
+            }
+            HeaderType::PositiveInteger(b) => {
+                packed |= Self::POS_INT_TYPE << 3; // 2 bits for type
+                packed |= (b & 0b111) << 5; // 3 bits for value bytes
+            }
         }
-    }
-}
-
-struct PosIntHeader {
-    delta_bytes: u8,
-    typ: u8,
-    value_bytes: u8,
-}
-
-impl PosIntHeader {
-    fn pack(self) -> u8 {
-        let mut packed = 0;
-        packed |= self.delta_bytes & 0b111; // 3 bits for delta bytes
-        packed |= (self.typ & 0b11) << 3; // 2 bits for type
-        packed |= (self.value_bytes & 0b111) << 5; // 3 bits for value bytes
 
         packed
     }
 
     fn unpack(data: u8) -> Self {
-        Self {
-            delta_bytes: data & 0b111,        // 3 bits for the delta bytes
-            typ: (data >> 3) & 0b11,          // 2 bits for the type
-            value_bytes: (data >> 5) & 0b111, // 3 bits for the value bytes
+        let delta_bytes = data & 0b111; // 3 bits for the delta bytes
+
+        match (data >> 3) & 0b11 {
+            Self::TINY_TYPE => {
+                Self {
+                    delta_bytes,
+                    typ: HeaderType::Tiny(data >> 5 & 0b111), // 3 bits for the value
+                }
+            }
+            Self::POS_INT_TYPE => {
+                Self {
+                    delta_bytes,
+                    typ: HeaderType::PositiveInteger(data >> 5 & 0b111), // 3 bits for the value bytes
+                }
+            }
+            _ => todo!(),
         }
     }
 }
