@@ -93,7 +93,9 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
   return pool;
 }
 
-static void MRConnPool_Free(void *privdata, void *p, uv_loop_t *loop) {
+static void MRConnPool_Free(void *privdata, void *p) {
+  //TODO: Joan this is a callback how to pass IORuntime
+  uv_loop_t *loop = NULL;
   UNUSED(privdata);
   MRConnPool *pool = p;
   if (!pool) return;

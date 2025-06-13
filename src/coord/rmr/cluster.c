@@ -35,7 +35,7 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
       // TODO(Joan): Potentially we will need to do some Thread synchronization here.
       MRClusterNode *node = &cl->topo->shards[sh].nodes[n];
       MRConnManager_Add(cl->control_plane_io_runtime->conn_mgr, node->id, &node->endpoint, 0);
-      for (size_t i = 0; i < (cl->num_io_threads - 1); i++) {
+      for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
         MRConnManager_Add(cl->io_runtimes_pool[i]->conn_mgr, node->id, &node->endpoint, 0);
       }
 
@@ -50,7 +50,7 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
   while ((de = dictNext(it))) {
     // TODO(Joan): Potentially we will need to do some Thread synchronization here.
     MRConnManager_Disconnect(cl->control_plane_io_runtime->conn_mgr, dictGetKey(de));
-    for (size_t i = 0; i < (cl->num_io_threads - 1); i++) {
+    for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
       MRConnManager_Disconnect(cl->io_runtimes_pool[i]->conn_mgr, dictGetKey(de));
     }
   }
@@ -61,16 +61,18 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
 #define PENDING_FACTOR 50
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, size_t num_io_threads) {
   MRCluster *cl = rm_new(MRCluster);
+  RS_ASSERT(num_io_threads > 0);
   cl->topo = initialTopology;
   cl->num_io_threads = num_io_threads;
+  cl->io_runtimes_pool_size = num_io_threads - 1;
   if (num_io_threads <= 1) {
     cl->control_plane_io_runtime = IORuntimeCtx_Create(conn_pool_size, num_io_threads * PENDING_FACTOR, 0);
     cl->io_runtimes_pool = NULL;
   } else {
-    cl->io_runtimes_pool = rm_malloc((num_io_threads - 1) * sizeof(IORuntimeCtx*));
+    cl->io_runtimes_pool = rm_malloc( cl->io_runtimes_pool_size * sizeof(IORuntimeCtx*));
     cl->control_plane_io_runtime = IORuntimeCtx_Create(conn_pool_size, num_io_threads * PENDING_FACTOR, 0);
-    for (size_t i = 1; i < num_io_threads; i++) {
-      cl->io_runtimes_pool[i - 1] = IORuntimeCtx_Create(conn_pool_size, num_io_threads * PENDING_FACTOR, i);
+    for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
+      cl->io_runtimes_pool[i] = IORuntimeCtx_Create(conn_pool_size, num_io_threads * PENDING_FACTOR, i + 1);
     }
   }
   if (cl->topo) {
@@ -335,7 +337,7 @@ void MRClust_Free(MRCluster *cl) {
       MRClusterTopology_Free(cl->topo);
     }
     if (cl->io_runtimes_pool) {
-      for (size_t i = 0; i < cl->num_io_threads - 1; i++) {
+      for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
         IORuntimeCtx_Free(cl->io_runtimes_pool[i]);
       }
       rm_free(cl->io_runtimes_pool);
@@ -348,7 +350,7 @@ void MRClust_Free(MRCluster *cl) {
 size_t IORuntimePool_AssignRoundRobinIdx(MRCluster *cl) {
   // Idea is to skip the control plane runtime
   size_t idx = cl->current_round_robin + 1;
-  cl->current_round_robin = (cl->current_round_robin  + 1) % (cl->num_io_threads - 1);
+  cl->current_round_robin = (cl->current_round_robin  + 1) % cl->io_runtimes_pool_size;
   return idx;
 }
 

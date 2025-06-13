@@ -297,31 +297,36 @@ void MR_UpdateConnPerShard(size_t connPerShard) {
     // We can update the connection pool size directly from the main thread.
     // This is mostly a no-op, as the connection pool is not in use (yet or at all).
     // This call should only update the connection pool `size` for when the connection pool is initialized.
-    MRCluster_UpdateConnPerShard(cluster_g, connPerShard);
+    MRCluster_UpdateConnPerShard(cluster_g->control_plane_io_runtime, connPerShard);
+    for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
+      MRCluster_UpdateConnPerShard(cluster_g->io_runtimes_pool[i], connPerShard);
+    }
   } else {
-    size_t old_conn_count = cluster_g->control_plane_io_runtime->conn_mgr.nodeConns;
+    MRConnManager *control_plane_conn_mgr = cluster_g->control_plane_io_runtime->conn_mgr;
+    size_t old_conn_count = control_plane_conn_mgr->nodeConns;
     if(connPerShard >= old_conn_count) {
-      // Increase the number of run queue before expanding the connection pool
-      RQPool_Expand(connPerShard);
       // New runtimes are in place, we can now submit more connections
-      MRConnManager_Expand(&cluster_g->control_plane_io_runtime->conn_mgr, connPerShard);
+      MRConnManager_Expand(cluster_g->control_plane_io_runtime->conn_mgr, connPerShard);
+      for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
+        MRConnManager_Expand(cluster_g->io_runtimes_pool[i]->conn_mgr, connPerShard);
+      }
     }
     else {
       // First, close the connections. This needs to be done from the event loop thread
-      MRConnManager_Shrink(&cluster_g->control_plane_io_runtime->conn_mgr, connPerShard);
+      MRConnManager_Shrink(cluster_g->control_plane_io_runtime->conn_mgr, connPerShard, RQ_GetLoop(cluster_g->control_plane_io_runtime->queue));
       // Destroy runtimes
-      RQPool_Shrink(connPerShard);
+      for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
+        MRConnManager_Shrink(cluster_g->io_runtimes_pool[i]->conn_mgr, connPerShard, RQ_GetLoop(cluster_g->io_runtimes_pool[i]->queue));
+      }
     }
-    size_t rq_pool_size = RQPool_GetQueueCount();
+
+    //TODO(Joan): Review and get this logic
     size_t max_pending = connPerShard * PENDING_FACTOR;
 
-    MRWorkQueue * control_plane_q = RQPool_GetControlPlaneQueue();
-    RQ_UpdateMaxPending(control_plane_q, max_pending);
+    RQ_UpdateMaxPending(cluster_g->control_plane_io_runtime->queue, max_pending);
 
-    // Idx 0 is the control plane queue and may require different settings
-    for (size_t i = 1; i < rq_pool_size; i++) {
-      MRWorkQueue *q = RQPool_GetQueue(i);
-      RQ_UpdateMaxPending(q, max_pending);
+    for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
+      RQ_UpdateMaxPending(cluster_g->io_runtimes_pool[i]->queue, max_pending);
     }
   }
 }

@@ -66,6 +66,7 @@ typedef struct {
   IORuntimeCtx **io_runtimes_pool;
   IORuntimeCtx *control_plane_io_runtime;
   size_t num_io_threads; // Number of threads in the pool (including the control plane)
+  size_t io_runtimes_pool_size;
   size_t current_round_robin;
   /* The latest topology of the cluster */
   MRClusterTopology *topo;
