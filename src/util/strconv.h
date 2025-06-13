@@ -110,18 +110,23 @@ static char *rm_strndup_unescape(const char *s, size_t len) {
 }
 
 // transform utf8 string to lower case using nunicode library
-// encoded: the utf8 string to transform, if the transformation is successful
-//          the transformed string will be written back to this buffer
-// in_len: the length of the utf8 string
-// returns the bytes written to encoded, or 0 if the length of the transformed
-// string is greater than in_len and no transformation was done
-static size_t unicode_tolower(char *encoded, size_t in_len) {
-  if (in_len == 0) {
-    return 0;
+// encoded: the utf8 string to transform
+// inout_len: input/output parameter, on input contains the length of the input
+// string in bytes, on output will be set to the length of the output string in
+// bytes. If the input string is not modified, it will be set to the same
+// length as the input.
+// Returns a newly allocated string with the transformed content, or NULL if no
+// new memory was allocated (i.e., the output fits in the input buffer).
+static char* unicode_tolower(char *encoded, size_t *inout_len) {
+  if (*inout_len == 0) {
+    return NULL;
   }
+
+  size_t in_len = *inout_len;
 
   uint32_t u_stack_buffer[SSO_MAX_LENGTH];
   uint32_t *u_buffer = u_stack_buffer;
+  char *longer_dst = NULL;
 
   ssize_t u_len = nu_strtransformnlen(encoded, in_len, nu_utf8_read,
                                               nu_tolower, nu_casemap_read);
@@ -142,6 +147,7 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
       // If we reach the end of the string, break
       break;
     }
+
     // Transform unicode codepoint to lower case
     const char *map = nu_tolower(codepoint);
 
@@ -164,31 +170,29 @@ static size_t unicode_tolower(char *encoded, size_t in_len) {
   }
   RS_LOG_ASSERT_FMT(i == u_len, "i (%u) should be equal to u_len (%zd)", i, u_len);
   // Encode Unicode codepoints back to utf8 string
-  ssize_t reencoded_len = nu_bytenlen(u_buffer, u_len, nu_utf8_write);
-  if (reencoded_len > 0 && reencoded_len <= in_len) {
-    nu_writenstr(u_buffer, u_len, encoded, nu_utf8_write);
-  } else {
-    reencoded_len = 0;
-    // If the reencoded length is greater than in_len, we cannot write it back
-    // to the original buffer, so we return 0.
-    // It could happen if the original string contains characters that
-    // require more bytes to represent in lower case than the original string.
-    // For example, if the original string contains a character that is
-    // represented by 2 bytes in utf8, and the lower case version of that
-    // character is represented by 3 bytes, the reencoded length will be
-    // greater than in_len, and we cannot write it back to the original buffer.
-    // To support this, we need to allocate a new buffer, and it is considered
-    // as part of MOD-8799 which has not been implemented yet.
+  ssize_t reencoded_len = nu_bytenlen(u_buffer, i, nu_utf8_write);
+  if (reencoded_len > 0) {
+    if (reencoded_len <= in_len) {
+      // If the reencoded length is less than or equal to the original length,
+      // we can write directly to the original buffer
+      // Write the reencoded string back to the original buffer
+      // Note: nu_writenstr does not null-terminate the string, so we handle that separately
+      // it should be updated by the caller if needed
+      nu_writenstr(u_buffer, i, encoded, nu_utf8_write);
+    } else {
+      longer_dst = (char *)rm_malloc((reencoded_len + 1) * sizeof(*longer_dst));
+      nu_writenstr(u_buffer, i, longer_dst, nu_utf8_write);
+      longer_dst[reencoded_len] = '\0';
+    }
+    *inout_len = reencoded_len;
   }
 
   // Free heap-allocated memory if needed
   if (u_buffer != u_stack_buffer) {
     rm_free(u_buffer);
   }
-
-  return reencoded_len;
+  return longer_dst;
 }
-
 
 // strndup + unescape + tolower
 static char *rm_normalize(const char *s, size_t len) {
@@ -199,6 +203,7 @@ static char *rm_normalize(const char *s, size_t len) {
     // unescape
     if (*src == '\\' && (ispunct(*(src+1)) || isspace(*(src+1)))) {
       ++src;
+      --len;
       continue;
     }
     *dst = *src;
@@ -208,9 +213,13 @@ static char *rm_normalize(const char *s, size_t len) {
   *dst = '\0';
 
   // convert to lower case
-  size_t newLen = unicode_tolower(ret, strlen(ret));
-  if (newLen) {
-    ret[newLen] = '\0';
+  char *longerDst = unicode_tolower(ret, &len);
+  if (longerDst) {
+      rm_free(ret);
+      ret = longerDst;
+  } else {
+    // No memory allocation, just ensure null termination
+    ret[len] = '\0';
   }
 
   return ret;

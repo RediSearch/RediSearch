@@ -35,6 +35,9 @@ typedef struct {
 // The maximum size we allow converting to at once
 #define MAX_RUNESTR_LEN 1024
 
+// Threshold for Small String Optimization (SSO)
+#define SSO_MAX_LENGTH 128
+
 /* A callback for a rune transformation function */
 typedef rune (*runeTransform)(rune r);
 
@@ -70,16 +73,19 @@ static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *l
    * Assumption: the number of bytes in a utf8 string is always greater than the
    * number of codepoints it can produce.
    */
-  *len = n;
   rune *target;
-  if (*len > RUNE_STATIC_ALLOC_SIZE) {
+  if (n > RUNE_STATIC_ALLOC_SIZE) {
     buf->isDynamic = 1;
-    target = buf->u.p = (rune *)rm_malloc(((*len) + 1) * sizeof(rune));
+    target = buf->u.p = (rune *)rm_malloc((n + 1) * sizeof(rune));
   } else {
     buf->isDynamic = 0;
     target = buf->u.s;
   }
   *len = strToRunesN(s, n, target);
+  if (*len > n) {
+    // if we read more runes than the string length, we have a problem
+    *len = n;
+  }
   target[*len] = 0;
   return target;
 }
