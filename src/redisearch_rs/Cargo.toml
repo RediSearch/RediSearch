@@ -11,6 +11,7 @@ members = [
     "trie_rs",
     "wildcard",
     "buffer",
+    "result_processor",
 ]
 default-members = [
     "low_memory_thin_vec",
@@ -19,6 +20,7 @@ default-members = [
     "c_entrypoint/*",
     "wildcard",
     "buffer",
+    "result_processor",
 ]
 resolver = "3"
 
@@ -64,6 +66,7 @@ cc = "1"
 crc32fast = "1.4.2"
 criterion = { version = "0.5", features = ["html_reports"] }
 csv = "1.3.1"
+enumflags2 = "0.7.12"
 fs-err = "3.1.0"
 insta = "1.42.2"
 lending-iterator = "0.1.7"
@@ -74,6 +77,7 @@ proptest-derive = { version = "0.5.1", default-features = false }
 rand = "0.9.1"
 ureq = "3.0.10"
 wildcard_cloudflare = { package = "wildcard", version = "0.3.0" }
+pin-project = "1.1.10"
 
 [workspace.dependencies.bindgen]
 version = "0.71.1"
