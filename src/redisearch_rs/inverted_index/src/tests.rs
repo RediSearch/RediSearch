@@ -60,16 +60,28 @@ fn numeric_tiny_int() {
 
 #[test]
 fn numeric_pos_int() {
-    let inputs = [(
-        1,
-        16.0,
-        3,
-        vec![
-            0b000_10_001, // Header bits 7→0: |000|10|001| = value_bytes:0, type:POS_TINY, delta_bytes:1
-            0b0000_0001,  // Delta: 1
-            0b0001_0000,  // Value: 16
-        ],
-    )];
+    let inputs = [
+        (
+            1,
+            16.0,
+            3,
+            vec![
+                0b000_10_001, // Header bits 7→0: |000|10|001| = value_bytes:0, type:POS_TINY, delta_bytes:1
+                0b0000_0001,  // Delta: 1
+                0b0001_0000,  // Value: 16
+            ],
+        ),
+        (
+            0,
+            256.0,
+            3,
+            vec![
+                0b001_10_000, // Header bits 7→0: |001|10|000| = value_bytes:1, type:POS_TINY, delta_bytes:0
+                0b0000_0000,  // Value 0 (LSB)
+                0b0000_0001,  // Value 1 (MSB) → 256 = 0x0100
+            ],
+        ),
+    ];
 
     for input in inputs {
         let (delta, value, expected_bytes_written, expected_buffer) = input;
