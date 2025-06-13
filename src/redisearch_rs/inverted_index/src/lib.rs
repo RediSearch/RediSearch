@@ -356,16 +356,29 @@ impl Encoder for Numeric {
                             value: i,
                         };
 
-                        writer.write(&[header.pack()])?
+                        writer.write(&[header.pack()])? + writer.write(&delta)?
                     }
-                    _ => todo!(),
+                    F64Value::Int(i) => {
+                        let bytes = i.to_le_bytes();
+                        let end = bytes.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
+
+                        let bytes = &bytes[..end];
+
+                        let header = PosIntHeader {
+                            delta_bytes: delta.len() as _,
+                            typ: 2,
+                            value_bytes: (end - 1) as _,
+                        };
+
+                        writer.write(&[header.pack()])?
+                            + writer.write(&delta)?
+                            + writer.write(bytes)?
+                    }
                 }
             }
             RSResultType::Metric => todo!(),
             RSResultType::HybridMetric => todo!(),
         };
-
-        bytes_written += writer.write(&delta)?;
 
         Ok(bytes_written)
     }
@@ -432,6 +445,31 @@ impl TinyHeader {
             delta_bytes: data & 0b111,  // 3 bits for the delta bytes
             typ: (data >> 3) & 0b11,    // 2 bits for the type
             value: (data >> 5) & 0b111, // 3 bits for the value
+        }
+    }
+}
+
+struct PosIntHeader {
+    delta_bytes: u8,
+    typ: u8,
+    value_bytes: u8,
+}
+
+impl PosIntHeader {
+    fn pack(self) -> u8 {
+        let mut packed = 0;
+        packed |= self.delta_bytes & 0b111; // 3 bits for delta bytes
+        packed |= (self.typ & 0b11) << 3; // 2 bits for type
+        packed |= (self.value_bytes & 0b111) << 5; // 3 bits for value bytes
+
+        packed
+    }
+
+    fn unpack(data: u8) -> Self {
+        Self {
+            delta_bytes: data & 0b111,        // 3 bits for the delta bytes
+            typ: (data >> 3) & 0b11,          // 2 bits for the type
+            value_bytes: (data >> 5) & 0b111, // 3 bits for the value bytes
         }
     }
 }
