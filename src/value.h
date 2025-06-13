@@ -154,10 +154,15 @@ static inline RSValue *RSValue_IncrRef(RSValue *v) {
   return v;
 }
 
-#define RSValue_Decref(v)                                         \
-  if (!__atomic_sub_fetch(&(v)->refcount, 1, __ATOMIC_RELAXED)) { \
-    RSValue_Free(v);                                              \
+static inline void RSValue_Decref(RSValue* v) {
+  if (__atomic_sub_fetch(&(v)->refcount, 1, __ATOMIC_RELAXED) == 0) {
+    RSValue_Free(v);
   }
+}
+
+void RSValue_IncrRef_Rust(RSValue* v);
+
+void RSValue_DecrRef_Rust(RSValue* v);
 
 RSValue *RS_NewValue(RSValueType t);
 
