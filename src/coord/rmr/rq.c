@@ -86,6 +86,7 @@ static void topologyFailureCB(uv_timer_t *timer) {
   triggerPendingQueues(q);
 }
 
+// TODO(Joan): Better extract also the loop or Runtime
 static void topologyTimerCB(uv_timer_t *timer) {
   MRWorkQueue *q = (MRWorkQueue *)timer->data;
   if (MR_CheckTopologyConnections(true) == REDIS_OK) {
@@ -101,6 +102,7 @@ static void topologyTimerCB(uv_timer_t *timer) {
   }
 }
 
+// TODO(Joan): Better extract also the loop or Runtime
 static void topologyAsyncCB(uv_async_t *async) {
   MRWorkQueue *q = (MRWorkQueue *)async->data;
   struct queueItem *topo = exchangePendingTopo(q, NULL); // take the topology

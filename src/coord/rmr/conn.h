@@ -57,7 +57,6 @@ static inline const char *MRConnState_Str(MRConnState state) {
 typedef struct MRConn MRConn;
 
 /* A pool indexes connections by the node id */
-//TODO(Joan): Should the "Control Plane" connection pool be handled specially in an explicit way?
 typedef struct {
   dict *map;
   int nodeConns;

@@ -200,7 +200,7 @@ void MR_Init(size_t num_io_threads, size_t num_connections_per_shard, long long 
 }
 
 int MR_CheckTopologyConnections(bool mastersOnly) {
-  //TODO(Joan): Make sure this is called from the control plane runtime
+  //TODO(Joan): Do not assume this is called from the control plane runtime
   IORuntimeCtx *ioRuntime = IORuntimePool_GetCtx(cluster_g, 0); // Use control plane runtime
   return MRCluster_CheckConnections(cluster_g->topo, ioRuntime, mastersOnly);
 }
@@ -286,10 +286,9 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
 //   RQ_UpdateMaxPending(rq_g, connPerShard * PENDING_FACTOR);
 // }
 
+//TODO(Joan): We may need some thread safety here?
 extern size_t NumShards;
 void MR_UpdateConnPerShard(size_t connPerShard) {
-  //TODO(Joan): Should we consider that for the RQPool we already have a control plane queue?
-  //TODO(Joan): We may need some thread safety here?
   if (!cluster_g) return; // not initialized yet, we have nothing to update yet.
   if (NumShards == 1) {
     // If we observe that there is only one shard from the main thread,
@@ -683,7 +682,6 @@ MRIterator *MR_Iterate(const MRCommand *cmd, MRIteratorCallback cb) {
     .it = ret,
   };
 
-  //TODO(Joan): Change RQ_Push for IORuntime_Schedule
   IORuntimeCtx_Schedule(IORuntimePool_GetCtx(cluster_g, ret->ctx.ioRuntimeIdx), iterStartCb, ret);
   return ret;
 }

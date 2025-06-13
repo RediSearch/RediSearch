@@ -113,7 +113,7 @@ void testShardingFunc() {
   MRCommand cmd = MR_NewCommand(2, "foo", "baz");
   const char *host = "localhost:6379";
   MRClusterTopology *topo = getTopology(4096, 1, &host);
-  MRCluster *cl = MR_NewCluster(topo, 2);
+  MRCluster *cl = MR_NewCluster(topo, 2, 1);
   mr_slot_t shard = CRCShardFunc(&cmd, cl);
   mu_assert_int_eq(shard, 717);
   MRCommand_Free(&cmd);
@@ -128,7 +128,7 @@ void testCluster() {
   const char *hosts[] = {"localhost:6379", "localhost:6389", "localhost:6399", "localhost:6409"};
   MRClusterTopology *topo = getTopology(4096, n, hosts);
 
-  MRCluster *cl = MR_NewCluster(topo, 2);
+  MRCluster *cl = MR_NewCluster(topo, 2, 1);
   mu_check(cl != NULL);
   //  mu_check(cl->tp == tp);
   mu_check(cl->topo->numShards == n);
@@ -152,7 +152,7 @@ void testClusterSharding() {
   const char *hosts[] = {"localhost:6379", "localhost:6389", "localhost:6399", "localhost:6409"};
   MRClusterTopology *topo = getTopology(4096, n, hosts);
 
-  MRCluster *cl = MR_NewCluster(topo, 2);
+  MRCluster *cl = MR_NewCluster(topo, 2, 1);
   MRCommand cmd = MR_NewCommand(4, "_FT.SEARCH", "foob", "bar", "baz");
   mr_slot_t slot = CRCShardFunc(&cmd, cl);
   printf("%d\n", slot);

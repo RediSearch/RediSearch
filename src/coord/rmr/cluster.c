@@ -14,12 +14,12 @@
 #include <stdlib.h>
 #include "rq.h"
 
+// TODO(Joan): Potentially we will need to do some Thread synchronization here.
 void _MRCluster_UpdateNodes(MRCluster *cl) {
   /* Get all the current node ids from the connection manager.  We will remove all the nodes
    * that are in the new topology, and after the update, delete all the nodes that are in this map
    * and not in the new topology */
   dict *nodesToDisconnect = dictCreate(&dictTypeHeapStrings, NULL);
-  // TODO(Joan): Potentially we will need to do some Thread synchronization here.
 
   dictIterator *it = dictGetIterator(cl->control_plane_io_runtime->conn_mgr->map);
   dictEntry *de;
@@ -32,7 +32,6 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
   for (int sh = 0; sh < cl->topo->numShards; sh++) {
     for (int n = 0; n < cl->topo->shards[sh].numNodes; n++) {
       // Update all the conn Manager in each of the runtimes.
-      // TODO(Joan): Potentially we will need to do some Thread synchronization here.
       MRClusterNode *node = &cl->topo->shards[sh].nodes[n];
       MRConnManager_Add(cl->control_plane_io_runtime->conn_mgr, node->id, &node->endpoint, 0);
       for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
@@ -48,7 +47,6 @@ void _MRCluster_UpdateNodes(MRCluster *cl) {
   // we need to disconnect the node's connections
   it = dictGetIterator(nodesToDisconnect);
   while ((de = dictNext(it))) {
-    // TODO(Joan): Potentially we will need to do some Thread synchronization here.
     MRConnManager_Disconnect(cl->control_plane_io_runtime->conn_mgr, dictGetKey(de));
     for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
       MRConnManager_Disconnect(cl->io_runtimes_pool[i]->conn_mgr, dictGetKey(de));

@@ -31,6 +31,11 @@ typedef struct MRConn{
   int protocol; // 0 (undetermined), 2, or 3
 } MRConn;
 
+typedef struct {
+  MRConn *conn;
+  uv_loop_t *loop;
+} IOCallbackData;
+
 
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status);
 static void MRConn_DisconnectCallback(const redisAsyncContext *, int);
@@ -58,6 +63,9 @@ static redisAsyncContext *detachFromConn(MRConn *conn, int shouldFree) {
   }
 
   redisAsyncContext *ac = conn->conn;
+  //Freeing the cbData, not the connection or the uvloop
+  IOCallbackData *cbData = ac->data;
+  rm_free(cbData);
   ac->data = NULL;
   conn->conn = NULL;
   if (shouldFree) {
@@ -68,7 +76,6 @@ static redisAsyncContext *detachFromConn(MRConn *conn, int shouldFree) {
   }
 }
 
-//TODO(Joan): Is the round robin assignment the correct one, shouldn't these be linked to a MRQueue (Would it make sense to have a Connection Pool x MRQueue?)
 typedef struct {
   size_t num;
   size_t rr;  // round robin counter
@@ -95,8 +102,7 @@ static MRConnPool *_MR_NewConnPool(MREndpoint *ep, size_t num) {
 
 static void MRConnPool_Free(void *privdata, void *p) {
   //TODO: Joan this is a callback how to pass IORuntime
-  uv_loop_t *loop = NULL;
-  UNUSED(privdata);
+  uv_loop_t *loop = (uv_loop_t *)privdata;
   MRConnPool *pool = p;
   if (!pool) return;
   for (size_t i = 0; i < pool->num; i++) {
@@ -342,18 +348,21 @@ static void freeConn(MRConn *conn) {
 }
 
 
-//TODO: Joan this is a callback how to pass IORuntime
 static void signalCallback(uv_timer_t *tm) {
-  uv_loop_t *loop = NULL;
   MRConn *conn = tm->data;
   if (conn->state == MRConn_Connected) {
     return;  // Nothing to do here!
   }
 
+  redisAsyncContext *ac = conn->conn;
+  IOCallbackData *cbData = ac->data;
+  uv_loop_t *loop = cbData->loop;
+
   if (conn->state == MRConn_Freeing) {
     if (conn->conn) {
       redisAsyncContext *ac = conn->conn;
       // detach the connection
+      rm_free(cbData);
       ac->data = NULL;
       conn->conn = NULL;
       redisAsyncDisconnect(ac);
@@ -429,10 +438,11 @@ activate_timer:
   }
 }
 
-//TODO: Joan this is a callback how to pass IORuntime
 static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
-  uv_loop_t *loop = NULL;
-  MRConn *conn = c->data;
+  IOCallbackData *cbData = c->data;
+  MRConn *conn = cbData->conn;
+  uv_loop_t *loop = cbData->loop;
+
   redisReply *rep = r;
   if (!conn || conn->state == MRConn_Freeing) {
     // Will be picked up by disconnect callback
@@ -475,7 +485,7 @@ static int MRConn_SendAuth(MRConn *conn, uv_loop_t *loop) {
     RedisModule_ThreadSafeContextLock(RSDummyContext);
     const char *internal_secret = RedisModule_GetInternalSecret(RSDummyContext, &len);
     // Create a local copy of the secret so we can release the GIL.
-    int status = redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn,
+    int status = redisAsyncCommand(conn->conn, MRConn_AuthCallback, loop,
         "AUTH %s %b", INTERNALAUTH_USERNAME, internal_secret, len);
     if (status == REDIS_ERR) {
       MRConn_SwitchState(conn, MRConn_ReAuth, loop);
@@ -485,7 +495,7 @@ static int MRConn_SendAuth(MRConn *conn, uv_loop_t *loop) {
   } else {
     // On Enterprise, we use the password we got from `CLUSTERSET`.
     // If we got here, we know we have a password.
-    if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, conn, "AUTH %s",
+    if (redisAsyncCommand(conn->conn, MRConn_AuthCallback, loop, "AUTH %s",
           conn->ep.password) == REDIS_ERR) {
       MRConn_SwitchState(conn, MRConn_ReAuth, loop);
       return REDIS_ERR;
@@ -609,10 +619,10 @@ done:
 }
 
 /* hiredis async connect callback */
-//TODO: Joan this is a callback how to pass IORuntime
 static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
-  uv_loop_t *loop = NULL;
-  MRConn *conn = c->data;
+  IOCallbackData *cbData = c->data;
+  MRConn *conn = cbData->conn;
+  uv_loop_t *loop = cbData->loop;
   if (!conn) {
     if (status == REDIS_OK) {
       // We need to free it here because we will not be getting a disconnect
@@ -683,10 +693,10 @@ static void MRConn_ConnectCallback(const redisAsyncContext *c, int status) {
   }
 }
 
-//TODO: Joan this is a callback how to pass IORuntime
 static void MRConn_DisconnectCallback(const redisAsyncContext *c, int status) {
-  uv_loop_t *loop = NULL;
-  MRConn *conn = c->data;
+  IOCallbackData *cbData = c->data;
+  MRConn *conn = cbData->conn;
+  uv_loop_t *loop = cbData->loop;
   if (!conn) {
     /* Ignore */
     return;
@@ -724,11 +734,14 @@ static int MRConn_Connect(MRConn *conn, uv_loop_t *loop) {
     return REDIS_ERR;
   }
 
+  IOCallbackData *cbData = rm_malloc(sizeof(IOCallbackData));
+  cbData->conn = conn;
+  cbData->loop = loop;
+
   conn->conn = c;
-  conn->conn->data = conn;
+  conn->conn->data = cbData;
   conn->state = MRConn_Connecting;
 
-  // We need to attach the connection to the runtime that will be used with this connection
   redisLibuvAttach(conn->conn, loop);
   redisAsyncSetConnectCallback(conn->conn, MRConn_ConnectCallback);
   redisAsyncSetDisconnectCallback(conn->conn, MRConn_DisconnectCallback);
