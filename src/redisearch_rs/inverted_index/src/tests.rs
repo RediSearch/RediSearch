@@ -57,3 +57,41 @@ fn numeric_tiny_int() {
         assert_eq!(record_decoded, record);
     }
 }
+
+#[test]
+fn numeric_pos_int() {
+    let inputs = [(
+        1,
+        16.0,
+        3,
+        vec![
+            0b000_10_001, // Header bits 7→0: |000|10|001| = value_bytes:0, type:POS_TINY, delta_bytes:1
+            0b0000_0001,  // Delta: 1
+            0b0001_0000,  // Value: 16
+        ],
+    )];
+
+    for input in inputs {
+        let (delta, value, expected_bytes_written, expected_buffer) = input;
+        let mut buf = Cursor::new(Vec::new());
+        let record = RSIndexResult::numeric(1000, value);
+
+        let bytes_written =
+            Numeric::encode(&mut buf, Delta(delta), &record).expect("to encode numeric record");
+
+        let buf = buf.into_inner();
+        assert_eq!(bytes_written, expected_bytes_written);
+        assert_eq!(buf, expected_buffer);
+
+        let prev_doc_id = 1000 - (delta as u64);
+        let DecoderResult::Record(record_decoded) = Numeric
+            .decode(buf.as_slice(), prev_doc_id)
+            .expect("to decode numeric record")
+            .expect("to read a record from the buffer")
+        else {
+            panic!("Record was filtered out incorrectly")
+        };
+
+        assert_eq!(record_decoded, record);
+    }
+}
