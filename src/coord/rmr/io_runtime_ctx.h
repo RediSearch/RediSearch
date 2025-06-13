@@ -11,15 +11,39 @@
 
 #include "rq.h"
 #include "conn.h"
+#include <uv.h>
+#include "util/arr.h"
+
+struct MRClusterTopology;
 
 //Structure to encapsulate the IO Runtime context for MR operations to take place
 typedef struct {
   MRWorkQueue *queue;
   MRConnManager *conn_mgr;
+  uv_async_t async;
+  uv_loop_t loop;
+  uv_thread_t loop_th;
+  bool loop_th_started; // set to true when the event loop thread is started
+  bool loop_th_running; // set to true when the event loop thread is initialized
+  bool loop_th_ready;   /* set to true when the event loop thread is ready to process requests.
+                                        * This is set to false when a new topology is applied, and set to true
+                                        * when the topology check is done. */
+  uv_timer_t topologyValidationTimer, topologyFailureTimer;
+  uv_async_t topologyAsync;
+  struct queueItem *pendingTopo;
+  arrayof(uv_async_t *) pendingQueues;
 } IORuntimeCtx;
 
 IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, int max_pending, size_t id);
-
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx);
 
 void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);
+
+void IORuntimeCtx_Push_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo);
+void IORuntimeCtx__Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx);
+const uv_loop_t* IORuntimeCtx_GetLoop(const IORuntimeCtx *io_runtime_ctx);
+int IORuntimeCtx_ConnectAll(IORuntimeCtx *ioRuntime);
+void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime, struct MRClusterTopology *topo);
+/* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the
+ * provider's current context is used. Otherwise, we call its function with the given context */
+int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime, struct MRClusterTopology *topo);

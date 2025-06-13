@@ -99,10 +99,6 @@ MRCluster *MR_NewCluster(MRClusterTopology *topology, size_t conn_pool_size, siz
 /* Update the number of connections per shard */
 void MRCluster_UpdateConnPerShard(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size);
 
-/* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the
- * provider's current context is used. Otherwise, we call its function with the given context */
-int MRCluster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopology);
-
 void MRClust_Free(MRCluster *cl);
 
 size_t IORuntimePool_AssignRoundRobinIdx(MRCluster *cl);

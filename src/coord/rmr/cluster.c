@@ -14,48 +14,6 @@
 #include <stdlib.h>
 #include "rq.h"
 
-// TODO(Joan): Potentially we will need to do some Thread synchronization here.
-void _MRCluster_UpdateNodes(MRCluster *cl) {
-  /* Get all the current node ids from the connection manager.  We will remove all the nodes
-   * that are in the new topology, and after the update, delete all the nodes that are in this map
-   * and not in the new topology */
-  dict *nodesToDisconnect = dictCreate(&dictTypeHeapStrings, NULL);
-
-  dictIterator *it = dictGetIterator(cl->control_plane_io_runtime->conn_mgr->map);
-  dictEntry *de;
-  while ((de = dictNext(it))) {
-    dictAdd(nodesToDisconnect, dictGetKey(de), NULL);
-  }
-  dictReleaseIterator(it);
-
-  /* Walk the topology and add all nodes in it to the connection manager */
-  for (int sh = 0; sh < cl->topo->numShards; sh++) {
-    for (int n = 0; n < cl->topo->shards[sh].numNodes; n++) {
-      // Update all the conn Manager in each of the runtimes.
-      MRClusterNode *node = &cl->topo->shards[sh].nodes[n];
-      MRConnManager_Add(cl->control_plane_io_runtime->conn_mgr, node->id, &node->endpoint, 0);
-      for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
-        MRConnManager_Add(cl->io_runtimes_pool[i]->conn_mgr, node->id, &node->endpoint, 0);
-      }
-
-      /* This node is still valid, remove it from the nodes to delete list */
-      dictDelete(nodesToDisconnect, node->id);
-    }
-  }
-
-  // if we didn't remove the node from the original nodes map copy, it means it's not in the new topology,
-  // we need to disconnect the node's connections
-  it = dictGetIterator(nodesToDisconnect);
-  while ((de = dictNext(it))) {
-    MRConnManager_Disconnect(cl->control_plane_io_runtime->conn_mgr, dictGetKey(de));
-    for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
-      MRConnManager_Disconnect(cl->io_runtimes_pool[i]->conn_mgr, dictGetKey(de));
-    }
-  }
-  dictReleaseIterator(it);
-  dictRelease(nodesToDisconnect);
-}
-
 #define PENDING_FACTOR 50
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, size_t num_io_threads) {
   MRCluster *cl = rm_new(MRCluster);
@@ -69,12 +27,15 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
   } else {
     cl->io_runtimes_pool = rm_malloc( cl->io_runtimes_pool_size * sizeof(IORuntimeCtx*));
     cl->control_plane_io_runtime = IORuntimeCtx_Create(conn_pool_size, num_io_threads * PENDING_FACTOR, 0);
+    if (cl->topo) {
+      IORuntimeCtx_UpdateNodes(cl->control_plane_io_runtime, cl->topo);
+    }
     for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
       cl->io_runtimes_pool[i] = IORuntimeCtx_Create(conn_pool_size, num_io_threads * PENDING_FACTOR, i + 1);
+      if (cl->topo) {
+        IORuntimeCtx_UpdateNodes(cl->io_runtimes_pool[i], cl->topo);
+      }
     }
-  }
-  if (cl->topo) {
-    _MRCluster_UpdateNodes(cl);
   }
   return cl;
 }
@@ -241,11 +202,6 @@ int MRCluster_FanoutCommand(MRClusterTopology *topo,
   return ret;
 }
 
-/* Initialize the connections to all shards */
-int MRCluster_ConnectAll(IORuntimeCtx *ioRuntime) {
-  return MRConnManager_ConnectAll(ioRuntime->conn_mgr, RQ_GetLoop(ioRuntime->queue));
-}
-
 void MRClusterTopology_Free(MRClusterTopology *t) {
   for (int s = 0; s < t->numShards; s++) {
     for (int n = 0; n < t->shards[s].numNodes; n++) {
@@ -262,31 +218,11 @@ void MRClusterNode_Free(MRClusterNode *n) {
   rm_free((char *)n->id);
 }
 
-int MRCluster_UpdateTopology(MRCluster *cl, MRClusterTopology *newTopo) {
-
-  if (!newTopo) return REDIS_ERR;
-
-  // if the topology has updated, we update to the new one
-  if (newTopo->hashFunc == MRHashFunc_None && cl->topo) {
-    newTopo->hashFunc = cl->topo->hashFunc;
-  }
-
-  MRClusterTopology *old = cl->topo;
-  cl->topo = newTopo;
-  _MRCluster_UpdateNodes(cl);
-  MRCluster_ConnectAll(cl);
-  if (old) {
-    MRClusterTopology_Free(old);
-  }
-  return REDIS_OK;
-}
-
-
 void MRCluster_UpdateConnPerShard(IORuntimeCtx *ioRuntime, size_t new_conn_pool_size) {
   RS_ASSERT(new_conn_pool_size > 0);
   size_t old_conn_pool_size = ioRuntime->conn_mgr->nodeConns;
   if (old_conn_pool_size > new_conn_pool_size) {
-    MRConnManager_Shrink(ioRuntime->conn_mgr, new_conn_pool_size, RQ_GetLoop(ioRuntime->queue));
+    MRConnManager_Shrink(ioRuntime->conn_mgr, new_conn_pool_size, IORuntimeCtx_GetLoop(ioRuntime));
   } else if (old_conn_pool_size < new_conn_pool_size) {
     MRConnManager_Expand(ioRuntime->conn_mgr, new_conn_pool_size);
   }

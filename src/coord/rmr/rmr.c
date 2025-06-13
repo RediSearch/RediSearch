@@ -69,6 +69,11 @@ typedef struct MRCtx {
   MRReduceFunc fn;
 } MRCtx;
 
+typedef struct {
+  IORuntimeCtx *ioRuntime;
+  MRClusterTopology *topo;
+} UpdateTopologyCtx;
+
 void MR_SetCoordinationStrategy(MRCtx *ctx, bool mastersOnly) {
   ctx->mastersOnly = mastersOnly;
 }
@@ -90,8 +95,6 @@ MRCtx *MR_CreateCtx(RedisModuleCtx *ctx, RedisModuleBlockedClient *bc, void *pri
   RS_ASSERT(ctx || bc);
   ret->fn = NULL;
   ret->ioRuntimeIdx = IORuntimePool_AssignRoundRobinIdx(cluster_g);
-  //ret->queue = RQPool_GetRoundRobinQueue();
-
   return ret;
 }
 
@@ -270,13 +273,36 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd) {
 
 /* on-loop update topology request. This can't be done from the main thread */
 static void uvUpdateTopologyRequest(void *p) {
-  MRCluster_UpdateTopology(cluster_g, p);
+  UpdateTopologyCtx *ctx = p;
+  IORuntimeCtx *ioRuntime = ctx->ioRuntime;
+  MRClusterTopology *topo = ctx->topo;
+  IORuntimeCtx_UpdateNodesAndConnectAll(ioRuntime, topo);
+  rm_free(ctx);
 }
 
 /* Set a new topology for the cluster */
 void MR_UpdateTopology(MRClusterTopology *newTopo) {
   // enqueue a request on the io thread, this can't be done from the main thread
-  IORuntimeCtx_Schedule(cluster_g->control_plane_io_runtime, uvUpdateTopologyRequest, newTopo);
+  if (newTopo && cluster_g->topo && newTopo->hashFunc == MRHashFunc_None) {
+    newTopo->hashFunc = cluster_g->topo->hashFunc;
+  }
+  if (newTopo && cluster_g->topo) {
+    MRClusterTopology *old_topo = cluster_g->topo;
+    cluster_g->topo = newTopo;
+    if (old_topo) {
+      MRClusterTopology_Free(old_topo);
+    }
+  }
+  UpdateTopologyCtx *ctx = rm_malloc(sizeof(UpdateTopologyCtx));
+  ctx->topo = cluster_g->topo;
+  ctx->ioRuntime = cluster_g->control_plane_io_runtime;
+  IORuntimeCtx_Schedule(cluster_g->control_plane_io_runtime, uvUpdateTopologyRequest, ctx);
+  for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
+    UpdateTopologyCtx *ctx = rm_malloc(sizeof(UpdateTopologyCtx));
+    ctx->topo = cluster_g->topo;
+    ctx->ioRuntime = cluster_g->control_plane_io_runtime;
+    IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, ctx);
+  }
 }
 
 // /* Modifying the connection pools cannot be done from the main thread */
@@ -312,10 +338,10 @@ void MR_UpdateConnPerShard(size_t connPerShard) {
     }
     else {
       // First, close the connections. This needs to be done from the event loop thread
-      MRConnManager_Shrink(cluster_g->control_plane_io_runtime->conn_mgr, connPerShard, RQ_GetLoop(cluster_g->control_plane_io_runtime->queue));
+      MRConnManager_Shrink(cluster_g->control_plane_io_runtime->conn_mgr, connPerShard, IORuntimeCtx_GetLoop(cluster_g->control_plane_io_runtime));
       // Destroy runtimes
       for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
-        MRConnManager_Shrink(cluster_g->io_runtimes_pool[i]->conn_mgr, connPerShard, RQ_GetLoop(cluster_g->io_runtimes_pool[i]->queue));
+        MRConnManager_Shrink(cluster_g->io_runtimes_pool[i]->conn_mgr, connPerShard, IORuntimeCtx_GetLoop(cluster_g->io_runtimes_pool[i]));
       }
     }
 
@@ -333,7 +359,7 @@ void MR_UpdateConnPerShard(size_t connPerShard) {
 static void uvGetConnectionPoolState(void *p) {
   RedisModuleBlockedClient *bc = p;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-  MRConnManager_ReplyState(&cluster_g->control_plane_io_runtime->conn_mgr, ctx);
+  MRConnManager_ReplyState(cluster_g->control_plane_io_runtime->conn_mgr, ctx);
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(bc);
   RedisModule_UnblockClient(bc, NULL);
