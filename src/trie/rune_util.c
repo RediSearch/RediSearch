@@ -49,16 +49,31 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
     if (utflen) *utflen = 0;
     return NULL;
   }
-  uint32_t unicode[len + 1];
+
+  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
+  uint32_t *unicode = u_stack_buffer;
+
+  if (len > SSO_MAX_LENGTH - 1) {
+    unicode = rm_malloc((len + 1) * sizeof(*unicode));
+    if (!unicode) {
+      *utflen = 0;
+      return NULL;
+    }
+  }
+
   for (int i = 0; i < len; i++) {
     unicode[i] = (uint32_t)in[i];
   }
   unicode[len] = 0;
 
-  *utflen = nu_bytelen(unicode, nu_utf8_write);
-  char *ret = rm_calloc(1, *utflen + 1);
+  size_t bytelen = nu_bytelen(unicode, nu_utf8_write);
+  char *ret = rm_calloc(1, bytelen + 1);
 
   nu_writestr(unicode, ret, nu_utf8_write);
+  if (unicode != u_stack_buffer) {
+    rm_free(unicode);
+  }
+  *utflen = bytelen;
   return ret;
 }
 
@@ -73,9 +88,14 @@ rune *strToLowerRunes(const char *str, size_t *len) {
     return NULL;
   }
 
-  uint32_t decoded[rlen + 1];
-  decoded[rlen] = 0;
-  nu_readstr(str, decoded, nu_utf8_read);
+  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
+  uint32_t *u_buffer = u_stack_buffer;
+  if (rlen > SSO_MAX_LENGTH - 1) {
+    u_buffer = rm_malloc((rlen + 1) * sizeof(*u_buffer));
+  }
+
+  u_buffer[rlen] = 0;
+  nu_readstr(str, u_buffer, nu_utf8_read);
 
   rune *ret = rm_calloc(rlen + 1, sizeof(rune));
   const char *encoded_char = str;
@@ -95,18 +115,19 @@ rune *strToLowerRunes(const char *str, size_t *len) {
         if (mu == 0) {
           break;
         }
-        ret[i] = mu;
-        ++i;
+        ret[i++] = mu;
       }
-    }
-    else {
-      // If no transformation is needed, just copy the unicode codepoint
-      ret[i] = codepoint;
-      ++i;
+    } else {
+      if (i < rlen) {
+        ret[i++] = codepoint;
+      }
     }
   }
   if (len) *len = rlen;
 
+  if (u_buffer != u_stack_buffer) {
+    rm_free(u_buffer);
+  }
   return ret;
 }
 
