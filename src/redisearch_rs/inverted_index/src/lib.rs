@@ -35,6 +35,14 @@ impl Delta {
         }
         delta_vec
     }
+
+    fn unpack(data: &[u8]) -> Self {
+        let mut delta = 0;
+        for (i, &byte) in data.iter().enumerate() {
+            delta |= (byte as usize) << (i * 8);
+        }
+        Delta(delta)
+    }
 }
 
 impl Delta {
@@ -299,18 +307,14 @@ pub trait Decoder {
     /// add to the `base` document ID to get the actual document ID.
     ///
     /// Returns `Ok(None)` if there is nothing left on the reader to decode.
-    fn decode<R: Read>(
-        &self,
-        reader: &mut R,
-        base: t_docId,
-    ) -> std::io::Result<Option<DecoderResult>>;
+    fn decode<R: Read>(&self, reader: R, base: t_docId) -> std::io::Result<Option<DecoderResult>>;
 
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
     /// Returns `None` if no record has a document ID greater than or equal to `target`.
-    fn seek<R: Read + Seek>(
+    fn seek<R: Read + Seek + Copy>(
         &self,
-        reader: &mut R,
+        reader: R,
         base: t_docId,
         target: t_docId,
     ) -> std::io::Result<Option<RSIndexResult>> {
@@ -367,6 +371,27 @@ impl Encoder for Numeric {
     }
 }
 
+impl Decoder for Numeric {
+    fn decode<R: Read>(
+        &self,
+        mut reader: R,
+        base: t_docId,
+    ) -> std::io::Result<Option<DecoderResult>> {
+        let mut header = [0u8; 1];
+        let _bytes_read = reader.read(&mut header)?;
+        let header = TinyHeader::unpack(header[0]);
+
+        let mut delta = vec![0; header.delta_bytes as _];
+        let _bytes_read = reader.read(&mut delta)?;
+        let delta = Delta::unpack(&delta);
+
+        let doc_id = base + (delta.0 as u64);
+        let record = RSIndexResult::numeric(doc_id, header.value as _);
+
+        Ok(Some(DecoderResult::Record(record)))
+    }
+}
+
 enum F64Value {
     Tiny(u8),
     Int(u64),
@@ -400,6 +425,14 @@ impl TinyHeader {
         packed |= (self.value & 0b111) << 5; // 3 bits for value
 
         packed
+    }
+
+    fn unpack(data: u8) -> Self {
+        Self {
+            delta_bytes: data & 0b111,  // 3 bits for the delta bytes
+            typ: (data >> 3) & 0b11,    // 2 bits for the type
+            value: (data >> 5) & 0b111, // 3 bits for the value
+        }
     }
 }
 
