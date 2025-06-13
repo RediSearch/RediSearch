@@ -8,17 +8,10 @@
 */
 #define RQ_C__
 
-#if defined(__linux__)
-#include <sys/prctl.h>
-#endif
-#include <pthread.h>
-
 #include <stdlib.h>
 #include <uv.h>
 #include "rq.h"
 #include "rmalloc.h"
-#include "rmr.h"
-#include "coord/config.h"
 #include "rmutil/rm_assert.h"
 #include "rq.h"
 

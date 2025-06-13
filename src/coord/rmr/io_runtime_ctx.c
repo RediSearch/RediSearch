@@ -7,12 +7,16 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#if defined(__linux__)
+#include <sys/prctl.h>
+#endif
 #include "io_runtime_ctx.h"
 #include "rmalloc.h"
 #include "conn.h"
 #include "cluster.h"
 #include <rmutil/rm_assert.h>  // Include the assertion header
 #include "../config.h"
+
 
 typedef struct TopologyValidationTimerCBData {
   IORuntimeCtx *io_runtime_ctx;
