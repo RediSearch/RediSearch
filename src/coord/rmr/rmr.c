@@ -193,9 +193,6 @@ static void fanoutCallback(redisAsyncContext *c, void *r, void *privdata) {
   }
 }
 
-// `*50` for following the previous behavior
-// #define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
-#define PENDING_FACTOR 50
 /* Initialize the MapReduce engine with a node provider */
 void MR_Init(size_t num_io_threads, size_t num_connections_per_shard, long long timeoutMS) {
   cluster_g = MR_NewCluster(NULL, num_connections_per_shard, num_io_threads);
@@ -345,12 +342,12 @@ void MR_UpdateConnPerShard(size_t connPerShard) {
       }
     }
 
-    //TODO(Joan): Review and get this logic
-    size_t max_pending = connPerShard * PENDING_FACTOR;
+    size_t max_pending = cluster_g->control_plane_io_runtime->conn_mgr->nodeConns * PENDING_FACTOR;
 
     RQ_UpdateMaxPending(cluster_g->control_plane_io_runtime->queue, max_pending);
 
     for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
+      max_pending = cluster_g->io_runtimes_pool[i]->conn_mgr->nodeConns * PENDING_FACTOR;
       RQ_UpdateMaxPending(cluster_g->io_runtimes_pool[i]->queue, max_pending);
     }
   }

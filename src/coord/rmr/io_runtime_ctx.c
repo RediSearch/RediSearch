@@ -213,10 +213,10 @@ int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime, struct MRClus
   return REDIS_OK;
 }
 
-IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, int max_pending, size_t id) {
+IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, size_t id) {
   IORuntimeCtx *io_runtime_ctx = rm_malloc(sizeof(IORuntimeCtx));
-  io_runtime_ctx->queue = RQ_New(max_pending, id);
   io_runtime_ctx->conn_mgr = MRConnManager_New(num_connections_per_shard);
+  io_runtime_ctx->queue = RQ_New(io_runtime_ctx->conn_mgr->nodeConns * PENDING_FACTOR, id);
   uv_loop_init(&io_runtime_ctx->loop);
   uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->async, rqAsyncCb);
   io_runtime_ctx->async.data = io_runtime_ctx;

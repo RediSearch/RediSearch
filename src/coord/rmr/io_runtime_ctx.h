@@ -14,6 +14,10 @@
 #include <uv.h>
 #include "util/arr.h"
 
+// `*50` for following the previous behavior
+// #define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
+#define PENDING_FACTOR 50
+
 struct MRClusterTopology;
 
 //Structure to encapsulate the IO Runtime context for MR operations to take place
@@ -34,7 +38,7 @@ typedef struct {
   arrayof(uv_async_t *) pendingQueues;
 } IORuntimeCtx;
 
-IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, int max_pending, size_t id);
+IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, size_t id);
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx);
 
 void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);

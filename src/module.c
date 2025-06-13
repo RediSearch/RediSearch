@@ -3588,10 +3588,13 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
   }
 
-  size_t num_io_threads = num_connections_per_shard/2;
-  if (num_io_threads == 0) {
-    num_io_threads = 1;
+  size_t num_io_threads;
+  if (clusterConfig.coordinatorIOThreads) {
+    num_io_threads = clusterConfig.coordinatorIOThreads;
+  } else {
+    num_io_threads = RSGlobalConfig.numWorkerThreads + 1;
   }
+
   MR_Init(num_io_threads, num_connections_per_shard, clusterConfig.timeoutMS);
 
   return REDISMODULE_OK;

@@ -14,7 +14,7 @@
 #include <stdlib.h>
 #include "rq.h"
 
-#define PENDING_FACTOR 50
+/* Initialize the MapReduce engine with a node provider */
 MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_size, size_t num_io_threads) {
   MRCluster *cl = rm_new(MRCluster);
   RS_ASSERT(num_io_threads > 0);
@@ -22,16 +22,16 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
   cl->num_io_threads = num_io_threads;
   cl->io_runtimes_pool_size = num_io_threads - 1;
   if (num_io_threads <= 1) {
-    cl->control_plane_io_runtime = IORuntimeCtx_Create(conn_pool_size, num_io_threads * PENDING_FACTOR, 0);
+    cl->control_plane_io_runtime = IORuntimeCtx_Create(conn_pool_size, 0);
     cl->io_runtimes_pool = NULL;
   } else {
-    cl->io_runtimes_pool = rm_malloc( cl->io_runtimes_pool_size * sizeof(IORuntimeCtx*));
-    cl->control_plane_io_runtime = IORuntimeCtx_Create(conn_pool_size, num_io_threads * PENDING_FACTOR, 0);
+    cl->io_runtimes_pool = rm_malloc(cl->io_runtimes_pool_size * sizeof(IORuntimeCtx*));
+    cl->control_plane_io_runtime = IORuntimeCtx_Create(conn_pool_size, 0);
     if (cl->topo) {
       IORuntimeCtx_UpdateNodes(cl->control_plane_io_runtime, cl->topo);
     }
     for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
-      cl->io_runtimes_pool[i] = IORuntimeCtx_Create(conn_pool_size, num_io_threads * PENDING_FACTOR, i + 1);
+      cl->io_runtimes_pool[i] = IORuntimeCtx_Create(conn_pool_size, i + 1);
       if (cl->topo) {
         IORuntimeCtx_UpdateNodes(cl->io_runtimes_pool[i], cl->topo);
       }
