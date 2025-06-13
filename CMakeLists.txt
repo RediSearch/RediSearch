@@ -267,6 +267,14 @@ file(GLOB SOURCES
     "deps/thpool/*.c"
     "deps/geohash/*.c")
 
+#----------------------------------------------------------------------------------------------
+# Standalone libraries for Rust benchmarking
+# Build the `varint` module as a standalone static library
+# This allows benchmarking the Rust implementation against the C implementation
+file(GLOB VARINT_SOURCES "src/varint.c" "src/buffer.c")
+add_library(varint STATIC ${VARINT_SOURCES})
+target_include_directories(varint PRIVATE src deps/RedisModulesSDK)
+
 add_library(rscore OBJECT ${SOURCES})
 
 set(FINAL_OBJECTS
