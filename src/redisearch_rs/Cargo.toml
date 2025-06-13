@@ -81,6 +81,7 @@ insta = "1.42.2"
 lending-iterator = "0.1.7"
 libc = "0.2.170"
 memchr = "2.7.4"
+pretty_assertions = "1.4.1"
 proptest = { version = "1.6.0", default-features = false }
 proptest-derive = { version = "0.5.1", default-features = false }
 rand = "0.9.1"
