@@ -267,9 +267,15 @@ void MRClusterTopology_AddShard(MRClusterTopology *topo, MRClusterShard *sh) {
 
 void MRClust_Free(MRCluster *cl) {
   if (cl) {
-    if (cl->topo) {
-      MRClusterTopology_Free(cl->topo);
+    // First, fire the shutdown event for all runtimes
+    if (cl->io_runtimes_pool) {
+      for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
+        IORuntimeCtx_FireShutdown(cl->io_runtimes_pool[i]);
+      }
     }
+    IORuntimeCtx_FireShutdown(cl->control_plane_io_runtime);
+
+    // Then free the RuntimeCtx, it will join the threads
     if (cl->io_runtimes_pool) {
       for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
         IORuntimeCtx_Free(cl->io_runtimes_pool[i]);
@@ -277,6 +283,9 @@ void MRClust_Free(MRCluster *cl) {
       rm_free(cl->io_runtimes_pool);
     }
     IORuntimeCtx_Free(cl->control_plane_io_runtime);
+    if (cl->topo) {
+      MRClusterTopology_Free(cl->topo);
+    }
     rm_free(cl);
   }
 }

@@ -16,6 +16,7 @@
 #include "cluster.h"
 #include <rmutil/rm_assert.h>  // Include the assertion header
 #include "../config.h"
+#include <unistd.h> /* For usleep() */
 
 
 typedef struct TopologyValidationTimerCBData {
@@ -34,6 +35,11 @@ static inline queueItem *exchangePendingTopo(IORuntimeCtx *io_runtime_ctx, queue
 // start the event loop thread. Should normally return false.
 static inline bool loopThreadUninitialized(IORuntimeCtx *io_runtime_ctx) {
   return __builtin_expect((__atomic_test_and_set(&io_runtime_ctx->loop_th_started, __ATOMIC_ACQUIRE) == false), false);
+}
+
+static inline bool loopThreadStarted(IORuntimeCtx *io_runtime_ctx) {
+  // Not sure the atomic load is needed though
+  return __atomic_load_n(&io_runtime_ctx->loop_th_started, __ATOMIC_ACQUIRE);
 }
 
 static void triggerPendingQueues(IORuntimeCtx *io_runtime_ctx) {
@@ -110,6 +116,25 @@ static void topologyAsyncCB(uv_async_t *async) {
   }
 }
 
+void shutdown_cb(uv_async_t* handle) {
+  IORuntimeCtx* io_runtime_ctx = (IORuntimeCtx*)handle->data;
+
+  // Stop timers
+  uv_timer_stop(&io_runtime_ctx->topologyValidationTimer);
+  uv_timer_stop(&io_runtime_ctx->topologyFailureTimer);
+
+  // Close handles
+  if (io_runtime_ctx->topologyValidationTimer.data) {
+    rm_free(io_runtime_ctx->topologyValidationTimer.data);
+  }
+  uv_close((uv_handle_t*)&io_runtime_ctx->topologyValidationTimer, NULL);
+  uv_close((uv_handle_t*)&io_runtime_ctx->topologyFailureTimer, NULL);
+  uv_close((uv_handle_t*)&io_runtime_ctx->topologyAsync, NULL);
+  uv_close((uv_handle_t*)&io_runtime_ctx->shutdownAsync, NULL);
+
+  // Stop the loop
+  uv_stop(&io_runtime_ctx->loop);
+}
 
 /* start the event loop side thread */
 static void sideThread(void *arg) {
@@ -128,14 +153,15 @@ static void sideThread(void *arg) {
 #endif
   IORuntimeCtx *io_runtime_ctx = arg;
   // Mark the event loop thread as running before triggering the topology check.
-  io_runtime_ctx->loop_th_running = true;
-  if(io_runtime_ctx->queue->id == 0 ) {
+  //if(io_runtime_ctx->queue->id == 0 ) {
     // Only the global queue needs to initialize the timers.
-    uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyValidationTimer);
-    uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyFailureTimer);
-    uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyAsync, topologyAsyncCB);
-    uv_async_send(&io_runtime_ctx->topologyAsync); // start the topology check
-  }
+  uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyValidationTimer);
+  uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyFailureTimer);
+  uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyAsync, topologyAsyncCB);
+  uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->shutdownAsync, shutdown_cb);
+  uv_async_send(&io_runtime_ctx->topologyAsync); // start the topology check
+  //}
+  io_runtime_ctx->loop_th_running = true;
   uv_run(&io_runtime_ctx->loop, UV_RUN_DEFAULT);
 }
 
@@ -256,21 +282,28 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
   return io_runtime_ctx;
 }
 
+void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
+  if (loopThreadStarted(io_runtime_ctx)) {
+    // There may be a race between the thread starting and the loop running.
+    while (!io_runtime_ctx->loop_th_running) {
+      // Small delay to avoid busy-waiting
+      usleep(1000); // 1ms delay
+    }
+    uv_async_send(&io_runtime_ctx->shutdownAsync);
+  }
+}
+
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
+  if (loopThreadStarted(io_runtime_ctx)) {
+    uv_thread_join(io_runtime_ctx->loop_th);
+  }
   RQ_Free(io_runtime_ctx->queue);
   MRConnManager_Free(io_runtime_ctx->conn_mgr);
-  uv_close((uv_handle_t *)&io_runtime_ctx->async, NULL);
-  uv_close((uv_handle_t *)&io_runtime_ctx->topologyAsync, NULL);
-  if (io_runtime_ctx->topologyValidationTimer.data) {
-    rm_free(io_runtime_ctx->topologyValidationTimer.data);
-  }
-  uv_close((uv_handle_t *)&io_runtime_ctx->topologyValidationTimer, NULL);
-  uv_close((uv_handle_t *)&io_runtime_ctx->topologyFailureTimer, NULL);
-  uv_loop_close(&io_runtime_ctx->loop);
   rm_free(io_runtime_ctx);
 }
 
 void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata) {
+  //lazily start the event loop thread if it's not already running
   verify_uv_thread(io_runtime_ctx);
   RQ_Push(io_runtime_ctx->queue, cb, privdata);
   uv_async_send(&io_runtime_ctx->async);
