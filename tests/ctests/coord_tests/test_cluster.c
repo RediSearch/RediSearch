@@ -120,7 +120,7 @@ void testShardingFunc() {
   MRClust_Free(cl);
 }
 
-MRClusterShard *_MRCluster_FindShard(MRCluster *cl, mr_slot_t slot);
+MRClusterShard *_MRCluster_FindShard(MRClusterTopology *topo, mr_slot_t slot);
 
 void testCluster() {
 

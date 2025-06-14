@@ -30,18 +30,6 @@ static inline queueItem *exchangePendingTopo(IORuntimeCtx *io_runtime_ctx, queue
   return __atomic_exchange_n(&io_runtime_ctx->pendingTopo, newTopo, __ATOMIC_SEQ_CST);
 }
 
-// Atomically check if the event loop thread is uninitialized and mark it as initialized.
-// Returns true if the event loop thread was uninitialized, and in this case the caller should
-// start the event loop thread. Should normally return false.
-static inline bool loopThreadUninitialized(IORuntimeCtx *io_runtime_ctx) {
-  return __builtin_expect((__atomic_test_and_set(&io_runtime_ctx->loop_th_started, __ATOMIC_ACQUIRE) == false), false);
-}
-
-static inline bool loopThreadStarted(IORuntimeCtx *io_runtime_ctx) {
-  // Not sure the atomic load is needed though
-  return __atomic_load_n(&io_runtime_ctx->loop_th_started, __ATOMIC_ACQUIRE);
-}
-
 static void triggerPendingQueues(IORuntimeCtx *io_runtime_ctx) {
   array_foreach(io_runtime_ctx->pendingQueues, async, uv_async_send(async));
   array_free(io_runtime_ctx->pendingQueues);
@@ -51,6 +39,7 @@ static void triggerPendingQueues(IORuntimeCtx *io_runtime_ctx) {
 static void rqAsyncCb(uv_async_t *async) {
   IORuntimeCtx *io_runtime_ctx = async->data;
   if (!io_runtime_ctx->loop_th_ready) {
+    // Topology is scheduled to change, add to the list of pending queues after topology is properly applied
     array_ensure_append_1(io_runtime_ctx->pendingQueues, async); // try again later
     return;
   }
@@ -169,52 +158,34 @@ static void sideThread(void *arg) {
   SideLoopThreadData *data = arg;
   IORuntimeCtx *io_runtime_ctx = data->io_runtime_ctx;
   const struct MRClusterTopology *topo = data->topo;
-  // Mark the event loop thread as running before triggering the topology check.
-  //if(io_runtime_ctx->queue->id == 0 ) {
-    // Only the global queue needs to initialize the timers.
+
+  // Initialize the loop and timers
   uv_loop_init(&io_runtime_ctx->loop);
   uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyValidationTimer);
   uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyFailureTimer);
   uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->async, rqAsyncCb);
   uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyAsync, topologyAsyncCB);
   uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->shutdownAsync, shutdown_cb);
+
   io_runtime_ctx->shutdownAsync.data = io_runtime_ctx;
   io_runtime_ctx->async.data = io_runtime_ctx;
   io_runtime_ctx->topologyAsync.data = io_runtime_ctx;
   io_runtime_ctx->topologyFailureTimer.data = io_runtime_ctx;
   io_runtime_ctx->topologyValidationTimer.data = (TopologyValidationTimerCBData *)data;
   uv_async_send(&io_runtime_ctx->topologyAsync); // start the topology check
-  //}
+
+  // loop is initialized and handles are ready
+  io_runtime_ctx->loop_th_ready = true;
+  uv_mutex_lock(&io_runtime_ctx->loop_th_mutex);
   io_runtime_ctx->loop_th_running = true;
+  uv_cond_signal(&io_runtime_ctx->loop_th_cond);
+  uv_mutex_unlock(&io_runtime_ctx->loop_th_mutex);
+
+  uv_async_send(&io_runtime_ctx->topologyAsync); // start the topology check
+
+  // Run the event loop
   uv_run(&io_runtime_ctx->loop, UV_RUN_DEFAULT);
-}
-
-static void verify_uv_thread(IORuntimeCtx *io_runtime_ctx, const struct MRClusterTopology *topo) {
-  if (loopThreadUninitialized(io_runtime_ctx)) {
-    // Verify that we are running on the event loop thread
-    SideLoopThreadData *data = rm_malloc(sizeof(SideLoopThreadData));
-    data->io_runtime_ctx = io_runtime_ctx;
-    data->topo = topo;
-    int uv_thread_create_status = uv_thread_create(&io_runtime_ctx->loop_th, sideThread, data);
-    RS_ASSERT(uv_thread_create_status == 0);
-    REDISMODULE_NOT_USED(uv_thread_create_status);
-    RedisModule_Log(RSDummyContext, "verbose", "Queue ID %zu: Created event loop thread", io_runtime_ctx->queue->id);
-    //TODO(Joan): How to make sure all the handlers are properly initialized? (thread is scheduled to start, but not sure it has already started and is running the loop)
-  }
-}
-
-void IORuntimeCtx_Push_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo) {
-  queueItem *oldTask, *newTask = rm_new(queueItem);
-  newTask->cb = cb;
-  newTask->privdata = topo;
-  oldTask = exchangePendingTopo(io_runtime_ctx, newTask);
-  if (io_runtime_ctx->loop_th_running) {
-    uv_async_send(&io_runtime_ctx->topologyAsync); // trigger the topology check
-  }
-  if (oldTask) {
-    MRClusterTopology_Free(oldTask->privdata);
-    rm_free(oldTask);
-  }
+  uv_loop_close(&io_runtime_ctx->loop);
 }
 
 void IORuntimeCtx__Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx) {
@@ -284,22 +255,39 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
   io_runtime_ctx->conn_mgr = MRConnManager_New(num_connections_per_shard);
   io_runtime_ctx->queue = RQ_New(io_runtime_ctx->conn_mgr->nodeConns * PENDING_FACTOR, id);
   io_runtime_ctx->pendingTopo = NULL;
+  io_runtime_ctx->loop_th_ready = false;
+  io_runtime_ctx->loop_th_running = false;
+
+  // Initialize synchronization primitives
+  uv_mutex_init(&io_runtime_ctx->loop_th_mutex);
+  uv_cond_init(&io_runtime_ctx->loop_th_cond);
+
+  SideLoopThreadData *data = rm_malloc(sizeof(SideLoopThreadData));
+  data->io_runtime_ctx = io_runtime_ctx;
+  data->topo = topo;
+
+  int uv_thread_create_status = uv_thread_create(&io_runtime_ctx->loop_th, sideThread, data);
+  RS_ASSERT(uv_thread_create_status == 0);
+
+  // Wait for the thread to be created and running using condition variable
+  uv_mutex_lock(&io_runtime_ctx->loop_th_mutex);
+  while (!io_runtime_ctx->loop_th_running) {
+    uv_cond_wait(&io_runtime_ctx->loop_th_cond, &io_runtime_ctx->loop_th_mutex);
+  }
+  uv_mutex_unlock(&io_runtime_ctx->loop_th_mutex);
+
   return io_runtime_ctx;
 }
 
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
-  if (loopThreadStarted(io_runtime_ctx)) {
+  if (io_runtime_ctx->loop_th_running) {
     // There may be a delaty between the thread starting and the loop running, we need to account for it
-    while (!io_runtime_ctx->loop_th_running) {
-      // Small delay to avoid busy-waiting
-      usleep(1000); // 1ms delay
-    }
     uv_async_send(&io_runtime_ctx->shutdownAsync);
   }
 }
 
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
-  if (loopThreadStarted(io_runtime_ctx)) {
+  if (io_runtime_ctx->loop_th_running) {
     uv_thread_join(&io_runtime_ctx->loop_th);
   }
   RQ_Free(io_runtime_ctx->queue);
@@ -307,9 +295,8 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
   rm_free(io_runtime_ctx);
 }
 
-void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, const struct MRClusterTopology *topo, MRQueueCallback cb, void *privdata) {
-  //lazily start the event loop thread if it's not already running
-  verify_uv_thread(io_runtime_ctx, topo);
+void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata) {
+  RS_ASSERT(io_runtime_ctx->loop_th_running); // the thread is not lazily initialized, it's created on creation
   RQ_Push(io_runtime_ctx->queue, cb, privdata);
   uv_async_send(&io_runtime_ctx->async);
 }
