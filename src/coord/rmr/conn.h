@@ -15,6 +15,7 @@
 #include "endpoint.h"
 #include "command.h"
 #include "util/dict.h"
+#include <uv.h>
 
 /*
  * The state of the connection.
@@ -52,20 +53,16 @@ static inline const char *MRConnState_Str(MRConnState state) {
       return "<UNKNOWN STATE (CRASHES AHEAD!!!!)";
   }
 }
-
-typedef struct {
-  MREndpoint ep;
-  redisAsyncContext *conn;
-  MRConnState state;
-  void *timer;
-  int protocol; // 0 (undetermined), 2, or 3
-} MRConn;
+// opaque type
+typedef struct MRConn MRConn;
 
 /* A pool indexes connections by the node id */
 typedef struct {
   dict *map;
   int nodeConns;
 } MRConnManager;
+
+MRConnManager *MRConnManager_New(size_t num_connections_per_shard);
 
 void MRConnManager_Init(MRConnManager *mgr, int nodeConns);
 
@@ -77,10 +74,10 @@ MRConn *MRConn_Get(MRConnManager *mgr, const char *id);
 int MRConn_SendCommand(MRConn *c, MRCommand *cmd, redisCallbackFn *fn, void *privdata);
 
 /* Add a node to the connection manager */
-int MRConnManager_Add(MRConnManager *m, const char *id, MREndpoint *ep, int connect);
+int MRConnManager_Add(MRConnManager *m, uv_loop_t *loop, const char *id, MREndpoint *ep, int connect);
 
 /* Connect all nodes to their destinations */
-int MRConnManager_ConnectAll(MRConnManager *m);
+int MRConnManager_ConnectAll(MRConnManager *m, uv_loop_t *loop);
 
 /* Disconnect a node */
 int MRConnManager_Disconnect(MRConnManager *m, const char *id);
@@ -89,12 +86,12 @@ int MRConnManager_Disconnect(MRConnManager *m, const char *id);
  * Set number of connections to each node to `num`, disconnect from extras.
  * Assumes that `num` is less than the current number of connections and non-zero
  */
-void MRConnManager_Shrink(MRConnManager *m, size_t num);
+void MRConnManager_Shrink(MRConnManager *m, size_t num, uv_loop_t *loop);
 
 /*
  * Set number of connections to each node to `num`, connect new connections.
  * Assumes that `num` is greater than the current number of connections
  */
-void MRConnManager_Expand(MRConnManager *m, size_t num);
+void MRConnManager_Expand(MRConnManager *m, size_t num, uv_loop_t *loop);
 
 void MRConnManager_Free(MRConnManager *m);

@@ -29,17 +29,14 @@ int MR_MapSingle(struct MRCtx *ctx, MRReduceFunc reducer, MRCommand cmd);
 
 void MR_SetCoordinationStrategy(struct MRCtx *ctx, bool mastersOnly);
 
-/* Initialize the MapReduce engine with a node provider */
-void MR_Init(MRCluster *cl, long long timeoutMS);
+/* Initialize the MapReduce engine with a given number of I/O threads and connections per each node in the Cluster */
+void MR_Init(size_t num_io_threads, size_t num_connections_per_shard, long long timeoutMS);
 
 /* Set a new topology for the cluster */
 void MR_UpdateTopology(MRClusterTopology *newTopology);
 
 /* Get the current cluster topology */
 bool MR_CurrentTopologyExists();
-
-/* Get the current cluster topology connectivity status */
-int MR_CheckTopologyConnections(bool mastersOnly);
 
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
 
@@ -57,7 +54,6 @@ int MRCtx_GetNumReplied(struct MRCtx *ctx);
 MRReply** MRCtx_GetReplies(struct MRCtx *ctx);
 RedisModuleBlockedClient *MRCtx_GetBlockedClient(struct MRCtx *ctx);
 void MRCtx_SetReduceFunction(struct MRCtx *ctx, MRReduceFunc fn);
-void MR_requestCompleted();
 
 
 /* Free the MapReduce context */
@@ -104,3 +100,5 @@ MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
 short MRIterator_GetPending(MRIterator *it);
 
 void MRIterator_Release(MRIterator *it);
+
+IORuntimeCtx *MR_GetControlPlaneRuntime();
