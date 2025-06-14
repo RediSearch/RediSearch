@@ -223,7 +223,7 @@ void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime, struct MRClusterTopology 
     for (int n = 0; n < topo->shards[sh].numNodes; n++) {
       // Update all the conn Manager in each of the runtimes.
       MRClusterNode *node = &topo->shards[sh].nodes[n];
-      MRConnManager_Add(ioRuntime->conn_mgr, node->id, &node->endpoint, 0);
+      MRConnManager_Add(ioRuntime->conn_mgr, &ioRuntime->loop, node->id, &node->endpoint, 0);
       /* This node is still valid, remove it from the nodes to delete list */
       dictDelete(nodesToDisconnect, node->id);
     }

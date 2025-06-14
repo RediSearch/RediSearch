@@ -224,7 +224,7 @@ void MRCluster_UpdateConnPerShard(IORuntimeCtx *ioRuntime, size_t new_conn_pool_
   if (old_conn_pool_size > new_conn_pool_size) {
     MRConnManager_Shrink(ioRuntime->conn_mgr, new_conn_pool_size, IORuntimeCtx_GetLoop(ioRuntime));
   } else if (old_conn_pool_size < new_conn_pool_size) {
-    MRConnManager_Expand(ioRuntime->conn_mgr, new_conn_pool_size);
+    MRConnManager_Expand(ioRuntime->conn_mgr, new_conn_pool_size, IORuntimeCtx_GetLoop(ioRuntime));
   }
 }
 

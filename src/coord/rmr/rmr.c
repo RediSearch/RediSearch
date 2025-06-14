@@ -278,12 +278,10 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
   if (newTopo && cluster_g->topo && newTopo->hashFunc == MRHashFunc_None) {
     newTopo->hashFunc = cluster_g->topo->hashFunc;
   }
-  if (newTopo && cluster_g->topo) {
-    MRClusterTopology *old_topo = cluster_g->topo;
-    cluster_g->topo = newTopo;
-    if (old_topo) {
-      MRClusterTopology_Free(old_topo);
-    }
+  MRClusterTopology *old_topo = cluster_g->topo;
+  cluster_g->topo = newTopo;
+  if (old_topo) {
+    MRClusterTopology_Free(old_topo);
   }
   UpdateTopologyCtx *controlPlaneCtx = rm_malloc(sizeof(UpdateTopologyCtx));
   controlPlaneCtx->topo = cluster_g->topo;
@@ -324,9 +322,9 @@ void MR_UpdateConnPerShard(size_t connPerShard) {
     size_t old_conn_count = control_plane_conn_mgr->nodeConns;
     if(connPerShard >= old_conn_count) {
       // New runtimes are in place, we can now submit more connections
-      MRConnManager_Expand(cluster_g->control_plane_io_runtime->conn_mgr, connPerShard);
+      MRConnManager_Expand(cluster_g->control_plane_io_runtime->conn_mgr, connPerShard, IORuntimeCtx_GetLoop(cluster_g->control_plane_io_runtime));
       for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
-        MRConnManager_Expand(cluster_g->io_runtimes_pool[i]->conn_mgr, connPerShard);
+        MRConnManager_Expand(cluster_g->io_runtimes_pool[i]->conn_mgr, connPerShard, IORuntimeCtx_GetLoop(cluster_g->io_runtimes_pool[i]));
       }
     }
     else {
