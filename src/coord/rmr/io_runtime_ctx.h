@@ -28,7 +28,7 @@ typedef struct {
   uv_loop_t loop;
   uv_thread_t loop_th;
   bool loop_th_started; // set to true when the event loop thread is started
-  bool loop_th_running; // set to true when the event loop thread is initialized
+  bool loop_th_running; // set to true when the event loop thread is initialized // (TODO:Joan) Convert into signal
   bool loop_th_ready;   /* set to true when the event loop thread is ready to process requests.
                                         * This is set to false when a new topology is applied, and set to true
                                         * when the topology check is done. */
@@ -43,7 +43,7 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx);
 
-void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);
+void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, const struct MRClusterTopology *topo, MRQueueCallback cb, void *privdata);
 
 void IORuntimeCtx_Push_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo);
 void IORuntimeCtx__Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx);

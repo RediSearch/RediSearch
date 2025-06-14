@@ -19,10 +19,10 @@
 #include <unistd.h> /* For usleep() */
 
 
-typedef struct TopologyValidationTimerCBData {
+typedef struct SideLoopThreadData {
   IORuntimeCtx *io_runtime_ctx;
-  struct MRClusterTopology *topo;
-} TopologyValidationTimerCBData;
+  const struct MRClusterTopology *topo;
+} SideLoopThreadData, TopologyValidationTimerCBData;
 
 // Atomically exchange the pending topology with a new topology.
 // Returns the old pending topology (or NULL if there was no pending topology).
@@ -48,6 +48,20 @@ static void triggerPendingQueues(IORuntimeCtx *io_runtime_ctx) {
   io_runtime_ctx->pendingQueues = NULL;
 }
 
+static void rqAsyncCb(uv_async_t *async) {
+  IORuntimeCtx *io_runtime_ctx = async->data;
+  if (!io_runtime_ctx->loop_th_ready) {
+    array_ensure_append_1(io_runtime_ctx->pendingQueues, async); // try again later
+    return;
+  }
+  queueItem *req;
+  while (NULL != (req = RQ_Pop(io_runtime_ctx->queue, &io_runtime_ctx->async))) {
+    req->cb(req->privdata);
+    rm_free(req);
+    RQ_Done(io_runtime_ctx->queue);
+  }
+}
+
 extern RedisModuleCtx *RSDummyContext;
 
 static void topologyFailureCB(uv_timer_t *timer) {
@@ -60,7 +74,8 @@ static void topologyFailureCB(uv_timer_t *timer) {
   io_runtime_ctx->loop_th_ready = true;
   triggerPendingQueues(io_runtime_ctx);
 }
-static int CheckTopologyConnections(MRClusterTopology *topo,
+
+static int CheckTopologyConnections(const MRClusterTopology *topo,
                                     IORuntimeCtx *ioRuntime,
                                     bool mastersOnly) {
   for (size_t i = 0; i < topo->numShards; i++) {
@@ -80,7 +95,7 @@ static int CheckTopologyConnections(MRClusterTopology *topo,
 static void topologyTimerCB(uv_timer_t *timer) {
   TopologyValidationTimerCBData *cbData = (TopologyValidationTimerCBData *)timer->data;
   IORuntimeCtx *io_runtime_ctx = cbData->io_runtime_ctx;
-  MRClusterTopology *topo = cbData->topo;
+  const MRClusterTopology *topo = cbData->topo;
  if (CheckTopologyConnections(topo, io_runtime_ctx, true) == REDIS_OK) {
     // We are connected to all master nodes. We can mark the event loop thread as ready
     io_runtime_ctx->loop_th_ready = true;
@@ -151,27 +166,40 @@ static void sideThread(void *arg) {
   RedisModule_Log(RSDummyContext, "verbose",
       "sideThread(): pthread_setname_np is not supported on this system");
 #endif
-  IORuntimeCtx *io_runtime_ctx = arg;
+  SideLoopThreadData *data = arg;
+  IORuntimeCtx *io_runtime_ctx = data->io_runtime_ctx;
+  const struct MRClusterTopology *topo = data->topo;
   // Mark the event loop thread as running before triggering the topology check.
   //if(io_runtime_ctx->queue->id == 0 ) {
     // Only the global queue needs to initialize the timers.
+  uv_loop_init(&io_runtime_ctx->loop);
   uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyValidationTimer);
   uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyFailureTimer);
+  uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->async, rqAsyncCb);
   uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyAsync, topologyAsyncCB);
   uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->shutdownAsync, shutdown_cb);
+  io_runtime_ctx->shutdownAsync.data = io_runtime_ctx;
+  io_runtime_ctx->async.data = io_runtime_ctx;
+  io_runtime_ctx->topologyAsync.data = io_runtime_ctx;
+  io_runtime_ctx->topologyFailureTimer.data = io_runtime_ctx;
+  io_runtime_ctx->topologyValidationTimer.data = (TopologyValidationTimerCBData *)data;
   uv_async_send(&io_runtime_ctx->topologyAsync); // start the topology check
   //}
   io_runtime_ctx->loop_th_running = true;
   uv_run(&io_runtime_ctx->loop, UV_RUN_DEFAULT);
 }
 
-static void verify_uv_thread(IORuntimeCtx *io_runtime_ctx) {
+static void verify_uv_thread(IORuntimeCtx *io_runtime_ctx, const struct MRClusterTopology *topo) {
   if (loopThreadUninitialized(io_runtime_ctx)) {
     // Verify that we are running on the event loop thread
-    int uv_thread_create_status = uv_thread_create(&io_runtime_ctx->loop_th, sideThread, io_runtime_ctx);
+    SideLoopThreadData *data = rm_malloc(sizeof(SideLoopThreadData));
+    data->io_runtime_ctx = io_runtime_ctx;
+    data->topo = topo;
+    int uv_thread_create_status = uv_thread_create(&io_runtime_ctx->loop_th, sideThread, data);
     RS_ASSERT(uv_thread_create_status == 0);
     REDISMODULE_NOT_USED(uv_thread_create_status);
     RedisModule_Log(RSDummyContext, "verbose", "Queue ID %zu: Created event loop thread", io_runtime_ctx->queue->id);
+    //TODO(Joan): How to make sure all the handlers are properly initialized? (thread is scheduled to start, but not sure it has already started and is running the loop)
   }
 }
 
@@ -199,20 +227,6 @@ void IORuntimeCtx__Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx) {
 
 uv_loop_t* IORuntimeCtx_GetLoop(IORuntimeCtx *io_runtime_ctx) {
   return &io_runtime_ctx->loop;
-}
-
-static void rqAsyncCb(uv_async_t *async) {
-  IORuntimeCtx *io_runtime_ctx = async->data;
-  if (!io_runtime_ctx->loop_th_ready) {
-    array_ensure_append_1(io_runtime_ctx->pendingQueues, async); // try again later
-    return;
-  }
-  queueItem *req;
-  while (NULL != (req = RQ_Pop(io_runtime_ctx->queue, &io_runtime_ctx->async))) {
-    req->cb(req->privdata);
-    rm_free(req);
-    RQ_Done(io_runtime_ctx->queue);
-  }
 }
 
 /* Initialize the connections to all shards */
@@ -269,15 +283,6 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
   IORuntimeCtx *io_runtime_ctx = rm_malloc(sizeof(IORuntimeCtx));
   io_runtime_ctx->conn_mgr = MRConnManager_New(num_connections_per_shard);
   io_runtime_ctx->queue = RQ_New(io_runtime_ctx->conn_mgr->nodeConns * PENDING_FACTOR, id);
-  uv_loop_init(&io_runtime_ctx->loop);
-  uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->async, rqAsyncCb);
-  io_runtime_ctx->async.data = io_runtime_ctx;
-  io_runtime_ctx->topologyAsync.data = io_runtime_ctx;
-  io_runtime_ctx->topologyFailureTimer.data = io_runtime_ctx;
-  TopologyValidationTimerCBData *cbData = rm_malloc(sizeof(TopologyValidationTimerCBData));
-  cbData->io_runtime_ctx = io_runtime_ctx;
-  cbData->topo = topo;
-  io_runtime_ctx->topologyValidationTimer.data = cbData;
   io_runtime_ctx->pendingTopo = NULL;
   return io_runtime_ctx;
 }
@@ -295,16 +300,16 @@ void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
 
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
   if (loopThreadStarted(io_runtime_ctx)) {
-    uv_thread_join(io_runtime_ctx->loop_th);
+    uv_thread_join(&io_runtime_ctx->loop_th);
   }
   RQ_Free(io_runtime_ctx->queue);
   MRConnManager_Free(io_runtime_ctx->conn_mgr);
   rm_free(io_runtime_ctx);
 }
 
-void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata) {
+void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, const struct MRClusterTopology *topo, MRQueueCallback cb, void *privdata) {
   //lazily start the event loop thread if it's not already running
-  verify_uv_thread(io_runtime_ctx);
+  verify_uv_thread(io_runtime_ctx, topo);
   RQ_Push(io_runtime_ctx->queue, cb, privdata);
   uv_async_send(&io_runtime_ctx->async);
 }
