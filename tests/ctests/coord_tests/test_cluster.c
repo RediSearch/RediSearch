@@ -157,7 +157,7 @@ void testClusterSharding() {
   mr_slot_t slot = CRCShardFunc(&cmd, cl);
   printf("%d\n", slot);
   mu_check(slot > 0);
-  MRClusterShard *sh = _MRCluster_FindShard(cl, slot);
+  MRClusterShard *sh = _MRCluster_FindShard(cl->topo, slot);
   mu_check(sh != NULL);
   mu_check(sh->numNodes == 1);
   mu_check(!strcmp(sh->nodes[0].id, hosts[3]));

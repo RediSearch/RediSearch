@@ -284,7 +284,7 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
 
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
   if (loopThreadStarted(io_runtime_ctx)) {
-    // There may be a race between the thread starting and the loop running.
+    // There may be a delaty between the thread starting and the loop running, we need to account for it
     while (!io_runtime_ctx->loop_th_running) {
       // Small delay to avoid busy-waiting
       usleep(1000); // 1ms delay
