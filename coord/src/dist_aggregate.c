@@ -618,6 +618,7 @@ void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **repl
 
 void printAggProfile(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
   clock_t finishTime = clock();
+  AREQ *req = ctx->req;
 
   RedisModule_ReplyKV_Map(reply, "Shards"); // >Shards
 
