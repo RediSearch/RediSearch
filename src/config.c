@@ -656,7 +656,7 @@ CONFIG_SETTER(setIndexingMemoryLimit) {
   int acrc = AC_GetU8(ac, &newLimit, AC_F_GE0);
   CHECK_RETURN_PARSE_ERROR(acrc);
   if (newLimit > 100) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_ELIMIT, "Memory limit for indexing cannot be greater then 100%%");
+    QueryError_SetError(status, QUERY_ELIMIT, "Memory limit for indexing cannot be greater then 100%%");
     return REDISMODULE_ERR;
   }
   config->indexingMemoryLimit = newLimit;

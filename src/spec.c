@@ -32,6 +32,7 @@
 #include "commands.h"
 #include "util/workers.h"
 #include "info/global_stats.h"
+#include "debug_commands.h"
 
 #define INITIAL_DOC_TABLE_SIZE 1000
 
@@ -93,7 +94,7 @@ static inline void threadSleepByConfigTime(RedisModuleCtx *ctx, IndexesScanner *
   // Thread sleep based on the config
   uint32_t sleepTime = RSGlobalConfig.bgIndexingOomPauseTimeBeforeRetry;
   RedisModule_Log(ctx, "notice", "Scanning index %s in background: paused for %u seconds due to OOM, waiting for memory allocation",
-                  scanner->spec_name_for_logs, sleepTime);
+                  scanner->spec_name, sleepTime);
   RedisModule_ThreadSafeContextUnlock(ctx);
   sleep(sleepTime);
   RedisModule_ThreadSafeContextLock(ctx);
@@ -114,13 +115,13 @@ static inline void scanStopAfterOOM(RedisModuleCtx *ctx, IndexesScanner *scanner
     if (sp) {
       sp->scan_failed_OOM = true;
       // Error message does not contain user data
-      IndexError_AddError(&sp->stats.indexError, error, error, scanner->OOMkey);
+      IndexError_AddError(&sp->stats.indexError, error, scanner->OOMkey);
       IndexError_RaiseBackgroundIndexFailureFlag(&sp->stats.indexError);
       StrongRef_Release(curr_run_ref);
     } else {
       // spec was deleted
       RedisModule_Log(ctx, "notice", "Scanning index %s in background: cancelled due to OOM and index was dropped",
-                      scanner->spec_name_for_logs);
+                      scanner->spec_name);
       }
     }
     rm_free(error);
@@ -2966,8 +2967,8 @@ int IndexSpec_UpdateDoc(IndexSpec *spec, RedisModuleCtx *ctx, RedisModuleString 
   QueryError status = {0};
 
   if(spec->scan_failed_OOM) {
-    QueryError_SetWithoutUserDataFmt(&status, QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM. New documents will not be indexed.");
-    IndexError_AddQueryError(&spec->stats.indexError, &status, key);
+    QueryError_SetError(&status, QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM. New documents will not be indexed.");
+    IndexError_AddError(&spec->stats.indexError, status.detail, key);
     QueryError_ClearError(&status);
     return REDISMODULE_ERR;
   }
