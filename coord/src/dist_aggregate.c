@@ -616,7 +616,7 @@ static void buildDistRPChain(AREQ *r, MRCommand *xcmd, SearchCluster *sc,
 void PrintShardProfile_resp2(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch);
 void PrintShardProfile_resp3(RedisModule_Reply *reply, int count, MRReply **replies, bool isSearch);
 
-void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout, bool reachedMaxPrefixExpansions) {
+void printAggProfile(RedisModule_Reply *reply, ProfilePrinterCtx *ctx) {
   clock_t finishTime = clock();
 
   RedisModule_ReplyKV_Map(reply, "Shards"); // >Shards
@@ -637,7 +637,7 @@ void printAggProfile(RedisModule_Reply *reply, AREQ *req, bool timedout, bool re
   RedisModule_ReplyKV_Map(reply, "Coordinator"); // >coordinator
 
   RedisModule_ReplyKV_Map(reply, "Result processors profile");
-  Profile_Print(reply, req, timedout, reachedMaxPrefixExpansions);
+  Profile_Print(reply, ctx);
   RedisModule_Reply_MapEnd(reply);
 
   RedisModule_ReplyKV_Double(reply, "Total Coordinator time", (double)(clock() - req->initClock) / CLOCKS_PER_MILLISEC);

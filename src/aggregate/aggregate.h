@@ -114,8 +114,10 @@ typedef enum {
 #define RunInThread() (RSGlobalConfig.mt_mode == MT_MODE_FULL)
 #endif
 
-typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req,
-                              bool has_timedout, bool reachedMaxPrefixExpansions);
+
+// Forward declaration of ProfilePrinterCtx
+typedef struct ProfilePrinterCtx ProfilePrinterCtx;
+typedef void (*profiler_func)(RedisModule_Reply *reply, ProfilePrinterCtx *ctx);
 
 typedef enum {
   /* Received EOF from iterator */

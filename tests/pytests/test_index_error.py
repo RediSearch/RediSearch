@@ -9,6 +9,12 @@ last_indexing_error_key_str = 'last indexing error key'
 last_indexing_error_str = 'last indexing error'
 index_errors_str = 'Index Errors'
 
+# This dict is used to add entries of index_errors in FT.INFO that are not in field statistics.
+# For tests that worked on the assumption that the index_errors dict is that same as the index_errors in the field statistics dict.
+index_errors_unique_entries_dict = {
+    "background indexing status": 'OK'
+}
+
 def get_field_stats_dict(info_command_output, index = 0):
   return to_dict(info_command_output['field statistics'][index])
 
@@ -40,7 +46,7 @@ def test_vector_index_failures(env):
     env.assertEqual(error_dict, expected_error_dict)
 
     error_dict = to_dict(info["Index Errors"])
-    env.assertEqual(error_dict, expected_error_dict)
+    env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict})
 
 
 def test_numeric_index_failures(env):
@@ -73,7 +79,7 @@ def test_numeric_index_failures(env):
     env.assertEqual(error_dict, expected_error_dict)
 
     error_dict = to_dict(info["Index Errors"])
-    env.assertEqual(error_dict, expected_error_dict)
+    env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict})
 
 def test_alter_failures(env):
   # Create an index
@@ -91,6 +97,7 @@ def test_alter_failures(env):
       indexing_failures_str: 0,
       last_indexing_error_str: 'N/A',
       last_indexing_error_key_str: 'N/A',
+      'background indexing status': 'OK',
   }
 
   # No error was encountered
@@ -114,7 +121,8 @@ def test_alter_failures(env):
   expected_error_dict = {
       indexing_failures_str: 1,
       last_indexing_error_str: f"Invalid numeric value: \'meow\'",
-      last_indexing_error_key_str: 'doc'
+      last_indexing_error_key_str: 'doc',
+      'background indexing status': 'OK',
   }
 
   env.assertEqual(to_dict(info["Index Errors"]), expected_error_dict)
@@ -158,7 +166,7 @@ def test_mixed_index_failures(env):
     env.assertEqual(error_dict, expected_error_dict)
 
     error_dict = to_dict(info["Index Errors"])
-    env.assertEqual(error_dict, expected_error_dict)
+    env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict})
 
   con.flushall()
   env.expect('ft.create', 'idx', 'SCHEMA', 'n', 'numeric', 'v', 'VECTOR', 'FLAT', 6, 'DIM', 2, 'TYPE', 'FLOAT32', 'DISTANCE_METRIC', 'COSINE').ok()
@@ -187,7 +195,7 @@ def test_mixed_index_failures(env):
     env.assertEqual(error_dict, expected_error_dict)
 
     error_dict = to_dict(info["Index Errors"])
-    env.assertEqual(error_dict, expected_error_dict)
+    env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict})
 
 
 def test_geo_index_failures(env):
@@ -219,7 +227,7 @@ def test_geo_index_failures(env):
     env.assertEqual(error_dict, expected_error_dict)
 
     error_dict = to_dict(info["Index Errors"])
-    env.assertEqual(error_dict, expected_error_dict)
+    env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict})
 
   con.flushall()
 
@@ -250,7 +258,7 @@ def test_geo_index_failures(env):
     env.assertEqual(error_dict, expected_error_dict)
 
     error_dict = to_dict(info["Index Errors"])
-    env.assertEqual(error_dict, expected_error_dict)
+    env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict})
 
 
 # TODO: Talk with Omer about this test
@@ -311,12 +319,13 @@ def test_multiple_index_failures(env):
         expected_error_dict = {
             indexing_failures_str: 1,
             last_indexing_error_str: f"Invalid numeric value: '{index_to_errors_strings[idx]}'",
-            last_indexing_error_key_str: 'doc'
+            last_indexing_error_key_str: 'doc',
+            'background indexing status': 'OK'
         }
 
         # Both indices contain one error for the same document.
         error_dict = to_dict(info["Index Errors"])
-        env.assertEqual(error_dict, expected_error_dict)
+        env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict})
 
 
         # Each index failed to index the doc due to the first failing field in the schema.
@@ -364,7 +373,7 @@ def test_vector_indexing_with_json(env):
     env.assertEqual(field_error_dict, expected_error_dict)
 
     error_dict = to_dict(info["Index Errors"])
-    env.assertEqual(error_dict, expected_error_dict)
+    env.assertEqual(error_dict, {**expected_error_dict, **index_errors_unique_entries_dict})
 
 def test_multiple_index_failures_json(env):
     # Create 2 indices with a different schema order.
@@ -382,7 +391,8 @@ def test_multiple_index_failures_json(env):
           expected_error_dict = {
               indexing_failures_str: 1,
               last_indexing_error_str: f"Invalid JSON type: String type can represent only TEXT, TAG, GEO or GEOMETRY field",
-              last_indexing_error_key_str: 'doc'
+              last_indexing_error_key_str: 'doc',
+              'background indexing status': 'OK'
           }
 
           # Both indices contain one error for the same document.
