@@ -296,6 +296,9 @@ build_project() {
 
   # Build test dependencies if needed
   build_test_dependencies
+
+  # Report build success
+  echo "Build complete. Artifacts in $BINDIR"
 }
 
 #-----------------------------------------------------------------------------
@@ -378,8 +381,21 @@ run_unit_tests() {
     export VERBOSE=1
   fi
 
+  # Set sanitizer mode if requested
+  if [[ "$SAN" == "address" ]]; then
+    export SAN="address"
+  fi
+
+  # Set coordination type for unit tests if requested
+  if [[ "$COORD" == "oss" || "$COORD" == "rlec" ]]; then
+    export COORD="$COORD"
+    echo "Running unit tests for coordinator only"
+  else
+    export COORD="0"
+    echo "Running unit tests for standalone (without coordinator support)"
+  fi
+
   # Call the unit-tests script from the sbin directory
-  echo "Calling $ROOT/sbin/unit-tests"
   "$ROOT/sbin/unit-tests"
 
   # Check test results
@@ -494,9 +510,6 @@ run_tests() {
   # Run each test type as requested
   run_unit_tests
   run_python_tests
-
-  # Report build success
-  echo "Build complete. Artifacts in $BINDIR"
 
   # Exit with failure if any test suite failed
   if [[ "$HAS_FAILURES" == "1" ]]; then
