@@ -235,18 +235,18 @@ static bool II_SetEstimation(IntersectionIterator *it) {
   return true;
 }
 
-QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int maxSlop, bool inOrder, double weight) {
+QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_slop, bool in_order, double weight) {
   RS_ASSERT(its && num > 0);
   IntersectionIterator *it = rm_calloc(1, sizeof(*it));
   it->its = its;
   it->num_its = num;
-  it->max_slop = maxSlop;
-  it->in_order = inOrder;
+  it->max_slop = max_slop;
+  it->in_order = in_order;
 
   bool allValid = II_SetEstimation(it);
 
   // Sort children iterators from low count to high count which reduces the number of iterations.
-  if (!inOrder && allValid) {
+  if (!in_order && allValid) {
     qsort(its, num, sizeof(*its), (CompareFunc)cmpIter);
   }
 
@@ -257,8 +257,8 @@ QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int maxS
   base->lastDocId = 0;
   base->current = NewIntersectResult(num, weight);
   base->NumEstimated = II_NumEstimated;
-  base->Read = maxSlop < 0 ? II_Read : II_Read_CheckRelevancy;
-  base->SkipTo = maxSlop < 0 ? II_SkipTo : II_SkipTo_CheckRelevancy;
+  base->Read = max_slop < 0 ? II_Read : II_Read_CheckRelevancy;
+  base->SkipTo = max_slop < 0 ? II_SkipTo : II_SkipTo_CheckRelevancy;
   base->Free = II_Free;
   base->Rewind = II_Rewind;
 

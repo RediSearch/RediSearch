@@ -28,7 +28,16 @@ typedef struct IntersectionIterator {
   size_t num_expected;
 } IntersectionIterator;
 
-QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int maxSlop, bool inOrder, double weight);
+/**
+ * Create a new intersection iterator.
+ * @param its The iterators to intersect. Taking ownership of the iterators.
+ * @param num The number of iterators.
+ * @param max_slop The maximum slop allowed for the intersection. Negative value for no slop validation.
+ * @param in_order Whether the intersection should be in order. Ignored if max_slop is negative.
+ * @param weight The weight of the intersection.
+ * @return A new intersection iterator, or an empty iterator if any of the iterators are NULL.
+ */
+QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int max_slop, bool in_order, double weight);
 
 #ifdef __cplusplus
 }
