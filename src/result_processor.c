@@ -1509,26 +1509,26 @@ dictType dictTypeSearchResultMapping = {
    dict *results;  // keyPtr -> SearchResult mapping
    dict *scores;   // keyPtr -> HybridScores mapping
    dictIterator *iterator; // Iterator for yielding results
+   SearchResult *pooledResult; // Reusable result for accumulation
  } RPHybridMerger;
 
  /* Helper function to consume results from a single upstream */
- static int ConsumeFromUpstream(RPHybridMerger *self, ResultProcessor *upstream,
-                               SearchResult *tempResult, int upstreamIndex) {
+ static int ConsumeFromUpstream(RPHybridMerger *self, ResultProcessor *upstream, int upstreamIndex) {
    size_t consumed = 0;
    int rc = RS_RESULT_OK;
 
    while (consumed < self->window && rc == RS_RESULT_OK) {
-     SearchResult_Clear(tempResult);
-     rc = upstream->Next(upstream, tempResult);
+     SearchResult_Clear(self->pooledResult);
+     rc = upstream->Next(upstream, self->pooledResult);
 
      if (rc == RS_RESULT_OK) {
-       const char *keyPtr = tempResult->dmd->keyPtr;
+       const char *keyPtr = self->pooledResult->dmd->keyPtr;
 
        // Handle SearchResult mapping
        SearchResult *existingResult = dictFetchValue(self->results, keyPtr);
        if (!existingResult) {
          // First time seeing this document - store the SearchResult
-         SearchResult *resultCopy = SearchResult_Copy(tempResult);
+         SearchResult *resultCopy = SearchResult_Copy(self->pooledResult);
          dictAdd(self->results, keyPtr, resultCopy);
        }
 
@@ -1541,7 +1541,7 @@ dictType dictTypeSearchResultMapping = {
          scores = HybridScores_New();
        }
        // Update the score for this upstream
-       scores->scores[upstreamIndex] = tempResult->score;
+       scores->scores[upstreamIndex] = self->pooledResult->score;
        scores->hasScores[upstreamIndex] = true;
        dictReplace(self->scores, keyPtr, scores);
        consumed++;
@@ -1583,17 +1583,11 @@ dictType dictTypeSearchResultMapping = {
  static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
    RPHybridMerger *self = (RPHybridMerger *)rp;
 
-   SearchResult *tempResult = rm_calloc(1, sizeof(*tempResult));
-
    // Phase 1: Consume window results from upstream1 (index 0)
-   int rc1 = ConsumeFromUpstream(self, self->upstream1, tempResult, 0);
+   int rc1 = ConsumeFromUpstream(self, self->upstream1, 0);
 
    // Phase 2: Consume window results from upstream2 (index 1)
-   int rc2 = ConsumeFromUpstream(self, self->upstream2, tempResult, 1);
-
-   // Clean up temporary result
-   SearchResult_Destroy(tempResult);
-   rm_free(tempResult);
+   int rc2 = ConsumeFromUpstream(self, self->upstream2, 1);
 
    // Initialize iterator for yield phase
    self->iterator = dictGetIterator(self->results);
@@ -1601,6 +1595,33 @@ dictType dictTypeSearchResultMapping = {
    // Switch to yield phase
    rp->Next = RPHybridMerger_Yield;
    return rp->Next(rp, r);
+ }
+
+ /* Free function for RPHybridMerger */
+ static void RPHybridMerger_Free(ResultProcessor *rp) {
+   RPHybridMerger *self = (RPHybridMerger *)rp;
+
+   // Free the results dictionary (values are SearchResult pointers that need cleanup)
+   if (self->results) {
+     dictIterator *iter = dictGetIterator(self->results);
+     dictEntry *entry;
+     dictReleaseIterator(iter);
+     dictRelease(self->results);
+   }
+
+   // Free the scores dictionary (HybridScores are freed by the dict destructor)
+   if (self->scores) {
+     dictRelease(self->scores);
+   }
+
+   // Free the pooled result
+   if (self->pooledResult) {
+     SearchResult_Destroy(self->pooledResult);
+     rm_free(self->pooledResult);
+   }
+
+   // Free the processor itself
+   rm_free(self);
  }
 
  /* Create a new Hybrid Merger processor */
@@ -1616,10 +1637,11 @@ dictType dictTypeSearchResultMapping = {
    ret->results = dictCreate(&dictTypeSearchResultMapping, NULL);
    ret->scores = dictCreate(&dictTypeHybridScores, NULL);
    ret->iterator = NULL; // Will be initialized during accumulation phase
+   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult)); // Allocate pooled result
 
    ret->base.type = RP_HYBRID_MERGER;
    ret->base.Next = RPHybridMerger_Accum; // Start with accumulation phase
-   ret->base.Free = NULL; // To be implemented later
+   ret->base.Free = RPHybridMerger_Free; // Set the free function
 
    return &ret->base;
  }
