@@ -300,7 +300,7 @@ def test_gc_oom(env):
     env.assertEqual(bytes_collected, 0)
 
     # Increase memory and rerun GC
-    set_unlimited_maxmemory_for_oom(env)
+    env.expect('config', 'set', 'maxmemory', 0).ok()
     forceInvokeGC(env, 'idx')
 
     # Verify bytes collected by GC is more than 0
