@@ -1458,7 +1458,7 @@ static HybridScores *HybridScores_New() {
 // Value duplication function for HybridScores
 static void *hybridScoresValueDup(void *privdata, const void *obj) {
   const HybridScores *src = (const HybridScores *)obj;
-  HybridScores *dst = rm_malloc(sizeof(HybridScores));
+  HybridScores *dst = HybridScores_New();
   dst->scores[0] = src->scores[0];
   dst->scores[1] = src->scores[1];
   dst->hasScores[0] = src->hasScores[0];
@@ -1484,6 +1484,11 @@ dictType dictTypeHybridScores = {
   .valDestructor = hybridScoresValueDestructor,
 };
 
+// Wrapper for srDtor to match dictionary value destructor signature
+static void searchResultValueDestructor(void *privdata, void *obj) {
+  srDtor(obj);
+}
+
 // Dictionary type for keyPtr -> SearchResult mapping
 dictType dictTypeSearchResultMapping = {
   .hashFunction = stringsHashFunction,
@@ -1491,7 +1496,7 @@ dictType dictTypeSearchResultMapping = {
   .valDup = NULL, // We'll manage SearchResult copying manually
   .keyCompare = stringsKeyCompare,
   .keyDestructor = stringsKeyDestructor,
-  .valDestructor = NULL, // We'll manage SearchResult destruction manually
+  .valDestructor = searchResultValueDestructor, // Use wrapper to automatically free SearchResult values
 };
 
  /*******************************************************************************************************************
@@ -1503,8 +1508,7 @@ dictType dictTypeSearchResultMapping = {
  typedef struct {
    ResultProcessor base;
    double (*hybridScoring_function)(double, double, bool, bool);
-   ResultProcessor *upstream1;
-   ResultProcessor *upstream2;
+   ResultProcessor *upstreams[2];
    size_t window;
    dict *results;  // keyPtr -> SearchResult mapping
    dict *scores;   // keyPtr -> HybridScores mapping
@@ -1512,6 +1516,32 @@ dictType dictTypeSearchResultMapping = {
    SearchResult *pooledResult; // Reusable result for accumulation
    bool timedOut; // Flag to track if we timed out during accumulation
  } RPHybridMerger;
+
+ /* Helper function to store a result from an upstream into the hybrid merger's dictionaries */
+ static void StoreUpstreamResult(RPHybridMerger *self, int upstreamIndex) {
+   const char *keyPtr = self->pooledResult->dmd->keyPtr;
+
+   // Handle SearchResult mapping
+   SearchResult *existingResult = dictFetchValue(self->results, keyPtr);
+   if (!existingResult) {
+     // First time seeing this document - store the SearchResult
+     SearchResult *resultCopy = SearchResult_Copy(self->pooledResult);
+     dictAdd(self->results, keyPtr, resultCopy);
+   }
+
+   // Handle scores mapping
+   HybridScores *scores = dictFetchValue(self->scores, keyPtr);
+   RS_ASSERT((existingResult == NULL) == (scores == NULL));
+
+   if (!scores) {
+     // First time seeing this document - create new scores entry
+     scores = HybridScores_New();
+   }
+   // Update the score for this upstream
+   scores->scores[upstreamIndex] = self->pooledResult->score;
+   scores->hasScores[upstreamIndex] = true;
+   dictReplace(self->scores, keyPtr, scores);
+ }
 
  /* Helper function to consume results from a single upstream */
  static int ConsumeFromUpstream(RPHybridMerger *self, ResultProcessor *upstream, int upstreamIndex) {
@@ -1523,28 +1553,7 @@ dictType dictTypeSearchResultMapping = {
      rc = upstream->Next(upstream, self->pooledResult);
 
      if (rc == RS_RESULT_OK) {
-       const char *keyPtr = self->pooledResult->dmd->keyPtr;
-
-       // Handle SearchResult mapping
-       SearchResult *existingResult = dictFetchValue(self->results, keyPtr);
-       if (!existingResult) {
-         // First time seeing this document - store the SearchResult
-         SearchResult *resultCopy = SearchResult_Copy(self->pooledResult);
-         dictAdd(self->results, keyPtr, resultCopy);
-       }
-
-       // Handle scores mapping
-       HybridScores *scores = dictFetchValue(self->scores, keyPtr);
-       RS_ASSERT((existingResult == NULL) == (scores == NULL));
-
-       if (!scores) {
-         // First time seeing this document - create new scores entry
-         scores = HybridScores_New();
-       }
-       // Update the score for this upstream
-       scores->scores[upstreamIndex] = self->pooledResult->score;
-       scores->hasScores[upstreamIndex] = true;
-       dictReplace(self->scores, keyPtr, scores);
+       StoreUpstreamResult(self, upstreamIndex);
        consumed++;
      }
    }
@@ -1588,34 +1597,20 @@ dictType dictTypeSearchResultMapping = {
  static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
    RPHybridMerger *self = (RPHybridMerger *)rp;
 
-   // Phase 1: Consume window results from upstream1 (index 0)
-   int rc1 = ConsumeFromUpstream(self, self->upstream1, 0);
+   // Consume from each upstream sequentially
+   for (int upstreamIndex = 0; upstreamIndex < 2; upstreamIndex++) {
+     int rc = ConsumeFromUpstream(self, self->upstreams[upstreamIndex], upstreamIndex);
 
-   // Handle timeout from upstream1 - immediately switch to yield phase like normalizer
-   if (rc1 == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-     self->timedOut = true;
-     self->iterator = dictGetIterator(self->results);
-     rp->Next = RPHybridMerger_Yield;
-     return rp->Next(rp, r);
-   } else if (rc1 != RS_RESULT_OK && rc1 != RS_RESULT_EOF) {
-     // Can be RS_RESULT_OK since we consume only self->window results
-     // Other error from upstream1 (not timeout with return policy) - propagate error
-     return rc1;
-   }
-
-   // Phase 2: Consume window results from upstream2 (index 1)
-   int rc2 = ConsumeFromUpstream(self, self->upstream2, 1);
-
-   // Handle timeout from upstream2 - immediately switch to yield phase like normalizer
-   if (rc2 == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-     self->timedOut = true;
-     self->iterator = dictGetIterator(self->results);
-     rp->Next = RPHybridMerger_Yield;
-     return rp->Next(rp, r);
-   } else if (rc2 != RS_RESULT_OK && rc2 != RS_RESULT_EOF) {
-     // Can be RS_RESULT_OK since we consume only self->window results
-     // Other error from upstream2 (not timeout with return policy) - propagate error
-     return rc2;
+     // Handle timeout - immediately switch to yield phase
+     if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+       self->timedOut = true;
+       self->iterator = dictGetIterator(self->results);
+       rp->Next = RPHybridMerger_Yield;
+       return rp->Next(rp, r);
+     } else if (rc != RS_RESULT_OK && rc != RS_RESULT_EOF) {
+       // Other error from upstream (not timeout with return policy) - propagate error
+       return rc;
+     }
    }
 
    // Initialize iterator for yield phase
@@ -1660,8 +1655,8 @@ dictType dictTypeSearchResultMapping = {
                                      size_t window) {
    RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
    ret->hybridScoring_function = hybridScoring_function;
-   ret->upstream1 = upstream1;
-   ret->upstream2 = upstream2;
+   ret->upstreams[0] = upstream1;
+   ret->upstreams[1] = upstream2;
    ret->window = window;
 
    // Calculate expected dictionary size: window * num_upstreams (2 in this case)
