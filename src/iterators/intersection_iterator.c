@@ -201,8 +201,7 @@ static bool II_SetEstimation(IntersectionIterator *it) {
   return true;
 }
 
-QueryIterator *IT_V2(NewIntersectionIterator)(QueryIterator **its, size_t num, DocTable *dt,
-                                       t_fieldMask fieldMask, int maxSlop, int inOrder, double weight) {
+QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int maxSlop, bool inOrder, double weight) {
   RS_ASSERT(its && num > 0);
   IntersectionIterator *it = rm_calloc(1, sizeof(*it));
   it->its = its;

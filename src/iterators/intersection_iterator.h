@@ -28,8 +28,7 @@ typedef struct IntersectionIterator {
   size_t num_expected;
 } IntersectionIterator;
 
-QueryIterator *IT_V2(NewIntersectionIterator)(QueryIterator **its, size_t num, DocTable *dt,
-                                       t_fieldMask fieldMask, int maxSlop, int inOrder, double weight);
+QueryIterator *NewIntersectionIterator(QueryIterator **its, size_t num, int maxSlop, bool inOrder, double weight);
 
 #ifdef __cplusplus
 }
