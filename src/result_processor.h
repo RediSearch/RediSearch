@@ -60,6 +60,7 @@ typedef enum {
   RP_METRICS,
   RP_KEY_NAME_LOADER,
   RP_MAX_SCORE_NORMALIZER,
+  RP_HYBRID_MERGER,
   RP_TIMEOUT, // DEBUG ONLY
   RP_CRASH, // DEBUG ONLY
   RP_MAX,
@@ -310,6 +311,17 @@ void PipelineAddCrash(struct AREQ *r);
   * First accumulates all results from the upstream, then normalizes and yields them.
   *******************************************************************************************************************/
  ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
+
+ /*******************************************************************************************************************
+  *  Hybrid Merger Result Processor
+  *
+  * Merges results from two upstream processors using a hybrid scoring function.
+  * Takes results from both upstreams and applies the provided function to combine their scores.
+  *******************************************************************************************************************/
+ ResultProcessor *RPHybridMerger_New(double (*hybridScoring_function)(double, double),
+                                     ResultProcessor *upstream1,
+                                     ResultProcessor *upstream2,
+                                     size_t window);
 
 #ifdef __cplusplus
 }
