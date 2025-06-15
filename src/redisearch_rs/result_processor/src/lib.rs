@@ -17,6 +17,8 @@
 //! At the head of the chain, you will always find an index iterator, yielding entries from
 //! the database indexes.
 
+pub mod counter;
+
 use libc::{c_int, timespec};
 use pin_project::pin_project;
 use std::{
@@ -343,8 +345,6 @@ where
 
 #[cfg(test)]
 pub(crate) mod test {
-    #![expect(unused)]
-
     use super::*;
     use ffi::{RPStatus_RS_RESULT_OK, SearchResult};
 
