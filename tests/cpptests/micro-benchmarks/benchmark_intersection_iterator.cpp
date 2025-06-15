@@ -107,7 +107,7 @@ BENCHMARK_REGISTER_F(BM_IntersectionIterator, SkipTo)->INTERSECTION_ARGS();
 
 BENCHMARK_DEFINE_F(BM_IntersectionIterator, Read_old)(benchmark::State &state) {
     IndexIterator **children = createChildrenOld();
-    IndexIterator *iterator = NewIntersectIterator(children, childrenIds.size(), NULL, 0, -1, false, 1.0);
+    IndexIterator *iterator = NewIntersectIterator(children, childrenIds.size(), NULL, RS_FIELDMASK_ALL, -1, false, 1.0);
     RSIndexResult *hit;
     for (auto _ : state) {
         int rc = iterator->Read(iterator->ctx, &hit);
@@ -120,7 +120,7 @@ BENCHMARK_DEFINE_F(BM_IntersectionIterator, Read_old)(benchmark::State &state) {
 
 BENCHMARK_DEFINE_F(BM_IntersectionIterator, SkipTo_old)(benchmark::State &state) {
     IndexIterator **children = createChildrenOld();
-    IndexIterator *iterator = NewIntersectIterator(children, childrenIds.size(), NULL, 0, -1, false, 1.0);
+    IndexIterator *iterator = NewIntersectIterator(children, childrenIds.size(), NULL, RS_FIELDMASK_ALL, -1, false, 1.0);
     RSIndexResult *hit = iterator->current;
     hit->docId = 0; // Ensure initial docId is set to 0
     t_offset step = 10;
