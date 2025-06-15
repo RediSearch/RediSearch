@@ -195,9 +195,9 @@ protected:
 BENCHMARK_DEFINE_F(BM_IndexIterator_Old, Read)(benchmark::State &state) {
     RSIndexResult *hit;
     for (auto _ : state) {
-        int rc = iterator_old->Read(iterator_old->ctx, &hit);
+        int rc = iterator_old->Read(iterator_old, &hit);
         if (rc == INDEXREAD_EOF) {
-            iterator_old->Rewind(iterator_old->ctx);
+            iterator_old->Rewind(iterator_old);
         }
     }
 }
@@ -207,9 +207,9 @@ BENCHMARK_DEFINE_F(BM_IndexIterator_Old, SkipTo)(benchmark::State &state) {
     hit->docId = 0; // Ensure initial docId is set to 0
     t_offset step = 10;
     for (auto _ : state) {
-        int rc = iterator_old->SkipTo(iterator_old->ctx, hit->docId + step, &hit);
+        int rc = iterator_old->SkipTo(iterator_old, hit->docId + step, &hit);
         if (rc == INDEXREAD_EOF) {
-            iterator_old->Rewind(iterator_old->ctx);
+            iterator_old->Rewind(iterator_old);
             // Don't rely on the old iterator's Rewind to reset hit->docId
             hit = iterator_old->current;
             hit->docId = 0;

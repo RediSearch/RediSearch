@@ -293,7 +293,6 @@ static const RSIndexResult *getIndexResult(ResultProcessor *rp, t_docId docId) {
       rc = it->Read(it, &ir);
     } while (rc == INDEXREAD_OK && ir->docId != docId);
   }
-  }
   return rc == INDEXREAD_OK ? ir : NULL;
 }
 

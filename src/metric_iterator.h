@@ -15,14 +15,8 @@
 typedef enum {
   VECTOR_DISTANCE,
 } Metric;
-typedef struct {
-  IndexIterator base;
-  Metric type;
-  t_docId *idsList;
-  double *metricList;    // metric_list[i] is the metric that ids_list[i] yields.
-  size_t resultsNum;
-  size_t curIndex;       // Index of the next doc_id to return.
-} MetricIterator;
+
+#endif
 
 #ifdef __cplusplus
 extern "C" {

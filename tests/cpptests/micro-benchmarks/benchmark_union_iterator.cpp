@@ -133,9 +133,9 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, ReadFull_old)(benchmark::State &state) {
                                                 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
     RSIndexResult *hit;
     for (auto _ : state) {
-        int rc = ui_base->Read(ui_base->ctx, &hit);
+        int rc = ui_base->Read(ui_base, &hit);
         if (rc == INDEXREAD_EOF) {
-            ui_base->Rewind(ui_base->ctx);
+            ui_base->Rewind(ui_base);
         }
     }
 
@@ -148,9 +148,9 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, ReadQuick_old)(benchmark::State &state) {
                                                 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
     RSIndexResult *hit;
     for (auto _ : state) {
-        int rc = ui_base->Read(ui_base->ctx, &hit);
+        int rc = ui_base->Read(ui_base, &hit);
         if (rc == INDEXREAD_EOF) {
-            ui_base->Rewind(ui_base->ctx);
+            ui_base->Rewind(ui_base);
         }
     }
 
@@ -165,9 +165,9 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToFull_old)(benchmark::State &state) {
     hit->docId = 0; // Ensure initial docId is set to 0
     t_offset step = 10;
     for (auto _ : state) {
-        int rc = ui_base->SkipTo(ui_base->ctx, hit->docId + step, &hit);
+        int rc = ui_base->SkipTo(ui_base, hit->docId + step, &hit);
         if (rc == INDEXREAD_EOF) {
-            ui_base->Rewind(ui_base->ctx);
+            ui_base->Rewind(ui_base);
             // Don't rely on the old iterator's Rewind to reset hit->docId
             hit = ui_base->current;
             hit->docId = 0;
@@ -185,9 +185,9 @@ BENCHMARK_DEFINE_F(BM_UnionIterator, SkipToQuick_old)(benchmark::State &state) {
     hit->docId = 0; // Ensure initial docId is set to 0
     t_offset step = 10;
     for (auto _ : state) {
-        int rc = ui_base->SkipTo(ui_base->ctx, hit->docId + step, &hit);
+        int rc = ui_base->SkipTo(ui_base, hit->docId + step, &hit);
         if (rc == INDEXREAD_EOF) {
-            ui_base->Rewind(ui_base->ctx);
+            ui_base->Rewind(ui_base);
             // Don't rely on the old iterator's Rewind to reset hit->docId
             hit = ui_base->current;
             hit->docId = 0;

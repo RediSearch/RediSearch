@@ -17,11 +17,10 @@
 #include <algorithm>
 
 extern "C" {
-    int MockOldIterator_Read(void *base, RSIndexResult **hit);
-    int MockOldIterator_SkipTo(void *base, t_docId docId, RSIndexResult **hit);
-    size_t MockOldIterator_NumEstimated(void *base);
-    t_docId MockOldIterator_LastDocId(void *base);
-    void MockOldIterator_Rewind(void *base);
+    int MockOldIterator_Read(IndexIterator *base, RSIndexResult **hit);
+    int MockOldIterator_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit);
+    size_t MockOldIterator_NumEstimated(IndexIterator *base);
+    void MockOldIterator_Rewind(IndexIterator *base);
     void MockOldIterator_Free(IndexIterator *base);
 }
 
@@ -38,7 +37,7 @@ private:
     static void setBase(IndexIterator *base) {
         base->type = READ_ITERATOR;
         base->isValid = true;
-        base->LastDocId = MockOldIterator_LastDocId;
+        base->LastDocId = 0;
         base->current = NewVirtualResult(1, RS_FIELDMASK_ALL);
         base->NumEstimated = MockOldIterator_NumEstimated;
         base->Free = MockOldIterator_Free;
@@ -97,7 +96,6 @@ public:
     MockOldIterator(int st, Args&&... args)
         : whenDone(st), nextIndex(0), lastId(0) {
         setBase(&base);
-        base.ctx = this;
         docIds = {args...};
         std::sort(docIds.begin(), docIds.end());
         auto new_end = std::unique(docIds.begin(), docIds.end());
@@ -105,19 +103,16 @@ public:
     }
 };
 
-int MockOldIterator_Read(void *base, RSIndexResult **hit) {
+int MockOldIterator_Read(IndexIterator *base, RSIndexResult **hit) {
     return reinterpret_cast<MockOldIterator *>(base)->Read(hit);
 }
-int MockOldIterator_SkipTo(void *base, t_docId docId, RSIndexResult **hit) {
+int MockOldIterator_SkipTo(IndexIterator *base, t_docId docId, RSIndexResult **hit) {
     return reinterpret_cast<MockOldIterator *>(base)->SkipTo(docId, hit);
 }
-size_t MockOldIterator_NumEstimated(void *base) {
+size_t MockOldIterator_NumEstimated(IndexIterator *base) {
     return reinterpret_cast<MockOldIterator *>(base)->NumEstimated();
 }
-t_docId MockOldIterator_LastDocId(void *base) {
-    return reinterpret_cast<MockOldIterator *>(base)->lastId;
-}
-void MockOldIterator_Rewind(void *base) {
+void MockOldIterator_Rewind(IndexIterator *base) {
     reinterpret_cast<MockOldIterator *>(base)->Rewind();
 }
 void MockOldIterator_Free(IndexIterator *base) {

@@ -1234,7 +1234,7 @@ static size_t WI_NumEstimated(IndexIterator *base) {
 }
 
 /* Create a new wildcard iterator */
-static IndexIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs) {
+IndexIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs) {
   WildcardIterator *c = rm_calloc(1, sizeof(*c));
   c->topId = maxId;
   c->numDocs = numDocs;

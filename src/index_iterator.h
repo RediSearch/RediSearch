@@ -42,7 +42,7 @@ enum IteratorType {
 Basically query execution creates a tree of iterators that activate each other
 recursively */
 typedef struct IndexIterator {
-  enum iteratorType type;
+  enum IteratorType type;
 
   // Can the iterator yield more results?
   bool isValid;
