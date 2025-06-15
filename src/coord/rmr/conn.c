@@ -98,7 +98,7 @@ static void MRConnPool_Free(void *privdata, void *p) {
   if (!pool) return;
   for (size_t i = 0; i < pool->num; i++) {
     /* We stop the connections and the disconnect callback frees them */
-    MRConn_Stop(pool->conns[i], loop);
+    MRConn_Stop(pool->conns[i], pool->conns[i]->loop);
   }
   rm_free(pool->conns);
   rm_free(pool);
@@ -107,6 +107,7 @@ static void MRConnPool_Free(void *privdata, void *p) {
 /* Get a connection from the connection pool. We select the next available connected connection with
  * a round robin selector */
 static MRConn *MRConnPool_Get(MRConnPool *pool) {
+
   for (size_t i = 0; i < pool->num; i++) {
 
     MRConn *conn = pool->conns[pool->rr];
@@ -452,7 +453,7 @@ static void MRConn_AuthCallback(redisAsyncContext *c, void *r, void *privdata) {
   }
 
   /* Success! we are now connected! */
-  fprintf(stderr, "Connected and authenticated to %s:%d\n", conn->ep.host, conn->ep.port);
+  //fprintf(stderr, "Connected and authenticated to %s:%d\n", conn->ep.host, conn->ep.port);
   MRConn_SwitchState(conn, MRConn_Connected, loop);
 
 cleanup:
@@ -717,6 +718,7 @@ static int MRConn_Connect(MRConn *conn, uv_loop_t *loop) {
   }
   conn->loop = loop;
   conn->conn = c;
+  conn->conn->data = conn;
   conn->state = MRConn_Connecting;
 
   redisLibuvAttach(conn->conn, loop);

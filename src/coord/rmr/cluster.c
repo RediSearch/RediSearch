@@ -292,6 +292,9 @@ void MRClust_Free(MRCluster *cl) {
 
 size_t IORuntimePool_AssignRoundRobinIdx(MRCluster *cl) {
   // Idea is to skip the control plane runtime
+  if (cl->io_runtimes_pool_size == 0) {
+    return 0; // default to the control plane one
+  }
   size_t idx = cl->current_round_robin + 1;
   cl->current_round_robin = (cl->current_round_robin  + 1) % cl->io_runtimes_pool_size;
   return idx;
