@@ -33,8 +33,7 @@ public:
         }
 
         auto numChildren = state.range(0);
-        auto scale = state.range(1);
-        auto rawPercent = state.range(2);
+        auto rawPercent = state.range(1);
         // The third parameter is a percentage representing the chance for a hit of each id
         // Convert the percentage to a probability
         double percent = std::pow(rawPercent / 100.0, 1.0 / numChildren);
@@ -48,7 +47,7 @@ public:
             child.reserve(idsPerChild);
             for (size_t i = 1; i <= idsPerChild; i++) {
                 if (dist(rng) < percent) {
-                    child.emplace_back(i * scale);
+                    child.emplace_back(i);
                 }
             }
         }
@@ -72,10 +71,9 @@ public:
 bool BM_IntersectionIterator::initialized = false;
 
 #define INTERSECTION_ARGS()                                                 \
-    ArgNames({"numChildren", "scale", "percent"})                           \
+    ArgNames({"numChildren", "percent"})                                    \
     ->ArgsProduct({                                                         \
         {2, 5, 10, 20},         /* numChildren */                           \
-        {1, 10, 100},           /* scale (id density) */                    \
         {1, 5, 10, 20, 50, 80}  /* percent */                               \
     })
 
