@@ -405,8 +405,7 @@ def test_info():
                        'Index Errors': {
                                         'indexing failures': 0,
                                         'last indexing error': 'N/A',
-                                        'last indexing error key': 'N/A',
-                                        'background indexing status': 'OK'
+                                        'last indexing error key': 'N/A'
                                        }
                       },
                       {'attribute': 'f2',
@@ -414,8 +413,7 @@ def test_info():
                        'Index Errors': {
                                         'indexing failures': 0,
                                         'last indexing error': 'N/A',
-                                        'last indexing error key': 'N/A',
-                                        'background indexing status': 'OK'
+                                        'last indexing error key': 'N/A'
                                        }
                         }
                       ],
@@ -452,8 +450,7 @@ def test_info():
       'Index Errors': {
           'indexing failures': 0,
           'last indexing error': 'N/A',
-          'last indexing error key': 'N/A',
-          'background indexing status': 'OK'
+          'last indexing error key': 'N/A'
           }
       }
     res = env.cmd('FT.info', 'idx1')
@@ -1281,8 +1278,7 @@ def test_ft_info():
               'Index Errors': {
                   'indexing failures': 0,
                   'last indexing error': 'N/A',
-                  'last indexing error key': 'N/A',
-                  'background indexing status': 'OK'
+                  'last indexing error key': 'N/A'
               }
             }
         ],
@@ -1342,8 +1338,7 @@ def test_ft_info():
         'Index Errors': {
               'indexing failures': 0,
               'last indexing error': 'N/A',
-              'last indexing error key': 'N/A',
-              'background indexing status': 'OK'
+              'last indexing error key': 'N/A'
         }
       }
 
@@ -1363,8 +1358,7 @@ def test_ft_info():
               'Index Errors': {
                   'indexing failures': 0,
                   'last indexing error': 'N/A',
-                  'last indexing error key': 'N/A',
-                  'background indexing status': 'OK'
+                  'last indexing error key': 'N/A'
               }
             }
         ],
@@ -1420,8 +1414,7 @@ def test_ft_info():
         'Index Errors': {
               'indexing failures': 0,
               'last indexing error': 'N/A',
-              'last indexing error key': 'N/A',
-              'background indexing status': 'OK'
+              'last indexing error key': 'N/A'
         }
       }
 
