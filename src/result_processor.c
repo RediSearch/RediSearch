@@ -1508,6 +1508,7 @@ dictType dictTypeSearchResultMapping = {
    size_t window;
    dict *results;  // keyPtr -> SearchResult mapping
    dict *scores;   // keyPtr -> HybridScores mapping
+   dictIterator *iterator; // Iterator for yielding results
  } RPHybridMerger;
 
  /* Helper function to consume results from a single upstream */
@@ -1533,22 +1534,49 @@ dictType dictTypeSearchResultMapping = {
 
        // Handle scores mapping
        HybridScores *scores = dictFetchValue(self->scores, keyPtr);
+       RS_ASSERT((existingResult == NULL) == (scores == NULL));
+
        if (!scores) {
          // First time seeing this document - create new scores entry
          scores = HybridScores_New();
-         dictAdd(self->scores, keyPtr, scores);
        }
-
-      RS_ASSERT((existingResult == NULL) == (scores == NULL));
-
        // Update the score for this upstream
        scores->scores[upstreamIndex] = tempResult->score;
        scores->hasScores[upstreamIndex] = true;
+       dictReplace(self->scores, keyPtr, scores);
        consumed++;
      }
    }
 
    return rc;
+ }
+
+ /* Yield phase - iterate through results and apply hybrid scoring */
+ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
+   RPHybridMerger *self = (RPHybridMerger *)rp;
+
+   // Get next entry from iterator
+   dictEntry *entry = dictNext(self->iterator);
+   if (!entry) {
+     // No more results to yield
+     return RS_RESULT_EOF;
+   }
+
+   // Get the key and fetch both SearchResult and HybridScores
+   const char *keyPtr = dictGetKey(entry);
+   SearchResult *storedResult = dictFetchValue(self->results, keyPtr);
+   HybridScores *scores = dictFetchValue(self->scores, keyPtr);
+
+   RS_ASSERT(storedResult && scores);
+
+   // Apply hybrid scoring function
+   double hybridScore = self->hybridScoring_function(scores->scores[0], scores->scores[1]);
+
+   // Override the result with stored data and new hybrid score
+   SearchResult_Override(r, storedResult);
+   r->score = hybridScore;
+
+   return RS_RESULT_OK;
  }
 
  /* Accumulation phase - consume window results from both upstreams */
@@ -1567,12 +1595,12 @@ dictType dictTypeSearchResultMapping = {
    SearchResult_Destroy(tempResult);
    rm_free(tempResult);
 
-   // Switch to yield phase (to be implemented later)
-   // rp->Next = RPHybridMerger_Yield;
-   // return rp->Next(rp, r);
+   // Initialize iterator for yield phase
+   self->iterator = dictGetIterator(self->results);
 
-   // For now, just return EOF since yield is not implemented
-   return RS_RESULT_EOF;
+   // Switch to yield phase
+   rp->Next = RPHybridMerger_Yield;
+   return rp->Next(rp, r);
  }
 
  /* Create a new Hybrid Merger processor */
@@ -1587,6 +1615,7 @@ dictType dictTypeSearchResultMapping = {
    ret->window = window;
    ret->results = dictCreate(&dictTypeSearchResultMapping, NULL);
    ret->scores = dictCreate(&dictTypeHybridScores, NULL);
+   ret->iterator = NULL; // Will be initialized during accumulation phase
 
    ret->base.type = RP_HYBRID_MERGER;
    ret->base.Next = RPHybridMerger_Accum; // Start with accumulation phase
