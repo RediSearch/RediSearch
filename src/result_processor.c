@@ -1078,7 +1078,8 @@ void SetLoadersForMainThread(AREQ *r) {
 static char *RPTypeLookup[RP_MAX] = {"Index",   "Loader",    "Threadsafe-Loader", "Scorer",
                                      "Sorter",  "Counter",   "Pager/Limiter",     "Highlighter",
                                      "Grouper", "Projector", "Filter",            "Profile",
-                                     "Network", "Metrics Applier", "Key Name Loader", "Score Max Normalizer"};
+                                     "Network", "Metrics Applier", "Key Name Loader", "Score Max Normalizer",
+                                     "Hybrid Merger"};
 
 const char *RPTypeToString(ResultProcessorType type) {
   RS_LOG_ASSERT(type >= 0 && type < RP_MAX, "enum is out of range");
@@ -1426,3 +1427,257 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
   ret->scoreKey = rlk;
   return &ret->base;
 }
+
+ /*******************************************************************************************************************
+  *  Hybrid Merger Dictionary Types
+  *
+  * Two separate dictionaries for storing search results and scores:
+  * 1. keyPtr -> SearchResult mapping
+  * 2. keyPtr -> HybridScores mapping (fixed size array of two doubles)
+  *******************************************************************************************************************/
+
+// Structure to hold scores from both upstreams
+typedef struct {
+  double scores[2];   // scores[0] = upstream1, scores[1] = upstream2
+  bool hasScores[2];  // hasScores[0] = has upstream1, hasScores[1] = has upstream2
+} HybridScores;
+
+// Helper function to allocate and initialize HybridScores
+static HybridScores *HybridScores_New() {
+  HybridScores *scores = rm_malloc(sizeof(HybridScores));
+  scores->scores[0] = 0.0;
+  scores->scores[1] = 0.0;
+  scores->hasScores[0] = false;
+  scores->hasScores[1] = false;
+  return scores;
+}
+
+// Dictionary type for keyPtr -> SearchResult mapping (reuse existing string dict)
+// We'll use dictTypeHeapStrings for the results dictionary
+
+// Value duplication function for HybridScores
+static void *hybridScoresValueDup(void *privdata, const void *obj) {
+  const HybridScores *src = (const HybridScores *)obj;
+  HybridScores *dst = HybridScores_New();
+  dst->scores[0] = src->scores[0];
+  dst->scores[1] = src->scores[1];
+  dst->hasScores[0] = src->hasScores[0];
+  dst->hasScores[1] = src->hasScores[1];
+  return dst;
+}
+
+// Value destructor for HybridScores
+static void hybridScoresValueDestructor(void *privdata, void *obj) {
+  HybridScores *scores = (HybridScores *)obj;
+  if (scores) {
+    rm_free(scores);
+  }
+}
+
+// Dictionary type definition for keyPtr -> HybridScores mapping
+dictType dictTypeHybridScores = {
+  .hashFunction = stringsHashFunction,
+  .keyDup = stringsKeyDup,
+  .valDup = hybridScoresValueDup,
+  .keyCompare = stringsKeyCompare,
+  .keyDestructor = stringsKeyDestructor,
+  .valDestructor = hybridScoresValueDestructor,
+};
+
+// Wrapper for srDtor to match dictionary value destructor signature
+static void searchResultValueDestructor(void *privdata, void *obj) {
+  srDtor(obj);
+}
+
+// Dictionary type for keyPtr -> SearchResult mapping
+dictType dictTypeSearchResultMapping = {
+  .hashFunction = stringsHashFunction,
+  .keyDup = stringsKeyDup,
+  .valDup = NULL, // We'll manage SearchResult copying manually
+  .keyCompare = stringsKeyCompare,
+  .keyDestructor = stringsKeyDestructor,
+  .valDestructor = searchResultValueDestructor, // Use wrapper to automatically free SearchResult values
+};
+
+ /*******************************************************************************************************************
+  *  Hybrid Merger Result Processor
+  *
+  * This result processor merges results from two upstream processors using a hybrid scoring function.
+  * It takes results from both upstreams and applies the provided function to combine their scores.
+  *******************************************************************************************************************/
+ typedef struct {
+   ResultProcessor base;
+   double (*hybridScoring_function)(double, double, bool, bool);
+   ResultProcessor *upstreams[2];
+   size_t window;
+   dict *results;  // keyPtr -> SearchResult mapping
+   dict *scores;   // keyPtr -> HybridScores mapping
+   dictIterator *iterator; // Iterator for yielding results
+   SearchResult *pooledResult; // Reusable result for accumulation
+   bool timedOut; // Flag to track if we timed out during accumulation
+ } RPHybridMerger;
+
+ /* Helper function to store a result from an upstream into the hybrid merger's dictionaries */
+ static void StoreUpstreamResult(RPHybridMerger *self, int upstreamIndex) {
+   const char *keyPtr = self->pooledResult->dmd->keyPtr;
+
+   // Handle SearchResult mapping
+   SearchResult *existingResult = dictFetchValue(self->results, keyPtr);
+   if (!existingResult) {
+     // First time seeing this document - store the SearchResult
+     SearchResult *resultCopy = SearchResult_Copy(self->pooledResult);
+     dictAdd(self->results, keyPtr, resultCopy);
+   }
+
+   // Handle scores mapping
+   HybridScores *scores = dictFetchValue(self->scores, keyPtr);
+   RS_ASSERT((existingResult == NULL) == (scores == NULL));
+
+   if (!scores) {
+     // First time seeing this document - create new scores entry
+     scores = HybridScores_New();
+   }
+   // Update the score for this upstream
+   scores->scores[upstreamIndex] = self->pooledResult->score;
+   scores->hasScores[upstreamIndex] = true;
+   dictReplace(self->scores, keyPtr, scores);
+ }
+
+ /* Helper function to consume results from a single upstream */
+ static int ConsumeFromUpstream(RPHybridMerger *self, ResultProcessor *upstream, int upstreamIndex) {
+   size_t consumed = 0;
+   int rc = RS_RESULT_OK;
+
+   while (consumed < self->window && rc == RS_RESULT_OK) {
+     SearchResult_Clear(self->pooledResult);
+     rc = upstream->Next(upstream, self->pooledResult);
+
+     if (rc == RS_RESULT_OK) {
+       StoreUpstreamResult(self, upstreamIndex);
+       consumed++;
+     }
+   }
+
+   return rc;
+ }
+
+ /* Yield phase - iterate through results and apply hybrid scoring */
+ static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
+   RPHybridMerger *self = (RPHybridMerger *)rp;
+
+   // Get next entry from iterator
+   dictEntry *entry = dictNext(self->iterator);
+   if (!entry) {
+     // No more results to yield - return appropriate status
+     int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+     self->timedOut = false; // Reset for potential future use
+     return ret;
+   }
+
+   // Get the key and fetch both SearchResult and HybridScores
+   const char *keyPtr = dictGetKey(entry);
+   SearchResult *storedResult = dictFetchValue(self->results, keyPtr);
+   HybridScores *scores = dictFetchValue(self->scores, keyPtr);
+
+   RS_ASSERT(storedResult && scores);
+   RS_ASSERT(scores->hasScores[0] || scores->hasScores[1]);
+
+   // Apply hybrid scoring function with score availability flags
+   double hybridScore = self->hybridScoring_function(scores->scores[0], scores->scores[1],
+                                                    scores->hasScores[0], scores->hasScores[1]);
+
+   // Override the result with stored data and new hybrid score
+   SearchResult_Override(r, storedResult);
+   r->score = hybridScore;
+
+   return RS_RESULT_OK;
+ }
+
+ /* Accumulation phase - consume window results from both upstreams */
+ static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
+   RPHybridMerger *self = (RPHybridMerger *)rp;
+
+   // Consume from each upstream sequentially
+   for (int upstreamIndex = 0; upstreamIndex < 2; upstreamIndex++) {
+     int rc = ConsumeFromUpstream(self, self->upstreams[upstreamIndex], upstreamIndex);
+
+     // Handle timeout - immediately switch to yield phase
+     if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+       self->timedOut = true;
+       self->iterator = dictGetIterator(self->results);
+       rp->Next = RPHybridMerger_Yield;
+       return rp->Next(rp, r);
+     } else if (rc != RS_RESULT_OK && rc != RS_RESULT_EOF) {
+       // Other error from upstream (not timeout with return policy) - propagate error
+       return rc;
+     }
+   }
+
+   // Initialize iterator for yield phase
+   self->iterator = dictGetIterator(self->results);
+
+   // Switch to yield phase
+   rp->Next = RPHybridMerger_Yield;
+   return rp->Next(rp, r);
+ }
+
+ /* Free function for RPHybridMerger */
+ static void RPHybridMerger_Free(ResultProcessor *rp) {
+   RPHybridMerger *self = (RPHybridMerger *)rp;
+
+   // Free the results dictionary (values are SearchResult pointers that need cleanup)
+   if (self->results) {
+     dictIterator *iter = dictGetIterator(self->results);
+     dictEntry *entry;
+     dictReleaseIterator(iter);
+     dictRelease(self->results);
+   }
+
+   // Free the scores dictionary (HybridScores are freed by the dict destructor)
+   if (self->scores) {
+     dictRelease(self->scores);
+   }
+
+   // Free the pooled result
+   if (self->pooledResult) {
+     SearchResult_Destroy(self->pooledResult);
+     rm_free(self->pooledResult);
+   }
+
+   // Free the processor itself
+   rm_free(self);
+ }
+
+ /* Create a new Hybrid Merger processor */
+ ResultProcessor *RPHybridMerger_New(double (*hybridScoring_function)(double, double, bool, bool),
+                                     ResultProcessor *upstream1,
+                                     ResultProcessor *upstream2,
+                                     size_t window) {
+   RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
+   ret->hybridScoring_function = hybridScoring_function;
+   ret->upstreams[0] = upstream1;
+   ret->upstreams[1] = upstream2;
+   ret->window = window;
+
+   // Calculate expected dictionary size: window * num_upstreams (2 in this case)
+   // Add some buffer to avoid edge case resizes
+   size_t expectedSize = window * 2;
+   size_t dictSize = expectedSize > 16 ? expectedSize : 16; // Minimum reasonable size
+
+   ret->results = dictCreate(&dictTypeSearchResultMapping, NULL);
+   ret->scores = dictCreate(&dictTypeHybridScores, NULL);
+
+   // Pre-size the dictionaries to avoid multiple resizes during accumulation
+   dictExpand(ret->results, dictSize);
+   dictExpand(ret->scores, dictSize);
+
+   ret->iterator = NULL; // Will be initialized during accumulation phase
+   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult)); // Allocate pooled result
+
+   ret->base.type = RP_HYBRID_MERGER;
+   ret->base.Next = RPHybridMerger_Accum; // Start with accumulation phase
+   ret->base.Free = RPHybridMerger_Free; // Set the free function
+
+   return &ret->base;
+ }
+
