@@ -70,7 +70,6 @@ def compare_optimized_to_not(env, query, params, msg=None):
 @skip(cluster=True)
 def testOptimizer(env):
     env.cmd(config_cmd(), 'SET', 'TIMEOUT', '0')
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     env.cmd(config_cmd(), 'SET', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'true')
     repeat = 20000
@@ -350,7 +349,6 @@ def testOptimizer(env):
 @skip(cluster=True)
 def testWOLimit(env):
     env.cmd(config_cmd(), 'set', 'timeout', '0')
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd(config_cmd(), 'SET', '_PRINT_PROFILE_CLOCK', 'false')
     repeat = 100
     conn = getConnectionByEnv(env)
@@ -670,7 +668,6 @@ def testOptimizeArgs(env):
     ''' Test enabling/disabling optimization according to args and dialect '''
 
     conn = getConnectionByEnv(env)
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     for i in range(0, 20):
         conn.execute_command('HSET', i, 'n', i)
@@ -693,7 +690,6 @@ def testOptimizeArgsDefault():
     ''' Test enabling/disabling optimization according to args and default dialect '''
 
     env = Env(moduleArgs='DEFAULT_DIALECT 4')
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     conn = getConnectionByEnv(env)
     env.cmd('FT.CREATE', 'idx', 'SCHEMA', 'n', 'NUMERIC')
     for i in range(0, 20):

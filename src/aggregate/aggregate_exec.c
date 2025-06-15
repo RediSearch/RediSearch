@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "redismodule.h"
 #include "redisearch.h"
 #include "search_ctx.h"
@@ -515,11 +517,19 @@ done_2:
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
+    // Prepare profile printer context
+    ProfilePrinterCtx profileCtx = {
+      .req = req,
+      .timedout = has_timedout,
+      .reachedMaxPrefixExpansions = req->qiter.err->reachedMaxPrefixExpansions,
+      .bgScanOOM = req->sctx->spec && req->sctx->spec->scan_failed_OOM,
+    };
+
     if (req->reqflags & QEXEC_F_IS_CURSOR) {
       if (cursor_done) {
         RedisModule_Reply_LongLong(reply, 0);
         if (IsProfile(req)) {
-          req->profile(reply, req, has_timedout, req->qiter.err->reachedMaxPrefixExpansions);
+          req->profile(reply, &profileCtx);
         }
       } else {
         RedisModule_Reply_LongLong(reply, req->cursor_id);
@@ -530,7 +540,7 @@ done_2:
       }
       RedisModule_Reply_ArrayEnd(reply);
     } else if (IsProfile(req)) {
-      req->profile(reply, req, has_timedout, req->qiter.err->reachedMaxPrefixExpansions);
+      req->profile(reply, &profileCtx);
       RedisModule_Reply_ArrayEnd(reply);
     }
 
@@ -625,6 +635,9 @@ done_3:
 
     // <error>
     RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
+    if (req->sctx->spec && req->sctx->spec->scan_failed_OOM) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
+    }
     if (rc == RS_RESULT_TIMEDOUT) {
       RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
     } else if (rc == RS_RESULT_ERROR) {
@@ -641,10 +654,18 @@ done_3:
 
     bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
 
+    // Prepare profile printer context
+    ProfilePrinterCtx profileCtx = {
+      .req = req,
+      .timedout = has_timedout,
+      .reachedMaxPrefixExpansions = req->qiter.err->reachedMaxPrefixExpansions,
+      .bgScanOOM = req->sctx->spec && req->sctx->spec->scan_failed_OOM,
+    };
+
     if (IsProfile(req)) {
       RedisModule_Reply_MapEnd(reply); // >Results
       if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
-        req->profile(reply, req, has_timedout, req->qiter.err->reachedMaxPrefixExpansions);
+        req->profile(reply, &profileCtx);
       }
     }
 
@@ -722,7 +743,8 @@ static void blockedClientReqCtx_destroy(blockedClientReqCtx *BCRctx) {
     AREQ_Free(BCRctx->req);
   }
   RedisModule_BlockedClientMeasureTimeEnd(BCRctx->blockedClient);
-  RedisModule_UnblockClient(BCRctx->blockedClient, NULL);
+  void *privdata = RedisModule_BlockClientGetPrivateData(BCRctx->blockedClient);
+  RedisModule_UnblockClient(BCRctx->blockedClient, privdata);
   WeakRef_Release(BCRctx->spec_ref);
   rm_free(BCRctx);
 }
@@ -803,7 +825,9 @@ int prepareExecutionPlan(AREQ *req, QueryError *status) {
     QOptimizer_Iterators(req, req->optimizer);
   }
 
-  TimedOut_WithStatus(&sctx->time.timeout, status);
+  if (req->reqConfig.timeoutPolicy == TimeoutPolicy_Fail) {
+    TimedOut_WithStatus(&sctx->time.timeout, status);
+  }
 
   if (QueryError_HasError(status)) {
     return REDISMODULE_ERR;
@@ -872,8 +896,6 @@ static int buildRequest(RedisModuleCtx *ctx, RedisModuleString **argv, int argc,
     QueryError_SetWithUserDataFmt(status, QUERY_ENOINDEX, "No such index", " %s", indexname);
     goto done;
   }
-  // OOM should be checked before
-  RS_ASSERT(!(sctx->spec->scan_failed_OOM));
 
   CurrentThread_SetIndexSpec(sctx->spec->own_ref);
 
@@ -953,7 +975,8 @@ static int buildPipelineAndExecute(AREQ *r, RedisModuleCtx *ctx, QueryError *sta
       rs_timersub(&time, &r->qiter.initTime, &time);
       rs_timeradd(&time, &r->qiter.GILTime, &r->qiter.GILTime);
     }
-    workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
+    const int rc = workersThreadPool_AddWork((redisearch_thpool_proc)AREQ_Execute_Callback, BCRctx);
+    RS_ASSERT(rc == 0);
   } else {
     // Take a read lock on the spec (to avoid conflicts with the GC).
     // This is released in AREQ_Free or while executing the query.
@@ -1186,7 +1209,8 @@ static void cursorRead_ctx(CursorReadCtx *cr_ctx) {
   RedisModule_EndReply(reply);
   RedisModule_FreeThreadSafeContext(ctx);
   RedisModule_BlockedClientMeasureTimeEnd(cr_ctx->bc);
-  RedisModule_UnblockClient(cr_ctx->bc, NULL);
+  void *privdata = RedisModule_BlockClientGetPrivateData(cr_ctx->bc);
+  RedisModule_UnblockClient(cr_ctx->bc, privdata);
   rm_free(cr_ctx);
 }
 
@@ -1293,16 +1317,6 @@ static int DEBUG_execCommandCommon(RedisModuleCtx *ctx, RedisModuleString **argv
 
   int debug_argv_count = debug_params.debug_params_count + 2;  // account for `DEBUG_PARAMS_COUNT` `<count>` strings
   // Parse the query, not including debug params
-
-  const char *idx = RedisModule_StringPtrLen(argv[1], NULL);
-  IndexLoadOptions lopts = {.nameC = idx, .flags = INDEXSPEC_LOAD_NOCOUNTERINC};
-  StrongRef spec_ref = IndexSpec_LoadUnsafeEx(&lopts);
-  IndexSpec *sp = StrongRef_Get(spec_ref);
-  if (sp && sp->scan_failed_OOM) {
-    QueryError_SetWithUserDataFmt(&status, QUERY_INDEXBGOOMFAIL,
-      "Background scan for index ","%s failed due to OOM. Queries cannot be executed on an incomplete index.", idx);
-    goto error;
-  }
 
   if (prepareRequest(&r, ctx, argv, argc - debug_argv_count, type, execOptions, &status) != REDISMODULE_OK) {
     goto error;

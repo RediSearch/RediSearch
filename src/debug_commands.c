@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "debug_commands.h"
 #include "coord/debug_command_names.h"
 #include "VecSim/vec_sim_debug.h"
@@ -18,6 +20,7 @@
 #include "gc.h"
 #include "module.h"
 #include "suffix.h"
+#include "triemap.h"
 #include "util/workers.h"
 #include "cursor.h"
 #include "module.h"
@@ -36,7 +39,8 @@ void validateDebugMode(DebugCTX *debugCtx) {
     (debugCtx->bgIndexing.maxDocsTBscanned > 0) ||
     (debugCtx->bgIndexing.maxDocsTBscannedPause > 0) ||
     (debugCtx->bgIndexing.pauseBeforeScan) ||
-    (debugCtx->bgIndexing.pauseOnOOM);
+    (debugCtx->bgIndexing.pauseOnOOM) ||
+    (debugCtx->bgIndexing.pauseBeforeOOMretry);
 
 }
 
@@ -344,8 +348,8 @@ DEBUG_COMMAND(DumpPrefixTrie) {
   TrieMap *prefixes_map = SchemaPrefixes_g;
 
   START_POSTPONED_LEN_ARRAY(prefixesMapDump);
-  REPLY_WITH_LONG_LONG("prefixes_count", prefixes_map->cardinality, ARRAY_LEN_VAR(prefixesMapDump));
-  REPLY_WITH_LONG_LONG("prefixes_trie_nodes", prefixes_map->size, ARRAY_LEN_VAR(prefixesMapDump));
+  REPLY_WITH_LONG_LONG("prefixes_count", TrieMap_NUniqueKeys(prefixes_map), ARRAY_LEN_VAR(prefixesMapDump));
+  REPLY_WITH_LONG_LONG("prefixes_trie_nodes", TrieMap_NNodes(prefixes_map), ARRAY_LEN_VAR(prefixesMapDump));
   END_POSTPONED_LEN_ARRAY(prefixesMapDump);
 
   return REDISMODULE_OK;
@@ -542,7 +546,7 @@ DEBUG_COMMAND(DumpTagIndex) {
     goto end;
   }
 
-  TrieMapIterator *iter = TrieMap_Iterate(tagIndex->values, "", 0);
+  TrieMapIterator *iter = TrieMap_Iterate(tagIndex->values);
 
   char *tag;
   tm_len_t len;
@@ -622,7 +626,7 @@ DEBUG_COMMAND(DumpSuffix) {
     RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
     long resultSize = 0;
 
-    TrieMapIterator *it = TrieMap_Iterate(idx->suffix, "", 0);
+    TrieMapIterator *it = TrieMap_Iterate(idx->suffix);
     char *str;
     tm_len_t len;
     void *value;
@@ -1079,7 +1083,7 @@ DEBUG_COMMAND(InfoTagIndex) {
   size_t nelem = 0;
   RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
   RedisModule_ReplyWithLiteral(ctx, "num_values");
-  RedisModule_ReplyWithLongLong(ctx, idx->values->cardinality);
+  RedisModule_ReplyWithLongLong(ctx, TrieMap_NUniqueKeys(idx->values));
   nelem += 2;
 
   if (options.dumpIdEntries) {
@@ -1091,7 +1095,7 @@ DEBUG_COMMAND(InfoTagIndex) {
   }
 
   size_t limit = options.limit ? options.limit : 0;
-  TrieMapIterator *iter = TrieMap_Iterate(idx->values, "", 0);
+  TrieMapIterator *iter = TrieMap_Iterate(idx->values);
   char *tag;
   tm_len_t len;
   InvertedIndex *iv;
@@ -1660,6 +1664,73 @@ DEBUG_COMMAND(terminateBgPool) {
 }
 
 /**
+ * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_BEFORE_OOM_RETRY <true/false>
+ */
+DEBUG_COMMAND(setPauseBeforeOOMretry) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+
+  if (!strcasecmp(op, "true")) {
+    globalDebugCtx.bgIndexing.pauseBeforeOOMretry = true;
+  } else if (!strcasecmp(op, "false")) {
+    globalDebugCtx.bgIndexing.pauseBeforeOOMretry = false;
+  } else {
+    return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_BEFORE_OOM_RETRY'");
+  }
+
+  validateDebugMode(&globalDebugCtx);
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+/**
+ * FT.DEBUG BG_SCAN_CONTROLLER DEBUG_SCANNER_UPDATE_CONFIG <index_name>
+ */
+DEBUG_COMMAND(debugScannerUpdateConfig) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  if (argc != 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
+                            .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
+
+  StrongRef ref = IndexSpec_LoadUnsafeEx(&lopts);
+  IndexSpec *sp = StrongRef_Get(ref);
+
+  if (!sp) {
+    return RedisModule_ReplyWithError(ctx, "Unknown index name");
+  }
+
+  if (!sp->scanner) {
+    return RedisModule_ReplyWithError(ctx, "Scanner is not initialized");
+  }
+
+  if(!(sp->scanner->isDebug)) {
+    return RedisModule_ReplyWithError(ctx, "Debug mode enabled but scanner is not a debug scanner");
+  }
+
+  // Assuming this file is aware of spec.h, via direct or in-direct include
+  DebugIndexesScanner *dScanner = (DebugIndexesScanner*)sp->scanner;
+  // Update the scanner with the new settings
+  dScanner->maxDocsTBscanned = globalDebugCtx.bgIndexing.maxDocsTBscanned;
+  dScanner->maxDocsTBscannedPause = globalDebugCtx.bgIndexing.maxDocsTBscannedPause;
+  dScanner->wasPaused = false;
+  dScanner->pauseOnOOM = globalDebugCtx.bgIndexing.pauseOnOOM;
+  dScanner->pauseBeforeOOMRetry = globalDebugCtx.bgIndexing.pauseBeforeOOMretry;
+
+  return RedisModule_ReplyWithSimpleString(ctx, "OK");
+}
+
+
+/**
  * FT.DEBUG BG_SCAN_CONTROLLER <command> [options]
  */
 DEBUG_COMMAND(bgScanController) {
@@ -1693,6 +1764,12 @@ DEBUG_COMMAND(bgScanController) {
   if (!strcmp("TERMINATE_BG_POOL", op)) {
     return terminateBgPool(ctx, argv+1, argc-1);
   }
+  if (!strcmp("SET_PAUSE_BEFORE_OOM_RETRY", op)) {
+    return setPauseBeforeOOMretry(ctx, argv+1, argc-1);
+  }
+  if (!strcmp("DEBUG_SCANNER_UPDATE_CONFIG", op)) {
+    return debugScannerUpdateConfig(ctx, argv+1, argc-1);
+  }
   return RedisModule_ReplyWithError(ctx, "Invalid command for 'BG_SCAN_CONTROLLER'");
 
 }
@@ -1711,6 +1788,48 @@ DEBUG_COMMAND(getHideUserDataFromLogs) {
   }
   const long long value = RSGlobalConfig.hideUserDataFromLog;
   return RedisModule_ReplyWithLongLong(ctx, value);
+}
+
+// Global counter for tracking yield calls during loading
+static size_t g_yieldCallCounter = 0;
+
+// Function to increment the yield counter (to be called from IndexerBulkAdd)
+void IncrementYieldCounter(void) {
+  g_yieldCallCounter++;
+}
+
+// Reset the yield counter
+void ResetYieldCounter(void) {
+  g_yieldCallCounter = 0;
+}
+
+/**
+ * FT.DEBUG YIELDS_ON_LOAD_COUNTER [RESET]
+ * Get or reset the counter for yields during loading operations
+ */
+DEBUG_COMMAND(YieldCounter) {
+  if (!debugCommandsEnabled(ctx)) {
+    return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
+  }
+  
+  if (argc > 3) {
+    return RedisModule_WrongArity(ctx);
+  }
+  
+  // Check if we need to reset the counter
+  if (argc == 3) {
+    size_t len;
+    const char *subCmd = RedisModule_StringPtrLen(argv[2], &len);
+    if (STR_EQCASE(subCmd, len, "RESET")) {
+      ResetYieldCounter();
+      return RedisModule_ReplyWithSimpleString(ctx, "OK");
+    } else {
+      return RedisModule_ReplyWithError(ctx, "Unknown subcommand");
+    }
+  }
+  
+  // Return the current counter value
+  return RedisModule_ReplyWithLongLong(ctx, g_yieldCallCounter);
 }
 
 DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all the inverted index entries.
@@ -1748,6 +1867,7 @@ DebugCommandType commands[] = {{"DUMP_INVIDX", DumpInvertedIndex}, // Print all 
                                {"INDEXES", ListIndexesSwitch},
                                {"INFO", IndexObfuscatedInfo},
                                {"GET_HIDE_USER_DATA_FROM_LOGS", getHideUserDataFromLogs},
+                               {"YIELDS_ON_LOAD_COUNTER", YieldCounter},
                                /**
                                 * The following commands are for debugging distributed search/aggregation.
                                 */

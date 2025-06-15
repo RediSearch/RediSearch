@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef RS_QUERY_OPTIONS_H_
 #define RS_QUERY_OPTIONS_H_
 
@@ -93,13 +95,8 @@ typedef struct {
   t_fieldMask fieldmask;
   int slop;
 
-  const char **inkeys;
+  const sds *inkeys;
   size_t ninkeys;
-
-  // Keys are converted into arrays. This is done when the actual
-  // search ctx is available
-  t_docId *inids;
-  size_t nids;
 
   const StopWordList *stopwords;
   dict *params;

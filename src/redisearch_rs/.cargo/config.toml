@@ -1,2 +1,6 @@
 [build]
 target-dir = "../../bin/redisearch_rs"
+
+[alias]
+license-check = "run --manifest-path tools/license_header_linter/Cargo.toml"
+license-fix = "license-check -- --fix"

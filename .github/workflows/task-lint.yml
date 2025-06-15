@@ -1,53 +1,63 @@
-name: Lint for warnings, and check that code is well-formatted
+name: Lint for warnings, missing license headers and check that code is well-formatted
 
 # Documentation: https://redislabs.atlassian.net/wiki/spaces/DX/pages/3967844669/RediSearch+CI+refactor
 
 on:
   workflow_call:
-    inputs:
-      env:
-        default: "${{ vars.RUNS_ON }} || ubuntu-latest"
-        type: string
-
-env:
-  BOOST_VERSION: ${{ vars.BOOST_VERSION || '1.83.0' }}
-  LLVM_VERSION: ${{ vars.LLVM_VERSION || 18 }}
 
 jobs:
   lint:
     name: Linting
-    runs-on: ${{ inputs.env }}
+    runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     defaults:
       run:
         shell: bash -l -eo pipefail {0}
     steps:
-      - name: Deps checkout
-        uses: actions/checkout@v4
-        with:
-          path: setup
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            .install
-            tests/pytests/requirements.*
-      - name: Setup specific
-        working-directory: setup/.install
-        run: |
-          ./install_script.sh "sudo"
-      - name: Full checkout
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
+      - name: Setup
+        working-directory: .install
+        run: ./install_script.sh sudo
+
       - name: Lint
         id: lint
         continue-on-error: true
         run: make lint
+      - name: License header
+        id: license-header
+        continue-on-error: true
+        run: make license-check
       - name: Format check
         id: fmt
         continue-on-error: true
         run: make fmt CHECK=1
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        id: advisories
+        continue-on-error: true
+        with:
+          command: check advisories
+          arguments: --all-features
+          manifest-path: src/redisearch_rs/Cargo.toml
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        id: dep-licenses
+        continue-on-error: true
+        with:
+          command: check licenses
+          arguments: --all-features
+          manifest-path: src/redisearch_rs/Cargo.toml
       - name: Fail if any step failed
-        if: steps.lint.outcome == 'failure' || steps.fmt.outcome == 'failure'
+        if: |
+          steps.lint.outcome == 'failure' ||
+          steps.license-header.outcome == 'failure' ||
+          steps.fmt.outcome == 'failure' ||
+          steps.advisories.outcome == 'failure' ||
+          steps.dep-licenses.outcome == 'failure'
         run: |
           echo "Linting: ${{ steps.lint.outcome }}"
+          echo "License header: ${{ steps.license-header.outcome }}"
           echo "Formatting: ${{ steps.fmt.outcome }}"
+          echo "Security advisories: ${{ steps.advisories.outcome }}"
+          echo "Dependency licenses: ${{ steps.dep-licenses.outcome }}"
           exit 1

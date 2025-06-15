@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #include "config.h"
 #include "util/config_macros.h"
@@ -40,7 +42,7 @@ CONFIG_GETTER(getNumPartitions) {
   return sdsnew("AUTO");
 }
 
-// TIMEOUT
+// CLUSTER_TIMEOUT
 CONFIG_SETTER(setClusterTimeout) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   int acrc = AC_GetInt(ac, &realConfig->timeoutMS, AC_F_GE1);
@@ -199,7 +201,7 @@ static RSConfigOptions clusterOptions_g = {
              .setValue = setNumPartitions,
              .getValue = getNumPartitions,
              .flags = RSCONFIGVAR_F_IMMUTABLE},
-            {.name = "TIMEOUT",
+            {.name = "CLUSTER_TIMEOUT",
              .helpText = "Cluster synchronization timeout",
              .setValue = setClusterTimeout,
              .getValue = getClusterTimeout},

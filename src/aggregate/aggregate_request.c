@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "aggregate.h"
 #include "reducer.h"
 
@@ -598,7 +600,7 @@ static int parseQueryArgs(ArgsCursor *ac, AREQ *req, RSSearchOptions *searchOpts
     return REDISMODULE_ERR;
   }
 
-  searchOpts->inkeys = (const char **)inKeys.objs;
+  searchOpts->inkeys = (const sds*)inKeys.objs;
   searchOpts->ninkeys = inKeys.argc;
   searchOpts->legacy.infields = (const char **)inFields.objs;
   searchOpts->legacy.ninfields = inFields.argc;
@@ -1059,14 +1061,7 @@ static int applyGlobalFilters(RSSearchOptions *opts, QueryAST *ast, const RedisS
   }
 
   if (opts->inkeys) {
-    opts->inids = rm_malloc(sizeof(*opts->inids) * opts->ninkeys);
-    for (size_t ii = 0; ii < opts->ninkeys; ++ii) {
-      t_docId did = DocTable_GetId(&sctx->spec->docs, opts->inkeys[ii], strlen(opts->inkeys[ii]));
-      if (did) {
-        opts->inids[opts->nids++] = did;
-      }
-    }
-    QAST_GlobalFilterOptions filterOpts = {.ids = opts->inids, .nids = opts->nids};
+    QAST_GlobalFilterOptions filterOpts = {.keys = opts->inkeys, .nkeys = opts->ninkeys};
     QAST_SetGlobalFilters(ast, &filterOpts);
   }
   return REDISMODULE_OK;
@@ -1145,9 +1140,11 @@ int AREQ_ApplyContext(AREQ *req, RedisSearchCtx *sctx, QueryError *status) {
     return REDISMODULE_ERR;
   }
 
-  if (opts->scorerName && (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL)) {
-    QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
-    return REDISMODULE_ERR;
+  if (opts->scorerName) {
+    if (Extensions_GetScoringFunction(NULL, opts->scorerName) == NULL) {
+      QueryError_SetWithoutUserDataFmt(status, QUERY_EINVAL, "No such scorer %s", opts->scorerName);
+      return REDISMODULE_ERR;
+    }
   }
 
   bool resp3 = req->protocol == 3;
@@ -1487,8 +1484,17 @@ static void buildImplicitPipeline(AREQ *req, QueryError *Status) {
        (IsOptimized(req) ? HasScorer(req) : !hasQuerySortby(&req->ap)))) {
     rp = getScorerRP(req, first);
     PUSH_RP();
+    const char *scorerName = req->searchopts.scorerName;
+    if (scorerName && !strcmp(scorerName, BM25_STD_NORMALIZED_MAX_SCORER_NAME )) {
+      const RLookupKey *scoreKey = NULL;
+      if (HasScoreInPipeline(req)) {
+        scoreKey = RLookup_GetKey(first, UNDERSCORE_SCORE, RLOOKUP_M_WRITE, RLOOKUP_F_OVERRIDE);
+      }
+      rp = RPMaxScoreNormalizer_New(scoreKey);
+      PUSH_RP();
+      }
+    }
   }
-}
 
 /**
  * This handles the RETURN and SUMMARIZE keywords, which operate on the result
@@ -1773,7 +1779,6 @@ void AREQ_Free(AREQ *req) {
     array_foreach(req->searchopts.legacy.geo_filters, gf, if (gf) LegacyGeoFilter_Free(gf));
     array_free(req->searchopts.legacy.geo_filters);
   }
-  rm_free(req->searchopts.inids);
   if (req->searchopts.params) {
     Param_DictFree(req->searchopts.params);
   }

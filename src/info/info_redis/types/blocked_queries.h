@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #pragma once
 
 #include <pthread.h>
@@ -28,6 +30,7 @@ typedef struct {
   DLLIST_node llnode; // Node in the doubly-linked list
   StrongRef spec;     // IndexSpec strong ref
   time_t start;       // Time node was added into list
+  char *query;        // The query
 } BlockedQueryNode;
 
 typedef struct {
@@ -36,6 +39,7 @@ typedef struct {
   uint64_t cursorId;  // cursor id
   size_t count;       // cursor count
   time_t start;       // Time node was added into list
+  char *query;        // The query that created the cursor
 } BlockedCursorNode;
 
 /**
@@ -66,7 +70,7 @@ BlockedQueries* BlockedQueries_Init();
 void BlockedQueries_Free(BlockedQueries*);
 
 BlockedQueryNode* BlockedQueries_AddQuery(BlockedQueries* list, StrongRef spec, QueryAST* ast);
-BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* list, WeakRef spec, uint64_t cursorId, size_t count);
+BlockedCursorNode* BlockedQueries_AddCursor(BlockedQueries* list, WeakRef spec, uint64_t cursorId, QueryAST* ast, size_t count);
 void BlockedQueries_RemoveQuery(BlockedQueryNode* node);
 void BlockedQueries_RemoveCursor(BlockedCursorNode* node);
 

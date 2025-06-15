@@ -1,10 +1,13 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "fork_gc.h"
+#include "triemap.h"
 #include "util/arr.h"
 #include "search_ctx.h"
 #include "inverted_index.h"
@@ -32,6 +35,8 @@
 
 #define GC_WRITERFD 1
 #define GC_READERFD 0
+// Number of attempts to wait for the child to exit gracefully before trying to terminate it
+#define GC_WAIT_ATTEMPTS 4
 
 typedef enum {
   // Terms have been collected
@@ -64,7 +69,7 @@ static void FGC_sendFixed(ForkGC *fgc, const void *buff, size_t len) {
     perror("broken pipe, exiting GC fork: write() failed");
     // just exit, do not abort(), which will trigger a watchdog on RLEC, causing adverse effects
     RedisModule_Log(fgc->ctx, "warning", "GC fork: broken pipe, exiting");
-    exit(1);
+    RedisModule_ExitFromChild(1);
   }
 }
 
@@ -460,7 +465,7 @@ static void FGC_childCollectTags(ForkGC *gc, RedisSearchCtx *sctx) {
                              .field = HiddenString_GetUnsafe(tagFields[i]->fieldName, NULL),
                              .uniqueId = tagIdx->uniqueId};
 
-      TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values, "", 0);
+      TrieMapIterator *iter = TrieMap_Iterate(tagIdx->values);
       char *ptr;
       tm_len_t len;
       InvertedIndex *value;
@@ -1238,6 +1243,25 @@ FGCError FGC_parentHandleFromChild(ForkGC *gc) {
   return status;
 }
 
+// GIL must be held before calling this function
+static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
+  #define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
+  RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
+
+  size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
+  size_t max_process_mem = RedisModule_ServerInfoGetFieldUnsigned(info, "max_process_mem", NULL); // Enterprise limit
+  maxmemory = MIN_NOT_0(maxmemory, max_process_mem);
+
+  size_t total_system_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "total_system_memory", NULL);
+  maxmemory = MIN_NOT_0(maxmemory, total_system_memory);
+
+  size_t used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
+
+  RedisModule_FreeServerInfo(ctx, info);
+
+  return used_memory > maxmemory;
+}
+
 static int periodicCb(void *privdata) {
   ForkGC *gc = privdata;
   RedisModuleCtx *ctx = gc->ctx;
@@ -1285,6 +1309,15 @@ static int periodicCb(void *privdata) {
 
   // We need to acquire the GIL to use the fork api
   RedisModule_ThreadSafeContextLock(ctx);
+
+  // Check if we are out of memory before even trying to fork
+  if (isOutOfMemory(ctx)) {
+    RedisModule_Log(ctx, "warning", "Not enough memory for GC fork, skipping GC job");
+    gc->retryInterval.tv_sec = RSGlobalConfig.gcConfigParams.forkGc.forkGcRetryInterval;
+    IndexSpecRef_Release(early_check);
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    return 1;
+  }
 
   gc->execState = FGC_STATE_SCANNING;
 
@@ -1339,6 +1372,12 @@ static int periodicCb(void *privdata) {
       gcrv = 0;
     }
     close(gc->pipefd[GC_READERFD]);
+    // give the child some time to exit gracefully
+    for (int attempt = 0; attempt < GC_WAIT_ATTEMPTS; ++attempt) {
+      if (waitpid(cpid, NULL, WNOHANG) == 0) {
+        usleep(500);
+      }
+    }
     // KillForkChild must be called when holding the GIL
     // otherwise it might cause a pipe leak and eventually run
     // out of file descriptor

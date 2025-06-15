@@ -92,6 +92,8 @@ def testGetConfigOptions(env):
     check_config('ENABLE_UNSTABLE_FEATURES')
     check_config('_BG_INDEX_MEM_PCT_THR')
     check_config('BM25STD_TANH_FACTOR')
+    check_config('_BG_INDEX_OOM_PAUSE_TIME')
+    check_config('INDEXER_YIELD_EVERY_OPS')
 
 @skip(cluster=True)
 def testSetConfigOptions(env):
@@ -119,6 +121,8 @@ def testSetConfigOptions(env):
     env.expect(config_cmd(), 'set', 'ENABLE_UNSTABLE_FEATURES', 'true').equal('OK')
     env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 1).equal('OK')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 1).equal('OK')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', 1).equal('OK')
+    env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', 1).equal('OK')
 
 @skip(cluster=True)
 def testSetConfigOptionsErrors(env):
@@ -134,6 +138,9 @@ def testSetConfigOptionsErrors(env):
     env.expect(config_cmd(), 'set', '_BG_INDEX_MEM_PCT_THR', 101).contains('Memory limit for indexing cannot be greater then 100%')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', -1).contains('Value is outside acceptable bounds')
     env.expect(config_cmd(), 'set', 'BM25STD_TANH_FACTOR', 10001).contains('BM25STD_TANH_FACTOR must be between 1 and 10000')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', -1).contains('Value is outside acceptable bounds')
+    env.expect(config_cmd(), 'set', '_BG_INDEX_OOM_PAUSE_TIME', UINT32_MAX+1).contains('Value is outside acceptable bounds')    
+    env.expect(config_cmd(), 'set', 'INDEXER_YIELD_EVERY_OPS', -1).contains('Value is outside acceptable bounds')
 
 @skip(cluster=True)
 def testAllConfig(env):
@@ -159,7 +166,7 @@ def testAllConfig(env):
     env.assertEqual(res_dict['PRIVILEGED_THREADS_NUM'][0], '1')
     env.assertEqual(res_dict['WORKERS_PRIORITY_BIAS_THRESHOLD'][0], '1')
     env.assertEqual(res_dict['FRISOINI'][0], None)
-    env.assertEqual(res_dict['ON_TIMEOUT'][0], 'fail')
+    env.assertEqual(res_dict['ON_TIMEOUT'][0], 'return')
     env.assertEqual(res_dict['GCSCANSIZE'][0], '100')
     env.assertEqual(res_dict['MIN_PHONETIC_TERM_LEN'][0], '3')
     env.assertEqual(res_dict['FORK_GC_RUN_INTERVAL'][0], '30')
@@ -179,8 +186,11 @@ def testAllConfig(env):
     env.assertEqual(res_dict['UNION_ITERATOR_HEAP'][0], '20')
     env.assertEqual(res_dict['INDEX_CURSOR_LIMIT'][0], '128')
     env.assertEqual(res_dict['ENABLE_UNSTABLE_FEATURES'][0], 'false')
-    env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '80')
+    env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
     env.assertEqual(res_dict['BM25STD_TANH_FACTOR'][0], '4')
+    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
+
+    env.assertEqual(res_dict['INDEXER_YIELD_EVERY_OPS'][0], '1000')
 
 @skip(cluster=True)
 def testInitConfig():
@@ -206,8 +216,10 @@ def testInitConfig():
     _test_config_num('BG_INDEX_SLEEP_GAP', 15)
     _test_config_num('MINSTEMLEN', 3)
     _test_config_num('INDEX_CURSOR_LIMIT', 128)
-    _test_config_num('_BG_INDEX_MEM_PCT_THR', 80)
+    _test_config_num('_BG_INDEX_MEM_PCT_THR', 100)
     _test_config_num('BM25STD_TANH_FACTOR', 4)
+    _test_config_num('_BG_INDEX_OOM_PAUSE_TIME', 0)
+
 
 # True/False arguments
     _test_config_true_false('NOGC', 'true')
@@ -216,7 +228,7 @@ def testInitConfig():
 
     _test_config_str('GC_POLICY', 'fork')
     _test_config_str('GC_POLICY', 'default', 'fork')
-    _test_config_str('ON_TIMEOUT', 'return')
+    _test_config_str('ON_TIMEOUT', 'fail')
     _test_config_str('TIMEOUT', '0', '0')
     _test_config_str('PARTIAL_INDEXED_DOCS', '0', 'false')
     _test_config_str('PARTIAL_INDEXED_DOCS', '1', 'true')
@@ -482,8 +494,10 @@ numericConfigs = [
     ('search-vss-max-resize', 'VSS_MAX_RESIZE', 0, 0, UINT32_MAX, False, False),
     ('search-workers', 'WORKERS', 0, 0, 16, False, False),
     ('search-workers-priority-bias-threshold', 'WORKERS_PRIORITY_BIAS_THRESHOLD', 1, 0, LLONG_MAX, True, False),
-    ('search-_bg-index-mem-pct-thr', '_BG_INDEX_MEM_PCT_THR', 80, 0, 100, False, False),
+    ('search-_bg-index-mem-pct-thr', '_BG_INDEX_MEM_PCT_THR', 100, 0, 100, False, False),
     ('search-bm25std-tanh-factor', 'BM25STD_TANH_FACTOR', 4, 1, 10000, False, False),
+    ('search-_bg-index-oom-pause-time','_BG_INDEX_OOM_PAUSE_TIME', 0, 0, UINT32_MAX, False, False),
+    ('search-indexer-yield-every-ops', 'INDEXER_YIELD_EVERY_OPS', 1000, 1, UINT32_MAX, False, False),
     # Cluster parameters
     ('search-threads', 'SEARCH_THREADS', 20, 1, LLONG_MAX, True, True),
     ('search-topology-validation-timeout', 'TOPOLOGY_VALIDATION_TIMEOUT', 30_000, 0, LLONG_MAX, False, True),
@@ -887,16 +901,16 @@ def testConfigAPIRunTimeEnumParams():
 
     # Test default value
     env.expect('CONFIG', 'GET', 'search-on-timeout')\
+        .equal(['search-on-timeout', 'return'])
+
+    # Test search-on-timeout - valid values
+    env.expect('CONFIG', 'SET', 'search-on-timeout', 'fail').equal('OK')
+    env.expect('CONFIG', 'GET', 'search-on-timeout')\
         .equal(['search-on-timeout', 'fail'])
 
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'return').equal('OK')
     env.expect('CONFIG', 'GET', 'search-on-timeout')\
         .equal(['search-on-timeout', 'return'])
-
-    # Test search-on-timeout - valid values
-    env.expect('CONFIG', 'SET', 'search-on-timeout', 'fail').equal('OK')
-    env.expect('CONFIG', 'GET', 'search-on-timeout') \
-        .equal(['search-on-timeout', 'fail'])
 
     # Test search-on-timeout - invalid values
     env.expect('CONFIG', 'SET', 'search-on-timeout', 'invalid_value').error()\
@@ -1264,7 +1278,7 @@ booleanConfigs = [
     ('search-_print-profile-clock', '_PRINT_PROFILE_CLOCK', 'yes', False, False),
     ('search-no-gc', 'NOGC', 'no', True, True),
     ('search-no-mem-pools', 'NO_MEM_POOLS', 'no', True, True),
-    # ('search-partial-indexed-docs', 'PARTIAL_INDEXED_DOCS', 'no', True, False),
+    ('search-partial-indexed-docs', 'PARTIAL_INDEXED_DOCS', 'no', True, False),
     ('search-_prioritize-intersect-union-children', '_PRIORITIZE_INTERSECT_UNION_CHILDREN', 'no', False, False),
     ('search-raw-docid-encoding', 'RAW_DOCID_ENCODING', 'no', True, False),
     ('search-enable-unstable-features', 'ENABLE_UNSTABLE_FEATURES', 'no', False, False),
@@ -1495,6 +1509,10 @@ def testConfigFileAndArgsBooleanParams():
 
     moduleArgs = ''
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        # `search-partial-indexed-docs` has its own test because
+        # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
+        if configName == 'search-partial-indexed-docs':
+            continue
         # use non-default value as argument value
         ftDefaultValue = 'false' if defaultValue == 'yes' else 'true'
         if isFlag:
@@ -1504,10 +1522,7 @@ def testConfigFileAndArgsBooleanParams():
 
     env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs, redisConfigFile=redisConfigFile)
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
-        # `search-partial-indexed-docs` has its own test because
-        # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
-        if configName == 'search-partial-indexed-docs':
-            continue
+
         # the expected value is the default value, taken from the config file
         ftExpectedValue = 'true' if defaultValue == 'yes' else 'false'
         res = env.cmd('CONFIG', 'GET', configName)
@@ -1523,6 +1538,10 @@ def testBooleanArgDeprecationMessage():
     # create module arguments
     moduleArgs = ''
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        # `search-partial-indexed-docs` has its own test because
+        # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
+        if configName == 'search-partial-indexed-docs':
+            continue
         # use non-default value as argument value
         ftDefaultValue = 'false' if defaultValue == 'yes' else 'true'
         if isFlag:
@@ -1535,6 +1554,10 @@ def testBooleanArgDeprecationMessage():
     logFileName = env.cmd('CONFIG', 'GET', 'logfile')[1]
     logFilePath = os.path.join(logDir, logFileName)
     for configName, argName, defaultValue, immutable, isFlag in booleanConfigs:
+        # `search-partial-indexed-docs` has its own test because
+        # `PARTIAL_INDEXED_DOCS` is set using a number but returns a boolean
+        if configName == 'search-partial-indexed-docs':
+            continue
         expectedMessage = f'`{argName}` was set, but module arguments are deprecated, consider using CONFIG parameter `{configName}` instead'
         matchCount = _grep_file_count(logFilePath, expectedMessage)
         env.assertEqual(matchCount, 1, message=f'argName: {argName}, configName: {configName}')
@@ -1624,3 +1647,196 @@ def testDeprecatedConfigParamMessage():
             expectedMatchCount = 2
         env.assertEqual(matchCount, expectedMatchCount,
                         message=f'configName: {ftConfigName}')
+
+
+def getConfigDict(env):
+    """Get all configuration values as a dictionary"""
+    return {d[0]: d[1:] for d in env.cmd(config_cmd(), 'GET', '*')}
+
+def checkConfigChange(env, configName, argName, newValue, baseConfigDict):
+    """Test changing a single configuration value and verify others remain unchanged
+
+    Args:
+        env: The test environment
+        configName: The Redis CONFIG name
+        argName: The FT.CONFIG name
+        newValue: The new value to set
+        baseConfigDict: Dictionary with baseline configuration values
+    """
+
+    # Change the configuration
+    env.expect('CONFIG', 'SET', configName, newValue).ok()
+
+    # Verify the change took effect via Redis CONFIG
+    env.expect('CONFIG', 'GET', configName).equal([configName, str(newValue)])
+
+    # Verify the change took effect via FT.CONFIG
+    if isinstance(newValue, bool) or newValue in ['yes', 'no']:
+        # Handle boolean values
+        if newValue in ['yes', True]:
+            expected_ft_value = 'true'
+        else:
+            expected_ft_value = 'false'
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, expected_ft_value]])
+    elif argName in ['MAXSEARCHRESULTS', 'MAXAGGREGATERESULTS'] and (newValue == MAX_SEARCH_REQUEST_RESULTS or newValue == MAX_AGGREGATE_REQUEST_RESULTS):
+        # Handle special case for unlimited values
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, 'unlimited']])
+    else:
+        # Handle numeric values
+        env.expect(config_cmd(), 'GET', argName).equal([[argName, str(newValue)]])
+
+    # Get current configuration and verify only the target changed
+    currentConfigDict = getConfigDict(env)
+    for k, v in baseConfigDict.items():
+        if {k, argName} == {'MAXPREFIXEXPANSIONS', 'MAXEXPANSIONS'}:
+            env.assertEqual(currentConfigDict[k], [str(newValue)], message=f'changedConfig: {argName}')
+            continue
+        if k == argName:
+            if argName in ['MAXSEARCHRESULTS', 'MAXAGGREGATERESULTS'] and (newValue == MAX_SEARCH_REQUEST_RESULTS or newValue == MAX_AGGREGATE_REQUEST_RESULTS):
+                env.assertEqual(currentConfigDict[k], ['unlimited'], message=f'changedConfig: {argName}')
+            elif isinstance(newValue, bool) or newValue in ['yes', 'no']:
+                if newValue in ['yes', True]:
+                    expected_value = ['true']
+                else:
+                    expected_value = ['false']
+                env.assertEqual(currentConfigDict[k], expected_value, message=f'changedConfig: {argName}')
+            else:
+                env.assertEqual(currentConfigDict[k], [str(newValue)], message=f'changedConfig: {argName}')
+        else:
+            env.assertEqual(currentConfigDict[k], v, message=f'affectedConfig: {k}, changedConfig: {argName}')
+
+
+def testConfigIndependence_default():
+    """Test that changing one configuration value doesn't affect other configuration values"""
+    env = Env(noDefaultModuleArgs=True)
+
+    defaultConfigDict = getConfigDict(env)
+    for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        if immutable:
+            continue
+        if clusterConfig:
+            if not env.isCluster():
+                continue
+        if configName == 'search-conn-per-shard': # change search-conn-per-shard max value because it may open too many connections
+            maxValue = 20
+
+        # Test min value
+        checkConfigChange(env, configName, argName, minValue, defaultConfigDict)
+
+        # Test max value. Skip for search-conn-per-shard because it may open too many connections
+        checkConfigChange(env, configName, argName, maxValue, defaultConfigDict)
+
+        # Reset to default value
+        env.expect('CONFIG', 'SET', configName, default).ok()
+        currentConfigDict = getConfigDict(env)
+        env.assertEqual(currentConfigDict, defaultConfigDict)
+
+    for configName, argName, defaultValue, immutable, _ in booleanConfigs:
+        if immutable:
+            continue
+        # Test true (yes)
+        checkConfigChange(env, configName, argName, 'yes', defaultConfigDict)
+
+        # Test false (no)
+        checkConfigChange(env, configName, argName, 'no', defaultConfigDict)
+
+        # Reset to default value
+        env.expect('CONFIG', 'SET', configName, defaultValue).ok()
+        currentConfigDict = getConfigDict(env)
+        env.assertEqual(currentConfigDict, defaultConfigDict)
+
+def testConfigIndependence_min_values():
+    """Test that changing one configuration value doesn't affect other configuration values"""
+    env = Env(noDefaultModuleArgs=True)
+    # set all numeric configs to min value
+    for configName, argName, _, minValue, _, immutable, clusterConfig in numericConfigs:
+        if immutable:
+            continue
+        if clusterConfig:
+            if not env.isCluster():
+                continue
+        env.expect('CONFIG', 'SET', configName, minValue).ok()
+    # set all boolean configs to false (no)
+    for configName, argName, _, immutable, _ in booleanConfigs:
+        if immutable:
+            continue
+        env.expect('CONFIG', 'SET', configName, 'no').ok()
+    minValueConfigDict = getConfigDict(env)
+
+    for configName, argName, _, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        if immutable:
+            continue
+        if clusterConfig:
+            if not env.isCluster():
+                continue
+        if configName == 'search-conn-per-shard': # change search-conn-per-shard max value because it may open too many connections
+            maxValue = 20
+
+        # Test max value.
+        checkConfigChange(env, configName, argName, maxValue, minValueConfigDict)
+
+        # Reset to min value
+        env.expect('CONFIG', 'SET', configName, minValue).ok()
+        currentConfigDict = getConfigDict(env)
+        env.assertEqual(currentConfigDict, minValueConfigDict)
+
+    for configName, argName, _, immutable, _ in booleanConfigs:
+        if immutable:
+            continue
+
+        # Test true (yes)
+        checkConfigChange(env, configName, argName, 'yes', minValueConfigDict)
+
+        # Reset to false (no)
+        env.expect('CONFIG', 'SET', configName, 'no').ok()
+        currentConfigDict = getConfigDict(env)
+        env.assertEqual(currentConfigDict, minValueConfigDict)
+
+def testConfigIndependence_max_values():
+    """Test that changing one configuration value doesn't affect other configuration values"""
+    env = Env(noDefaultModuleArgs=True)
+    # set all numeric configs to max value
+    for configName, argName, _, _, maxValue, immutable, clusterConfig in numericConfigs:
+        if immutable:
+            continue
+        if clusterConfig:
+            if not env.isCluster():
+                continue
+        if configName == 'search-conn-per-shard': # change search-conn-per-shard max value because it may open too many connections
+            maxValue = 20
+        env.expect('CONFIG', 'SET', configName, maxValue).ok()
+    # set all boolean configs to true (yes)
+    for configName, argName, _, immutable, _ in booleanConfigs:
+        if immutable:
+            continue
+        env.expect('CONFIG', 'SET', configName, 'yes').ok()
+    maxValueConfigDict = getConfigDict(env)
+
+    for configName, argName, _, minValue, maxValue, immutable, clusterConfig in numericConfigs:
+        if immutable:
+            continue
+        if clusterConfig:
+            if not env.isCluster():
+                continue
+        if configName == 'search-conn-per-shard': # change search-conn-per-shard max value because it may open too many connections
+            maxValue = 20
+
+        # Test min value
+        checkConfigChange(env, configName, argName, minValue, maxValueConfigDict)
+
+        # Reset to max value
+        env.expect('CONFIG', 'SET', configName, maxValue).ok()
+        currentConfigDict = getConfigDict(env)
+        env.assertEqual(currentConfigDict, maxValueConfigDict)
+
+    for configName, argName, _, immutable, _ in booleanConfigs:
+        if immutable:
+            continue
+
+        # Test false (no)
+        checkConfigChange(env, configName, argName, 'no', maxValueConfigDict)
+
+        # Reset to true (yes)
+        env.expect('CONFIG', 'SET', configName, 'yes').ok()
+        currentConfigDict = getConfigDict(env)
+        env.assertEqual(currentConfigDict, maxValueConfigDict)

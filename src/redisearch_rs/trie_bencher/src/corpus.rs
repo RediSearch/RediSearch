@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 use std::{collections::BTreeSet, io::Cursor, path::PathBuf};
 
 use crate::bencher::rust_load_from_terms;
@@ -198,9 +207,12 @@ impl CorpusType {
     fn get_pretty_print_path(&self) -> PathBuf {
         let path = PathBuf::from("data");
         let filename = match self {
-            CorpusType::RedisBench1kWiki => "redis_wiki1k_titles_bench.txt",
-            CorpusType::RedisBench10kNumerics => "redis_wiki10k_guids_bench.txt",
-            CorpusType::GutenbergEbook(_) => "gutenberg_bench.txt",
+            CorpusType::RedisBench1kWiki => "redis_wiki1k_titles_bench.txt".to_owned(),
+            CorpusType::RedisBench10kNumerics => "redis_wiki10k_guids_bench.txt".to_owned(),
+            CorpusType::GutenbergEbook(full) => {
+                let suffix = if *full { "full" } else { "sample" };
+                format!("gutenberg_bench_{suffix}.txt")
+            }
         };
         path.join(filename)
     }

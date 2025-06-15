@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "redismodule.h"
 #include "circular_buffer.h"
 #include "src/rmalloc.h"
@@ -31,10 +33,10 @@ CircularBuffer CircularBuffer_New(size_t item_size, uint cap) {
   CircularBuffer cb = rm_calloc(1, sizeof(_CircularBuffer) + item_size * cap);
 
   cb->read       = cb->data;                      // initial read position
-  cb->write      = ATOMIC_VAR_INIT(0);            // write offset into data
+  cb->write      = 0;                             // write offset into data
   cb->item_cap   = cap;                           // buffer capacity
   cb->item_size  = item_size;                     // item size
-  cb->item_count = ATOMIC_VAR_INIT(0);            // no items in buffer
+  cb->item_count = 0;                             // no items in buffer
   cb->end_marker = cb->data + (item_size * cap);  // end of data marker
 
   return cb;

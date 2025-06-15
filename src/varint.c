@@ -1,16 +1,18 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "varint.h"
-#include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/param.h>
+#include "buffer.h"
 #include "rmalloc.h"
 
 // static int msb = (int)(~0ULL << 25);
@@ -61,13 +63,10 @@ size_t WriteVarint(uint32_t value, BufferWriter *w) {
   size_t pos = varintEncode(value, varint);
   size_t nw = VARINT_LEN(pos);
 
-  size_t mem_growth = 0;
   // we assume buffer reserve will not fail
-  if (!!(mem_growth = Buffer_Reserve(w->buf, nw))) {
-    w->pos = w->buf->data + w->buf->offset;
-  }
+  size_t mem_growth = Buffer_Reserve(w->buf, nw);
 
-  memcpy(w->pos, VARINT_BUF(varint, pos), nw);
+  memcpy(BufferWriter_Current(w), VARINT_BUF(varint, pos), nw);
 
   w->buf->offset += nw;
   w->pos += nw;

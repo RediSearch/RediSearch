@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef INDEXER_H
 #define INDEXER_H
 
@@ -11,6 +13,9 @@
 #include "concurrent_ctx.h"
 #include "util/arr.h"
 #include "geometry_index.h"
+
+extern bool g_isLoading;
+
 // Preprocessors can store field data to this location
 typedef struct FieldIndexerData {
   int isMulti;
@@ -72,5 +77,12 @@ typedef int (*IndexerFunc)(RSAddDocumentCtx *aCtx, RedisSearchCtx *ctx, const Do
 int IndexerBulkAdd(RSAddDocumentCtx *cur, RedisSearchCtx *sctx,
                    const DocumentField *field, const FieldSpec *fs, FieldIndexerData *fdata,
                    QueryError *status);
+
+/**
+ * Yield to Redis after a certain number of operations during indexing while loading.
+ * This helps keep Redis responsive during long indexing operations.
+ * @param ctx The Redis context
+ */
+static void IndexerYieldWhileLoading(RedisModuleCtx *ctx);
 
 #endif

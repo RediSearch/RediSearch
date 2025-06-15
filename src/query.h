@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef __QUERY_H__
 #define __QUERY_H__
 
@@ -89,9 +91,9 @@ typedef struct {
   // Used to set an empty iterator when a legacy filter's field is not found with Dialect 1
   bool empty;
 
-  /** List of IDs to limit to, and the length of that array */
-  t_docId *ids;
-  size_t nids;
+  /** List of keys to limit to, and the length of that array */
+  const sds *keys;
+  size_t nkeys;
 } QAST_GlobalFilterOptions;
 
 /** Set global filters on the AST */

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Source the profile update utility
 source "$(dirname "$0")/macos_update_profile.sh"

@@ -1,25 +1,22 @@
-//! Supporting types and functions for benchmarking trie operations.
-use std::{
-    ffi::{c_char, c_void},
-    ptr::NonNull,
-};
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
-// Force the compiler to link the symbols defined in `redis_mock`,
-// since they are required by `libtrie.a`.
-extern crate redis_mock;
+//! Supporting types and functions for benchmarking trie operations.
+use redis_mock::bind_redis_alloc_symbols_to_mock_impl;
+use std::{ffi::c_void, ptr::NonNull};
+
+bind_redis_alloc_symbols_to_mock_impl!();
 
 pub use bencher::OperationBencher;
 
 pub mod bencher;
-pub mod c_map;
 pub mod corpus;
-pub mod ffi;
 
 // Convenient aliases for the trie types that are being benchmarked.
-pub use c_map::CTrieMap;
 pub type RustTrieMap = trie_rs::TrieMap<NonNull<c_void>>;
-
-/// Convert a string to a slice of `c_char`, allocated on the heap, which is the expected input for [crate::RustTrieMap].
-pub fn str2boxed_c_char(input: &str) -> Box<[c_char]> {
-    input.as_bytes().iter().map(|&b| b as c_char).collect()
-}

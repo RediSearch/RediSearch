@@ -16,6 +16,7 @@ jobs:
       redis-ref: unstable
       test-config: QUICK=1
       fail-fast: false
+      add_nightly_platforms: true
 
   test-macos:
     uses: ./.github/workflows/flow-macos.yml
@@ -26,8 +27,12 @@ jobs:
 
   coverage:
     if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
-    uses: ./.github/workflows/flow-coverage.yml
+    uses: ./.github/workflows/task-test.yml
     secrets: inherit
+    with:
+      coverage: true
+      test-config: QUICK=1
+      get-redis: unstable
 
   sanitize:
     secrets: inherit

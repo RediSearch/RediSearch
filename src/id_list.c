@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "index_result.h"
 #include "index_iterator.h"
 #include "rmalloc.h"
@@ -117,12 +119,6 @@ size_t IL_Len(void *ctx) {
   return (size_t)((IdListIterator *)ctx)->size;
 }
 
-static int cmp_docids(const void *p1, const void *p2) {
-  const t_docId *d1 = p1, *d2 = p2;
-
-  return (int)(*d1 - *d2);
-}
-
 void IL_Rewind(void *p) {
   IdListIterator *il = p;
   setEof(il, 0);
@@ -132,15 +128,10 @@ void IL_Rewind(void *p) {
 }
 
 IndexIterator *NewIdListIterator(t_docId *ids, t_offset num, double weight) {
-
-  // first sort the ids, so the caller will not have to deal with it
-  qsort(ids, (size_t)num, sizeof(t_docId), cmp_docids);
-
   IdListIterator *it = rm_new(IdListIterator);
 
   it->size = num;
-  it->docIds = rm_calloc(num, sizeof(t_docId));
-  if (num > 0) memcpy(it->docIds, ids, num * sizeof(t_docId));
+  it->docIds = ids;
   setEof(it, 0);
   it->lastDocId = 0;
   it->base.current = NewVirtualResult(weight, RS_FIELDMASK_ALL);

@@ -1,6 +1,11 @@
-//
-// Created by jonathan on 7/4/24.
-//
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 
 #ifndef TTL_TABLE_H
 #define TTL_TABLE_H

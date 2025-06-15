@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "forward_index.h"
 #include "index.h"
 #include "varint.h"
@@ -663,8 +665,8 @@ static int cmpIter(IndexIterator **it1, IndexIterator **it2) {
 
   double factor1 = 1;
   double factor2 = 1;
-  enum iteratorType it_1_type = (*it1)->type;
-  enum iteratorType it_2_type = (*it2)->type;
+  enum IteratorType it_1_type = (*it1)->type;
+  enum IteratorType it_2_type = (*it2)->type;
 
   /*
    * on INTERSECT iterator, we divide the estimate by the number of children
@@ -1666,7 +1668,7 @@ static size_t WI_NumEstimated(void *p) {
 }
 
 /* Create a new wildcard iterator */
-static IndexIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs) {
+IndexIterator *NewWildcardIterator_NonOptimized(t_docId maxId, size_t numDocs) {
   WildcardIteratorCtx *c = rm_calloc(1, sizeof(*c));
   c->current = 0;
   c->topId = maxId;
@@ -1906,11 +1908,9 @@ PRINT_PROFILE_FUNC(printIntersectIt) {
 }
 
 PRINT_PROFILE_FUNC(printMetricIt) {
-  MetricIterator *mi = (MetricIterator *)root;
-
   RedisModule_Reply_Map(reply);
 
-  switch (mi->type) {
+  switch (GetMetric(root)) {
     case VECTOR_DISTANCE: {
       printProfileType("METRIC - VECTOR DISTANCE");
       break;

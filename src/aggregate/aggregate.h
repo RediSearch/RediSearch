@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef RS_AGGREGATE_H__
 #define RS_AGGREGATE_H__
 
@@ -112,7 +114,7 @@ typedef enum {
 // will also guarantee that there is a running thread pool with al least 1 thread.
 #define RunInThread() (RSGlobalConfig.numWorkerThreads)
 
-typedef void (*profiler_func)(RedisModule_Reply *reply, struct AREQ *req, bool has_timedout, bool reachedMaxPrefixExpansions);
+typedef void (*profiler_func)(RedisModule_Reply *reply, void *ctx);
 
 typedef enum {
   /* Pipeline has a loader */

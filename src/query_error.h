@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef QUERY_ERROR_H
 #define QUERY_ERROR_H
 #include <stdlib.h>
@@ -67,11 +69,10 @@ extern "C" {
   X(QUERY_EUNKNOWNINDEX, "Unknown index name")                                                   \
   X(QUERY_EDROPPEDBACKGROUND, "The index was dropped before the query could be executed")        \
   X(QUERY_EALIASCONFLICT, "Alias conflicts with an existing index name")                         \
-  X(QUERY_INDEXBGOOMFAIL, "Index background scan failed due to OOM. Queries cannot be executed on\
-     an incomplete index.")                                                                      \
+  X(QUERY_INDEXBGOOMFAIL, "Index background scan did not complete due to OOM")                             \
 
 #define QUERY_WMAXPREFIXEXPANSIONS "Max prefix expansions limit was reached"
-
+#define QUERY_WINDEXING_FAILURE "Index contains partial data due to an indexing failure caused by insufficient memory"
 typedef enum {
   QUERY_OK = 0,
 

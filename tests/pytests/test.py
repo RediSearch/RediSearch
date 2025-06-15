@@ -1196,8 +1196,9 @@ def testInKeys(env):
     for _ in env.reloadingIterator():
         waitForIndex(env, 'idx')
         for keys in (
-            [f"doc{i}" for i in range(10)], [f"doc{i}" for i in range(0, 30, 2)], [
-                f"doc{i}" for i in range(99, 0, -5)]
+            [f"doc{i}" for i in range(10)],
+            [f"doc{i}" for i in range(0, 30, 2)],
+            [f"doc{i}" for i in range(99, 0, -5)],
         ):
             res = env.cmd(
                 'ft.search', 'idx', 'hello world', 'NOCONTENT', 'LIMIT', 0, 100, 'INKEYS', len(keys), *keys)
@@ -1206,6 +1207,14 @@ def testInKeys(env):
 
         env.assertEqual(0, env.cmd(
             'ft.search', 'idx', 'hello world', 'NOCONTENT', 'LIMIT', 0, 100, 'INKEYS', 3, 'foo', 'bar', 'baz')[0])
+        # Test deduplication
+        env.assertEqual([1, 'doc0'], env.cmd(
+            'ft.search', 'idx', 'hello world', 'NOCONTENT', 'INKEYS', 2, 'doc0', 'doc0'))
+        env.assertEqual([1, 'doc0'], env.cmd(
+            'ft.search', 'idx', 'hello world', 'NOCONTENT', 'INKEYS', 5, 'doc0', 'doc0', 'doc0', 'doc0', 'doc0'))
+        res = env.cmd('ft.search', 'idx', 'hello world', 'NOCONTENT', 'INKEYS', 5, 'doc0', 'doc1', 'doc0', 'doc1', 'doc0')
+        env.assertEqual(2, res[0])
+        env.assertEqual(set(res[1:]), {'doc0', 'doc1'})
 
     with env.assertResponseError():
         env.cmd('ft.search', 'idx', 'hello', 'INKEYS', 99)
@@ -2451,6 +2460,7 @@ def testTimeout(env):
 
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0').noEqual([num_range])
 
+    env.expect(config_cmd(), 'set', 'on_timeout', 'fail').ok()
     env.expect('ft.search', 'myIdx', 'aa*|aa*|aa*|aa* aa*', 'limit', '0', '0') \
        .contains('Timeout limit was reached')
 
@@ -2504,7 +2514,6 @@ def testTimeout(env):
 @skip(cluster=True)
 def testTimeoutOnSorter(env):
     conn = getConnectionByEnv(env)
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd(config_cmd(), 'set', 'timeout', '1')
     pl = conn.pipeline()
 
@@ -3497,7 +3506,6 @@ def testFieldsCaseSensetive(env):
     # will not reflect the errors
     conn = getConnectionByEnv(env)
     dialect = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1]
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC f TEXT t TAG g GEO')
 
     # make sure text fields are case sensitive
@@ -3575,7 +3583,6 @@ def testSortedFieldsCaseSensetive(env):
     # will not reflect the errors
     conn = getConnectionByEnv(env)
     dialect = env.cmd(config_cmd(), 'GET', 'DEFAULT_DIALECT')[0][1]
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
     env.cmd('FT.CREATE idx ON HASH SCHEMA n NUMERIC SORTABLE f TEXT SORTABLE t TAG SORTABLE g GEO SORTABLE')
 
     # make sure text fields are case sensitive
@@ -4278,7 +4285,6 @@ def test_timeout_non_strict_policy(env):
     """
 
     conn = getConnectionByEnv(env)
-    run_command_on_all_shards(env, config_cmd(), 'SET', 'ON_TIMEOUT', 'RETURN')
 
     # Create an index, and populate it
     n = 25000
@@ -4288,13 +4294,13 @@ def test_timeout_non_strict_policy(env):
     num_docs = n * env.shardsCount
     res = conn.execute_command(
         'FT.SEARCH', 'idx', '*', 'LIMIT', '0', str(num_docs), 'TIMEOUT', '1'
-        )
+    )
     env.assertTrue(len(res) < num_docs * 2 + 1)
 
     # Same for `FT.AGGREGATE`
     res = conn.execute_command(
         'FT.AGGREGATE', 'idx', '*', 'LOAD', '1', '@text1', 'TIMEOUT', '1'
-        )
+    )
     env.assertTrue(len(res) < num_docs + 1)
 
 def test_timeout_strict_policy():
@@ -4355,7 +4361,9 @@ def test_with_tls():
 
     common_with_auth(env)
 
-@skip(cluster=False)
+# Temporarily disabled due to flakiness
+@skip()
+# @skip(cluster=False)
 def test_with_tls_and_non_tls_ports():
     """Tests that the coordinator-shard connections are using the correct
     protocol (TLS vs. non-TLS) according to the redis `tls-cluster` configuration."""

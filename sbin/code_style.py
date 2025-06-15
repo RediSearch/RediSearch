@@ -51,7 +51,7 @@ if options.install:
         raise Exception('Must be run from source directory (no .git directory found)')
     script_target = '.git/hooks/pre-commit'
     script_text = """
-#!/bin/bash
+#!/usr/bin/env bash
 ./srcutil/code_style.py -n
 """
     with open(script_target, 'w') as f:

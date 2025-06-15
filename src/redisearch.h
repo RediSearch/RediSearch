@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef REDISEARCH_H__
 #define REDISEARCH_H__
 
@@ -14,6 +16,7 @@
 #include <time.h>
 #include "util/dllist.h"
 #include "stemmer.h"
+#include "types_rs.h"
 
 typedef uint64_t t_docId;
 typedef uint64_t t_offset;
@@ -231,7 +234,7 @@ typedef int (*RSQueryTokenExpander)(RSQueryExpanderCtx *ctx, RSToken *token);
 typedef void (*RSFreeFunction)(void *);
 
 /* A single term being evaluated in query time */
-typedef struct {
+typedef struct RSQueryTerm {
   /* The term string, not necessarily NULL terminated, hence the length is given as well */
   char *str;
   /* The term length */
@@ -257,13 +260,6 @@ typedef struct {
  * When calling the iterator you should check for this return value */
 #define RS_OFFSETVECTOR_EOF UINT32_MAX
 
-/* RSOffsetVector represents the encoded offsets of a term in a document. You can read the offsets
- * by iterating over it with RSOffsetVector_Iterate */
-typedef struct RSOffsetVector {
-  char *data;
-  uint32_t len;
-} RSOffsetVector;
-
 /* RSOffsetIterator is an interface for iterating offset vectors of aggregate and token records */
 typedef struct RSOffsetIterator {
   void *ctx;
@@ -272,16 +268,6 @@ typedef struct RSOffsetIterator {
   void (*Free)(void *ctx);
 } RSOffsetIterator;
 
-/* RSIndexRecord represents a single record of a document inside a term in the inverted index */
-typedef struct {
-
-  /* The term that brought up this record */
-  RSQueryTerm *term;
-
-  /* The encoded offsets in which the term appeared in the document */
-  RSOffsetVector offsets;
-
-} RSTermRecord;
 
 /* A virtual record represents a record that doesn't have a term or an aggregate, like numeric
  * records */
@@ -289,34 +275,9 @@ typedef struct {
   char dummy;
 } RSVirtualRecord;
 
-typedef struct {
-  double value;
-} RSNumericRecord;
-
-typedef enum {
-  RSResultType_Union = 0x1,
-  RSResultType_Intersection = 0x2,
-  RSResultType_Term = 0x4,
-  RSResultType_Virtual = 0x8,
-  RSResultType_Numeric = 0x10,
-  RSResultType_Metric = 0x20,
-  RSResultType_HybridMetric = 0x40,
-} RSResultType;
 
 #define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)
 #define RS_RESULT_NUMERIC (RSResultType_Numeric | RSResultType_Metric)
-
-typedef struct {
-  /* The number of child records */
-  int numChildren;
-  /* The capacity of the records array. Has no use for extensions */
-  int childrenCap;
-  /* An array of recods */
-  struct RSIndexResult **children;
-
-  // A map of the aggregate type of the underlying results
-  uint32_t typeMask;
-} RSAggregateResult;
 
 // Forward declaration of needed structs
 struct RLookupKey;

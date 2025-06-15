@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #include "field_spec_info.h"
 #include "reply_macros.h"
 #include "coord/rmr/reply.h"
@@ -148,7 +150,7 @@ void AggregatedFieldSpecInfo_Combine(AggregatedFieldSpecInfo *info, const Aggreg
 
 // Deserializes a FieldSpecInfo from a MRReply.
 AggregatedFieldSpecInfo AggregatedFieldSpecInfo_Deserialize(const MRReply *reply) {
-    AggregatedFieldSpecInfo info = AggregatedFieldSpecInfo_Init();
+    AggregatedFieldSpecInfo info = {0};
     RS_ASSERT(reply);
     // Validate the reply type - array or map.
     RS_ASSERT(MRReply_Type(reply) == MR_REPLY_MAP || (MRReply_Type(reply) == MR_REPLY_ARRAY && MRReply_Length(reply) % 2 == 0));

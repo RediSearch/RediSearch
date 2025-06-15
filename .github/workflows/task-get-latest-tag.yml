@@ -18,6 +18,7 @@ on:
 env:
   RETRY_COUNT: 10
   RETRY_MAX_TIME: 60 # seconds
+  NUM_RELEASES: 100
 
 jobs:
   get-tag: # Following best practices: https://docs.github.com/en/rest/releases/releases?apiVersion=2022-11-28
@@ -55,7 +56,7 @@ jobs:
                       -H "Accept: application/vnd.github+json" \
                       -H "X-GitHub-Api-Version: 2022-11-28" \
                       -H "authorization: Bearer ${{ github.token }}" \
-                      https://api.github.com/repos/${{ inputs.repo }}/releases | \
+                      https://api.github.com/repos/${{ inputs.repo }}/releases?per_page=${{ env.NUM_RELEASES }} | \
                 jq -e -r '.[].tag_name | select(startswith("${{ inputs.prefix }}"))' | \
                 sort -V | tail -1) && \
           echo "tag=$TAG" >> $GITHUB_OUTPUT

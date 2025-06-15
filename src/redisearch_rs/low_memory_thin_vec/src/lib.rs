@@ -837,9 +837,6 @@ impl<T> LowMemoryThinVec<T> {
     /// If `len` is greater than the vector's current length, this has no
     /// effect.
     ///
-    /// The [`drain`] method can emulate `truncate`, but causes the excess
-    /// elements to be returned instead of dropped.
-    ///
     /// Note that this method has no effect on the allocated capacity
     /// of the vector.
     ///
@@ -878,7 +875,6 @@ impl<T> LowMemoryThinVec<T> {
     /// ```
     ///
     /// [`clear`]: LowMemoryThinVec::clear
-    /// [`drain`]: LowMemoryThinVec::drain
     pub fn truncate(&mut self, len: usize) {
         // drop any extra elements
         while len < self.len() {
@@ -1120,8 +1116,8 @@ impl<T> LowMemoryThinVec<T> {
     ///
     /// # Examples
     ///
-    /// ``rust
-    /// # #[macro_use] extern crate low_memory_thin_vec;
+    /// ```rust
+    /// # use low_memory_thin_vec::low_memory_thin_vec;
     /// # fn main() {
     /// let mut vec = low_memory_thin_vec![1, 2, 3, 4, 5];
     /// vec.retain_mut(|x| {
@@ -1966,7 +1962,7 @@ impl<T> Drop for IntoIter<T> {
         #[inline(never)]
         fn drop_non_singleton<T>(this: &mut IntoIter<T>) {
             // We need to take ownership of the vector to avoid dropping its elements twice
-            let mut vec = mem::replace(&mut this.vec, LowMemoryThinVec::new());
+            let mut vec = mem::take(&mut this.vec);
             // SAFETY:
             // - The pointer is valid because it was obtained from a valid slice.
             // - We're in the `Drop` implementation.

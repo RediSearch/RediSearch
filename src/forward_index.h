@@ -1,19 +1,26 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #ifndef __FORWARD_INDEX_H__
 #define __FORWARD_INDEX_H__
 #include "redisearch.h"
 #include "util/block_alloc.h"
 #include "util/khtable.h"
 #include "util/mempool.h"
-#include "triemap/triemap.h"
+#include "triemap.h"
 #include "varint.h"
 #include "tokenize.h"
 #include "document.h"
+#include "inverted_index.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct ForwardIndexEntry {
   struct ForwardIndexEntry *next;
@@ -82,4 +89,12 @@ ForwardIndexEntry *ForwardIndex_Find(ForwardIndex *i, const char *s, size_t n, u
 
 void ForwardIndex_NormalizeFreq(ForwardIndex *, ForwardIndexEntry *);
 
+/* Write a ForwardIndexEntry into an indexWriter. Returns the number of bytes written to the index
+ */
+size_t InvertedIndex_WriteForwardIndexEntry(InvertedIndex *idx, IndexEncoder encoder,
+                                            ForwardIndexEntry *ent);
+
+#ifdef __cplusplus
+}
+#endif
 #endif

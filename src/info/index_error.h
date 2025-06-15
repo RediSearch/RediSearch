@@ -1,9 +1,11 @@
 /*
- * Copyright Redis Ltd. 2016 - present
- * Licensed under your choice of the Redis Source Available License 2.0 (RSALv2) or
- * the Server Side Public License v1 (SSPLv1).
- */
-
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
 #pragma once
 #include <stddef.h>
 #include "redismodule.h"
@@ -34,6 +36,11 @@ typedef struct IndexError {
 
 // Global constant to place an index error object in maps/dictionaries.
 extern char* const IndexError_ObjectName;
+
+/***************************************************************
+ *  This API is NOT THREAD SAFE as it utilizes RedisModuleString objects
+ * which are not thread safe. 
+***************************************************************/
 
 // Initializes an IndexError. The error_count is set to 0 and the last_error is set to NA.
 IndexError IndexError_Init();
@@ -73,6 +80,10 @@ void IndexError_Clear(IndexError error);
 // IO and cluster traits
 // Reply the index errors to the client.
 void IndexError_Reply(const IndexError *error, RedisModule_Reply *reply, bool withTimestamp, bool obfuscate, bool withOOMstatus);
+
+// Clears global variables used in the IndexError module.
+// This function should be called on shutdown.
+void IndexError_GlobalCleanup();
 
 #include "coord/rmr/reply.h"
 

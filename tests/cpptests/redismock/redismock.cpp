@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) 2006-Present, Redis Ltd.
+ * All rights reserved.
+ *
+ * Licensed under your choice of the Redis Source Available License 2.0
+ * (RSALv2); or (b) the Server Side Public License v1 (SSPLv1); or (c) the
+ * GNU Affero General Public License v3 (AGPLv3).
+*/
+
 #include "internal.h"
 #include "util.h"
 #include "redismock.h"
@@ -358,7 +367,7 @@ int RMCK_StringToLongLong(RedisModuleString *s, long long *l) {
 #define ENTRY_OK 1
 #define ENTRY_DONE 0
 #define ENTRY_ERROR -1
-// Retreives the hash value key and the following argument, and stores them in the provided pointers
+// Retrieves the hash value key and the following argument, and stores them in the provided pointers
 static int getNextEntry(va_list &ap, HashValue::Key &e, void **vpp) {
   void *kp = va_arg(ap, void *);
   if (!kp) {
@@ -968,6 +977,15 @@ static int RMCK_SubscribeToServerEvent(RedisModuleCtx *ctx, RedisModuleEvent eve
   return REDISMODULE_OK;
 }
 
+void RMCK_Yield(RedisModuleCtx *ctx, int flags, const char *busy_reply) {
+  return;
+}
+
+int RMCK_GetContextFlags(RedisModuleCtx *ctx) {
+  return 0;
+}
+
+
 /** Fork */
 static int RMCK_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
   return fork();
@@ -976,8 +994,18 @@ static int RMCK_Fork(RedisModuleForkDoneHandler cb, void *user_data) {
 static void RMCK_SendChildHeartbeat(double progress) {
 }
 
+// like in Redis' `exitFromChild`, we exit from children using _exit() instead of
+// exit(), because the latter may interact with the same file objects used by
+// the parent process (may yield errors when testing with sanitizer).
+// However if we are testing the coverage normal exit() is
+// used in order to obtain the right coverage information.
 static int RMCK_ExitFromChild(int retcode) {
+#if defined(COV) || defined(COVERAGE)
+  exit(retcode);
+#else
   _exit(retcode);
+#endif
+  return REDISMODULE_OK; // never reached, but following the API "behavior"
 }
 
 static int RMCK_KillForkChild(int child_pid) {
@@ -1189,6 +1217,8 @@ static void registerApis() {
   REGISTER_API(Fork);
   REGISTER_API(AddACLCategory);
   REGISTER_API(SetCommandACLCategories);
+  REGISTER_API(Yield);
+  REGISTER_API(GetContextFlags);
 }
 
 static int RMCK_GetApi(const char *s, void *pp) {
