@@ -45,7 +45,7 @@ public:
         childrenIds.resize(numChildren);
         for (auto &child : childrenIds) {
             child.reserve(idsPerChild);
-            for (size_t i = 1; i <= idsPerChild; i++) {
+            for (t_docId i = 1; child.size() < idsPerChild; i++) {
                 if (dist(rng) < percent) {
                     child.emplace_back(i);
                 }
