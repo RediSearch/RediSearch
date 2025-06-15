@@ -1120,6 +1120,25 @@ int FGC_parentHandleFromChild(ForkGC *gc) {
   return REDISMODULE_OK;
 }
 
+// GIL must be held before calling this function
+static inline bool isOutOfMemory(RedisModuleCtx *ctx) {
+  #define MIN_NOT_0(a,b) (((a)&&(b))?MIN((a),(b)):MAX((a),(b)))
+  RedisModuleServerInfoData *info = RedisModule_GetServerInfo(ctx, "memory");
+
+  size_t maxmemory = RedisModule_ServerInfoGetFieldUnsigned(info, "maxmemory", NULL);
+  size_t max_process_mem = RedisModule_ServerInfoGetFieldUnsigned(info, "max_process_mem", NULL); // Enterprise limit
+  maxmemory = MIN_NOT_0(maxmemory, max_process_mem);
+
+  size_t total_system_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "total_system_memory", NULL);
+  maxmemory = MIN_NOT_0(maxmemory, total_system_memory);
+
+  size_t used_memory = RedisModule_ServerInfoGetFieldUnsigned(info, "used_memory", NULL);
+
+  RedisModule_FreeServerInfo(ctx, info);
+
+  return used_memory > maxmemory;
+}
+
 static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
   ForkGC *gc = privdata;
   if (gc->deleting) {
@@ -1144,6 +1163,17 @@ static int periodicCb(RedisModuleCtx *ctx, void *privdata) {
     }
     RedisModule_ThreadSafeContextUnlock(ctx);
   }
+
+  // Check if we are out of memory before even trying to fork
+  RedisModule_ThreadSafeContextLock(ctx);
+  if (isOutOfMemory(ctx)) {
+    RedisModule_Log(ctx, "warning", "Not enough memory for GC fork, skipping GC job");
+    gc->retryInterval.tv_sec = RSGlobalConfig.forkGcRetryInterval;
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    return 1;
+  }
+  RedisModule_ThreadSafeContextUnlock(ctx);
+
 
   pid_t cpid;
   TimeSample ts;
