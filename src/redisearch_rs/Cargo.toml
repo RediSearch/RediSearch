@@ -57,6 +57,7 @@ ffi = { path = "./ffi" }
 inverted_index = { path = "./inverted_index" }
 low_memory_thin_vec = { path = "./low_memory_thin_vec" }
 redis_mock = { path = "./redis_mock" }
+result_processor = { path = "./result_processor" }
 trie_rs = { path = "./trie_rs" }
 wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }

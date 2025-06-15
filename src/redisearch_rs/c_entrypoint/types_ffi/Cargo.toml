@@ -13,3 +13,4 @@ cbindgen.workspace = true
 
 [dependencies]
 inverted_index.workspace = true
+result_processor.workspace = true
