@@ -1502,7 +1502,7 @@ dictType dictTypeSearchResultMapping = {
   *******************************************************************************************************************/
  typedef struct {
    ResultProcessor base;
-   double (*hybridScoring_function)(double, double);
+   double (*hybridScoring_function)(double, double, bool, bool);
    ResultProcessor *upstream1;
    ResultProcessor *upstream2;
    size_t window;
@@ -1510,6 +1510,7 @@ dictType dictTypeSearchResultMapping = {
    dict *scores;   // keyPtr -> HybridScores mapping
    dictIterator *iterator; // Iterator for yielding results
    SearchResult *pooledResult; // Reusable result for accumulation
+   bool timedOut; // Flag to track if we timed out during accumulation
  } RPHybridMerger;
 
  /* Helper function to consume results from a single upstream */
@@ -1558,8 +1559,10 @@ dictType dictTypeSearchResultMapping = {
    // Get next entry from iterator
    dictEntry *entry = dictNext(self->iterator);
    if (!entry) {
-     // No more results to yield
-     return RS_RESULT_EOF;
+     // No more results to yield - return appropriate status
+     int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
+     self->timedOut = false; // Reset for potential future use
+     return ret;
    }
 
    // Get the key and fetch both SearchResult and HybridScores
@@ -1568,9 +1571,11 @@ dictType dictTypeSearchResultMapping = {
    HybridScores *scores = dictFetchValue(self->scores, keyPtr);
 
    RS_ASSERT(storedResult && scores);
+   RS_ASSERT(scores->hasScores[0] || scores->hasScores[1]);
 
-   // Apply hybrid scoring function
-   double hybridScore = self->hybridScoring_function(scores->scores[0], scores->scores[1]);
+   // Apply hybrid scoring function with score availability flags
+   double hybridScore = self->hybridScoring_function(scores->scores[0], scores->scores[1],
+                                                    scores->hasScores[0], scores->hasScores[1]);
 
    // Override the result with stored data and new hybrid score
    SearchResult_Override(r, storedResult);
@@ -1586,8 +1591,32 @@ dictType dictTypeSearchResultMapping = {
    // Phase 1: Consume window results from upstream1 (index 0)
    int rc1 = ConsumeFromUpstream(self, self->upstream1, 0);
 
+   // Handle timeout from upstream1 - immediately switch to yield phase like normalizer
+   if (rc1 == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+     self->timedOut = true;
+     self->iterator = dictGetIterator(self->results);
+     rp->Next = RPHybridMerger_Yield;
+     return rp->Next(rp, r);
+   } else if (rc1 != RS_RESULT_OK && rc1 != RS_RESULT_EOF) {
+     // Can be RS_RESULT_OK since we consume only self->window results
+     // Other error from upstream1 (not timeout with return policy) - propagate error
+     return rc1;
+   }
+
    // Phase 2: Consume window results from upstream2 (index 1)
    int rc2 = ConsumeFromUpstream(self, self->upstream2, 1);
+
+   // Handle timeout from upstream2 - immediately switch to yield phase like normalizer
+   if (rc2 == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+     self->timedOut = true;
+     self->iterator = dictGetIterator(self->results);
+     rp->Next = RPHybridMerger_Yield;
+     return rp->Next(rp, r);
+   } else if (rc2 != RS_RESULT_OK && rc2 != RS_RESULT_EOF) {
+     // Can be RS_RESULT_OK since we consume only self->window results
+     // Other error from upstream2 (not timeout with return policy) - propagate error
+     return rc2;
+   }
 
    // Initialize iterator for yield phase
    self->iterator = dictGetIterator(self->results);
@@ -1625,7 +1654,7 @@ dictType dictTypeSearchResultMapping = {
  }
 
  /* Create a new Hybrid Merger processor */
- ResultProcessor *RPHybridMerger_New(double (*hybridScoring_function)(double, double),
+ ResultProcessor *RPHybridMerger_New(double (*hybridScoring_function)(double, double, bool, bool),
                                      ResultProcessor *upstream1,
                                      ResultProcessor *upstream2,
                                      size_t window) {
@@ -1634,8 +1663,19 @@ dictType dictTypeSearchResultMapping = {
    ret->upstream1 = upstream1;
    ret->upstream2 = upstream2;
    ret->window = window;
+
+   // Calculate expected dictionary size: window * num_upstreams (2 in this case)
+   // Add some buffer to avoid edge case resizes
+   size_t expectedSize = window * 2;
+   size_t dictSize = expectedSize > 16 ? expectedSize : 16; // Minimum reasonable size
+
    ret->results = dictCreate(&dictTypeSearchResultMapping, NULL);
    ret->scores = dictCreate(&dictTypeHybridScores, NULL);
+
+   // Pre-size the dictionaries to avoid multiple resizes during accumulation
+   dictExpand(ret->results, dictSize);
+   dictExpand(ret->scores, dictSize);
+
    ret->iterator = NULL; // Will be initialized during accumulation phase
    ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult)); // Allocate pooled result
 
