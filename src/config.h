@@ -159,6 +159,11 @@ typedef struct {
   unsigned int indexerYieldEveryOpsWhileLoading;
   // Limit the number of cursors that can be created for a single index
   long long indexCursorLimit;
+  // The maximum ratio between current memory and max memory for which background indexing is allowed
+  uint8_t indexingMemoryLimit;
+  // Set how much time after OOM is detected we should wait to enable the resource manager to
+  // allocate more memory. Note: has different default values for OSS and Enterprise.
+  uint32_t bgIndexingOomPauseTimeBeforeRetry;
 } RSConfig;
 
 typedef enum {
@@ -238,6 +243,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
 #define NR_MAX_DEPTH_BALANCE 2
 #define VECSIM_DEFAULT_BLOCK_SIZE   1024
 #define DEFAULT_INDEXER_YIELD_EVERY_OPS 1000
+#define DEFAULT_INDEXING_MEMORY_LIMIT 100
+#define DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY 0 // Note: The config value default is changed to 5 in enterprise
 
 #ifdef MT_BUILD
 #define MT_BUILD_CONFIG .numWorkerThreads = 0,                                                                     \
@@ -290,6 +297,8 @@ void DialectsGlobalStats_AddToInfo(RedisModuleInfoCtx *ctx);
     .prioritizeIntersectUnionChildren = false       ,                                                                        \
     .indexCursorLimit = DEFAULT_INDEX_CURSOR_LIMIT,                                                             \
     .indexerYieldEveryOpsWhileLoading = DEFAULT_INDEXER_YIELD_EVERY_OPS,                                              \
+    .indexingMemoryLimit = DEFAULT_INDEXING_MEMORY_LIMIT,                       \
+    .bgIndexingOomPauseTimeBeforeRetry = DEFAULT_BG_OOM_PAUSE_TIME_BEFOR_RETRY  \
   }
 
 #define REDIS_ARRAY_LIMIT 7
