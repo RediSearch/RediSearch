@@ -360,7 +360,8 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
         thread.start()
 
     # Let the threads run for a short time to establish baseline
-    time.sleep(0.5)
+    while results['info_calls'] < 10:
+        time.sleep(0.1)
 
     # Delete all documents
     with env.getClusterConnectionIfNeeded() as local_conn:
@@ -389,7 +390,7 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
         time.sleep(0.1)
 
     # Continue running FT.INFO calls for a bit longer to catch cleanup operations
-    while results['info_calls'] < 10:
+    while results['errors'] < 10:
         time.sleep(0.1)
 
     # Stop all threads
