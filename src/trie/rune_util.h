@@ -52,7 +52,7 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen);
 
 /* Convert a string to runes, lowercase them and return the transformed runes.
  * This function supports lowercasing of multi-codepoint runes. */
-rune *strToLowerRunes(const char *str, size_t *len);
+rune *strToLowerRunes(const char *encoded, size_t utf8_len, size_t *rune_len);
 
 /* Convert a string to runes, fold them and return the folded runes.
  * If a folded runes contains more than one codepoint, only the first
@@ -82,10 +82,6 @@ static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *l
     target = buf->u.s;
   }
   *len = strToRunesN(s, n, target);
-  if (*len > n) {
-    // if we read more runes than the string length, we have a problem
-    *len = n;
-  }
   target[*len] = 0;
   return target;
 }

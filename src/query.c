@@ -629,7 +629,7 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   }
 
   size_t nstr;
-  rune *str = qn->pfx.tok.str ? strToLowerRunes(qn->pfx.tok.str, &nstr) : NULL;
+  rune *str = qn->pfx.tok.str ? strToLowerRunes(qn->pfx.tok.str, qn->pfx.tok.len, &nstr) : NULL;
   if (!str) {
     QueryError_SetWithoutUserDataFmt(q->status, QUERY_ELIMIT, "%s " TRIE_STR_TOO_LONG_MSG, PrefixNode_GetTypeString(&qn->pfx));
     return NULL;
@@ -694,7 +694,7 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
 
   token->len = Wildcard_RemoveEscape(token->str, token->len);
   size_t nstr;
-  rune *str = strToLowerRunes(token->str, &nstr);
+  rune *str = strToLowerRunes(token->str, token->len, &nstr);
   if (!str) {
     QueryError_SetError(q->status, QUERY_ELIMIT, "Wildcard " TRIE_STR_TOO_LONG_MSG);
     return NULL;
@@ -837,10 +837,10 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
   rune *begin = NULL, *end = NULL;
   size_t nbegin, nend;
   if (lx->lxrng.begin) {
-    begin = strToLowerRunes(lx->lxrng.begin, &nbegin);
+    begin = strToLowerRunes(lx->lxrng.begin, strlen(lx->lxrng.begin), &nbegin);
   }
   if (lx->lxrng.end) {
-    end = strToLowerRunes(lx->lxrng.end, &nend);
+    end = strToLowerRunes(lx->lxrng.end, strlen(lx->lxrng.end), &nend);
   }
 
   TrieNode_IterateRange(t->root, begin, begin ? nbegin : -1, lx->lxrng.includeBegin, end,
@@ -862,7 +862,7 @@ static IndexIterator *Query_EvalFuzzyNode(QueryEvalCtx *q, QueryNode *qn) {
 
   if (!terms) return NULL;
 
-  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, qn->pfx.tok.len, qn->fz.maxDist, 0, &qn->opts);
+  return iterateExpandedTerms(q, terms, qn->pfx.tok.str, strlen(qn->pfx.tok.str), qn->fz.maxDist, 0, &qn->opts);
 }
 
 static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {

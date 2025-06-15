@@ -77,14 +77,20 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   return ret;
 }
 
-/* convert string to runes, lower them and return the lowered runes */
-rune *strToLowerRunes(const char *str, size_t *len) {
+// This function reads a UTF-8 encoded string, transforms it to lowercase,
+// and returns a dynamically allocated array of runes (32-bit integers).
+// Parameters:
+// - str: The input UTF-8 encoded string.
+// - utf8_len: The length of the input string in bytes.
+// - unicode_len: A pointer to a size_t variable where the length of the
+//   resulting array of runes will be stored. Must be non-NULL.
+rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
 
   // determine the length of the folded string
-  ssize_t rlen = nu_strtransformlen(str, nu_utf8_read,
+  ssize_t rlen = nu_strtransformnlen(str, utf8_len, nu_utf8_read,
                                      nu_tolower, nu_casemap_read);
   if (rlen > MAX_RUNESTR_LEN) {
-    if (len) *len = 0;
+    *unicode_len = 0;
     return NULL;
   }
 
@@ -101,7 +107,7 @@ rune *strToLowerRunes(const char *str, size_t *len) {
   const char *encoded_char = str;
   uint32_t codepoint;
   unsigned i = 0;
-  for (ssize_t j = 0; j < rlen; j++) {
+  while (encoded_char < str + utf8_len) {
     // Read unicode codepoint from utf8 string
     encoded_char = nu_utf8_read(encoded_char, &codepoint);
     // Transform unicode codepoint to lower case
@@ -118,12 +124,10 @@ rune *strToLowerRunes(const char *str, size_t *len) {
         ret[i++] = mu;
       }
     } else {
-      if (i < rlen) {
         ret[i++] = codepoint;
-      }
     }
   }
-  if (len) *len = rlen;
+  *unicode_len = rlen;
 
   if (u_buffer != u_stack_buffer) {
     rm_free(u_buffer);
