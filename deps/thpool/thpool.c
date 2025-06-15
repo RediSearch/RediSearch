@@ -195,6 +195,9 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
   /* No need to destory if it's NULL */
   if (thpool_p == NULL) return;
 
+  // Wait for all jobs to finish
+  redisearch_thpool_wait(thpool_p);
+
   volatile int threads_total = thpool_p->num_threads_alive;
 
   /* End each thread 's infinite loop */
@@ -455,6 +458,7 @@ static struct job* jobqueue_pull(jobqueue* jobqueue_p) {
 static void jobqueue_destroy(jobqueue* jobqueue_p) {
   jobqueue_clear(jobqueue_p);
   rm_free(jobqueue_p->has_jobs);
+  pthread_mutex_destroy(&jobqueue_p->rwmutex);
 }
 
 /* ======================== SYNCHRONISATION ========================= */
