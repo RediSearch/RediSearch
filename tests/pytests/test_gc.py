@@ -31,7 +31,7 @@ def testBasicGC(env):
 @skip(cluster=True)
 def testBasicGCWithEmptyInvIdx(env):
     if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs:
-        # this test is not relevent for legacy gc cause its not squeshing inverted index
+        # this test is not relevant for legacy gc cause its not squeshing inverted index
         env.skip()
     env.expect('ft.config', 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text'))
@@ -125,7 +125,7 @@ def testDeleteEntireBlock(env):
     for i in range(700):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'test', 'checking', 'test2', 'checking%d' % i).ok()
 
-    # delete docs in the midle of the inverted index, make sure the binary search are not braken
+    # delete docs in the middle of the inverted index, make sure the binary search are not braken
     for i in range(400, 501):
         env.expect('FT.DEL', 'idx', 'doc%d' % i).equal(1)
     res = env.cmd('FT.SEARCH', 'idx', '@test:checking @test2:checking250')
@@ -260,7 +260,7 @@ def testGFreeEmpryTerms(env):
     env.expect('FT.DEBUG', 'DUMP_TERMS', 'idx').equal([])
 
 @skip(cluster=True)
-def testAutoMemory_MOD_3951():    
+def testAutoMemory_MOD_3951():
     env = Env(moduleArgs='FORK_GC_CLEAN_THRESHOLD 0')
     conn = getConnectionByEnv(env)
 
@@ -277,3 +277,34 @@ def testAutoMemory_MOD_3951():
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', '2nd', 'TEXT').equal('OK')
 
     # This test should catch some leaks on the sanitizer
+
+@skip(cluster=True)
+def test_gc_oom(env):
+    env.expect(config_cmd(), 'SET', 'FORK_GC_CLEAN_THRESHOLD', '0').ok()
+    env.expect(config_cmd(), 'SET', 'FORK_GC_RUN_INTERVAL', '30000').ok()
+    num_docs = 10
+    for i in range(num_docs):
+        env.expect('HSET', f'doc{i}', 't', f'name{i}').equal(1)
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
+    waitForIndex(env, 'idx')
+    for i in range(num_docs):
+        env.expect('DEL', f'doc{i}').equal(1)
+
+    env.expect('config', 'set', 'maxmemory', 1).ok()
+    forceInvokeGC(env, 'idx')
+
+    # Verify no bytes collected by GC
+    info = index_info(env, 'idx')
+    gc_dict = to_dict(info["gc_stats"])
+    bytes_collected = int(gc_dict['bytes_collected'])
+    env.assertEqual(bytes_collected, 0)
+
+    # Increase memory and rerun GC
+    env.expect('config', 'set', 'maxmemory', 0).ok()
+    forceInvokeGC(env, 'idx')
+
+    # Verify bytes collected by GC is more than 0
+    info = index_info(env, 'idx')
+    gc_dict = to_dict(info["gc_stats"])
+    bytes_collected = int(gc_dict['bytes_collected'])
+    env.assertGreater(bytes_collected, 0)
