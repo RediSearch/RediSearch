@@ -35,6 +35,9 @@ typedef struct {
 // The maximum size we allow converting to at once
 #define MAX_RUNESTR_LEN 1024
 
+// Threshold for Small String Optimization (SSO)
+#define SSO_MAX_LENGTH 128
+
 /* A callback for a rune transformation function */
 typedef rune (*runeTransform)(rune r);
 
@@ -49,7 +52,7 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen);
 
 /* Convert a string to runes, lowercase them and return the transformed runes.
  * This function supports lowercasing of multi-codepoint runes. */
-rune *strToLowerRunes(const char *str, size_t *len);
+rune *strToLowerRunes(const char *encoded, size_t utf8_len, size_t *rune_len);
 
 /* Convert a string to runes, fold them and return the folded runes.
  * If a folded runes contains more than one codepoint, only the first
@@ -70,11 +73,10 @@ static inline rune *runeBufFill(const char *s, size_t n, runeBuf *buf, size_t *l
    * Assumption: the number of bytes in a utf8 string is always greater than the
    * number of codepoints it can produce.
    */
-  *len = n;
   rune *target;
-  if (*len > RUNE_STATIC_ALLOC_SIZE) {
+  if (n > RUNE_STATIC_ALLOC_SIZE) {
     buf->isDynamic = 1;
-    target = buf->u.p = (rune *)rm_malloc(((*len) + 1) * sizeof(rune));
+    target = buf->u.p = (rune *)rm_malloc((n + 1) * sizeof(rune));
   } else {
     buf->isDynamic = 0;
     target = buf->u.s;
