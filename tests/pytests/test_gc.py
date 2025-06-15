@@ -404,9 +404,6 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
     env.assertGreater(results['successful_calls'], 0,
                      message=f"Expected some successful FT.INFO calls, got {results['successful_calls']}")
 
-    # Log the results for debugging
-    # env.debugPrint(f"FT.INFO test results: {results['info_calls']} total calls, {results['successful_calls']} successful, {results['errors']} errors", force=True)
-
     # Verify that all indexes are actually deleted
     for idx_name in index_names:
         try:

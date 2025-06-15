@@ -45,7 +45,7 @@ typedef struct ForkGC {
 
   int pipe_read_fd;
   int pipe_write_fd;
-  struct pollfd pollfd_read[1];
+  struct pollfd pollfd_read[1]; // pollfd to poll the read pipe so that we don't block while read
 
   volatile uint32_t pauseState;
   volatile uint32_t execState;

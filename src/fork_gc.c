@@ -94,6 +94,7 @@ static void FGC_sendTerminator(ForkGC *fgc) {
 }
 
 static int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *buf, size_t len) {
+  // poll the pipe, so that we don't block while read, with timeout of 3 minutes
   while (poll(fgc->pollfd_read, 1, 180000) == 1) {
     ssize_t nrecvd = read(fgc->pipe_read_fd, buf, len);
     if (nrecvd > 0) {
@@ -107,7 +108,7 @@ static int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *
       return REDISMODULE_OK;
     }
   }
-  RedisModule_Log(fgc->ctx, "verbose", "ForkGC - got error while reading from pipe (%s)", strerror(errno));
+  RedisModule_Log(fgc->ctx, "warning", "ForkGC - got timeout while reading from pipe (%s)", strerror(errno));
   return REDISMODULE_ERR;
 }
 
@@ -1314,6 +1315,7 @@ static int periodicCb(void *privdata) {
   }
   gc->pipe_read_fd = pipefd[GC_READERFD];
   gc->pipe_write_fd = pipefd[GC_WRITERFD];
+  // initialize the pollfd for the read pipe
   gc->pollfd_read[0].fd = gc->pipe_read_fd;
   gc->pollfd_read[0].events = POLLIN;
 
