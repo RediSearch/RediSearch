@@ -239,11 +239,7 @@ static inline int RSValue_IsString(const RSValue *value) {
 RSValue *RS_NullVal();
 
 /* Return 1 if the value is NULL, RSValue_Null or a reference to RSValue_Null */
-static inline int RSValue_IsNull(const RSValue *value) {
-  if (!value || value == RS_NullVal()) return 1;
-  if (value->t == RSValue_Reference) return RSValue_IsNull(value->ref);
-  return 0;
-}
+int RSValue_IsNull(const RSValue *value);
 
 /**
  * Copies a string using the default mechanism. Returns the copied value.
