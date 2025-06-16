@@ -168,17 +168,12 @@ protected:
         }
     }
 
-    QueryIterator *NewInvIndIterator(InvertedIndex *index) {
-        // Create a new inverted index iterator for the given index
-        return NewInvIndIterator_TermQuery(index, NULL, {.isFieldMask = true, .value = RS_FIELDMASK_ALL}, NULL, 1.0);
-    }
-
 public:
     void CreateIntersectionIterator(const std::vector<std::string> &terms, int max_slop = -1, bool in_order = false) {
         QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * terms.size());
         for (size_t i = 0; i < terms.size(); i++) {
             ASSERT_NE(invertedIndexes.find(terms[i]), invertedIndexes.end()) << "Term " << terms[i] << " not found in inverted indexes";
-            children[i] = NewInvIndIterator(invertedIndexes[terms[i]]);
+            children[i] = NewInvIndIterator_TermQuery(invertedIndexes[terms[i]], NULL, {true, RS_FIELDMASK_ALL}, NULL, 1.0);
         }
         ii_base = NewIntersectionIterator(children, terms.size(), max_slop, in_order, 1.0);
     }
@@ -263,6 +258,23 @@ TEST_F(IntersectionIteratorTest, Slop) {
     ASSERT_EQ(ii_base->lastDocId, 3);
     ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
     ASSERT_TRUE(ii_base->atEOF);
+    ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF); // Reading after EOF should return EOF again
+
+    // Rewind and check again with SkipTo
+    ii_base->Rewind(ii_base);
+    ASSERT_EQ(ii_base->lastDocId, 0);
+    ASSERT_FALSE(ii_base->atEOF);
+    ASSERT_EQ(ii_base->SkipTo(ii_base, 1), ITERATOR_OK);
+    ASSERT_EQ(ii_base->current->docId, 1);
+    ASSERT_EQ(ii_base->lastDocId, 1);
+    ASSERT_EQ(ii_base->SkipTo(ii_base, 2), ITERATOR_NOTFOUND);
+    ASSERT_EQ(ii_base->current->docId, 3);
+    ASSERT_EQ(ii_base->lastDocId, 3);
+    ASSERT_EQ(ii_base->SkipTo(ii_base, 4), ITERATOR_EOF);
+    ASSERT_TRUE(ii_base->atEOF);
+    ASSERT_EQ(ii_base->SkipTo(ii_base, 5), ITERATOR_EOF); // Skipping beyond the last docId should return EOF
+    ASSERT_EQ(ii_base->lastDocId, 3); // Last docId should remain unchanged
+    ASSERT_TRUE(ii_base->atEOF); // atEOF should remain true
 }
 
 TEST_F(IntersectionIteratorTest, InOrder) {
@@ -286,6 +298,23 @@ TEST_F(IntersectionIteratorTest, InOrder) {
     ASSERT_EQ(ii_base->lastDocId, 4);
     ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
     ASSERT_TRUE(ii_base->atEOF);
+    ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF); // Reading after EOF should return EOF again
+
+    // Rewind and check again with SkipTo
+    ii_base->Rewind(ii_base);
+    ASSERT_EQ(ii_base->lastDocId, 0);
+    ASSERT_FALSE(ii_base->atEOF);
+    ASSERT_EQ(ii_base->SkipTo(ii_base, 1), ITERATOR_OK);
+    ASSERT_EQ(ii_base->current->docId, 1);
+    ASSERT_EQ(ii_base->lastDocId, 1);
+    ASSERT_EQ(ii_base->SkipTo(ii_base, 2), ITERATOR_NOTFOUND);
+    ASSERT_EQ(ii_base->current->docId, 4);
+    ASSERT_EQ(ii_base->lastDocId, 4);
+    ASSERT_EQ(ii_base->SkipTo(ii_base, 5), ITERATOR_EOF);
+    ASSERT_TRUE(ii_base->atEOF);
+    ASSERT_EQ(ii_base->SkipTo(ii_base, 6), ITERATOR_EOF); // Skipping beyond the last docId should return EOF
+    ASSERT_EQ(ii_base->lastDocId, 4); // Last docId should remain unchanged
+    ASSERT_TRUE(ii_base->atEOF); // atEOF should remain true
 }
 
 TEST_F(IntersectionIteratorTest, SlopAndOrder) {
@@ -306,4 +335,20 @@ TEST_F(IntersectionIteratorTest, SlopAndOrder) {
     ASSERT_EQ(ii_base->lastDocId, 1);
     ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
     ASSERT_TRUE(ii_base->atEOF);
+    ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF); // Reading after EOF should return EOF again
+
+    // Rewind and check again with SkipTo
+    ii_base->Rewind(ii_base);
+    ASSERT_EQ(ii_base->lastDocId, 0);
+    ASSERT_FALSE(ii_base->atEOF);
+    ASSERT_EQ(ii_base->SkipTo(ii_base, 1), ITERATOR_OK);
+    ASSERT_EQ(ii_base->current->docId, 1);
+    ASSERT_EQ(ii_base->lastDocId, 1);
+    ASSERT_EQ(ii_base->SkipTo(ii_base, 2), ITERATOR_EOF);
+    ASSERT_EQ(ii_base->current->docId, 1); // Should still be 1, since we are in order and slop is 0
+    ASSERT_EQ(ii_base->lastDocId, 1); // Last docId should remain unchanged
+    ASSERT_TRUE(ii_base->atEOF);
+    ASSERT_EQ(ii_base->SkipTo(ii_base, 3), ITERATOR_EOF); // Skipping beyond the last docId should return EOF
+    ASSERT_EQ(ii_base->lastDocId, 1); // Last docId should remain unchanged
+    ASSERT_TRUE(ii_base->atEOF); // atEOF should remain true
 }
