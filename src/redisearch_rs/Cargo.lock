@@ -1270,6 +1270,7 @@ dependencies = [
  "ffi",
  "libc",
  "pin-project",
+ "redis_mock",
 ]
 
 [[package]]
