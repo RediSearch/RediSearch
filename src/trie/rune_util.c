@@ -77,13 +77,6 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
   return ret;
 }
 
-// This function reads a UTF-8 encoded string, transforms it to lowercase,
-// and returns a dynamically allocated array of runes (32-bit integers).
-// Parameters:
-// - str: The input UTF-8 encoded string.
-// - utf8_len: The length of the input string in bytes.
-// - unicode_len: A pointer to a size_t variable where the length of the
-//   resulting array of runes will be stored. Must be non-NULL.
 rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
 
   // determine the length of the folded string
