@@ -298,7 +298,7 @@ void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
   // Find the pointer to write to ...
   RSValue **vptr = array_ensure_at(&row->dyn, key->dstidx, RSValue *);
   if (*vptr) {
-    RSValue_Decref(*vptr);
+    RSValue_DecrRef_inl(*vptr);
     row->ndyn--;
   }
   *vptr = v;
@@ -306,7 +306,7 @@ void RLookup_WriteOwnKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
 }
 
 void RLookup_WriteKey(const RLookupKey *key, RLookupRow *row, RSValue *v) {
-  RLookup_WriteOwnKey(key, row, RSValue_IncrRef(v));
+  RLookup_WriteOwnKey(key, row, RSValue_IncrRef_inl(v));
 }
 
 void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *dst, RSValue *v) {
@@ -320,14 +320,14 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLook
 
 void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RLookupRow *row, RSValue *value) {
   RLookup_WriteKeyByName(lookup, name, len, row, value);
-  RSValue_Decref(value);
+  RSValue_DecrRef_inl(value);
 }
 
 void RLookupRow_Wipe(RLookupRow *r) {
   for (size_t ii = 0; ii < array_len(r->dyn) && r->ndyn; ++ii) {
     RSValue **vpp = r->dyn + ii;
     if (*vpp) {
-      RSValue_Decref(*vpp);
+      RSValue_DecrRef_inl(*vpp);
       *vpp = NULL;
       r->ndyn--;
     }

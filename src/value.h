@@ -149,20 +149,20 @@ void RSValue_Clear(RSValue *v);
  * the actual value object */
 void RSValue_Free(RSValue *v);
 
-static inline RSValue *RSValue_IncrRef(RSValue *v) {
+// Use RSValue_IncrRef_inl for performance in C; RSValue_IncrRef for FFI
+static inline RSValue *RSValue_IncrRef_inl(RSValue *v) {
   __atomic_fetch_add(&v->refcount, 1, __ATOMIC_RELAXED);
   return v;
 }
+void RSValue_IncrRef(RSValue* v);
 
-static inline void RSValue_Decref(RSValue* v) {
+// Use RSValue_DecrRef_inl for performance in C; RSValue_IncrRef for FFI
+static inline void RSValue_DecrRef_inl(RSValue* v) {
   if (__atomic_sub_fetch(&(v)->refcount, 1, __ATOMIC_RELAXED) == 0) {
     RSValue_Free(v);
   }
 }
-
-void RSValue_IncrRef_Rust(RSValue* v);
-
-void RSValue_DecrRef_Rust(RSValue* v);
+void RSValue_DecrRef(RSValue* v);
 
 RSValue *RS_NewValue(RSValueType t);
 
@@ -187,12 +187,12 @@ static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
   RS_LOG_ASSERT(src, "RSvalue is missing");
   RSValue_Clear(dst);
   dst->t = RSValue_Reference;
-  dst->ref = RSValue_IncrRef(src);
+  dst->ref = RSValue_IncrRef_inl(src);
 }
 
 static inline void RSValue_MakeOwnReference(RSValue *dst, RSValue *src) {
   RSValue_MakeReference(dst, src);
-  RSValue_Decref(src);
+  RSValue_DecrRef_inl(src);
 }
 #endif
 
@@ -436,7 +436,7 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
  */
 #define RSVALUE_REPLACE(dstpp, src) \
   do {                              \
-    RSValue_Decref(*dstpp);         \
+    RSValue_DecrRef_inl(*dstpp);         \
     RSValue_IncrRef(src);           \
     *(dstpp) = src;                 \
   } while (0);
@@ -449,7 +449,7 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
  */
 #define RSVALUE_CLEARVAR(v) \
   if (v) {                  \
-    RSValue_Decref(v);      \
+    RSValue_DecrRef_inl(v);      \
   }
 
 #ifdef __cplusplus

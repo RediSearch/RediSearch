@@ -74,7 +74,7 @@ void RSValue_Clear(RSValue *v) {
       }
       break;
     case RSValue_Reference:
-      RSValue_Decref(v->ref);
+      RSValue_DecrRef_inl(v->ref);
       break;
     case RSValue_OwnRstring:
       RedisModule_FreeString(RSDummyContext, v->rstrval);
@@ -82,21 +82,21 @@ void RSValue_Clear(RSValue *v) {
     case RSValue_Null:
       return;  // prevent changing global RS_NULL to RSValue_Undef
     case RSValue_Duo:
-      RSValue_Decref(RS_DUOVAL_VAL(*v));
-      RSValue_Decref(RS_DUOVAL_OTHERVAL(*v));
-      RSValue_Decref(RS_DUOVAL_OTHER2VAL(*v));
+      RSValue_DecrRef_inl(RS_DUOVAL_VAL(*v));
+      RSValue_DecrRef_inl(RS_DUOVAL_OTHERVAL(*v));
+      RSValue_DecrRef_inl(RS_DUOVAL_OTHER2VAL(*v));
       rm_free(v->duoval.vals);
       break;
     case RSValue_Array:
       for (uint32_t i = 0; i < v->arrval.len; i++) {
-        RSValue_Decref(v->arrval.vals[i]);
+        RSValue_DecrRef_inl(v->arrval.vals[i]);
       }
       rm_free(v->arrval.vals);
       break;
     case RSValue_Map:
       for (uint32_t i = 0; i < v->mapval.len; i++) {
-        RSValue_Decref(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)]);
-        RSValue_Decref(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)]);
+        RSValue_DecrRef_inl(v->mapval.pairs[RSVALUE_MAP_KEYPOS(i)]);
+        RSValue_DecrRef_inl(v->mapval.pairs[RSVALUE_MAP_VALUEPOS(i)]);
       }
       rm_free(v->mapval.pairs);
       break;
@@ -109,12 +109,12 @@ void RSValue_Clear(RSValue *v) {
 }
 
 
-void RSValue_IncrRef_Rust(RSValue* v) {
-  RSValue_IncrRef(v);
+void RSValue_IncrRef(RSValue* v) {
+  RSValue_IncrRef_inl(v);
 }
 
-void RSValue_DecrRef_Rust(RSValue* v) {
-  RSValue_Decref(v);
+void RSValue_DecrRef(RSValue* v) {
+  RSValue_DecrRef_inl(v);
 }
 
 /* Free a value's internal value. It only does anything in the case of a string, and doesn't free
