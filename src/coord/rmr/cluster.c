@@ -27,14 +27,8 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
   } else {
     cl->io_runtimes_pool = rm_malloc(cl->io_runtimes_pool_size * sizeof(IORuntimeCtx*));
     cl->control_plane_io_runtime = IORuntimeCtx_Create(conn_pool_size, cl->topo, 0);
-    if (cl->topo) {
-      IORuntimeCtx_UpdateNodes(cl->control_plane_io_runtime, cl->topo);
-    }
     for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
       cl->io_runtimes_pool[i] = IORuntimeCtx_Create(conn_pool_size, cl->topo, i + 1);
-      if (cl->topo) {
-        IORuntimeCtx_UpdateNodes(cl->io_runtimes_pool[i], cl->topo);
-      }
     }
   }
   return cl;
