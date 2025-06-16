@@ -88,7 +88,7 @@ static void topologyTimerCB(uv_timer_t *timer) {
  if (CheckTopologyConnections(topo, io_runtime_ctx, true) == REDIS_OK) {
     // We are connected to all master nodes. We can mark the event loop thread as ready
     io_runtime_ctx->loop_th_ready = true;
-    RedisModule_Log(RSDummyContext, "verbose", "Runtime ID %zu: All nodes connected", io_runtime_ctx->queue->id);
+    RedisModule_Log(RSDummyContext, "verbose", "Runtime ID %zu: All nodes connected: IO thread is ready to handle requests", io_runtime_ctx->queue->id);
     uv_timer_stop(&io_runtime_ctx->topologyValidationTimer); // stop the timer repetition
     uv_timer_stop(&io_runtime_ctx->topologyFailureTimer);    // stop failure timer (as we are connected)
     triggerPendingQueues(io_runtime_ctx);
@@ -100,16 +100,16 @@ static void topologyTimerCB(uv_timer_t *timer) {
 
 static void topologyAsyncCB(uv_async_t *async) {
   IORuntimeCtx *io_runtime_ctx = (IORuntimeCtx *)async->data;
-  queueItem *topo = exchangePendingTopo(io_runtime_ctx, NULL); // take the topology
-  if (topo) {
+  queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL); // take the topology
+  if (task) {
     // Apply new topology
     RedisModule_Log(RSDummyContext, "verbose", "Queue ID %zu: Applying new topology", io_runtime_ctx->queue->id);
     // Mark the event loop thread as not ready. This will ensure that the next event on the event loop
     // will be the topology check. If the topology hasn't changed, the topology check will quickly
     // mark the event loop thread as ready again.
     io_runtime_ctx->loop_th_ready = false;
-    topo->cb(topo->privdata);
-    rm_free(topo);
+    task->cb(task->privdata);
+    rm_free(task);
     // Finish this round of topology checks to give the topology connections a chance to connect.
     // Schedule connectivity check immediately with a 1ms repeat interval
     uv_timer_start(&io_runtime_ctx->topologyValidationTimer, topologyTimerCB, 0, 1);
@@ -175,7 +175,7 @@ static void sideThread(void *arg) {
   uv_async_send(&io_runtime_ctx->topologyAsync); // start the topology check
 
   // loop is initialized and handles are ready
-  io_runtime_ctx->loop_th_ready = true;
+  //io_runtime_ctx->loop_th_ready = true; // Until topology is validated, no requests are allowed (will be accumulated in the pending queue)
   uv_mutex_lock(&io_runtime_ctx->loop_th_mutex);
   io_runtime_ctx->loop_th_running = true;
   uv_cond_signal(&io_runtime_ctx->loop_th_cond);
@@ -188,11 +188,15 @@ static void sideThread(void *arg) {
   uv_loop_close(&io_runtime_ctx->loop);
 }
 
-void IORuntimeCtx__Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx) {
-  queueItem *topo = exchangePendingTopo(io_runtime_ctx, NULL);
-  if (topo) {
-    MRClusterTopology_Free(topo->privdata);
-    rm_free(topo);
+void IORuntimeCtx_Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx) {
+  queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
+  if (task) {
+    UpdateTopologyCtx *ctx = task->privdata;
+    if (ctx && ctx->topo) {
+      MRClusterTopology_Free(ctx->topo);
+    }
+    rm_free(ctx);
+    rm_free(task);
   }
 }
 
@@ -299,4 +303,22 @@ void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, voi
   RS_ASSERT(io_runtime_ctx->loop_th_running); // the thread is not lazily initialized, it's created on creation
   RQ_Push(io_runtime_ctx->queue, cb, privdata);
   uv_async_send(&io_runtime_ctx->async);
+}
+
+void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo) {
+  struct queueItem *newTask = rm_new(struct queueItem);
+  struct queueItem *oldTask = NULL;
+  UpdateTopologyCtx *ctx = rm_malloc(sizeof(UpdateTopologyCtx));
+  ctx->ioRuntime = io_runtime_ctx;
+  ctx->topo = topo;
+  newTask->cb = cb;
+  newTask->privdata = ctx;
+  oldTask = exchangePendingTopo(io_runtime_ctx, newTask);
+
+  if (io_runtime_ctx->loop_th_running) {
+    uv_async_send(&io_runtime_ctx->topologyAsync); // trigger the topology check
+  }
+  if (oldTask) {
+    rm_free(oldTask);
+  }
 }

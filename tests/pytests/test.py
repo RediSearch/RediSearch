@@ -4132,26 +4132,28 @@ def cluster_set_test(env: Env):
                    'ADDR', f'{password}localhost:{env.envRunner.shards[i].port}', 'MASTER']
     env.expect('SEARCH.CLUSTERSET', 'MYID', '0', 'RANGES', str(env.shardsCount), *shards).ok()
 
-@skip(cluster=False)
-def test_rq_job_without_topology(env:Env):
-    env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
-    env.expect(debug_cmd(), 'CLEAR_PENDING_TOPOLOGY').ok()
-    workers = 5
-    env.expect(config_cmd(), 'SET', 'WORKERS', workers).ok()
+# This test is not valid as it is anymore. Right now the I/O thread is not lazily started, therefore when the cluster is created the topology is applied (is not anymore sitting on the pendingTopo)
+# @skip()
+# def test_rq_job_without_topology(env:Env):
+#     env.expect(debug_cmd(), 'PAUSE_TOPOLOGY_UPDATER').ok()
+#     env.expect(debug_cmd(), 'CLEAR_PENDING_TOPOLOGY').ok()
+#     workers = 5
+#     env.expect(config_cmd(), 'SET', 'WORKERS', workers).ok()
 
-    # Verify that the `SHARD_CONNECTION_STATES` debug command is blocked when the topology is not set.
-    try:
-        con = env.getConnection()
-        with TimeLimit(2, 'Failed waiting (SUCCESS!)'):
-            con.execute_command(debug_cmd(), 'SHARD_CONNECTION_STATES')
-            env.assertTrue(False, message='Expected to fail')
-    except Exception as e:
-        env.assertContains('Failed waiting (SUCCESS!)', str(e))
+#     # Verify that the `SHARD_CONNECTION_STATES` debug command is blocked when the topology is not set.
+#     try:
+#         con = env.getConnection()
+#         with TimeLimit(2, 'Failed waiting (SUCCESS!)'):
+#             print('Waiting for SHARD_CONNECTION_STATES to block...')
+#             con.execute_command(debug_cmd(), 'SHARD_CONNECTION_STATES')
+#             env.assertTrue(False, message='Expected to fail')
+#     except Exception as e:
+#         env.assertContains('Failed waiting (SUCCESS!)', str(e))
 
-    # Now re-set the topology and call the debug command again
-    env.expect('SEARCH.CLUSTERREFRESH').ok()
-    # We should also see the effect of setting the number of workers
-    env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal([ANY, [ANY] * (workers + 1)] * env.shardsCount)
+#     # Now re-set the topology and call the debug command again
+#     env.expect('SEARCH.CLUSTERREFRESH').ok()
+#     # We should also see the effect of setting the number of workers
+#     env.expect(debug_cmd(), 'SHARD_CONNECTION_STATES').equal([ANY, [ANY] * (workers + 1)] * env.shardsCount)
 
 
 @skip(cluster=False) # this test is only relevant on cluster

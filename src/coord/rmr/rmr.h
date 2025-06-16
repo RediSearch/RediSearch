@@ -46,6 +46,8 @@ void MR_uvReplyClusterInfo(RedisModuleCtx *ctx);
 
 void MR_UpdateConnPerShard(size_t connPerShard);
 
+void MR_Debug_ClearPendingTopo();
+
 /* Get the user stored private data from the context */
 void *MRCtx_GetPrivData(struct MRCtx *ctx);
 
@@ -100,5 +102,3 @@ MRIteratorCtx *MRIterator_GetCtx(MRIterator *it);
 short MRIterator_GetPending(MRIterator *it);
 
 void MRIterator_Release(MRIterator *it);
-
-IORuntimeCtx *MR_GetControlPlaneRuntime();

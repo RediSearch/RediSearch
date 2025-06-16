@@ -53,7 +53,7 @@ DEBUG_COMMAND(clearTopology) {
     return RedisModule_ReplyWithError(ctx, NODEBUG_ERR);
   }
   if (argc != 2) return RedisModule_WrongArity(ctx);
-  IORuntimeCtx__Debug_ClearPendingTopo(MR_GetControlPlaneRuntime());
+  MR_Debug_ClearPendingTopo();
   return RedisModule_ReplyWithSimpleString(ctx, "OK");
 }
 

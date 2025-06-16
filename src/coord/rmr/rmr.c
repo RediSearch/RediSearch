@@ -69,11 +69,6 @@ typedef struct MRCtx {
   MRReduceFunc fn;
 } MRCtx;
 
-typedef struct {
-  IORuntimeCtx *ioRuntime;
-  MRClusterTopology *topo;
-} UpdateTopologyCtx;
-
 void MR_SetCoordinationStrategy(MRCtx *ctx, bool mastersOnly) {
   ctx->mastersOnly = mastersOnly;
 }
@@ -283,16 +278,9 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
   if (old_topo) {
     MRClusterTopology_Free(old_topo);
   }
-  UpdateTopologyCtx *controlPlaneCtx = rm_malloc(sizeof(UpdateTopologyCtx));
-  controlPlaneCtx->topo = cluster_g->topo;
-  controlPlaneCtx->ioRuntime = cluster_g->control_plane_io_runtime;
-  IORuntimeCtx_Schedule(cluster_g->control_plane_io_runtime, uvUpdateTopologyRequest, controlPlaneCtx);
+  IORuntimeCtx_Schedule_Topology(cluster_g->control_plane_io_runtime, uvUpdateTopologyRequest, cluster_g->topo);
   for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
-    UpdateTopologyCtx *ctx = rm_malloc(sizeof(UpdateTopologyCtx));
-    IORuntimeCtx *ioRuntime = cluster_g->io_runtimes_pool[i];
-    ctx->topo = cluster_g->topo;
-    ctx->ioRuntime = ioRuntime;
-    IORuntimeCtx_Schedule(ioRuntime, uvUpdateTopologyRequest, ctx);
+    IORuntimeCtx_Schedule_Topology(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, cluster_g->topo);
   }
 }
 
@@ -759,6 +747,9 @@ void MRIterator_Release(MRIterator *it) {
   }
 }
 
-IORuntimeCtx *MR_GetControlPlaneRuntime() {
-  return cluster_g->control_plane_io_runtime;
+void MR_Debug_ClearPendingTopo() {
+  IORuntimeCtx_Debug_ClearPendingTopo(cluster_g->control_plane_io_runtime);
+  for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
+    IORuntimeCtx_Debug_ClearPendingTopo(cluster_g->io_runtimes_pool[i]);
+  }
 }

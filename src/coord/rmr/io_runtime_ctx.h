@@ -40,9 +40,14 @@ typedef struct {
   uv_timer_t topologyValidationTimer, topologyFailureTimer;
   uv_async_t topologyAsync;
   uv_async_t shutdownAsync;
-  struct queueItem *pendingTopo;
+  struct queueItem *pendingTopo; // The pending topology to be applied
   arrayof(uv_async_t *) pendingQueues;
 } IORuntimeCtx;
+
+typedef struct {
+  IORuntimeCtx *ioRuntime;
+  struct MRClusterTopology *topo;
+} UpdateTopologyCtx;
 
 IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClusterTopology *topo, size_t id);
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx);
@@ -50,10 +55,11 @@ void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx);
 
 void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);
 
-void IORuntimeCtx__Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx);
+void IORuntimeCtx_Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx);
 uv_loop_t* IORuntimeCtx_GetLoop(IORuntimeCtx *io_runtime_ctx);
 int IORuntimeCtx_ConnectAll(IORuntimeCtx *ioRuntime);
 void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime, struct MRClusterTopology *topo);
 /* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the
  * provider's current context is used. Otherwise, we call its function with the given context */
 int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime, struct MRClusterTopology *topo);
+void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo);
