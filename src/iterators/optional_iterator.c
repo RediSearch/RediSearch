@@ -31,7 +31,10 @@ static void OI_Rewind(QueryIterator *base) {
 
 
 // SkipTo for OPTIONAL iterator - Non-optimized version.
+// Skip to a specific docId. If the child has a hit on this docId, return it.
+// Otherwise, return a virtual hit.
 static IteratorStatus OI_SkipTo_NotOptimized(QueryIterator *base, t_docId docId) {
+  assert(docId > 0);
   OptionalIterator *oi = (OptionalIterator *)base;
 
   if (docId > oi->maxDocId || base->atEOF) {
@@ -44,7 +47,7 @@ static IteratorStatus OI_SkipTo_NotOptimized(QueryIterator *base, t_docId docId)
     if (rc == ITERATOR_TIMEOUT) return rc;
   }
 
-  if (docId > 0 && docId == oi->child->lastDocId) {
+  if (docId == oi->child->lastDocId) {
     // Has a real hit on the child iterator
     base->current = oi->child->current;
     base->current->weight = oi->weight;
@@ -66,7 +69,7 @@ static IteratorStatus OI_ReadSorted_NotOptimized(QueryIterator *base) {
     return ITERATOR_EOF;
   }
 
-  // Increase the size by one
+  // Point to next doc
   base->lastDocId++;
 
   if (base->lastDocId > oi->child->lastDocId) {
@@ -88,7 +91,7 @@ static IteratorStatus OI_ReadSorted_NotOptimized(QueryIterator *base) {
 // Create a new OPTIONAL iterator - Non-Optimized version.
 QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, t_docId maxDocId, size_t numDocs, double weight) {
   OptionalIterator *oi = rm_calloc(1, sizeof(*oi));
-  oi->child = it ? it : IT_V2(NewEmptyIterator)();
+  oi->child = it ?: IT_V2(NewEmptyIterator)();
   oi->maxDocId = maxDocId;
   oi->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   oi->virt->freq = 1;
