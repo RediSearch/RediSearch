@@ -10,5 +10,8 @@ pin-project.workspace = true
 libc = { workspace = true, features = ["extra_traits"] }
 ffi.workspace = true
 
+[dev-dependencies]
+redis_mock.workspace = true
+
 [lints]
 workspace = true
