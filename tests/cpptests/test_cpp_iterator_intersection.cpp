@@ -4,12 +4,16 @@
  * the Server Side Public License v1 (SSPLv1).
  */
 
-#include "rmutil/alloc.h"
-
 #include "gtest/gtest.h"
+#include <map>
+
+#include "rmutil/alloc.h"
 #include "iterator_util.h"
 
 #include "src/iterators/intersection_iterator.h"
+#include "src/iterators/inverted_index_iterator.h"
+#include "src/inverted_index.h"
+#include "src/forward_index.h"
 
 class IntersectionIteratorCommonTest : public ::testing::TestWithParam<std::tuple<unsigned, std::vector<t_docId>>> {
 protected:
@@ -145,131 +149,161 @@ INSTANTIATE_TEST_SUITE_P(IntersectionIterator, IntersectionIteratorCommonTest, :
     )
 ));
 
-// class IntersectionIteratorEdgesTest : public ::testing::TestWithParam<std::tuple<unsigned, bool, bool>> {
-// protected:
-//     QueryIterator *ii_base;
+class IntersectionIteratorTest : public ::testing::Test {
+protected:
+    QueryIterator *ii_base;
+    std::map<std::string, InvertedIndex *> invertedIndexes;
+    t_docId num_docs;
 
-//     void SetUp() override {
-//         auto [numChildren, quickExit, sparse_ids] = GetParam();
-//         auto children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * numChildren);
-//         for (unsigned i = 0; i < numChildren; i++) {
-//             MockIterator *it;
-//             if (sparse_ids) {
-//                 it = new MockIterator(10UL, 20UL, 30UL, 40UL, 50UL);
-//             } else {
-//                 it = new MockIterator(1UL, 2UL, 3UL, 4UL, 5UL);
-//             }
-//             children[i] = (QueryIterator *) it;
-//         }
-//         // Create a union iterator
-//         ii_base = IT_V2(NewIntersectionIterator)(children, numChildren, quickExit, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
-//     }
-//     void TearDown() override {
-//         ii_base->Free(ii_base);
-//     }
+    void SetUp() override {
+        num_docs = 0;
+        ii_base = nullptr;
+    }
+    void TearDown() override {
+        if (ii_base != nullptr) {
+            ii_base->Free(ii_base);
+        }
+        for (auto &[_, index] : invertedIndexes) {
+            InvertedIndex_Free(index);
+        }
+    }
 
-//     void TimeoutChildTest(int childIdx) {
-//         IntersectionIterator *ii = (IntersectionIterator *)ii_base;
-//         auto [numChildren, quickExit, sparse_ids] = GetParam();
+    QueryIterator *NewInvIndIterator(InvertedIndex *index) {
+        // Create a new inverted index iterator for the given index
+        return NewInvIndIterator_TermQuery(index, NULL, {.isFieldMask = true, .value = RS_FIELDMASK_ALL}, NULL, 1.0);
+    }
 
-//         auto child = reinterpret_cast<MockIterator *>(ii->its[childIdx]);
-//         child->whenDone = ITERATOR_TIMEOUT;
-//         child->docIds.clear();
+public:
+    void CreateIntersectionIterator(const std::vector<std::string> &terms, int max_slop = -1, bool in_order = false) {
+        QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * terms.size());
+        for (size_t i = 0; i < terms.size(); i++) {
+            ASSERT_NE(invertedIndexes.find(terms[i]), invertedIndexes.end()) << "Term " << terms[i] << " not found in inverted indexes";
+            children[i] = NewInvIndIterator(invertedIndexes[terms[i]]);
+        }
+        ii_base = NewIntersectionIterator(children, terms.size(), max_slop, in_order, 1.0);
+    }
+    void AddDocument(const std::vector<std::string> &terms) {
+        size_t dummy;
+        for (auto &term : terms) {
+            if (invertedIndexes.find(term) == invertedIndexes.end()) {
+                // Create a new inverted index for the term if it doesn't exist
+                invertedIndexes[term] = NewInvertedIndex((IndexFlags)(INDEX_DEFAULT_FLAGS), 1, &dummy);
+            }
+        }
+        t_docId docId = ++num_docs;
+        std::map<std::string, ForwardIndexEntry> entries;
+        // Add a document to all inverted indexes
+        for (size_t i = 0; i < terms.size(); i++) {
+            const auto &term = terms[i];
+            // Get (create if not exists) the forward index entry for the term
+            ForwardIndexEntry &entry = entries[term];
+            entry.docId = docId;
+            entry.freq++;
+            entry.fieldMask = RS_FIELDMASK_ALL;
+            if (entry.vw == NULL) {
+                entry.vw = NewVarintVectorWriter(8);
+            }
+            VVW_Write(entry.vw, i + 1); // Store the term index
+        }
+        // Write the forward index entries to the inverted indexes
+        for (auto &[term, entry] : entries) {
+            InvertedIndex *index = invertedIndexes[term];
+            IndexEncoder enc = InvertedIndex_GetEncoder(index->flags);
+            InvertedIndex_WriteForwardIndexEntry(index, enc, &entry);
+            // Free the entry's vector writer
+            VVW_Free(entry.vw);
+        }
+    }
+};
 
-//         auto rc = ii_base->Read(ii_base);
-//         if (!quickExit || sparse_ids) {
-//             // Usually, the first read will detect the timeout
-//             ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-//         } else {
-//             // If quickExit is enabled and we have a dense range of ids, we may not read from the timed-out child
-//             ASSERT_TRUE(rc == ITERATOR_OK || rc == ITERATOR_TIMEOUT);
-//             // We still expect the first non-ok status to be TIMEOUT
-//             while (rc == ITERATOR_OK) {
-//                 rc = ii_base->Read(ii_base);
-//             }
-//             ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-//         }
+TEST_F(IntersectionIteratorTest, NullChildren) {
+    QueryIterator **children = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
+    children[0] = nullptr;
+    children[1] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
+    ii_base = NewIntersectionIterator(children, 2, -1, false, 1.0);
+    ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
+    ASSERT_TRUE(ii_base->atEOF);
+    ASSERT_EQ(ii_base->NumEstimated(ii_base), 0);
+    ASSERT_EQ(ii_base->SkipTo(ii_base, 1), ITERATOR_EOF);
+    ASSERT_TRUE(ii_base->atEOF);
+    ASSERT_EQ(ii_base->type, EMPTY_ITERATOR);
+    ii_base->Free(ii_base);
 
-//         ii_base->Rewind(ii_base);
+    children = (QueryIterator **)rm_calloc(2, sizeof(QueryIterator *));
+    children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
+    children[1] = nullptr;
+    ii_base = NewIntersectionIterator(children, 2, -1, false, 1.0);
+    ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
+    ASSERT_TRUE(ii_base->atEOF);
+    ASSERT_EQ(ii_base->NumEstimated(ii_base), 0);
+    ASSERT_EQ(ii_base->SkipTo(ii_base, 1), ITERATOR_EOF);
+    ASSERT_TRUE(ii_base->atEOF);
+    ASSERT_EQ(ii_base->type, EMPTY_ITERATOR);
+    // No explicit Free call here, the iterator is freed in the TearDown method
+}
 
-//         // Test skipping with a timeout child
-//         t_docId next = 1;
-//         rc = ii_base->SkipTo(ii_base, next);
-//         if (!quickExit || sparse_ids) {
-//             // Usually, the first read will detect the timeout
-//             ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-//         } else {
-//             // If quickExit is enabled and we have a dense range of ids, we may not read from the timed-out child
-//             ASSERT_TRUE(rc == ITERATOR_OK || rc == ITERATOR_TIMEOUT);
-//             // We still expect the first non-ok status to be TIMEOUT
-//             while (rc == ITERATOR_OK) {
-//                 rc = ii_base->SkipTo(ii_base, ++next);
-//             }
-//             ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-//         }
-//     }
-// };
+TEST_F(IntersectionIteratorTest, Slop) {
+    // Add documents
+    AddDocument({"foo", "bar"});
+    AddDocument({"foo", "baz"});
+    AddDocument({"bar", "foo"});
+    AddDocument({"foo", "baz", "bar"});
 
-// // Run the test in the case where the first child times out
-// TEST_P(IntersectionIteratorEdgesTest, TimeoutFirstChild) {
-//     TimeoutChildTest(0);
-// }
+    // Create an intersection iterator with slop
+    CreateIntersectionIterator({"foo", "bar"}, 0, false);
+    ASSERT_EQ(ii_base->type, INTERSECT_ITERATOR);
+    ASSERT_EQ(ii_base->NumEstimated(ii_base), 3); // 3 documents match "bar"
 
-// // Run the test in the case where some middle child times out
-// TEST_P(IntersectionIteratorEdgesTest, TimeoutMidChild) {
-//     TimeoutChildTest(std::get<0>(GetParam()) / 2);
-// }
+    // Read the results. Expected: 1, 3 (slop 0, no order)
+    ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+    ASSERT_EQ(ii_base->current->docId, 1);
+    ASSERT_EQ(ii_base->lastDocId, 1);
+    ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+    ASSERT_EQ(ii_base->current->docId, 3);
+    ASSERT_EQ(ii_base->lastDocId, 3);
+    ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
+    ASSERT_TRUE(ii_base->atEOF);
+}
 
-// // Run the test in the case where the last child times out
-// TEST_P(IntersectionIteratorEdgesTest, TimeoutLastChild) {
-//     TimeoutChildTest(std::get<0>(GetParam()) - 1);
-// }
+TEST_F(IntersectionIteratorTest, InOrder) {
+    // Add documents
+    AddDocument({"foo", "bar"});
+    AddDocument({"foo", "baz"});
+    AddDocument({"bar", "foo"});
+    AddDocument({"foo", "baz", "bar"});
 
-// // Parameters for the tests above. We run all the combinations of:
-// // 1. number of child iterators in {2, 5, 25}
-// // 2. quick mode (true/false)
-// // 3. sparse/dense result set (we may get different behavior if we have sequential ids to return)
-// INSTANTIATE_TEST_SUITE_P(IntersectionIterator, IntersectionIteratorEdgesTest, ::testing::Combine(
-//     ::testing::Values(2, 5, 25),
-//     ::testing::Bool(),
-//     ::testing::Bool()
-// ));
+    // Create an intersection iterator with in-order
+    CreateIntersectionIterator({"foo", "bar"}, INT_MAX, true);
+    ASSERT_EQ(ii_base->type, INTERSECT_ITERATOR);
+    ASSERT_EQ(ii_base->NumEstimated(ii_base), 3); // 3 documents match "bar"
 
-// class IntersectionIteratorSingleTest : public ::testing::Test {};
+    // Read the results. Expected: 1, 4 (any slop, in order)
+    ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+    ASSERT_EQ(ii_base->current->docId, 1);
+    ASSERT_EQ(ii_base->lastDocId, 1);
+    ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+    ASSERT_EQ(ii_base->current->docId, 4);
+    ASSERT_EQ(ii_base->lastDocId, 4);
+    ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
+    ASSERT_TRUE(ii_base->atEOF);
+}
 
-// TEST_F(IntersectionIteratorSingleTest, ReuseResults) {
-//     QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 2);
-//     MockIterator *it1 = new MockIterator(3UL);
-//     MockIterator *it2 = new MockIterator(2UL);
-//     children[0] = (QueryIterator *)it1;
-//     children[1] = (QueryIterator *)it2;
-//     // Create a union iterator
-//     IteratorsConfig config = RSGlobalConfig.iteratorsConfigParams;
-//     config.minUnionIterHeap = INT64_MAX; // Ensure we don't use the heap
-//     QueryIterator *ii_base = IT_V2(NewIntersectionIterator)(children, 2, true, 1.0, QN_UNION, NULL, &config);
-//     ASSERT_EQ(ii_base->NumEstimated(ii_base), it1->docIds.size() + it2->docIds.size());
+TEST_F(IntersectionIteratorTest, SlopAndOrder) {
+    // Add documents
+    AddDocument({"foo", "bar"});
+    AddDocument({"foo", "baz"});
+    AddDocument({"bar", "foo"});
+    AddDocument({"foo", "baz", "bar"});
 
-//     ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
-//     ASSERT_EQ(ii_base->lastDocId, 2);
-//     ASSERT_EQ(it1->base.lastDocId, 3);
-//     ASSERT_EQ(it2->base.lastDocId, 2);
-//     ASSERT_EQ(it1->readCount, 1);
-//     ASSERT_EQ(it2->readCount, 1);
+    // Create an intersection iterator with slop and in-order
+    CreateIntersectionIterator({"foo", "bar"}, 0, true);
+    ASSERT_EQ(ii_base->type, INTERSECT_ITERATOR);
+    ASSERT_EQ(ii_base->NumEstimated(ii_base), 3); // 3 documents match "bar"
 
-//     ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
-//     ASSERT_EQ(ii_base->lastDocId, 3);
-//     ASSERT_EQ(it1->base.lastDocId, 3);
-//     ASSERT_EQ(it2->base.lastDocId, 2);
-//     ASSERT_EQ(it1->readCount, 1) << "it1 should not be read again";
-//     ASSERT_FALSE(it1->base.atEOF);
-//     ASSERT_EQ(it2->readCount, 1) << "it2 should not be read again";
-//     ASSERT_FALSE(it2->base.atEOF);
-
-//     ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
-//     ASSERT_EQ(it1->readCount, 2) << "it1 should be read again";
-//     ASSERT_TRUE(it1->base.atEOF);
-//     ASSERT_EQ(it2->readCount, 2) << "it2 should be read again";
-//     ASSERT_TRUE(it2->base.atEOF);
-
-//     ii_base->Free(ii_base);
-// }
+    // Read the results. Expected: 1 (slop 0, in order)
+    ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_OK);
+    ASSERT_EQ(ii_base->current->docId, 1);
+    ASSERT_EQ(ii_base->lastDocId, 1);
+    ASSERT_EQ(ii_base->Read(ii_base), ITERATOR_EOF);
+    ASSERT_TRUE(ii_base->atEOF);
+}
