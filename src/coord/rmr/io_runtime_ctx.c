@@ -160,6 +160,8 @@ static void sideThread(void *arg) {
   const struct MRClusterTopology *topo = data->topo;
 
   // Initialize the loop and timers
+  io_runtime_ctx->pendingQueues = NULL;
+  io_runtime_ctx->pendingTopo = NULL;
   uv_loop_init(&io_runtime_ctx->loop);
   uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyValidationTimer);
   uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyFailureTimer);
@@ -175,7 +177,7 @@ static void sideThread(void *arg) {
   uv_async_send(&io_runtime_ctx->topologyAsync); // start the topology check
 
   // loop is initialized and handles are ready
-  //io_runtime_ctx->loop_th_ready = true; // Until topology is validated, no requests are allowed (will be accumulated in the pending queue)
+  io_runtime_ctx->loop_th_ready = false; // Until topology is validated, no requests are allowed (will be accumulated in the pending queue)
   uv_mutex_lock(&io_runtime_ctx->loop_th_mutex);
   io_runtime_ctx->loop_th_running = true;
   uv_cond_signal(&io_runtime_ctx->loop_th_cond);
@@ -261,6 +263,7 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
   io_runtime_ctx->pendingTopo = NULL;
   io_runtime_ctx->loop_th_ready = false;
   io_runtime_ctx->loop_th_running = false;
+  io_runtime_ctx->pendingQueues = NULL;  // Initialize to NULL
 
   // Initialize synchronization primitives
   uv_mutex_init(&io_runtime_ctx->loop_th_mutex);
