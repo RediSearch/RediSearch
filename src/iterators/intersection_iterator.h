@@ -22,8 +22,8 @@ typedef struct IntersectionIterator {
   QueryIterator **its;
   uint32_t num_its;
 
-  uint32_t max_slop : 31;
-  bool in_order : 1;
+  int max_slop;
+  bool in_order;
 
   size_t num_expected;
 } IntersectionIterator;
@@ -33,7 +33,7 @@ typedef struct IntersectionIterator {
  * @param its The iterators to intersect. Taking ownership of the iterators.
  * @param num The number of iterators.
  * @param max_slop The maximum slop allowed for the intersection. Negative value for no slop validation.
- * @param in_order Whether the intersection should be in order. Ignored if max_slop is negative.
+ * @param in_order Whether the intersection should be in order.
  * @param weight The weight of the intersection.
  * @return A new intersection iterator, or an empty iterator if any of the iterators are NULL.
  */
