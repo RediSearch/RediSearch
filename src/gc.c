@@ -170,7 +170,7 @@ static void GCContext_UnblockClient(void* data) {
 }
 
 void GCContext_WaitForAllOperations(RedisModuleBlockedClient* bc) {
-  redisearch_thpool_add_work(gcThreadpool_g, GCContext_UnblockClient, bc, THPOOL_PRIORITY_LOW);
+  redisearch_thpool_add_work(gcThreadpool_g, GCContext_UnblockClient, bc, THPOOL_PRIORITY_HIGH);
 }
 
 void GC_ThreadPoolStart() {
