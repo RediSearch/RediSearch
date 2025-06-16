@@ -233,6 +233,7 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
+add_subdirectory(src/module-init)
 add_subdirectory(src/wildcard)
 add_subdirectory(src/util/arr)
 add_subdirectory(src/util/hash)
@@ -258,7 +259,6 @@ file(GLOB SOURCES
     "src/info/info_redis/*.c"
     "src/info/info_redis/threads/*.c"
     "src/info/info_redis/types/*.c"
-    "src/module-init/*.c"
     "src/obfuscation/*.c"
 
     "deps/cndict/cndict_data.c"
@@ -281,6 +281,7 @@ add_library(rscore OBJECT ${SOURCES})
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:arr>
     $<TARGET_OBJECTS:mempool>
+    $<TARGET_OBJECTS:module_init>
     $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
@@ -312,6 +313,7 @@ target_link_libraries(redisearch
         redisearch-coord
         arr
         mempool
+        module_init
         wildcard
         uv_a
         ${BINDIR}/redisearch_rs/libredisearch_rs.a
