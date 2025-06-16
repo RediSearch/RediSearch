@@ -47,6 +47,11 @@ static inline t_fieldMask ReadVarintFieldMask(BufferReader *b) {
   return val;
 }
 
+/* Non-inline wrapper functions for FFI to ensure these are available as exported symbols */
+uint32_t ReadVarintNonInline(BufferReader *b);
+
+t_fieldMask ReadVarintFieldMaskNonInline(BufferReader *b);
+
 size_t WriteVarint(uint32_t value, BufferWriter *w);
 
 size_t WriteVarintFieldMask(t_fieldMask value, BufferWriter *w);
