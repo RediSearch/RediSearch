@@ -486,7 +486,7 @@ TEST_F(AggTest, RPDepleter_LongRun) {
   } while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_OK);
 
   ASSERT_EQ(resultCount, n_docs);
-  // The last return code should be RS_RESULT_TIMEDOUT, as the upstream last returned.
+  // The last return code should be RS_RESULT_EOF, as the upstream last returned.
   ASSERT_EQ(rc, RS_RESULT_EOF);
 
   SearchResult_Destroy(&res);
