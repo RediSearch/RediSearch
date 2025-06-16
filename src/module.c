@@ -85,7 +85,7 @@ extern RSConfig RSGlobalConfig;
 
 extern RedisModuleCtx *RSDummyContext;
 
-extern redisearch_thpool_t *depleterPool = NULL;
+redisearch_thpool_t *depleterPool = NULL;
 
 static int DIST_THREADPOOL = -1;
 

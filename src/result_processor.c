@@ -1446,7 +1446,7 @@ typedef struct {
 } RPDepleter;
 
 /**
- * Desctructor
+ * Destructor
  */
 static void RPDepleter_Free(ResultProcessor *base) {
   RPDepleter *self = (RPDepleter *)base;
