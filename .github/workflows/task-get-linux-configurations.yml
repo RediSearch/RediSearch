@@ -22,7 +22,7 @@ env:
                     'rockylinux:9',
                     'debian:bullseye',
                     'gcc:12-bookworm',
-                    'meiravgrimberg937/amazonlinux2-gcc11-slim',
+                    'meiravgrimberg937/amazonlinux2-gcc11:arm64-slim',
                     'amazonlinux:2023',
                     'mcr.microsoft.com/azurelinux/base/core:3.0',
                     'alpine:3']"
@@ -122,9 +122,9 @@ jobs:
             x86_include.append({
               'OS': 'amazonlinux:2',
               'pre-deps': "yum install -y tar gzip git"})
-          if 'meiravgrimberg937/amazonlinux2-gcc11-slim' in arm_platforms:
+          if 'meiravgrimberg937/amazonlinux2-gcc11:arm64-slim' in arm_platforms:
             arm_include.append({
-              'OS': 'meiravgrimberg937/amazonlinux2-gcc11-slim',
+              'OS': 'meiravgrimberg937/amazonlinux2-gcc11:arm64-slim',
               'pre-deps': "yum install -y tar gzip git"})
 
           # amazonlinux:2023 needs pre-checkout dependencies
