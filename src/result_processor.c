@@ -1434,13 +1434,7 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
  *  The RPDepleter result processor offloads the task of consuming all results from its upstream processor
  *  into a background thread, storing them in an internal array. While the background thread is running,
  *  calls to Next() return RS_RESULT_DEPLETING. Once depleting is complete, Next() yields results one by one
- *  from the internal array, and finally returns RS_RESULT_EOF.
- *
- *  This processor is useful for scenarios where the entire result set must be materialized before further
- *  processing, and where background depleting can improve responsiveness or parallelism.
- *
- *  Threading: The depleting thread is dispatched via the global depleterPool thread pool. The processor
- *  ensures thread-safe signaling using atomic variables.
+ *  from the internal array, and finally returns the last return code from the upstream.
  *******************************************************************************************************************/
 typedef struct {
   ResultProcessor base;                // Base result processor struct
@@ -1452,7 +1446,7 @@ typedef struct {
 } RPDepleter;
 
 /**
- * Frees all resources associated with the RPDepleter, including the results array.
+ * Desctructor
  */
 static void RPDepleter_Free(ResultProcessor *base) {
   RPDepleter *self = (RPDepleter *)base;
@@ -1498,9 +1492,8 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
 }
 
 /**
- * Next function for RPDepleter. Called on the first Next call.
- * Dispatches the depleting thread, sets the yielding Next function, and returns
- * `RS_RESULT_DEPLETING`.
+ * Next function for RPDepleter.
+ * Returns `RS_RESULT_DEPLETING` until the BG thread is done depleting.
  */
 static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
   RPDepleter *self = (RPDepleter *)base;
