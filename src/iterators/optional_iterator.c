@@ -1,5 +1,4 @@
 #include "optional_iterator.h"
-#include "empty_iterator.h"
 
 static void OI_Free(QueryIterator *base) {
   OptionalIterator *oi = (OptionalIterator *)base;
@@ -90,8 +89,9 @@ static IteratorStatus OI_ReadSorted_NotOptimized(QueryIterator *base) {
 
 // Create a new OPTIONAL iterator - Non-Optimized version.
 QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, t_docId maxDocId, size_t numDocs, double weight) {
+  assert(it != NULL);
   OptionalIterator *oi = rm_calloc(1, sizeof(*oi));
-  oi->child = it ?: IT_V2(NewEmptyIterator)();
+  oi->child = it;
   oi->maxDocId = maxDocId;
   oi->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   oi->virt->freq = 1;

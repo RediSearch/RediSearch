@@ -57,10 +57,10 @@ public:
   DocTable docTable;
   SchemaRule rule;
 
-  MockQueryEvalCtx(t_docId maxDocId, size_t numDocs) {
+  MockQueryEvalCtx(t_docId maxDocId) {
     // Initialize DocTable
     docTable.maxDocId = maxDocId;
-    docTable.size = numDocs;
+    docTable.size = maxDocId;
     
     // Initialize SchemaRule
     rule.index_all = false;
