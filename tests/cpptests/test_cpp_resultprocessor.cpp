@@ -48,6 +48,20 @@ static void resultProcessor_GenericFree(ResultProcessor *rp) {
   delete static_cast<processor1Ctx *>(rp);
 }
 
+// Common hybrid scoring function used across all hybrid merger tests
+// Average if both exist, original score if only one exists
+static auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
+  if (hasScore1 && hasScore2) {
+    return (score1 + score2) / 2.0;  // Average both scores
+  } else if (hasScore1) {
+    return score1;  // Only upstream1 has this document
+  } else if (hasScore2) {
+    return score2;  // Only upstream2 has this document
+  } else {
+    return 0.0;  // Neither upstream has this document (shouldn't happen)
+  }
+};
+
 class ResultProcessorTest : public ::testing::Test {};
 
 TEST_F(ResultProcessorTest, testProcessorChain) {
@@ -92,7 +106,7 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
 TEST_F(ResultProcessorTest, testHybridMergerSameDocs) {
   QueryIterator qitr = {0};
 
-  // Mock upstream1: generates 3 docs with score 2.0
+  // Mock upstream1: generates 3 docs with score 2.0 (e.g., text search results)
   struct MockUpstream1 : public ResultProcessor {
     int counter = 0;
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
@@ -116,7 +130,7 @@ TEST_F(ResultProcessorTest, testHybridMergerSameDocs) {
     }
   } upstream1;
 
-  // Mock upstream2: generates same 3 docs with score 4.0
+  // Mock upstream2: generates same 3 docs with score 4.0 (e.g., vector search results)
   struct MockUpstream2 : public ResultProcessor {
     int counter = 0;
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
@@ -140,18 +154,7 @@ TEST_F(ResultProcessorTest, testHybridMergerSameDocs) {
     }
   } upstream2;
 
-  // Define hybrid scoring function (simple average)
-  auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
-    if (hasScore1 && hasScore2) {
-      return (score1 + score2) / 2.0;  // Average: (2.0 + 4.0) / 2 = 3.0
-    } else if (hasScore1) {
-      return score1;  // Only upstream1 has this document - return as is
-    } else if (hasScore2) {
-      return score2;  // Only upstream2 has this document - return as is
-    } else {
-      return 0.0;  // Neither upstream has this document (shouldn't happen)
-    }
-  };
+
 
   // Create hybrid merger with window size 4
   ResultProcessor *hybridMerger = RPHybridMerger_New(
@@ -239,10 +242,7 @@ TEST_F(ResultProcessorTest, testHybridMergerDifferentDocuments) {
     }
   } upstream2;
 
-  // Simple scoring function: return original scores
-  auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
-    return hasScore1 ? score1 : score2;
-  };
+
 
   // Create hybrid merger
   ResultProcessor *hybridMerger = RPHybridMerger_New(
@@ -321,10 +321,7 @@ TEST_F(ResultProcessorTest, testHybridMergerEmptyUpstream1) {
     }
   } upstream2;
 
-  // Simple scoring function: return original scores
-  auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
-    return hasScore1 ? score1 : score2;
-  };
+
 
   // Create hybrid merger
   ResultProcessor *hybridMerger = RPHybridMerger_New(
@@ -399,10 +396,7 @@ TEST_F(ResultProcessorTest, testHybridMergerEmptyUpstream2) {
     }
   } upstream2;
 
-  // Simple scoring function: return original scores
-  auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
-    return hasScore1 ? score1 : score2;
-  };
+
 
   // Create hybrid merger
   ResultProcessor *hybridMerger = RPHybridMerger_New(
@@ -464,10 +458,7 @@ TEST_F(ResultProcessorTest, testHybridMergerBothEmpty) {
     }
   } upstream2;
 
-  // Simple scoring function: return original scores
-  auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
-    return hasScore1 ? score1 : score2;
-  };
+
 
   // Create hybrid merger
   ResultProcessor *hybridMerger = RPHybridMerger_New(
@@ -547,10 +538,7 @@ TEST_F(ResultProcessorTest, testHybridMergerSmallWindow) {
     }
   } upstream2;
 
-  // Simple scoring function
-  auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
-    return hasScore1 ? score1 : score2;
-  };
+
 
   // Create hybrid merger with small window size (2) - smaller than upstream doc count (5 each)
   ResultProcessor *hybridMerger = RPHybridMerger_New(
@@ -634,10 +622,7 @@ TEST_F(ResultProcessorTest, testHybridMergerLargeWindow) {
   };
   upstream2->Free = resultProcessor_GenericFree;
 
-  // Simple scoring function
-  auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
-    return hasScore1 ? score1 : score2;
-  };
+
 
   // Create hybrid merger with large window size (10) - larger than upstream doc count (3 each)
   ResultProcessor *hybridMerger = RPHybridMerger_New(
@@ -741,10 +726,7 @@ TEST_F(ResultProcessorTest, testHybridMergerUpstream1DepletesMore) {
   };
   upstream2->Free = resultProcessor_GenericFree;
 
-  // Simple scoring function
-  auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
-    return hasScore1 ? score1 : score2;
-  };
+
 
   // Create hybrid merger with window size 3
   ResultProcessor *hybridMerger = RPHybridMerger_New(
@@ -862,10 +844,7 @@ TEST_F(ResultProcessorTest, testHybridMergerUpstream2DepletesMore) {
     }
   } upstream2;
 
-  // Simple scoring function
-  auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
-    return hasScore1 ? score1 : score2;
-  };
+
 
   // Create hybrid merger with window size 3
   ResultProcessor *hybridMerger = RPHybridMerger_New(
