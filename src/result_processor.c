@@ -1595,7 +1595,8 @@ dictType dictTypeHybridSearchResult = {
    // Free the hybrid results dictionary (HybridSearchResult values automatically freed by destructor)
     dictRelease(self->hybridResults);
 
-
+   // Free the iterator
+   dictReleaseIterator(self->iterator);
    // Free the pooled result
    srDtor(self->pooledResult);
    // Free the processor itself
