@@ -285,7 +285,7 @@ TEST_F(IntersectionIteratorTest, InOrder) {
     AddDocument({"foo", "baz", "bar"});
 
     // Create an intersection iterator with in-order
-    CreateIntersectionIterator({"foo", "bar"}, INT_MAX, true);
+    CreateIntersectionIterator({"foo", "bar"}, -1, true);
     ASSERT_EQ(ii_base->type, INTERSECT_ITERATOR);
     ASSERT_EQ(ii_base->NumEstimated(ii_base), 3); // 3 documents match "bar"
 
