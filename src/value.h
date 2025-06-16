@@ -151,7 +151,7 @@ void RSValue_Free(RSValue *v);
 
 
 RSValue* RSValue_IncrRef(RSValue* v);
-void RSValue_DecrRef(RSValue* v);
+void RSValue_Decref(RSValue* v);
 
 RSValue *RS_NewValue(RSValueType t);
 
@@ -181,7 +181,7 @@ static inline void RSValue_MakeReference(RSValue *dst, RSValue *src) {
 
 static inline void RSValue_MakeOwnReference(RSValue *dst, RSValue *src) {
   RSValue_MakeReference(dst, src);
-  RSValue_DecrRef(src);
+  RSValue_Decref(src);
 }
 #endif
 
@@ -421,7 +421,7 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
  */
 #define RSVALUE_REPLACE(dstpp, src) \
   do {                              \
-    RSValue_DecrRef(*dstpp);         \
+    RSValue_Decref(*dstpp);         \
     RSValue_IncrRef(src);           \
     *(dstpp) = src;                 \
   } while (0);
@@ -434,7 +434,7 @@ int RSValue_ArrayAssign(RSValue **args, int argc, const char *fmt, ...);
  */
 #define RSVALUE_CLEARVAR(v) \
   if (v) {                  \
-    RSValue_DecrRef(v);      \
+    RSValue_Decref(v);      \
   }
 
 #ifdef __cplusplus
