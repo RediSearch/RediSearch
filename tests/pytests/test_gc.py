@@ -383,7 +383,8 @@ def testConcurrentFTInfoDuringIndexDeletion(env):
         try:
             forceBGInvokeGC(env, idx_name)
         except Exception as e:
-            # Expected - index might already be cleaned up
+            env.assertTrue('unknown index' in str(e).lower() or 'no such index' in str(e).lower(),
+                          message=f"Unexpected error in GC for deleted index {idx_name}: {e}")
             pass
 
         # Small delay between deletions to spread out the work
