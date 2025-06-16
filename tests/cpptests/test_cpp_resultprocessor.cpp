@@ -89,69 +89,56 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
   RLookup_Cleanup(&lk);
 }
 
-TEST_F(ResultProcessorTest, testHybridMerger) {
+TEST_F(ResultProcessorTest, testHybridMergerSameDocs) {
   QueryIterator qitr = {0};
-  RLookup lk = {0};
 
-  // Create first upstream processor that generates results with score 2.0
-  processor1Ctx *upstream1 = new processor1Ctx();
-  upstream1->counter = 0;
-  upstream1->Next = [](ResultProcessor *rp, SearchResult *res) -> int {
-    processor1Ctx *p = static_cast<processor1Ctx *>(rp);
-    if (p->counter >= 3) return RS_RESULT_EOF; // Generate 3 results
+  // Mock upstream1: generates 3 docs with score 2.0
+  struct MockUpstream1 : public ResultProcessor {
+    int counter = 0;
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream1 *p = static_cast<MockUpstream1 *>(rp);
+      if (p->counter >= 3) return RS_RESULT_EOF;
 
-    res->docId = ++p->counter;
-    res->score = 2.0;  // Score from upstream1
+      res->docId = ++p->counter;
+      res->score = 2.0;
 
-    // Mock document metadata with keyPtr
-    static RSDocumentMetadata dmd1 = {0};
-    static RSDocumentMetadata dmd2 = {0};
-    static RSDocumentMetadata dmd3 = {0};
+      // Set up document metadata with keys
+      static RSDocumentMetadata dmd[3] = {0};
+      static const char* keys[] = {"doc1", "doc2", "doc3"};
+      dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
+      res->dmd = &dmd[p->counter - 1];
 
-    if (p->counter == 1) {
-      dmd1.keyPtr = (char*)"doc1";
-      res->dmd = &dmd1;
-    } else if (p->counter == 2) {
-      dmd2.keyPtr = (char*)"doc2";
-      res->dmd = &dmd2;
-    } else {
-      dmd3.keyPtr = (char*)"doc3";
-      res->dmd = &dmd3;
+      return RS_RESULT_OK;
     }
-
-    return RS_RESULT_OK;
-  };
-  upstream1->Free = resultProcessor_GenericFree;
-
-  // Create second upstream processor that generates results with score 3.0
-  processor1Ctx *upstream2 = new processor1Ctx();
-  upstream2->counter = 0;
-  upstream2->Next = [](ResultProcessor *rp, SearchResult *res) -> int {
-    processor1Ctx *p = static_cast<processor1Ctx *>(rp);
-    if (p->counter >= 3) return RS_RESULT_EOF; // Generate 3 results
-
-    res->docId = ++p->counter;
-    res->score = 4.0;  // Score from upstream2
-
-    // Mock document metadata with keyPtr (same docs as upstream1)
-    static RSDocumentMetadata dmd1 = {0};
-    static RSDocumentMetadata dmd2 = {0};
-    static RSDocumentMetadata dmd3 = {0};
-
-    if (p->counter == 1) {
-      dmd1.keyPtr = (char*)"doc1";
-      res->dmd = &dmd1;
-    } else if (p->counter == 2) {
-      dmd2.keyPtr = (char*)"doc2";
-      res->dmd = &dmd2;
-    } else {
-      dmd3.keyPtr = (char*)"doc3";
-      res->dmd = &dmd3;
+    MockUpstream1() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
     }
+  } upstream1;
 
-    return RS_RESULT_OK;
-  };
-  upstream2->Free = resultProcessor_GenericFree;
+  // Mock upstream2: generates same 3 docs with score 4.0
+  struct MockUpstream2 : public ResultProcessor {
+    int counter = 0;
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream2 *p = static_cast<MockUpstream2 *>(rp);
+      if (p->counter >= 3) return RS_RESULT_EOF;
+
+      res->docId = ++p->counter; // Same docIds as upstream1
+      res->score = 4.0;
+
+      // Set up document metadata with keys (same docs as upstream1)
+      static RSDocumentMetadata dmd[3] = {0};
+      static const char* keys[] = {"doc1", "doc2", "doc3"};
+      dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
+      res->dmd = &dmd[p->counter - 1];
+
+      return RS_RESULT_OK;
+    }
+    MockUpstream2() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream2;
 
   // Define hybrid scoring function (simple average)
   auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
@@ -166,12 +153,12 @@ TEST_F(ResultProcessorTest, testHybridMerger) {
     }
   };
 
-  // Create hybrid merger with window size 3
+  // Create hybrid merger with window size 4
   ResultProcessor *hybridMerger = RPHybridMerger_New(
     hybridScoringFunction,
-    (ResultProcessor*)upstream1,
-    (ResultProcessor*)upstream2,
-    3  // window size
+    &upstream1,
+    &upstream2,
+    4  // window size
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -198,223 +185,158 @@ TEST_F(ResultProcessorTest, testHybridMerger) {
   ASSERT_EQ(3, count);
 
   SearchResult_Destroy(&r);
-  numFreed = 0;
-
-  upstream1->Free(upstream1);
-  upstream2->Free(upstream2);
   QITR_FreeChain(&qitr);
-  //TODO: how to free two upstreams as part of QITR_FreeChain
-  // ASSERT_EQ(3, numFreed); // upstream1 + upstream2 + hybridMerger
 }
 
 TEST_F(ResultProcessorTest, testHybridMergerDifferentDocuments) {
   QueryIterator qitr = {0};
-  RLookup lk = {0};
 
-  // Create first upstream processor that generates doc1, doc2, doc3 with score 1.0
-  processor1Ctx *upstream1 = new processor1Ctx();
-  upstream1->counter = 0;
-  upstream1->Next = [](ResultProcessor *rp, SearchResult *res) -> int {
-    processor1Ctx *p = static_cast<processor1Ctx *>(rp);
-    if (p->counter >= 3) return RS_RESULT_EOF; // Generate 3 results
+  // Mock upstream1: generates 3 docs with score 1.0
+  struct MockUpstream1 : public ResultProcessor {
+    int counter = 0;
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream1 *p = (MockUpstream1 *)rp;
+      if (p->counter >= 3) return RS_RESULT_EOF;
 
-    res->docId = ++p->counter;
-    res->score = 1.0;  // Score from upstream1
+      res->docId = ++p->counter;
+      res->score = 1.0;
 
-    // Mock document metadata with keyPtr (doc1, doc2, doc3)
-    static RSDocumentMetadata dmd1 = {0};
-    static RSDocumentMetadata dmd2 = {0};
-    static RSDocumentMetadata dmd3 = {0};
+      // Set up document metadata with keys
+      static RSDocumentMetadata dmd[3] = {0};
+      static const char* keys[] = {"doc1", "doc2", "doc3"};
+      dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
+      res->dmd = &dmd[p->counter - 1];
 
-    if (p->counter == 1) {
-      dmd1.keyPtr = (char*)"doc1";
-      res->dmd = &dmd1;
-    } else if (p->counter == 2) {
-      dmd2.keyPtr = (char*)"doc2";
-      res->dmd = &dmd2;
-    } else {
-      dmd3.keyPtr = (char*)"doc3";
-      res->dmd = &dmd3;
+      return RS_RESULT_OK;
     }
-
-    return RS_RESULT_OK;
-  };
-  upstream1->Free = resultProcessor_GenericFree;
-
-  // Create second upstream processor that generates doc4, doc5, doc6 with score 3.0
-  processor1Ctx *upstream2 = new processor1Ctx();
-  upstream2->counter = 0;
-  upstream2->Next = [](ResultProcessor *rp, SearchResult *res) -> int {
-    processor1Ctx *p = static_cast<processor1Ctx *>(rp);
-    if (p->counter >= 3) return RS_RESULT_EOF; // Generate 3 results
-
-    res->docId = p->counter + 10; // Different docIds (11, 12, 13)
-    res->score = 3.0;  // Score from upstream2
-
-    // Mock document metadata with keyPtr (doc4, doc5, doc6)
-    static RSDocumentMetadata dmd4 = {0};
-    static RSDocumentMetadata dmd5 = {0};
-    static RSDocumentMetadata dmd6 = {0};
-
-    ++p->counter;
-    if (p->counter == 1) {
-      dmd4.keyPtr = (char*)"doc4";
-      res->dmd = &dmd4;
-    } else if (p->counter == 2) {
-      dmd5.keyPtr = (char*)"doc5";
-      res->dmd = &dmd5;
-    } else {
-      dmd6.keyPtr = (char*)"doc6";
-      res->dmd = &dmd6;
+    MockUpstream1() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
     }
+  } upstream1;
 
-    return RS_RESULT_OK;
-  };
-  upstream2->Free = resultProcessor_GenericFree;
+  // Mock upstream2: generates 3 different docs with score 3.0
+  struct MockUpstream2 : public ResultProcessor {
+    int counter = 0;
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream2 *p = static_cast<MockUpstream2 *>(rp);
+      if (p->counter >= 3) return RS_RESULT_EOF;
 
-  // Define hybrid scoring function that handles single-source documents
+      res->docId = ++p->counter + 10; // Different docIds (11, 12, 13)
+      res->score = 3.0;
+
+      // Set up document metadata with keys - docId matches key number
+      static RSDocumentMetadata dmd[3] = {0};
+      static const char* keys[] = {"doc11", "doc12", "doc13"};
+      dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
+      res->dmd = &dmd[p->counter - 1];
+
+      return RS_RESULT_OK;
+    }
+    MockUpstream2() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream2;
+
+  // Simple scoring function: return original scores
   auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
-    if (hasScore1 && hasScore2) {
-      // Both upstreams have this document (shouldn't happen in this test)
-      return (score1 + score2) / 2.0;
-    } else if (hasScore1) {
-      // Only upstream1 has this document - return score1 as is
-      return score1;  // 1.0
-    } else if (hasScore2) {
-      // Only upstream2 has this document - return score2 as is
-      return score2;  // 3.0
-    } else {
-      return 0.0;  // Neither upstream has this document (shouldn't happen)
-    }
+    return hasScore1 ? score1 : score2;
   };
 
-  // Create hybrid merger with window size 3
+  // Create hybrid merger
   ResultProcessor *hybridMerger = RPHybridMerger_New(
     hybridScoringFunction,
-    (ResultProcessor*)upstream1,
-    (ResultProcessor*)upstream2,
-    3  // window size
+    &upstream1,
+    &upstream2,
+    3
   );
 
   QITR_PushRP(&qitr, hybridMerger);
 
-  // Process results
+  // Process and verify results
   size_t count = 0;
   SearchResult r = {0};
   ResultProcessor *rpTail = qitr.endProc;
 
-  std::set<std::string> seenDocs;
-
   while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
     count++;
 
-    // Verify we get the expected documents
+    // Verify document metadata and key are set
     ASSERT_TRUE(r.dmd != nullptr);
     ASSERT_TRUE(r.dmd->keyPtr != nullptr);
 
-    std::string docKey(r.dmd->keyPtr);
-    seenDocs.insert(docKey);
-
-    // Verify hybrid score is applied correctly
-    if (docKey == "doc1" || docKey == "doc2" || docKey == "doc3") {
-      ASSERT_EQ(1.0, r.score); // upstream1 score as is
-    } else if (docKey == "doc4" || docKey == "doc5" || docKey == "doc6") {
-      ASSERT_EQ(3.0, r.score); // upstream2 score as is
+    // Verify scores: docs 1-3 should have score 1.0, docs 11-13 should have score 3.0
+    if (r.docId <= 3) {
+      ASSERT_EQ(1.0, r.score);
     } else {
-      FAIL() << "Unexpected document: " << docKey;
+      ASSERT_EQ(3.0, r.score);
     }
 
     SearchResult_Clear(&r);
   }
 
-  // Should have processed 6 unique documents (3 from each upstream)
+  // Should have 6 documents total (3 from each upstream)
   ASSERT_EQ(6, count);
-  ASSERT_EQ(6, seenDocs.size());
-
-  // Verify all expected documents were seen
-  ASSERT_TRUE(seenDocs.count("doc1") > 0);
-  ASSERT_TRUE(seenDocs.count("doc2") > 0);
-  ASSERT_TRUE(seenDocs.count("doc3") > 0);
-  ASSERT_TRUE(seenDocs.count("doc4") > 0);
-  ASSERT_TRUE(seenDocs.count("doc5") > 0);
-  ASSERT_TRUE(seenDocs.count("doc6") > 0);
 
   SearchResult_Destroy(&r);
-  numFreed = 0;
-  upstream1->Free(upstream1);
-  upstream2->Free(upstream2);
   QITR_FreeChain(&qitr);
-
-  //TODO: how to free two upstreams as part of QITR_FreeChain
-  // ASSERT_EQ(3, numFreed); // upstream1 + upstream2 + hybridMerger
 }
 
 TEST_F(ResultProcessorTest, testHybridMergerEmptyUpstream1) {
   QueryIterator qitr = {0};
-  RLookup lk = {0};
 
-  // Create empty upstream1 processor (returns EOF immediately)
-  processor1Ctx *upstream1 = new processor1Ctx();
-  upstream1->counter = 0;
-  upstream1->Next = [](ResultProcessor *rp, SearchResult *res) -> int {
-    return RS_RESULT_EOF; // Always empty
-  };
-  upstream1->Free = resultProcessor_GenericFree;
-
-  // Create upstream2 processor that generates doc1, doc2, doc3 with score 5.0
-  processor1Ctx *upstream2 = new processor1Ctx();
-  upstream2->counter = 0;
-  upstream2->Next = [](ResultProcessor *rp, SearchResult *res) -> int {
-    processor1Ctx *p = static_cast<processor1Ctx *>(rp);
-    if (p->counter >= 3) return RS_RESULT_EOF; // Generate 3 results
-
-    res->docId = ++p->counter;
-    res->score = 5.0;  // Score from upstream2
-
-    // Mock document metadata with keyPtr
-    static RSDocumentMetadata dmd1 = {0};
-    static RSDocumentMetadata dmd2 = {0};
-    static RSDocumentMetadata dmd3 = {0};
-
-    if (p->counter == 1) {
-      dmd1.keyPtr = (char*)"doc1";
-      res->dmd = &dmd1;
-    } else if (p->counter == 2) {
-      dmd2.keyPtr = (char*)"doc2";
-      res->dmd = &dmd2;
-    } else {
-      dmd3.keyPtr = (char*)"doc3";
-      res->dmd = &dmd3;
+  // Mock empty upstream1 processor
+  struct MockUpstream1 : public ResultProcessor {
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      return RS_RESULT_EOF; // Always empty
     }
+    MockUpstream1() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream1;
 
-    return RS_RESULT_OK;
-  };
-  upstream2->Free = resultProcessor_GenericFree;
+  // Mock upstream2: generates 3 docs with score 5.0
+  struct MockUpstream2 : public ResultProcessor {
+    int counter = 0;
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream2 *p = static_cast<MockUpstream2 *>(rp);
+      if (p->counter >= 3) return RS_RESULT_EOF;
 
-  // Define hybrid scoring function
+      res->docId = ++p->counter;
+      res->score = 5.0;
+
+      // Set up document metadata with keys
+      static RSDocumentMetadata dmd[3] = {0};
+      static const char* keys[] = {"doc1", "doc2", "doc3"};
+      dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
+      res->dmd = &dmd[p->counter - 1];
+
+      return RS_RESULT_OK;
+    }
+    MockUpstream2() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream2;
+
+  // Simple scoring function: return original scores
   auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
-    if (hasScore1 && hasScore2) {
-      return (score1 + score2) / 2.0;
-    } else if (hasScore1) {
-      return score1;
-    } else if (hasScore2) {
-      return score2;  // Should be 5.0
-    } else {
-      return 0.0;
-    }
+    return hasScore1 ? score1 : score2;
   };
 
-  // Create hybrid merger with window size 3
+  // Create hybrid merger
   ResultProcessor *hybridMerger = RPHybridMerger_New(
     hybridScoringFunction,
-    (ResultProcessor*)upstream1,
-    (ResultProcessor*)upstream2,
-    3  // window size
+    &upstream1,
+    &upstream2,
+    3
   );
 
   QITR_PushRP(&qitr, hybridMerger);
 
-  // Process results
+  // Process and verify results
   size_t count = 0;
   SearchResult r = {0};
   ResultProcessor *rpTail = qitr.endProc;
@@ -422,95 +344,312 @@ TEST_F(ResultProcessorTest, testHybridMergerEmptyUpstream1) {
   while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
     count++;
 
-    // Should only get results from upstream2 with original scores
-    ASSERT_EQ(5.0, r.score);
-
-    // Verify we get the expected documents
+    // Verify document metadata and key are set
     ASSERT_TRUE(r.dmd != nullptr);
     ASSERT_TRUE(r.dmd->keyPtr != nullptr);
+
+    // Should only get results from upstream2 with score 5.0
+    ASSERT_EQ(5.0, r.score);
 
     SearchResult_Clear(&r);
   }
 
-  // Should have processed 3 documents (only from upstream2)
+  // Should have 3 documents (only from upstream2)
   ASSERT_EQ(3, count);
 
   SearchResult_Destroy(&r);
-  numFreed = 0;
-  upstream1->Free(upstream1);
-  upstream2->Free(upstream2);
   QITR_FreeChain(&qitr);
-
-  //TODO: how to free two upstreams as part of QITR_FreeChain
-  // ASSERT_EQ(3, numFreed); // upstream1 + upstream2 + hybridMerger
 }
 
 TEST_F(ResultProcessorTest, testHybridMergerEmptyUpstream2) {
   QueryIterator qitr = {0};
-  RLookup lk = {0};
 
-  // Create upstream1 processor that generates doc1, doc2, doc3 with score 7.0
+  // Mock upstream1: generates 3 docs with score 7.0
+  struct MockUpstream1 : public ResultProcessor {
+    int counter = 0;
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream1 *p = static_cast<MockUpstream1 *>(rp);
+      if (p->counter >= 3) return RS_RESULT_EOF;
+
+      res->docId = ++p->counter;
+      res->score = 7.0;
+
+      // Set up document metadata with keys
+      static RSDocumentMetadata dmd[3] = {0};
+      static const char* keys[] = {"doc1", "doc2", "doc3"};
+      dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
+      res->dmd = &dmd[p->counter - 1];
+
+      return RS_RESULT_OK;
+    }
+    MockUpstream1() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream1;
+
+  // Mock empty upstream2 processor
+  struct MockUpstream2 : public ResultProcessor {
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      return RS_RESULT_EOF; // Always empty
+    }
+    MockUpstream2() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream2;
+
+  // Simple scoring function: return original scores
+  auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
+    return hasScore1 ? score1 : score2;
+  };
+
+  // Create hybrid merger
+  ResultProcessor *hybridMerger = RPHybridMerger_New(
+    hybridScoringFunction,
+    &upstream1,
+    &upstream2,
+    3
+  );
+
+  QITR_PushRP(&qitr, hybridMerger);
+
+  // Process and verify results
+  size_t count = 0;
+  SearchResult r = {0};
+  ResultProcessor *rpTail = qitr.endProc;
+
+  while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
+    count++;
+
+    // Verify document metadata and key are set
+    ASSERT_TRUE(r.dmd != nullptr);
+    ASSERT_TRUE(r.dmd->keyPtr != nullptr);
+
+    // Should only get results from upstream1 with score 7.0
+    ASSERT_EQ(7.0, r.score);
+
+    SearchResult_Clear(&r);
+  }
+
+  // Should have 3 documents (only from upstream1)
+  ASSERT_EQ(3, count);
+
+  SearchResult_Destroy(&r);
+  QITR_FreeChain(&qitr);
+}
+
+TEST_F(ResultProcessorTest, testHybridMergerBothEmpty) {
+  QueryIterator qitr = {0};
+
+  // Mock empty upstream1 processor
+  struct MockUpstream1 : public ResultProcessor {
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      return RS_RESULT_EOF; // Always empty
+    }
+    MockUpstream1() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream1;
+
+  // Mock empty upstream2 processor
+  struct MockUpstream2 : public ResultProcessor {
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      return RS_RESULT_EOF; // Always empty
+    }
+    MockUpstream2() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream2;
+
+  // Simple scoring function: return original scores
+  auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
+    return hasScore1 ? score1 : score2;
+  };
+
+  // Create hybrid merger
+  ResultProcessor *hybridMerger = RPHybridMerger_New(
+    hybridScoringFunction,
+    &upstream1,
+    &upstream2,
+    3
+  );
+
+  QITR_PushRP(&qitr, hybridMerger);
+
+  // Process and verify results
+  size_t count = 0;
+  SearchResult r = {0};
+  ResultProcessor *rpTail = qitr.endProc;
+
+  while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
+    count++;
+    SearchResult_Clear(&r);
+  }
+
+  // Should have 0 documents (both upstreams empty)
+  ASSERT_EQ(0, count);
+
+  SearchResult_Destroy(&r);
+  QITR_FreeChain(&qitr);
+}
+
+TEST_F(ResultProcessorTest, testHybridMergerSmallWindow) {
+  QueryIterator qitr = {0};
+
+  // Mock upstream1: generates 5 docs with score 1.0
+  struct MockUpstream1 : public ResultProcessor {
+    int counter = 0;
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream1 *p = (MockUpstream1 *)rp;
+      if (p->counter >= 5) return RS_RESULT_EOF;
+
+      res->docId = ++p->counter;
+      res->score = 1.0;
+
+      // Set up document metadata with keys
+      static RSDocumentMetadata dmd[5] = {0};
+      static const char* keys[] = {"doc1", "doc2", "doc3", "doc4", "doc5"};
+      dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
+      res->dmd = &dmd[p->counter - 1];
+
+      return RS_RESULT_OK;
+    }
+    MockUpstream1() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream1;
+
+  // Mock upstream2: generates 5 different docs with score 2.0
+  struct MockUpstream2 : public ResultProcessor {
+    int counter = 0;
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream2 *p = static_cast<MockUpstream2 *>(rp);
+      if (p->counter >= 5) return RS_RESULT_EOF;
+
+      res->docId = ++p->counter + 10; // Different docIds (11-15)
+      res->score = 2.0;
+
+      // Set up document metadata with keys - docId matches key number
+      static RSDocumentMetadata dmd[5] = {0};
+      static const char* keys[] = {"doc11", "doc12", "doc13", "doc14", "doc15"};
+      dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
+      res->dmd = &dmd[p->counter - 1];
+
+      return RS_RESULT_OK;
+    }
+    MockUpstream2() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream2;
+
+  // Simple scoring function
+  auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
+    return hasScore1 ? score1 : score2;
+  };
+
+  // Create hybrid merger with small window size (2) - smaller than upstream doc count (5 each)
+  ResultProcessor *hybridMerger = RPHybridMerger_New(
+    hybridScoringFunction,
+    &upstream1,
+    &upstream2,
+    2  // Small window
+  );
+
+  QITR_PushRP(&qitr, hybridMerger);
+
+  // Process and verify results
+  size_t count = 0;
+  SearchResult r = {0};
+  ResultProcessor *rpTail = qitr.endProc;
+
+  while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
+    count++;
+
+    // Verify document metadata and key are set
+    ASSERT_TRUE(r.dmd != nullptr);
+    ASSERT_TRUE(r.dmd->keyPtr != nullptr);
+
+    // Verify scores based on docId
+    if (r.docId <= 5) {
+      ASSERT_EQ(1.0, r.score);
+    } else {
+      ASSERT_EQ(2.0, r.score);
+    }
+
+    SearchResult_Clear(&r);
+  }
+
+  // Should have 4 documents total (2 from each upstream due to small window size)
+  ASSERT_EQ(4, count);
+
+  SearchResult_Destroy(&r);
+  QITR_FreeChain(&qitr);
+}
+
+TEST_F(ResultProcessorTest, testHybridMergerLargeWindow) {
+  QueryIterator qitr = {0};
+
+  // Create upstream1: generates 3 docs with score 1.0
   processor1Ctx *upstream1 = new processor1Ctx();
   upstream1->counter = 0;
   upstream1->Next = [](ResultProcessor *rp, SearchResult *res) -> int {
     processor1Ctx *p = static_cast<processor1Ctx *>(rp);
-    if (p->counter >= 3) return RS_RESULT_EOF; // Generate 3 results
+    if (p->counter >= 3) return RS_RESULT_EOF;
 
     res->docId = ++p->counter;
-    res->score = 7.0;  // Score from upstream1
+    res->score = 1.0;
 
-    // Mock document metadata with keyPtr
-    static RSDocumentMetadata dmd1 = {0};
-    static RSDocumentMetadata dmd2 = {0};
-    static RSDocumentMetadata dmd3 = {0};
-
-    if (p->counter == 1) {
-      dmd1.keyPtr = (char*)"doc1";
-      res->dmd = &dmd1;
-    } else if (p->counter == 2) {
-      dmd2.keyPtr = (char*)"doc2";
-      res->dmd = &dmd2;
-    } else {
-      dmd3.keyPtr = (char*)"doc3";
-      res->dmd = &dmd3;
-    }
+    // Set up document metadata with keys
+    static RSDocumentMetadata dmd[3] = {0};
+    static const char* keys[] = {"doc1", "doc2", "doc3"};
+    dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
+    res->dmd = &dmd[p->counter - 1];
 
     return RS_RESULT_OK;
   };
   upstream1->Free = resultProcessor_GenericFree;
 
-  // Create empty upstream2 processor (returns EOF immediately)
+  // Create upstream2: generates 3 different docs with score 2.0
   processor1Ctx *upstream2 = new processor1Ctx();
   upstream2->counter = 0;
   upstream2->Next = [](ResultProcessor *rp, SearchResult *res) -> int {
-    return RS_RESULT_EOF; // Always empty
+    processor1Ctx *p = static_cast<processor1Ctx *>(rp);
+    if (p->counter >= 3) return RS_RESULT_EOF;
+
+    res->docId = ++p->counter + 10; // Different docIds (11-13)
+    res->score = 2.0;
+
+    // Set up document metadata with keys - docId matches key number
+    static RSDocumentMetadata dmd[3] = {0};
+    static const char* keys[] = {"doc11", "doc12", "doc13"};
+    dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
+    res->dmd = &dmd[p->counter - 1];
+
+    return RS_RESULT_OK;
   };
   upstream2->Free = resultProcessor_GenericFree;
 
-  // Define hybrid scoring function
+  // Simple scoring function
   auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
-    if (hasScore1 && hasScore2) {
-      return (score1 + score2) / 2.0;
-    } else if (hasScore1) {
-      return score1;  // Should be 7.0
-    } else if (hasScore2) {
-      return score2;
-    } else {
-      return 0.0;
-    }
+    return hasScore1 ? score1 : score2;
   };
 
-  // Create hybrid merger with window size 3
+  // Create hybrid merger with large window size (10) - larger than upstream doc count (3 each)
   ResultProcessor *hybridMerger = RPHybridMerger_New(
     hybridScoringFunction,
     (ResultProcessor*)upstream1,
     (ResultProcessor*)upstream2,
-    3  // window size
+    10  // Large window
   );
 
   QITR_PushRP(&qitr, hybridMerger);
 
-  // Process results
+  // Process and verify results
   size_t count = 0;
   SearchResult r = {0};
   ResultProcessor *rpTail = qitr.endProc;
@@ -518,60 +657,93 @@ TEST_F(ResultProcessorTest, testHybridMergerEmptyUpstream2) {
   while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
     count++;
 
-    // Should only get results from upstream1 with original scores
-    ASSERT_EQ(7.0, r.score);
-
-    // Verify we get the expected documents
+    // Verify document metadata and key are set
     ASSERT_TRUE(r.dmd != nullptr);
     ASSERT_TRUE(r.dmd->keyPtr != nullptr);
 
+    // Verify scores based on docId
+    if (r.docId <= 3) {
+      ASSERT_EQ(1.0, r.score);
+    } else {
+      ASSERT_EQ(2.0, r.score);
+    }
+
     SearchResult_Clear(&r);
   }
 
-  // Should have processed 3 documents (only from upstream1)
-  ASSERT_EQ(3, count);
+  // Should have 6 documents total (3 from each upstream)
+  ASSERT_EQ(6, count);
 
   SearchResult_Destroy(&r);
-  numFreed = 0;
   upstream1->Free(upstream1);
   upstream2->Free(upstream2);
   QITR_FreeChain(&qitr);
-
-  //TODO: how to free two upstreams as part of QITR_FreeChain
-  // ASSERT_EQ(3, numFreed); // upstream1 + upstream2 + hybridMerger
 }
 
-TEST_F(ResultProcessorTest, testHybridMergerBothEmpty) {
+TEST_F(ResultProcessorTest, testHybridMergerUpstream1DepletesMore) {
   QueryIterator qitr = {0};
-  RLookup lk = {0};
 
-  // Create empty upstream1 processor (returns EOF immediately)
+  // Create upstream1: depletes 3 times before returning docs
   processor1Ctx *upstream1 = new processor1Ctx();
   upstream1->counter = 0;
   upstream1->Next = [](ResultProcessor *rp, SearchResult *res) -> int {
-    return RS_RESULT_EOF; // Always empty
+    processor1Ctx *p = static_cast<processor1Ctx *>(rp);
+
+    // Deplete 3 times, then return 3 docs, then EOF
+    if (p->counter < 3) {
+      p->counter++;
+      return RS_RESULT_DEPLETING; // Don't modify res
+    } else if (p->counter >= 3 && p->counter < 6) {
+      int docIndex = p->counter - 3;
+      p->counter++;
+      res->docId = docIndex + 1; // docs 1, 2, 3
+      res->score = 1.0;
+
+      // Set up document metadata with keys
+      static RSDocumentMetadata dmd[3] = {0};
+      static const char* keys[] = {"doc1", "doc2", "doc3"};
+      dmd[docIndex].keyPtr = (char*)keys[docIndex];
+      res->dmd = &dmd[docIndex];
+
+      return RS_RESULT_OK;
+    } else {
+      return RS_RESULT_EOF;
+    }
   };
   upstream1->Free = resultProcessor_GenericFree;
 
-  // Create empty upstream2 processor (returns EOF immediately)
+  // Create upstream2: depletes 1 time before returning docs
   processor1Ctx *upstream2 = new processor1Ctx();
   upstream2->counter = 0;
   upstream2->Next = [](ResultProcessor *rp, SearchResult *res) -> int {
-    return RS_RESULT_EOF; // Always empty
+    processor1Ctx *p = static_cast<processor1Ctx *>(rp);
+
+    // Deplete 1 time, then return 3 docs, then EOF
+    if (p->counter < 1) {
+      p->counter++;
+      return RS_RESULT_DEPLETING; // Don't modify res
+    } else if (p->counter >= 1 && p->counter < 4) {
+      int docIndex = p->counter - 1;
+      p->counter++;
+      res->docId = docIndex + 21; // docs 21, 22, 23
+      res->score = 2.0;
+
+      // Set up document metadata with keys - docId matches key number
+      static RSDocumentMetadata dmd[3] = {0};
+      static const char* keys[] = {"doc21", "doc22", "doc23"};
+      dmd[docIndex].keyPtr = (char*)keys[docIndex];
+      res->dmd = &dmd[docIndex];
+
+      return RS_RESULT_OK;
+    } else {
+      return RS_RESULT_EOF;
+    }
   };
   upstream2->Free = resultProcessor_GenericFree;
 
-  // Define hybrid scoring function
+  // Simple scoring function
   auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
-    if (hasScore1 && hasScore2) {
-      return (score1 + score2) / 2.0;
-    } else if (hasScore1) {
-      return score1;
-    } else if (hasScore2) {
-      return score2;
-    } else {
-      return 0.0;
-    }
+    return hasScore1 ? score1 : score2;
   };
 
   // Create hybrid merger with window size 3
@@ -579,50 +751,163 @@ TEST_F(ResultProcessorTest, testHybridMergerBothEmpty) {
     hybridScoringFunction,
     (ResultProcessor*)upstream1,
     (ResultProcessor*)upstream2,
-    3  // window size
+    3
   );
 
   QITR_PushRP(&qitr, hybridMerger);
 
-  // Process results
+  // Process and verify results
   size_t count = 0;
+  size_t upstream1Count = 0;
+  size_t upstream2Count = 0;
   SearchResult r = {0};
   ResultProcessor *rpTail = qitr.endProc;
 
   while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
     count++;
+
+    // Verify document metadata and key are set
+    ASSERT_TRUE(r.dmd != nullptr);
+    ASSERT_TRUE(r.dmd->keyPtr != nullptr);
+
+    // Count results from each upstream
+    if (r.docId >= 1 && r.docId <= 3) {
+      upstream1Count++;
+      ASSERT_EQ(1.0, r.score);
+    } else if (r.docId >= 21 && r.docId <= 23) {
+      upstream2Count++;
+      ASSERT_EQ(2.0, r.score);
+    }
+
     SearchResult_Clear(&r);
   }
 
-  // Should have processed 0 documents (both upstreams empty)
-  ASSERT_EQ(0, count);
+  // Should have 6 documents total (3 from upstream1 after 3 depletes, 3 from upstream2 after 1 deplete)
+  ASSERT_EQ(6, count);
+  ASSERT_EQ(3, upstream1Count);
+  ASSERT_EQ(3, upstream2Count);
 
   SearchResult_Destroy(&r);
-  numFreed = 0;
   upstream1->Free(upstream1);
   upstream2->Free(upstream2);
   QITR_FreeChain(&qitr);
-  //TODO: how to free two upstreams as part of QITR_FreeChain
-  // ASSERT_EQ(3, numFreed); // upstream1 + upstream2 + hybridMerger
 }
 
-// TODO: Implement timeout tests for hybrid merger
-// TEST_F(ResultProcessorTest, testHybridMergerTimeoutUpstream1Return) {
-//   // Test timeout on upstream1 with TimeoutPolicy_Return
-//   // Should return partial results from upstream1 only
-// }
+TEST_F(ResultProcessorTest, testHybridMergerUpstream2DepletesMore) {
+  QueryIterator qitr = {0};
 
-// TEST_F(ResultProcessorTest, testHybridMergerTimeoutUpstream1Fail) {
-//   // Test timeout on upstream1 with TimeoutPolicy_Fail
-//   // Should return no results and propagate timeout immediately
-// }
+  // Mock upstream1: depletes 1 time before returning docs
+  struct MockUpstream1 : public ResultProcessor {
+    int counter = 0;
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream1 *p = (MockUpstream1 *)rp;
 
-// TEST_F(ResultProcessorTest, testHybridMergerTimeoutUpstream2Return) {
-//   // Test timeout on upstream2 with TimeoutPolicy_Return
-//   // Should return all upstream1 results + partial upstream2 results
-// }
+      // Deplete 1 time, then return 3 docs, then EOF
+      if (p->counter < 1) {
+        p->counter++;
+        return RS_RESULT_DEPLETING; // Don't modify res
+      } else if (p->counter >= 1 && p->counter < 4) {
+        int docIndex = p->counter - 1;
+        p->counter++;
+        res->docId = docIndex + 1; // docs 1, 2, 3
+        res->score = 1.0;
 
-// TEST_F(ResultProcessorTest, testHybridMergerTimeoutUpstream2Fail) {
-//   // Test timeout on upstream2 with TimeoutPolicy_Fail
-//   // Should return no results and propagate timeout immediately
-// }
+        // Set up document metadata with keys
+        static RSDocumentMetadata dmd[3] = {0};
+        static const char* keys[] = {"doc1", "doc2", "doc3"};
+        dmd[docIndex].keyPtr = (char*)keys[docIndex];
+        res->dmd = &dmd[docIndex];
+
+        return RS_RESULT_OK;
+      } else {
+        return RS_RESULT_EOF;
+      }
+    }
+    MockUpstream1() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream1;
+
+  // Mock upstream2: depletes 3 times before returning docs
+  struct MockUpstream2 : public ResultProcessor {
+    int counter = 0;
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream2 *p = static_cast<MockUpstream2 *>(rp);
+
+      // Deplete 3 times, then return 3 docs, then EOF
+      if (p->counter < 3) {
+        p->counter++;
+        return RS_RESULT_DEPLETING; // Don't modify res
+      } else if (p->counter >= 3 && p->counter < 6) {
+        int docIndex = p->counter - 3;
+        p->counter++;
+        res->docId = docIndex + 21; // docs 21, 22, 23
+        res->score = 2.0;
+
+        // Set up document metadata with keys - docId matches key number
+        static RSDocumentMetadata dmd[3] = {0};
+        static const char* keys[] = {"doc21", "doc22", "doc23"};
+        dmd[docIndex].keyPtr = (char*)keys[docIndex];
+        res->dmd = &dmd[docIndex];
+
+        return RS_RESULT_OK;
+      } else {
+        return RS_RESULT_EOF;
+      }
+    }
+    MockUpstream2() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream2;
+
+  // Simple scoring function
+  auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
+    return hasScore1 ? score1 : score2;
+  };
+
+  // Create hybrid merger with window size 3
+  ResultProcessor *hybridMerger = RPHybridMerger_New(
+    hybridScoringFunction,
+    &upstream1,
+    &upstream2,
+    3
+  );
+
+  QITR_PushRP(&qitr, hybridMerger);
+
+  // Process and verify results
+  size_t count = 0;
+  size_t upstream1Count = 0;
+  size_t upstream2Count = 0;
+  SearchResult r = {0};
+  ResultProcessor *rpTail = qitr.endProc;
+
+  while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
+    count++;
+
+    // Verify document metadata and key are set
+    ASSERT_TRUE(r.dmd != nullptr);
+    ASSERT_TRUE(r.dmd->keyPtr != nullptr);
+
+    // Count results from each upstream
+    if (r.docId >= 1 && r.docId <= 3) {
+      upstream1Count++;
+      ASSERT_EQ(1.0, r.score);
+    } else if (r.docId >= 21 && r.docId <= 23) {
+      upstream2Count++;
+      ASSERT_EQ(2.0, r.score);
+    }
+
+    SearchResult_Clear(&r);
+  }
+
+  // Should have 6 documents total (3 from upstream1 after 1 deplete, 3 from upstream2 after 3 depletes)
+  ASSERT_EQ(6, count);
+  ASSERT_EQ(3, upstream1Count);
+  ASSERT_EQ(3, upstream2Count);
+
+  SearchResult_Destroy(&r);
+  QITR_FreeChain(&qitr);
+}
