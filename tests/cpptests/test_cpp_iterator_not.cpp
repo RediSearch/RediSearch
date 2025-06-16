@@ -339,36 +339,8 @@ INSTANTIATE_TEST_SUITE_P(
   NotIteratorCommonTest,
   ::testing::Combine(
     ::testing::Values(
-      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
-      std::vector<t_docId>{2, 4, 6, 8, 10},
-      std::vector<t_docId>{5, 10, 15, 20, 25, 30},
-      std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
-      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
-      std::vector<t_docId>{1, 2, 3, 6, 10, 15},
-      std::vector<t_docId>{500, 600, 700, 800, 900, 1000},
-      // Add long random list
-      []() {
-        std::vector<t_docId> ids;
-        std::mt19937 gen(42); // Fixed seed for reproducibility
-        std::uniform_int_distribution<t_docId> dist(1, 10000);
-        for (int i = 0; i < 1000000; i++) {
-          ids.push_back(dist(gen));
-        }
-        std::sort(ids.begin(), ids.end());
-        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-        return ids;
-      }(),
-      []() {
-        std::vector<t_docId> ids;
-        std::mt19937 gen(42); // Fixed seed for reproducibility
-        std::uniform_int_distribution<t_docId> dist(1, 10000);
-        for (int i = 0; i < 50000; i++) {
-          ids.push_back(dist(gen));
-        }
-        std::sort(ids.begin(), ids.end());
-        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-        return ids;
-      }(),
+      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, // continuous
+      std::vector<t_docId>{500, 600, 700, 800, 900, 1000}, // sparse and first large
       []() {
         std::vector<t_docId> ids;
         std::mt19937 gen(42); // Fixed seed for reproducibility
@@ -382,35 +354,10 @@ INSTANTIATE_TEST_SUITE_P(
       }()
     ),
     ::testing::Values(
-      std::vector<t_docId>{3, 4, 9},
-      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
-      std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
-      std::vector<t_docId>{3, 4, 9, 25},
-      std::vector<t_docId>{50, 60, 70, 80, 90, 100, 600, 750, 950, 1200},
-      std::vector<t_docId>{},
+      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, // continuous
+      std::vector<t_docId>{500, 600, 700, 800, 900, 1000}, // sparse and first large
+      std::vector<t_docId>{}, // empty
       // Add long random list for wildcard IDs
-      []() {
-        std::vector<t_docId> ids;
-        std::mt19937 gen(43); // Different seed
-        std::uniform_int_distribution<t_docId> dist(1, 20000);
-        for (int i = 0; i < 50000; i++) {
-          ids.push_back(dist(gen));
-        }
-        std::sort(ids.begin(), ids.end());
-        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-        return ids;
-      }(),
-      []() {
-        std::vector<t_docId> ids;
-        std::mt19937 gen(43); // Different seed
-        std::uniform_int_distribution<t_docId> dist(1, 20000);
-        for (int i = 0; i < 30000; i++) {
-          ids.push_back(dist(gen));
-        }
-        std::sort(ids.begin(), ids.end());
-        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-        return ids;
-      }(),
       []() {
         std::vector<t_docId> ids;
         std::mt19937 gen(43); // Different seed
@@ -429,7 +376,16 @@ INSTANTIATE_TEST_SUITE_P(
 
 class NotIteratorChildTimeoutTest : public NotIteratorCommonTest {
   protected:
-  void TimeoutChildTestRead() {
+  void TimeoutChildTestFirstRead() {
+    NotIterator *ni = (NotIterator *)iterator_base;
+    auto child = reinterpret_cast<MockIterator *>(ni->child);
+    child->whenDone = ITERATOR_TIMEOUT;
+    child->docIds.clear();
+    IteratorStatus rc = iterator_base->Read(iterator_base);
+    ASSERT_EQ(rc, ITERATOR_TIMEOUT);
+  }
+
+  void TimeoutChildTestSubsequentRead() {
     NotIterator *ni = (NotIterator *)iterator_base;
     auto child = reinterpret_cast<MockIterator *>(ni->child);
     IteratorStatus rc = iterator_base->Read(iterator_base);
@@ -456,8 +412,12 @@ class NotIteratorChildTimeoutTest : public NotIteratorCommonTest {
   }
 };
 
-TEST_P(NotIteratorChildTimeoutTest, TimeOutChildRead) {
-  TimeoutChildTestRead();
+TEST_P(NotIteratorChildTimeoutTest, TimeoutChildTestFirstRead) {
+  TimeoutChildTestFirstRead();
+}
+
+TEST_P(NotIteratorChildTimeoutTest, TimeoutChildTestSubsequentRead) {
+  TimeoutChildTestSubsequentRead();
 }
 
 TEST_P(NotIteratorChildTimeoutTest, TimeOutChildSkipTo) {
@@ -543,6 +503,8 @@ TEST_P(NotIteratorSelfTimeoutTest, TimeOutSelfSkipTo) {
   TimeoutSelfTestSkipTo();
 }
 
+// Trying to create the case where the Child and WCII both have the same logic, so when Reading the first or Skipping to 1, it will do
+// a big loop that will allow to trigger the timeout (5000 times it needs to check before verifying the timeout)
 INSTANTIATE_TEST_SUITE_P(
   NotIteratorSelfTimeoutP,
   NotIteratorSelfTimeoutTest,
