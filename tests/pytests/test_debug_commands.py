@@ -656,7 +656,7 @@ def testPauseOnScannedDocs(env: Env):
 
     # Get indexing info
     idx_info = index_info(env, 'idx2')
-    env.assertEqual(idx_info['indexing'], 1)
+    env.assertEqual(idx_info['indexing'], '1')
     env.assertEqual(idx_info['percent_indexed'], f'{pause_on_scanned/num_docs}')
 
     # Check resume error handling
@@ -700,7 +700,7 @@ def testPauseBeforeScan(env: Env):
     waitForIndexStatus(env, 'NEW', 'idx2')
 
     idx_info = index_info(env, 'idx2')
-    env.assertEqual(idx_info['indexing'], 1)
+    env.assertEqual(idx_info['indexing'], '1')
     # If is indexing, but debug scanner status is NEW, it means that the scanner is paused before scan
 
     # Resume indexing
@@ -807,7 +807,7 @@ def testPauseOnOOM(env: Env):
     # At this point, we are certain an OOM occurred, but the index scanning should be paused
     # We can verify this (without using the scanner status to maintain independency) by checking "indexing" entry in ft.info
     idx_info = index_info(env, 'idx')
-    env.assertEqual(idx_info['indexing'], 1)
+    env.assertEqual(idx_info['indexing'], '1')
     # The percent index should be close to 0.25 as we set the tight memory limit after 25% of the docs were scanned
     env.assertAlmostEqual(float(idx_info['percent_indexed']), 0.25, delta=0.1)
 
@@ -828,7 +828,7 @@ def test_terminate_bg_pool(env):
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'name', 'TEXT').ok()
     env.expect(bgScanCommand(), 'TERMINATE_BG_POOL').ok()
     # Check if the scan is finished
-    env.assertEqual(index_info(env, 'idx')['indexing'], 0)
+    env.assertEqual(index_info(env, 'idx')['indexing'], '0')
 
 @skip(cluster=True)
 def test_pause_before_oom_retry(env):
