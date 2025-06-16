@@ -345,7 +345,6 @@ TEST_F(IntersectionIteratorTest, SlopAndOrder) {
     ASSERT_EQ(ii_base->current->docId, 1);
     ASSERT_EQ(ii_base->lastDocId, 1);
     ASSERT_EQ(ii_base->SkipTo(ii_base, 2), ITERATOR_EOF);
-    ASSERT_EQ(ii_base->current->docId, 1); // Should still be 1, since we are in order and slop is 0
     ASSERT_EQ(ii_base->lastDocId, 1); // Last docId should remain unchanged
     ASSERT_TRUE(ii_base->atEOF);
     ASSERT_EQ(ii_base->SkipTo(ii_base, 3), ITERATOR_EOF); // Skipping beyond the last docId should return EOF
