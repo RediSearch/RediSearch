@@ -154,6 +154,8 @@ typedef enum {
   // Aborted because of error. The QueryState (parent->status) should have
   // more information.
   RS_RESULT_ERROR,
+  // Depleting process has begun.
+  RS_RESULT_DEPLETING,
   // Not a return code per se, but a marker signifying the end of the 'public'
   // return codes. Implementations can use this for extensions.
   RS_RESULT_MAX

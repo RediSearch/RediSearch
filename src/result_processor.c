@@ -1564,22 +1564,27 @@ dictType dictTypeHybridSearchResult = {
  static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
    RPHybridMerger *self = (RPHybridMerger *)rp;
 
-   // Consume from each upstream sequentially
-   for (int upstreamIndex = 0; upstreamIndex < 2; upstreamIndex++) {
-     int rc = ConsumeFromUpstream(self, self->upstreams[upstreamIndex], upstreamIndex);
-
-     // Handle timeout - immediately switch to yield phase
-     if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-       self->timedOut = true;
-       self->iterator = dictGetIterator(self->hybridResults);
-       rp->Next = RPHybridMerger_Yield;
-       return rp->Next(rp, r);
-     } else if (rc != RS_RESULT_OK && rc != RS_RESULT_EOF) {
-       // Other error from upstream (not timeout with return policy) - propagate error
-       return rc;
-     }
-   }
-
+  bool consumedUpstreams[2] = {false, false};
+  while (!consumedUpstreams[0] && !consumedUpstreams[1]){
+    for (int upstreamIndex = 0; upstreamIndex < 2 ; upstreamIndex++) {
+      if (consumedUpstreams[upstreamIndex]) {
+        continue;
+      }
+      int rc = ConsumeFromUpstream(self, self->upstreams[upstreamIndex], upstreamIndex);
+      if (rc == RS_RESULT_DEPLETING){
+        continue;
+      }
+      else if (rc == RS_RESULT_OK || rc == RS_RESULT_EOF) {
+        consumedUpstreams[upstreamIndex] = true;
+        continue;
+      } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+        self->timedOut = true;
+        self->iterator = dictGetIterator(self->hybridResults);
+        rp->Next = RPHybridMerger_Yield;
+        return rp->Next(rp, r);
+      }
+    }
+  }
    // Initialize iterator for yield phase
    self->iterator = dictGetIterator(self->hybridResults);
 
