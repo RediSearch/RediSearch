@@ -199,6 +199,9 @@ TEST_F(ResultProcessorTest, testHybridMerger) {
 
   SearchResult_Destroy(&r);
   numFreed = 0;
+
+  upstream1->Free(upstream1);
+  upstream2->Free(upstream2);
   QITR_FreeChain(&qitr);
   //TODO: how to free two upstreams as part of QITR_FreeChain
   // ASSERT_EQ(3, numFreed); // upstream1 + upstream2 + hybridMerger
@@ -338,6 +341,8 @@ TEST_F(ResultProcessorTest, testHybridMergerDifferentDocuments) {
 
   SearchResult_Destroy(&r);
   numFreed = 0;
+  upstream1->Free(upstream1);
+  upstream2->Free(upstream2);
   QITR_FreeChain(&qitr);
 
   //TODO: how to free two upstreams as part of QITR_FreeChain
@@ -432,6 +437,8 @@ TEST_F(ResultProcessorTest, testHybridMergerEmptyUpstream1) {
 
   SearchResult_Destroy(&r);
   numFreed = 0;
+  upstream1->Free(upstream1);
+  upstream2->Free(upstream2);
   QITR_FreeChain(&qitr);
 
   //TODO: how to free two upstreams as part of QITR_FreeChain
@@ -526,6 +533,8 @@ TEST_F(ResultProcessorTest, testHybridMergerEmptyUpstream2) {
 
   SearchResult_Destroy(&r);
   numFreed = 0;
+  upstream1->Free(upstream1);
+  upstream2->Free(upstream2);
   QITR_FreeChain(&qitr);
 
   //TODO: how to free two upstreams as part of QITR_FreeChain
@@ -590,6 +599,8 @@ TEST_F(ResultProcessorTest, testHybridMergerBothEmpty) {
 
   SearchResult_Destroy(&r);
   numFreed = 0;
+  upstream1->Free(upstream1);
+  upstream2->Free(upstream2);
   QITR_FreeChain(&qitr);
   //TODO: how to free two upstreams as part of QITR_FreeChain
   // ASSERT_EQ(3, numFreed); // upstream1 + upstream2 + hybridMerger

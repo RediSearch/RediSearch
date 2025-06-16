@@ -1521,22 +1521,17 @@ dictType dictTypeSearchResultMapping = {
  static void StoreUpstreamResult(RPHybridMerger *self, int upstreamIndex) {
    const char *keyPtr = self->pooledResult->dmd->keyPtr;
 
-   // Handle SearchResult mapping
-   SearchResult *existingResult = dictFetchValue(self->results, keyPtr);
-   if (!existingResult) {
-     // First time seeing this document - store the SearchResult
-     SearchResult *resultCopy = SearchResult_Copy(self->pooledResult);
-     dictAdd(self->results, keyPtr, resultCopy);
-   }
-
-   // Handle scores mapping
+   // Check if we've seen this document before by looking up scores
    HybridScores *scores = dictFetchValue(self->scores, keyPtr);
-   RS_ASSERT((existingResult == NULL) == (scores == NULL));
 
    if (!scores) {
-     // First time seeing this document - create new scores entry
+     // First time seeing this document - create new scores entry and copy SearchResult
      scores = HybridScores_New();
+     SearchResult *resultCopy = SearchResult_Copy(self->pooledResult);
+     dictAdd(self->results, keyPtr, resultCopy);
+    //  dictAdd(self->scores, keyPtr, scores);
    }
+
    // Update the score for this upstream
    scores->scores[upstreamIndex] = self->pooledResult->score;
    scores->hasScores[upstreamIndex] = true;
