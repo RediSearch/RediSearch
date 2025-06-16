@@ -15,6 +15,7 @@
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
+#include <stdatomic.h>
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -1333,7 +1334,7 @@ void PipelineAddCrash(struct AREQ *r) {
    *
    * The processor works in two phases:
    * 1. Accumulation: Gather all results from upstream and find the max score.
-   * 2. Yield: Normalize each result’s score by division with the max score, then pass
+   * 2. Yield: Normalize each result's score by division with the max score, then pass
    *    it downstream.
   *******************************************************************************************************************/
  typedef struct {
@@ -1424,5 +1425,89 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
   ret->base.Free = RPMaxScoreNormalizer_Free;
   ret->base.type = RP_MAX_SCORE_NORMALIZER;
   ret->scoreKey = rlk;
+  return &ret->base;
+}
+
+/*******************************************************************************************************************
+ *  Depleter Result Processor
+ *
+ *  The RPDepleter result processor offloads the task of consuming all results from its upstream processor
+ *  into a background thread, storing them in an internal array. While the background thread is running,
+ *  calls to Next() return RS_RESULT_DEPLETING. Once depleting is complete, Next() yields results one by one
+ *  from the internal array, and finally returns RS_RESULT_EOF.
+ *
+ *  This processor is useful for scenarios where the entire result set must be materialized before further
+ *  processing, and where background depleting can improve responsiveness or parallelism.
+ *
+ *  Threading: The depleting thread is dispatched via the global depleterPool thread pool. The processor
+ *  ensures thread-safe signaling using atomic variables.
+ *******************************************************************************************************************/
+typedef struct {
+  ResultProcessor base;                /* Base result processor struct */
+  arrayof(SearchResult *) results;     /* Array of pointers to SearchResult, filled by the depleting thread */
+  atomic_int done_depleting;           /* Set to 1 when depleting is finished */
+  uint cur_idx;                        /* Current index for yielding results */
+} RPDepleter;
+
+/**
+ * Frees all resources associated with the RPDepleter, including the results array.
+ */
+static void RPDepleter_Free(ResultProcessor *base) {
+  RPDepleter *self = (RPDepleter *)base;
+  array_free_ex(self->results, srDtor(*(char **)ptr));
+  rm_free(self);
+}
+
+/**
+ * Background thread function: consumes all results from upstream and stores them in the results array.
+ * Signals completion by setting done_depleting to 1.
+ */
+static void RPDepleter_Deplete(void *arg) {
+  RPDepleter *self = (RPDepleter *)arg;
+
+  // Deplete the pipeline into the `self->results` array.
+  SearchResult *r = rm_calloc(1, sizeof(*r));
+  while (self->base.upstream->Next(self->base.upstream, r) == RS_RESULT_OK) {
+    array_append(self->results, r);
+    r = rm_calloc(1, sizeof(*r));
+  }
+  rm_free(r);
+  atomic_store(&self->done_depleting, 1);
+}
+
+/**
+ * Next function for RPDepleter. On the first call, dispatches the depleting thread and returns
+ * RS_RESULT_DEPLETING until the background thread is done. Once depleting is complete, yields results
+ * from the internal array, and finally returns RS_RESULT_EOF.
+ */
+static int RPDepleter_Next(ResultProcessor *base, SearchResult *r) {
+  RPDepleter *self = (RPDepleter *)base;
+  // First call to next will start the depleting thread, and return `RS_RESULT_DEPLETING`.
+  redisearch_thpool_add_work(depleterPool, RPDepleter_Deplete, self, THPOOL_PRIORITY_HIGH);
+
+  // If the depleting thread is done, return the results.
+  if (atomic_load(&self->done_depleting) == 1) {
+    if (self->cur_idx == array_len(self->results)) {
+      // We've reached the end of the array, return EOF.
+      return RS_RESULT_EOF;
+    }
+    // Return the next result in the array.
+    SearchResult *current = self->results[self->cur_idx++];
+    SearchResult_Override(r, current);    // Copy result data to output
+    return RS_RESULT_OK;
+  }
+  return RS_RESULT_DEPLETING;
+}
+
+/**
+ * Constructs a new RPDepleter processor, wrapping the given upstream processor.
+ * The returned processor takes ownership of result depleting and yielding.
+ */
+ResultProcessor *RPDepleter_New() {
+  RPDepleter *ret = rm_calloc(1, sizeof(*ret));
+  ret->results = array_new(SearchResult*, 0);
+  ret->base.Next = RPDepleter_Next;
+  ret->base.Free = RPDepleter_Free;
+  ret->base.type = RP_DEPLETER;
   return &ret->base;
 }

@@ -324,3 +324,60 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
 
   RedisModule_FreeThreadSafeContext(ctx);
 }
+
+extern "C" {
+#include "result_processor.h"
+}
+
+#include <thread>
+#include <chrono>
+
+TEST_F(AggTest, RPDepleter_Basic) {
+  // Mock upstream processor: yields 3 results, then EOF
+  const size_t n_docs = 3;
+  QueryIterator qitr = {0};
+  struct MockUpstream : public ResultProcessor {
+    int count = 0;
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream *self = (MockUpstream *)rp;
+      if (self->count >= n_docs) return RS_RESULT_EOF;
+      res->docId = ++self->count;
+      return RS_RESULT_OK;
+    }
+    MockUpstream() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } mockUpstream;
+
+  // Create the depleter processor
+  ResultProcessor *depleter = RPDepleter_New();
+  QITR_PushRP(&qitr, &mockUpstream);
+  QITR_PushRP(&qitr, depleter);
+
+  SearchResult res = {0};
+  int rc;
+  int depletingCount = 0;
+  // The first call(s) should return RS_RESULT_DEPLETING until the thread is done
+  while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_DEPLETING) {
+    depletingCount++;
+    // Sleep to let the background thread run
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_GT(depletingCount, 0); // Should have at least one depleting state
+
+  // Now, results should be available
+  int resultCount = 0;
+  do {
+    if (rc == RS_RESULT_OK) {
+      ASSERT_EQ(res.docId, ++resultCount);
+      SearchResult_Clear(&res);
+    }
+  } while ((rc = depleter->Next(depleter, &res)) == RS_RESULT_OK);
+
+  ASSERT_EQ(resultCount, n_docs);
+  ASSERT_EQ(rc, RS_RESULT_EOF);
+
+  SearchResult_Destroy(&res);
+  depleter->Free(depleter);
+}

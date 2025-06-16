@@ -60,9 +60,10 @@ typedef enum {
   RP_METRICS,
   RP_KEY_NAME_LOADER,
   RP_MAX_SCORE_NORMALIZER,
-  RP_TIMEOUT, // DEBUG ONLY
-  RP_CRASH, // DEBUG ONLY
-  RP_MAX,
+  RP_TIMEOUT,               // DEBUG ONLY
+  RP_CRASH,                 // DEBUG ONLY
+  RP_DEPLETER,
+  RP_MAX,                   // Always last, marks the end of the enum
 } ResultProcessorType;
 
 struct ResultProcessor;
@@ -153,6 +154,8 @@ typedef enum {
   // Aborted because of error. The QueryState (parent->status) should have
   // more information.
   RS_RESULT_ERROR,
+  // Depleting process has begun.
+  RS_RESULT_DEPLETING,
   // Not a return code per se, but a marker signifying the end of the 'public'
   // return codes. Implementations can use this for extensions.
   RS_RESULT_MAX
@@ -310,6 +313,12 @@ void PipelineAddCrash(struct AREQ *r);
   * First accumulates all results from the upstream, then normalizes and yields them.
   *******************************************************************************************************************/
  ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
+
+/**
+ * Constructs a new RPDepleter processor, wrapping the given upstream processor.
+ * The returned processor takes ownership of result depleting and yielding.
+ */
+ResultProcessor *RPDepleter_New();
 
 #ifdef __cplusplus
 }
