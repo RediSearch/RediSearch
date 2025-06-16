@@ -1500,6 +1500,9 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
   // The first call to next will start the depleting thread, and return `RS_RESULT_DEPLETING`.
   if (self->first_call) {
     self->first_call = false;
+    // TODO: We may want this to be added to the `workers` thread pool instead
+    // of a new one. In case there are no workers, we do the depleting in the
+    // current thread.
     redisearch_thpool_add_work(depleterPool, RPDepleter_Deplete, self, THPOOL_PRIORITY_HIGH);
     return RS_RESULT_DEPLETING;
   }
