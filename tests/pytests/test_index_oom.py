@@ -21,7 +21,7 @@ def get_index_errors_dict(env, idx = 'idx'):
 def get_index_num_docs(env, idx = 'idx'):
   info = index_info(env, idx)
   num_docs = info['num_docs']
-  return num_docs
+  return int(num_docs)
 
 def oom_test_config(env):
   # Set the memory limit to 80% so it can be tested without colliding with redis memory limit

@@ -1236,11 +1236,11 @@ DEBUG_COMMAND(YieldCounter) {
  * FT.DEBUG BG_SCAN_CONTROLLER SET_MAX_SCANNED_DOCS <max_scanned_docs>
  */
 DEBUG_COMMAND(setMaxScannedDocs) {
-  if (argc != 3) {
+  if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
   long long max_scanned_docs;
-  if (RedisModule_StringToLongLong(argv[2], &max_scanned_docs) != REDISMODULE_OK) {
+  if (RedisModule_StringToLongLong(argv[0], &max_scanned_docs) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_MAX_SCANNED_DOCS'");
   }
 
@@ -1258,11 +1258,11 @@ DEBUG_COMMAND(setMaxScannedDocs) {
  * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_ON_SCANNED_DOCS <pause_scanned_docs>
  */
 DEBUG_COMMAND(setPauseOnScannedDocs) {
-  if (argc != 3) {
+  if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
   long long pause_scanned_docs;
-  if (RedisModule_StringToLongLong(argv[2], &pause_scanned_docs) != REDISMODULE_OK) {
+  if (RedisModule_StringToLongLong(argv[0], &pause_scanned_docs) != REDISMODULE_OK) {
     return RedisModule_ReplyWithError(ctx, "Invalid argument for 'SET_PAUSE_ON_SCANNED_DOCS'");
   }
 
@@ -1278,7 +1278,7 @@ DEBUG_COMMAND(setPauseOnScannedDocs) {
  * FT.DEBUG BG_SCAN_CONTROLLER SET_BG_INDEX_RESUME
  */
 DEBUG_COMMAND(setBgIndexResume) {
-  if (argc != 2) {
+  if (argc != 0) {
     return RedisModule_WrongArity(ctx);
   }
 
@@ -1291,11 +1291,11 @@ DEBUG_COMMAND(setBgIndexResume) {
  * FT.DEBUG BG_SCAN_CONTROLLER GET_DEBUG_SCANNER_STATUS <index_name>
  */
 DEBUG_COMMAND(getDebugScannerStatus) {
-  if (argc != 3) {
+  if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
 
-  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[0], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
@@ -1324,10 +1324,10 @@ DEBUG_COMMAND(getDebugScannerStatus) {
  * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_BEFORE_SCAN <true/false>
  */
 DEBUG_COMMAND(setPauseBeforeScan) {
-  if (argc != 3) {
+  if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
-  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+  const char* op = RedisModule_StringPtrLen(argv[0], NULL);
 
   if (!strcasecmp(op, "true")) {
     globalDebugCtx.bgIndexing.pauseBeforeScan = true;
@@ -1346,10 +1346,10 @@ DEBUG_COMMAND(setPauseBeforeScan) {
  * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_ON_OOM <true/false>
  */
 DEBUG_COMMAND(setPauseOnOOM) {
-  if (argc != 3) {
+  if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
-  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+  const char* op = RedisModule_StringPtrLen(argv[0], NULL);
 
   if (!strcasecmp(op, "true")) {
     globalDebugCtx.bgIndexing.pauseOnOOM = true;
@@ -1368,7 +1368,7 @@ DEBUG_COMMAND(setPauseOnOOM) {
  * FT.DEBUG BG_SCAN_CONTROLLER TERMINATE_BG_POOL
  */
 DEBUG_COMMAND(terminateBgPool) {
-  if (argc != 2) {
+  if (argc != 0) {
     return RedisModule_WrongArity(ctx);
   }
 
@@ -1382,10 +1382,10 @@ DEBUG_COMMAND(terminateBgPool) {
  * FT.DEBUG BG_SCAN_CONTROLLER SET_PAUSE_BEFORE_OOM_RETRY <true/false>
  */
 DEBUG_COMMAND(setPauseBeforeOOMretry) {
-  if (argc != 3) {
+  if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
-  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+  const char* op = RedisModule_StringPtrLen(argv[0], NULL);
 
   if (!strcasecmp(op, "true")) {
     globalDebugCtx.bgIndexing.pauseBeforeOOMretry = true;
@@ -1404,11 +1404,11 @@ DEBUG_COMMAND(setPauseBeforeOOMretry) {
  * FT.DEBUG BG_SCAN_CONTROLLER DEBUG_SCANNER_UPDATE_CONFIG <index_name>
  */
 DEBUG_COMMAND(debugScannerUpdateConfig) {
-  if (argc != 3) {
+  if (argc != 1) {
     return RedisModule_WrongArity(ctx);
   }
 
-  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[2], NULL),
+  IndexLoadOptions lopts = {.nameC = RedisModule_StringPtrLen(argv[0], NULL),
                             .flags = INDEXSPEC_LOAD_NOTIMERUPDATE};
 
   StrongRef ref = IndexSpec_LoadUnsafeEx(ctx, &lopts);
@@ -1442,10 +1442,10 @@ DEBUG_COMMAND(debugScannerUpdateConfig) {
  * FT.DEBUG BG_SCAN_CONTROLLER <command> [options]
  */
 DEBUG_COMMAND(bgScanController) {
-  if (argc < 3) {
+  if (argc < 1) {
     return RedisModule_WrongArity(ctx);
   }
-  const char* op = RedisModule_StringPtrLen(argv[2], NULL);
+  const char* op = RedisModule_StringPtrLen(argv[0], NULL);
 
   // Check here all background indexing possible commands
   if (!strcmp("SET_MAX_SCANNED_DOCS", op)) {
