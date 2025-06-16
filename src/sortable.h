@@ -53,7 +53,11 @@ static inline RSValue *RSSortingVector_Get(const RSSortingVector *v, size_t inde
 }
 
 static inline size_t RSSortingVector_Length(const RSSortingVector* vec) {
-  return vec->len;
+  if (vec) {
+    return vec->len;
+  } else {
+    return 0;
+  }
 }
 
 size_t RSSortingVector_GetMemorySize(RSSortingVector *v);
