@@ -31,7 +31,7 @@
     void BenchmarkCase(::benchmark::State&) BENCHMARK_OVERRIDE;           \
   };
 
-  #define BENCHMARK_TEMPLATE3_DEFINE_F(BaseClass, Method, a, b, c)    \
+#define BENCHMARK_TEMPLATE3_DEFINE_F(BaseClass, Method, a, b, c)      \
   BENCHMARK_TEMPLATE3_PRIVATE_DECLARE_F(BaseClass, Method, a, b, c)   \
   void BENCHMARK_PRIVATE_CONCAT_NAME(BaseClass, Method)::BenchmarkCase
 
