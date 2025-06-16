@@ -499,6 +499,10 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
       uint32_t newTokPos;
       while (0 != (newTokPos = aCtx->tokenizer->Next(aCtx->tokenizer, &tok))) {
         forwardIndexTokenFunc(&tokCtx, &tok);
+        if (tok.allocatedTok) {
+          rm_free(tok.allocatedTok);
+          tok.allocatedTok = NULL;
+        }
       }
       uint32_t lastTokPos = aCtx->tokenizer->ctx.lastOffset;
 

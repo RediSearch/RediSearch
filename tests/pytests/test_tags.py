@@ -35,11 +35,11 @@ def testTagIndex(env):
             env.assertEqual(1, res[0])
             env.assertEqual('doc%d' % n, res[1])
             res = env.cmd(
-                'ft.search', 'idx', '@tags:{tag\\ %d}' % n, 'nocontent')
+                'ft.search', 'idx', r'@tags:{tag\ %d}' % n, 'nocontent')
             env.assertEqual(1, res[0])
 
             res = env.cmd(
-                'ft.search', 'idx', 'hello world @tags:{tag\\ %d|tag %d}' % (n, n + 1), 'nocontent')
+                'ft.search', 'idx', r'hello world @tags:{tag\ %d|tag %d}' % (n, n + 1), 'nocontent')
             env.assertEqual(2, res[0])
             res = py2sorted(res[1:])
             env.assertEqual('doc%d' % n, res[0])
@@ -239,39 +239,39 @@ def testTagCaseSensitive(env):
         env.expect('FT.DEBUG', 'dump_tagidx', 'idx5', 't').equal([['F O', [5]], ['f o', [6]], ['f o,F O', [4]]])
 
     # not casesensitive
-    env.expect('FT.SEARCH', 'idx1', '@t:{F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx1', r'@t:{F\ O}')         \
         .equal([3, 'doc1', ['t', 'f o,F O'], 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
-    env.expect('FT.SEARCH', 'idx1', '@t:{f\\ o}')         \
+    env.expect('FT.SEARCH', 'idx1', r'@t:{f\ o}')         \
         .equal([3, 'doc1', ['t', 'f o,F O'], 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
 
     # casesensitive
-    env.expect('FT.SEARCH', 'idx2', '@t:{F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx2', r'@t:{F\ O}')         \
         .equal([2, 'doc1', ['t', 'f o,F O'], 'doc2', ['t', 'F O']])
-    env.expect('FT.SEARCH', 'idx2', '@t:{f\\ o}')         \
+    env.expect('FT.SEARCH', 'idx2', r'@t:{f\ o}')         \
         .equal([2, 'doc1', ['t', 'f o,F O'], 'doc3', ['t', 'f o']])
 
     # not casesensitive
-    env.expect('FT.SEARCH', 'idx3', '@t:{f\\ o\\,f\\ o}')         \
+    env.expect('FT.SEARCH', 'idx3', r'@t:{f\ o\,f\ o}')         \
         .equal([1, 'doc1', ['t', 'f o,F O']])
-    env.expect('FT.SEARCH', 'idx3', '@t:{f\\ o\\,F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx3', r'@t:{f\ o\,F\ O}')         \
         .equal([1, 'doc1', ['t', 'f o,F O']])
-    env.expect('FT.SEARCH', 'idx3', '@t:{F\\ O\\,F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx3', r'@t:{F\ O\,F\ O}')         \
         .equal([1, 'doc1', ['t', 'f o,F O']])
-    env.expect('FT.SEARCH', 'idx3', '@t:{F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx3', r'@t:{F\ O}')         \
         .equal([2, 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
-    env.expect('FT.SEARCH', 'idx3', '@t:{f\\ o}')         \
+    env.expect('FT.SEARCH', 'idx3', r'@t:{f\ o}')         \
         .equal([2, 'doc2', ['t', 'F O'], 'doc3', ['t', 'f o']])
 
     # casesensitive
-    env.expect('FT.SEARCH', 'idx4', '@t:{f\\ o\\,f\\ o}')         \
+    env.expect('FT.SEARCH', 'idx4', r'@t:{f\ o\,f\ o}')         \
         .equal([0])
-    env.expect('FT.SEARCH', 'idx4', '@t:{f\\ o\\,F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx4', r'@t:{f\ o\,F\ O}')         \
         .equal([1, 'doc1', ['t', 'f o,F O']])
-    env.expect('FT.SEARCH', 'idx4', '@t:{F\\ O\\,F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx4', r'@t:{F\ O\,F\ O}')         \
         .equal([0])
-    env.expect('FT.SEARCH', 'idx4', '@t:{F\\ O}')         \
+    env.expect('FT.SEARCH', 'idx4', r'@t:{F\ O}')         \
         .equal([1, 'doc2', ['t', 'F O']])
-    env.expect('FT.SEARCH', 'idx4', '@t:{f\\ o}')         \
+    env.expect('FT.SEARCH', 'idx4', r'@t:{f\ o}')         \
         .equal([1, 'doc3', ['t', 'f o']])
 
 @skip(cluster=True)
