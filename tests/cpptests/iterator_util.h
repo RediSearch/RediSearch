@@ -18,6 +18,21 @@
 #include <thread>
 #include <optional>
 
+#define BENCHMARK_TEMPLATE3_PRIVATE_DECLARE_F(BaseClass, Method, a, b, c) \
+  class BaseClass##_##Method##_Benchmark : public BaseClass<a, b, c> {    \
+   public:                                                                \
+    BaseClass##_##Method##_Benchmark() {                                  \
+      this->SetName(#BaseClass "<" #a "," #b ", " #c ">/" #Method);       \
+    }                                                                     \
+                                                                          \
+   protected:                                                             \
+    void BenchmarkCase(::benchmark::State&) BENCHMARK_OVERRIDE;           \
+  };
+
+#define BENCHMARK_TEMPLATE3_DEFINE_F(BaseClass, Method, a, b, c)      \
+  BENCHMARK_TEMPLATE3_PRIVATE_DECLARE_F(BaseClass, Method, a, b, c)   \
+  void BENCHMARK_PRIVATE_CONCAT_NAME(BaseClass, Method)::BenchmarkCase
+
 extern "C" {
     IteratorStatus MockIterator_Read(QueryIterator *base);
     IteratorStatus MockIterator_SkipTo(QueryIterator *base, t_docId docId);
@@ -116,7 +131,7 @@ public:
 
     template<typename... Args>
     MockIterator(IteratorStatus st, std::optional<std::chrono::milliseconds> sleep, Args&&... ids_args)
-      : docIds({ids_args...}), whenDone(st), nextIndex(0), readCount(0), sleepTime(sleep) {
+      : docIds({std::forward<Args>(ids_args)...}), whenDone(st), nextIndex(0), readCount(0), sleepTime(sleep) {
       Init();
     }
 };

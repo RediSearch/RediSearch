@@ -36,7 +36,7 @@ protected:
     // Consider wcDocIds only if optimized is true
 
     // Find the maximum document ID
-    maxDocId = *std::ranges::max_element(childDocIds);
+    maxDocId = *std::max_element(childDocIds.begin(), childDocIds.end());
     if (optimized) {
       for (auto id : wcDocIds) {
         maxDocId = std::max(maxDocId, id);
