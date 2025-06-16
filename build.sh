@@ -140,7 +140,7 @@ setup_build_environment() {
   # If unset, determine the Rust build profile
   if [[ "$RUST_PROFILE" == "" ]]; then
     if [[ "$BUILD_TESTS" == "1" ]]; then
-      if [[ "$DEBUG" == "1" ]]; then
+      if [[ "$DEBUG" == "1" || "$COV" == "1" ]]; then
         RUST_PROFILE="dev"
       else
         RUST_PROFILE="optimised_test"
@@ -512,7 +512,8 @@ run_rust_tests() {
       --codecov
       --workspace
       --exclude=trie_bencher
-      --ignore-filename-regex=trie_bencher/*
+      --exclude=varint_bencher
+      --ignore-filename-regex="varint_bencher/*,trie_bencher/*"
       --output-path=$BINROOT/rust_cov.info
     "
   elif [[ -n "$SAN" ]]; then # using `elif` as we shouldn't run with both

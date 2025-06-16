@@ -11,8 +11,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Always attempt to link static libraries if they exist, independent of bindgen
-    try_link_static_libraries();
+    link_static_libraries();
 
     // Generate C bindings - fail build if this doesn't work
     generate_c_bindings()?;
@@ -20,31 +19,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn try_link_static_libraries() {
-    let Ok(root) = git_root() else {
-        println!("cargo:warning=Could not find git root for static library linking");
-        return;
-    };
-
+fn link_static_libraries() {
+    let root = git_root().expect("Could not find git root for static library linking");
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "linux".to_string());
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "x86_64".to_string());
-
-    let target_arch = match target_arch.as_str() {
-        "x86_64" => "x64",
-        _ => &target_arch,
+    let target_arch = match env::var("CARGO_CFG_TARGET_ARCH").ok().as_deref() {
+        Some("x86_64") | None => "x64".to_owned(),
+        Some(a) => a.to_owned(),
     };
 
     let bin_root = root.join(format!(
         "bin/{target_os}-{target_arch}-release/search-community/"
     ));
 
-    // Try to link static libraries, but don't fail build if they don't exist
-    if let Err(e) = link_static_lib(&bin_root, ".", "varint") {
-        println!("cargo:warning=Could not link varint static library: {}", e);
-    }
-    if let Err(e) = link_static_lib(&bin_root, "src/util/arr", "arr") {
-        println!("cargo:warning=Could not link arr static library: {}", e);
-    }
+    link_static_lib(&bin_root, ".", "varint").unwrap();
+    link_static_lib(&bin_root, "src/util/arr", "arr").unwrap();
 }
 
 fn generate_c_bindings() -> Result<(), Box<dyn std::error::Error>> {
