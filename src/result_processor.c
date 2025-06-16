@@ -1565,7 +1565,7 @@ dictType dictTypeHybridSearchResult = {
    RPHybridMerger *self = (RPHybridMerger *)rp;
 
   bool consumedUpstreams[2] = {false, false};
-  while (!consumedUpstreams[0] && !consumedUpstreams[1]){
+  while (!consumedUpstreams[0] || !consumedUpstreams[1]) {
     for (int upstreamIndex = 0; upstreamIndex < 2 ; upstreamIndex++) {
       if (consumedUpstreams[upstreamIndex]) {
         continue;
