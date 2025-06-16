@@ -734,11 +734,12 @@ def testDebugScannerStatus(env: Env):
     # Test error handling
     # Giving non existing index name
     checkDebugScannerStatusError(env, 'non_existing', 'Unknown index name')
-
-    # Test error handling
     # Giving invalid argument to debug scanner control command
     env.expect(bgScanCommand(), 'NOT_A_COMMAND', 'notTrue').error()\
     .contains("Invalid command for 'BG_SCAN_CONTROLLER'")
+    # Giving wrong arity
+    env.expect(bgScanCommand(), 'GET_DEBUG_SCANNER_STATUS').error()\
+    .contains('wrong number of arguments')
 
     # Test OOM pause
     # Insert more docs to ensure un-flakey test
@@ -813,6 +814,9 @@ def testPauseOnOOM(env: Env):
 
     # Resume indexing for the sake of completeness
     env.expect(bgScanCommand(), 'SET_BG_INDEX_RESUME').ok()
+
+    # Test giving false to pause on OOM for coverage
+    env.expect(bgScanCommand(), 'SET_PAUSE_ON_OOM', 'false').ok()
 
 @skip(cluster=True)
 def test_terminate_bg_pool(env):
