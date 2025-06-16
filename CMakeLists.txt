@@ -235,6 +235,7 @@ add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
 add_subdirectory(src/module-init)
 add_subdirectory(src/wildcard)
+add_subdirectory(src/value)
 add_subdirectory(src/util/arr)
 add_subdirectory(src/util/hash)
 add_subdirectory(src/util/mempool)
@@ -282,6 +283,7 @@ set(FINAL_OBJECTS
     $<TARGET_OBJECTS:arr>
     $<TARGET_OBJECTS:mempool>
     $<TARGET_OBJECTS:module_init>
+    $<TARGET_OBJECTS:value>
     $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
@@ -314,6 +316,7 @@ target_link_libraries(redisearch
         arr
         mempool
         module_init
+        value
         wildcard
         uv_a
         ${BINDIR}/redisearch_rs/libredisearch_rs.a
