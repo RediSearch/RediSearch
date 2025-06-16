@@ -76,6 +76,8 @@ def test_sanity_cosine():
     score_field_syntaxs = ['AS dist]', ']=>{$yield_distance_as:dist}']
     for index_type in VECSIM_ALGOS:
         for data_type in VECSIM_DATA_TYPES:
+            if index_type == "SVS" and data_type not in ("FLOAT16", "FLOAT32"):
+                continue
             for i, score_field_syntax in enumerate(score_field_syntaxs):
                 env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
                            'DIM', '2', 'DISTANCE_METRIC', 'COSINE').ok()
@@ -143,6 +145,8 @@ def test_sanity_l2():
 
     for index_type in VECSIM_ALGOS:
         for data_type in VECSIM_DATA_TYPES:
+            if index_type == "SVS" and data_type not in ("FLOAT16", "FLOAT32"):
+                continue
             env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
                        'DIM', '2', 'DISTANCE_METRIC', 'L2').ok()
             conn.execute_command('HSET', 'a', 'v', create_np_array_typed([0.1, 0.1], data_type).tobytes())
@@ -209,6 +213,8 @@ def test_sanity_zero_results():
 
     for index_type in VECSIM_ALGOS:
         for data_type in VECSIM_DATA_TYPES:
+            if index_type == "SVS" and data_type not in ("FLOAT16", "FLOAT32"):
+                continue
             env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index_type, '6', 'TYPE', data_type,
                        'DIM', dim, 'DISTANCE_METRIC', 'L2', 'n', 'NUMERIC').ok()
             conn.execute_command('HSET', 'a', 'n', 0xa, 'v', create_np_array_typed(np.random.rand(dim), data_type).tobytes())
@@ -1739,7 +1745,7 @@ class TestTimeoutReached(object):
                     'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
         waitForIndex(self.env, 'idx')
 
-        self.run_long_queries(n_vec, query_vec)
+        self.run_long_queriesrun_long_queries(n_vec, query_vec)
 
     def test_hnsw(self):
         # Create index and load vectors.
@@ -1747,6 +1753,16 @@ class TestTimeoutReached(object):
         query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, self.type)
         self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'HNSW', '8', 'TYPE', self.type,
                         'DIM', self.dim, 'DISTANCE_METRIC', 'L2', 'INITIAL_CAP', n_vec).ok()
+        waitForIndex(self.env, 'idx')
+
+        self.run_long_queries(n_vec, query_vec)
+
+    def test_svs(self):
+        # Create index and load vectors.
+        n_vec = self.index_sizes['SVS']
+        query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, self.type)
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'SVS', '8', 'TYPE', self.type,
+                        'DIM', self.dim, 'DISTANCE_METRIC', 'L2', none, n_vec).ok()
         waitForIndex(self.env, 'idx')
 
         self.run_long_queries(n_vec, query_vec)
@@ -1908,6 +1924,8 @@ def test_range_query_basic():
 
     for data_type in VECSIM_DATA_TYPES:
         for index in VECSIM_ALGOS:
+            if index == "SVS" and data_type not in ("FLOAT16", "FLOAT32"):
+                continue
             msg = f'{data_type}, {index}'
             env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', index, '6', 'TYPE', data_type, 'DIM',
                        dim, 'DISTANCE_METRIC', 'L2', 't', 'TEXT').ok()
