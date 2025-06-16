@@ -43,7 +43,7 @@ static int fvAdd_noSort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
   RSValue *val = RLookup_GetItem(fvx->retprop, srcrow);
   if (!val) val = RS_NullVal();
-  fvx->value = RSValue_IncrRef_inl(val);
+  fvx->value = RSValue_IncrRef(val);
   return 1;
 }
 
@@ -57,8 +57,8 @@ static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 
   if (!fvx->sortval) {
     // This is the first value we see
-    fvx->value = RSValue_IncrRef_inl(val);
-    fvx->sortval = RSValue_IncrRef_inl(curSortval);
+    fvx->value = RSValue_IncrRef(val);
+    fvx->sortval = RSValue_IncrRef(curSortval);
   } else if (RSValue_IsNull(curSortval)) {
     // If the current value is null, we don't need to do anything
   } else if (RSValue_IsNull(fvx->sortval)) {
@@ -80,7 +80,7 @@ static int fvAdd_sort(Reducer *r, void *ctx, const RLookupRow *srcrow) {
 static RSValue *fvFinalize(Reducer *parent, void *ctx) {
   fvCtx *fvx = ctx;
   if (fvx->value) {
-    return RSValue_IncrRef_inl(fvx->value);
+    return RSValue_IncrRef(fvx->value);
   } else {
     return RS_NullVal();
   }

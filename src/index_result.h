@@ -42,12 +42,12 @@ static inline void ResultMetrics_Add(RSIndexResult *r, RLookupKey *key, RSValue 
 }
 
 static inline void ResultMetrics_Reset(RSIndexResult *r) {
-  array_foreach(r->metrics, adtnl, RSValue_DecrRef_inl(adtnl.value));
+  array_foreach(r->metrics, adtnl, RSValue_DecrRef(adtnl.value));
   array_clear(r->metrics);
 }
 
 static inline void ResultMetrics_Free(RSIndexResult *r) {
-  array_free_ex(r->metrics, RSValue_DecrRef_inl(((RSYieldableMetric *)ptr)->value));
+  array_free_ex(r->metrics, RSValue_DecrRef(((RSYieldableMetric *)ptr)->value));
   r->metrics = NULL;
 }
 

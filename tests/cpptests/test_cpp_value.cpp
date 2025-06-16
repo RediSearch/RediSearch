@@ -18,25 +18,25 @@ TEST_F(ValueTest, testBasic) {
   ASSERT_EQ(3, v->numval);
   ASSERT_EQ(RSValue_Number, v->t);
   ASSERT_EQ(1, v->refcount);
-  RSValue_DecrRef_inl(v);
+  RSValue_DecrRef(v);
 
   v = RS_NullVal();
   ASSERT_EQ(RSValue_Null, v->t);
   RSValue *v2 = RS_NullVal();
   ASSERT_EQ(v, v2);  // Pointer is always the same
-  RSValue_DecrRef_inl(v2);
+  RSValue_DecrRef(v2);
 
   const char *str = "hello world";
   v = RS_StringValC(strdup(str));
   ASSERT_EQ(RSValue_String, v->t);
   ASSERT_EQ(strlen(str), v->strval.len);
   ASSERT_EQ(0, strcmp(str, v->strval.str));
-  RSValue_DecrRef_inl(v);
+  RSValue_DecrRef(v);
 
   // cannot use redis strings in tests...
   v = RS_RedisStringVal(NULL);
   ASSERT_EQ(RSValue_RedisString, v->t);
-  RSValue_DecrRef_inl(v);
+  RSValue_DecrRef(v);
 }
 
 TEST_F(ValueTest, testArray) {
@@ -50,7 +50,7 @@ TEST_F(ValueTest, testArray) {
 
   ASSERT_EQ(RSValue_String, RSValue_ArrayItem(arr, 2)->t);
   ASSERT_STREQ("baz", RSValue_ArrayItem(arr, 2)->strval.str);
-  RSValue_DecrRef_inl(arr);
+  RSValue_DecrRef(arr);
 
   char *strs[] = {strdup("foo"), strdup("bar"), strdup("baz")};
   arr = RS_StringArray(strs, 3);
@@ -64,7 +64,7 @@ TEST_F(ValueTest, testArray) {
   ASSERT_EQ(RSValue_String, RSValue_ArrayItem(arr, 2)->t);
   ASSERT_STREQ("baz", RSValue_ArrayItem(arr, 2)->strval.str);
 
-  RSValue_DecrRef_inl(arr);
+  RSValue_DecrRef(arr);
 }
 
 static std::string toString(RSValue *v) {
@@ -73,7 +73,7 @@ static std::string toString(RSValue *v) {
   size_t n = 0;
   const char *s = RSValue_StringPtrLen(tmp, &n);
   std::string ret(s, n);
-  RSValue_DecrRef_inl(tmp);
+  RSValue_DecrRef(tmp);
   return ret;
 }
 
@@ -95,5 +95,5 @@ TEST_F(ValueTest, testNumericFormat) {
 
   RSValue_SetNumber(v, 1581011976800);
   ASSERT_STREQ("1581011976800", toString(v).c_str());
-  RSValue_DecrRef_inl(v);
+  RSValue_DecrRef(v);
 }

@@ -12,13 +12,13 @@ static uint64_t hashFunction_RSValue(const void *key) {
   return RSValue_Hash(key, 0);
 }
 static void *dup_RSValue(void *p, const void *key) {
-  return RSValue_IncrRef_inl((RSValue *)key);
+  return RSValue_IncrRef((RSValue *)key);
 }
 static int compare_RSValue(void *privdata, const void *key1, const void *key2) {
   return RSValue_Equal(key1, key2, NULL);
 }
 static void destructor_RSValue(void *privdata, void *key) {
-  RSValue_DecrRef_inl((RSValue *)key);
+  RSValue_DecrRef((RSValue *)key);
 }
 
 static dictType RSValueSet = {
@@ -61,7 +61,7 @@ static RSValue *tolistFinalize(Reducer *rbase, void *ctx) {
   RSValue **arr = RSValue_AllocateArray(len);
   for (size_t i = 0; i < len; i++) {
     dictEntry *de = dictNext(it);
-    arr[i] = RSValue_IncrRef_inl(dictGetKey(de));
+    arr[i] = RSValue_IncrRef(dictGetKey(de));
   }
   dictReleaseIterator(it);
   RSValue *ret = RSValue_NewArray(arr, len);

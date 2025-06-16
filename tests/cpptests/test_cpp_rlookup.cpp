@@ -66,8 +66,8 @@ TEST_F(RLookupTest, testRow) {
   vtmp = RLookup_GetItem(fook, &rr);
   ASSERT_TRUE(NULL == RLookup_GetItem(fook, &rr));
 
-  RSValue_DecrRef_inl(vfoo);
-  RSValue_DecrRef_inl(vbar);
+  RSValue_DecrRef(vfoo);
+  RSValue_DecrRef(vbar);
   RLookupRow_Cleanup(&rr);
   RLookup_Cleanup(&lk);
 }

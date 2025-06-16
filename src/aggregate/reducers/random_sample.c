@@ -36,7 +36,7 @@ static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
   }
 
   if (sc->seen < r->len) {
-    RSVALUE_ARRELEM(sc->samplesArray, sc->seen) = RSValue_IncrRef_inl(v);
+    RSVALUE_ARRELEM(sc->samplesArray, sc->seen) = RSValue_IncrRef(v);
     RSVALUE_ARRLEN(sc->samplesArray)++;
     RS_ASSERT(RSVALUE_ARRLEN(sc->samplesArray) <= r->len);
   } else {
@@ -51,12 +51,12 @@ static int sampleAdd(Reducer *rbase, void *ctx, const RLookupRow *srcrow) {
 
 static RSValue *sampleFinalize(Reducer *rbase, void *ctx) {
   rsmplCtx *sc = ctx;
-  return RSValue_IncrRef_inl(sc->samplesArray); // return a reference to the array
+  return RSValue_IncrRef(sc->samplesArray); // return a reference to the array
 }
 
 static void sampleFreeInstance(Reducer *rbase, void *p) {
   rsmplCtx *sc = p;
-  RSValue_DecrRef_inl(sc->samplesArray); // release own reference to the array
+  RSValue_DecrRef(sc->samplesArray); // release own reference to the array
 }
 
 Reducer *RDCRRandomSample_New(const ReducerOptions *options) {
