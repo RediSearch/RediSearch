@@ -104,7 +104,7 @@ static int __attribute__((warn_unused_result)) FGC_recvFixed(ForkGC *fgc, void *
       RedisModule_Log(fgc->ctx, "warning", "ForkGC - got error while reading from pipe (%s)", strerror(errno));
       return REDISMODULE_ERR;
     }
-    if (len <= 0) {
+    if (len == 0) {
       return REDISMODULE_OK;
     }
   }
