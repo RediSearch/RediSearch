@@ -335,6 +335,48 @@ void MR_UpdateConnPerShard(size_t connPerShard) {
   }
 }
 
+// If we need to return all the Connection States from all the IO Runtimes properly
+/*typedef struct GetConnectionPoolStateCtx {
+  RedisModuleBlockedClient *bc;
+  IORuntimeCtx *ioRuntime;
+  int *numPending;
+} GetConnectionPoolStateCtx;
+
+static void uvGetConnectionPoolState(void *p) {
+  GetConnectionPoolStateCtx *getConnPoolStateCtx = p;
+  RedisModuleBlockedClient *bc = getConnPoolStateCtx->bc;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+  MRConnManager_ReplyState(getConnPoolStateCtx->ioRuntime->conn_mgr, ctx);
+  RedisModule_FreeThreadSafeContext(ctx);
+  int remaining = __atomic_sub_fetch(getConnPoolStateCtx->numPending, 1, __ATOMIC_RELEASE);
+  if (remaining == 0) {
+    // here some atomic counter should be decremented and returned if 0
+    RedisModule_BlockedClientMeasureTimeEnd(bc);
+    RedisModule_UnblockClient(bc, NULL);
+    rm_free(getConnPoolStateCtx->numPending);
+  }
+  rm_free(getConnPoolStateCtx);
+}
+
+void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
+  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  RedisModule_BlockedClientMeasureTimeStart(bc);
+  int* numPending = rm_malloc(sizeof(int));
+  *numPending = cluster_g->num_io_threads;
+  GetConnectionPoolStateCtx* ContorlPlaneGetConnPoolStateCtx = rm_malloc(sizeof(GetConnectionPoolStateCtx));
+  ContorlPlaneGetConnPoolStateCtx->bc = bc;
+  ContorlPlaneGetConnPoolStateCtx->numPending = numPending;
+  ContorlPlaneGetConnPoolStateCtx->ioRuntime = cluster_g->control_plane_io_runtime;
+  IORuntimeCtx_Schedule(cluster_g->control_plane_io_runtime, uvGetConnectionPoolState, ContorlPlaneGetConnPoolStateCtx);
+  for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
+    GetConnectionPoolStateCtx* getConnPoolStateCtx = rm_malloc(sizeof(GetConnectionPoolStateCtx));
+    getConnPoolStateCtx->bc = bc;
+    getConnPoolStateCtx->numPending = numPending;
+    getConnPoolStateCtx->ioRuntime = cluster_g->control_plane_io_runtime;
+    IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvGetConnectionPoolState, getConnPoolStateCtx);
+  }
+}*/
+
 static void uvGetConnectionPoolState(void *p) {
   RedisModuleBlockedClient *bc = p;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
