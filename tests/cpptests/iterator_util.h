@@ -48,7 +48,7 @@ public:
     size_t nextIndex;
     IteratorStatus whenDone;
     size_t readCount;
-    std::optional<std::chrono::milliseconds> sleepTime; // Sleep for this duration before returning from Read/SkipTo
+    std::optional<std::chrono::nanoseconds> sleepTime; // Sleep for this duration before returning from Read/SkipTo
 private:
     void Init() {
       base.type = READ_ITERATOR;
@@ -124,13 +124,13 @@ public:
     }
 
     template<typename... Args>
-    MockIterator(std::chrono::milliseconds sleep, Args&&... args)
+    MockIterator(std::chrono::nanoseconds sleep, Args&&... args)
       : docIds({std::forward<Args>(args)...}), whenDone(ITERATOR_EOF), nextIndex(0), readCount(0), sleepTime(sleep) {
       Init();
     }
 
     template<typename... Args>
-    MockIterator(IteratorStatus st, std::optional<std::chrono::milliseconds> sleep, Args&&... ids_args)
+    MockIterator(IteratorStatus st, std::optional<std::chrono::nanoseconds> sleep, Args&&... ids_args)
       : docIds({std::forward<Args>(ids_args)...}), whenDone(st), nextIndex(0), readCount(0), sleepTime(sleep) {
       Init();
     }
