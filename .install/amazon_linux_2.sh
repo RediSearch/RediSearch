@@ -25,28 +25,7 @@ then
 
     cp /opt/rh/devtoolset-11/enable /etc/profile.d/scl-devtoolset-11.sh
 else
-    # Install the RPM package that provides the Software Collections (SCL) required for devtoolset-10
-    $MODE yum install -y https://vault.centos.org/altarch/7/extras/aarch64/Packages/centos-release-scl-rh-2-3.el7.centos.noarch.rpm
-
-    # http://mirror.centos.org/centos/7/ is deprecated, so we changed the above link to `https://vault.centos.org`,
-    # and we have to change the baseurl in the repo file to the working mirror (from mirror.centos.org to vault.centos.org)
-    # Disable mirrorlist
-    $MODE sed -i 's/mirrorlist=/#mirrorlist=/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
-    # Enable a working baseurl
-    $MODE sed -i 's/#baseurl=http:\/\/mirror.centos.org\/centos/baseurl=http:\/\/vault.centos.org\/altarch/g' /etc/yum.repos.d/CentOS-SCLo-scl-rh.repo
-
-    $MODE yum install -y wget git devtoolset-10-gcc devtoolset-10-gcc-c++ \
-        devtoolset-10-make rsync unzip clang curl libclang-dev
-
-    source /opt/rh/devtoolset-10/enable
-
-    $MODE cp /opt/rh/devtoolset-10/enable /etc/profile.d/scl-devtoolset-10.sh
-    
-    # hack gcc 10.2.1 Redhat to enable _GLIBCXX_USE_CXX11_ABI=1
-    $MODE sed -i \
-        -e 's/^# define _GLIBCXX_USE_DUAL_ABI 0/# define _GLIBCXX_USE_DUAL_ABI 1/g' \
-        -e 's/^# define _GLIBCXX_USE_CXX11_ABI 0/# define _GLIBCXX_USE_CXX11_ABI 1/g' \
-        /opt/rh/devtoolset-10/root/usr/include/c++/10/aarch64-redhat-linux/bits/c++config.h
+    $MODE yum install -y wget git rsync unzip clang curl
 fi
 
 $MODE yum install -y openssl11 openssl11-devel
