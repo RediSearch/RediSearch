@@ -21,7 +21,7 @@ static inline bool II_currentIsRelevant(IntersectionIterator *it) {
 static IteratorStatus II_AgreeOnDocId(IntersectionIterator *it) {
   const t_docId docId = it->base.lastDocId;
   AggregateResult_Reset(it->base.current);
-  for (int i = 0; i < it->num_its; i++) {
+  for (uint32_t i = 0; i < it->num_its; i++) {
     RS_ASSERT(it->its[i]->lastDocId <= docId);
     if (it->its[i]->lastDocId < docId) {
       // Advance the iterator to the requested docId
