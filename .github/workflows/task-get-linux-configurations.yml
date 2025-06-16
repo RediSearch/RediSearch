@@ -22,7 +22,7 @@ env:
                     'rockylinux:9',
                     'debian:bullseye',
                     'gcc:12-bookworm',
-                    'amazonlinux:2',
+                    'meiravgrimberg937/amazonlinux2-gcc11-slim',
                     'amazonlinux:2023',
                     'mcr.microsoft.com/azurelinux/base/core:3.0',
                     'alpine:3']"
