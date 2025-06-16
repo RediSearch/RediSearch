@@ -230,7 +230,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
               8.0F * (float)sp->stats.offsetVecsSize / (float)sp->stats.offsetVecRecords);
   REPLY_KVNUM(n, "hash_indexing_failures", sp->stats.indexError.error_count);
   REPLY_KVNUM(n, "total_indexing_time", sp->stats.totalIndexTime / 1000.0);
-  REPLY_KVNUM(n, "indexing", !!global_spec_scanner || sp->scan_in_progress);
+  REPLY_KVNUM(n, "indexing", !!global_spec_scanner || (sp->scanner && !sp->scanner->cancelled && sp->scan_in_progress));
 
   IndexesScanner *scanner = global_spec_scanner ? global_spec_scanner : sp->scanner;
   double percent_indexed = IndexesScanner_IndexedPercent(ctx, scanner, sp);
