@@ -34,6 +34,7 @@ then
     make install
     echo "/usr/local/bin" >> "$GITHUB_PATH"
     as --version   # Should now be 2.42
+    cd ..
 else
     # Install the RPM package that provides the Software Collections (SCL) required for devtoolset-10
     $MODE yum install -y https://vault.centos.org/altarch/7/extras/aarch64/Packages/centos-release-scl-rh-2-3.el7.centos.noarch.rpm
