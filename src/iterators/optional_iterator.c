@@ -84,8 +84,6 @@ static IteratorStatus OI_ReadSorted_NotOptimized(QueryIterator *base) {
     oi->virt->docId = base->lastDocId;
     base->current = oi->virt;
   }
-
-  base->current->docId = base->lastDocId;
   return ITERATOR_OK;
 }
 
