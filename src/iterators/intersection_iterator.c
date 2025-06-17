@@ -169,6 +169,7 @@ static IteratorStatus II_SkipTo(QueryIterator *base, t_docId docId) {
     it->base.lastDocId = it->base.current->docId;
   } else if (ITERATOR_NOTFOUND == rc) {
     // Not found - but we need to read the next valid result
+    // `docId` was set to the next valid docId by `II_AgreeOnDocId`
     IteratorStatus read_rc = II_Find_Consensus(it, docId);
     if (read_rc != ITERATOR_OK) return read_rc; // If we failed to read, bubble up the error
   }
