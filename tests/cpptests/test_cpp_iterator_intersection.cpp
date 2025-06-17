@@ -24,6 +24,9 @@ protected:
     void SetUp() override {
         unsigned numChildren;
         std::tie(numChildren, resultSet) = GetParam();
+        // Verify the resultSet is sorted and unique
+        std::sort(resultSet.begin(), resultSet.end());
+        resultSet.erase(std::unique(resultSet.begin(), resultSet.end()), resultSet.end());
         // Set docIds so the intersection of all children is resultSet.
         // Make sure that some ids are unique to each child
         docIds.resize(numChildren);
@@ -31,7 +34,7 @@ protected:
         for (auto &childIds : docIds) {
             // Copy the resultSet to each child as a base
             childIds = resultSet;
-            // Add some unique ids to each child. Mock constructors will ensure that the ids are unique and sorted.
+            // Add some unique ids to each child. Mock constructor will ensure that the ids are unique and sorted.
             for (size_t i = 0; i < 100; i++) {
                 childIds.push_back(id++);
             }
@@ -189,9 +192,8 @@ public:
         std::map<std::string, ForwardIndexEntry> entries;
         // Add a document to all inverted indexes
         for (size_t i = 0; i < terms.size(); i++) {
-            const auto &term = terms[i];
             // Get (create if not exists) the forward index entry for the term
-            ForwardIndexEntry &entry = entries[term];
+            ForwardIndexEntry &entry = entries[terms[i]];
             entry.docId = docId;
             entry.freq++;
             entry.fieldMask = RS_FIELDMASK_ALL;
