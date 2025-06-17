@@ -96,6 +96,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   bool has_map = RedisModule_HasMap(reply);
 
   RedisModule_Reply_Map(reply); // top
+  
+  // Lock the spec
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx_LockSpecRead(&sctx);
 
   REPLY_KVSTR_SAFE("index_name", sp->name);
 
@@ -207,10 +211,6 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   }
 
   RedisModule_Reply_ArrayEnd(reply); // >attributes
-
-  // Lock the spec
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  RedisSearchCtx_LockSpecRead(&sctx);
 
   REPLY_KVNUM("num_docs", sp->stats.numDocuments);
   REPLY_KVNUM("max_doc_id", sp->docs.maxDocId);

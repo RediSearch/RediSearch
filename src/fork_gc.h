@@ -11,6 +11,7 @@
 #include "redismodule.h"
 #include "gc.h"
 #include "VecSim/vec_sim.h"
+#include <poll.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,7 +41,10 @@ typedef struct ForkGC {
   // statistics for reporting
   ForkGCStats stats;
 
-  int pipefd[2];
+  int pipe_read_fd;
+  int pipe_write_fd;
+  struct pollfd pollfd_read[1]; // pollfd to poll the read pipe so that we don't block while read
+
   volatile uint32_t pauseState;
   volatile uint32_t execState;
 
