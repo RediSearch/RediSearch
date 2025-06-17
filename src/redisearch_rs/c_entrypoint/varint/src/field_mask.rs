@@ -8,7 +8,7 @@
 */
 
 use buffer::{BufferReader, BufferWriter};
-use encode_decode::varint::{read_field_mask, write_field_mask};
+use encode_decode::varint::VarintEncode;
 use std::ptr::NonNull;
 
 pub type FieldMask = ffi::t_fieldMask;
@@ -32,7 +32,7 @@ pub extern "C" fn ReadVarintFieldMask(b: Option<NonNull<BufferReader>>) -> Field
     let mut buffer_reader = b.unwrap();
     // Safety: Safe thanks to invariants 1. and 2.
     let buffer_reader = unsafe { buffer_reader.as_mut() };
-    read_field_mask(buffer_reader).unwrap()
+    FieldMask::read_as_varint(buffer_reader).unwrap()
 }
 
 /// Write a varint-encoded field mask into the given buffer writer.
@@ -61,6 +61,6 @@ pub extern "C" fn WriteVarintFieldMask(
     // Safety: Safe thanks to invariants 1. and 2.
     let writer = unsafe { writer.as_mut() };
     let cap = writer.buffer().capacity();
-    write_field_mask(value, &mut *writer).unwrap();
+    FieldMask::write_as_varint(value, &mut *writer).unwrap();
     writer.buffer().capacity() - cap
 }
