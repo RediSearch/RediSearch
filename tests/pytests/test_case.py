@@ -126,8 +126,8 @@ def testCaseWithComparison(env):
     env.assertEqual(categories['medium'], 2)
     env.assertEqual(categories['high'], 1)
 
-def testNestedCase(env):
-    """Test nested case functions"""
+def testNestedCaseAndGroup(env):
+    """Test nested case functions and group by"""
     env.expect('FT.CREATE', 'idx_nested', 'SCHEMA', 't', 'TEXT').ok()
     conn = getConnectionByEnv(env)
 
@@ -141,7 +141,11 @@ def testNestedCase(env):
     res = conn.execute_command(
         'FT.AGGREGATE', 'idx_nested', '*',
         'LOAD', '1', '@t',
-        'APPLY', 'case(contains(@t, "pizza"), "Italian", case(contains(@t, "pasta"), "Italian", case(contains(@t, "burger"), "American", "Other")))', 'AS', 'cuisine',
+        'APPLY', 'case(contains(@t, "pizza"), ' \
+        '              "Italian", ' \
+        '              case(contains(@t, "pasta"), ' \
+        '                   "Italian", ' \
+        '                   case(contains(@t, "burger"), "American", "Other")))', 'AS', 'cuisine',
         'GROUPBY', '1', '@cuisine',
         'REDUCE', 'COUNT', '0', 'AS', 'count',
         'SORTBY', '2', '@cuisine', 'ASC',
