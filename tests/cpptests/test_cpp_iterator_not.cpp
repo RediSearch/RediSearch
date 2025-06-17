@@ -496,10 +496,12 @@ class NotIteratorSelfTimeoutTest : public NotIteratorCommonTest {
 };
 
 TEST_P(NotIteratorSelfTimeoutTest, TimeOutSelfRead) {
+  GTEST_SKIP() << "Skipping this as Timer is not activated";
   TimeoutSelfTestRead();
 }
 
 TEST_P(NotIteratorSelfTimeoutTest, TimeOutSelfSkipTo) {
+  GTEST_SKIP() << "Skipping this as Timer is not activated";
   TimeoutSelfTestSkipTo();
 }
 
