@@ -178,7 +178,8 @@ setup_build_environment() {
 prepare_coverage_capture() {
   [[ -n $GITHUB_ACTIONS ]] && echo "::group::Code Coverage Preparation" || true
   lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
-  lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info
+  lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info \
+       --ignore-errors mismatch
   [[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::" || true
 }
 
@@ -192,7 +193,8 @@ capture_coverage() {
   [[ -n $GITHUB_ACTIONS ]] && echo "::group::Code Coverage Capture ($NAME)" || true
 
   # Capture coverage collected while running tests previously
-  lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info
+  lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info \
+       --ignore-errors mismatch
 
   # Accumulate results with the baseline captured before the test
   lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info
