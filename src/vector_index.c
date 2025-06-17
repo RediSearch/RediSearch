@@ -252,13 +252,12 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
 
 const char *VecSimSvsQuantBits_ToString(VecSimSvsQuantBits quantBits) {
     switch (quantBits) {
-        case VecSimSvsQuant_NONE: return VECSIM_QUANT_BITS_NONE;
-        case VecSimSvsQuant_4: return VECSIM_QUANT_BITS_4;
-        case VecSimSvsQuant_8: return VECSIM_QUANT_BITS_8;
-        case VecSimSvsQuant_4x4: return VECSIM_QUANT_BITS_4X4;
-        case VecSimSvsQuant_4x8: return VECSIM_QUANT_BITS_4X8;
-        case VecSimSvsQuant_4x8_LeanVec: return VECSIM_QUANT_BITS_4X8_LEANVEC;
-        case VecSimSvsQuant_8x8_LeanVec: return VECSIM_QUANT_BITS_8X8_LEANVEC;
+        case VecSimSvsQuant_4: return VECSIM_LVQ_4;
+        case VecSimSvsQuant_8: return VECSIM_LVQ_8;
+        case VecSimSvsQuant_4x4: return VECSIM_LVQ_4X4;
+        case VecSimSvsQuant_4x8: return VECSIM_LVQ_4X8;
+        case VecSimSvsQuant_4x8_LeanVec: return VECSIM_LEANVEC_4X8;
+        case VecSimSvsQuant_8x8_LeanVec: return VECSIM_LEANVEC_8X8;
     }
     return NULL;
 }

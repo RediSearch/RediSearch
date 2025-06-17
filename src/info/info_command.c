@@ -194,15 +194,14 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVSTR("data_type", VecSimType_ToString(svs_params.type));
           REPLY_KVINT("dim", svs_params.dim);
           REPLY_KVSTR("distance_metric", VecSimMetric_ToString(svs_params.metric));
-          REPLY_KVINT("blockSize", svs_params.blockSize);
           REPLY_KVINT("num_threads", svs_params.num_threads);
-          REPLY_KVINT("graph_degree", svs_params.graph_max_degree);
-          REPLY_KVINT("ws_construction", svs_params.construction_window_size);
-          REPLY_KVINT("ws_search", svs_params.search_window_size);
-          REPLY_KVINT("candidate_pool_size", svs_params.max_candidate_pool_size);
+          REPLY_KVINT("graph_max_degree", svs_params.graph_max_degree);
+          REPLY_KVINT("construction_window_size", svs_params.construction_window_size);
+          REPLY_KVINT("search_window_size", svs_params.search_window_size);
+          REPLY_KVINT("max_candidate_pool_size", svs_params.max_candidate_pool_size);
           REPLY_KVINT("prune_to", svs_params.prune_to);
-          REPLY_KVSTR("quantization", VecSimSvsQuantBits_ToString(svs_params.quantBits));
-          REPLY_KVSTR("use_search_history", VecSimSearchHistory_ToString(svs_params.use_search_history));
+          REPLY_KVSTR("compression", VecSimSvsQuantBits_ToString(svs_params.quantBits));
+          REPLY_KVSTR("use_search_ history", VecSimSearchHistory_ToString(svs_params.use_search_history));
           REPLY_KVNUM("alpha", svs_params.alpha);
           REPLY_KVNUM("epsilon", algo_params.svsParams.epsilon);
         }
@@ -211,23 +210,6 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
         REPLY_KVSTR("data_type", VecSimType_ToString(algo_params.bfParams.type));
         REPLY_KVINT("dim", algo_params.bfParams.dim);
         REPLY_KVSTR("distance_metric", VecSimMetric_ToString(algo_params.bfParams.metric));
-      }
-        else if (field_algo == VecSimAlgo_SVS) {
-        REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(field_algo));
-        REPLY_KVSTR("data_type", VecSimType_ToString(algo_params.svsParams.type));
-        REPLY_KVINT("dim", algo_params.svsParams.dim);
-        REPLY_KVSTR("distance_metric", VecSimMetric_ToString(algo_params.svsParams.metric));
-        REPLY_KVINT("blockSize", algo_params.svsParams.blockSize);
-        REPLY_KVINT("num_threads", algo_params.svsParams.num_threads);
-        REPLY_KVINT("graph_degree", algo_params.svsParams.graph_max_degree);
-        REPLY_KVINT("ws_construction", algo_params.svsParams.construction_window_size);
-        REPLY_KVINT("ws_search", algo_params.svsParams.search_window_size);
-        REPLY_KVINT("candidate_pool_size", algo_params.svsParams.max_candidate_pool_size);
-        REPLY_KVINT("prune_to", algo_params.svsParams.prune_to);
-        REPLY_KVSTR("quantization", VecSimSvsQuantBits_ToString(algo_params.svsParams.quantBits));
-        REPLY_KVSTR("use_search_history", VecSimSearchHistory_ToString(algo_params.svsParams.use_search_history));
-        REPLY_KVNUM("alpha", algo_params.svsParams.alpha);
-        REPLY_KVNUM("epsilon", algo_params.svsParams.epsilon);
       }
     }
     if (has_map) {
