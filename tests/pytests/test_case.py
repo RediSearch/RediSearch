@@ -69,8 +69,9 @@ def testInvalidApplyFunction(env):
         'case(0, 1, @t > 1)',
     ]
     for apply_expr in invalid_apply_exprs:
+        # filter by text, to make sure @t is a string
         env.expect(
-            'FT.AGGREGATE', 'idx', '*',
+            'FT.AGGREGATE', 'idx', '@t:(pizza|beer)',
             'LOAD', '1', '@t',
             'APPLY', apply_expr, 'AS', 'final_score',
             'DIALECT', '2').error().contains("Error converting string")
