@@ -11,6 +11,7 @@ $MODE ln -s "$(which python3.8)" /usr/bin/python3
 
 
 $MODE yum install -y wget git rsync unzip clang curl make
+$MODE yum groupinstall -y "Development Tools"
 
 $MODE yum install -y openssl11 openssl11-devel
 $MODE ln -s "$(which openssl11)" /usr/bin/openssl
