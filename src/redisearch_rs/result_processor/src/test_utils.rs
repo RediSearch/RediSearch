@@ -81,17 +81,19 @@ impl Chain {
 
     /// Append a new result processor at the end of the chain. It will have its `upstream`
     /// field set to the previous last result processor.
-    pub fn append<P>(&mut self, mut result_processor: Pin<Box<ResultProcessorWrapper<P>>>)
+    pub fn append<P>(&mut self, result_processor: P)
     where
         P: ResultProcessor + 'static,
     {
+        let mut result_processor = ResultProcessorWrapper::new(result_processor);
+
         if let Some(upstream) = self.result_processors.last() {
             result_processor.header.upstream = upstream.as_ptr();
         }
 
         // Safety: We treat this pointer as pinned and never hand out mutable references that would allow
         // moving out of the type.
-        let ptr = unsafe { ResultProcessorWrapper::into_ptr(result_processor).cast() };
+        let ptr = unsafe { ResultProcessorWrapper::into_ptr(Box::pin(result_processor)).cast() };
 
         self.result_processors.push(ptr);
     }

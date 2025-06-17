@@ -57,20 +57,15 @@ impl Counter {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::{
-        ResultProcessorWrapper,
-        test_utils::{Chain, default_search_result, from_iter},
-    };
+    use crate::test_utils::{Chain, default_search_result, from_iter};
     use std::iter;
 
     #[test]
     fn basically_works() {
         // Set up the result processor chain
         let mut chain = Chain::new();
-        chain.append(Box::pin(ResultProcessorWrapper::new(from_iter(
-            iter::repeat_n(default_search_result(), 3),
-        ))));
-        chain.append(Box::pin(ResultProcessorWrapper::new(Counter::new())));
+        chain.append(from_iter(iter::repeat_n(default_search_result(), 3)));
+        chain.append(Counter::new());
 
         let (cx, rp) = chain.last_as_context_and_inner::<Counter>();
 

@@ -454,9 +454,7 @@ pub(crate) mod test {
     fn error_to_ret_code() {
         fn check(error: Error, expected: i32) {
             let mut chain = Chain::new();
-            chain.append(Box::pin(ResultProcessorWrapper::new(ResultRP::new_err(
-                error,
-            ))));
+            chain.append(ResultRP::new_err(error));
 
             let rp = unsafe { chain.last_raw() };
             let found =
@@ -473,9 +471,7 @@ pub(crate) mod test {
     #[test]
     fn none_signals_eof() {
         let mut chain = Chain::new();
-        chain.append(Box::pin(ResultProcessorWrapper::new(
-            ResultRP::new_ok_none(),
-        )));
+        chain.append(ResultRP::new_ok_none());
 
         let rp = unsafe { chain.last_raw() };
         let found =
@@ -488,9 +484,7 @@ pub(crate) mod test {
     #[test]
     fn ok_some_signals_ok() {
         let mut chain = Chain::new();
-        chain.append(Box::pin(ResultProcessorWrapper::new(
-            ResultRP::new_ok_some(),
-        )));
+        chain.append(ResultRP::new_ok_some());
 
         let rp = unsafe { chain.last_raw() };
         let found =
@@ -564,7 +558,7 @@ pub(crate) mod test {
         fn check(code: i32, expected: Result<Option<()>, Error>) {
             let mut chain = Chain::new();
             unsafe { chain.push_raw(new_upstream(code)) };
-            chain.append(Box::pin(ResultProcessorWrapper::new(RP)));
+            chain.append(RP);
 
             let (cx, rp) = chain.last_as_context_and_inner::<RP>();
 
@@ -615,8 +609,8 @@ pub(crate) mod test {
 
         let mut chain = Chain::new();
 
-        chain.append(Box::pin(ResultProcessorWrapper::new(Upstream)));
-        chain.append(Box::pin(ResultProcessorWrapper::new(RP)));
+        chain.append(Upstream);
+        chain.append(RP);
 
         let (cx, rp) = chain.last_as_context_and_inner::<RP>();
 
@@ -624,5 +618,51 @@ pub(crate) mod test {
         rp.next(cx, &mut res).unwrap().unwrap();
 
         assert_eq!(res.score, 42.0);
+    }
+
+    #[test]
+    fn wrapper_proper_alignment() {
+        let mut chain = Chain::new();
+        chain.append(ResultRP::new_ok_some());
+
+        // Safety: we just check the alignment
+        let ptr = unsafe { chain.last_raw() };
+        assert!(
+            ptr.cast::<ffi::ResultProcessor>().is_aligned(),
+            "Pointer should be properly aligned"
+        );
+    }
+
+    #[test]
+    fn wrapper_initializes_null_fields() {
+        let counter = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
+
+        assert!(counter.header.parent.is_null(), "Parent should be null");
+        assert!(counter.header.upstream.is_null(), "Upstream should be null");
+    }
+
+    #[test]
+    fn wrapper_initializes_function_pointers() {
+        let counter = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
+
+        assert!(counter.header.next.is_some(), "Next function should be set");
+        assert!(counter.header.free.is_some(), "Free function should be set");
+    }
+
+    #[cfg(not(miri))] // FIXME miri isn't happy about this test, does it allocate new functions for each struct??
+    #[test]
+    fn wrapper_function_pointer_consistency() {
+        let counter1 = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
+        let counter2 = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
+
+        // Function pointers should be the same across instances
+        assert_eq!(
+            counter1.header.next, counter2.header.next,
+            "Next function pointers should be identical"
+        );
+        assert_eq!(
+            counter1.header.free, counter2.header.free,
+            "Free function pointers should be identical"
+        );
     }
 }
