@@ -14,7 +14,7 @@
 #include <spec.h>
 #include <search_ctx.h>
 #include "value.h"
-#include "sortable.h"
+#include "sortable_rs.h"
 #include "util/arr.h"
 
 #ifdef __cplusplus
