@@ -14,7 +14,7 @@ use std::time::Duration;
 use varint_bencher::VarintBencher;
 
 fn benchmark_core_operations(c: &mut Criterion) {
-    let bencher = VarintBencher::new("Varint".to_owned(), Duration::from_secs(10));
+    let bencher = VarintBencher::new("Varint".to_owned(), Duration::from_secs(1));
 
     bencher.encode_group(c);
     bencher.decode_group(c);
