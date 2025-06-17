@@ -282,8 +282,7 @@ QueryIterator *IT_V2(NewNotIterator)(QueryIterator *it, t_docId maxDocId, double
   QueryIterator *ret = &ni->base;
   bool optimized = q && q->sctx->spec->rule && q->sctx->spec->rule->index_all;
   if (optimized) {
-    //TODO(Joan): Once all the WildCards are migrated, call the generic one
-    ni->wcii = IT_V2(NewWildcardIterator_NonOptimized)(q->docTable->maxDocId, q->docTable->size);
+    ni->wcii = IT_V2(NewWildcardIterator_Optimized)(q->docTable->maxDocId, q->docTable->size);
   }
   ni->child = it ? it : IT_V2(NewEmptyIterator)();
   ni->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
