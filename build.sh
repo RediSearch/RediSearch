@@ -215,6 +215,7 @@ capture_coverage() {
   # Remove coverage for directories we don't want (ignore if no file matches)
   lcov -o $BINROOT/$NAME.info --ignore-errors unused --remove $BINROOT/source.info \
     "*/tests/*" \
+    "*/test/*" \
 
   [[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::" || true
 
