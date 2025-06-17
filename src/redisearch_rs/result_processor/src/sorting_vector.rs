@@ -334,6 +334,11 @@ mod c_layer {
 
     pub const RS_SORTABLES_MAX: usize = 1024;
 
+    pub const RS_SORTABLE_NUM: usize = 1;
+    pub const RS_SORTABLE_STR: usize = 3;
+    pub const RS_SORTABLE_NIL: usize = 4;
+    pub const RS_SORTABLE_RSVAL: usize = 5;
+
     /// Gets a RSValue from the sorting vector at the given index.
     ///
     /// Safety:
