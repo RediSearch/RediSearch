@@ -69,7 +69,7 @@ static IteratorStatus II_AgreeOnDocId(IntersectionIterator *it, t_docId *curTarg
   return ITERATOR_OK;
 }
 
-static inline IteratorStatus II_Read_Internal_CheckRelevancy(IntersectionIterator *it, t_docId docId) {
+static inline IteratorStatus II_Find_Consensus_WithRelevancyCheck(IntersectionIterator *it, t_docId docId) {
   IteratorStatus rc;
   do { // retry until we agree on the docId
     rc = II_AgreeOnDocId(it, &docId);
@@ -88,7 +88,7 @@ static inline IteratorStatus II_Read_Internal_CheckRelevancy(IntersectionIterato
   return rc;
 }
 
-static inline IteratorStatus II_Read_Internal(IntersectionIterator *it, t_docId docId) {
+static inline IteratorStatus II_Find_Consensus(IntersectionIterator *it, t_docId docId) {
   IteratorStatus rc;
   do { // retry until we agree on the docId
     rc = II_AgreeOnDocId(it, &docId);
@@ -109,7 +109,7 @@ static IteratorStatus II_Read_CheckRelevancy(QueryIterator *base) {
   t_docId target;
   IteratorStatus rc = II_ReadFromFirstChild(it, &target);
   if (rc == ITERATOR_OK) {
-    rc = II_Read_Internal_CheckRelevancy(it, target);
+    rc = II_Find_Consensus_WithRelevancyCheck(it, target);
   }
   return rc;
 }
@@ -122,7 +122,7 @@ static IteratorStatus II_Read(QueryIterator *base) {
   t_docId target;
   IteratorStatus rc = II_ReadFromFirstChild(it, &target);
   if (rc == ITERATOR_OK) {
-    rc = II_Read_Internal(it, target);
+    rc = II_Find_Consensus(it, target);
   }
   return rc;
 }
@@ -149,7 +149,7 @@ static IteratorStatus II_SkipTo_CheckRelevancy(QueryIterator *base, t_docId docI
 
   // Not found - but we need to read the next valid result.
   // `docId` is set to the next valid docId (by `II_AgreeOnDocId` or `II_ReadFromFirstChild`).
-  rc = II_Read_Internal_CheckRelevancy(it, docId);
+  rc = II_Find_Consensus_WithRelevancyCheck(it, docId);
   // Return rc, switching OK to NOTFOUND
   if (rc == ITERATOR_OK) {
     return ITERATOR_NOTFOUND;
@@ -169,7 +169,7 @@ static IteratorStatus II_SkipTo(QueryIterator *base, t_docId docId) {
     it->base.lastDocId = it->base.current->docId;
   } else if (ITERATOR_NOTFOUND == rc) {
     // Not found - but we need to read the next valid result
-    IteratorStatus read_rc = II_Read_Internal(it, docId);
+    IteratorStatus read_rc = II_Find_Consensus(it, docId);
     if (read_rc != ITERATOR_OK) return read_rc; // If we failed to read, bubble up the error
   }
   return rc;
@@ -188,7 +188,7 @@ static void II_Rewind(QueryIterator *base) {
   AggregateResult_Reset(base->current);
 
   // rewind all child iterators
-  for (int i = 0; i < ii->num_its; i++) {
+  for (uint32_t i = 0; i < ii->num_its; i++) {
     ii->its[i]->Rewind(ii->its[i]);
   }
 }
@@ -196,7 +196,7 @@ static void II_Rewind(QueryIterator *base) {
 static void II_Free(QueryIterator *base) {
   IntersectionIterator *ii = (IntersectionIterator *)base;
 
-  for (int i = 0; i < ii->num_its; i++) {
+  for (uint32_t i = 0; i < ii->num_its; i++) {
     // This function may be called with NULL iterators, so we check for NULLs
     if (ii->its[i]) ii->its[i]->Free(ii->its[i]);
   }
@@ -211,8 +211,8 @@ static void II_Free(QueryIterator *base) {
 static inline double iteratorFactor(const QueryIterator *it) {
   double factor = 1.0;
   if (it->type == INTERSECT_ITERATOR) {
-  /* on INTERSECT iterator, we divide the estimate by the number of children
-   * since we skip as soon as a number is not in all iterators */
+    // on INTERSECT iterator, we divide the estimate by the number of children
+    // since we skip as soon as a number is not in all iterators
     factor = 1.0 / ((const IntersectionIterator *)it)->num_its;
   } else if (it->type == UNION_ITERATOR && RSGlobalConfig.prioritizeIntersectUnionChildren) {
     factor = ((const UnionIterator *)it)->num;
@@ -235,7 +235,7 @@ static bool II_SetEstimation(IntersectionIterator *it) {
   // If any of the iterators is NULL, we set the expected number to 0
   RS_ASSERT(it->num_its); // Ensure there is at least one iterator, so we can set num_expected to SIZE_MAX temporarily
   it->num_expected = SIZE_MAX;
-  for (size_t i = 0; i < it->num_its; ++i) {
+  for (uint32_t i = 0; i < it->num_its; ++i) {
     QueryIterator *cur = it->its[i];
     if (!cur) {
       // If the current iterator is empty, then the entire query will fail
