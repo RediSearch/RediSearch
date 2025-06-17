@@ -20,5 +20,7 @@ pub unsafe extern "C" fn RPCounter_New() -> *mut ffi::ResultProcessor {
     let rp = Box::pin(ResultProcessorWrapper::new(Counter::new()));
 
     // Safety: The safety contract requires the caller to treat the returned pointer as pinned
-    unsafe { ResultProcessorWrapper::into_ptr(rp) }.cast()
+    unsafe { ResultProcessorWrapper::into_ptr(rp) }
+        .cast()
+        .as_ptr()
 }

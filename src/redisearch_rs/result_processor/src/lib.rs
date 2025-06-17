@@ -270,12 +270,15 @@ where
     ///
     /// The caller *must* continue to treat the pointer as pinned.
     #[inline]
-    pub unsafe fn into_ptr(me: Pin<Box<Self>>) -> *mut Self {
+    pub unsafe fn into_ptr(me: Pin<Box<Self>>) -> NonNull<Self> {
         // This function must be kept in sync with `Self::from_ptr` below.
 
         // Safety: The caller promised to continue to treat the returned pointer
         // as pinned and never move out of it.
-        Box::into_raw(unsafe { Pin::into_inner_unchecked(me) })
+        let ptr = Box::into_raw(unsafe { Pin::into_inner_unchecked(me) });
+
+        // Safety: we know the ptr we get from Box::into_raw is never null
+        unsafe { NonNull::new_unchecked(ptr) }
     }
 
     /// Constructs a `Box<ResultProcessor>` from a raw pointer.
@@ -290,19 +293,25 @@ where
     ///    double-free or other memory corruptions will occur.
     /// 3. The caller *must* also ensure that `ptr` continues to be treated as pinned.
     #[inline]
-    unsafe fn from_ptr(ptr: *mut Self) -> Pin<Box<Self>> {
+    unsafe fn from_ptr(ptr: NonNull<Self>) -> Pin<Box<Self>> {
         // This function must be kept in sync with `Self::into_ptr` above.
 
         // Safety:
         // 1 -> This function will only ever be called through the `result_processor_free` vtable method below.
         //      We therefore know - through construction - that the pointer was previously created through `into_ptr`.
         // 2 -> Has to be upheld by the caller
-        let b = unsafe { Box::from_raw(ptr.cast()) };
+        let b = unsafe { Box::from_raw(ptr.as_ptr()) };
         // Safety: 3 -> Caller has to uphold the pin contract
         unsafe { Pin::new_unchecked(b) }
     }
 
     /// VTable function exposing the [`ResultProcessor::next`] method. This is exposed through the `next` field of [`Header`].
+    ///
+    /// # Safety
+    ///
+    /// The caller (C code) must uphold the following safety invariants:
+    /// 1. `ptr` must be a non-null, well-aligned, valid pointer to a result processor (struct [`Header`]).
+    /// 2. `res` must be a non-null, well-aligned, valid pointer to an *initialized* [`ffi::SearchResult`].
     unsafe extern "C" fn result_processor_next(
         ptr: *mut Header,
         res: *mut ffi::SearchResult,
@@ -333,9 +342,16 @@ where
 
     /// VTable function dropping the `Box` backing this result processor.
     /// This is exposed through the `free` field of [`Header`] and only ever called by C code.
+    ///
+    /// # Safety
+    ///
+    /// The caller (C code) must uphold the following safety invariants:
+    /// 1. `ptr` must be a non-null, well-aligned, valid pointer to a result processor (struct [`Header`]).
     unsafe extern "C" fn result_processor_free(me: *mut Header) {
         debug_assert!(me.is_aligned());
 
+        let me = NonNull::new(me).unwrap();
+        debug_assert!(me.is_aligned());
         // Safety: This function is called through the ResultProcessor "VTable" which - through the generics
         //  and constructor of this type - ensures that we can safely cast to `Self` here.
         //  For all other safety guarantees (invariants 2. and 3.) we have to trust the QueryIterator implementation to be correct.
