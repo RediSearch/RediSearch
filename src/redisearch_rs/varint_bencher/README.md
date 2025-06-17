@@ -10,7 +10,6 @@ This crate provides:
 - **Memory usage analysis**: Analyze space efficiency of Rust varint encoding
 - **Compression ratios**: Analyze how well varint encoding compresses different
   value ranges
-- **Encoding efficiency**: Breakdown of encoding sizes by value ranges
 - **Performance benchmarks**: Use `cargo bench` for detailed timing analysis
 
 ## Quick Start
@@ -124,7 +123,6 @@ The tool separates concerns:
   ratios, encoding distribution)
 - **Performance analysis**: Handled by `cargo bench` (statistical timing with
   criterion)
-- **Encoding correctness**: Verified through comprehensive test value coverage
 
 ## Understanding Varint Encoding
 
