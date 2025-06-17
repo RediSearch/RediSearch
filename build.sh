@@ -24,6 +24,7 @@ PROFILE=0        # Profile build flag
 FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
 QUICK=0          # Quick test mode (subset of tests)
+COV=${COV:-0}    # Coverage mode (for building and testing)
 # Use environment variable if set, otherwise default to 0
 ENABLE_ASSERT=${ENABLE_ASSERT:-0}
 
@@ -31,7 +32,7 @@ ENABLE_ASSERT=${ENABLE_ASSERT:-0}
 BUILD_TESTS=0    # Build test binaries
 RUN_UNIT_TESTS=0 # Run C/C++ unit tests
 RUN_PYTEST=0     # Run Python tests
-RUN_ALL_TESTS=${RUN_ALL_TESTS:-0}  # Run all test types
+RUN_ALL_TESTS=0  # Run all test types
 
 #-----------------------------------------------------------------------------
 # Function: parse_arguments
@@ -61,6 +62,9 @@ parse_arguments() {
       RUN_UNIT_TESTS|run_unit_tests)
         RUN_UNIT_TESTS=1
         ;;
+      COV=*)
+        COV="${arg#*=}"
+        ;;
       RUN_PYTEST|run_pytest|RUNPYTEST|runpytest)
         RUN_PYTEST=1
         ;;
@@ -82,11 +86,8 @@ parse_arguments() {
       QUICK|quick)
         QUICK=1
         ;;
-      SA|sa)
-        SA=1
-        ;;
-      REDIS_STANDALONE|redis_standalone)
-        REDIS_STANDALONE=1
+      QUICK=*)
+        QUICK="${arg#*=}"
         ;;
       *)
         # Pass all other arguments directly to CMake
@@ -126,6 +127,8 @@ setup_build_environment() {
     FLAVOR="debug-asan"
   elif [[ "$DEBUG" == "1" ]]; then
     FLAVOR="debug"
+  elif [[ "$COV" == "1" ]]; then
+    FLAVOR="debug-cov"
   elif [[ "$PROFILE" == "1" ]]; then
     FLAVOR="release-profile"
   else
@@ -169,6 +172,52 @@ setup_build_environment() {
 }
 
 #-----------------------------------------------------------------------------
+# Function: prepare_coverage_capture
+# Run lcov preparations before testing for coverage
+#-----------------------------------------------------------------------------
+prepare_coverage_capture() {
+  [[ -n $GITHUB_ACTIONS ]] && echo "::group::Code Coverage Preparation" || true
+  lcov --zerocounters      --directory $BINROOT --base-directory $ROOT
+  lcov --capture --initial --directory $BINROOT --base-directory $ROOT -o $BINROOT/base.info \
+       --ignore-errors mismatch
+  [[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::" || true
+}
+
+#-----------------------------------------------------------------------------
+# Function: capture_coverage
+# Capture coverage collected since `prepare_coverage_capture` was invoked
+#-----------------------------------------------------------------------------
+capture_coverage() {
+  NAME=${1:-cov} # Get output name. Defaults to `cov.info`
+
+  [[ -n $GITHUB_ACTIONS ]] && echo "::group::Code Coverage Capture ($NAME)" || true
+
+  # Capture coverage collected while running tests previously
+  lcov --capture --directory $BINROOT --base-directory $ROOT -o $BINROOT/test.info \
+       --ignore-errors mismatch
+
+  # Accumulate results with the baseline captured before the test
+  lcov --add-tracefile $BINROOT/base.info --add-tracefile $BINROOT/test.info -o $BINROOT/full.info
+
+  # Extract only the coverage of the project source files
+  lcov --output-file $BINROOT/source.info --extract $BINROOT/full.info \
+    "$ROOT/src/*" \
+    "$ROOT/coord/*" \
+    "$ROOT/deps/triemap/*" \
+    "$ROOT/deps/thpool/*" \
+
+  # Remove coverage for directories we don't want (ignore if no file matches)
+  lcov -o $BINROOT/$NAME.info --ignore-errors unused --remove $BINROOT/source.info \
+    "*/tests/*" \
+    "*/test/*" \
+
+  [[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::" || true
+
+  # Clean up temporary files
+  rm $BINROOT/base.info $BINROOT/test.info $BINROOT/full.info $BINROOT/source.info
+}
+
+#-----------------------------------------------------------------------------
 # Function: prepare_cmake_arguments
 # Prepare arguments to pass to CMake
 #-----------------------------------------------------------------------------
@@ -198,11 +247,16 @@ prepare_cmake_arguments() {
     DEBUG="1"
   fi
 
+  if [[ "$COV" == "1" ]]; then
+    CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DCOV=1"
+    DEBUG=1
+  fi
+
   if [[ "$PROFILE" != 0 ]]; then
     CMAKE_BASIC_ARGS="$CMAKE_BASIC_ARGS -DPROFILE=$PROFILE"
     # We shouldn't run profile with debug - so we fail the build
     if [[ "$DEBUG" == "1" ]]; then
-      echo "Error: Cannot run profile with debug/sanitizer"
+      echo "Error: Cannot run profile with debug/sanitizer/coverage"
       exit 1
     fi
   fi
@@ -368,12 +422,16 @@ run_unit_tests() {
   fi
 
   # Set up environment variables for the unit-tests script
-  export BINROOT="$BINROOT/$FULL_VARIANT"
+  export BINDIR
 
   # Set up test filter if provided
   if [[ -n "$TEST_FILTER" ]]; then
     echo "Running tests matching: $TEST_FILTER"
     export TEST="$TEST_FILTER"
+  fi
+
+  if [[ $COV == 1 ]]; then
+    prepare_coverage_capture
   fi
 
   # Set verbose mode if requested
@@ -402,6 +460,14 @@ run_unit_tests() {
   UNIT_TEST_RESULT=$?
   if [[ $UNIT_TEST_RESULT -eq 0 ]]; then
     echo "All unit tests passed!"
+    if [[ $COV == 1 ]]; then
+      if [[ "$COORD" == "0" || -z "$COORD" ]]; then
+        DEPLOYMENT_TYPE="standalone"
+      else
+        DEPLOYMENT_TYPE="coordinator"
+      fi
+      capture_coverage unit_$DEPLOYMENT_TYPE
+    fi
   else
     echo "Some unit tests failed. Check the test logs above for details."
     HAS_FAILURES=1
@@ -450,19 +516,19 @@ run_python_tests() {
   # Set up environment variables required by runtests.sh
   export COORD="$COORD"
   export MODULE="$(realpath "$MODULE_PATH")"
-  export BINROOT="$BINROOT"
-  export FULL_VARIANT="$FULL_VARIANT"
-  export BINDIR="$BINDIR"
-
+  export BINROOT
+  export FULL_VARIANT
+  export BINDIR
   export REJSON="${REJSON:-1}"
   export REJSON_BRANCH="${REJSON_BRANCH:-master}"
-  export REJSON_PATH="${REJSON_PATH:-}"
-  export REJSON_ARGS="${REJSON_ARGS:-}"
-  export TEST="${TEST:-}"
-  export FORCE="${FORCE:-}"
+  export REJSON_PATH
+  export REJSON_ARGS
+  export TEST
+  export FORCE
   export PARALLEL="${PARALLEL:-1}"
   export LOG_LEVEL="${LOG_LEVEL:-debug}"
-  export TEST_TIMEOUT="${TEST_TIMEOUT:-}"
+  export TEST_TIMEOUT
+  export COV
 
   # Set up test filter if provided
   if [[ -n "$TEST_FILTER" ]]; then
@@ -482,6 +548,10 @@ run_python_tests() {
     export RLTEST_VERBOSE=1
   fi
 
+  if [[ $COV == 1 ]]; then
+    prepare_coverage_capture
+  fi
+
   # Use the runtests.sh script for Python tests
   TESTS_SCRIPT="$ROOT/tests/pytests/runtests.sh"
   echo "Running Python tests with module at: $MODULE"
@@ -494,6 +564,14 @@ run_python_tests() {
   PYTHON_TEST_RESULT=$?
   if [[ $PYTHON_TEST_RESULT -eq 0 ]]; then
     echo "All Python tests passed!"
+    if [[ $COV == 1 ]]; then
+      if [[ "$COORD" == "0" || -z "$COORD" ]]; then
+        DEPLOYMENT_TYPE="standalone"
+      else
+        DEPLOYMENT_TYPE="coordinator"
+      fi
+      capture_coverage flow_$DEPLOYMENT_TYPE
+    fi
   else
     echo "Some Python tests failed. Check the test logs above for details."
     HAS_FAILURES=1
