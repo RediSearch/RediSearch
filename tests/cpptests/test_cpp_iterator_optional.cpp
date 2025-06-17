@@ -151,7 +151,7 @@ TEST_F(OptionalIteratorTest, EOFBehavior) {
 
   // Further operations should still return EOF
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_EOF);
-  ASSERT_EQ(iterator_base->SkipTo(iterator_base, 1), ITERATOR_EOF);
+  ASSERT_EQ(iterator_base->SkipTo(iterator_base, maxDocId + 1), ITERATOR_EOF);
 }
 
 TEST_F(OptionalIteratorTest, WeightApplication) {
@@ -385,7 +385,7 @@ TEST_F(OptionalIteratorWithEmptyChildTest, EOFBehavior) {
 
   // Further operations should still return EOF
   ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_EOF);
-  ASSERT_EQ(iterator_base->SkipTo(iterator_base, 1), ITERATOR_EOF);
+  ASSERT_EQ(iterator_base->SkipTo(iterator_base, maxDocId + 1), ITERATOR_EOF);
 }
 
 TEST_F(OptionalIteratorWithEmptyChildTest, VirtualResultProperties) {
