@@ -200,6 +200,7 @@ capture_coverage() {
   # Extract only the coverage of the project source files
   lcov --output-file $BINROOT/source.info --extract $BINROOT/full.info \
     "$ROOT/src/*" \
+    "$ROOT/coord/*" \
     "$ROOT/deps/triemap/*" \
     "$ROOT/deps/thpool/*" \
 
