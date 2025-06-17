@@ -342,7 +342,7 @@ where
         // ensures that we can safely cast to `Self` here.
         // Additionally, when debug assertions are enabled, we perform an additional assertion above.
         let me = unsafe { ptr.cast::<Self>().as_mut() };
-        // Safety: Contex contines to to treat `me` as pinned
+        // Safety: Context contines to to treat `me` as pinned
         let me = unsafe { Pin::new_unchecked(me) };
         let me = me.project();
 
@@ -452,7 +452,7 @@ pub(crate) mod test {
     fn error_to_ret_code() {
         fn check(error: Error, expected: i32) {
             let mut chain = Chain::new();
-            chain.push(Box::pin(ResultProcessorWrapper::new(ResultRP::new_err(
+            chain.append(Box::pin(ResultProcessorWrapper::new(ResultRP::new_err(
                 error,
             ))));
 
@@ -471,7 +471,7 @@ pub(crate) mod test {
     #[test]
     fn none_signals_eof() {
         let mut chain = Chain::new();
-        chain.push(Box::pin(ResultProcessorWrapper::new(
+        chain.append(Box::pin(ResultProcessorWrapper::new(
             ResultRP::new_ok_none(),
         )));
 
@@ -486,7 +486,7 @@ pub(crate) mod test {
     #[test]
     fn ok_some_signals_ok() {
         let mut chain = Chain::new();
-        chain.push(Box::pin(ResultProcessorWrapper::new(
+        chain.append(Box::pin(ResultProcessorWrapper::new(
             ResultRP::new_ok_some(),
         )));
 
@@ -560,9 +560,9 @@ pub(crate) mod test {
         fn check(code: i32, expected: Result<Option<()>, Error>) {
             let mut chain = Chain::new();
             unsafe { chain.push_raw(new_upstream(code)) };
-            chain.push(Box::pin(ResultProcessorWrapper::new(RP)));
+            chain.append(Box::pin(ResultProcessorWrapper::new(RP)));
 
-            let (cx, rp) = chain.last_as_context_and::<RP>();
+            let (cx, rp) = chain.last_as_context_and_inner::<RP>();
 
             // we don't care about the exact search result value here
             let res = rp.next(cx, &mut default_search_result());
@@ -611,10 +611,10 @@ pub(crate) mod test {
 
         let mut chain = Chain::new();
 
-        chain.push(Box::pin(ResultProcessorWrapper::new(Upstream)));
-        chain.push(Box::pin(ResultProcessorWrapper::new(RP)));
+        chain.append(Box::pin(ResultProcessorWrapper::new(Upstream)));
+        chain.append(Box::pin(ResultProcessorWrapper::new(RP)));
 
-        let (cx, rp) = chain.last_as_context_and::<RP>();
+        let (cx, rp) = chain.last_as_context_and_inner::<RP>();
 
         let mut res = default_search_result();
         rp.next(cx, &mut res).unwrap().unwrap();

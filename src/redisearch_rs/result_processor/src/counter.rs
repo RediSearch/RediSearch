@@ -67,12 +67,12 @@ pub(crate) mod test {
     fn basically_works() {
         // Set up the result processor chain
         let mut chain = Chain::new();
-        chain.push(Box::pin(ResultProcessorWrapper::new(from_iter(
+        chain.append(Box::pin(ResultProcessorWrapper::new(from_iter(
             iter::repeat_n(default_search_result(), 3),
         ))));
-        chain.push(Box::pin(ResultProcessorWrapper::new(Counter::new())));
+        chain.append(Box::pin(ResultProcessorWrapper::new(Counter::new())));
 
-        let (cx, rp) = chain.last_as_context_and::<Counter>();
+        let (cx, rp) = chain.last_as_context_and_inner::<Counter>();
 
         assert!(rp.next(cx, &mut default_search_result()).unwrap().is_none());
         assert_eq!(rp.count, 3);

@@ -36,6 +36,7 @@ where
     }
 }
 
+/// A result processor that returns the provided result.
 pub struct ResultRP {
     res: Option<Result<Option<()>, Error>>,
 }
@@ -64,6 +65,8 @@ impl ResultProcessor for ResultRP {
     }
 }
 
+/// Return the default value for [`ffi::SearchResult`]
+// FIXME replace with Default::default once `ffi::SearchResult` is ported to Rust
 pub const fn default_search_result() -> ffi::SearchResult {
     const SEARCH_RESULT_INIT: ffi::SearchResult = ffi::SearchResult {
         docId: 0,
@@ -81,6 +84,9 @@ pub const fn default_search_result() -> ffi::SearchResult {
     SEARCH_RESULT_INIT
 }
 
+/// A mock implementation of the "result processor chain" part of the `QueryIterator`
+///
+/// It acts as an owning collection of linked result processors.
 pub struct Chain {
     result_processors: Vec<NonNull<crate::Header>>,
 }
@@ -92,7 +98,9 @@ impl Chain {
         }
     }
 
-    pub fn push<P>(&mut self, mut result_processor: Pin<Box<ResultProcessorWrapper<P>>>)
+    /// Append a new result processor at the end of the chain. It will have its `upstream`
+    /// field set to the previous last result processor.
+    pub fn append<P>(&mut self, mut result_processor: Pin<Box<ResultProcessorWrapper<P>>>)
     where
         P: ResultProcessor + 'static,
     {
@@ -107,6 +115,12 @@ impl Chain {
         self.result_processors.push(ptr);
     }
 
+    /// Append a new result processor at the end of the chain. It will have its `upstream`
+    /// field set to the previous last result processor.
+    ///
+    /// # Safety
+    ///
+    /// The caller has to ensure that the given pointer dereferences to a valid result processor.
     pub unsafe fn push_raw(&mut self, mut result_processor: NonNull<crate::Header>) {
         if let Some(upstream) = self.result_processors.last() {
             unsafe {
@@ -128,7 +142,15 @@ impl Chain {
             .expect("empty result processor chain")
     }
 
-    pub fn last_as_context_and<P>(&mut self) -> (Context, &mut P)
+    /// Return a [`Context`] and mutable reference to the inner [`ResultProcessor`] implementation
+    /// from the last result processor in the chain.
+    ///
+    /// The caller has to provide the expected type of the inner result processor through the `P` generic.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the last result processors inner implementation is not of the expected type.
+    pub fn last_as_context_and_inner<P>(&mut self) -> (Context, &mut P)
     where
         P: ResultProcessor + 'static,
     {
