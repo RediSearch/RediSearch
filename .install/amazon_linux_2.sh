@@ -24,6 +24,16 @@ then
     source /opt/rh/devtoolset-11/enable
 
     cp /opt/rh/devtoolset-11/enable /etc/profile.d/scl-devtoolset-11.sh
+
+    # install newer binutils
+    wget https://ftp.gnu.org/gnu/binutils/binutils-2.42.tar.gz
+    tar -xzf binutils-2.42.tar.gz
+    cd binutils-2.42
+    ./configure --prefix=/usr/local
+    make -j$(nproc)
+    make install
+    echo "/usr/local/bin" >> "$GITHUB_PATH"
+    as --version   # Should now be 2.42
 else
     # Install the RPM package that provides the Software Collections (SCL) required for devtoolset-10
     $MODE yum install -y https://vault.centos.org/altarch/7/extras/aarch64/Packages/centos-release-scl-rh-2-3.el7.centos.noarch.rpm
@@ -41,16 +51,6 @@ else
     source /opt/rh/devtoolset-10/enable
 
     $MODE cp /opt/rh/devtoolset-10/enable /etc/profile.d/scl-devtoolset-10.sh
-
-    # install newer binutils
-    wget https://ftp.gnu.org/gnu/binutils/binutils-2.42.tar.gz
-    tar -xzf binutils-2.42.tar.gz
-    cd binutils-2.42
-    ./configure --prefix=/usr/local
-    make -j$(nproc)
-    make install
-    echo "/usr/local/bin" >> "$GITHUB_PATH"
-    as --version   # Should now be 2.42
 
 fi
 $MODE yum install -y openssl11 openssl11-devel
