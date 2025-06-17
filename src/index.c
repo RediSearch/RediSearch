@@ -1290,6 +1290,38 @@ IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId,
   return ret;
 }
 
+// LCOV_EXCL_START
+IndexIterator* _New_NotIterator_With_WildCardIterator(IndexIterator *child, IndexIterator *wcii, t_docId maxDocId, double weight, struct timespec timeout) {
+  NotContext *nc = rm_calloc(1, sizeof(*nc));
+  nc->child = child;
+  nc->wcii = wcii;
+  nc->base.current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
+  nc->base.current->docId = 0;
+  nc->base.isValid = 1;
+  IndexIterator *ret = &nc->base;
+
+  nc->lastDocId = 0;
+  nc->maxDocId = maxDocId;          // Valid for the optimized case as well, since this is the maxDocId of the embedded wildcard iterator
+  nc->len = 0;
+  nc->weight = weight;
+  nc->timeoutCtx = (TimeoutCtx){ .timeout = timeout, .counter = 0 };
+
+  ret->ctx = nc;
+  ret->type = NOT_ITERATOR;
+  ret->NumEstimated = NI_NumEstimated;
+  ret->Free = NI_Free;
+  ret->HasNext = NI_HasNext;
+  ret->LastDocId = NI_LastDocId;
+  ret->Len = NI_Len;
+  ret->Read = NI_ReadSorted_O;
+  ret->SkipTo = NI_SkipTo_O;
+  ret->Abort = NI_Abort;
+  ret->Rewind = NI_Rewind;
+
+  return ret;
+}
+// LCOV_EXCL_STOP
+
 /**********************************************************
  * Optional clause iterator
  **********************************************************/

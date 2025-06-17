@@ -22,6 +22,8 @@
     clippy::undocumented_unsafe_blocks,
     clippy::missing_safety_doc,
     clippy::len_without_is_empty,
+    clippy::approx_constant,
+    rustdoc::invalid_html_tags,
     rustdoc::broken_intra_doc_links
 )]
 

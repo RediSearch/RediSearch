@@ -370,7 +370,7 @@ InvertedIndexStats InvertedIndex_DebugReply(RedisModuleCtx *ctx, InvertedIndex *
   RSIndexResult *res = NULL;
   IndexReader *ir = NewMinimalNumericReader(idx, false);
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
-    REPLY_WITH_DOUBLE("value", res->num.value, ARRAY_LEN_VAR(invertedIndexValues));
+    REPLY_WITH_DOUBLE("value", res->data.num.value, ARRAY_LEN_VAR(invertedIndexValues));
     REPLY_WITH_LONG_LONG("docId", res->docId, ARRAY_LEN_VAR(invertedIndexValues));
   }
   IR_Free(ir);
