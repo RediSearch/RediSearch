@@ -290,10 +290,30 @@ where
 mod tests {
     use super::*;
 
+    use std::ffi::c_void;
+    redis_mock::bind_redis_alloc_symbols_to_mock_impl!();
+
     #[test]
     fn test_rssortingvector_creation() {
         let vector = RSSortingVector::new(10);
         assert_eq!(vector.len(), 10);
+
+        // Ensure all values are initialized to null
+        for value in vector.values.iter() {
+            assert_eq!(unsafe { ffi::RSValue_IsNull(value.0) }, 1);
+        }
+    }
+
+    #[test]
+    fn test_put_num() {
+        let mut vector = RSSortingVector::new(3);
+        vector.put_num(0, 42.0);
+        assert_eq!(vector.values[0].as_num().unwrap(), 42.0);
+
+        // Ensure the rest are still null
+        for i in 1..vector.len() {
+            assert_eq!(unsafe { ffi::RSValue_IsNull(vector.values[i].0) }, 1);
+        }
     }
 
     #[test]
