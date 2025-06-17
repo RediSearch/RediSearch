@@ -20,23 +20,7 @@
 #include "deprecated_iterator_util.h"
 #include "src/index.h"
 
-#define BENCHMARK_TEMPLATE3_PRIVATE_DECLARE_F(BaseClass, Method, a, b, c) \
-  class BaseClass##_##Method##_Benchmark : public BaseClass<a, b, c> {    \
-   public:                                                                \
-    BaseClass##_##Method##_Benchmark() {                                  \
-      this->SetName(#BaseClass "<" #a "," #b ", " #c ">/" #Method);       \
-    }                                                                     \
-                                                                          \
-   protected:                                                             \
-    void BenchmarkCase(::benchmark::State&) BENCHMARK_OVERRIDE;           \
-  };
-
-  #define BENCHMARK_TEMPLATE3_DEFINE_F(BaseClass, Method, a, b, c)    \
-  BENCHMARK_TEMPLATE3_PRIVATE_DECLARE_F(BaseClass, Method, a, b, c)   \
-  void BENCHMARK_PRIVATE_CONCAT_NAME(BaseClass, Method)::BenchmarkCase
-
-
-template <typename IteratorType, bool optimized, bool childIsSubsetOfWC = false>
+template <typename IteratorType, bool optimized>
 class BM_NotIterator : public benchmark::Fixture {
 public:
   IteratorType *iterator_base;
@@ -52,50 +36,31 @@ public:
       initialized = true;
     }
 
-    auto numChildDocuments = state.range(0);
-    maxDocId = state.range(1);
+    // The ratio between wildcard result set size and child result set size
+    double ratio_multiplier = state.range(0);
+    // Total number of documents in the universe
+    size_t numChildDocIds = 100'000;
+    size_t numWcDocIds = numChildDocIds * ratio_multiplier;
 
     std::mt19937 rng(46);
     std::uniform_int_distribution<t_docId> dist(1, maxDocId);
+    std::uniform_real_distribution<double> prob_dist(0.0, 1.0);
 
     // For the subset case, first generate the WC IDs
-    if constexpr (childIsSubsetOfWC) {
-      wcIds.resize(maxDocId);
-      for (auto &id : wcIds) {
-        id = dist(rng);
-      }
-      std::sort(wcIds.begin(), wcIds.end());
-      wcIds.erase(std::unique(wcIds.begin(), wcIds.end()), wcIds.end());
+    wcIds.resize(maxDocId);
+    for (auto &id : wcIds) {
+      id = dist(rng);
+    }
+    std::sort(wcIds.begin(), wcIds.end());
+    wcIds.erase(std::unique(wcIds.begin(), wcIds.end()), wcIds.end());
 
-      // Now pick child IDs as a subset of WC IDs
-      if (numChildDocuments < wcIds.size()) {
-        // Randomly select a subset
-        std::uniform_int_distribution<size_t> idx_dist(0, wcIds.size() - 1);
-        childIds.resize(numChildDocuments);
-        for (auto &id : childIds) {
-          id = wcIds[idx_dist(rng)];
-        }
-      } else {
-        // Use all WC IDs
-        childIds = wcIds;
-      }
-      std::sort(childIds.begin(), childIds.end());
-      childIds.erase(std::unique(childIds.begin(), childIds.end()), childIds.end());
-    } else {
-      // Original logic for non-subset case
-      childIds.resize(numChildDocuments);
-      for (auto &id : childIds) {
-        id = dist(rng);
-      }
-      std::sort(childIds.begin(), childIds.end());
-      childIds.erase(std::unique(childIds.begin(), childIds.end()), childIds.end());
+    double inclusion_probability = 1.0 / ratio_multiplier;
+    childIds.clear();
 
-      wcIds.resize(maxDocId);
-      for (auto &id : wcIds) {
-        id = dist(rng);
+    for (const auto& wcId : wcIds) {
+      if (prob_dist(rng) < inclusion_probability) {
+        childIds.push_back(wcId);
       }
-      std::sort(wcIds.begin(), wcIds.end());
-      wcIds.erase(std::unique(wcIds.begin(), wcIds.end()), wcIds.end());
     }
 
     IteratorType *child = createChild();
@@ -140,27 +105,11 @@ public:
   }
 };
 
-template <typename IteratorType, bool optimized, bool childIsSubsetOfWC>
-bool BM_NotIterator<IteratorType, optimized, childIsSubsetOfWC>::initialized = false;
+template <typename IteratorType, bool optimized>
+bool BM_NotIterator<IteratorType, optimized>::initialized = false;
 
-#define NOT_SCENARIOS() \
-  Args({1'000, 100'000}) -> \
-  Args({100'000, 1'000}) -> \
-  Args({10'000, 500'000}) -> \
-  Args({500'000, 10'000}) -> \
-  Args({100'000, 1'000'000}) -> \
-  Args({1'000'000, 100'000}) -> \
-  Args({1'000'000, 2'000'000}) -> \
-  Args({2'000'000, 1'000'000}) -> \
-  Args({10'000'000, 50'000'000}) -> \
-  Args({50'000'000, 10'000'000})
-
-#define SUBSET_SCENARIOS() \
-  Args({1'000, 100'000}) -> \
-  Args({10'000, 500'000}) -> \
-  Args({100'000, 1'000'000}) -> \
-  Args({1'000'000, 2'000'000}) -> \
-  Args({10'000'000, 50'000'000})
+#define RATIO_SCENARIOS() \
+  RangeMultiplier(10)->Range(1, 1000000)
 
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, Read, QueryIterator, false)(benchmark::State &state) {
   for (auto _ : state) {
@@ -181,8 +130,8 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, SkipTo, QueryIterator, false)(bench
   }
 }
 
-BENCHMARK_REGISTER_F(BM_NotIterator, Read)->NOT_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_NotIterator, SkipTo)->NOT_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_NotIterator, Read)->RATIO_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_NotIterator, SkipTo)->RATIO_SCENARIOS();
 
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, Read_Old, IndexIterator, false)(benchmark::State &state) {
   RSIndexResult *hit;
@@ -208,8 +157,8 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, SkipTo_Old, IndexIterator, false)(b
   }
 }
 
-BENCHMARK_REGISTER_F(BM_NotIterator, Read_Old)->NOT_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_NotIterator, SkipTo_Old)->NOT_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_NotIterator, Read_Old)->RATIO_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_NotIterator, SkipTo_Old)->RATIO_SCENARIOS();
 
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, Read_Optimized, QueryIterator, true)(benchmark::State &state) {
   for (auto _ : state) {
@@ -230,8 +179,8 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, SkipTo_Optimized, QueryIterator, tr
   }
 }
 
-BENCHMARK_REGISTER_F(BM_NotIterator, Read_Optimized)->NOT_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_NotIterator, SkipTo_Optimized)->NOT_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_NotIterator, Read_Optimized)->RATIO_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_NotIterator, SkipTo_Optimized)->RATIO_SCENARIOS();
 
 BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, Read_Old_Optimized, IndexIterator, true)(benchmark::State &state) {
   RSIndexResult *hit;
@@ -257,109 +206,7 @@ BENCHMARK_TEMPLATE2_DEFINE_F(BM_NotIterator, SkipTo_Old_Optimized, IndexIterator
   }
 }
 
-BENCHMARK_REGISTER_F(BM_NotIterator, Read_Old_Optimized)->NOT_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_NotIterator, SkipTo_Old_Optimized)->NOT_SCENARIOS();
-
-// New benchmark definitions for the subset case - QueryIterator
-BENCHMARK_TEMPLATE3_DEFINE_F(BM_NotIterator, Read_Subset, QueryIterator, false, true)(benchmark::State &state) {
-  for (auto _ : state) {
-    IteratorStatus rc = iterator_base->Read(iterator_base);
-    if (rc == ITERATOR_EOF) {
-      iterator_base->Rewind(iterator_base);
-    }
-  }
-}
-
-BENCHMARK_TEMPLATE3_DEFINE_F(BM_NotIterator, SkipTo_Subset, QueryIterator, false, true)(benchmark::State &state) {
-  t_docId step = 10;
-  for (auto _ : state) {
-    IteratorStatus rc = iterator_base->SkipTo(iterator_base, iterator_base->lastDocId + step);
-    if (rc == ITERATOR_EOF) {
-      iterator_base->Rewind(iterator_base);
-    }
-  }
-}
-
-BENCHMARK_REGISTER_F(BM_NotIterator, Read_Subset)->SUBSET_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_NotIterator, SkipTo_Subset)->SUBSET_SCENARIOS();
-
-// New benchmark definitions for the subset case - IndexIterator
-BENCHMARK_TEMPLATE3_DEFINE_F(BM_NotIterator, Read_Old_Subset, IndexIterator, false, true)(benchmark::State &state) {
-  RSIndexResult *hit;
-  for (auto _ : state) {
-    int rc = iterator_base->Read(iterator_base->ctx, &hit);
-    if (rc == INDEXREAD_EOF) {
-      iterator_base->Rewind(iterator_base->ctx);
-    }
-  }
-}
-
-BENCHMARK_TEMPLATE3_DEFINE_F(BM_NotIterator, SkipTo_Old_Subset, IndexIterator, false, true)(benchmark::State &state) {
-  t_docId step = 10;
-  RSIndexResult *hit = iterator_base->current;
-  hit->docId = 0; // Ensure initial docId is set to 0
-  for (auto _ : state) {
-    int rc = iterator_base->SkipTo(iterator_base->ctx, hit->docId + step, &hit);
-    if (rc == INDEXREAD_EOF) {
-      iterator_base->Rewind(iterator_base->ctx);
-      hit = iterator_base->current;
-      hit->docId = 0;
-    }
-  }
-}
-
-BENCHMARK_REGISTER_F(BM_NotIterator, Read_Old_Subset)->SUBSET_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_NotIterator, SkipTo_Old_Subset)->SUBSET_SCENARIOS();
-
-// New benchmark definitions for the optimized subset case - QueryIterator
-BENCHMARK_TEMPLATE3_DEFINE_F(BM_NotIterator, Read_Optimized_Subset, QueryIterator, true, true)(benchmark::State &state) {
-  for (auto _ : state) {
-    IteratorStatus rc = iterator_base->Read(iterator_base);
-    if (rc == ITERATOR_EOF) {
-      iterator_base->Rewind(iterator_base);
-    }
-  }
-}
-
-BENCHMARK_TEMPLATE3_DEFINE_F(BM_NotIterator, SkipTo_Optimized_Subset, QueryIterator, true, true)(benchmark::State &state) {
-  t_docId step = 10;
-  for (auto _ : state) {
-    IteratorStatus rc = iterator_base->SkipTo(iterator_base, iterator_base->lastDocId + step);
-    if (rc == ITERATOR_EOF) {
-      iterator_base->Rewind(iterator_base);
-    }
-  }
-}
-
-BENCHMARK_REGISTER_F(BM_NotIterator, Read_Optimized_Subset)->SUBSET_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_NotIterator, SkipTo_Optimized_Subset)->SUBSET_SCENARIOS();
-
-// New benchmark definitions for the optimized subset case - IndexIterator
-BENCHMARK_TEMPLATE3_DEFINE_F(BM_NotIterator, Read_Old_Optimized_Subset, IndexIterator, true, true)(benchmark::State &state) {
-  RSIndexResult *hit;
-  for (auto _ : state) {
-    int rc = iterator_base->Read(iterator_base->ctx, &hit);
-    if (rc == INDEXREAD_EOF) {
-      iterator_base->Rewind(iterator_base->ctx);
-    }
-  }
-}
-
-BENCHMARK_TEMPLATE3_DEFINE_F(BM_NotIterator, SkipTo_Old_Optimized_Subset, IndexIterator, true, true)(benchmark::State &state) {
-  t_docId step = 10;
-  RSIndexResult *hit = iterator_base->current;
-  hit->docId = 0; // Ensure initial docId is set to 0
-  for (auto _ : state) {
-    int rc = iterator_base->SkipTo(iterator_base->ctx, hit->docId + step, &hit);
-    if (rc == INDEXREAD_EOF) {
-      iterator_base->Rewind(iterator_base->ctx);
-      hit = iterator_base->current;
-      hit->docId = 0;
-    }
-  }
-}
-
-BENCHMARK_REGISTER_F(BM_NotIterator, Read_Old_Optimized_Subset)->SUBSET_SCENARIOS();
-BENCHMARK_REGISTER_F(BM_NotIterator, SkipTo_Old_Optimized_Subset)->SUBSET_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_NotIterator, Read_Old_Optimized)->RATIO_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_NotIterator, SkipTo_Old_Optimized)->RATIO_SCENARIOS();
 
 BENCHMARK_MAIN();

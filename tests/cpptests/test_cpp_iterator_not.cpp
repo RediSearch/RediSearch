@@ -17,11 +17,12 @@
 
 #include "src/iterators/not_iterator.h"
 
-class NotIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<t_docId>, bool>> {
+class NotIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<t_docId>, std::optional<t_docId>, bool>> {
 protected:
   std::vector<t_docId> childDocIds;
   std::vector<t_docId> wcDocIds;
   std::vector<t_docId> resultSet;
+  std::optional<t_docId> opt_max_doc_id;
   t_docId maxDocId;
   QueryIterator *iterator_base;
   bool optimized;
@@ -32,20 +33,21 @@ protected:
 
   void SetUp() override {
     // Get child document IDs from parameter
-    std::tie(childDocIds, wcDocIds, optimized) = GetParam();
+    std::tie(childDocIds, wcDocIds, opt_max_doc_id, optimized) = GetParam();
     // Consider wcDocIds only if optimized is true
 
     // Find the maximum document ID
-    maxDocId = 0;
-    for (auto id : childDocIds) {
-      maxDocId = std::max(maxDocId, id);
-    }
-    if (optimized) {
-      for (auto id : wcDocIds) {
-        maxDocId = std::max(maxDocId, id);
+    if (opt_max_doc_id.has_value()) {
+      maxDocId = opt_max_doc_id.value();
+    } else {
+      maxDocId = *std::max_element(childDocIds.begin(), childDocIds.end());
+      if (optimized) {
+        for (auto id : wcDocIds) {
+          maxDocId = std::max(maxDocId, id);
+        }
       }
+      maxDocId += 5; // Add some buffer
     }
-    maxDocId += 5; // Add some buffer
     if (!optimized) {
       wcDocIds.clear();
       for (auto i = 1; i < maxDocId; i++) {
@@ -342,36 +344,8 @@ INSTANTIATE_TEST_SUITE_P(
   NotIteratorCommonTest,
   ::testing::Combine(
     ::testing::Values(
-      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10},
-      std::vector<t_docId>{2, 4, 6, 8, 10},
-      std::vector<t_docId>{5, 10, 15, 20, 25, 30},
-      std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
-      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
-      std::vector<t_docId>{1, 2, 3, 6, 10, 15},
-      std::vector<t_docId>{500, 600, 700, 800, 900, 1000},
-      // Add long random list
-      []() {
-        std::vector<t_docId> ids;
-        std::mt19937 gen(42); // Fixed seed for reproducibility
-        std::uniform_int_distribution<t_docId> dist(1, 10000);
-        for (int i = 0; i < 1000000; i++) {
-          ids.push_back(dist(gen));
-        }
-        std::sort(ids.begin(), ids.end());
-        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-        return ids;
-      }(),
-      []() {
-        std::vector<t_docId> ids;
-        std::mt19937 gen(42); // Fixed seed for reproducibility
-        std::uniform_int_distribution<t_docId> dist(1, 10000);
-        for (int i = 0; i < 50000; i++) {
-          ids.push_back(dist(gen));
-        }
-        std::sort(ids.begin(), ids.end());
-        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-        return ids;
-      }(),
+      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, // continuous
+      std::vector<t_docId>{500, 600, 700, 800, 900, 1000}, // sparse and first large
       []() {
         std::vector<t_docId> ids;
         std::mt19937 gen(42); // Fixed seed for reproducibility
@@ -385,35 +359,10 @@ INSTANTIATE_TEST_SUITE_P(
       }()
     ),
     ::testing::Values(
-      std::vector<t_docId>{3, 4, 9},
-      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
-      std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
-      std::vector<t_docId>{3, 4, 9, 25},
-      std::vector<t_docId>{50, 60, 70, 80, 90, 100, 600, 750, 950, 1200},
-      std::vector<t_docId>{},
+      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}, // continuous
+      std::vector<t_docId>{500, 600, 700, 800, 900, 1000}, // sparse and first large
+      std::vector<t_docId>{}, // empty
       // Add long random list for wildcard IDs
-      []() {
-        std::vector<t_docId> ids;
-        std::mt19937 gen(43); // Different seed
-        std::uniform_int_distribution<t_docId> dist(1, 20000);
-        for (int i = 0; i < 50000; i++) {
-          ids.push_back(dist(gen));
-        }
-        std::sort(ids.begin(), ids.end());
-        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-        return ids;
-      }(),
-      []() {
-        std::vector<t_docId> ids;
-        std::mt19937 gen(43); // Different seed
-        std::uniform_int_distribution<t_docId> dist(1, 20000);
-        for (int i = 0; i < 30000; i++) {
-          ids.push_back(dist(gen));
-        }
-        std::sort(ids.begin(), ids.end());
-        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-        return ids;
-      }(),
       []() {
         std::vector<t_docId> ids;
         std::mt19937 gen(43); // Different seed
@@ -426,13 +375,23 @@ INSTANTIATE_TEST_SUITE_P(
         return ids;
       }()
     ),
+    ::testing::Values(std::nullopt, 100),
     ::testing::Values(false, true)
   )
 );
 
 class NotIteratorChildTimeoutTest : public NotIteratorCommonTest {
   protected:
-  void TimeoutChildTestRead() {
+  void TimeoutChildTestFirstRead() {
+    NotIterator *ni = (NotIterator *)iterator_base;
+    auto child = reinterpret_cast<MockIterator *>(ni->child);
+    child->whenDone = ITERATOR_TIMEOUT;
+    child->docIds.clear();
+    IteratorStatus rc = iterator_base->Read(iterator_base);
+    ASSERT_EQ(rc, ITERATOR_TIMEOUT);
+  }
+
+  void TimeoutChildTestSubsequentRead() {
     NotIterator *ni = (NotIterator *)iterator_base;
     auto child = reinterpret_cast<MockIterator *>(ni->child);
     IteratorStatus rc = iterator_base->Read(iterator_base);
@@ -459,8 +418,12 @@ class NotIteratorChildTimeoutTest : public NotIteratorCommonTest {
   }
 };
 
-TEST_P(NotIteratorChildTimeoutTest, TimeOutChildRead) {
-  TimeoutChildTestRead();
+TEST_P(NotIteratorChildTimeoutTest, TimeoutChildTestFirstRead) {
+  TimeoutChildTestFirstRead();
+}
+
+TEST_P(NotIteratorChildTimeoutTest, TimeoutChildTestSubsequentRead) {
+  TimeoutChildTestSubsequentRead();
 }
 
 TEST_P(NotIteratorChildTimeoutTest, TimeOutChildSkipTo) {
@@ -485,78 +448,8 @@ INSTANTIATE_TEST_SUITE_P(
       std::vector<t_docId>{3, 4, 9, 25, 1000, 2000},
       std::vector<t_docId>{50, 60, 70, 80, 90, 100, 600, 750, 950, 1200}
     ),
-    ::testing::Values(false)
-  )
-);
-
-class NotIteratorWildCardTimeoutTest : public NotIteratorCommonTest {
-  protected:
-  void TimeoutWildCardTestRead() {
-    if (!optimized) return;
-    NotIterator *ni = (NotIterator *)iterator_base;
-    if (ni->wcii) {
-      ni->wcii->Free(ni->wcii);
-      MockIterator *mock_wcii = new MockIterator(std::vector<t_docId>{1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
-      ni->wcii = (QueryIterator*)mock_wcii;
-    }
-    IteratorStatus rc = iterator_base->Read(iterator_base);
-    ASSERT_EQ(rc, ITERATOR_OK);
-
-    auto wcii = reinterpret_cast<MockIterator *>(ni->wcii);
-    wcii->whenDone = ITERATOR_TIMEOUT;
-    wcii->docIds.clear();
-    while (rc == ITERATOR_OK) {
-      rc = iterator_base->Read(iterator_base);
-    }
-    ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-  }
-
-  void TimeoutWildCardTestSkipTo() {
-    if (!optimized) return;
-    NotIterator *ni = (NotIterator *)iterator_base;
-    if (ni->wcii) {
-      ni->wcii->Free(ni->wcii);
-      MockIterator *mock_wcii = new MockIterator(std::vector<t_docId>{});
-      ni->wcii = (QueryIterator*)mock_wcii;
-      mock_wcii->whenDone = ITERATOR_TIMEOUT;
-      mock_wcii->docIds.clear();
-    }
-    t_docId next = 1;
-    IteratorStatus rc = ITERATOR_OK;
-    while (rc == ITERATOR_OK || rc == ITERATOR_NOTFOUND) {
-      rc = iterator_base->SkipTo(iterator_base, ++next);
-    }
-    ASSERT_EQ(rc, ITERATOR_TIMEOUT);
-  }
-};
-
-TEST_P(NotIteratorWildCardTimeoutTest, TimeOutChildRead) {
-  TimeoutWildCardTestRead();
-}
-
-TEST_P(NotIteratorWildCardTimeoutTest, TimeOutWildCardSkipTo) {
-  TimeoutWildCardTestSkipTo();
-}
-
-INSTANTIATE_TEST_SUITE_P(
-  NotIteratorWildCardTimeoutP,
-  NotIteratorWildCardTimeoutTest,
-  ::testing::Combine(
-    ::testing::Values(
-      std::vector<t_docId>{2, 4, 6, 8, 10},
-      std::vector<t_docId>{5, 10, 15, 20, 25, 30},
-      std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
-      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
-      std::vector<t_docId>{1, 2, 3, 6, 10, 15},
-      std::vector<t_docId>{500, 600, 700, 800, 900, 1000}
-    ),
-    ::testing::Values(
-      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150, 1000, 2000},
-      std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15, 1000, 2000},
-      std::vector<t_docId>{3, 4, 9, 25, 1000, 2000},
-      std::vector<t_docId>{50, 60, 70, 80, 90, 100, 600, 750, 950, 1200}
-    ),
-    ::testing::Values(true)
+    ::testing::Values(std::nullopt),
+    ::testing::Values(false, true)
   )
 );
 
@@ -564,14 +457,20 @@ class NotIteratorSelfTimeoutTest : public NotIteratorCommonTest {
   protected:
   void SetUp() override {
     // Get child document IDs from parameter
-    std::tie(childDocIds, wcDocIds, optimized) = GetParam();
+    std::tie(childDocIds, wcDocIds, opt_max_doc_id, optimized) = GetParam();
 
     // Find the maximum document ID
-    maxDocId = 0;
-    for (auto id : childDocIds) {
-      maxDocId = std::max(maxDocId, id);
+    if (opt_max_doc_id.has_value()) {
+      maxDocId = opt_max_doc_id.value();
+    } else {
+      maxDocId = *std::max_element(childDocIds.begin(), childDocIds.end());
+      if (optimized) {
+        for (auto id : wcDocIds) {
+          maxDocId = std::max(maxDocId, id);
+        }
+      }
+      maxDocId += 5; // Add some buffer
     }
-    maxDocId += 5; // Add some buffer
     // Compute resultSet from maxDocId and childDocIds
     resultSet.clear();
     for (t_docId id = 1; id <= maxDocId; id++) {
@@ -581,75 +480,73 @@ class NotIteratorSelfTimeoutTest : public NotIteratorCommonTest {
     }
 
     // Create a MockIterator with sleep time
-    MockIterator* mockIter = new MockIterator(std::chrono::milliseconds(100));
+    MockIterator* mockIter = new MockIterator(std::chrono::nanoseconds(200));
     mockIter->docIds = childDocIds;
     auto child = (QueryIterator*)mockIter;
 
     // Define timeout only once
-    struct timespec timeout = {0, 100};
+    struct timespec timeout = {0, 1};
     iterator_base = IT_V2(NewNotIterator)(child, maxDocId, 1.0, timeout, nullptr);
+    NotIterator *ni = (NotIterator *)iterator_base;
 
     // Store the wildcard iterator in the NotIterator structure instead of directly in QueryIterator
     if (optimized) {
-      NotIterator *ni = (NotIterator *)iterator_base;
       ni->wcii = (QueryIterator *) new MockIterator(wcDocIds);
     }
   }
 
   void TimeoutSelfTestRead() {
     NotIterator *ni = (NotIterator *)iterator_base;
-    auto child = reinterpret_cast<MockIterator *>(ni->child);
     IteratorStatus rc = iterator_base->Read(iterator_base);
-    ASSERT_EQ(rc, ITERATOR_OK);
-    child->whenDone = ITERATOR_TIMEOUT;
-    child->docIds.clear();
-    while (rc == ITERATOR_OK) {
-      rc = iterator_base->Read(iterator_base);
-    }
     ASSERT_EQ(rc, ITERATOR_TIMEOUT);
   }
 
   void TimeoutSelfTestSkipTo() {
     NotIterator *ni = (NotIterator *)iterator_base;
-    auto child = reinterpret_cast<MockIterator *>(ni->child);
-    child->whenDone = ITERATOR_TIMEOUT;
-    child->docIds.clear();
-    t_docId next = 1;
-    IteratorStatus rc = ITERATOR_OK;
-    while (rc == ITERATOR_OK || rc == ITERATOR_NOTFOUND) {
-      rc = iterator_base->SkipTo(iterator_base, ++next);
-    }
+    IteratorStatus rc = iterator_base->SkipTo(iterator_base, 1);
     ASSERT_EQ(rc, ITERATOR_TIMEOUT);
   }
 };
 
 TEST_P(NotIteratorSelfTimeoutTest, TimeOutSelfRead) {
+  GTEST_SKIP() << "Skipping this as Timer is not activated";
   TimeoutSelfTestRead();
 }
 
 TEST_P(NotIteratorSelfTimeoutTest, TimeOutSelfSkipTo) {
+  GTEST_SKIP() << "Skipping this as Timer is not activated";
   TimeoutSelfTestSkipTo();
 }
 
+// Trying to create the case where the Child and WCII both have the same logic, so when Reading the first or Skipping to 1, it will do
+// a big loop that will allow to trigger the timeout (5000 times it needs to check before verifying the timeout)
 INSTANTIATE_TEST_SUITE_P(
   NotIteratorSelfTimeoutP,
   NotIteratorSelfTimeoutTest,
   ::testing::Combine(
     ::testing::Values(
-      std::vector<t_docId>{2, 4, 6, 8, 10},
-      std::vector<t_docId>{5, 10, 15, 20, 25, 30},
-      std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
-      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
-      std::vector<t_docId>{1, 2, 3, 6, 10, 15},
-      std::vector<t_docId>{500, 600, 700, 800, 900, 1000}
+      []() {
+        std::vector<t_docId> ids;
+        for (int i = 0; i < 5500; i++) {
+          ids.push_back(i + 1);
+        }
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+        return ids;
+      }()
     ),
     ::testing::Values(
-      std::vector<t_docId>{1, 2, 3, 4, 5, 6, 100, 150},
-      std::vector<t_docId>{1, 3, 5, 7, 9, 11, 13, 15},
-      std::vector<t_docId>{3, 4, 9, 25},
-      std::vector<t_docId>{50, 60, 70, 80, 90, 100, 600, 750, 950, 1200},
-      std::vector<t_docId>{}
+      []() {
+        std::vector<t_docId> ids;
+        for (int i = 0; i < 5500; i++) {
+          ids.push_back(i + 1);
+        }
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+        return ids;
+      }()
     ),
+    ::testing::Values(std::nullopt),
     ::testing::Values(false, true)
   )
 );

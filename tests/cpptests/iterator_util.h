@@ -33,19 +33,21 @@ public:
     size_t nextIndex;
     IteratorStatus whenDone;
     size_t readCount;
-    std::optional<std::chrono::milliseconds> sleepTime; // Sleep for this duration before returning from Read/SkipTo
+    std::optional<std::chrono::nanoseconds> sleepTime; // Sleep for this duration before returning from Read/SkipTo
 private:
-
-    static void setBase(QueryIterator *base) {
-      base->type = READ_ITERATOR;
-      base->atEOF = false;
-      base->lastDocId = 0;
-      base->current = NewVirtualResult(1, RS_FIELDMASK_ALL);
-      base->NumEstimated = MockIterator_NumEstimated;
-      base->Free = MockIterator_Free;
-      base->Read = MockIterator_Read;
-      base->SkipTo = MockIterator_SkipTo;
-      base->Rewind = MockIterator_Rewind;
+    void Init() {
+      base.type = READ_ITERATOR;
+      base.atEOF = false;
+      base.lastDocId = 0;
+      base.current = NewVirtualResult(1, RS_FIELDMASK_ALL);
+      base.NumEstimated = MockIterator_NumEstimated;
+      base.Free = MockIterator_Free;
+      base.Read = MockIterator_Read;
+      base.SkipTo = MockIterator_SkipTo;
+      base.Rewind = MockIterator_Rewind;
+      std::sort(docIds.begin(), docIds.end());
+      auto new_end = std::unique(docIds.begin(), docIds.end());
+      docIds.erase(new_end, docIds.end());
     }
 public:
     // Public API
@@ -54,7 +56,7 @@ public:
         std::this_thread::sleep_for(sleepTime.value());
       }
       readCount++;
-      if (nextIndex >= docIds.size() || base.atEOF || docIds.size() == 0) {
+      if (nextIndex >= docIds.size() || base.atEOF) {
         base.atEOF = true;
         return whenDone;
       }
@@ -103,24 +105,18 @@ public:
     template<typename... Args>
     MockIterator(Args&&... args)
       : docIds({std::forward<Args>(args)...}), whenDone(ITERATOR_EOF), nextIndex(0), readCount(0), sleepTime(std::nullopt) {
-      setBase(&base);
-      auto new_end = std::unique(docIds.begin(), docIds.end());
-      docIds.erase(new_end, docIds.end());
+      Init();
     }
 
     template<typename... Args>
-    MockIterator(std::chrono::milliseconds sleep, Args&&... args)
+    MockIterator(std::chrono::nanoseconds sleep, Args&&... args)
       : docIds({std::forward<Args>(args)...}), whenDone(ITERATOR_EOF), nextIndex(0), readCount(0), sleepTime(sleep) {
-      setBase(&base);
-      auto new_end = std::unique(docIds.begin(), docIds.end());
-      docIds.erase(new_end, docIds.end());
+      Init();
     }
 
     template<typename... Args>
-    MockIterator(IteratorStatus st, std::optional<std::chrono::milliseconds> sleep, Args&&... ids_args)
-      : docIds({ids_args...}), whenDone(st), nextIndex(0), readCount(0), sleepTime(sleep) {
-      setBase(&base);
-      auto new_end = std::unique(docIds.begin(), docIds.end());
-      docIds.erase(new_end, docIds.end());
+    MockIterator(IteratorStatus st, std::optional<std::chrono::nanoseconds> sleep, Args&&... ids_args)
+      : docIds({std::forward<Args>(ids_args)...}), whenDone(st), nextIndex(0), readCount(0), sleepTime(sleep) {
+      Init();
     }
 };
