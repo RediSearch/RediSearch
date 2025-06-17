@@ -207,6 +207,7 @@ capture_coverage() {
   # Remove coverage for directories we don't want (ignore if no file matches)
   lcov -o $BINROOT/$NAME.info --ignore-errors unused --remove $BINROOT/source.info \
     "*/tests/*" \
+    "*/test/*" \
 
   [[ -n $GITHUB_ACTIONS ]] && echo "::endgroup::" || true
 
@@ -458,7 +459,7 @@ run_unit_tests() {
   if [[ $UNIT_TEST_RESULT -eq 0 ]]; then
     echo "All unit tests passed!"
     if [[ $COV == 1 ]]; then
-      if [[ "$REDIS_STANDALONE" == "1" ]]; then
+      if [[ "$COORD" == "0" || -z "$COORD" ]]; then
         DEPLOYMENT_TYPE="standalone"
       else
         DEPLOYMENT_TYPE="coordinator"
