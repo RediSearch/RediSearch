@@ -58,6 +58,13 @@ TEST_P(IntersectionIteratorCommonTest, Read) {
     IntersectionIterator *ii = (IntersectionIterator *)ii_base;
     IteratorStatus rc;
 
+    // Verify that the child iterators are sorted correctly by the estimated number of results
+    for (uint32_t i = 1; i < ii->num_its; i++) {
+        auto prev_est = ii->its[i - 1]->NumEstimated(ii->its[i - 1]);
+        auto cur_est = ii->its[i]->NumEstimated(ii->its[i]);
+        EXPECT_LE(prev_est, cur_est) << "Child iterators are not sorted by estimated results";
+    }
+
     // Test reading until EOF
     size_t i = 0;
     while ((rc = ii_base->Read(ii_base)) == ITERATOR_OK) {
