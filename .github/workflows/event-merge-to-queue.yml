@@ -72,6 +72,7 @@ jobs:
       rejson-branch: '2.6'
       test-config: '' # run all tests
       san: address
+      env: ubuntu-latest
 
   pr-validation:
     needs:
