@@ -49,7 +49,7 @@ else
     ./configure --prefix=/usr/local
     make -j$(nproc)
     make install
-    eecho "/usr/local/bin" >> "$GITHUB_PATH"
+    echo "/usr/local/bin" >> "$GITHUB_PATH"
     as --version   # Should now be 2.42
 
 fi
