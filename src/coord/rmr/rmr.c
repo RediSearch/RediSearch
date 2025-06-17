@@ -266,8 +266,7 @@ static void uvUpdateTopologyRequest(void *p) {
   rm_free(ctx);
 }
 
-//TODO(Joan): Should we add some thread safety?
-/* Set a new topology for the cluster */
+/* Set a new topology for the cluster.*/
 void MR_UpdateTopology(MRClusterTopology *newTopo) {
   // enqueue a request on the io thread, this can't be done from the main thread
   if (newTopo && cluster_g->topo && newTopo->hashFunc == MRHashFunc_None) {
@@ -275,12 +274,14 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
   }
   MRClusterTopology *old_topo = cluster_g->topo;
   cluster_g->topo = newTopo;
-  if (old_topo) {
-    MRClusterTopology_Free(old_topo);
-  }
+
   IORuntimeCtx_Schedule_Topology(cluster_g->control_plane_io_runtime, uvUpdateTopologyRequest, cluster_g->topo);
   for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
     IORuntimeCtx_Schedule_Topology(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, cluster_g->topo);
+  }
+  // I can free the old topology because the IO threads will have already cleared the pendingTopo, so I am sure no one will need ths old topology
+  if (old_topo) {
+    MRClusterTopology_Free(old_topo);
   }
 }
 
@@ -291,7 +292,6 @@ void MR_UpdateTopology(MRClusterTopology *newTopo) {
 //   RQ_UpdateMaxPending(rq_g, connPerShard * PENDING_FACTOR);
 // }
 
-//TODO(Joan): We may need some thread safety here?
 extern size_t NumShards;
 void MR_UpdateConnPerShard(size_t connPerShard) {
   if (!cluster_g) return; // not initialized yet, we have nothing to update yet.
@@ -636,7 +636,6 @@ void iterStartCb(void *p) {
   it->cbxs = rm_realloc(it->cbxs, numShards * sizeof(*it->cbxs));
   MRCommand *cmd = &it->cbxs->cmd;
   cmd->targetSlot = cluster_g->topo->shards[0].startSlot; // Set the first command to target the first shard
-  // TODO(Joan): Why i starts at 1?
   for (size_t i = 1; i < numShards; i++) {
     it->cbxs[i].it = it;
     it->cbxs[i].cmd = MRCommand_Copy(cmd);

@@ -248,7 +248,6 @@ void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime, struct MRClusterTopology 
 /* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the
  * provider's current context is used. Otherwise, we call its function with the given context */
 
-//TOODO(Joan): Review this code, Should make sure about thread safety
 int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime, struct MRClusterTopology *topo) {
   IORuntimeCtx_UpdateNodes(ioRuntime, topo);
   IORuntimeCtx_ConnectAll(ioRuntime);
