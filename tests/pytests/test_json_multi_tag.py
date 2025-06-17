@@ -24,7 +24,7 @@ def testMultiTagReturnSimple(env):
     res2 = [1, 'doc:1', ['category_arr', '["mathematics and computer science","logic","programming","database"]']]
 
     # Currently return a single value (only the first value)
-    env.expect('FT.SEARCH', 'idx1', '@category:{mathematics\ and\ computer\ science}', 'RETURN', '1', 'category').equal(res1)
+    env.expect('FT.SEARCH', 'idx1', r'@category:{mathematics\ and\ computer\ science}', 'RETURN', '1', 'category').equal(res1)
     env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN', '1', 'category').equal(res1)
     env.expect('FT.SEARCH', 'idx1', '@category:{logic}', 'RETURN', '3', '$.category', 'AS', 'category_arr').equal(res2)
 
@@ -131,7 +131,7 @@ def searchMultiTagCategory(env):
         res = env.cmd('FT.SEARCH', idx, '@category:{performance}', 'NOCONTENT')
         env.assertEqual(toSortedFlatList(res), toSortedFlatList([1, 'doc:3']), message="B " + idx)
 
-        env.expect('FT.SEARCH', idx, '@category:{high\ performance}', 'NOCONTENT').equal([1, 'doc:2'])
+        env.expect('FT.SEARCH', idx, r'@category:{high\ performance}', 'NOCONTENT').equal([1, 'doc:2'])
         env.expect('FT.SEARCH', idx, '@category:{cloud}', 'NOCONTENT').equal([1, 'doc:3'])
 
 def searchMultiTagAuthor(env):
@@ -141,7 +141,7 @@ def searchMultiTagAuthor(env):
     env.assertEqual(int(index_info(env, 'idx_author_arr')['hash_indexing_failures']), 3)
 
     for idx in ['idx_author_flat']:
-        env.expect('FT.SEARCH', idx, '@author:{Donald\ Knuth}', 'NOCONTENT').equal([1, 'doc:1'])
+        env.expect('FT.SEARCH', idx, r'@author:{Donald\ Knuth}', 'NOCONTENT').equal([1, 'doc:1'])
 
         # Use toSortedFlatList when scores are not distinct (to succeed also with coordinaotr)
         res = env.cmd('FT.SEARCH', idx, '@author:{Brendan*}', 'NOCONTENT')
