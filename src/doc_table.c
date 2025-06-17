@@ -17,6 +17,7 @@
 #include "rmalloc.h"
 #include "spec.h"
 #include "config.h"
+#include "tmp.h"
 
 /* increasing the ref count of the given dmd */
 /*
