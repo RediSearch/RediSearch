@@ -29,7 +29,7 @@ class IndexConfig:
     doc_count: int
     value_range: Tuple[float, float]
     insertion_order: str  # 'sequential', 'random', 'sparsed'
-    batch_size: int = 100
+    sparse_size: int = 100
 
 
 class NumericTreeGenerator:
@@ -97,12 +97,12 @@ class NumericTreeGenerator:
             return shuffled
 
         elif config.insertion_order == 'sparsed':
-            assert config.batch_size > 1, "Batch size must be greater than 1 for sparsed insertion"
+            assert config.sparse_size > 1, "Sparse size must be greater than 1 for sparsed insertion"
             # Insert same value multiple times before moving to next
             new_sequence = []
             for key_id, field1_val, field2_val in base_data:
-                # Insert this value batch_size times with different doc_ids
-                for batch_idx in range(config.batch_size):
+                # Insert this value sparse_size times with different doc_ids
+                for sparse_idx in range(config.sparse_size):
                     new_sequence.append((key_id, field1_val, field2_val))
             return new_sequence
 
@@ -145,7 +145,7 @@ class NumericTreeGenerator:
         print(f"✓ Populated {config.name} with {len(insertion_sequence)} documents ({config.insertion_order} order)")
 
 
-def generate_index_configs(docs_per_index: int, batch_size: int) -> List[IndexConfig]:
+def generate_index_configs(docs_per_index: int, sparse_size: int) -> List[IndexConfig]:
     """Generate configurations for 3 indexes with different insertion orders"""
     insertion_orders = ['sequential', 'random', 'sparsed']
     configs = []
@@ -158,7 +158,7 @@ def generate_index_configs(docs_per_index: int, batch_size: int) -> List[IndexCo
             doc_count=docs_per_index,
             value_range=(0.0, 10000.0),  # Same value range for all indexes
             insertion_order=order,
-            batch_size=batch_size
+            sparse_size=sparse_size
         )
         configs.append(config)
 
@@ -171,26 +171,26 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Generate 3 indexes with 10K docs each, batch size 100
-  python generate_numeric_trees.py --docs-per-index 10000 --batch-size 100
+  # Generate 3 indexes with 10K docs each, sparse size 100
+  python generate_numeric_trees.py --docs-per-index 10000 --sparse-size 100
 
   # Generate with smaller dataset for quick testing
-  python generate_numeric_trees.py --docs-per-index 1000 --batch-size 50
+  python generate_numeric_trees.py --docs-per-index 1000 --sparse-size 50
 
-  # Generate with larger batch size for more extreme batching effect
-  python generate_numeric_trees.py --docs-per-index 5000 --batch-size 200
+  # Generate with larger sparse size for more extreme sparsing effect
+  python generate_numeric_trees.py --docs-per-index 5000 --sparse-size 200
 
 The script creates 3 indexes:
   1. numeric_idx_sequential: Values inserted in ascending order
   2. numeric_idx_random: Values inserted in random order
-  3. numeric_idx_batched: Same value inserted multiple times before next value
+  3. numeric_idx_sparsed: Same value inserted multiple times before next value
         """
     )
 
     parser.add_argument('--docs-per-index', '-d', type=int, default=10000,
                        help='Number of base documents per index (default: 10000)')
-    parser.add_argument('--batch-size', '-b', type=int, default=100,
-                       help='Batch size for batched insertion (default: 100)')
+    parser.add_argument('--sparse-size', '-s', type=int, default=100,
+                       help='Sparse size for sparsed insertion (default: 100)')
     parser.add_argument('--redis-host', default='localhost',
                        help='Redis host (default: localhost)')
     parser.add_argument('--redis-port', type=int, default=6379,
@@ -203,14 +203,14 @@ The script creates 3 indexes:
     args = parser.parse_args()
 
     print(f"Generating 3 numeric indexes with different insertion orders")
-    print(f"Base documents per index: {args.docs_per_index}, Batch size: {args.batch_size}")
+    print(f"Base documents per index: {args.docs_per_index}, Sparse size: {args.sparse_size}")
     print("-" * 60)
-    
+
     # Initialize generator
     generator = NumericTreeGenerator(args.redis_host, args.redis_port, args.redis_db)
 
     # Generate configurations for 3 indexes with different insertion orders
-    configs = generate_index_configs(args.docs_per_index, args.batch_size)
+    configs = generate_index_configs(args.docs_per_index, args.sparse_size)
 
     # Cleanup existing indexes if requested
     if args.cleanup:
@@ -244,7 +244,7 @@ The script creates 3 indexes:
         print(f"    Fields: {config.field1_name}, {config.field2_name}")
         print(f"    Value range: {value_range}")
         if config.insertion_order == 'sparsed':
-            print(f"    Batch size: {config.batch_size}")
+            print(f"    Sparse size: {config.sparse_size}")
         print()
 
 

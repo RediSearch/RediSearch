@@ -4,16 +4,16 @@ This directory contains Python scripts for generating, testing, parsing, and vis
 
 ## Scripts Overview
 
-### 1. `generate_numeric_trees.py` - **NEW**
+### 1. `generate_numeric_trees.py`
 Generates 3 numeric indexes with 2 fields each, using different **value insertion orders** to test how insertion patterns affect tree structure and iterator performance.
 
-### 2. `test_numeric_queries.py` - **NEW**
+### 2. `test_numeric_queries.py`
 Tests various numeric queries against the generated indexes to evaluate iterator performance across different tree structures.
 
-### 3. `numeric_tree_parse.py` - **EXISTING**
+### 3. `numeric_tree_parse.py`
 Parses RediSearch numeric tree dump files and converts them to JSON format for analysis.
 
-### 4. `numeric_tree_visualize.py` - **EXISTING**
+### 4. `numeric_tree_visualize.py` 
 Creates interactive visualizations of parsed numeric trees using Plotly.
 
 ## Installation
@@ -36,20 +36,23 @@ redis-server --loadmodule /path/to/redisearch.so
 ### Basic Generation
 
 ```bash
-# Generate 3 indexes with different insertion orders (10K base docs, batch size 100)
-./generate_numeric_trees.py --docs-per-index 10000 --batch-size 100
+# Generate 3 indexes with different insertion orders (10K base docs, sparse size 100)
+./generate_numeric_trees.py --docs-per-index 10000 --sparse-size 100
 
 # Generate with smaller dataset for quick testing
-./generate_numeric_trees.py --docs-per-index 1000 --batch-size 50
+./generate_numeric_trees.py --docs-per-index 1000 --sparse-size 50
 
-# Generate with larger batch size for more extreme batching effect
-./generate_numeric_trees.py --docs-per-index 5000 --batch-size 200
+# Generate with larger sparse size for more extreme sparsing effect
+./generate_numeric_trees.py --docs-per-index 5000 --sparse-size 200
+
+# Clean up existing indexes before creating new ones
+./generate_numeric_trees.py --docs-per-index 10000 --sparse-size 100 --cleanup
 ```
 
 ### Testing Performance
 
 ```bash
-# Test all query types on all 3 indexes
+# Test all query types on all 3 indexes with default infinity bounds (30%)
 ./test_numeric_queries.py --query-type all --iterations 100
 
 # Test intersection queries (tests both fields within same index)
@@ -57,6 +60,12 @@ redis-server --loadmodule /path/to/redisearch.so
 
 # Test single field queries only
 ./test_numeric_queries.py --query-type single --iterations 200
+
+# Test with custom infinity ratio (50% of queries use infinity bounds)
+./test_numeric_queries.py --query-type all --use-infinity 0.5 --iterations 100
+
+# Test without infinity bounds
+./test_numeric_queries.py --query-type all --no-infinity --iterations 100
 ```
 
 ## B. Tree Analysis & Visualization (EXISTING Tools)
@@ -100,7 +109,7 @@ The script creates **3 indexes with identical data but different insertion order
 - **Average case** performance
 - Simulates real-world random data ingestion
 
-### 3. Batched Index (`numeric_idx_batched`)
+### 3. Sparsed Index (`numeric_idx_sparsed`)
 - **Same value inserted multiple times** before moving to next value
 - Creates **unbalanced tree** with deep branches for repeated values
 - **Worst case** for tree traversal (many duplicate values)
@@ -136,7 +145,7 @@ This allows testing:
 ### Scenario 1: Insertion Order Impact on Range Queries
 ```bash
 # Generate indexes with different insertion orders
-./generate_numeric_trees.py --docs-per-index 10000 --batch-size 100 --cleanup
+./generate_numeric_trees.py --docs-per-index 10000 --sparse-size 100 --cleanup
 
 # Test single field range queries - compare performance across insertion orders
 ./test_numeric_queries.py --query-type single --iterations 200
@@ -150,11 +159,11 @@ This allows testing:
 # Compare how tree structure affects intersection performance
 ```
 
-### Scenario 3: Batch Size Impact on Tree Structure
+### Scenario 3: Sparse Size Impact on Tree Structure
 ```bash
-# Test different batch sizes for the batched index
-for batch_size in 10 50 100 200 500; do
-    ./generate_numeric_trees.py --docs-per-index 5000 --batch-size $batch_size --cleanup
+# Test different sparse sizes for the sparsed index
+for sparse_size in 10 50 100 200 500; do
+    ./generate_numeric_trees.py --docs-per-index 5000 --sparse-size $sparse_size --cleanup
     ./test_numeric_queries.py --query-type all --iterations 50
 done
 ```
@@ -163,7 +172,7 @@ done
 ```bash
 # Test how insertion order effects scale with dataset size
 for docs in 1000 5000 10000 50000; do
-    ./generate_numeric_trees.py --docs-per-index $docs --batch-size 100 --cleanup
+    ./generate_numeric_trees.py --docs-per-index $docs --sparse-size 100 --cleanup
     ./test_numeric_queries.py --query-type single --iterations 100
 done
 ```
@@ -203,19 +212,21 @@ UNION Query Statistics:
 
 ### Custom Redis Connection
 ```bash
+# Connect to remote Redis instance
 ./generate_numeric_trees.py --redis-host redis.example.com --redis-port 6380 --redis-db 1
+./test_numeric_queries.py --redis-host redis.example.com --redis-port 6380 --redis-db 1
 ```
 
 ### Large Scale Testing
 ```bash
-# Generate large dataset for stress testing
-./generate_numeric_trees.py --indexes 10 --docs-per-index 100000 --spread sparse --jump-size 1000
+# Generate large dataset for stress testing (always creates exactly 3 indexes)
+./generate_numeric_trees.py --docs-per-index 100000 --sparse-size 1000
 ```
 
 ### Memory-Efficient Testing
 ```bash
 # Smaller datasets for quick iteration
-./generate_numeric_trees.py --indexes 3 --docs-per-index 1000 --spread consecutive
+./generate_numeric_trees.py --docs-per-index 1000 --sparse-size 10
 ```
 
 ## Integration with Benchmarks
@@ -239,8 +250,8 @@ redis-cli MODULE LIST
 
 ### Index Creation Failures
 ```bash
-# Clean up existing indexes
-./generate_numeric_trees.py --cleanup --indexes 0
+# Clean up existing indexes before creating new ones
+./generate_numeric_trees.py --cleanup --docs-per-index 1000 --sparse-size 10
 
 # Check Redis memory usage
 redis-cli INFO memory
@@ -256,7 +267,7 @@ redis-cli INFO memory
 ### 1. Generate Test Data
 ```bash
 # Create 3 indexes with different insertion orders
-./generate_numeric_trees.py --docs-per-index 10000 --batch-size 100
+./generate_numeric_trees.py --docs-per-index 10000 --sparse-size 100
 ```
 
 ### 2. Test Performance
@@ -270,7 +281,7 @@ redis-cli INFO memory
 # From Redis CLI, dump each index's tree structure
 redis-cli FT.DEBUG DUMP_NUMIDXTREE numeric_idx_sequential price > sequential_tree.txt
 redis-cli FT.DEBUG DUMP_NUMIDXTREE numeric_idx_random price > random_tree.txt
-redis-cli FT.DEBUG DUMP_NUMIDXTREE numeric_idx_batched price > batched_tree.txt
+redis-cli FT.DEBUG DUMP_NUMIDXTREE numeric_idx_sparsed price > sparsed_tree.txt
 ```
 
 ### 4. Parse & Visualize
@@ -278,12 +289,12 @@ redis-cli FT.DEBUG DUMP_NUMIDXTREE numeric_idx_batched price > batched_tree.txt
 # Parse each tree structure
 ./numeric_tree_parse.py sequential_tree.txt sequential.json
 ./numeric_tree_parse.py random_tree.txt random.json
-./numeric_tree_parse.py batched_tree.txt batched.json
+./numeric_tree_parse.py sparsed_tree.txt sparsed.json
 
 # Create interactive visualizations
 ./numeric_tree_visualize.py sequential.json
 ./numeric_tree_visualize.py random.json
-./numeric_tree_visualize.py batched.json
+./numeric_tree_visualize.py sparsed.json
 ```
 
 This workflow allows you to:
