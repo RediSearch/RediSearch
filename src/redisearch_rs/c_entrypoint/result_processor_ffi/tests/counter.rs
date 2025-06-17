@@ -134,7 +134,7 @@ fn rp_counter_new_proper_alignment() {
     }
 }
 
-#[cfg(not(miri))] // FIXME miri isnt happy about this test, does it allocate new functions for each struct??
+#[cfg(not(miri))] // FIXME miri isn't happy about this test, does it allocate new functions for each struct??
 #[test]
 fn rp_counter_new_function_pointer_consistency() {
     let counter1 = unsafe { RPCounter_New() };
