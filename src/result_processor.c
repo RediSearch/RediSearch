@@ -1540,20 +1540,16 @@ dictType dictTypeHybridSearchResult = {
    if (!entry) {
      // No more results to yield - return appropriate status
      int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
-     self->timedOut = false; // Reset for potential future use
      return ret;
    }
 
-   // Get the HybridSearchResult from the dictionary entry
    HybridSearchResult *hybridResult = dictGetVal(entry);
    RS_ASSERT(hybridResult && hybridResult->searchResult);
    RS_ASSERT(hybridResult->hasScores[0] || hybridResult->hasScores[1]);
 
-   // Apply hybrid scoring function with score availability flags
    double hybridScore = self->hybridScoring_function(hybridResult->scores[0], hybridResult->scores[1],
                                                     hybridResult->hasScores[0], hybridResult->hasScores[1]);
 
-   // Override the result with stored data and new hybrid score
    SearchResult_Override(r, hybridResult->searchResult);
    r->score = hybridScore;
 
@@ -1564,28 +1560,30 @@ dictType dictTypeHybridSearchResult = {
  static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
    RPHybridMerger *self = (RPHybridMerger *)rp;
 
-  // Smart upstream consumption using index array
-  // Keep unconsumed upstream indices at the beginning of the array
-  int upstreamIndices[2] = {0, 1}; // Start with both upstreams unconsumed
-  int numUnconsumed = 2;
-
+  // The array keeps unconsumed indices at the beginning, and consumed indices are moved to the end.
+  int upstreamIndices[2] = {0, 1};
+  int numUnconsumed = 2; // Start with both upstreams unconsumed.
+  // Busy wait loop - continuously try to consume from upstreams until all are consumed
   while (numUnconsumed > 0) {
     for (int i = 0; i < numUnconsumed; i++) {
       int upstreamIndex = upstreamIndices[i];
       int rc = ConsumeFromUpstream(self->pooledResult, self->hybridResults, self->window, self->upstreams[upstreamIndex], upstreamIndex);
-      if (rc == RS_RESULT_DEPLETING){
+
+      if (rc == RS_RESULT_DEPLETING) {
+        // Upstream is still active but not ready to provide results. Skip to the next.
         continue;
-      }
-      else if (rc == RS_RESULT_OK || rc == RS_RESULT_EOF) {
-        // Swap consumed upstream index to the end and decrement numUnconsumed
+      } else if (rc == RS_RESULT_OK || rc == RS_RESULT_EOF) {
+        // Mark this upstream as consumed by swapping it to the end of the unconsumed section.
         numUnconsumed--;
         if (i < numUnconsumed) {
-          // Swap with the last unconsumed upstream index
+          // Swap the current index with the last unconsumed index.
+          int temp = upstreamIndices[i];
           upstreamIndices[i] = upstreamIndices[numUnconsumed];
-          upstreamIndices[numUnconsumed] = upstreamIndex;
+          upstreamIndices[numUnconsumed] = temp;
         }
         continue;
       } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
+        // Handle timeout case: switch to yield phase and return.
         self->timedOut = true;
         self->iterator = dictGetIterator(self->hybridResults);
         rp->Next = RPHybridMerger_Yield;
@@ -1605,9 +1603,9 @@ dictType dictTypeHybridSearchResult = {
  static void RPHybridMerger_Free(ResultProcessor *rp) {
    RPHybridMerger *self = (RPHybridMerger *)rp;
 
-   // Free the hybrid results dictionary (HybridSearchResult values automatically freed by destructor)
    // Free the iterator
    dictReleaseIterator(self->iterator);
+   // Free the hybrid results dictionary (HybridSearchResult values automatically freed by destructor)
    dictRelease(self->hybridResults);
 
    // Free the pooled result
@@ -1626,23 +1624,18 @@ dictType dictTypeHybridSearchResult = {
    ret->upstreams[0] = upstream1;
    ret->upstreams[1] = upstream2;
    ret->window = window;
-
-   // Calculate expected dictionary size: window * num_upstreams (2 in this case)
-   // Add some buffer to avoid edge case resizes
-   size_t expectedSize = window * 2;
-   size_t dictSize = expectedSize > 16 ? expectedSize : 16; // Minimum reasonable size
-
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
-
+   // Calculate maximal dictionary size: window * num_upstreams (2 in this case)
+   size_t maximalSize = window * 2;
    // Pre-size the dictionary to avoid multiple resizes during accumulation
-   dictExpand(ret->hybridResults, dictSize);
+   dictExpand(ret->hybridResults, maximalSize);
 
-   ret->iterator = NULL; // Will be initialized during accumulation phase
-   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult)); // Allocate pooled result
+   ret->iterator = NULL;
+   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
 
    ret->base.type = RP_HYBRID_MERGER;
-   ret->base.Next = RPHybridMerger_Accum; // Start with accumulation phase
-   ret->base.Free = RPHybridMerger_Free; // Set the free function
+   ret->base.Next = RPHybridMerger_Accum;
+   ret->base.Free = RPHybridMerger_Free;
 
    return &ret->base;
  }
