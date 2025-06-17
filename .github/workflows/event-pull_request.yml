@@ -26,7 +26,6 @@ jobs:
     needs: [get-latest-redis-6-tag]
     uses: ./.github/workflows/task-test.yml
     with:
-      env: ubuntu-latest
       test-config: QUICK=1
       get-redis: ${{ needs.get-latest-redis-6-tag.outputs.tag }}
       rejson-branch: '2.4'
@@ -60,7 +59,6 @@ jobs:
       test-config: QUICK=1
       san: address
       rejson-branch: '2.4'
-      env: ubuntu-latest
 
   pr-validation:
     needs:
