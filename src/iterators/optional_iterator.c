@@ -33,7 +33,8 @@ static void OI_Rewind(QueryIterator *base) {
 // Skip to a specific docId. If the child has a hit on this docId, return it.
 // Otherwise, return a virtual hit.
 static IteratorStatus OI_SkipTo_NotOptimized(QueryIterator *base, t_docId docId) {
-  assert(docId > 0);
+  RS_ASSERT(docId > 0);
+  RS_ASSERT(docId > base->lastDocId);
   OptionalIterator *oi = (OptionalIterator *)base;
 
   if (docId > oi->maxDocId || base->atEOF) {
@@ -76,11 +77,12 @@ static IteratorStatus OI_ReadSorted_NotOptimized(QueryIterator *base) {
     if (rc == ITERATOR_TIMEOUT) return rc;
   }
 
-  if (base->lastDocId != oi->child->lastDocId) {
-    base->current = oi->virt;
-  } else {
+  if (base->lastDocId == oi->child->lastDocId) {
     base->current = oi->child->current;
     base->current->weight = oi->weight;
+  } else {
+    oi->virt->docId = base->lastDocId;
+    base->current = oi->virt;
   }
 
   base->current->docId = base->lastDocId;

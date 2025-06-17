@@ -101,8 +101,7 @@ TEST_F(OptionalIteratorTest, SkipToSequence) {
   // Test skipping to various docIds in sequence
   t_docId targets[] = {5, 15, 25, 35, 45, 55, 65, 75, 85, 95};
 
-  for (size_t i = 0; i < sizeof(targets) / sizeof(targets[0]); i++) {
-    t_docId target = targets[i];
+  for (auto &target : targets) {
     ASSERT_EQ(iterator_base->SkipTo(iterator_base, target), ITERATOR_OK);
     ASSERT_EQ(iterator_base->current->docId, target);
     ASSERT_EQ(iterator_base->lastDocId, target);
@@ -337,8 +336,7 @@ TEST_F(OptionalIteratorWithEmptyChildTest, SkipToVirtualHits) {
   // Skip to various docIds - all should be virtual hits
   t_docId targets[] = {5, 15, 25, 35, 45};
 
-  for (size_t i = 0; i < sizeof(targets) / sizeof(targets[0]); i++) {
-    t_docId target = targets[i];
+  for (auto &target : targets) {
     ASSERT_EQ(iterator_base->SkipTo(iterator_base, target), ITERATOR_OK);
     ASSERT_EQ(iterator_base->current->docId, target);
     ASSERT_EQ(iterator_base->lastDocId, target);
