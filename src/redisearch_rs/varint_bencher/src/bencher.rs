@@ -12,9 +12,8 @@ use criterion::{
     measurement::{Measurement, WallTime},
 };
 use encode_decode::varint;
+use ffi::FieldMask;
 use std::{hint::black_box, time::Duration};
-
-use crate::FieldMask;
 
 /// A helper struct for benchmarking varint operations.
 pub struct VarintBencher {

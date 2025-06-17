@@ -8,8 +8,8 @@
 */
 
 use encode_decode::varint;
+use ffi::FieldMask;
 use std::hint::black_box;
-use varint_bencher::FieldMask;
 
 fn main() {
     compute_and_report_memory_usage();

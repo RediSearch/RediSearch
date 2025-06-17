@@ -15,6 +15,3 @@
 pub use bencher::VarintBencher;
 
 pub mod bencher;
-
-// Convenient type alias for varint operations.
-pub type FieldMask = ffi::FieldMask;

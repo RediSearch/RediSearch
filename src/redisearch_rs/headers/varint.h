@@ -6,8 +6,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include "../../buffer.h"
-#include "../../redisearch.h"
+#include "buffer.h"
+#include "redisearch.h"
 
 /**
  * A structure to encode multiple integers into a single byte buffer,
