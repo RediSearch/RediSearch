@@ -565,7 +565,7 @@ run_python_tests() {
   if [[ $PYTHON_TEST_RESULT -eq 0 ]]; then
     echo "All Python tests passed!"
     if [[ $COV == 1 ]]; then
-      if [[ "$REDIS_STANDALONE" == "1" ]]; then
+      if [[ "$COORD" == "0" || -z "$COORD" ]]; then
         DEPLOYMENT_TYPE="standalone"
       else
         DEPLOYMENT_TYPE="coordinator"
