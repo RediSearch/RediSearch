@@ -192,9 +192,8 @@ protected:
 
   void SetUp() override {
     // Create child iterator that returns ITERATOR_TIMEOUT after exhausting its documents
-    MockIterator *mockIter = new MockIterator(10, 20, 30);
-    mockIter->whenDone = ITERATOR_TIMEOUT;
-    QueryIterator *child = (QueryIterator *)mockIter;
+    QueryIterator *child = (QueryIterator *)new MockIterator(ITERATOR_TIMEOUT, 10UL, 20UL, 30UL);
+
     // Create optional iterator with timeout child
     iterator_base = IT_V2(NewOptionalIterator)(child, maxDocId, numDocs, weight);
   }
