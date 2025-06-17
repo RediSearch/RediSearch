@@ -1495,35 +1495,35 @@ dictType dictTypeHybridSearchResult = {
  } RPHybridMerger;
 
  /* Helper function to store a result from an upstream into the hybrid merger's dictionary */
- static void StoreUpstreamResult(RPHybridMerger *self, int upstreamIndex) {
-   const char *keyPtr = self->pooledResult->dmd->keyPtr;
+ static void StoreUpstreamResult(SearchResult *r, dict *hybridResults, int upstreamIndex) {
+   const char *keyPtr = r->dmd->keyPtr;
 
    // Check if we've seen this document before
-   HybridSearchResult *hybridResult = dictFetchValue(self->hybridResults, keyPtr);
+   HybridSearchResult *hybridResult = dictFetchValue(hybridResults, keyPtr);
 
    if (!hybridResult) {
      // First time seeing this document - create new hybrid result with copied SearchResult
-     SearchResult *resultCopy = SearchResult_Copy(self->pooledResult);
+     SearchResult *resultCopy = SearchResult_Copy(r);
      hybridResult = HybridSearchResult_New(resultCopy);
-     dictAdd(self->hybridResults, (void*)keyPtr, hybridResult);
+     dictAdd(hybridResults, (void*)keyPtr, hybridResult);
    }
 
    // Update the score for this upstream
-   hybridResult->scores[upstreamIndex] = self->pooledResult->score;
+   hybridResult->scores[upstreamIndex] = r->score;
    hybridResult->hasScores[upstreamIndex] = true;
  }
 
  /* Helper function to consume results from a single upstream */
- static int ConsumeFromUpstream(RPHybridMerger *self, ResultProcessor *upstream, int upstreamIndex) {
+ static int ConsumeFromUpstream(SearchResult *tempResult, dict *hybridResults, size_t window, ResultProcessor *upstream, int upstreamIndex) {
    size_t consumed = 0;
    int rc = RS_RESULT_OK;
 
-   while (consumed < self->window && rc == RS_RESULT_OK) {
-     SearchResult_Clear(self->pooledResult);
-     rc = upstream->Next(upstream, self->pooledResult);
+   while (consumed < window && rc == RS_RESULT_OK) {
+     SearchResult_Clear(tempResult);
+     rc = upstream->Next(upstream, tempResult);
 
      if (rc == RS_RESULT_OK) {
-       StoreUpstreamResult(self, upstreamIndex);
+       StoreUpstreamResult(tempResult, hybridResults, upstreamIndex);
        consumed++;
      }
    }
@@ -1572,7 +1572,7 @@ dictType dictTypeHybridSearchResult = {
   while (numUnconsumed > 0) {
     for (int i = 0; i < numUnconsumed; i++) {
       int upstreamIndex = upstreamIndices[i];
-      int rc = ConsumeFromUpstream(self, self->upstreams[upstreamIndex], upstreamIndex);
+      int rc = ConsumeFromUpstream(self->pooledResult, self->hybridResults, self->window, self->upstreams[upstreamIndex], upstreamIndex);
       if (rc == RS_RESULT_DEPLETING){
         continue;
       }
