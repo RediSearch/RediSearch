@@ -45,5 +45,15 @@ macro_rules! bind_redis_alloc_symbols_to_mock_impl {
         pub static mut RedisModule_Calloc: Option<
             unsafe extern "C" fn(count: usize, size: usize) -> *mut c_void,
         > = Some(redis_mock::allocator::calloc_shim);
+
+        #[unsafe(no_mangle)]
+        #[allow(non_upper_case_globals)]
+        pub static mut RedisModule_FreeString: Option<unsafe extern "C" fn(ptr: *mut c_void)> =
+            Some(redis_mock::allocator::free_shim);
+
+        #[unsafe(no_mangle)]
+        #[allow(non_upper_case_globals)]
+        pub static mut sdsfree: Option<unsafe extern "C" fn(ptr: *mut c_void)> =
+            Some(redis_mock::allocator::free_shim);
     };
 }
