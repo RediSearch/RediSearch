@@ -54,6 +54,7 @@ jobs:
       get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: '2.8'
       test-config: QUICK=1
+      env: ubuntu-latest
 
   pr-validation:
     needs:
