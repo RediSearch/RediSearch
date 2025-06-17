@@ -17,11 +17,12 @@
 
 #include "src/iterators/not_iterator.h"
 
-class NotIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<t_docId>, bool>> {
+class NotIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<t_docId>, std::optional<t_docId>, bool>> {
 protected:
   std::vector<t_docId> childDocIds;
   std::vector<t_docId> wcDocIds;
   std::vector<t_docId> resultSet;
+  std::optional<t_docId> opt_max_doc_id;
   t_docId maxDocId;
   QueryIterator *iterator_base;
   bool optimized;
@@ -32,17 +33,21 @@ protected:
 
   void SetUp() override {
     // Get child document IDs from parameter
-    std::tie(childDocIds, wcDocIds, optimized) = GetParam();
+    std::tie(childDocIds, wcDocIds, opt_max_doc_id, optimized) = GetParam();
     // Consider wcDocIds only if optimized is true
 
     // Find the maximum document ID
-    maxDocId = *std::max_element(childDocIds.begin(), childDocIds.end());
-    if (optimized) {
-      for (auto id : wcDocIds) {
-        maxDocId = std::max(maxDocId, id);
+    if (opt_max_doc_id.has_value()) {
+      maxDocId = opt_max_doc_id.value();
+    } else {
+      maxDocId = *std::max_element(childDocIds.begin(), childDocIds.end());
+      if (optimized) {
+        for (auto id : wcDocIds) {
+          maxDocId = std::max(maxDocId, id);
+        }
       }
+      maxDocId += 5; // Add some buffer
     }
-    maxDocId += 5; // Add some buffer
     if (!optimized) {
       wcDocIds.clear();
       for (auto i = 1; i < maxDocId; i++) {
@@ -370,6 +375,7 @@ INSTANTIATE_TEST_SUITE_P(
         return ids;
       }()
     ),
+    ::testing::Values(std::nullopt, 100),
     ::testing::Values(false)
   )
 );
@@ -442,6 +448,7 @@ INSTANTIATE_TEST_SUITE_P(
       std::vector<t_docId>{3, 4, 9, 25, 1000, 2000},
       std::vector<t_docId>{50, 60, 70, 80, 90, 100, 600, 750, 950, 1200}
     ),
+    ::testing::Values(std::nullopt),
     ::testing::Values(false)
   )
 );
@@ -450,14 +457,20 @@ class NotIteratorSelfTimeoutTest : public NotIteratorCommonTest {
   protected:
   void SetUp() override {
     // Get child document IDs from parameter
-    std::tie(childDocIds, wcDocIds, optimized) = GetParam();
+    std::tie(childDocIds, wcDocIds, opt_max_doc_id, optimized) = GetParam();
 
     // Find the maximum document ID
-    maxDocId = 0;
-    for (auto id : childDocIds) {
-      maxDocId = std::max(maxDocId, id);
+    if (opt_max_doc_id.has_value()) {
+      maxDocId = opt_max_doc_id.value();
+    } else {
+      maxDocId = *std::max_element(childDocIds.begin(), childDocIds.end());
+      if (optimized) {
+        for (auto id : wcDocIds) {
+          maxDocId = std::max(maxDocId, id);
+        }
+      }
+      maxDocId += 5; // Add some buffer
     }
-    maxDocId += 5; // Add some buffer
     // Compute resultSet from maxDocId and childDocIds
     resultSet.clear();
     for (t_docId id = 1; id <= maxDocId; id++) {
@@ -533,6 +546,7 @@ INSTANTIATE_TEST_SUITE_P(
         return ids;
       }()
     ),
+    ::testing::Values(std::nullopt),
     ::testing::Values(false)
   )
 );
