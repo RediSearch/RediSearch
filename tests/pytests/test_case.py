@@ -1,31 +1,228 @@
 from common import *
 
-def testWithVectorRange(env):
+def _prepare_index(env, idx, dim=4):
     conn = getConnectionByEnv(env)
-    dim = 4
-    env.expect('FT.CREATE', 'idx', 'SCHEMA',
+    env.expect('FT.CREATE', idx, 'SCHEMA',
                'v', 'VECTOR', 'FLAT', '6', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'TYPE', 'FLOAT32',
                't', 'TEXT').ok()
 
     conn.execute_command('HSET', 'doc1', 'v', create_np_array_typed([1.1] * dim).tobytes(), 't', 'pizza')
     conn.execute_command('HSET', 'doc2', 'v', create_np_array_typed([1.4] * dim).tobytes())
     conn.execute_command('HSET', 'doc3', 't', 'pizzas')
+    conn.execute_command('HSET', 'doc4', 't', 'beer')
 
+def testWithVectorRange(env):
+    dim = 4
+    _prepare_index(env, 'idx', dim)
+    conn = getConnectionByEnv(env)
+
+    # Get vector distance and text score without APPLY
     res = conn.execute_command(
         'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_DISTANCE_AS: vector_distance} | @t:(pizza)',
         'ADDSCORES', 'SCORER', 'BM25STD',
         'PARAMS', '2', 'vector', create_np_array_typed([1.2] * dim).tobytes(),
         'LOAD', '3', '@vector_distance', '@__key', 't',
-        # 'APPLY', 'case(exists(@vector_distance), (@__score * 0.3 + @vector_distance * 0.7), (@__score * 0.3))', 'AS', 'final_score',
-        # 'APPLY', 'case(!exists(@vector_distance), (@__score * 0.3), (@__score * 0.3 + @vector_distance * 0.7))', 'AS', 'final_score',
-        # 'APPLY', 'case(exists(@vector_distance), @vector_distance, 0)', 'AS', 'final_vector_distance',
-        # 'APPLY', 'case(exists(@__score), @__score, 0)', 'AS', 'final_score',
-        # 'APPLY', 'vector_distance*0.7 + score*0.3' 'AS', 'final_score',
-
-        # CRASH!!! if using negation and invalid function name
-        # 'APPLY', 'case(!exist(@vector_distance), (@__score * 0.3), (@__score * 0.3 + @vector_distance * 0.7))', 'AS', 'final_score',
-        'SORTBY', '4', '@__score', 'DESC', '@vector_distance', 'DESC',
+        'SORTBY', '2', '@__key', 'ASC',
         'DIALECT', '2')
-    print(res)
-    # env.assertEqual(res[1:], [['vector_distance', '0', 't', 'pizza']])
+    env.assertEqual(res[0], 3)
+    v_dist = [float(row[row.index('vector_distance') + 1] if 'vector_distance' in row else '0') for row in res[1:]]
+    t_score = [float(row[row.index('__score') + 1] if '__score' in row else '0') for row in res[1:]]
+
+    # Test APPLY with case function
+    apply_expr_and_expected_results = [
+        (
+            'case(exists(@vector_distance), (@__score*0.3 + @vector_distance*0.7), (@__score*0.3))',
+            sorted([(t_score[i]*0.3 + v_dist[i]*0.7) for i in range(3)], reverse=True)
+        ),
+        (
+            'case(!exists(@vector_distance), (@__score)*0.3, (@__score*0.3 + @vector_distance))',
+            sorted([t_score[i]*0.3 + v_dist[i] for i in range(3)], reverse=True)
+        ),
+    ]
+
+    # Test APPLY with case function and linear combination of vector distance and text score
+    for apply_expr, expected_score in apply_expr_and_expected_results:
+        res = conn.execute_command(
+            'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_DISTANCE_AS: vector_distance} | @t:(pizza)',
+            'ADDSCORES', 'SCORER', 'BM25STD',
+            'PARAMS', '2', 'vector', create_np_array_typed([1.2] * dim).tobytes(),
+            'LOAD', '3', '@vector_distance', '@__key', 't',
+            'APPLY', apply_expr, 'AS', 'final_score',
+            'SORTBY', '2', '@final_score', 'DESC',
+            'DIALECT', '2')
+
+        final_scores = [float(row[row.index('final_score') + 1]) for row in res[1:]]
+        for i in range(len(final_scores)):
+            env.assertAlmostEqual(
+                final_scores[i], expected_score[i], delta=0.0000001,
+                message=f"Failed for apply_expr: {apply_expr} at index {i}")
+
+# def testInvalidApplyFunction(env):
+#     dim = 4
+#     _prepare_index(env, 'idx', dim)
+#     conn = getConnectionByEnv(env)
+
+#     apply_expr = 'case(!exist(@vector_distance), (@__score * 0.3), (@__score * 0.3 + @vector_distance * 0.7))'
+#     res = conn.execute_command(
+#             'FT.AGGREGATE', 'idx', '*',
+#             'APPLY', apply_expr, 'AS', 'final_score',
+#             'DIALECT', '2')
+
+def testCaseFunction(env):
+    """Test the case function in APPLY clause with various conditions"""
+    _prepare_index(env, 'idx')
+    conn = getConnectionByEnv(env)
+
+    # Test basic case function with exists condition
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '*',
+        'LOAD', '2', '@t', '@__key',
+        'APPLY', 'case(exists(@t), 1, 0)', 'AS', 'has_text',
+        'SORTBY', '2', '@__key', 'ASC',
+        'DIALECT', '2')
+
+    env.assertEqual(res[0], 4)  # 4 documents total
+
+    # Check that documents with 't' field have has_text=1, others have has_text=0
+    for i, row in enumerate(res[1:]):
+        doc_id = row[row.index('__key') + 1]  # Get the document ID
+        has_text_idx = row.index('has_text')
+        has_text_val = int(row[has_text_idx + 1])
+
+        if doc_id in ['doc1', 'doc3', 'doc4']:  # These docs have 't' field
+            env.assertEqual(has_text_val, 1, message=f"Expected doc {doc_id} to have has_text=1")
+        else:  # doc2 doesn't have 't' field
+            env.assertEqual(has_text_val, 0, message=f"Expected doc {doc_id} to have has_text=0")
+
+def testCaseWithComparison(env):
+    """Test case function with comparison operators"""
+    conn = getConnectionByEnv(env)
+
+    # Create index with numeric field
+    env.expect('FT.CREATE', 'idx_num', 'SCHEMA',
+               'num', 'NUMERIC', 'SORTABLE',
+               't', 'TEXT').ok()
+
+    # Add documents with different numeric values
+    conn.execute_command('HSET', 'doc1', 'num', '10', 't', 'hello')
+    conn.execute_command('HSET', 'doc2', 'num', '20', 't', 'world')
+    conn.execute_command('HSET', 'doc3', 'num', '30', 't', 'redis')
+    conn.execute_command('HSET', 'doc4', 'num', '40', 't', 'search')
+
+    # Test case with numeric comparison
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx_num', '*',
+        'LOAD', '2', '@num', '@t',
+        'APPLY', 'case(@num < 20, "low", case(@num < 40, "medium", "high"))', 'AS', 'category',
+        'GROUPBY', '1', '@category',
+        'REDUCE', 'COUNT', '0', 'AS', 'count',
+        'SORTBY', '2', '@category', 'ASC',
+        'DIALECT', '2')
+
+    # Expected: 3 groups - low (1 doc), medium (2 docs), high (1 doc)
+    env.assertEqual(res[0], 3)
+    categories = {row[1]: int(row[3]) for row in res[1:]}
+    env.assertEqual(categories['low'], 1)
+    env.assertEqual(categories['medium'], 2)
+    env.assertEqual(categories['high'], 1)
+
+def testNestedCase(env):
+    """Test nested case functions"""
+    _prepare_index(env, 'idx_nested')
+    conn = getConnectionByEnv(env)
+
+    # Add documents with different text values
+    conn.execute_command('HSET', 'doc1', 't', 'pizza')
+    conn.execute_command('HSET', 'doc2', 't', 'pasta')
+    conn.execute_command('HSET', 'doc3', 't', 'burger')
+    conn.execute_command('HSET', 'doc4', 't', 'salad')
+
+    # Test nested case expressions
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx_nested', '*',
+        'LOAD', '1', '@t',
+        'APPLY', 'case(contains(@t, "pizza"), "Italian", case(contains(@t, "pasta"), "Italian", case(contains(@t, "burger"), "American", "Other")))', 'AS', 'cuisine',
+        'GROUPBY', '1', '@cuisine',
+        'REDUCE', 'COUNT', '0', 'AS', 'count',
+        'SORTBY', '2', '@cuisine', 'ASC',
+        'DIALECT', '2')
+
+    # Expected: 3 groups - American, Italian, Other
+    env.assertEqual(res[0], 3)
+    cuisines = {row[1]: int(row[3]) for row in res[1:]}
+    env.assertEqual(cuisines['American'], 1)
+    env.assertEqual(cuisines['Italian'], 2)
+    env.assertEqual(cuisines['Other'], 1)
+
+def testCaseWithLogicalOperators(env):
+    """Test case function with logical operators (AND, OR, NOT)"""
+    conn = getConnectionByEnv(env)
+
+    # Create index with multiple fields
+    env.expect('FT.CREATE', 'idx_logic', 'SCHEMA',
+               'category', 'TAG',
+               'price', 'NUMERIC',
+               'in_stock', 'TAG').ok()
+
+    # Add test documents
+    conn.execute_command('HSET', 'prod1', 'category', 'electronics', 'price', '100', 'in_stock', 'yes')
+    conn.execute_command('HSET', 'prod2', 'category', 'electronics', 'price', '200', 'in_stock', 'no')
+    conn.execute_command('HSET', 'prod3', 'category', 'books', 'price', '15', 'in_stock', 'yes')
+    conn.execute_command('HSET', 'prod4', 'category', 'books', 'price', '25', 'in_stock', 'no')
+
+    # Test case with logical operators
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx_logic', '*',
+        'LOAD', '3', '@category', '@price', '@in_stock',
+        'APPLY', 'case((@category == "electronics") && (@price < 150), "budget_electronics", case((@category == "books") || (@in_stock == "yes"), "available_items", "other"))', 'AS', 'product_class',
+        'GROUPBY', '1', '@product_class',
+        'REDUCE', 'COUNT', '0', 'AS', 'count',
+        'SORTBY', '2', '@product_class', 'ASC',
+        'DIALECT', '2')
+
+    # Expected results:
+    # - budget_electronics: prod1
+    # - available_items: prod2, prod3
+    # - other: prod4
+    # Total groups should be 3
+    env.assertEqual(res[0], 3)
+    classes = {row[1]: int(row[3]) for row in res[1:]}
+    env.assertEqual(classes['budget_electronics'], 1)
+    # prod1 is not counted as it has price >= 150 and was included in budget_electronics
+    env.assertEqual(classes['available_items'], 2)
+    env.assertEqual(classes['other'], 1)
+
+def testCaseWithMissingFields(env):
+    """Test case function behavior with missing fields"""
+    conn = getConnectionByEnv(env)
+
+    # Create index
+    env.expect('FT.CREATE', 'idx_missing', 'SCHEMA',
+               'field1', 'TEXT',
+               'field2', 'NUMERIC').ok()
+
+    # Add documents with some missing fields
+    conn.execute_command('HSET', 'doc1', 'field1', 'hello', 'field2', '10')
+    conn.execute_command('HSET', 'doc2', 'field1', 'world')  # field2 missing
+    conn.execute_command('HSET', 'doc3', 'field2', '30')     # field1 missing
+    conn.execute_command('HSET', 'doc4', 'field3', 'extra')                     # both fields missing
+
+    # Test case with exists() for handling missing fields
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx_missing', '*',
+        'LOAD', '2', '@field1', '@field2',
+        'APPLY', 'case(exists(@field1) && exists(@field2), "both", case(exists(@field1), "only_field1", case(exists(@field2), "only_field2", "none")))', 'AS', 'fields_status',
+        'GROUPBY', '1', '@fields_status',
+        'REDUCE', 'COUNT', '0', 'AS', 'count',
+        'SORTBY', '2', '@fields_status', 'ASC',
+        'DIALECT', '2')
+
+    # Expected: 4 groups - both, none, only_field1, only_field2
+    env.assertEqual(res[0], 4)
+    statuses = {row[1]: int(row[3]) for row in res[1:]}
+    env.assertEqual(statuses['both'], 1)
+    env.assertEqual(statuses['only_field1'], 1)
+    env.assertEqual(statuses['only_field2'], 1)
+    env.assertEqual(statuses['none'], 1)
+
 
