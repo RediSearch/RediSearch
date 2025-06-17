@@ -60,7 +60,7 @@ TEST_P(MetricIteratorCommonTest, Read) {
     // Check score value if yields_metric is true
     if (yields_metric) {
       ASSERT_EQ(iterator_base->current->type, RSResultType_Metric);
-      ASSERT_EQ(iterator_base->current->num.value, sortedScores[i]);
+      ASSERT_EQ(iterator_base->current->data.num.value, sortedScores[i]);
       ASSERT_EQ(iterator_base->current->metrics[0].key, nullptr);
       ASSERT_EQ(iterator_base->current->metrics[0].value->t, RSValue_Number);
       ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sortedScores[i]);
@@ -101,7 +101,7 @@ TEST_P(MetricIteratorCommonTest, SkipTo) {
       ASSERT_EQ(iterator_base->current->docId, id);
       ASSERT_FALSE(iterator_base->atEOF); // EOF would be set in another iteration
       if (yields_metric) {
-        ASSERT_EQ(iterator_base->current->num.value, sortedScores[index]);
+        ASSERT_EQ(iterator_base->current->data.num.value, sortedScores[index]);
         ASSERT_EQ(iterator_base->current->metrics[0].value->numval, sortedScores[index]);
       }
 

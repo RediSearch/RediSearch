@@ -9,9 +9,11 @@ members = [
     "tools/license_header_linter",
     "trie_bencher",
     "trie_rs",
+    "varint_bencher",
     "wildcard",
     "buffer",
     "result_processor",
+    "encode_decode",
 ]
 default-members = [
     "low_memory_thin_vec",
@@ -21,6 +23,7 @@ default-members = [
     "wildcard",
     "buffer",
     "result_processor",
+    "encode_decode",
 ]
 resolver = "3"
 
@@ -61,6 +64,7 @@ trie_rs = { path = "./trie_rs" }
 wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
 result_processor = { path = "./result_processor" }
+encode_decode = { path = "./encode_decode" }
 
 cbindgen = "0.28.0"
 cc = "1"
