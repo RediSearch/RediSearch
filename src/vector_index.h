@@ -30,6 +30,7 @@
 #define VECSIM_ALGORITHM_HNSW "HNSW"
 #define VECSIM_ALGORITHM_TIERED "TIERED"
 #define VECSIM_ALGORITHM_SVS "SVS"
+#define VECSIM_ALGORITHM_SVS_TIERED "SVS_TIERED"
 
 #define VECSIM_INITIAL_CAP "INITIAL_CAP"
 #define VECSIM_BLOCKSIZE "BLOCK_SIZE"
@@ -60,6 +61,8 @@
 #define VECSIM_QUANT_BITS_8 "8"
 #define VECSIM_QUANT_BITS_4X4 "4X4"
 #define VECSIM_QUANT_BITS_4X8 "4X8"
+#define VECSIM_QUANT_BITS_4X8_LEANVEC "4X8L"
+#define VECSIM_QUANT_BITS_8X8_LEANVEC "8X8L"
 
 #define VECSIM_ERR_MANDATORY(status,algorithm,arg) \
   QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Missing mandatory parameter: cannot create", " %s index without specifying %s argument", algorithm, arg)

@@ -645,6 +645,10 @@ static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *qua
     *quantBits = VecSimSvsQuant_4x4;
   else if (STR_EQCASE(quantBitsStr, len, VECSIM_QUANT_BITS_4X8))
     *quantBits = VecSimSvsQuant_4x8;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_QUANT_BITS_4X8_LEANVEC))
+    *quantBits = VecSimSvsQuant_4x8_LeanVec;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_QUANT_BITS_8X8_LEANVEC))
+    *quantBits = VecSimSvsQuant_8x8_LeanVec;
   else
     return AC_ERR_ENOENT;
   return AC_OK;
@@ -1205,9 +1209,24 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     result = parseVectorField_hnsw(fs, params, ac, status);
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_SVS;
+    fs->vectorOpts.vecSimParams.logCtx = logCtx;
     // here it's supposed that all fs->vectorOpts.vecSimParams.algoParams.svsParams.* are equal to zeroes
     // rely on memset above ( memset(&fs->vectorOpts.vecSimParams, 0, sizeof(VecSimParams)); )
     result = parseVectorField_svs(fs, &fs->vectorOpts.vecSimParams, ac, status);
+  } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS_TIERED)) {
+    fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
+    VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
+    fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredSVSParams.updateJobThreshold = 0; // Will be set to default value.
+
+    // primary index params allocated in VecSim_TieredParams_Init()
+    VecSimParams *params = fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+
+    // Forcibly set all SVS params to zero
+    memset(params, 0, sizeof(VecSimParams));
+
+    params->algo = VecSimAlgo_SVS;
+    params->logCtx = logCtx;
+    result = parseVectorField_svs(fs, params, ac, status);
   } else {
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for vector similarity algorithm: %s", AC_Strerror(AC_ERR_ENOENT));
     return 0;
