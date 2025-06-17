@@ -15,7 +15,14 @@
 #include "rmutil/rm_assert.h"
 #include "util/timeout.h"
 #include "util/arr.h"
+#include "util/workers.h"
+#include "util/references.h"
+#include "deps/thpool/thpool.h"
 #include <stdatomic.h>
+#include <pthread.h>
+
+// External declaration for depleter thread pool
+extern redisearch_thpool_t *depleterPool;
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -1431,103 +1438,247 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
 /*******************************************************************************************************************
  *  Depleter Result Processor
  *
- *  The RPDepleter result processor offloads the task of consuming all results from its upstream processor
- *  into a background thread, storing them in an internal array. While the background thread is running,
- *  calls to Next() return RS_RESULT_DEPLETING. Once depleting is complete, Next() yields results one by one
- *  from the internal array, and finally returns the last return code from the upstream.
+ *  The RPDepleter result processor manages multiple child result processors, each running in its own
+ *  background thread. It provides RPFuture result processors that represent the future results from
+ *  each registered child. The first Next() call on any RPFuture will block until at least one child
+ *  has results ready, then return results from any available child or the depleting error code.
  *******************************************************************************************************************/
+
+// Forward declarations
+typedef struct RPDepleterFuture RPDepleterFuture;
+typedef struct DepleterPromise DepleterPromise;
+
 typedef struct {
-  ResultProcessor base;                // Base result processor struct
-  arrayof(SearchResult *) results;     // Array of pointers to SearchResult, filled by the depleting thread
-  atomic_int done_depleting;           // Set to 1 when depleting is finished
-  uint cur_idx;                        // Current index for yielding results
-  RPStatus last_rc;                    // Last return code from upstream
-  bool first_call;                     // Whether the first call to Next has been made
-} RPDepleter;
+  arrayof(DepleterPromise *) children;     // Array of registered child processors
+  pthread_mutex_t mutex;                   // Mutex for thread-safe access to shared state
+  pthread_cond_t results_ready_cond;       // Condition variable to signal when results are ready
+  atomic_int any_results_ready;            // Set to 1 when any child has results ready
+  bool started;                            // Whether background processing has started
+} Depleter;
+
+typedef struct DepleterPromise {
+  ResultProcessor *upstream;               // The child result processor
+  arrayof(SearchResult *) results;         // Results from this child
+  atomic_int done_depleting;               // Set to 1 when this child is finished
+  RPStatus last_rc;                        // Last return code from this child
+  uint cur_idx;                           // Current index for yielding results from this child
+  Depleter *parent;                       // Reference to parent depleter
+  int child_id;                           // Unique ID for this child
+} DepleterPromise;
+
+typedef struct RPDepleterFuture {
+  ResultProcessor base;                    // Base result processor struct
+  StrongRef depleter_ref;                 // Strong reference to parent depleter
+  int child_id;                           // ID of the child this future represents
+  bool first_call;                        // Whether the first call to Next has been made
+} RPDepleterFuture;
 
 /**
- * Destructor
+ * Free a depleter promise and its results
  */
-static void RPDepleter_Free(ResultProcessor *base) {
-  RPDepleter *self = (RPDepleter *)base;
-  array_free_ex(self->results, srDtor(*(char **)ptr));
+static void DepleterPromise_Free(DepleterPromise *promise) {
+  if (promise) {
+    array_free_ex(promise->results, srDtor(*(char **)ptr));
+    rm_free(promise);
+  }
+}
+
+/**
+ * Destructor for Depleter
+ */
+static void Depleter_Free(Depleter *self) {
+  if (!self) return;
+
+  // Free all promises
+  for (size_t i = 0; i < array_len(self->children); i++) {
+    DepleterPromise_Free(self->children[i]);
+  }
+  array_free(self->children);
+
+  // Destroy synchronization primitives
+  pthread_mutex_destroy(&self->mutex);
+  pthread_cond_destroy(&self->results_ready_cond);
+
   rm_free(self);
 }
 
 /**
- * Background thread function: consumes all results from upstream and stores them in the results array.
- * Signals completion by setting done_depleting to 1.
+ * Destructor for RPDepleterFuture
  */
-static void RPDepleter_Deplete(void *arg) {
-  RPDepleter *self = (RPDepleter *)arg;
+static void RPDepleterFuture_Free(ResultProcessor *base) {
+  RPDepleterFuture *self = (RPDepleterFuture *)base;
+  // Release the strong reference to the depleter
+  StrongRef_Release(self->depleter_ref);
+  rm_free(self);
+}
+
+/**
+ * Background thread function: consumes all results from a child processor and stores them.
+ * Signals completion and notifies waiting threads when results are ready.
+ */
+static void Depleter_ProcessChild(void *arg) {
+  DepleterPromise *promise = (DepleterPromise *)arg;
   RPStatus rc;
 
-  // Deplete the pipeline into the `self->results` array.
+  // Deplete the child processor into the results array
   SearchResult *r = rm_calloc(1, sizeof(*r));
-  while ((rc = self->base.upstream->Next(self->base.upstream, r)) == RS_RESULT_OK) {
-    array_append(self->results, r);
+  while ((rc = promise->upstream->Next(promise->upstream, r)) == RS_RESULT_OK) {
+    // Lock to safely append results
+    pthread_mutex_lock(&promise->parent->mutex);
+    array_append(promise->results, r);
+
+    // Signal that results are ready if this is the first result
+    if (array_len(promise->results) == 1) {
+      atomic_store(&promise->parent->any_results_ready, 1);
+      pthread_cond_broadcast(&promise->parent->results_ready_cond);
+    }
+
+    pthread_mutex_unlock(&promise->parent->mutex);
     r = rm_calloc(1, sizeof(*r));
   }
   rm_free(r);
-  // Save the last return code from the upstream.
-  self->last_rc = rc;
-  atomic_store(&self->done_depleting, 1);
+
+  // Save the last return code and mark as done
+  promise->last_rc = rc;
+  atomic_store(&promise->done_depleting, 1);
+
+  // Signal that this promise is done (might be an error condition)
+  pthread_mutex_lock(&promise->parent->mutex);
+  pthread_cond_broadcast(&promise->parent->results_ready_cond);
+  pthread_mutex_unlock(&promise->parent->mutex);
 }
 
-/**
- * Next function for RPDepleter.
- */
-static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
-  RPDepleter *self = (RPDepleter *)base;
 
-  // Depleting thread is done, it's safe to return the results.
-  if (self->cur_idx == array_len(self->results)) {
-    // We've reached the end of the array, return the last code from the upstream.
-    return self->last_rc;
+
+/**
+ * Helper function to find a specific promise by ID
+ */
+static DepleterPromise *Depleter_FindPromiseById(Depleter *depleter, int child_id) {
+  if (child_id >= 0 && child_id < array_len(depleter->children)) {
+    return depleter->children[child_id];
   }
-  // Return the next result in the array.
-  SearchResult *current = self->results[self->cur_idx++];
-  SearchResult_Override(r, current);    // Copy result data to output
-  return RS_RESULT_OK;
+  return NULL;
 }
 
+
+
 /**
- * Next function for RPDepleter.
- * Returns `RS_RESULT_DEPLETING` until the BG thread is done depleting.
+ * Next function for RPDepleterFuture.
+ * Blocks on first call until results are ready, then returns available results or depleting error.
  */
-static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
-  RPDepleter *self = (RPDepleter *)base;
-  // The first call to next will start the depleting thread, and return `RS_RESULT_DEPLETING`.
+static int RPDepleterFuture_Next(ResultProcessor *base, SearchResult *r) {
+  RPDepleterFuture *self = (RPDepleterFuture *)base;
+  Depleter *depleter = StrongRef_Get(self->depleter_ref);
+  if (!depleter) {
+    // Depleter has been freed
+    return RS_RESULT_EOF;
+  }
+
+  // On first call, start background processing and potentially block
   if (self->first_call) {
     self->first_call = false;
-    // TODO: We may want this to be added to the `workers` thread pool instead
-    // of a new one. In case there are no workers, we do the depleting in the
-    // current thread.
-    redisearch_thpool_add_work(depleterPool, RPDepleter_Deplete, self, THPOOL_PRIORITY_HIGH);
+
+    pthread_mutex_lock(&depleter->mutex);
+
+    // Start background processing if not already started
+    if (!depleter->started) {
+      depleter->started = true;
+      // Submit jobs for all children to the depleter thread pool
+      if (depleterPool == NULL) {
+        pthread_mutex_unlock(&depleter->mutex);
+        return RS_RESULT_ERROR;
+      }
+
+      for (size_t i = 0; i < array_len(depleter->children); i++) {
+        redisearch_thpool_add_work(depleterPool, Depleter_ProcessChild, depleter->children[i], THPOOL_PRIORITY_HIGH);
+      }
+    }
+
+    pthread_mutex_unlock(&depleter->mutex);
+
+    // Return depleting immediately on first call to allow background processing to start
     return RS_RESULT_DEPLETING;
   }
 
-  // If the depleting thread is done, return the results.
-  if (atomic_load(&self->done_depleting) == 1) {
-    // Set the next function to RPDepleter_Next_Yield.
-    base->Next = RPDepleter_Next_Yield;
-    return base->Next(base, r);
+  // Try to find results from this specific promise
+  pthread_mutex_lock(&depleter->mutex);
+  DepleterPromise *my_promise = Depleter_FindPromiseById(depleter, self->child_id);
+
+  if (my_promise) {
+    if (my_promise->cur_idx < array_len(my_promise->results)) {
+      // Return the next result from this specific promise
+      SearchResult *current = my_promise->results[my_promise->cur_idx++];
+      SearchResult_Override(r, current);
+      pthread_mutex_unlock(&depleter->mutex);
+      return RS_RESULT_OK;
+    } else if (atomic_load(&my_promise->done_depleting) == 1) {
+      // This promise is done and has an error to report
+      pthread_mutex_unlock(&depleter->mutex);
+      return my_promise->last_rc;
+    }
   }
 
-  // Still depleting
+  // No results currently available from this promise, still processing
+  pthread_mutex_unlock(&depleter->mutex);
   return RS_RESULT_DEPLETING;
 }
 
 /**
- * Constructs a new RPDepleter processor, wrapping the given upstream processor.
- * The returned processor takes ownership of result depleting and yielding.
+ * Constructs a new Depleter for managing multiple child processors.
  */
-ResultProcessor *RPDepleter_New() {
-  RPDepleter *ret = rm_calloc(1, sizeof(*ret));
-  ret->results = array_new(SearchResult*, 0);
-  ret->base.Next = RPDepleter_Next_Dispatch;
-  ret->base.Free = RPDepleter_Free;
-  ret->base.type = RP_DEPLETER;
-  ret->first_call = true;
-  return &ret->base;
+StrongRef Depleter_New() {
+  Depleter *ret = rm_calloc(1, sizeof(*ret));
+  ret->children = array_new(DepleterPromise*, 0);
+  ret->started = false;
+  atomic_store(&ret->any_results_ready, 0);
+
+  // Initialize synchronization primitives
+  if (pthread_mutex_init(&ret->mutex, NULL) != 0) {
+    rm_free(ret);
+    return INVALID_STRONG_REF;
+  }
+
+  if (pthread_cond_init(&ret->results_ready_cond, NULL) != 0) {
+    pthread_mutex_destroy(&ret->mutex);
+    rm_free(ret);
+    return INVALID_STRONG_REF;
+  }
+
+  return StrongRef_New(ret, (RefManager_Free)Depleter_Free);
 }
+
+/**
+ * Register a child result processor with the depleter.
+ * Returns an RPDepleterFuture that represents the future results from this child.
+ */
+ResultProcessor *Depleter_RegisterChild(StrongRef depleter_ref, ResultProcessor *child) {
+  Depleter *depleter = StrongRef_Get(depleter_ref);
+  if (!depleter) {
+    return NULL;
+  }
+
+  // Create a new promise context
+  DepleterPromise *promise = rm_calloc(1, sizeof(*promise));
+  promise->upstream = child;
+  promise->results = array_new(SearchResult*, 0);
+  promise->parent = depleter;
+  promise->child_id = array_len(depleter->children);
+  promise->cur_idx = 0;
+  atomic_store(&promise->done_depleting, 0);
+
+  // Add promise to depleter's children array
+  array_append(depleter->children, promise);
+
+  // Create and return RPDepleterFuture with a cloned strong reference
+  RPDepleterFuture *future = rm_calloc(1, sizeof(*future));
+  future->depleter_ref = StrongRef_Clone(depleter_ref);
+  future->child_id = promise->child_id;
+  future->first_call = true;
+  future->base.Next = RPDepleterFuture_Next;
+  future->base.Free = RPDepleterFuture_Free;
+  future->base.type = RP_FUTURE;
+
+  return &future->base;
+}
+
+

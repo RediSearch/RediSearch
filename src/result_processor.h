@@ -19,6 +19,7 @@
 #include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
+#include "util/references.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,6 +64,7 @@ typedef enum {
   RP_TIMEOUT,               // DEBUG ONLY
   RP_CRASH,                 // DEBUG ONLY
   RP_DEPLETER,
+  RP_FUTURE,                // RPFuture result processor
   RP_MAX,                   // Always last, marks the end of the enum
 } ResultProcessorType;
 
@@ -315,10 +317,16 @@ void PipelineAddCrash(struct AREQ *r);
  ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
 
 /**
- * Constructs a new RPDepleter processor, wrapping the given upstream processor.
- * The returned processor takes ownership of result depleting and yielding.
+ * Constructs a new Depleter for managing multiple child processors.
+ * Returns a StrongRef to the depleter.
  */
-ResultProcessor *RPDepleter_New();
+StrongRef Depleter_New();
+
+/**
+ * Register a child result processor with the depleter.
+ * Returns an RPDepleterFuture that represents the future results from this child.
+ */
+ResultProcessor *Depleter_RegisterChild(StrongRef depleter_ref, ResultProcessor *child);
 
 #ifdef __cplusplus
 }
