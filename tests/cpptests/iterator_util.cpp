@@ -9,7 +9,6 @@
 
 #include "iterator_util.h"
 
-
 IteratorStatus MockIterator_Read(QueryIterator *base) {
     return reinterpret_cast<MockIterator *>(base)->Read();
 }
