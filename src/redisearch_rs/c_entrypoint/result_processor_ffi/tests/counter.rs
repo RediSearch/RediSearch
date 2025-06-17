@@ -14,6 +14,7 @@ use std::ptr;
 ///
 /// this doesn't actually free anything, so will leak resources but hopefully this is fine for the few Rust
 /// tests for now
+// FIXME replace with SearchResult::clear once `ffi::SearchResult` is ported to Rust
 #[unsafe(no_mangle)]
 unsafe extern "C" fn SearchResult_Clear(r: *mut ffi::SearchResult) {
     let r = unsafe { r.as_mut().unwrap() };

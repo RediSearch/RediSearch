@@ -65,25 +65,6 @@ impl ResultProcessor for ResultRP {
     }
 }
 
-/// Return the default value for [`ffi::SearchResult`]
-// FIXME replace with Default::default once `ffi::SearchResult` is ported to Rust
-pub const fn default_search_result() -> ffi::SearchResult {
-    const SEARCH_RESULT_INIT: ffi::SearchResult = ffi::SearchResult {
-        docId: 0,
-        score: 0.0,
-        scoreExplain: ptr::null_mut(),
-        dmd: ptr::null(),
-        indexResult: ptr::null_mut(),
-        rowdata: ffi::RLookupRow {
-            sv: ptr::null(),
-            dyn_: ptr::null_mut(),
-            ndyn: 0,
-        },
-        flags: 0,
-    };
-    SEARCH_RESULT_INIT
-}
-
 /// A mock implementation of the "result processor chain" part of the `QueryIterator`
 ///
 /// It acts as an owning collection of linked result processors.
@@ -185,10 +166,30 @@ impl Drop for Chain {
     }
 }
 
+/// Return the default value for [`ffi::SearchResult`]
+// FIXME replace with Default::default once `ffi::SearchResult` is ported to Rust
+pub const fn default_search_result() -> ffi::SearchResult {
+    const SEARCH_RESULT_INIT: ffi::SearchResult = ffi::SearchResult {
+        docId: 0,
+        score: 0.0,
+        scoreExplain: ptr::null_mut(),
+        dmd: ptr::null(),
+        indexResult: ptr::null_mut(),
+        rowdata: ffi::RLookupRow {
+            sv: ptr::null(),
+            dyn_: ptr::null_mut(),
+            ndyn: 0,
+        },
+        flags: 0,
+    };
+    SEARCH_RESULT_INIT
+}
+
 /// Mock implementation of `SearchResult_Clear` for tests
 ///
 /// this doesn't actually free anything, so will leak resources but hopefully this is fine for the few Rust
 /// tests for now
+// FIXME replace with SearchResult::clear once `ffi::SearchResult` is ported to Rust
 #[unsafe(no_mangle)]
 unsafe extern "C" fn SearchResult_Clear(r: *mut ffi::SearchResult) {
     let r = unsafe { r.as_mut().unwrap() };
