@@ -44,7 +44,6 @@ pub struct RSNumericRecord(pub f64);
 
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSOffsetVector_Iterator
-#[derive(Clone)]
 #[repr(C)]
 pub struct RSOffsetVector {
     pub data: *mut c_char,
@@ -52,7 +51,6 @@ pub struct RSOffsetVector {
 }
 
 /// Represents a single record of a document inside a term in the inverted index
-#[derive(Clone)]
 #[repr(C)]
 pub struct RSTermRecord {
     /// The term that brought up this record
@@ -81,7 +79,6 @@ pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 /// Represents an aggregate array of values in an index record.
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
-#[derive(Clone)]
 pub struct RSAggregateResult {
     /// The number of child records
     pub num_children: c_int,
