@@ -235,7 +235,6 @@ static int evalProperty(ExprEval *eval, const RSLookupExpr *e, RSValue *res) {
   /** Find the actual value */
   RSValue *value = RLookup_GetItem(e->lookupObj, eval->srcrow);
   if (!value) {
-    // TODO: How to mark functions or expressions that are NULLABLE?
     if (eval->err) {
       QueryError_SetWithUserDataFmt(eval->err, QUERY_ENOPROPVAL, "Could not find the value for a parameter name, consider using EXISTS if applicable", " for %s", e->lookupObj->name);
     }
