@@ -9,9 +9,6 @@ $MODE amazon-linux-extras enable python3.8
 $MODE yum install -y python3.8 python38-devel which
 $MODE ln -s "$(which python3.8)" /usr/bin/python3
 
-
-# $MODE yum install -y wget git rsync unzip clang curl make
-# $MODE yum groupinstall -y "Development Tools"
 if [[ $ARCH = 'x86_64' ]]
 then
     # Install the RPM package that provides the Software Collections (SCL) required for devtoolset-11
@@ -44,6 +41,16 @@ else
     source /opt/rh/devtoolset-10/enable
 
     $MODE cp /opt/rh/devtoolset-10/enable /etc/profile.d/scl-devtoolset-10.sh
+
+    # install newer binutils
+    wget https://ftp.gnu.org/gnu/binutils/binutils-2.42.tar.gz
+    tar -xzf binutils-2.42.tar.gz
+    cd binutils-2.42
+    ./configure --prefix=/usr/local
+    make -j$(nproc)
+    make install
+    eecho "/usr/local/bin" >> "$GITHUB_PATH"
+    as --version   # Should now be 2.42
 
 fi
 $MODE yum install -y openssl11 openssl11-devel
