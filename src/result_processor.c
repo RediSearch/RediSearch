@@ -1564,18 +1564,26 @@ dictType dictTypeHybridSearchResult = {
  static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
    RPHybridMerger *self = (RPHybridMerger *)rp;
 
-  bool consumedUpstreams[2] = {false, false};
-  while (!consumedUpstreams[0] || !consumedUpstreams[1]) {
-    for (int upstreamIndex = 0; upstreamIndex < 2 ; upstreamIndex++) {
-      if (consumedUpstreams[upstreamIndex]) {
-        continue;
-      }
+  // Smart upstream consumption using index array
+  // Keep unconsumed upstream indices at the beginning of the array
+  int upstreamIndices[2] = {0, 1}; // Start with both upstreams unconsumed
+  int numUnconsumed = 2;
+
+  while (numUnconsumed > 0) {
+    for (int i = 0; i < numUnconsumed; i++) {
+      int upstreamIndex = upstreamIndices[i];
       int rc = ConsumeFromUpstream(self, self->upstreams[upstreamIndex], upstreamIndex);
       if (rc == RS_RESULT_DEPLETING){
         continue;
       }
       else if (rc == RS_RESULT_OK || rc == RS_RESULT_EOF) {
-        consumedUpstreams[upstreamIndex] = true;
+        // Swap consumed upstream index to the end and decrement numUnconsumed
+        numUnconsumed--;
+        if (i < numUnconsumed) {
+          // Swap with the last unconsumed upstream index
+          upstreamIndices[i] = upstreamIndices[numUnconsumed];
+          upstreamIndices[numUnconsumed] = upstreamIndex;
+        }
         continue;
       } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
         self->timedOut = true;
