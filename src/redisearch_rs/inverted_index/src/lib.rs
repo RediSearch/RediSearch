@@ -171,9 +171,9 @@ pub struct RSIndexResult {
 
 impl RSIndexResult {
     /// Create a new numeric index result with the given numeric value
-    pub fn numeric(num: f64) -> Self {
+    pub fn numeric(doc_id: t_docId, num: f64) -> Self {
         Self {
-            doc_id: 0,
+            doc_id,
             dmd: std::ptr::null(),
             field_mask: 0,
             freq: 0,
@@ -346,7 +346,7 @@ impl Encoder for Numeric {
             RSResultType::Term => todo!(),
             RSResultType::Virtual => todo!(),
             RSResultType::Numeric => {
-                let num_record = unsafe { record.data.num };
+                let num_record = unsafe { &record.data.num };
 
                 match get_f64_value(num_record.0) {
                     F64Value::Tiny(i) => {
@@ -386,6 +386,78 @@ impl Encoder for Numeric {
                         writer.write(&[header.pack()])?
                             + writer.write(&delta)?
                             + writer.write(bytes)?
+                    }
+                    F64Value::Float32 { value, positive } => {
+                        let bytes = value.to_le_bytes();
+
+                        let header = Header {
+                            delta_bytes: delta.len() as _,
+                            typ: HeaderType::Float {
+                                is_infinite: false,
+                                is_negative: !positive,
+                                is_f64: false,
+                            },
+                        };
+
+                        writer.write(&[header.pack()])?
+                            + writer.write(&delta)?
+                            + writer.write(&bytes)?
+                    }
+                    F64Value::Float64Pos(value) => {
+                        let bytes = value.to_le_bytes();
+
+                        let header = Header {
+                            delta_bytes: delta.len() as _,
+                            typ: HeaderType::Float {
+                                is_infinite: false,
+                                is_negative: false,
+                                is_f64: true,
+                            },
+                        };
+
+                        writer.write(&[header.pack()])?
+                            + writer.write(&delta)?
+                            + writer.write(&bytes)?
+                    }
+                    F64Value::Float64Neg(value) => {
+                        let bytes = value.to_le_bytes();
+
+                        let header = Header {
+                            delta_bytes: delta.len() as _,
+                            typ: HeaderType::Float {
+                                is_infinite: false,
+                                is_negative: true,
+                                is_f64: true,
+                            },
+                        };
+
+                        writer.write(&[header.pack()])?
+                            + writer.write(&delta)?
+                            + writer.write(&bytes)?
+                    }
+                    F64Value::Infinity => {
+                        let header = Header {
+                            delta_bytes: delta.len() as _,
+                            typ: HeaderType::Float {
+                                is_infinite: true,
+                                is_negative: false,
+                                is_f64: false,
+                            },
+                        };
+
+                        writer.write(&[header.pack()])? + writer.write(&delta)?
+                    }
+                    F64Value::NegInfinity => {
+                        let header = Header {
+                            delta_bytes: delta.len() as _,
+                            typ: HeaderType::Float {
+                                is_infinite: true,
+                                is_negative: true,
+                                is_f64: false,
+                            },
+                        };
+
+                        writer.write(&[header.pack()])? + writer.write(&delta)?
                     }
                 }
             }
@@ -437,6 +509,32 @@ impl Decoder for Numeric {
 
                 (num as f64) * -1.0
             }
+            HeaderType::Float {
+                is_infinite,
+                is_negative,
+                is_f64,
+            } => {
+                if is_infinite && !is_negative {
+                    f64::INFINITY
+                } else if is_infinite {
+                    f64::NEG_INFINITY
+                } else {
+                    if is_f64 {
+                        let multiplier = if is_negative { -1.0 } else { 1.0 };
+                        let mut bytes = [0u8; 8];
+                        let _bytes_read = reader.read(&mut bytes)?;
+
+                        f64::from_le_bytes(bytes) * multiplier
+                    } else {
+                        let multiplier = if is_negative { -1.0 } else { 1.0 };
+                        let mut bytes = [0u8; 4];
+                        let _bytes_read = reader.read(&mut bytes)?;
+                        let f = f32::from_le_bytes(bytes) * multiplier;
+
+                        f as _
+                    }
+                }
+            }
         };
         let record = RSIndexResult::numeric(doc_id, num);
 
@@ -448,6 +546,11 @@ enum F64Value {
     Tiny(u8),
     PosInt(u64),
     NegInt(u64),
+    Float32 { value: f32, positive: bool },
+    Float64Pos(f64),
+    Float64Neg(f64),
+    Infinity,
+    NegInfinity,
 }
 
 fn get_f64_value(f: f64) -> F64Value {
@@ -464,12 +567,44 @@ fn get_f64_value(f: f64) -> F64Value {
             F64Value::NegInt((f * -1.0) as _)
         }
     } else {
-        todo!()
+        match f {
+            f64::INFINITY => F64Value::Infinity,
+            f64::NEG_INFINITY => F64Value::NegInfinity,
+            v => {
+                let f32_value = v as f32;
+                let back_to_f64 = f32_value as f64;
+
+                if back_to_f64 == v {
+                    if v < 0.0 {
+                        F64Value::Float32 {
+                            value: v.abs() as _,
+                            positive: false,
+                        }
+                    } else {
+                        F64Value::Float32 {
+                            value: v as _,
+                            positive: true,
+                        }
+                    }
+                } else {
+                    if v < 0.0 {
+                        F64Value::Float64Neg(v.abs())
+                    } else {
+                        F64Value::Float64Pos(v)
+                    }
+                }
+            }
+        }
     }
 }
 
 enum HeaderType {
     Tiny(u8),
+    Float {
+        is_infinite: bool,
+        is_negative: bool,
+        is_f64: bool,
+    },
     PositiveInteger(u8),
     NegativeInteger(u8),
 }
@@ -481,6 +616,7 @@ struct Header {
 
 impl Header {
     const TINY_TYPE: u8 = 0b00;
+    const FLOAT_TYPE: u8 = 0b01;
     const POS_INT_TYPE: u8 = 0b10;
     const NEG_INT_TYPE: u8 = 0b11;
 
@@ -501,6 +637,23 @@ impl Header {
                 packed |= Self::NEG_INT_TYPE << 3; // 2 bits for type
                 packed |= (b & 0b111) << 5; // 3 bits for value bytes
             }
+            HeaderType::Float {
+                is_infinite,
+                is_negative,
+                is_f64,
+            } => {
+                packed |= Self::FLOAT_TYPE << 3; // 2 bits for type
+
+                if is_infinite {
+                    packed |= 1 << 5;
+                }
+                if is_negative {
+                    packed |= 1 << 6;
+                }
+                if is_f64 {
+                    packed |= 1 << 7;
+                }
+            }
         }
 
         packed
@@ -514,6 +667,19 @@ impl Header {
                 Self {
                     delta_bytes,
                     typ: HeaderType::Tiny(data >> 5 & 0b111), // 3 bits for the value
+                }
+            }
+            Self::FLOAT_TYPE => {
+                let is_infinite = (data >> 5) & 0b1 != 0;
+                let is_negative = (data >> 6) & 0b1 != 0;
+                let is_f64 = (data >> 7) & 0b1 != 0;
+                Self {
+                    delta_bytes,
+                    typ: HeaderType::Float {
+                        is_infinite,
+                        is_negative,
+                        is_f64,
+                    },
                 }
             }
             Self::POS_INT_TYPE => {
