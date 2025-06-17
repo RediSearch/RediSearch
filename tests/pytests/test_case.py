@@ -128,7 +128,7 @@ def testCaseWithComparison(env):
 
 def testNestedCase(env):
     """Test nested case functions"""
-    _prepare_index(env, 'idx_nested')
+    env.expect('FT.CREATE', 'idx_nested', 'SCHEMA', 't', 'TEXT').ok()
     conn = getConnectionByEnv(env)
 
     # Add documents with different text values
@@ -225,4 +225,75 @@ def testCaseWithMissingFields(env):
     env.assertEqual(statuses['only_field2'], 1)
     env.assertEqual(statuses['none'], 1)
 
+def testNestedConditionsCase(env):
+    """Test case function with nested conditions in both result branches"""
+    conn = getConnectionByEnv(env)
 
+    # Create index with status and priority fields
+    env.expect('FT.CREATE', 'idx_orders', 'SCHEMA',
+               'status', 'TAG', 'SORTABLE',
+               'priority', 'TAG', 'SORTABLE',
+               'order_id', 'NUMERIC', 'SORTABLE').ok()
+
+    # Add test documents with different status and priority combinations
+    conn.execute_command('HSET', 'order:1', 'status', 'pending', 'priority', 'high', 'order_id', '1')
+    conn.execute_command('HSET', 'order:2', 'status', 'pending', 'priority', 'low', 'order_id', '2')
+    conn.execute_command('HSET', 'order:3', 'status', 'completed', 'priority', 'high', 'order_id', '3')
+    conn.execute_command('HSET', 'order:4', 'status', 'completed', 'priority', 'low', 'order_id', '4')
+    conn.execute_command('HSET', 'order:5', 'status', 'cancelled', 'priority', 'high', 'order_id', '5')
+    conn.execute_command('HSET', 'order:6', 'status', 'cancelled', 'priority', 'low', 'order_id', '6')
+
+    # Test case with nested conditions in both result branches
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx_orders', '*',
+        'LOAD', '3', '@status', '@priority', '@order_id',
+        'APPLY', 'case(@status == "pending", ' \
+        '              case(@priority == "high", 1, 2), ' \
+        '              case(@status == "completed", 3, 4))', 'AS', 'status_code',
+        'SORTBY', '2', '@order_id', 'ASC',
+        'DIALECT', '2')
+
+    # Expected status codes:
+    # order:1 (pending, high) -> 1
+    # order:2 (pending, low) -> 2
+    # order:3 (completed, high) -> 3
+    # order:4 (completed, low) -> 3
+    # order:5 (cancelled, high) -> 4
+    # order:6 (cancelled, low) -> 4
+
+    env.assertEqual(res[0], 6)  # 6 documents total
+
+    # Check that each order has the correct status code
+    expected_status_codes = {
+        '1': '1',  # pending + high
+        '2': '2',  # pending + low
+        '3': '3',  # completed + high
+        '4': '3',  # completed + low
+        '5': '4',  # cancelled + high
+        '6': '4'   # cancelled + low
+    }
+
+    for row in res[1:]:
+        order_id = row[row.index('order_id') + 1]
+        status_code = row[row.index('status_code') + 1]
+        env.assertEqual(status_code, expected_status_codes[order_id],
+                       message=f"Order {order_id} with status '{row[row.index('status') + 1]}' and priority '{row[row.index('priority') + 1]}' should have status_code {expected_status_codes[order_id]}")
+
+    # Test equivalent functionality using multiple APPLY statements (mapping approach)
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx_orders', '*',
+        'LOAD', '3', '@status', '@priority', '@order_id',
+        'APPLY', 'case(@status == "pending", 1, 0)', 'AS', 'is_pending',
+        'APPLY', 'case(@is_pending == 1 && @priority == "high", 1, 2)', 'AS', 'status_pending',
+        'APPLY', 'case(@is_pending == 0 && @status == "completed", 3, 4)', 'AS', 'status_completed',
+        'APPLY', 'case(@is_pending == 1, @status_pending, @status_completed)', 'AS', 'status_code',
+        'SORTBY', '2', '@order_id', 'ASC',
+        'DIALECT', '2')
+    env.assertEqual(res[0], 6)  # 6 documents total
+
+    # Check that each order has the correct final status
+    for row in res[1:]:
+        order_id = row[row.index('order_id') + 1]
+        status_code = row[row.index('status_code') + 1]
+        env.assertEqual(status_code, expected_status_codes[order_id],
+                       message=f"Order {order_id} with status '{row[row.index('status') + 1]}' and priority '{row[row.index('priority') + 1]}' should have status_code {expected_status_codes[order_id]}")
