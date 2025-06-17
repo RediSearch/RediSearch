@@ -635,19 +635,17 @@ static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *qua
   if ((rc = AC_GetString(ac, &quantBitsStr, &len, 0)) != AC_OK) {
     return rc;
   }
-  if (STR_EQCASE(quantBitsStr, len, VECSIM_QUANT_BITS_NONE))
-    *quantBits = VecSimSvsQuant_NONE;
-  else if (STR_EQCASE(quantBitsStr, len, VECSIM_QUANT_BITS_4))
+  if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4))
     *quantBits = VecSimSvsQuant_4;
-  else if (STR_EQCASE(quantBitsStr, len, VECSIM_QUANT_BITS_8))
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_8))
     *quantBits = VecSimSvsQuant_8;
-  else if (STR_EQCASE(quantBitsStr, len, VECSIM_QUANT_BITS_4X4))
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X4))
     *quantBits = VecSimSvsQuant_4x4;
-  else if (STR_EQCASE(quantBitsStr, len, VECSIM_QUANT_BITS_4X8))
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4X8))
     *quantBits = VecSimSvsQuant_4x8;
-  else if (STR_EQCASE(quantBitsStr, len, VECSIM_QUANT_BITS_4X8_LEANVEC))
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_4X8))
     *quantBits = VecSimSvsQuant_4x8_LeanVec;
-  else if (STR_EQCASE(quantBitsStr, len, VECSIM_QUANT_BITS_8X8_LEANVEC))
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LEANVEC_8X8))
     *quantBits = VecSimSvsQuant_8x8_LeanVec;
   else
     return AC_ERR_ENOENT;
@@ -934,7 +932,7 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
 static int parseVectorField_svs(FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status) {
   int rc;
 
-  // BF mandatory params.
+  // SVS-VAMANA mandatory params.
   bool mandtype = false;
   bool mandsize = false;
   bool mandmetric = false;
@@ -956,6 +954,10 @@ static int parseVectorField_svs(FieldSpec *fs, VecSimParams *params, ArgsCursor 
       if ((rc = parseVectorField_GetType(ac, &params->algoParams.svsParams.type)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_TYPE), rc);
         return 0;
+      } else if (params->algoParams.svsParams.type != VecSimType_FLOAT16 &&
+                 params->algoParams.svsParams.type != VecSimType_FLOAT32){
+            QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Not supported data type is given. ", "Expected: FLOAT16, FLOAT32");
+            return 0;
       }
       mandtype = true;
     } else if (AC_AdvanceIfMatch(ac, VECSIM_DIM)) {
@@ -970,11 +972,6 @@ static int parseVectorField_svs(FieldSpec *fs, VecSimParams *params, ArgsCursor 
         return 0;
       }
       mandmetric = true;
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_BLOCKSIZE)) {
-      if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.blockSize, AC_F_GE1)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_BLOCKSIZE), rc);
-        return 0;
-      }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_GRAPH_DEGREE)) {
       if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.graph_max_degree, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_GRAPH_DEGREE), rc);
@@ -989,6 +986,9 @@ static int parseVectorField_svs(FieldSpec *fs, VecSimParams *params, ArgsCursor 
       if ((rc = AC_GetSize(ac, &params->algoParams.svsParams.num_threads, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_NUM_THREADS), rc);
         return 0;
+      } else if (params->algoParams.svsParams.num_threads > MAX_WORKER_THREADS) {
+           QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "NUM_THREADS value exceeds MAX_WORKER_THREADS. ", "Not more than %d is allowed", MAX_WORKER_THREADS);
+          return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_QUANT_BITS)) {
       if ((rc = parseVectorField_GetQuantBits(ac, &params->algoParams.svsParams.quantBits)) != AC_OK) {
@@ -1208,15 +1208,9 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     params->logCtx = logCtx;
     result = parseVectorField_hnsw(fs, params, ac, status);
   } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS)) {
-    fs->vectorOpts.vecSimParams.algo = VecSimAlgo_SVS;
-    fs->vectorOpts.vecSimParams.logCtx = logCtx;
-    // here it's supposed that all fs->vectorOpts.vecSimParams.algoParams.svsParams.* are equal to zeroes
-    // rely on memset above ( memset(&fs->vectorOpts.vecSimParams, 0, sizeof(VecSimParams)); )
-    result = parseVectorField_svs(fs, &fs->vectorOpts.vecSimParams, ac, status);
-  } else if (STR_EQCASE(algStr, len, VECSIM_ALGORITHM_SVS_TIERED)) {
     fs->vectorOpts.vecSimParams.algo = VecSimAlgo_TIERED;
     VecSim_TieredParams_Init(&fs->vectorOpts.vecSimParams.algoParams.tieredParams, sp_ref);
-    fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredSVSParams.updateJobThreshold = 0; // Will be set to default value.
+    fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = 0; // Will be set to default value.
 
     // primary index params allocated in VecSim_TieredParams_Init()
     VecSimParams *params = fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
