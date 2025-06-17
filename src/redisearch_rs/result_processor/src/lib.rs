@@ -266,7 +266,9 @@ where
                 },
                 next: Some(Self::result_processor_next),
                 free: Some(Self::result_processor_free),
+                #[cfg(debug_assertions)]
                 inner_ty_id: TypeId::of::<P>(),
+                #[cfg(debug_assertions)]
                 inner_ty_name: type_name::<P>(),
                 _unpin: PhantomPinned,
             },
@@ -393,11 +395,11 @@ where
     /// # Safety
     ///
     /// 1. `me` must be a well-aligned, valid pointer to a result processor (struct [`Header`]).
-    unsafe fn debug_assert_same_type(me: NonNull<Header>) {
+    unsafe fn debug_assert_same_type(_me: NonNull<Header>) {
         #[cfg(debug_assertions)]
         {
             // Safety: all invariants have to be upheld by the caller
-            let header = unsafe { me.as_ref() };
+            let header = unsafe { _me.as_ref() };
             assert_eq!(
                 header.inner_ty_id,
                 TypeId::of::<P>(),
@@ -532,7 +534,9 @@ pub(crate) mod test {
                     next: Some(result_processor_next),
                     free: Some(result_processor_free),
 
+                    #[cfg(debug_assertions)]
                     inner_ty_id: TypeId::of::<()>(),
+                    #[cfg(debug_assertions)]
                     inner_ty_name: "Mock C result processor",
 
                     _unpin: PhantomPinned,
