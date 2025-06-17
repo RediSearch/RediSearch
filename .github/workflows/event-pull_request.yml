@@ -60,6 +60,7 @@ jobs:
       test-config: QUICK=1
       san: address
       rejson-branch: '2.4'
+      env: ubuntu-latest
 
   pr-validation:
     needs:

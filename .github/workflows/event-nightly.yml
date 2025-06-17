@@ -40,3 +40,4 @@ jobs:
       get-redis: unstable
       test-config: QUICK=1
       san: address
+      env: ubuntu-latest
