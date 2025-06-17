@@ -10,6 +10,7 @@
 use std::{
     ffi::{c_char, c_int},
     io::{Read, Seek, Write},
+    mem::ManuallyDrop,
 };
 
 use enumflags2::{BitFlags, bitflags};
@@ -43,7 +44,7 @@ pub struct RSNumericRecord(pub f64);
 
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSOffsetVector_Iterator
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[repr(C)]
 pub struct RSOffsetVector {
     pub data: *mut c_char,
@@ -51,7 +52,7 @@ pub struct RSOffsetVector {
 }
 
 /// Represents a single record of a document inside a term in the inverted index
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[repr(C)]
 pub struct RSTermRecord {
     /// The term that brought up this record
@@ -80,7 +81,7 @@ pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 /// Represents an aggregate array of values in an index record.
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct RSAggregateResult {
     /// The number of child records
     pub num_children: c_int,
@@ -98,9 +99,9 @@ pub struct RSAggregateResult {
 /// Holds the actual data of an ['IndexResult']
 #[repr(C)]
 pub union RSIndexResultData {
-    pub agg: RSAggregateResult,
-    pub term: RSTermRecord,
-    pub num: RSNumericRecord,
+    pub agg: ManuallyDrop<RSAggregateResult>,
+    pub term: ManuallyDrop<RSTermRecord>,
+    pub num: ManuallyDrop<RSNumericRecord>,
 }
 
 /// The result of an inverted index
