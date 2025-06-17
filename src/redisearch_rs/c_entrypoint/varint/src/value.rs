@@ -8,7 +8,7 @@
 */
 
 use buffer::{BufferReader, BufferWriter};
-use encode_decode::varint::{read, write};
+use encode_decode::varint::VarintEncode;
 use std::ptr::NonNull;
 
 #[unsafe(no_mangle)]
@@ -26,7 +26,7 @@ pub extern "C" fn ReadVarint(b: Option<NonNull<BufferReader>>) -> u32 {
     let mut buffer_reader = b.unwrap();
     // Safety: Safe thanks to invariants 1. and 2.
     let buffer_reader = unsafe { buffer_reader.as_mut() };
-    read(buffer_reader).unwrap()
+    u32::read_as_varint(buffer_reader).unwrap()
 }
 
 /// Write a varint-encoded value into the given buffer writer.
@@ -48,6 +48,6 @@ pub extern "C" fn WriteVarint(value: u32, writer: Option<NonNull<BufferWriter>>)
     // Safety: Safe thanks to invariants 1. and 2.
     let writer = unsafe { writer.as_mut() };
     let cap = writer.buffer().capacity();
-    write(value, &mut *writer).unwrap();
+    u32::write_as_varint(value, &mut *writer).unwrap();
     writer.buffer().capacity() - cap
 }
