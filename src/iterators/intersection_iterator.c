@@ -31,17 +31,6 @@ static inline IteratorStatus II_ReadFromFirstChild(IntersectionIterator *it, t_d
   return rc;
 }
 
-static inline void II_SetCurrent(IntersectionIterator *it) {
-  // All iterators agree on the docId, so we can set the current result
-  AggregateResult_Reset(it->base.current);
-  for (uint32_t i = 0; i < it->num_its; i++) {
-    RS_ASSERT(it->base.current->docId == it->its[i]->current->docId ||
-              it->base.current->docId == 0); // Initially after reset, docId is 0
-    AggregateResult_AddChild(it->base.current, it->its[i]->current);
-  }
-  it->base.lastDocId = it->base.current->docId;
-}
-
 /**
  * Check if all iterators agree on the current docId `curTarget` holds.
  * If they do, aggregate their results into `current` and return ITERATOR_OK.
@@ -71,6 +60,12 @@ static IteratorStatus II_AgreeOnDocId(IntersectionIterator *it, t_docId *curTarg
       }
     }
   }
+  // All iterators agree on the docId, so we can set the current result
+  AggregateResult_Reset(it->base.current);
+  for (uint32_t i = 0; i < it->num_its; i++) {
+    RS_ASSERT(docId == it->its[i]->current->docId);
+    AggregateResult_AddChild(it->base.current, it->its[i]->current);
+  }
   return ITERATOR_OK;
 }
 
@@ -86,7 +81,7 @@ static inline IteratorStatus II_Read_Internal_CheckRelevancy(IntersectionIterato
       continue;
     }
     // Hit!
-    II_SetCurrent(it);
+    it->base.lastDocId = it->base.current->docId;
     return ITERATOR_OK;
 
   } while (rc == ITERATOR_OK || rc == ITERATOR_NOTFOUND);
@@ -99,7 +94,7 @@ static inline IteratorStatus II_Read_Internal(IntersectionIterator *it, t_docId 
     rc = II_AgreeOnDocId(it, &docId);
   } while (rc == ITERATOR_NOTFOUND);
   if (rc == ITERATOR_OK) {
-    II_SetCurrent(it);
+    it->base.lastDocId = it->base.current->docId;
   }
   return rc;
 }
@@ -142,7 +137,7 @@ static IteratorStatus II_SkipTo_CheckRelevancy(QueryIterator *base, t_docId docI
   IteratorStatus rc = II_AgreeOnDocId(it, &docId);
   if (ITERATOR_OK == rc) {
     if (II_currentIsRelevant(it)) {
-      II_SetCurrent(it);
+      it->base.lastDocId = it->base.current->docId;
       return ITERATOR_OK;
     }
     // Agreed on docId, but not relevant - need to read the next valid result.
@@ -153,6 +148,7 @@ static IteratorStatus II_SkipTo_CheckRelevancy(QueryIterator *base, t_docId docI
   }
 
   // Not found - but we need to read the next valid result.
+  // `docId` is set to the next valid docId (by `II_AgreeOnDocId` or `II_ReadFromFirstChild`).
   rc = II_Read_Internal_CheckRelevancy(it, docId);
   // Return rc, switching OK to NOTFOUND
   if (rc == ITERATOR_OK) {
@@ -170,7 +166,7 @@ static IteratorStatus II_SkipTo(QueryIterator *base, t_docId docId) {
 
   IteratorStatus rc = II_AgreeOnDocId(it, &docId);
   if (ITERATOR_OK == rc) {
-    II_SetCurrent(it);
+    it->base.lastDocId = it->base.current->docId;
   } else if (ITERATOR_NOTFOUND == rc) {
     // Not found - but we need to read the next valid result
     IteratorStatus read_rc = II_Read_Internal(it, docId);
