@@ -21,6 +21,8 @@ pub mod counter;
 
 use libc::{c_int, timespec};
 use pin_project::pin_project;
+#[cfg(debug_assertions)]
+use std::any::{TypeId, type_name};
 use std::{
     marker::{PhantomData, PhantomPinned},
     pin::Pin,
@@ -220,6 +222,15 @@ struct Header {
     next: Option<unsafe extern "C" fn(self_: *mut Header, res: *mut ffi::SearchResult) -> c_int>,
     /// "VTable" function. Frees the processor and any internal data related to it.
     free: Option<unsafe extern "C" fn(self_: *mut Header)>,
+
+    // the following fields are Rust-specific and do not map to the C (ffi::ResultProcessor) type
+    /// The TypeId of the inner ResultProcessor implementation, for debugging purposes
+    #[cfg(debug_assertions)]
+    inner_ty_id: TypeId,
+    /// The Rust typename of the inner ResultProcessor implementation, for debugging purposes
+    #[cfg(debug_assertions)]
+    inner_ty_name: &'static str,
+
     /// ResultProcessor *must* be !Unpin to ensure they can never be moved, and they never receive
     /// LLVM `noalias` annotations; See <https://github.com/rust-lang/rust/issues/63818>.
     /// FIXME: Remove once <https://github.com/rust-lang/rust/issues/63818> is closed and replace with the recommended fix.
@@ -239,7 +250,7 @@ pub struct ResultProcessorWrapper<P> {
 
 impl<P> ResultProcessorWrapper<P>
 where
-    P: ResultProcessor,
+    P: ResultProcessor + 'static,
 {
     /// Construct a new FFI-ResultProcessor from the provided [`crate::ResultProcessor`] implementer.
     pub fn new(result_processor: P) -> Self {
@@ -254,6 +265,8 @@ where
                 },
                 next: Some(Self::result_processor_next),
                 free: Some(Self::result_processor_free),
+                inner_ty_id: TypeId::of::<P>(),
+                inner_ty_name: type_name::<P>(),
                 _unpin: PhantomPinned,
             },
             result_processor,
@@ -321,13 +334,20 @@ where
 
         let mut res = NonNull::new(res).unwrap();
         debug_assert!(res.is_aligned());
+        // Safety:
+        // 1. ptr is non-null and well-aligned
+        // 2. all additional safety invariants have to be upheld by the caller (invariant 1.)
+        unsafe { Self::debug_assert_same_type(ptr) };
 
         // Safety: This function is called through the ResultProcessor "VTable" which - through the generics on this type -
         // ensures that we can safely cast to `Self` here.
+        // Additionally, when debug assertions are enabled, we perform an additional assertion above.
         let me = unsafe { ptr.cast::<Self>().as_mut() };
 
         // Safety: ptr outlives the current scope
         let cx = unsafe { Context::from_raw(ptr) };
+        // Safety: Contex contines to to treat `me` as pinned
+        let me = unsafe { Pin::new_unchecked(me) };
 
         // Safety: We have done as much checking as we can at the start of the function (checking alignment & non-null-ness).
         let res = unsafe { res.as_mut() };
@@ -352,10 +372,38 @@ where
 
         let me = NonNull::new(me).unwrap();
         debug_assert!(me.is_aligned());
+
+        // Safety:
+        // 1. me is non-null and well-aligned
+        // 2. all additional safety invariants have to be upheld by the caller (invariant 1.)
+        unsafe { Self::debug_assert_same_type(me) };
+
         // Safety: This function is called through the ResultProcessor "VTable" which - through the generics
-        //  and constructor of this type - ensures that we can safely cast to `Self` here.
-        //  For all other safety guarantees (invariants 2. and 3.) we have to trust the QueryIterator implementation to be correct.
+        // and constructor of this type - ensures that we can safely cast to `Self` here.
+        // Additionally, when debug assertions are enabled, we perform an additional assertion above.
+        // For all other safety guarantees (invariants 2. and 3.) we have to trust the QueryIterator implementation to be correct.
         drop(unsafe { Self::from_ptr(me.cast::<Self>()) });
+    }
+
+    /// Assert that the given `Header` has the expected inner Rust ResultProcessor type. This check is only performed with debug_assertions
+    /// enabled.
+    ///
+    /// # Safety
+    ///
+    /// 1. `me` must be a well-aligned, valid pointer to a result processor (struct [`Header`]).
+    unsafe fn debug_assert_same_type(me: NonNull<Header>) {
+        #[cfg(debug_assertions)]
+        {
+            // Safety: all invariants have to be upheld by the caller
+            let header = unsafe { me.as_ref() };
+            assert_eq!(
+                header.inner_ty_id,
+                TypeId::of::<P>(),
+                "Type mismatch: Expected result processor of type `{}`, but got `{}`",
+                type_name::<P>(),
+                header.inner_ty_name,
+            )
+        }
     }
 }
 
