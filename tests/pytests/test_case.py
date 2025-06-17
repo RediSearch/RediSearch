@@ -57,16 +57,34 @@ def testWithVectorRange(env):
                 final_scores[i], expected_score[i], delta=0.0000001,
                 message=f"Failed for apply_expr: {apply_expr} at index {i}")
 
-# def testInvalidApplyFunction(env):
-#     dim = 4
-#     _prepare_index(env, 'idx', dim)
-#     conn = getConnectionByEnv(env)
+def testInvalidApplyFunction(env):
+    dim = 4
+    _prepare_index(env, 'idx', dim)
+    conn = getConnectionByEnv(env)
 
-#     apply_expr = 'case(!exist(@vector_distance), (@__score * 0.3), (@__score * 0.3 + @vector_distance * 0.7))'
-#     res = conn.execute_command(
-#             'FT.AGGREGATE', 'idx', '*',
-#             'APPLY', apply_expr, 'AS', 'final_score',
-#             'DIALECT', '2')
+    # Invalid case condition (string instead of number)
+    invalid_apply_exprs = [
+        'case(@t > 1, 1, 0)',
+        'case(1, @t > 1, 0)',
+        'case(0, 1, @t > 1)',
+    ]
+    for apply_expr in invalid_apply_exprs:
+        env.expect(
+            'FT.AGGREGATE', 'idx', '*',
+            'LOAD', '1', '@t',
+            'APPLY', apply_expr, 'AS', 'final_score',
+            'DIALECT', '2').error().contains("Error converting string")
+
+    # Invalid function name in APPLY clause
+    invalid_apply_exprs = [
+        'case(invalid_function(@vector_distance), 1, 0)',
+        # 'case(!invalid_function(@vector_distance), 1, 0)',
+    ]
+    for apply_expr in invalid_apply_exprs:
+        env.expect(
+            'FT.AGGREGATE', 'idx', '*',
+            'APPLY', apply_expr, 'AS', 'final_score',
+            'DIALECT', '2').error().contains("Unknown function name")
 
 def testCaseFunction(env):
     """Test the case function in APPLY clause with various conditions"""
