@@ -57,63 +57,24 @@ impl Counter {
 #[cfg(test)]
 pub(crate) mod test {
     use super::*;
-    use crate::{Context, ResultProcessorWrapper, test::from_iter};
-    use std::{
-        pin::Pin,
-        ptr::{self, NonNull},
+    use crate::{
+        ResultProcessorWrapper,
+        test_utils::{Chain, default_search_result, from_iter},
     };
+    use std::iter;
 
     #[test]
     fn basically_works() {
-        const INIT: ffi::SearchResult = ffi::SearchResult {
-            docId: 0,
-            score: 0.0,
-            scoreExplain: ptr::null_mut(),
-            dmd: ptr::null(),
-            indexResult: ptr::null_mut(),
-            rowdata: ffi::RLookupRow {
-                sv: ptr::null(),
-                dyn_: ptr::null_mut(),
-                ndyn: 0,
-            },
-            flags: 0,
-        };
+        // Set up the result processor chain
+        let mut chain = Chain::new();
+        chain.push(Box::pin(ResultProcessorWrapper::new(from_iter(
+            iter::repeat_n(default_search_result(), 3),
+        ))));
+        chain.push(Box::pin(ResultProcessorWrapper::new(Counter::new())));
 
-        // Set up the result processors on the heap
-        let upstream = Box::pin(ResultProcessorWrapper::new(from_iter([INIT, INIT, INIT])));
-        let upstream =
-            unsafe { NonNull::new(Box::into_raw(Pin::into_inner_unchecked(upstream))).unwrap() };
+        let (cx, rp) = chain.last_as_context_and::<Counter>();
 
-        let mut rp = Box::pin(ResultProcessorWrapper::new(Counter::new()));
-
-        // Emulate what `QITR_PushRP` would be doing
-        rp.header.upstream = upstream.as_ptr().cast();
-
-        let mut rp = NonNull::new(unsafe { ResultProcessorWrapper::into_ptr(rp) }).unwrap();
-
-        let cx = unsafe { Context::from_raw(rp.cast()) };
-
-        // we don't care about the exact search result value here
-        #[allow(const_item_mutation)]
-        unsafe {
-            assert!(
-                rp.as_mut()
-                    .result_processor
-                    .next(cx, &mut INIT)
-                    .unwrap()
-                    .is_none()
-            );
-        };
-
-        assert_eq!(unsafe { rp.as_mut() }.result_processor.count, 3);
-
-        // we need to correctly free both result processors at the end
-        unsafe {
-            let mut rp = rp.cast::<crate::Header>();
-            (rp.as_mut().free.unwrap())(rp.as_ptr());
-
-            let mut upstream = upstream.cast::<crate::Header>();
-            (upstream.as_mut().free.unwrap())(upstream.as_ptr());
-        }
+        assert!(rp.next(cx, &mut default_search_result()).unwrap().is_none());
+        assert_eq!(rp.count, 3);
     }
 }
