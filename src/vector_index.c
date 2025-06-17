@@ -257,6 +257,8 @@ const char *VecSimSvsQuantBits_ToString(VecSimSvsQuantBits quantBits) {
         case VecSimSvsQuant_8: return VECSIM_QUANT_BITS_8;
         case VecSimSvsQuant_4x4: return VECSIM_QUANT_BITS_4X4;
         case VecSimSvsQuant_4x8: return VECSIM_QUANT_BITS_4X8;
+        case VecSimSvsQuant_4x8_LeanVec: return VECSIM_QUANT_BITS_4X8_LEANVEC;
+        case VecSimSvsQuant_8x8_LeanVec: return VECSIM_QUANT_BITS_8X8_LEANVEC;
     }
     return NULL;
 }
