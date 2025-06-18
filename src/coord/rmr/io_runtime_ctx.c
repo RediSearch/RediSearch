@@ -174,7 +174,6 @@ static void sideThread(void *arg) {
   io_runtime_ctx->topologyAsync.data = io_runtime_ctx;
   io_runtime_ctx->topologyFailureTimer.data = io_runtime_ctx;
   io_runtime_ctx->topologyValidationTimer.data = (TopologyValidationTimerCBData *)data;
-  uv_async_send(&io_runtime_ctx->topologyAsync); // start the topology check
 
   // loop is initialized and handles are ready
   io_runtime_ctx->loop_th_ready = false; // Until topology is validated, no requests are allowed (will be accumulated in the pending queue)
