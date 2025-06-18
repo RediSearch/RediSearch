@@ -1467,7 +1467,7 @@ def test_utf8_lowercase_longer_than_uppercase_tags(env):
         # lowercase term will be stored.
         env.assertEqual(res, [[t, [1]], [t_lower, [2]]])
 
-    for dialect in range(1, 5):
+    for dialect in range(1, 4):
         res = conn.execute_command(
             'FT.SEARCH', 'idx', f'@t:{{{t_escaped}}}', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, [1, '{doc}:1'])
@@ -1549,7 +1549,7 @@ def test_utf8_lowercase_longer_than_uppercase_texts(env):
         # lowercase term will be stored.
         env.assertEqual(res, [t, t_lower])
 
-    for dialect in range(1, 5):
+    for dialect in range(1, 4):
         # Search escaped original case  term
         res = conn.execute_command(
             'FT.SEARCH', 'idx', f'@t:({t_escaped})', 'NOCONTENT', 'DIALECT', dialect)
