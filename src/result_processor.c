@@ -1588,7 +1588,7 @@ dictType dictTypeHybridSearchResult = {
           } else { //strict
             return rc;
           }
-
+      }
     }
   }
    // Initialize iterator for yield phase
@@ -1604,7 +1604,9 @@ dictType dictTypeHybridSearchResult = {
    RPHybridMerger *self = (RPHybridMerger *)rp;
 
    // Free the iterator
-   dictReleaseIterator(self->iterator);
+   if (self->iterator) {
+    dictReleaseIterator(self->iterator);
+   }
    // Free the hybrid results dictionary (HybridSearchResult values automatically freed by destructor)
    dictRelease(self->hybridResults);
 

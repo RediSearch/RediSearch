@@ -11,6 +11,8 @@
 #include "result_processor.h"
 #include "query.h"
 #include "gtest/gtest.h"
+#include "config.h"
+#include "module.h"
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
@@ -895,6 +897,187 @@ TEST_F(ResultProcessorTest, testHybridMergerUpstream2DepletesMore) {
   ASSERT_EQ(6, count);
   ASSERT_EQ(3, upstream1Count);
   ASSERT_EQ(3, upstream2Count);
+
+  SearchResult_Destroy(&r);
+  QITR_FreeChain(&qitr);
+}
+
+TEST_F(ResultProcessorTest, testHybridMergerTimeoutReturnPolicy) {
+  QueryIterator qitr = {0};
+
+  // Set up dummy context for timeout functionality
+  RedisSearchCtx sctx = {0};
+  sctx.redisCtx = RSDummyContext;
+  qitr.sctx = &sctx;
+  qitr.timeoutPolicy = TimeoutPolicy_Return;
+
+  // Mock upstream1: generates 2 docs then timeout
+  struct MockUpstream1 : public ResultProcessor {
+    int counter = 0;
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream1 *p = static_cast<MockUpstream1 *>(rp);
+      if (p->counter >= 2) return RS_RESULT_TIMEDOUT;
+
+      res->docId = ++p->counter;
+      res->score = 1.0;
+
+      // Set up document metadata with keys
+      static RSDocumentMetadata dmd[2] = {0};
+      static const char* keys[] = {"doc1", "doc2"};
+      dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
+      res->dmd = &dmd[p->counter - 1];
+
+      return RS_RESULT_OK;
+    }
+    MockUpstream1() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream1;
+
+  // Mock upstream2: generates 5 different docs
+  struct MockUpstream2 : public ResultProcessor {
+    int counter = 0;
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream2 *p = static_cast<MockUpstream2 *>(rp);
+      if (p->counter >= 5) return RS_RESULT_EOF;
+
+      res->docId = ++p->counter + 10; // docs 11-15
+      res->score = 2.0;
+
+      // Set up document metadata with keys
+      static RSDocumentMetadata dmd[5] = {0};
+      static const char* keys[] = {"doc11", "doc12", "doc13", "doc14", "doc15"};
+      dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
+      res->dmd = &dmd[p->counter - 1];
+
+      return RS_RESULT_OK;
+    }
+    MockUpstream2() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream2;
+
+  // Create hybrid merger with window size 4
+  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  ResultProcessor *hybridMerger = RPHybridMerger_New(
+    hybridScoringFunction,
+    upstreams,
+    2,  // numUpstreams
+    4   // window size
+  );
+
+  QITR_PushRP(&qitr, hybridMerger);
+
+  // Process and verify results
+  size_t count = 0;
+  SearchResult r = {0};
+  ResultProcessor *rpTail = qitr.endProc;
+  int rc;
+
+  // Should get some results before timeout
+  while ((rc = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
+    count++;
+
+    // Verify document metadata and key are set
+    ASSERT_TRUE(r.dmd != nullptr);
+    ASSERT_TRUE(r.dmd->keyPtr != nullptr);
+
+    SearchResult_Clear(&r);
+  }
+
+  ASSERT_EQ(count, 2);
+  // Final result should be timeout
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, rc);
+
+  SearchResult_Destroy(&r);
+  QITR_FreeChain(&qitr);
+}
+
+TEST_F(ResultProcessorTest, testHybridMergerTimeoutFailPolicy) {
+  QueryIterator qitr = {0};
+
+  // Set up dummy context for timeout functionality
+  RedisSearchCtx sctx = {0};
+  sctx.redisCtx = RSDummyContext;
+  qitr.sctx = &sctx;
+  qitr.timeoutPolicy = TimeoutPolicy_Fail;
+
+  // Mock upstream1: generates 2 docs then timeout
+  struct MockUpstream1 : public ResultProcessor {
+    int counter = 0;
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream1 *p = static_cast<MockUpstream1 *>(rp);
+      if (p->counter >= 2) return RS_RESULT_TIMEDOUT;
+
+      res->docId = ++p->counter;
+      res->score = 1.0;
+
+      // Set up document metadata with keys
+      static RSDocumentMetadata dmd[2] = {0};
+      static const char* keys[] = {"doc1", "doc2"};
+      dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
+      res->dmd = &dmd[p->counter - 1];
+
+      return RS_RESULT_OK;
+    }
+    MockUpstream1() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream1;
+
+  // Mock upstream2: generates 5 different docs
+  struct MockUpstream2 : public ResultProcessor {
+    int counter = 0;
+    static int NextFn(ResultProcessor *rp, SearchResult *res) {
+      MockUpstream2 *p = static_cast<MockUpstream2 *>(rp);
+      if (p->counter >= 5) return RS_RESULT_EOF;
+
+      res->docId = ++p->counter + 10; // docs 11-15
+      res->score = 2.0;
+
+      // Set up document metadata with keys
+      static RSDocumentMetadata dmd[5] = {0};
+      static const char* keys[] = {"doc11", "doc12", "doc13", "doc14", "doc15"};
+      dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
+      res->dmd = &dmd[p->counter - 1];
+
+      return RS_RESULT_OK;
+    }
+    MockUpstream2() {
+      memset(this, 0, sizeof(*this));
+      this->Next = NextFn;
+    }
+  } upstream2;
+
+  // Create hybrid merger with window size 4
+  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  ResultProcessor *hybridMerger = RPHybridMerger_New(
+    hybridScoringFunction,
+    upstreams,
+    2,  // numUpstreams
+    4   // window size
+  );
+
+  QITR_PushRP(&qitr, hybridMerger);
+
+  // Process and verify results
+  size_t count = 0;
+  SearchResult r = {0};
+  ResultProcessor *rpTail = qitr.endProc;
+  int rc;
+
+  // With Fail policy, should return timeout immediately without yielding any results
+  while ((rc = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
+    count++;
+    SearchResult_Clear(&r);
+  }
+
+  // With Fail policy, should get no results and immediate timeout
+  ASSERT_EQ(0, count);
+  ASSERT_EQ(RS_RESULT_TIMEDOUT, rc);
 
   SearchResult_Destroy(&r);
   QITR_FreeChain(&qitr);
