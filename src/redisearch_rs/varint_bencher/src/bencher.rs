@@ -150,7 +150,7 @@ fn encode_u32_benchmark<M: Measurement>(
             || Vec::with_capacity(1024),
             |buf| {
                 for &value in values {
-                    u32::write_as_varint(black_box(value), &mut *buf).unwrap();
+                    black_box(value).write_as_varint(&mut *buf).unwrap();
                 }
             },
             BatchSize::SmallInput,
@@ -168,7 +168,7 @@ fn encode_u64_benchmark<M: Measurement>(
             || Vec::with_capacity(1024),
             |buf| {
                 for &value in values {
-                    u64::write_as_varint(black_box(value), &mut *buf).unwrap();
+                    black_box(value).write_as_varint(&mut *buf).unwrap();
                 }
             },
             BatchSize::SmallInput,
@@ -186,7 +186,7 @@ fn decode_u32_benchmark<M: Measurement>(
         .iter()
         .map(|&value| {
             let mut buf = Vec::new();
-            u32::write_as_varint(value, &mut buf).unwrap();
+            value.write_as_varint(&mut buf).unwrap();
             buf
         })
         .collect();
@@ -212,7 +212,7 @@ fn decode_u64_benchmark<M: Measurement>(
         .iter()
         .map(|&value| {
             let mut buf = Vec::new();
-            u64::write_as_varint(value, &mut buf).unwrap();
+            value.write_as_varint(&mut buf).unwrap();
             buf
         })
         .collect();

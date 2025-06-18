@@ -33,7 +33,7 @@ fn compute_and_report_memory_usage() {
     let mut rust_field_size = 0;
     for &mask in &field_masks {
         let mut buf = Vec::new();
-        u128::write_as_varint(black_box(mask), &mut buf).unwrap();
+        mask.write_as_varint(&mut buf).unwrap();
         rust_field_size += buf.len();
     }
 
@@ -70,7 +70,7 @@ fn analyze_encoding_efficiency(test_data: &[u32]) {
 
     for &value in test_data {
         let mut buf = Vec::new();
-        u32::write_as_varint(value, &mut buf).unwrap();
+        value.write_as_varint(&mut buf).unwrap();
         match buf.len() {
             1 => single_byte += 1,
             2 => two_byte += 1,
