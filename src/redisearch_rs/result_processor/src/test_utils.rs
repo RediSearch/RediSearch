@@ -142,7 +142,7 @@ impl Chain {
     /// # Panics
     ///
     /// Panics if the last result processors inner implementation is not of the expected type.
-    pub fn last_as_context_and_inner<P>(&mut self) -> (Context, &mut P)
+    pub fn last_as_context_and_inner<P>(&mut self) -> (Context<'_>, &mut P)
     where
         P: ResultProcessor + 'static,
     {

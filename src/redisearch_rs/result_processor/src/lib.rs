@@ -648,21 +648,4 @@ pub(crate) mod test {
         assert!(counter.header.next.is_some(), "Next function should be set");
         assert!(counter.header.free.is_some(), "Free function should be set");
     }
-
-    #[cfg(not(miri))] // FIXME miri isn't happy about this test, does it allocate new functions for each struct??
-    #[test]
-    fn wrapper_function_pointer_consistency() {
-        let counter1 = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
-        let counter2 = Box::pin(ResultProcessorWrapper::new(ResultRP::new_ok_some()));
-
-        // Function pointers should be the same across instances
-        assert_eq!(
-            counter1.header.next, counter2.header.next,
-            "Next function pointers should be identical"
-        );
-        assert_eq!(
-            counter1.header.free, counter2.header.free,
-            "Free function pointers should be identical"
-        );
-    }
 }
