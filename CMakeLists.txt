@@ -106,11 +106,14 @@ if(SAN)
     endif()
 endif()
 
+# Coverage settings
+message(STATUS "COV: ${COV}")
 if (COV)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} --coverage")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --coverage")
     set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --coverage")
+    add_compile_definitions(COVERAGE=1)
 endif()
 
 # Get Git version info - to be printed in log upon loading the module

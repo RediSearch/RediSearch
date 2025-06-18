@@ -53,11 +53,15 @@ jobs:
       rejson-branch: '2.8'
 
   coverage:
-    if: ${{ vars.ENABLE_CODE_COVERAGE == 'true' }}
-    uses: ./.github/workflows/flow-coverage.yml
+    needs: get-latest-redis-tag
+    if: ${{ vars.ENABLE_CODE_COVERAGE != 'false' }}
+    uses: ./.github/workflows/task-test.yml
     secrets: inherit
     with:
+      coverage: true
+      get-redis: ${{ needs.get-latest-redis-tag.outputs.tag }}
       rejson-branch: '2.8'
+      test-config: '' # run all tests
 
   sanitize:
     needs: [get-latest-redis-tag]
@@ -68,7 +72,6 @@ jobs:
       rejson-branch: '2.8'
       test-config: '' # run all tests
       san: address
-      env: ubuntu-latest
 
   pr-validation:
     needs:
