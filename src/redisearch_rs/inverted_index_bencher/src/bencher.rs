@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use buffer::Buffer;
 use criterion::{
     BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
@@ -37,11 +38,14 @@ impl NumericBencher {
 }
 
 fn numeric_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[f64]) {
-    let mut buffer = vec![0u8; 1];
+    let mut buffer = Buffer::from_array([0]);
 
     group.bench_function("C", |b| {
         b.iter(|| {
             for &value in values {
+                // Reset buffer to prevent it from growing
+                // This is fine since we don't care about benchmarking the growth operation anyway
+                buffer.reset();
                 let mut record = inverted_index::RSIndexResult::numeric(value);
                 encode_numeric(&mut buffer, &mut record);
             }

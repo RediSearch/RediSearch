@@ -1,5 +1,3 @@
-use std::ptr::NonNull;
-
 use buffer::{Buffer, BufferReader, BufferWriter};
 
 mod bindings {
@@ -15,18 +13,14 @@ mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
-pub fn encode_numeric(buffer: &mut [u8], record: &mut inverted_index::RSIndexResult) -> usize {
-    let mut buffer =
-        unsafe { Buffer::new(NonNull::new(buffer.as_mut_ptr()).unwrap(), 0, buffer.len()) };
-    let mut buffer_writer = BufferWriter::new_at(&mut buffer, 0);
+pub fn encode_numeric(buffer: &mut Buffer, record: &mut inverted_index::RSIndexResult) -> usize {
+    let mut buffer_writer = BufferWriter::new_at(buffer, 0);
 
     unsafe { bindings::encode_numeric(&mut buffer_writer as *const _ as *mut _, 0, record) }
 }
 
-pub fn read_numeric(buffer: &mut [u8]) -> (bool, inverted_index::RSIndexResult) {
-    let mut buffer =
-        unsafe { Buffer::new(NonNull::new(buffer.as_mut_ptr()).unwrap(), 0, buffer.len()) };
-    let buffer_reader = BufferReader::new(&mut buffer);
+pub fn read_numeric(buffer: &mut Buffer) -> (bool, inverted_index::RSIndexResult) {
+    let buffer_reader = BufferReader::new(buffer);
     let mut block_reader =
         unsafe { bindings::NewIndexBlockReader(&buffer_reader as *const _ as *mut _, 0) };
     let mut ctx = unsafe { bindings::NewIndexDecoderCtx_NumericFilter() };
@@ -43,14 +37,17 @@ mod tests {
 
     #[test]
     fn test_encode_numeric() {
-        let mut record = inverted_index::RSIndexResult::numeric(6.0);
+        let mut buffer = Buffer::from_array([0; 8]);
 
-        let mut buffer = vec![0u8; 8];
+        // Reset buffer so that writes happen at the start
+        buffer.reset();
+
+        let mut record = inverted_index::RSIndexResult::numeric(6.0);
 
         let buffer_grew_size = encode_numeric(&mut buffer, &mut record);
 
         assert_eq!(buffer_grew_size, 0, "buffer had enough space of 1024 bytes");
-        assert_eq!(buffer, [0b110_00_000, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(buffer.as_slice(), [0b110_00_000]);
 
         let (filtered, decoded_result) = read_numeric(&mut buffer);
 
