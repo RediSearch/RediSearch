@@ -8,34 +8,40 @@
 */
 
 use buffer::{BufferReader, BufferWriter};
-use encode_decode::varint::{read, write};
 use std::ptr::NonNull;
+use varint::VarintEncode;
 
-#[unsafe(no_mangle)]
-/// Read a varint-encoded value from the given buffer.
+pub type FieldMask = ffi::t_fieldMask;
+
+/// Read a varint-encoded field mask from the given buffer.
 ///
 /// # Panics
 ///
-/// Panics if the buffer doesn't contain a valid varint-encoded value.
+/// Panics if the buffer doesn't contain a valid varint-encoded field mask.
 ///
 /// # Safety
 /// The following invariants must be upheld when calling this function:
 /// 1. `b` must point to a valid `BufferReader` instance and cannot be NULL.
 /// 2. The caller must have exclusive access to the buffer reader.
-pub extern "C" fn ReadVarint(b: Option<NonNull<BufferReader>>) -> u32 {
+#[unsafe(no_mangle)]
+// `improper_ctypes_definitions` would be triggered because of u128 crossing the FFI boundary but
+// that's no longer an issue:
+// https://blog.rust-lang.org/2024/03/30/i128-layout-update/#compatibility
+#[allow(improper_ctypes_definitions)]
+pub extern "C" fn ReadVarintFieldMask(b: Option<NonNull<BufferReader>>) -> FieldMask {
     let mut buffer_reader = b.unwrap();
     // Safety: Safe thanks to invariants 1. and 2.
     let buffer_reader = unsafe { buffer_reader.as_mut() };
-    read(buffer_reader).unwrap()
+    FieldMask::read_as_varint(buffer_reader).unwrap()
 }
 
-/// Write a varint-encoded value into the given buffer writer.
+/// Write a varint-encoded field mask into the given buffer writer.
 /// It returns the number of bytes that have been added to the capacity of
 /// the underlying buffer.
 ///
 /// # Panics
 ///
-/// Panics if the buffer can't grow its capacity to fit the encoded field value.
+/// Panics if the buffer can't grow its capacity to fit the encoded field mask.
 ///
 /// # Safety
 ///
@@ -43,11 +49,18 @@ pub extern "C" fn ReadVarint(b: Option<NonNull<BufferReader>>) -> u32 {
 /// 1. `writer` must point to a valid `BufferWriter` instance and cannot be NULL.
 /// 2. The caller must have exclusive access to the buffer writer.
 #[unsafe(no_mangle)]
-pub extern "C" fn WriteVarint(value: u32, writer: Option<NonNull<BufferWriter>>) -> usize {
+// `improper_ctypes_definitions` would be triggered because of u128 crossing the FFI boundary but
+// that's no longer an issue:
+// https://blog.rust-lang.org/2024/03/30/i128-layout-update/#compatibility
+#[allow(improper_ctypes_definitions)]
+pub extern "C" fn WriteVarintFieldMask(
+    value: FieldMask,
+    writer: Option<NonNull<BufferWriter>>,
+) -> usize {
     let mut writer = writer.unwrap();
     // Safety: Safe thanks to invariants 1. and 2.
     let writer = unsafe { writer.as_mut() };
     let cap = writer.buffer().capacity();
-    write(value, &mut *writer).unwrap();
+    value.write_as_varint(&mut *writer).unwrap();
     writer.buffer().capacity() - cap
 }

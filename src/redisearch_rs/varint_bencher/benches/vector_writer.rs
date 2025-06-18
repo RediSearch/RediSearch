@@ -9,13 +9,23 @@
 
 //! Benchmark the vector writer operations for varints.
 
-use criterion::{Criterion, criterion_group, criterion_main};
-use std::time::Duration;
-use varint_bencher::VarintBencher;
+use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
+use varint::VectorWriter;
 
 fn benchmark_vector_writer(c: &mut Criterion) {
-    let bencher = VarintBencher::new("Varint Vector Writer".to_owned(), Duration::from_secs(10));
-    bencher.vector_writer_group(c);
+    let values: Vec<_> = (0..100).map(|i| i * 1000).collect();
+    c.bench_function("Sequential inputs", |b| {
+        b.iter_batched(
+            || VectorWriter::new(1024),
+            |mut writer| {
+                for value in &values {
+                    let _size = writer.write(black_box(*value)).unwrap();
+                }
+                black_box(writer.bytes_len());
+            },
+            BatchSize::SmallInput,
+        )
+    });
 }
 
 criterion_group!(vector_writer, benchmark_vector_writer);
