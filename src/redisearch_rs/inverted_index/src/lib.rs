@@ -142,6 +142,7 @@ pub struct RSIndexResult {
 }
 
 impl RSIndexResult {
+    /// Create a new numeric index result with the given numeric value
     pub fn numeric(num: f64) -> Self {
         Self {
             doc_id: 0,
