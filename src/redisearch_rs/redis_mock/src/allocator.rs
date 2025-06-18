@@ -32,15 +32,12 @@ const ALIGNMENT: usize = std::mem::align_of::<usize>();
 /// 1. The caller must ensure that neither is non-zero as the behavior with size == 0 is implementation defined
 /// 2. See [generic_shim] for more details.
 ///
-/// If size is zero, the behavior is implementation defined (null pointer may be returned,
-/// or some non-null pointer may be returned that shall not be dereferenced).
+/// If size is zero, the behavior is implementation defined in C (null pointer may be returned,
+/// or some non-null pointer may be returned that shall not be dereferenced) we return a nullptr.
 pub extern "C" fn alloc_shim(size: usize) -> *mut c_void {
-    #[cfg(debug_assertions)]
-    {
-        // Check if size is zero
-        if size == 0 {
-            panic!("alloc_shim called with size 0");
-        }
+    // Check if size is zero
+    if size == 0 {
+        return std::ptr::null_mut();
     }
 
     // Safety:
@@ -63,15 +60,9 @@ pub extern "C" fn alloc_shim(size: usize) -> *mut c_void {
 /// 1. The caller must ensure that neither size nor count is non-zero.
 /// 2. See [generic_shim] for more details.
 pub extern "C" fn calloc_shim(count: usize, size: usize) -> *mut c_void {
-    #[cfg(debug_assertions)]
-    {
-        // Check if size is zero
-        if size == 0 || count == 0 {
-            panic!(
-                "calloc_shim called with size={} and count={}, both must be > 0",
-                size, count
-            );
-        }
+    // Check if size is zero
+    if size == 0 || count == 0 {
+        return std::ptr::null_mut();
     }
 
     // ensure no overflow
@@ -130,11 +121,8 @@ pub extern "C" fn free_shim(ptr: *mut c_void) {
 ///
 /// Safety:
 /// 1. The caller must ensure that the pointer is valid and was allocated by `alloc_shim`.
-/// 2. The caller must ensure that the size is non-zero if the pointer is not null.
 pub extern "C" fn realloc_shim(ptr: *mut c_void, size: usize) -> *mut c_void {
     if ptr.is_null() {
-        // Safety:
-        // 1. --> We know size > 0
         return alloc_shim(size);
     }
 
