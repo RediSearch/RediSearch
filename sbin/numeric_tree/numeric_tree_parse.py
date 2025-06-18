@@ -45,23 +45,33 @@ def assert_line_equals(expected):
     else:
         next_line()  # Just consume the line without checking
 
+def assert_line_starts_with(expected):
+    """Optimized assertion for lines starting with a specific string"""
+    if _enable_assertions:
+        line = next_line()
+        if not line.startswith(expected):
+            raise AssertionError(f"Expected line to start with '{expected}', got '{line}' at line {_line_index}")
+    else:
+        next_line()  # Just consume the line without checking
+
 def next_int():
     """Optimized integer parsing"""
     return int(next_line())
 
+def next_float():
+    """Optimized float parsing"""
+    return float(next_line())
+
 def parse_leaf(node):
     """Optimized leaf parsing with reduced function calls"""
     node['leaf'] = True
-    if _enable_assertions and node['max_depth'] != 0:
-        raise AssertionError(f"Leaf node should have max_depth=0, got {node['max_depth']}")
-
     # Parse leaf data with optimized assertions
-    node['min_val'] = next_int()
+    node['min_val'] = next_float()
     assert_line_equals('maxVal')
-    node['max_val'] = next_int()
+    node['max_val'] = next_float()
     assert_line_equals('unique_sum')
-    node['unique_sum'] = next_int()
-    assert_line_equals('invertedIndexSize')
+    node['unique_sum'] = next_float()
+    assert_line_starts_with('invertedIndexSize')
     node['inverted_index_size'] = next_int()
     assert_line_equals('card')
     node['card'] = next_int()
@@ -72,12 +82,22 @@ def parse_leaf(node):
     assert_line_equals('entries')
     assert_line_equals('numDocs')
     node['num_docs'] = next_int()
+    line = next_line()
+    old_node = False
+    if line.startswith('numEntries'):
+        node['num_entries'] = next_int()
+        old_node = True
     assert_line_equals('lastId')
     node['last_id'] = next_int()
     assert_line_equals('size')
     node['size'] = next_int()
-    assert_line_equals('values')
+    line = next_line()
+    if line.startswith('blocks_efficiency'):
+        assert old_node
+        node['blocks_efficiency'] = next_float()
+        line = next_line()
 
+    assert line == 'values'
     # Optimized values parsing
     node['values'] = []
     last_doc_id = node['last_id']
@@ -92,10 +112,39 @@ def parse_leaf(node):
 
     node['doc_count'] = len(node['values'])
     
+    if not old_node:
+        assert_line_equals('left')
+        assert_line_equals('')
+        assert_line_equals('right')
+        assert_line_equals('')
+
+def parse_old_node(parent_id=None, node_id=0):
+    """Optimized node parsing without passing lines around"""
+    node = {}
+    node['id'] = node_id
+    if parent_id is not None:
+        node['parent_id'] = parent_id
+
+    value_or_range = next_line()
+    if value_or_range == 'range':
+        assert_line_equals('minVal')
+        parse_leaf(node)
+        return node, node_id + 1
+
+    # Parse node header
+    assert value_or_range == 'value'
+    node['value'] = next_float()
+    assert_line_equals('maxDepth')
+    node['max_depth'] = next_int()
+    next_node_id = node_id + 1
     assert_line_equals('left')
-    assert_line_equals('')
+    left, next_node_id = parse_old_node(node_id, next_node_id)
     assert_line_equals('right')
-    assert_line_equals('')
+    right, next_node_id = parse_old_node(node_id, next_node_id)
+    node['left'] = left
+    node['right'] = right
+    node['doc_count'] = left['doc_count'] + right['doc_count']
+    return node, next_node_id + 1
 
 
 def parse_node(parent_id=None, node_id=0):
@@ -104,7 +153,7 @@ def parse_node(parent_id=None, node_id=0):
 
     # Parse node header
     assert_line_equals('value')
-    node['value'] = next_int()
+    node['value'] = next_float()
     node['id'] = node_id
     if parent_id is not None:
         node['parent_id'] = parent_id
@@ -118,6 +167,8 @@ def parse_node(parent_id=None, node_id=0):
 
     if empty_or_minVal_line == 'minVal':
         # This is a leaf node
+        if _enable_assertions and node['max_depth'] != 0:
+            raise AssertionError(f"Leaf node should have max_depth=0, got {node['max_depth']}")
         parse_leaf(node)
     else:
         # This is an internal node with children
@@ -160,8 +211,19 @@ def parse_tree_file(file_path):
     # Skip the 'root' line
     next_line()
 
+    found_range = False
+    cur_line = _line_index
+    while cur_line < _total_lines and _lines[cur_line] != 'left':
+        if _lines[cur_line] == 'range':
+            found_range = True
+            break
+        cur_line += 1
+
     # Parse the tree structure
-    root, _ = parse_node(None, 0)
+    if found_range:
+        root, _ = parse_node(None, 0)
+    else:
+        root, _ = parse_old_node(None, 0)
 
     print(f"\nParsing completed. Processed {_line_index} lines.")
     return root
