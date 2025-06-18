@@ -38,20 +38,23 @@ mod tests {
     #[test]
     fn test_encode_numeric() {
         let mut buffer = Buffer::from_array([0; 8]);
+        let tests = [(6.0, [0b110_00_000])];
 
-        // Reset buffer so that writes happen at the start
-        buffer.reset();
+        for (input, expected) in tests {
+            // Reset buffer so that writes happen at the start
+            buffer.reset();
 
-        let mut record = inverted_index::RSIndexResult::numeric(6.0);
+            let mut record = inverted_index::RSIndexResult::numeric(input);
 
-        let buffer_grew_size = encode_numeric(&mut buffer, &mut record);
+            let buffer_grew_size = encode_numeric(&mut buffer, &mut record);
 
-        assert_eq!(buffer_grew_size, 0, "buffer had enough space of 1024 bytes");
-        assert_eq!(buffer.as_slice(), [0b110_00_000]);
+            assert_eq!(buffer_grew_size, 0, "buffer had enough space");
+            assert_eq!(buffer.as_slice(), expected);
 
-        let (filtered, decoded_result) = read_numeric(&mut buffer);
+            let (filtered, decoded_result) = read_numeric(&mut buffer);
 
-        assert!(!filtered);
-        assert_eq!(decoded_result, record);
+            assert!(!filtered);
+            assert_eq!(decoded_result, record);
+        }
     }
 }
