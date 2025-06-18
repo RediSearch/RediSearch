@@ -47,7 +47,7 @@ fn numeric_c_benchmark<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values
                 // This is fine since we don't care about benchmarking the growth operation anyway
                 buffer.reset();
                 let mut record = inverted_index::RSIndexResult::numeric(value);
-                encode_numeric(&mut buffer, &mut record);
+                encode_numeric(&mut buffer, &mut record, 0);
             }
         });
     });
