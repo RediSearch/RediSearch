@@ -202,9 +202,11 @@ void IndexReader_OnReopen(IndexReader *ir);
  * delta for encoding */
 typedef size_t (*IndexEncoder)(BufferWriter *bw, t_docId delta, RSIndexResult *record);
 
-
+// Create a new IndexBlockReader for a buffer. This is only used by benchmark functions
+// for decoders
 IndexBlockReader NewIndexBlockReader(BufferReader *buff, t_docId curBaseId);
 
+// Create a new IndexDecoderCtx with a default numeric filter. Used only benchmarks
 IndexDecoderCtx NewIndexDecoderCtx_NumericFilter();
 
 /* Wrapper around the static encodeNumeric to be able to access it in the Rust benchmarks */

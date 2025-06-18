@@ -373,6 +373,7 @@ ENCODER(encodeNumeric) {
   return sz;
 }
 
+// Wrapper around the private static `encodeNumeric` function to expose it to benchmarking
 size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   encodeNumeric(bw, delta, res);
 }
@@ -798,6 +799,7 @@ DECODER(readDocIdsOnly) {
   return 1;  // Don't care about field mask
 }
 
+// Wrapper around the private static `readNumeric` function to expose it to benchmarking
 bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
   readNumeric(blockReader, ctx, res);
 }
