@@ -82,7 +82,7 @@ class NumericTreeGenerator:
         for i in range(doc_count):
             key_id = i + 1
             # Field1 and Field2 values are correlated but slightly different
-            field1_val = min_val + (max_val - min_val) * i / doc_count
+            field1_val = random.uniform(min_val, max_val) 
             field2_val = field1_val + 100  # Add variance
             base_data.append((key_id, field1_val, field2_val))
 
@@ -156,7 +156,7 @@ def generate_index_configs(docs_per_index: int, sparse_size: int) -> List[IndexC
             field1_name="price",
             field2_name="score",
             doc_count=docs_per_index,
-            value_range=(0.0, 10000.0),  # Same value range for all indexes
+            value_range=(0.0, 100000.0),  # Same value range for all indexes
             insertion_order=order,
             sparse_size=sparse_size
         )

@@ -18,13 +18,17 @@ Usage:
 """
 
 import argparse
+import datetime
+import os
 import random
 import redis
+import signal
 import statistics
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # Configuration constants
@@ -165,12 +169,19 @@ class NumericQueryTester:
     # Test execution methods
 
     def _execute_queries_on_indexes(self, indexes: List[str], queries: List[str],
-                                   query_type: str) -> List[QueryResult]:
+                                   query_type: str, vtune_index: str = None,
+                                   vtune_dir: str = None) -> List[QueryResult]:
         """Execute a list of queries on all indexes and return results"""
         results = []
         iterations = len(queries)
 
         for index_name in indexes:
+            # Start VTune profiling if this is the target index
+            vtune_process = None
+            vtune_result_dir = None
+            if vtune_index and index_name == vtune_index and vtune_dir:
+                vtune_process, vtune_result_dir = self.start_vtune_profiling(vtune_dir, query_type, index_name)
+
             for i, query in enumerate(queries):
                 result = self.execute_query(index_name, query)
                 results.append(result)
@@ -178,10 +189,15 @@ class NumericQueryTester:
                 if (i + 1) % PROGRESS_INTERVAL == 0:
                     print(f"  {index_name}: {i + 1}/{iterations} {query_type} queries completed")
 
+            # Stop VTune profiling if it was started for this index
+            if vtune_process:
+                self.stop_vtune_profiling(vtune_process, query_type, index_name, vtune_result_dir)
+
         return results
 
     def test_single_range_queries(self, indexes: List[str], iterations: int, range_size: float,
-                                 use_infinity: bool = True, infinity_ratio: float = 0.3) -> List[QueryResult]:
+                                 use_infinity: bool = True, infinity_ratio: float = 0.3,
+                                 vtune_index: str = None, vtune_dir: str = None) -> List[QueryResult]:
         """Test single field range queries across all indexes with identical queries"""
         print(f"Testing single range queries (range size: {range_size}, infinity: {infinity_ratio:.1%})...")
 
@@ -192,10 +208,11 @@ class NumericQueryTester:
             query = self.generate_range_query(field_name, range_size, use_infinity, infinity_ratio)
             queries.append(query)
 
-        return self._execute_queries_on_indexes(indexes, queries, "single")
+        return self._execute_queries_on_indexes(indexes, queries, "single", vtune_index, vtune_dir)
     
     def test_union_queries(self, indexes: List[str], iterations: int, range_size: float,
-                          use_infinity: bool = True, infinity_ratio: float = 0.3) -> List[QueryResult]:
+                          use_infinity: bool = True, infinity_ratio: float = 0.3,
+                          vtune_index: str = None, vtune_dir: str = None) -> List[QueryResult]:
         """Test union queries (OR operations) across multiple fields"""
         if len(indexes) < 2:
             print("Need at least 2 indexes for union queries")
@@ -209,10 +226,11 @@ class NumericQueryTester:
             for _ in range(iterations)
         ]
 
-        return self._execute_queries_on_indexes(indexes, queries, "union")
+        return self._execute_queries_on_indexes(indexes, queries, "union", vtune_index, vtune_dir)
     
     def test_intersection_queries(self, indexes: List[str], iterations: int, range_size: float,
-                                 use_infinity: bool = True, infinity_ratio: float = 0.3) -> List[QueryResult]:
+                                 use_infinity: bool = True, infinity_ratio: float = 0.3,
+                                 vtune_index: str = None, vtune_dir: str = None) -> List[QueryResult]:
         """Test intersection queries (AND operations) across multiple fields"""
         if len(indexes) < 2:
             print("Need at least 2 indexes for intersection queries")
@@ -226,7 +244,7 @@ class NumericQueryTester:
             for _ in range(iterations)
         ]
 
-        return self._execute_queries_on_indexes(indexes, queries, "intersection")
+        return self._execute_queries_on_indexes(indexes, queries, "intersection", vtune_index, vtune_dir)
     
     # Results processing and display methods
 
@@ -304,6 +322,181 @@ class NumericQueryTester:
             for result in index_results[:2]:  # Show first 2 queries per index
                 print(f"    {result.query} -> {result.result_count} results in {result.execution_time*1000:.2f}ms")
 
+    def force_garbage_collection(self, index_name: str) -> None:
+        """Force garbage collection on a specific index"""
+        try:
+            result = self.redis_client.execute_command('_FT.DEBUG', 'GC_FORCEINVOKE', index_name)
+            if result != 'DONE':
+                print(f"✗ Garbage collection failed on {index_name}: unexpected result '{result}'")
+                sys.exit(1)
+        except redis.ResponseError as e:
+            print(f"✗ Failed to force GC on {index_name}: {e}")
+            sys.exit(1)
+
+    def force_garbage_collection_all_indexes(self, indexes: List[str]) -> None:
+        """Force garbage collection on all specified indexes"""
+        print("Running garbage collection on all indexes...")
+        for index_name in indexes:
+            print(f"  Running GC on {index_name}...", end=" ")
+            self.force_garbage_collection(index_name)
+            print("✓ Done")
+
+        print(f"Garbage collection completed successfully on all {len(indexes)} indexes")
+        print()
+
+    def get_redis_server_pid(self) -> Optional[int]:
+        """Get the PID of the Redis server process"""
+        try:
+            # Try Redis INFO command first
+            info = self.redis_client.info('server')
+            if 'process_id' in info:
+                return info['process_id']
+
+            # Fallback: search for redis-server process
+            result = subprocess.run(['pgrep', '-f', 'redis-server'],
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 and result.stdout.strip():
+                return int(result.stdout.strip().split('\n')[0])
+
+            print("  Error: Could not find Redis server PID")
+            return None
+        except Exception as e:
+            print(f"  Error finding Redis server PID: {e}")
+            return None
+
+    def start_vtune_profiling(self, result_dir: str, query_type: str, index_name: str) -> Tuple[Optional[subprocess.Popen], Optional[str]]:
+        """Start VTune profiling for Redis server"""
+        redis_pid = self.get_redis_server_pid()
+        if redis_pid is None:
+            return None, None
+
+        # Create unique result directory with timestamp
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_result_dir = f"{result_dir}/vtune_{index_name}_{query_type}_{timestamp}"
+
+        # Clean up any existing directory
+        if os.path.exists(unique_result_dir):
+            import shutil
+            shutil.rmtree(unique_result_dir)
+
+        vtune_cmd = ['vtune', '-collect', 'hotspots', '-result-dir', unique_result_dir, '-target-pid', str(redis_pid)]
+
+        try:
+            print(f"  Starting VTune profiling for {query_type} queries on {index_name} (Redis PID: {redis_pid})")
+            print(f"  Result directory: {unique_result_dir}")
+
+            # Start VTune with output capture
+            process = subprocess.Popen(vtune_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                     universal_newlines=True, bufsize=1)
+            time.sleep(2)  # Allow VTune to initialize
+
+            # Verify VTune started successfully
+            if process.poll() is not None:
+                stdout, _ = process.communicate()
+                print(f"  ✗ VTune failed to start (exit code: {process.returncode})")
+                if stdout:
+                    for line in stdout.strip().split('\n'):
+                        print(f"    {line}")
+                return None, None
+
+            print(f"  ✓ VTune started successfully (PID: {process.pid})")
+            return process, unique_result_dir
+
+        except Exception as e:
+            print(f"  Warning: Failed to start VTune: {e}")
+            return None, None
+
+    def stop_vtune_profiling(self, vtune_process: subprocess.Popen, query_type: str, index_name: str, result_dir: str) -> None:
+        """Stop VTune profiling and wait for finalization"""
+        if vtune_process is None:
+            return
+
+        print(f"  Stopping VTune profiling for {query_type} queries on {index_name}...")
+
+        # Use VTune's proper stop command
+        stop_cmd = ['vtune', '-r', result_dir, '-command', 'stop']
+        try:
+            stop_result = subprocess.run(stop_cmd, capture_output=True, text=True, timeout=10)
+            if stop_result.returncode == 0:
+                print(f"  ✓ VTune stop command executed successfully")
+            else:
+                print(f"  Warning: VTune stop command failed, using SIGINT fallback")
+                vtune_process.send_signal(signal.SIGINT)
+        except Exception as e:
+            print(f"  Warning: Stop command error ({e}), using SIGINT fallback")
+            vtune_process.send_signal(signal.SIGINT)
+
+        # Wait for VTune to complete and show output
+        print(f"  Waiting for VTune finalization...")
+        try:
+            while vtune_process.poll() is None:
+                line = vtune_process.stdout.readline()
+                if line and line.strip():
+                    print(f"    VTune: {line.strip()}")
+                else:
+                    time.sleep(0.1)
+
+            # Read any remaining output
+            remaining = vtune_process.stdout.read()
+            if remaining:
+                for line in remaining.strip().split('\n'):
+                    if line.strip():
+                        print(f"    VTune: {line.strip()}")
+
+            print(f"  ✓ VTune completed (exit code: {vtune_process.returncode})")
+
+            # Verify results
+            self._verify_vtune_results(result_dir)
+
+        except KeyboardInterrupt:
+            print(f"  User interrupted - VTune PID {vtune_process.pid} may still be running")
+        except Exception as e:
+            print(f"  Error during VTune shutdown: {e}")
+
+    def _verify_vtune_results(self, result_dir: str) -> None:
+        """Verify VTune results were created successfully"""
+        if not result_dir or not os.path.exists(result_dir):
+            print(f"  ✗ Result directory not found: {result_dir}")
+            return
+
+        files = os.listdir(result_dir)
+        if files:
+            print(f"  ✓ Results saved: {result_dir} ({len(files)} files)")
+            key_files = [f for f in files if f.endswith(('.db', '.sqlite', '.txt', '.log'))]
+            if key_files:
+                print(f"    Key files: {', '.join(key_files[:3])}")
+        else:
+            print(f"  ⚠ Result directory empty: {result_dir}")
+
+    def check_vtune_availability(self) -> bool:
+        """Check if VTune is available in the system"""
+        try:
+            # Check if vtune binary exists
+            which_result = subprocess.run(['which', 'vtune'],
+                                        capture_output=True, text=True, timeout=5)
+            if which_result.returncode != 0:
+                return False
+
+            vtune_path = which_result.stdout.strip()
+            print(f"  Found VTune at: {vtune_path}")
+
+            # Try to get version (with generous timeout)
+            version_result = subprocess.run(['vtune', '--version'],
+                                          capture_output=True, text=True, timeout=15)
+            if version_result.returncode == 0 and version_result.stdout:
+                version_info = version_result.stdout.strip().split('\n')[0]
+                print(f"  VTune version: {version_info}")
+            else:
+                print("  Warning: VTune version check failed, but binary exists")
+
+            return True
+
+        except subprocess.TimeoutExpired:
+            print("  Warning: VTune version check timed out, but binary exists")
+            return True
+        except Exception:
+            return False
+
 
 def create_argument_parser() -> argparse.ArgumentParser:
     """Create and configure the command line argument parser"""
@@ -324,10 +517,23 @@ Examples:
   # Test single field queries without infinity bounds
   python test_numeric_queries.py --query-type single --no-infinity
 
+  # Enable VTune profiling for specific index
+  python test_numeric_queries.py --query-type all --vtune numeric_idx_sequential
+
+  # Profile intersection queries on sparsed index with custom output directory
+  python test_numeric_queries.py --query-type intersection --vtune numeric_idx_sparsed --vtune-dir ./profiling_results
+
 This script tests the 3 indexes created by generate_numeric_trees.py:
   - numeric_idx_sequential: Values inserted in ascending order (balanced tree)
   - numeric_idx_random: Values inserted in random order (average case)
   - numeric_idx_sparsed: Same value inserted multiple times (unbalanced tree)
+
+VTune Setup (for --vtune option):
+  1. Install Intel VTune Profiler from Intel oneAPI toolkit
+  2. Source the environment:
+     Bash/Zsh: source /opt/intel/oneapi/vtune/latest/env/vars.sh
+     Fish: bash -c 'source /opt/intel/oneapi/vtune/latest/env/vars.sh && exec fish'
+  3. Verify: vtune --version
         """
     )
 
@@ -361,6 +567,12 @@ This script tests the 3 indexes created by generate_numeric_trees.py:
     parser.add_argument('--redis-db', type=int, default=0,
                        help='Redis database number (default: 0)')
 
+    # VTune profiling
+    parser.add_argument('--vtune', type=str, metavar='INDEX_NAME',
+                       help='Enable Intel VTune profiling for specified index (e.g., numeric_idx_sequential)')
+    parser.add_argument('--vtune-dir', default='./vtune_results',
+                       help='Directory to store VTune results (default: ./vtune_results)')
+
     return parser
 
 
@@ -389,10 +601,30 @@ def main():
         print(f"Infinity bounds: enabled ({infinity_ratio:.1%} of queries)")
     else:
         print("Infinity bounds: disabled")
+
+    # VTune configuration
+    if args.vtune:
+        print(f"VTune profiling: enabled for index '{args.vtune}' (results in {args.vtune_dir})")
+        # Create VTune results directory
+        os.makedirs(args.vtune_dir, exist_ok=True)
+    else:
+        print("VTune profiling: disabled")
+
     print("-" * 60)
 
     # Initialize tester and discover indexes
     tester = NumericQueryTester(args.redis_host, args.redis_port, args.redis_db)
+
+    # Validate VTune if requested
+    if args.vtune and not tester.check_vtune_availability():
+        print("\n✗ Error: Intel VTune is not available in PATH")
+        print("To use VTune profiling:")
+        print("1. Install Intel VTune Profiler")
+        print("2. Source environment script:")
+        print("   Bash/Zsh: source /opt/intel/oneapi/vtune/latest/env/vars.sh")
+        print("   Fish: bash -c 'source /opt/intel/oneapi/vtune/latest/env/vars.sh && exec fish'")
+        print("3. Verify: vtune --version")
+        sys.exit(1)
     available_indexes = tester.discover_indexes()
 
     if not available_indexes:
@@ -401,12 +633,22 @@ def main():
 
     indexes_to_use = available_indexes[:args.indexes] if args.indexes > 0 else available_indexes
 
+    # Validate VTune index if specified
+    if args.vtune and args.vtune not in indexes_to_use:
+        print(f"Error: VTune index '{args.vtune}' not found in available indexes.")
+        print(f"Available indexes: {', '.join(indexes_to_use)}")
+        sys.exit(1)
+
     print(f"Found {len(available_indexes)} indexes, using {len(indexes_to_use)}:")
     for idx in indexes_to_use:
         info = tester.get_index_info(idx)
         doc_count = info.get('num_docs', 'unknown')
-        print(f"  {idx}: {doc_count} documents")
+        vtune_marker = " (VTune target)" if args.vtune == idx else ""
+        print(f"  {idx}: {doc_count} documents{vtune_marker}")
     print()
+
+    # Force garbage collection on all indexes before running tests
+    tester.force_garbage_collection_all_indexes(indexes_to_use)
 
     # Execute tests
     all_results = {}
@@ -421,7 +663,9 @@ def main():
 
     for test_name, test_method, condition in test_configs:
         if args.query_type in [test_name, 'all'] and condition:
-            results = test_method(indexes_to_use, *test_params)
+            # Execute the test with VTune parameters
+            results = test_method(indexes_to_use, *test_params,
+                                vtune_index=args.vtune, vtune_dir=args.vtune_dir)
             all_results[test_name] = results
             tester.print_statistics_table(results, test_name)
 
@@ -433,6 +677,20 @@ def main():
     print(f"✓ Completed {total_queries} queries in {total_time:.2f} seconds")
     if total_queries > 0:
         print(f"✓ Average query time: {(total_time/total_queries)*1000:.2f}ms")
+
+    # VTune results summary
+    if args.vtune:
+        print(f"\n✓ VTune profiling results for index '{args.vtune}' saved to: {args.vtune_dir}")
+        print("  Use 'vtune-gui' to analyze the results:")
+        print("  Look for directories with timestamps like:")
+        for test_name, _, condition in test_configs:
+            if args.query_type in [test_name, 'all'] and condition:
+                print(f"    vtune-gui {args.vtune_dir}/vtune_{args.vtune}_{test_name}_YYYYMMDD_HHMMSS")
+        print("  Or generate text reports with:")
+        for test_name, _, condition in test_configs:
+            if args.query_type in [test_name, 'all'] and condition:
+                print(f"    vtune -report hotspots -result-dir {args.vtune_dir}/vtune_{args.vtune}_{test_name}_YYYYMMDD_HHMMSS")
+        print(f"  To list actual directories: ls -la {args.vtune_dir}/")
 
 
 if __name__ == '__main__':
