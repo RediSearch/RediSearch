@@ -1578,13 +1578,17 @@ dictType dictTypeHybridSearchResult = {
           upstreamIndices[numUnconsumed] = temp;
         }
         continue;
-      } else if (rc == RS_RESULT_TIMEDOUT && (rp->parent->timeoutPolicy == TimeoutPolicy_Return)) {
-        // Handle timeout case: switch to yield phase and return.
-        self->timedOut = true;
-        self->iterator = dictGetIterator(self->hybridResults);
-        rp->Next = RPHybridMerger_Yield;
-        return rp->Next(rp, r);
-      }
+      } else if (rc == RS_RESULT_TIMEDOUT){
+          if (rp->parent->timeoutPolicy == TimeoutPolicy_Return) {
+            // Handle timeout case: switch to yield phase and return.
+            self->timedOut = true;
+            self->iterator = dictGetIterator(self->hybridResults);
+            rp->Next = RPHybridMerger_Yield;
+            return rp->Next(rp, r);
+          } else { //strict
+            return rc;
+          }
+
     }
   }
    // Initialize iterator for yield phase
