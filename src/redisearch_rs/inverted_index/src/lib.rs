@@ -46,6 +46,7 @@ pub struct RSNumericRecord(pub f64);
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSOffsetVector_Iterator
 #[repr(C)]
+#[derive(Debug, PartialEq)]
 pub struct RSOffsetVector {
     pub data: *mut c_char,
     pub len: u32,
@@ -53,6 +54,7 @@ pub struct RSOffsetVector {
 
 /// Represents a single record of a document inside a term in the inverted index
 #[repr(C)]
+#[derive(Debug, PartialEq)]
 pub struct RSTermRecord {
     /// The term that brought up this record
     pub term: *mut RSQueryTerm,
@@ -80,6 +82,7 @@ pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 /// Represents an aggregate array of values in an index record.
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
+#[derive(Debug, PartialEq)]
 pub struct RSAggregateResult {
     /// The number of child records
     pub num_children: c_int,
@@ -168,15 +171,16 @@ impl Debug for RSIndexResult {
             .field("offsets_sz", &self.offsets_sz);
 
         match self.result_type {
-            RSResultType::Union => todo!(),
-            RSResultType::Intersection => todo!(),
-            RSResultType::Term => todo!(),
-            RSResultType::Virtual => todo!(),
-            RSResultType::Numeric => {
+            RSResultType::Numeric | RSResultType::Metric => {
                 d.field("data.num", unsafe { &self.data.num });
             }
-            RSResultType::Metric => todo!(),
-            RSResultType::HybridMetric => todo!(),
+            RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => {
+                d.field("data.agg", unsafe { &self.data.agg });
+            }
+            RSResultType::Term => {
+                d.field("data.term", unsafe { &self.data.term });
+            }
+            RSResultType::Virtual => {}
         }
 
         d.field("result_type", &self.result_type)
@@ -203,13 +207,14 @@ impl PartialEq for RSIndexResult {
         }
 
         match self.result_type {
-            RSResultType::Union => todo!(),
-            RSResultType::Intersection => todo!(),
-            RSResultType::Term => todo!(),
-            RSResultType::Virtual => todo!(),
-            RSResultType::Numeric => unsafe { self.data.num == other.data.num },
-            RSResultType::Metric => todo!(),
-            RSResultType::HybridMetric => todo!(),
+            RSResultType::Numeric | RSResultType::Metric => unsafe {
+                self.data.num == other.data.num
+            },
+            RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => unsafe {
+                self.data.agg == other.data.agg
+            },
+            RSResultType::Term => unsafe { self.data.term == other.data.term },
+            RSResultType::Virtual => true,
         }
     }
 }
