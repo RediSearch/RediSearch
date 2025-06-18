@@ -31,6 +31,8 @@
 //!
 //! # Example
 //!
+//! All examples will use big-endian representation for bytes.
+//!
 //! # One block
 //!
 //! Let's take 10 as an example.
