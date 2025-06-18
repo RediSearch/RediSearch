@@ -7,35 +7,28 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::path::PathBuf;
-
 fn main() {
-    let data = vec![
-        ("value", "value"),
-        ("mempool", "util/mempool"),
-        ("module_init", "module-init"),
-    ];
-
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     let platform = format!("{}-{}-{}", os, arch, get_build_profile_name());
 
     let root = git_root();
-    let base_lib_path = root
+    let lib_path = root
         .join("bin")
         .join(platform)
         .join("search-community")
-        .join("src");
-    for (lib_name, sub_path) in data {
-        let path: PathBuf = base_lib_path.join(sub_path);
+        .join("src")
+        .join("rust-binded");
 
-        println!("cargo:rustc-link-lib=static={}", lib_name);
-        println!("cargo:rustc-link-search=native={}", path.display());
-        println!(
-            "cargo:rerun-if-changed={}",
-            path.join("CMakeLists.txt").display()
-        );
-    }
+    println!("cargo:rustc-link-lib=static=rust_binded");
+    println!("cargo:rustc-link-search=native={}", lib_path.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        root.join("src")
+            .join("rust-binded")
+            .join("CMakeLists.txt")
+            .display()
+    );
 }
 
 fn get_build_profile_name() -> String {
