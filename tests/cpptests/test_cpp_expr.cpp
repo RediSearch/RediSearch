@@ -401,3 +401,241 @@ TEST_F(ExprTest, testPropertyFetch) {
   RLookupRow_Cleanup(&rr);
   RLookup_Cleanup(&lk);
 }
+
+
+
+TEST_F(ExprTest, testEvalFuncCase) {
+  TEvalCtx ctx;
+
+  // Basic case function tests - condition evaluates to true
+  ctx.assign("case(1, 42, 99)");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  auto res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_Number, res->t);
+  ASSERT_EQ(42, res->numval);
+
+  ctx.assign("case(0 < 1, 42, 99)");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_Number, res->t);
+  ASSERT_EQ(42, res->numval);
+
+  ctx.assign("case(!NULL, 100, 200)");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_Number, res->t);
+  ASSERT_EQ(100, res->numval);
+
+  // Basic case function tests - condition evaluates to false
+  ctx.assign("case(0, 42, 99)");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_Number, res->t);
+  ASSERT_EQ(99, res->numval);
+
+  ctx.assign("case(1 > 2, 100, 200)");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_Number, res->t);
+  ASSERT_EQ(200, res->numval);
+
+  ctx.assign("case(NULL, 100, 200)");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_Number, res->t);
+  ASSERT_EQ(200, res->numval);
+}
+
+TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
+  RLookup lk = {0};
+  RLookup_Init(&lk, NULL);
+  auto *kfoo = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto *kbar = RLookup_GetKey(&lk, "bar", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  RLookupRow rr = {0};
+  RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(5));
+  RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(10));
+
+  TEvalCtx ctx("case(@foo < @bar, 1, 0)");  // 5 < 10 is true
+  ASSERT_TRUE(ctx) << ctx.error();
+  ctx.lookup = &lk;
+  ctx.srcrow = &rr;
+
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  auto res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_Number, res->t);
+  ASSERT_EQ(1, res->numval);
+
+  RLookupRow_Cleanup(&rr);
+  RLookup_Cleanup(&lk);
+}
+
+TEST_F(ExprTest, testEvalFuncCaseWithExists) {
+  RLookup lk = {0};
+  RLookup_Init(&lk, NULL);
+  auto *kfoo = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  RLookupRow rr = {0};
+  RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(42));
+
+  TEvalCtx ctx("case(exists(@foo), 1, 0)");  // @foo exists
+  ASSERT_TRUE(ctx) << ctx.error();
+  ctx.lookup = &lk;
+  ctx.srcrow = &rr;
+
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  auto res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_Number, res->t);
+  ASSERT_EQ(1, res->numval);
+
+  // Test with negated exists - should return false branch
+  TEvalCtx ctx1("case(!exists(@foo), 1, 0)");  // @foo exists, so !exists(@foo) is false
+  ASSERT_TRUE(ctx1) << ctx1.error();
+  ctx1.lookup = &lk;
+  ctx1.srcrow = &rr;
+
+  ASSERT_EQ(EXPR_EVAL_OK, ctx1.bindLookupKeys());
+  ASSERT_EQ(EXPR_EVAL_OK, ctx1.eval());
+  res = RSValue_Dereference(&ctx1.result());
+  ASSERT_EQ(RSValue_Number, res->t);
+  ASSERT_EQ(0, res->numval);
+
+  RLookupRow_Cleanup(&rr);
+  RLookup_Cleanup(&lk);
+}
+
+TEST_F(ExprTest, testEvalFuncCaseNested) {
+  TEvalCtx ctx;
+
+  // Test nested case expressions
+  ctx.assign("case(1, case(1, 'inner_true', 'inner_false'), 'outer_false')");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  auto res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_String, res->t);
+  ASSERT_STREQ("inner_true", res->strval.str);
+
+  ctx.assign("case(0, 'outer_true', case(1, 'nested_true', 'nested_false'))");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_String, res->t);
+  ASSERT_STREQ("nested_true", res->strval.str);
+
+  ctx.assign("case(0, 'outer_true', case(0, 'nested_true', 'nested_false'))");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_String, res->t);
+  ASSERT_STREQ("nested_false", res->strval.str);
+}
+
+TEST_F(ExprTest, testEvalFuncCaseWithNullValues) {
+  TEvalCtx ctx;
+
+  // Test case with NULL in different positions
+  ctx.assign("case(NULL, 'true_branch', 'false_branch')");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  auto res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_String, res->t);
+  ASSERT_STREQ("false_branch", res->strval.str);
+
+  ctx.assign("case(1, NULL, 'false_branch')");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  res = RSValue_Dereference(&ctx.result());
+  ASSERT_TRUE(RSValue_IsNull(res));
+
+  ctx.assign("case(0, 'true_branch', NULL)");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  res = RSValue_Dereference(&ctx.result());
+  ASSERT_TRUE(RSValue_IsNull(res));
+}
+
+TEST_F(ExprTest, testEvalFuncCaseErrorConditions) {
+  TEvalCtx ctx;
+
+  // Test case with invalid number of arguments (should fail at parse time)
+  ctx.assign("case(1, 2)");  // Missing third argument
+  ASSERT_FALSE(ctx) << "Should fail to parse case with only 2 arguments";
+
+  ctx.assign("case(1, 2, 3, 4)");  // Too many arguments
+  ASSERT_FALSE(ctx) << "Should fail to parse case with 4 arguments";
+
+  // Test case with invalid function in condition
+  ctx.assign("case(invalid_func(), 'true', 'false')");
+  ASSERT_FALSE(ctx) << "Should fail to parse case with invalid function";
+}
+
+TEST_F(ExprTest, testEvalFuncCaseShortCircuitEvaluation) {
+  RLookup lk = {0};
+  RLookup_Init(&lk, NULL);
+  auto *kfoo = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  RLookupRow rr = {0};
+  RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(5));
+
+  TEvalCtx ctx("case(1, @foo + 10, @foo / 0)");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ctx.lookup = &lk;
+  ctx.srcrow = &rr;
+
+  // Test that only the selected branch is evaluated
+  // When condition is true, only the true branch should be evaluated
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.bindLookupKeys());
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  auto res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_Number, res->t);
+  ASSERT_EQ(15, res->numval);  // @foo + 10 = 5 + 10 = 15
+
+  RLookupRow_Cleanup(&rr);
+  RLookup_Cleanup(&lk);
+}
+
+TEST_F(ExprTest, testEvalFuncCaseWithDifferentTypes) {
+  TEvalCtx ctx;
+
+  // Test case returning different types based on condition
+  ctx.assign("case(1, 42, 'string_result')");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  auto res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_Number, res->t);
+  ASSERT_EQ(42, res->numval);
+
+  ctx.assign("case(0, 42, 'string_result')");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_String, res->t);
+  ASSERT_STREQ("string_result", res->strval.str);
+
+  // Test with complex expressions returning different types
+  ctx.assign("case(1, 3.14 * 2, 'pi_doubled')");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_Number, res->t);
+  ASSERT_FLOAT_EQ(6.28, res->numval);
+}
+
+TEST_F(ExprTest, testEvalFuncCaseConditionEvaluationError) {
+  TEvalCtx ctx;
+
+  // Test case where condition uses comparison with NULL
+  ctx.assign("case(NULL == NULL, 1, 0)");
+  ASSERT_TRUE(ctx) << ctx.error();
+  ASSERT_EQ(EXPR_EVAL_OK, ctx.eval());
+  auto res = RSValue_Dereference(&ctx.result());
+  ASSERT_EQ(RSValue_Number, res->t);
+  ASSERT_EQ(1, res->numval);  // NULL == NULL should be true
+}
+
+
