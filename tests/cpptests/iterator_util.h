@@ -113,9 +113,15 @@ public:
       : docIds({std::forward<Args>(args)...}), whenDone(ITERATOR_EOF), nextIndex(0), readCount(0), sleepTime(sleep) {
       Init();
     }
-
+    
     template<typename... Args>
-    MockIterator(IteratorStatus st, std::optional<std::chrono::nanoseconds> sleep, Args&&... ids_args)
+    MockIterator(IteratorStatus st, Args&&... ids_args)
+      : docIds({std::forward<Args>(ids_args)...}), whenDone(st), nextIndex(0), readCount(0), sleepTime(std::nullopt) {
+      Init();
+    }
+    
+    template<typename... Args>
+    MockIterator(IteratorStatus st, std::chrono::nanoseconds sleep, Args&&... ids_args)
       : docIds({std::forward<Args>(ids_args)...}), whenDone(st), nextIndex(0), readCount(0), sleepTime(sleep) {
       Init();
     }
