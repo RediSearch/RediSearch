@@ -83,8 +83,8 @@ impl Buffer {
         self.0.offset == 0
     }
 
-    /// Resets the buffer's length to zero, effectively clearing it.
-    pub fn reset(&mut self) {
+    /// Clears the buffer, resetting its length to zero.
+    pub fn clear(&mut self) {
         self.0.offset = 0;
     }
 

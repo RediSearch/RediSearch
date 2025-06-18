@@ -102,7 +102,7 @@ mod tests {
 
         for (input, delta, expected_encoding) in tests {
             // Reset buffer so that writes happen at the start
-            buffer.reset();
+            buffer.clear();
 
             let mut record = inverted_index::RSIndexResult::numeric(input);
             record.doc_id = 1_000;

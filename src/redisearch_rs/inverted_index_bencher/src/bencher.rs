@@ -115,7 +115,7 @@ fn numeric_c_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &
             for &value in values {
                 // Reset buffer to prevent it from growing
                 // This is fine since we don't care about benchmarking the growth operation anyway
-                buffer.reset();
+                buffer.clear();
                 let mut record = inverted_index::RSIndexResult::numeric(value);
                 let grew_size = encode_numeric(&mut buffer, &mut record, 684);
 
