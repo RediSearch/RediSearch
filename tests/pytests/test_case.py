@@ -45,6 +45,14 @@ def testWithVectorRange(env):
             'case(!exists(@vector_distance), (@__score)*0.3, (@__score*0.3 + @vector_distance))',
             sorted([t_score[i]*0.3 + v_dist[i] for i in range(nresults)], reverse=True)
         ),
+        (
+            'case(NULL, 1, 0)',
+            [0] * nresults  # NULL condition in the case is evaluated as false, so all should return 0
+        ),
+        (
+            'case(!NULL, 1, 0)',
+            [1] * nresults  # !NULL condition is always true, so all should return 1
+        )
     ]
 
     # Test APPLY with case function and linear combination of vector distance and text score
@@ -93,6 +101,22 @@ def testInvalidApplyFunction(env):
             'FT.AGGREGATE', 'idx', '*',
             'APPLY', apply_expr, 'AS', 'final_score',
             'DIALECT', '2').error().contains("Unknown function name")
+
+    # Missing properties in case
+    invalid_apply_exprs = [
+        'case(@vector_distance, 0, 1)',
+        'case(1, @vector_distance, 0)',
+        'case(0, 0, @vector_distance)',
+    ]
+    env.expect(
+        'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_DISTANCE_AS: vector_distance} | @t:(pizza) | @x==1',
+        'ADDSCORES', 'SCORER', 'BM25STD',
+        'PARAMS', '2', 'vector', create_np_array_typed([1.2] * dim).tobytes(),
+        'LOAD', '3', '@vector_distance', '@__key', 't',
+        'APPLY', 'case(@vector_distance, 0, 1)', 'AS', 'has_vector_distance',
+        'SORTBY', '2', '@__key', 'ASC',
+        'DIALECT', '2').error().contains("Could not find the value for a parameter name, consider using EXISTS")
+
 
 def testCaseFunction(env):
     """Test the case function in APPLY clause with various conditions"""
@@ -327,3 +351,25 @@ def testNestedConditionsCase(env):
         status_code = row[row.index('status_code') + 1]
         env.assertEqual(status_code, expected_status_codes[order_id],
                        message=f"Order {order_id} with status '{row[row.index('status') + 1]}' and priority '{row[row.index('priority') + 1]}' should have status_code {expected_status_codes[order_id]}")
+
+def testCaseWithFieldsWithNullValue(env):
+    dim = 4
+    _prepare_index(env, 'idx', dim)
+    conn = getConnectionByEnv(env)
+
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_DISTANCE_AS: vector_distance} | @t:(pizza) | @x==1',
+        'ADDSCORES', 'SCORER', 'BM25STD',
+        'PARAMS', '2', 'vector', create_np_array_typed([1.2] * dim).tobytes(),
+        'LOAD', '3', '@vector_distance', '@__key', 't',
+        # Note: Using NULL directly in APPLY to simulate a null value
+        'APPLY', 'NULL', 'AS', 'null_value',
+        # Using case to check if the value is null, NULL is treated as false
+        'APPLY', 'case(@null_value, 0, 1)', 'AS', 'is_null_value',
+        'SORTBY', '2', '@__key', 'ASC',
+        'DIALECT', '2')
+    print(res)
+
+    value = [float(row[row.index('is_null_value') + 1]) for row in res[1:]]
+    for i in range(len(value)):
+        env.assertEqual(value[i], 1, message=f"Failed for index {i}")
