@@ -52,6 +52,11 @@ impl Buffer {
     pub fn from_array<const N: usize>(a: [u8; N]) -> Buffer {
         let ptr = Box::into_raw(Box::new(a)).cast::<u8>();
         let ptr = NonNull::new(ptr).unwrap();
+
+        // SAFETY: We are creating a new Buffer with a pointer to an array of N bytes. Since this is
+        // a static array, we know that the memory is valid, initialized, and won't be dropped. We
+        // also know the length and capacity are both N and that this stays within the memory region
+        // of the pointer. All this this together ensures the safety of `Buffer::new` is satisfied.
         unsafe { Buffer::new(ptr, N, N) }
     }
 

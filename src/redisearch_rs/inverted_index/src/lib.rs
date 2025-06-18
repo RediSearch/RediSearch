@@ -173,13 +173,25 @@ impl Debug for RSIndexResult {
 
         match self.result_type {
             RSResultType::Numeric | RSResultType::Metric => {
-                d.field("data.num", unsafe { &self.data.num });
+                d.field(
+                    "data.num",
+                    // SAFETY: we just cheched the type to ensure the data union has numeric data
+                    unsafe { &self.data.num },
+                );
             }
             RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => {
-                d.field("data.agg", unsafe { &self.data.agg });
+                d.field(
+                    "data.agg",
+                    // SAFETY: we just checked the type to ensure the data union has aggregate data
+                    unsafe { &self.data.agg },
+                );
             }
             RSResultType::Term => {
-                d.field("data.term", unsafe { &self.data.term });
+                d.field(
+                    "data.term",
+                    // SAFETY: we just checked the type to ensure the data union has term data
+                    unsafe { &self.data.term },
+                );
             }
             RSResultType::Virtual => {}
         }
@@ -208,13 +220,36 @@ impl PartialEq for RSIndexResult {
         }
 
         match self.result_type {
-            RSResultType::Numeric | RSResultType::Metric => unsafe {
-                self.data.num == other.data.num
-            },
-            RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => unsafe {
-                self.data.agg == other.data.agg
-            },
-            RSResultType::Term => unsafe { self.data.term == other.data.term },
+            RSResultType::Numeric | RSResultType::Metric => {
+                // SAFETY: we just checked the type of self to ensure the data union has numeric data
+                let self_num = unsafe { &self.data.num };
+
+                // SAFETY: from the previous checks we already know `other` has the same result
+                // type as `self`. Therefore `other` also has numeric data in its union.
+                let other_num = unsafe { &other.data.num };
+
+                self_num == other_num
+            }
+            RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => {
+                // SAFETY: we just checked the type of self to ensure the data union has aggregate data
+                let self_agg = unsafe { &self.data.agg };
+
+                // SAFETY: from the previous checks we already know `other` has the same result
+                // type as `self`. Therefore `other` also has aggregate data in its union.
+                let other_agg = unsafe { &other.data.agg };
+
+                self_agg == other_agg
+            }
+            RSResultType::Term => {
+                // SAFETY: we just checked the type of self to ensure the data union has term data
+                let self_term = unsafe { &self.data.term };
+
+                // SAFETY: from the previous checks we already know `other` has the same result
+                // type as `self`. Therefore `other` also has term data in its union.
+                let other_term = unsafe { &other.data.term };
+
+                self_term == other_term
+            }
             RSResultType::Virtual => true,
         }
     }
