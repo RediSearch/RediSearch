@@ -15,7 +15,8 @@ use inverted_index_bencher::bencher::NumericBencher;
 fn benchmark_numeric(c: &mut Criterion) {
     let bencher = NumericBencher::new();
 
-    bencher.numeric(c);
+    bencher.encoding(c);
+    bencher.decoding(c);
 }
 
 criterion_group!(benches, benchmark_numeric);
