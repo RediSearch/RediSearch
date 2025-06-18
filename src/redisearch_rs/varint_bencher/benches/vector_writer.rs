@@ -10,7 +10,7 @@
 //! Benchmark the vector writer operations for varints.
 
 use criterion::{BatchSize, Criterion, black_box, criterion_group, criterion_main};
-use encode_decode::varint::VectorWriter;
+use varint::VectorWriter;
 
 fn benchmark_vector_writer(c: &mut Criterion) {
     let values: Vec<_> = (0..100).map(|i| i * 1000).collect();

@@ -13,8 +13,8 @@ members = [
     "wildcard",
     "buffer",
     "result_processor",
-    "encode_decode",
     "inverted_index_bencher",
+    "varint",
 ]
 default-members = [
     "low_memory_thin_vec",
@@ -24,7 +24,7 @@ default-members = [
     "wildcard",
     "buffer",
     "result_processor",
-    "encode_decode",
+    "varint",
 ]
 resolver = "3"
 
@@ -65,7 +65,7 @@ trie_rs = { path = "./trie_rs" }
 wildcard = { path = "./wildcard" }
 buffer = { path = "./buffer" }
 result_processor = { path = "./result_processor" }
-encode_decode = { path = "./encode_decode" }
+varint = { path = "./varint" }
 
 cbindgen = "0.28.0"
 cc = "1"

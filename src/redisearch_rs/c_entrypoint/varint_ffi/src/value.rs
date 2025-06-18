@@ -8,8 +8,8 @@
 */
 
 use buffer::{BufferReader, BufferWriter};
-use encode_decode::varint::VarintEncode;
 use std::ptr::NonNull;
+use varint::VarintEncode;
 
 #[unsafe(no_mangle)]
 /// Read a varint-encoded value from the given buffer.

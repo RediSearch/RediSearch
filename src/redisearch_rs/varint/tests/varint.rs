@@ -1,6 +1,6 @@
 use std::u128;
 
-use encode_decode::varint::*;
+use varint::*;
 
 #[test]
 fn test_u32() {

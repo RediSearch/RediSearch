@@ -11,8 +11,8 @@ use criterion::{
     BatchSize, BenchmarkGroup, Criterion,
     measurement::{Measurement, WallTime},
 };
-use encode_decode::varint::VarintEncode;
 use std::{hint::black_box, time::Duration};
+use varint::VarintEncode;
 
 /// A helper struct for benchmarking varint operations.
 pub struct VarintBencher {
