@@ -929,13 +929,15 @@ static int parseVectorField_flat(FieldSpec *fs, VecSimParams *params, ArgsCursor
   return parseVectorField_validate_flat(&fs->vectorOpts.vecSimParams, status);
 }
 
-static int parseVectorField_svs(FieldSpec *fs, VecSimParams *params, ArgsCursor *ac, QueryError *status) {
+static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, ArgsCursor *ac, QueryError *status) {
   int rc;
 
   // SVS-VAMANA mandatory params.
   bool mandtype = false;
   bool mandsize = false;
   bool mandmetric = false;
+
+  VecSimParams *params = tieredParams->primaryIndexParams;
 
   // Get number of parameters
   size_t expNumParam, numParam = 0;
@@ -1026,6 +1028,12 @@ static int parseVectorField_svs(FieldSpec *fs, VecSimParams *params, ArgsCursor 
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
       if ((rc = AC_GetDouble(ac, &params->algoParams.svsParams.epsilon, AC_F_GE0)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EPSILON), rc);
+        return 0;
+      }
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_TRAINING_THRESHOLD)) {
+      double tmpd;
+      if ((rc = AC_GetSize(ac, &tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold, AC_F_GE1)) != AC_OK) {
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_TRAINING_THRESHOLD), rc);
         return 0;
       }
     } else {
@@ -1213,13 +1221,14 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
     fs->vectorOpts.vecSimParams.algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = 0; // Will be set to default value.
 
     // primary index params allocated in VecSim_TieredParams_Init()
-    VecSimParams *params = fs->vectorOpts.vecSimParams.algoParams.tieredParams.primaryIndexParams;
+    TieredIndexParams *params = &fs->vectorOpts.vecSimParams.algoParams.tieredParams;
+
 
     // Forcibly set all SVS params to zero
-    memset(params, 0, sizeof(VecSimParams));
+    memset(params->primaryIndexParams, 0, sizeof(VecSimParams));
 
-    params->algo = VecSimAlgo_SVS;
-    params->logCtx = logCtx;
+    params->primaryIndexParams->algo = VecSimAlgo_SVS;
+    params->primaryIndexParams->logCtx = logCtx;
     result = parseVectorField_svs(fs, params, ac, status);
   } else {
     QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments", " for vector similarity algorithm: %s", AC_Strerror(AC_ERR_ENOENT));
