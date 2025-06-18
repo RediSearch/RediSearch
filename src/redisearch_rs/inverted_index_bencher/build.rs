@@ -90,7 +90,6 @@ fn generate_c_bindings() -> Result<(), Box<dyn std::error::Error>> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     bindings
         .allowlist_file(".*/inverted_index.h")
-        .allowlist_file(".*/buffer.h")
         .blocklist_file(".*/types_rs.h")
         .generate()?
         .write_to_file(out_dir.join("bindings.rs"))?;
