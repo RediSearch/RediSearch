@@ -204,6 +204,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVSTR("use_search_ history", VecSimSearchHistory_ToString(svs_params.use_search_history));
           REPLY_KVNUM("alpha", svs_params.alpha);
           REPLY_KVNUM("epsilon", algo_params.svsParams.epsilon);
+          REPLY_KVNUM("training_threshold", algo_params.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
         }
       } else if (field_algo == VecSimAlgo_BF) {
         REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(field_algo));
