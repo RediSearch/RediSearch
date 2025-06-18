@@ -142,8 +142,8 @@ TEST_F(AggTest, testGroupBy) {
   const char *values[] = {"foo", "bar", "baz", "foo"};
   ctx.values = values;
   ctx.numvals = sizeof(values) / sizeof(values[0]);
-  ctx.rkscore = RLookup_GetKey(&rk_in, "score", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  ctx.rkvalue = RLookup_GetKey(&rk_in, "value", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  ctx.rkscore = RLookup_GetKey_Write(&rk_in, "score", RLOOKUP_F_NOFLAGS);
+  ctx.rkvalue = RLookup_GetKey_Write(&rk_in, "value", RLOOKUP_F_NOFLAGS);
   ctx.Next = [](ResultProcessor *rp, SearchResult *res) -> int {
     RPMock *p = (RPMock *)rp;
     if (p->counter >= NUM_RESULTS) {
@@ -162,9 +162,9 @@ TEST_F(AggTest, testGroupBy) {
   QITR_PushRP(&qitr, &ctx);
 
   RLookup rk_out = {0};
-  RLookupKey *v_out = RLookup_GetKey(&rk_out, "value", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  RLookupKey *score_out = RLookup_GetKey(&rk_out, "SCORE", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  RLookupKey *count_out = RLookup_GetKey(&rk_out, "COUNT", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  RLookupKey *v_out = RLookup_GetKey_Write(&rk_out, "value", RLOOKUP_F_NOFLAGS);
+  RLookupKey *score_out = RLookup_GetKey_Write(&rk_out, "SCORE", RLOOKUP_F_NOFLAGS);
+  RLookupKey *count_out = RLookup_GetKey_Write(&rk_out, "COUNT", RLOOKUP_F_NOFLAGS);
 
   Grouper *gr = Grouper_New((const RLookupKey **)&ctx.rkvalue, (const RLookupKey **)&v_out, 1);
   ASSERT_TRUE(gr != NULL);
@@ -207,9 +207,9 @@ TEST_F(AggTest, testGroupSplit) {
   ArrayGenerator gen;
   RLookup lk_in = {0};
   RLookup lk_out = {0};
-  gen.kvalue = RLookup_GetKey(&lk_in, "value", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  RLookupKey *val_out = RLookup_GetKey(&lk_out, "value", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  RLookupKey *count_out = RLookup_GetKey(&lk_out, "COUNT", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  gen.kvalue = RLookup_GetKey_Write(&lk_in, "value", RLOOKUP_F_NOFLAGS);
+  RLookupKey *val_out = RLookup_GetKey_Write(&lk_out, "value", RLOOKUP_F_NOFLAGS);
+  RLookupKey *count_out = RLookup_GetKey_Write(&lk_out, "COUNT", RLOOKUP_F_NOFLAGS);
   Grouper *gr = Grouper_New((const RLookupKey **)&gen.kvalue, (const RLookupKey **)&val_out, 1);
   ArgsCursor args = {0};
   ReducerOptions opt = {0};

@@ -323,7 +323,7 @@ void RLookup_WriteKeyByName(RLookup *lookup, const char *name, size_t len, RLook
   // Get the key first
   RLookupKey *k = RLookup_FindKey(lookup, name, len);
   if (!k) {
-    k = RLookup_GetKeyEx(lookup, name, len, RLOOKUP_M_WRITE, RLOOKUP_F_NAMEALLOC);
+    k = RLookup_GetKey_WriteEx(lookup, name, len, RLOOKUP_F_NAMEALLOC);
   }
   RLookup_WriteKey(k, dst, v);
 }
