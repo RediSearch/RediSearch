@@ -7,6 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+#include "rmutil/alloc.h"
 #include "gtest/gtest.h"
 #include "src/util/strconv.h"
 #include <string.h>
