@@ -60,7 +60,7 @@ impl NumericBencher {
 }
 
 fn numeric_c_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[f64]) {
-    let mut buffer = Buffer::from_array([0; 9]);
+    let mut buffer = Buffer::from_array([0; 16]);
 
     group.bench_function("C", |b| {
         b.iter(|| {
@@ -69,7 +69,7 @@ fn numeric_c_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &
                 // This is fine since we don't care about benchmarking the growth operation anyway
                 buffer.reset();
                 let mut record = inverted_index::RSIndexResult::numeric(value);
-                encode_numeric(&mut buffer, &mut record, 0);
+                encode_numeric(&mut buffer, &mut record, 684);
             }
         });
     });
