@@ -17,6 +17,22 @@
 
 pub mod allocator;
 
+/// A macro to define Redis' allocation symbols in terms of Rust's global allocator for usage in an outside crate.
+///
+/// It's designed to be used in tests and benchmarks.
+#[macro_export]
+macro_rules! bind_redis_alloc_symbols_to_mock_impl {
+    () => {
+        use redis_mock::bind_alloc_internal_macro;
+        bind_alloc_internal_macro!(redis_mock);
+    };
+}
+
+/// A macro to define Redis' allocation symbols in terms of Rust's global allocator
+/// `c_id` defines the name of the crate, it is used by tests here with `crate` or with `redis_mock`
+/// in outside crates. Use [bind_redis_alloc_symbols_to_mock_impl] to bind the symbols from an outside crate.
+///
+/// It's designed to be used in tests and benchmarks.
 #[macro_export]
 macro_rules! bind_alloc_internal_macro {
     ($c_id:ident) => {
@@ -55,23 +71,15 @@ macro_rules! bind_alloc_internal_macro {
     };
 }
 
-/// A macro to define Redis' allocation symbols in terms of Rust's global allocator.
-///
-/// It's designed to be used in tests and benchmarks.
-#[macro_export]
-macro_rules! bind_redis_alloc_symbols_to_mock_impl {
-    () => {
-        use redis_mock::bind_alloc_internal_macro;
-        bind_alloc_internal_macro!(redis_mock);
-    };
-}
-
 #[cfg(test)]
 mod tests {
 
     use std::ffi::c_void;
     bind_alloc_internal_macro!(crate);
 
+    // helps to check if the symbols are defined, e.g. the lib-path is correct
+    // beware not part of the default workspace: you can use:
+    // run `cargo test -p redis_mock` to test this
     #[test]
     fn test_symbols_of_ffi_found() {
         // Safety: Its safe to call that allocation, it leaks in this test though.
