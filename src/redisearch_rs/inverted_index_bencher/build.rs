@@ -53,24 +53,20 @@ fn try_link_static_libraries() {
 
     // Try to link static libraries, but don't fail build if they don't exist
     if let Err(e) = link_static_lib(&bin_root, "src/inverted_index", "inverted_index") {
-        println!(
-            "cargo:warning=Could not link inverted_index static library: {}",
-            e
-        );
+        panic!("Could not link inverted_index static library: {}", e);
     }
 }
 
 fn generate_c_bindings() -> Result<(), Box<dyn std::error::Error>> {
     let root = git_root()?;
 
-    let includes = {
-        let redis_modules = root.join("deps").join("RedisModulesSDK");
-        let src = root.join("src");
-        let deps = root.join("deps");
-        let redisearch_rs = root.join("src").join("redisearch_rs").join("headers");
-        let vec_sim = root.join("deps").join("VectorSimilarity").join("src");
-        [redis_modules, src, deps, redisearch_rs, vec_sim]
-    };
+    let includes = [
+        root.join("deps").join("RedisModulesSDK"),
+        root.join("src"),
+        root.join("deps"),
+        root.join("src").join("redisearch_rs").join("headers"),
+        root.join("deps").join("VectorSimilarity").join("src"),
+    ];
 
     let mut bindings = bindgen::Builder::default().header(
         root.join("src")
@@ -90,6 +86,8 @@ fn generate_c_bindings() -> Result<(), Box<dyn std::error::Error>> {
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     bindings
         .allowlist_file(".*/inverted_index.h")
+        // Don't generate the Rust exported types else we'll have a compiler issue about the wrong
+        // type being used
         .blocklist_file(".*/types_rs.h")
         .generate()?
         .write_to_file(out_dir.join("bindings.rs"))?;
