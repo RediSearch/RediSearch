@@ -8,8 +8,8 @@
 */
 
 use buffer::{BufferReader, BufferWriter};
-use encode_decode::varint::VarintEncode;
 use std::ptr::NonNull;
+use varint::VarintEncode;
 
 pub type FieldMask = ffi::t_fieldMask;
 

@@ -6,7 +6,7 @@ includes = ["buffer.h", "redisearch.h"]
 
 [parse]
 parse_deps = true
-include = ["encode_decode"]
+include = ["varint"]
 
 [export.rename]
 "VectorWriter" = "VarintVectorWriter"

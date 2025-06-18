@@ -7,8 +7,8 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use encode_decode::varint::*;
 use std::hint::black_box;
+use varint::*;
 
 fn main() {
     compute_and_report_memory_usage();
