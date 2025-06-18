@@ -48,6 +48,6 @@ pub extern "C" fn WriteVarint(value: u32, writer: Option<NonNull<BufferWriter>>)
     // Safety: Safe thanks to invariants 1. and 2.
     let writer = unsafe { writer.as_mut() };
     let cap = writer.buffer().capacity();
-    u32::write_as_varint(value, &mut *writer).unwrap();
+    value.write_as_varint(&mut *writer).unwrap();
     writer.buffer().capacity() - cap
 }

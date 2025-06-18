@@ -7,11 +7,11 @@ fn test_u32() {
     let values: [u32; 12] = [123456789, 987654321, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     let expected_lens = [4, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 
-    for (i, value) in values.iter().enumerate() {
+    for (i, value) in values.into_iter().enumerate() {
         let mut buf = Vec::new();
-        u32::write_as_varint(*value, &mut buf).unwrap();
+        value.write_as_varint(&mut buf).unwrap();
         assert_eq!(buf.len(), expected_lens[i]);
-        assert_eq!(u32::read_as_varint(&buf[..]).unwrap(), *value);
+        assert_eq!(u32::read_as_varint(&buf[..]).unwrap(), value);
     }
 }
 
@@ -20,11 +20,11 @@ fn test_u64() {
     let values: [u64; 12] = [123456789, 987654321, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
     let expected_lens = [4, 5, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1];
 
-    for (i, value) in values.iter().enumerate() {
+    for (i, value) in values.into_iter().enumerate() {
         let mut buf = Vec::new();
-        u64::write_as_varint(*value, &mut buf).unwrap();
+        value.write_as_varint(&mut buf).unwrap();
         assert_eq!(buf.len(), expected_lens[i]);
-        assert_eq!(u64::read_as_varint(&buf[..]).unwrap(), *value);
+        assert_eq!(u64::read_as_varint(&buf[..]).unwrap(), value);
     }
 }
 
@@ -60,27 +60,27 @@ fn test_truncated_encoding() {
 fn test_size_confusion() {
     let mut buf = [0u8; 24];
     let input = u128::MAX;
-    let n_written_bytes = u128::write_as_varint(input, buf.as_mut_slice()).unwrap();
+    let n_written_bytes = input.write_as_varint(buf.as_mut_slice()).unwrap();
     assert_eq!(n_written_bytes, 19);
 
     let output = u32::read_as_varint(buf.as_slice()).unwrap();
-    assert_eq!(output, 4294967295);
+    assert_eq!(output, u32::MAX);
     assert_ne!(output as u128, input);
 }
 
 #[test]
 fn test_u32_encoded_bytes() {
     // Test specific values against their expected encoded byte sequences.
-    let test_cases: &[(u32, Vec<u8>)] = &[
-        (0, vec![0x00]),
+    let test_cases = [
+        (0u32, vec![0x00]),
         (1, vec![0x01]),
-        // (127, vec![0x7F]),
-        // (128, vec![0x80, 0x00]),
-        // (129, vec![0x80, 0x01]),
-        // (255, vec![0x80, 0x7F]),
-        // (256, vec![0x81, 0x00]),
-        // (16383, vec![0xFE, 0x7F]),
-        // (16384, vec![0xFF, 0x00]),
+        (127, vec![0x7F]),
+        (128, vec![0x80, 0x00]),
+        (129, vec![0x80, 0x01]),
+        (255, vec![0x80, 0x7F]),
+        (256, vec![0x81, 0x00]),
+        (16383, vec![0xFE, 0x7F]),
+        (16384, vec![0xFF, 0x00]),
         (16511, vec![0xFF, 0x7F]),
         // 3-byte encoding boundary.
         (16512, vec![0x80, 0x80, 0x00]),
@@ -95,23 +95,23 @@ fn test_u32_encoded_bytes() {
 
     for (value, expected_bytes) in test_cases {
         let mut buf = Vec::new();
-        u32::write_as_varint(*value, &mut buf).unwrap();
+        value.write_as_varint(&mut buf).unwrap();
         assert_eq!(
-            &buf, expected_bytes,
+            buf, expected_bytes,
             "Encoded bytes for value {} don't match expected: got {:?}, expected {:?}",
             value, buf, expected_bytes
         );
 
         // Verify round-trip decoding still works.
-        assert_eq!(u32::read_as_varint(&buf[..]).unwrap(), *value);
+        assert_eq!(u32::read_as_varint(&buf[..]).unwrap(), value);
     }
 }
 
 #[test]
 fn test_u64_encoded_bytes() {
     // Test specific values against their expected encoded byte sequences.
-    let test_cases: &[(u64, Vec<u8>)] = &[
-        (0, vec![0x00]),
+    let test_cases = [
+        (0u64, vec![0x00]),
         (1, vec![0x01]),
         (127, vec![0x7F]),
         (128, vec![0x80, 0x00]),
@@ -120,7 +120,9 @@ fn test_u64_encoded_bytes() {
         (256, vec![0x81, 0x00]),
         (16383, vec![0xFE, 0x7F]),
         (16384, vec![0xFF, 0x00]),
+        (16511, vec![0xFF, 0x7F]),
         // 3-byte encoding boundary.
+        (16512, vec![0x80, 0x80, 0x00]),
         (2097151, vec![0xFE, 0xFE, 0x7F]),
         (2097152, vec![0xFE, 0xFF, 0x00]),
         // 4-byte encoding boundary.
@@ -145,23 +147,23 @@ fn test_u64_encoded_bytes() {
 
     for (value, expected_bytes) in test_cases {
         let mut buf = Vec::new();
-        u64::write_as_varint(*value, &mut buf).unwrap();
+        value.write_as_varint(&mut buf).unwrap();
         assert_eq!(
-            &buf, expected_bytes,
+            buf, expected_bytes,
             "Encoded bytes for field mask {} don't match expected: got {:?}, expected {:?}",
             value, buf, expected_bytes
         );
 
         // Verify round-trip decoding still works.
-        assert_eq!(u64::read_as_varint(&buf[..]).unwrap(), *value);
+        assert_eq!(u64::read_as_varint(&buf[..]).unwrap(), value);
     }
 }
 
 #[test]
 fn test_u128_encoded_bytes() {
     // Test specific values against their expected encoded byte sequences.
-    let test_cases: &[(u128, Vec<u8>)] = &[
-        (0, vec![0x00]),
+    let test_cases = [
+        (0u128, vec![0x00]),
         (1, vec![0x01]),
         (127, vec![0x7F]),
         (128, vec![0x80, 0x00]),
@@ -170,7 +172,9 @@ fn test_u128_encoded_bytes() {
         (256, vec![0x81, 0x00]),
         (16383, vec![0xFE, 0x7F]),
         (16384, vec![0xFF, 0x00]),
+        (16511, vec![0xFF, 0x7F]),
         // 3-byte encoding boundary.
+        (16512, vec![0x80, 0x80, 0x00]),
         (2097151, vec![0xFE, 0xFE, 0x7F]),
         (2097152, vec![0xFE, 0xFF, 0x00]),
         // 4-byte encoding boundary.
@@ -220,15 +224,15 @@ fn test_u128_encoded_bytes() {
 
     for (value, expected_bytes) in test_cases {
         let mut buf = Vec::new();
-        u128::write_as_varint(*value, &mut buf).unwrap();
+        value.write_as_varint(&mut buf).unwrap();
         assert_eq!(
-            &buf, expected_bytes,
+            buf, expected_bytes,
             "Encoded bytes for {} don't match expected: got {:?}, expected {:?}",
             value, buf, expected_bytes
         );
 
         // Verify round-trip decoding still works.
-        assert_eq!(u128::read_as_varint(&buf[..]).unwrap(), *value);
+        assert_eq!(u128::read_as_varint(&buf[..]).unwrap(), value);
     }
 }
 
@@ -241,21 +245,21 @@ mod property_based {
         #[test]
         fn test_u32_roundtrip(v: u32) {
             let mut buf = Vec::new();
-            u32::write_as_varint(v, &mut buf).unwrap();
+            v.write_as_varint(&mut buf).unwrap();
             assert_eq!(u32::read_as_varint(&buf[..]).unwrap(), v);
         }
 
         #[test]
         fn test_u64_roundtrip(v: u64) {
             let mut buf = Vec::new();
-            u64::write_as_varint(v, &mut buf).unwrap();
+            v.write_as_varint(&mut buf).unwrap();
             assert_eq!(u64::read_as_varint(&buf[..]).unwrap(), v);
         }
 
         #[test]
         fn test_u128_roundtrip(v: u128) {
             let mut buf = Vec::new();
-            u128::write_as_varint(v, &mut buf).unwrap();
+            v.write_as_varint(&mut buf).unwrap();
             assert_eq!(u128::read_as_varint(&buf[..]).unwrap(), v);
         }
     }
