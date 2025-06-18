@@ -50,13 +50,13 @@ static void resultProcessor_GenericFree(ResultProcessor *rp) {
 
 // Common hybrid scoring function used across all hybrid merger tests
 // Average if both exist, original score if only one exists
-static auto hybridScoringFunction = [](double score1, double score2, bool hasScore1, bool hasScore2) -> double {
-  if (hasScore1 && hasScore2) {
-    return (score1 + score2) / 2.0;  // Average both scores
-  } else if (hasScore1) {
-    return score1;  // Only upstream1 has this document
-  } else if (hasScore2) {
-    return score2;  // Only upstream2 has this document
+static auto hybridScoringFunction = [](double *scores, bool *hasScores, size_t numUpstreams) -> double {
+  if (hasScores[0] && hasScores[1]) {
+    return (scores[0] + scores[1]) / 2.0;  // Average both scores
+  } else if (hasScores[0]) {
+    return scores[0];  // Only upstream1 has this document
+  } else if (hasScores[1]) {
+    return scores[1];  // Only upstream2 has this document
   } else {
     return 0.0;  // Neither upstream has this document (shouldn't happen)
   }
@@ -157,11 +157,12 @@ TEST_F(ResultProcessorTest, testHybridMergerSameDocs) {
 
 
   // Create hybrid merger with window size 4
+  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ResultProcessor *hybridMerger = RPHybridMerger_New(
     hybridScoringFunction,
-    &upstream1,
-    &upstream2,
-    4  // window size
+    upstreams,
+    2,  // numUpstreams
+    4   // window size
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -245,11 +246,12 @@ TEST_F(ResultProcessorTest, testHybridMergerDifferentDocuments) {
 
 
   // Create hybrid merger
+  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ResultProcessor *hybridMerger = RPHybridMerger_New(
     hybridScoringFunction,
-    &upstream1,
-    &upstream2,
-    3
+    upstreams,
+    2,  // numUpstreams
+    3   // window size
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -324,11 +326,12 @@ TEST_F(ResultProcessorTest, testHybridMergerEmptyUpstream1) {
 
 
   // Create hybrid merger
+  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ResultProcessor *hybridMerger = RPHybridMerger_New(
     hybridScoringFunction,
-    &upstream1,
-    &upstream2,
-    3
+    upstreams,
+    2,  // numUpstreams
+    3   // window size
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -399,11 +402,12 @@ TEST_F(ResultProcessorTest, testHybridMergerEmptyUpstream2) {
 
 
   // Create hybrid merger
+  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ResultProcessor *hybridMerger = RPHybridMerger_New(
     hybridScoringFunction,
-    &upstream1,
-    &upstream2,
-    3
+    upstreams,
+    2,  // numUpstreams
+    3   // window size
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -461,11 +465,12 @@ TEST_F(ResultProcessorTest, testHybridMergerBothEmpty) {
 
 
   // Create hybrid merger
+  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ResultProcessor *hybridMerger = RPHybridMerger_New(
     hybridScoringFunction,
-    &upstream1,
-    &upstream2,
-    3
+    upstreams,
+    2,  // numUpstreams
+    3   // window size
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -541,11 +546,12 @@ TEST_F(ResultProcessorTest, testHybridMergerSmallWindow) {
 
 
   // Create hybrid merger with small window size (2) - smaller than upstream doc count (5 each)
+  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ResultProcessor *hybridMerger = RPHybridMerger_New(
     hybridScoringFunction,
-    &upstream1,
-    &upstream2,
-    2  // Small window
+    upstreams,
+    2,  // numUpstreams
+    2   // Small window
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -625,11 +631,12 @@ TEST_F(ResultProcessorTest, testHybridMergerLargeWindow) {
 
 
   // Create hybrid merger with large window size (10) - larger than upstream doc count (3 each)
+  ResultProcessor *upstreams[] = {(ResultProcessor*)upstream1, (ResultProcessor*)upstream2};
   ResultProcessor *hybridMerger = RPHybridMerger_New(
     hybridScoringFunction,
-    (ResultProcessor*)upstream1,
-    (ResultProcessor*)upstream2,
-    10  // Large window
+    upstreams,
+    2,   // numUpstreams
+    10   // Large window
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -729,11 +736,12 @@ TEST_F(ResultProcessorTest, testHybridMergerUpstream1DepletesMore) {
 
 
   // Create hybrid merger with window size 3
+  ResultProcessor *upstreams[] = {(ResultProcessor*)upstream1, (ResultProcessor*)upstream2};
   ResultProcessor *hybridMerger = RPHybridMerger_New(
     hybridScoringFunction,
-    (ResultProcessor*)upstream1,
-    (ResultProcessor*)upstream2,
-    3
+    upstreams,
+    2,  // numUpstreams
+    3   // window size
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -847,11 +855,12 @@ TEST_F(ResultProcessorTest, testHybridMergerUpstream2DepletesMore) {
 
 
   // Create hybrid merger with window size 3
+  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ResultProcessor *hybridMerger = RPHybridMerger_New(
     hybridScoringFunction,
-    &upstream1,
-    &upstream2,
-    3
+    upstreams,
+    2,  // numUpstreams
+    3   // window size
   );
 
   QITR_PushRP(&qitr, hybridMerger);

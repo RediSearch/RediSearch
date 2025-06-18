@@ -320,9 +320,18 @@ void PipelineAddCrash(struct AREQ *r);
   * Merges results from two upstream processors using a hybrid scoring function.
   * Takes results from both upstreams and applies the provided function to combine their scores.
   *******************************************************************************************************************/
- ResultProcessor *RPHybridMerger_New(double (*hybridScoring_function)(double, double, bool, bool),
-                                     ResultProcessor *upstream1,
-                                     ResultProcessor *upstream2,
+
+ // Parameters:
+ //   scores: Array of score values from each upstream
+ //   hasScores: Array of boolean flags indicating if each score is available
+ //   numUpstreams: Number of upstream processors
+ // Returns: Combined score calculated from the array of optional input scores
+ typedef double (*HybridScoringFunction)(double *scores, bool *hasScores, size_t numUpstreams);
+
+
+ ResultProcessor *RPHybridMerger_New(HybridScoringFunction hybridScoring_function,
+                                     ResultProcessor **upstreams,
+                                     size_t numUpstreams,
                                      size_t window);
 
 #ifdef __cplusplus
