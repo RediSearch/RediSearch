@@ -8,6 +8,9 @@
 */
 
 fn main() {
+    // link `librust_binded.a` to this crate `redis_mock`
+
+    // get variables to determine paths
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     let platform = format!("{}-{}-{}", os, arch, get_build_profile_name());
@@ -20,8 +23,11 @@ fn main() {
         .join("src")
         .join("rust-binded");
 
+    // configure linker with libname and path
     println!("cargo:rustc-link-lib=static=rust_binded");
     println!("cargo:rustc-link-search=native={}", lib_path.display());
+
+    // rerun if cmake file changes
     println!(
         "cargo:rerun-if-changed={}",
         root.join("src")
@@ -40,6 +46,8 @@ fn get_build_profile_name() -> String {
         .unwrap_or("unknown")
         .to_string();
 
+    // the profiles are named `debug`, `release`, `optimised_test` and `profiling`
+    // the latter are mapped to `release` from the outer build script
     if candidate == "optimised_test" || candidate == "profiling" {
         "release".to_string()
     } else {
