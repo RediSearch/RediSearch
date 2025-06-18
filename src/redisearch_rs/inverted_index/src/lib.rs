@@ -175,7 +175,7 @@ impl Debug for RSIndexResult {
             RSResultType::Numeric | RSResultType::Metric => {
                 d.field(
                     "data.num",
-                    // SAFETY: we just cheched the type to ensure the data union has numeric data
+                    // SAFETY: we just checked the type to ensure the data union has numeric data
                     unsafe { &self.data.num },
                 );
             }
