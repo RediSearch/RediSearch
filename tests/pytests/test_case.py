@@ -4,12 +4,14 @@ def _prepare_index(env, idx, dim=4):
     conn = getConnectionByEnv(env)
     env.expect('FT.CREATE', idx, 'SCHEMA',
                'v', 'VECTOR', 'FLAT', '6', 'DIM', dim, 'DISTANCE_METRIC', 'L2', 'TYPE', 'FLOAT32',
-               't', 'TEXT').ok()
+               't', 'TEXT',
+               'x', 'NUMERIC').ok()
 
-    conn.execute_command('HSET', 'doc1', 'v', create_np_array_typed([1.1] * dim).tobytes(), 't', 'pizza')
-    conn.execute_command('HSET', 'doc2', 'v', create_np_array_typed([1.4] * dim).tobytes())
-    conn.execute_command('HSET', 'doc3', 't', 'pizzas')
-    conn.execute_command('HSET', 'doc4', 't', 'beer')
+    conn.execute_command('HSET', 'doc1', 'x', '1', 'v', create_np_array_typed([1.1] * dim).tobytes(), 't', 'pizza')
+    conn.execute_command('HSET', 'doc2', 'x', '1', 'v', create_np_array_typed([1.4] * dim).tobytes())
+    conn.execute_command('HSET', 'doc3', 'x', '1', 't', 'pizzas')
+    conn.execute_command('HSET', 'doc4', 'x', '1', 't', 'beer')
+    conn.execute_command('HSET', 'doc5', 'x', '1')
 
 def testWithVectorRange(env):
     dim = 4
@@ -18,32 +20,37 @@ def testWithVectorRange(env):
 
     # Get vector distance and text score without APPLY
     res = conn.execute_command(
-        'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_DISTANCE_AS: vector_distance} | @t:(pizza)',
+        'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_DISTANCE_AS: vector_distance} | @t:(pizza) | @x==1',
         'ADDSCORES', 'SCORER', 'BM25STD',
         'PARAMS', '2', 'vector', create_np_array_typed([1.2] * dim).tobytes(),
         'LOAD', '3', '@vector_distance', '@__key', 't',
         'SORTBY', '2', '@__key', 'ASC',
         'DIALECT', '2')
-    env.assertEqual(res[0], 3)
+    nresults = 5
+    env.assertEqual(res[0], nresults)
     v_dist = [float(row[row.index('vector_distance') + 1] if 'vector_distance' in row else '0') for row in res[1:]]
     t_score = [float(row[row.index('__score') + 1] if '__score' in row else '0') for row in res[1:]]
 
     # Test APPLY with case function
     apply_expr_and_expected_results = [
         (
+            'case(!exists(@__score), 0, 1)',
+            [1] * nresults  # All documents have __score, so all should return 1
+        ),
+        (
             'case(exists(@vector_distance), (@__score*0.3 + @vector_distance*0.7), (@__score*0.3))',
-            sorted([(t_score[i]*0.3 + v_dist[i]*0.7) for i in range(3)], reverse=True)
+            sorted([(t_score[i]*0.3 + v_dist[i]*0.7) for i in range(nresults)], reverse=True)
         ),
         (
             'case(!exists(@vector_distance), (@__score)*0.3, (@__score*0.3 + @vector_distance))',
-            sorted([t_score[i]*0.3 + v_dist[i] for i in range(3)], reverse=True)
+            sorted([t_score[i]*0.3 + v_dist[i] for i in range(nresults)], reverse=True)
         ),
     ]
 
     # Test APPLY with case function and linear combination of vector distance and text score
     for apply_expr, expected_score in apply_expr_and_expected_results:
         res = conn.execute_command(
-            'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_DISTANCE_AS: vector_distance} | @t:(pizza)',
+            'FT.AGGREGATE', 'idx', '@v:[VECTOR_RANGE .7 $vector]=>{$YIELD_DISTANCE_AS: vector_distance} | @t:(pizza) | @x==1',
             'ADDSCORES', 'SCORER', 'BM25STD',
             'PARAMS', '2', 'vector', create_np_array_typed([1.2] * dim).tobytes(),
             'LOAD', '3', '@vector_distance', '@__key', 't',
@@ -100,7 +107,7 @@ def testCaseFunction(env):
         'SORTBY', '2', '@__key', 'ASC',
         'DIALECT', '2')
 
-    env.assertEqual(res[0], 4)  # 4 documents total
+    env.assertEqual(res[0], 5)  # 4 documents total
 
     # Check that documents with 't' field have has_text=1, others have has_text=0
     for i, row in enumerate(res[1:]):
