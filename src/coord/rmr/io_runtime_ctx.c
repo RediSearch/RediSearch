@@ -148,21 +148,6 @@ static void sideThread(void *arg) {
       "sideThread(): pthread_setname_np is not supported on this system");
 #endif
   IORuntimeCtx *io_runtime_ctx = arg;
-
-  // Initialize the loop and timers
-  uv_loop_init(&io_runtime_ctx->loop);
-  uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyValidationTimer);
-  uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyFailureTimer);
-  uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->async, rqAsyncCb);
-  uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyAsync, topologyAsyncCB);
-  uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->shutdownAsync, shutdown_cb);
-
-  io_runtime_ctx->shutdownAsync.data = io_runtime_ctx;
-  io_runtime_ctx->async.data = io_runtime_ctx;
-  io_runtime_ctx->topologyAsync.data = io_runtime_ctx;
-  io_runtime_ctx->topologyFailureTimer.data = io_runtime_ctx;
-  io_runtime_ctx->topologyValidationTimer.data = io_runtime_ctx;
-
   // loop is initialized and handles are ready
   io_runtime_ctx->loop_th_ready = false; // Until topology is validated, no requests are allowed (will be accumulated in the pending queue)
   io_runtime_ctx->loop_th_running = true;
@@ -269,9 +254,18 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
 }
 
 void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx) {
-  uv_timer_init(uv_default_loop(), &io_runtime_ctx->topologyValidationTimer);
-  uv_timer_init(uv_default_loop(), &io_runtime_ctx->topologyFailureTimer);
-  uv_async_init(uv_default_loop(), &io_runtime_ctx->topologyAsync, topologyAsyncCB);
+  // Initialize the loop and timers
+  uv_loop_init(&io_runtime_ctx->loop);
+  io_runtime_ctx->shutdownAsync.data = io_runtime_ctx;
+  io_runtime_ctx->async.data = io_runtime_ctx;
+  io_runtime_ctx->topologyAsync.data = io_runtime_ctx;
+  io_runtime_ctx->topologyFailureTimer.data = io_runtime_ctx;
+  io_runtime_ctx->topologyValidationTimer.data = io_runtime_ctx;
+  uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyValidationTimer);
+  uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyFailureTimer);
+  uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyAsync, topologyAsyncCB);
+  uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->async, rqAsyncCb);
+  uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->shutdownAsync, shutdown_cb);
   // Verify that we are running on the event loop thread
   int uv_thread_create_status = uv_thread_create(&io_runtime_ctx->loop_th, sideThread, io_runtime_ctx);
   RS_ASSERT(uv_thread_create_status == 0);
