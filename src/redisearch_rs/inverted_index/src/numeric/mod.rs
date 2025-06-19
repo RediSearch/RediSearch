@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::{IoSlice, Read, Write};
 
 use ffi::t_docId;
 
@@ -58,7 +58,7 @@ impl Encoder for Numeric {
                     typ: HeaderType::Tiny(i),
                 };
 
-                writer.write(&header.pack())? + writer.write(delta)?
+                writer.write_vectored(&[IoSlice::new(&header.pack()), IoSlice::new(delta)])?
             }
             FloatValue::PosInt(i) => {
                 let bytes = i.to_le_bytes();
@@ -71,7 +71,11 @@ impl Encoder for Numeric {
                     typ: HeaderType::PositiveInteger((end - 1) as _),
                 };
 
-                writer.write(&header.pack())? + writer.write(delta)? + writer.write(bytes)?
+                writer.write_vectored(&[
+                    IoSlice::new(&header.pack()),
+                    IoSlice::new(delta),
+                    IoSlice::new(bytes),
+                ])?
             }
             FloatValue::NegInt(i) => {
                 let bytes = i.to_le_bytes();
@@ -84,7 +88,11 @@ impl Encoder for Numeric {
                     typ: HeaderType::NegativeInteger((end - 1) as _),
                 };
 
-                writer.write(&header.pack())? + writer.write(delta)? + writer.write(bytes)?
+                writer.write_vectored(&[
+                    IoSlice::new(&header.pack()),
+                    IoSlice::new(delta),
+                    IoSlice::new(bytes),
+                ])?
             }
             FloatValue::F32Pos(value) => {
                 let bytes = value.to_le_bytes();
@@ -98,7 +106,11 @@ impl Encoder for Numeric {
                     },
                 };
 
-                writer.write(&header.pack())? + writer.write(delta)? + writer.write(&bytes)?
+                writer.write_vectored(&[
+                    IoSlice::new(&header.pack()),
+                    IoSlice::new(delta),
+                    IoSlice::new(&bytes),
+                ])?
             }
             FloatValue::F32Neg(value) => {
                 let bytes = value.to_le_bytes();
@@ -112,7 +124,11 @@ impl Encoder for Numeric {
                     },
                 };
 
-                writer.write(&header.pack())? + writer.write(delta)? + writer.write(&bytes)?
+                writer.write_vectored(&[
+                    IoSlice::new(&header.pack()),
+                    IoSlice::new(delta),
+                    IoSlice::new(&bytes),
+                ])?
             }
             FloatValue::F64Pos(value) => {
                 let bytes = value.to_le_bytes();
@@ -126,7 +142,11 @@ impl Encoder for Numeric {
                     },
                 };
 
-                writer.write(&header.pack())? + writer.write(delta)? + writer.write(&bytes)?
+                writer.write_vectored(&[
+                    IoSlice::new(&header.pack()),
+                    IoSlice::new(delta),
+                    IoSlice::new(&bytes),
+                ])?
             }
             FloatValue::F64Neg(value) => {
                 let bytes = value.to_le_bytes();
@@ -140,7 +160,11 @@ impl Encoder for Numeric {
                     },
                 };
 
-                writer.write(&header.pack())? + writer.write(delta)? + writer.write(&bytes)?
+                writer.write_vectored(&[
+                    IoSlice::new(&header.pack()),
+                    IoSlice::new(delta),
+                    IoSlice::new(&bytes),
+                ])?
             }
             FloatValue::Infinity => {
                 let header = Header {
@@ -152,7 +176,7 @@ impl Encoder for Numeric {
                     },
                 };
 
-                writer.write(&header.pack())? + writer.write(delta)?
+                writer.write_vectored(&[IoSlice::new(&header.pack()), IoSlice::new(delta)])?
             }
             FloatValue::NegInfinity => {
                 let header = Header {
@@ -164,7 +188,7 @@ impl Encoder for Numeric {
                     },
                 };
 
-                writer.write(&header.pack())? + writer.write(delta)?
+                writer.write_vectored(&[IoSlice::new(&header.pack()), IoSlice::new(delta)])?
             }
         };
 
