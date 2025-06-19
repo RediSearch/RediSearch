@@ -519,7 +519,6 @@ run_rust_tests() {
       --workspace
       --exclude=trie_bencher
       --exclude=varint_bencher
-      --exclude=redis_mock
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*"
       --output-path=$BINROOT/rust_cov.info
     "
