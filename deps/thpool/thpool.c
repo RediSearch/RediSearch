@@ -335,6 +335,9 @@ void redisearch_thpool_destroy(redisearch_thpool_t* thpool_p) {
   // No need to destroy if it's NULL
   if (!thpool_p) return;
 
+  // Wait for all jobs to finish
+  redisearch_thpool_wait(thpool_p);
+
   redisearch_thpool_terminate_threads(thpool_p);
 
   /* Job queue cleanup */

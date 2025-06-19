@@ -96,6 +96,10 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   bool has_map = RedisModule_HasMap(reply);
 
   RedisModule_Reply_Map(reply); // top
+  
+  // Lock the spec
+  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
+  RedisSearchCtx_LockSpecRead(&sctx);
 
   REPLY_KVSTR_SAFE("index_name", sp->name);
 
@@ -208,10 +212,6 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
 
   RedisModule_Reply_ArrayEnd(reply); // >attributes
 
-  // Lock the spec
-  RedisSearchCtx sctx = SEARCH_CTX_STATIC(ctx, sp);
-  RedisSearchCtx_LockSpecRead(&sctx);
-
   REPLY_KVNUM("num_docs", sp->stats.numDocuments);
   REPLY_KVNUM("max_doc_id", sp->docs.maxDocId);
   REPLY_KVNUM("num_terms", sp->stats.numTerms);
@@ -283,7 +283,7 @@ int IndexInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
   // Global index error stats
   bool with_times = (argc > 2 && !strcmp(RedisModule_StringPtrLen(argv[2], NULL), WITH_INDEX_ERROR_TIME));
   RedisModule_Reply_SimpleString(reply, IndexError_ObjectName);
-  IndexError_Reply(&sp->stats.indexError, reply, with_times);
+  IndexError_Reply(&sp->stats.indexError, reply, with_times, INDEX_ERROR_WITH_OOM_STATUS);
 
   REPLY_KVARRAY("field statistics"); // Field statistics
   for (int i = 0; i < sp->numFields; i++) {

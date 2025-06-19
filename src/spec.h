@@ -115,6 +115,23 @@ struct DocumentIndexer;
 extern dict *specDict_g;
 #define dictGetRef(he) ((StrongRef){dictGetVal(he)})
 
+typedef enum {
+  DEBUG_INDEX_SCANNER_CODE_NEW,
+  DEBUG_INDEX_SCANNER_CODE_RUNNING,
+  DEBUG_INDEX_SCANNER_CODE_DONE,
+  DEBUG_INDEX_SCANNER_CODE_CANCELLED,
+  DEBUG_INDEX_SCANNER_CODE_PAUSED,
+  DEBUG_INDEX_SCANNER_CODE_RESUMED,
+  DEBUG_INDEX_SCANNER_CODE_PAUSED_ON_OOM,
+  DEBUG_INDEX_SCANNER_CODE_PAUSED_BEFORE_OOM_RETRY,
+
+  //Insert new codes here (before COUNT)
+  DEBUG_INDEX_SCANNER_CODE_COUNT  // Helps with array size checks
+  //Do not add new codes after COUNT
+} DebugIndexScannerCode;
+
+extern const char *DEBUG_INDEX_SCANNER_STATUS_STRS[];
+
 extern size_t pending_global_indexing_ops;
 extern struct IndexesScanner *global_spec_scanner;
 extern dict *legacySpecRules;
@@ -285,8 +302,7 @@ typedef struct IndexSpec {
   // can be true even if scanner == NULL, in case of a scan being cancelled
   // in favor on a newer, pending scan
   bool scan_in_progress;
-  bool cascadeDelete;             // (deprecated) remove keys when removing spec. used by temporary index
-
+  bool scan_failed_OOM; // background indexing failed due to Out Of Memory
   struct DocumentIndexer *indexer;// Indexer of fields into inverted indexes
 
   // cached strings, corresponding to number of fields
@@ -483,6 +499,7 @@ void IndexSpec_MakeKeyless(IndexSpec *sp);
 #define IndexSpec_IsKeyless(sp) ((sp)->keysDict != NULL)
 
 void IndexesScanner_Cancel(struct IndexesScanner *scanner);
+void IndexesScanner_ResetProgression(struct IndexesScanner *scanner);
 void IndexSpec_ScanAndReindex(RedisModuleCtx *ctx, StrongRef ref);
 #ifdef FTINFO_FOR_INFO_MODULES
 /**
@@ -599,10 +616,23 @@ void Indexes_SetTempSpecsTimers(TimerOp op);
 typedef struct IndexesScanner {
   bool global;
   bool cancelled;
+  bool isDebug;
+  bool scanFailedOnOOM;
   WeakRef spec_ref;
   char *spec_name;
   size_t scannedKeys;
+  RedisModuleString *OOMkey; // The key that caused the OOM
 } IndexesScanner;
+
+typedef struct DebugIndexesScanner {
+  IndexesScanner base;
+  int maxDocsTBscanned;
+  int maxDocsTBscannedPause;
+  bool wasPaused;
+  bool pauseOnOOM;
+  bool pauseBeforeOOMRetry;
+  int status;
+} DebugIndexesScanner;
 
 double IndexesScanner_IndexedPercent(RedisModuleCtx *ctx, IndexesScanner *scanner, IndexSpec *sp);
 
@@ -646,6 +676,9 @@ void Indexes_ReplaceMatchingWithSchemaRules(RedisModuleCtx *ctx, RedisModuleStri
 void CleanPool_ThreadPoolStart();
 void CleanPool_ThreadPoolDestroy();
 size_t CleanInProgressOrPending();
+
+// Expose reindexpool for debug
+void ReindexPool_ThreadPoolDestroy();
 
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
