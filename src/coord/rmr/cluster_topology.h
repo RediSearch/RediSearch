@@ -8,7 +8,7 @@
 */
 #pragma once
 
-#include <stdlib.h>
+#include <stdint.h>
 #include <stddef.h>
 #include "endpoint.h"
 #include "node.h"
