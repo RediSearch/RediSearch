@@ -1694,7 +1694,7 @@ class TestTimeoutReached(object):
         self.index_sizes = {'FLAT': 80000 * n_shards, 'HNSW': 10000 * n_shards, 'SVS-VAMANA': 10000 * n_shards}
         self.hybrid_modes = ['BATCHES', 'ADHOC_BF']
         self.dim = 10
-        self.type = 'FLOAT64'
+        self.type = 'FLOAT32'
 
     def tearDown(self): # cleanup after each test
         self.env.flush()
@@ -1761,8 +1761,8 @@ class TestTimeoutReached(object):
     def test_svs(self):
         # Create index and load vectors.
         n_vec = self.index_sizes['SVS-VAMANA']
-        query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, 'FLOAT32')
-        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', 'FLOAT32',
+        query_vec = load_vectors_to_redis(self.env, n_vec, 0, self.dim, self.type)
+        self.env.expect('FT.CREATE', 'idx', 'SCHEMA', 'vector', 'VECTOR', 'SVS-VAMANA', '6', 'TYPE', self.type,
                         'DIM', self.dim, 'DISTANCE_METRIC', 'L2').ok()
         waitForIndex(self.env, 'idx')
 
