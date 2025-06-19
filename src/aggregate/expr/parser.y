@@ -111,7 +111,10 @@ expr(A) ::= expr(B) OR expr(C).  { A = RS_NewPredicate(RSCondition_Or,  B, C); }
 expr(A) ::= expr(B) AND expr(C). { A = RS_NewPredicate(RSCondition_And, B, C); }
 
 expr(A) ::= NOT expr(B). {
-    if (B->t == RSExpr_Inverted) {
+    if (B == NULL) {
+        // If B is NULL (due to parse error), propagate the NULL
+        A = NULL;
+    } else if (B->t == RSExpr_Inverted) {
         A = B->inverted.child; // double negation
         B->inverted.child = NULL;
         RSExpr_Free(B);
