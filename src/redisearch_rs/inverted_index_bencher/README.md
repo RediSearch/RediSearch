@@ -11,22 +11,6 @@ In order to benchmark the C implementation, you need to build the `libinverted_i
 static library first.
 It's enough to run `./build.sh` in the root directory of the repository.
 
-## Memory Usage
-
-The binary entrypoint can be used to measure memory usage for the different encodings.
-
-Execute it via:
-
-```bash
-cargo run --release
-```
-
-You should see output similar to the following:
-
-```text
-// TODO
-```
-
 ## Performance
 
 Run
