@@ -42,7 +42,7 @@ fn link_static_libraries() {
     }
 
     let bin_root = root.join(format!(
-        "bin/{target_os}-{target_arch}-release/search-community/"
+        "bin/{target_os}-{target_arch}-debug/search-community/"
     ));
 
     link_static_lib(&bin_root, "src/inverted_index", "inverted_index").unwrap();
