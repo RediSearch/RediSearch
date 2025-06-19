@@ -1442,7 +1442,7 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
 typedef struct {
   ResultProcessor base;                // Base result processor struct
   arrayof(SearchResult *) results;     // Array of pointers to SearchResult, filled by the depleting thread
-  atomic_int done_depleting;           // Set to 1 when depleting is finished
+  bool done_depleting;                 // Set to `true` when depleting is finished (under lock)
   uint cur_idx;                        // Current index for yielding results
   RPStatus last_rc;                    // Last return code from upstream
   bool first_call;                     // Whether the first call to Next has been made
@@ -1483,7 +1483,7 @@ static void RPDepleter_Free(ResultProcessor *base) {
 
 /**
  * Background thread function: consumes all results from upstream and stores them in the results array.
- * Signals completion by setting done_depleting to 1 and broadcasting to condition variable.
+ * Signals completion by setting done_depleting to `true` and broadcasting to condition variable.
  */
 static void RPDepleter_Deplete(void *arg) {
   RPDepleter *self = (RPDepleter *)arg;
@@ -1503,7 +1503,7 @@ static void RPDepleter_Deplete(void *arg) {
   DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
   RS_LOG_ASSERT(sync, "Invalid sync reference");
   pthread_mutex_lock(&sync->mutex);
-  atomic_store(&self->done_depleting, 1);
+  self->done_depleting = true;
   pthread_cond_broadcast(&sync->cond);  // Wake up all waiting depleters
   pthread_mutex_unlock(&sync->mutex);
 }
@@ -1549,7 +1549,7 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
 
   // Check if depleting is already done.
   // We do this while holding the mutex so that we don't miss a signal.
-  if (atomic_load(&self->done_depleting) == 1) {
+  if (self->done_depleting == true) {
     pthread_mutex_unlock(&sync->mutex);
     base->Next = RPDepleter_Next_Yield;
     return base->Next(base, r);
@@ -1559,7 +1559,7 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
   pthread_cond_wait(&sync->cond, &sync->mutex);
 
   // Check if our specific thread is done after being woken up
-  if (atomic_load(&self->done_depleting) == 1) {
+  if (self->done_depleting == true) {
     pthread_mutex_unlock(&sync->mutex);
     // Our thread is done, switch to yield mode
     base->Next = RPDepleter_Next_Yield;
