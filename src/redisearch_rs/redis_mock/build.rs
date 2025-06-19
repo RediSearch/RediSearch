@@ -10,7 +10,7 @@
 use std::{path::PathBuf, str::FromStr};
 
 fn main() {
-    // link `librust_binded.a` to this crate `redis_mock`
+    // link `libc2rust.a` to this crate `redis_mock`
     let root = git_root();
 
     let binroot = match std::env::var("REDISBUILD_BINDIR") {
