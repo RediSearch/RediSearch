@@ -15,7 +15,7 @@ use criterion::{
     measurement::{Measurement, WallTime},
 };
 
-use crate::ffi::{BufferWrapper, encode_numeric, read_numeric};
+use crate::ffi::{TestBuffer, encode_numeric, read_numeric};
 
 pub struct NumericBencher {
     encoding_test_values: HashMap<String, Vec<f64>>,
@@ -117,7 +117,7 @@ impl NumericBencher {
 fn numeric_c_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[f64]) {
     group.bench_function("C", |b| {
         b.iter_batched(
-            || BufferWrapper::new(),
+            || TestBuffer::new(),
             |mut buffer| {
                 for &value in values {
                     let mut record = inverted_index::RSIndexResult::numeric(value);

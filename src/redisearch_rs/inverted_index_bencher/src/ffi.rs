@@ -30,9 +30,9 @@ mod bindings {
 
 /// An extra wrapper around the ['Buffer`] which allows the C code to grow it correctly and for its
 /// memory to be cleaned up when it goes out of scope.
-pub struct BufferWrapper(Buffer);
+pub struct TestBuffer(Buffer);
 
-impl BufferWrapper {
+impl TestBuffer {
     pub fn new() -> Self {
         let layout = Layout::array::<u8>(0).unwrap();
         let data = unsafe { alloc(layout) };
@@ -42,7 +42,7 @@ impl BufferWrapper {
     }
 }
 
-impl Drop for BufferWrapper {
+impl Drop for TestBuffer {
     fn drop(&mut self) {
         let layout = Layout::array::<u8>(self.0.0.cap).unwrap();
         unsafe { std::alloc::dealloc(self.0.0.data as *mut u8, layout) };
@@ -69,7 +69,7 @@ pub extern "C" fn Buffer_Grow(buffer: *mut ffi::Buffer, extra_len: usize) -> usi
 }
 
 pub fn encode_numeric(
-    buffer: &mut BufferWrapper,
+    buffer: &mut TestBuffer,
     record: &mut inverted_index::RSIndexResult,
     delta: u64,
 ) -> usize {
@@ -146,7 +146,7 @@ mod tests {
         ];
 
         for (input, delta, expected_encoding) in tests {
-            let mut buffer = BufferWrapper::new();
+            let mut buffer = TestBuffer::new();
 
             let mut record = inverted_index::RSIndexResult::numeric(input);
             record.doc_id = 1_000;
