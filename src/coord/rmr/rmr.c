@@ -406,7 +406,7 @@ struct ReplyClusterInfoCtx {
 static void uvReplyClusterInfo(void *p) {
   struct ReplyClusterInfoCtx *replyClusterInfoCtx = p;
   IORuntimeCtx *ioRuntime = replyClusterInfoCtx->ioRuntime;
-  RedisModuleBlockedClient *bc = p;
+  RedisModuleBlockedClient *bc = replyClusterInfoCtx->bc;  // Use the correct field
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MR_ReplyClusterInfo(ctx, ioRuntime->topo);
   RedisModule_FreeThreadSafeContext(ctx);
