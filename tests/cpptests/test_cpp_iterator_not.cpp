@@ -314,13 +314,13 @@ TEST_P(NotIteratorCommonTest, SkipToAll) {
     iterator_base->Rewind(iterator_base);
     rc = iterator_base->SkipTo(iterator_base, id);
     if (rc == ITERATOR_NOTFOUND) {
-      ASSERT_FALSE(return_ok);
+      ASSERT_FALSE(return_ok) << "Expected NOTFOUND for id: " << id;
       ASSERT_GT(iterator_base->current->docId, id);
       ASSERT_GT(iterator_base->lastDocId, id);
       ASSERT_EQ(iterator_base->current->docId, expectedId);
       ASSERT_EQ(iterator_base->lastDocId, expectedId);
     } else if (rc == ITERATOR_OK) {
-      ASSERT_TRUE(return_ok);
+      ASSERT_TRUE(return_ok) << "Expected OK for id: " << id;
       ASSERT_EQ(id, expectedId);
       ASSERT_EQ(iterator_base->current->docId, id);
       ASSERT_EQ(iterator_base->lastDocId, id);
