@@ -28,10 +28,10 @@ fn main() {
         }
     };
 
-    let lib_path = root.join(binroot).join("src").join("rust-binded");
+    let lib_path = root.join(binroot).join("src").join("c2rust");
     let lib_name = cfg!(target_os = "windows")
-        .then(|| "librust_binded.lib")
-        .unwrap_or("librust_binded.a");
+        .then(|| "libc2rust.lib")
+        .unwrap_or("libc2rust.a");
 
     // check if the static library exists and quit with an error if it does not
     let full_path = lib_path.join(lib_name);
@@ -43,7 +43,7 @@ fn main() {
     }
 
     // configure linker with libname and path
-    println!("cargo:rustc-link-lib=static=rust_binded");
+    println!("cargo:rustc-link-lib=static=c2rust");
     println!("cargo:rustc-link-search=native={}", lib_path.display());
 
     // rerun if cmake file changes

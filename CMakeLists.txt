@@ -235,7 +235,7 @@ option(VECSIM_BUILD_TESTS "Build vecsim tests" OFF)
 add_subdirectory(deps/VectorSimilarity)
 add_subdirectory(src/geometry)
 add_subdirectory(src/inverted_index)
-add_subdirectory(src/rust-binded)
+add_subdirectory(src/c2rust)
 add_subdirectory(src/wildcard)
 add_subdirectory(src/util/arr)
 add_subdirectory(src/util/hash)
@@ -282,7 +282,7 @@ add_library(rscore OBJECT ${SOURCES})
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:arr>
     $<TARGET_OBJECTS:inverted_index>
-    $<TARGET_OBJECTS:rust_binded>
+    $<TARGET_OBJECTS:c2rust>
     $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
@@ -314,7 +314,7 @@ target_link_libraries(redisearch
         redisearch-coord
         arr
         inverted_index
-        rust_binded
+        c2rust
         wildcard
         uv_a
         ${BINDIR}/redisearch_rs/libredisearch_rs.a

@@ -7,4 +7,4 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #pragma once
-#include "rust-binded/config.h"
+#include "c2rust/config.h"
