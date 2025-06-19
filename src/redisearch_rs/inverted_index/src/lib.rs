@@ -515,30 +515,56 @@ impl Decoder for Numeric {
                 (num as f64) * -1.0
             }
             HeaderType::Float {
-                is_infinite,
-                is_negative,
-                is_f64,
+                is_infinite: true,
+                is_negative: false,
+                is_f64: _,
+            } => f64::INFINITY,
+            HeaderType::Float {
+                is_infinite: true,
+                is_negative: true,
+                is_f64: _,
+            } => f64::NEG_INFINITY,
+            HeaderType::Float {
+                is_f64: false,
+                is_negative: false,
+                ..
             } => {
-                if is_infinite && !is_negative {
-                    f64::INFINITY
-                } else if is_infinite {
-                    f64::NEG_INFINITY
-                } else {
-                    if is_f64 {
-                        let multiplier = if is_negative { -1.0 } else { 1.0 };
-                        let mut bytes = [0u8; 8];
-                        let _bytes_read = reader.read(&mut bytes)?;
+                let mut bytes = [0u8; 4];
+                let _bytes_read = reader.read(&mut bytes)?;
+                let f = f32::from_le_bytes(bytes);
 
-                        f64::from_le_bytes(bytes) * multiplier
-                    } else {
-                        let multiplier = if is_negative { -1.0 } else { 1.0 };
-                        let mut bytes = [0u8; 4];
-                        let _bytes_read = reader.read(&mut bytes)?;
-                        let f = f32::from_le_bytes(bytes) * multiplier;
+                f as _
+            }
+            HeaderType::Float {
+                is_f64: false,
+                is_negative: true,
+                ..
+            } => {
+                let mut bytes = [0u8; 4];
+                let _bytes_read = reader.read(&mut bytes)?;
+                let f = f32::from_le_bytes(bytes) * -1.0;
 
-                        f as _
-                    }
-                }
+                f as _
+            }
+            HeaderType::Float {
+                is_f64: true,
+                is_negative: false,
+                ..
+            } => {
+                let mut bytes = [0u8; 8];
+                let _bytes_read = reader.read(&mut bytes)?;
+
+                f64::from_le_bytes(bytes)
+            }
+            HeaderType::Float {
+                is_f64: true,
+                is_negative: true,
+                ..
+            } => {
+                let mut bytes = [0u8; 8];
+                let _bytes_read = reader.read(&mut bytes)?;
+
+                f64::from_le_bytes(bytes) * -1.0
             }
         };
         let record = RSIndexResult::numeric(doc_id, num);
