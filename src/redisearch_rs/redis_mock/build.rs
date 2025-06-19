@@ -12,7 +12,9 @@ fn main() {
 
     // get variables to determine paths
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
-    let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let arch = std::env::var("CARGO_CFG_TARGET_ARCH")
+        .unwrap()
+        .replace("x86_64", "x64");
     let platform = format!("{}-{}-{}", os, arch, get_build_profile_name());
 
     let root = git_root();
@@ -22,6 +24,15 @@ fn main() {
         .join("search-community")
         .join("src")
         .join("rust-binded");
+
+    // check if the static library exists and quit with an error if it does not
+    let full_path = lib_path.join("librust_binded.a");
+    if !full_path.exists() {
+        println!(
+            "cargo::error=Could not find the static library at {}",
+            full_path.display()
+        );
+    }
 
     // configure linker with libname and path
     println!("cargo:rustc-link-lib=static=rust_binded");
