@@ -5,32 +5,23 @@ use ffi::t_docId;
 use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult, RSResultType};
 
 /// Trait to convert various types to and from byte representations for numeric encoding / decoding.
-trait ToFromBytes {
+trait ToFromBytes<const N: usize> {
     /// Packs self into a byte vector.
-    fn pack(self) -> Vec<u8>;
+    fn pack(self) -> [u8; N];
 
     /// Unpacks a byte slice into self.
-    fn unpack(bytes: &[u8]) -> Self;
+    fn unpack(bytes: [u8; N]) -> Self;
 }
 
-impl ToFromBytes for Delta {
-    fn pack(self) -> Vec<u8> {
-        let mut delta = self.0;
-        let mut delta_vec = Vec::with_capacity(7);
-
-        while delta > 0 {
-            let byte = delta & 0b1111_1111;
-            delta_vec.push(byte as u8);
-            delta >>= 8;
-        }
-        delta_vec
+impl ToFromBytes<{ size_of::<usize>() }> for Delta {
+    fn pack(self) -> [u8; size_of::<usize>()] {
+        let delta = self.0;
+        delta.to_le_bytes()
     }
 
-    fn unpack(data: &[u8]) -> Self {
-        let mut delta = 0;
-        for (i, &byte) in data.iter().enumerate() {
-            delta |= (byte as usize) << (i * 8);
-        }
+    fn unpack(data: [u8; size_of::<usize>()]) -> Self {
+        let delta = usize::from_le_bytes(data);
+
         Delta(delta)
     }
 }
@@ -55,6 +46,8 @@ impl Encoder for Numeric {
         }
 
         let delta = delta.pack();
+        let end = delta.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
+        let delta = &delta[..end];
 
         let num_record = unsafe { &record.data.num };
 
@@ -65,7 +58,7 @@ impl Encoder for Numeric {
                     typ: HeaderType::Tiny(i),
                 };
 
-                writer.write(&header.pack())? + writer.write(&delta)?
+                writer.write(&header.pack())? + writer.write(delta)?
             }
             FloatValue::PosInt(i) => {
                 let bytes = i.to_le_bytes();
@@ -78,7 +71,7 @@ impl Encoder for Numeric {
                     typ: HeaderType::PositiveInteger((end - 1) as _),
                 };
 
-                writer.write(&header.pack())? + writer.write(&delta)? + writer.write(bytes)?
+                writer.write(&header.pack())? + writer.write(delta)? + writer.write(bytes)?
             }
             FloatValue::NegInt(i) => {
                 let bytes = i.to_le_bytes();
@@ -91,7 +84,7 @@ impl Encoder for Numeric {
                     typ: HeaderType::NegativeInteger((end - 1) as _),
                 };
 
-                writer.write(&header.pack())? + writer.write(&delta)? + writer.write(bytes)?
+                writer.write(&header.pack())? + writer.write(delta)? + writer.write(bytes)?
             }
             FloatValue::F32Pos(value) => {
                 let bytes = value.to_le_bytes();
@@ -105,7 +98,7 @@ impl Encoder for Numeric {
                     },
                 };
 
-                writer.write(&header.pack())? + writer.write(&delta)? + writer.write(&bytes)?
+                writer.write(&header.pack())? + writer.write(delta)? + writer.write(&bytes)?
             }
             FloatValue::F32Neg(value) => {
                 let bytes = value.to_le_bytes();
@@ -119,7 +112,7 @@ impl Encoder for Numeric {
                     },
                 };
 
-                writer.write(&header.pack())? + writer.write(&delta)? + writer.write(&bytes)?
+                writer.write(&header.pack())? + writer.write(delta)? + writer.write(&bytes)?
             }
             FloatValue::F64Pos(value) => {
                 let bytes = value.to_le_bytes();
@@ -133,7 +126,7 @@ impl Encoder for Numeric {
                     },
                 };
 
-                writer.write(&header.pack())? + writer.write(&delta)? + writer.write(&bytes)?
+                writer.write(&header.pack())? + writer.write(delta)? + writer.write(&bytes)?
             }
             FloatValue::F64Neg(value) => {
                 let bytes = value.to_le_bytes();
@@ -147,7 +140,7 @@ impl Encoder for Numeric {
                     },
                 };
 
-                writer.write(&header.pack())? + writer.write(&delta)? + writer.write(&bytes)?
+                writer.write(&header.pack())? + writer.write(delta)? + writer.write(&bytes)?
             }
             FloatValue::Infinity => {
                 let header = Header {
@@ -159,7 +152,7 @@ impl Encoder for Numeric {
                     },
                 };
 
-                writer.write(&header.pack())? + writer.write(&delta)?
+                writer.write(&header.pack())? + writer.write(delta)?
             }
             FloatValue::NegInfinity => {
                 let header = Header {
@@ -171,7 +164,7 @@ impl Encoder for Numeric {
                     },
                 };
 
-                writer.write(&header.pack())? + writer.write(&delta)?
+                writer.write(&header.pack())? + writer.write(delta)?
             }
         };
 
@@ -185,37 +178,29 @@ impl Decoder for Numeric {
         mut reader: R,
         base: t_docId,
     ) -> std::io::Result<Option<DecoderResult>> {
-        let mut header = [0u8; 1];
-        let _bytes_read = reader.read(&mut header)?;
-        let header = Header::unpack(&header);
+        let mut header = [0; 1];
+        reader.read_exact(&mut header)?;
+        let header = Header::unpack(header);
 
-        let mut delta = vec![0; header.delta_bytes as _];
-        let _bytes_read = reader.read(&mut delta)?;
-        let delta = Delta::unpack(&delta);
+        let mut delta = [0; size_of::<usize>()];
+        reader.read_exact(&mut delta[..(header.delta_bytes) as _])?;
+        let delta = Delta::unpack(delta);
 
         let doc_id = base + (delta.0 as u64);
 
         let num = match header.typ {
             HeaderType::Tiny(i) => i as _,
             HeaderType::PositiveInteger(len) => {
-                let mut bytes = vec![0; (len + 1) as usize];
-                let _bytes_read = reader.read(&mut bytes)?;
-                let mut num = 0;
-
-                for (i, byte) in bytes.iter().enumerate() {
-                    num |= (*byte as u64) << (8 * i);
-                }
+                let mut bytes = [0; 8];
+                reader.read_exact(&mut bytes[..(len + 1) as _])?;
+                let num = u64::from_le_bytes(bytes);
 
                 num as _
             }
             HeaderType::NegativeInteger(len) => {
-                let mut bytes = vec![0; (len + 1) as usize];
-                let _bytes_read = reader.read(&mut bytes)?;
-                let mut num = 0;
-
-                for (i, byte) in bytes.iter().enumerate() {
-                    num |= (*byte as u64) << (8 * i);
-                }
+                let mut bytes = [0; 8];
+                reader.read_exact(&mut bytes[..(len + 1) as _])?;
+                let num = u64::from_le_bytes(bytes);
 
                 (num as f64) * -1.0
             }
@@ -234,8 +219,8 @@ impl Decoder for Numeric {
                 is_negative: false,
                 ..
             } => {
-                let mut bytes = [0u8; 4];
-                let _bytes_read = reader.read(&mut bytes)?;
+                let mut bytes = [0; 4];
+                reader.read_exact(&mut bytes)?;
                 let f = f32::from_le_bytes(bytes);
 
                 f as _
@@ -245,8 +230,8 @@ impl Decoder for Numeric {
                 is_negative: true,
                 ..
             } => {
-                let mut bytes = [0u8; 4];
-                let _bytes_read = reader.read(&mut bytes)?;
+                let mut bytes = [0; 4];
+                reader.read_exact(&mut bytes)?;
                 let f = f32::from_le_bytes(bytes) * -1.0;
 
                 f as _
@@ -256,8 +241,8 @@ impl Decoder for Numeric {
                 is_negative: false,
                 ..
             } => {
-                let mut bytes = [0u8; 8];
-                let _bytes_read = reader.read(&mut bytes)?;
+                let mut bytes = [0; 8];
+                reader.read_exact(&mut bytes)?;
 
                 f64::from_le_bytes(bytes)
             }
@@ -266,8 +251,8 @@ impl Decoder for Numeric {
                 is_negative: true,
                 ..
             } => {
-                let mut bytes = [0u8; 8];
-                let _bytes_read = reader.read(&mut bytes)?;
+                let mut bytes = [0; 8];
+                reader.read_exact(&mut bytes)?;
 
                 f64::from_le_bytes(bytes) * -1.0
             }
@@ -292,37 +277,36 @@ enum FloatValue {
 
 impl From<f64> for FloatValue {
     fn from(value: f64) -> Self {
-        if value.fract() == 0.0 {
-            if value >= 0.0 {
-                let i = value as u64;
+        let abs_val = value.abs();
+        let u64_val = abs_val as u64;
 
-                if i <= 0b111 {
-                    FloatValue::Tiny(i as u8)
-                } else {
-                    FloatValue::PosInt(i)
-                }
+        if u64_val as f64 == abs_val {
+            if u64_val <= 0b111 {
+                return FloatValue::Tiny(u64_val as u8);
+            } else if value.is_sign_positive() {
+                return FloatValue::PosInt(u64_val);
             } else {
-                FloatValue::NegInt((value * -1.0) as _)
+                return FloatValue::NegInt(u64_val);
             }
         } else {
             match value {
                 f64::INFINITY => FloatValue::Infinity,
                 f64::NEG_INFINITY => FloatValue::NegInfinity,
                 v => {
-                    let f32_value = v as f32;
+                    let f32_value = abs_val as f32;
                     let back_to_f64 = f32_value as f64;
 
-                    if back_to_f64 == v {
-                        if v < 0.0 {
-                            FloatValue::F32Neg(f32_value.abs())
-                        } else {
+                    if back_to_f64 == abs_val {
+                        if v.is_sign_positive() {
                             FloatValue::F32Pos(f32_value)
+                        } else {
+                            FloatValue::F32Neg(f32_value)
                         }
                     } else {
-                        if v < 0.0 {
-                            FloatValue::F64Neg(v.abs())
+                        if v.is_sign_positive() {
+                            FloatValue::F64Pos(abs_val)
                         } else {
-                            FloatValue::F64Pos(v)
+                            FloatValue::F64Neg(abs_val)
                         }
                     }
                 }
@@ -354,8 +338,8 @@ impl Header {
     const NEG_INT_TYPE: u8 = 0b11;
 }
 
-impl ToFromBytes for Header {
-    fn pack(self) -> Vec<u8> {
+impl ToFromBytes<1> for Header {
+    fn pack(self) -> [u8; 1] {
         let mut packed = 0;
         packed |= self.delta_bytes & 0b111; // 3 bits for delta bytes
 
@@ -391,10 +375,10 @@ impl ToFromBytes for Header {
             }
         }
 
-        vec![packed]
+        [packed]
     }
 
-    fn unpack(data: &[u8]) -> Self {
+    fn unpack(data: [u8; 1]) -> Self {
         let data = data[0];
         let delta_bytes = data & 0b111; // 3 bits for the delta bytes
 
