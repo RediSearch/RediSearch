@@ -212,7 +212,6 @@ static IteratorStatus NI_HandleRelativePositions(QueryIterator *base, NotIterato
     } else if (rc == ITERATOR_EOF) {
       base->atEOF = true;
     }
-    return rc;
   }
   // Case 3: Wildcard is ahead of child
   else { // ni->wcii->lastDocId > ni->child->lastDocId
@@ -228,7 +227,6 @@ static IteratorStatus NI_HandleRelativePositions(QueryIterator *base, NotIterato
       } else if (rc == ITERATOR_EOF) {
         base->atEOF = true;
       }
-      return rc;
     } else if (rc == ITERATOR_NOTFOUND || rc == ITERATOR_EOF) {
       // Child doesn't have this document - valid result
       base->lastDocId = base->current->docId = ni->wcii->lastDocId;
@@ -236,10 +234,7 @@ static IteratorStatus NI_HandleRelativePositions(QueryIterator *base, NotIterato
     }
   }
 
-  // Default fallback (should not reach here in normal execution)
-  // LCOV_EXCL_START
-  return ITERATOR_EOF;
-  // LCOV_EXCL_STOP
+  return rc;
 }
 
 /* SkipTo for NOT iterator - Optimized version.
