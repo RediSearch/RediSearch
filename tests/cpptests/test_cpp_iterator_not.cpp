@@ -394,7 +394,7 @@ INSTANTIATE_TEST_SUITE_P(
       }()
     ),
     ::testing::Values(std::nullopt, 100),
-    ::testing::Values(false, true)
+    ::testing::Bool()
   )
 );
 
@@ -469,7 +469,7 @@ INSTANTIATE_TEST_SUITE_P(
       std::vector<t_docId>{50, 60, 70, 80, 90, 100, 600, 750, 950, 1200}
     ),
     ::testing::Values(std::nullopt),
-    ::testing::Values(false, true)
+    ::testing::Bool()
   )
 );
 
@@ -567,7 +567,7 @@ INSTANTIATE_TEST_SUITE_P(
       }()
     ),
     ::testing::Values(std::nullopt),
-    ::testing::Values(false, true)
+    ::testing::Bool()
   )
 );
 

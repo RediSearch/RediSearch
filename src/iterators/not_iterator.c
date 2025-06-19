@@ -98,7 +98,6 @@ static IteratorStatus NI_Read_Optimized(QueryIterator *base) {
   // Advance to the next potential docId
   rc = ni->wcii->Read(ni->wcii);
   if (rc == ITERATOR_TIMEOUT) {
-    base->atEOF = true;
     return ITERATOR_TIMEOUT;
   }
   // Iterate through all the documents present in the wcii until we find one that is not in child
@@ -118,7 +117,6 @@ static IteratorStatus NI_Read_Optimized(QueryIterator *base) {
       if (rc == ITERATOR_TIMEOUT) return rc;
       rc = ni->wcii->Read(ni->wcii);
       if (rc == ITERATOR_TIMEOUT) {
-        base->atEOF = true;
         return ITERATOR_TIMEOUT;
       }
     }
@@ -131,7 +129,6 @@ static IteratorStatus NI_Read_Optimized(QueryIterator *base) {
       }
     }
     if (TimedOut_WithCtx_Gran(&ni->timeoutCtx, 5000)) {
-      base->atEOF = true;
       return ITERATOR_TIMEOUT;
     }
   }
