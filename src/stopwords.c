@@ -52,7 +52,7 @@ int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) 
   int ret = TrieMap_Find(sl->m, (char *)lowStr, len) != TRIEMAP_NOTFOUND;
 
   // free memory if allocated
-  if (len >= 32) rm_free(lowStr);
+  if (lowStr != stackStr) rm_free(lowStr);
 
   return ret;
 }
@@ -186,7 +186,7 @@ void ReplyWithStopWordsList(RedisModule_Reply *reply, struct StopWordList *sl) {
       RedisModule_Reply_StringBuffer(reply, str, len);
     }
   RedisModule_Reply_ArrayEnd(reply);
-  
+
   TrieMapIterator_Free(it);
 
 }

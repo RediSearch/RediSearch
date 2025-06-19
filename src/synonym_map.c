@@ -146,10 +146,16 @@ void SynonymMap_Update(SynonymMap* smap, const char** synonyms, size_t size, con
   int ret;
   for (size_t i = 0; i < size; i++) {
     char *lowerSynonym = rm_strdup(synonyms[i]);
-    size_t newLen = unicode_tolower(lowerSynonym, strlen(lowerSynonym));
-    if (newLen) {
-      lowerSynonym[newLen] = '\0';
+    size_t len = strlen(lowerSynonym);
+    char *dst = unicode_tolower(lowerSynonym, &len);
+    if (dst) {
+        rm_free(lowerSynonym);
+        lowerSynonym = dst;
+    } else {
+      // No memory allocation, just ensure null termination
+      lowerSynonym[len] = '\0';
     }
+
     TermData* termData = dictFetchValue(smap->h_table, lowerSynonym);
     if (termData) {
       // if term exists in dictionary, we should release the lower cased string

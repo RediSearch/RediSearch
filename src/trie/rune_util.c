@@ -47,39 +47,58 @@ char *runesToStr(const rune *in, size_t len, size_t *utflen) {
     if (utflen) *utflen = 0;
     return NULL;
   }
-  uint32_t unicode[len + 1];
+
+  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
+  uint32_t *unicode = u_stack_buffer;
+
+  if (len > SSO_MAX_LENGTH - 1) {
+    unicode = rm_malloc((len + 1) * sizeof(*unicode));
+    if (!unicode) {
+      *utflen = 0;
+      return NULL;
+    }
+  }
+
   for (int i = 0; i < len; i++) {
     unicode[i] = (uint32_t)in[i];
   }
   unicode[len] = 0;
 
-  *utflen = nu_bytelen(unicode, nu_utf8_write);
-  char *ret = rm_calloc(1, *utflen + 1);
+  size_t bytelen = nu_bytelen(unicode, nu_utf8_write);
+  char *ret = rm_calloc(1, bytelen + 1);
 
   nu_writestr(unicode, ret, nu_utf8_write);
+  if (unicode != u_stack_buffer) {
+    rm_free(unicode);
+  }
+  *utflen = bytelen;
   return ret;
 }
 
-/* convert string to runes, lower them and return the lowered runes */
-rune *strToLowerRunes(const char *str, size_t *len) {
+rune *strToLowerRunes(const char *str, size_t utf8_len, size_t *unicode_len) {
 
   // determine the length of the folded string
-  ssize_t rlen = nu_strtransformlen(str, nu_utf8_read,
+  ssize_t rlen = nu_strtransformnlen(str, utf8_len, nu_utf8_read,
                                      nu_tolower, nu_casemap_read);
   if (rlen > MAX_RUNESTR_LEN) {
-    if (len) *len = 0;
+    *unicode_len = 0;
     return NULL;
   }
 
-  uint32_t decoded[rlen + 1];
-  decoded[rlen] = 0;
-  nu_readstr(str, decoded, nu_utf8_read);
+  uint32_t u_stack_buffer[SSO_MAX_LENGTH];
+  uint32_t *u_buffer = u_stack_buffer;
+  if (rlen > SSO_MAX_LENGTH - 1) {
+    u_buffer = rm_malloc((rlen + 1) * sizeof(*u_buffer));
+  }
+
+  u_buffer[rlen] = 0;
+  nu_readstr(str, u_buffer, nu_utf8_read);
 
   rune *ret = rm_calloc(rlen + 1, sizeof(rune));
   const char *encoded_char = str;
   uint32_t codepoint;
   unsigned i = 0;
-  for (ssize_t j = 0; j < rlen; j++) {
+  while (encoded_char < str + utf8_len) {
     // Read unicode codepoint from utf8 string
     encoded_char = nu_utf8_read(encoded_char, &codepoint);
     // Transform unicode codepoint to lower case
@@ -93,18 +112,17 @@ rune *strToLowerRunes(const char *str, size_t *len) {
         if (mu == 0) {
           break;
         }
-        ret[i] = mu;
-        ++i;
+        ret[i++] = mu;
       }
-    }
-    else {
-      // If no transformation is needed, just copy the unicode codepoint
-      ret[i] = codepoint;
-      ++i;
+    } else {
+        ret[i++] = codepoint;
     }
   }
-  if (len) *len = rlen;
+  *unicode_len = rlen;
 
+  if (u_buffer != u_stack_buffer) {
+    rm_free(u_buffer);
+  }
   return ret;
 }
 
