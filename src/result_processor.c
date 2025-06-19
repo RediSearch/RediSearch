@@ -1509,6 +1509,10 @@ dictType dictTypeHybridSearchResult = {
      // First time seeing this document - create new hybrid result with copied SearchResult
      hybridResult = HybridSearchResult_New(r, numUpstreams);
      dictAdd(hybridResults, (void*)keyPtr, hybridResult);
+   } else {
+     // Document already exists - free new SearchResult
+     SearchResult_Destroy(r);
+     rm_free(r);
    }
 
    // Update the score for this upstream
