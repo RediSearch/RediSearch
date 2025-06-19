@@ -16,7 +16,7 @@
 #include "src/iterators/idlist_iterator.h"
 #include "src/iterators/empty_iterator.h"
 #include "iterator_util.h"
-
+#include "index_utils.h"
 
 
 // Test optional iterator
@@ -34,7 +34,8 @@ protected:
     QueryIterator *child = (QueryIterator *)new MockIterator(childDocIds);
 
     // Create optional iterator with child
-    iterator_base = IT_V2(NewOptionalIterator)(child, maxDocId, numDocs, weight);
+    MockQueryEvalCtx ctx(maxDocId, numDocs);
+    iterator_base = IT_V2(NewOptionalIterator)(child, &ctx.qctx, weight);
   }
 
   void TearDown() override {
@@ -178,10 +179,6 @@ TEST_F(OptionalIteratorTest, VirtualResultWeight) {
   ASSERT_EQ(iterator_base->current->weight, weight);
 }
 
-
-
-
-
 // Test timeout scenarios
 class OptionalIteratorTimeoutTest : public ::testing::Test {
 protected:
@@ -195,7 +192,8 @@ protected:
     QueryIterator *child = (QueryIterator *)new MockIterator(ITERATOR_TIMEOUT, 10UL, 20UL, 30UL);
 
     // Create optional iterator with timeout child
-    iterator_base = IT_V2(NewOptionalIterator)(child, maxDocId, numDocs, weight);
+    MockQueryEvalCtx ctx(maxDocId, numDocs);
+    iterator_base = IT_V2(NewOptionalIterator)(child, &ctx.qctx, weight);
   }
 
   void TearDown() override {
@@ -300,7 +298,8 @@ protected:
   void SetUp() override {
     // Create optional iterator with empty child (no real hits, all virtual)
     empty_child = IT_V2(NewEmptyIterator)();
-    iterator_base = IT_V2(NewOptionalIterator)(empty_child, maxDocId, numDocs, weight);
+    MockQueryEvalCtx ctx(maxDocId, numDocs);
+    iterator_base = IT_V2(NewOptionalIterator)(empty_child, &ctx.qctx, weight);
   }
 
   void TearDown() override {
@@ -399,4 +398,3 @@ TEST_F(OptionalIteratorWithEmptyChildTest, VirtualResultProperties) {
   ASSERT_EQ(iterator_base->current->freq, 1);
   ASSERT_EQ(iterator_base->current->fieldMask, RS_FIELDMASK_ALL);
 }
-

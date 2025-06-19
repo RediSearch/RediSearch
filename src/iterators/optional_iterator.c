@@ -101,7 +101,7 @@ static IteratorStatus OI_Read_Optimized(QueryIterator *base) {
 
   // We loop over this condition, since it reflects that the index is not up to date.
   while (oi->wcii->lastDocId > oi->child->lastDocId && !oi->child->atEOF) {
-    IteratorStatus rc = oi->child->Read(oi->child, &oi->base.current);
+    IteratorStatus rc = oi->child->Read(oi->child);
     if (rc == ITERATOR_TIMEOUT) return rc;
   }
 

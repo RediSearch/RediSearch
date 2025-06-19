@@ -79,7 +79,7 @@ public:
 
   QueryIterator* createOptionalIterator(::benchmark::State &state) {
     QueryIterator *child = (QueryIterator *)new MockIterator(childDocIds);
-    return IT_V2(NewOptionalIterator)(child, maxDocId, maxDocId, weight);
+    return IT_V2(NewOptionalIterator)(child, &mockCtx->qctx, weight);
   }
 };
 

@@ -57,21 +57,21 @@ public:
   DocTable docTable;
   SchemaRule rule;
 
-  MockQueryEvalCtx(t_docId maxDocId) {
+  MockQueryEvalCtx(t_docId maxDocId, size_t numDocs = 0) {
     // Initialize DocTable
     docTable.maxDocId = maxDocId;
-    docTable.size = maxDocId;
-    
+    docTable.size = numDocs ?: maxDocId;
+
     // Initialize SchemaRule
     rule.index_all = false;
-    
+
     // Initialize IndexSpec
     spec.rule = &rule;
     spec.existingDocs = nullptr; // For simplicity in benchmarks
-    
+
     // Initialize RedisSearchCtx
     sctx.spec = &spec;
-    
+
     // Initialize QueryEvalCtx
     qctx.sctx = &sctx;
     qctx.docTable = &docTable;
