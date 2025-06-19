@@ -12,7 +12,7 @@
 
 #include "src/iterators/intersection_iterator.h"
 #include "src/iterators/inverted_index_iterator.h"
-#include "src/inverted_index.h"
+#include "src/inverted_index/inverted_index.h"
 #include "src/forward_index.h"
 
 class IntersectionIteratorCommonTest : public ::testing::TestWithParam<std::tuple<unsigned, std::vector<t_docId>>> {
