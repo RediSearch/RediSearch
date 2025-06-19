@@ -7,4 +7,4 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #pragma once
-#include "rust-binded/mempool.h"
+#include "c2rust/mempool.h"
