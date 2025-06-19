@@ -10,6 +10,7 @@
 #pragma once
 
 #include "iterator_api.h"
+#include "query_ctx.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -18,12 +19,14 @@ extern "C" {
 typedef struct {
   QueryIterator base;     // base index iterator
   QueryIterator *child;   // child index iterator
+  QueryIterator *wcii;    // wildcard child iterator, used for optimization
   RSIndexResult *virt;
   t_docId maxDocId;
+  size_t numDocs;
   double weight;
 } OptionalIterator;
 
-QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, t_docId maxDocId, size_t numDocs, double weight);
+QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, QueryEvalCtx *q, double weight);
 
 #ifdef __cplusplus
 }
