@@ -186,6 +186,8 @@ setup_build_environment() {
 
   # Set the final BINDIR using the full variant path
   BINDIR="${BINROOT}/${FULL_VARIANT}/${OUTDIR}"
+  # Export for later use in Rust's build.rs files
+  export REDISBUILD_BINDIR=${BINDIR}
 }
 
 start_group() {
