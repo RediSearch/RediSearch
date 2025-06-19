@@ -298,12 +298,10 @@ void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallbac
   ctx->new_topo = new_topo;
   newTask->cb = cb;
   newTask->privdata = ctx;
-
   oldTask = exchangePendingTopo(io_runtime_ctx, newTask);
-
-  if (io_runtime_ctx->loop_th_running) {
-    uv_async_send(&io_runtime_ctx->topologyAsync); // trigger the topology check
-  }
+  // I need to trigger regardless of the thread running or not, it would be eventually picked, the same way a regular Request is scheduled without checking
+  // if the thread is running or not. Otherwise there may be a race condition where a topology is never scheduled.
+  uv_async_send(&io_runtime_ctx->topologyAsync); // trigger the topology check
   if (oldTask) {
     // If there was an old task
     struct UpdateTopologyCtx *oldCtx = oldTask->privdata;
