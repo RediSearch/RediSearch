@@ -150,8 +150,6 @@ static void sideThread(void *arg) {
   IORuntimeCtx *io_runtime_ctx = arg;
 
   // Initialize the loop and timers
-  io_runtime_ctx->pendingQueues = NULL;
-  io_runtime_ctx->pendingTopo = NULL;
   uv_loop_init(&io_runtime_ctx->loop);
   uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyValidationTimer);
   uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyFailureTimer);
@@ -173,18 +171,6 @@ static void sideThread(void *arg) {
   // Run the event loop
   uv_run(&io_runtime_ctx->loop, UV_RUN_DEFAULT);
   uv_loop_close(&io_runtime_ctx->loop);
-}
-
-void IORuntimeCtx_Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx) {
-  queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
-  if (task) {
-    struct UpdateTopologyCtx *ctx = task->privdata;
-    if (ctx && ctx->new_topo) {
-      MRClusterTopology_Free(ctx->new_topo);
-    }
-    rm_free(ctx);
-    rm_free(task);
-  }
 }
 
 uv_loop_t* IORuntimeCtx_GetLoop(IORuntimeCtx *io_runtime_ctx) {
@@ -287,7 +273,7 @@ void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx) {
   uv_timer_init(uv_default_loop(), &io_runtime_ctx->topologyFailureTimer);
   uv_async_init(uv_default_loop(), &io_runtime_ctx->topologyAsync, topologyAsyncCB);
   // Verify that we are running on the event loop thread
-  int uv_thread_create_status = uv_thread_create(&io_runtime_ctx->loop_th, sideThread, NULL);
+  int uv_thread_create_status = uv_thread_create(&io_runtime_ctx->loop_th, sideThread, io_runtime_ctx);
   RS_ASSERT(uv_thread_create_status == 0);
   REDISMODULE_NOT_USED(uv_thread_create_status);
   RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread");
@@ -299,7 +285,6 @@ void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, voi
     // and would still be processed when the thread uvloop starts
     IORuntimeCtx_Start(io_runtime_ctx);
   }
-  RS_ASSERT(io_runtime_ctx->loop_th_running); // the thread is not lazily initialized, it's created on creation
   RQ_Push(io_runtime_ctx->queue, cb, privdata);
   uv_async_send(&io_runtime_ctx->async);
 }
@@ -316,7 +301,7 @@ void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallbac
   }
   struct UpdateTopologyCtx *ctx = rm_new(struct UpdateTopologyCtx);
   ctx->ioRuntime = io_runtime_ctx;
-  ctx->new_topo = topo;
+  ctx->new_topo = new_topo;
   newTask->cb = cb;
   newTask->privdata = ctx;
 
@@ -326,6 +311,24 @@ void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallbac
     uv_async_send(&io_runtime_ctx->topologyAsync); // trigger the topology check
   }
   if (oldTask) {
+    // If there was an old task
+    struct UpdateTopologyCtx *oldCtx = oldTask->privdata;
+    if (oldCtx->new_topo) {
+      MRClusterTopology_Free(oldCtx->new_topo);
+    }
+    rm_free(oldCtx);
     rm_free(oldTask);
+  }
+}
+
+void IORuntimeCtx_Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx) {
+  queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
+  if (task) {
+    struct UpdateTopologyCtx *ctx = task->privdata;
+    if (ctx && ctx->new_topo) {
+      MRClusterTopology_Free(ctx->new_topo);
+    }
+    rm_free(ctx);
+    rm_free(task);
   }
 }

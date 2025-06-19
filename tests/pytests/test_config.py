@@ -855,7 +855,7 @@ def testNumericArgDeprecationMessage():
     moduleArgs = ''
     for configName, argName, default, minValue, maxValue, immutable, clusterConfig in numericConfigs:
         # Since the IO threads are not lazily started, we cannot set the max number of shards and all that to the max values
-        moduleArgs += f'{argName} {minValue} '
+        moduleArgs += f'{argName} {maxValue} '
 
     env = Env(noDefaultModuleArgs=True, moduleArgs=moduleArgs)
     logDir = env.cmd('config', 'get', 'dir')[1]
