@@ -1522,13 +1522,11 @@ dictType dictTypeHybridSearchResult = {
    int rc = RS_RESULT_OK;
    SearchResult *r = rm_calloc(1, sizeof(*r));
    int rank = 1;
-   double score = 0.0;
    while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
+       double score = r->score;
        if (self->scoringType == HYBRID_SCORING_RRF) {
          score = rank;
          rank++;
-       } else {
-         score = r->score;
        }
        StoreUpstreamResult(r, self->hybridResults, upstreamIndex, self->numUpstreams, score);
        consumed++;
@@ -1640,17 +1638,17 @@ dictType dictTypeHybridSearchResult = {
                                      ResultProcessor **upstreams,
                                      size_t numUpstreams,
                                      size_t window) {
-   RS_ASSERT(numUpstreams > 0);
    RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
-   ret->scoringType = scoringType;
+
+   RS_ASSERT(numUpstreams > 0);
    ret->numUpstreams = numUpstreams;
+
+   ret->scoringType = scoringType;
    ret->scoringCtx = scoringCtx;
 
-   // Allocate dynamic array for upstreams
+   // Allocate and copy the array for upstreams
    ret->upstreams = rm_malloc(numUpstreams * sizeof(ResultProcessor*));
-   for (size_t i = 0; i < numUpstreams; i++) {
-     ret->upstreams[i] = upstreams[i];
-   }
+   memcpy(ret->upstreams, upstreams, numUpstreams * sizeof(ResultProcessor *));
 
    ret->window = window;
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
