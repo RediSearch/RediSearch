@@ -149,15 +149,9 @@ void RSValue_Clear(RSValue *v);
  * the actual value object */
 void RSValue_Free(RSValue *v);
 
-static inline RSValue *RSValue_IncrRef(RSValue *v) {
-  __atomic_fetch_add(&v->refcount, 1, __ATOMIC_RELAXED);
-  return v;
-}
 
-#define RSValue_Decref(v)                                         \
-  if (!__atomic_sub_fetch(&(v)->refcount, 1, __ATOMIC_RELAXED)) { \
-    RSValue_Free(v);                                              \
-  }
+RSValue* RSValue_IncrRef(RSValue* v);
+void RSValue_Decref(RSValue* v);
 
 RSValue *RS_NewValue(RSValueType t);
 
@@ -245,11 +239,7 @@ static inline int RSValue_IsString(const RSValue *value) {
 RSValue *RS_NullVal();
 
 /* Return 1 if the value is NULL, RSValue_Null or a reference to RSValue_Null */
-static inline int RSValue_IsNull(const RSValue *value) {
-  if (!value || value == RS_NullVal()) return 1;
-  if (value->t == RSValue_Reference) return RSValue_IsNull(value->ref);
-  return 0;
-}
+int RSValue_IsNull(const RSValue *value);
 
 /**
  * Copies a string using the default mechanism. Returns the copied value.
