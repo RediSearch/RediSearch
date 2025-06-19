@@ -707,28 +707,24 @@ def testLongTerms(env):
     conn = getConnectionByEnv(env)
 
     # lowercase
-    long_term_lower = 'частнопредпринимательский' * 6;
+    long_term_lower = 'частнопредпринимательский' * 6
     conn.execute_command('HSET', 'w1', 't', long_term_lower)
     # uppercase
-    long_term_upper = 'ЧАСТНОПРЕДПРИНИМАТЕЛЬСКИЙ' * 6;
+    long_term_upper = 'ЧАСТНОПРЕДПРИНИМАТЕЛЬСКИЙ' * 6
     conn.execute_command('HSET', 'w2', 't', long_term_lower)
 
     # A single term should be generated in lower case.
     if not env.isCluster():
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx1')
-        # The term generated is the first 64 characters of the long term
-        # because MAX_NORMALIZE_SIZE = 128 bytes
-        env.assertEqual(res, [f'{long_term_lower[:64]}'])
+        env.assertEqual(res, [long_term_lower])
 
-    # For index with STEMMING enabled, two terms are expected, but
-    # the term generated is the first 64 characters of the long term
-    # because MAX_NORMALIZE_SIZE = 128 bytes
+    # For index with STEMMING enabled, two terms are expected
     env.cmd('FT.CREATE', 'idx2', 'ON', 'HASH', 'LANGUAGE', 'RUSSIAN',
             'SCHEMA', 't', 'TEXT')
     waitForIndex(env, 'idx2')
     if not env.isCluster():
         res = env.cmd(debug_cmd(), 'DUMP_TERMS', 'idx2')
-        env.assertEqual(res, [f'{long_term_lower[:64]}'])
+        env.assertEqual(res, [f'+{long_term_lower[:148]}', long_term_lower])
 
 def testMultibyteTag(env):
     '''Test that multibyte characters are correctly converted to lowercase and
