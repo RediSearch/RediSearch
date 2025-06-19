@@ -1418,3 +1418,13 @@ def testAggregateBadLoadArgs(env):
         .contains("Bad arguments for LOAD: Expected number of fields or `*`")
     env.expect('FT.AGGREGATE', 'idx', '*', 'LOAD').error() \
         .contains("Bad arguments for LOAD: Expected an argument, but none provided")
+
+def testeAggregateBadApplyFunction(env):
+    """Tests that we get a proper error message when passing a bad function to APPLY"""
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'title', 'TEXT').ok()
+    env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', 'unexisting_function(1)').error() \
+        .contains("Unknown function name 'unexisting_function'")
+    env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', '!unexisting_function(@title)').error() \
+        .contains("Unknown function name 'unexisting_function'")
+    env.expect('FT.AGGREGATE', 'idx', '*', 'APPLY', '!!unexisting_function(@title)').error() \
+        .contains("Unknown function name 'unexisting_function'")
