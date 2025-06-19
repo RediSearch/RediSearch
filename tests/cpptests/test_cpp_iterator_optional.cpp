@@ -273,7 +273,7 @@ TEST_F(OptionalIteratorTimeoutTest, RewindAfterTimeout) {
   for (int i = 0; i < 35; i++) {
     iterator_base->Read(iterator_base);
   }
-  ASSERT_EQ(iterator_base->lastDocId, 35);
+  ASSERT_EQ(iterator_base->lastDocId, 30);
 
   // Rewind should reset everything
   iterator_base->Rewind(iterator_base);

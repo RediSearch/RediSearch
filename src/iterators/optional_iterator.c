@@ -155,13 +155,13 @@ static IteratorStatus OI_Read_NotOptimized(QueryIterator *base) {
     return ITERATOR_EOF;
   }
 
-  // Point to next doc
-  base->lastDocId++;
-
-  if (base->lastDocId > oi->child->lastDocId) {
+  if (base->lastDocId == oi->child->lastDocId) {
     IteratorStatus rc = oi->child->Read(oi->child);
     if (rc == ITERATOR_TIMEOUT) return rc;
   }
+
+  // Point to next doc
+  base->lastDocId++;
 
   if (base->lastDocId == oi->child->lastDocId) {
     base->current = oi->child->current;
