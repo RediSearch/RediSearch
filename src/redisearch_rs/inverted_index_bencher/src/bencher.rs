@@ -33,7 +33,14 @@ impl NumericBencher {
             ("NegInt".to_string(), vec![-16.0, -256.0, -100_000.0]),
             (
                 "Float".to_string(),
-                vec![-f64::INFINITY, -3.125, -3.124, 3.124, 3.125, f64::INFINITY],
+                vec![
+                    f64::NEG_INFINITY,
+                    -3.125,
+                    -3.124,
+                    3.124,
+                    3.125,
+                    f64::INFINITY,
+                ],
             ),
         ]);
 

@@ -119,8 +119,8 @@ mod tests {
             (f64::INFINITY, 1, vec![0b001_01_001, 1]),
             (f64::INFINITY, 0, vec![0b001_01_000]),
             // Neg infinite float test
-            (-f64::INFINITY, 1, vec![0b011_01_001, 1]),
-            (-f64::INFINITY, 0, vec![0b011_01_000]),
+            (f64::NEG_INFINITY, 1, vec![0b011_01_001, 1]),
+            (f64::NEG_INFINITY, 0, vec![0b011_01_000]),
             // Pos big float test
             (
                 3.124,
