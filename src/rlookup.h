@@ -291,8 +291,8 @@ static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *
   }
   if (!ret) {
     if (key->flags & RLOOKUP_F_SVSRC) {
-      if (row->sv && RSSortingVector_Length(row->sv) > key->svidx) {
-        ret = RSSortingVector_Get(row->sv, key->svidx);
+      if (row->sv && row->sv->len > key->svidx) {
+        ret = row->sv->values[key->svidx];
         if (ret != NULL && ret == RS_NullVal()) {
           ret = NULL;
         }

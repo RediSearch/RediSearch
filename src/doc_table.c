@@ -500,7 +500,7 @@ void DocTable_LegacyRdbLoad(DocTable *t, RedisModuleIO *rdb, int encver) {
     }
     dmd->sortVector = NULL;
     if (dmd->flags & Document_HasSortVector) {
-      dmd->sortVector = SortingVector_RdbLoad(rdb);
+      dmd->sortVector = SortingVector_RdbLoad(rdb, encver);
       t->sortablesSize += RSSortingVector_GetMemorySize(dmd->sortVector);
     }
 

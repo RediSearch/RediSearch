@@ -120,12 +120,3 @@ size_t VVW_Write(VarintVectorWriter *w, uint32_t i) {
 size_t VVW_Truncate(VarintVectorWriter *w) {
   return Buffer_Truncate(&w->buf, 0);
 }
-
-// Non-inline wrapper functions for FFI to ensure these are available as exported symbols.
-uint32_t ReadVarintNonInline(BufferReader *b) {
-  return ReadVarint(b);
-}
-
-t_fieldMask ReadVarintFieldMaskNonInline(BufferReader *b) {
-  return ReadVarintFieldMask(b);
-}

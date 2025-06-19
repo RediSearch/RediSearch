@@ -33,27 +33,20 @@ fn main() {
         let redis_modules = root.join("deps").join("RedisModulesSDK");
         let src = root.join("src");
         let deps = root.join("deps");
-
-        let redisearch_rs = src.join("redisearch_rs").join("headers");
-        let vecsim = deps.join("VectorSimilarity").join("src");
-
-        [redis_modules, src, deps, redisearch_rs, vecsim]
+        let redisearch_rs = root.join("src").join("redisearch_rs").join("headers");
+        [redis_modules, src, deps, redisearch_rs]
     };
 
     let headers = {
         let buffer_h = root.join("src").join("buffer.h");
         let redisearch_h = root.join("src").join("redisearch.h");
-        let result_processor_h = root.join("src").join("result_processor.h");
-        [buffer_h, redisearch_h, result_processor_h]
+        [buffer_h, redisearch_h]
     };
 
     let mut bindings = bindgen::Builder::default();
 
     for header in headers {
-        bindings = bindings
-            .header(header.display().to_string())
-            .allowlist_file(header.display().to_string());
-
+        bindings = bindings.header(header.display().to_string());
         println!("cargo:rerun-if-changed={}", header.display());
     }
     for include in includes {
@@ -65,7 +58,6 @@ fn main() {
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings
-        .allowlist_file(".*/types_rs.h")
         .generate()
         .expect("Unable to generate bindings")
         .write_to_file(out_dir.join("bindings.rs"))

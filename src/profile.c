@@ -15,9 +15,9 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
 
   RedisModule_Reply_Map(reply);
   if (ir->idx->flags == Index_DocIdsOnly) {
-    if (ir->record->data.term.term != NULL) {
+    if (ir->record->term.term != NULL) {
       printProfileType("TAG");
-      REPLY_KVSTR_SAFE("Term", ir->record->data.term.term->str);
+      REPLY_KVSTR_SAFE("Term", ir->record->term.term->str);
     }
   } else if (ir->idx->flags & Index_StoreNumeric) {
     const NumericFilter *flt = ir->decoderCtx.filter;
@@ -36,7 +36,7 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
     }
   } else {
     printProfileType("TEXT");
-    REPLY_KVSTR_SAFE("Term", ir->record->data.term.term->str);
+    REPLY_KVSTR_SAFE("Term", ir->record->term.term->str);
   }
 
   // print counter and clock

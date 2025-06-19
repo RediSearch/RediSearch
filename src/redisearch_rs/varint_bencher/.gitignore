@@ -1,5 +1,0 @@
-target/
-flamegraph.svg
-*.profdata
-benchmark_data/
-criterion_reports/

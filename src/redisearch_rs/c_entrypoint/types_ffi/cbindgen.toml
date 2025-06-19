@@ -5,18 +5,14 @@ pragma_once = true
 
 after_includes = """
 /**
- * Forward declarations which will be defined in `redisearch.h`
+ * Forward declaration of RSQueryTerm. It will be defined in `redisearch.h`
  */
 typedef struct RSQueryTerm RSQueryTerm;
-typedef struct RSDocumentMetadata_s RSDocumentMetadata;
-typedef struct RSYieldableMetric RSYieldableMetric;
-typedef uint64_t t_docId;
-typedef __uint128_t t_fieldMask;
 """
 
 [parse]
 parse_deps = true
-include = ["enumflags2", "inverted_index"]
+include = ["inverted_index"]
 
 [export]
-include = ["RSIndexResult"]
+include = ["RSNumericRecord", "RSTermRecord"]

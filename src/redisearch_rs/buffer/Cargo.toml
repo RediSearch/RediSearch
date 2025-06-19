@@ -8,5 +8,8 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[lib]
+crate-type = ["rlib"]
+
 [dependencies]
 ffi.workspace = true

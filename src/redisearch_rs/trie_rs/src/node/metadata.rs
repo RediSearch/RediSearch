@@ -64,7 +64,7 @@ impl NodeHeader {
 ///
 /// If we tried to define [`Node`] as a "normal" Rust struct, it'd look like this:
 ///
-/// ```rust,ignore
+/// ```rust,compile_fail
 /// #[repr(C)]
 /// struct Node<Data> {
 ///     label_len: u16,
@@ -79,7 +79,7 @@ impl NodeHeader {
 /// Unfortunately, the Rust compiler can't reason about it since the length of those
 /// arrays is only known at runtime. We could try downgrading to slices:
 ///
-/// ```rust,ignore
+/// ```rust,compile_fail
 /// #[repr(C)]
 /// struct Node<Data> {
 ///     label_len: u16,

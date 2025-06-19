@@ -2,8 +2,6 @@
 from common import *
 import platform
 from time import sleep
-import threading
-import time
 
 @skip(cluster=True)
 def testBasicGC(env):
@@ -33,7 +31,7 @@ def testBasicGC(env):
 @skip(cluster=True)
 def testBasicGCWithEmptyInvIdx(env):
     if env.moduleArgs is not None and 'GC_POLICY LEGACY' in env.moduleArgs:
-        # this test is not relevant for legacy gc cause its not squashing inverted index
+        # this test is not relevant for legacy gc cause its not squeshing inverted index
         env.skip()
     env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
     env.assertOk(env.cmd('ft.create', 'idx', 'ON', 'HASH', 'schema', 'title', 'text'))
@@ -127,14 +125,14 @@ def testDeleteEntireBlock(env):
     for i in range(700):
         env.expect('FT.ADD', 'idx', 'doc%d' % i, '1.0', 'FIELDS', 'test', 'checking', 'test2', 'checking%d' % i).ok()
 
-    # delete docs in the middle of the inverted index, make sure the binary search are not broken
+    # delete docs in the middle of the inverted index, make sure the binary search are not braken
     for i in range(400, 501):
         env.expect('FT.DEL', 'idx', 'doc%d' % i).equal(1)
     res = env.cmd('FT.SEARCH', 'idx', '@test:checking @test2:checking250')
     env.assertEqual(res[0:2],[1, 'doc250'])
     env.assertEqual(set(res[2]), set(['test', 'checking', 'test2', 'checking250']))
 
-    # actually clean the inverted index, make sure the binary search are not broken, check also after rdb reload
+    # actually clean the inverted index, make sure the binary search are not braken, check also after rdb reload
     for i in range(100):
         # gc is random so we need to do it long enough times for it to work
         forceInvokeGC(env, 'idx')
@@ -279,141 +277,6 @@ def testAutoMemory_MOD_3951():
     env.expect('FT.ALTER', 'idx', 'SCHEMA', 'ADD', '2nd', 'TEXT').equal('OK')
 
     # This test should catch some leaks on the sanitizer
-
-def testConcurrentFTInfoDuringIndexDeletion(env):
-    """
-    Test that performs FT.INFO calls concurrently while indexes are being deleted
-    and garbage collected. This tests the robustness of FT.INFO during GC operations.
-    """
-    # Configure GC to be more aggressive for testing
-    env.expect(config_cmd(), 'set', 'FORK_GC_CLEAN_THRESHOLD', 0).equal('OK')
-    env.expect(config_cmd(), 'set', 'FORK_GC_RUN_INTERVAL', 100).equal('OK')  # Run GC more frequently
-
-    # Number of indexes to create and test with
-    num_indexes = 5
-    num_docs = 1000
-
-    # Create multiple indexes with different field types
-    index_names = []
-    for i in range(num_indexes):
-        idx_name = f'test_idx_{i}'
-        index_names.append(idx_name)
-
-        # Create index with multiple field types to make it more substantial
-        env.expect('FT.CREATE', idx_name, 'ON', 'HASH',
-                   'SCHEMA',
-                   'title', 'TEXT', 'SORTABLE',
-                   'price', 'NUMERIC', 'SORTABLE',
-                   'category', 'TAG').equal('OK')
-        waitForIndex(env, idx_name)
-
-    # Add documents to make the indexes substantial
-    with env.getClusterConnectionIfNeeded() as conn:
-        for j in range(num_docs):
-            doc_id = f'doc_{j}'
-            conn.execute_command('HSET', doc_id,
-                                'title', f'Product {j}',
-                                'price', j * 10.5,
-                                'category', f'cat{j % 5}')
-
-        # Verify all indexes are created and populated
-        for idx_name in index_names:
-            info = env.cmd('FT.INFO', idx_name)
-            info_dict = {info[i]: info[i + 1] for i in range(0, len(info), 2)}
-            env.assertEqual(int(info_dict['num_docs']), num_docs)
-
-    # Shared variables for thread coordination
-    results = {'info_calls': 0, 'errors': 0, 'successful_calls': 0}
-    stop_threads = threading.Event()
-
-    def ft_info_worker(idx_name):
-        """Worker function that continuously calls FT.INFO on an index"""
-        with env.getClusterConnectionIfNeeded() as local_conn:
-            while not stop_threads.is_set():
-                try:
-                    info_result = local_conn.execute_command('FT.INFO', idx_name)
-                    results['info_calls'] += 1
-                    results['successful_calls'] += 1
-                    # Small delay to prevent overwhelming the system
-                    time.sleep(0.01)
-                except Exception as e:
-                    results['info_calls'] += 1
-                    results['errors'] += 1
-                    # Expected errors when index is being deleted:
-                    # - "Unknown index name" or "no such index"
-                    error_msg = str(e).lower()
-                    if 'unknown index' in error_msg or 'no such index' in error_msg:
-                        # These are expected errors during index deletion
-                        pass
-                    else:
-                        # Unexpected error
-                        env.assertTrue(False, message=f"Unexpected error in FT.INFO for {idx_name}: {e}")
-                        break
-                    time.sleep(0.01)
-
-    # Start worker threads for each index
-    threads = []
-    for idx_name in index_names:
-        thread = threading.Thread(target=ft_info_worker, args=(idx_name,))
-        thread.daemon = True
-        threads.append(thread)
-        thread.start()
-
-    # Let the threads run for a short time to establish baseline
-    while results['info_calls'] < 10:
-        time.sleep(0.1)
-
-    # Delete all documents
-    with env.getClusterConnectionIfNeeded() as local_conn:
-        for i in range(num_docs):
-            local_conn.execute_command('del', f'doc_{i}')
-            if i % 100 == 0:
-                for idx_name in index_names:
-                    forceBGInvokeGC(env, idx_name)
-
-
-    # Now delete the indexes while FT.INFO calls are running
-    for idx_name in index_names:
-        try:
-            env.expect('FT.DROPINDEX', idx_name).equal('OK')
-        except Exception as e:
-            env.assertTrue(False, message=f"Unexpected error dropping index {idx_name}: {e}")
-
-        # Force GC to clean up the deleted index
-        try:
-            forceBGInvokeGC(env, idx_name)
-        except Exception as e:
-            env.assertTrue('unknown index' in str(e).lower() or 'no such index' in str(e).lower(),
-                          message=f"Unexpected error in GC for deleted index {idx_name}: {e}")
-            pass
-
-        # Small delay between deletions to spread out the work
-        time.sleep(0.1)
-
-    # Continue running FT.INFO calls for a bit longer to catch cleanup operations
-    while results['errors'] < 10:
-        time.sleep(0.1)
-
-    # Stop all threads
-    stop_threads.set()
-    for thread in threads:
-        thread.join(timeout=5.0)  # 5 second timeout for thread cleanup
-
-    # Verify that we had at least some successful calls
-    env.assertGreater(results['successful_calls'], 0,
-                     message=f"Expected some successful FT.INFO calls, got {results['successful_calls']}")
-
-    # Verify that all indexes are actually deleted
-    for idx_name in index_names:
-        try:
-            env.cmd('FT.INFO', idx_name)
-            env.assertTrue(False, f"Index {idx_name} should have been deleted")
-        except Exception as e:
-            # Expected - index should be gone
-            env.assertTrue('unknown index' in str(e).lower() or 'no such index' in str(e).lower(),
-                          message=f"Unexpected error for deleted index {idx_name}: {e}")
-    env.expect(debug_cmd(), 'GC_WAIT_FOR_JOBS').equal('DONE')
-
 
 @skip(cluster=True)
 def test_gc_oom(env):

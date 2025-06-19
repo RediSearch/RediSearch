@@ -235,7 +235,7 @@ TEST_F(IndexIteratorTestEdges, SkipMultiValues) {
     ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
     ASSERT_EQ(iterator->current->docId, 1);
     ASSERT_EQ(iterator->lastDocId, 1);
-    ASSERT_EQ(iterator->current->data.num.value, 1.0);
+    ASSERT_EQ(iterator->current->num.value, 1.0);
 
     // Read the next entry. Expect EOF since we have only one unique docId
     ASSERT_EQ(iterator->Read(iterator), ITERATOR_EOF);
@@ -252,7 +252,7 @@ TEST_F(IndexIteratorTestEdges, GetCorrectValue) {
     ASSERT_EQ(iterator->Read(iterator), ITERATOR_OK);
     ASSERT_EQ(iterator->current->docId, 1);
     ASSERT_EQ(iterator->lastDocId, 1);
-    ASSERT_EQ(iterator->current->data.num.value, 2.0);
+    ASSERT_EQ(iterator->current->num.value, 2.0);
     // Read the next entry. Expect EOF since we have only one unique docId with value 2.0
     ASSERT_EQ(iterator->Read(iterator), ITERATOR_EOF);
 }

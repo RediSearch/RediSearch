@@ -23,22 +23,6 @@ jobs:
     uses: ./.github/workflows/benchmark-runner.yml
     secrets: inherit
 
-  rust-micro-benchmarks:
-    name: Trigger Rust Micro Benchmarks
-    if: >
-      (
-        github.event.action == 'labeled' &&
-        github.event.label.name == 'action:run-micro-benchmark'
-      ) || (
-        contains(fromJson('["opened", "reopened", "synchronize"]'), github.event.action) &&
-        contains(github.event.pull_request.labels.*.name, 'action:run-micro-benchmark')
-      )
-    concurrency:
-      group: ${{ github.workflow }}-${{ github.event.number }}-rust-micro-benchmark
-      cancel-in-progress: true
-    uses: ./.github/workflows/flow-rust-micro-benchmarks.yml
-    secrets: inherit
-
   micro-benchmarks:
     name: Trigger Micro Benchmarks
     if: >

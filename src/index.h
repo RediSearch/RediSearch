@@ -73,9 +73,6 @@ void trimUnionIterator(IndexIterator *iter, size_t offset, size_t limit, bool as
 IndexIterator *NewNotIterator(IndexIterator *it, t_docId maxDocId,
   double weight, struct timespec timeout, QueryEvalCtx *q);
 
-// Constructor used for benchmarking (easy to inject MockIterators)
-IndexIterator *_New_NotIterator_With_WildCardIterator(IndexIterator *child, IndexIterator *wcii, t_docId maxDocId, double weight, struct timespec timeout);
-
 /* Create an Optional clause iterator by wrapping another index iterator. An optional iterator
  * always returns OK on skips, but a virtual hit with frequency of 0 if there is no hit */
 IndexIterator *NewOptionalIterator(IndexIterator *it, QueryEvalCtx *q, double weight);

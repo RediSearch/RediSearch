@@ -318,10 +318,10 @@ int isWithinRadius(const GeoFilter *gf, double d, double *distance) {
 static int checkResult(const GeoFilter *gf, const RSIndexResult *cur) {
   double distance;
   if (cur->type == RSResultType_Numeric) {
-    return isWithinRadius(gf, cur->data.num.value, &distance);
+    return isWithinRadius(gf, cur->num.value, &distance);
   }
-  for (size_t ii = 0; ii < cur->data.agg.numChildren; ++ii) {
-    if (checkResult(gf, cur->data.agg.children[ii])) {
+  for (size_t ii = 0; ii < cur->agg.numChildren; ++ii) {
+    if (checkResult(gf, cur->agg.children[ii])) {
       return 1;
     }
   }

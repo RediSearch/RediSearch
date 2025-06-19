@@ -707,13 +707,13 @@ def testNumericOperatorsModifierWithEscapes():
     conn = getConnectionByEnv(env)
 
     alias_and_modifier = {
-         'm ': r'@m\ ',
-         "m ": r"@m\ ",
-         " m": r"@\ m",
-         "m\\": r"@m\\",
-         " m ": r"@\ m\ ",
-         "m@1": r"@m\@1",
-         'm ': r'@m\     ',
+         'm ': '@m\ ',
+         "m ": "@m\\ ",
+         " m": "@\\ m",
+         "m\\": "@m\\\\",
+         " m ": "@\\ m\\ ",
+         "m@1": "@m\\@1",
+         'm ': '@m\     ',
     }
 
     for alias, escaped_mod in alias_and_modifier.items():

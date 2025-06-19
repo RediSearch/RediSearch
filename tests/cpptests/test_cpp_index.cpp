@@ -96,11 +96,11 @@ TEST_F(IndexTest, testDistance) {
 
   RSIndexResult *tr1 = NewTokenRecord(NULL, 1);
   tr1->docId = 1;
-  tr1->data.term.offsets = offsetsFromVVW(vw);
+  tr1->term.offsets = offsetsFromVVW(vw);
 
   RSIndexResult *tr2 = NewTokenRecord(NULL, 1);
   tr2->docId = 1;
-  tr2->data.term.offsets = offsetsFromVVW(vw2);
+  tr2->term.offsets = offsetsFromVVW(vw2);
 
   RSIndexResult *res = NewIntersectResult(2, 1);
   AggregateResult_AddChild(res, tr1);
@@ -122,7 +122,7 @@ TEST_F(IndexTest, testDistance) {
 
   RSIndexResult *tr3 = NewTokenRecord(NULL, 1);
   tr3->docId = 1;
-  tr3->data.term.offsets = offsetsFromVVW(vw3);
+  tr3->term.offsets = offsetsFromVVW(vw3);
   AggregateResult_AddChild(res, tr3);
 
   delta = IndexResult_MinOffsetDelta(res);
@@ -420,14 +420,14 @@ TEST_F(IndexTest, testWeight) {
     // printf("%d <=> %d\n", h.docId, expected[i]);
     ASSERT_EQ(h->docId, expected[i++]);
     ASSERT_EQ(h->weight, 0.8);
-    if (h->data.agg.numChildren == 2) {
-      ASSERT_EQ(h->data.agg.children[0]->weight, 0.5);
-      ASSERT_EQ(h->data.agg.children[1]->weight, 1);
+    if (h->agg.numChildren == 2) {
+      ASSERT_EQ(h->agg.children[0]->weight, 0.5);
+      ASSERT_EQ(h->agg.children[1]->weight, 1);
     } else {
       if (i <= 10) {
-        ASSERT_EQ(h->data.agg.children[0]->weight, 0.5);
+        ASSERT_EQ(h->agg.children[0]->weight, 0.5);
       } else {
-        ASSERT_EQ(h->data.agg.children[0]->weight, 1);
+        ASSERT_EQ(h->agg.children[0]->weight, 1);
       }
     }
   }
@@ -558,7 +558,7 @@ TEST_F(IndexTest, testNumericInverted) {
     // printf("%d %f\n", res->docId, res->num.value);
 
     ASSERT_EQ(i++, res->docId);
-    ASSERT_EQ(res->data.num.value, (float)res->docId);
+    ASSERT_EQ(res->num.value, (float)res->docId);
   }
   InvertedIndex_Free(idx);
   it->Free(it);
@@ -608,7 +608,7 @@ TEST_F(IndexTest, testNumericVaried) {
     // printf("Checking i=%lu. Expected=%lf\n", i, nums[i]);
     int rv = it->Read(it->ctx, &res);
     ASSERT_NE(INDEXREAD_EOF, rv);
-    ASSERT_LT(fabs(nums[i] - res->data.num.value), 0.01);
+    ASSERT_LT(fabs(nums[i] - res->num.value), 0.01);
   }
 
   ASSERT_EQ(INDEXREAD_EOF, it->Read(it->ctx, &res));
@@ -695,9 +695,9 @@ void testNumericEncodingHelper(bool isMulti) {
     ASSERT_NE(rc, INDEXREAD_EOF);
     // printf("%lf <-> %lf\n", infos[ii].value, res->num.value);
     if (fabs(infos[ii].value) == INFINITY) {
-      ASSERT_EQ(infos[ii].value, res->data.num.value);
+      ASSERT_EQ(infos[ii].value, res->num.value);
     } else {
-      ASSERT_LT(fabs(infos[ii].value - res->data.num.value), 0.01);
+      ASSERT_LT(fabs(infos[ii].value - res->num.value), 0.01);
     }
   }
 
@@ -934,8 +934,8 @@ TEST_F(IndexTest, testHybridVector) {
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(RSIndexResult_IsAggregate(h));
-    ASSERT_EQ(h->data.agg.numChildren, 2);
-    ASSERT_EQ(h->data.agg.children[0]->type, RSResultType_Metric);
+    ASSERT_EQ(h->agg.numChildren, 2);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
@@ -950,8 +950,8 @@ TEST_F(IndexTest, testHybridVector) {
   while (hybridIt->Read(hybridIt->ctx, &h) != INDEXREAD_EOF) {
     ASSERT_EQ(h->type, RSResultType_HybridMetric);
     ASSERT_TRUE(RSIndexResult_IsAggregate(h));
-    ASSERT_EQ(h->data.agg.numChildren, 2);
-    ASSERT_EQ(h->data.agg.children[0]->type, RSResultType_Metric);
+    ASSERT_EQ(h->agg.numChildren, 2);
+    ASSERT_EQ(h->agg.children[0]->type, RSResultType_Metric);
     // since larger ids has lower distance, in every we get higher id (where max id is the final result).
     size_t expected_id = max_id - step*(count++);
     ASSERT_EQ(h->docId, expected_id);
@@ -1063,7 +1063,7 @@ TEST_F(IndexTest, testMetric_VectorRange) {
     ASSERT_EQ(h->type, RSResultType_Metric);
     ASSERT_EQ(h->docId, lowest_id + count);
     double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
-    ASSERT_EQ(h->data.num.value, exp_dist);
+    ASSERT_EQ(h->num.value, exp_dist);
     ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
     count++;
   }
@@ -1083,14 +1083,14 @@ TEST_F(IndexTest, testMetric_VectorRange) {
   ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, lowest_id + 10, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, lowest_id + 10);
   double exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
-  ASSERT_EQ(h->data.num.value, exp_dist);
+  ASSERT_EQ(h->num.value, exp_dist);
   ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
   ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), lowest_id + 10);
 
   ASSERT_EQ(vecIt->SkipTo(vecIt->ctx, n-1, &h), INDEXREAD_OK);
   ASSERT_EQ(h->docId, n-1);
   exp_dist = VecSimIndex_GetDistanceFrom_Unsafe(index, h->docId, query);
-  ASSERT_EQ(h->data.num.value, exp_dist);
+  ASSERT_EQ(h->num.value, exp_dist);
   ASSERT_EQ(h->metrics[0].value->numval, exp_dist);
   ASSERT_EQ(vecIt->LastDocId(vecIt->ctx), n-1);
 

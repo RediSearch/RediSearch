@@ -8,13 +8,11 @@
 */
 
 use std::{
-    ffi::{c_char, c_int},
+    ffi::c_char,
     io::{Read, Seek, Write},
-    mem::ManuallyDrop,
 };
 
-use enumflags2::{BitFlags, bitflags};
-pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
+pub use ffi::{RSIndexResult, RSQueryTerm, t_docId};
 
 /// A delta is the difference between document IDs. It is mostly used to save space in the index
 /// because document IDs are usually sequential and the difference between them are small. With the
@@ -59,83 +57,6 @@ pub struct RSTermRecord {
     pub offsets: RSOffsetVector,
 }
 
-#[bitflags]
-#[repr(u32)]
-#[derive(Copy, Clone)]
-/// cbindgen:prefix-with-name=true
-pub enum RSResultType {
-    Union = 1,
-    Intersection = 2,
-    Term = 4,
-    Virtual = 8,
-    Numeric = 16,
-    Metric = 32,
-    HybridMetric = 64,
-}
-
-pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
-
-/// Represents an aggregate array of values in an index record.
-/// cbindgen:rename-all=CamelCase
-#[repr(C)]
-pub struct RSAggregateResult {
-    /// The number of child records
-    pub num_children: c_int,
-
-    /// The capacity of the records array. Has no use for extensions
-    pub children_cap: c_int,
-
-    /// An array of records
-    pub children: *mut *mut RSIndexResult,
-
-    /// A map of the aggregate type of the underlying records
-    pub type_mask: RSResultTypeMask,
-}
-
-/// Holds the actual data of an ['IndexResult']
-#[repr(C)]
-pub union RSIndexResultData {
-    pub agg: ManuallyDrop<RSAggregateResult>,
-    pub term: ManuallyDrop<RSTermRecord>,
-    pub num: ManuallyDrop<RSNumericRecord>,
-}
-
-/// The result of an inverted index
-/// cbindgen:field-names=[docId, dmd, fieldMask, freq, offsetsSz, data, type, isCopy, metrics, weight]
-#[repr(C)]
-pub struct RSIndexResult {
-    /// The document ID of the result
-    pub doc_id: t_docId,
-
-    /// Some metadata about the result document
-    pub dmd: *const RSDocumentMetadata,
-
-    /// The aggregate field mask of all the records in this result
-    pub field_mask: t_fieldMask,
-
-    /// The total frequency of all the records in this result
-    pub freq: u32,
-
-    /// For term records only. This is used as an optimization, allowing the result to be loaded
-    /// directly into memory
-    pub offsets_sz: u32,
-
-    data: RSIndexResultData,
-
-    /// The type of data stored at ['Self::data']
-    pub result_type: RSResultType,
-
-    /// We mark copied results so we can treat them a bit differently on deletion, and pool them if
-    /// we want
-    pub is_copy: bool,
-
-    /// Holds an array of metrics yielded by the different iterators in the AST
-    pub metrics: *mut RSYieldableMetric,
-
-    /// Relative weight for scoring calculations. This is derived from the result's iterator weight
-    pub weight: f64,
-}
-
 /// Encoder to write a record into an index
 pub trait Encoder {
     /// Write the record to the writer and return the number of bytes written. The delta is the
@@ -177,7 +98,7 @@ pub trait Decoder {
     ) -> std::io::Result<Option<RSIndexResult>> {
         loop {
             match self.decode(reader, base)? {
-                Some(DecoderResult::Record(record)) if record.doc_id >= target => {
+                Some(DecoderResult::Record(record)) if record.docId >= target => {
                     return Ok(Some(record));
                 }
                 Some(DecoderResult::Record(_)) | Some(DecoderResult::FilteredOut) => continue,

@@ -108,24 +108,6 @@ void RSValue_Clear(RSValue *v) {
   v->t = RSValue_Undef;
 }
 
-
-RSValue* RSValue_IncrRef(RSValue* v) {
-  __atomic_fetch_add(&v->refcount, 1, __ATOMIC_RELAXED);
-  return v;
-}
-
-void RSValue_Decref(RSValue* v) {
-  if (__atomic_sub_fetch(&(v)->refcount, 1, __ATOMIC_RELAXED) == 0) {
-    RSValue_Free(v);
-  }
-}
-
-int RSValue_IsNull(const RSValue *value) {
-  if (!value || value == RS_NullVal()) return 1;
-  if (value->t == RSValue_Reference) return RSValue_IsNull(value->ref);
-  return 0;
-}
-
 /* Free a value's internal value. It only does anything in the case of a string, and doesn't free
  * the actual value object */
 void RSValue_Free(RSValue *v) {
@@ -433,7 +415,7 @@ RSValue *RS_StringArrayT(char **strs, uint32_t sz, RSStringType st) {
 
 RSValue RS_NULL = {.t = RSValue_Null, .refcount = 1, .allocated = 0};
 /* Returns a pointer to the NULL RSValue */
-RSValue *RS_NullVal() {
+inline RSValue *RS_NullVal() {
   return &RS_NULL;
 }
 

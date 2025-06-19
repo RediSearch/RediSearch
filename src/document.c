@@ -389,10 +389,9 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
 
   if (FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
-      bool unf = (fs->options & FieldSpec_UNF) != 0;
-      RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, c, unf);
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, (void *)c, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
     } else if (field->multisv) {
-      RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
       field->multisv = NULL;
     }
   }
@@ -438,10 +437,6 @@ FIELD_PREPROCESSOR(fulltextPreprocessor) {
           continue;
         }
         forwardIndexTokenFunc(&tokCtx, &tok);
-        if (tok.allocatedTok) {
-          rm_free(tok.allocatedTok);
-          tok.allocatedTok = NULL;
-        }
       }
       uint32_t lastTokPos = aCtx->tokenizer->ctx.lastOffset;
 
@@ -499,9 +494,9 @@ FIELD_PREPROCESSOR(numericPreprocessor) {
   // If this is a sortable numeric value - copy the value to the sorting vector
   if (FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
-      RSSortingVector_PutNum(aCtx->sv, fs->sortIdx, fdata->numeric);
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
     } else if (field->multisv) {
-      RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
       field->multisv = NULL;
     }
   }
@@ -650,7 +645,7 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
       }
       fdata->numeric = geohash;
       if (FieldSpec_IsSortable(fs)) {
-        RSSortingVector_PutNum(aCtx->sv, fs->sortIdx, fdata->numeric);
+        RSSortingVector_Put(aCtx->sv, fs->sortIdx, &fdata->numeric, RS_SORTABLE_NUM, 0);
       }
       return REDISMODULE_OK;
     case FLD_VAR_T_CSTR:
@@ -709,10 +704,9 @@ FIELD_PREPROCESSOR(geoPreprocessor) {
 
   if (str && FieldSpec_IsSortable(fs)) {
     if (field->unionType != FLD_VAR_T_ARRAY) {
-      bool unf = (fs->options & FieldSpec_UNF) != 0;
-      RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, str, unf);
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
     } else if (field->multisv) {
-      RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
+      RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
       field->multisv = NULL;
     }
   }
@@ -726,10 +720,9 @@ FIELD_PREPROCESSOR(tagPreprocessor) {
       if (field->unionType != FLD_VAR_T_ARRAY) {
         size_t fl;
         const char *str = DocumentField_GetValueCStr(field, &fl);
-        bool unf = (fs->options & FieldSpec_UNF) != 0;
-        RSSortingVector_PutStr(aCtx->sv, fs->sortIdx, str, unf);
+        RSSortingVector_Put(aCtx->sv, fs->sortIdx, str, RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
       } else if (field->multisv) {
-        RSSortingVector_PutRSVal(aCtx->sv, fs->sortIdx, field->multisv);
+        RSSortingVector_Put(aCtx->sv, fs->sortIdx, field->multisv, RS_SORTABLE_RSVAL, 0);
         field->multisv = NULL;
       }
     }
@@ -958,18 +951,16 @@ static void AddDocumentCtx_UpdateNoIndex(RSAddDocumentCtx *aCtx, RedisSearchCtx 
       switch (fs->types) {
         case INDEXFLD_T_FULLTEXT:
         case INDEXFLD_T_TAG:
-        case INDEXFLD_T_GEO: {
-          const char* str = RedisModule_StringPtrLen(f->text, NULL);
-          bool unf = (fs->options & FieldSpec_UNF) != 0;
-          RSSortingVector_PutStr(md->sortVector, idx, str, unf);
+        case INDEXFLD_T_GEO:
+          RSSortingVector_Put(md->sortVector, idx, (void *)RedisModule_StringPtrLen(f->text, NULL),
+                              RS_SORTABLE_STR, fs->options & FieldSpec_UNF);
           break;
-        }
         case INDEXFLD_T_NUMERIC: {
           double numval;
           if (RedisModule_StringToDouble(f->text, &numval) == REDISMODULE_ERR) {
             BAIL("Could not parse numeric index value");
           }
-          RSSortingVector_PutNum(md->sortVector, idx, numval);
+          RSSortingVector_Put(md->sortVector, idx, &numval, RS_SORTABLE_NUM, 0);
           break;
         }
         default:

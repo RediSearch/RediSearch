@@ -51,21 +51,15 @@ int StopWordList_Contains(const StopWordList *sl, const char *term, size_t len) 
   }
 
   // convert multi-byte characters to lowercase
-  char *longerDst = unicode_tolower(lowStr, &len);
-  if (longerDst) {
-    if (lowStr != stackStr) {
-      rm_free(lowStr);
-    }
-    lowStr = longerDst;
-  } else {
-    // No memory allocation, just ensure null termination
-    lowStr[len] = '\0';
+  size_t newLen = unicode_tolower(lowStr, len);
+  if (newLen) {
+    len = newLen;
   }
 
   int ret = TrieMap_Find(sl->m, (char *)lowStr, len) != TRIEMAP_NOTFOUND;
 
   // free memory if allocated
-  if (lowStr != stackStr) rm_free(lowStr);
+  if (len >= 32) rm_free(lowStr);
 
   return ret;
 }
@@ -90,13 +84,9 @@ StopWordList *NewStopWordListCStr(const char **strs, size_t len) {
     size_t tlen = strlen(t);
 
     // convert multi-byte characters to lowercase
-    char *dst = unicode_tolower(t, &tlen);
-    if (dst) {
-        rm_free(t);
-        t = dst;
-    } else {
-      // No memory allocation, just ensure null termination
-      t[tlen] = '\0';
+    size_t newLen = unicode_tolower(t, tlen);
+    if (newLen) {
+      tlen = newLen;
     }
 
     // printf("Adding stopword %s\n", t);

@@ -147,7 +147,7 @@ RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
 
   switch (res->type) {
     case RSResultType_Term:
-      return RSOffsetVector_Iterate(&res->data.term.offsets, res->data.term.term);
+      return RSOffsetVector_Iterate(&res->term.offsets, res->term.term);
 
     // virtual and numeric entries have no offsets and cannot participate
     case RSResultType_Virtual:
@@ -159,10 +159,10 @@ RSOffsetIterator RSIndexResult_IterateOffsets(const RSIndexResult *res) {
     case RSResultType_Union:
     default:
       // if we only have one sub result, just iterate that...
-      if (res->data.agg.numChildren == 1) {
-        return RSIndexResult_IterateOffsets(res->data.agg.children[0]);
+      if (res->agg.numChildren == 1) {
+        return RSIndexResult_IterateOffsets(res->agg.children[0]);
       }
-      return _aggregateResult_iterate(&res->data.agg);
+      return _aggregateResult_iterate(&res->agg);
       break;
   }
 }

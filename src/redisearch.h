@@ -275,9 +275,30 @@ typedef struct {
   char dummy;
 } RSVirtualRecord;
 
+typedef enum {
+  RSResultType_Union = 0x1,
+  RSResultType_Intersection = 0x2,
+  RSResultType_Term = 0x4,
+  RSResultType_Virtual = 0x8,
+  RSResultType_Numeric = 0x10,
+  RSResultType_Metric = 0x20,
+  RSResultType_HybridMetric = 0x40,
+} RSResultType;
 
 #define RS_RESULT_AGGREGATE (RSResultType_Intersection | RSResultType_Union | RSResultType_HybridMetric)
 #define RS_RESULT_NUMERIC (RSResultType_Numeric | RSResultType_Metric)
+
+typedef struct {
+  /* The number of child records */
+  int numChildren;
+  /* The capacity of the records array. Has no use for extensions */
+  int childrenCap;
+  /* An array of recods */
+  struct RSIndexResult **children;
+
+  // A map of the aggregate type of the underlying results
+  uint32_t typeMask;
+} RSAggregateResult;
 
 // Forward declaration of needed structs
 struct RLookupKey;
@@ -289,6 +310,48 @@ typedef struct RSYieldableMetric{
   struct RLookupKey *key;
   struct RSValue *value;
 } RSYieldableMetric;
+
+#pragma pack(16)
+
+typedef struct RSIndexResult {
+
+  /* The docId of the result */
+  t_docId docId;
+  const RSDocumentMetadata *dmd;
+
+  /* The aggregate field mask of all the records in this result */
+  t_fieldMask fieldMask;
+
+  /* the total frequency of all the records in this result */
+  uint32_t freq;
+
+  /* For term records only. This is used as an optimization, allowing the result to be loaded
+   * directly into memory */
+  uint32_t offsetsSz;
+
+  union {
+    // Aggregate record
+    RSAggregateResult agg;
+    // Term record
+    RSTermRecord term;
+    // virtual record with no values
+    RSVirtualRecord virt;
+    // numeric record with float value
+    RSNumericRecord num;
+  };
+
+  RSResultType type;
+
+  // we mark copied results so we can treat them a bit differently on deletion, and pool them if we
+  // want
+  bool isCopy;
+
+  // Holds an array of metrics yielded by the different iterators in the AST
+  RSYieldableMetric *metrics;
+
+  /* Relative weight for scoring calculations. This is derived from the result's iterator weight */
+  double weight;
+} RSIndexResult;
 
 #pragma pack()
 

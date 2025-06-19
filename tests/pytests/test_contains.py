@@ -204,24 +204,24 @@ def testEscape(env):
   conn = getConnectionByEnv(env)
   env.cmd('ft.create', 'idx', 'SCHEMA', 't', 'TEXT', 'SORTABLE')
   conn.execute_command('HSET', 'doc1', 't', '1foo1')
-  conn.execute_command('HSET', 'doc2', 't', r'\*foo2')
-  conn.execute_command('HSET', 'doc3', 't', r'3\*foo3')
-  conn.execute_command('HSET', 'doc4', 't', r'4foo\*')
-  conn.execute_command('HSET', 'doc5', 't', r'5foo\*5')
-  all_docs = [5, 'doc1', ['t', '1foo1'], 'doc2', ['t', r'\*foo2'], 'doc3', ['t', r'3\*foo3'],
-                 'doc4', ['t', r'4foo\*'], 'doc5', ['t', r'5foo\*5']]
+  conn.execute_command('HSET', 'doc2', 't', '\*foo2')
+  conn.execute_command('HSET', 'doc3', 't', '3\*foo3')
+  conn.execute_command('HSET', 'doc4', 't', '4foo\*')
+  conn.execute_command('HSET', 'doc5', 't', '5foo\*5')
+  all_docs = [5, 'doc1', ['t', '1foo1'], 'doc2', ['t', '\\*foo2'], 'doc3', ['t', '3\\*foo3'],
+                 'doc4', ['t', '4foo\\*'], 'doc5', ['t', '5foo\\*5']]
   # contains
   res = env.cmd('ft.search', 'idx', '*foo*')
   env.assertEqual(toSortedFlatList(res), toSortedFlatList(all_docs))
 
   # prefix only
-  env.expect('ft.search', 'idx', r'\*foo*').equal([1, 'doc2', ['t', r'\*foo2']])
+  env.expect('ft.search', 'idx', '\*foo*').equal([1, 'doc2', ['t', '\\*foo2']])
   # suffix only
-  env.expect('ft.search', 'idx', r'*foo\*').equal([1, 'doc4', ['t', r'4foo\*']])
+  env.expect('ft.search', 'idx', '*foo\*').equal([1, 'doc4', ['t', '4foo\\*']])
   # none
-  env.expect('ft.search', 'idx', r'\*foo\*').equal([0])
+  env.expect('ft.search', 'idx', '\*foo\*').equal([0])
 
-  env.expect('ft.search', 'idx', r'*\*foo\**').equal([0])
+  env.expect('ft.search', 'idx', '*\*foo\**').equal([0])
 
 
 def test_misc1(env):

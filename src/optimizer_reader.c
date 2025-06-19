@@ -13,8 +13,8 @@ int cmpAsc(const void *v1, const void *v2, const void *udata) {
   RSIndexResult *res1 = (RSIndexResult *)v1;
   RSIndexResult *res2 = (RSIndexResult *)v2;
 
-  if (res1->data.num.value > res2->data.num.value) return 1;
-  if (res1->data.num.value < res2->data.num.value) return -1;
+  if (res1->num.value > res2->num.value) return 1;
+  if (res1->num.value < res2->num.value) return -1;
   return res1->docId < res2->docId ? -1 : 1;
 }
 
@@ -22,8 +22,8 @@ int cmpDesc(const void *v1, const void *v2, const void *udata) {
   RSIndexResult *res1 = (RSIndexResult *)v1;
   RSIndexResult *res2 = (RSIndexResult *)v2;
 
-  if (res1->data.num.value > res2->data.num.value) return -1;
-  if (res1->data.num.value < res2->data.num.value) return 1;
+  if (res1->num.value > res2->num.value) return -1;
+  if (res1->num.value < res2->num.value) return 1;
   return res1->docId < res2->docId ? -1 : 1;
 }
 
@@ -167,7 +167,7 @@ int OPT_Read(void *ctx, RSIndexResult **e) {
         if (numericRes->type == RSResultType_Numeric) {
           *it->pooledResult = *numericRes;
         } else {
-          RSIndexResult *child = numericRes->data.agg.children[0];
+          RSIndexResult *child = numericRes->agg.children[0];
           RS_LOG_ASSERT(child->type == RSResultType_Numeric, "???");
           *it->pooledResult = *(child);
         }

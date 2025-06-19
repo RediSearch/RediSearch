@@ -98,8 +98,8 @@ void TermReader_OnReopen(void *privdata) {
   if (ir->record->type == RSResultType_Term) {
     // we need to reopen the inverted index to make sure its still valid.
     // the GC might have deleted it by now.
-    InvertedIndex *idx = Redis_OpenInvertedIndex(ir->sctx, ir->record->data.term.term->str,
-                                                 ir->record->data.term.term->len, 0, NULL);
+    InvertedIndex *idx = Redis_OpenInvertedIndex(ir->sctx, ir->record->term.term->str,
+                                                 ir->record->term.term->len, 0, NULL);
     if (!idx || ir->idx != idx) {
       // The inverted index was collected entirely by GC.
       // All the documents that were inside were deleted and new ones were added.
@@ -151,14 +151,14 @@ void IndexReader_OnReopen(IndexReader *ir) {
 // 1. Encode the full data of the record, delta, frequency, field mask and offset vector
 ENCODER(encodeFull) {
   size_t sz = qint_encode4(bw, delta, res->freq, (uint32_t)res->fieldMask, res->offsetsSz);
-  sz += Buffer_Write(bw, res->data.term.offsets.data, res->data.term.offsets.len);
+  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
 
 ENCODER(encodeFullWide) {
   size_t sz = qint_encode3(bw, delta, res->freq, res->offsetsSz);
   sz += WriteVarintFieldMask(res->fieldMask, bw);
-  sz += Buffer_Write(bw, res->data.term.offsets.data, res->data.term.offsets.len);
+  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
 
@@ -191,30 +191,30 @@ ENCODER(encodeFieldsOnlyWide) {
 
 // 5. (field, offset)
 ENCODER(encodeFieldsOffsets) {
-  size_t sz = qint_encode3(bw, delta, (uint32_t)res->fieldMask, res->data.term.offsets.len);
-  sz += Buffer_Write(bw, res->data.term.offsets.data, res->data.term.offsets.len);
+  size_t sz = qint_encode3(bw, delta, (uint32_t)res->fieldMask, res->term.offsets.len);
+  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
 
 ENCODER(encodeFieldsOffsetsWide) {
-  size_t sz = qint_encode2(bw, delta, res->data.term.offsets.len);
+  size_t sz = qint_encode2(bw, delta, res->term.offsets.len);
   sz += WriteVarintFieldMask(res->fieldMask, bw);
-  sz += Buffer_Write(bw, res->data.term.offsets.data, res->data.term.offsets.len);
+  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
 
 // 6. Offsets only
 ENCODER(encodeOffsetsOnly) {
 
-  size_t sz = qint_encode2(bw, delta, res->data.term.offsets.len);
-  sz += Buffer_Write(bw, res->data.term.offsets.data, res->data.term.offsets.len);
+  size_t sz = qint_encode2(bw, delta, res->term.offsets.len);
+  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
 
 // 7. Offsets and freqs
 ENCODER(encodeFreqsOffsets) {
-  size_t sz = qint_encode3(bw, delta, (uint32_t)res->freq, (uint32_t)res->data.term.offsets.len);
-  sz += Buffer_Write(bw, res->data.term.offsets.data, res->data.term.offsets.len);
+  size_t sz = qint_encode3(bw, delta, (uint32_t)res->freq, (uint32_t)res->term.offsets.len);
+  sz += Buffer_Write(bw, res->term.offsets.data, res->term.offsets.len);
   return sz;
 }
 
@@ -297,8 +297,8 @@ typedef union {
 
 // 9. Special encoder for numeric values
 ENCODER(encodeNumeric) {
-  const double absVal = fabs(res->data.num.value);
-  const double realVal = res->data.num.value;
+  const double absVal = fabs(res->num.value);
+  const double realVal = res->num.value;
   const float f32Num = absVal;
   uint64_t u64Num = (uint64_t)absVal;
   const uint8_t tinyNum = u64Num & NUM_TINYENC_MASK;
@@ -502,7 +502,7 @@ size_t InvertedIndex_WriteNumericEntry(InvertedIndex *idx, t_docId docId, double
   RSIndexResult rec = (RSIndexResult){
       .docId = docId,
       .type = RSResultType_Numeric,
-      .data.num = (RSNumericRecord){.value = value},
+      .num = (RSNumericRecord){.value = value},
   };
   return InvertedIndex_WriteEntryGeneric(idx, encodeNumeric, docId, &rec);
 }
@@ -556,8 +556,8 @@ DECODER(readFreqOffsetsFlags) {
   qint_decode4(&blockReader->buffReader, &delta, &res->freq, &fieldMask, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = fieldMask;
-  res->data.term.offsets.data = BufferReader_Current(&blockReader->buffReader);
-  res->data.term.offsets.len = res->offsetsSz;
+  res->term.offsets.data = BufferReader_Current(&blockReader->buffReader);
+  res->term.offsets.len = res->offsetsSz;
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return fieldMask & ctx->mask;
 }
@@ -584,8 +584,8 @@ SKIPPER(seekFreqOffsetsFlags) {
   res->freq = freq;
   res->fieldMask = fm;
   res->offsetsSz = offsz;
-  res->data.term.offsets.data = BufferReader_Current(&blockReader->buffReader) - offsz;
-  res->data.term.offsets.len = offsz;
+  res->term.offsets.data = BufferReader_Current(&blockReader->buffReader) - offsz;
+  res->term.offsets.len = offsz;
 
   return rc;
 }
@@ -595,7 +595,7 @@ DECODER(readFreqOffsetsFlagsWide) {
   qint_decode3(&blockReader->buffReader, &delta, &res->freq, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
-  res->data.term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
+  res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return res->fieldMask & ctx->wideMask;
 }
@@ -613,22 +613,22 @@ DECODER(readNumeric) {
   switch (header.encCommon.type) {
     case NUM_ENCODING_COMMON_TYPE_FLOAT:
       if (header.encFloat.isInf) {
-        res->data.num.value = INFINITY;
+        res->num.value = INFINITY;
       } else if (header.encFloat.isDouble) {
-        Buffer_Read(&blockReader->buffReader, &res->data.num.value, 8);
+        Buffer_Read(&blockReader->buffReader, &res->num.value, 8);
       } else {
         float f;
         Buffer_Read(&blockReader->buffReader, &f, 4);
-        res->data.num.value = f;
+        res->num.value = f;
       }
       if (header.encFloat.sign) {
-        res->data.num.value = -res->data.num.value;
+        res->num.value = -res->num.value;
       }
       break;
 
     case NUM_ENCODING_COMMON_TYPE_TINY:
       // Is embedded into the header
-      res->data.num.value = header.encTiny.tinyValue;
+      res->num.value = header.encTiny.tinyValue;
       break;
 
     case NUM_ENCODING_COMMON_TYPE_POSITIVE_INT:
@@ -637,9 +637,9 @@ DECODER(readNumeric) {
         // Is a none-zero integer (zero is represented as tiny)
         uint64_t num = 0;
         Buffer_Read(&blockReader->buffReader, &num, header.encInt.valueByteCount + 1);
-        res->data.num.value = num;
+        res->num.value = num;
         if (header.encCommon.type == NUM_ENCODING_COMMON_TYPE_NEG_INT) {
-          res->data.num.value = -res->data.num.value;
+          res->num.value = -res->num.value;
         }
       }
       break;
@@ -648,9 +648,9 @@ DECODER(readNumeric) {
   const NumericFilter *f = ctx->filter;
   if (f) {
     if (NumericFilter_IsNumeric(f)) {
-      return NumericFilter_Match(f, res->data.num.value);
+      return NumericFilter_Match(f, res->num.value);
     } else {
-      return isWithinRadius(f->geoFilter, res->data.num.value, &res->data.num.value);
+      return isWithinRadius(f->geoFilter, res->num.value, &res->num.value);
     }
   }
 
@@ -684,7 +684,7 @@ DECODER(readFlagsOffsets) {
   qint_decode3(&blockReader->buffReader, &delta, &mask, &res->offsetsSz);
   res->fieldMask = mask;
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  res->data.term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
+  res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return mask & ctx->mask;
 }
@@ -694,7 +694,7 @@ DECODER(readFlagsOffsetsWide) {
   qint_decode2(&blockReader->buffReader, &delta, &res->offsetsSz);
   res->fieldMask = ReadVarintFieldMask(&blockReader->buffReader);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  res->data.term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
+  res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
 
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return res->fieldMask & ctx->wideMask;
@@ -704,7 +704,7 @@ DECODER(readOffsets) {
   uint32_t delta;
   qint_decode2(&blockReader->buffReader, &delta, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  res->data.term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
+  res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return 1;
 }
@@ -713,7 +713,7 @@ DECODER(readFreqsOffsets) {
   uint32_t delta;
   qint_decode3(&blockReader->buffReader, &delta, &res->freq, &res->offsetsSz);
   blockReader->curBaseId = res->docId = delta + blockReader->curBaseId;
-  res->data.term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
+  res->term.offsets = (RSOffsetVector){.data = BufferReader_Current(&blockReader->buffReader), .len = res->offsetsSz};
   Buffer_Skip(&blockReader->buffReader, res->offsetsSz);
   return 1;
 }
@@ -851,7 +851,7 @@ IndexReader *NewNumericReader(const RedisSearchCtx *sctx, InvertedIndex *idx, co
   RSIndexResult *res = NewNumericResult();
   res->freq = 1;
   res->fieldMask = RS_FIELDMASK_ALL;
-  res->data.num.value = 0;
+  res->num.value = 0;
 
   IndexDecoderCtx ctx = {.filter = flt};
   IndexDecoderProcs procs = {.decoder = readNumeric};

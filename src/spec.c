@@ -1524,6 +1524,9 @@ void CleanPool_ThreadPoolStart() {
 void CleanPool_ThreadPoolDestroy() {
   if (cleanPool) {
     RedisModule_ThreadSafeContextUnlock(RSDummyContext);
+    if (RSGlobalConfig.freeResourcesThread) {
+      redisearch_thpool_wait(cleanPool);
+    }
     redisearch_thpool_destroy(cleanPool);
     cleanPool = NULL;
     RedisModule_ThreadSafeContextLock(RSDummyContext);
