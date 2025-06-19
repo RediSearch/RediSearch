@@ -620,11 +620,11 @@ TEST_F(ExprTest, testEvalFuncCaseWithDifferentTypes) {
   ASSERT_EXPR_EVAL_NUMBER(ctx, 0);
 
   // Error during evaluation due to missing key
-  ctx.assign("case(1, exists(@mising), 0)");
+  ctx.assign("case(1, exists(@missing), 0)");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_ERR, ctx.eval());
 
-  ctx.assign("case(0, 0, exists(@mising))");
+  ctx.assign("case(0, 0, exists(@missing))");
   ASSERT_TRUE(ctx) << ctx.error();
   ASSERT_EQ(EXPR_EVAL_ERR, ctx.eval());
 }
