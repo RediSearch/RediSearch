@@ -11,7 +11,7 @@ use std::{collections::HashMap, ptr::NonNull, time::Duration};
 
 use buffer::Buffer;
 use criterion::{
-    BenchmarkGroup, Criterion, black_box,
+    BatchSize, BenchmarkGroup, Criterion, black_box,
     measurement::{Measurement, WallTime},
 };
 
@@ -108,17 +108,19 @@ impl NumericBencher {
 }
 
 fn numeric_c_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[f64]) {
-    let mut buffer = BufferWrapper::new();
-
     group.bench_function("C", |b| {
-        b.iter(|| {
-            for &value in values {
-                let mut record = inverted_index::RSIndexResult::numeric(value);
-                let grew_size = encode_numeric(&mut buffer, &mut record, 684);
+        b.iter_batched(
+            || BufferWrapper::new(),
+            |mut buffer| {
+                for &value in values {
+                    let mut record = inverted_index::RSIndexResult::numeric(value);
+                    let grew_size = encode_numeric(&mut buffer, &mut record, 684);
 
-                black_box(grew_size);
-            }
-        });
+                    black_box(grew_size);
+                }
+            },
+            BatchSize::LargeInput,
+        );
     });
 }
 
