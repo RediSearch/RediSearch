@@ -3532,13 +3532,7 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (MR_CurrentTopologyExists()) {
-    // If we have a topology, we must read it from the uv thread
-    MR_uvReplyClusterInfo(ctx);
-  } else {
-    // If we don't have a topology, we can reply immediately
-    MR_ReplyClusterInfo(ctx, NULL);
-  }
+  MR_uvReplyClusterInfo(ctx);
   return REDISMODULE_OK;
 }
 

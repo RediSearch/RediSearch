@@ -16,7 +16,7 @@
 #include "rq.h"
 
 void RQ_Push(MRWorkQueue *q, MRQueueCallback cb, void *privdata) {
-  queueItem *item = rm_new(*item);
+  queueItem *item = rm_new(struct queueItem);
   item->cb = cb;
   item->privdata = privdata;
   item->next = NULL;

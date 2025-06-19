@@ -35,9 +35,6 @@ void MR_Init(size_t num_io_threads, size_t num_connections_per_shard, long long 
 /* Set a new topology for the cluster */
 void MR_UpdateTopology(MRClusterTopology *newTopology);
 
-/* Get the current cluster topology */
-bool MR_CurrentTopologyExists();
-
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo);
 
 void MR_GetConnectionPoolState(RedisModuleCtx *ctx);

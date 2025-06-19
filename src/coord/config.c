@@ -155,7 +155,7 @@ CONFIG_GETTER(getSearchThreads) {
 
 // search-threads
 int set_search_threads(const char *name, long long val, void *privdata,
-                  RedisModuleString **err) {
+                      RedisModuleString **err) {
   RSConfig *config = (RSConfig *)privdata;
   SearchClusterConfig *realConfig = getOrCreateRealConfig(config);
   realConfig->coordinatorPoolSize = (size_t)val;
@@ -169,10 +169,12 @@ long long get_search_threads(const char *name, void *privdata) {
 }
 
 // SEARCH_IO_THREADS
+
 CONFIG_SETTER(setSearchIOThreads) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
   int acrc = AC_GetSize(ac, &realConfig->coordinatorIOThreads, AC_F_GE1);
-  RETURN_STATUS(acrc);
+  CHECK_RETURN_PARSE_ERROR(acrc);
+  return REDISMODULE_OK;
 }
 
 CONFIG_GETTER(getSearchIOThreads) {

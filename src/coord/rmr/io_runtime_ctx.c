@@ -18,16 +18,14 @@
 #include "../config.h"
 #include <unistd.h> /* For usleep() */
 
-
-typedef struct SideLoopThreadData {
-  IORuntimeCtx *io_runtime_ctx;
-  const struct MRClusterTopology *topo;
-} SideLoopThreadData, TopologyValidationTimerCBData;
-
 // Atomically exchange the pending topology with a new topology.
 // Returns the old pending topology (or NULL if there was no pending topology).
 static inline queueItem *exchangePendingTopo(IORuntimeCtx *io_runtime_ctx, queueItem *newTopo) {
   return __atomic_exchange_n(&io_runtime_ctx->pendingTopo, newTopo, __ATOMIC_SEQ_CST);
+}
+
+static inline bool ioRuntimeNotStarted(IORuntimeCtx *io_runtime_ctx) {
+  return __builtin_expect((__atomic_test_and_set(&io_runtime_ctx->io_runtime_started_or_starting, __ATOMIC_ACQUIRE) == false), false);
 }
 
 static void triggerPendingQueues(IORuntimeCtx *io_runtime_ctx) {
@@ -82,9 +80,9 @@ static int CheckTopologyConnections(const MRClusterTopology *topo,
 }
 
 static void topologyTimerCB(uv_timer_t *timer) {
-  TopologyValidationTimerCBData *cbData = (TopologyValidationTimerCBData *)timer->data;
-  IORuntimeCtx *io_runtime_ctx = cbData->io_runtime_ctx;
-  const MRClusterTopology *topo = cbData->topo;
+  IORuntimeCtx *io_runtime_ctx = (IORuntimeCtx *)timer->data;
+  const MRClusterTopology *topo = io_runtime_ctx->topo;
+  // Can we lock the topology? here?
  if (CheckTopologyConnections(topo, io_runtime_ctx, true) == REDIS_OK) {
     // We are connected to all master nodes. We can mark the event loop thread as ready
     io_runtime_ctx->loop_th_ready = true;
@@ -96,7 +94,6 @@ static void topologyTimerCB(uv_timer_t *timer) {
     RedisModule_Log(RSDummyContext, "verbose", "Runtime ID %zu: Waiting for all nodes to connect", io_runtime_ctx->queue->id);
   }
 }
-
 
 static void topologyAsyncCB(uv_async_t *async) {
   IORuntimeCtx *io_runtime_ctx = (IORuntimeCtx *)async->data;
@@ -126,11 +123,6 @@ void shutdown_cb(uv_async_t* handle) {
   // Stop timers
   uv_timer_stop(&io_runtime_ctx->topologyValidationTimer);
   uv_timer_stop(&io_runtime_ctx->topologyFailureTimer);
-
-  // Close handles
-  if (io_runtime_ctx->topologyValidationTimer.data) {
-    rm_free(io_runtime_ctx->topologyValidationTimer.data);
-  }
   uv_close((uv_handle_t*)&io_runtime_ctx->topologyValidationTimer, NULL);
   uv_close((uv_handle_t*)&io_runtime_ctx->topologyFailureTimer, NULL);
   uv_close((uv_handle_t*)&io_runtime_ctx->topologyAsync, NULL);
@@ -155,9 +147,7 @@ static void sideThread(void *arg) {
   RedisModule_Log(RSDummyContext, "verbose",
       "sideThread(): pthread_setname_np is not supported on this system");
 #endif
-  SideLoopThreadData *data = arg;
-  IORuntimeCtx *io_runtime_ctx = data->io_runtime_ctx;
-  const struct MRClusterTopology *topo = data->topo;
+  IORuntimeCtx *io_runtime_ctx = arg;
 
   // Initialize the loop and timers
   io_runtime_ctx->pendingQueues = NULL;
@@ -173,17 +163,13 @@ static void sideThread(void *arg) {
   io_runtime_ctx->async.data = io_runtime_ctx;
   io_runtime_ctx->topologyAsync.data = io_runtime_ctx;
   io_runtime_ctx->topologyFailureTimer.data = io_runtime_ctx;
-  io_runtime_ctx->topologyValidationTimer.data = (TopologyValidationTimerCBData *)data;
+  io_runtime_ctx->topologyValidationTimer.data = io_runtime_ctx;
 
   // loop is initialized and handles are ready
   io_runtime_ctx->loop_th_ready = false; // Until topology is validated, no requests are allowed (will be accumulated in the pending queue)
-  uv_mutex_lock(&io_runtime_ctx->loop_th_mutex);
   io_runtime_ctx->loop_th_running = true;
-  uv_cond_signal(&io_runtime_ctx->loop_th_cond);
-  uv_mutex_unlock(&io_runtime_ctx->loop_th_mutex);
 
   uv_async_send(&io_runtime_ctx->topologyAsync); // start the topology check
-
   // Run the event loop
   uv_run(&io_runtime_ctx->loop, UV_RUN_DEFAULT);
   uv_loop_close(&io_runtime_ctx->loop);
@@ -192,9 +178,9 @@ static void sideThread(void *arg) {
 void IORuntimeCtx_Debug_ClearPendingTopo(IORuntimeCtx *io_runtime_ctx) {
   queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
   if (task) {
-    UpdateTopologyCtx *ctx = task->privdata;
-    if (ctx && ctx->topo) {
-      MRClusterTopology_Free(ctx->topo);
+    struct UpdateTopologyCtx *ctx = task->privdata;
+    if (ctx && ctx->new_topo) {
+      MRClusterTopology_Free(ctx->new_topo);
     }
     rm_free(ctx);
     rm_free(task);
@@ -210,10 +196,11 @@ int IORuntimeCtx_ConnectAll(IORuntimeCtx *ioRuntime) {
   return MRConnManager_ConnectAll(ioRuntime->conn_mgr, IORuntimeCtx_GetLoop(ioRuntime));
 }
 
-void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime, struct MRClusterTopology *topo) {
+void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime) {
   /* Get all the current node ids from the connection manager.  We will remove all the nodes
    * that are in the new topology, and after the update, delete all the nodes that are in this map
    * and not in the new topology */
+  const struct MRClusterTopology *topo = ioRuntime->topo;
   dict *nodesToDisconnect = dictCreate(&dictTypeHeapStrings, NULL);
 
   dictIterator *it = dictGetIterator(ioRuntime->conn_mgr->map);
@@ -244,17 +231,13 @@ void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime, struct MRClusterTopology 
   dictRelease(nodesToDisconnect);
 }
 
-/* Update the topology by calling the topology provider explicitly with ctx. If ctx is NULL, the
- * provider's current context is used. Otherwise, we call its function with the given context */
-
-int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime, struct MRClusterTopology *topo) {
-  IORuntimeCtx_UpdateNodes(ioRuntime, topo);
+int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime) {
+  IORuntimeCtx_UpdateNodes(ioRuntime);
   IORuntimeCtx_ConnectAll(ioRuntime);
-  ((TopologyValidationTimerCBData *)ioRuntime->topologyValidationTimer.data)->topo = topo;
   return REDIS_OK;
 }
 
-IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClusterTopology* topo, size_t id) {
+IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClusterTopology *initialTopology, size_t id, bool take_topo_ownership) {
   IORuntimeCtx *io_runtime_ctx = rm_malloc(sizeof(IORuntimeCtx));
   io_runtime_ctx->conn_mgr = MRConnManager_New(num_connections_per_shard);
   io_runtime_ctx->queue = RQ_New(io_runtime_ctx->conn_mgr->nodeConns * PENDING_FACTOR, id);
@@ -262,25 +245,12 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
   io_runtime_ctx->loop_th_ready = false;
   io_runtime_ctx->loop_th_running = false;
   io_runtime_ctx->pendingQueues = NULL;  // Initialize to NULL
-
-  // Initialize synchronization primitives
-  uv_mutex_init(&io_runtime_ctx->loop_th_mutex);
-  uv_cond_init(&io_runtime_ctx->loop_th_cond);
-
-  SideLoopThreadData *data = rm_malloc(sizeof(SideLoopThreadData));
-  data->io_runtime_ctx = io_runtime_ctx;
-  data->topo = topo;
-
-  int uv_thread_create_status = uv_thread_create(&io_runtime_ctx->loop_th, sideThread, data);
-  RS_ASSERT(uv_thread_create_status == 0);
-
-  // Wait for the thread to be created and running using condition variable
-  uv_mutex_lock(&io_runtime_ctx->loop_th_mutex);
-  while (!io_runtime_ctx->loop_th_running) {
-    uv_cond_wait(&io_runtime_ctx->loop_th_cond, &io_runtime_ctx->loop_th_mutex);
+  //need to copy
+  if (take_topo_ownership) {
+    io_runtime_ctx->topo = initialTopology;
+  } else {
+    io_runtime_ctx->topo = initialTopology ? MRClusterTopology_Clone(initialTopology): NULL;
   }
-  uv_mutex_unlock(&io_runtime_ctx->loop_th_mutex);
-
   return io_runtime_ctx;
 }
 
@@ -297,23 +267,59 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
   }
   RQ_Free(io_runtime_ctx->queue);
   MRConnManager_Free(io_runtime_ctx->conn_mgr);
+  queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL);
+  if (task) {
+    struct UpdateTopologyCtx *ctx = task->privdata;
+    if (ctx && ctx->new_topo) {
+      MRClusterTopology_Free(ctx->new_topo);
+    }
+    rm_free(ctx);
+    rm_free(task);
+  }
+  if (io_runtime_ctx->topo) {
+    MRClusterTopology_Free(io_runtime_ctx->topo);
+  }
   rm_free(io_runtime_ctx);
 }
 
+void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx) {
+  uv_timer_init(uv_default_loop(), &io_runtime_ctx->topologyValidationTimer);
+  uv_timer_init(uv_default_loop(), &io_runtime_ctx->topologyFailureTimer);
+  uv_async_init(uv_default_loop(), &io_runtime_ctx->topologyAsync, topologyAsyncCB);
+  // Verify that we are running on the event loop thread
+  int uv_thread_create_status = uv_thread_create(&io_runtime_ctx->loop_th, sideThread, NULL);
+  RS_ASSERT(uv_thread_create_status == 0);
+  REDISMODULE_NOT_USED(uv_thread_create_status);
+  RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread");
+}
+
 void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata) {
+  if (ioRuntimeNotStarted(io_runtime_ctx)) {
+    //This guarantees only one worker thread will start the IORuntime because of the atomic check. If started but loop is not ready, still RQ will accumulate the request
+    // and would still be processed when the thread uvloop starts
+    IORuntimeCtx_Start(io_runtime_ctx);
+  }
   RS_ASSERT(io_runtime_ctx->loop_th_running); // the thread is not lazily initialized, it's created on creation
   RQ_Push(io_runtime_ctx->queue, cb, privdata);
   uv_async_send(&io_runtime_ctx->async);
 }
 
-void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo) {
+void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo, bool take_topo_ownership) {
   struct queueItem *newTask = rm_new(struct queueItem);
   struct queueItem *oldTask = NULL;
-  UpdateTopologyCtx *ctx = rm_malloc(sizeof(UpdateTopologyCtx));
+  //Clone it so that this runtime can handle its own copy
+  struct MRClusterTopology *new_topo;
+  if (take_topo_ownership) {
+    new_topo = topo;
+  } else {
+    new_topo = MRClusterTopology_Clone(topo);
+  }
+  struct UpdateTopologyCtx *ctx = rm_new(struct UpdateTopologyCtx);
   ctx->ioRuntime = io_runtime_ctx;
-  ctx->topo = topo;
+  ctx->new_topo = topo;
   newTask->cb = cb;
   newTask->privdata = ctx;
+
   oldTask = exchangePendingTopo(io_runtime_ctx, newTask);
 
   if (io_runtime_ctx->loop_th_running) {
