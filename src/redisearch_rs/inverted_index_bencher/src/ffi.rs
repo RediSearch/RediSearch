@@ -52,6 +52,12 @@ impl Drop for TestBuffer {
     }
 }
 
+impl std::fmt::Debug for TestBuffer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+
 pub fn encode_numeric(
     buffer: &mut TestBuffer,
     record: &mut inverted_index::RSIndexResult,
