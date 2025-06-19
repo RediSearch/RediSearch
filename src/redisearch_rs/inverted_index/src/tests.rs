@@ -169,10 +169,10 @@ fn numeric_float() {
             vec![
                 0b000_01_001, // Header bits 7→0: |000|01|001| = ?:0, type:FLOAT, delta_bytes:1
                 0b0000_0001,  // Delta: 1
-                0b0000_0000,  // Value: 3.125 in IEEE 754 format
-                0b0000_0000,
-                0b0100_1000,
-                0b0100_0000,
+                0,            // Value: 3.125 in IEEE 754 format
+                0,
+                72,
+                64,
             ],
         ),
         // Negative small float
@@ -204,6 +204,40 @@ fn numeric_float() {
             1,
             vec![
                 0b011_01_000, // Header bits 7→0: |011|01|000| = ?:0, type:FLOAT, delta_bytes:0
+            ],
+        ),
+        // Positive big float
+        (
+            0,
+            3.124,
+            9,
+            vec![
+                0b100_01_000, // Header bits 7→0: |100|01|000| = ?:0, type:FLOAT, delta_bytes:1
+                203,          // Value: 3.124 in IEEE 754 format
+                161,
+                69,
+                182,
+                243,
+                253,
+                8,
+                64,
+            ],
+        ),
+        // Negative big float
+        (
+            0,
+            -3.124,
+            9,
+            vec![
+                0b110_01_000, // Header bits 7→0: |100|01|000| = ?:0, type:FLOAT, delta_bytes:1
+                203,          // Value: -3.124 in IEEE 754 format
+                161,
+                69,
+                182,
+                243,
+                253,
+                8,
+                64,
             ],
         ),
     ];
