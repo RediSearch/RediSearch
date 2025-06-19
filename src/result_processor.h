@@ -19,6 +19,7 @@
 #include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
+#include "hybrid_scoring.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -326,10 +327,9 @@ void PipelineAddCrash(struct AREQ *r);
  //   hasScores: Array of boolean flags indicating if each score is available
  //   numUpstreams: Number of upstream processors
  // Returns: Combined score calculated from the array of optional input scores
- typedef double (*HybridScoringFunction)(double *scores, bool *hasScores, size_t numUpstreams);
 
-
- ResultProcessor *RPHybridMerger_New(HybridScoringFunction hybridScoring_function,
+ ResultProcessor *RPHybridMerger_New(HybridScoringType scoringType,
+                                     ScoringFunctionArgs *scoringCtx,
                                      ResultProcessor **upstreams,
                                      size_t numUpstreams,
                                      size_t window);

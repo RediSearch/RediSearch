@@ -1488,7 +1488,8 @@ dictType dictTypeHybridSearchResult = {
   *******************************************************************************************************************/
  typedef struct {
    ResultProcessor base;
-   HybridScoringFunction hybridScoring_function;
+   HybridScoringType scoringType;
+   ScoringFunctionArgs *scoringCtx;
    ResultProcessor **upstreams;  // Dynamic array of upstream processors
    size_t numUpstreams;         // Number of upstream processors
    size_t window;
@@ -1498,7 +1499,7 @@ dictType dictTypeHybridSearchResult = {
  } RPHybridMerger;
 
  /* Helper function to store a result from an upstream into the hybrid merger's dictionary */
- static void StoreUpstreamResult(SearchResult *r, dict *hybridResults, int upstreamIndex, size_t numUpstreams) {
+ static void StoreUpstreamResult(SearchResult *r, dict *hybridResults, int upstreamIndex, size_t numUpstreams, double score) {
    const char *keyPtr = r->dmd->keyPtr;
 
    // Check if we've seen this document before
@@ -1511,17 +1512,25 @@ dictType dictTypeHybridSearchResult = {
    }
 
    // Update the score for this upstream
-   hybridResult->scores[upstreamIndex] = r->score;
+   hybridResult->scores[upstreamIndex] = score;
    hybridResult->hasScores[upstreamIndex] = true;
  }
 
  /* Helper function to consume results from a single upstream */
- static int ConsumeFromUpstream(dict *hybridResults, size_t maxResults, ResultProcessor *upstream, int upstreamIndex, size_t numUpstreams) {
+ static int ConsumeFromUpstream(RPHybridMerger *self, size_t maxResults, ResultProcessor *upstream, int upstreamIndex) {
    size_t consumed = 0;
    int rc = RS_RESULT_OK;
    SearchResult *r = rm_calloc(1, sizeof(*r));
+   int rank = 1;
+   double score = 0.0;
    while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
-       StoreUpstreamResult(r, hybridResults, upstreamIndex, numUpstreams);
+       if (self->scoringType == HYBRID_SCORING_RRF) {
+         score = rank;
+         rank++;
+       } else {
+         score = r->score;
+       }
+       StoreUpstreamResult(r, self->hybridResults, upstreamIndex, self->numUpstreams, score);
        consumed++;
        r = rm_calloc(1, sizeof(*r));
    }
@@ -1543,7 +1552,8 @@ dictType dictTypeHybridSearchResult = {
 
    HybridSearchResult *hybridResult = dictGetVal(entry);
    RS_ASSERT(hybridResult && hybridResult->searchResult);
-   double hybridScore = self->hybridScoring_function(hybridResult->scores, hybridResult->hasScores, hybridResult->numSources);
+   HybridScoringFunction scoringFunc = GetScoringFunction(self->scoringType);
+   double hybridScore = scoringFunc(self->scoringCtx, hybridResult->scores, hybridResult->hasScores, hybridResult->numSources);
 
    SearchResult_Override(r, hybridResult->searchResult);
    r->score = hybridScore;
@@ -1565,7 +1575,7 @@ dictType dictTypeHybridSearchResult = {
   while (numUnconsumed > 0) {
     for (int i = 0; i < numUnconsumed; i++) {
       int upstreamIndex = upstreamIndices[i];
-      int rc = ConsumeFromUpstream(self->hybridResults, self->window, self->upstreams[upstreamIndex], upstreamIndex, self->numUpstreams);
+      int rc = ConsumeFromUpstream(self, self->window, self->upstreams[upstreamIndex], upstreamIndex);
 
       if (rc == RS_RESULT_DEPLETING) {
         // Upstream is still active but not ready to provide results. Skip to the next.
@@ -1625,14 +1635,16 @@ dictType dictTypeHybridSearchResult = {
  }
 
  /* Create a new Hybrid Merger processor */
- ResultProcessor *RPHybridMerger_New(HybridScoringFunction hybridScoring_function,
+ ResultProcessor *RPHybridMerger_New(HybridScoringType scoringType,
+                                     ScoringFunctionArgs *scoringCtx,
                                      ResultProcessor **upstreams,
                                      size_t numUpstreams,
                                      size_t window) {
    RS_ASSERT(numUpstreams > 0);
    RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
-   ret->hybridScoring_function = hybridScoring_function;
+   ret->scoringType = scoringType;
    ret->numUpstreams = numUpstreams;
+   ret->scoringCtx = scoringCtx;
 
    // Allocate dynamic array for upstreams
    ret->upstreams = rm_malloc(numUpstreams * sizeof(ResultProcessor*));
