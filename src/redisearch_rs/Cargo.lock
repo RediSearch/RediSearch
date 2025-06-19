@@ -1224,6 +1224,7 @@ name = "redis_mock"
 version = "0.0.1"
 dependencies = [
  "ffi",
+ "libc",
 ]
 
 [[package]]

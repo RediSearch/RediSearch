@@ -26,21 +26,24 @@ Use the alloc shims for the following:
 - [x] RedisModule_TryAlloc
 - [x] RedisModule_TryCalloc
 - [x] RedisModule_TryRealloc
-- [ ] RedisModule_Strdup
+- [x] RedisModule_Strdup
 
 These are doable in Rust:
 
-- [ ] RedisModule_GetApi
-- [ ] RedisModule_SetModuleAttribs
-- [ ] RedisModule_AddACLCategory
-- [ ] RedisModule_SetCommandACLCategories
+- [x] RedisModule_GetApi
+- [x] RedisModule_SetModuleAttribs
+- [x] RedisModule_AddACLCategory
+- [x] RedisModule_SetCommandACLCategories
 
-- [ ] RedisModule_ReplyWithLongLong
-- [ ] RedisModule_ReplyWithError
+- [x] RedisModule_ReplyWithDouble
+- [x] RedisModule_ReplyWithLongLong
+- [x] RedisModule_ReplyWithError
 - [ ] RedisModule_ReplyWithErrorFormat
-- [ ] RedisModule_ReplyWithSimpleString
-- [ ] RedisModule_ReplyWithArray
-- [ ] RedisModule_ReplyWithMap
+- [x] RedisModule_ReplyWithString
+- [x] RedisModule_ReplyWithStringBuffer
+- [x] RedisModule_ReplyWithSimpleString
+- [x] RedisModule_ReplyWithArray
+- [x] RedisModule_ReplyWithMap
 
 These are better linked from `redismock.cpp` for now:
 
@@ -50,6 +53,6 @@ These are better linked from `redismock.cpp` for now:
 
 These are undefined in redismock.cpp:
 
-- [ ] RedisModule_WrongArity
-- [ ] RedisModule_SetCommandInfo
-- [ ] RedisModule_IsModuleNameBusy
+- [x] RedisModule_WrongArity
+- [x] RedisModule_SetCommandInfo
+- [x] RedisModule_IsModuleNameBusy
