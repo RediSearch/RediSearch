@@ -239,24 +239,29 @@ def testCaseWithLogicalOperators(env):
     # Test case with logical operators
     res = conn.execute_command(
         'FT.AGGREGATE', 'idx_logic', '*',
-        'LOAD', '3', '@category', '@price', '@in_stock',
-        'APPLY', 'case((@category == "electronics") && (@price < 150), "budget_electronics", case((@category == "books") || (@in_stock == "yes"), "available_items", "other"))', 'AS', 'product_class',
-        'GROUPBY', '1', '@product_class',
-        'REDUCE', 'COUNT', '0', 'AS', 'count',
-        'SORTBY', '2', '@product_class', 'ASC',
+        'LOAD', '4', '@category', '@price', '@in_stock', '@__key',
+        'APPLY', 'case((@category == "electronics") && (@price < 150),' \
+        '              "budget_electronics", ' \
+        '              case((@category == "books") || (@in_stock == "yes"), ' \
+        '                   "available_items",' \
+        '                   "other"))', 'AS', 'product_class',
+        'SORTBY', '2', '@__key', 'ASC',
         'DIALECT', '2')
 
     # Expected results:
-    # - budget_electronics: prod1
-    # - available_items: prod2, prod3
-    # - other: prod4
-    # Total groups should be 3
-    env.assertEqual(res[0], 3)
-    classes = {row[1]: int(row[3]) for row in res[1:]}
-    env.assertEqual(classes['budget_electronics'], 1)
-    # prod1 is not counted as it has price >= 150 and was included in budget_electronics
-    env.assertEqual(classes['available_items'], 2)
-    env.assertEqual(classes['other'], 1)
+    # prod1 first case true ==> budget_electronics
+    # prod2 first case false, second case false ==> other
+    # prod3 first case false, second case true ==> available_items
+    # prod4 first case false, second case true ==> available_items
+
+    env.assertEqual(res[0], 4)  # 4 documents total
+    # Check that each product has the correct class
+    products = {row[row.index('__key') + 1]: row[row.index('product_class') + 1] for row in res[1:]}
+    env.assertEqual(products['prod1'], 'budget_electronics')
+    env.assertEqual(products['prod2'], 'other')
+    env.assertEqual(products['prod3'], 'available_items')
+    env.assertEqual(products['prod4'], 'available_items')
+
 
 def testCaseWithMissingFields(env):
     """Test case function behavior with missing fields"""
@@ -276,20 +281,24 @@ def testCaseWithMissingFields(env):
     # Test case with exists() for handling missing fields
     res = conn.execute_command(
         'FT.AGGREGATE', 'idx_missing', '*',
-        'LOAD', '2', '@field1', '@field2',
-        'APPLY', 'case(exists(@field1) && exists(@field2), "both", case(exists(@field1), "only_field1", case(exists(@field2), "only_field2", "none")))', 'AS', 'fields_status',
-        'GROUPBY', '1', '@fields_status',
-        'REDUCE', 'COUNT', '0', 'AS', 'count',
-        'SORTBY', '2', '@fields_status', 'ASC',
+        'LOAD', '3', '@field1', '@field2', '@__key',
+        'APPLY', 'case(exists(@field1) && exists(@field2), ' \
+        '              "both", ' \
+        '               case(exists(@field1), ' \
+        '                   "only_field1", ' \
+        '                   case(exists(@field2), ' \
+        '                       "only_field2", ' \
+        '                       "none")))', 'AS', 'fields_status',
+        'SORTBY', '2', '@__key', 'ASC',
         'DIALECT', '2')
 
-    # Expected: 4 groups - both, none, only_field1, only_field2
-    env.assertEqual(res[0], 4)
-    statuses = {row[1]: int(row[3]) for row in res[1:]}
-    env.assertEqual(statuses['both'], 1)
-    env.assertEqual(statuses['only_field1'], 1)
-    env.assertEqual(statuses['only_field2'], 1)
-    env.assertEqual(statuses['none'], 1)
+    # Check the results
+    env.assertEqual(res[0], 4) # 4 documents total
+    products = {row[row.index('__key') + 1]: row[row.index('fields_status') + 1] for row in res[1:]}
+    env.assertEqual(products['doc1'], 'both')
+    env.assertEqual(products['doc2'], 'only_field1')
+    env.assertEqual(products['doc3'], 'only_field2')
+    env.assertEqual(products['doc4'], 'none')
 
 def testNestedConditionsCase(env):
     """Test case function with nested conditions in both result branches"""
@@ -380,7 +389,6 @@ def testCaseWithFieldsWithNullValue(env):
         'APPLY', 'case(@null_value, 0, 1)', 'AS', 'is_null_value',
         'SORTBY', '2', '@__key', 'ASC',
         'DIALECT', '2')
-    print(res)
 
     value = [float(row[row.index('is_null_value') + 1]) for row in res[1:]]
     for i in range(len(value)):
