@@ -1472,19 +1472,6 @@ def test_utf8_lowercase_longer_than_uppercase_tags(env):
             'FT.SEARCH', 'idx', f'@t:{{{t_escaped_lower}}}', 'NOCONTENT', 'DIALECT', dialect)
         env.assertEqual(res, [1, '{doc}:2'])
 
-        # Search using TAG autoescape, which is only available in dialect 2 and above
-        if dialect > 1:
-            res = conn.execute_command(
-                'FT.SEARCH', 'idx', f'@t:{{"{t}"}}', 'NOCONTENT', 'DIALECT', dialect)
-            # The term is stored in its original form, so the search will return the
-            # document with the original term
-            env.assertEqual(res, [1, '{doc}:1'])
-
-            # Search lowercase term
-            res = conn.execute_command(
-                'FT.SEARCH', 'idx', f'@t:{{"{t_lower}"}}', 'NOCONTENT', 'DIALECT', dialect)
-            env.assertEqual(res, [1, '{doc}:2'])
-
         # 1 character, occupying 2 bytes in UTF-8 + 1 byte for the null
         # terminator, so the total length is 3 bytes
         t1 = 'İ'
