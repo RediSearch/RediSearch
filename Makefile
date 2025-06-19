@@ -20,10 +20,6 @@ $(BUILD_SCRIPT):
 	@chmod +x $(BUILD_SCRIPT)
 
 #-----------------------------------------------------------------------------
-# Help text
-#-----------------------------------------------------------------------------
-
-#-----------------------------------------------------------------------------
 # Build script argument construction
 #-----------------------------------------------------------------------------
 
@@ -94,60 +90,61 @@ RAMP_ARGS ?=
 # Main targets
 #-----------------------------------------------------------------------------
 
-# Help target
 help:
-	@echo "make setup         # install prerequisites (CAUTION: THIS WILL MODIFY YOUR SYSTEM)"
-	@echo "make fetch         # download and prepare dependent modules"
-	@echo ""
-	@echo "make build          # compile and link"
-	@echo "  COORD=oss|rlec      # build coordinator (oss: Open Source, rlec: Enterprise) default: oss"
-	@echo "  DEBUG=1             # build for debugging"
-	@echo "  TESTS=1             # build unit tests"
-	@echo "  FORCE=1             # Force clean build"
-	@echo "  SAN=type            # build with LLVM sanitizer (type=address|memory|leak|thread)"
-	@echo "  COV=1               # build with coverage instrumentation"
-	@echo "  RUST_PROFILE=name   # Which Rust profile should be used to build (default: release)"
-	@echo "  VERBOSE=1           # verbose build output"
-	@echo ""
-	@echo "make clean         # remove build artifacts"
-	@echo "  ALL=1              # remove entire artifacts directory"
-	@echo ""
-	@echo "make test          # run all tests"
-	@echo "make unit-tests    # run unit tests (C and C++)"
-	@echo "make rust-tests    # run Rust tests"
-	@echo "make pytest        # run python tests (tests/pytests)"
-	@echo "  REDIS_STANDALONE=1|0 # test with standalone/cluster Redis"
-	@echo "  SA=1|0               # alias for REDIS_STANDALONE"
-	@echo "  TEST=name            # run specified test"
-	@echo "  QUICK=1              # run quick test subset"
-	@echo ""
-	@echo "make run           # run redis with RediSearch"
-	@echo "  GDB=1              # invoke using gdb"
-	@echo ""
-	@echo "make lint          # run linters and exit with an error if warnings are found"
-	@echo "make fmt           # format the source files using the appropriate auto-formatter"
-	@echo "  CHECK=1            # don't modify the source files, but exit with an error if"
-	@echo "                     # running the auto-formatter would result in changes"
-	@echo ""
-	@echo "make pack          # create installation packages"
-	@echo "make docker        # build for specified platform"
+	@printf '%s\n' \
+		'RediSearch Build System' \
+		'' \
+		'Setup:' \
+		'  make setup         Install prerequisites (CAUTION: modifies system)' \
+		'  make fetch         Download and prepare dependent modules' \
+		'' \
+		'Build:' \
+		'  make build         Compile and link' \
+		'    COORD=oss|rlec     Build coordinator (default: oss)' \
+		'    DEBUG=1            Build for debugging' \
+		'    TESTS=1            Build unit tests' \
+		'    FORCE=1            Force clean build' \
+		'    SAN=type           Build with sanitizer (address|memory|leak|thread)' \
+		'    COV=1              Build with coverage instrumentation' \
+		'    RUST_PROFILE=name  Rust profile to use (default: release)' \
+		'    VERBOSE=1          Verbose build output' \
+		'' \
+		'  make clean         Remove build artifacts' \
+		'    ALL=1              Remove entire artifacts directory' \
+		'' \
+		'Testing:' \
+		'  make test          Run all tests' \
+		'  make unit-tests    Run unit tests (C and C++)' \
+		'  make rust-tests    Run Rust tests' \
+		'  make pytest        Run Python tests' \
+		'    REDIS_STANDALONE=1|0  Test with standalone/cluster Redis' \
+		'    SA=1|0                Alias for REDIS_STANDALONE' \
+		'    TEST=name             Run specified test' \
+		'    QUICK=1               Run quick test subset' \
+		'' \
+		'Development:' \
+		'  make run           Run Redis with RediSearch' \
+		'    GDB=1              Invoke using gdb' \
+		'  make lint          Run linters' \
+		'  make fmt           Format source files' \
+		'    CHECK=1            Check formatting without modifying files' \
+		'' \
+		'Packaging:' \
+		'  make pack          Create installation packages' \
+		'  make docker        Build for specified platform'
 
-# Setup target
 setup:
 	@echo "Setting up system..."
 	@$(ROOT)/sbin/setup
 
-# Fetch dependencies
 fetch:
 	@echo "Fetching dependencies..."
 	@git submodule update --init --recursive
 
-# Build target
 build: $(BUILD_SCRIPT) verify-deps
 	@echo "Building RediSearch..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS)
 
-# Verify build dependencies
 verify-deps:
 	@echo "Verifying build dependencies..."
 	@if ! $(ROOT)/.install/verify_build_deps.sh; then \
@@ -161,7 +158,6 @@ verify-deps:
 		fi; \
 	fi
 
-# Clean target
 clean:
 ifeq ($(ALL),1)
 	@echo "Cleaning all build artifacts..."
@@ -171,7 +167,6 @@ else
 	@rm -rf $(ROOT)/bin/*/search-*
 endif
 
-# Test targets
 test: $(BUILD_SCRIPT)
 	@echo "Running all tests..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_TESTS
@@ -188,11 +183,9 @@ pytest: $(BUILD_SCRIPT)
 	@echo "Running Python tests..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_PYTEST
 
-# Alias targets for backward compatibility
 c-tests: unit-tests
 cpp-tests: unit-tests
 
-# Parser targets
 parsers:
 ifeq ($(FORCE),1)
 	@cd src/aggregate/expr && rm -f lexer.c parser.c
@@ -203,7 +196,6 @@ endif
 	@$(MAKE) -C src/query_parser/v1
 	@$(MAKE) -C src/query_parser/v2
 
-# Run target
 run:
 	@echo "Starting Redis with RediSearch..."
 	@if [ "$(GDB)" = "1" ]; then \
@@ -213,7 +205,6 @@ run:
 		redis-server --loadmodule $$(find $(ROOT)/bin -name "redisearch.so" -o -name "module-enterprise.so" | head -1); \
 	fi
 
-# Linting and formatting
 lint:
 	@echo "Running linters..."
 	@cd $(ROOT)/src/redisearch_rs && cargo clippy -- -D warnings
@@ -228,12 +219,10 @@ else
 	@cd $(ROOT)/src/redisearch_rs && cargo fmt
 endif
 
-# License check
 license-check:
 	@echo "Checking license headers..."
 	@cd $(ROOT)/src/redisearch_rs && cargo license-check
 
-# Packaging
 pack: $(BUILD_SCRIPT)
 	@echo "Creating installation packages..."
 	@if [ -z "$(MODULE_PATH)" ]; then \
@@ -257,27 +246,22 @@ pack: $(BUILD_SCRIPT)
 		$(ROOT)/sbin/pack.sh "$$MODULE_PATH"; \
 	fi
 
-# Upload artifacts
 upload-artifacts:
 	@echo "Uploading artifacts..."
 	@$(ROOT)/sbin/upload-artifacts
 
-# Docker targets
 docker:
 	@echo "Building Docker image..."
 	@$(MAKE) -C build/docker
 
-# Benchmarking
 benchmark:
 	@echo "Running benchmarks..."
 	@cd tests/benchmarks && redisbench-admin run-local
 
-# VecSim benchmarks
 vecsim-bench: $(BUILD_SCRIPT)
 	@echo "Running VecSim micro-benchmarks..."
 	@$(BUILD_SCRIPT) $(BUILD_ARGS) RUN_MICRO_BENCHMARKS
 
-# Profiling
 callgrind:
 	@echo "Running callgrind profiling..."
 	@valgrind --tool=callgrind --dump-instr=yes --simulate-cache=no \
@@ -286,15 +270,10 @@ callgrind:
 		--save "" --appendonly no \
 		--loadmodule $$(find $(ROOT)/bin -name "redisearch.so" -o -name "module-enterprise.so" | head -1)
 
-# Development container
 sanbox:
 	@echo "Starting development container..."
 	@docker run -it -v $(PWD):/search -w /search --cap-add=SYS_PTRACE \
 		--security-opt seccomp=unconfined redisfab/clang:16-x64-bullseye bash
-
-#-----------------------------------------------------------------------------
-# Phony targets
-#-----------------------------------------------------------------------------
 
 .PHONY: help setup fetch build clean test unit-tests rust-tests pytest
 .PHONY: c-tests cpp-tests run lint fmt license-check pack upload-artifacts
