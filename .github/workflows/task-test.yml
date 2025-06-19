@@ -55,14 +55,11 @@ jobs:
   common-flow:
     name: Test ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ inputs.env }}
-    permissions:
-      packages: read
-      contents: read
     container:
       image: ${{ inputs.container || null }}
       credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+        username: ${{ startsWith(inputs.container || '', 'ghcr.io/') && github.actor || null }}
+        password: ${{ startsWith(inputs.container || '', 'ghcr.io/') && secrets.GITHUB_TOKEN || null }}    # We need to set the `GITHUB_TOKEN
     # Nothing to do if both are `false`, skip
     if: ${{ inputs.standalone || inputs.coordinator }}
     defaults:
