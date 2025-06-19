@@ -52,9 +52,8 @@ static void rqAsyncCb(uv_async_t *async) {
 extern RedisModuleCtx *RSDummyContext;
 
 static void topologyFailureCB(uv_timer_t *timer) {
-
   IORuntimeCtx *io_runtime_ctx = (IORuntimeCtx *)timer->data;
-  RedisModule_Log(RSDummyContext, "warning", "Runtime ID %zu: Topology validation failed: not all nodes connected", io_runtime_ctx->queue->id);
+  RedisModule_Log(RSDummyContext, "warning", "IORuntime ID %zu: Topology validation failed: not all nodes connected", io_runtime_ctx->queue->id);
   uv_timer_stop(&io_runtime_ctx->topologyValidationTimer); // stop the validation timer
   // Mark the event loop thread as ready. This will allow any pending requests to be processed
   // (and fail, but it will unblock clients)
@@ -86,12 +85,12 @@ static void topologyTimerCB(uv_timer_t *timer) {
  if (CheckTopologyConnections(topo, io_runtime_ctx, true) == REDIS_OK) {
     // We are connected to all master nodes. We can mark the event loop thread as ready
     io_runtime_ctx->loop_th_ready = true;
-    RedisModule_Log(RSDummyContext, "verbose", "Runtime ID %zu: All nodes connected: IO thread is ready to handle requests", io_runtime_ctx->queue->id);
+    RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: All nodes connected: IO thread is ready to handle requests", io_runtime_ctx->queue->id);
     uv_timer_stop(&io_runtime_ctx->topologyValidationTimer); // stop the timer repetition
     uv_timer_stop(&io_runtime_ctx->topologyFailureTimer);    // stop failure timer (as we are connected)
     triggerPendingQueues(io_runtime_ctx);
   } else {
-    RedisModule_Log(RSDummyContext, "verbose", "Runtime ID %zu: Waiting for all nodes to connect", io_runtime_ctx->queue->id);
+    RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Waiting for all nodes to connect", io_runtime_ctx->queue->id);
   }
 }
 
@@ -100,7 +99,7 @@ static void topologyAsyncCB(uv_async_t *async) {
   queueItem *task = exchangePendingTopo(io_runtime_ctx, NULL); // take the topology
   if (task) {
     // Apply new topology
-    RedisModule_Log(RSDummyContext, "verbose", "Queue ID %zu: Applying new topology", io_runtime_ctx->queue->id);
+    RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Applying new topology", io_runtime_ctx->queue->id);
     // Mark the event loop thread as not ready. This will ensure that the next event on the event loop
     // will be the topology check. If the topology hasn't changed, the topology check will quickly
     // mark the event loop thread as ready again.
@@ -154,6 +153,7 @@ static void sideThread(void *arg) {
 
   uv_async_send(&io_runtime_ctx->topologyAsync); // start the topology check
   // Run the event loop
+  RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Running event loop", io_runtime_ctx->queue->id);
   uv_run(&io_runtime_ctx->loop, UV_RUN_DEFAULT);
   uv_loop_close(&io_runtime_ctx->loop);
 }
@@ -270,7 +270,7 @@ void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx) {
   int uv_thread_create_status = uv_thread_create(&io_runtime_ctx->loop_th, sideThread, io_runtime_ctx);
   RS_ASSERT(uv_thread_create_status == 0);
   REDISMODULE_NOT_USED(uv_thread_create_status);
-  RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread");
+  RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread for IORuntime ID %zu", io_runtime_ctx->queue->id);
 }
 
 void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata) {
