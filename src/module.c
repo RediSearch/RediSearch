@@ -85,6 +85,8 @@ extern RSConfig RSGlobalConfig;
 
 extern RedisModuleCtx *RSDummyContext;
 
+redisearch_thpool_t *depleterPool = NULL;
+
 static int DIST_THREADPOOL = -1;
 
 // Number of shards in the cluster. Hint we can read and modify from the main thread

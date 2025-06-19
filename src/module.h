@@ -14,6 +14,7 @@
 #include <coord/rmr/reply.h>
 #include <util/heap.h>
 #include "rmutil/rm_assert.h"
+#include "thpool/thpool.h"
 
 // Hack to support Alpine Linux 3 where __STRING is not defined
 #if !defined(__GLIBC__) && !defined(__STRING)
@@ -35,6 +36,8 @@ extern "C" {
 
 int RediSearch_InitModuleConfig(RedisModuleCtx *ctx, RedisModuleString **argv, int argc, int registerConfig, int isClusterEnabled);
 int RediSearch_InitModuleInternal(RedisModuleCtx *ctx);
+
+extern redisearch_thpool_t *depleterPool;
 
 int IsMaster();
 bool IsEnterprise();
