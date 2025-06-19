@@ -353,8 +353,8 @@ impl Encoder for Numeric {
 
         let num_record = unsafe { &record.data.num };
 
-        let bytes_written = match get_f64_value(num_record.0) {
-            F64Value::Tiny(i) => {
+        let bytes_written = match FloatValue::from(num_record.0) {
+            FloatValue::Tiny(i) => {
                 let header = Header {
                     delta_bytes: delta.len() as _,
                     typ: HeaderType::Tiny(i),
@@ -362,7 +362,7 @@ impl Encoder for Numeric {
 
                 writer.write(&[header.pack()])? + writer.write(&delta)?
             }
-            F64Value::PosInt(i) => {
+            FloatValue::PosInt(i) => {
                 let bytes = i.to_le_bytes();
                 let end = bytes.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
 
@@ -375,7 +375,7 @@ impl Encoder for Numeric {
 
                 writer.write(&[header.pack()])? + writer.write(&delta)? + writer.write(bytes)?
             }
-            F64Value::NegInt(i) => {
+            FloatValue::NegInt(i) => {
                 let bytes = i.to_le_bytes();
                 let end = bytes.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
 
@@ -388,21 +388,35 @@ impl Encoder for Numeric {
 
                 writer.write(&[header.pack()])? + writer.write(&delta)? + writer.write(bytes)?
             }
-            F64Value::Float32 { value, positive } => {
+            FloatValue::F32Pos(value) => {
                 let bytes = value.to_le_bytes();
 
                 let header = Header {
                     delta_bytes: delta.len() as _,
                     typ: HeaderType::Float {
                         is_infinite: false,
-                        is_negative: !positive,
+                        is_negative: false,
                         is_f64: false,
                     },
                 };
 
                 writer.write(&[header.pack()])? + writer.write(&delta)? + writer.write(&bytes)?
             }
-            F64Value::Float64Pos(value) => {
+            FloatValue::F32Neg(value) => {
+                let bytes = value.to_le_bytes();
+
+                let header = Header {
+                    delta_bytes: delta.len() as _,
+                    typ: HeaderType::Float {
+                        is_infinite: false,
+                        is_negative: true,
+                        is_f64: false,
+                    },
+                };
+
+                writer.write(&[header.pack()])? + writer.write(&delta)? + writer.write(&bytes)?
+            }
+            FloatValue::F64Pos(value) => {
                 let bytes = value.to_le_bytes();
 
                 let header = Header {
@@ -416,7 +430,7 @@ impl Encoder for Numeric {
 
                 writer.write(&[header.pack()])? + writer.write(&delta)? + writer.write(&bytes)?
             }
-            F64Value::Float64Neg(value) => {
+            FloatValue::F64Neg(value) => {
                 let bytes = value.to_le_bytes();
 
                 let header = Header {
@@ -430,7 +444,7 @@ impl Encoder for Numeric {
 
                 writer.write(&[header.pack()])? + writer.write(&delta)? + writer.write(&bytes)?
             }
-            F64Value::Infinity => {
+            FloatValue::Infinity => {
                 let header = Header {
                     delta_bytes: delta.len() as _,
                     typ: HeaderType::Float {
@@ -442,7 +456,7 @@ impl Encoder for Numeric {
 
                 writer.write(&[header.pack()])? + writer.write(&delta)?
             }
-            F64Value::NegInfinity => {
+            FloatValue::NegInfinity => {
                 let header = Header {
                     delta_bytes: delta.len() as _,
                     typ: HeaderType::Float {
@@ -533,55 +547,52 @@ impl Decoder for Numeric {
     }
 }
 
-enum F64Value {
+enum FloatValue {
     Tiny(u8),
     PosInt(u64),
     NegInt(u64),
-    Float32 { value: f32, positive: bool },
-    Float64Pos(f64),
-    Float64Neg(f64),
+    F32Pos(f32),
+    F32Neg(f32),
+    F64Pos(f64),
+    F64Neg(f64),
     Infinity,
     NegInfinity,
 }
 
-fn get_f64_value(f: f64) -> F64Value {
-    if f.fract() == 0.0 {
-        if f >= 0.0 {
-            let i = f as u64;
+impl From<f64> for FloatValue {
+    fn from(value: f64) -> Self {
+        if value.fract() == 0.0 {
+            if value >= 0.0 {
+                let i = value as u64;
 
-            if i <= 0b111 {
-                F64Value::Tiny(i as u8)
+                if i <= 0b111 {
+                    FloatValue::Tiny(i as u8)
+                } else {
+                    FloatValue::PosInt(i)
+                }
             } else {
-                F64Value::PosInt(i)
+                FloatValue::NegInt((value * -1.0) as _)
             }
         } else {
-            F64Value::NegInt((f * -1.0) as _)
-        }
-    } else {
-        match f {
-            f64::INFINITY => F64Value::Infinity,
-            f64::NEG_INFINITY => F64Value::NegInfinity,
-            v => {
-                let f32_value = v as f32;
-                let back_to_f64 = f32_value as f64;
+            match value {
+                f64::INFINITY => FloatValue::Infinity,
+                f64::NEG_INFINITY => FloatValue::NegInfinity,
+                v => {
+                    let f32_value = v as f32;
+                    let back_to_f64 = f32_value as f64;
 
-                if back_to_f64 == v {
-                    if v < 0.0 {
-                        F64Value::Float32 {
-                            value: v.abs() as _,
-                            positive: false,
+                    if back_to_f64 == v {
+                        if v < 0.0 {
+                            FloatValue::F32Neg(f32_value.abs())
+                        } else {
+                            FloatValue::F32Pos(f32_value)
                         }
                     } else {
-                        F64Value::Float32 {
-                            value: v as _,
-                            positive: true,
+                        if v < 0.0 {
+                            FloatValue::F64Neg(v.abs())
+                        } else {
+                            FloatValue::F64Pos(v)
                         }
-                    }
-                } else {
-                    if v < 0.0 {
-                        F64Value::Float64Neg(v.abs())
-                    } else {
-                        F64Value::Float64Pos(v)
                     }
                 }
             }
