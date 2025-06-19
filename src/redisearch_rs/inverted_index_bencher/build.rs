@@ -12,7 +12,7 @@ use std::fs::read_dir;
 use std::path::{Path, PathBuf};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Always attempt to link static libraries if they exist, independent of bindgen
+    // Always link the static libraries, independent of bindgen
     link_static_libraries();
 
     // Generate C bindings - fail build if this doesn't work
