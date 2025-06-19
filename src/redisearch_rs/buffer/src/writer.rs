@@ -105,6 +105,12 @@ impl<'a> std::io::Write for BufferWriter<'a> {
     }
 }
 
+impl<'a> std::io::Seek for BufferWriter<'a> {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        todo!()
+    }
+}
+
 // Check, at compile-time, that `BufferWriter` and `ffi::BufferWriter` have the same representation.
 // This check will alert us if the C or the Rust definition changed without a corresponding patch
 // to the representation in the other language.
