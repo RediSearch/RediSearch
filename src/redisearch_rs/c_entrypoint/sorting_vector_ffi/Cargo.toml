@@ -1,0 +1,17 @@
+[package]
+name = "sorting_vector_ffi"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[build-dependencies]
+cbindgen.workspace = true
+
+[dependencies]
+ffi.workspace = true
+libc.workspace = true
+result_processor.workspace = true

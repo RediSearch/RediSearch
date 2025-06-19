@@ -1209,6 +1209,9 @@ dependencies = [
 [[package]]
 name = "redis_mock"
 version = "0.0.1"
+dependencies = [
+ "ffi",
+]
 
 [[package]]
 name = "redisearch_rs"
@@ -1217,6 +1220,7 @@ dependencies = [
  "buffer",
  "encode_decode",
  "redis-module",
+ "sorting_vector_ffi",
  "triemap_ffi",
  "types_ffi",
 ]
@@ -1257,6 +1261,7 @@ dependencies = [
  "ffi",
  "libc",
  "pin-project",
+ "redis_mock",
 ]
 
 [[package]]
@@ -1421,6 +1426,16 @@ name = "similar"
 version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbbb5d9659141646ae647b42fe094daf6c6192d1620870b449d9557f748b2daa"
+
+[[package]]
+name = "sorting_vector_ffi"
+version = "0.0.1"
+dependencies = [
+ "cbindgen",
+ "ffi",
+ "libc",
+ "result_processor",
+]
 
 [[package]]
 name = "strsim"

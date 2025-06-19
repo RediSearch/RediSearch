@@ -13,10 +13,11 @@
 #include "redismodule.h"
 #include "util/fnv.h"
 #include "triemap.h"
-#include "sortable.h"
+#include "sortable_rs.h"
 #include "rmalloc.h"
 #include "spec.h"
 #include "config.h"
+#include "rust-binded/tmp.h"
 
 /* increasing the ref count of the given dmd */
 /*

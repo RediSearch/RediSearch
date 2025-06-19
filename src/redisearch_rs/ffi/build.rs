@@ -44,7 +44,9 @@ fn main() {
         let buffer_h = root.join("src").join("buffer.h");
         let redisearch_h = root.join("src").join("redisearch.h");
         let result_processor_h = root.join("src").join("result_processor.h");
-        [buffer_h, redisearch_h, result_processor_h]
+        let value_h = root.join("src").join("rust-binded").join("value.h");
+        let tmp_h = root.join("src").join("rust-binded").join("tmp.h");
+        [buffer_h, redisearch_h, result_processor_h, value_h, tmp_h]
     };
 
     let mut bindings = bindgen::Builder::default();
