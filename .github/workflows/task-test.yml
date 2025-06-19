@@ -58,8 +58,8 @@ jobs:
     container:
       image: ${{ inputs.container || null }}
       credentials:
-        username: ${{ startsWith(inputs.container || '', 'ghcr.io/') && github.actor || null }}
-        password: ${{ startsWith(inputs.container || '', 'ghcr.io/') && secrets.GITHUB_TOKEN || null }}    # We need to set the `GITHUB_TOKEN
+        username: ${{ startsWith(inputs.container || null, 'ghcr.io/') && github.actor || null }}
+        password: ${{ startsWith(inputs.container || null, 'ghcr.io/') && secrets.GITHUB_TOKEN || null }}    # We need to set the `GITHUB_TOKEN
     # Nothing to do if both are `false`, skip
     if: ${{ inputs.standalone || inputs.coordinator }}
     defaults:
