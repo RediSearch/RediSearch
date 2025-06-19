@@ -338,131 +338,122 @@ impl Encoder for Numeric {
         delta: Delta,
         record: &RSIndexResult,
     ) -> std::io::Result<usize> {
+        if matches!(
+            record.result_type,
+            RSResultType::Union
+                | RSResultType::Intersection
+                | RSResultType::Term
+                | RSResultType::Virtual
+                | RSResultType::HybridMetric
+        ) {
+            panic!("Numeric encoding only supports numeric types")
+        }
+
         let delta = delta.pack();
 
-        let bytes_written = match record.result_type {
-            RSResultType::Union => todo!(),
-            RSResultType::Intersection => todo!(),
-            RSResultType::Term => todo!(),
-            RSResultType::Virtual => todo!(),
-            RSResultType::Numeric => {
-                let num_record = unsafe { &record.data.num };
+        let num_record = unsafe { &record.data.num };
 
-                match get_f64_value(num_record.0) {
-                    F64Value::Tiny(i) => {
-                        let header = Header {
-                            delta_bytes: delta.len() as _,
-                            typ: HeaderType::Tiny(i),
-                        };
+        let bytes_written = match get_f64_value(num_record.0) {
+            F64Value::Tiny(i) => {
+                let header = Header {
+                    delta_bytes: delta.len() as _,
+                    typ: HeaderType::Tiny(i),
+                };
 
-                        writer.write(&[header.pack()])? + writer.write(&delta)?
-                    }
-                    F64Value::PosInt(i) => {
-                        let bytes = i.to_le_bytes();
-                        let end = bytes.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
-
-                        let bytes = &bytes[..end];
-
-                        let header = Header {
-                            delta_bytes: delta.len() as _,
-                            typ: HeaderType::PositiveInteger((end - 1) as _),
-                        };
-
-                        writer.write(&[header.pack()])?
-                            + writer.write(&delta)?
-                            + writer.write(bytes)?
-                    }
-                    F64Value::NegInt(i) => {
-                        let bytes = i.to_le_bytes();
-                        let end = bytes.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
-
-                        let bytes = &bytes[..end];
-
-                        let header = Header {
-                            delta_bytes: delta.len() as _,
-                            typ: HeaderType::NegativeInteger((end - 1) as _),
-                        };
-
-                        writer.write(&[header.pack()])?
-                            + writer.write(&delta)?
-                            + writer.write(bytes)?
-                    }
-                    F64Value::Float32 { value, positive } => {
-                        let bytes = value.to_le_bytes();
-
-                        let header = Header {
-                            delta_bytes: delta.len() as _,
-                            typ: HeaderType::Float {
-                                is_infinite: false,
-                                is_negative: !positive,
-                                is_f64: false,
-                            },
-                        };
-
-                        writer.write(&[header.pack()])?
-                            + writer.write(&delta)?
-                            + writer.write(&bytes)?
-                    }
-                    F64Value::Float64Pos(value) => {
-                        let bytes = value.to_le_bytes();
-
-                        let header = Header {
-                            delta_bytes: delta.len() as _,
-                            typ: HeaderType::Float {
-                                is_infinite: false,
-                                is_negative: false,
-                                is_f64: true,
-                            },
-                        };
-
-                        writer.write(&[header.pack()])?
-                            + writer.write(&delta)?
-                            + writer.write(&bytes)?
-                    }
-                    F64Value::Float64Neg(value) => {
-                        let bytes = value.to_le_bytes();
-
-                        let header = Header {
-                            delta_bytes: delta.len() as _,
-                            typ: HeaderType::Float {
-                                is_infinite: false,
-                                is_negative: true,
-                                is_f64: true,
-                            },
-                        };
-
-                        writer.write(&[header.pack()])?
-                            + writer.write(&delta)?
-                            + writer.write(&bytes)?
-                    }
-                    F64Value::Infinity => {
-                        let header = Header {
-                            delta_bytes: delta.len() as _,
-                            typ: HeaderType::Float {
-                                is_infinite: true,
-                                is_negative: false,
-                                is_f64: false,
-                            },
-                        };
-
-                        writer.write(&[header.pack()])? + writer.write(&delta)?
-                    }
-                    F64Value::NegInfinity => {
-                        let header = Header {
-                            delta_bytes: delta.len() as _,
-                            typ: HeaderType::Float {
-                                is_infinite: true,
-                                is_negative: true,
-                                is_f64: false,
-                            },
-                        };
-
-                        writer.write(&[header.pack()])? + writer.write(&delta)?
-                    }
-                }
+                writer.write(&[header.pack()])? + writer.write(&delta)?
             }
-            RSResultType::Metric => todo!(),
-            RSResultType::HybridMetric => todo!(),
+            F64Value::PosInt(i) => {
+                let bytes = i.to_le_bytes();
+                let end = bytes.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
+
+                let bytes = &bytes[..end];
+
+                let header = Header {
+                    delta_bytes: delta.len() as _,
+                    typ: HeaderType::PositiveInteger((end - 1) as _),
+                };
+
+                writer.write(&[header.pack()])? + writer.write(&delta)? + writer.write(bytes)?
+            }
+            F64Value::NegInt(i) => {
+                let bytes = i.to_le_bytes();
+                let end = bytes.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
+
+                let bytes = &bytes[..end];
+
+                let header = Header {
+                    delta_bytes: delta.len() as _,
+                    typ: HeaderType::NegativeInteger((end - 1) as _),
+                };
+
+                writer.write(&[header.pack()])? + writer.write(&delta)? + writer.write(bytes)?
+            }
+            F64Value::Float32 { value, positive } => {
+                let bytes = value.to_le_bytes();
+
+                let header = Header {
+                    delta_bytes: delta.len() as _,
+                    typ: HeaderType::Float {
+                        is_infinite: false,
+                        is_negative: !positive,
+                        is_f64: false,
+                    },
+                };
+
+                writer.write(&[header.pack()])? + writer.write(&delta)? + writer.write(&bytes)?
+            }
+            F64Value::Float64Pos(value) => {
+                let bytes = value.to_le_bytes();
+
+                let header = Header {
+                    delta_bytes: delta.len() as _,
+                    typ: HeaderType::Float {
+                        is_infinite: false,
+                        is_negative: false,
+                        is_f64: true,
+                    },
+                };
+
+                writer.write(&[header.pack()])? + writer.write(&delta)? + writer.write(&bytes)?
+            }
+            F64Value::Float64Neg(value) => {
+                let bytes = value.to_le_bytes();
+
+                let header = Header {
+                    delta_bytes: delta.len() as _,
+                    typ: HeaderType::Float {
+                        is_infinite: false,
+                        is_negative: true,
+                        is_f64: true,
+                    },
+                };
+
+                writer.write(&[header.pack()])? + writer.write(&delta)? + writer.write(&bytes)?
+            }
+            F64Value::Infinity => {
+                let header = Header {
+                    delta_bytes: delta.len() as _,
+                    typ: HeaderType::Float {
+                        is_infinite: true,
+                        is_negative: false,
+                        is_f64: false,
+                    },
+                };
+
+                writer.write(&[header.pack()])? + writer.write(&delta)?
+            }
+            F64Value::NegInfinity => {
+                let header = Header {
+                    delta_bytes: delta.len() as _,
+                    typ: HeaderType::Float {
+                        is_infinite: true,
+                        is_negative: true,
+                        is_f64: false,
+                    },
+                };
+
+                writer.write(&[header.pack()])? + writer.write(&delta)?
+            }
         };
 
         Ok(bytes_written)
@@ -694,7 +685,7 @@ impl Header {
                     typ: HeaderType::NegativeInteger(data >> 5 & 0b111), // 3 bits for the value bytes
                 }
             }
-            _ => todo!(),
+            _ => unreachable!("All four possible combinations are covered"),
         }
     }
 }
