@@ -210,7 +210,7 @@ static IteratorStatus NI_HandleRelativePositions(QueryIterator *base, NotIterato
     if (rc == ITERATOR_OK) {
       return ITERATOR_NOTFOUND;
     } else if (rc == ITERATOR_EOF) {
-      base->atEOF = true;
+      RS_ASSERT(base->atEOF);
     }
   }
   // Case 3: Wildcard is ahead of child
@@ -225,12 +225,12 @@ static IteratorStatus NI_HandleRelativePositions(QueryIterator *base, NotIterato
       if (rc == ITERATOR_OK) {
         return ITERATOR_NOTFOUND;
       } else if (rc == ITERATOR_EOF) {
-        base->atEOF = true;
+        RS_ASSERT(base->atEOF);
       }
     } else if (rc == ITERATOR_NOTFOUND || rc == ITERATOR_EOF) {
       // Child doesn't have this document - valid result
       base->lastDocId = base->current->docId = ni->wcii->lastDocId;
-      return base->lastDocId == docId ? ITERATOR_OK : ITERATOR_NOTFOUND;
+      return ITERATOR_NOTFOUND;
     }
   }
 
@@ -263,6 +263,17 @@ static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
   if (ni->child->lastDocId < docId && !ni->child->atEOF) {
     rc = ni->child->SkipTo(ni->child, docId);
     if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
+  }
+
+  if (ni->child->atEOF) {
+    rc = ni->wcii->SkipTo(ni->wcii, docId);
+    if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
+    if (rc == ITERATOR_EOF) {
+      base->atEOF = true;
+      return ITERATOR_EOF;
+    }
+    base->lastDocId = base->current->docId = ni->wcii->lastDocId;
+    return rc;
   }
 
   // Handle relative positions of wildcard and child iterators
