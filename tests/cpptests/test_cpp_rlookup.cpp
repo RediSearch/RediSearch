@@ -30,7 +30,7 @@ TEST_F(RLookupTest, testFlags) {
   RLookupKey *tmpk = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   ASSERT_EQ(NULL, tmpk);
   // Try again with M_WRITE and OVERWRITE
-  RLookupKey *tmpk2 = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_OVERRIDE);
+  RLookupKey *tmpk2 = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_OVERRIDE);
   ASSERT_TRUE(tmpk2);
 
   RLookup_Cleanup(&lk);
