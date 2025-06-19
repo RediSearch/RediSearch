@@ -26,28 +26,6 @@ mod numeric;
 pub struct Delta(usize);
 
 impl Delta {
-    fn pack(self) -> Vec<u8> {
-        let mut delta = self.0;
-        let mut delta_vec = Vec::with_capacity(7);
-
-        while delta > 0 {
-            let byte = delta & 0b1111_1111;
-            delta_vec.push(byte as u8);
-            delta >>= 8;
-        }
-        delta_vec
-    }
-
-    fn unpack(data: &[u8]) -> Self {
-        let mut delta = 0;
-        for (i, &byte) in data.iter().enumerate() {
-            delta |= (byte as usize) << (i * 8);
-        }
-        Delta(delta)
-    }
-}
-
-impl Delta {
     /// Make a new delta value
     pub fn new(delta: usize) -> Self {
         Delta(delta)
