@@ -7,6 +7,17 @@ add_library(rust_binded STATIC)
 target_sources(rust_binded PRIVATE 
     "module-init.c" 
     "../rust-binded/config.c"
+    "../rust-binded/tmp.c"
     "../rust-binded/value.c"
-    "../util/rust-binded/mempool.c")
+    "../util/rust-binded/mempool.c"
+)
+
 target_include_directories(rust_binded PRIVATE . ..)
+
+# We need libnu for testing 
+file(GLOB LIBNU_SOURCES
+    "../../deps/libnu/*.c"
+)
+add_library(rust_test STATIC)
+target_sources(rust_test PRIVATE ${LIBNU_SOURCES})
+target_include_directories(rust_test PRIVATE . ..)

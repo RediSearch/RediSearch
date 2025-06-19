@@ -318,11 +318,24 @@ mod tests {
 
     #[test]
     fn test_normlize_in_c_equals_rust_impl() {
-        let cstr = std::ffi::CString::new("Hello, World!").unwrap();
-        let rstr = cstr.to_str().unwrap();
+        let data = [
+            "Hello, World!",
+            "€, $, £ and ¥ are currency symbols.",
+            "with-symbols!@#$%^&*()",
+            "All circles: ∑ r^2* π",
+            "Unicode: 你好, мир, مرحبا",
+            "Kreuzstraße",
+        ];
+        for entry in data {
+            let cstr = std::ffi::CString::new(entry).unwrap();
+            let rimpl = entry.to_lowercase();
 
-        let rimpl = rstr.to_lowercase();
-        // todo: fix linker error:
-        //let cimpl = unsafe { ffi::normalizeStr(cstr.as_ptr().cast_mut()) };
+            let cimpl = unsafe { ffi::normalizeStr(cstr.as_ptr().cast_mut()) };
+            let cimpl_str = unsafe { std::ffi::CStr::from_ptr(cimpl) }
+                .to_str()
+                .unwrap()
+                .to_string();
+            assert_eq!(cimpl_str, rimpl);
+        }
     }
 }

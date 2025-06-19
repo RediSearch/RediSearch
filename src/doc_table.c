@@ -17,7 +17,7 @@
 #include "rmalloc.h"
 #include "spec.h"
 #include "config.h"
-#include "tmp.h"
+#include "rust-binded/tmp.h"
 
 /* increasing the ref count of the given dmd */
 /*

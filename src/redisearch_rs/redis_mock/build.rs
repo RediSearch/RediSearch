@@ -36,6 +36,7 @@ fn main() {
 
     // configure linker with libname and path
     println!("cargo:rustc-link-lib=static=rust_binded");
+    println!("cargo:rustc-link-lib=static=rust_test");
     println!("cargo:rustc-link-search=native={}", lib_path.display());
 
     // rerun if cmake file changes
