@@ -9,11 +9,12 @@
 
 use std::{collections::HashMap, ptr::NonNull, time::Duration};
 
-use buffer::Buffer;
+use buffer::{Buffer, BufferReader, BufferWriter};
 use criterion::{
     BatchSize, BenchmarkGroup, Criterion, black_box,
     measurement::{Measurement, WallTime},
 };
+use inverted_index::{Decoder, Delta, Encoder, numeric::Numeric};
 
 use crate::ffi::{TestBuffer, encode_numeric, read_numeric};
 
@@ -100,6 +101,7 @@ impl NumericBencher {
             let group = format!("Encode - {}", group);
             let mut group = self.benchmark_group(c, &group);
             numeric_c_encode(&mut group, values);
+            numeric_rust_encode(&mut group, values);
             group.finish();
         }
     }
@@ -109,6 +111,7 @@ impl NumericBencher {
             let group = format!("Decode - {}", group);
             let mut group = self.benchmark_group(c, &group);
             numeric_c_decode(&mut group, values);
+            numeric_rust_decode(&mut group, values);
             group.finish();
         }
     }
@@ -120,7 +123,7 @@ fn numeric_c_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &
             || TestBuffer::with_capacity(64),
             |mut buffer| {
                 for &value in values {
-                    let mut record = inverted_index::RSIndexResult::numeric(value);
+                    let mut record = inverted_index::RSIndexResult::numeric(0, value);
                     let grew_size = encode_numeric(&mut buffer, &mut record, 684);
 
                     black_box(grew_size);
@@ -138,6 +141,42 @@ fn numeric_c_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &
                 let buffer_ptr = NonNull::new(value.as_ptr() as *mut _).unwrap();
                 let mut buffer = unsafe { Buffer::new(buffer_ptr, value.len(), value.len()) };
                 let (_filtered, result) = read_numeric(&mut buffer, 100);
+
+                black_box(result);
+            }
+        });
+    });
+}
+
+fn numeric_rust_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[f64]) {
+    group.bench_function("Rust", |b| {
+        b.iter_batched(
+            || TestBuffer::new(),
+            |mut buffer| {
+                for &value in values {
+                    let buffer_writer = BufferWriter::new(&mut buffer.0);
+                    let delta = Delta::new(684);
+                    let record = inverted_index::RSIndexResult::numeric(0, value);
+
+                    let grew_size = Numeric::encode(buffer_writer, delta, &record).unwrap();
+
+                    black_box(grew_size);
+                }
+            },
+            BatchSize::LargeInput,
+        );
+    });
+}
+
+fn numeric_rust_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[Vec<u8>]) {
+    group.bench_function("Rust", |b| {
+        b.iter(|| {
+            for value in values {
+                let buffer_ptr = NonNull::new(value.as_ptr() as *mut _).unwrap();
+                let buffer = unsafe { Buffer::new(buffer_ptr, value.len(), value.len()) };
+                let mut buffer_reader = BufferReader::new(&buffer);
+
+                let result = Numeric.decode(&mut buffer_reader, 100).unwrap();
 
                 black_box(result);
             }
