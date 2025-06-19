@@ -55,11 +55,7 @@ jobs:
   common-flow:
     name: Test ${{ inputs.container || inputs.env }}, Redis ${{ inputs.get-redis || 'unstable' }}
     runs-on: ${{ inputs.env }}
-    container:
-      image: ${{ inputs.container || null }}
-      credentials:
-        username: ${{ inputs.container && startsWith(inputs.container, 'ghcr.io/') && github.actor }}
-        password: ${{ inputs.container && startsWith(inputs.container, 'ghcr.io/') && secrets.GITHUB_TOKEN }}
+    container: ${{ inputs.container || null }}
     # Nothing to do if both are `false`, skip
     if: ${{ inputs.standalone || inputs.coordinator }}
     defaults:
@@ -84,7 +80,7 @@ jobs:
       - name: Check if node20 is Supported
         id: node20 # TODO: Remove this when node20 is supported on all platforms, or when we drop support for these platforms
         run: |
-          for platform in ghcr.io/redisearch/gcc12-amzn2:slim alpine:3; do
+          for platform in meiravgrimberg937/gcc12-amzn2:slim alpine:3; do
             if [[ "${{ inputs.container }}" == "$platform" ]]; then
               echo "supported=false" >> $GITHUB_OUTPUT
               exit 0
@@ -102,7 +98,7 @@ jobs:
           # Execute the logic based on the detected platform
           echo "Detected platform: ${{ inputs.container }}"
           case "${{ inputs.container }}" in
-            ghcr.io/redisearch/gcc12-amzn2:slim | alpine:3)
+            meiravgrimberg937/gcc12-amzn2:slim | alpine:3)
 
               # Configure the safe directory
               git config --global --add safe.directory /__w/${{ github.repository }}
