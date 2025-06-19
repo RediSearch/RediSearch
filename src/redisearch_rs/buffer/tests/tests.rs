@@ -32,7 +32,7 @@ fn buffer_creation() {
 #[cfg_attr(miri, ignore)]
 #[should_panic]
 fn reader_position_must_be_in_bounds() {
-    let buffer = Buffer::from_array([1u8, 2, 3, 4, 5]);
+    let buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
     BufferReader::new_at(&buffer, 6);
 }
 
@@ -43,7 +43,7 @@ fn reader_position_must_be_in_bounds() {
 #[cfg_attr(miri, ignore)]
 #[should_panic = "The requested buffer capacity would overflow usize::MAX"]
 fn cannot_overflow_usize() {
-    let mut buffer = Buffer::from_array([1u8, 2, 3, 4, 5]);
+    let mut buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
     buffer.reserve(usize::MAX - 3);
 }
 
@@ -54,13 +54,13 @@ fn cannot_overflow_usize() {
 #[cfg_attr(miri, ignore)]
 #[should_panic = "The requested buffer capacity would overflow isize::MAX"]
 fn cannot_overflow_isize() {
-    let mut buffer = Buffer::from_array([1u8, 2, 3, 4, 5]);
+    let mut buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
     buffer.reserve(isize::MAX as usize);
 }
 
 #[test]
 fn read_from_arbitrary_position() {
-    let buffer = Buffer::from_array([1u8, 2, 3, 4, 5]);
+    let buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
     let initial_position = 2;
     let mut reader = BufferReader::new_at(&buffer, initial_position);
 
@@ -79,14 +79,14 @@ fn read_from_arbitrary_position() {
 #[cfg_attr(miri, ignore)]
 #[should_panic]
 fn writer_position_must_be_in_bounds() {
-    let mut buffer = Buffer::from_array([1u8, 2, 3, 4, 5]);
+    let mut buffer = buffer_from_array([1u8, 2, 3, 4, 5]);
     BufferWriter::new_at(&mut buffer, 6);
 }
 
 #[test]
 fn buffer_as_slice() {
     let test_data = [1u8, 2, 3, 4, 5];
-    let buffer = Buffer::from_array(test_data);
+    let buffer = buffer_from_array(test_data);
 
     // Check slice access
     let slice = buffer.as_slice();
@@ -346,6 +346,14 @@ fn create_test_buffer(capacity: usize) -> Buffer {
     let layout = Layout::array::<u8>(capacity).unwrap();
     let data = unsafe { alloc(layout) };
     unsafe { Buffer::new(NonNull::new(data).unwrap(), 0, capacity) }
+}
+
+// Helper function to create a new buffer for testing,
+// with a predetermined capacity and no initialized entries.
+fn buffer_from_array<const N: usize>(a: [u8; N]) -> Buffer {
+    let ptr = Box::into_raw(Box::new(a)).cast::<u8>();
+    let ptr = NonNull::new(ptr).unwrap();
+    unsafe { Buffer::new(ptr, N, N) }
 }
 
 // Helper function to clean up buffer after tests

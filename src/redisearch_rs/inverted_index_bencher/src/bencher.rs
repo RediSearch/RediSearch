@@ -15,7 +15,7 @@ use criterion::{
     measurement::{Measurement, WallTime},
 };
 
-use crate::ffi::{encode_numeric, read_numeric};
+use crate::ffi::{BufferWrapper, encode_numeric, read_numeric};
 
 pub struct NumericBencher {
     encoding_test_values: HashMap<String, Vec<f64>>,
@@ -108,14 +108,11 @@ impl NumericBencher {
 }
 
 fn numeric_c_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[f64]) {
-    let mut buffer = Buffer::from_array([0; 16]);
+    let mut buffer = BufferWrapper::new();
 
     group.bench_function("C", |b| {
         b.iter(|| {
             for &value in values {
-                // Reset buffer to prevent it from growing
-                // This is fine since we don't care about benchmarking the growth operation anyway
-                buffer.clear();
                 let mut record = inverted_index::RSIndexResult::numeric(value);
                 let grew_size = encode_numeric(&mut buffer, &mut record, 684);
 

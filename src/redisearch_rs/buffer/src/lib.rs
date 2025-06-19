@@ -47,19 +47,6 @@ impl Buffer {
         })
     }
 
-    /// Helper function to create a new buffer for testing,
-    /// with a predetermined capacity and no initialized entries.
-    pub fn from_array<const N: usize>(a: [u8; N]) -> Buffer {
-        let ptr = Box::into_raw(Box::new(a)).cast::<u8>();
-        let ptr = NonNull::new(ptr).unwrap();
-
-        // SAFETY: We are creating a new Buffer with a pointer to an array of N bytes. Since this is
-        // a static array, we know that the memory is valid, initialized, and won't be dropped. We
-        // also know the length and capacity are both N and that this stays within the memory region
-        // of the pointer. All this this together ensures the safety of `Buffer::new` is satisfied.
-        unsafe { Buffer::new(ptr, N, N) }
-    }
-
     /// Returns the initialized portion of the buffer as a slice.
     pub fn as_slice(&self) -> &[u8] {
         // Safety: We assume `self.len` is a valid length within the allocated memory.
@@ -81,11 +68,6 @@ impl Buffer {
     /// Returns true if the buffer is empty (length is zero).
     pub fn is_empty(&self) -> bool {
         self.0.offset == 0
-    }
-
-    /// Clears the buffer, resetting its length to zero.
-    pub fn clear(&mut self) {
-        self.0.offset = 0;
     }
 
     /// Returns the total capacity of the buffer (maximum number of bytes it can hold).

@@ -7,6 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
+use std::{
+    alloc::{Layout, alloc},
+    ffi::c_char,
+    ptr::NonNull,
+};
+
 use buffer::{Buffer, BufferReader, BufferWriter};
 
 mod bindings {
@@ -22,12 +28,52 @@ mod bindings {
     include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 }
 
+/// An extra wrapper around the ['Buffer`] which allows the C code to grow it correctly and for its
+/// memory to be cleaned up when it goes out of scope.
+pub struct BufferWrapper(Buffer);
+
+impl BufferWrapper {
+    pub fn new() -> Self {
+        let layout = Layout::array::<u8>(0).unwrap();
+        let data = unsafe { alloc(layout) };
+        let buffer = unsafe { Buffer::new(NonNull::new(data).unwrap(), 0, 0) };
+
+        Self(buffer)
+    }
+}
+
+impl Drop for BufferWrapper {
+    fn drop(&mut self) {
+        let layout = Layout::array::<u8>(self.0.0.cap).unwrap();
+        unsafe { std::alloc::dealloc(self.0.0.data as *mut u8, layout) };
+    }
+}
+
+/// Mock implementation of Buffer_Grow for growth to work correctly
+#[allow(non_snake_case)]
+#[unsafe(no_mangle)]
+pub extern "C" fn Buffer_Grow(buffer: *mut ffi::Buffer, extra_len: usize) -> usize {
+    let buffer = unsafe { &mut *buffer };
+    let old_capacity = buffer.cap;
+
+    // Double the capacity or add extra_len, whichever is greater
+    let new_capacity = std::cmp::max(buffer.cap * 2, buffer.cap + extra_len);
+
+    let layout = Layout::array::<c_char>(old_capacity).unwrap();
+    let new_data = unsafe { std::alloc::realloc(buffer.data as *mut _, layout, new_capacity) };
+    buffer.data = new_data as *mut c_char;
+    buffer.cap = new_capacity;
+
+    // Return bytes added
+    new_capacity - old_capacity
+}
+
 pub fn encode_numeric(
-    buffer: &mut Buffer,
+    buffer: &mut BufferWrapper,
     record: &mut inverted_index::RSIndexResult,
     delta: u64,
 ) -> usize {
-    let mut buffer_writer = BufferWriter::new(buffer);
+    let mut buffer_writer = BufferWriter::new(&mut buffer.0);
 
     unsafe { bindings::encode_numeric(&mut buffer_writer as *const _ as *mut _, delta, record) }
 }
@@ -50,7 +96,6 @@ mod tests {
 
     #[test]
     fn test_encode_numeric() {
-        let mut buffer = Buffer::from_array([0; 66]);
         // Test cases for all the different numeric encodings. These cases can be moved to the Rust
         // implementation tests verbatim.
         let tests = [
@@ -101,24 +146,22 @@ mod tests {
         ];
 
         for (input, delta, expected_encoding) in tests {
-            // Reset buffer so that writes happen at the start
-            buffer.clear();
+            let mut buffer = BufferWrapper::new();
 
             let mut record = inverted_index::RSIndexResult::numeric(input);
             record.doc_id = 1_000;
 
-            let buffer_grew_size = encode_numeric(&mut buffer, &mut record, delta);
+            let _buffer_grew_size = encode_numeric(&mut buffer, &mut record, delta);
 
-            assert_eq!(buffer_grew_size, 0, "buffer had enough space");
             assert_eq!(
-                buffer.as_slice(),
+                buffer.0.as_slice(),
                 expected_encoding,
                 "does not match for input: {}",
                 input
             );
 
             let base_id = 1_000 - delta;
-            let (filtered, decoded_result) = read_numeric(&mut buffer, base_id);
+            let (filtered, decoded_result) = read_numeric(&mut buffer.0, base_id);
 
             assert!(!filtered);
             assert_eq!(
