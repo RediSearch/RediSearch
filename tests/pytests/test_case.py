@@ -96,6 +96,7 @@ def testInvalidApplyFunction(env):
         'case(invalid_function(@vector_distance), 1, 0)',
         'case(!invalid_function(@vector_distance), 1, 0)',
         'case(!!invalid_function(@vector_distance), 1, 0)',
+        'case(!!!invalid_function(@vector_distance), 1, 0)',
     ]
     for apply_expr in invalid_apply_exprs:
         env.expect(
@@ -307,9 +308,9 @@ def testNestedCaseDepth(env):
         """ Generate a recursive CASE structure with the specified depth in the form: CASE(0, "a", "b") """
         if depth <= 1:
             return f"case(0, 'a{depth}', 'b')"
-        
+
         return f"case(0, 'a{depth}', {generate_case_expr(depth-1)})"
-    
+
     conn = getConnectionByEnv(env)
 
     # Create an index and add a doc
@@ -319,7 +320,7 @@ def testNestedCaseDepth(env):
     # Test deep nesting of case
     depth = 20
     case_expr = generate_case_expr(depth)
-    
+
     res = conn.execute_command(
         'FT.AGGREGATE', 'idx_depth', '*',
         'APPLY', case_expr, 'AS', 'nested_value',
