@@ -1574,7 +1574,7 @@ static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
 }
 
 /**
- * Constructs a new RPDepleter processor
+ * Constructs a new RPDepleter processor. Consumes the StrongRef given.
  */
 ResultProcessor *RPDepleter_New(StrongRef sync_ref) {
   RPDepleter *ret = rm_calloc(1, sizeof(*ret));
