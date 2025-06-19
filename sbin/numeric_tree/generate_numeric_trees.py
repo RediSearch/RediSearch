@@ -102,8 +102,9 @@ class NumericTreeGenerator:
             new_sequence = []
             for key_id, field1_val, field2_val in base_data:
                 # Insert this value sparse_size times with different doc_ids
-                for sparse_idx in range(config.sparse_size):
-                    new_sequence.append((key_id, field1_val, field2_val))
+                for sparse_idx in range(config.sparse_size - 1):
+                    new_sequence.append((key_id, None, None))
+                new_sequence.append((key_id, field1_val, field2_val))
             return new_sequence
 
         else:
@@ -124,13 +125,17 @@ class NumericTreeGenerator:
         for key_id, field1_val, field2_val in insertion_sequence:
 
             # Create document with both numeric fields
+            hset_mapping = {}
+            if field1_val is not None:
+                hset_mapping[config.field1_name] = float(field1_val)
+            if field2_val is not None:
+                hset_mapping[config.field2_name] = float(field2_val)
+            hset_mapping['index_name'] = str(config.name)
+            hset_mapping['insertion_order'] = str(config.insertion_order)
             doc_key = f"{config.name}:{int(key_id)}"
-            pipe.hset(doc_key, mapping={
-                config.field1_name: float(field1_val),
-                config.field2_name: float(field2_val),
-                'index_name': str(config.name),
-                'insertion_order': str(config.insertion_order)
-            })
+            if field1_val is None or field2_val is None:
+                continue
+            pipe.hset(doc_key, mapping=hset_mapping)
 
             count += 1
             if count % batch_size == 0:

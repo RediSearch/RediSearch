@@ -7,13 +7,13 @@ This directory contains Python scripts for generating, testing, parsing, and vis
 ### 1. `generate_numeric_trees.py`
 Generates 3 numeric indexes with 2 fields each, using different **value insertion orders** to test how insertion patterns affect tree structure and iterator performance.
 
-### 2. `test_numeric_queries.py`
-Tests various numeric queries against the generated indexes to evaluate iterator performance across different tree structures.
+### 2. `benchmark_numeric_tree.py`
+Benchmarks numeric queries against the generated indexes to evaluate iterator performance across different tree structures.
 
-### 3. `numeric_tree_parse.py`
+### 3. `parse_numeric_tree.py`
 Parses RediSearch numeric tree dump files and converts them to JSON format for analysis.
 
-### 4. `numeric_tree_visualize.py` 
+### 4. `visualize_numeric_tree.py`
 Creates interactive visualizations of parsed numeric trees using Plotly.
 
 ## Installation
@@ -52,20 +52,14 @@ redis-server --loadmodule /path/to/redisearch.so
 ### Testing Performance
 
 ```bash
-# Test all query types on all 3 indexes with default infinity bounds (30%)
-./test_numeric_queries.py --query-type all --iterations 100
+# Run benchmark tests on all 3 indexes
+./benchmark_numeric_tree.py --iterations 100
 
-# Test intersection queries (tests both fields within same index)
-./test_numeric_queries.py --query-type intersection --range-size 100 --iterations 50
+# Run benchmark with specific parameters
+./benchmark_numeric_tree.py --iterations 50 --range-size 100
 
-# Test single field queries only
-./test_numeric_queries.py --query-type single --iterations 200
-
-# Test with custom infinity ratio (50% of queries use infinity bounds)
-./test_numeric_queries.py --query-type all --use-infinity 0.5 --iterations 100
-
-# Test without infinity bounds
-./test_numeric_queries.py --query-type all --no-infinity --iterations 100
+# Run benchmark with custom settings
+./benchmark_numeric_tree.py --iterations 200
 ```
 
 ## B. Tree Analysis & Visualization (EXISTING Tools)
@@ -74,23 +68,23 @@ redis-server --loadmodule /path/to/redisearch.so
 
 ```bash
 # Parse a RediSearch numeric tree dump file
-./numeric_tree_parse.py dump_numidxtree.txt tree.json
+./parse_numeric_tree.py dump_numidxtree.txt tree.json
 
 # Fast parsing mode (disable assertions for large files)
-./numeric_tree_parse.py dump_numidxtree.txt tree.json --fast
+./parse_numeric_tree.py dump_numidxtree.txt tree.json --fast
 ```
 
 ### Visualize Parsed Trees
 
 ```bash
 # Create interactive visualization
-./numeric_tree_visualize.py tree.json
+./visualize_numeric_tree.py tree.json
 
 # Create visualization with custom spacing
-./numeric_tree_visualize.py tree.json 3.0
+./visualize_numeric_tree.py tree.json 3.0
 
 # Show tree information only (no visualization)
-./numeric_tree_visualize.py tree.json info
+./visualize_numeric_tree.py tree.json info
 ```
 
 ## Insertion Order Patterns
@@ -147,16 +141,16 @@ This allows testing:
 # Generate indexes with different insertion orders
 ./generate_numeric_trees.py --docs-per-index 10000 --sparse-size 100 --cleanup
 
-# Test single field range queries - compare performance across insertion orders
-./test_numeric_queries.py --query-type single --iterations 200
+# Run benchmark tests to compare performance across insertion orders
+./benchmark_numeric_tree.py --iterations 200
 ```
 
-### Scenario 2: Multi-Field Intersection Performance
+### Scenario 2: Multi-Field Performance Testing
 ```bash
-# Test intersection queries (both fields within same index)
-./test_numeric_queries.py --query-type intersection --iterations 100
+# Run benchmark tests on intersection queries
+./benchmark_numeric_tree.py --iterations 100
 
-# Compare how tree structure affects intersection performance
+# Compare how tree structure affects performance
 ```
 
 ### Scenario 3: Sparse Size Impact on Tree Structure
@@ -164,7 +158,7 @@ This allows testing:
 # Test different sparse sizes for the sparsed index
 for sparse_size in 10 50 100 200 500; do
     ./generate_numeric_trees.py --docs-per-index 5000 --sparse-size $sparse_size --cleanup
-    ./test_numeric_queries.py --query-type all --iterations 50
+    ./benchmark_numeric_tree.py --iterations 50
 done
 ```
 
@@ -173,7 +167,7 @@ done
 # Test how insertion order effects scale with dataset size
 for docs in 1000 5000 10000 50000; do
     ./generate_numeric_trees.py --docs-per-index $docs --sparse-size 100 --cleanup
-    ./test_numeric_queries.py --query-type single --iterations 100
+    ./benchmark_numeric_tree.py --iterations 100
 done
 ```
 
@@ -273,7 +267,7 @@ redis-cli INFO memory
 ### 2. Test Performance
 ```bash
 # Measure query performance across different tree structures
-./test_numeric_queries.py --query-type all --iterations 100
+./benchmark_numeric_tree.py --iterations 100
 ```
 
 ### 3. Dump Tree Structure (using RediSearch debug commands)
@@ -287,14 +281,14 @@ redis-cli FT.DEBUG DUMP_NUMIDXTREE numeric_idx_sparsed price > sparsed_tree.txt
 ### 4. Parse & Visualize
 ```bash
 # Parse each tree structure
-./numeric_tree_parse.py sequential_tree.txt sequential.json
-./numeric_tree_parse.py random_tree.txt random.json
-./numeric_tree_parse.py sparsed_tree.txt sparsed.json
+./parse_numeric_tree.py sequential_tree.txt sequential.json
+./parse_numeric_tree.py random_tree.txt random.json
+./parse_numeric_tree.py sparsed_tree.txt sparsed.json
 
 # Create interactive visualizations
-./numeric_tree_visualize.py sequential.json
-./numeric_tree_visualize.py random.json
-./numeric_tree_visualize.py sparsed.json
+./visualize_numeric_tree.py sequential.json
+./visualize_numeric_tree.py random.json
+./visualize_numeric_tree.py sparsed.json
 ```
 
 This workflow allows you to:
@@ -305,9 +299,9 @@ This workflow allows you to:
 
 ## Files
 
-- `generate_numeric_trees.py` - **NEW** - Redis API data generation script
-- `test_numeric_queries.py` - **NEW** - Query performance testing script
-- `numeric_tree_parse.py` - **EXISTING** - Tree dump parser
-- `numeric_tree_visualize.py` - **EXISTING** - Interactive tree visualizer
+- `generate_numeric_trees.py` - Redis API data generation script
+- `benchmark_numeric_tree.py` - Query performance benchmarking script
+- `parse_numeric_tree.py` - Tree dump parser
+- `visualize_numeric_tree.py` - Interactive tree visualizer
 - `requirements.txt` - Python dependencies
 - `README.md` - This documentation

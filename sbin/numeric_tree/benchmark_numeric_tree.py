@@ -322,28 +322,6 @@ class NumericQueryTester:
             for result in index_results[:2]:  # Show first 2 queries per index
                 print(f"    {result.query} -> {result.result_count} results in {result.execution_time*1000:.2f}ms")
 
-    def force_garbage_collection(self, index_name: str) -> None:
-        """Force garbage collection on a specific index"""
-        try:
-            result = self.redis_client.execute_command('_FT.DEBUG', 'GC_FORCEINVOKE', index_name)
-            if result != 'DONE':
-                print(f"✗ Garbage collection failed on {index_name}: unexpected result '{result}'")
-                sys.exit(1)
-        except redis.ResponseError as e:
-            print(f"✗ Failed to force GC on {index_name}: {e}")
-            sys.exit(1)
-
-    def force_garbage_collection_all_indexes(self, indexes: List[str]) -> None:
-        """Force garbage collection on all specified indexes"""
-        print("Running garbage collection on all indexes...")
-        for index_name in indexes:
-            print(f"  Running GC on {index_name}...", end=" ")
-            self.force_garbage_collection(index_name)
-            print("✓ Done")
-
-        print(f"Garbage collection completed successfully on all {len(indexes)} indexes")
-        print()
-
     def get_redis_server_pid(self) -> Optional[int]:
         """Get the PID of the Redis server process"""
         try:
@@ -646,9 +624,6 @@ def main():
         vtune_marker = " (VTune target)" if args.vtune == idx else ""
         print(f"  {idx}: {doc_count} documents{vtune_marker}")
     print()
-
-    # Force garbage collection on all indexes before running tests
-    tester.force_garbage_collection_all_indexes(indexes_to_use)
 
     # Execute tests
     all_results = {}
