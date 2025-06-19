@@ -1027,13 +1027,19 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_EPSILON)) {
       if ((rc = AC_GetDouble(ac, &params->algoParams.svsParams.epsilon, AC_F_GE0)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_HNSW, VECSIM_EPSILON), rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_EPSILON), rc);
         return 0;
       }
     } else if (AC_AdvanceIfMatch(ac, VECSIM_TRAINING_THRESHOLD)) {
       if ((rc = AC_GetSize(ac, &tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold, AC_F_GE1)) != AC_OK) {
         QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_TRAINING_THRESHOLD), rc);
         return 0;
+      } else if (tieredParams->specificParams.tieredSVSParams.trainingTriggerThreshold < DEFAULT_BLOCK_SIZE) {
+           QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Invalid TRAINING_THRESHOLD: cannot be lower than DEFAULT_BLOCK_SIZE ", "(%d)", DEFAULT_BLOCK_SIZE);
+          return 0;
+      } else if (params->algoParams.svsParams.quantBits == 0) {
+           QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Invalid TRAINING_THRESHOLD: ", "compression was not requested");
+          return 0;
       }
     } else {
       QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Bad arguments for algorithm", " %s: %s", VECSIM_ALGORITHM_SVS, AC_GetStringNC(ac, NULL));
@@ -1042,7 +1048,7 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
     numParam++;
   }
   if (expNumParam > numParam) {
-    QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
+    QueryError_SetWithoutUserDataFmt(status, QUERY_EPARSEARGS, "Expected %d parameters but got %d", expNumParam * 2, numParam * 2);
     return 0;
   }
   if (!mandtype) {
@@ -1221,12 +1227,19 @@ static int parseVectorField(IndexSpec *sp, StrongRef sp_ref, FieldSpec *fs, Args
 
     // primary index params allocated in VecSim_TieredParams_Init()
     TieredIndexParams *params = &fs->vectorOpts.vecSimParams.algoParams.tieredParams;
-
-
-    // Forcibly set all SVS params to zero
-    memset(params->primaryIndexParams, 0, sizeof(VecSimParams));
-
     params->primaryIndexParams->algo = VecSimAlgo_SVS;
+    params->primaryIndexParams->algoParams.svsParams.blockSize = 0;
+    params->primaryIndexParams->algoParams.svsParams.quantBits = VecSimSvsQuant_NONE;
+    params->primaryIndexParams->algoParams.svsParams.alpha = 0.0f; // SVS_VAMANA_DEFAULT_ALPHA_L2 / SVS_VAMANA_DEFAULT_ALPHA_IP
+    params->primaryIndexParams->algoParams.svsParams.graph_max_degree = 32; //SVS_VAMANA_DEFAULT_GRAPH_MAX_DEGREE=32
+    params->primaryIndexParams->algoParams.svsParams.construction_window_size = 200; //SVS_VAMANA_DEFAULT_CONSTRUCTION_WINDOW_SIZE
+    params->primaryIndexParams->algoParams.svsParams.max_candidate_pool_size = 0;
+    params->primaryIndexParams->algoParams.svsParams.prune_to = 0;
+    params->primaryIndexParams->algoParams.svsParams.use_search_history = true; //SVS_VAMANA_DEFAULT_USE_SEARCH_HISTORY
+    params->primaryIndexParams->algoParams.svsParams.num_threads = 1; //SVS_VAMANA_DEFAULT_NUM_THREADS
+    params->primaryIndexParams->algoParams.svsParams.search_window_size = 0;
+    params->primaryIndexParams->algoParams.svsParams.epsilon = 0.0f;
+    params->primaryIndexParams->algoParams.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold = 10 * DEFAULT_BLOCK_SIZE; //SVS_VAMANA_DEFAULT_TRAINING_THRESHOLD
     params->primaryIndexParams->logCtx = logCtx;
     result = parseVectorField_svs(fs, params, ac, status);
   } else {
