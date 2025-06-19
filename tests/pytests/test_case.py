@@ -300,6 +300,33 @@ def testCaseWithMissingFields(env):
     env.assertEqual(products['doc3'], 'only_field2')
     env.assertEqual(products['doc4'], 'none')
 
+def testNestedCaseDepth(env):
+    """Test deep nesting of the case function"""
+
+    def generate_case_expr(depth):
+        """ Generate a recursive CASE structure with the specified depth in the form: CASE(0, "a", "b") """
+        if depth <= 1:
+            return f"case(0, 'a{depth}', 'b')"
+        
+        return f"case(0, 'a{depth}', {generate_case_expr(depth-1)})"
+    
+    conn = getConnectionByEnv(env)
+
+    # Create an index and add a doc
+    env.expect('FT.CREATE', 'idx_depth', 'SCHEMA',
+               't', 'TAG').ok()
+    conn.execute_command('HSET', 'doc:1', 't', 'foo')
+    # Test deep nesting of case
+    depth = 20
+    case_expr = generate_case_expr(depth)
+    
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx_depth', '*',
+        'APPLY', case_expr, 'AS', 'nested_value',
+        'DIALECT', '2')
+    # Expect the deepest `else` value
+    env.assertEqual(res[1], ['nested_value', 'b'])
+
 def testNestedConditionsCase(env):
     """Test case function with nested conditions in both result branches"""
     conn = getConnectionByEnv(env)
