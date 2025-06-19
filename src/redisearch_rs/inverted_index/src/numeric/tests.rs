@@ -1,6 +1,6 @@
 use std::io::Cursor;
 
-use crate::{Decoder, DecoderResult, Delta, Encoder, Numeric, RSIndexResult};
+use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult, numeric::Numeric};
 use pretty_assertions::assert_eq;
 
 #[test]
