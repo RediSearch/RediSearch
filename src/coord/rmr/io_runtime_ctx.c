@@ -215,6 +215,7 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
   io_runtime_ctx->pendingTopo = NULL;
   io_runtime_ctx->loop_th_ready = false;
   io_runtime_ctx->loop_th_running = false;
+  io_runtime_ctx->io_runtime_started_or_starting = false;
   io_runtime_ctx->pendingQueues = NULL;  // Initialize to NULL
   //need to copy
   if (take_topo_ownership) {
@@ -228,8 +229,11 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
   io_runtime_ctx->topologyAsync.data = io_runtime_ctx;
   io_runtime_ctx->topologyFailureTimer.data = io_runtime_ctx;
   io_runtime_ctx->topologyValidationTimer.data = io_runtime_ctx;
+  uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyValidationTimer);
+  uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyFailureTimer);
   uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->async, rqAsyncCb);
   uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->shutdownAsync, shutdown_cb);
+  uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyAsync, topologyAsyncCB);
   return io_runtime_ctx;
 }
 
@@ -264,9 +268,6 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
 void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx) {
   // Initialize the loop and timers
   // Verify that we are running on the event loop thread
-  uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyValidationTimer);
-  uv_timer_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyFailureTimer);
-  uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyAsync, topologyAsyncCB);
   int uv_thread_create_status = uv_thread_create(&io_runtime_ctx->loop_th, sideThread, io_runtime_ctx);
   RS_ASSERT(uv_thread_create_status == 0);
   REDISMODULE_NOT_USED(uv_thread_create_status);
