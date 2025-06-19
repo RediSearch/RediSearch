@@ -17,11 +17,35 @@ use std::{
 use enumflags2::{BitFlags, bitflags};
 pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
 
+mod numeric;
+
 /// A delta is the difference between document IDs. It is mostly used to save space in the index
 /// because document IDs are usually sequential and the difference between them are small. With the
 /// help of encoding, we can optionally store the difference (delta) efficiently instead of the full document
 /// ID.
 pub struct Delta(usize);
+
+impl Delta {
+    fn pack(self) -> Vec<u8> {
+        let mut delta = self.0;
+        let mut delta_vec = Vec::with_capacity(7);
+
+        while delta > 0 {
+            let byte = delta & 0b1111_1111;
+            delta_vec.push(byte as u8);
+            delta >>= 8;
+        }
+        delta_vec
+    }
+
+    fn unpack(data: &[u8]) -> Self {
+        let mut delta = 0;
+        for (i, &byte) in data.iter().enumerate() {
+            delta |= (byte as usize) << (i * 8);
+        }
+        Delta(delta)
+    }
+}
 
 impl Delta {
     /// Make a new delta value
@@ -143,9 +167,9 @@ pub struct RSIndexResult {
 
 impl RSIndexResult {
     /// Create a new numeric index result with the given numeric value
-    pub fn numeric(num: f64) -> Self {
+    pub fn numeric(doc_id: t_docId, num: f64) -> Self {
         Self {
-            doc_id: 0,
+            doc_id,
             dmd: std::ptr::null(),
             field_mask: 0,
             freq: 0,
@@ -279,18 +303,14 @@ pub trait Decoder {
     /// add to the `base` document ID to get the actual document ID.
     ///
     /// Returns `Ok(None)` if there is nothing left on the reader to decode.
-    fn decode<R: Read>(
-        &self,
-        reader: &mut R,
-        base: t_docId,
-    ) -> std::io::Result<Option<DecoderResult>>;
+    fn decode<R: Read>(&self, reader: R, base: t_docId) -> std::io::Result<Option<DecoderResult>>;
 
     /// Like `[Decoder::decode]`, but it skips all entries whose document ID is lower than `target`.
     ///
     /// Returns `None` if no record has a document ID greater than or equal to `target`.
-    fn seek<R: Read + Seek>(
+    fn seek<R: Read + Seek + Copy>(
         &self,
-        reader: &mut R,
+        reader: R,
         base: t_docId,
         target: t_docId,
     ) -> std::io::Result<Option<RSIndexResult>> {
