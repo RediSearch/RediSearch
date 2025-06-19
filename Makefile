@@ -9,6 +9,8 @@
 
 .NOTPARALLEL:
 
+MAKEFLAGS += --no-print-directory
+
 ROOT := $(shell pwd)
 BUILD_SCRIPT := $(ROOT)/build.sh
 
@@ -72,12 +74,16 @@ ifeq ($(QUICK),1)
 	BUILD_ARGS += QUICK=1
 endif
 
-ifneq ($(REDIS_STANDALONE),)
-	BUILD_ARGS += REDIS_STANDALONE=$(REDIS_STANDALONE)
+# If SA is set but REDIS_STANDALONE is not, use SA as REDIS_STANDALONE
+ifneq ($(SA),)
+ifeq ($(REDIS_STANDALONE),)
+    override REDIS_STANDALONE := $(SA)
+endif
 endif
 
-ifneq ($(SA),)
-	BUILD_ARGS += SA=$(SA)
+# Pass REDIS_STANDALONE to build script (SA is handled as fallback in test scripts)
+ifneq ($(REDIS_STANDALONE),)
+    BUILD_ARGS += REDIS_STANDALONE=$(REDIS_STANDALONE)
 endif
 
 # Package variables (used by pack target)
