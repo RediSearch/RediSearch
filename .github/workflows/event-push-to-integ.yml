@@ -25,5 +25,3 @@ jobs:
     if: ${{ needs.check-what-changed.outputs.BENCHMARK_CHANGED == 'true' }}
     uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit
-    with:
-      notify_failure: true
