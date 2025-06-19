@@ -126,7 +126,7 @@ fn numeric_c_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &
                     black_box(grew_size);
                 }
             },
-            BatchSize::LargeInput,
+            BatchSize::SmallInput,
         );
     });
 }
