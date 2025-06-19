@@ -226,7 +226,7 @@ impl Decoder for Numeric {
                 reader.read_exact(&mut bytes[..(len + 1) as _])?;
                 let num = u64::from_le_bytes(bytes);
 
-                (num as f64) * -1.0
+                (num as f64).copysign(-1.0)
             }
             HeaderType::Float {
                 is_infinite: true,
@@ -256,7 +256,7 @@ impl Decoder for Numeric {
             } => {
                 let mut bytes = [0; 4];
                 reader.read_exact(&mut bytes)?;
-                let f = f32::from_le_bytes(bytes) * -1.0;
+                let f = f32::from_le_bytes(bytes).copysign(-1.0);
 
                 f as _
             }
@@ -278,7 +278,7 @@ impl Decoder for Numeric {
                 let mut bytes = [0; 8];
                 reader.read_exact(&mut bytes)?;
 
-                f64::from_le_bytes(bytes) * -1.0
+                f64::from_le_bytes(bytes).copysign(-1.0)
             }
         };
         let record = RSIndexResult::numeric(doc_id, num);
