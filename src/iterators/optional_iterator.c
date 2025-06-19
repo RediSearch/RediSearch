@@ -43,7 +43,7 @@ static void OI_Rewind(QueryIterator *base) {
 static IteratorStatus OI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
   OptionalIterator *oi = (OptionalIterator *)base;
   RS_ASSERT(docId > base->lastDocId);
-  RS_ASSERT(docId > base->wcii->lastDocId);
+  RS_ASSERT(docId > oi->wcii->lastDocId);
 
   if (docId > oi->maxDocId || base->atEOF) {
     base->atEOF = true;
