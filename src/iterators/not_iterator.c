@@ -86,43 +86,30 @@ static IteratorStatus NI_Read_Optimized(QueryIterator *base) {
     return ITERATOR_EOF;
   }
 
-  IteratorStatus rc;
-
-  // If child has not read any element, read one
-  if (ni->child->lastDocId == 0) {
-    // Read at least the first entry of the child
-    rc = ni->child->Read(ni->child);
-    if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
-  }
-
   // Advance to the next potential docId
-  rc = ni->wcii->Read(ni->wcii);
+  IteratorStatus rc = ni->wcii->Read(ni->wcii);
   if (rc == ITERATOR_TIMEOUT) {
     return ITERATOR_TIMEOUT;
   }
   // Iterate through all the documents present in the wcii until we find one that is not in child
   while (!ni->wcii->atEOF) {
-    // Case 1: Current docID is less than child's docID or child is exhauster.
-    // This means we found a document that is not in the child iterator
     if (ni->child->atEOF || ni->wcii->lastDocId < ni->child->lastDocId) {
+      // Case 1: Current docID is less than child's docID or child is exhauster.
+      // This means we found a document that is not in the child iterator
       base->lastDocId = base->current->docId = ni->wcii->lastDocId;
       return ITERATOR_OK; // Found a valid difference element
-    }
-
-    // Case 2: Current docID is equal to child's docID.
-    // If we're at the same docId as the child, we need to advance both and in next loop iteration we will see how they compare
-    // TODO: Joan here we are not doing this
-    else if (ni->wcii->lastDocId == ni->child->lastDocId) {
+    } else if (ni->wcii->lastDocId == ni->child->lastDocId) {
+      // Case 2: Current docID is equal to child's docID.
+      // If we're at the same docId as the child, we need to advance both and in next loop iteration we will see how they compare
       rc = ni->child->Read(ni->child);
       if (rc == ITERATOR_TIMEOUT) return rc;
       rc = ni->wcii->Read(ni->wcii);
       if (rc == ITERATOR_TIMEOUT) {
         return ITERATOR_TIMEOUT;
       }
-    }
-    // Case 3: Current docID is ahead of child's docID
-    // This means we need to advance the child until it catches up, and in next loop we will see how they compare
-    else { //(ni->child->lastDocId < ni->wcii->lastDocId)
+    } else { //(ni->child->lastDocId < ni->wcii->lastDocId)
+      // Case 3: Current docID is ahead of child's docID
+      // This means we need to advance the child until it catches up, and in next loop we will see how they compare
       while (!ni->child->atEOF && ni->child->lastDocId < ni->wcii->lastDocId) {
         rc = ni->child->Read(ni->child);
         if (rc == ITERATOR_TIMEOUT) return rc;
@@ -140,6 +127,7 @@ static IteratorStatus NI_Read_Optimized(QueryIterator *base) {
  * NOTFOUND. If we don't or we're at the end - return OK */
 static IteratorStatus NI_SkipTo_NotOptimized(QueryIterator *base, t_docId docId) {
   NotIterator *ni = (NotIterator *)base;
+  RS_ASSERT(base->lastDocId < docId);
   // do not skip beyond max doc id
   if (base->atEOF) {
     return ITERATOR_EOF;
@@ -148,7 +136,6 @@ static IteratorStatus NI_SkipTo_NotOptimized(QueryIterator *base, t_docId docId)
     base->atEOF = true;
     return ITERATOR_EOF;
   }
-  RS_ASSERT(base->lastDocId < docId);
 
   // Case 1: Child is ahead or at EOF - docId is not in child
   if (ni->child->lastDocId > docId || ni->child->atEOF) {
@@ -185,6 +172,7 @@ static IteratorStatus NI_SkipTo_NotOptimized(QueryIterator *base, t_docId docId)
  */
 static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
   NotIterator *ni = (NotIterator *)base;
+  RS_ASSERT(base->lastDocId < docId);
 
   // Check if we've reached the end or if docId exceeds maximum
   if (base->atEOF) {
@@ -194,8 +182,6 @@ static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
     base->atEOF = true;
     return ITERATOR_EOF;
   }
-  RS_ASSERT(base->lastDocId < docId);
-
   // Handle relative positions of wildcard and child iterators
   IteratorStatus rc = ni->wcii->SkipTo(ni->wcii, docId);
   if (rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
@@ -204,13 +190,12 @@ static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
     return rc;
   }
 
-  // Case 1: Wildcard is behind child
   if (ni->wcii->lastDocId < ni->child->lastDocId || ni->child->atEOF) {
+    // Case 1: Wildcard is behind child
     // Wildcard found a document before child's position - valid result
     base->lastDocId = base->current->docId = ni->wcii->lastDocId;
-  }
-  // Case 2: Both iterators at same position
-  else if (ni->wcii->lastDocId == ni->child->lastDocId) {
+  } else if (ni->wcii->lastDocId == ni->child->lastDocId) {
+    // Case 2: Both iterators at same position
     // Both at same position - find next valid result
     rc = NI_Read_Optimized(base);
     if (rc == ITERATOR_OK) {
@@ -218,9 +203,8 @@ static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
     } else if (rc == ITERATOR_EOF) {
       RS_ASSERT(base->atEOF);
     }
-  }
-  // Case 3: Wildcard is ahead of child
-  else { // ni->wcii->lastDocId > ni->child->lastDocId
+  } else { // ni->wcii->lastDocId > ni->child->lastDocId
+    // Case 3: Wildcard is ahead of child
     // Wildcard advanced past child - check if child has this new docID
     IteratorStatus child_rc = ni->child->SkipTo(ni->child, ni->wcii->lastDocId);
     if (child_rc == ITERATOR_TIMEOUT) return ITERATOR_TIMEOUT;
