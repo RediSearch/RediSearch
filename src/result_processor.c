@@ -16,6 +16,9 @@
 #include "util/timeout.h"
 #include "util/arr.h"
 #include <stdatomic.h>
+#include <pthread.h>
+#include "util/references.h"
+
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -1443,7 +1446,30 @@ typedef struct {
   uint cur_idx;                        // Current index for yielding results
   RPStatus last_rc;                    // Last return code from upstream
   bool first_call;                     // Whether the first call to Next has been made
+  StrongRef sync_ref;                  // Reference to shared synchronization object
 } RPDepleter;
+
+// Shared synchronization object for all RPDepleter instances of a pipeline
+typedef struct {
+  pthread_cond_t cond;
+  pthread_mutex_t mutex;
+} DepleterSync;
+
+// Free function for DepleterSync
+static void DepleterSync_Free(void *obj) {
+  DepleterSync *sync = (DepleterSync *)obj;
+  pthread_cond_destroy(&sync->cond);
+  pthread_mutex_destroy(&sync->mutex);
+  rm_free(sync);
+}
+
+// Create a new shared sync object for a pipeline
+StrongRef DepleterSync_New() {
+  DepleterSync *sync = rm_malloc(sizeof(DepleterSync));
+  pthread_cond_init(&sync->cond, NULL);
+  pthread_mutex_init(&sync->mutex, NULL);
+  return StrongRef_New(sync, DepleterSync_Free);
+}
 
 /**
  * Destructor
@@ -1451,12 +1477,13 @@ typedef struct {
 static void RPDepleter_Free(ResultProcessor *base) {
   RPDepleter *self = (RPDepleter *)base;
   array_free_ex(self->results, srDtor(*(char **)ptr));
+  StrongRef_Release(self->sync_ref);
   rm_free(self);
 }
 
 /**
  * Background thread function: consumes all results from upstream and stores them in the results array.
- * Signals completion by setting done_depleting to 1.
+ * Signals completion by setting done_depleting to 1 and broadcasting to condition variable.
  */
 static void RPDepleter_Deplete(void *arg) {
   RPDepleter *self = (RPDepleter *)arg;
@@ -1471,7 +1498,14 @@ static void RPDepleter_Deplete(void *arg) {
   rm_free(r);
   // Save the last return code from the upstream.
   self->last_rc = rc;
+
+  // Signal completion under mutex protection
+  DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
+  RS_LOG_ASSERT(sync, "Invalid sync reference");
+  pthread_mutex_lock(&sync->mutex);
   atomic_store(&self->done_depleting, 1);
+  pthread_cond_broadcast(&sync->cond);  // Wake up all waiting depleters
+  pthread_mutex_unlock(&sync->mutex);
 }
 
 /**
@@ -1493,41 +1527,62 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
 
 /**
  * Next function for RPDepleter.
- * Returns `RS_RESULT_DEPLETING` until the BG thread is done depleting.
+ * First call: starts background thread and returns `RS_RESULT_DEPLETING`.
+ * Subsequent calls: wait on condition variable for any depleter to complete.
+ * When woken up, checks if this depleter is done. If so, switches to yield mode.
+ * If not, returns `RS_RESULT_DEPLETING` to allow downstream to check other depleters.
  */
 static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
   RPDepleter *self = (RPDepleter *)base;
+
   // The first call to next will start the depleting thread, and return `RS_RESULT_DEPLETING`.
   if (self->first_call) {
     self->first_call = false;
-    // TODO: We may want this to be added to the `workers` thread pool instead
-    // of a new one. In case there are no workers, we do the depleting in the
-    // current thread.
     redisearch_thpool_add_work(depleterPool, RPDepleter_Deplete, self, THPOOL_PRIORITY_HIGH);
     return RS_RESULT_DEPLETING;
   }
 
-  // If the depleting thread is done, return the results.
+  // On subsequent calls, wait on condition variable for any depleter to complete
+  DepleterSync *sync = (DepleterSync *)StrongRef_Get(self->sync_ref);
+  RS_LOG_ASSERT(sync, "Invalid sync reference");
+  pthread_mutex_lock(&sync->mutex);
+
+  // Check if depleting is already done.
+  // We do this while holding the mutex so that we don't miss a signal.
   if (atomic_load(&self->done_depleting) == 1) {
-    // Set the next function to RPDepleter_Next_Yield.
+    pthread_mutex_unlock(&sync->mutex);
     base->Next = RPDepleter_Next_Yield;
     return base->Next(base, r);
   }
 
-  // Still depleting
+  // Wait on condition variable for any depleter to signal completion
+  pthread_cond_wait(&sync->cond, &sync->mutex);
+
+  // Check if our specific thread is done after being woken up
+  if (atomic_load(&self->done_depleting) == 1) {
+    pthread_mutex_unlock(&sync->mutex);
+    // Our thread is done, switch to yield mode
+    base->Next = RPDepleter_Next_Yield;
+    return base->Next(base, r);
+  }
+
+  pthread_mutex_unlock(&sync->mutex);
+
+  // Our thread is not done yet, but another depleter signaled completion
+  // Return DEPLETING so downstream can check other depleters
   return RS_RESULT_DEPLETING;
 }
 
 /**
- * Constructs a new RPDepleter processor, wrapping the given upstream processor.
- * The returned processor takes ownership of result depleting and yielding.
+ * Constructs a new RPDepleter processor
  */
-ResultProcessor *RPDepleter_New() {
+ResultProcessor *RPDepleter_New(StrongRef sync_ref) {
   RPDepleter *ret = rm_calloc(1, sizeof(*ret));
   ret->results = array_new(SearchResult*, 0);
   ret->base.Next = RPDepleter_Next_Dispatch;
   ret->base.Free = RPDepleter_Free;
   ret->base.type = RP_DEPLETER;
   ret->first_call = true;
+  ret->sync_ref = sync_ref;
   return &ret->base;
 }

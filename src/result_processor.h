@@ -19,6 +19,7 @@
 #include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
+#include "util/references.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -314,11 +315,31 @@ void PipelineAddCrash(struct AREQ *r);
   *******************************************************************************************************************/
  ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
 
+/*******************************************************************************
+ * Depleter Result Processor
+ *
+ *  The RPDepleter result processor offloads the task of consuming all results from
+ *  its upstream processor into a background thread, storing them in an internal
+ *  array. While the background thread is running, calls to Next() wait on a shared
+ *  condition variable and return RS_RESULT_DEPLETING. The thread can be awakened
+ *  either by its own depleting thread completing or by another RPDepleter's thread
+ *  signaling completion. Once depleting is complete for this processor, Next()
+ *  yields results one by one from the internal array, and finally returns the last
+ *  return code from the upstream.
+ */
+
 /**
  * Constructs a new RPDepleter processor, wrapping the given upstream processor.
  * The returned processor takes ownership of result depleting and yielding.
  */
-ResultProcessor *RPDepleter_New();
+ResultProcessor *RPDepleter_New(StrongRef sync_ref);
+
+/**
+ * Creates a new shared sync object for a pipeline.
+ * This is used during pipeline construction to create sync objects
+ * that can be shared among multiple RPDepleters.
+ */
+StrongRef DepleterSync_New();
 
 #ifdef __cplusplus
 }
