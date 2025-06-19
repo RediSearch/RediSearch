@@ -82,6 +82,7 @@ int AC_GetUnsignedLongLong(ArgsCursor *ac, unsigned long long *ull, int flags);
 int AC_GetUnsigned(ArgsCursor *ac, unsigned *u, int flags);
 int AC_GetInt(ArgsCursor *ac, int *i, int flags);
 int AC_GetDouble(ArgsCursor *ac, double *d, int flags);
+int AC_GetU8(ArgsCursor *ac, uint8_t *u, int flags);
 int AC_GetU32(ArgsCursor *ac, uint32_t *u, int flags);
 int AC_GetU64(ArgsCursor *ac, uint64_t *u, int flags);
 int AC_GetSize(ArgsCursor *ac, size_t *sz, int flags);

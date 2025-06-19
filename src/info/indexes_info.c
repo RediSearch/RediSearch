@@ -60,6 +60,7 @@ TotalIndexesInfo IndexesInfo_TotalInfo() {
     if (info.max_indexing_failures < index_error_count) {
       info.max_indexing_failures = index_error_count;
     }
+    info.background_indexing_failures_OOM += sp->scan_failed_OOM;
   }
   dictReleaseIterator(iter);
   if (info.min_mem == -1) info.min_mem = 0;             // No index found

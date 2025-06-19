@@ -51,6 +51,8 @@ def testGetConfigOptions(env):
     assert env.expect('ft.config', 'get', 'BG_INDEX_SLEEP_GAP').res[0][0] == 'BG_INDEX_SLEEP_GAP'
     assert env.expect('ft.config', 'get', '_PRIORITIZE_INTERSECT_UNION_CHILDREN').res[0][0] == '_PRIORITIZE_INTERSECT_UNION_CHILDREN'
     assert env.expect('ft.config', 'get', 'INDEX_CURSOR_LIMIT').res[0][0] == 'INDEX_CURSOR_LIMIT'
+    assert env.expect('ft.config', 'get', '_BG_INDEX_MEM_PCT_THR').res[0][0] == '_BG_INDEX_MEM_PCT_THR'
+    assert env.expect('ft.config', 'get', '_BG_INDEX_OOM_PAUSE_TIME').res[0][0] == '_BG_INDEX_OOM_PAUSE_TIME'
 
 '''
 
@@ -126,6 +128,8 @@ def testAllConfig(env):
     env.assertEqual(res_dict['_PRIORITIZE_INTERSECT_UNION_CHILDREN'][0], 'false')
     env.assertEqual(res_dict['_FREE_RESOURCE_ON_THREAD'][0], 'true')
     env.assertEqual(res_dict['BG_INDEX_SLEEP_GAP'][0], '100')
+    env.assertEqual(res_dict['_BG_INDEX_MEM_PCT_THR'][0], '100')
+    env.assertEqual(res_dict['_BG_INDEX_OOM_PAUSE_TIME'][0], '0')
 
 # skip ctest configured tests
     #env.assertEqual(res_dict['GC_POLICY'][0], 'fork')
@@ -164,6 +168,8 @@ def testInitConfig(env):
     test_arg_num('_NUMERIC_RANGES_PARENTS', 1)
     test_arg_num('BG_INDEX_SLEEP_GAP', 15)
     test_arg_num('INDEX_CURSOR_LIMIT', 128)
+    test_arg_num('_BG_INDEX_MEM_PCT_THR', 90)
+    test_arg_num('_BG_INDEX_OOM_PAUSE_TIME', 10)
 
 # True/False arguments
     def test_arg_true_false(arg_name, res):
@@ -225,3 +231,7 @@ def testImmutable(env):
     env.expect('ft.config', 'set', 'UPGRADE_INDEX').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'RAW_DOCID_ENCODING').error().contains('Not modifiable at runtime')
     env.expect('ft.config', 'set', 'BG_INDEX_SLEEP_GAP').error().contains('Not modifiable at runtime')
+
+@skip(cluster=True)
+def test_setIndexingMemoryLimit_overflow(env):
+    env.expect('ft.config', 'set', '_BG_INDEX_MEM_PCT_THR', 101).error().contains("Memory limit for indexing cannot be greater then 100%")
