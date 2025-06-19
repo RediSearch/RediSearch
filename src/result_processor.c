@@ -16,8 +16,6 @@
 #include "util/timeout.h"
 #include "util/arr.h"
 
-#define HYBRID_MERGER_UPSTREAMS 2
-
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
  *******************************************************************************************************************/
@@ -1438,17 +1436,21 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
   * keyPtr -> HybridSearchResult mapping (contains both SearchResult and scores)
   *******************************************************************************************************************/
 
-// Structure to hold both SearchResult and scores from both upstreams
+// Structure to hold both SearchResult and scores from multiple upstreams
 typedef struct {
   SearchResult *searchResult; // The actual search result
-  double scores[HYBRID_MERGER_UPSTREAMS];           // scores[0] = upstream1, scores[1] = upstream2
-  bool hasScores[HYBRID_MERGER_UPSTREAMS];          // hasScores[0] = has upstream1, hasScores[1] = has upstream2
+  double *scores;             // Dynamic array of scores from upstreams
+  bool *hasScores;           // Dynamic array of flags indicating if each score is available
+  size_t numSources;       // Number of upstreams
 } HybridSearchResult;
 
 // Constructor for HybridSearchResult
-static HybridSearchResult* HybridSearchResult_New(SearchResult *searchResult) {
+static HybridSearchResult* HybridSearchResult_New(SearchResult *searchResult, size_t numUpstreams) {
   HybridSearchResult* hybridResult = rm_calloc(1, sizeof(HybridSearchResult));
   hybridResult->searchResult = searchResult;
+  hybridResult->numSources = numUpstreams;
+  hybridResult->scores = rm_calloc(numUpstreams, sizeof(double));
+  hybridResult->hasScores = rm_calloc(numUpstreams, sizeof(bool));
   return hybridResult;
 }
 
@@ -1456,6 +1458,8 @@ static HybridSearchResult* HybridSearchResult_New(SearchResult *searchResult) {
 static void HybridSearchResult_Free(HybridSearchResult* hybridResult) {
   if (hybridResult) {
     srDtor(hybridResult->searchResult);
+    rm_free(hybridResult->scores);
+    rm_free(hybridResult->hasScores);
     rm_free(hybridResult);
   }
 }
@@ -1485,16 +1489,16 @@ dictType dictTypeHybridSearchResult = {
  typedef struct {
    ResultProcessor base;
    HybridScoringFunction hybridScoring_function;
-   ResultProcessor *upstreams[HYBRID_MERGER_UPSTREAMS];
+   ResultProcessor **upstreams;  // Dynamic array of upstream processors
+   size_t numUpstreams;         // Number of upstream processors
    size_t window;
    dict *hybridResults;  // keyPtr -> HybridSearchResult mapping
    dictIterator *iterator; // Iterator for yielding results
-   SearchResult *pooledResult; // Reusable result for accumulation
    bool timedOut; // Flag to track if we timed out during accumulation
  } RPHybridMerger;
 
  /* Helper function to store a result from an upstream into the hybrid merger's dictionary */
- static void StoreUpstreamResult(SearchResult *r, dict *hybridResults, int upstreamIndex) {
+ static void StoreUpstreamResult(SearchResult *r, dict *hybridResults, int upstreamIndex, size_t numUpstreams) {
    const char *keyPtr = r->dmd->keyPtr;
 
    // Check if we've seen this document before
@@ -1502,8 +1506,7 @@ dictType dictTypeHybridSearchResult = {
 
    if (!hybridResult) {
      // First time seeing this document - create new hybrid result with copied SearchResult
-     SearchResult *resultCopy = SearchResult_Copy(r);
-     hybridResult = HybridSearchResult_New(resultCopy);
+     hybridResult = HybridSearchResult_New(r, numUpstreams);
      dictAdd(hybridResults, (void*)keyPtr, hybridResult);
    }
 
@@ -1513,15 +1516,16 @@ dictType dictTypeHybridSearchResult = {
  }
 
  /* Helper function to consume results from a single upstream */
- static int ConsumeFromUpstream(SearchResult *tempResult, dict *hybridResults, size_t maxResults, ResultProcessor *upstream, int upstreamIndex) {
+ static int ConsumeFromUpstream(dict *hybridResults, size_t maxResults, ResultProcessor *upstream, int upstreamIndex, size_t numUpstreams) {
    size_t consumed = 0;
    int rc = RS_RESULT_OK;
-   SearchResult_Clear(tempResult);
-   while (consumed < maxResults && (rc = upstream->Next(upstream, tempResult)) == RS_RESULT_OK) {
-       StoreUpstreamResult(tempResult, hybridResults, upstreamIndex);
-       SearchResult_Clear(tempResult);
+   SearchResult *r = rm_calloc(1, sizeof(*r));
+   while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
+       StoreUpstreamResult(r, hybridResults, upstreamIndex, numUpstreams);
        consumed++;
+       r = rm_calloc(1, sizeof(*r));
    }
+   rm_free(r);
    return rc;
  }
 
@@ -1539,9 +1543,7 @@ dictType dictTypeHybridSearchResult = {
 
    HybridSearchResult *hybridResult = dictGetVal(entry);
    RS_ASSERT(hybridResult && hybridResult->searchResult);
-   RS_ASSERT(hybridResult->hasScores[0] || hybridResult->hasScores[1]);
-
-   double hybridScore = self->hybridScoring_function(hybridResult->scores, hybridResult->hasScores, HYBRID_MERGER_UPSTREAMS);
+   double hybridScore = self->hybridScoring_function(hybridResult->scores, hybridResult->hasScores, hybridResult->numSources);
 
    SearchResult_Override(r, hybridResult->searchResult);
    r->score = hybridScore;
@@ -1549,21 +1551,21 @@ dictType dictTypeHybridSearchResult = {
    return RS_RESULT_OK;
  }
 
- /* Accumulation phase - consume window results from both upstreams */
+ /* Accumulation phase - consume window results from all upstreams */
  static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
    RPHybridMerger *self = (RPHybridMerger *)rp;
 
   // The array keeps unconsumed indices at the beginning, and consumed indices are moved to the end.
-  int upstreamIndices[HYBRID_MERGER_UPSTREAMS];
-  for (int i = 0; i < HYBRID_MERGER_UPSTREAMS; i++) {
+  int *upstreamIndices = rm_malloc(self->numUpstreams * sizeof(int));
+  for (size_t i = 0; i < self->numUpstreams; i++) {
     upstreamIndices[i] = i;
   }
-  int numUnconsumed = HYBRID_MERGER_UPSTREAMS; // Start with all upstreams unconsumed.
+  int numUnconsumed = self->numUpstreams; // Start with all upstreams unconsumed.
   // Busy wait loop - continuously try to consume from upstreams until all are consumed
   while (numUnconsumed > 0) {
     for (int i = 0; i < numUnconsumed; i++) {
       int upstreamIndex = upstreamIndices[i];
-      int rc = ConsumeFromUpstream(self->pooledResult, self->hybridResults, self->window, self->upstreams[upstreamIndex], upstreamIndex);
+      int rc = ConsumeFromUpstream(self->hybridResults, self->window, self->upstreams[upstreamIndex], upstreamIndex, self->numUpstreams);
 
       if (rc == RS_RESULT_DEPLETING) {
         // Upstream is still active but not ready to provide results. Skip to the next.
@@ -1584,13 +1586,18 @@ dictType dictTypeHybridSearchResult = {
             self->timedOut = true;
             self->iterator = dictGetIterator(self->hybridResults);
             rp->Next = RPHybridMerger_Yield;
+            rm_free(upstreamIndices);
             return rp->Next(rp, r);
           } else { //strict
+            rm_free(upstreamIndices);
             return rc;
           }
       }
     }
   }
+   // Free the temporary array
+   rm_free(upstreamIndices);
+
    // Initialize iterator for yield phase
    self->iterator = dictGetIterator(self->hybridResults);
 
@@ -1610,8 +1617,9 @@ dictType dictTypeHybridSearchResult = {
    // Free the hybrid results dictionary (HybridSearchResult values automatically freed by destructor)
    dictRelease(self->hybridResults);
 
-   // Free the pooled result
-   srDtor(self->pooledResult);
+   // Free the dynamic upstreams array
+   rm_free(self->upstreams);
+
    // Free the processor itself
    rm_free(self);
  }
@@ -1621,21 +1629,25 @@ dictType dictTypeHybridSearchResult = {
                                      ResultProcessor **upstreams,
                                      size_t numUpstreams,
                                      size_t window) {
-   RS_ASSERT(numUpstreams == HYBRID_MERGER_UPSTREAMS);
+   RS_ASSERT(numUpstreams > 0);
    RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
    ret->hybridScoring_function = hybridScoring_function;
-   for (size_t i = 0; i < HYBRID_MERGER_UPSTREAMS; i++) {
+   ret->numUpstreams = numUpstreams;
+
+   // Allocate dynamic array for upstreams
+   ret->upstreams = rm_malloc(numUpstreams * sizeof(ResultProcessor*));
+   for (size_t i = 0; i < numUpstreams; i++) {
      ret->upstreams[i] = upstreams[i];
    }
+
    ret->window = window;
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
-   // Calculate maximal dictionary size: window * HYBRID_MERGER_UPSTREAMS
-   size_t maximalSize = window * HYBRID_MERGER_UPSTREAMS;
+   // Calculate maximal dictionary size: window * numUpstreams
+   size_t maximalSize = window * numUpstreams;
    // Pre-size the dictionary to avoid multiple resizes during accumulation
    dictExpand(ret->hybridResults, maximalSize);
 
    ret->iterator = NULL;
-   ret->pooledResult = rm_calloc(1, sizeof(*ret->pooledResult));
 
    ret->base.type = RP_HYBRID_MERGER;
    ret->base.Next = RPHybridMerger_Accum;
