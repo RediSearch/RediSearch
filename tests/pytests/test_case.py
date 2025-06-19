@@ -94,7 +94,8 @@ def testInvalidApplyFunction(env):
     # Invalid function name in APPLY clause
     invalid_apply_exprs = [
         'case(invalid_function(@vector_distance), 1, 0)',
-        # 'case(!invalid_function(@vector_distance), 1, 0)',
+        'case(!invalid_function(@vector_distance), 1, 0)',
+        'case(!!invalid_function(@vector_distance), 1, 0)',
     ]
     for apply_expr in invalid_apply_exprs:
         env.expect(
@@ -117,6 +118,17 @@ def testInvalidApplyFunction(env):
         'SORTBY', '2', '@__key', 'ASC',
         'DIALECT', '2').error().contains("Could not find the value for a parameter name, consider using EXISTS")
 
+    # Property missing in case branches
+    invalid_apply_exprs = [
+        'case(exists(@missing), 1, 0)',
+        'case(1, exists(@missing), 0)',
+        'case(0, 0, exists(@missing))',
+    ]
+    for apply_expr in invalid_apply_exprs:
+        env.expect(
+            'FT.AGGREGATE', 'idx', '*',
+            'APPLY', apply_expr, 'AS', 'final_score',
+            'DIALECT', '2').error().contains("Property `missing` not loaded nor in pipeline")
 
 def testCaseFunction(env):
     """Test the case function in APPLY clause with various conditions"""
@@ -131,7 +143,7 @@ def testCaseFunction(env):
         'SORTBY', '2', '@__key', 'ASC',
         'DIALECT', '2')
 
-    env.assertEqual(res[0], 5)  # 4 documents total
+    env.assertEqual(res[0], 5)  # 5 documents total
 
     # Check that documents with 't' field have has_text=1, others have has_text=0
     for i, row in enumerate(res[1:]):

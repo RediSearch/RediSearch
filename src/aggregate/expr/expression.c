@@ -32,8 +32,7 @@ static int evalFuncCase(ExprEval *eval, const RSFunctionExpr *f, RSValue *result
   }
 
   // Determine which branch to evaluate based on the condition
-  RSValue *expr = RSValue_Dereference(&condVal);
-  int condition = RSValue_BoolTest(expr);
+  int condition = RSValue_BoolTest(&condVal);
   RSValue_Clear(&condVal);
 
   // Evaluate only the branch we need
@@ -45,7 +44,9 @@ static int evalFuncCase(ExprEval *eval, const RSFunctionExpr *f, RSValue *result
 static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   int rc = EXPR_EVAL_ERR;
 
-  // Special handling for func_case
+  // Special handling for func_case. The condition is evaluated to determine
+  // which branch to take and only that branch is evaluated.
+  // For other functions, we evaluate all arguments first.
   if (f->Call == func_case) {
     return evalFuncCase(eval, f, result);
   }
