@@ -6,12 +6,15 @@ on:
   workflow_call:
     inputs:
       env:
-        default: "ubuntu-latest"
+        default: ubuntu-latest
         type: string
       container:
         type: string
       san:
         type: string
+      coverage:
+        type: boolean
+        default: false
       get-redis:
         type: string
       test-config:
@@ -43,6 +46,7 @@ env:
   REDISEARCH_MT_BUILD: ${{ vars.REDISEARCH_MT_BUILD }}
   REJSON: ${{ inputs.rejson && 1 || 0 }}  # convert the boolean input to numeric
   VERBOSE_UTESTS: 1
+  COV: ${{ inputs.coverage && 1 || 0 }}  # convert the boolean input to numeric
 
 jobs:
   common-flow:
@@ -164,14 +168,18 @@ jobs:
           git checkout ${{ inputs.get-redis }}
       - name: Build Redis
         working-directory: redis
-        run: |
-          ${{ steps.mode.outputs.mode }} SANITIZER=${{ inputs.san }} BUILD_TLS=yes make install
+        run:  ${{ steps.mode.outputs.mode }} make install
+              BUILD_TLS=yes
+              SANITIZER=${{ inputs.san }}
+
       - name: Set Artifact Names
         # Artifact names have to be unique, so we base them on the environment.
         # We also remove invalid characters from the name.
         id: artifact-names
         run: | # Invalid characters include: Double quote ", Colon :, Less than <, Greater than >, Vertical bar |, Asterisk *, Question mark ?
-          echo "name=$(echo "${{ inputs.container || inputs.env }} ${{ runner.arch }} ${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }}- Redis ${{ inputs.get-redis || 'unstable' }}" | \
+          echo "name=$(echo "${{ format('{0}', inputs.san == 'address' && 'sanitizer' || '') }} \
+                             ${{ format('{0}', inputs.coverage && 'coverage test' || '') }} \
+                             ${{ inputs.container || inputs.env }} ${{ runner.arch }} - Redis ${{ inputs.get-redis || 'unstable' }}" | \
                        sed -e 's/[":\/\\<>\|*?]/_/g' -e 's/__*/_/g' -e 's/^_//' -e 's/_$//')" >> $GITHUB_OUTPUT
 
       - name: Build Standalone
@@ -197,7 +205,7 @@ jobs:
           LOG: 1
           CLEAR_LOGS: 0
           ENABLE_ASSERT: 1
-        run: make unit-tests  # todo: replace with ./build.sh RUN_UNIT_TESTS
+        run: ./build.sh RUN_UNIT_TESTS
       - name: Flow tests (standalone)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: standalone_tests
@@ -221,7 +229,7 @@ jobs:
           CLEAR_LOGS: 0
           COORD: 1
           ENABLE_ASSERT: 1
-        run: make unit-tests   # todo: replace with ./build.sh RUN_UNIT_TESTS
+        run: ./build.sh RUN_UNIT_TESTS
       - name: Flow tests (coordinator)
         timeout-minutes: ${{ fromJSON(inputs.test-timeout) }}
         id: coordinator_tests
@@ -262,3 +270,22 @@ jobs:
           echo "Coordinator: ${{ steps.coordinator_tests.outcome }}"
           echo "Coordinator Unit Tests: ${{ steps.coordinator_unit_tests.outcome }}"
           exit 1
+
+      - name: Upload flow coverage
+        if: inputs.coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/flow_standalone.info,bin/flow_coordinator.info
+          disable_search: true
+          flags: flow
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Upload unit coverage
+        if: inputs.coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: bin/unit_standalone.info,bin/unit_coordinator.info
+          disable_search: true
+          flags: unit
+          fail_ci_if_error: true # Fail on upload errors
+          token: ${{ secrets.CODECOV_TOKEN }}

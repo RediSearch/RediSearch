@@ -75,22 +75,21 @@ typedef struct {
 static int rpidxNext(ResultProcessor *base, SearchResult *res) {
   RPIndexIterator *self = (RPIndexIterator *)base;
   IndexIterator *it = self->iiter;
-
-  if (TimedOut_WithCounter(&self->timeout, &self->timeoutLimiter) == TIMED_OUT) {
-    return RS_RESULT_TIMEDOUT;
-  }
-
   // No root filter - the query has 0 results
   if (self->iiter == NULL) {
     return RS_RESULT_EOF;
   }
-
+  
   RSIndexResult *r;
   RSDocumentMetadata *dmd;
   int rc;
 
   // Read from the root filter until we have a valid result
   while (1) {
+    // check for timeout in case we are encountering a lot of deleted documents
+    if (TimedOut_WithCounter(&base->parent->sctx->timeout, &self->timeoutLimiter) == TIMED_OUT) {
+      return RS_RESULT_TIMEDOUT;
+    }
     rc = it->Read(it->ctx, &r);
     // This means we are done!
     switch (rc) {

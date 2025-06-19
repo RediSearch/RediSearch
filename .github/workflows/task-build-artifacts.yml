@@ -9,7 +9,7 @@ on:
   workflow_call:
     inputs:
       env:
-        default: "ubuntu-latest"
+        default: ubuntu-latest
         type: string
       container:
         type: string
