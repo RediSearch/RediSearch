@@ -17,7 +17,7 @@ use std::{
 use enumflags2::{BitFlags, bitflags};
 pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
 
-mod numeric;
+pub mod numeric;
 
 /// A delta is the difference between document IDs. It is mostly used to save space in the index
 /// because document IDs are usually sequential and the difference between them are small. With the
