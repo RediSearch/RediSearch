@@ -118,7 +118,7 @@ static int cmpEntries(const void *p1, const void *p2, const void *udata) {
 
 TrieIterator *Trie_Iterate(Trie *t, const char *prefix, size_t len, int maxDist, int prefixMode) {
   size_t rlen;
-  rune *runes = strToLowerRunes(prefix, &rlen);
+  rune *runes = strToLowerRunes(prefix, len, &rlen);
   if (!runes || rlen > TRIE_MAX_PREFIX) {
     if (runes) {
       rm_free(runes);
