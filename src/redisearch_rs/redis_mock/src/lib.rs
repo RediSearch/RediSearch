@@ -59,23 +59,6 @@ macro_rules! bind_alloc_internal_macro {
             unsafe extern "C" fn(count: usize, size: usize) -> *mut c_void,
         > = Some($c_id::allocator::calloc_shim);
 
-        #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_TryAlloc: Option<
-            unsafe extern "C" fn(bytes: usize) -> *mut c_void,
-        > = Some($c_id::allocator::alloc_shim);
-
-        #[unsafe(no_mangle)]
-        #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_TryRealloc: Option<
-            unsafe extern "C" fn(ptr: *mut c_void, bytes: usize) -> *mut c_void,
-        > = Some($c_id::allocator::realloc_shim);
-
-        #[unsafe(no_mangle)]
-        #[allow(non_upper_case_globals)]
-        pub static mut RedisModule_TryCalloc: Option<
-            unsafe extern "C" fn(count: usize, size: usize) -> *mut c_void,
-        > = Some($c_id::allocator::calloc_shim);
-
         #[unsafe(no_mangle)]
         #[allow(non_upper_case_globals)]
         pub static mut RedisModule_FreeString: Option<unsafe extern "C" fn(ptr: *mut c_void)> =
