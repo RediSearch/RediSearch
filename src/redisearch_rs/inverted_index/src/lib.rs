@@ -9,6 +9,7 @@
 
 use std::{
     ffi::{c_char, c_int},
+    fmt::Debug,
     io::{Read, Seek, Write},
     mem::ManuallyDrop,
 };
@@ -39,11 +40,13 @@ impl From<Delta> for usize {
 /// cbindgen:field-names=[value]
 #[allow(rustdoc::broken_intra_doc_links)] // The field rename above breaks the intra-doc link
 #[repr(C)]
+#[derive(Debug, PartialEq)]
 pub struct RSNumericRecord(pub f64);
 
 /// Represents the encoded offsets of a term in a document. You can read the offsets by iterating
 /// over it with RSOffsetVector_Iterator
 #[repr(C)]
+#[derive(Debug, PartialEq)]
 pub struct RSOffsetVector {
     pub data: *mut c_char,
     pub len: u32,
@@ -51,6 +54,7 @@ pub struct RSOffsetVector {
 
 /// Represents a single record of a document inside a term in the inverted index
 #[repr(C)]
+#[derive(Debug, PartialEq)]
 pub struct RSTermRecord {
     /// The term that brought up this record
     pub term: *mut RSQueryTerm,
@@ -61,7 +65,7 @@ pub struct RSTermRecord {
 
 #[bitflags]
 #[repr(u32)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 /// cbindgen:prefix-with-name=true
 pub enum RSResultType {
     Union = 1,
@@ -78,6 +82,7 @@ pub type RSResultTypeMask = BitFlags<RSResultType, u32>;
 /// Represents an aggregate array of values in an index record.
 /// cbindgen:rename-all=CamelCase
 #[repr(C)]
+#[derive(Debug, PartialEq)]
 pub struct RSAggregateResult {
     /// The number of child records
     pub num_children: c_int,
@@ -134,6 +139,120 @@ pub struct RSIndexResult {
 
     /// Relative weight for scoring calculations. This is derived from the result's iterator weight
     pub weight: f64,
+}
+
+impl RSIndexResult {
+    /// Create a new numeric index result with the given numeric value
+    pub fn numeric(num: f64) -> Self {
+        Self {
+            doc_id: 0,
+            dmd: std::ptr::null(),
+            field_mask: 0,
+            freq: 0,
+            offsets_sz: 0,
+            data: RSIndexResultData {
+                num: ManuallyDrop::new(RSNumericRecord(num)),
+            },
+            result_type: RSResultType::Numeric,
+            is_copy: false,
+            metrics: std::ptr::null_mut(),
+            weight: 0.0,
+        }
+    }
+}
+
+impl Debug for RSIndexResult {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut d = f.debug_struct("RSIndexResult");
+
+        d.field("doc_id", &self.doc_id)
+            .field("dmd", &self.dmd)
+            .field("field_mask", &self.field_mask)
+            .field("freq", &self.freq)
+            .field("offsets_sz", &self.offsets_sz);
+
+        match self.result_type {
+            RSResultType::Numeric | RSResultType::Metric => {
+                d.field(
+                    "data.num",
+                    // SAFETY: we just checked the type to ensure the data union has numeric data
+                    unsafe { &self.data.num },
+                );
+            }
+            RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => {
+                d.field(
+                    "data.agg",
+                    // SAFETY: we just checked the type to ensure the data union has aggregate data
+                    unsafe { &self.data.agg },
+                );
+            }
+            RSResultType::Term => {
+                d.field(
+                    "data.term",
+                    // SAFETY: we just checked the type to ensure the data union has term data
+                    unsafe { &self.data.term },
+                );
+            }
+            RSResultType::Virtual => {}
+        }
+
+        d.field("result_type", &self.result_type)
+            .field("is_copy", &self.is_copy)
+            .field("metrics", &self.metrics)
+            .field("weight", &self.weight)
+            .finish()
+    }
+}
+
+impl PartialEq for RSIndexResult {
+    fn eq(&self, other: &Self) -> bool {
+        if !(self.doc_id == other.doc_id
+            && self.dmd == other.dmd
+            && self.field_mask == other.field_mask
+            && self.freq == other.freq
+            && self.offsets_sz == other.offsets_sz
+            && self.result_type == other.result_type
+            && self.is_copy == other.is_copy
+            && self.metrics == other.metrics
+            && self.weight == other.weight)
+        {
+            return false;
+        }
+
+        match self.result_type {
+            RSResultType::Numeric | RSResultType::Metric => {
+                // SAFETY: we just checked the type of self to ensure the data union has numeric data
+                let self_num = unsafe { &self.data.num };
+
+                // SAFETY: from the previous checks we already know `other` has the same result
+                // type as `self`. Therefore `other` also has numeric data in its union.
+                let other_num = unsafe { &other.data.num };
+
+                self_num == other_num
+            }
+            RSResultType::Union | RSResultType::Intersection | RSResultType::HybridMetric => {
+                // SAFETY: we just checked the type of self to ensure the data union has aggregate data
+                let self_agg = unsafe { &self.data.agg };
+
+                // SAFETY: from the previous checks we already know `other` has the same result
+                // type as `self`. Therefore `other` also has aggregate data in its union.
+                let other_agg = unsafe { &other.data.agg };
+
+                self_agg == other_agg
+            }
+            RSResultType::Term => {
+                // SAFETY: we just checked the type of self to ensure the data union has term data
+                let self_term = unsafe { &self.data.term };
+
+                // SAFETY: from the previous checks we already know `other` has the same result
+                // type as `self`. Therefore `other` also has term data in its union.
+                let other_term = unsafe { &other.data.term };
+
+                self_term == other_term
+            }
+            RSResultType::Virtual => true,
+        }
+    }
 }
 
 /// Encoder to write a record into an index

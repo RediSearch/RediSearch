@@ -515,9 +515,10 @@ run_rust_tests() {
       --doctests
       --codecov
       --workspace
+      --exclude=inverted_index_bencher
       --exclude=trie_bencher
       --exclude=varint_bencher
-      --ignore-filename-regex="varint_bencher/*,trie_bencher/*"
+      --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*"
       --output-path=$BINROOT/rust_cov.info
     "
   elif [[ -n "$SAN" ]]; then # using `elif` as we shouldn't run with both
