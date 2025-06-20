@@ -2929,7 +2929,6 @@ cleanup:
   // and since we already replied with error in this case (in the beginning of this function),
   // we can't pass `mc` to the unblock function.
   searchRequestCtx_Free(req);
-  MR_requestCompleted();
   MRCtx_Free(mc);
   return res;
 }
@@ -3437,7 +3436,6 @@ static int DistSearchUnblockClient(RedisModuleCtx *ctx, RedisModuleString **argv
       RedisModule_ReplyWithError(ctx, "Could not send query to cluster");
     }
     searchRequestCtx_Free(MRCtx_GetPrivData(mrctx));
-    MR_requestCompleted();
     MRCtx_Free(mrctx);
   }
   return REDISMODULE_OK;
@@ -3534,13 +3532,7 @@ int ProfileCommandHandler(RedisModuleCtx *ctx, RedisModuleString **argv, int arg
 }
 
 int ClusterInfoCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
-  if (MR_CurrentTopologyExists()) {
-    // If we have a topology, we must read it from the uv thread
-    MR_uvReplyClusterInfo(ctx);
-  } else {
-    // If we don't have a topology, we can reply immediately
-    MR_ReplyClusterInfo(ctx, NULL);
-  }
+  MR_uvReplyClusterInfo(ctx);
   return REDISMODULE_OK;
 }
 
@@ -3557,7 +3549,7 @@ int SetClusterCommand(RedisModuleCtx *ctx, RedisModuleString **argv, int argc) {
     return REDISMODULE_ERR;
   }
 
-  RedisModule_Log(ctx, "debug", "Setting number of partitions to %ld", topo->numShards);
+  RedisModule_Log(ctx, "debug", "SetClusterCommand: Setting number of partitions to %ld", topo->numShards);
   NumShards = topo->numShards;
 
   // send the topology to the cluster
@@ -3590,8 +3582,14 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
     num_connections_per_shard = RSGlobalConfig.numWorkerThreads + 1;
   }
 
-  MRCluster *cl = MR_NewCluster(NULL, num_connections_per_shard);
-  MR_Init(cl, clusterConfig.timeoutMS);
+  size_t num_io_threads;
+  if (clusterConfig.coordinatorIOThreads) {
+    num_io_threads = clusterConfig.coordinatorIOThreads;
+  } else {
+    num_io_threads = RSGlobalConfig.numWorkerThreads + 1;
+  }
+
+  MR_Init(num_io_threads, num_connections_per_shard, clusterConfig.timeoutMS);
 
   return REDISMODULE_OK;
 }
