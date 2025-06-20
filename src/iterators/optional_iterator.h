@@ -22,7 +22,6 @@ typedef struct {
   QueryIterator *wcii;    // wildcard child iterator, used for optimization
   RSIndexResult *virt;
   t_docId maxDocId;
-  size_t numDocs;
   double weight;
 } OptionalIterator;
 

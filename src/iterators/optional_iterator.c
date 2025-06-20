@@ -24,7 +24,7 @@ static void OI_Free(QueryIterator *base) {
 
 static size_t OI_NumEstimated(QueryIterator *base) {
   OptionalIterator *oi = (OptionalIterator *)base;
-  return oi->wcii ? oi->wcii->NumEstimated(oi->wcii) : oi->numDocs;
+  return oi->wcii ? oi->wcii->NumEstimated(oi->wcii) : oi->maxDocId;
 }
 
 static void OI_Rewind(QueryIterator *base) {
@@ -184,7 +184,6 @@ QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, QueryEvalCtx *q, do
   oi->child = it;
   oi->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   oi->maxDocId = q->docTable->maxDocId;
-  oi->numDocs = q->docTable->size;
   oi->virt->freq = 1;
   oi->weight = weight;
 
