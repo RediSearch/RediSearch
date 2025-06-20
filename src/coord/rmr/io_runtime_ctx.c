@@ -24,8 +24,12 @@ static inline queueItem *exchangePendingTopo(IORuntimeCtx *io_runtime_ctx, queue
   return __atomic_exchange_n(&io_runtime_ctx->pendingTopo, newTopo, __ATOMIC_SEQ_CST);
 }
 
-static inline bool ioRuntimeNotStarted(IORuntimeCtx *io_runtime_ctx) {
+static inline bool CheckAndSetIoRuntimeNotStarted(IORuntimeCtx *io_runtime_ctx) {
   return __builtin_expect((__atomic_test_and_set(&io_runtime_ctx->io_runtime_started_or_starting, __ATOMIC_ACQUIRE) == false), false);
+}
+
+static inline bool CheckIoRuntimeStarted(IORuntimeCtx *io_runtime_ctx) {
+  return __builtin_expect((__atomic_load_n(&io_runtime_ctx->io_runtime_started_or_starting, __ATOMIC_ACQUIRE) == true), true);
 }
 
 static void triggerPendingQueues(IORuntimeCtx *io_runtime_ctx) {
@@ -239,14 +243,14 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
 }
 
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
-  if (!ioRuntimeNotStarted(io_runtime_ctx)) {
+  if (CheckIoRuntimeStarted(io_runtime_ctx)) {
     // There may be a delay between the thread starting and the loop running, we need to account for it
     uv_async_send(&io_runtime_ctx->shutdownAsync);
   }
 }
 
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
-  if (!ioRuntimeNotStarted(io_runtime_ctx)) {
+  if (CheckIoRuntimeStarted(io_runtime_ctx)) {
     // Here we know that at least the thread will be created
     uv_mutex_lock(&io_runtime_ctx->loop_th_created_mutex);
     while (!io_runtime_ctx->loop_th_created && !io_runtime_ctx->loop_th_creation_failed) {
@@ -290,7 +294,7 @@ void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx) {
 }
 
 void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata) {
-  if (ioRuntimeNotStarted(io_runtime_ctx)) {
+  if (CheckAndSetIoRuntimeNotStarted(io_runtime_ctx)) {
     //This guarantees only one worker thread will start the IORuntime because of the atomic check. If started but loop is not ready, still RQ will accumulate the request
     // and would still be processed when the thread uvloop starts
     IORuntimeCtx_Start(io_runtime_ctx);
