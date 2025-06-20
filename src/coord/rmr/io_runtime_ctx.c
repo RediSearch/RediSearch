@@ -123,25 +123,15 @@ static void topologyAsyncCB(uv_async_t *async) {
 void shutdown_cb(uv_async_t* handle) {
   IORuntimeCtx* io_runtime_ctx = (IORuntimeCtx*)handle->data;
 
-  if (!uv_is_closing(&io_runtime_ctx->async)) {
-      uv_close(&io_runtime_ctx->async, NULL);
+  // Stop the event loop first
+  uv_stop(&io_runtime_ctx->loop);
+}
+
+// Add this new function to walk and close all handles
+static void close_walk_cb(uv_handle_t* handle, void* arg) {
+  if (!uv_is_closing(handle)) {
+    uv_close(handle, NULL);
   }
-
-  if (!uv_is_closing(&io_runtime_ctx->topologyValidationTimer)) {
-    uv_close(&io_runtime_ctx->topologyValidationTimer, NULL);
-  }
-
-  if (!uv_is_closing(&io_runtime_ctx->topologyFailureTimer)) {
-    uv_close(&io_runtime_ctx->topologyFailureTimer, NULL);
-  }
-
-  if (!uv_is_closing(&io_runtime_ctx->topologyAsync)) {
-    uv_close(&io_runtime_ctx->topologyAsync, NULL);
-  }
-
-  // Close the shutdown async handle last (we're currently in its callback)
-  uv_close((uv_handle_t*)&io_runtime_ctx->shutdownAsync, NULL);
-
 }
 
 /* start the event loop side thread */
@@ -166,6 +156,12 @@ static void sideThread(void *arg) {
   // Run the event loop
   RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Running event loop", io_runtime_ctx->queue->id);
   uv_run(&io_runtime_ctx->loop, UV_RUN_DEFAULT);
+
+  // After the loop stops, close all handles https://github.com/libuv/libuv/issues/709
+  uv_walk(&io_runtime_ctx->loop, close_walk_cb, NULL);
+
+  // Run the loop one more time to process close callbacks
+  uv_run(&io_runtime_ctx->loop, UV_RUN_ONCE);
   uv_loop_close(&io_runtime_ctx->loop);
 }
 
@@ -219,26 +215,13 @@ int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime) {
   return REDIS_OK;
 }
 
-IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClusterTopology *initialTopology, size_t id, bool take_topo_ownership) {
-  IORuntimeCtx *io_runtime_ctx = rm_malloc(sizeof(IORuntimeCtx));
-  io_runtime_ctx->conn_mgr = MRConnManager_New(num_connections_per_shard);
-  io_runtime_ctx->queue = RQ_New(io_runtime_ctx->conn_mgr->nodeConns * PENDING_FACTOR, id);
-  io_runtime_ctx->pendingTopo = NULL;
-  io_runtime_ctx->loop_th_ready = false;
-  io_runtime_ctx->io_runtime_started_or_starting = false;
-  io_runtime_ctx->pendingQueues = NULL;  // Initialize to NULL
-  io_runtime_ctx->loop_th_created = false;
-  io_runtime_ctx->loop_th_creation_failed = false;
+static void UV_Init(IORuntimeCtx *io_runtime_ctx) {
   uv_loop_init(&io_runtime_ctx->loop);
 
   uv_mutex_init(&io_runtime_ctx->loop_th_created_mutex);
   uv_cond_init(&io_runtime_ctx->loop_th_created_cond);
   //need to copy
-  if (take_topo_ownership) {
-    io_runtime_ctx->topo = initialTopology;
-  } else {
-    io_runtime_ctx->topo = initialTopology ? MRClusterTopology_Clone(initialTopology): NULL;
-  }
+
   io_runtime_ctx->shutdownAsync.data = io_runtime_ctx;
   io_runtime_ctx->async.data = io_runtime_ctx;
   io_runtime_ctx->topologyAsync.data = io_runtime_ctx;
@@ -249,6 +232,39 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
   uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->async, rqAsyncCb);
   uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->shutdownAsync, shutdown_cb);
   uv_async_init(&io_runtime_ctx->loop, &io_runtime_ctx->topologyAsync, topologyAsyncCB);
+}
+
+static void UV_Close(IORuntimeCtx *io_runtime_ctx) {
+  // Close all handles when thread wasn't initialized
+  uv_close((uv_handle_t*)&io_runtime_ctx->topologyValidationTimer, NULL);
+  uv_close((uv_handle_t*)&io_runtime_ctx->topologyFailureTimer, NULL);
+  uv_close((uv_handle_t*)&io_runtime_ctx->async, NULL);
+  uv_close((uv_handle_t*)&io_runtime_ctx->shutdownAsync, NULL);
+  uv_close((uv_handle_t*)&io_runtime_ctx->topologyAsync, NULL);
+
+  // Run the loop once to process the close callbacks
+  uv_run(&io_runtime_ctx->loop, UV_RUN_ONCE);
+
+  uv_loop_close(&io_runtime_ctx->loop);
+}
+
+IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClusterTopology *initialTopology, size_t id, bool take_topo_ownership) {
+  IORuntimeCtx *io_runtime_ctx = rm_malloc(sizeof(IORuntimeCtx));
+  io_runtime_ctx->conn_mgr = MRConnManager_New(num_connections_per_shard);
+  io_runtime_ctx->queue = RQ_New(io_runtime_ctx->conn_mgr->nodeConns * PENDING_FACTOR, id);
+  io_runtime_ctx->pendingTopo = NULL;
+  io_runtime_ctx->loop_th_ready = false;
+  io_runtime_ctx->io_runtime_started_or_starting = false;
+  io_runtime_ctx->pendingQueues = NULL;  // Initialize to NULL
+  io_runtime_ctx->loop_th_created = false;
+  io_runtime_ctx->loop_th_creation_failed = false;
+  if (take_topo_ownership) {
+    io_runtime_ctx->topo = initialTopology;
+  } else {
+    io_runtime_ctx->topo = initialTopology ? MRClusterTopology_Clone(initialTopology): NULL;
+  }
+  UV_Init(io_runtime_ctx);
+
   return io_runtime_ctx;
 }
 
@@ -270,6 +286,8 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
     if (!io_runtime_ctx->loop_th_creation_failed) {
       uv_thread_join(&io_runtime_ctx->loop_th);
     }
+  } else {
+    UV_Close(io_runtime_ctx);
   }
   RQ_Free(io_runtime_ctx->queue);
   MRConnManager_Free(io_runtime_ctx->conn_mgr);
@@ -285,6 +303,11 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
   if (io_runtime_ctx->topo) {
     MRClusterTopology_Free(io_runtime_ctx->topo);
   }
+
+  // Destroy synchronization primitives
+  uv_mutex_destroy(&io_runtime_ctx->loop_th_created_mutex);
+  uv_cond_destroy(&io_runtime_ctx->loop_th_created_cond);
+
   rm_free(io_runtime_ctx);
 }
 
