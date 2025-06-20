@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <cstring>
 
 /** returns a string object containing @param id as a string */
 std::string numToDocStr(unsigned id);
@@ -61,20 +62,25 @@ public:
 
   MockQueryEvalCtx(t_docId maxDocId = 0, size_t numDocs = 0) {
     // Initialize DocTable
+    docTable = {0};
     docTable.maxDocId = maxDocId;
     docTable.size = numDocs ?: maxDocId;
 
     // Initialize SchemaRule
+    std::memset(&rule, 0, sizeof(rule));
     rule.index_all = false;
 
     // Initialize IndexSpec
+    spec = {0};
     spec.rule = &rule;
     spec.existingDocs = nullptr;
 
     // Initialize RedisSearchCtx
+    sctx = {0};
     sctx.spec = &spec;
 
     // Initialize QueryEvalCtx
+    qctx = {0};
     qctx.sctx = &sctx;
     qctx.docTable = &docTable;
   }
