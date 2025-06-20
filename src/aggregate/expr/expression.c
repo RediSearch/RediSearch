@@ -12,6 +12,8 @@
 #include "rlookup.h"
 #include "profile.h"
 
+extern RSConfig RSGlobalConfig;
+
 ///////////////////////////////////////////////////////////////////////////////////////////////
 
 static int evalInternal(ExprEval *eval, const RSExpr *e, RSValue *res);
@@ -49,7 +51,13 @@ static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   // which branch to take and only that branch is evaluated.
   // For other functions, we evaluate all arguments first.
   if (f->Call == func_case) {
-    return evalFuncCase(eval, f, result);
+    if (RSGlobalConfig.enableUnstableFeatures) {
+      return evalFuncCase(eval, f, result);
+    } else {
+      QueryError_SetError(eval->err, QUERY_EEXPR,
+        "Function `case()` is unavailable when `search-enable-unstable-features` is off. Enable it with `CONFIG SET search-enable-unstable-features yes`");
+      return EXPR_EVAL_ERR;
+    }
   }
 
   /** First, evaluate every argument */
