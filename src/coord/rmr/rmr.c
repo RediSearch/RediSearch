@@ -418,7 +418,7 @@ static void uvReplyClusterInfo(void *p) {
 void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   RedisModule_BlockedClientMeasureTimeStart(bc);
-  struct ReplyClusterInfoCtx *replyClusterInfoCtx = rm_malloc(sizeof(struct ReplyClusterInfoCtx));
+  struct ReplyClusterInfoCtx *replyClusterInfoCtx = rm_new(struct ReplyClusterInfoCtx);
   replyClusterInfoCtx->bc = bc;
   replyClusterInfoCtx->ioRuntime = cluster_g->control_plane_io_runtime;
   IORuntimeCtx_Schedule(cluster_g->control_plane_io_runtime, uvReplyClusterInfo, replyClusterInfoCtx);

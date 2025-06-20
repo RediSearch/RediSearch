@@ -21,26 +21,34 @@
 
 //Structure to encapsulate the IO Runtime context for MR operations to take place
 typedef struct {
-  MRWorkQueue *queue;
+  // Connectivity / topology structures
   MRConnManager *conn_mgr;
-  uv_async_t async;
-  uv_loop_t loop;
-  uv_thread_t loop_th;
-  // Synchronization for loop thread state
-  bool loop_th_running; /* set to true when the event loop thread is running and has all the initialization done.
-  * It is used to synchronize between the main thread and the event loop thread. (when the Thread is lazily started to be know when can the async event be scheduled).
-  * It is protected by the mutex and condition*/
+  struct MRClusterTopology *topo;
+
+  // Request queue and topology requests
+  MRWorkQueue *queue;
+  struct queueItem *pendingTopo; // The pending topology to be applied
+  arrayof(uv_async_t *) pendingQueues;
+
+  //UV runtime
 
   bool loop_th_ready; /* set to true when the event loop thread is ready to process requests.
   * This is set to false when a new topology is applied, and set to true
   * when the topology check is done. */
-  bool io_runtime_started_or_starting;
+  bool io_runtime_started_or_starting; /* Set to true when the IO Runtime is starting or already started. We know that at least one thread (main or worker) is initializing the thread so we are sure (by having atomic access)
+  * that the thread will be started only once.*/
+  uv_async_t async;
+  uv_loop_t loop;
+  uv_thread_t loop_th;
   uv_timer_t topologyValidationTimer, topologyFailureTimer;
   uv_async_t topologyAsync;
   uv_async_t shutdownAsync;
-  struct queueItem *pendingTopo; // The pending topology to be applied
-  arrayof(uv_async_t *) pendingQueues;
-  struct MRClusterTopology *topo;
+
+  // Thread creation / joining synchronization. Avoid race condition of joining a thread that was not created.
+  bool loop_th_created;
+  bool loop_th_creation_failed;
+  uv_mutex_t loop_th_created_mutex;
+  uv_cond_t loop_th_created_cond;
 } IORuntimeCtx;
 
 struct UpdateTopologyCtx {
@@ -53,6 +61,7 @@ void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx);
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx);
 
+//TODO(Joan): Have it return int status (return error if thread not created)
 void IORuntimeCtx_Schedule(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, void *privdata);
 
 // Clears the pendingTopology request that may be queued to be updated, and return the topology that was pending.

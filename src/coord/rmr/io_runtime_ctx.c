@@ -149,8 +149,6 @@ static void sideThread(void *arg) {
   IORuntimeCtx *io_runtime_ctx = arg;
   // loop is initialized and handles are ready
   io_runtime_ctx->loop_th_ready = false; // Until topology is validated, no requests are allowed (will be accumulated in the pending queue)
-  io_runtime_ctx->loop_th_running = true;
-
   uv_async_send(&io_runtime_ctx->topologyAsync); // start the topology check
   // Run the event loop
   RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Running event loop", io_runtime_ctx->queue->id);
@@ -214,9 +212,12 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
   io_runtime_ctx->queue = RQ_New(io_runtime_ctx->conn_mgr->nodeConns * PENDING_FACTOR, id);
   io_runtime_ctx->pendingTopo = NULL;
   io_runtime_ctx->loop_th_ready = false;
-  io_runtime_ctx->loop_th_running = false;
   io_runtime_ctx->io_runtime_started_or_starting = false;
   io_runtime_ctx->pendingQueues = NULL;  // Initialize to NULL
+  io_runtime_ctx->loop_th_created = false;
+  io_runtime_ctx->loop_th_creation_failed = false;
+  uv_mutex_init(&io_runtime_ctx->loop_th_created_mutex);
+  uv_cond_init(&io_runtime_ctx->loop_th_created_cond);
   //need to copy
   if (take_topo_ownership) {
     io_runtime_ctx->topo = initialTopology;
@@ -238,15 +239,23 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
 }
 
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
-  if (io_runtime_ctx->loop_th_running) {
-    // There may be a delaty between the thread starting and the loop running, we need to account for it
+  if (!ioRuntimeNotStarted(io_runtime_ctx)) {
+    // There may be a delay between the thread starting and the loop running, we need to account for it
     uv_async_send(&io_runtime_ctx->shutdownAsync);
   }
 }
 
 void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
-  if (io_runtime_ctx->loop_th_running) {
-    uv_thread_join(&io_runtime_ctx->loop_th);
+  if (!ioRuntimeNotStarted(io_runtime_ctx)) {
+    // Here we know that at least the thread will be created
+    uv_mutex_lock(&io_runtime_ctx->loop_th_created_mutex);
+    while (!io_runtime_ctx->loop_th_created && !io_runtime_ctx->loop_th_creation_failed) {
+      uv_cond_wait(&io_runtime_ctx->loop_th_created_cond, &io_runtime_ctx->loop_th_created_mutex);
+    }
+    uv_mutex_unlock(&io_runtime_ctx->loop_th_created_mutex);
+    if (!io_runtime_ctx->loop_th_creation_failed) {
+      uv_async_send(&io_runtime_ctx->shutdownAsync);
+    }
   }
   RQ_Free(io_runtime_ctx->queue);
   MRConnManager_Free(io_runtime_ctx->conn_mgr);
@@ -265,10 +274,16 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
   rm_free(io_runtime_ctx);
 }
 
+//TODO: Joan (Handle potential error from uv_thread_create, what if thread is not properly created)
 void IORuntimeCtx_Start(IORuntimeCtx *io_runtime_ctx) {
   // Initialize the loop and timers
   // Verify that we are running on the event loop thread
+  uv_mutex_lock(&io_runtime_ctx->loop_th_created_mutex);
   int uv_thread_create_status = uv_thread_create(&io_runtime_ctx->loop_th, sideThread, io_runtime_ctx);
+  io_runtime_ctx->loop_th_created = true;
+  io_runtime_ctx->loop_th_creation_failed = uv_thread_create_status != 0;
+  uv_cond_signal(&io_runtime_ctx->loop_th_created_cond);
+  uv_mutex_unlock(&io_runtime_ctx->loop_th_created_mutex);
   RS_ASSERT(uv_thread_create_status == 0);
   REDISMODULE_NOT_USED(uv_thread_create_status);
   RedisModule_Log(RSDummyContext, "verbose", "Created event loop thread for IORuntime ID %zu", io_runtime_ctx->queue->id);
