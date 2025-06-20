@@ -1209,6 +1209,9 @@ dependencies = [
 [[package]]
 name = "redis_mock"
 version = "0.0.1"
+dependencies = [
+ "ffi",
+]
 
 [[package]]
 name = "redisearch_rs"
@@ -1257,6 +1260,7 @@ dependencies = [
  "ffi",
  "libc",
  "pin-project",
+ "redis_mock",
 ]
 
 [[package]]
