@@ -53,8 +53,9 @@
 #define VECSIM_USE_SEARCH_HISTORY_ON "ON"
 #define VECSIM_USE_SEARCH_HISTORY_OFF "OFF"
 #define VECSIM_USE_SEARCH_HISTORY_DEFAULT "DEFAULT"
-#define VECSIM_QUANT_BITS "COMPRESSION"
+#define VECSIM_COMPRESSION "COMPRESSION"
 #define VECSIM_NO_COMPRESSION "NO_COMPRESSION"
+#define VECSIM_LVQ_SCALAR "GlobalSQ8"
 #define VECSIM_LVQ_4 "LVQ4"
 #define VECSIM_LVQ_8 "LVQ8"
 #define VECSIM_LVQ_4X4 "LVQ4x4"
@@ -150,7 +151,7 @@ size_t VecSimType_sizeof(VecSimType type);
 const char *VecSimType_ToString(VecSimType type);
 const char *VecSimMetric_ToString(VecSimMetric metric);
 const char *VecSimAlgorithm_ToString(VecSimAlgo algo);
-const char *VecSimSvsQuantBits_ToString(VecSimSvsQuantBits quantBits);
+const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits);
 const char *VecSimSearchHistory_ToString(VecSimOptionMode option);
 
 void VecSimParams_Cleanup(VecSimParams *params);
