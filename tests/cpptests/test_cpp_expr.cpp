@@ -13,11 +13,26 @@
 #include "aggregate/expr/exprast.h"
 #include "aggregate/functions/function.h"
 #include "util/arr.h"
+#include "config.h"
 
 class ExprTest : public ::testing::Test {
+ protected:
+  bool originalEnableUnstableFeatures;
+
  public:
   static void SetUpTestCase() {
     RegisterAllFunctions();
+  }
+
+  virtual void SetUp() {
+    // Save original value and enable unstable features for case() function tests
+    originalEnableUnstableFeatures = RSGlobalConfig.enableUnstableFeatures;
+    RSGlobalConfig.enableUnstableFeatures = true;
+  }
+
+  virtual void TearDown() {
+    // Restore original value
+    RSGlobalConfig.enableUnstableFeatures = originalEnableUnstableFeatures;
   }
 };
 
