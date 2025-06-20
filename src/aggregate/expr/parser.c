@@ -1059,8 +1059,6 @@ static YYACTIONTYPE yy_reduce(
     RSFunction cb = RSFunctionRegistry_Get(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
     if (!cb) {
         rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s);
-        ctx->ok = 0;
-        yylhsminor.yy19 = NULL;
     } else {
         // No syntax error
         error = false;

@@ -88,8 +88,6 @@ expr(A) ::= SYMBOL(B) LP arglist(C) RP. {
     RSFunction cb = RSFunctionRegistry_Get(B.s, B.len);
     if (!cb) {
         rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", B.len, B.s);
-        ctx->ok = 0;
-        A = NULL;
     } else {
         // No syntax error
         error = false;
