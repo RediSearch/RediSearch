@@ -22,6 +22,7 @@ FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
 QUICK=0          # Quick test mode (subset of tests)
 COV=${COV:-0}    # Coverage mode (for building and testing)
+LINT=0           # Run linters before building
 
 # Test configuration (0=disabled, 1=enabled)
 BUILD_TESTS=0    # Build test binaries
@@ -87,6 +88,17 @@ parse_arguments() {
         ;;
       QUICK=*)
         QUICK="${arg#*=}"
+        ;;
+      LINT|lint)
+        LINT=1
+        ;;
+      PREFLIGHT|preflight)
+        LINT=1
+        COV=1
+        SAN=1
+        RUN_UNIT_TESTS=1
+        RUN_RUST_TESTS=1
+        RUN_PYTEST=1
         ;;
       SA=*)
         SA="${arg#*=}"
@@ -680,6 +692,24 @@ run_micro_benchmarks() {
 }
 
 #-----------------------------------------------------------------------------
+# Function: lint
+# Running linters
+#-----------------------------------------------------------------------------
+
+lint() {
+    if [[ "$LINT" != "1" ]]; then
+      return 0
+    fi
+
+    echo "Running linters..."
+
+    cd "$ROOT/src/redisearch_rs"
+
+   	cargo clippy -- -D warnings
+	RUSTDOCFLAGS="-Dwarnings" cargo doc
+}
+
+#-----------------------------------------------------------------------------
 # Main execution flow
 #-----------------------------------------------------------------------------
 
@@ -694,6 +724,9 @@ setup_build_environment
 
 # Prepare CMake arguments
 prepare_cmake_arguments
+
+# Run linting if requested
+lint
 
 # Run CMake to configure the build
 run_cmake
