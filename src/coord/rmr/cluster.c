@@ -20,6 +20,7 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
   RS_ASSERT(num_io_threads > 0);
   cl->num_io_threads = num_io_threads;
   cl->io_runtimes_pool_size = num_io_threads - 1;
+  cl->current_round_robin = 0;  // Initialize round-robin counter
   if (num_io_threads <= 1) {
     cl->control_plane_io_runtime = IORuntimeCtx_Create(conn_pool_size, initialTopology, 0, true);
     cl->io_runtimes_pool = NULL;
