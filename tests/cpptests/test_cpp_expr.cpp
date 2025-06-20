@@ -3,17 +3,38 @@
 #include "aggregate/expr/exprast.h"
 #include "aggregate/functions/function.h"
 #include "util/arr.h"
+#include "config.h"
 
 class ExprTest : public ::testing::Test {
+ protected:
+  bool originalEnableUnstableFeatures;
+
  public:
   static void SetUpTestCase() {
     RegisterAllFunctions();
+  }
+
+  virtual void SetUp() {
+    // Save original value and enable unstable features for case() function tests
+    originalEnableUnstableFeatures = RSGlobalConfig.enableUnstableFeatures;
+    RSGlobalConfig.enableUnstableFeatures = true;
+  }
+
+  virtual void TearDown() {
+    // Restore original value
+    RSGlobalConfig.enableUnstableFeatures = originalEnableUnstableFeatures;
   }
 };
 
 struct TEvalCtx : ExprEval {
   QueryError status_s = {QueryErrorCode(0)};
   RSValue res_s = {RSValue_Null};
+
+  TEvalCtx() {
+    root = NULL;
+    lookup = NULL;
+    memset(static_cast<ExprEval *>(this), 0, sizeof(ExprEval));
+  }
 
   TEvalCtx(const char *s) {
     lookup = NULL;

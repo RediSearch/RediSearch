@@ -1,4 +1,12 @@
 from common import *
+from functools import wraps
+
+def with_unstable_features(f):
+    @wraps(f)
+    def wrapper(env, *args, **kwargs):
+        enable_unstable_features(env)
+        return f(env, *args, **kwargs)
+    return wrapper
 
 def _prepare_index(env, idx, dim=4):
     conn = getConnectionByEnv(env)
@@ -13,6 +21,7 @@ def _prepare_index(env, idx, dim=4):
     conn.execute_command('HSET', 'doc4', 'x', '1', 't', 'beer')
     conn.execute_command('HSET', 'doc5', 'x', '1')
 
+@with_unstable_features
 def testWithVectorRange(env):
     dim = 4
     _prepare_index(env, 'idx', dim)
@@ -72,6 +81,7 @@ def testWithVectorRange(env):
                 final_scores[i], expected_score[i], delta=0.0000001,
                 message=f"Failed for apply_expr: {apply_expr} at index {i}")
 
+@with_unstable_features
 def testInvalidApplyFunction(env):
     dim = 4
     _prepare_index(env, 'idx', dim)
@@ -131,6 +141,7 @@ def testInvalidApplyFunction(env):
             'APPLY', apply_expr, 'AS', 'final_score',
             'DIALECT', '2').error().contains("Property `missing` not loaded nor in pipeline")
 
+@with_unstable_features
 def testCaseFunction(env):
     """Test the case function in APPLY clause with various conditions"""
     _prepare_index(env, 'idx')
@@ -157,6 +168,7 @@ def testCaseFunction(env):
         else:  # doc2 doesn't have 't' field
             env.assertEqual(has_text_val, 0, message=f"Expected doc {doc_id} to have has_text=0")
 
+@with_unstable_features
 def testCaseWithComparison(env):
     """Test case function with comparison operators"""
     conn = getConnectionByEnv(env)
@@ -189,6 +201,7 @@ def testCaseWithComparison(env):
     env.assertEqual(categories['medium'], 2)
     env.assertEqual(categories['high'], 1)
 
+@with_unstable_features
 def testNestedCaseAndGroup(env):
     """Test nested case functions and group by"""
     env.expect('FT.CREATE', 'idx_nested', 'SCHEMA', 't', 'TEXT').ok()
@@ -221,6 +234,7 @@ def testNestedCaseAndGroup(env):
     env.assertEqual(cuisines['Italian'], 2)
     env.assertEqual(cuisines['Other'], 1)
 
+@with_unstable_features
 def testCaseWithLogicalOperators(env):
     """Test case function with logical operators (AND, OR, NOT)"""
     conn = getConnectionByEnv(env)
@@ -264,6 +278,7 @@ def testCaseWithLogicalOperators(env):
     env.assertEqual(products['prod4'], 'available_items')
 
 
+@with_unstable_features
 def testCaseWithMissingFields(env):
     """Test case function behavior with missing fields"""
     conn = getConnectionByEnv(env)
@@ -301,6 +316,7 @@ def testCaseWithMissingFields(env):
     env.assertEqual(products['doc3'], 'only_field2')
     env.assertEqual(products['doc4'], 'none')
 
+@with_unstable_features
 def testNestedCaseDepth(env):
     """Test deep nesting of the case function"""
 
@@ -328,6 +344,7 @@ def testNestedCaseDepth(env):
     # Expect the deepest `else` value
     env.assertEqual(res[1], ['nested_value', 'b'])
 
+@with_unstable_features
 def testNestedConditionsCase(env):
     """Test case function with nested conditions in both result branches"""
     conn = getConnectionByEnv(env)
@@ -401,6 +418,7 @@ def testNestedConditionsCase(env):
         env.assertEqual(status_code, expected_status_codes[order_id],
                        message=f"Order {order_id} with status '{row[row.index('status') + 1]}' and priority '{row[row.index('priority') + 1]}' should have status_code {expected_status_codes[order_id]}")
 
+@with_unstable_features
 def testCaseWithFieldsWithNullValue(env):
     dim = 4
     _prepare_index(env, 'idx', dim)
@@ -421,3 +439,35 @@ def testCaseWithFieldsWithNullValue(env):
     value = [float(row[row.index('is_null_value') + 1]) for row in res[1:]]
     for i in range(len(value)):
         env.assertEqual(value[i], 1, message=f"Failed for index {i}")
+
+def testUnstableFeatureDisabled(env):
+    """Test that case function raises an error when unstable features are disabled"""
+    conn = getConnectionByEnv(env)
+    # Create an index and add a doc
+    env.expect('FT.CREATE', 'idx_depth', 'SCHEMA', 't', 'TAG').ok()
+    conn.execute_command('HSET', 'doc:1', 't', 'foo')
+
+    expected_error = 'Function `case()` is unavailable when `ENABLE_UNSTABLE_FEATURES` is off'
+    env.expect(
+        'FT.AGGREGATE', 'idx_depth', '*',
+        'APPLY', 'case(1, 1, 0)', 'AS', 'x',
+        'DIALECT', '2').error().contains(expected_error)
+
+    env.expect(
+        'FT.AGGREGATE', 'idx_depth', '*',
+        'APPLY', '1 + case(1, 1, 0)', 'AS', 'x',
+        'DIALECT', '2').error().contains(expected_error)
+
+    env.expect(
+        'FT.AGGREGATE', 'idx_depth', '*',
+        'APPLY', 'case(1, 1, 0) + case(1, 1, 0)', 'AS', 'x',
+        'DIALECT', '2').error().contains(expected_error)
+
+    # Enable unstable features and test again
+    enable_unstable_features(env)
+    res = conn.execute_command(
+        'FT.AGGREGATE', 'idx_depth', '*',
+        'APPLY', 'case(1, 1, 0) + case(1, 1, 0)', 'AS', 'x',
+        'DIALECT', '2')
+    env.assertEqual(res[1], ['x', '2'])
+
