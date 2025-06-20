@@ -277,6 +277,14 @@ int func_exists(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   return EXPR_EVAL_OK;
 }
 
+int func_case(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
+  // This function is never directly called for CASE expressions
+  // The actual implementation is in evalFuncCase in expression.c
+  // This is just a placeholder for function registration
+
+  return EXPR_EVAL_OK;
+}
+
 static int stringfunc_startswith(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result) {
   VALIDATE_ARG_ISSTRING("startswith", argv, 0);
   VALIDATE_ARG_ISSTRING("startswith", argv, 1);
@@ -341,6 +349,7 @@ void RegisterStringFunctions() {
   RSFunctionRegistry_RegisterFunction("to_number", func_to_number, RSValue_Number, 1, 1);
   RSFunctionRegistry_RegisterFunction("to_str", func_to_str, RSValue_String, 1, 1);
   RSFunctionRegistry_RegisterFunction("exists", func_exists, RSValue_Number, 1, 1);
+  RSFunctionRegistry_RegisterFunction("case", func_case, RSValue_Undef, 3, 3);
   RSFunctionRegistry_RegisterFunction("startswith", stringfunc_startswith, RSValue_Number, 2, 2);
   RSFunctionRegistry_RegisterFunction("contains", stringfunc_contains, RSValue_Number, 2, 2);
   RSFunctionRegistry_RegisterFunction("strlen", stringfunc_strlen, RSValue_Number, 1, 1);

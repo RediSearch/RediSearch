@@ -21,18 +21,50 @@ static void setReferenceValue(RSValue *dst, RSValue *src) {
 }
 
 extern int func_exists(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result);
+extern int func_case(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result);
+
+static int evalFuncCase(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
+  // Evaluate the condition
+  RSValue condVal = RSVALUE_STATIC;
+  int rc = evalInternal(eval, f->args->args[0], &condVal);
+  if (rc != EXPR_EVAL_OK) {
+    RSValue_Clear(&condVal);
+    return rc;
+  }
+
+  // Determine which branch to evaluate based on the condition
+  int condition = RSValue_BoolTest(&condVal);
+  RSValue_Clear(&condVal);
+
+  // Evaluate only the branch we need
+  int branchIndex = condition ? 1 : 2;
+  rc = evalInternal(eval, f->args->args[branchIndex], result);
+  return rc;
+}
 
 static int evalFunc(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   int rc = EXPR_EVAL_ERR;
+
+  // Special handling for func_case. The condition is evaluated to determine
+  // which branch to take and only that branch is evaluated.
+  // For other functions, we evaluate all arguments first.
+  if (f->Call == func_case) {
+    return evalFuncCase(eval, f, result);
+  }
 
   /** First, evaluate every argument */
   size_t nusedargs = 0;
   size_t nargs = f->args->len;
   RSValue args[nargs];
 
+  // Normal function evaluation
   for (size_t ii = 0; ii < nargs; ii++) {
     args[ii] = (RSValue)RSVALUE_STATIC;
     int internalRes = evalInternal(eval, f->args->args[ii], &args[ii]);
+
+    // Handle NULL values:
+    // 1. For func_exists, always allow NULL values
+    // 2. For all other functions, NULL values are errors
     if (internalRes == EXPR_EVAL_ERR ||
         (internalRes == EXPR_EVAL_NULL && f->Call != func_exists)) {
       goto cleanup;
