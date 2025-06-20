@@ -48,6 +48,8 @@ protected:
 TEST_F(OptionalIteratorTest, ReadMixedResults) {
   // Test reading - should return mix of real and virtual results
 
+  EXPECT_EQ(iterator_base->NumEstimated(iterator_base), maxDocId);
+
   for (t_docId i = 1; i <= maxDocId; i++) {
     ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
     ASSERT_NE(iterator_base->current, nullptr);
@@ -426,6 +428,9 @@ protected:
 
     // Create optional iterator with child and wildcard
     q = new MockQueryEvalCtx(wildcardDocIds);
+    if (lastFromChild) {
+      q->docTable.maxDocId = childDocIds.back(); // Ensure maxDocId is set to include last child doc
+    }
     iterator = IT_V2(NewOptionalIterator)(child, &q->qctx, 4.6);
   }
 
@@ -440,8 +445,9 @@ INSTANTIATE_TEST_SUITE_P(OptionalIteratorOptimizedTests, OptionalIteratorOptimiz
                          ::testing::Combine(::testing::Bool(), ::testing::Bool()));
 
 TEST_P(OptionalIteratorOptimized, Read) {
-  auto [firstFromChild, lastFromChild] = GetParam();
   OptionalIterator *oi = (OptionalIterator *)iterator;
+
+  EXPECT_EQ(iterator->NumEstimated(iterator), wildcardDocIds.size());
 
   // Read all documents
   for (auto &id : wildcardDocIds) {
