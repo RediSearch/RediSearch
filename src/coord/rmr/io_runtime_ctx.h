@@ -15,6 +15,10 @@
 #include "util/arr.h"
 #include "cluster_topology.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // `*50` for following the previous behavior
 // #define MAX_CONCURRENT_REQUESTS (MR_CONN_POOL_SIZE * 50)
 #define PENDING_FACTOR 50
@@ -73,3 +77,7 @@ void IORuntimeCtx_UpdateNodes(IORuntimeCtx *ioRuntime);
  * provider's current context is used. Otherwise, we call its function with the given context */
 int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime);
 void IORuntimeCtx_Schedule_Topology(IORuntimeCtx *io_runtime_ctx, MRQueueCallback cb, struct MRClusterTopology *topo, bool take_topo_ownership);
+
+#ifdef __cplusplus
+}
+#endif

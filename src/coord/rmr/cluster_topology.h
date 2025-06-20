@@ -13,6 +13,10 @@
 #include "endpoint.h"
 #include "node.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef uint16_t mr_slot_t;
 
 /* A "shard" represents a slot range of the cluster, with its associated nodes. For each sharding
@@ -56,3 +60,7 @@ void MRClusterTopology_Free(MRClusterTopology *t);
 void MRClusterNode_Free(MRClusterNode *n);
 
 MRClusterTopology *MRClusterTopology_Clone(MRClusterTopology *t);
+
+#ifdef __cplusplus
+}
+#endif
