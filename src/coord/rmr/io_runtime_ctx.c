@@ -123,16 +123,25 @@ static void topologyAsyncCB(uv_async_t *async) {
 void shutdown_cb(uv_async_t* handle) {
   IORuntimeCtx* io_runtime_ctx = (IORuntimeCtx*)handle->data;
 
-  // Stop timers
-  uv_timer_stop(&io_runtime_ctx->topologyValidationTimer);
-  uv_timer_stop(&io_runtime_ctx->topologyFailureTimer);
-  uv_close((uv_handle_t*)&io_runtime_ctx->topologyValidationTimer, NULL);
-  uv_close((uv_handle_t*)&io_runtime_ctx->topologyFailureTimer, NULL);
-  uv_close((uv_handle_t*)&io_runtime_ctx->topologyAsync, NULL);
+  if (!uv_is_closing(&io_runtime_ctx->async)) {
+      uv_close(&io_runtime_ctx->async, NULL);
+  }
+
+  if (!uv_is_closing(&io_runtime_ctx->topologyValidationTimer)) {
+    uv_close(&io_runtime_ctx->topologyValidationTimer, NULL);
+  }
+
+  if (!uv_is_closing(&io_runtime_ctx->topologyFailureTimer)) {
+    uv_close(&io_runtime_ctx->topologyFailureTimer, NULL);
+  }
+
+  if (!uv_is_closing(&io_runtime_ctx->topologyAsync)) {
+    uv_close(&io_runtime_ctx->topologyAsync, NULL);
+  }
+
+  // Close the shutdown async handle last (we're currently in its callback)
   uv_close((uv_handle_t*)&io_runtime_ctx->shutdownAsync, NULL);
 
-  // Stop the loop
-  uv_stop(&io_runtime_ctx->loop);
 }
 
 /* start the event loop side thread */
@@ -220,6 +229,8 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
   io_runtime_ctx->pendingQueues = NULL;  // Initialize to NULL
   io_runtime_ctx->loop_th_created = false;
   io_runtime_ctx->loop_th_creation_failed = false;
+  uv_loop_init(&io_runtime_ctx->loop);
+
   uv_mutex_init(&io_runtime_ctx->loop_th_created_mutex);
   uv_cond_init(&io_runtime_ctx->loop_th_created_cond);
   //need to copy
@@ -228,7 +239,6 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
   } else {
     io_runtime_ctx->topo = initialTopology ? MRClusterTopology_Clone(initialTopology): NULL;
   }
-  uv_loop_init(&io_runtime_ctx->loop);
   io_runtime_ctx->shutdownAsync.data = io_runtime_ctx;
   io_runtime_ctx->async.data = io_runtime_ctx;
   io_runtime_ctx->topologyAsync.data = io_runtime_ctx;
@@ -258,7 +268,7 @@ void IORuntimeCtx_Free(IORuntimeCtx *io_runtime_ctx) {
     }
     uv_mutex_unlock(&io_runtime_ctx->loop_th_created_mutex);
     if (!io_runtime_ctx->loop_th_creation_failed) {
-      uv_async_send(&io_runtime_ctx->shutdownAsync);
+      uv_thread_join(&io_runtime_ctx->loop_th);
     }
   }
   RQ_Free(io_runtime_ctx->queue);
