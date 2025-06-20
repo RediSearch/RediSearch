@@ -522,4 +522,32 @@ TEST_P(OptionalIteratorOptimized, SkipTo) {
   ASSERT_EQ(status, ITERATOR_EOF);
   ASSERT_TRUE(iterator->atEOF);
   ASSERT_EQ(iterator->lastDocId, wildcardDocIds.back());
+
+
+  // Skip between any id in the wildcard range to any id
+  for (const auto &id : wildcardDocIds) {
+    for (t_docId skipToId = id + 1; skipToId <= wildcardDocIds.back(); skipToId++) {
+      iterator->Rewind(iterator);
+      IteratorStatus status = iterator->SkipTo(iterator, id);
+      ASSERT_EQ(status, ITERATOR_OK);
+      ASSERT_EQ(iterator->lastDocId, id);
+      ASSERT_EQ(iterator->current->docId, id);
+      ASSERT_EQ(iterator->current->weight, 4.6);
+
+      auto nextValidId = *std::lower_bound(wildcardDocIds.begin(), wildcardDocIds.end(), skipToId);
+      status = iterator->SkipTo(iterator, skipToId);
+      ASSERT_EQ(iterator->lastDocId, nextValidId);
+      if (nextValidId == skipToId) {
+        ASSERT_EQ(status, ITERATOR_OK);
+      } else {
+        ASSERT_LT(skipToId, nextValidId);
+        ASSERT_EQ(status, ITERATOR_NOTFOUND);
+      }
+      if (std::find(childDocIds.begin(), childDocIds.end(), nextValidId) != childDocIds.end()) {
+        ASSERT_EQ(iterator->current, ((OptionalIterator *)iterator)->child->current);
+      } else {
+        ASSERT_EQ(iterator->current, ((OptionalIterator *)iterator)->virt);
+      }
+    }
+  }
 }
