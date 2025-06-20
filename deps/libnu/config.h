@@ -1,6 +1,13 @@
 #ifndef NU_BUILD_CONFIG_H
 #define NU_BUILD_CONFIG_H
-#define NU_WITH_EVERYTHING
+
+/* Build options */
+#define NU_WITH_CASEMAP
+#define NU_WITH_STRINGS
+#define NU_WITH_EXTRA
+#define NU_WITH_UTF8
+#define NU_WITH_UNACCENT
+
 /** @file config.h
  *
  * This file list available build options and provide some shortcuts,
@@ -22,10 +29,12 @@
  *
  * NU_DISABLE_CONTRACTIONS: disables forward-reading during collation,
  * only weights of a single codepoints will be compared (enabled in release build)
+ *
+ * NU_WITH_BMP_ONLY: build collations variant with BMP codepoints only
+ * http://unicode.org/roadmaps/bmp/
  */
 
 /* Enable everything, see below for details on a specific option */
-
 #ifdef NU_WITH_EVERYTHING
 # define NU_WITH_UTF8
 # define NU_WITH_CESU8
@@ -39,6 +48,7 @@
 # define NU_WITH_VALIDATION
 # define NU_WITH_COLLATION
 # define NU_WITH_CASEMAP
+# define NU_WITH_UNACCENT
 #endif /* NU_WITH_EVERYTHING */
 
 /* Enable UTF-8 decoding and encoding */
@@ -146,14 +156,12 @@
 /* Requirements for collation functions on 0-terminated strings */
 #ifdef NU_WITH_Z_COLLATION
 # define NU_WITH_Z_STRINGS
-# define NU_WITH_TOUPPER /* nu_toupper() */
 #endif
 
 /* Requirements for collation functions
  * on unterminated strings */
 #ifdef NU_WITH_N_COLLATION
 # define NU_WITH_N_STRINGS
-# define NU_WITH_TOUPPER
 #endif
 
 /* Requirements for casemap functions */
@@ -173,7 +181,8 @@
 
 /* All collation and casemapping functions depends on NU_WITH_UDB */
 #if (defined NU_WITH_Z_COLLATION) || (defined NU_WITH_N_COLLATION) \
-|| (defined NU_WITH_TOLOWER) || (defined NU_WITH_TOUPPER) || (defined NU_WITH_TOFOLD)
+|| (defined NU_WITH_TOLOWER) || (defined NU_WITH_TOUPPER) || (defined NU_WITH_TOFOLD) \
+|| (defined NU_WITH_UNACCENT)
 # ifndef NU_WITH_UDB
 #  define NU_WITH_UDB /* nu_udb_* functions, pretty much internal stuff */
 # endif /* NU_WITH_UDB */
