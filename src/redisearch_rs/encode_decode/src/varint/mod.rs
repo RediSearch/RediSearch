@@ -20,7 +20,7 @@
 mod vector_writer;
 pub use vector_writer::VectorWriter;
 
-use super::FieldMask;
+use ffi::FieldMask;
 
 use std::{
     io::{self, Read, Write},
