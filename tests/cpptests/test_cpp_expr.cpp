@@ -52,6 +52,7 @@ struct TEvalCtx : ExprEval {
     clear();
 
     memset(static_cast<ExprEval *>(this), 0, sizeof(ExprEval));
+    err = &status_s;  // Set the error context
 
     root = ExprAST_Parse(s, strlen(s), &status_s);
     if (!root) {
@@ -451,18 +452,26 @@ TEST_F(ExprTest, testEvalFuncCaseWithNullValues) {
 TEST_F(ExprTest, testEvalFuncCaseErrorConditions) {
   TEvalCtx ctx;
 
-  // Test case with invalid number of arguments (should fail at parse time)
+  // Test case with invalid number of arguments (should fail at evaluation time)
   ctx.assign("case()");  // Missing arguments
-  ASSERT_FALSE(ctx) << "Should fail to parse case with only 2 arguments";
+  ASSERT_TRUE(ctx) << "Should parse case() successfully";
+  ASSERT_EQ(EXPR_EVAL_ERR, ctx.eval()) << "Should fail to evaluate case with 0 arguments";
+  ASSERT_STREQ("Function `case()` requires exactly 3 arguments", ctx.error());
 
   ctx.assign("case(1)");  // Missing second and third arguments
-  ASSERT_FALSE(ctx) << "Should fail to parse case with only 2 arguments";
+  ASSERT_TRUE(ctx) << "Should parse case(1) successfully";
+  ASSERT_EQ(EXPR_EVAL_ERR, ctx.eval()) << "Should fail to evaluate case with 1 argument";
+  ASSERT_STREQ("Function `case()` requires exactly 3 arguments", ctx.error());
 
   ctx.assign("case(1, 2)");  // Missing third argument
-  ASSERT_FALSE(ctx) << "Should fail to parse case with only 2 arguments";
+  ASSERT_TRUE(ctx) << "Should parse case(1, 2) successfully";
+  ASSERT_EQ(EXPR_EVAL_ERR, ctx.eval()) << "Should fail to evaluate case with 2 arguments";
+  ASSERT_STREQ("Function `case()` requires exactly 3 arguments", ctx.error());
 
   ctx.assign("case(1, 2, 3, 4)");  // Too many arguments
-  ASSERT_FALSE(ctx) << "Should fail to parse case with 4 arguments";
+  ASSERT_TRUE(ctx) << "Should parse case(1, 2, 3, 4) successfully";
+  ASSERT_EQ(EXPR_EVAL_ERR, ctx.eval()) << "Should fail to evaluate case with 4 arguments";
+  ASSERT_STREQ("Function `case()` requires exactly 3 arguments", ctx.error());
 
   // Test case with invalid function in condition
   ctx.assign("case(invalid_func(), 'true', 'false')");

@@ -471,3 +471,31 @@ def testUnstableFeatureDisabled(env):
         'DIALECT', '2')
     env.assertEqual(res[1], ['x', '2'])
 
+@with_unstable_features
+def testCaseWrongArgNumber(env):
+
+    conn = getConnectionByEnv(env)
+    # Create an index and add a doc
+    env.expect('FT.CREATE', 'idx_depth', 'SCHEMA', 't', 'TAG').ok()
+    conn.execute_command('HSET', 'doc:1', 't', 'foo')
+
+    expected_error = 'Function `case()` requires exactly 3 arguments'
+    env.expect(
+        'FT.AGGREGATE', 'idx_depth', '*',
+        'APPLY', 'case()', 'AS', 'x',
+        'DIALECT', '2').error().contains(expected_error)
+
+    env.expect(
+        'FT.AGGREGATE', 'idx_depth', '*',
+        'APPLY', 'case(1)', 'AS', 'x',
+        'DIALECT', '2').error().contains(expected_error)
+
+    env.expect(
+        'FT.AGGREGATE', 'idx_depth', '*',
+        'APPLY', 'case(1, 2)', 'AS', 'x',
+        'DIALECT', '2').error().contains(expected_error)
+
+    env.expect(
+        'FT.AGGREGATE', 'idx_depth', '*',
+        'APPLY', 'case(1, 2, 3, 4)', 'AS', 'x',
+        'DIALECT', '2').error().contains(expected_error)

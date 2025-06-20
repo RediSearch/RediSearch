@@ -23,6 +23,12 @@ extern int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t ar
 extern int func_case(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result);
 
 static int evalFuncCase(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
+  if (f->args->len != 3) {
+    QueryError_SetError(eval->err, QUERY_EPARSEARGS,
+      "Function `case()` requires exactly 3 arguments");
+    return EXPR_EVAL_ERR;
+  }
+
   // Evaluate the condition
   RSValue condVal = RSVALUE_STATIC;
   int rc = evalInternal(eval, f->args->args[0], &condVal);
