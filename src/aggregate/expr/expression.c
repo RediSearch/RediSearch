@@ -20,7 +20,7 @@ static void setReferenceValue(RSValue *dst, RSValue *src) {
 }
 
 extern int func_exists(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err);
-extern int func_case(ExprEval *ctx, RSValue *argv, size_t argc, RSValue *result);
+extern int func_case(ExprEval *ctx, RSValue *result, RSValue **argv, size_t argc, QueryError *err);
 
 static int evalFuncCase(ExprEval *eval, const RSFunctionExpr *f, RSValue *result) {
   if (f->args->len != 3) {
