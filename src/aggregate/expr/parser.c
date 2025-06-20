@@ -1055,13 +1055,21 @@ static YYACTIONTYPE yy_reduce(
         break;
       case 22: /* expr ::= SYMBOL LP arglist RP */
 {
+    bool error = true; // Assume syntax error until proven otherwise
     RSFunction cb = RSFunctionRegistry_Get(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len);
     if (!cb) {
         rm_asprintf(&ctx->errorMsg, "Unknown function name '%.*s'", yymsp[-3].minor.yy0.len, yymsp[-3].minor.yy0.s);
-        ctx->ok = 0;
-        yylhsminor.yy19 = NULL;
     } else {
+        // No syntax error
+        error = false;
+    }
+
+    if (!error) {
         yylhsminor.yy19 = RS_NewFunc(yymsp[-3].minor.yy0.s, yymsp[-3].minor.yy0.len, yymsp[-1].minor.yy46, cb);
+    } else { // Syntax error
+        yylhsminor.yy19 = NULL;
+        ctx->ok = 0;
+        RSArgList_Free(yymsp[-1].minor.yy46);
     }
 }
   yymsp[-3].minor.yy19 = yylhsminor.yy19;
