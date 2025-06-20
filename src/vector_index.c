@@ -250,9 +250,10 @@ const char *VecSimAlgorithm_ToString(VecSimAlgo algo) {
   return NULL;
 }
 
-const char *VecSimSvsQuantBits_ToString(VecSimSvsQuantBits quantBits) {
+const char *VecSimSvsCompression_ToString(VecSimSvsQuantBits quantBits) {
     switch (quantBits) {
         case VecSimSvsQuant_NONE: return VECSIM_NO_COMPRESSION;
+        case VecSimSvsQuant_Scalar: return VECSIM_LVQ_SCALAR;
         case VecSimSvsQuant_4: return VECSIM_LVQ_4;
         case VecSimSvsQuant_8: return VECSIM_LVQ_8;
         case VecSimSvsQuant_4x4: return VECSIM_LVQ_4X4;

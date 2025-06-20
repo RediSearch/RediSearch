@@ -635,7 +635,9 @@ static int parseVectorField_GetQuantBits(ArgsCursor *ac, VecSimSvsQuantBits *qua
   if ((rc = AC_GetString(ac, &quantBitsStr, &len, 0)) != AC_OK) {
     return rc;
   }
-  if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4))
+  if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_SCALAR))
+    *quantBits = VecSimSvsQuant_Scalar;
+  else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_4))
     *quantBits = VecSimSvsQuant_4;
   else if (STR_EQCASE(quantBitsStr, len, VECSIM_LVQ_8))
     *quantBits = VecSimSvsQuant_8;
@@ -992,9 +994,9 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
            QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "NUM_THREADS value exceeds MAX_WORKER_THREADS. ", "Not more than %d is allowed", MAX_WORKER_THREADS);
           return 0;
       }
-    } else if (AC_AdvanceIfMatch(ac, VECSIM_QUANT_BITS)) {
+    } else if (AC_AdvanceIfMatch(ac, VECSIM_COMPRESSION)) {
       if ((rc = parseVectorField_GetQuantBits(ac, &params->algoParams.svsParams.quantBits)) != AC_OK) {
-        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_QUANT_BITS), rc);
+        QERR_MKBADARGS_AC(status, VECSIM_ALGO_PARAM_MSG(VECSIM_ALGORITHM_SVS, VECSIM_COMPRESSION), rc);
         return 0;
       }
     }
@@ -1038,7 +1040,7 @@ static int parseVectorField_svs(FieldSpec *fs, TieredIndexParams *tieredParams, 
            QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Invalid TRAINING_THRESHOLD: cannot be lower than DEFAULT_BLOCK_SIZE ", "(%d)", DEFAULT_BLOCK_SIZE);
           return 0;
       } else if (params->algoParams.svsParams.quantBits == 0) {
-           QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "Invalid TRAINING_THRESHOLD: ", "compression was not requested");
+           QueryError_SetWithUserDataFmt(status, QUERY_EPARSEARGS, "TRAINING_THRESHOLD is irrelvant when compression was not requested", "");
           return 0;
       }
     } else {

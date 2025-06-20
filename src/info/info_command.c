@@ -198,7 +198,7 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVINT("graph_max_degree", svs_params.graph_max_degree);
           REPLY_KVINT("construction_window_size", svs_params.construction_window_size);
           REPLY_KVINT("search_window_size", svs_params.search_window_size);
-          REPLY_KVSTR("compression", VecSimSvsQuantBits_ToString(svs_params.quantBits));
+          REPLY_KVSTR("compression", VecSimSvsCompression_ToString(svs_params.quantBits));
           REPLY_KVSTR("use_search_history", VecSimSearchHistory_ToString(svs_params.use_search_history));
           REPLY_KVNUM("alpha", svs_params.alpha);
           REPLY_KVNUM("epsilon", algo_params.svsParams.epsilon);
