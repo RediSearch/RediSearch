@@ -98,7 +98,7 @@ bool BM_OptionalIterator::initialized = false;
 // Benchmark scenarios: different ratio of child documents
 #define CHILD_DOCS_SCENARIOS() \
   ArgNames({"ChildDocsRatio", "Optimized"})-> \
-  ArgsProduct({::benchmark::CreateDenseRange(10, 90, 10), {true}})
+  ArgsProduct({::benchmark::CreateDenseRange(0, 90, 10), {false, true}})
 
 // Benchmark functions (assuming iterator always has child)
 BENCHMARK_DEFINE_F(BM_OptionalIterator, Read)(benchmark::State &state) {
@@ -161,11 +161,11 @@ BENCHMARK_DEFINE_F(BM_OptionalIterator, SkipToOld)(benchmark::State &state) {
 
 
 // Register new optional iterator benchmarks
-// BENCHMARK_REGISTER_F(BM_OptionalIterator, Read)->CHILD_DOCS_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_OptionalIterator, Read)->CHILD_DOCS_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_OptionalIterator, SkipTo)->CHILD_DOCS_SCENARIOS();
 
 // Register old optional iterator benchmarks
-// BENCHMARK_REGISTER_F(BM_OptionalIterator, ReadOld)->CHILD_DOCS_SCENARIOS();
+BENCHMARK_REGISTER_F(BM_OptionalIterator, ReadOld)->CHILD_DOCS_SCENARIOS();
 BENCHMARK_REGISTER_F(BM_OptionalIterator, SkipToOld)->CHILD_DOCS_SCENARIOS();
 
 
