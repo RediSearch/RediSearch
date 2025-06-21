@@ -10,7 +10,7 @@
      case HYBRID_SCORING_RRF:
        return RRFScore;
      default:
-       return RRFScore; // Default fallback to RRF
+       return HybridLinearScore; // Default fallback to hybrid linear scoring
    }
  }
 
