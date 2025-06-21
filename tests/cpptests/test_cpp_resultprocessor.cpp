@@ -11,6 +11,8 @@
 #include "result_processor.h"
 #include "query.h"
 #include "gtest/gtest.h"
+#include "config.h"
+#include "module.h"
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
@@ -47,6 +49,7 @@ static void resultProcessor_GenericFree(ResultProcessor *rp) {
   numFreed++;
   delete static_cast<processor1Ctx *>(rp);
 }
+
 
 class ResultProcessorTest : public ::testing::Test {};
 
@@ -88,3 +91,4 @@ TEST_F(ResultProcessorTest, testProcessorChain) {
   ASSERT_EQ(2, numFreed);
   RLookup_Cleanup(&lk);
 }
+

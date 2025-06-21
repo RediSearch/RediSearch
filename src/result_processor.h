@@ -19,6 +19,7 @@
 #include "rlookup.h"
 #include "extension.h"
 #include "score_explain.h"
+#include "hybrid_scoring.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,6 +61,7 @@ typedef enum {
   RP_METRICS,
   RP_KEY_NAME_LOADER,
   RP_MAX_SCORE_NORMALIZER,
+  RP_HYBRID_MERGER,
   RP_TIMEOUT, // DEBUG ONLY
   RP_CRASH, // DEBUG ONLY
   RP_MAX,
@@ -153,6 +155,8 @@ typedef enum {
   // Aborted because of error. The QueryState (parent->status) should have
   // more information.
   RS_RESULT_ERROR,
+  // Depleting process has begun.
+  RS_RESULT_DEPLETING,
   // Not a return code per se, but a marker signifying the end of the 'public'
   // return codes. Implementations can use this for extensions.
   RS_RESULT_MAX
@@ -310,6 +314,18 @@ void PipelineAddCrash(struct AREQ *r);
   * First accumulates all results from the upstream, then normalizes and yields them.
   *******************************************************************************************************************/
  ResultProcessor *RPMaxScoreNormalizer_New(const RLookupKey *rlk);
+
+ /*******************************************************************************************************************
+  *  Hybrid Merger Result Processor
+  *
+  * Merges results from two upstream processors using a hybrid scoring function.
+  * Takes results from both upstreams and applies the provided function to combine their scores.
+  *******************************************************************************************************************/
+ ResultProcessor *RPHybridMerger_New(HybridScoringType scoringType,
+                                     ScoringFunctionArgs *scoringCtx,
+                                     ResultProcessor **upstreams,
+                                     size_t numUpstreams,
+                                     size_t window);
 
 #ifdef __cplusplus
 }
