@@ -16,7 +16,7 @@
 #include "src/iterators/idlist_iterator.h"
 #include "src/iterators/empty_iterator.h"
 #include "iterator_util.h"
-
+#include "index_utils.h"
 
 
 // Test optional iterator
@@ -34,7 +34,8 @@ protected:
     QueryIterator *child = (QueryIterator *)new MockIterator(childDocIds);
 
     // Create optional iterator with child
-    iterator_base = IT_V2(NewOptionalIterator)(child, maxDocId, numDocs, weight);
+    MockQueryEvalCtx ctx(maxDocId, numDocs);
+    iterator_base = IT_V2(NewOptionalIterator)(child, &ctx.qctx, weight);
   }
 
   void TearDown() override {
@@ -46,6 +47,8 @@ protected:
 
 TEST_F(OptionalIteratorTest, ReadMixedResults) {
   // Test reading - should return mix of real and virtual results
+
+  EXPECT_EQ(iterator_base->NumEstimated(iterator_base), maxDocId);
 
   for (t_docId i = 1; i <= maxDocId; i++) {
     ASSERT_EQ(iterator_base->Read(iterator_base), ITERATOR_OK);
@@ -178,10 +181,6 @@ TEST_F(OptionalIteratorTest, VirtualResultWeight) {
   ASSERT_EQ(iterator_base->current->weight, weight);
 }
 
-
-
-
-
 // Test timeout scenarios
 class OptionalIteratorTimeoutTest : public ::testing::Test {
 protected:
@@ -195,7 +194,8 @@ protected:
     QueryIterator *child = (QueryIterator *)new MockIterator(ITERATOR_TIMEOUT, 10UL, 20UL, 30UL);
 
     // Create optional iterator with timeout child
-    iterator_base = IT_V2(NewOptionalIterator)(child, maxDocId, numDocs, weight);
+    MockQueryEvalCtx ctx(maxDocId, numDocs);
+    iterator_base = IT_V2(NewOptionalIterator)(child, &ctx.qctx, weight);
   }
 
   void TearDown() override {
@@ -275,7 +275,7 @@ TEST_F(OptionalIteratorTimeoutTest, RewindAfterTimeout) {
   for (int i = 0; i < 35; i++) {
     iterator_base->Read(iterator_base);
   }
-  ASSERT_EQ(iterator_base->lastDocId, 35);
+  ASSERT_EQ(iterator_base->lastDocId, 30);
 
   // Rewind should reset everything
   iterator_base->Rewind(iterator_base);
@@ -300,7 +300,8 @@ protected:
   void SetUp() override {
     // Create optional iterator with empty child (no real hits, all virtual)
     empty_child = IT_V2(NewEmptyIterator)();
-    iterator_base = IT_V2(NewOptionalIterator)(empty_child, maxDocId, numDocs, weight);
+    MockQueryEvalCtx ctx(maxDocId, numDocs);
+    iterator_base = IT_V2(NewOptionalIterator)(empty_child, &ctx.qctx, weight);
   }
 
   void TearDown() override {
@@ -400,3 +401,153 @@ TEST_F(OptionalIteratorWithEmptyChildTest, VirtualResultProperties) {
   ASSERT_EQ(iterator_base->current->fieldMask, RS_FIELDMASK_ALL);
 }
 
+
+class OptionalIteratorOptimized : public ::testing::TestWithParam<std::tuple<bool, bool>> {
+protected:
+  QueryIterator *iterator;
+  std::vector<t_docId> childDocIds;
+  std::vector<t_docId> wildcardDocIds;
+  MockQueryEvalCtx *q;
+
+  void SetUp() override {
+    auto [firstFromChild, lastFromChild] = GetParam();
+    // Create child iterator with specific docIds
+    childDocIds = {20, 30, 40, 50, 60, 70, 80, 90};
+    if (firstFromChild) {
+      childDocIds.insert(childDocIds.begin(), 10); // Add first docId
+    }
+    if (lastFromChild) {
+      childDocIds.push_back(100); // Add last docId
+    }
+    QueryIterator *child = (QueryIterator *)new MockIterator(childDocIds);
+
+    // Create wildcard iterator with specific docIds
+    for (t_docId i = 5; i <= 95; i += 5) {
+      wildcardDocIds.push_back(i);
+    }
+
+    // Create optional iterator with child and wildcard
+    q = new MockQueryEvalCtx(wildcardDocIds);
+    if (lastFromChild) {
+      q->docTable.maxDocId = childDocIds.back(); // Ensure maxDocId is set to include last child doc
+    }
+    iterator = IT_V2(NewOptionalIterator)(child, &q->qctx, 4.6);
+  }
+
+  void TearDown() override {
+    if (iterator) {
+      iterator->Free(iterator);
+    }
+    delete q;
+  }
+};
+INSTANTIATE_TEST_SUITE_P(OptionalIteratorOptimizedTests, OptionalIteratorOptimized,
+                         ::testing::Combine(::testing::Bool(), ::testing::Bool()));
+
+TEST_P(OptionalIteratorOptimized, Read) {
+  OptionalIterator *oi = (OptionalIterator *)iterator;
+
+  EXPECT_EQ(iterator->NumEstimated(iterator), wildcardDocIds.size());
+
+  // Read all documents
+  for (auto &id : wildcardDocIds) {
+    IteratorStatus status = iterator->Read(iterator);
+    ASSERT_EQ(status, ITERATOR_OK);
+    ASSERT_EQ(iterator->lastDocId, id);
+    ASSERT_EQ(iterator->current->docId, id);
+    ASSERT_EQ(iterator->current->weight, 4.6);
+
+    if (std::find(childDocIds.begin(), childDocIds.end(), id) != childDocIds.end()) {
+      // Should be a real hit from child
+      ASSERT_EQ(iterator->current, oi->child->current);
+    } else {
+      // Should be a virtual hit
+      ASSERT_EQ(iterator->current, oi->virt);
+    }
+  }
+  // Read should return EOF after all wildcard docs
+  IteratorStatus status = iterator->Read(iterator);
+  ASSERT_EQ(status, ITERATOR_EOF);
+  ASSERT_TRUE(iterator->atEOF);
+  ASSERT_EQ(iterator->lastDocId, wildcardDocIds.back());
+  status = iterator->Read(iterator); // Should return EOF again
+  ASSERT_EQ(status, ITERATOR_EOF);
+  ASSERT_TRUE(iterator->atEOF);
+  ASSERT_EQ(iterator->lastDocId, wildcardDocIds.back());
+}
+
+TEST_P(OptionalIteratorOptimized, SkipTo) {
+  OptionalIterator *oi = (OptionalIterator *)iterator;
+
+  // Skip to all the ids in the wildcard range
+  t_docId id = 1;
+  for (const auto &nextValidId : wildcardDocIds) {
+    while (id < nextValidId) {
+      iterator->Rewind(iterator);
+      IteratorStatus status = iterator->SkipTo(iterator, id);
+      ASSERT_EQ(status, ITERATOR_NOTFOUND);
+      ASSERT_EQ(iterator->lastDocId, nextValidId);
+      ASSERT_EQ(iterator->current->docId, nextValidId);
+      ASSERT_EQ(iterator->current->weight, 4.6);
+      if (std::find(childDocIds.begin(), childDocIds.end(), nextValidId) != childDocIds.end()) {
+        // Should be a real hit from child
+        ASSERT_EQ(iterator->current, oi->child->current);
+      } else {
+        // Should be a virtual hit
+        ASSERT_EQ(iterator->current, oi->virt);
+      }
+      id++;
+    }
+    iterator->Rewind(iterator);
+    IteratorStatus status = iterator->SkipTo(iterator, nextValidId);
+    ASSERT_EQ(status, ITERATOR_OK);
+    ASSERT_EQ(iterator->lastDocId, nextValidId);
+    ASSERT_EQ(iterator->current->docId, nextValidId);
+    ASSERT_EQ(iterator->current->weight, 4.6);
+    if (std::find(childDocIds.begin(), childDocIds.end(), nextValidId) != childDocIds.end()) {
+      // Should be a real hit from child
+      ASSERT_EQ(iterator->current, oi->child->current);
+    } else {
+      // Should be a virtual hit
+      ASSERT_EQ(iterator->current, oi->virt);
+    }
+    id++;
+  }
+  // After the last id, should return EOF
+  IteratorStatus status = iterator->SkipTo(iterator, iterator->lastDocId + 1);
+  ASSERT_EQ(status, ITERATOR_EOF);
+  ASSERT_TRUE(iterator->atEOF);
+  ASSERT_EQ(iterator->lastDocId, wildcardDocIds.back());
+  status = iterator->SkipTo(iterator, iterator->lastDocId + 2); // Should return EOF again
+  ASSERT_EQ(status, ITERATOR_EOF);
+  ASSERT_TRUE(iterator->atEOF);
+  ASSERT_EQ(iterator->lastDocId, wildcardDocIds.back());
+
+
+  // Skip between any id in the wildcard range to any id
+  for (const auto &id : wildcardDocIds) {
+    for (t_docId skipToId = id + 1; skipToId <= wildcardDocIds.back(); skipToId++) {
+      iterator->Rewind(iterator);
+      IteratorStatus status = iterator->SkipTo(iterator, id);
+      ASSERT_EQ(status, ITERATOR_OK);
+      ASSERT_EQ(iterator->lastDocId, id);
+      ASSERT_EQ(iterator->current->docId, id);
+      ASSERT_EQ(iterator->current->weight, 4.6);
+
+      auto nextValidId = *std::lower_bound(wildcardDocIds.begin(), wildcardDocIds.end(), skipToId);
+      status = iterator->SkipTo(iterator, skipToId);
+      ASSERT_EQ(iterator->lastDocId, nextValidId);
+      if (nextValidId == skipToId) {
+        ASSERT_EQ(status, ITERATOR_OK);
+      } else {
+        ASSERT_LT(skipToId, nextValidId);
+        ASSERT_EQ(status, ITERATOR_NOTFOUND);
+      }
+      if (std::find(childDocIds.begin(), childDocIds.end(), nextValidId) != childDocIds.end()) {
+        ASSERT_EQ(iterator->current, ((OptionalIterator *)iterator)->child->current);
+      } else {
+        ASSERT_EQ(iterator->current, ((OptionalIterator *)iterator)->virt);
+      }
+    }
+  }
+}
