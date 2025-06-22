@@ -46,82 +46,41 @@ size_t InvIndIterator_NumEstimated(QueryIterator *base) {
   return it->idx->numDocs;
 }
 
-#define FIELD_MASK_BIT_COUNT (sizeof(t_fieldMask) * 8)
-
 // Used to determine if the field mask for the given doc id are valid based on their ttl:
 // it->filterCtx.predicate
 // returns true if the we don't have expiration information for the document
 // otherwise will return the same as DocTable_VerifyFieldExpirationPredicate
 // if predicate is default then it means at least one of the fields need to not be expired for us to return true
 // if predicate is missing then it means at least one of the fields needs to be expired for us to return true
-static inline bool VerifyFieldMaskExpirationForDocId(InvIndIterator *it, t_docId docId, t_fieldMask docFieldMask) {
-  // If there isn't a ttl information then the doc fields are valid
-  if (!it->sctx || !it->sctx->spec || !DocTable_HasExpiration(&it->sctx->spec->docs, docId)) {
-    return true;
+static inline bool VerifyFieldMaskExpirationForCurrent(InvIndIterator *it) {
+  // If the field is not a mask, then we can just check the single field
+  if (!it->filterCtx.field.isFieldMask) {
+    return DocTable_CheckFieldExpirationPredicate(
+      &it->sctx->spec->docs,
+      it->base.current->docId,
+      it->filterCtx.field.value.index,
+      it->filterCtx.predicate,
+      &it->sctx->time.current
+    );
+  } else if (it->idx->flags & Index_WideSchema) {
+    return DocTable_CheckWideFieldMaskExpirationPredicate(
+      &it->sctx->spec->docs,
+      it->base.current->docId,
+      it->base.current->fieldMask & it->filterCtx.field.value.mask,
+      it->filterCtx.predicate,
+      &it->sctx->time.current,
+      it->sctx->spec->fieldIdToIndex
+    );
+  } else {
+    return DocTable_CheckFieldMaskExpirationPredicate(
+      &it->sctx->spec->docs,
+      it->base.current->docId,
+      it->base.current->fieldMask & it->filterCtx.field.value.mask,
+      it->filterCtx.predicate,
+      &it->sctx->time.current,
+      it->sctx->spec->fieldIdToIndex
+    );
   }
-
-
-  // TODO: move to constructor
-
-  // doc has expiration information, create a field id array to check for expiration predicate
-  size_t numFieldIndices = 0;
-  // Use a stack allocated array for the field indices, if the field mask is not a single field
-  t_fieldIndex fieldIndicesArray[FIELD_MASK_BIT_COUNT];
-  t_fieldIndex* sortedFieldIndices = fieldIndicesArray;
-  if (it->filterCtx.field.isFieldMask) {
-    const t_fieldMask relevantMask = docFieldMask & it->filterCtx.field.value.mask;
-    numFieldIndices = IndexSpec_TranslateMaskToFieldIndices(it->sctx->spec,
-                                                            relevantMask,
-                                                            fieldIndicesArray);
-  } else if (it->filterCtx.field.value.index != RS_INVALID_FIELD_INDEX) {
-    sortedFieldIndices = &it->filterCtx.field.value.index;
-    numFieldIndices = 1;
-  }
-  return DocTable_VerifyFieldExpirationPredicate(&it->sctx->spec->docs, docId,
-                                                 sortedFieldIndices, numFieldIndices,
-                                                 it->filterCtx.predicate, &it->sctx->time.current);
-}
-
-IteratorStatus InvIndIterator_Read(QueryIterator *base) {
-  InvIndIterator *it = (InvIndIterator *)base;
-  if (base->atEOF) {
-    return ITERATOR_EOF;
-  }
-  RSIndexResult *record = base->current;
-  while (true) {
-    // if needed - advance to the next block
-    if (CURRENT_BLOCK_READER_AT_END(it)) {
-      if (it->currentBlock + 1 == it->idx->size) {
-        // We're at the end of the last block...
-        break;
-      }
-      AdvanceBlock(it);
-    }
-
-    // The decoder also acts as a filter. If the decoder returns false, the
-    // current record should not be processed.
-    // Since we are not at the end of the block (previous check), the decoder is guaranteed
-    // to read a record (advanced by at least one entry).
-    if (!it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
-      continue;
-    }
-
-    if (it->skipMulti && base->lastDocId == record->docId) {
-      // Avoid returning the same doc
-      // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
-      // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.
-      continue;
-    }
-
-    if (!VerifyFieldMaskExpirationForDocId(it, record->docId, record->fieldMask)) {
-      continue;
-    }
-
-    base->lastDocId = record->docId;
-    return ITERATOR_OK;
-  }
-  base->atEOF = true;
-  return ITERATOR_EOF;
 }
 
 #define BLOCK_MATCHES(blk, docId) ((blk).firstId <= docId && docId <= (blk).lastId)
@@ -166,6 +125,135 @@ new_block:
   SetCurrentBlockReader(it);
 }
 
+/************************************* Read Implementations *************************************/
+
+// 1. Default read implementation, without any additional filtering.
+IteratorStatus InvIndIterator_Read_Default(QueryIterator *base) {
+  InvIndIterator *it = (InvIndIterator *)base;
+  if (base->atEOF) {
+    return ITERATOR_EOF;
+  }
+  RSIndexResult *record = base->current;
+  for (; it->currentBlock < it->idx->size; AdvanceBlock(it)) {
+    while (!CURRENT_BLOCK_READER_AT_END(it)) {
+      // The decoder also acts as a filter. If the decoder returns false, the
+      // current record should not be processed.
+      // Since we are not at the end of the block (previous check), the decoder is guaranteed
+      // to read a record (advanced by at least one entry).
+      if (it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
+        base->lastDocId = record->docId;
+        return ITERATOR_OK;
+      }
+    }
+  }
+  // Exit outer loop => we reached the end of the last block
+  base->atEOF = true;
+  return ITERATOR_EOF;
+}
+
+// 2. Read implementation that skips multi-value entries from the same document.
+IteratorStatus InvIndIterator_Read_SkipMulti(QueryIterator *base) {
+  InvIndIterator *it = (InvIndIterator *)base;
+  if (base->atEOF) {
+    return ITERATOR_EOF;
+  }
+  RSIndexResult *record = base->current;
+  for (; it->currentBlock < it->idx->size; AdvanceBlock(it)) {
+    while (!CURRENT_BLOCK_READER_AT_END(it)) {
+      // The decoder also acts as a filter. If the decoder returns false, the
+      // current record should not be processed.
+      // Since we are not at the end of the block (previous check), the decoder is guaranteed
+      // to read a record (advanced by at least one entry).
+      if (!it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
+        continue;
+      }
+
+      if (base->lastDocId == record->docId) {
+        // Avoid returning the same doc
+        // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
+        // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.
+        continue;
+      }
+
+      base->lastDocId = record->docId;
+      return ITERATOR_OK;
+    }
+  }
+  // Exit outer loop => we reached the end of the last block
+  base->atEOF = true;
+  return ITERATOR_EOF;
+}
+
+// 3. Read implementation that skips entries based on field mask expiration.
+IteratorStatus InvIndIterator_Read_CheckExpiration(QueryIterator *base) {
+  InvIndIterator *it = (InvIndIterator *)base;
+  if (base->atEOF) {
+    return ITERATOR_EOF;
+  }
+  RSIndexResult *record = base->current;
+  for (; it->currentBlock < it->idx->size; AdvanceBlock(it)) {
+    while (!CURRENT_BLOCK_READER_AT_END(it)) {
+      // The decoder also acts as a filter. If the decoder returns false, the
+      // current record should not be processed.
+      // Since we are not at the end of the block (previous check), the decoder is guaranteed
+      // to read a record (advanced by at least one entry).
+      if (!it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
+        continue;
+      }
+
+      if (!VerifyFieldMaskExpirationForCurrent(it)) {
+        continue;
+      }
+
+      base->lastDocId = record->docId;
+      return ITERATOR_OK;
+    }
+  }
+  // Exit outer loop => we reached the end of the last block
+  base->atEOF = true;
+  return ITERATOR_EOF;
+}
+
+// 4. Read implementation that combines skipping multi-value entries and checking field mask expiration.
+IteratorStatus InvIndIterator_Read_SkipMulti_CheckExpiration(QueryIterator *base) {
+  InvIndIterator *it = (InvIndIterator *)base;
+  if (base->atEOF) {
+    return ITERATOR_EOF;
+  }
+  RSIndexResult *record = base->current;
+  for (; it->currentBlock < it->idx->size; AdvanceBlock(it)) {
+    while (!CURRENT_BLOCK_READER_AT_END(it)) {
+      // The decoder also acts as a filter. If the decoder returns false, the
+      // current record should not be processed.
+      // Since we are not at the end of the block (previous check), the decoder is guaranteed
+      // to read a record (advanced by at least one entry).
+      if (!it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
+        continue;
+      }
+
+      if (base->lastDocId == record->docId) {
+        // Avoid returning the same doc
+        // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
+        // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.
+        continue;
+      }
+
+      if (!VerifyFieldMaskExpirationForCurrent(it)) {
+        continue;
+      }
+
+      base->lastDocId = record->docId;
+      return ITERATOR_OK;
+    }
+  }
+  // Exit outer loop => we reached the end of the last block
+  base->atEOF = true;
+  return ITERATOR_EOF;
+}
+
+/************************************ SkipTo Implementations ************************************/
+
+// 1. Default SkipTo implementation, without any additional filtering.
 IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId) {
   RS_ASSERT(base->lastDocId < docId);
   InvIndIterator *it = (InvIndIterator*)base;
@@ -184,7 +272,9 @@ IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId)
     SkipToBlock(it, docId);
   }
 
-  while (ITERATOR_EOF != InvIndIterator_Read(base)) {
+  // Even if we need to skip multi-values, we know the target docId is greater than the lastDocId,
+  // so we use the default read implementation without any additional filtering.
+  while (ITERATOR_EOF != InvIndIterator_Read_Default(base)) {
     if (base->lastDocId < docId) continue;
     if (base->lastDocId == docId) return ITERATOR_OK;
     return ITERATOR_NOTFOUND;
@@ -192,49 +282,8 @@ IteratorStatus InvIndIterator_SkipTo_Default(QueryIterator *base, t_docId docId)
   return ITERATOR_EOF; // Assumes the call to "Read" set the `atEOF` flag
 }
 
-// Will use the seeker to reach a valid doc id that is greater or equal to the requested doc id
-// returns true if a valid doc id was found, false if eof was reached
-// The validity of the document relies on the predicate the reader was initialized with.
-// Invariant: We only go forward, never backwards
-static inline bool ReadWithSeeker(InvIndIterator *it, t_docId docId) {
-  bool found = false;
-  while (!found) {
-    // if found is true we found a doc id that is greater or equal to the searched doc id
-    // if found is false we need to continue scanning the inverted index, possibly advancing to the next block
-    if (CURRENT_BLOCK_READER_AT_END(it)) {
-      if (it->currentBlock + 1 < it->idx->size) {
-        // We reached the end of the current block but we have more blocks to advance to
-        // advance to the next block and continue the search using the seeker from there
-        AdvanceBlock(it);
-      } else {
-        // we reached the end of the inverted index
-        // we are at the end of the last block
-        // break out of the loop and return found (found = false)
-        break;
-      }
-    }
-
-    // try and find docId using seeker
-    found = it->decoders.seeker(&it->blockReader, &it->decoderCtx, docId, it->base.current);
-    // ensure the entry is valid
-    if (found && !VerifyFieldMaskExpirationForDocId(it, it->base.current->docId, it->base.current->fieldMask)) {
-      // the doc id is not valid, filter out the doc id and continue scanning
-      // we set docId to be the next doc id to search for to avoid infinite loop
-      // IMPORTANT:
-      // we still perform the AtEnd check to avoid the case the non valid doc id was at the end of the block
-      // block: [1, 4, 7, ..., 564]
-      //                        ^-- we are here, and 564 is not valid
-      found = false;
-      docId = it->base.current->docId + 1;
-    }
-  }
-  // if found is true we found a doc id that is greater or equal to the searched doc id
-  // if found is false we are at the end of the inverted index, no more blocks or doc ids
-  // we could not find a valid doc id that is greater or equal to the doc id we were called with
-  return found;
-}
-
-IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId docId) {
+// 2. SkipTo implementation that filters out expired results
+IteratorStatus InvIndIterator_SkipTo_CheckExpiration(QueryIterator *base, t_docId docId) {
   RS_ASSERT(base->lastDocId < docId);
   InvIndIterator *it = (InvIndIterator*)base;
   if (base->atEOF) {
@@ -242,7 +291,8 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId doc
   }
 
   if (docId > it->idx->lastId) {
-    goto eof;
+    base->atEOF = true;
+    return ITERATOR_EOF;
   }
 
   if (CURRENT_BLOCK(it).lastId < docId) {
@@ -251,19 +301,90 @@ IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId doc
     SkipToBlock(it, docId);
   }
 
-  // the seeker will return 1 only when it found a docid which is greater or equals the
-  // searched docid and the field mask matches the searched fields mask. We need to continue
-  // scanning only when we found such an id or we reached the end of the inverted index.
-  if (!ReadWithSeeker(it, docId)) {
-    goto eof;
+  // Even if we need to skip multi-values, we know the target docId is greater than the lastDocId,
+  // so we use the default read implementation without any additional filtering.
+  while (ITERATOR_EOF != InvIndIterator_Read_CheckExpiration(base)) {
+    if (base->lastDocId < docId) continue;
+    if (base->lastDocId == docId) return ITERATOR_OK;
+    return ITERATOR_NOTFOUND;
   }
-  // Found a document that match the field mask and greater or equal the searched docid
-  base->lastDocId = it->base.current->docId;
-  return (it->base.current->docId == docId) ? ITERATOR_OK : ITERATOR_NOTFOUND;
+  return ITERATOR_EOF; // Assumes the call to "Read" set the `atEOF` flag
+}
 
-eof:
-  base->atEOF = true;
-  return ITERATOR_EOF;
+// 3. SkipTo implementation that uses a seeker to find the next valid docId, no additional filtering.
+IteratorStatus InvIndIterator_SkipTo_withSeeker(QueryIterator *base, t_docId docId) {
+  RS_ASSERT(base->lastDocId < docId);
+  InvIndIterator *it = (InvIndIterator*)base;
+  if (base->atEOF) {
+    return ITERATOR_EOF;
+  }
+
+  if (docId > it->idx->lastId) {
+    base->atEOF = true;
+    return ITERATOR_EOF;
+  }
+
+  if (CURRENT_BLOCK(it).lastId < docId) {
+    // We know that `docId <= idx->lastId`, so there must be a following block that contains the
+    // lastId, which either contains the requested docId or higher ids. We can skip to it.
+    SkipToBlock(it, docId);
+  }
+
+  IteratorStatus rc;
+  if (it->decoders.seeker(&it->blockReader, &it->decoderCtx, docId, it->base.current)) {
+    // The seeker found a doc id that is greater or equal to the requested doc id
+    // in the current block
+    base->lastDocId = base->current->docId;
+    rc = (base->current->docId == docId) ? ITERATOR_OK : ITERATOR_NOTFOUND;
+  } else {
+    // The seeker did not find a doc id that is greater or equal to the requested doc id
+    // in the current block, we need to read the next valid result
+    // Even if we need to skip multi-values, we know the target docId is greater than the lastDocId,
+    // so we use the default read implementation without any additional filtering.
+    rc = InvIndIterator_Read_Default(base);
+    if (rc == ITERATOR_OK) {
+      rc = ITERATOR_NOTFOUND;
+    }
+  }
+  return rc;
+}
+
+// 4. SkipTo implementation that uses a seeker and checks for field expiration.
+IteratorStatus InvIndIterator_SkipTo_withSeeker_CheckExpiration(QueryIterator *base, t_docId docId) {
+  RS_ASSERT(base->lastDocId < docId);
+  InvIndIterator *it = (InvIndIterator*)base;
+  if (base->atEOF) {
+    return ITERATOR_EOF;
+  }
+
+  if (docId > it->idx->lastId) {
+    base->atEOF = true;
+    return ITERATOR_EOF;
+  }
+
+  if (CURRENT_BLOCK(it).lastId < docId) {
+    // We know that `docId <= idx->lastId`, so there must be a following block that contains the
+    // lastId, which either contains the requested docId or higher ids. We can skip to it.
+    SkipToBlock(it, docId);
+  }
+
+  IteratorStatus rc;
+  if (it->decoders.seeker(&it->blockReader, &it->decoderCtx, docId, it->base.current) &&
+      VerifyFieldMaskExpirationForCurrent(it)) {
+    // The seeker found a doc id that is greater or equal to the requested doc id
+    // in the current block, and the doc id is valid
+    base->lastDocId = base->current->docId;
+    rc = (base->current->docId == docId) ? ITERATOR_OK : ITERATOR_NOTFOUND;
+  } else {
+    // The seeker did not find a doc id that is greater or equal to the requested doc id
+    // in the current block, or the doc id i>s not valid (expired).
+    // We need to read the next valid result
+    rc = InvIndIterator_Read_CheckExpiration(base);
+    if (rc == ITERATOR_OK) {
+      rc = ITERATOR_NOTFOUND;
+    }
+  }
+  return rc;
 }
 
 static QueryIterator *NewInvIndIterator(InvertedIndex *idx, RSIndexResult *res, const FieldFilterContext *filterCtx,
@@ -275,22 +396,59 @@ static QueryIterator *NewInvIndIterator(InvertedIndex *idx, RSIndexResult *res, 
   it->gcMarker = idx->gcMarker;
   it->decoders = InvertedIndex_GetDecoder(idx->flags);
   it->decoderCtx = *decoderCtx;
-  it->skipMulti = skipMulti;
+  it->skipMulti = skipMulti; // Original request, regardless of what implementation is chosen
   it->sctx = sctx;
   it->filterCtx = *filterCtx;
   it->isWildcard = false;
   SetCurrentBlockReader(it);
 
-  it->base.current = res;
-  it->base.type = READ_ITERATOR;
-  it->base.atEOF = false;
-  it->base.lastDocId = 0;
-  it->base.NumEstimated = InvIndIterator_NumEstimated;
-  it->base.Read = InvIndIterator_Read;
-  it->base.SkipTo = it->decoders.seeker ? InvIndIterator_SkipTo_withSeeker : InvIndIterator_SkipTo_Default;
-  it->base.Free = InvIndIterator_Free;
-  it->base.Rewind = InvIndIterator_Rewind;
-  return &it->base;
+  QueryIterator *base = &it->base;
+  base->current = res;
+  base->type = READ_ITERATOR;
+  base->atEOF = false;
+  base->lastDocId = 0;
+  base->NumEstimated = InvIndIterator_NumEstimated;
+  base->Free = InvIndIterator_Free;
+  base->Rewind = InvIndIterator_Rewind;
+
+  // Choose the Read and SkipTo methods for best performance
+  skipMulti = skipMulti && (idx->flags & Index_HasMultiValue);
+  bool hasSeeker = it->decoders.seeker != NULL;
+  bool hasExpiration = sctx && sctx->spec->docs.ttl;
+
+  // Read function choice:
+  // skip multi     |  no                   |  yes
+  // ------------------------------------------------------------------------
+  // no expiration  |  Read_Default         |  Read_SkipMulti
+  // expiration     |  Read_CheckExpiration |  Read_SkipMulti_CheckExpiration
+
+  if (skipMulti && hasExpiration) {
+    base->Read = InvIndIterator_Read_SkipMulti_CheckExpiration;
+  } else if (skipMulti) { // skipMulti && !hasExpiration
+    base->Read = InvIndIterator_Read_SkipMulti;
+  } else if (hasExpiration) { // !skipMulti && hasExpiration
+    base->Read = InvIndIterator_Read_CheckExpiration;
+  } else { // !skipMulti && !hasExpiration
+    base->Read = InvIndIterator_Read_Default;
+  }
+
+  // SkipTo function choice:
+  // has seeker     |  no                      |  yes
+  // ------------------------------------------------------------------------------
+  // no expiration  |  SkipTo_Default          |  SkipTo_withSeeker
+  // expiration     |  SkipTo_CheckExpiration  |  SkipTo_withSeeker_CheckExpiration
+
+  if (hasSeeker && hasExpiration) {
+    base->SkipTo = InvIndIterator_SkipTo_withSeeker_CheckExpiration;
+  } else if (hasSeeker) { // hasSeeker && !hasExpiration
+    base->SkipTo = InvIndIterator_SkipTo_withSeeker;
+  } else if (hasExpiration) { // !hasSeeker && hasExpiration
+    base->SkipTo = InvIndIterator_SkipTo_CheckExpiration;
+  } else { // !hasSeeker && !hasExpiration
+    base->SkipTo = InvIndIterator_SkipTo_Default;
+  }
+
+  return base;
 }
 
 QueryIterator *NewInvIndIterator_NumericFull(InvertedIndex *idx) {
