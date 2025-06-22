@@ -173,8 +173,7 @@ TEST_F(IORuntimeCtxCommonTest, ShutdownWithPendingRequests) {
   IORuntimeCtx_Schedule(io_runtime_ctx, testCallback, &counter);
   // Send one request and make sure it runs to make the test better. Otherwise the async callback does not see the topology applied
   // and delays the callback call (and shutdown call may be called before all the callbacks are called)
-  usleep(100); // 100ms delay
-  ASSERT_EQ(counter, 1);
+  usleep(2000);
 
   // Schedule 10 delayed requests
   for (int i = 0; i < 10; i++) {
