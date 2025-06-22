@@ -37,9 +37,6 @@ typedef struct InvIndIterator {
    */
   uint32_t gcMarker;
 
-  // Whether to skip multi values from the same doc
-  bool skipMulti;
-
   union {
     struct {
       double rangeMin;
