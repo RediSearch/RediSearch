@@ -3588,6 +3588,7 @@ static int initSearchCluster(RedisModuleCtx *ctx, RedisModuleString **argv, int 
   } else {
     num_io_threads = RSGlobalConfig.numWorkerThreads + 1;
   }
+  num_io_threads = 1;
 
   MR_Init(num_io_threads, num_connections_per_shard, clusterConfig.timeoutMS);
 
