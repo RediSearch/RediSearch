@@ -528,6 +528,9 @@ def test_create_errors():
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `NUM_THREADS`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 8, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '0.5') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `NUM_THREADS`')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 8, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '99999') \
+        .error().contains('NUM_THREADS value exceeds MAX_WORKER_THREADS')
+
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', 'str') \
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `GRAPH_MAX_DEGREE`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 10, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '-1') \
@@ -593,6 +596,8 @@ def test_create_errors():
         .error().contains('Bad arguments for vector similarity SVS-VAMANA index `TRAINING_THRESHOLD`')
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '1') \
         .error().contains('Invalid TRAINING_THRESHOLD')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 'v', 'VECTOR', 'SVS-VAMANA', 12, 'TYPE', 'FLOAT32', 'DIM', 16, 'DISTANCE_METRIC', 'IP', 'NUM_THREADS', '8', 'GRAPH_MAX_DEGREE', '8', 'TRAINING_THRESHOLD', '2048') \
+        .error().contains('TRAINING_THRESHOLD is irrelevant when compression was not requested')
 
 
 def test_index_errors():
