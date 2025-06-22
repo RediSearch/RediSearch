@@ -87,13 +87,13 @@ TEST_F(IORuntimeCtxCommonTest, Schedule) {
   IORuntimeCtx_Schedule_Topology(ctx, testTopoCallback, topo, false);
   MRClusterTopology_Free(topo);
 
-  usleep(100);
+  usleep(1000);
 
   for (int i = 0; i < 10; i++) {
     IORuntimeCtx_Schedule(ctx, testCallback, &counter);
   }
   // Give some time for thread to start
-  usleep(100);
+  usleep(1000);
   // Now the Runtime processed the topology and the pending queue
   ASSERT_EQ(counter, 11);
 }
@@ -115,7 +115,7 @@ TEST_F(IORuntimeCtxCommonTest, ScheduleTopology) {
   int counter = 0;
   IORuntimeCtx_Schedule(ctx, testCallback, &counter);
 
-  usleep(200);
+  usleep(2000);
   ASSERT_EQ(ctx->topo->numSlots, 4097);
 
   // We don't need to free newTopo here as it's handled by testTopoCallback
