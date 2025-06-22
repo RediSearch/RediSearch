@@ -154,3 +154,39 @@ TEST_F(IORuntimeCtxCommonTest, ClearPendingTopo) {
   // Clear the pending topology
   IORuntimeCtx_Debug_ClearPendingTopo(ctx);
 }
+
+TEST_F(IORuntimeCtxCommonTest, ShutdownWithPendingRequests) {
+  IORuntimeCtx *io_runtime_ctx = IORuntimeCtx_Create(2, NULL, 1, false);
+  int counter = 0;
+
+  MRClusterTopology *newTopo = getDummyTopology(4097);
+  IORuntimeCtx_Schedule_Topology(io_runtime_ctx, testTopoCallback, newTopo, false);
+  MRClusterTopology_Free(newTopo);
+
+  // Create a delayed callback that takes 100ms to complete
+  auto delayedCallback = [](void *privdata) {
+    int *counter = (int *)privdata;
+    usleep(100000); // 100ms delay
+    (*counter)++;
+  };
+
+  IORuntimeCtx_Schedule(io_runtime_ctx, testCallback, &counter);
+  // Send one request and make sure it runs to make the test better. Otherwise the async callback does not see the topology applied
+  // and delays the callback call (and shutdown call may be called before all the callbacks are called)
+  usleep(100); // 100ms delay
+  ASSERT_EQ(counter, 1);
+
+  // Schedule 10 delayed requests
+  for (int i = 0; i < 10; i++) {
+    IORuntimeCtx_Schedule(io_runtime_ctx, delayedCallback, &counter);
+  }
+  //usleep(100); // 100ms delay
+  ASSERT_LT(counter, 11);
+
+  // Fire shutdown and wait for completion, the shutdown is scheduled to run at the end of the event loop (is just another event)
+  IORuntimeCtx_FireShutdown(io_runtime_ctx);
+  IORuntimeCtx_Free(io_runtime_ctx);
+
+  // Verify all requests were processed despite shutdown
+  ASSERT_EQ(counter, 11);
+}

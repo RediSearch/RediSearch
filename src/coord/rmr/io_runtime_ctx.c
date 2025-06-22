@@ -122,8 +122,8 @@ static void topologyAsyncCB(uv_async_t *async) {
 
 void shutdown_cb(uv_async_t* handle) {
   IORuntimeCtx* io_runtime_ctx = (IORuntimeCtx*)handle->data;
-
   // Stop the event loop first
+  RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Stopping event loop", io_runtime_ctx->queue->id);
   uv_stop(&io_runtime_ctx->loop);
 }
 
@@ -156,10 +156,9 @@ static void sideThread(void *arg) {
   // Run the event loop
   RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Running event loop", io_runtime_ctx->queue->id);
   uv_run(&io_runtime_ctx->loop, UV_RUN_DEFAULT);
-
+  RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Event loop stopped", io_runtime_ctx->queue->id);
   // After the loop stops, close all handles https://github.com/libuv/libuv/issues/709
   uv_walk(&io_runtime_ctx->loop, close_walk_cb, NULL);
-
   // Run the loop one more time to process close callbacks
   uv_run(&io_runtime_ctx->loop, UV_RUN_ONCE);
   uv_loop_close(&io_runtime_ctx->loop);
@@ -217,11 +216,8 @@ int IORuntimeCtx_UpdateNodesAndConnectAll(IORuntimeCtx *ioRuntime) {
 
 static void UV_Init(IORuntimeCtx *io_runtime_ctx) {
   uv_loop_init(&io_runtime_ctx->loop);
-
   uv_mutex_init(&io_runtime_ctx->loop_th_created_mutex);
   uv_cond_init(&io_runtime_ctx->loop_th_created_cond);
-  //need to copy
-
   io_runtime_ctx->shutdownAsync.data = io_runtime_ctx;
   io_runtime_ctx->async.data = io_runtime_ctx;
   io_runtime_ctx->topologyAsync.data = io_runtime_ctx;
