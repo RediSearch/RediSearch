@@ -65,6 +65,7 @@ static void topologyFailureCB(uv_timer_t *timer) {
   // Mark the event loop thread as ready. This will allow any pending requests to be processed
   // (and fail, but it will unblock clients)
   io_runtime_ctx->loop_th_ready = true;
+  triggerPendingQueues(io_runtime_ctx);
 }
 
 static int CheckTopologyConnections(const MRClusterTopology *topo,
