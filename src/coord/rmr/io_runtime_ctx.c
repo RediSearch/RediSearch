@@ -40,6 +40,9 @@ static void triggerPendingQueues(IORuntimeCtx *io_runtime_ctx) {
 
 static void rqAsyncCb(uv_async_t *async) {
   IORuntimeCtx *io_runtime_ctx = async->data;
+
+  // EDGE CASE: If loop_th_ready is false when a shutdown is fired, it could happen that the shutdown comes before the pendingQueues that are here being
+  // "reescheduled".
   if (!io_runtime_ctx->loop_th_ready) {
     // Topology is scheduled to change, add to the list of pending queues after topology is properly applied
     array_ensure_append_1(io_runtime_ctx->pendingQueues, async); // try again later
@@ -62,7 +65,6 @@ static void topologyFailureCB(uv_timer_t *timer) {
   // Mark the event loop thread as ready. This will allow any pending requests to be processed
   // (and fail, but it will unblock clients)
   io_runtime_ctx->loop_th_ready = true;
-  triggerPendingQueues(io_runtime_ctx);
 }
 
 static int CheckTopologyConnections(const MRClusterTopology *topo,
@@ -267,6 +269,8 @@ IORuntimeCtx *IORuntimeCtx_Create(size_t num_connections_per_shard, struct MRClu
 void IORuntimeCtx_FireShutdown(IORuntimeCtx *io_runtime_ctx) {
   if (CheckIoRuntimeStarted(io_runtime_ctx)) {
     // There may be a delay between the thread starting and the loop running, we need to account for it
+    // I could perhaps try to give one last chance to PendingQueues by calling triggerPendingQueues
+    //(we may need to have a logic on how many times we try to do it...)
     uv_async_send(&io_runtime_ctx->shutdownAsync);
   }
 }
