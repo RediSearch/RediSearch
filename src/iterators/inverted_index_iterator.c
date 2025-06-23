@@ -31,6 +31,20 @@ static inline void AdvanceBlock(InvIndIterator *it) {
   SetCurrentBlockReader(it);
 }
 
+// A while-loop helper to advance the iterator to the next block or break if we are at the end.
+static __attribute__((always_inline)) inline bool NotAtEnd(InvIndIterator *it) {
+  if (!CURRENT_BLOCK_READER_AT_END(it)) {
+    return true; // still have entries in the current block
+  }
+  if (it->currentBlock + 1 < it->idx->size) {
+    // we have more blocks to read, so we can advance to the next block
+    AdvanceBlock(it);
+    return true;
+  }
+  // no more blocks to read, so we are at the end
+  return false;
+}
+
 void InvIndIterator_Rewind(QueryIterator *base) {
   InvIndIterator *it = (InvIndIterator *)base;
   base->atEOF = false;
@@ -134,16 +148,14 @@ IteratorStatus InvIndIterator_Read_Default(QueryIterator *base) {
     return ITERATOR_EOF;
   }
   RSIndexResult *record = base->current;
-  for (; it->currentBlock < it->idx->size; AdvanceBlock(it)) {
-    while (!CURRENT_BLOCK_READER_AT_END(it)) {
-      // The decoder also acts as a filter. If the decoder returns false, the
-      // current record should not be processed.
-      // Since we are not at the end of the block (previous check), the decoder is guaranteed
-      // to read a record (advanced by at least one entry).
-      if (it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
-        base->lastDocId = record->docId;
-        return ITERATOR_OK;
-      }
+  while (NotAtEnd(it)) {
+    // The decoder also acts as a filter. If the decoder returns false, the
+    // current record should not be processed.
+    // Since we are not at the end of the block (previous check), the decoder is guaranteed
+    // to read a record (advanced by at least one entry).
+    if (it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
+      base->lastDocId = record->docId;
+      return ITERATOR_OK;
     }
   }
   // Exit outer loop => we reached the end of the last block
@@ -158,26 +170,24 @@ IteratorStatus InvIndIterator_Read_SkipMulti(QueryIterator *base) {
     return ITERATOR_EOF;
   }
   RSIndexResult *record = base->current;
-  for (; it->currentBlock < it->idx->size; AdvanceBlock(it)) {
-    while (!CURRENT_BLOCK_READER_AT_END(it)) {
-      // The decoder also acts as a filter. If the decoder returns false, the
-      // current record should not be processed.
-      // Since we are not at the end of the block (previous check), the decoder is guaranteed
-      // to read a record (advanced by at least one entry).
-      if (!it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
-        continue;
-      }
-
-      if (base->lastDocId == record->docId) {
-        // Avoid returning the same doc
-        // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
-        // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.
-        continue;
-      }
-
-      base->lastDocId = record->docId;
-      return ITERATOR_OK;
+  while (NotAtEnd(it)) {
+    // The decoder also acts as a filter. If the decoder returns false, the
+    // current record should not be processed.
+    // Since we are not at the end of the block (previous check), the decoder is guaranteed
+    // to read a record (advanced by at least one entry).
+    if (!it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
+      continue;
     }
+
+    if (base->lastDocId == record->docId) {
+      // Avoid returning the same doc
+      // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
+      // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.
+      continue;
+    }
+
+    base->lastDocId = record->docId;
+    return ITERATOR_OK;
   }
   // Exit outer loop => we reached the end of the last block
   base->atEOF = true;
@@ -191,23 +201,21 @@ IteratorStatus InvIndIterator_Read_CheckExpiration(QueryIterator *base) {
     return ITERATOR_EOF;
   }
   RSIndexResult *record = base->current;
-  for (; it->currentBlock < it->idx->size; AdvanceBlock(it)) {
-    while (!CURRENT_BLOCK_READER_AT_END(it)) {
-      // The decoder also acts as a filter. If the decoder returns false, the
-      // current record should not be processed.
-      // Since we are not at the end of the block (previous check), the decoder is guaranteed
-      // to read a record (advanced by at least one entry).
-      if (!it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
-        continue;
-      }
-
-      if (!VerifyFieldMaskExpirationForCurrent(it)) {
-        continue;
-      }
-
-      base->lastDocId = record->docId;
-      return ITERATOR_OK;
+  while (NotAtEnd(it)) {
+    // The decoder also acts as a filter. If the decoder returns false, the
+    // current record should not be processed.
+    // Since we are not at the end of the block (previous check), the decoder is guaranteed
+    // to read a record (advanced by at least one entry).
+    if (!it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
+      continue;
     }
+
+    if (!VerifyFieldMaskExpirationForCurrent(it)) {
+      continue;
+    }
+
+    base->lastDocId = record->docId;
+    return ITERATOR_OK;
   }
   // Exit outer loop => we reached the end of the last block
   base->atEOF = true;
@@ -221,30 +229,28 @@ IteratorStatus InvIndIterator_Read_SkipMulti_CheckExpiration(QueryIterator *base
     return ITERATOR_EOF;
   }
   RSIndexResult *record = base->current;
-  for (; it->currentBlock < it->idx->size; AdvanceBlock(it)) {
-    while (!CURRENT_BLOCK_READER_AT_END(it)) {
-      // The decoder also acts as a filter. If the decoder returns false, the
-      // current record should not be processed.
-      // Since we are not at the end of the block (previous check), the decoder is guaranteed
-      // to read a record (advanced by at least one entry).
-      if (!it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
-        continue;
-      }
-
-      if (base->lastDocId == record->docId) {
-        // Avoid returning the same doc
-        // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
-        // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.
-        continue;
-      }
-
-      if (!VerifyFieldMaskExpirationForCurrent(it)) {
-        continue;
-      }
-
-      base->lastDocId = record->docId;
-      return ITERATOR_OK;
+  while (NotAtEnd(it)) {
+    // The decoder also acts as a filter. If the decoder returns false, the
+    // current record should not be processed.
+    // Since we are not at the end of the block (previous check), the decoder is guaranteed
+    // to read a record (advanced by at least one entry).
+    if (!it->decoders.decoder(&it->blockReader, &it->decoderCtx, record)) {
+      continue;
     }
+
+    if (base->lastDocId == record->docId) {
+      // Avoid returning the same doc
+      // Currently the only relevant predicate for multi-value is `any`, therefore only the first match in each doc is needed.
+      // More advanced predicates, such as `at least <N>` or `exactly <N>`, will require adding more logic.
+      continue;
+    }
+
+    if (!VerifyFieldMaskExpirationForCurrent(it)) {
+      continue;
+    }
+
+    base->lastDocId = record->docId;
+    return ITERATOR_OK;
   }
   // Exit outer loop => we reached the end of the last block
   base->atEOF = true;
