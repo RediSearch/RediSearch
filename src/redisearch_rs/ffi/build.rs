@@ -37,6 +37,7 @@ fn main() {
         let redisearch_rs = src.join("redisearch_rs").join("headers");
         let inverted_index = src.join("inverted_index");
         let vecsim = deps.join("VectorSimilarity").join("src");
+        let buffer = src.join("buffer");
 
         [
             redis_modules,
@@ -45,12 +46,13 @@ fn main() {
             redisearch_rs,
             inverted_index,
             vecsim,
+            buffer,
         ]
     };
 
     let headers = [
         root.join("src").join("redisearch.h"),
-        root.join("src").join("buffer.h"),
+        root.join("src").join("buffer/buffer.h"),
         root.join("src").join("result_processor.h"),
     ];
 
