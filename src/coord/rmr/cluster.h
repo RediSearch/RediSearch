@@ -27,9 +27,7 @@ typedef struct {
   /* The connection manager holds a connection to each node, indexed by node id */
   /* An MRCluster holds an array of Connection Managers (one per each I/O thread)*/
   IORuntimeCtx **io_runtimes_pool;
-  IORuntimeCtx *control_plane_io_runtime;
   size_t num_io_threads; // Number of threads in the pool (including the control plane)
-  size_t io_runtimes_pool_size;
   size_t current_round_robin;
 } MRCluster;
 
@@ -61,8 +59,6 @@ void MRCluster_UpdateConnPerShard(IORuntimeCtx *ioRuntime, size_t new_conn_pool_
 void MRClust_Free(MRCluster *cl);
 
 size_t MRCluster_AssignRoundRobinIORuntimeIdx(MRCluster *cl);
-
-IORuntimeCtx *MRCluster_GetControlPlaneIORuntimeCtx(const MRCluster *cl);
 
 IORuntimeCtx *MRCluster_GetIORuntimeCtx(const MRCluster *cl, size_t idx);
 
