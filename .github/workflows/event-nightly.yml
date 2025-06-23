@@ -46,8 +46,6 @@ jobs:
   micro-benchmarks:
     uses: ./.github/workflows/flow-micro-benchmarks.yml
     secrets: inherit
-    with:
-      setup: '' # default behavior
 
 
   notify-failure:
