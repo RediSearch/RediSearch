@@ -418,19 +418,21 @@ def testLazyTextFieldExpiration(env):
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'not_text_field', 'NUMERIC', 'x', 'TEXT', 'INDEXMISSING', 'y', 'TEXT')
     # Enable monitoring on hash field expiration. TODO: have this on default once we fix the call to HPEXPIRE
     env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')  # use shard connection for _FT.DEBUG
-    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', 'hello')
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', '57')
     conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', '57')
-    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'x')
+    conn.execute_command('HSET', 'doc:3', 'x', 'hello', 'y', '57')
+    conn.execute_command('HSET', 'doc:4', 'x', 'hello', 'y', 'hello')
+    conn.execute_command('HPEXPIRE', 'doc:4', '1', 'FIELDS', '1', 'x')
     time.sleep(0.005)
     # there shouldn't be an active expiration for field x in doc:1
-    # but due to the ttl table we should not return doc:1 when searching for x
-    env.expect('FT.SEARCH', 'idx', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
-    # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
-    env.expect('FT.SEARCH', 'idx', 'ismissing(@x)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
+    # but due to the ttl table we should not return doc:4 when searching for x
+    env.expect('FT.SEARCH', 'idx', '@x:hello', 'NOCONTENT').equal([3, 'doc:1', 'doc:2', 'doc:3'])
+    # also we expect that the ismissing inverted index to contain document 4 since it had an active expiration
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@x)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:4'])
     # Test the field mask element, hello term should have a bit mask of 2 fields
     # For doc:1 the mask should have two bits for its two fields
     # since the field y is still valid we should still get doc:1 in the results
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([4, 'doc:1', 'doc:2', 'doc:3', 'doc:4'])
 
 
 @skip(redis_less_than='8.0')
