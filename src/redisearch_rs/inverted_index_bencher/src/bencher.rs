@@ -151,7 +151,7 @@ fn numeric_c_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &
 fn numeric_rust_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[f64]) {
     group.bench_function("Rust", |b| {
         b.iter_batched(
-            || TestBuffer::new(),
+            || TestBuffer::with_capacity(64),
             |mut buffer| {
                 for &value in values {
                     let buffer_writer = BufferWriter::new(&mut buffer.0);
