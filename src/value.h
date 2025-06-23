@@ -150,7 +150,6 @@ void RSValue_Clear(RSValue *v);
 void RSValue_Free(RSValue *v);
 
 RSValue* RSValue_IncrRef(RSValue* v);
-
 void RSValue_Decref(RSValue* v);
 
 RSValue *RS_NewValue(RSValueType t);

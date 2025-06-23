@@ -251,7 +251,6 @@ file(GLOB SOURCES
     "src/aggregate/reducers/*.c"
     "src/ext/*.c"
     "src/hll/*.c"
-    "src/module-init/*.c"
     "src/query_parser/v1/*.c"
     "src/query_parser/v2/*.c"
     "src/util/*.c"
@@ -261,6 +260,7 @@ file(GLOB SOURCES
     "src/info/info_redis/*.c"
     "src/info/info_redis/threads/*.c"
     "src/info/info_redis/types/*.c"
+    "src/module-init/*.c"
     "src/obfuscation/*.c"
 
     "deps/cndict/cndict_data.c"

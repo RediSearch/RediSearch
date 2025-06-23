@@ -16,7 +16,7 @@ use std::{
 use crate::mock::REDISMODULE_OK;
 
 pub(crate) struct RedisModuleCommand {
-    name: String,
+    _name: String,
     handler: ffi::RedisModuleCmdFunc,
     sub_commands: HashMap<String, RedisModuleCommand>,
 }
@@ -39,7 +39,7 @@ pub(crate) unsafe extern "C" fn RedisModule_CreateCommand(
     let slice = unsafe { std::ffi::CStr::from_ptr(name.cast()) };
     let name = String::from_utf8_lossy(slice.to_bytes()).to_string();
     let cmd = RedisModuleCommand {
-        name: name.clone(),
+        _name: name.clone(),
         handler,
         sub_commands: HashMap::new(),
     };
@@ -106,7 +106,7 @@ pub(crate) unsafe extern "C" fn RedisModule_CreateSubcommand(
     }
 
     let sub_command = RedisModuleCommand {
-        name: name.clone(),
+        _name: name.clone(),
         handler,
         sub_commands: HashMap::new(),
     };
