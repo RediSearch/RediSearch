@@ -86,7 +86,7 @@ impl VarintBencher {
     pub fn decode_u64(&self, c: &mut Criterion) {
         let mut group = self.benchmark_group(c, "Decode u64");
         for bench_input in &self.u64_values {
-            decode_u64_benchmark(&mut group, &bench_input);
+            decode_u64_benchmark(&mut group, bench_input);
         }
         group.finish();
     }
