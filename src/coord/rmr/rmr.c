@@ -271,7 +271,7 @@ static void uvUpdateTopologyRequest(void *p) {
 void MR_UpdateTopology(MRClusterTopology *newTopo) {
   // TODO(Joan): Most likely we need to make sure we wait for the topology to properly be applied to every runtime context before returning.
   for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
-    IORuntimeCtx_Schedule_Topology(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, newTopo, false);
+    IORuntimeCtx_Schedule_Topology(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, newTopo, i == 0 ? true : false);
   }
 }
 
