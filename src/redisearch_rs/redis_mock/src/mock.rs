@@ -67,10 +67,8 @@ extern "C" fn RedisModule_Strdup(s: *const c_char) -> *mut c_char {
 }
 
 fn register_api() -> HashMap<&'static str, RawFunctionPtr> {
-    // sets up some helpers that are required for variadic functions
+    // The variadic functions entry points are defined in C, which is
     // a workaround for <https://github.com/rust-lang/rust/issues/44930>
-    // see
-    unsafe { ffi::cside_mock_setup() };
 
     let mut map = HashMap::new();
 
