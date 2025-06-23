@@ -448,8 +448,8 @@ TEST_F(ExprTest, testEvalFuncCase) {
 TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
   RLookup lk = {0};
   RLookup_Init(&lk, NULL);
-  auto *kfoo = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
-  auto *kbar = RLookup_GetKey(&lk, "bar", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
+  auto *kbar = RLookup_GetKey_Write(&lk, "bar", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
   RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(5));
   RLookup_WriteOwnKey(kbar, &rr, RS_NumVal(10));
@@ -469,7 +469,7 @@ TEST_F(ExprTest, testEvalFuncCaseWithComparisons) {
 TEST_F(ExprTest, testEvalFuncCaseWithExists) {
   RLookup lk = {0};
   RLookup_Init(&lk, NULL);
-  auto *kfoo = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
   RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(42));
 
@@ -568,7 +568,7 @@ TEST_F(ExprTest, testEvalFuncCaseErrorConditions) {
 TEST_F(ExprTest, testEvalFuncCaseShortCircuitEvaluation) {
   RLookup lk = {0};
   RLookup_Init(&lk, NULL);
-  auto *kfoo = RLookup_GetKey(&lk, "foo", RLOOKUP_M_WRITE, RLOOKUP_F_NOFLAGS);
+  auto *kfoo = RLookup_GetKey_Write(&lk, "foo", RLOOKUP_F_NOFLAGS);
   RLookupRow rr = {0};
   RLookup_WriteOwnKey(kfoo, &rr, RS_NumVal(5));
 

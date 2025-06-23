@@ -244,12 +244,12 @@ RLookupKey *RLookup_GetKey_ReadEx(RLookup *lookup, const char *name, size_t name
 }
 
 RLookupKey *RLookup_GetKey_Write(RLookup *lookup, const char *name, uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, strlen(name), NULL, RLOOKUP_M_READ, flags);
+  return RLookup_GetKey_common(lookup, name, strlen(name), NULL, RLOOKUP_M_WRITE, flags);
 }
 
 RLookupKey *RLookup_GetKey_WriteEx(RLookup *lookup, const char *name, size_t name_len,
                                    uint32_t flags) {
-  return RLookup_GetKey_common(lookup, name, name_len, NULL, RLOOKUP_M_READ, flags);
+  return RLookup_GetKey_common(lookup, name, name_len, NULL, RLOOKUP_M_WRITE, flags);
 }
 
 RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name,
