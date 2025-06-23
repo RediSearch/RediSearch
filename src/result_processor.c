@@ -1430,7 +1430,7 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
 }
 
  /*******************************************************************************************************************
-  *  Hybrid Merger Dictionary Types
+  *  Hybrid Merger Dictionary Type
   *
   * Single dictionary for storing both search results and scores:
   * keyPtr -> HybridSearchResult mapping (contains both SearchResult and scores)
@@ -1440,8 +1440,8 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
 typedef struct {
   SearchResult *searchResult; // The actual search result
   double *scores;             // Dynamic array of scores from upstreams
-  bool *hasScores;           // Dynamic array of flags indicating if each score is available
-  size_t numSources;       // Number of upstreams
+  bool *hasScores;            // Dynamic array of flags indicating if each score is available
+  size_t numSources;          // Number of upstreams
 } HybridSearchResult;
 
 // Constructor for HybridSearchResult
@@ -1463,7 +1463,6 @@ static void HybridSearchResult_Free(HybridSearchResult* hybridResult) {
     rm_free(hybridResult);
   }
 }
-
 
 // Wrapper for HybridSearchResult destructor to match dictionary value destructor signature
 static void hybridSearchResultValueDestructor(void *privdata, void *obj) {
@@ -1525,15 +1524,13 @@ dictType dictTypeHybridSearchResult = {
    size_t consumed = 0;
    int rc = RS_RESULT_OK;
    SearchResult *r = rm_calloc(1, sizeof(*r));
-   int rank = 1;
    while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
        double score = r->score;
+       consumed++;
        if (self->scoringType == HYBRID_SCORING_RRF) {
-         score = rank;
-         rank++;
+         score = consumed;
        }
        StoreUpstreamResult(r, self->hybridResults, upstreamIndex, self->numUpstreams, score);
-       consumed++;
        r = rm_calloc(1, sizeof(*r));
    }
    rm_free(r);
@@ -1624,9 +1621,6 @@ dictType dictTypeHybridSearchResult = {
    // Free the hybrid results dictionary (HybridSearchResult values automatically freed by destructor)
    dictRelease(self->hybridResults);
 
-   // Free the dynamic upstreams array
-   rm_free(self->upstreams);
-
    // Free the processor itself
    rm_free(self);
  }
@@ -1644,11 +1638,7 @@ dictType dictTypeHybridSearchResult = {
 
    ret->scoringType = scoringType;
    ret->scoringCtx = scoringCtx;
-
-   // Allocate and copy the array for upstreams
-   ret->upstreams = rm_malloc(numUpstreams * sizeof(ResultProcessor*));
-   memcpy(ret->upstreams, upstreams, numUpstreams * sizeof(ResultProcessor *));
-
+   ret->upstreams = upstreams;
    ret->window = window;
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
    // Calculate maximal dictionary size: window * numUpstreams
