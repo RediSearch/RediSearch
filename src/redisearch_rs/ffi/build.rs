@@ -52,7 +52,7 @@ fn main() {
         let buffer_h = root.join("src").join("buffer.h");
         let redisearch_h = root.join("src").join("redisearch.h");
         let result_processor_h = root.join("src").join("result_processor.h");
-        let value_h = root.join("src").join("c2rust").join("value.h");
+        let value_h = root.join("src").join("value.h");
         let variadic_helper_h = root
             .join("src")
             .join("c2rust")

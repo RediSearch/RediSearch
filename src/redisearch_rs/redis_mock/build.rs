@@ -42,19 +42,8 @@ fn main() {
         );
     }
 
-    let helper_lib_name = cfg!(target_os = "windows")
-        .then(|| "c2rust_variadic_helper.lib")
-        .unwrap_or("libc2rust_variadic_helper.a");
-    if !lib_path.join(helper_lib_name).exists() {
-        println!(
-            "cargo::error=Could not find the helper static library at {}",
-            lib_path.join(helper_lib_name).display()
-        );
-    }
-
     // configure linker with libname and path
     println!("cargo:rustc-link-lib=static=c2rust");
-    println!("cargo:rustc-link-lib=static=c2rust_variadic_helper");
     println!("cargo:rustc-link-search=native={}", lib_path.display());
 
     // rerun if cmake file changes

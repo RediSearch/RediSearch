@@ -251,6 +251,7 @@ file(GLOB SOURCES
     "src/aggregate/reducers/*.c"
     "src/ext/*.c"
     "src/hll/*.c"
+    "src/module-init/*.c"
     "src/query_parser/v1/*.c"
     "src/query_parser/v2/*.c"
     "src/util/*.c"
@@ -282,7 +283,6 @@ add_library(rscore OBJECT ${SOURCES})
 set(FINAL_OBJECTS
     $<TARGET_OBJECTS:arr>
     $<TARGET_OBJECTS:inverted_index>
-    $<TARGET_OBJECTS:c2rust>
     $<TARGET_OBJECTS:wildcard>
     $<TARGET_OBJECTS:rscore>
     $<TARGET_OBJECTS:rmutil>
@@ -314,7 +314,6 @@ target_link_libraries(redisearch
         redisearch-coord
         arr
         inverted_index
-        c2rust
         wildcard
         uv_a
         ${BINDIR}/redisearch_rs/libredisearch_rs.a
