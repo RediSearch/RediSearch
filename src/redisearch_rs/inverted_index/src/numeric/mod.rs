@@ -549,8 +549,9 @@ impl ToFromBytes<1> for Header {
         let data = data[0];
 
         let delta_bytes = data & 0b111;
-        let type_bits = (data >> 3) & 0b11;
-        let upper_bits = data >> 5;
+        let data = data >> 3;
+        let type_bits = data & 0b11;
+        let upper_bits = data >> 2;
 
         match type_bits {
             Self::TINY_TYPE => Self {
