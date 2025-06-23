@@ -174,6 +174,9 @@ CONFIG_SETTER(setSearchIOThreads) {
   SearchClusterConfig *realConfig = getOrCreateRealConfig((RSConfig *)config);
   int acrc = AC_GetSize(ac, &realConfig->coordinatorIOThreads, AC_F_GE1);
   CHECK_RETURN_PARSE_ERROR(acrc);
+
+  // Update the IO threads in the cluster
+  MR_UpdateSearchIOThreads(realConfig->coordinatorIOThreads);
   return REDISMODULE_OK;
 }
 
@@ -258,8 +261,7 @@ static RSConfigOptions clusterOptions_g = {
             {.name = "SEARCH_IO_THREADS",
              .helpText = "Sets the number of I/O threads in the coordinator",
              .setValue = setSearchIOThreads,
-             .getValue = getSearchIOThreads,
-             .flags = RSCONFIGVAR_F_IMMUTABLE,},
+             .getValue = getSearchIOThreads},
             {.name = "TOPOLOGY_VALIDATION_TIMEOUT",
              .helpText = "Sets the timeout for topology validation (in milliseconds). After this timeout, "
                          "any pending requests will be processed, even if the topology is not fully connected. "

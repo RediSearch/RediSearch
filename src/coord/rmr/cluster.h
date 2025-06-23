@@ -18,6 +18,10 @@
 #include "io_runtime_ctx.h"
 #include "cluster_topology.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* A cluster has nodes and connections that can be used by the engine to send requests */
 typedef struct {
   /* The connection manager holds a connection to each node, indexed by node id */
@@ -61,3 +65,9 @@ size_t MRCluster_AssignRoundRobinIORuntimeIdx(MRCluster *cl);
 IORuntimeCtx *MRCluster_GetControlPlaneIORuntimeCtx(const MRCluster *cl);
 
 IORuntimeCtx *MRCluster_GetIORuntimeCtx(const MRCluster *cl, size_t idx);
+
+void MRCluster_UpdateNumIOThreads(MRCluster *cl, size_t num_io_threads);
+
+#ifdef __cplusplus
+}
+#endif

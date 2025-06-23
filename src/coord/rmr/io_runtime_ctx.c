@@ -40,7 +40,6 @@ static void triggerPendingQueues(IORuntimeCtx *io_runtime_ctx) {
 
 static void rqAsyncCb(uv_async_t *async) {
   IORuntimeCtx *io_runtime_ctx = async->data;
-
   // EDGE CASE: If loop_th_ready is false when a shutdown is fired, it could happen that the shutdown comes before the pendingQueues that are here being
   // "reescheduled".
   if (!io_runtime_ctx->loop_th_ready) {
@@ -154,7 +153,7 @@ static void sideThread(void *arg) {
 #endif
   IORuntimeCtx *io_runtime_ctx = arg;
   // loop is initialized and handles are ready
-  io_runtime_ctx->loop_th_ready = false; // Until topology is validated, no requests are allowed (will be accumulated in the pending queue)
+  //io_runtime_ctx->loop_th_ready = false; // Until topology is validated, no requests are allowed (will be accumulated in the pending queue)
   uv_async_send(&io_runtime_ctx->topologyAsync); // start the topology check
   // Run the event loop
   RedisModule_Log(RSDummyContext, "verbose", "IORuntime ID %zu: Running event loop", io_runtime_ctx->queue->id);

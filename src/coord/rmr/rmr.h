@@ -43,6 +43,8 @@ void MR_uvReplyClusterInfo(RedisModuleCtx *ctx);
 
 void MR_UpdateConnPerShard(size_t connPerShard);
 
+void MR_UpdateSearchIOThreads(size_t num_io_threads);
+
 void MR_Debug_ClearPendingTopo();
 
 /* Get the user stored private data from the context */

@@ -247,3 +247,47 @@ IORuntimeCtx *MRCluster_GetIORuntimeCtx(const MRCluster *cl, size_t idx) {
   }
   return cl->io_runtimes_pool[idx - 1];
 }
+
+void MRCluster_UpdateNumIOThreads(MRCluster *cl, size_t num_io_threads) {
+  RS_ASSERT(num_io_threads > 0);
+
+  if (num_io_threads == cl->num_io_threads) return;
+
+  size_t new_io_pool_size = num_io_threads - 1;
+
+  if (num_io_threads < cl->num_io_threads) {
+    // Need to reduce the number of IO threads
+    // First, fire shutdown for the threads we want to remove
+    for (size_t i = new_io_pool_size; i < cl->io_runtimes_pool_size; i++) {
+      IORuntimeCtx_FireShutdown(cl->io_runtimes_pool[i]);
+    }
+
+    // Then free the runtime contexts
+    for (size_t i = new_io_pool_size; i < cl->io_runtimes_pool_size; i++) {
+      IORuntimeCtx_Free(cl->io_runtimes_pool[i]);
+    }
+
+    // Resize the pool
+    cl->io_runtimes_pool = rm_realloc(cl->io_runtimes_pool, sizeof(IORuntimeCtx*) * new_io_pool_size);
+  } else {
+    // Need to increase the number of IO threads
+    // Resize the pool
+    cl->io_runtimes_pool = rm_realloc(cl->io_runtimes_pool, sizeof(IORuntimeCtx*) * new_io_pool_size);
+
+    // Create new runtime contexts
+    for (size_t i = cl->io_runtimes_pool_size; i < new_io_pool_size; i++) {
+      cl->io_runtimes_pool[i] = IORuntimeCtx_Create(
+          cl->control_plane_io_runtime->conn_mgr->nodeConns,
+          NULL,
+          i + 1,
+          false);
+      if (cl->control_plane_io_runtime->topo) {
+        //TODO(Joan): We should make sure this is the last topology from user, so the UpdateTopology request should wait to return
+        cl->io_runtimes_pool[i]->topo = MRClusterTopology_Clone(cl->control_plane_io_runtime->topo);
+        cl->io_runtimes_pool[i]->loop_th_ready = true;
+      }
+    }
+  }
+  cl->io_runtimes_pool_size = new_io_pool_size;
+  cl->num_io_threads = num_io_threads;
+}
