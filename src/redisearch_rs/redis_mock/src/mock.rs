@@ -37,6 +37,8 @@ use std::{
     sync::OnceLock,
 };
 
+use crate::command::*;
+
 pub const REDISMODULE_OK: i32 = 0;
 pub const REDISMODULE_ERR: i32 = 1;
 
@@ -53,7 +55,7 @@ unsafe impl Sync for RawFunctionPtr {}
 static MY_API_FNCS: OnceLock<HashMap<&'static str, RawFunctionPtr>> = OnceLock::new();
 
 macro_rules! register_api {
-    ($map:expr, $func:ident) => {
+    ($map:expr, $func:path) => {
         $map.insert(stringify!($func), RawFunctionPtr($func as *mut c_void));
     };
 }
@@ -74,14 +76,41 @@ fn register_api() -> HashMap<&'static str, RawFunctionPtr> {
 
     // Register the functions that are part of the Redis API
     register_api!(map, RedisModule_GetApi);
+
+    register_api!(map, RedisModule_ReplyWithNull);
     register_api!(map, RedisModule_ReplyWithLongLong);
     register_api!(map, RedisModule_ReplyWithSimpleString);
     register_api!(map, RedisModule_ReplyWithError);
-    register_api!(map, RedisModule_ReplyWithArray);
     register_api!(map, RedisModule_ReplyWithDouble);
-    register_api!(map, RedisModule_WithStringBuffer);
-    register_api!(map, RedisModule_WithString);
+    register_api!(map, RedisModule_ReplyWithStringBuffer);
+    register_api!(map, RedisModule_ReplyWithString);
+    register_api!(map, RedisModule_ReplyWithCString);
+    register_api!(map, RedisModule_ReplyWithEmptyString);
+    register_api!(map, RedisModule_ReplyWithVerbatimString);
 
+    register_api!(map, RedisModule_ReplyWithArray);
+    register_api!(map, RedisModule_ReplyWithNullArray);
+    register_api!(map, RedisModule_ReplyWithMap);
+    register_api!(map, RedisModule_ReplyWithSet);
+    register_api!(map, RedisModule_ReplyWithAttribute);
+
+    register_api!(map, RedisModule_ReplySetArrayLength);
+    register_api!(map, RedisModule_ReplySetMapLength);
+    register_api!(map, RedisModule_ReplySetSetLength);
+    register_api!(map, RedisModule_ReplySetAttributeLength);
+    register_api!(map, RedisModule_ReplySetPushLength);
+
+    register_api!(map, RedisModule_IsModuleNameBusy);
+    register_api!(map, RedisModule_WrongArity);
+
+    register_api!(map, RedisModule_SetModuleAttribs);
+    register_api!(map, RedisModule_SetACLCategory);
+    register_api!(map, RedisModule_AddACLCategory);
+    register_api!(map, RedisModule_SetCommandACLCategories);
+
+    register_api!(map, RedisModule_GetCommand);
+    register_api!(map, RedisModule_CreateCommand);
+    register_api!(map, RedisModule_CreateSubcommand);
     map
 }
 
@@ -144,7 +173,16 @@ unsafe extern "C" fn RedisModule_SetACLCategory(
 
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
-unsafe extern "C" fn RedisModule_SetACLCommandCategories(
+unsafe extern "C" fn RedisModule_AddACLCategory(
+    _ctx: *mut ffi::RedisModuleCtx,
+    _cat: *const char,
+) -> i32 {
+    REDISMODULE_OK
+}
+
+#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
+unsafe extern "C" fn RedisModule_SetCommandACLCategories(
     _ctx: *mut ffi::RedisModuleCtx,
     _cats: *const char,
 ) -> i32 {
@@ -166,20 +204,36 @@ unsafe extern "C" fn RedisModule_IsModuleNameBusy(_name: *const char) -> i32 {
 
 /// Helper to generate the reply functions
 macro_rules! reply_func {
-    ($basename:ident, $($arg:ty),*) => {
+    ($basename:ident $(, $arg:ty)*) => {
         #[unsafe (no_mangle)]
         #[allow(non_snake_case)]
-        unsafe extern "C" fn $basename(_ctx: *mut ffi::RedisModuleCtx, $(_: $arg),*) -> c_int {
+        unsafe extern "C" fn $basename(_ctx: *mut ffi::RedisModuleCtx $(, _: $arg)*) -> c_int {
             REDISMODULE_OK
         }
     };
 }
 
+reply_func!(RedisModule_ReplyWithNull);
 reply_func!(RedisModule_ReplyWithLongLong, i64);
 reply_func!(RedisModule_ReplyWithSimpleString, *const c_char);
 reply_func!(RedisModule_ReplyWithError, *const c_char);
 reply_func!(RedisModule_ReplyWithDouble, f64);
-reply_func!(RedisModule_WithStringBuffer, *const char, libc::size_t);
-reply_func!(RedisModule_WithString, ffi::RedisModuleString);
+reply_func!(RedisModule_ReplyWithStringBuffer, *const char, libc::size_t);
+reply_func!(RedisModule_ReplyWithString, ffi::RedisModuleString);
+reply_func!(RedisModule_ReplyWithCString, *const c_char);
+reply_func!(RedisModule_ReplyWithEmptyString);
+reply_func!(
+    RedisModule_ReplyWithVerbatimString,
+    *const c_char,
+    libc::size_t
+);
 reply_func!(RedisModule_ReplyWithArray, usize);
+reply_func!(RedisModule_ReplyWithNullArray);
 reply_func!(RedisModule_ReplyWithMap, i32);
+reply_func!(RedisModule_ReplyWithSet, i32);
+reply_func!(RedisModule_ReplyWithAttribute, i32);
+reply_func!(RedisModule_ReplySetArrayLength, i32);
+reply_func!(RedisModule_ReplySetMapLength, i32);
+reply_func!(RedisModule_ReplySetSetLength, i32);
+reply_func!(RedisModule_ReplySetAttributeLength, i32);
+reply_func!(RedisModule_ReplySetPushLength, i32);

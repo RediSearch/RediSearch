@@ -15,8 +15,7 @@ use std::{
 
 use crate::mock::REDISMODULE_OK;
 
-#[allow(dead_code)]
-struct RedisModuleCommand {
+pub(crate) struct RedisModuleCommand {
     name: String,
     handler: ffi::RedisModuleCmdFunc,
     sub_commands: HashMap<String, RedisModuleCommand>,
@@ -27,7 +26,7 @@ static MY_API_CMDS: LazyLock<RwLock<HashMap<String, RedisModuleCommand>>> =
 
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
-unsafe extern "C" fn RedisModule_CreateCommand(
+pub(crate) unsafe extern "C" fn RedisModule_CreateCommand(
     _ctx: *mut ffi::RedisModuleCtx,
     name: *const c_char,
     handler: ffi::RedisModuleCmdFunc,
@@ -55,7 +54,7 @@ unsafe extern "C" fn RedisModule_CreateCommand(
 
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
-unsafe extern "C" fn RedisModule_GetCommand(
+pub(crate) unsafe extern "C" fn RedisModule_GetCommand(
     _ctx: *mut ffi::RedisModuleCtx,
     name: *const c_char,
 ) -> *mut RedisModuleCommand {
@@ -83,7 +82,7 @@ unsafe extern "C" fn RedisModule_GetCommand(
 
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
-unsafe extern "C" fn RedisModule_CreateSubCommand(
+pub(crate) unsafe extern "C" fn RedisModule_CreateSubcommand(
     parent: *mut RedisModuleCommand,
     name: *const c_char,
     handler: ffi::RedisModuleCmdFunc,
