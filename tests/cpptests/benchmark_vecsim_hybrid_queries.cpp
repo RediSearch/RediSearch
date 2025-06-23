@@ -14,7 +14,7 @@
 #include "module.h"
 #include "version.h"
 
-#include "src/buffer.h"
+#include "src/buffer/buffer.h"
 #include "src/index.h"
 #include "src/inverted_index/inverted_index.h"
 #include "src/index_result.h"
