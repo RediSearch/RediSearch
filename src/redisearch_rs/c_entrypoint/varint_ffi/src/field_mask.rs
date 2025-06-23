@@ -32,7 +32,7 @@ pub extern "C" fn ReadVarintFieldMask(b: Option<NonNull<BufferReader>>) -> Field
     let mut buffer_reader = b.unwrap();
     // Safety: Safe thanks to invariants 1. and 2.
     let buffer_reader = unsafe { buffer_reader.as_mut() };
-    FieldMask::read_as_varint(buffer_reader).unwrap()
+    varint::read(buffer_reader).unwrap()
 }
 
 /// Write a varint-encoded field mask into the given buffer writer.

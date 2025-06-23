@@ -85,6 +85,15 @@ mod vector_writer;
 use std::io::{Read, Write};
 pub use vector_writer::VectorWriter;
 
+/// A convenient function to read a varint-encoded integer from the given reader.
+pub fn read<T, R>(reader: &mut R) -> Result<T, std::io::Error>
+where
+    R: Read,
+    T: VarintEncode,
+{
+    T::read_as_varint(reader)
+}
+
 /// Utilities to varint encode/decode an integer.
 pub trait VarintEncode {
     /// Encode an integer in varint format, then write it to the given writer.
@@ -95,7 +104,7 @@ pub trait VarintEncode {
         Self: Sized;
 
     /// Read a varint-encoded integer from the given reader.
-    fn read_as_varint<R>(reader: R) -> Result<Self, std::io::Error>
+    fn read_as_varint<R>(reader: &mut R) -> Result<Self, std::io::Error>
     where
         R: Read,
         Self: Sized;
@@ -152,7 +161,7 @@ macro_rules! impl_encode {
                 Ok(encoded.len())
             }
 
-            fn read_as_varint<R>(mut reader: R) -> Result<Self, std::io::Error>
+            fn read_as_varint<R>(reader: &mut R) -> Result<Self, std::io::Error>
             where
                 R: Read,
             {

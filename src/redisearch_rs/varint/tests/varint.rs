@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::u128;
+use std::{io::Cursor, u128};
 
 use varint::*;
 
@@ -20,7 +20,7 @@ fn test_u32() {
         let mut buf = Vec::new();
         value.write_as_varint(&mut buf).unwrap();
         assert_eq!(buf.len(), expected_lens[i]);
-        assert_eq!(u32::read_as_varint(&buf[..]).unwrap(), value);
+        assert_eq!(u32::read_as_varint(&mut Cursor::new(buf)).unwrap(), value);
     }
 }
 
@@ -33,7 +33,7 @@ fn test_u64() {
         let mut buf = Vec::new();
         value.write_as_varint(&mut buf).unwrap();
         assert_eq!(buf.len(), expected_lens[i]);
-        assert_eq!(u64::read_as_varint(&buf[..]).unwrap(), value);
+        assert_eq!(u64::read_as_varint(&mut Cursor::new(buf)).unwrap(), value);
     }
 }
 
@@ -47,7 +47,7 @@ fn test_writer_error() {
 
 #[test]
 fn test_empty_reader() {
-    let error = u32::read_as_varint([].as_slice()).unwrap_err();
+    let error = u32::read_as_varint(&mut Cursor::new([])).unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
 }
 
@@ -57,8 +57,8 @@ fn test_truncated_encoding() {
     let n_written_bytes = u32::write_as_varint(128, buf.as_mut_slice()).unwrap();
     assert_eq!(n_written_bytes, 2);
 
-    let truncated = &buf[..1];
-    let error = u32::read_as_varint(truncated).unwrap_err();
+    let mut truncated = Cursor::new(&buf[..1]);
+    let error = u32::read_as_varint(&mut truncated).unwrap_err();
     assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
 }
 
@@ -72,7 +72,7 @@ fn test_size_confusion() {
     let n_written_bytes = input.write_as_varint(buf.as_mut_slice()).unwrap();
     assert_eq!(n_written_bytes, 19);
 
-    let output = u32::read_as_varint(buf.as_slice()).unwrap();
+    let output = u32::read_as_varint(&mut Cursor::new(buf)).unwrap();
     assert_eq!(output, u32::MAX);
     assert_ne!(output as u128, input);
 }
@@ -112,7 +112,7 @@ fn test_u32_encoded_bytes() {
         );
 
         // Verify round-trip decoding still works.
-        assert_eq!(u32::read_as_varint(&buf[..]).unwrap(), value);
+        assert_eq!(u32::read_as_varint(&mut Cursor::new(buf)).unwrap(), value);
     }
 }
 
@@ -164,7 +164,7 @@ fn test_u64_encoded_bytes() {
         );
 
         // Verify round-trip decoding still works.
-        assert_eq!(u64::read_as_varint(&buf[..]).unwrap(), value);
+        assert_eq!(u64::read_as_varint(&mut Cursor::new(buf)).unwrap(), value);
     }
 }
 
@@ -241,7 +241,7 @@ fn test_u128_encoded_bytes() {
         );
 
         // Verify round-trip decoding still works.
-        assert_eq!(u128::read_as_varint(&buf[..]).unwrap(), value);
+        assert_eq!(u128::read_as_varint(&mut Cursor::new(buf)).unwrap(), value);
     }
 }
 
@@ -255,21 +255,21 @@ mod property_based {
         fn test_u32_roundtrip(v: u32) {
             let mut buf = Vec::new();
             v.write_as_varint(&mut buf).unwrap();
-            assert_eq!(u32::read_as_varint(&buf[..]).unwrap(), v);
+            assert_eq!(u32::read_as_varint(&mut Cursor::new(buf)).unwrap(), v);
         }
 
         #[test]
         fn test_u64_roundtrip(v: u64) {
             let mut buf = Vec::new();
             v.write_as_varint(&mut buf).unwrap();
-            assert_eq!(u64::read_as_varint(&buf[..]).unwrap(), v);
+            assert_eq!(u64::read_as_varint(&mut Cursor::new(buf)).unwrap(), v);
         }
 
         #[test]
         fn test_u128_roundtrip(v: u128) {
             let mut buf = Vec::new();
             v.write_as_varint(&mut buf).unwrap();
-            assert_eq!(u128::read_as_varint(&buf[..]).unwrap(), v);
+            assert_eq!(u128::read_as_varint(&mut Cursor::new(buf)).unwrap(), v);
         }
     }
 }

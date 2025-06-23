@@ -26,7 +26,7 @@ pub extern "C" fn ReadVarint(b: Option<NonNull<BufferReader>>) -> u32 {
     let mut buffer_reader = b.unwrap();
     // Safety: Safe thanks to invariants 1. and 2.
     let buffer_reader = unsafe { buffer_reader.as_mut() };
-    u32::read_as_varint(buffer_reader).unwrap()
+    varint::read(buffer_reader).unwrap()
 }
 
 /// Write a varint-encoded value into the given buffer writer.
