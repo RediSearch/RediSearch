@@ -13,9 +13,8 @@ fn main() {
     // link `libc2rust.a` to this crate `redis_mock`
     let root = git_root();
 
-    let binroot = match std::env::var("REDISBUILD_BINDIR") {
-        Ok(val) => PathBuf::from_str(val.as_str())
-            .expect("ENV Var: REDISBUILD_BINDIR must be a valid path"),
+    let binroot = match std::env::var("BINDIR") {
+        Ok(val) => PathBuf::from_str(val.as_str()).expect("ENV Var: BINDIR must be a valid path"),
         Err(_) => {
             // We're running cargo directly on a dev machine:
             // Get variables to determine paths
