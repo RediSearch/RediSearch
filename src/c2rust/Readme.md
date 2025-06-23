@@ -21,38 +21,7 @@ We get problems in CI when Coverage is taken.
 
 ### TODOs
 
-Use the alloc shims for the following:
-
-- [x] RedisModule_TryAlloc
-- [x] RedisModule_TryCalloc
-- [x] RedisModule_TryRealloc
-- [x] RedisModule_Strdup
-
-These are doable in Rust:
-
-- [x] RedisModule_GetApi
-- [x] RedisModule_SetModuleAttribs
-- [x] RedisModule_AddACLCategory
-- [x] RedisModule_SetCommandACLCategories
-
-- [x] RedisModule_ReplyWithDouble
-- [x] RedisModule_ReplyWithLongLong
-- [x] RedisModule_ReplyWithError
-- [ ] RedisModule_ReplyWithErrorFormat
-- [x] RedisModule_ReplyWithString
-- [x] RedisModule_ReplyWithStringBuffer
-- [x] RedisModule_ReplyWithSimpleString
-- [x] RedisModule_ReplyWithArray
-- [x] RedisModule_ReplyWithMap
-
-These are better linked from `redismock.cpp` for now:
-
 - [ ] RedisModule_CreateCommand
 - [ ] RedisModule_GetCommand
 - [ ] RedisModule_CreateSubcommand
-
-These are undefined in redismock.cpp:
-
-- [x] RedisModule_WrongArity
-- [x] RedisModule_SetCommandInfo
-- [x] RedisModule_IsModuleNameBusy
+- [ ] RedisModule_SetCommandInfo

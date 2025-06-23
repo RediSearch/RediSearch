@@ -53,7 +53,17 @@ fn main() {
         let redisearch_h = root.join("src").join("redisearch.h");
         let result_processor_h = root.join("src").join("result_processor.h");
         let value_h = root.join("src").join("c2rust").join("value.h");
-        [buffer_h, redisearch_h, result_processor_h, value_h]
+        let variadic_helper_h = root
+            .join("src")
+            .join("c2rust")
+            .join("variadic_helper_for_rust.h");
+        [
+            buffer_h,
+            redisearch_h,
+            result_processor_h,
+            value_h,
+            variadic_helper_h,
+        ]
     };
 
     let mut bindings = bindgen::Builder::default();

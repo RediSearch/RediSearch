@@ -9,10 +9,9 @@ add_library(c2rust STATIC)
 # compile duplicate symbols by its glob * usage.
 target_sources(c2rust PRIVATE 
     "module-init.c" 
-    "../c2rust/config.c"
-    "../c2rust/value.c"
+    "config.c"
+    "value.c"
+    "variadic_helper.c"
     "../util/c2rust/mempool.c"
-    "../../tests/cpptests/redismock/redismock.cpp"
-    "../../tests/cpptests/redismock/util.cpp")
-target_compile_definitions(c2rust PRIVATE RUSTMOCK)
-target_include_directories(c2rust PRIVATE . .. "../../tests/cpptests/redismock")
+)
+target_include_directories(c2rust PRIVATE . ..)

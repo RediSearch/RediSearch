@@ -18,6 +18,18 @@
 //! to use Rust's global allocator.
 //! This is particularly useful when benchmarking a Rust re-implementation against the original
 //! C code, since it levels the playing field by forcing both to use the same memory allocator.
+//!
+//! ## Variadic functions
+//!
+//! C-variadic functions are unstable in Rust, which means that we cannot directly implement them in Rust.
+//! see issue #44930 <https://github.com/rust-lang/rust/issues/44930> for more information
+//!
+//! Workaround: The variadic function is defined on the the C side, c-side does the variadic processing and calls
+//! a rust function with a fixed number of arguments.
+//!
+//! See the `non_variadic_reply_with_error_format` function for an example of how to handle this and search for
+//! "part of workaround for <https://github.com/rust-lang/rust/issues/44930>" to find other places that are involved in the
+//! workaround.
 
 use std::{
     collections::HashMap,
@@ -53,6 +65,11 @@ extern "C" fn RedisModule_Strdup(s: *const c_char) -> *mut c_char {
 }
 
 fn register_api() -> HashMap<&'static str, RawFunctionPtr> {
+    // sets up some helpers that are required for variadic functions
+    // a workaround for <https://github.com/rust-lang/rust/issues/44930>
+    // see
+    unsafe { ffi::cside_mock_setup() };
+
     let mut map = HashMap::new();
 
     // Register the functions that are part of the Redis API
@@ -73,6 +90,18 @@ fn register_api() -> HashMap<&'static str, RawFunctionPtr> {
 //REDISMODULE_API int (*RedisModule_CreateSubcommand)(RedisModuleCommand *parent, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
 //REDISMODULE_API RedisModuleCommand *(*RedisModule_GetCommand)(RedisModuleCtx *ctx, const char *name) REDISMODULE_ATTR;
 //REDISMODULE_API int (*RedisModule_SetCommandInfo)(RedisModuleCommand *command, const RedisModuleCommandInfo *info) REDISMODULE_ATTR;
+
+#[unsafe(no_mangle)]
+unsafe extern "C" fn non_variadic_reply_with_error_format(
+    _ctx: ffi::RedisModuleCtx,
+    _fmt: *const char,
+    arg_from_c: i32,
+    // here could be more arguments if the c-side processes the variadic args
+) -> i32 {
+    // part of workaround for <https://github.com/rust-lang/rust/issues/44930>
+    // no processing of the variadic arguments
+    arg_from_c
+}
 
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
@@ -143,21 +172,6 @@ macro_rules! reply_func {
         }
     };
 }
-
-/*
- * C-variadic functions are unstable
- * see issue #44930 <https://github.com/rust-lang/rust/issues/44930> for more informationrustcClick for full compiler diagnostic
- */
-// TODO: Workaround for C-variadic functions
-/*
-#[unsafe(no_mangle)]
-#[allow(non_snake_case)]
-unsafe extern "C" fn RedisModule_ReplyWithErrorFormat(*mut ffi::RedisModuleCtx, *const c_char, ...) -> c_int {
-    REDISMODULE_OK
-}
-*/
-//reply_func!(RedisModule_ReplyWithErrorFormat, *const c_char, ...);
-// REDISMODULE_API int (*RedisModule_ReplyWithErrorFormat)(RedisModuleCtx *ctx, const char *fmt, ...) REDISMODULE_ATTR;
 
 reply_func!(RedisModule_ReplyWithLongLong, i64);
 reply_func!(RedisModule_ReplyWithSimpleString, *const c_char);
