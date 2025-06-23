@@ -210,7 +210,7 @@ typedef enum {
  *
  * 1. On READ mode, a key is returned only if it's already in the lookup table (available from the
  * pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
- * if the lookup table excepts unresolved keys.
+ * if the lookup table accepts unresolved keys.
  */
 RLookupKey *RLookup_GetKey_Read(RLookup *lookup, const char *name, uint32_t flags);
 RLookupKey *RLookup_GetKey_ReadEx(RLookup *lookup, const char *name, size_t name_len,
