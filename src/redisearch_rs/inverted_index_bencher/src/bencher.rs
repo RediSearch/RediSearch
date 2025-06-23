@@ -32,17 +32,12 @@ impl NumericBencher {
             ("TinyInt".to_string(), vec![0.0, 3.0, 7.0]),
             ("PosInt".to_string(), vec![16.0, 256.0, 100_000.0]),
             ("NegInt".to_string(), vec![-16.0, -256.0, -100_000.0]),
-            (
-                "Float".to_string(),
-                vec![
-                    f64::NEG_INFINITY,
-                    -3.125,
-                    -3.124,
-                    3.124,
-                    3.125,
-                    f64::INFINITY,
-                ],
-            ),
+            ("Float - Pos Inf".to_string(), vec![f64::INFINITY]),
+            ("Float - Neg Inf".to_string(), vec![f64::NEG_INFINITY]),
+            ("Float - Small Pos".to_string(), vec![3.125]),
+            ("Float - Small Neg".to_string(), vec![-3.125]),
+            ("Float - Big Pos".to_string(), vec![3.124]),
+            ("Float - Big Neg".to_string(), vec![-3.124]),
         ]);
 
         let decoding_test_values = HashMap::from_iter([
@@ -66,16 +61,23 @@ impl NumericBencher {
                     vec![90, 172, 2, 160, 134, 1],
                 ],
             ),
+            ("Float - Pos Inf".to_string(), vec![vec![42, 172, 2]]),
+            ("Float - Neg Inf".to_string(), vec![vec![106, 172, 2]]),
             (
-                "Float".to_string(),
-                vec![
-                    vec![106, 172, 2],
-                    vec![74, 172, 2, 0, 0, 72, 64],
-                    vec![202, 172, 2, 203, 161, 69, 182, 243, 253, 8, 64],
-                    vec![138, 172, 2, 203, 161, 69, 182, 243, 253, 8, 64],
-                    vec![10, 172, 2, 0, 0, 72, 64],
-                    vec![42, 172, 2],
-                ],
+                "Float - Small Pos".to_string(),
+                vec![vec![10, 172, 2, 0, 0, 72, 64]],
+            ),
+            (
+                "Float - Small Neg".to_string(),
+                vec![vec![74, 172, 2, 0, 0, 72, 64]],
+            ),
+            (
+                "Float - Big Pos".to_string(),
+                vec![vec![138, 172, 2, 203, 161, 69, 182, 243, 253, 8, 64]],
+            ),
+            (
+                "Float - Big Neg".to_string(),
+                vec![vec![202, 172, 2, 203, 161, 69, 182, 243, 253, 8, 64]],
             ),
         ]);
 
