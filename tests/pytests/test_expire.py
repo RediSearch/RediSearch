@@ -582,9 +582,3 @@ def test_background_index_no_lazy_expiration_json(env):
     # Accessing doc:1 directly should cause lazy expire and its removal from the DB.
     env.expect('JSON.GET', 'doc:1', "$").equal(None)
     env.expect('DBSIZE').equal(1)
-
-
-@skip(redis_less_than='7.3', cluster=True)
-def test_CorrectInfo(env:Env):
-    env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
-    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
