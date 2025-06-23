@@ -1531,6 +1531,10 @@ static int RPDepleter_Next_Yield(ResultProcessor *base, SearchResult *r) {
  * Subsequent calls: wait on condition variable for any depleter to complete.
  * When woken up, checks if this depleter is done. If so, switches to yield mode.
  * If not, returns `RS_RESULT_DEPLETING` to allow downstream to check other depleters.
+ *
+ * A dedicated thread-pool `depleterPool` is used, such that there are no
+ * contentions with the `_workers_thpool` thread-pool, such as adding a new job
+ * to its queue after `WORKERS` has been set to `0`.
  */
 static int RPDepleter_Next_Dispatch(ResultProcessor *base, SearchResult *r) {
   RPDepleter *self = (RPDepleter *)base;
