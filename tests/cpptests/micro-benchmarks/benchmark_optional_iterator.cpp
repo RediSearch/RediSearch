@@ -25,7 +25,7 @@ class BM_OptionalIterator : public benchmark::Fixture {
 public:
   std::vector<t_docId> childDocIds;
   static bool initialized;
-  const t_docId maxDocId = 1000000;
+  const t_docId maxDocId = 1'000'000;
   const double weight = 1.0;
   QueryIterator *iterator_base = nullptr;
   IndexIterator *old_iterator_base = nullptr;
@@ -37,23 +37,31 @@ public:
       initialized = true;
     }
 
-    mockCtx = new MockQueryEvalCtx(maxDocId);
-
     // Generate child docIds based on benchmark parameters
-    const float ChildDocsRatio = state.range(0) / 100.0;
-    childDocIds.clear();
+    const double ChildDocsRatio = state.range(0) / 100.0;
+    const bool Optimized = state.range(1);
 
     std::mt19937 rng(42);
-    std::uniform_real_distribution<float> dist(0.0, 1.0);
+    std::uniform_real_distribution<> dist(0.0, 1.0);
 
+    childDocIds.clear();
+    std::vector<t_docId> allDocIds;
+    allDocIds.reserve(maxDocId);
     for (t_docId i = 1; i <= maxDocId; ++i) {
+      allDocIds.push_back(i);
       if (dist(rng) < ChildDocsRatio) {
         childDocIds.push_back(i);
       }
     }
 
-    iterator_base = createOptionalIterator(state);
-    old_iterator_base = createOldOptionalIterator(state);
+    if (Optimized) {
+      mockCtx = new MockQueryEvalCtx(allDocIds); // Constructor for `index_all` tests
+    } else {
+      mockCtx = new MockQueryEvalCtx(maxDocId);
+    }
+
+    iterator_base = createOptionalIterator();
+    old_iterator_base = createOldOptionalIterator();
   }
 
   void TearDown(::benchmark::State &state) {
@@ -72,14 +80,14 @@ public:
     childDocIds.clear();
   }
 
-  IndexIterator* createOldOptionalIterator(::benchmark::State &state) {
+  IndexIterator* createOldOptionalIterator() {
     IndexIterator *oldChild = (IndexIterator *)new MockOldIterator(childDocIds);
     return NewOptionalIterator(oldChild, &mockCtx->qctx, weight);
   }
 
-  QueryIterator* createOptionalIterator(::benchmark::State &state) {
+  QueryIterator* createOptionalIterator() {
     QueryIterator *child = (QueryIterator *)new MockIterator(childDocIds);
-    return IT_V2(NewOptionalIterator)(child, maxDocId, maxDocId, weight);
+    return IT_V2(NewOptionalIterator)(child, &mockCtx->qctx, weight);
   }
 };
 
@@ -88,7 +96,9 @@ bool BM_OptionalIterator::initialized = false;
 
 
 // Benchmark scenarios: different ratio of child documents
-#define CHILD_DOCS_SCENARIOS() DenseRange(0, 90, 10)
+#define CHILD_DOCS_SCENARIOS() \
+  ArgNames({"ChildDocsRatio", "Optimized"})-> \
+  ArgsProduct({::benchmark::CreateDenseRange(0, 90, 10), {false, true}})
 
 // Benchmark functions (assuming iterator always has child)
 BENCHMARK_DEFINE_F(BM_OptionalIterator, Read)(benchmark::State &state) {
@@ -136,12 +146,14 @@ BENCHMARK_DEFINE_F(BM_OptionalIterator, ReadOld)(benchmark::State &state) {
 BENCHMARK_DEFINE_F(BM_OptionalIterator, SkipToOld)(benchmark::State &state) {
   IndexIterator *iterator = old_iterator_base;
   t_offset step = 10;
-
+  t_docId lastDocId = 0;
   for (auto _ : state) {
     RSIndexResult *hit = nullptr;
-    int rc = iterator->SkipTo(iterator->ctx, iterator->LastDocId(iterator->ctx) + step, &hit);
+    int rc = iterator->SkipTo(iterator->ctx, lastDocId + step, &hit);
+    lastDocId = hit ? hit->docId : lastDocId + step; // Update lastDocId based on hit
     if (rc == INDEXREAD_EOF) {
       iterator->Rewind(iterator->ctx);
+      lastDocId = 0; // Reset lastDocId after rewind
     }
     benchmark::DoNotOptimize(rc);
   }
