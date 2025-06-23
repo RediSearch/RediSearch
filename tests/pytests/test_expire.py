@@ -11,33 +11,34 @@ def testExpireIndex(env):
     ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
     env.assertTrue(ttl > 2)
 
-    while ttl > 2:
-        ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
-        time.sleep(1)
+    with TimeLimit(10):
+        while env.cmd(debug_cmd(), 'TTL', 'idx') > 2:
+            time.sleep(0.1)
     env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'this is a simple test')
     ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
     env.assertTrue(ttl > 2)
 
-    while ttl > 2:
-        ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
-        time.sleep(1)
+    with TimeLimit(10):
+        while env.cmd(debug_cmd(), 'TTL', 'idx') > 2:
+            time.sleep(0.1)
     env.cmd('ft.search', 'idx', 'simple')
     ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
     env.assertTrue(ttl > 2)
 
-    while ttl > 2:
-        ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
-        time.sleep(1)
+    with TimeLimit(10):
+        while env.cmd(debug_cmd(), 'TTL', 'idx') > 2:
+            time.sleep(0.1)
     env.cmd('ft.aggregate', 'idx', 'simple', 'LOAD', '1', '@test')
     ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
     env.assertTrue(ttl > 2)
 
-    try:
-        while True:
-            ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
-            time.sleep(1)
-    except Exception as e:
-        env.assertEqual(str(e), 'Unknown index name')
+    with TimeLimit(10):
+        try:
+            while True:
+                env.cmd(debug_cmd(), 'TTL', 'idx')
+                time.sleep(0.1)
+        except Exception as e:
+            env.assertEqual(str(e), 'Unknown index name')
 
 res_score_and_explanation = ['1', ['Final TFIDF : words TFIDF 1.00 * document score 1.00 / norm 1 / slop 1',
                                     ['(TFIDF 1.00 = Weight 1.00 * Frequency 1)']]]
@@ -322,7 +323,7 @@ def commonFieldExpiration(env, schema, fields, expiration_interval_to_fields, do
     def build_inverted_index_dict_for_documents(current_documents):
         inverted_index = {}
         for document_name, fields in current_documents.items():
-            for field_name, field_value in fields.items():
+            for field_value in fields.values():
                 if field_value not in inverted_index:
                     inverted_index[field_value] = []
                 inverted_index[field_value].append(document_name)
@@ -420,7 +421,7 @@ def testLazyTextFieldExpiration(env):
     conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', 'hello')
     conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', '57')
     conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'x')
-    time.sleep(0.5)
+    time.sleep(0.005)
     # there shouldn't be an active expiration for field x in doc:1
     # but due to the ttl table we should not return doc:1 when searching for x
     env.expect('FT.SEARCH', 'idx', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
@@ -444,7 +445,7 @@ def testLazyGeoshapeFieldExpiration(env):
     conn.execute_command('HSET', 'doc:1', 'txt', 'hello', 'geom', first)
     conn.execute_command('HSET', 'doc:2', 'txt', 'world', 'geom', second)
     conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'geom')
-    time.sleep(0.5)
+    time.sleep(0.005)
     query = 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))'
     env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
     # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
@@ -461,7 +462,7 @@ def testLazyVectorFieldExpiration(env):
     conn.execute_command('hset', 'doc:1', 'v', 'bababaca', 't', "hello", 'n', 1)
     conn.execute_command('hset', 'doc:2', 'v', 'babababa', 't', "hello", 'n', 2)
     conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'v')
-    time.sleep(0.5)
+    time.sleep(0.005)
     env.expect('FT.SEARCH', 'idx', '@n:[1, 4]=>[KNN 3 @v $vec]', 'PARAMS', 2, 'vec', 'aaaaaaaa', 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
     # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
     env.expect('FT.SEARCH', 'idx', 'ismissing(@v)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
@@ -527,7 +528,7 @@ def testSeekToExpirationChecks(env):
     # - world reader starts with doc:1
     # - intersect iterator reads doc:0 and tries to skip to it in world reader
     # - world reader should skip to doc:1001 since all the other docs will be expired
-    time.sleep(0.1) # we want to sleep enough so we filter out the expired documents at the iterator phase
+    time.sleep(0.01) # we want to sleep enough so we filter out the expired documents at the iterator phase
     # doc:0 up to doc:1000 should not be returned:
     # - doc:0 because y != world
     # - doc:1 up to doc:1000 y field should be expired
@@ -544,7 +545,7 @@ def test_background_index_no_lazy_expiration(env):
     env.expect('HSET', 'doc:1', 't', 'bar').equal(1)
     env.expect('HSET', 'doc:2', 't', 'arr').equal(1)
     env.expect('PEXPIRE', 'doc:1', '1').equal(1)
-    time.sleep(0.5)
+    time.sleep(0.005)
 
     # Expect background indexing to take place after doc:1 has expired.
     env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').equal('OK')
@@ -566,7 +567,7 @@ def test_background_index_no_lazy_expiration_json(env):
     env.expect('JSON.SET', 'doc:1', "$", r'{"t":"bar"}').ok()
     env.expect('JSON.SET', 'doc:2', "$", r'{"t":"arr"}').ok()
     env.expect('PEXPIRE', 'doc:1', '1').equal(1)
-    time.sleep(0.5)
+    time.sleep(0.005)  # 5 milliseconds
 
     # Expect background indexing to take place after doc:1 has expired.
     env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', 't', 'TEXT').equal('OK')
@@ -579,3 +580,9 @@ def test_background_index_no_lazy_expiration_json(env):
     # Accessing doc:1 directly should cause lazy expire and its removal from the DB.
     env.expect('JSON.GET', 'doc:1', "$").equal(None)
     env.expect('DBSIZE').equal(1)
+
+
+@skip(redis_less_than='7.3', cluster=True)
+def test_CorrectInfo(env:Env):
+    env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').ok()
