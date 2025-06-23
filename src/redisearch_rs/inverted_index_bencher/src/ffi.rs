@@ -9,7 +9,6 @@
 
 use std::{
     alloc::{Layout, alloc},
-    ffi::c_char,
     ptr::NonNull,
 };
 
@@ -33,10 +32,14 @@ mod bindings {
 pub struct TestBuffer(Buffer);
 
 impl TestBuffer {
-    pub fn new() -> Self {
-        let layout = Layout::array::<u8>(0).unwrap();
+    /// Create a new `TestBuffer` with a specified capacity. The capacity given should be big
+    /// enough so that the buffer will never need to grow during benchmarking. We want this
+    /// because we don't want to measure the time it takes to grow the buffer. Failing to make
+    /// the buffer big enough will result in a `SIGSEGV` signal when the benchmark is run.
+    pub fn with_capacity(cap: usize) -> Self {
+        let layout = Layout::array::<u8>(cap).unwrap();
         let data = unsafe { alloc(layout) };
-        let buffer = unsafe { Buffer::new(NonNull::new(data).unwrap(), 0, 0) };
+        let buffer = unsafe { Buffer::new(NonNull::new(data).unwrap(), 0, cap) };
 
         Self(buffer)
     }
@@ -47,25 +50,6 @@ impl Drop for TestBuffer {
         let layout = Layout::array::<u8>(self.0.0.cap).unwrap();
         unsafe { std::alloc::dealloc(self.0.0.data as *mut u8, layout) };
     }
-}
-
-/// Mock implementation of Buffer_Grow for growth to work correctly
-#[allow(non_snake_case)]
-#[unsafe(no_mangle)]
-pub extern "C" fn Buffer_Grow(buffer: *mut ffi::Buffer, extra_len: usize) -> usize {
-    let buffer = unsafe { &mut *buffer };
-    let old_capacity = buffer.cap;
-
-    // Double the capacity or add extra_len, whichever is greater
-    let new_capacity = std::cmp::max(buffer.cap * 2, buffer.cap + extra_len);
-
-    let layout = Layout::array::<c_char>(old_capacity).unwrap();
-    let new_data = unsafe { std::alloc::realloc(buffer.data as *mut _, layout, new_capacity) };
-    buffer.data = new_data as *mut c_char;
-    buffer.cap = new_capacity;
-
-    // Return bytes added
-    new_capacity - old_capacity
 }
 
 pub fn encode_numeric(
@@ -146,7 +130,7 @@ mod tests {
         ];
 
         for (input, delta, expected_encoding) in tests {
-            let mut buffer = TestBuffer::new();
+            let mut buffer = TestBuffer::with_capacity(16);
 
             let mut record = inverted_index::RSIndexResult::numeric(input);
             record.doc_id = 1_000;

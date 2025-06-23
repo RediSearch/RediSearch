@@ -117,7 +117,7 @@ impl NumericBencher {
 fn numeric_c_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, values: &[f64]) {
     group.bench_function("C", |b| {
         b.iter_batched(
-            || TestBuffer::new(),
+            || TestBuffer::with_capacity(64),
             |mut buffer| {
                 for &value in values {
                     let mut record = inverted_index::RSIndexResult::numeric(value);
