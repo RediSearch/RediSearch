@@ -133,7 +133,7 @@ TEST_F(IORuntimeCtxCommonTest, MultipleTopologyUpdates) {
   }
 
   // Give some time for the last topology to be applied
-  usleep(300);
+  usleep(3000);
 
   // Only the last topology should be applied
   ASSERT_EQ(ctx->topo->numSlots, 4101);
@@ -173,7 +173,7 @@ TEST_F(IORuntimeCtxCommonTest, ShutdownWithPendingRequests) {
   IORuntimeCtx_Schedule(io_runtime_ctx, testCallback, &counter);
   // Send one request and make sure it runs to make the test better. Otherwise the async callback does not see the topology applied
   // and delays the callback call (and shutdown call may be called before all the callbacks are called)
-  usleep(2000);
+  usleep(20000);
 
   // Schedule 10 delayed requests
   for (int i = 0; i < 10; i++) {
