@@ -269,6 +269,7 @@ static void uvUpdateTopologyRequest(void *p) {
 
 /* Set a new topology for the cluster.*/
 void MR_UpdateTopology(MRClusterTopology *newTopo) {
+  // TODO(Joan): Most likely we need to make sure we wait for the topology to properly be applied to every runtime context before returning.
   IORuntimeCtx_Schedule_Topology(cluster_g->control_plane_io_runtime, uvUpdateTopologyRequest, newTopo, true);
   for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
     IORuntimeCtx_Schedule_Topology(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, newTopo, false);
@@ -325,20 +326,12 @@ void MR_UpdateConnPerShard(size_t connPerShard) {
   }
 }
 
-/*void MR_UpdateSearchIOThreads(size_t num_io_threads) {
-  if (!cluster_g || NumShards == 1) return;
-  if (num_io_threads == cluster_g->num_io_threads) return;
-  if (num_io_threads < cluster_g->num_io_threads) {
-  } else {
-    // How to handle reallocation of the pool, reallocating this while keeping sync between threads seems heavy
-    for (size_t i = cluster_g->io_runtimes_pool_size; i < num_io_threads; i++) {
-      cluster_g->io_runtimes_pool[i - 1] = IORuntimeCtx_Create(cluster_g->control_plane_io_runtime->conn_mgr->nodeConns,
-                                                               cluster_g->control_plane_io_runtime->topo,
-                                                               i);
-    }
-  }
+void MR_UpdateSearchIOThreads(size_t num_io_threads) {
+  RS_ASSERT(num_io_threads > 0);
 
-}*/
+  if (!cluster_g || NumShards == 1) return;
+  MRCluster_UpdateNumIOThreads(cluster_g, num_io_threads);
+}
 
 
 // If we need to return all the Connection States from all the IO Runtimes properly
