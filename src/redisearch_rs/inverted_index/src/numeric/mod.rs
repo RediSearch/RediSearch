@@ -547,40 +547,60 @@ impl ToFromBytes<1> for Header {
 
     fn unpack(data: [u8; 1]) -> Self {
         let data = data[0];
-        let delta_bytes = data & 0b111; // 3 bits for the delta bytes
 
-        match (data >> 3) & 0b11 {
-            Self::TINY_TYPE => {
-                Self {
-                    delta_bytes,
-                    typ: HeaderType::Tiny(data >> 5 & 0b111), // 3 bits for the value
-                }
-            }
-            Self::FLOAT_TYPE => {
-                let is_infinite = (data >> 5) & 0b1 != 0;
-                let is_negative = (data >> 6) & 0b1 != 0;
-                let is_f64 = (data >> 7) & 0b1 != 0;
-                Self {
-                    delta_bytes,
-                    typ: HeaderType::Float {
-                        is_infinite,
-                        is_negative,
-                        is_f64,
+        let delta_bytes = data & 0b111;
+        let type_bits = (data >> 3) & 0b11;
+        let upper_bits = data >> 5;
+
+        match type_bits {
+            Self::TINY_TYPE => Self {
+                delta_bytes,
+                typ: HeaderType::Tiny(upper_bits),
+            },
+            Self::FLOAT_TYPE => Self {
+                delta_bytes,
+                typ: match upper_bits {
+                    0b110 => HeaderType::Float {
+                        is_infinite: false,
+                        is_negative: true,
+                        is_f64: true,
                     },
-                }
-            }
-            Self::POS_INT_TYPE => {
-                Self {
-                    delta_bytes,
-                    typ: HeaderType::PositiveInteger(data >> 5 & 0b111), // 3 bits for the value bytes
-                }
-            }
-            Self::NEG_INT_TYPE => {
-                Self {
-                    delta_bytes,
-                    typ: HeaderType::NegativeInteger(data >> 5 & 0b111), // 3 bits for the value bytes
-                }
-            }
+                    0b100 => HeaderType::Float {
+                        is_infinite: false,
+                        is_negative: false,
+                        is_f64: true,
+                    },
+                    0b010 => HeaderType::Float {
+                        is_infinite: false,
+                        is_negative: true,
+                        is_f64: false,
+                    },
+                    0b000 => HeaderType::Float {
+                        is_infinite: false,
+                        is_negative: false,
+                        is_f64: false,
+                    },
+                    0b101 | 0b001 => HeaderType::Float {
+                        is_infinite: true,
+                        is_negative: false,
+                        is_f64: false,
+                    },
+                    0b111 | 0b011 => HeaderType::Float {
+                        is_infinite: true,
+                        is_negative: true,
+                        is_f64: false,
+                    },
+                    _ => unreachable!("All upper bits combinations are covered"),
+                },
+            },
+            Self::POS_INT_TYPE => Self {
+                delta_bytes,
+                typ: HeaderType::PositiveInteger(upper_bits),
+            },
+            Self::NEG_INT_TYPE => Self {
+                delta_bytes,
+                typ: HeaderType::NegativeInteger(upper_bits),
+            },
             _ => unreachable!("All four possible combinations are covered"),
         }
     }
