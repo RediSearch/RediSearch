@@ -14,11 +14,8 @@ use std::ptr::NonNull;
 ///
 /// Use [`VVW_Free`] to free the memory allocated for the [`VectorWriter`].
 #[unsafe(no_mangle)]
-pub extern "C" fn NewVarintVectorWriter(cap: usize) -> NonNull<VectorWriter> {
-    let vector_writer = Box::into_raw(Box::new(VectorWriter::new(cap)));
-
-    // Safety: The pointer is not null, since we just created it.
-    unsafe { NonNull::new_unchecked(vector_writer) }
+pub extern "C" fn NewVarintVectorWriter(cap: usize) -> *mut VectorWriter {
+    Box::into_raw(Box::new(VectorWriter::new(cap)))
 }
 
 /// Delta-encode an integer and write it into the vector.
