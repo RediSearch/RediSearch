@@ -156,11 +156,13 @@ trait ToFromBytes<const N: usize> {
 }
 
 impl ToFromBytes<{ size_of::<usize>() }> for Delta {
+    #[inline(always)]
     fn pack(self) -> [u8; size_of::<usize>()] {
         let delta = self.0;
         delta.to_le_bytes()
     }
 
+    #[inline(always)]
     fn unpack(data: [u8; size_of::<usize>()]) -> Self {
         let delta = usize::from_le_bytes(data);
 
@@ -506,6 +508,7 @@ impl Header {
 }
 
 impl ToFromBytes<1> for Header {
+    #[inline(always)]
     fn pack(self) -> [u8; 1] {
         let mut packed = 0;
         packed |= self.delta_bytes & 0b111; // 3 bits for delta bytes
@@ -545,6 +548,7 @@ impl ToFromBytes<1> for Header {
         [packed]
     }
 
+    #[inline(always)]
     fn unpack(data: [u8; 1]) -> Self {
         let data = data[0];
 
