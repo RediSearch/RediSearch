@@ -176,8 +176,9 @@ static IteratorStatus OI_Read_NotOptimized(QueryIterator *base) {
 // Create a new OPTIONAL iterator - Non-Optimized version.
 QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, QueryEvalCtx *q, double weight) {
   RS_ASSERT(it != NULL);
+  RS_ASSERT(q && q->sctx && q->sctx->spec && q->docTable);
   OptionalIterator *oi = rm_calloc(1, sizeof(*oi));
-  bool optimized = q && q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+  bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
   if (optimized) {
     oi->wcii = IT_V2(NewWildcardIterator_Optimized)(q->sctx);
   }
