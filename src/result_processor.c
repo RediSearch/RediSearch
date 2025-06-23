@@ -1429,19 +1429,12 @@ static int RPMaxScoreNormalizer_Accum(ResultProcessor *rp, SearchResult *r) {
   return &ret->base;
 }
 
- /*******************************************************************************************************************
-  *  Hybrid Merger Dictionary Type
-  *
-  * Single dictionary for storing both search results and scores:
-  * keyPtr -> HybridSearchResult mapping (contains both SearchResult and scores)
-  *******************************************************************************************************************/
-
-// Structure to hold both SearchResult and scores from multiple upstreams
+// Container for search results with scores from multiple upstream processors
 typedef struct {
-  SearchResult *searchResult; // The actual search result
-  double *scores;             // Dynamic array of scores from upstreams
+  SearchResult *searchResult; // The actual search result document with metadata
+  double *scores;             // Dynamic array of scores from each upstream processor
   bool *hasScores;            // Dynamic array of flags indicating if each score is available
-  size_t numSources;          // Number of upstreams
+  size_t numSources;          // Number of upstream processors (array size)
 } HybridSearchResult;
 
 // Constructor for HybridSearchResult
