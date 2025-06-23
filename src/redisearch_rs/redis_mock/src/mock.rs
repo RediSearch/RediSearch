@@ -105,7 +105,7 @@ unsafe extern "C" fn non_variadic_reply_with_error_format(
 
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
-unsafe extern "C" fn RedisModule_GetApi(s: *const char, pp: std::ffi::c_void) -> i32 {
+unsafe extern "C" fn RedisModule_GetApi(s: *const char, pp: *mut std::ffi::c_void) -> i32 {
     let map = MY_API_FNCS.get_or_init(register_api);
 
     // convert s to string slice
@@ -113,7 +113,9 @@ unsafe extern "C" fn RedisModule_GetApi(s: *const char, pp: std::ffi::c_void) ->
     let s = unsafe { std::ffi::CStr::from_ptr(s.cast()) }
         .to_str()
         .unwrap();
-    if map.get(s).is_some() {
+    if let Some(ftor) = map.get(s) {
+        let pp: *mut *mut c_void = pp.cast();
+        unsafe { *pp = ftor.0 };
         REDISMODULE_OK
     } else {
         REDISMODULE_ERR
