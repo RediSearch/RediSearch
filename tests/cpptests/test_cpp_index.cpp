@@ -202,7 +202,7 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   for (size_t i = 0; i < 200; i++) {
 
     ForwardIndexEntry h;
-    h.docId = i;
+    h.docId = i + 1; // docId starts from 1
     h.fieldMask = 1;
     h.freq = (1 + i % 100) / (float)101;
 
@@ -224,13 +224,13 @@ TEST_P(IndexFlagsTest, testRWFlags) {
   } else {
     ASSERT_EQ(1, idx->size);
   }
-  ASSERT_EQ(199, idx->lastId);
+  ASSERT_EQ(200, idx->lastId);
 
   for (int xx = 0; xx < 1; xx++) {
     IndexReader *ir = NewTermIndexReader(idx);
     RSIndexResult *h = NULL;
 
-    int n = 0;
+    int n = 1;
     int rc;
     while (!ir->atEnd_) {
       if ((rc = IR_Read(ir, &h)) == INDEXREAD_EOF) {
