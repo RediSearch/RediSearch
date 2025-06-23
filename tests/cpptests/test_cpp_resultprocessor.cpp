@@ -11,9 +11,6 @@
 #include "result_processor.h"
 #include "query.h"
 #include "gtest/gtest.h"
-#include <thread>
-#include <chrono>
-#include <atomic>
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
