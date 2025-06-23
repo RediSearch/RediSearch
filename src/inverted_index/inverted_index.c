@@ -378,6 +378,11 @@ size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
   encodeNumeric(bw, delta, res);
 }
 
+// Wrapper around the private static `encodeFreqsOnly` function to expose it to benchmarking.
+size_t encode_freqs_only(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  encodeFreqsOnly(bw, delta, res);
+}
+
 IndexBlockReader NewIndexBlockReader(BufferReader *buff, t_docId curBaseId) {
     IndexBlockReader reader = {
       .buffReader = *buff,
@@ -802,6 +807,11 @@ DECODER(readDocIdsOnly) {
 // Wrapper around the private static `readNumeric` function to expose it to benchmarking
 bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
   readNumeric(blockReader, ctx, res);
+}
+
+// Wrapper around the private static `readFreqs` function to expose it to benchmarking.
+bool read_freqs(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  readFreqs(blockReader, ctx, res);
 }
 
 IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {
