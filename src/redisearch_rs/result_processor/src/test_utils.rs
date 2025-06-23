@@ -178,7 +178,7 @@ impl Drop for Chain {
 }
 
 /// Return the default value for [`ffi::SearchResult`]
-// FIXME replace with Default::default once `ffi::SearchResult` is ported to Rust
+// FIXME: Replace with `Default::default` once [MOD-9920] is completed.
 pub const fn default_search_result() -> ffi::SearchResult {
     const SEARCH_RESULT_INIT: ffi::SearchResult = ffi::SearchResult {
         docId: 0,
@@ -200,7 +200,7 @@ pub const fn default_search_result() -> ffi::SearchResult {
 ///
 /// this doesn't actually free anything, so will leak resources but hopefully this is fine for the few Rust
 /// tests for now
-// FIXME replace with SearchResult::clear once `ffi::SearchResult` is ported to Rust
+// FIXME: replace with `SearchResult::clear` once [MOD-9920] is completed.
 #[unsafe(no_mangle)]
 unsafe extern "C" fn SearchResult_Clear(r: *mut ffi::SearchResult) {
     let r = unsafe { r.as_mut().unwrap() };
