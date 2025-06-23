@@ -20,6 +20,7 @@
 //! C code, since it levels the playing field by forcing both to use the same memory allocator.
 
 pub mod allocator;
+pub mod command;
 pub mod mock;
 
 /// A macro to define Redis' allocation symbols in terms of Rust's global allocator for usage in an outside crate.
