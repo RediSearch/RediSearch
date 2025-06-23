@@ -12,7 +12,6 @@
 #include "query.h"
 #include "gtest/gtest.h"
 #include "config.h"
-#include "module.h"
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
@@ -987,7 +986,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
 
   // Set up dummy context for timeout functionality
   RedisSearchCtx sctx = {0};
-  sctx.redisCtx = RSDummyContext;
+  sctx.redisCtx = NULL;
   qitr.sctx = &sctx;
   qitr.timeoutPolicy = TimeoutPolicy_Return;
 
@@ -1096,7 +1095,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
 
   // Set up dummy context for timeout functionality
   RedisSearchCtx sctx = {0};
-  sctx.redisCtx = RSDummyContext;
+  sctx.redisCtx = NULL;
   qitr.sctx = &sctx;
   qitr.timeoutPolicy = TimeoutPolicy_Fail;
 

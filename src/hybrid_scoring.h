@@ -10,6 +10,6 @@
  /* Get scoring function based on scoring type */
 HybridScoringFunction GetScoringFunction(HybridScoringType scoringType);
 
-double RRFScore(ScoringFunctionArgs *ctx,const double *ranks, const bool *has_rank, const size_t num_sources);
+double HybridRRFScore(ScoringFunctionArgs *ctx, const double *ranks, const bool *has_rank, const size_t num_sources);
 
 double HybridLinearScore(ScoringFunctionArgs *ctx, const double *scores, const bool *has_score, const size_t num_sources);

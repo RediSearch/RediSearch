@@ -8,9 +8,9 @@
        // Linear scoring not implemented yet
        return HybridLinearScore;
      case HYBRID_SCORING_RRF:
-       return RRFScore;
+       return HybridRRFScore;
      default:
-       return HybridLinearScore; // Default fallback to hybrid linear scoring
+       RS_ASSERT(0); // Shouldn't get here
    }
  }
 
@@ -35,7 +35,8 @@
  *
  * @return RRF score as a double. Higher scores indicate higher relevance.
  */
-double RRFScore(ScoringFunctionArgs *ctx,const double *ranks, const bool *has_rank, const size_t num_sources) {
+double HybridRRFScore(ScoringFunctionArgs *ctx, const double *ranks, const bool *has_rank, const size_t num_sources) {
+
     double score = 0.0;
     for (size_t i = 0; i < num_sources; ++i) {
         if (has_rank[i]) {

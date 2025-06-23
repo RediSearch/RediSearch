@@ -1567,48 +1567,43 @@ dictType dictTypeHybridSearchResult = {
  static int RPHybridMerger_Accum(ResultProcessor *rp, SearchResult *r) {
    RPHybridMerger *self = (RPHybridMerger *)rp;
 
-  // The array keeps unconsumed indices at the beginning, and consumed indices are moved to the end.
-  int *upstreamIndices = rm_malloc(self->numUpstreams * sizeof(int));
-  for (size_t i = 0; i < self->numUpstreams; i++) {
-    upstreamIndices[i] = i;
-  }
-  int numUnconsumed = self->numUpstreams; // Start with all upstreams unconsumed.
-  // Busy wait loop - continuously try to consume from upstreams until all are consumed
-  while (numUnconsumed > 0) {
-    for (int i = 0; i < numUnconsumed; i++) {
-      int upstreamIndex = upstreamIndices[i];
-      int rc = ConsumeFromUpstream(self, self->window, self->upstreams[upstreamIndex], upstreamIndex);
+  bool *consumed = rm_calloc(self->numUpstreams, sizeof(bool));
+  size_t numConsumed = 0;
+
+  // Continuously try to consume from upstreams until all are consumed
+  while (numConsumed < self->numUpstreams) {
+    for (size_t i = 0; i < self->numUpstreams; i++) {
+      if (consumed[i]) {
+        continue;
+      }
+
+      int rc = ConsumeFromUpstream(self, self->window, self->upstreams[i], i);
 
       if (rc == RS_RESULT_DEPLETING) {
         // Upstream is still active but not ready to provide results. Skip to the next.
         continue;
       } else if (rc == RS_RESULT_OK || rc == RS_RESULT_EOF) {
-        // Mark this upstream as consumed by swapping it to the end of the unconsumed section.
-        numUnconsumed--;
-        if (i < numUnconsumed) {
-          // Swap the current index with the last unconsumed index.
-          int temp = upstreamIndices[i];
-          upstreamIndices[i] = upstreamIndices[numUnconsumed];
-          upstreamIndices[numUnconsumed] = temp;
-        }
+        // Considered as consumed even if upstream isn't exhausted, since we limit consumption to self->window
+        consumed[i] = true;
+        numConsumed++;
         continue;
       } else if (rc == RS_RESULT_TIMEDOUT){
+          rm_free(consumed);
           if (rp->parent->timeoutPolicy == TimeoutPolicy_Return) {
             // Handle timeout case: switch to yield phase and return.
             self->timedOut = true;
             self->iterator = dictGetIterator(self->hybridResults);
             rp->Next = RPHybridMerger_Yield;
-            rm_free(upstreamIndices);
             return rp->Next(rp, r);
-          } else { //strict
-            rm_free(upstreamIndices);
+          } else { // Strict
             return rc;
           }
       }
     }
   }
-   // Free the temporary array
-   rm_free(upstreamIndices);
+
+  // Free the consumed tracking array
+  rm_free(consumed);
 
    // Initialize iterator for yield phase
    self->iterator = dictGetIterator(self->hybridResults);

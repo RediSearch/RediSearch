@@ -398,13 +398,12 @@ typedef struct {
   /* Tanh factor (used only in the `BM25STD.TANH` scorer)*/
   uint64_t tanhFactor;
 
-  /* Hybrid scoring function parameters
-   * For RRF scoring: */
+  /* Hybrid scoring function parameters For RRF scoring: */
   size_t RRF_k;
+
   /* For linear hybrid scoring: */
   double *linearWeights;
   size_t numScores;
-
 } ScoringFunctionArgs;
 
 /* RSScoringFunction is a callback type for query custom scoring function modules */
