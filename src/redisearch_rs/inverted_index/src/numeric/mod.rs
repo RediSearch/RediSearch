@@ -52,7 +52,7 @@
 //! | `10` | POS_INT  | Positive integers > 7 |
 //! | `11` | NEG_INT  | Negative integers     |
 //!
-//! #### TINY Type (00) - Bits 5-7
+//! #### TINY Type (00) - Bits 5-7 {#tiny-type}
 //!
 //! ```text
 //! Bit:   7   6   5
@@ -63,7 +63,7 @@
 //! The value is encoded directly in bits 5-7. No additional value bytes
 //! will appear after the delta.
 //!
-//! #### FLOAT Type (01) - Bits 5-7
+//! #### FLOAT Type (01) - Bits 5-7 {#float-type}
 //!
 //! ```text
 //! Bit:   7   6   5
@@ -92,7 +92,7 @@
 //! This means for f32 values, 4 bytes will follow the delta, and for f64 values, 8 bytes will
 //! follow. While the infinite flag indicates no value will follow the delta.
 //!
-//! #### POS_INT Type (10) - Bits 5-7
+//! #### POS_INT Type (10) - Bits 5-7 {#pos-int-type}
 //!
 //! ```text
 //! Bit:   7   6   5
@@ -103,7 +103,7 @@
 //! Encodes `(value_bytes - 1)` where value_bytes is 1-8. This determines how many bytes follow the
 //! delta to represent the actual positive integer value.
 //!
-//! #### NEG_INT Type (11) - Bits 5-7
+//! #### NEG_INT Type (11) - Bits 5-7 {#neg-int-type}
 //!
 //! ```text
 //! Bit:   7   6   5
