@@ -105,6 +105,8 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
     IORuntimeCtx_FireShutdown(ioRuntime);
   }
 
+  // Free the topology before freeing the cluster
+  rm_free(topo);
   MRClust_Free(cluster);
   ASSERT_EQ(counters[0], 20);
   ASSERT_EQ(counters[1], 10);
