@@ -11,7 +11,10 @@ target_sources(c2rust PRIVATE
     "module-init.c" 
     "config.c"
     "value.c"
-    "variadic_helper.c"
     "../util/c2rust/mempool.c"
 )
 target_include_directories(c2rust PRIVATE . ..)
+
+add_library(c2rust_variadic_helper STATIC)
+target_sources(c2rust_variadic_helper PRIVATE "variadic_helper.c")
+target_include_directories(c2rust_variadic_helper PRIVATE . ..)

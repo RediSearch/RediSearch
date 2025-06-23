@@ -110,10 +110,10 @@ unsafe extern "C" fn RedisModule_GetApi(s: *const char, pp: std::ffi::c_void) ->
 
     // convert s to string slice
     // Safety: The caller only gives valid null-terminated C strings encoded in UTF-8.
-    let s = unsafe { std::ffi::CStr::from_ptr(s as *const i8) }
+    let s = unsafe { std::ffi::CStr::from_ptr(s.cast()) }
         .to_str()
         .unwrap();
-    if let Some(p) = map.get(s) {
+    if map.get(s).is_some() {
         REDISMODULE_OK
     } else {
         REDISMODULE_ERR
