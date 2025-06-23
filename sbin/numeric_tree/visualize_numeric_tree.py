@@ -11,7 +11,65 @@ except ImportError:
     PLOTLY_AVAILABLE = False
     print("Plotly not available. Install with: pip install plotly")
     print("Falling back to basic text output")
-    
+
+
+def group_consecutive_docs(documents):
+    """
+    Group consecutive document IDs with the same value into ranges.
+
+    Args:
+        documents: List of (value, doc_id) tuples
+
+    Returns:
+        List of dictionaries with keys:
+        - 'value': the document value
+        - 'start_id': first document ID in the group
+        - 'end_id': last document ID in the group (same as start_id if single doc)
+        - 'count': number of documents in the group
+        - 'is_range': True if count > 1, False otherwise
+    """
+    if not documents:
+        return []
+
+    # Sort documents by value first, then by doc_id to group consecutive IDs with same value
+    sorted_docs = sorted(documents, key=lambda x: (x[0], x[1]))
+
+    groups = []
+    current_group = None
+
+    for value, doc_id in sorted_docs:
+        if current_group is None:
+            # Start first group
+            current_group = {
+                'value': value,
+                'start_id': doc_id,
+                'end_id': doc_id,
+                'count': 1,
+                'is_range': False
+            }
+        elif (current_group['value'] == value and
+              doc_id == current_group['end_id'] + 1):
+            # Extend current group with consecutive ID
+            current_group['end_id'] = doc_id
+            current_group['count'] += 1
+            current_group['is_range'] = True
+        else:
+            # Start new group
+            groups.append(current_group)
+            current_group = {
+                'value': value,
+                'start_id': doc_id,
+                'end_id': doc_id,
+                'count': 1,
+                'is_range': False
+            }
+
+    # Don't forget the last group
+    if current_group is not None:
+        groups.append(current_group)
+
+    return groups
+
 
 def draw_node(graph, node, total_doc_count):
     node_id = node['id']
@@ -40,10 +98,14 @@ def draw_node(graph, node, total_doc_count):
 
     if parent_id is not None:
         graph.add_edge(parent_id, node_id)
-    if 'left' in node:
-        draw_node(graph, node['left'], total_doc_count)
-    if 'right' in node:
-        draw_node(graph, node['right'], total_doc_count)
+
+    # Only process children if this is NOT a leaf node
+    # Leaf nodes should have one parent and no children
+    if not is_leaf:
+        if 'left' in node:
+            draw_node(graph, node['left'], total_doc_count)
+        if 'right' in node:
+            draw_node(graph, node['right'], total_doc_count)
 
 def draw_tree(root):
     G = nx.DiGraph()
@@ -174,12 +236,27 @@ def create_interactive_plotly_tree(G, output_file='interactive_tree.html', spaci
             documents = node_info['documents']
             hover_text += f"<br><br><b>LEAF NODE - Documents:</b>"
 
-            # Show up to 10 documents to avoid overwhelming the tooltip
-            for doc_value, doc_id in documents[:10]:
-                hover_text += f"<br>Doc {doc_id}: {doc_value}"
+            # Group consecutive document IDs with the same value into ranges
+            grouped_docs = group_consecutive_docs(documents)
 
-            if len(documents) > 10:
-                hover_text += f"<br>... and {len(documents) - 10} more documents"
+            # Show up to 10 groups/ranges to avoid overwhelming the tooltip
+            displayed_count = 0
+            total_docs_shown = 0
+
+            for group in grouped_docs:
+                if displayed_count >= 10:
+                    break
+
+                if group['is_range']:
+                    hover_text += f"<br>Docs {group['start_id']}-{group['end_id']} ({group['count']} docs): {group['value']}"
+                else:
+                    hover_text += f"<br>Doc {group['start_id']}: {group['value']}"
+
+                displayed_count += 1
+                total_docs_shown += group['count']
+
+            if total_docs_shown < len(documents):
+                hover_text += f"<br>... and {len(documents) - total_docs_shown} more documents"
 
         node_text.append(hover_text)
         node_colors.append(score)
@@ -295,11 +372,20 @@ def print_tree_info(G):
             documents = node_info.get('documents', [])
             print(f"  🍃 LEAF Node {node}: value={node_info.get('value', 'N/A')}, docs={len(documents)}")
             if documents:
-                # Show first few documents
-                for doc_value, doc_id in documents[:3]:
-                    print(f"    - Doc {doc_id}: {doc_value}")
-                if len(documents) > 3:
-                    print(f"    - ... and {len(documents) - 3} more documents")
+                # Group consecutive documents and show first few groups
+                grouped_docs = group_consecutive_docs(documents)
+                total_docs_shown = 0
+
+                for group in grouped_docs[:3]:  # Show first 3 groups
+                    if group['is_range']:
+                        print(f"    - Docs {group['start_id']}-{group['end_id']} ({group['count']} docs): {group['value']}")
+                    else:
+                        print(f"    - Doc {group['start_id']}: {group['value']}")
+                    total_docs_shown += group['count']
+
+                if len(grouped_docs) > 3:
+                    remaining_docs = len(documents) - total_docs_shown
+                    print(f"    - ... and {remaining_docs} more documents in {len(grouped_docs) - 3} more groups")
         else:
             internal_count += 1
             if isinstance(score, (int, float)):

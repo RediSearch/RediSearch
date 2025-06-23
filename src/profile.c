@@ -10,7 +10,14 @@
 #include "reply_macros.h"
 #include "util/units.h"
 
-void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, double cpuTime, PrintProfileConfig *config) {
+void printProfileDocIds(RedisModule_Reply *reply, ProfileDocIds *docIds) {
+  RedisModule_ReplyKV_LongLong(reply, "First docId", docIds->first);
+  RedisModule_ReplyKV_LongLong(reply, "Last docId", docIds->last);
+  RedisModule_ReplyKV_LongLong(reply, "First Skipped To", docIds->firstSkippedTo);
+  RedisModule_ReplyKV_LongLong(reply, "Last Skipped To", docIds->lastSkippedTo);
+}
+
+void printReadIt(RedisModule_Reply *reply, IndexIterator *root, ProfileCounters *counters, ProfileDocIds *docIds, double cpuTime, PrintProfileConfig *config) {
   IndexReader *ir = root->ctx;
 
   RedisModule_Reply_Map(reply);
@@ -24,7 +31,7 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
     if (!flt || flt->geoFilter == NULL) {
       printProfileType("NUMERIC");
       RedisModule_Reply_SimpleString(reply, "Term");
-      RedisModule_Reply_SimpleStringf(reply, "%g - %g", ir->profileCtx.numeric.rangeMin, ir->profileCtx.numeric.rangeMax);
+      RedisModule_Reply_SimpleStringf(reply, "%g - %g", ir->profileCtx.numeric.rangeMin, ir->profileCtx.numeric.rangeMax);      
     } else {
       printProfileType("GEO");
       RedisModule_Reply_SimpleString(reply, "Term");
@@ -44,8 +51,8 @@ void printReadIt(RedisModule_Reply *reply, IndexIterator *root, size_t counter, 
     printProfileTime(cpuTime);
   }
 
-  printProfileCounter(counter);
-
+  printProfileCounters(counters);
+  printProfileDocIds(reply, docIds);
   RedisModule_ReplyKV_LongLong(reply, "Size", root->NumEstimated(ir));
 
   RedisModule_Reply_MapEnd(reply);
@@ -169,7 +176,7 @@ void Profile_Print(RedisModule_Reply *reply, void *ctx) {
         RedisModule_Reply_SimpleString(reply, "Iterators profile");
         PrintProfileConfig config = {.iteratorsConfig = &req->ast.config,
                                      .printProfileClock = profile_verbose};
-        printIteratorProfile(reply, root, 0, 0, 2, req->reqflags & QEXEC_F_PROFILE_LIMITED, &config);
+        printIteratorProfile(reply, root, 0, 0, 0, 2, req->reqflags & QEXEC_F_PROFILE_LIMITED, &config);
       }
 
       // Print profile of result processors
