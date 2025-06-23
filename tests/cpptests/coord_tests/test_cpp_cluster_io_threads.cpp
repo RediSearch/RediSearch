@@ -90,9 +90,7 @@ TEST_F(ClusterIOThreadsTest, TestIOThreadsResize) {
   // Change number of IO threads (decrease)
   MRCluster_UpdateNumIOThreads(cluster, 1);
   ASSERT_EQ(cluster->num_io_threads, 1);
-
-
-    // Schedule more callbacks on the new threads
+  // Schedule more callbacks on the new threads
   for (int i = 0; i < cluster->num_io_threads; i++) {
     IORuntimeCtx *ioRuntime = MRCluster_GetIORuntimeCtx(cluster, i);
     for (int j = 0; j < 10; j++) {

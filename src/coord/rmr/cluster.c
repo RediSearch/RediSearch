@@ -19,18 +19,12 @@ MRCluster *MR_NewCluster(MRClusterTopology *initialTopology, size_t conn_pool_si
   MRCluster *cl = rm_new(MRCluster);
   RS_ASSERT(num_io_threads > 0);
   cl->num_io_threads = num_io_threads;
-  cl->io_runtimes_pool_size = num_io_threads - 1;
   cl->current_round_robin = 0;  // Initialize round-robin counter
-  if (num_io_threads <= 1) {
-    cl->control_plane_io_runtime = IORuntimeCtx_Create(conn_pool_size, initialTopology, 0, true);
-    cl->io_runtimes_pool = NULL;
-  } else {
-    cl->io_runtimes_pool = rm_malloc(cl->io_runtimes_pool_size * sizeof(IORuntimeCtx*));
-    cl->control_plane_io_runtime = IORuntimeCtx_Create(conn_pool_size, initialTopology, 0, true);
-    for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
-      cl->io_runtimes_pool[i] = IORuntimeCtx_Create(conn_pool_size, initialTopology, i + 1, false);
-    }
+  cl->io_runtimes_pool = rm_malloc(cl->num_io_threads * sizeof(IORuntimeCtx*));
+  for (size_t i = 0; i < cl->num_io_threads; i++) {
+    cl->io_runtimes_pool[i] = IORuntimeCtx_Create(conn_pool_size, initialTopology, i + 1, false);
   }
+
   return cl;
 }
 
@@ -209,43 +203,31 @@ void MRClust_Free(MRCluster *cl) {
   if (cl) {
     // First, fire the shutdown event for all runtimes
     if (cl->io_runtimes_pool) {
-      for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
+      for (size_t i = 0; i < cl->num_io_threads; i++) {
         IORuntimeCtx_FireShutdown(cl->io_runtimes_pool[i]);
       }
     }
-    IORuntimeCtx_FireShutdown(cl->control_plane_io_runtime);
 
     // Then free the RuntimeCtx, it will join the threads
     if (cl->io_runtimes_pool) {
-      for (size_t i = 0; i < cl->io_runtimes_pool_size; i++) {
+      for (size_t i = 0; i < cl->num_io_threads; i++) {
         IORuntimeCtx_Free(cl->io_runtimes_pool[i]);
       }
       rm_free(cl->io_runtimes_pool);
     }
-    IORuntimeCtx_Free(cl->control_plane_io_runtime);
     rm_free(cl);
   }
 }
 
 size_t MRCluster_AssignRoundRobinIORuntimeIdx(MRCluster *cl) {
-  // Idea is to skip the control plane runtime
-  if (cl->io_runtimes_pool_size == 0) {
-    return 0; // default to the control plane one
-  }
-  size_t idx = cl->current_round_robin + 1;
-  cl->current_round_robin = (cl->current_round_robin  + 1) % cl->io_runtimes_pool_size;
+  size_t idx = cl->current_round_robin;
+  cl->current_round_robin = (cl->current_round_robin + 1) % cl->num_io_threads;
   return idx;
 }
 
-IORuntimeCtx *MRCluster_GetControlPlaneIORuntimeCtx(const MRCluster *cl) {
-  return cl->control_plane_io_runtime;
-}
-
 IORuntimeCtx *MRCluster_GetIORuntimeCtx(const MRCluster *cl, size_t idx) {
-  if (idx == 0) {
-    return cl->control_plane_io_runtime;
-  }
-  return cl->io_runtimes_pool[idx - 1];
+  RS_ASSERT(idx < cl->num_io_threads);
+  return cl->io_runtimes_pool[idx];
 }
 
 void MRCluster_UpdateNumIOThreads(MRCluster *cl, size_t num_io_threads) {
@@ -253,41 +235,34 @@ void MRCluster_UpdateNumIOThreads(MRCluster *cl, size_t num_io_threads) {
 
   if (num_io_threads == cl->num_io_threads) return;
 
-  size_t new_io_pool_size = num_io_threads - 1;
-
   if (num_io_threads < cl->num_io_threads) {
-    // Need to reduce the number of IO threads
-    // First, fire shutdown for the threads we want to remove
-    for (size_t i = new_io_pool_size; i < cl->io_runtimes_pool_size; i++) {
+    // Then free the runtime contexts
+    for (size_t i = num_io_threads; i < cl->num_io_threads; i++) {
       IORuntimeCtx_FireShutdown(cl->io_runtimes_pool[i]);
     }
-
-    // Then free the runtime contexts
-    for (size_t i = new_io_pool_size; i < cl->io_runtimes_pool_size; i++) {
+    for (size_t i = num_io_threads; i < cl->num_io_threads; i++) {
       IORuntimeCtx_Free(cl->io_runtimes_pool[i]);
     }
-
     // Resize the pool
-    cl->io_runtimes_pool = rm_realloc(cl->io_runtimes_pool, sizeof(IORuntimeCtx*) * new_io_pool_size);
+    cl->io_runtimes_pool = rm_realloc(cl->io_runtimes_pool, sizeof(IORuntimeCtx*) * num_io_threads);
   } else {
     // Need to increase the number of IO threads
     // Resize the pool
-    cl->io_runtimes_pool = rm_realloc(cl->io_runtimes_pool, sizeof(IORuntimeCtx*) * new_io_pool_size);
+    cl->io_runtimes_pool = rm_realloc(cl->io_runtimes_pool, sizeof(IORuntimeCtx*) * num_io_threads);
 
     // Create new runtime contexts
-    for (size_t i = cl->io_runtimes_pool_size; i < new_io_pool_size; i++) {
+    for (size_t i = cl->num_io_threads; i < num_io_threads; i++) {
       cl->io_runtimes_pool[i] = IORuntimeCtx_Create(
-          cl->control_plane_io_runtime->conn_mgr->nodeConns,
+          cl->io_runtimes_pool[0]->conn_mgr->nodeConns,
           NULL,
           i + 1,
           false);
-      if (cl->control_plane_io_runtime->topo) {
+      if (cl->io_runtimes_pool[0]->topo) {
         //TODO(Joan): We should make sure this is the last topology from user, so the UpdateTopology request should wait to return
-        cl->io_runtimes_pool[i]->topo = MRClusterTopology_Clone(cl->control_plane_io_runtime->topo);
+        cl->io_runtimes_pool[i]->topo = MRClusterTopology_Clone(cl->io_runtimes_pool[0]->topo);
         cl->io_runtimes_pool[i]->loop_th_ready = true;
       }
     }
   }
-  cl->io_runtimes_pool_size = new_io_pool_size;
   cl->num_io_threads = num_io_threads;
 }

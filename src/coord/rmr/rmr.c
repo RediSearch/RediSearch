@@ -270,8 +270,7 @@ static void uvUpdateTopologyRequest(void *p) {
 /* Set a new topology for the cluster.*/
 void MR_UpdateTopology(MRClusterTopology *newTopo) {
   // TODO(Joan): Most likely we need to make sure we wait for the topology to properly be applied to every runtime context before returning.
-  IORuntimeCtx_Schedule_Topology(cluster_g->control_plane_io_runtime, uvUpdateTopologyRequest, newTopo, true);
-  for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
+  for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
     IORuntimeCtx_Schedule_Topology(cluster_g->io_runtimes_pool[i], uvUpdateTopologyRequest, newTopo, false);
   }
 }
@@ -292,35 +291,26 @@ void MR_UpdateConnPerShard(size_t connPerShard) {
     // We can update the connection pool size directly from the main thread.
     // This is mostly a no-op, as the connection pool is not in use (yet or at all).
     // This call should only update the connection pool `size` for when the connection pool is initialized.
-    MRCluster_UpdateConnPerShard(cluster_g->control_plane_io_runtime, connPerShard);
-    for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
+    for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
       MRCluster_UpdateConnPerShard(cluster_g->io_runtimes_pool[i], connPerShard);
     }
   } else {
-    MRConnManager *control_plane_conn_mgr = cluster_g->control_plane_io_runtime->conn_mgr;
-    size_t old_conn_count = control_plane_conn_mgr->nodeConns;
+    size_t old_conn_count = cluster_g->io_runtimes_pool[0]->conn_mgr->nodeConns;
     if(connPerShard >= old_conn_count) {
       // New runtimes are in place, we can now submit more connections
-      MRConnManager_Expand(cluster_g->control_plane_io_runtime->conn_mgr, connPerShard, IORuntimeCtx_GetLoop(cluster_g->control_plane_io_runtime));
-      for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
+      for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
         MRConnManager_Expand(cluster_g->io_runtimes_pool[i]->conn_mgr, connPerShard, IORuntimeCtx_GetLoop(cluster_g->io_runtimes_pool[i]));
       }
     }
     else {
       // First, close the connections. This needs to be done from the event loop thread
-      MRConnManager_Shrink(cluster_g->control_plane_io_runtime->conn_mgr, connPerShard, IORuntimeCtx_GetLoop(cluster_g->control_plane_io_runtime));
       // Destroy runtimes
-      for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
+      for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
         MRConnManager_Shrink(cluster_g->io_runtimes_pool[i]->conn_mgr, connPerShard, IORuntimeCtx_GetLoop(cluster_g->io_runtimes_pool[i]));
       }
     }
-
-    size_t max_pending = cluster_g->control_plane_io_runtime->conn_mgr->nodeConns * PENDING_FACTOR;
-
-    RQ_UpdateMaxPending(cluster_g->control_plane_io_runtime->queue, max_pending);
-
-    for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
-      max_pending = cluster_g->io_runtimes_pool[i]->conn_mgr->nodeConns * PENDING_FACTOR;
+    for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
+      size_t max_pending = cluster_g->io_runtimes_pool[i]->conn_mgr->nodeConns * PENDING_FACTOR;
       RQ_UpdateMaxPending(cluster_g->io_runtimes_pool[i]->queue, max_pending);
     }
   }
@@ -375,31 +365,37 @@ void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
     IORuntimeCtx_Schedule(cluster_g->io_runtimes_pool[i], uvGetConnectionPoolState, getConnPoolStateCtx);
   }
 }*/
-
-static void uvGetConnectionPoolState(void *p) {
-  RedisModuleBlockedClient *bc = p;
-  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
-  MRConnManager_ReplyState(cluster_g->control_plane_io_runtime->conn_mgr, ctx);
-  RedisModule_FreeThreadSafeContext(ctx);
-  RedisModule_BlockedClientMeasureTimeEnd(bc);
-  RedisModule_UnblockClient(bc, NULL);
-}
-
-void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
-  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-  RedisModule_BlockedClientMeasureTimeStart(bc);
-  IORuntimeCtx_Schedule(cluster_g->control_plane_io_runtime, uvGetConnectionPoolState, bc);
-}
-
 struct ReplyClusterInfoCtx {
   IORuntimeCtx *ioRuntime;
   RedisModuleBlockedClient *bc;
 };
 
+static void uvGetConnectionPoolState(void *p) {
+  struct ReplyClusterInfoCtx *replyClusterInfoCtx = p;
+  IORuntimeCtx *ioRuntime = replyClusterInfoCtx->ioRuntime;
+  RedisModuleBlockedClient *bc = replyClusterInfoCtx->bc;
+  RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
+  MRConnManager_ReplyState(ioRuntime->conn_mgr, ctx);
+  RedisModule_FreeThreadSafeContext(ctx);
+  RedisModule_BlockedClientMeasureTimeEnd(bc);
+  RedisModule_UnblockClient(bc, NULL);
+  rm_free(replyClusterInfoCtx);
+}
+
+void MR_GetConnectionPoolState(RedisModuleCtx *ctx) {
+  RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+  RedisModule_BlockedClientMeasureTimeStart(bc);
+  struct ReplyClusterInfoCtx *replyClusterInfoCtx = rm_new(struct ReplyClusterInfoCtx);
+  size_t idx = MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g);
+  replyClusterInfoCtx->bc = bc;
+  replyClusterInfoCtx->ioRuntime = cluster_g->io_runtimes_pool[idx];
+  IORuntimeCtx_Schedule(replyClusterInfoCtx->ioRuntime, uvGetConnectionPoolState, replyClusterInfoCtx);
+}
+
 static void uvReplyClusterInfo(void *p) {
   struct ReplyClusterInfoCtx *replyClusterInfoCtx = p;
   IORuntimeCtx *ioRuntime = replyClusterInfoCtx->ioRuntime;
-  RedisModuleBlockedClient *bc = replyClusterInfoCtx->bc;  // Use the correct field
+  RedisModuleBlockedClient *bc = replyClusterInfoCtx->bc;
   RedisModuleCtx *ctx = RedisModule_GetThreadSafeContext(bc);
   MR_ReplyClusterInfo(ctx, ioRuntime->topo);
   RedisModule_FreeThreadSafeContext(ctx);
@@ -412,9 +408,10 @@ void MR_uvReplyClusterInfo(RedisModuleCtx *ctx) {
   RedisModuleBlockedClient *bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
   RedisModule_BlockedClientMeasureTimeStart(bc);
   struct ReplyClusterInfoCtx *replyClusterInfoCtx = rm_new(struct ReplyClusterInfoCtx);
+  size_t idx = MRCluster_AssignRoundRobinIORuntimeIdx(cluster_g);
   replyClusterInfoCtx->bc = bc;
-  replyClusterInfoCtx->ioRuntime = cluster_g->control_plane_io_runtime;
-  IORuntimeCtx_Schedule(cluster_g->control_plane_io_runtime, uvReplyClusterInfo, replyClusterInfoCtx);
+  replyClusterInfoCtx->ioRuntime = cluster_g->io_runtimes_pool[idx];
+  IORuntimeCtx_Schedule(replyClusterInfoCtx->ioRuntime, uvReplyClusterInfo, replyClusterInfoCtx);
 }
 
 void MR_ReplyClusterInfo(RedisModuleCtx *ctx, MRClusterTopology *topo) {
@@ -799,8 +796,7 @@ void MRIterator_Release(MRIterator *it) {
 }
 
 void MR_Debug_ClearPendingTopo() {
-  IORuntimeCtx_Debug_ClearPendingTopo(cluster_g->control_plane_io_runtime);
-  for (size_t i = 0; i < cluster_g->io_runtimes_pool_size; i++) {
+  for (size_t i = 0; i < cluster_g->num_io_threads; i++) {
     IORuntimeCtx_Debug_ClearPendingTopo(cluster_g->io_runtimes_pool[i]);
   }
 }
