@@ -1757,12 +1757,12 @@ dictType dictTypeHybridSearchResult = {
   // Free the consumed tracking array
   rm_free(consumed);
 
-   // Initialize iterator for yield phase
-   self->iterator = dictGetIterator(self->hybridResults);
+  // Initialize iterator for yield phase
+  self->iterator = dictGetIterator(self->hybridResults);
 
-   // Switch to yield phase
-   rp->Next = RPHybridMerger_Yield;
-   return rp->Next(rp, r);
+  // Switch to yield phase
+  rp->Next = RPHybridMerger_Yield;
+  return rp->Next(rp, r);
  }
 
  /* Free function for RPHybridMerger */

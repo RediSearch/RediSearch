@@ -63,8 +63,7 @@ TEST_F(HybridMergerTest, testHybridMergerSameDocs) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream1() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream1() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream1;
@@ -87,8 +86,7 @@ TEST_F(HybridMergerTest, testHybridMergerSameDocs) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream2() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream2() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream2;
@@ -174,8 +172,7 @@ TEST_F(HybridMergerTest, testHybridMergerDifferentDocuments) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream1() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream1() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream1;
@@ -198,8 +195,7 @@ TEST_F(HybridMergerTest, testHybridMergerDifferentDocuments) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream2() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream2() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream2;
@@ -276,8 +272,7 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream1) {
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
       return RS_RESULT_EOF; // Always empty
     }
-    MockUpstream1() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream1() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream1;
@@ -300,8 +295,7 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream1) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream2() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream2() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream2;
@@ -385,8 +379,7 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream2) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream1() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream1() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream1;
@@ -396,8 +389,7 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream2) {
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
       return RS_RESULT_EOF; // Always empty
     }
-    MockUpstream2() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream2() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream2;
@@ -470,8 +462,7 @@ TEST_F(HybridMergerTest, testHybridMergerBothEmpty) {
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
       return RS_RESULT_EOF; // Always empty
     }
-    MockUpstream1() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream1() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream1;
@@ -481,8 +472,7 @@ TEST_F(HybridMergerTest, testHybridMergerBothEmpty) {
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
       return RS_RESULT_EOF; // Always empty
     }
-    MockUpstream2() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream2() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream2;
@@ -565,8 +555,7 @@ TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
       p->counter++;
       return RS_RESULT_OK;
     }
-    MockUpstream1() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream1() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream1;
@@ -594,8 +583,7 @@ TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
       p->counter++;
       return RS_RESULT_OK;
     }
-    MockUpstream2() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream2() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream2;
@@ -943,8 +931,7 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream2DepletesMore) {
         return RS_RESULT_EOF;
       }
     }
-    MockUpstream1() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream1() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream1;
@@ -976,8 +963,7 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream2DepletesMore) {
         return RS_RESULT_EOF;
       }
     }
-    MockUpstream2() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream2() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream2;
@@ -1079,8 +1065,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream1() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream1() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream1;
@@ -1103,8 +1088,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream2() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream2() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream2;
@@ -1194,8 +1178,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream1() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream1() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream1;
@@ -1218,8 +1201,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream2() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream2() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream2;
@@ -1303,8 +1285,7 @@ TEST_F(HybridMergerTest, testRRFScoring) {
       p->counter++;
       return RS_RESULT_OK;
     }
-    MockUpstream1() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream1() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream1;
@@ -1332,8 +1313,7 @@ TEST_F(HybridMergerTest, testRRFScoring) {
       p->counter++;
       return RS_RESULT_OK;
     }
-    MockUpstream2() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream2() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream2;
@@ -1429,8 +1409,7 @@ TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream1() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream1() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream1;
@@ -1453,8 +1432,7 @@ TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream2() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream2() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream2;
@@ -1477,8 +1455,7 @@ TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream3() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream3() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream3;
@@ -1568,8 +1545,7 @@ TEST_F(HybridMergerTest, testHybridMergerLinear4Upstreams) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream1() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream1() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream1;
@@ -1592,8 +1568,7 @@ TEST_F(HybridMergerTest, testHybridMergerLinear4Upstreams) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream2() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream2() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream2;
@@ -1616,8 +1591,7 @@ TEST_F(HybridMergerTest, testHybridMergerLinear4Upstreams) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream3() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream3() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream3;
@@ -1640,8 +1614,7 @@ TEST_F(HybridMergerTest, testHybridMergerLinear4Upstreams) {
 
       return RS_RESULT_OK;
     }
-    MockUpstream4() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream4() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream4;
@@ -1731,8 +1704,7 @@ TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
       p->counter++;
       return RS_RESULT_OK;
     }
-    MockUpstream1() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream1() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream1;
@@ -1761,8 +1733,7 @@ TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
       p->counter++;
       return RS_RESULT_OK;
     }
-    MockUpstream2() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream2() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream2;
@@ -1791,8 +1762,7 @@ TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
       p->counter++;
       return RS_RESULT_OK;
     }
-    MockUpstream3() {
-      memset(this, 0, sizeof(*this));
+    MockUpstream3() : ResultProcessor{} {
       this->Next = NextFn;
     }
   } upstream3;
