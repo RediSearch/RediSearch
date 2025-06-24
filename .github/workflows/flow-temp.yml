@@ -14,9 +14,9 @@ on:
 jobs:
 
   basic-test:
-    uses: ./.github/workflows/task-test.yml
-    with:
-      test-config: QUICK=1
-      rejson-branch: master
-      container: "amazonlinux:2"
+    uses: ./.github/workflows/flow-linux-platforms.yml
     secrets: inherit
+    with:
+      rejson-branch: master
+      platform: "amazonlinux:2"
+      architecture: 'x86_64'
