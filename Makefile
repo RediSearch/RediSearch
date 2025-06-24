@@ -96,48 +96,53 @@ RAMP_ARGS ?=
 # Main targets
 #-----------------------------------------------------------------------------
 
+define HELPTEXT
+RediSearch Build System
+
+Setup:
+  make setup         Install prerequisites (CAUTION: modifies system)
+  make fetch         Download and prepare dependent modules
+
+Build:
+  make build         Compile and link
+    COORD=oss|rlec     Build coordinator (default: oss)
+    DEBUG=1            Build for debugging
+    TESTS=1            Build unit tests
+    FORCE=1            Force clean build
+    SAN=type           Build with sanitizer (address|memory|leak|thread)
+    COV=1              Build with coverage instrumentation
+    RUST_PROFILE=name  Rust profile to use (default: release)
+    VERBOSE=1          Verbose build output
+
+  make clean         Remove build artifacts
+    ALL=1              Remove entire artifacts directory
+
+Testing:
+  make test          Run all tests
+  make unit-tests    Run unit tests (C and C++)
+  make rust-tests    Run Rust tests
+  make pytest        Run Python tests
+    COORD=oss|rlec        Test coordinator type (default: oss)
+    REDIS_STANDALONE=1|0  Test with standalone/cluster Redis
+    SA=1|0                Alias for REDIS_STANDALONE
+    TEST=name             Run specified test
+    QUICK=1               Run quick test subset
+
+Development:
+  make run           Run Redis with RediSearch
+    COORD=oss|rlec     Run with coordinator type (default: oss)
+    GDB=1              Invoke using gdb
+  make lint          Run linters
+  make fmt           Format source files
+    CHECK=1            Check formatting without modifying files
+
+Packaging:
+  make pack          Create installation packages
+  make docker        Build for specified platform
+endef
+
 help:
-	@printf '%s\n' \
-		'RediSearch Build System' \
-		'' \
-		'Setup:' \
-		'  make setup         Install prerequisites (CAUTION: modifies system)' \
-		'  make fetch         Download and prepare dependent modules' \
-		'' \
-		'Build:' \
-		'  make build         Compile and link' \
-		'    COORD=oss|rlec     Build coordinator (default: oss)' \
-		'    DEBUG=1            Build for debugging' \
-		'    TESTS=1            Build unit tests' \
-		'    FORCE=1            Force clean build' \
-		'    SAN=type           Build with sanitizer (address|memory|leak|thread)' \
-		'    COV=1              Build with coverage instrumentation' \
-		'    RUST_PROFILE=name  Rust profile to use (default: release)' \
-		'    VERBOSE=1          Verbose build output' \
-		'' \
-		'  make clean         Remove build artifacts' \
-		'    ALL=1              Remove entire artifacts directory' \
-		'' \
-		'Testing:' \
-		'  make test          Run all tests' \
-		'  make unit-tests    Run unit tests (C and C++)' \
-		'  make rust-tests    Run Rust tests' \
-		'  make pytest        Run Python tests' \
-		'    REDIS_STANDALONE=1|0  Test with standalone/cluster Redis' \
-		'    SA=1|0                Alias for REDIS_STANDALONE' \
-		'    TEST=name             Run specified test' \
-		'    QUICK=1               Run quick test subset' \
-		'' \
-		'Development:' \
-		'  make run           Run Redis with RediSearch' \
-		'    GDB=1              Invoke using gdb' \
-		'  make lint          Run linters' \
-		'  make fmt           Format source files' \
-		'    CHECK=1            Check formatting without modifying files' \
-		'' \
-		'Packaging:' \
-		'  make pack          Create installation packages' \
-		'  make docker        Build for specified platform'
+	@echo "$$HELPTEXT"
 
 setup:
 	@echo "Setting up system..."
@@ -204,11 +209,20 @@ endif
 
 run:
 	@echo "Starting Redis with RediSearch..."
-	@if [ "$(GDB)" = "1" ]; then \
-		echo "Starting with GDB..."; \
-		gdb -ex r --args redis-server --loadmodule $$(find $(ROOT)/bin -name "redisearch.so" -o -name "module-enterprise.so" | head -1); \
+	@if [ "$(COORD)" = "rlec" ]; then \
+		MODULE_PATH=$$(find $(ROOT)/bin -name "module-enterprise.so" | head -1); \
 	else \
-		redis-server --loadmodule $$(find $(ROOT)/bin -name "redisearch.so" -o -name "module-enterprise.so" | head -1); \
+		MODULE_PATH=$$(find $(ROOT)/bin -name "redisearch.so" | head -1); \
+	fi; \
+	if [ -z "$$MODULE_PATH" ]; then \
+		echo "Error: No $(COORD) module found. Please build first with 'make build COORD=$(COORD)'"; \
+		exit 1; \
+	fi; \
+	if [ "$(GDB)" = "1" ]; then \
+		echo "Starting with GDB..."; \
+		gdb -ex r --args redis-server --loadmodule $$MODULE_PATH; \
+	else \
+		redis-server --loadmodule $$MODULE_PATH; \
 	fi
 
 lint:
