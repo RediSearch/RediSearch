@@ -247,6 +247,13 @@ fn test_u128_encoded_bytes() {
     }
 }
 
+fn roundtrip_value<T: VarintEncode + std::fmt::Debug + PartialEq + Eq + Copy>(value: T) {
+    let mut buf = Vec::new();
+    value.write_as_varint(&mut buf).unwrap();
+    let decoded: T = varint::read(&mut Cursor::new(buf)).unwrap();
+    assert_eq!(decoded, value);
+}
+
 mod property_based {
     //! Round-trip tests with randomly-generated values of different sizes.
     #![cfg(not(miri))]
@@ -255,23 +262,17 @@ mod property_based {
     proptest::proptest! {
         #[test]
         fn test_u32_roundtrip(v: u32) {
-            let mut buf = Vec::new();
-            v.write_as_varint(&mut buf).unwrap();
-            assert_eq!(u32::read_as_varint(&mut Cursor::new(buf)).unwrap(), v);
+            roundtrip_value(v);
         }
 
         #[test]
         fn test_u64_roundtrip(v: u64) {
-            let mut buf = Vec::new();
-            v.write_as_varint(&mut buf).unwrap();
-            assert_eq!(u64::read_as_varint(&mut Cursor::new(buf)).unwrap(), v);
+            roundtrip_value(v);
         }
 
         #[test]
         fn test_u128_roundtrip(v: u128) {
-            let mut buf = Vec::new();
-            v.write_as_varint(&mut buf).unwrap();
-            assert_eq!(u128::read_as_varint(&mut Cursor::new(buf)).unwrap(), v);
+            roundtrip_value(v);
         }
     }
 }
