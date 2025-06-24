@@ -10,11 +10,22 @@
 //! `redis_mock` provides alternative implementations for some of the symbols in
 //! [Redis modules' API](https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/).
 //!
-//! In this module the we add the mock implementations of the Redis modules API. There are several
-//! functions like the `reply` functions that needs mocking. A similar thing is achieved by the
-//! [redismock.cpp](../../redismock.cpp) C++ library, which is used in the Redis C++ tests.
+//! ## General
 //!
-//! In particular, it redirects [its heap allocation facilities](https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#heap-allocation-raw-functions)
+//! It setups a global rust allocator in the [crate::allocator] module and provides mock implementations
+//! in the modules [crate::mock] and [crate::command].
+//!
+//! For unit testing several functions like the `reply` functions or the command api require mocking.
+//! A similar thing is achieved by the [redismock.cpp](../../tests/cpptests/redismock/redismock.cpp) C++ library,
+//! which is used in the Redis C++ tests.
+//!
+//! It lacks a mocked initialization of the Redis module, which may be added in the future. The
+//! [redismock.cpp](../../tests/cpptests/redismock/redismock.cpp) C++ library, uses a mocked initialization mainly
+//! for iterator benchmarks.
+//!
+//! ## Allocations
+//!
+//! It redirects [its heap allocation facilities](https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/#heap-allocation-raw-functions)
 //! to use Rust's global allocator.
 //! This is particularly useful when benchmarking a Rust re-implementation against the original
 //! C code, since it levels the playing field by forcing both to use the same memory allocator.
@@ -47,8 +58,12 @@ pub const REDISMODULE_ERR: i32 = 1;
 #[derive(Copy, Clone)]
 struct RawFunctionPtr(*mut c_void);
 
+/// Safety: The pointer is a function pointer, which is safe to send across threads
+/// and can be used concurrently.
 unsafe impl Send for RawFunctionPtr {}
 
+/// Safety: The pointer is a function pointer, which is safe to call from multiple threads as each invocation will
+/// not share state with other invocations.
 unsafe impl Sync for RawFunctionPtr {}
 
 /// A global hashmap that holds the mocked Redis API functions.
@@ -63,6 +78,7 @@ macro_rules! register_api {
 #[unsafe(no_mangle)]
 #[allow(non_upper_case_globals)]
 extern "C" fn RedisModule_Strdup(s: *const c_char) -> *mut c_char {
+    // Safety: The caller guarantees that `s` is a valid null-terminated C string.
     unsafe { libc::strdup(s) }
 }
 
@@ -138,6 +154,7 @@ unsafe extern "C" fn RedisModule_GetApi(s: *const char, pp: *mut std::ffi::c_voi
         .unwrap();
     if let Some(ftor) = map.get(s) {
         let pp: *mut *mut c_void = pp.cast();
+        // Safety: The pointer ftor.0 is a valid function pointer, and we are assigning it to a mutable pointer.
         unsafe { *pp = ftor.0 };
         REDISMODULE_OK
     } else {

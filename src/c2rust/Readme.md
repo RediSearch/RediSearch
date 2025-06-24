@@ -1,27 +1,9 @@
 # Readme
 
-This folder holds a CMakeLists that defines the bindings used by Rust for unit tests and benches, called `c2rust`. 
+This folder holds a CMakeLists that defines `c2rust` bindings used for Rust unit tests and micro benchmarks. 
+`c2rust` is a static library that will be linked to the crate `redis_mock`. This crate combines
+the static c-symbols from `c2rust` with mock function for the [Redis Module API](https://redis.io/docs/latest/develop/reference/modules/modules-api-ref/) 
+and is compiled as a dynamic library to be linked against Rust unit test and benchmark binaries.
 
-Here you can add more c files with types that need to be (temporary) accessible by Rust.
+For C++ tests the file [`redismock.cpp`](../../tests/cpptests/redismock/redismock.cpp) is used to define a mock of the redis module functions.
 
-In the crate `redis_mock` we also need to define a mock of the `RedisModule` functions.
-
-## c2rust Mocking the RedisModule for Tests
-
-Rust tests compile a binary and this binary needs to resolve symbols. In most cases we add the right c files to CMakeLists.txt but for the RedisModule API we need to provide a mock.
-
-In the C++ world the file `redismock.cpp` is used to define a mock of the redis module functions if those are required by unit tests. We can use that as resource.
-
-### Why do we need this? 
-
-We get problems in CI when Coverage is taken. 
-
-- [Error - Original Unresolved symbosl](https://github.com/RediSearch/RediSearch/actions/runs/15755356051/job/44409489248?pr=6342#step:17:1888)
-- [Error - When ignoring symbols](https://github.com/RediSearch/RediSearch/actions/runs/15761116511/job/44427857483?pr=6342#step:17:4458)
-
-### TODOs
-
-- [ ] RedisModule_CreateCommand
-- [ ] RedisModule_GetCommand
-- [ ] RedisModule_CreateSubcommand
-- [ ] RedisModule_SetCommandInfo
