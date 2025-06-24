@@ -349,8 +349,11 @@ StrongRef DepleterSync_New();
   * Merges results from multiple upstream processors using a hybrid scoring function.
   * Takes results from all upstreams and applies the provided function to combine their scores.
   *******************************************************************************************************************/
+ /*
+  * Creates a new Hybrid Merger processor.
+  * Note: RPHybridMerger takes ownership of hybridScoringCtx and is responsible for freeing it.
+  */
  ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
-                                     ScoringFunctionArgs *scoringCtx,
                                      ResultProcessor **upstreams,
                                      size_t numUpstreams);
 

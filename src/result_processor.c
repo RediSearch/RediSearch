@@ -18,6 +18,7 @@
 #include <stdatomic.h>
 #include <pthread.h>
 #include "util/references.h"
+#include "hybrid_scoring.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -1643,8 +1644,7 @@ dictType dictTypeHybridSearchResult = {
   *******************************************************************************************************************/
  typedef struct {
    ResultProcessor base;
-   HybridScoringContext *hybridScoringCtx;
-   ScoringFunctionArgs *scoringCtx;
+   HybridScoringContext *hybridScoringCtx;  // Store by pointer - RPHybridMerger is responsible for freeing it
    ResultProcessor **upstreams;  // Dynamic array of upstream processors
    size_t numUpstreams;         // Number of upstream processors
    dict *hybridResults;  // keyPtr -> HybridSearchResult mapping
@@ -1707,7 +1707,7 @@ dictType dictTypeHybridSearchResult = {
    HybridSearchResult *hybridResult = dictGetVal(entry);
    RS_ASSERT(hybridResult && hybridResult->searchResult);
    HybridScoringFunction scoringFunc = GetScoringFunction(self->hybridScoringCtx->scoringType);
-   double hybridScore = scoringFunc(self->scoringCtx, self->hybridScoringCtx, hybridResult->scores, hybridResult->hasScores, hybridResult->numSources);
+   double hybridScore = scoringFunc(self->hybridScoringCtx, hybridResult->scores, hybridResult->hasScores, hybridResult->numSources);
 
    SearchResult_Override(r, hybridResult->searchResult);
    r->score = hybridScore;
@@ -1776,6 +1776,11 @@ dictType dictTypeHybridSearchResult = {
    // Free the hybrid results dictionary (HybridSearchResult values automatically freed by destructor)
    dictRelease(self->hybridResults);
 
+   // Free the hybrid scoring context - RPHybridMerger is responsible for freeing it
+   if (self->hybridScoringCtx) {
+     HybridScoringContext_Free(self->hybridScoringCtx);
+   }
+
    // Note: Don't free self->upstreams - it's managed by the caller
 
    // Free the processor itself
@@ -1784,7 +1789,6 @@ dictType dictTypeHybridSearchResult = {
 
  /* Create a new Hybrid Merger processor */
  ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
-                                     ScoringFunctionArgs *scoringCtx,
                                      ResultProcessor **upstreams,
                                      size_t numUpstreams) {
    RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
@@ -1792,8 +1796,10 @@ dictType dictTypeHybridSearchResult = {
    RS_ASSERT(numUpstreams > 0);
    ret->numUpstreams = numUpstreams;
 
+   // Store the context by pointer - RPHybridMerger takes ownership and is responsible for freeing it
    ret->hybridScoringCtx = hybridScoringCtx;
-   ret->scoringCtx = scoringCtx;
+
+   // Since we're storing by pointer, the caller is responsible for memory management
    ret->upstreams = upstreams;
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
 

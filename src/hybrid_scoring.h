@@ -3,6 +3,10 @@
 
 #include "redisearch.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
  typedef enum {
    HYBRID_SCORING_LINEAR,
    HYBRID_SCORING_RRF
@@ -26,14 +30,22 @@ typedef struct {
   };
 } HybridScoringContext;
 
+/* Generic free function for HybridScoringContext */
+void HybridScoringContext_Free(HybridScoringContext *hybridCtx);
 
- typedef double (*HybridScoringFunction)(ScoringFunctionArgs *ctx, HybridScoringContext *scoringCtx, const double *scores, const bool *hasScores, const size_t numUpstreams);
+typedef double (*HybridScoringFunction)(HybridScoringContext *scoringCtx, const double *scores, const bool *hasScores, const size_t numUpstreams);
 
  /* Get scoring function based on scoring type */
 HybridScoringFunction GetScoringFunction(HybridScoringType scoringType);
 
-double HybridRRFScore(ScoringFunctionArgs *ctx, HybridScoringContext *scoringCtx, const double *ranks, const bool *has_rank, const size_t num_sources);
+double HybridRRFScore(HybridScoringContext *scoringCtx, const double *ranks, const bool *has_rank, const size_t num_sources);
 
-double HybridLinearScore(ScoringFunctionArgs *ctx, HybridScoringContext *scoringCtx, const double *scores, const bool *has_score, const size_t num_sources);
+double HybridLinearScore(HybridScoringContext *scoringCtx, const double *scores, const bool *has_score, const size_t num_sources);
+
+
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif // __HYBRID_SCORING_H__

@@ -35,7 +35,7 @@
  *
  * @return RRF score as a double. Higher scores indicate higher relevance.
  */
-double HybridRRFScore(ScoringFunctionArgs *ctx, HybridScoringContext *scoringCtx, const double *ranks, const bool *has_rank, const size_t num_sources) {
+double HybridRRFScore(HybridScoringContext *scoringCtx, const double *ranks, const bool *has_rank, const size_t num_sources) {
 
     RS_ASSERT(scoringCtx->scoringType == HYBRID_SCORING_RRF);
 
@@ -68,7 +68,7 @@ double HybridRRFScore(ScoringFunctionArgs *ctx, HybridScoringContext *scoringCtx
  *
  * @return Linear hybrid score as a double.
  */
-double HybridLinearScore(ScoringFunctionArgs *ctx, HybridScoringContext *scoringCtx, const double *scores, const bool *has_score, const size_t num_sources) {
+double HybridLinearScore(HybridScoringContext *scoringCtx, const double *scores, const bool *has_score, const size_t num_sources) {
     RS_ASSERT(scoringCtx->scoringType == HYBRID_SCORING_LINEAR);
     RS_ASSERT(scoringCtx->linearCtx.numWeights == num_sources);
     double score = 0.0;
@@ -78,4 +78,26 @@ double HybridLinearScore(ScoringFunctionArgs *ctx, HybridScoringContext *scoring
         }
     }
     return score;
+}
+
+/**
+ * Generic free function for HybridScoringContext.
+ * Frees internal resources based on the scoring type.
+ */
+void HybridScoringContext_Free(HybridScoringContext *hybridCtx) {
+    if (!hybridCtx) return;
+
+    switch (hybridCtx->scoringType) {
+        case HYBRID_SCORING_LINEAR:
+            if (hybridCtx->linearCtx.linearWeights) {
+                rm_free(hybridCtx->linearCtx.linearWeights);
+            }
+            break;
+        case HYBRID_SCORING_RRF:
+            // RRF context doesn't have dynamically allocated members
+            break;
+        default:
+            RS_ASSERT(0); // Shouldn't get here
+    }
+    rm_free(hybridCtx);
 }
