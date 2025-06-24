@@ -61,6 +61,11 @@ impl VectorWriter {
         &self.buffer
     }
 
+    /// The capacity of the internal byte buffer.
+    pub fn capacity(&self) -> usize {
+        self.buffer.capacity()
+    }
+
     /// Get a mutable reference to the internal byte buffer.
     #[inline(always)]
     pub fn bytes_mut(&mut self) -> &mut Vec<u8> {
