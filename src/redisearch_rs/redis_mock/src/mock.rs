@@ -92,7 +92,9 @@ fn register_api() -> HashMap<&'static str, RawFunctionPtr> {
     register_api!(map, RedisModule_GetApi);
 
     register_api!(map, RedisModule_ReplyWithNull);
+    register_api!(map, RedisModule_ReplyWithBool);
     register_api!(map, RedisModule_ReplyWithLongLong);
+    register_api!(map, RedisModule_ReplyWithBigNumber);
     register_api!(map, RedisModule_ReplyWithSimpleString);
     register_api!(map, RedisModule_ReplyWithError);
     register_api!(map, RedisModule_ReplyWithDouble);
@@ -115,6 +117,10 @@ fn register_api() -> HashMap<&'static str, RawFunctionPtr> {
     register_api!(map, RedisModule_ReplySetSetLength);
     register_api!(map, RedisModule_ReplySetAttributeLength);
     register_api!(map, RedisModule_ReplySetPushLength);
+    register_api!(map, RedisModule_ReplyWithCallReply);
+
+    register_api!(map, RedisModule_StringToLongLong);
+    register_api!(map, RedisModule_StringToULongLong);
 
     register_api!(map, RedisModule_IsModuleNameBusy);
     register_api!(map, RedisModule_WrongArity);
@@ -214,6 +220,26 @@ unsafe extern "C" fn RedisModule_IsModuleNameBusy(_name: *const char) -> i32 {
     REDISMODULE_OK
 }
 
+#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
+unsafe extern "C" fn RedisModule_StringToLongLong(
+    _str: *const ffi::RedisModuleString,
+    _ll: *mut i64,
+) -> i32 {
+    // The mock implementation does not convert strings to long long, yet.
+    REDISMODULE_ERR
+}
+
+#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
+unsafe extern "C" fn RedisModule_StringToULongLong(
+    _str: *const ffi::RedisModuleString,
+    _ull: *mut u64,
+) -> i32 {
+    // The mock implementation does not convert strings to unsigned long long, yet.
+    REDISMODULE_ERR
+}
+
 /// Helper to generate the reply functions
 macro_rules! reply_func {
     ($basename:ident $(, $arg:ty)*) => {
@@ -226,7 +252,9 @@ macro_rules! reply_func {
 }
 
 reply_func!(RedisModule_ReplyWithNull);
+reply_func!(RedisModule_ReplyWithBool, i32);
 reply_func!(RedisModule_ReplyWithLongLong, i64);
+reply_func!(RedisModule_ReplyWithBigNumber, *const c_char, libc::size_t);
 reply_func!(RedisModule_ReplyWithSimpleString, *const c_char);
 reply_func!(RedisModule_ReplyWithError, *const c_char);
 reply_func!(RedisModule_ReplyWithDouble, f64);
@@ -256,3 +284,7 @@ reply_func!(RedisModule_ReplySetMapLength, i32);
 reply_func!(RedisModule_ReplySetSetLength, i32);
 reply_func!(RedisModule_ReplySetAttributeLength, i32);
 reply_func!(RedisModule_ReplySetPushLength, i32);
+reply_func!(
+    RedisModule_ReplyWithCallReply,
+    *mut ffi::RedisModuleCallReply
+);

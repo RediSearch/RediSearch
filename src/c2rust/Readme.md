@@ -18,11 +18,7 @@ This problem only arises on Linux systems.
 - __gcov_init
 - __gcov_exit
 - __gcov_merge_add
-- RedisModule_ReplyWithVerbatimStringType
-- RedisModule_ReplyWithBool
-- RedisModule_ReplyWithCallReply
-- RedisModule_ReplyWithBigNumber
-- RedisModule_ReplyWithLongDouble
+- RedisModule_ReplyWithLongDouble (todo: no `long double` in Rust)
 - RedisModule_SelectDb
 - RedisModule_GetSelectedDb
 - RedisModule_KeyExists
@@ -37,5 +33,3 @@ This problem only arises on Linux systems.
 - RedisModule_ListPop
 - RedisModule_ListGet
 - RedisModule_ListSet
-- RedisModule_StringToLongLong
-- RedisModule_StringToULongLong
