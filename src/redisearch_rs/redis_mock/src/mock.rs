@@ -101,6 +101,7 @@ fn register_api() -> HashMap<&'static str, RawFunctionPtr> {
     register_api!(map, RedisModule_ReplyWithCString);
     register_api!(map, RedisModule_ReplyWithEmptyString);
     register_api!(map, RedisModule_ReplyWithVerbatimString);
+    register_api!(map, RedisModule_ReplyWithVerbatimStringType);
 
     register_api!(map, RedisModule_ReplyWithArray);
     register_api!(map, RedisModule_ReplyWithEmptyArray);
@@ -237,6 +238,12 @@ reply_func!(
     RedisModule_ReplyWithVerbatimString,
     *const c_char,
     libc::size_t
+);
+reply_func!(
+    RedisModule_ReplyWithVerbatimStringType,
+    *const c_char,
+    libc::size_t,
+    *const char
 );
 reply_func!(RedisModule_ReplyWithArray, usize);
 reply_func!(RedisModule_ReplyWithEmptyArray);
