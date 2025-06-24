@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{env, path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr};
 
 fn main() {
     // link `libc2rust.a` to this crate `redis_mock`
@@ -41,10 +41,12 @@ fn main() {
         );
     }
 
+    /*
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     if target_os != "macos" {
         println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
     }
+    */
 
     // configure linker with libname and path
     println!("cargo:rustc-link-lib=static=c2rust");
