@@ -1742,7 +1742,8 @@ dictType dictTypeHybridSearchResult = {
       } else if (rc == RS_RESULT_TIMEDOUT){
           rm_free(consumed);
           if (rp->parent->timeoutPolicy == TimeoutPolicy_Return) {
-            // Handle timeout case: switch to yield phase and return.
+            // Switch to yield phase and return immediately on timeout.
+            // Note: This may leave some ready results in other upstreams unconsumed.
             self->timedOut = true;
             self->iterator = dictGetIterator(self->hybridResults);
             rp->Next = RPHybridMerger_Yield;
