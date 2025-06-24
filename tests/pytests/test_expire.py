@@ -11,33 +11,34 @@ def testExpireIndex(env):
     ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
     env.assertTrue(ttl > 2)
 
-    while ttl > 2:
-        ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
-        time.sleep(1)
+    with TimeLimit(10):
+        while env.cmd(debug_cmd(), 'TTL', 'idx') > 2:
+            time.sleep(0.1)
     env.cmd('ft.add', 'idx', 'doc1', '1.0', 'FIELDS', 'test', 'this is a simple test')
     ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
     env.assertTrue(ttl > 2)
 
-    while ttl > 2:
-        ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
-        time.sleep(1)
+    with TimeLimit(10):
+        while env.cmd(debug_cmd(), 'TTL', 'idx') > 2:
+            time.sleep(0.1)
     env.cmd('ft.search', 'idx', 'simple')
     ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
     env.assertTrue(ttl > 2)
 
-    while ttl > 2:
-        ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
-        time.sleep(1)
+    with TimeLimit(10):
+        while env.cmd(debug_cmd(), 'TTL', 'idx') > 2:
+            time.sleep(0.1)
     env.cmd('ft.aggregate', 'idx', 'simple', 'LOAD', '1', '@test')
     ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
     env.assertTrue(ttl > 2)
 
-    try:
-        while True:
-            ttl = env.cmd(debug_cmd(), 'TTL', 'idx')
-            time.sleep(1)
-    except Exception as e:
-        env.assertEqual(str(e), 'Unknown index name')
+    with TimeLimit(10):
+        try:
+            while True:
+                env.cmd(debug_cmd(), 'TTL', 'idx')
+                time.sleep(0.1)
+        except Exception as e:
+            env.assertEqual(str(e), 'Unknown index name')
 
 res_score_and_explanation = ['1', ['Final TFIDF : words TFIDF 1.00 * document score 1.00 / norm 1 / slop 1',
                                     ['(TFIDF 1.00 = Weight 1.00 * Frequency 1)']]]
@@ -322,7 +323,7 @@ def commonFieldExpiration(env, schema, fields, expiration_interval_to_fields, do
     def build_inverted_index_dict_for_documents(current_documents):
         inverted_index = {}
         for document_name, fields in current_documents.items():
-            for field_name, field_value in fields.items():
+            for field_value in fields.values():
                 if field_value not in inverted_index:
                     inverted_index[field_value] = []
                 inverted_index[field_value].append(document_name)
@@ -458,19 +459,23 @@ def testLazyTextFieldExpiration(env):
     # We added not_text_field to make sure that the expandFieldMask function hits the continue clause
     # Meaning that at least one field ftid during the expiration check will be RS_INVALID_FIELD_ID
     conn.execute_command('FT.CREATE', 'idx', 'SCHEMA', 'not_text_field', 'NUMERIC', 'x', 'TEXT', 'INDEXMISSING', 'y', 'TEXT')
-    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', 'hello')
+    # Enable monitoring on hash field expiration. TODO: have this on default once we fix the call to HPEXPIRE
+    env.cmd(debug_cmd(), 'SET_MONITOR_EXPIRATION', 'idx', 'fields')  # use shard connection for _FT.DEBUG
+    conn.execute_command('HSET', 'doc:1', 'x', 'hello', 'y', '57')
     conn.execute_command('HSET', 'doc:2', 'x', 'hello', 'y', '57')
-    conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'x')
-    time.sleep(0.5)
+    conn.execute_command('HSET', 'doc:3', 'x', 'hello', 'y', '57')
+    conn.execute_command('HSET', 'doc:4', 'x', 'hello', 'y', 'hello')
+    conn.execute_command('HPEXPIRE', 'doc:4', '1', 'FIELDS', '1', 'x')
+    time.sleep(0.005)
     # there shouldn't be an active expiration for field x in doc:1
-    # but due to the ttl table we should not return doc:1 when searching for x
-    env.expect('FT.SEARCH', 'idx', '@x:hello', 'NOCONTENT').equal([1, 'doc:2'])
-    # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
-    env.expect('FT.SEARCH', 'idx', 'ismissing(@x)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
+    # but due to the ttl table we should not return doc:4 when searching for x
+    env.expect('FT.SEARCH', 'idx', '@x:hello', 'NOCONTENT').equal([3, 'doc:1', 'doc:2', 'doc:3'])
+    # also we expect that the ismissing inverted index to contain document 4 since it had an active expiration
+    env.expect('FT.SEARCH', 'idx', 'ismissing(@x)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:4'])
     # Test the field mask element, hello term should have a bit mask of 2 fields
     # For doc:1 the mask should have two bits for its two fields
     # since the field y is still valid we should still get doc:1 in the results
-    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([2, 'doc:1', 'doc:2'])
+    env.expect('FT.SEARCH', 'idx', 'hello', 'NOCONTENT').apply(sort_document_names).equal([4, 'doc:1', 'doc:2', 'doc:3', 'doc:4'])
 
 
 @skip(redis_less_than='8.0')
@@ -483,7 +488,7 @@ def testLazyGeoshapeFieldExpiration(env):
     conn.execute_command('HSET', 'doc:1', 'txt', 'hello', 'geom', first)
     conn.execute_command('HSET', 'doc:2', 'txt', 'world', 'geom', second)
     conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'geom')
-    time.sleep(0.5)
+    time.sleep(0.005)
     query = 'POLYGON((0 0, 0 150, 150 150, 150 0, 0 0))'
     env.expect('FT.SEARCH', 'idx', '@geom:[within $poly]', 'PARAMS', 2, 'poly', query, 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
     # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
@@ -498,7 +503,7 @@ def testLazyVectorFieldExpiration(env):
     conn.execute_command('hset', 'doc:1', 'v', 'bababaca', 't', "hello", 'n', 1)
     conn.execute_command('hset', 'doc:2', 'v', 'babababa', 't', "hello", 'n', 2)
     conn.execute_command('HPEXPIRE', 'doc:1', '1', 'FIELDS', '1', 'v')
-    time.sleep(0.5)
+    time.sleep(0.005)
     env.expect('FT.SEARCH', 'idx', '@n:[1, 4]=>[KNN 3 @v $vec]', 'PARAMS', 2, 'vec', 'aaaaaaaa', 'NOCONTENT', 'DIALECT', 3).equal([1, 'doc:2'])
     # also we expect that the ismissing inverted index to contain document 1 since it had an active expiration
     env.expect('FT.SEARCH', 'idx', 'ismissing(@v)', 'NOCONTENT', 'DIALECT', '3').equal([1, 'doc:1'])
@@ -564,7 +569,7 @@ def testSeekToExpirationChecks(env):
     # - world reader starts with doc:1
     # - intersect iterator reads doc:0 and tries to skip to it in world reader
     # - world reader should skip to doc:1001 since all the other docs will be expired
-    time.sleep(0.1) # we want to sleep enough so we filter out the expired documents at the iterator phase
+    time.sleep(0.01) # we want to sleep enough so we filter out the expired documents at the iterator phase
     # doc:0 up to doc:1000 should not be returned:
     # - doc:0 because y != world
     # - doc:1 up to doc:1000 y field should be expired
@@ -573,3 +578,46 @@ def testSeekToExpirationChecks(env):
     # that should provide coverage for IndexReader_ReadWithSeeker.
     env.expect('FT.SEARCH', 'idx', '@x:(hello) @y:(world)', 'NOCONTENT').equal([1, 'doc:1001'])
 
+
+# Verify that background indexing does not cause lazy expiration of expired documents.
+@skip(cluster=True)
+def test_background_index_no_lazy_expiration(env):
+    env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('HSET', 'doc:1', 't', 'bar').equal(1)
+    env.expect('HSET', 'doc:2', 't', 'arr').equal(1)
+    env.expect('PEXPIRE', 'doc:1', '1').equal(1)
+    time.sleep(0.005)
+
+    # Expect background indexing to take place after doc:1 has expired.
+    env.expect('FT.CREATE', 'idx', 'SCHEMA', 't', 'TEXT').equal('OK')
+    waitForIndex(env, 'idx')
+
+    # Validate that doc:1 has expired but not evicted.
+    env.expect('FT.SEARCH', 'idx', '*').equal([1, 'doc:2', ['t', 'arr']])
+    env.expect('DBSIZE').equal(2)
+
+    # Accessing doc:1 directly should cause lazy expire and its removal from the DB.
+    env.expect('HGET', 'doc:1', 't').equal(None)
+    env.expect('DBSIZE').equal(1)
+
+
+# Same test as the above but for JSON documents.
+@skip(cluster=True, no_json=True)
+def test_background_index_no_lazy_expiration_json(env):
+    env.cmd('DEBUG', 'SET-ACTIVE-EXPIRE', '0')
+    env.expect('JSON.SET', 'doc:1', "$", r'{"t":"bar"}').ok()
+    env.expect('JSON.SET', 'doc:2', "$", r'{"t":"arr"}').ok()
+    env.expect('PEXPIRE', 'doc:1', '1').equal(1)
+    time.sleep(0.005)  # 5 milliseconds
+
+    # Expect background indexing to take place after doc:1 has expired.
+    env.expect('FT.CREATE', 'idx', 'ON', 'JSON', 'SCHEMA', 't', 'TEXT').equal('OK')
+    waitForIndex(env, 'idx')
+
+    # Validate that doc:1 has expired but not evicted.
+    env.expect('FT.SEARCH', 'idx', '*').equal([1, 'doc:2', ['$', '{"t":"arr"}']])
+    env.expect('DBSIZE').equal(2)
+
+    # Accessing doc:1 directly should cause lazy expire and its removal from the DB.
+    env.expect('JSON.GET', 'doc:1', "$").equal(None)
+    env.expect('DBSIZE').equal(1)

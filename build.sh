@@ -20,7 +20,7 @@ DEBUG=0          # Debug build flag
 PROFILE=0        # Profile build flag
 FORCE=0          # Force clean build flag
 VERBOSE=0        # Verbose output flag
-QUICK=0          # Quick test mode (subset of tests)
+QUICK=${QUICK:-0} # Quick test mode (subset of tests)
 COV=${COV:-0}    # Coverage mode (for building and testing)
 
 # Test configuration (0=disabled, 1=enabled)

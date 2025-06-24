@@ -12,27 +12,18 @@ typedef struct {
 static uint64_t hashFunction_DocId(const void *key) {
   return (t_docId)key;
 }
-static void *dup_DocId(void *p, const void *key) {
-  return (void*)key;
-}
-static int compare_DocId(void *privdata, const void *key1, const void *key2) {
-  return (t_docId)key1 < (t_docId)key2;
-}
-static void destructor_DocId(void *privdata, void *key) {
-}
-
-static void destructor_TimeToLiveEntry(void *privdata, void *key) {
-    TimeToLiveEntry* entry = (TimeToLiveEntry*)key;
+static void destructor_TimeToLiveEntry(void *privdata, void *val) {
+    TimeToLiveEntry* entry = (TimeToLiveEntry*)val;
     array_free(entry->fieldExpirations);
     rm_free(entry);
 }
 
 static dictType dictTimeToLive = {
   .hashFunction = hashFunction_DocId,
-  .keyDup = dup_DocId,
+  .keyDup = NULL,
   .valDup = NULL,
-  .keyCompare = compare_DocId,
-  .keyDestructor = destructor_DocId,
+  .keyCompare = NULL,
+  .keyDestructor = NULL,
   .valDestructor = destructor_TimeToLiveEntry,
 };
 
