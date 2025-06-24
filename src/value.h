@@ -149,6 +149,7 @@ void RSValue_Clear(RSValue *v);
  * the actual value object */
 void RSValue_Free(RSValue *v);
 
+
 RSValue* RSValue_IncrRef(RSValue* v);
 void RSValue_Decref(RSValue* v);
 

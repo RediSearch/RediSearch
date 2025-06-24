@@ -23,6 +23,7 @@ This problem only arises on Linux systems.
 - RedisModule_ReplyWithCallReply
 - RedisModule_ReplyWithBigNumber
 - RedisModule_ReplyWithLongDouble
+- RedisModule_SelectDb
 - RedisModule_GetSelectedDb
 - RedisModule_KeyExists
 - RedisModule_OpenKey
@@ -30,7 +31,11 @@ This problem only arises on Linux systems.
 - RedisModule_CloseKey
 - RedisModule_KeyType
 - RedisModule_ValueLength
+- RedisModule_ListInsert
+- RedisModule_ListDelete
 - RedisModule_ListPush
 - RedisModule_ListPop
 - RedisModule_ListGet
 - RedisModule_ListSet
+- RedisModule_StringToLongLong
+- RedisModule_StringToULongLong
