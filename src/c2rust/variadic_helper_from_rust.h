@@ -7,11 +7,13 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 #pragma once
-#include <redismodule.h>
 
 // This files contains the non-variadic function definitions that are implemented in
 // Rust.
 
+// forward
+typedef struct RedisModuleCtx RedixModuleCtx;
+
 // this function is defined by rust and needs a fixed number of args, it is called from C.
-int non_variadic_reply_with_error_format(RedisModuleCtx *ctx, const char *fmt, int add_args_example);
+int non_variadic_reply_with_error_format(struct RedisModuleCtx *ctx, const char *fmt, int add_args_example);
 
