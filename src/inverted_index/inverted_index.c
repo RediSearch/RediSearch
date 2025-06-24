@@ -373,6 +373,26 @@ ENCODER(encodeNumeric) {
   return sz;
 }
 
+// Wrapper around the private static `encodeNumeric` function to expose it to benchmarking
+size_t encode_numeric(BufferWriter *bw, t_docId delta, RSIndexResult *res) {
+  encodeNumeric(bw, delta, res);
+}
+
+IndexBlockReader NewIndexBlockReader(BufferReader *buff, t_docId curBaseId) {
+    IndexBlockReader reader = {
+      .buffReader = *buff,
+      .curBaseId = curBaseId,
+    };
+
+    return reader;
+}
+
+IndexDecoderCtx NewIndexDecoderCtx_NumericFilter() {
+  IndexDecoderCtx ctx = {.filter = NULL};
+
+  return ctx;
+}
+
 /* Get the appropriate encoder based on index flags */
 IndexEncoder InvertedIndex_GetEncoder(IndexFlags flags) {
   switch (flags & INDEX_STORAGE_MASK) {
@@ -777,6 +797,11 @@ DECODER(readDocIdsOnly) {
   blockReader->curBaseId = res->docId = ReadVarint(&blockReader->buffReader) + blockReader->curBaseId;
   res->freq = 1;
   return 1;  // Don't care about field mask
+}
+
+// Wrapper around the private static `readNumeric` function to expose it to benchmarking
+bool read_numeric(IndexBlockReader *blockReader, const IndexDecoderCtx *ctx, RSIndexResult *res) {
+  readNumeric(blockReader, ctx, res);
 }
 
 IndexDecoderProcs InvertedIndex_GetDecoder(uint32_t flags) {

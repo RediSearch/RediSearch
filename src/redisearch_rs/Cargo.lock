@@ -654,6 +654,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "inverted_index_bencher"
+version = "0.0.1"
+dependencies = [
+ "bindgen 0.71.1",
+ "buffer",
+ "criterion",
+ "ffi",
+ "inverted_index",
+ "redis-module",
+ "redis_mock",
+]
+
+[[package]]
 name = "is-terminal"
 version = "0.4.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
