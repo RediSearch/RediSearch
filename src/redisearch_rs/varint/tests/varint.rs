@@ -20,7 +20,8 @@ fn test_u32() {
         let mut buf = Vec::new();
         value.write_as_varint(&mut buf).unwrap();
         assert_eq!(buf.len(), expected_lens[i]);
-        assert_eq!(u32::read_as_varint(&mut Cursor::new(buf)).unwrap(), value);
+        let decoded: u32 = varint::read(&mut Cursor::new(buf)).unwrap();
+        assert_eq!(decoded, value);
     }
 }
 
@@ -33,7 +34,8 @@ fn test_u64() {
         let mut buf = Vec::new();
         value.write_as_varint(&mut buf).unwrap();
         assert_eq!(buf.len(), expected_lens[i]);
-        assert_eq!(u64::read_as_varint(&mut Cursor::new(buf)).unwrap(), value);
+        let decoded: u64 = varint::read(&mut Cursor::new(buf)).unwrap();
+        assert_eq!(decoded, value);
     }
 }
 
