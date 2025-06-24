@@ -7,3 +7,30 @@ and is compiled as a dynamic library to be linked against Rust unit test and ben
 
 For C++ tests the file [`redismock.cpp`](../../tests/cpptests/redismock/redismock.cpp) is used to define a mock of the redis module functions.
 
+## Why do we need this
+
+The build command `./build.sh FORCE DEBUG COV=1 RUN_RUST_TESTS` ends with unresolved symbols. The reason is not 100% clear, but we use `cargo +nightly llvm-cov` in this case.
+
+This problem only arises on Linux systems.
+
+## Unresolved Symbols
+
+- __gcov_init
+- __gcov_exit
+- __gcov_merge_add
+- RedisModule_ReplyWithVerbatimStringType
+- RedisModule_ReplyWithBool
+- RedisModule_ReplyWithCallReply
+- RedisModule_ReplyWithBigNumber
+- RedisModule_ReplyWithLongDouble
+- RedisModule_GetSelectedDb
+- RedisModule_KeyExists
+- RedisModule_OpenKey
+- RedisModule_GetOpenKeyModesAll
+- RedisModule_CloseKey
+- RedisModule_KeyType
+- RedisModule_ValueLength
+- RedisModule_ListPush
+- RedisModule_ListPop
+- RedisModule_ListGet
+- RedisModule_ListSet
