@@ -503,7 +503,6 @@ IndexIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTre
   // We create a  union iterator, advancing a union on all the selected range,
   // treating them as one consecutive range
   IndexIterator **its = rm_calloc(n, sizeof(IndexIterator *));
-
   for (size_t i = 0; i < n; i++) {
     NumericRange *rng;
     Vector_Get(v, i, &rng);
@@ -511,7 +510,20 @@ IndexIterator *createNumericIterator(const RedisSearchCtx *sctx, NumericRangeTre
       continue;
     }
 
-    its[i] = NewNumericRangeIterator(sctx, rng, f, true, filterCtx);
+    IndexIterator *it = NewNumericRangeIterator(sctx, rng, f, true, filterCtx);
+    if (it && it->type == WILDCARD_ITERATOR) {
+      IndexIterator *ret = it;
+      for (size_t j = 0; j < i; j++) {
+        if (its[j]) {
+          its[j]->Free(its[j]);
+        }
+      }
+      rm_free(its);
+      Vector_Free(v);
+      return ret;
+    }
+
+    its[i] = it;
   }
   Vector_Free(v);
 

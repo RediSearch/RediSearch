@@ -175,6 +175,18 @@ IndexIterator *NewGeoRangeIterator(const RedisSearchCtx *ctx, const GeoFilter *g
     rm_free(iters);
     return it;
   }
+  for (size_t i = 0; i < itersCount; ++i) {
+    if (iters[i]->type == WILDCARD_ITERATOR) {
+      IndexIterator *ret = iters[i];
+      for (size_t j = 0; j < itersCount; ++j) {
+        if (i != j && iters[j]) {
+          iters[j]->Free(iters[j]);
+        }
+      }
+      rm_free(iters);
+      return ret;
+    }
+  }
   IndexIterator *it = NewUnionIterator(iters, itersCount, 1, 1, QN_GEO, NULL, config);
   if (!it) {
     return NULL;
