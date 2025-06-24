@@ -7,11 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-//! Supporting types and functions for benchmarking varint operations.
-//!
-//! This crate benchmarks the performance of Rust varint implementation
-//! to validate performance characteristics and memory efficiency.
+//! FFI layer to access, from C, the varint encoding machinery implemented in Rust.
 
-pub use bencher::VarintBencher;
+mod field_mask;
+mod value;
+mod vector_writer;
 
-pub mod bencher;
+pub use field_mask::*;
+pub use value::*;
+pub use vector_writer::*;

@@ -22,16 +22,10 @@ harness = false
 name = "vector_writer"
 harness = false
 
-
-[build-dependencies]
-bindgen.workspace = true
-
 [dependencies]
 criterion.workspace = true
 encode_decode = { workspace = true }
-redis_mock = { workspace = true }
-libc.workspace = true
-buffer = { workspace = true }
+ffi = { workspace = true }
 
 [lints]
 workspace = true

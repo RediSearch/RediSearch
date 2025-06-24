@@ -88,7 +88,7 @@ fn generate_matching_keys(pattern: &[u8], num_keys: usize, rng: impl Rng) -> Vec
         for token in tokens.tokens() {
             match token {
                 Token::Any => {
-                    let num_chars = rng.borrow_mut().gen_range(1..=10);
+                    let num_chars = rng.borrow_mut().random_range(1..=10);
                     for _ in 0..num_chars {
                         key.push(chars.next().unwrap());
                     }
