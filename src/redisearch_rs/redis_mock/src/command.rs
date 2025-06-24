@@ -114,3 +114,15 @@ pub(crate) unsafe extern "C" fn RedisModule_CreateSubcommand(
 
     REDISMODULE_OK
 }
+
+#[unsafe(no_mangle)]
+#[allow(non_upper_case_globals)]
+pub(crate) unsafe extern "C" fn RedisModule_SetCommandInfo(
+    _cmd: *mut RedisModuleCommand,
+    _info: *const ffi::RedisModuleCommandInfo,
+) -> i32 {
+    // This function is a placeholder. The actual implementation would depend on the
+    // specifics of how RedisModuleCommandInfo is defined and what it should do.
+    // For now, we return OK to indicate success.
+    crate::mock::REDISMODULE_OK
+}

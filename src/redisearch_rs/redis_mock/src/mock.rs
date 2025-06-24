@@ -87,6 +87,7 @@ fn register_api() -> HashMap<&'static str, RawFunctionPtr> {
     register_api!(map, RedisModule_ReplyWithVerbatimString);
 
     register_api!(map, RedisModule_ReplyWithArray);
+    register_api!(map, RedisModule_ReplyWithEmptyArray);
     register_api!(map, RedisModule_ReplyWithNullArray);
     register_api!(map, RedisModule_ReplyWithMap);
     register_api!(map, RedisModule_ReplyWithSet);
@@ -109,14 +110,9 @@ fn register_api() -> HashMap<&'static str, RawFunctionPtr> {
     register_api!(map, RedisModule_GetCommand);
     register_api!(map, RedisModule_CreateCommand);
     register_api!(map, RedisModule_CreateSubcommand);
+    register_api!(map, RedisModule_SetCommandInfo);
     map
 }
-
-// command stuff:
-//REDISMODULE_API int (*RedisModule_CreateCommand)(RedisModuleCtx *ctx, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
-//REDISMODULE_API int (*RedisModule_CreateSubcommand)(RedisModuleCommand *parent, const char *name, RedisModuleCmdFunc cmdfunc, const char *strflags, int firstkey, int lastkey, int keystep) REDISMODULE_ATTR;
-//REDISMODULE_API RedisModuleCommand *(*RedisModule_GetCommand)(RedisModuleCtx *ctx, const char *name) REDISMODULE_ATTR;
-//REDISMODULE_API int (*RedisModule_SetCommandInfo)(RedisModuleCommand *command, const RedisModuleCommandInfo *info) REDISMODULE_ATTR;
 
 #[unsafe(no_mangle)]
 unsafe extern "C" fn non_variadic_reply_with_error_format(
@@ -226,6 +222,7 @@ reply_func!(
     libc::size_t
 );
 reply_func!(RedisModule_ReplyWithArray, usize);
+reply_func!(RedisModule_ReplyWithEmptyArray);
 reply_func!(RedisModule_ReplyWithNullArray);
 reply_func!(RedisModule_ReplyWithMap, i32);
 reply_func!(RedisModule_ReplyWithSet, i32);
