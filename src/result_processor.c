@@ -1480,11 +1480,10 @@ dictType dictTypeHybridSearchResult = {
   *******************************************************************************************************************/
  typedef struct {
    ResultProcessor base;
-   HybridScoringType scoringType;
+   HybridScoringContext *hybridScoringCtx;
    ScoringFunctionArgs *scoringCtx;
    ResultProcessor **upstreams;  // Dynamic array of upstream processors
    size_t numUpstreams;         // Number of upstream processors
-   size_t window;
    dict *hybridResults;  // keyPtr -> HybridSearchResult mapping
    dictIterator *iterator; // Iterator for yielding results
    bool timedOut; // Flag to track if we timed out during accumulation
@@ -1520,7 +1519,7 @@ dictType dictTypeHybridSearchResult = {
    while (consumed < maxResults && (rc = upstream->Next(upstream, r)) == RS_RESULT_OK) {
        double score = r->score;
        consumed++;
-       if (self->scoringType == HYBRID_SCORING_RRF) {
+       if (self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF) {
          score = consumed;
        }
        StoreUpstreamResult(r, self->hybridResults, upstreamIndex, self->numUpstreams, score);
@@ -1544,8 +1543,8 @@ dictType dictTypeHybridSearchResult = {
 
    HybridSearchResult *hybridResult = dictGetVal(entry);
    RS_ASSERT(hybridResult && hybridResult->searchResult);
-   HybridScoringFunction scoringFunc = GetScoringFunction(self->scoringType);
-   double hybridScore = scoringFunc(self->scoringCtx, hybridResult->scores, hybridResult->hasScores, hybridResult->numSources);
+   HybridScoringFunction scoringFunc = GetScoringFunction(self->hybridScoringCtx->scoringType);
+   double hybridScore = scoringFunc(self->scoringCtx, self->hybridScoringCtx, hybridResult->scores, hybridResult->hasScores, hybridResult->numSources);
 
    SearchResult_Override(r, hybridResult->searchResult);
    r->score = hybridScore;
@@ -1566,8 +1565,8 @@ dictType dictTypeHybridSearchResult = {
       if (consumed[i]) {
         continue;
       }
-
-      int rc = ConsumeFromUpstream(self, self->window, self->upstreams[i], i);
+      size_t window = self->hybridScoringCtx->scoringType == HYBRID_SCORING_RRF ? self->hybridScoringCtx->rrfCtx.window : SIZE_MAX;
+      int rc = ConsumeFromUpstream(self, window, self->upstreams[i], i);
 
       if (rc == RS_RESULT_DEPLETING) {
         // Upstream is still active but not ready to provide results. Skip to the next.
@@ -1614,27 +1613,29 @@ dictType dictTypeHybridSearchResult = {
    // Free the hybrid results dictionary (HybridSearchResult values automatically freed by destructor)
    dictRelease(self->hybridResults);
 
+   // Note: Don't free self->upstreams - it's managed by the caller
+
    // Free the processor itself
    rm_free(self);
  }
 
  /* Create a new Hybrid Merger processor */
- ResultProcessor *RPHybridMerger_New(HybridScoringType scoringType,
+ ResultProcessor *RPHybridMerger_New(HybridScoringContext *hybridScoringCtx,
                                      ScoringFunctionArgs *scoringCtx,
                                      ResultProcessor **upstreams,
-                                     size_t numUpstreams,
-                                     size_t window) {
+                                     size_t numUpstreams) {
    RPHybridMerger *ret = rm_calloc(1, sizeof(*ret));
 
    RS_ASSERT(numUpstreams > 0);
    ret->numUpstreams = numUpstreams;
 
-   ret->scoringType = scoringType;
+   ret->hybridScoringCtx = hybridScoringCtx;
    ret->scoringCtx = scoringCtx;
    ret->upstreams = upstreams;
-   ret->window = window;
    ret->hybridResults = dictCreate(&dictTypeHybridSearchResult, NULL);
-   // Calculate maximal dictionary size: window * numUpstreams
+
+   // Calculate maximal dictionary size based on scoring type
+   size_t window = hybridScoringCtx->scoringType == HYBRID_SCORING_RRF ? hybridScoringCtx->rrfCtx.window : 1000; // Default window for linear
    size_t maximalSize = window * numUpstreams;
    // Pre-size the dictionary to avoid multiple resizes during accumulation
    dictExpand(ret->hybridResults, maximalSize);

@@ -35,12 +35,14 @@
  *
  * @return RRF score as a double. Higher scores indicate higher relevance.
  */
-double HybridRRFScore(ScoringFunctionArgs *ctx, const double *ranks, const bool *has_rank, const size_t num_sources) {
+double HybridRRFScore(ScoringFunctionArgs *ctx, HybridScoringContext *scoringCtx, const double *ranks, const bool *has_rank, const size_t num_sources) {
+
+    RS_ASSERT(scoringCtx->scoringType == HYBRID_SCORING_RRF);
 
     double score = 0.0;
     for (size_t i = 0; i < num_sources; ++i) {
         if (has_rank[i]) {
-            score += 1.0 / (ctx->RRF_k + ranks[i]);
+            score += 1.0 / (scoringCtx->rrfCtx.k + ranks[i]);
         }
     }
     return score;
@@ -66,12 +68,13 @@ double HybridRRFScore(ScoringFunctionArgs *ctx, const double *ranks, const bool 
  *
  * @return Linear hybrid score as a double.
  */
-double HybridLinearScore(ScoringFunctionArgs *ctx, const double *scores, const bool *has_score, const size_t num_sources) {
-    RS_ASSERT(ctx->numScores == num_sources);
+double HybridLinearScore(ScoringFunctionArgs *ctx, HybridScoringContext *scoringCtx, const double *scores, const bool *has_score, const size_t num_sources) {
+    RS_ASSERT(scoringCtx->scoringType == HYBRID_SCORING_LINEAR);
+    RS_ASSERT(scoringCtx->linearCtx.numWeights == num_sources);
     double score = 0.0;
     for (size_t i = 0; i < num_sources; ++i) {
         if (has_score[i]) {
-            score += ctx->linearWeights[i] * scores[i];
+            score += scoringCtx->linearCtx.linearWeights[i] * scores[i];
         }
     }
     return score;

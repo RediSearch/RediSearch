@@ -95,19 +95,25 @@ TEST_F(HybridMergerTest, testHybridMergerSameDocs) {
 
 
 
-  // Create hybrid merger with window size 4
+  // Create hybrid merger with linear scoring
   ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ScoringFunctionArgs scoringCtx = {0};
-  // Set up linear weights with different values (0.3 and 0.7)
+
+  // Set up hybrid scoring context for linear scoring
   double weights[] = {0.3, 0.7};
-  scoringCtx.linearWeights = weights;
-  scoringCtx.numScores = 2;
+  HybridScoringContext hybridScoringCtx = {
+    .scoringType = HYBRID_SCORING_LINEAR,
+    .linearCtx = {
+      .linearWeights = weights,
+      .numWeights = 2
+    }
+  };
+
   ResultProcessor *hybridMerger = RPHybridMerger_New(
-    HYBRID_SCORING_LINEAR,
+    &hybridScoringCtx,
     &scoringCtx,
     upstreams,
-    2,  // numUpstreams
-    4   // window size
+    2   // numUpstreams
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -203,16 +209,22 @@ TEST_F(HybridMergerTest, testHybridMergerDifferentDocuments) {
   // Create hybrid merger
   ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ScoringFunctionArgs scoringCtx = {0};
-  // Set up linear weights with different values (0.4 and 0.6)
+
+  // Set up hybrid scoring context for linear scoring
   double weights[] = {0.4, 0.6};
-  scoringCtx.linearWeights = weights;
-  scoringCtx.numScores = 2;
+  HybridScoringContext hybridScoringCtx = {
+    .scoringType = HYBRID_SCORING_LINEAR,
+    .linearCtx = {
+      .linearWeights = weights,
+      .numWeights = 2
+    }
+  };
+
   ResultProcessor *hybridMerger = RPHybridMerger_New(
-    HYBRID_SCORING_LINEAR,
+    &hybridScoringCtx,
     &scoringCtx,
     upstreams,
-    2,  // numUpstreams
-    3   // window size
+    2   // numUpstreams
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -297,16 +309,22 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream1) {
   // Create hybrid merger
   ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ScoringFunctionArgs scoringCtx = {0};
-  // Set up linear weights for simple averaging
+
+  // Set up hybrid scoring context for linear scoring
   double weights[] = {0.5, 0.5};
-  scoringCtx.linearWeights = weights;
-  scoringCtx.numScores = 2;
+  HybridScoringContext hybridScoringCtx = {
+    .scoringType = HYBRID_SCORING_LINEAR,
+    .linearCtx = {
+      .linearWeights = weights,
+      .numWeights = 2
+    }
+  };
+
   ResultProcessor *hybridMerger = RPHybridMerger_New(
-    HYBRID_SCORING_LINEAR,
+    &hybridScoringCtx,
     &scoringCtx,
     upstreams,
-    2,  // numUpstreams
-    3   // window size
+    2   // numUpstreams
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -389,16 +407,22 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream2) {
   // Create hybrid merger
   ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ScoringFunctionArgs scoringCtx = {0};
-  // Set up linear weights for simple averaging
+
+  // Set up hybrid scoring context for linear scoring
   double weights[] = {0.5, 0.5};
-  scoringCtx.linearWeights = weights;
-  scoringCtx.numScores = 2;
+  HybridScoringContext hybridScoringCtx = {
+    .scoringType = HYBRID_SCORING_LINEAR,
+    .linearCtx = {
+      .linearWeights = weights,
+      .numWeights = 2
+    }
+  };
+
   ResultProcessor *hybridMerger = RPHybridMerger_New(
-    HYBRID_SCORING_LINEAR,
+    &hybridScoringCtx,
     &scoringCtx,
     upstreams,
-    2,  // numUpstreams
-    3   // window size
+    2   // numUpstreams
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -468,16 +492,22 @@ TEST_F(HybridMergerTest, testHybridMergerBothEmpty) {
   // Create hybrid merger
   ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ScoringFunctionArgs scoringCtx = {0};
-  // Set up linear weights for simple averaging
+
+  // Set up hybrid scoring context for linear scoring
   double weights[] = {0.5, 0.5};
-  scoringCtx.linearWeights = weights;
-  scoringCtx.numScores = 2;
+  HybridScoringContext hybridScoringCtx = {
+    .scoringType = HYBRID_SCORING_LINEAR,
+    .linearCtx = {
+      .linearWeights = weights,
+      .numWeights = 2
+    }
+  };
+
   ResultProcessor *hybridMerger = RPHybridMerger_New(
-    HYBRID_SCORING_LINEAR,
+    &hybridScoringCtx,
     &scoringCtx,
     upstreams,
-    2,  // numUpstreams
-    3   // window size
+    2   // numUpstreams
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -500,34 +530,39 @@ TEST_F(HybridMergerTest, testHybridMergerBothEmpty) {
 }
 
 /*
- * Test that hybrid merger with small window size (2) - smaller than upstream doc count (5 each)
+ * Test that hybrid merger with RRF scoring and small window size
  *
- * Scoring function: Hybrid linear
+ * Scoring function: RRF (Reciprocal Rank Fusion)
  * Number of upstreams: 2
  * Intersection: No intersection (different documents from each upstream)
  * Emptiness: Both upstreams have documents
  * Timeout: No timeout
- * Expected behavior: Window size limits results to 2 docs per upstream (4 total), each with weighted score from contributing upstream
+ * Expected behavior: Window size limits results to 2 docs per upstream (4 total), each with RRF score
  */
-TEST_F(HybridMergerTest, testHybridMergerSmallWindow) {
+TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
   QueryIterator qitr = {0};
 
-  // Mock upstream1: generates 5 docs with score 1.0
+  // Mock upstream1: yields docs in descending score order (0.9, 0.5, 0.1, 0.05, 0.01)
   struct MockUpstream1 : public ResultProcessor {
     int counter = 0;
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
       MockUpstream1 *p = (MockUpstream1 *)rp;
       if (p->counter >= 5) return RS_RESULT_EOF;
 
-      res->docId = ++p->counter;
-      res->score = 1.0;
+      // Yield in descending score order for ranking
+      int docIds[] = {1, 2, 3, 4, 5};
+      double scores[] = {0.9, 0.5, 0.1, 0.05, 0.01}; // already sorted descending
+      const char* keys[] = {"doc1", "doc2", "doc3", "doc4", "doc5"};
+
+      res->docId = docIds[p->counter];
+      res->score = scores[p->counter];
 
       // Set up document metadata with keys
       static RSDocumentMetadata dmd[5] = {0};
-      static const char* keys[] = {"doc1", "doc2", "doc3", "doc4", "doc5"};
-      dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
-      res->dmd = &dmd[p->counter - 1];
+      dmd[p->counter].keyPtr = (char*)keys[p->counter];
+      res->dmd = &dmd[p->counter];
 
+      p->counter++;
       return RS_RESULT_OK;
     }
     MockUpstream1() {
@@ -536,22 +571,27 @@ TEST_F(HybridMergerTest, testHybridMergerSmallWindow) {
     }
   } upstream1;
 
-  // Mock upstream2: generates 5 different docs with score 2.0
+  // Mock upstream2: yields different docs in descending score order (0.8, 0.4, 0.2, 0.06, 0.02)
   struct MockUpstream2 : public ResultProcessor {
     int counter = 0;
     static int NextFn(ResultProcessor *rp, SearchResult *res) {
       MockUpstream2 *p = static_cast<MockUpstream2 *>(rp);
       if (p->counter >= 5) return RS_RESULT_EOF;
 
-      res->docId = ++p->counter + 10; // Different docIds (11-15)
-      res->score = 2.0;
+      // Yield different docs in descending score order for ranking
+      int docIds[] = {11, 12, 13, 14, 15};
+      double scores[] = {0.8, 0.4, 0.2, 0.06, 0.02}; // already sorted descending
+      const char* keys[] = {"doc11", "doc12", "doc13", "doc14", "doc15"};
 
-      // Set up document metadata with keys - docId matches key number
+      res->docId = docIds[p->counter];
+      res->score = scores[p->counter];
+
+      // Set up document metadata with keys
       static RSDocumentMetadata dmd[5] = {0};
-      static const char* keys[] = {"doc11", "doc12", "doc13", "doc14", "doc15"};
-      dmd[p->counter - 1].keyPtr = (char*)keys[p->counter - 1];
-      res->dmd = &dmd[p->counter - 1];
+      dmd[p->counter].keyPtr = (char*)keys[p->counter];
+      res->dmd = &dmd[p->counter];
 
+      p->counter++;
       return RS_RESULT_OK;
     }
     MockUpstream2() {
@@ -562,19 +602,24 @@ TEST_F(HybridMergerTest, testHybridMergerSmallWindow) {
 
 
 
-  // Create hybrid merger with small window size (2) - smaller than upstream doc count (5 each)
+  // Create hybrid merger with RRF scoring and small window size (2)
   ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ScoringFunctionArgs scoringCtx = {0};
-  // Set up linear weights for simple averaging
-  double weights[] = {0.5, 0.5};
-  scoringCtx.linearWeights = weights;
-  scoringCtx.numScores = 2;
+
+  // Set up hybrid scoring context for RRF scoring with small window
+  HybridScoringContext hybridScoringCtx = {
+    .scoringType = HYBRID_SCORING_RRF,
+    .rrfCtx = {
+      .k = 60,      // Standard RRF constant
+      .window = 2   // Small window - only top 2 results per upstream
+    }
+  };
+
   ResultProcessor *hybridMerger = RPHybridMerger_New(
-    HYBRID_SCORING_LINEAR,
+    &hybridScoringCtx,
     &scoringCtx,
     upstreams,
-    2,  // numUpstreams
-    2   // Small window
+    2   // numUpstreams
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -591,17 +636,24 @@ TEST_F(HybridMergerTest, testHybridMergerSmallWindow) {
     ASSERT_TRUE(r.dmd != nullptr);
     ASSERT_TRUE(r.dmd->keyPtr != nullptr);
 
-    // Verify scores based on docId - only contributing upstream's weighted score
-    if (r.docId <= 5) {
-      ASSERT_EQ(0.5, r.score);  // 0.5 * 1.0 (only upstream1 contributes)
-    } else {
-      ASSERT_EQ(1.0, r.score);  // 0.5 * 2.0 (only upstream2 contributes)
+    // Verify RRF scores - each document gets score based on its rank
+    // With window=2, only top 2 from each upstream are considered
+    // Expected RRF scores (k=60):
+    // doc1: 1/(60+1) = 1/61 ≈ 0.0164 (rank 1 in upstream1)
+    // doc2: 1/(60+2) = 1/62 ≈ 0.0161 (rank 2 in upstream1)
+    // doc11: 1/(60+1) = 1/61 ≈ 0.0164 (rank 1 in upstream2)
+    // doc12: 1/(60+2) = 1/62 ≈ 0.0161 (rank 2 in upstream2)
+
+    if (r.docId == 1 || r.docId == 11) {
+      ASSERT_NEAR(1.0/61.0, r.score, 0.0001);  // Rank 1 in respective upstream
+    } else if (r.docId == 2 || r.docId == 12) {
+      ASSERT_NEAR(1.0/62.0, r.score, 0.0001);  // Rank 2 in respective upstream
     }
 
     SearchResult_Clear(&r);
   }
 
-  // Should have 4 documents total (2 from each upstream due to small window size)
+  // Should have 4 documents total (2 from each upstream due to window size limit)
   ASSERT_EQ(4, count);
 
   SearchResult_Destroy(&r);
@@ -664,18 +716,25 @@ TEST_F(HybridMergerTest, testHybridMergerLargeWindow) {
 
 
   // Create hybrid merger with large window size (10) - larger than upstream doc count (3 each)
+  // Note: For linear scoring, window size is handled internally by the implementation
   ResultProcessor *upstreams[] = {(ResultProcessor*)upstream1, (ResultProcessor*)upstream2};
   ScoringFunctionArgs scoringCtx = {0};
-  // Set up linear weights for simple averaging
+
+  // Set up hybrid scoring context for linear scoring
   double weights[] = {0.5, 0.5};
-  scoringCtx.linearWeights = weights;
-  scoringCtx.numScores = 2;
+  HybridScoringContext hybridScoringCtx = {
+    .scoringType = HYBRID_SCORING_LINEAR,
+    .linearCtx = {
+      .linearWeights = weights,
+      .numWeights = 2
+    }
+  };
+
   ResultProcessor *hybridMerger = RPHybridMerger_New(
-    HYBRID_SCORING_LINEAR,
+    &hybridScoringCtx,
     &scoringCtx,
     upstreams,
-    2,   // numUpstreams
-    10   // Large window
+    2   // numUpstreams
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -784,19 +843,25 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream1DepletesMore) {
 
 
 
-  // Create hybrid merger with window size 3
+  // Create hybrid merger
   ResultProcessor *upstreams[] = {(ResultProcessor*)upstream1, (ResultProcessor*)upstream2};
   ScoringFunctionArgs scoringCtx = {0};
-  // Set up linear weights for simple averaging
+
+  // Set up hybrid scoring context for linear scoring
   double weights[] = {0.5, 0.5};
-  scoringCtx.linearWeights = weights;
-  scoringCtx.numScores = 2;
+  HybridScoringContext hybridScoringCtx = {
+    .scoringType = HYBRID_SCORING_LINEAR,
+    .linearCtx = {
+      .linearWeights = weights,
+      .numWeights = 2
+    }
+  };
+
   ResultProcessor *hybridMerger = RPHybridMerger_New(
-    HYBRID_SCORING_LINEAR,
+    &hybridScoringCtx,
     &scoringCtx,
     upstreams,
-    2,  // numUpstreams
-    3   // window size
+    2   // numUpstreams
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -919,19 +984,25 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream2DepletesMore) {
 
 
 
-  // Create hybrid merger with window size 3
+  // Create hybrid merger
   ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ScoringFunctionArgs scoringCtx = {0};
-  // Set up linear weights for simple averaging
+
+  // Set up hybrid scoring context for linear scoring
   double weights[] = {0.5, 0.5};
-  scoringCtx.linearWeights = weights;
-  scoringCtx.numScores = 2;
+  HybridScoringContext hybridScoringCtx = {
+    .scoringType = HYBRID_SCORING_LINEAR,
+    .linearCtx = {
+      .linearWeights = weights,
+      .numWeights = 2
+    }
+  };
+
   ResultProcessor *hybridMerger = RPHybridMerger_New(
-    HYBRID_SCORING_LINEAR,
+    &hybridScoringCtx,
     &scoringCtx,
     upstreams,
-    2,  // numUpstreams
-    3   // window size
+    2   // numUpstreams
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -1038,19 +1109,25 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
     }
   } upstream2;
 
-  // Create hybrid merger with window size 4
+  // Create hybrid merger
   ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ScoringFunctionArgs scoringCtx = {0};
-  // Set up linear weights for simple averaging
+
+  // Set up hybrid scoring context for linear scoring
   double weights[] = {0.5, 0.5};
-  scoringCtx.linearWeights = weights;
-  scoringCtx.numScores = 2;
+  HybridScoringContext hybridScoringCtx = {
+    .scoringType = HYBRID_SCORING_LINEAR,
+    .linearCtx = {
+      .linearWeights = weights,
+      .numWeights = 2
+    }
+  };
+
   ResultProcessor *hybridMerger = RPHybridMerger_New(
-    HYBRID_SCORING_LINEAR,
+    &hybridScoringCtx,
     &scoringCtx,
     upstreams,
-    2,  // numUpstreams
-    4   // window size
+    2   // numUpstreams
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -1147,19 +1224,25 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
     }
   } upstream2;
 
-  // Create hybrid merger with window size 4
+  // Create hybrid merger
   ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ScoringFunctionArgs scoringCtx = {0};
-  // Set up linear weights for simple averaging
+
+  // Set up hybrid scoring context for linear scoring
   double weights[] = {0.5, 0.5};
-  scoringCtx.linearWeights = weights;
-  scoringCtx.numScores = 2;
+  HybridScoringContext hybridScoringCtx = {
+    .scoringType = HYBRID_SCORING_LINEAR,
+    .linearCtx = {
+      .linearWeights = weights,
+      .numWeights = 2
+    }
+  };
+
   ResultProcessor *hybridMerger = RPHybridMerger_New(
-    HYBRID_SCORING_LINEAR,
+    &hybridScoringCtx,
     &scoringCtx,
     upstreams,
-    2,  // numUpstreams
-    4   // window size
+    2   // numUpstreams
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -1258,13 +1341,21 @@ TEST_F(HybridMergerTest, testRRFScoring) {
   // Create hybrid merger with RRF scoring
   ResultProcessor *upstreams[] = {&upstream1, &upstream2};
   ScoringFunctionArgs scoringCtx = {0};
-  scoringCtx.RRF_k = 60; // Standard RRF constant
+
+  // Set up hybrid scoring context for RRF scoring
+  HybridScoringContext hybridScoringCtx = {
+    .scoringType = HYBRID_SCORING_RRF,
+    .rrfCtx = {
+      .k = 60,      // Standard RRF constant
+      .window = 4   // Window size
+    }
+  };
+
   ResultProcessor *hybridMerger = RPHybridMerger_New(
-    HYBRID_SCORING_RRF,
+    &hybridScoringCtx,
     &scoringCtx,
     upstreams,
-    2,  // numUpstreams
-    4   // window size
+    2   // numUpstreams
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -1395,16 +1486,22 @@ TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
   // Create hybrid merger with 3 upstreams
   ResultProcessor *upstreams[] = {&upstream1, &upstream2, &upstream3};
   ScoringFunctionArgs scoringCtx = {0};
-  // Set up linear weights with different values (0.2, 0.3, 0.5)
+
+  // Set up hybrid scoring context for linear scoring
   double weights[] = {0.2, 0.3, 0.5};
-  scoringCtx.linearWeights = weights;
-  scoringCtx.numScores = 3;
+  HybridScoringContext hybridScoringCtx = {
+    .scoringType = HYBRID_SCORING_LINEAR,
+    .linearCtx = {
+      .linearWeights = weights,
+      .numWeights = 3
+    }
+  };
+
   ResultProcessor *hybridMerger = RPHybridMerger_New(
-    HYBRID_SCORING_LINEAR,
+    &hybridScoringCtx,
     &scoringCtx,
     upstreams,
-    3,  // numUpstreams
-    5   // window size
+    3   // numUpstreams
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -1552,16 +1649,22 @@ TEST_F(HybridMergerTest, testHybridMergerLinear4Upstreams) {
   // Create hybrid merger with 4 upstreams
   ResultProcessor *upstreams[] = {&upstream1, &upstream2, &upstream3, &upstream4};
   ScoringFunctionArgs scoringCtx = {0};
-  // Set up linear weights with different values (0.1, 0.2, 0.3, 0.4)
+
+  // Set up hybrid scoring context for linear scoring
   double weights[] = {0.1, 0.2, 0.3, 0.4};
-  scoringCtx.linearWeights = weights;
-  scoringCtx.numScores = 4;
+  HybridScoringContext hybridScoringCtx = {
+    .scoringType = HYBRID_SCORING_LINEAR,
+    .linearCtx = {
+      .linearWeights = weights,
+      .numWeights = 4
+    }
+  };
+
   ResultProcessor *hybridMerger = RPHybridMerger_New(
-    HYBRID_SCORING_LINEAR,
+    &hybridScoringCtx,
     &scoringCtx,
     upstreams,
-    4,  // numUpstreams
-    6   // window size
+    4   // numUpstreams
   );
 
   QITR_PushRP(&qitr, hybridMerger);
@@ -1697,13 +1800,21 @@ TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
   // Create hybrid merger with RRF scoring
   ResultProcessor *upstreams[] = {&upstream1, &upstream2, &upstream3};
   ScoringFunctionArgs scoringCtx = {0};
-  scoringCtx.RRF_k = 60; // Standard RRF constant
+
+  // Set up hybrid scoring context for RRF scoring
+  HybridScoringContext hybridScoringCtx = {
+    .scoringType = HYBRID_SCORING_RRF,
+    .rrfCtx = {
+      .k = 60,      // Standard RRF constant
+      .window = 5   // Window size
+    }
+  };
+
   ResultProcessor *hybridMerger = RPHybridMerger_New(
-    HYBRID_SCORING_RRF,
+    &hybridScoringCtx,
     &scoringCtx,
     upstreams,
-    3,  // numUpstreams
-    5   // window size
+    3   // numUpstreams
   );
 
   QITR_PushRP(&qitr, hybridMerger);
