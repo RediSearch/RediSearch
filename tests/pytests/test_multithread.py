@@ -167,6 +167,9 @@ def do_burst_threads_sanity(algo, data_type, test_name):
 # Generate test functions for each combination of algorithm and data type
 func_gen = lambda al, dt, tn: lambda: do_burst_threads_sanity(al, dt, tn)
 for algo in VECSIM_ALGOS:
+    #TODO: enable when multi is supported
+    if algo == 'SVS-VAMANA':
+        continue
     for data_type in VECSIM_DATA_TYPES:
         test_name = f"test_burst_threads_sanity_{algo}_{data_type}"
         globals()[test_name] = func_gen(algo, data_type, test_name)

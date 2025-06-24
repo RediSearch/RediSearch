@@ -246,6 +246,13 @@ void UpgradeDeprecatedMTConfigs();
 
 char *getRedisConfigValue(RedisModuleCtx *ctx, const char* confName);
 
+// We limit the number of worker threads to limit the amount of memory used by the thread pool
+// and to prevent the system from running out of resources.
+// The number of worker threads should be proportional to the number of cores in the system at most,
+// otherwise no performance improvement will be achieved.
+#ifndef MAX_WORKER_THREADS
+#define MAX_WORKER_THREADS (1 << 4)
+#endif
 #define DEFAULT_BG_INDEX_SLEEP_GAP 100
 #define DEFAULT_DIALECT_VERSION 1
 #define DEFAULT_DOC_TABLE_SIZE 1000000

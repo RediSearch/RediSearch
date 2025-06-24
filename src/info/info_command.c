@@ -188,6 +188,21 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
           REPLY_KVSTR("distance_metric", VecSimMetric_ToString(hnsw_params.metric));
           REPLY_KVINT("M", hnsw_params.M);
           REPLY_KVINT("ef_construction", hnsw_params.efConstruction);
+        } else if (primary_params->algo == VecSimAlgo_SVS) {
+          REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(primary_params->algo));
+          SVSParams svs_params = primary_params->algoParams.svsParams;
+          REPLY_KVSTR("data_type", VecSimType_ToString(svs_params.type));
+          REPLY_KVINT("dim", svs_params.dim);
+          REPLY_KVSTR("distance_metric", VecSimMetric_ToString(svs_params.metric));
+          REPLY_KVINT("num_threads", svs_params.num_threads);
+          REPLY_KVINT("graph_max_degree", svs_params.graph_max_degree);
+          REPLY_KVINT("construction_window_size", svs_params.construction_window_size);
+          REPLY_KVINT("search_window_size", svs_params.search_window_size);
+          REPLY_KVSTR("compression", VecSimSvsCompression_ToString(svs_params.quantBits));
+          REPLY_KVSTR("use_search_history", VecSimSearchHistory_ToString(svs_params.use_search_history));
+          REPLY_KVNUM("alpha", svs_params.alpha);
+          REPLY_KVNUM("epsilon", algo_params.svsParams.epsilon);
+          REPLY_KVNUM("training_threshold", algo_params.tieredParams.specificParams.tieredSVSParams.trainingTriggerThreshold);
         }
       } else if (field_algo == VecSimAlgo_BF) {
         REPLY_KVSTR("algorithm", VecSimAlgorithm_ToString(field_algo));
@@ -196,7 +211,6 @@ void fillReplyWithIndexInfo(RedisSearchCtx* sctx, RedisModule_Reply *reply, bool
         REPLY_KVSTR("distance_metric", VecSimMetric_ToString(algo_params.bfParams.metric));
       }
     }
-
     if (has_map) {
       RedisModule_ReplyKV_Array(reply, "flags"); // >>>flags
     }
