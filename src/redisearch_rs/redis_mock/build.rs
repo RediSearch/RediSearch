@@ -41,12 +41,11 @@ fn main() {
         );
     }
 
-    /*
-    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
     if target_os != "macos" {
-        println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
+        //println!("cargo:rustc-link-arg=-Wl,--unresolved-symbols=ignore-in-object-files");
+        println!("cargo:rustc-link-arg=-Wl,--error-limit=0");
     }
-    */
 
     // configure linker with libname and path
     println!("cargo:rustc-link-lib=static=c2rust");
