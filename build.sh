@@ -519,7 +519,6 @@ run_rust_tests() {
       --exclude=trie_bencher
       --exclude=varint_bencher
       --ignore-filename-regex="varint_bencher/*,trie_bencher/*,inverted_index_bencher/*"
-      --exclude=redis_mock
       --output-path=$BINROOT/rust_cov.info
     "
   elif [[ -n "$SAN" ]]; then # using `elif` as we shouldn't run with both
