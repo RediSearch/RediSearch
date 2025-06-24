@@ -297,6 +297,9 @@ void RLookup_WriteOwnKeyByName(RLookup *lookup, const char *name, size_t len, RL
  * @return the value if found, NULL otherwise.
  */
 static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *row) {
+  bool has_both = row->dyn != NULL && row->sv != NULL;
+  assert(!has_both);
+
   RSValue *ret = NULL;
   if (row->dyn && array_len(row->dyn) > key->dstidx) {
     ret = row->dyn[key->dstidx];
