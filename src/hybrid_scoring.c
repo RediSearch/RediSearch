@@ -5,7 +5,6 @@
  HybridScoringFunction GetScoringFunction(HybridScoringType scoringType) {
    switch (scoringType) {
      case HYBRID_SCORING_LINEAR:
-       // Linear scoring not implemented yet
        return HybridLinearScore;
      case HYBRID_SCORING_RRF:
        return HybridRRFScore;
