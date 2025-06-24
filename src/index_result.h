@@ -60,8 +60,8 @@ static inline void IndexResult_Clear(RSIndexResult *r) {
 static inline void AggregateResult_Reset(RSIndexResult *r) {
 
   r->docId = 0;
-  r->agg.numChildren = 0;
-  r->agg.typeMask = (RSResultType)0;
+  r->data.agg.numChildren = 0;
+  r->data.agg.typeMask = (RSResultType)0;
   IndexResult_Clear(r);
 }
 /* Allocate a new intersection result with a given capacity*/
@@ -84,7 +84,7 @@ RSIndexResult *NewTokenRecord(RSQueryTerm *term, double weight);
 /* Append a child to an aggregate result */
 static inline void AggregateResult_AddChild(RSIndexResult *parent, RSIndexResult *child) {
 
-  RSAggregateResult *agg = &parent->agg;
+  RSAggregateResult *agg = &parent->data.agg;
 
   /* Increase capacity if needed */
   if (agg->numChildren >= agg->childrenCap) {

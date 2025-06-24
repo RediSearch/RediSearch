@@ -93,14 +93,14 @@ static double NumericRange_GetMedian(IndexReader *ir) {
   // Read the first half of the values into a heap
   for (size_t i = 0; i < median_idx; i++) {
     IR_Read(ir, &cur);
-    double_heap_add_raw(low_half, cur->num.value);
+    double_heap_add_raw(low_half, cur->data.num.value);
   }
   double_heap_heapify(low_half);
 
   // Read the rest of the values, replacing the max value in the heap if the current value is smaller
   while (INDEXREAD_OK == IR_Read(ir, &cur)) {
-    if (cur->num.value < double_heap_peek(low_half)) {
-      double_heap_replace(low_half, cur->num.value);
+    if (cur->data.num.value < double_heap_peek(low_half)) {
+      double_heap_replace(low_half, cur->data.num.value);
     }
   }
 
@@ -149,9 +149,9 @@ static void NumericRangeNode_Split(NumericRangeNode *n, NRN_AddRv *rv) {
     split = nextafter(split, INFINITY);
   }
   while (INDEXREAD_OK == IR_Read(ir, &res)) {
-    NumericRange *cur = res->num.value < split ? lr : rr;
-    updateCardinality(cur, res->num.value);
-    rv->sz += NumericRange_Add(cur, res->docId, res->num.value);
+    NumericRange *cur = res->data.num.value < split ? lr : rr;
+    updateCardinality(cur, res->data.num.value);
+    rv->sz += NumericRange_Add(cur, res->docId, res->data.num.value);
     ++rv->numRecords;
   }
   IR_Free(ir);
@@ -713,7 +713,7 @@ static void numericIndex_rdbSaveCallback(NumericRangeNode *n, void *ctx) {
 
     while (INDEXREAD_OK == IR_Read(ir, &res)) {
       RedisModule_SaveUnsigned(rctx->rdb, res->docId);
-      RedisModule_SaveDouble(rctx->rdb, res->num.value);
+      RedisModule_SaveDouble(rctx->rdb, res->data.num.value);
     }
     IR_Free(ir);
   }

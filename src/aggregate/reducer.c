@@ -71,7 +71,7 @@ int ReducerOpts_GetKey(const ReducerOptions *options, const RLookupKey **out) {
   if (*s == '@') {
     s++;
   }
-  *out = RLookup_GetKey(options->srclookup, s, RLOOKUP_M_READ, RLOOKUP_F_HIDDEN);
+  *out = RLookup_GetKey_Read(options->srclookup, s, RLOOKUP_F_HIDDEN);
   if (!*out) {
     if (options->loadKeys) {
       *out = RLookup_GetKey_Load(options->srclookup, s, s, RLOOKUP_F_HIDDEN);
