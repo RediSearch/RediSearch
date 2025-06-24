@@ -194,3 +194,53 @@ unsafe fn generic_shim<F: FnOnce(usize) -> *mut c_void>(
     // 1. --> We know there is at least one byte after the header
     unsafe { mem.add(HEADER_SIZE) }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normal_allocs() {
+        let size = 100;
+        let ptr = alloc_shim(size);
+        assert!(!ptr.is_null());
+        free_shim(ptr);
+
+        let ptr = calloc_shim(10, size);
+        assert!(!ptr.is_null());
+        free_shim(ptr);
+    }
+
+    #[test]
+    fn test_realloc() {
+        let size = 128;
+        let ptr = alloc_shim(size);
+        assert!(!ptr.is_null());
+
+        let new_size = 64;
+        let new_ptr = realloc_shim(ptr, new_size);
+        assert!(!new_ptr.is_null());
+        free_shim(new_ptr);
+
+        let ptr = realloc_shim(std::ptr::null_mut(), 100);
+        assert!(!ptr.is_null());
+        free_shim(ptr);
+    }
+
+    #[test]
+    fn test_zero_sizes() {
+        let ptr = alloc_shim(0);
+        assert!(ptr.is_null());
+
+        let ptr = calloc_shim(0, 100);
+        assert!(ptr.is_null());
+
+        let ptr = calloc_shim(10, 0);
+        assert!(ptr.is_null());
+
+        let ptr = alloc_shim(32);
+        let ptr = realloc_shim(ptr, 0);
+        assert!(ptr.is_null());
+        free_shim(ptr);
+    }
+}
