@@ -32,30 +32,38 @@ fn numeric_tiny_int() {
             ],
         ),
         (
-            256,
+            72_057_594_037_927_935,
             0.0,
-            3,
+            8,
             vec![
-                0b000_00_010, // TINY type, value: 0, delta_bytes: 2
-                0,            // Delta byte 0 (LSB)
-                1,            // Delta byte 1 (MSB) → 256 = 0x0100
+                0b000_00_111, // TINY type, value: 0, delta_bytes: 7
+                255,          // Delta
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
             ],
         ),
     ];
 
-    for input in inputs {
-        let (delta, value, expected_bytes_written, expected_buffer) = input;
+    for (delta, value, expected_bytes_written, expected_buffer) in inputs {
         let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::numeric(1000, value);
+        let record = RSIndexResult::numeric(u64::MAX, value);
 
         let bytes_written =
             Numeric::encode(&mut buf, Delta(delta), &record).expect("to encode numeric record");
 
         let buf = buf.into_inner();
-        assert_eq!(bytes_written, expected_bytes_written);
-        assert_eq!(buf, expected_buffer);
+        assert_eq!(
+            bytes_written, expected_bytes_written,
+            "failed for value: {}",
+            value
+        );
+        assert_eq!(buf, expected_buffer, "failed for value: {}", value);
 
-        let prev_doc_id = 1000 - (delta as u64);
+        let prev_doc_id = u64::MAX - (delta as u64);
         let DecoderResult::Record(record_decoded) = Numeric
             .decode(buf.as_slice(), prev_doc_id)
             .expect("to decode numeric record")
@@ -64,7 +72,7 @@ fn numeric_tiny_int() {
             panic!("Record was filtered out incorrectly")
         };
 
-        assert_eq!(record_decoded, record);
+        assert_eq!(record_decoded, record, "failed for value: {}", value);
     }
 }
 
@@ -92,21 +100,47 @@ fn numeric_pos_int() {
                 1,            // Value 1 (MSB) → 256 = 0x0100
             ],
         ),
+        (
+            72_057_594_037_927_935,
+            u64::MAX as _,
+            16,
+            vec![
+                0b111_10_111, // POS_INT type, value_bytes: 7 (+1), delta_bytes: 7
+                255,          // Delta
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+                255, // Value
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+            ],
+        ),
     ];
 
-    for input in inputs {
-        let (delta, value, expected_bytes_written, expected_buffer) = input;
+    for (delta, value, expected_bytes_written, expected_buffer) in inputs {
         let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::numeric(1000, value);
+        let record = RSIndexResult::numeric(u64::MAX, value);
 
         let bytes_written =
             Numeric::encode(&mut buf, Delta(delta), &record).expect("to encode numeric record");
 
         let buf = buf.into_inner();
-        assert_eq!(bytes_written, expected_bytes_written);
-        assert_eq!(buf, expected_buffer);
+        assert_eq!(
+            bytes_written, expected_bytes_written,
+            "failed for value: {}",
+            value
+        );
+        assert_eq!(buf, expected_buffer, "failed for value: {}", value);
 
-        let prev_doc_id = 1000 - (delta as u64);
+        let prev_doc_id = u64::MAX - (delta as u64);
         let DecoderResult::Record(record_decoded) = Numeric
             .decode(buf.as_slice(), prev_doc_id)
             .expect("to decode numeric record")
@@ -115,7 +149,7 @@ fn numeric_pos_int() {
             panic!("Record was filtered out incorrectly")
         };
 
-        assert_eq!(record_decoded, record);
+        assert_eq!(record_decoded, record, "failed for value: {}", value);
     }
 }
 
@@ -143,21 +177,47 @@ fn numeric_neg_int() {
                 1,            // Value 1 (MSB) → 256 = 0x0100
             ],
         ),
+        (
+            72_057_594_037_927_935,
+            -(u64::MAX as f64),
+            16,
+            vec![
+                0b111_11_111, // NEG_INT type, value_bytes: 7 (+1), delta_bytes: 7
+                255,          // Delta
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+                255, // Value
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+            ],
+        ),
     ];
 
-    for input in inputs {
-        let (delta, value, expected_bytes_written, expected_buffer) = input;
+    for (delta, value, expected_bytes_written, expected_buffer) in inputs {
         let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::numeric(1000, value);
+        let record = RSIndexResult::numeric(u64::MAX, value);
 
         let bytes_written =
             Numeric::encode(&mut buf, Delta(delta), &record).expect("to encode numeric record");
 
         let buf = buf.into_inner();
-        assert_eq!(bytes_written, expected_bytes_written);
-        assert_eq!(buf, expected_buffer);
+        assert_eq!(
+            bytes_written, expected_bytes_written,
+            "failed for value: {}",
+            value
+        );
+        assert_eq!(buf, expected_buffer, "failed for value: {}", value);
 
-        let prev_doc_id = 1000 - (delta as u64);
+        let prev_doc_id = u64::MAX - (delta as u64);
         let DecoderResult::Record(record_decoded) = Numeric
             .decode(buf.as_slice(), prev_doc_id)
             .expect("to decode numeric record")
@@ -166,7 +226,7 @@ fn numeric_neg_int() {
             panic!("Record was filtered out incorrectly")
         };
 
-        assert_eq!(record_decoded, record);
+        assert_eq!(record_decoded, record, "failed for value: {}", value);
     }
 }
 
@@ -175,13 +235,31 @@ fn numeric_neg_int() {
 fn numeric_float() {
     let inputs = [
         (
-            1,
+            0,
             3.125,
-            6,
+            5,
             vec![
-                0b000_01_001, // FLOAT type, !f64, !negative, !infinite, delta_bytes: 1
-                1,            // Delta: 1
+                0b000_01_000, // FLOAT type, !f64, !negative, !infinite, delta_bytes: 0
                 0,            // Value: 3.125 in IEEE 754 format
+                0,
+                72,
+                64,
+            ],
+        ),
+        (
+            72_057_594_037_927_935,
+            3.125,
+            12,
+            vec![
+                0b000_01_111, // FLOAT type, !f64, !negative, !infinite, delta_bytes: 7
+                255,          // Delta
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+                0, // Value: 3.125 in IEEE 754 format
                 0,
                 72,
                 64,
@@ -193,7 +271,26 @@ fn numeric_float() {
             5,
             vec![
                 0b010_01_000, // FLOAT type, !f64, negative, !infinite, delta_bytes: 0
-                0,            // Value: -3.125 in IEEE 754 format
+                0,            // Value: 3.125 in IEEE 754 format
+                0,
+                72,
+                64,
+            ],
+        ),
+        (
+            72_057_594_037_927_935,
+            -3.125,
+            12,
+            vec![
+                0b010_01_111, // FLOAT type, !f64, negative, !infinite, delta_bytes: 7
+                255,          // Delta
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+                0, // Value: 3.125 in IEEE 754 format
                 0,
                 72,
                 64,
@@ -208,11 +305,41 @@ fn numeric_float() {
             ],
         ),
         (
+            72_057_594_037_927_935,
+            f64::INFINITY,
+            8,
+            vec![
+                0b001_01_111, // FLOAT type, !f64, !negative, infinite, delta_bytes: 7
+                255,          // Delta
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+            ],
+        ),
+        (
             0,
             f64::NEG_INFINITY,
             1,
             vec![
                 0b011_01_000, // FLOAT type, !f64, negative, infinite, delta_bytes: 0
+            ],
+        ),
+        (
+            72_057_594_037_927_935,
+            f64::NEG_INFINITY,
+            8,
+            vec![
+                0b011_01_111, // FLOAT type, !f64, negative, infinite, delta_bytes: 7
+                255,          // Delta
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
             ],
         ),
         (
@@ -222,6 +349,29 @@ fn numeric_float() {
             vec![
                 0b100_01_000, // FLOAT type, f64, !negative, !infinite, delta_bytes: 0
                 203,          // Value: 3.124 in IEEE 754 format
+                161,
+                69,
+                182,
+                243,
+                253,
+                8,
+                64,
+            ],
+        ),
+        (
+            72_057_594_037_927_935,
+            3.124,
+            16,
+            vec![
+                0b100_01_111, // FLOAT type, f64, !negative, !infinite, delta_bytes: 7
+                255,          // Delta
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+                203, // Value: 3.124 in IEEE 754 format
                 161,
                 69,
                 182,
@@ -247,12 +397,34 @@ fn numeric_float() {
                 64,
             ],
         ),
+        (
+            72_057_594_037_927_935,
+            -3.124,
+            16,
+            vec![
+                0b110_01_111, // FLOAT type, f64, negative, !infinite, delta_bytes: 7
+                255,          // Delta
+                255,
+                255,
+                255,
+                255,
+                255,
+                255,
+                203, // Value: 3.124 in IEEE 754 format
+                161,
+                69,
+                182,
+                243,
+                253,
+                8,
+                64,
+            ],
+        ),
     ];
 
-    for input in inputs {
-        let (delta, value, expected_bytes_written, expected_buffer) = input;
+    for (delta, value, expected_bytes_written, expected_buffer) in inputs {
         let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::numeric(1000, value);
+        let record = RSIndexResult::numeric(u64::MAX, value);
 
         let bytes_written =
             Numeric::encode(&mut buf, Delta(delta), &record).expect("to encode numeric record");
@@ -260,12 +432,12 @@ fn numeric_float() {
         let buf = buf.into_inner();
         assert_eq!(
             bytes_written, expected_bytes_written,
-            "failed for value: {:?}",
+            "failed for value: {}",
             value
         );
-        assert_eq!(buf, expected_buffer, "failed for value: {:?}", value);
+        assert_eq!(buf, expected_buffer, "failed for value: {}", value);
 
-        let prev_doc_id = 1000 - (delta as u64);
+        let prev_doc_id = u64::MAX - (delta as u64);
         let DecoderResult::Record(record_decoded) = Numeric
             .decode(buf.as_slice(), prev_doc_id)
             .expect("to decode numeric record")
@@ -274,6 +446,6 @@ fn numeric_float() {
             panic!("Record was filtered out incorrectly")
         };
 
-        assert_eq!(record_decoded, record);
+        assert_eq!(record_decoded, record, "failed for value: {}", value);
     }
 }
