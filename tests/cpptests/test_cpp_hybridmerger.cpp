@@ -38,6 +38,7 @@ static void resultProcessor_GenericFree(ResultProcessor *rp) {
 // Simple mock upstream with minimal constructor
 struct MockUpstream : public ResultProcessor {
   int timeoutAfterCount = 0;
+  int errorAfterCount = -1;  // -1 means no error, >= 0 means return error after this many calls
   std::vector<double> scores;
   std::vector<int> docIds;
   int depletionCount = 0;
@@ -49,8 +50,9 @@ struct MockUpstream : public ResultProcessor {
   MockUpstream(int timeoutAfterCount = 0,
                const std::vector<double>& Scores = {},
                const std::vector<int>& DocIds = {},
-               int depletionCount = 0)
-    : timeoutAfterCount(timeoutAfterCount), scores(Scores), docIds(DocIds), depletionCount(depletionCount) {
+               int depletionCount = 0,
+               int errorAfterCount = -1)
+    : timeoutAfterCount(timeoutAfterCount), errorAfterCount(errorAfterCount), scores(Scores), docIds(DocIds), depletionCount(depletionCount) {
 
     this->Next = NextFn;
     documentMetadata.reserve(50);
@@ -82,6 +84,11 @@ struct MockUpstream : public ResultProcessor {
 
   static int NextFn(ResultProcessor *rp, SearchResult *res) {
     MockUpstream *p = static_cast<MockUpstream *>(rp);
+
+    // Handle error (highest precedence)
+    if (p->errorAfterCount >= 0 && p->counter >= p->errorAfterCount) {
+      return RS_RESULT_ERROR;
+    }
 
     // Handle timeout
     if (p->timeoutAfterCount > 0 && p->counter >= p->timeoutAfterCount) {
@@ -1037,6 +1044,60 @@ TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
 
   // Should have 3 documents total (same docs from all 3 upstreams)
   ASSERT_EQ(3, count);
+
+  SearchResult_Destroy(&r);
+  QITR_FreeChain(&qitr);
+}
+
+/*
+ * Test that hybrid merger correctly handles error precedence when query iterator has error set and upstreams return different states
+ *
+ * Scoring function: Hybrid linear
+ * Number of upstreams: 2
+ * Intersection: N/A (error handling test)
+ * Emptiness: Mixed (one upstream times out, one returns EOF)
+ * Timeout: Mixed (one upstream times out, one returns EOF)
+ * Expected behavior: Return RS_RESULT_ERROR (most severe error) when query iterator has error set, regardless of upstream states
+ */
+TEST_F(HybridMergerTest, testHybridMergerQueryIteratorErrorPrecedence) {
+  QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
+
+  // Set error in query iterator at the beginning
+  QueryError_SetError(&qerr, QUERY_EGENERIC, "Test error in query iterator");
+
+  // Create upstreams with different behaviors:
+  // upstream1: returns RS_RESULT_TIMEDOUT after 1 call
+  // upstream2: returns RS_RESULT_EOF (empty upstream)
+  MockUpstream upstream1(1, {1.0, 2.0}, {1, 2}); // timeoutAfterCount=1 (timeout after 1 call)
+  MockUpstream upstream2(0, {}, {}); // empty upstream (returns EOF)
+
+  // Create hybrid merger with linear scoring
+  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  double weights[] = {0.5, 0.5};
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
+
+  QITR_PushRP(&qitr, hybridMerger);
+
+  // Process and verify that the most severe error (RS_RESULT_ERROR) is returned
+  SearchResult r = {0};
+  ResultProcessor *rpTail = qitr.endProc;
+  int result;
+  size_t count = 0;
+
+  // Try to get results - should return error immediately due to query iterator error
+  while ((result = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
+    count++;
+    SearchResult_Clear(&r);
+    // Safety check to avoid infinite loop in case of unexpected behavior
+    if (count > 10) break;
+  }
+
+  // Should return RS_RESULT_ERROR (most severe) even though upstreams have TIMEOUT and EOF
+  ASSERT_EQ(RS_RESULT_ERROR, result);
+  ASSERT_EQ(0, count); // Should not have processed any documents due to immediate error
 
   SearchResult_Destroy(&r);
   QITR_FreeChain(&qitr);
