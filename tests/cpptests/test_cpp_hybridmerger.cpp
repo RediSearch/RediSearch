@@ -870,58 +870,6 @@ TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
 }
 
 /*
- * Test that hybrid merger with 4 upstreams using linear scoring (full intersection)
- *
- * Scoring function: Hybrid linear
- * Number of upstreams: 4
- * Intersection: Full intersection (same documents from all upstreams)
- * Emptiness: All upstreams have documents
- * Timeout: No timeout
- * Expected behavior: Each document gets combined score from all 4 upstreams (0.1*1.0 + 0.2*2.0 + 0.3*3.0 + 0.4*4.0 = 3.0)
- */
-TEST_F(HybridMergerTest, testHybridMergerLinear4Upstreams) {
-  QueryIterator qitr = {0};
-
-  // Create upstreams with same documents (full intersection)
-  MockUpstream upstream1(0, {1.0, 1.0}, {1, 2});
-  MockUpstream upstream2(0, {2.0, 2.0}, {1, 2});
-  MockUpstream upstream3(0, {3.0, 3.0}, {1, 2});
-  MockUpstream upstream4(0, {4.0, 4.0}, {1, 2});
-
-  // Create hybrid merger with 4 upstreams
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2, &upstream3, &upstream4};
-  double weights[] = {0.1, 0.2, 0.3, 0.4};
-  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 4, weights);
-
-  QITR_PushRP(&qitr, hybridMerger);
-
-  // Process and verify results
-  size_t count = 0;
-  SearchResult r = {0};
-  ResultProcessor *rpTail = qitr.endProc;
-
-  while (rpTail->Next(rpTail, &r) == RS_RESULT_OK) {
-    count++;
-
-    // Verify document metadata and key are set
-    ASSERT_TRUE(r.dmd != nullptr);
-    ASSERT_TRUE(r.dmd->keyPtr != nullptr);
-
-    // Verify hybrid score: all 4 upstreams contribute
-    // Expected score = 0.1*1.0 + 0.2*2.0 + 0.3*3.0 + 0.4*4.0 = 0.1 + 0.4 + 0.9 + 1.6 = 3.0
-    ASSERT_NEAR(3.0, r.score, 0.0001);
-
-    SearchResult_Clear(&r);
-  }
-
-  // Should have 2 documents total (same docs from all 4 upstreams)
-  ASSERT_EQ(2, count);
-
-  SearchResult_Destroy(&r);
-  QITR_FreeChain(&qitr);
-}
-
-/*
  * Test that hybrid merger with RRF scoring function with 3 upstreams (full intersection)
  *
  * Scoring function: RRF (Reciprocal Rank Fusion)

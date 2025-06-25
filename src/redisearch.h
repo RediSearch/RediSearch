@@ -397,7 +397,6 @@ typedef struct {
 
   /* Tanh factor (used only in the `BM25STD.TANH` scorer)*/
   uint64_t tanhFactor;
-
 } ScoringFunctionArgs;
 
 /* RSScoringFunction is a callback type for query custom scoring function modules */
