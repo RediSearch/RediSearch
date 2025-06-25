@@ -12,6 +12,8 @@ use std::{
     slice::{Iter, IterMut},
 };
 
+use icu::casemap::CaseMapper;
+
 /// A trait that defines the behavior of a RediSearch RSValue.
 ///
 /// This trait is used to create, manipulate, and free RSValue instances. It is
@@ -138,7 +140,9 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
         //let normalized = str.to_lowercase();
         //let (ptr, len) = alloc_c_string(&normalized);
 
-        self.values[idx] = T::create_string(str);
+        let casemapper = CaseMapper::new();
+        let normalized = casemapper.fold_string(str);
+        self.values[idx] = T::create_string(&normalized);
     }
 
     /// Set a value at the given index
@@ -358,11 +362,9 @@ mod tests {
 
     #[test]
     fn test_normlize_in_c_equals_rust_impl() {
-        let cstr = std::ffi::CString::new("Straße").unwrap();
-        let rstr = cstr.to_str().unwrap();
-
-        // we wont bind the normlize str functio based on nu
-        let rimpl = rstr.to_lowercase();
-        assert_eq!(rimpl, "strasse");
+        let str = "Straße";
+        let mut vec: RSSortingVector<RSValueMock> = RSSortingVector::new(1);
+        vec.put_string_and_normalize(0, str);
+        assert_eq!(vec[0].as_str(), Some("strasse"));
     }
 }
