@@ -63,4 +63,4 @@ overide_command:
     - {"command_arity": -1, "command_name": "FT.SEARCH", "first_key": 0, "flags": ["readonly"], "last_key": 0, "step": -1}
 dependencies:
     svs:
-        local_path: "{os.getenv('BINDIR')/_deps/svs-src/lib64/libsvs_shared_library.so}"
+        local_path: "{os.getenv('BINDIR')}/_deps/svs-src/lib64/libsvs_shared_library.so"
