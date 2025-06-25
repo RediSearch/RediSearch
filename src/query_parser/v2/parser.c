@@ -104,6 +104,22 @@ static inline struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQue
     return A;
 }
 
+// optimize NOT nodes: NOT(NOT(A)) = A
+// if the child is a NOT node, return its child instead of creating a double negation
+static inline struct RSQueryNode* not_step(struct RSQueryNode* child) {
+    if (!child) {
+        return NULL;
+    }
+
+    // If the child is a NOT node, return its child (double negation elimination)
+    if (child->type == QN_NOT && QueryNode_NumChildren(child) == 1) {
+        return child->children[0];
+    }
+
+    // Otherwise, create a new NOT node
+    return NewNotNode(child);
+}
+
 static void setup_trace(QueryParseCtx *ctx) {
 #ifdef PARSER_DEBUG
   void RSQueryParser_Trace(FILE*, char*);
@@ -1935,11 +1951,7 @@ static YYACTIONTYPE yy_reduce(
       case 35: /* expr ::= MINUS expr */
       case 36: /* text_expr ::= MINUS text_expr */ yytestcase(yyruleno==36);
 {
-  if (yymsp[0].minor.yy3) {
-    yymsp[-1].minor.yy3 = NewNotNode(yymsp[0].minor.yy3);
-  } else {
-    yymsp[-1].minor.yy3 = NULL;
-  }
+  yymsp[-1].minor.yy3 = not_step(yymsp[0].minor.yy3);
 }
         break;
       case 37: /* expr ::= TILDE expr */
@@ -2186,7 +2198,7 @@ static YYACTIONTYPE yy_reduce(
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &yymsp[0].minor.yy0, &yymsp[0].minor.yy0, 1, 1);
     QueryNode* E = NewNumericNode(qp, yymsp[-2].minor.yy150.fs);
-    yylhsminor.yy3 = NewNotNode(E);
+    yylhsminor.yy3 = not_step(E);
   }
 }
   yymsp[-2].minor.yy3 = yylhsminor.yy3;

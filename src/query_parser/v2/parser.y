@@ -147,6 +147,22 @@ static inline struct RSQueryNode* union_step(struct RSQueryNode* B, struct RSQue
     return A;
 }
 
+// optimize NOT nodes: NOT(NOT(A)) = A
+// if the child is a NOT node, return its child instead of creating a double negation
+static inline struct RSQueryNode* not_step(struct RSQueryNode* child) {
+    if (!child) {
+        return NULL;
+    }
+
+    // If the child is a NOT node, return its child (double negation elimination)
+    if (child->type == QN_NOT && QueryNode_NumChildren(child) == 1) {
+        return child->children[0];
+    }
+
+    // Otherwise, create a new NOT node
+    return NewNotNode(child);
+}
+
 static void setup_trace(QueryParseCtx *ctx) {
 #ifdef PARSER_DEBUG
   void RSQueryParser_Trace(FILE*, char*);
@@ -562,19 +578,11 @@ termlist(A) ::= termlist(B) param_term(C) . [TERMLIST] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= MINUS expr(B) . {
-  if (B) {
-    A = NewNotNode(B);
-  } else {
-    A = NULL;
-  }
+  A = not_step(B);
 }
 
 text_expr(A) ::= MINUS text_expr(B) . {
-  if (B) {
-    A = NewNotNode(B);
-  } else {
-    A = NULL;
-  }
+  A = not_step(B);
 }
 
 /////////////////////////////////////////////////////////////////
@@ -836,7 +844,7 @@ expr(A) ::= modifier(B) NOT_EQUAL param_num(C) . {
   } else {
     QueryParam *qp = NewNumericFilterQueryParam_WithParams(ctx, &C, &C, 1, 1);
     QueryNode* E = NewNumericNode(qp, B.fs);
-    A = NewNotNode(E);
+    A = not_step(E);
   }
 }
 

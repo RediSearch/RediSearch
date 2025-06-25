@@ -91,6 +91,22 @@ static int one_not_null(void *a, void *b, void *out) {
     }
 }
 
+// optimize NOT nodes: NOT(NOT(A)) = A
+// if the child is a NOT node, return its child instead of creating a double negation
+static inline struct RSQueryNode* not_step(struct RSQueryNode* child) {
+    if (!child) {
+        return NULL;
+    }
+
+    // If the child is a NOT node, return its child (double negation elimination)
+    if (child->type == QN_NOT && QueryNode_NumChildren(child) == 1) {
+        return child->children[0];
+    }
+
+    // Otherwise, create a new NOT node
+    return NewNotNode(child);
+}
+
 } // END %include
 
 %extra_argument { QueryParseCtx *ctx }
@@ -359,11 +375,7 @@ termlist(A) ::= termlist(B) STOPWORD . [TERMLIST] {
 /////////////////////////////////////////////////////////////////
 
 expr(A) ::= MINUS expr(B) . {
-    if (B) {
-        A = NewNotNode(B);
-    } else {
-        A = NULL;
-    }
+    A = not_step(B);
 }
 
 /////////////////////////////////////////////////////////////////
