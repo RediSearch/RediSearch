@@ -281,6 +281,11 @@ _out:
   return RedisModule_Reply_LocalCount(reply) - count0;
 }
 
+static size_t serializeResult_Generic(AREQ *req, RedisModule_Reply *reply, const SearchResult *r,
+                              const cachedVars *cv) {
+  // TBD - The generic version of the above (for RESP2/3)
+}
+
 static size_t getResultsFactor(AREQ *req) {
   size_t count = 0;
 
@@ -433,6 +438,131 @@ void finishSendChunk(AREQ *req, SearchResult **results, SearchResult *r, bool cu
   req->qiter.totalResults = 0;
 
   QueryError_ClearError(req->qiter.err);
+}
+
+/**
+ * Activates the pipeline embedded in `req`, and serializes the appropriate
+ * response to the client.
+ */
+static void sendChunk_Unified(AREQ *req, RedisModule_Reply *reply, size_t limit,
+  cachedVars cv) {
+    SearchResult r = {0};
+    int rc = RS_RESULT_EOF;
+    ResultProcessor *rp = req->qiter.endProc;
+    SearchResult **results = NULL;
+    bool cursor_done = false;
+
+    startPipeline(req, rp, &results, &r, &rc);
+
+    // If an error occurred, or a timeout in strict mode - return a simple error
+    if (ShouldReplyWithError(rp, req)) {
+      RedisModule_Reply_Error(reply, QueryError_GetUserError(req->qiter.err));
+      cursor_done = true;
+      goto done_err;
+    } else if (ShouldReplyWithTimeoutError(rc, req)) {
+      ReplyWithTimeoutError(reply);
+      cursor_done = true;
+      goto done_err;
+    }
+
+    if (req->reqflags & QEXEC_F_IS_CURSOR) {
+      RedisModule_Reply_Array(reply);
+    }
+
+    RedisModule_Reply_Map(reply);
+    
+    // No FT.PROFILE support currently - To be added when needed.
+    // if (IsProfile(req)) {
+    //   Profile_PrepareMapForReply(reply);
+    // }
+
+    // <format>
+    if (req->reqflags & QEXEC_FORMAT_EXPAND) {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "EXPAND"); // >format
+    } else {
+      RedisModule_ReplyKV_SimpleString(reply, "format", "STRING"); // >format
+    }
+
+    RedisModule_ReplyKV_Array(reply, "results"); // >results
+
+    if (results != NULL) {
+      populateReplyWithResults(reply, results, req, &cv);
+      results = NULL;
+    } else {
+      if (rp->parent->resultLimit && rc == RS_RESULT_OK) {
+        serializeResult_Generic(req, reply, &r, &cv);
+      }
+
+      SearchResult_Clear(&r);
+      if (rc != RS_RESULT_OK || !rp->parent->resultLimit) {
+        goto done;
+      }
+
+      while (--rp->parent->resultLimit && (rc = rp->Next(rp, &r)) == RS_RESULT_OK) {
+        serializeResult_Generic(req, reply, &r, &cv);
+        // Serialize it as a search result
+        SearchResult_Clear(&r);
+      }
+    }
+
+done:
+    RedisModule_Reply_ArrayEnd(reply); // >results
+
+    // <total_results>
+    RedisModule_ReplyKV_LongLong(reply, "total_results", req->qiter.totalResults);
+
+    // warnings
+    RedisModule_ReplyKV_Array(reply, "warning"); // >warnings
+    if (req->sctx->spec && req->sctx->spec->scan_failed_OOM) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WINDEXING_FAILURE);
+    }
+    if (rc == RS_RESULT_TIMEDOUT) {
+      RedisModule_Reply_SimpleString(reply, QueryError_Strerror(QUERY_ETIMEDOUT));
+    } else if (rc == RS_RESULT_ERROR) {
+      // Non-fatal error
+      RedisModule_Reply_SimpleString(reply, QueryError_GetUserError(req->qiter.err));
+    } else if (req->qiter.err->reachedMaxPrefixExpansions) {
+      RedisModule_Reply_SimpleString(reply, QUERY_WMAXPREFIXEXPANSIONS);
+    }
+    RedisModule_Reply_ArrayEnd(reply); // >warnings
+
+    cursor_done = (rc != RS_RESULT_OK
+      && !(rc == RS_RESULT_TIMEDOUT
+        && req->reqConfig.timeoutPolicy == TimeoutPolicy_Return));
+
+    bool has_timedout = (rc == RS_RESULT_TIMEDOUT) || hasTimeoutError(req->qiter.err);
+
+    // // Prepare profile printer context
+    // ProfilePrinterCtx profileCtx = {
+    //   .req = req,
+    //   .timedout = has_timedout,
+    //   .reachedMaxPrefixExpansions = req->qiter.err->reachedMaxPrefixExpansions,
+    //   .bgScanOOM = req->sctx->spec && req->sctx->spec->scan_failed_OOM,
+    // };
+
+    // if (IsProfile(req)) {
+    //   RedisModule_Reply_MapEnd(reply); // >Results
+    //   if (!(req->reqflags & QEXEC_F_IS_CURSOR) || cursor_done) {
+    //     req->profile(reply, &profileCtx);
+    //   }
+    // }
+
+    // execution_time
+
+    RedisModule_Reply_MapEnd(reply);
+
+    // -- No Cursor currently
+    if (req->reqflags & QEXEC_F_IS_CURSOR) {
+      if (cursor_done) {
+        RedisModule_Reply_LongLong(reply, 0);
+      } else {
+        RedisModule_Reply_LongLong(reply, req->cursor_id);
+      }
+      RedisModule_Reply_ArrayEnd(reply);
+    }
+
+done_err:
+    finishSendChunk(req, results, &r, cursor_done);
 }
 
 /**
