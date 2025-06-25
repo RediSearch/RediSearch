@@ -931,15 +931,36 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   IndexIterator *ret;
 
   if (node->exact) {
+    bool all_wildcard = true;
     bool all_non_empty = true;
+    size_t empty_idx = 0;
     for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
       if (!iters[ii] || !iters[ii]->type == EMPTY_ITERATOR) {
         all_non_empty = false;
+        empty_idx = ii;
         break;
       }
+      if (iters[ii] && iters[ii]->type != WILDCARD_ITERATOR) {
+        all_wildcard = false;
+      }
     }
+
     if (!all_non_empty) {
-      ret = NewEmptyIterator();
+      for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
+        if (iters[ii] && ii != empty_idx) {
+          iters[ii]->Free(iters[ii]);
+        }
+      }
+      ret = iters[empty_idx];
+      rm_free(iters);
+    } else if (all_wildcard) {
+      for (size_t ii = 1; ii < QueryNode_NumChildren(qn); ++ii) {
+        if (iters[ii]) {
+          iters[ii]->Free(iters[ii]);
+        }
+      }
+      ret = iters[0];
+      rm_free(iters);
     } else {
       ret = NewIntersectIterator(iters, QueryNode_NumChildren(qn), q->docTable, EFFECTIVE_FIELDMASK(q, qn), 0, 1, qn->opts.weight);
     }
@@ -957,16 +978,36 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
     if (inOrder && slop == -1) {
       slop = __INT_MAX__;
     }
-
+    bool all_wildcard = true;
     bool all_non_empty = true;
+    size_t empty_idx = 0;
     for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
       if (!iters[ii] || !iters[ii]->type == EMPTY_ITERATOR) {
         all_non_empty = false;
+        empty_idx = ii;
         break;
       }
+      if (iters[ii] && iters[ii]->type != WILDCARD_ITERATOR) {
+        all_wildcard = false;
+      }
     }
+
     if (!all_non_empty) {
-      ret = NewEmptyIterator();
+      for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
+        if (iters[ii] && ii != empty_idx) {
+          iters[ii]->Free(iters[ii]);
+        }
+      }
+      ret = iters[empty_idx];
+      rm_free(iters);
+    } else if (all_wildcard) {
+      for (size_t ii = 1; ii < QueryNode_NumChildren(qn); ++ii) {
+        if (iters[ii]) {
+          iters[ii]->Free(iters[ii]);
+        }
+      }
+      ret = iters[0];
+      rm_free(iters);
     } else {
       ret = NewIntersectIterator(iters, QueryNode_NumChildren(qn), q->docTable,
         EFFECTIVE_FIELDMASK(q, qn), slop, inOrder, qn->opts.weight);
