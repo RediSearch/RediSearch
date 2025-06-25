@@ -146,13 +146,13 @@ use ffi::t_docId;
 
 use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult, RSResultType};
 
-/// Trait to convert various types to and from byte representations for numeric encoding / decoding.
-trait ToFromBytes<const N: usize> {
+/// Trait to convert various types to byte representations for numeric encoding
+trait ToBytes<const N: usize> {
     /// Packs self into a byte vector.
     fn pack(self) -> [u8; N];
 }
 
-impl ToFromBytes<{ size_of::<usize>() }> for Delta {
+impl ToBytes<{ size_of::<usize>() }> for Delta {
     #[inline(always)]
     fn pack(self) -> [u8; size_of::<usize>()] {
         let delta = self.0;
@@ -451,7 +451,7 @@ struct Header {
     typ: HeaderType,
 }
 
-impl ToFromBytes<1> for Header {
+impl ToBytes<1> for Header {
     #[inline(always)]
     fn pack(self) -> [u8; 1] {
         let mut packed = 0;
