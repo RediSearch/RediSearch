@@ -165,6 +165,9 @@ class HybridMergerTest : public ::testing::Test {};
  */
 TEST_F(HybridMergerTest, testHybridMergerSameDocs) {
   QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
 
   // Create upstreams with same documents (full intersection)
   MockUpstream upstream1(0, {2.0, 2.0, 2.0}, {1, 2, 3});
@@ -215,6 +218,9 @@ TEST_F(HybridMergerTest, testHybridMergerSameDocs) {
  */
 TEST_F(HybridMergerTest, testHybridMergerDifferentDocuments) {
   QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
 
   // Create upstreams with different documents (no intersection)
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3});
@@ -269,6 +275,9 @@ TEST_F(HybridMergerTest, testHybridMergerDifferentDocuments) {
  */
 TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream1) {
   QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
 
   // Create upstreams: first empty, second with documents
   MockUpstream upstream1(0, {}, {}); // Empty scores and docIds
@@ -319,6 +328,9 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream1) {
  */
 TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream2) {
   QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
 
   // Create upstreams: first with documents, second empty
   MockUpstream upstream1(0, {7.0, 7.0, 7.0}, {1, 2, 3});
@@ -369,6 +381,9 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream2) {
  */
 TEST_F(HybridMergerTest, testHybridMergerBothEmpty) {
   QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
 
   // Create both upstreams empty
   MockUpstream upstream1(0, {}, {}); // Empty scores and docIds
@@ -411,6 +426,9 @@ TEST_F(HybridMergerTest, testHybridMergerBothEmpty) {
  */
 TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
   QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
 
   // Create RRF upstreams with custom score arrays (already sorted descending for ranking)
   std::vector<double> scores1 = {0.9, 0.5, 0.1, 0.05, 0.01};
@@ -476,6 +494,9 @@ TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
  */
 TEST_F(HybridMergerTest, testHybridMergerLargeWindow) {
   QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
 
   // Create upstreams with same documents (full intersection) but different rankings
   // Upstream1 yields: doc1=0.9(rank1), doc2=0.5(rank2), doc3=0.1(rank3)
@@ -545,6 +566,9 @@ TEST_F(HybridMergerTest, testHybridMergerLargeWindow) {
  */
 TEST_F(HybridMergerTest, testHybridMergerUpstream1DepletesMore) {
   QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
 
   // Create upstreams with different depletion counts
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3}, 3); // depletionCount = 3
@@ -599,6 +623,9 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream1DepletesMore) {
  */
 TEST_F(HybridMergerTest, testHybridMergerUpstream2DepletesMore) {
   QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
 
   // Create upstreams with different depletion counts
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3}, 1); // depletionCount = 1
@@ -661,6 +688,9 @@ void SetupTimeoutTest(QueryIterator* qitr, RSTimeoutPolicy policy, RedisSearchCt
  */
 TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
   QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
   RedisSearchCtx sctx;
   SetupTimeoutTest(&qitr, TimeoutPolicy_Return, &sctx);
 
@@ -720,6 +750,9 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
  */
 TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
   QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
   RedisSearchCtx sctx;
   SetupTimeoutTest(&qitr, TimeoutPolicy_Fail, &sctx);
 
@@ -766,6 +799,9 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
  */
 TEST_F(HybridMergerTest, testRRFScoring) {
   QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
 
   // Create RRF upstreams with custom score arrays for intersection test
   // Upstream1 yields: doc1=0.7(rank1), doc2=0.5(rank2), doc3=0.1(rank3)
@@ -836,6 +872,9 @@ TEST_F(HybridMergerTest, testRRFScoring) {
  */
 TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
   QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
 
   // Create upstreams with different documents (no intersection)
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3});
@@ -892,6 +931,9 @@ TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
  */
 TEST_F(HybridMergerTest, testHybridMergerPartialIntersection) {
   QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
 
   // Create upstreams with partial intersection: {1,2,3} and {2,3,4,5}, all with score 1
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3});
@@ -935,6 +977,9 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersection) {
  */
 TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
   QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
 
   // Create RRF upstreams with custom score arrays for intersection test
   // Upstream1 yields: doc1=0.9(rank1), doc2=0.5(rank2), doc3=0.1(rank3)

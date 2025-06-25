@@ -1696,7 +1696,16 @@ dictType dictTypeHybridSearchResult = {
  /* Yield phase - iterate through results and apply hybrid scoring */
  static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
    RPHybridMerger *self = (RPHybridMerger *)rp;
-   if (unlikely(!self->iterator)) {
+
+   if (QueryError_HasError(rp->parent->err)) {
+     return RS_RESULT_ERROR;
+   }
+
+   if (self->timedOut && rp->parent->timeoutPolicy == TimeoutPolicy_Fail){
+     return RS_RESULT_TIMEDOUT;
+   }
+
+   if (!self->iterator) {
     // Initialize iterator for yield phase
     self->iterator = dictGetIterator(self->hybridResults);
    }
@@ -1704,7 +1713,7 @@ dictType dictTypeHybridSearchResult = {
    // Get next entry from iterator
    dictEntry *entry = dictNext(self->iterator);
    if (!entry) {
-     // No more results to yield - return appropriate status
+     // No more results to yield - return most severe status
      int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
      return ret;
    }
@@ -1726,7 +1735,6 @@ dictType dictTypeHybridSearchResult = {
 
   bool *consumed = rm_calloc(self->numUpstreams, sizeof(bool));
   size_t numConsumed = 0;
-
   // Continuously try to consume from upstreams until all are consumed
   while (numConsumed < self->numUpstreams) {
     for (size_t i = 0; i < self->numUpstreams; i++) {
@@ -1739,23 +1747,14 @@ dictType dictTypeHybridSearchResult = {
       if (rc == RS_RESULT_DEPLETING) {
         // Upstream is still active but not ready to provide results. Skip to the next.
         continue;
-      } else if (rc == RS_RESULT_OK || rc == RS_RESULT_EOF) {
-        // Considered as consumed even if upstream isn't exhausted, since we limit consumption to self->window
-        consumed[i] = true;
-        numConsumed++;
-        continue;
-      } else if (rc == RS_RESULT_TIMEDOUT){
-          if (rp->parent->timeoutPolicy == TimeoutPolicy_Return) {
-            // continue processing other upstreams since they might have available results
-            self->timedOut = true;
-            consumed[i] = true;
-            numConsumed++;
-            continue;
-          } else { // Strict
-            rm_free(consumed);
-            return rc;
-          }
       }
+      if (rc == RS_RESULT_TIMEDOUT){
+        self->timedOut = true;
+        // will continue processing other upstreams
+        // TODO: change to stop processing additional results
+      }
+      consumed[i] = true;
+      numConsumed++;
     }
   }
 
