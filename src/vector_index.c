@@ -119,8 +119,8 @@ IndexIterator *NewVectorIterator(QueryEvalCtx *q, VectorQuery *vq, IndexIterator
                                       .sctx = q->sctx,
                                       .filterCtx = &filterCtx,
       };
-      if (!hParams.childIt || hParams.childIt->type == EMPTY_ITERATOR) {
-       return NewEmptyIterator();
+      if (hParams.childIt && hParams.childIt->type == EMPTY_ITERATOR) {
+        return hParams.childIt;
       } else if (hParams.childIt && hParams.childIt->type == WILDCARD_ITERATOR) {
         hParams.childIt->Free(hParams.childIt);
         hParams.qParams.searchMode = VECSIM_STANDARD_KNN;
