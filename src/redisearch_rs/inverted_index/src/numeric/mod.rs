@@ -189,13 +189,14 @@ impl Encoder for Numeric {
         let delta = delta.pack();
         let end = delta.iter().rposition(|&b| b != 0).map_or(0, |pos| pos + 1);
         let delta = &delta[..end];
+        let delta_bytes = delta.len() as _;
 
         let num_record = unsafe { &record.data.num };
 
         let bytes_written = match FloatValue::from(num_record.0) {
             FloatValue::Tiny(i) => {
                 let header = Header {
-                    delta_bytes: delta.len() as _,
+                    delta_bytes,
                     typ: HeaderType::Tiny(i),
                 };
 
@@ -208,7 +209,7 @@ impl Encoder for Numeric {
                 let bytes = &bytes[..end];
 
                 let header = Header {
-                    delta_bytes: delta.len() as _,
+                    delta_bytes,
                     typ: HeaderType::PositiveInteger((end - 1) as _),
                 };
 
@@ -225,7 +226,7 @@ impl Encoder for Numeric {
                 let bytes = &bytes[..end];
 
                 let header = Header {
-                    delta_bytes: delta.len() as _,
+                    delta_bytes,
                     typ: HeaderType::NegativeInteger((end - 1) as _),
                 };
 
@@ -239,7 +240,7 @@ impl Encoder for Numeric {
                 let bytes = value.to_le_bytes();
 
                 let header = Header {
-                    delta_bytes: delta.len() as _,
+                    delta_bytes,
                     typ: HeaderType::Float32Positive,
                 };
 
@@ -253,7 +254,7 @@ impl Encoder for Numeric {
                 let bytes = value.to_le_bytes();
 
                 let header = Header {
-                    delta_bytes: delta.len() as _,
+                    delta_bytes,
                     typ: HeaderType::Float32Negative,
                 };
 
@@ -267,7 +268,7 @@ impl Encoder for Numeric {
                 let bytes = value.to_le_bytes();
 
                 let header = Header {
-                    delta_bytes: delta.len() as _,
+                    delta_bytes,
                     typ: HeaderType::Float64Positive,
                 };
 
@@ -281,7 +282,7 @@ impl Encoder for Numeric {
                 let bytes = value.to_le_bytes();
 
                 let header = Header {
-                    delta_bytes: delta.len() as _,
+                    delta_bytes,
                     typ: HeaderType::Float64Negative,
                 };
 
@@ -293,7 +294,7 @@ impl Encoder for Numeric {
             }
             FloatValue::Infinity => {
                 let header = Header {
-                    delta_bytes: delta.len() as _,
+                    delta_bytes,
                     typ: HeaderType::FloatInfinite,
                 };
 
@@ -301,7 +302,7 @@ impl Encoder for Numeric {
             }
             FloatValue::NegInfinity => {
                 let header = Header {
-                    delta_bytes: delta.len() as _,
+                    delta_bytes,
                     typ: HeaderType::FloatNegInfinite,
                 };
 
