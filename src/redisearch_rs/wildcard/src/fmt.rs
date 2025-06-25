@@ -56,6 +56,6 @@ impl std::fmt::Display for WildcardPattern<'_> {
         for token in &self.tokens {
             pattern.push_str(&token.to_string());
         }
-        write!(f, "{}", pattern)
+        write!(f, "{pattern}")
     }
 }

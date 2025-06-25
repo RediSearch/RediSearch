@@ -512,8 +512,7 @@ impl<T> LowMemoryThinVec<T> {
             // less than or equal to capacity(). The same applies here.
             debug_assert!(
                 len == 0,
-                "invalid set_len({}) on empty LowMemoryThinVec",
-                len
+                "invalid set_len({len}) on empty LowMemoryThinVec"
             );
         } else {
             // SAFETY:
