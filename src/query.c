@@ -154,6 +154,7 @@ QueryNode *NewQueryNode(QueryNodeType type) {
     .maxSlop = -1,
     .inOrder = 0,
     .weight = 1,
+    .explicitWeight = false,
     .distField = NULL,
   };
   return s;
@@ -1828,6 +1829,54 @@ int QAST_CheckIsValid(QueryAST *q, IndexSpec *spec, RSSearchOptions *opts, Query
   return QueryNode_CheckIsValid(q->root, spec, opts, status);
 }
 
+static int QueryNode_CheckIsValidAsVectorFilter(QueryNode *n, QueryError *status) {
+  int withChildren = 1;
+  int res = REDISMODULE_OK;
+  switch(n->type) {
+    case QN_VECTOR:
+      if (n->vn.vq->type == VECSIM_QT_KNN) {
+        QueryError_SetError(status, QUERY_ESYNTAX, "VECTOR KNN queries are not allowed in a vector filter");
+        res = REDISMODULE_ERR;
+      } else if (n->vn.vq->type == VECSIM_QT_RANGE) {
+        QueryError_SetError(status, QUERY_ESYNTAX, "VECTOR RANGE queries are not allowed in a vector filter");
+        res = REDISMODULE_ERR;
+      }
+      break;
+    case QN_NULL:
+    case QN_MISSING:
+    case QN_MAX:
+      withChildren = 0;
+      break;
+    default:
+      if (n->opts.explicitWeight) {
+        QueryError_SetError(status, QUERY_ESYNTAX, "Weight attribute is not allowed in a vector filter");
+        res = REDISMODULE_ERR;
+      }
+      break;
+  }
+  // Handle children
+  if (withChildren && res == REDISMODULE_OK) {
+    for (size_t ii = 0; ii < QueryNode_NumChildren(n); ++ii) {
+      res = QueryNode_CheckIsValidAsVectorFilter(n->children[ii], status);
+      if (res == REDISMODULE_ERR)
+        break;
+    }
+  }
+  return res;
+}
+
+// Checks whether QAST is valid as vector filter.
+// It can't contain:
+// Vector KNN search =>[KNN num_neighbours @field $vector]
+// Vector RANGE search @<vector_field>:[VECTOR_RANGE (<radius> | $<radius_param>) $<vector_blob_param> $<vector_query_params>]
+// Weight attribute  =>{weight: X}
+int QAST_CheckIsValidAsVectorFilter(QueryAST *q, QueryError *status) {
+  if (!q || !q->root) {
+    return REDISMODULE_OK;
+  }
+  return QueryNode_CheckIsValidAsVectorFilter(q->root, status);
+}
+
 /* Set the field mask recursively on a query node. This is called by the parser to handle
  * situations like @foo:(bar baz|gaz), where a complex tree is being applied a field mask */
 void QueryNode_SetFieldMask(QueryNode *n, t_fieldMask mask) {
@@ -2207,6 +2256,7 @@ static int QueryNode_ApplyAttribute(QueryNode *qn, QueryAttribute *attr, QueryEr
       return res;
     }
     qn->opts.weight = d;
+    qn->opts.explicitWeight = true;
     res = 1;
 
   } else if (STR_EQCASE(attr->name, attr->namelen, PHONETIC_ATTR)) {
