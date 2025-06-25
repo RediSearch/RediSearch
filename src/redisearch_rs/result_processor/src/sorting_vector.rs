@@ -86,8 +86,6 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
     /// Creates a new [`RSSortingVector`] with the given length.
     pub fn new(len: usize) -> Self {
         Self {
-            // Safety: The C side is responsible for allocating the memory for the RSValue instances,
-            // and we initialize them with null values of the C side.
             values: vec![T::create_null(); len].into_boxed_slice(),
         }
     }
@@ -96,6 +94,14 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
     /// Returns `true` if the index is valid , `false` otherwise.
     fn sanity_check(&self, idx: usize) -> bool {
         idx < self.values.len()
+    }
+
+    pub fn iter(&self) -> Iter<'_, T> {
+        self.values.iter()
+    }
+
+    pub fn iter_mut(&mut self) -> IterMut<'_, T> {
+        self.values.iter_mut()
     }
 
     /// Set a number (double) at the given index
@@ -111,7 +117,7 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
 
     /// Set a string at the given index
     pub fn put_string(&mut self, idx: usize, str: &str) {
-        if self.sanity_check(idx) {
+        if !self.sanity_check(idx) {
             return;
         }
 
@@ -135,13 +141,22 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
         self.values[idx] = T::create_string(str);
     }
 
-    /// Set a reference to the value at the given index
-    pub fn put_val_as_ref(&mut self, idx: usize, value: T) {
-        if self.sanity_check(idx) {
+    /// Set a value at the given index
+    pub fn put_val(&mut self, idx: usize, value: T) {
+        if !self.sanity_check(idx) {
             return;
         }
 
         self.values[idx] = value;
+    }
+
+    /// Set a reference to the value at the given index
+    pub fn put_val_as_ref(&mut self, idx: usize, value: T) {
+        if !self.sanity_check(idx) {
+            return;
+        }
+
+        self.values[idx] = T::create_ref(value);
     }
 
     /// Set a null value at the given index
@@ -217,4 +232,137 @@ fn walk_down_rsvalue_ref_chain<T: RSValueTrait>(origin: &T) -> &T {
         loop_var = loop_var.get_ref().unwrap();
     }
     loop_var
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[derive(Clone, Debug, PartialEq)]
+    enum RSValueMock {
+        Null,
+        Number(f64),
+        String(String),
+        Reference(Box<RSValueMock>),
+    }
+
+    impl RSValueTrait for RSValueMock {
+        fn create_null() -> Self {
+            RSValueMock::Null
+        }
+
+        fn create_string(s: &str) -> Self {
+            RSValueMock::String(s.to_string())
+        }
+
+        fn create_num(num: f64) -> Self {
+            RSValueMock::Number(num)
+        }
+
+        fn create_ref(value: Self) -> Self {
+            RSValueMock::Reference(Box::new(value))
+        }
+
+        fn is_null(&self) -> bool {
+            matches!(self, RSValueMock::Null)
+        }
+
+        fn get_ref(&self) -> Option<&Self> {
+            if let RSValueMock::Reference(boxed) = self {
+                Some(boxed)
+            } else {
+                None
+            }
+        }
+
+        fn get_ref_mut(&mut self) -> Option<&mut Self> {
+            if let RSValueMock::Reference(boxed) = self {
+                Some(boxed.as_mut())
+            } else {
+                None
+            }
+        }
+
+        fn as_str(&self) -> Option<&str> {
+            if let RSValueMock::String(s) = self {
+                Some(s)
+            } else {
+                None
+            }
+        }
+
+        fn as_num(&self) -> Option<f64> {
+            if let RSValueMock::Number(num) = self {
+                Some(*num)
+            } else {
+                None
+            }
+        }
+
+        fn get_type(&self) -> ffi::RSValueType {
+            // Mock implementation, return a dummy type
+            match &self {
+                RSValueMock::Null => ffi::RSValueType_RSValue_Null,
+                RSValueMock::Number(_) => ffi::RSValueType_RSValue_Number,
+                RSValueMock::String(_) => ffi::RSValueType_RSValue_String,
+                RSValueMock::Reference(reference) => reference.get_type(),
+            }
+        }
+    }
+
+    #[test]
+    fn test_rssortingvector_creation() {
+        let vector: RSSortingVector<RSValueMock> = RSSortingVector::new(10);
+        assert_eq!(vector.len(), 10);
+
+        for value in vector {
+            assert!(value.is_null());
+        }
+    }
+
+    fn build_vector() -> RSSortingVector<RSValueMock> {
+        let mut vector = RSSortingVector::new(5);
+        vector.put_num(0, 42.0);
+        vector.put_string(1, "Hello");
+        vector.put_val_as_ref(2, RSValueMock::create_num(3.));
+        vector.put_val(3, RSValueMock::create_string("World"));
+        vector.put_null(4);
+        vector
+    }
+
+    #[test]
+    fn test_rssortingvector_put() {
+        let vector: &mut RSSortingVector<RSValueMock> = &mut build_vector();
+
+        assert_eq!(vector[0].as_num(), Some(42.0));
+        assert_eq!(vector[1].as_str(), Some("Hello"));
+        assert_eq!(vector[2].get_ref().unwrap().as_num(), Some(3.0));
+        assert_eq!(vector[3].as_str(), Some("World"));
+        assert!(vector[4].is_null());
+    }
+
+    #[test]
+    fn test_rssortingvector_override() {
+        let src = build_vector();
+        let mut dst: RSSortingVector<RSValueMock> = RSSortingVector::new(1);
+        assert_eq!(dst[0], RSValueMock::create_null());
+
+        for (idx, val) in src.iter().enumerate() {
+            dst.put_val(0, val.clone());
+            assert_eq!(dst[0], src[idx]);
+        }
+
+        assert_eq!(dst[0], RSValueMock::create_null());
+    }
+
+    #[test]
+    fn test_normlize_in_c_equals_rust_impl() {
+        let cstr = std::ffi::CString::new("Straße").unwrap();
+        let rstr = cstr.to_str().unwrap();
+
+        // we wont bind the normlize str functio based on nu
+        let rimpl = rstr.to_lowercase();
+        assert_eq!(rimpl, "strasse");
+    }
 }
