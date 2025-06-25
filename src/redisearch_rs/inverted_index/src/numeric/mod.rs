@@ -28,7 +28,7 @@
 //! 3. **Value bytes** (0-8 bytes) - the numeric value if not encoded in header, may be empty
 //!
 //! ## Header Byte Layout {#header-layout}
-//! The header, which is the first section, always takes up one byte and is layed out as follows:
+//! The header, which is the first section, always takes up one byte and is laid out as follows:
 //!
 //! ```text
 //! Bit:    7    6    5      4    3      2    1    0
