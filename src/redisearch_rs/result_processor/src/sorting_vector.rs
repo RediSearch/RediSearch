@@ -7,9 +7,12 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::ops::{Index, IndexMut};
+use std::{
+    ops::{Index, IndexMut},
+    slice::{Iter, IterMut},
+};
 
-/// A trait that defines the behavior of a Redisearch RSValue.
+/// A trait that defines the behavior of a RediSearch RSValue.
 ///
 /// This trait is used to create, manipulate, and free RSValue instances. It is
 /// implemented by a mock type for testing purposes, and by a new-type in the ffi layer to
@@ -49,6 +52,34 @@ pub trait RSValueTrait {
 /// A [`RSSortingVector`] is a vector of a type T implementing [`RSValueTrait`].
 pub struct RSSortingVector<T: RSValueTrait + Clone> {
     values: Box<[T]>,
+}
+
+// Consuming iterator: yields owned T by consuming the vector.
+impl<T: RSValueTrait + Clone> IntoIterator for RSSortingVector<T> {
+    type Item = T;
+    type IntoIter = std::vec::IntoIter<T>;
+    fn into_iter(self) -> Self::IntoIter {
+        // this does not use a new allocation
+        Vec::from(self.values).into_iter()
+    }
+}
+
+// Immutable borrowing iterator: yields &T without consuming the vector.
+impl<'a, T: RSValueTrait + Clone> IntoIterator for &'a RSSortingVector<T> {
+    type Item = &'a T;
+    type IntoIter = Iter<'a, T>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.values.iter()
+    }
+}
+
+// Mutable borrowing iterator: yields &mut T for element modification.
+impl<'a, T: RSValueTrait + Clone> IntoIterator for &'a mut RSSortingVector<T> {
+    type Item = &'a mut T;
+    type IntoIter = IterMut<'a, T>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.values.iter_mut()
+    }
 }
 
 impl<T: RSValueTrait + Clone> RSSortingVector<T> {
