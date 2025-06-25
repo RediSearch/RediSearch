@@ -49,6 +49,9 @@ undocumented_unsafe_blocks = "warn"
 # We can also more easily track the amount of unsafe operations throughout
 # the codebase.
 multiple_unsafe_ops_per_block = "warn"
+# See https://github.com/RediSearch/RediSearch/pull/6374 for the rationale.
+# It'll be removed once Rust 1.89.0 is released.
+collapsible_if = "allow"
 
 [workspace.package]
 version = "0.0.1"
