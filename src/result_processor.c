@@ -1713,7 +1713,7 @@ dictType dictTypeHybridSearchResult = {
    // Get next entry from iterator
    dictEntry *entry = dictNext(self->iterator);
    if (!entry) {
-     // No more results to yield - return most severe status
+     // No more results to yield
      int ret = self->timedOut ? RS_RESULT_TIMEDOUT : RS_RESULT_EOF;
      return ret;
    }
