@@ -16,7 +16,6 @@ jobs:
       redis-ref: unstable
       test-config: QUICK=1
       fail-fast: false
-      add_nightly_platforms: true
 
   test-macos:
     uses: ./.github/workflows/flow-macos.yml
@@ -43,8 +42,13 @@ jobs:
       san: address
       env: ubuntu-latest
 
+  micro-benchmarks:
+    uses: ./.github/workflows/flow-micro-benchmarks.yml
+    secrets: inherit
+
+
   notify-failure:
-    needs: [test-linux, test-macos, coverage, sanitize]
+    needs: [test-linux, test-macos, coverage, sanitize, micro-benchmarks]
     if: failure()
     runs-on: ${{ vars.RUNS_ON || 'ubuntu-latest' }}
     steps:

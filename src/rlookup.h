@@ -206,24 +206,36 @@ typedef enum {
 #define RLOOKUP_TRANSIENT_FLAGS (RLOOKUP_F_OVERRIDE | RLOOKUP_F_FORCE_LOAD)
 
 /**
- * Get a RLookup key for a given name. The behavior of this function depends on
- * the flags and mode. For loading, use RLookup_GetKey_Load().
+ * Get a RLookup key for a given name.
  *
- * 1. On READ mode, a key is returned only if it's already in the lookup table (available from the pipeline upstream),
- *    it is part of the index schema and is sortable (and then it is created),
- *    or if the lookup table excepts unresolved keys.
+ * 1. On READ mode, a key is returned only if it's already in the lookup table (available from the
+ * pipeline upstream), it is part of the index schema and is sortable (and then it is created), or
+ * if the lookup table accepts unresolved keys.
+ */
+RLookupKey *RLookup_GetKey_Read(RLookup *lookup, const char *name, uint32_t flags);
+RLookupKey *RLookup_GetKey_ReadEx(RLookup *lookup, const char *name, size_t name_len,
+                                  uint32_t flags);
+/**
+ * Get a RLookup key for a given name.
  *
- * 2. On WRITE mode, a key is created and returned only if it's NOT in the lookup table, unless the override flag is set.
+ * 2. On WRITE mode, a key is created and returned only if it's NOT in the lookup table, unless the
+ * override flag is set.
  */
-RLookupKey *RLookup_GetKey(RLookup *lookup, const char *name, RLookupMode mode, uint32_t flags);
-RLookupKey *RLookup_GetKeyEx(RLookup *lookup, const char *name, size_t name_len, RLookupMode mode, uint32_t flags);
- /**
- * 3. On LOAD mode, a key is created and returned only if it's NOT in the lookup table (unless the override flag is set),
- *    and it is not already loaded. It will override an existing key if it was created for read out of a sortable field,
- *    and the field was normalized. A sortable un-normalized field counts as loaded.
+RLookupKey *RLookup_GetKey_Write(RLookup *lookup, const char *name, uint32_t flags);
+RLookupKey *RLookup_GetKey_WriteEx(RLookup *lookup, const char *name, size_t name_len,
+                                   uint32_t flags);
+/**
+ * Get a RLookup key for a given name.
+ *
+ * 3. On LOAD mode, a key is created and returned only if it's NOT in the lookup table (unless the
+ * override flag is set), and it is not already loaded. It will override an existing key if it was
+ * created for read out of a sortable field, and the field was normalized. A sortable un-normalized
+ * field counts as loaded.
  */
-RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name, uint32_t flags);
-RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len, const char *field_name, uint32_t flags);
+RLookupKey *RLookup_GetKey_Load(RLookup *lookup, const char *name, const char *field_name,
+                                uint32_t flags);
+RLookupKey *RLookup_GetKey_LoadEx(RLookup *lookup, const char *name, size_t name_len,
+                                  const char *field_name, uint32_t flags);
 
 /**
  * Get the amount of visible fields is the RLookup
@@ -291,8 +303,8 @@ static inline RSValue *RLookup_GetItem(const RLookupKey *key, const RLookupRow *
   }
   if (!ret) {
     if (key->flags & RLOOKUP_F_SVSRC) {
-      if (row->sv && row->sv->len > key->svidx) {
-        ret = row->sv->values[key->svidx];
+      if (row->sv && RSSortingVector_Length(row->sv) > key->svidx) {
+        ret = RSSortingVector_Get(row->sv, key->svidx);
         if (ret != NULL && ret == RS_NullVal()) {
           ret = NULL;
         }
