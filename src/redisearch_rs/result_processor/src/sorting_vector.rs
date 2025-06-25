@@ -135,11 +135,7 @@ impl<T: RSValueTrait + Clone> RSSortingVector<T> {
             return;
         }
 
-        // todo: find a rust implementation of `normalizeStr` that is equivalent to the C implementation.
-        // todo move elsewhere
-        //let normalized = str.to_lowercase();
-        //let (ptr, len) = alloc_c_string(&normalized);
-
+        // generate a case mapper for utf8 normalization/folding
         let casemapper = CaseMapper::new();
         let normalized = casemapper.fold_string(str);
         self.values[idx] = T::create_string(&normalized);

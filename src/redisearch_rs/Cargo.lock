@@ -1761,6 +1761,7 @@ version = "0.0.1"
 dependencies = [
  "cbindgen",
  "ffi",
+ "libc",
  "result_processor",
 ]
 
