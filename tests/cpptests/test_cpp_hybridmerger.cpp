@@ -15,6 +15,7 @@
 #include "hybrid_scoring.h"
 #include <vector>
 #include <string>
+#include <set>
 
 struct processor1Ctx : public ResultProcessor {
   processor1Ctx() {
@@ -695,10 +696,10 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
   std::vector<t_docId> expectedDocIds = {1, 2, 11, 12, 13, 14, 15};
   ASSERT_EQ(expectedDocIds.size(), receivedDocIds.size());
 
-  // Sort both vectors for comparison since order may vary
-  std::sort(receivedDocIds.begin(), receivedDocIds.end());
-  std::sort(expectedDocIds.begin(), expectedDocIds.end());
-  EXPECT_EQ(expectedDocIds, receivedDocIds);
+  // Convert to sets for comparison since order may vary
+  std::set<t_docId> expectedDocIdSet(expectedDocIds.begin(), expectedDocIds.end());
+  std::set<t_docId> receivedDocIdSet(receivedDocIds.begin(), receivedDocIds.end());
+  EXPECT_EQ(expectedDocIdSet, receivedDocIdSet);
 
   // Final result should be EOF after collecting everything available
   ASSERT_EQ(RS_RESULT_TIMEDOUT, rc);
