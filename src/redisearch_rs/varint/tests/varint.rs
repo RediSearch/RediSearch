@@ -247,17 +247,17 @@ fn test_u128_encoded_bytes() {
     }
 }
 
-fn roundtrip_value<T: VarintEncode + std::fmt::Debug + PartialEq + Eq + Copy>(value: T) {
-    let mut buf = Vec::new();
-    value.write_as_varint(&mut buf).unwrap();
-    let decoded: T = varint::read(&mut Cursor::new(buf)).unwrap();
-    assert_eq!(decoded, value);
-}
-
 mod property_based {
     //! Round-trip tests with randomly-generated values of different sizes.
     #![cfg(not(miri))]
     use super::*;
+
+    fn roundtrip_value<T: VarintEncode + std::fmt::Debug + PartialEq + Eq + Copy>(value: T) {
+        let mut buf = Vec::new();
+        value.write_as_varint(&mut buf).unwrap();
+        let decoded: T = varint::read(&mut Cursor::new(buf)).unwrap();
+        assert_eq!(decoded, value);
+    }
 
     proptest::proptest! {
         #[test]
