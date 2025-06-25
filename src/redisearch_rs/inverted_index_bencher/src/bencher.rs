@@ -283,15 +283,16 @@ fn numeric_c_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &B
             format!("Value size: {value_size}/Delta size: {delta_size}"),
         ),
         |b| {
-            b.iter(|| {
-                for (_, _, buffer) in values {
-                    let buffer_ptr = NonNull::new(buffer.as_ptr() as *mut _).unwrap();
-                    let mut buffer = unsafe { Buffer::new(buffer_ptr, buffer.len(), buffer.len()) };
+            for (_, _, buffer) in values {
+                let buffer_ptr = NonNull::new(buffer.as_ptr() as *mut _).unwrap();
+                let mut buffer = unsafe { Buffer::new(buffer_ptr, buffer.len(), buffer.len()) };
+
+                b.iter(|| {
                     let (_filtered, result) = read_numeric(&mut buffer, 100);
 
                     black_box(result);
-                }
-            });
+                });
+            }
         },
     );
 }
@@ -303,13 +304,12 @@ fn numeric_rust_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
         value_size,
     } = input;
 
-    group.bench_with_input(
+    group.bench_function(
         BenchmarkId::new(
             "Rust",
             format!("Value size: {value_size}/Delta size: {delta_size}"),
         ),
-        values,
-        |b, values| {
+        |b| {
             b.iter_batched(
                 || TestBuffer::with_capacity((1 + delta_size + value_size) * values.len()),
                 |mut buffer| {
@@ -342,17 +342,18 @@ fn numeric_rust_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input:
             format!("Value size: {value_size}/Delta size: {delta_size}"),
         ),
         |b| {
-            b.iter(|| {
-                for (_, _, buffer) in values {
-                    let buffer_ptr = NonNull::new(buffer.as_ptr() as *mut _).unwrap();
-                    let buffer = unsafe { Buffer::new(buffer_ptr, buffer.len(), buffer.len()) };
+            for (_, _, buffer) in values {
+                let buffer_ptr = NonNull::new(buffer.as_ptr() as *mut _).unwrap();
+                let buffer = unsafe { Buffer::new(buffer_ptr, buffer.len(), buffer.len()) };
+
+                b.iter(|| {
                     let mut buffer_reader = BufferReader::new(&buffer);
 
                     let result = Numeric.decode(&mut buffer_reader, 100);
 
                     let _ = black_box(result);
-                }
-            });
+                });
+            }
         },
     );
 }
