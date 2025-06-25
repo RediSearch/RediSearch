@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use super::write;
+use super::VarintEncode;
 
 #[derive(Debug)]
 /// A structure to encode multiple integers into a single byte buffer,
@@ -48,7 +48,7 @@ impl VectorWriter {
         // If the value we're trying to encode is smaller than the last value,
         // we wrap around rather than underflowing.
         let diff = value.wrapping_sub(self.last_value);
-        let size = write(diff, &mut self.buffer)?;
+        let size = diff.write_as_varint(&mut self.buffer)?;
         self.n_members += 1;
         self.last_value = value;
 
@@ -59,6 +59,11 @@ impl VectorWriter {
     #[inline(always)]
     pub fn bytes(&self) -> &[u8] {
         &self.buffer
+    }
+
+    /// The capacity of the internal byte buffer.
+    pub fn capacity(&self) -> usize {
+        self.buffer.capacity()
     }
 
     /// Get a mutable reference to the internal byte buffer.
