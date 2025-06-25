@@ -86,6 +86,7 @@ struct BenchGroup {
 }
 
 struct BenchInput {
+    /// Stores the value, delta and the encoded buffer for this benchmark run
     values: Vec<(f64, usize, Vec<u8>)>,
     delta_size: usize,
     value_size: usize,
@@ -191,6 +192,7 @@ fn generate_test_values() -> Vec<BenchGroup> {
             )| {
                 let inputs = values
                     .into_iter()
+                    // We need to find the actual resulting output for the decoding benchmarks
                     .map(|value| {
                         let record = inverted_index::RSIndexResult::numeric(0, value);
                         let mut buffer = Cursor::new(Vec::new());
@@ -200,6 +202,7 @@ fn generate_test_values() -> Vec<BenchGroup> {
 
                         (value, delta, buffer)
                     })
+                    // Find the input and delta sizes in bytes to group the benchmarks
                     .map(|(value, delta, buffer)| {
                         let value_size = value_size_fn(value);
                         let delta_size = (((delta + 1) as f64).log2() / 8.0).ceil() as usize;
