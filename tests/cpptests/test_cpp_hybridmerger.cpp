@@ -880,6 +880,49 @@ TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
 }
 
 /*
+ * Test that hybrid merger correctly handles partial intersection with linear scoring
+ *
+ * Scoring function: Hybrid linear
+ * Number of upstreams: 2
+ * Intersection: Partial intersection (documents 2,3 appear in both upstreams)
+ * Emptiness: Both upstreams have documents
+ * Timeout: No timeout
+ * Expected behavior: Documents 2,3 get combined scores from both upstreams
+ */
+TEST_F(HybridMergerTest, testHybridMergerPartialIntersection) {
+  QueryIterator qitr = {0};
+
+  // Create upstreams with partial intersection: {1,2,3} and {2,3,4,5}, all with score 1
+  MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3});
+  MockUpstream upstream2(0, {1.0, 1.0, 1.0, 1.0}, {2, 3, 4, 5});
+
+  // Create hybrid merger with linear scoring
+  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  double weights[] = {0.5, 0.5};
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
+
+  QITR_PushRP(&qitr, hybridMerger);
+
+  // Process and verify results
+  SearchResult r = {0};
+  ResultProcessor *rpTail = qitr.endProc;
+  int lastResult;
+
+  while ((lastResult = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
+    if (r.docId == 1 || r.docId == 4 || r.docId == 5) {
+      ASSERT_EQ(0.5, r.score); // Single upstream: 0.5 * 1.0 = 0.5
+    } else if (r.docId == 2 || r.docId == 3) {
+      ASSERT_EQ(1.0, r.score); // Both upstreams: 0.5 * 1.0 + 0.5 * 1.0 = 1.0
+    }
+    SearchResult_Clear(&r);
+  }
+
+  ASSERT_EQ(RS_RESULT_EOF, lastResult);
+  SearchResult_Destroy(&r);
+  QITR_FreeChain(&qitr);
+}
+
+/*
  * Test that hybrid merger with RRF scoring function with 3 upstreams (full intersection)
  *
  * Scoring function: RRF (Reciprocal Rank Fusion)
