@@ -150,9 +150,6 @@ use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult, RSResultType}
 trait ToFromBytes<const N: usize> {
     /// Packs self into a byte vector.
     fn pack(self) -> [u8; N];
-
-    /// Unpacks a byte slice into self.
-    fn unpack(bytes: [u8; N]) -> Self;
 }
 
 impl ToFromBytes<{ size_of::<usize>() }> for Delta {
@@ -161,16 +158,16 @@ impl ToFromBytes<{ size_of::<usize>() }> for Delta {
         let delta = self.0;
         delta.to_le_bytes()
     }
-
-    #[inline(always)]
-    fn unpack(data: [u8; size_of::<usize>()]) -> Self {
-        let delta = usize::from_le_bytes(data);
-
-        Delta(delta)
-    }
 }
 
 pub struct Numeric;
+
+impl Numeric {
+    const TINY_TYPE: u8 = 0b00;
+    const FLOAT_TYPE: u8 = 0b01;
+    const POS_INT_TYPE: u8 = 0b10;
+    const NEG_INT_TYPE: u8 = 0b11;
+}
 
 impl Encoder for Numeric {
     fn encode<W: Write + std::io::Seek>(
@@ -348,87 +345,63 @@ impl Decoder for Numeric {
     ) -> std::io::Result<Option<DecoderResult>> {
         let mut header = [0; 1];
         reader.read_exact(&mut header)?;
-        let header = Header::unpack(header);
 
-        let mut delta = [0; size_of::<usize>()];
-        reader.read_exact(&mut delta[..(header.delta_bytes) as _])?;
-        let delta = Delta::unpack(delta);
+        let header = header[0];
+        let delta_bytes = header & 0b111;
+        let type_bits = (header >> 3) & 0b11;
+        let upper_bits = header >> 5;
+
+        let delta = read_usize(&mut reader, delta_bytes as _)?;
+        let delta = Delta(delta);
+
+        let num = match type_bits {
+            Self::TINY_TYPE => upper_bits as f64,
+            Self::FLOAT_TYPE => match upper_bits {
+                0b000 => read_f32(&mut reader)? as _,
+                0b010 => read_f32(&mut reader)?.copysign(-1.0) as _,
+                0b100 => read_f64(&mut reader)?,
+                0b110 => read_f64(&mut reader)?.copysign(-1.0),
+                0b101 | 0b001 => f64::INFINITY,
+                0b111 | 0b011 => f64::NEG_INFINITY,
+                _ => unreachable!("All upper bits combinations are covered"),
+            },
+            Self::POS_INT_TYPE => read_u64(&mut reader, upper_bits as usize + 1)? as _,
+            Self::NEG_INT_TYPE => {
+                let v = read_u64(&mut reader, upper_bits as usize + 1)?;
+                (v as f64).copysign(-1.0)
+            }
+            _ => unreachable!("All four possible combinations are covered"),
+        };
 
         let doc_id = base + (delta.0 as u64);
-
-        let num = match header.typ {
-            HeaderType::Tiny(i) => i as _,
-            HeaderType::PositiveInteger(len) => {
-                let mut bytes = [0; 8];
-                reader.read_exact(&mut bytes[..(len + 1) as _])?;
-                let num = u64::from_le_bytes(bytes);
-
-                num as _
-            }
-            HeaderType::NegativeInteger(len) => {
-                let mut bytes = [0; 8];
-                reader.read_exact(&mut bytes[..(len + 1) as _])?;
-                let num = u64::from_le_bytes(bytes);
-
-                (num as f64).copysign(-1.0)
-            }
-            HeaderType::Float {
-                is_infinite: true,
-                is_negative: false,
-                is_f64: _,
-            } => f64::INFINITY,
-            HeaderType::Float {
-                is_infinite: true,
-                is_negative: true,
-                is_f64: _,
-            } => f64::NEG_INFINITY,
-            HeaderType::Float {
-                is_f64: false,
-                is_negative: false,
-                ..
-            } => {
-                let mut bytes = [0; 4];
-                reader.read_exact(&mut bytes)?;
-                let f = f32::from_le_bytes(bytes);
-
-                f as _
-            }
-            HeaderType::Float {
-                is_f64: false,
-                is_negative: true,
-                ..
-            } => {
-                let mut bytes = [0; 4];
-                reader.read_exact(&mut bytes)?;
-                let f = f32::from_le_bytes(bytes).copysign(-1.0);
-
-                f as _
-            }
-            HeaderType::Float {
-                is_f64: true,
-                is_negative: false,
-                ..
-            } => {
-                let mut bytes = [0; 8];
-                reader.read_exact(&mut bytes)?;
-
-                f64::from_le_bytes(bytes)
-            }
-            HeaderType::Float {
-                is_f64: true,
-                is_negative: true,
-                ..
-            } => {
-                let mut bytes = [0; 8];
-                reader.read_exact(&mut bytes)?;
-
-                f64::from_le_bytes(bytes).copysign(-1.0)
-            }
-        };
         let record = RSIndexResult::numeric(doc_id, num);
 
         Ok(Some(DecoderResult::Record(record)))
     }
+}
+
+fn read_usize<R: Read>(reader: &mut R, len: usize) -> std::io::Result<usize> {
+    let mut bytes = [0; size_of::<usize>()];
+    reader.read_exact(&mut bytes[..len])?;
+    Ok(usize::from_le_bytes(bytes))
+}
+
+fn read_u64<R: Read>(reader: &mut R, len: usize) -> std::io::Result<u64> {
+    let mut bytes = [0; 8];
+    reader.read_exact(&mut bytes[..len])?;
+    Ok(u64::from_le_bytes(bytes))
+}
+
+fn read_f32<R: Read>(reader: &mut R) -> std::io::Result<f32> {
+    let mut bytes = [0; 4];
+    reader.read_exact(&mut bytes)?;
+    Ok(f32::from_le_bytes(bytes))
+}
+
+fn read_f64<R: Read>(reader: &mut R) -> std::io::Result<f64> {
+    let mut bytes = [0; 8];
+    reader.read_exact(&mut bytes)?;
+    Ok(f64::from_le_bytes(bytes))
 }
 
 enum FloatValue {
@@ -546,68 +519,6 @@ impl ToFromBytes<1> for Header {
         }
 
         [packed]
-    }
-
-    #[inline(always)]
-    fn unpack(data: [u8; 1]) -> Self {
-        let data = data[0];
-
-        let delta_bytes = data & 0b111;
-        let data = data >> 3;
-        let type_bits = data & 0b11;
-        let upper_bits = data >> 2;
-
-        match type_bits {
-            Self::TINY_TYPE => Self {
-                delta_bytes,
-                typ: HeaderType::Tiny(upper_bits),
-            },
-            Self::FLOAT_TYPE => Self {
-                delta_bytes,
-                typ: match upper_bits {
-                    0b110 => HeaderType::Float {
-                        is_infinite: false,
-                        is_negative: true,
-                        is_f64: true,
-                    },
-                    0b100 => HeaderType::Float {
-                        is_infinite: false,
-                        is_negative: false,
-                        is_f64: true,
-                    },
-                    0b010 => HeaderType::Float {
-                        is_infinite: false,
-                        is_negative: true,
-                        is_f64: false,
-                    },
-                    0b000 => HeaderType::Float {
-                        is_infinite: false,
-                        is_negative: false,
-                        is_f64: false,
-                    },
-                    0b101 | 0b001 => HeaderType::Float {
-                        is_infinite: true,
-                        is_negative: false,
-                        is_f64: false,
-                    },
-                    0b111 | 0b011 => HeaderType::Float {
-                        is_infinite: true,
-                        is_negative: true,
-                        is_f64: false,
-                    },
-                    _ => unreachable!("All upper bits combinations are covered"),
-                },
-            },
-            Self::POS_INT_TYPE => Self {
-                delta_bytes,
-                typ: HeaderType::PositiveInteger(upper_bits),
-            },
-            Self::NEG_INT_TYPE => Self {
-                delta_bytes,
-                typ: HeaderType::NegativeInteger(upper_bits),
-            },
-            _ => unreachable!("All four possible combinations are covered"),
-        }
     }
 }
 
