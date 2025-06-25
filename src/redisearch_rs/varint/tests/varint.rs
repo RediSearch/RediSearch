@@ -7,7 +7,7 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, u128};
+use std::io::Cursor;
 
 use varint::*;
 
