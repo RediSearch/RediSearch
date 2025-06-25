@@ -973,6 +973,63 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersection) {
 }
 
 /*
+ * Test that hybrid merger with RRF scoring function handles partial intersection correctly
+ *
+ * Scoring function: RRF (Reciprocal Rank Fusion)
+ * Number of upstreams: 2
+ * Intersection: Partial intersection (documents 2,3 appear in both upstreams)
+ * Emptiness: Both upstreams have documents
+ * Timeout: No timeout
+ * Expected behavior: Documents 2,3 get combined RRF scores from both upstreams, others get single upstream RRF scores
+ */
+TEST_F(HybridMergerTest, testHybridMergerPartialIntersectionRRF) {
+  QueryIterator qitr = {0};
+  QueryError qerr;
+  QueryError_Init(&qerr);
+  qitr.err = &qerr;
+
+  // Create upstreams with partial intersection: {1,2,3} and {2,3,4,5}
+  // Using different scores to create different rankings
+  MockUpstream upstream1(0, {0.9, 0.7, 0.5}, {1, 2, 3}); // doc1=rank1, doc2=rank2, doc3=rank3
+  MockUpstream upstream2(0, {0.8, 0.6, 0.4, 0.2}, {2, 3, 4, 5}); // doc2=rank1, doc3=rank2, doc4=rank3, doc5=rank4
+
+  // Create hybrid merger with RRF scoring
+  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
+  ResultProcessor *hybridMerger = CreateRRFHybridMerger(upstreams, 2, 60, 5); // k=60, window=5
+
+  QITR_PushRP(&qitr, hybridMerger);
+
+  // Process and verify results
+  SearchResult r = {0};
+  ResultProcessor *rpTail = qitr.endProc;
+  int lastResult;
+
+  while ((lastResult = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
+    if (r.docId == 1) {
+      // Only in upstream1 at rank 1: RRF = 1/(60+1) = 1/61 ≈ 0.0164
+      ASSERT_NEAR(1.0/61.0, r.score, 0.001);
+    } else if (r.docId == 2) {
+      // In upstream1 at rank 2, upstream2 at rank 1: RRF = 1/(60+2) + 1/(60+1) = 1/62 + 1/61 ≈ 0.0325
+      ASSERT_NEAR(1.0/62.0 + 1.0/61.0, r.score, 0.001);
+    } else if (r.docId == 3) {
+      // In upstream1 at rank 3, upstream2 at rank 2: RRF = 1/(60+3) + 1/(60+2) = 1/63 + 1/62 ≈ 0.0320
+      ASSERT_NEAR(1.0/63.0 + 1.0/62.0, r.score, 0.001);
+    } else if (r.docId == 4) {
+      // Only in upstream2 at rank 3: RRF = 1/(60+3) = 1/63 ≈ 0.0159
+      ASSERT_NEAR(1.0/63.0, r.score, 0.001);
+    } else if (r.docId == 5) {
+      // Only in upstream2 at rank 4: RRF = 1/(60+4) = 1/64 ≈ 0.0156
+      ASSERT_NEAR(1.0/64.0, r.score, 0.001);
+    }
+    SearchResult_Clear(&r);
+  }
+
+  ASSERT_EQ(RS_RESULT_EOF, lastResult);
+  SearchResult_Destroy(&r);
+  QITR_FreeChain(&qitr);
+}
+
+/*
  * Test that hybrid merger with RRF scoring function with 3 upstreams (full intersection)
  *
  * Scoring function: RRF (Reciprocal Rank Fusion)
