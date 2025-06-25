@@ -167,7 +167,6 @@ def testIssue1305(env):
                    'doc1' : ['0', ['title', '"hello,work"']]}
     res = env.cmd('ft.search', 'myIdx', '~@title:{wor} ~@title:{hell}', 'WITHSCORES')[1:]
     res = {res[i]:res[i + 1: i + 3] for i in range(0, len(res), 3)}
-    # the score of the results become "nan", check why it has to be "0"
     env.assertEqual(res, expectedRes)
 
 @skip(cluster=True)

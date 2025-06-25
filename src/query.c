@@ -581,18 +581,6 @@ static IndexIterator *iterateExpandedTerms(QueryEvalCtx *q, Trie *terms, const c
     return NULL;
   }
   QueryNodeType type = prefixMode ? QN_PREFIX : QN_FUZZY;
-  for (size_t i = 0; i < itsSz; ++i) {
-    if (its[i]->type == WILDCARD_ITERATOR) {
-      IndexIterator *ret = its[i];
-      for (size_t j = 0; j < itsSz; ++j) {
-        if (i != j && its[j]) {
-          its[j]->Free(its[j]);
-        }
-      }
-      rm_free(its);
-      return ret;
-    }
-  }
   return NewUnionIterator(its, itsSz, 1, opts->weight, type, str, q->config);
 }
 
@@ -683,18 +671,6 @@ static IndexIterator *Query_EvalPrefixNode(QueryEvalCtx *q, QueryNode *qn) {
   //   // In case of a single iterator, we can just return it
   //   return ctx.its[0];
   } else {
-    for (size_t i = 0; i < ctx.nits; ++i) {
-      if (ctx.its[i]->type == WILDCARD_ITERATOR) {
-        IndexIterator *ret = ctx.its[i];
-        for (size_t j = 0; j < ctx.nits; ++j) {
-          if (i != j && ctx.its[j]) {
-            ctx.its[j]->Free(ctx.its[j]);
-          }
-        }
-        rm_free(ctx.its);
-        return ret;
-      }
-    }
     return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight,
                             QN_PREFIX, qn->pfx.tok.str, q->config);
   }
@@ -763,18 +739,6 @@ static IndexIterator *Query_EvalWildcardQueryNode(QueryEvalCtx *q, QueryNode *qn
     rm_free(ctx.its);
     return NULL;
   } else {
-    for (size_t i = 0; i < ctx.nits; ++i) {
-      if (ctx.its[i]->type == WILDCARD_ITERATOR) {
-        IndexIterator *ret = ctx.its[i];
-        for (size_t j = 0; j < ctx.nits; ++j) {
-          if (i != j && ctx.its[j]) {
-            ctx.its[j]->Free(ctx.its[j]);
-          }
-        }
-        rm_free(ctx.its);
-        return ret;
-      }
-    }
     return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight,
                             QN_WILDCARD_QUERY, qn->verb.tok.str, q->config);
   }
@@ -887,18 +851,6 @@ static IndexIterator *Query_EvalLexRangeNode(QueryEvalCtx *q, QueryNode *lx) {
     rm_free(ctx.its);
     return NULL;
   } else {
-    for (size_t i = 0; i < ctx.nits; ++i) {
-      if (ctx.its[i]->type == WILDCARD_ITERATOR) {
-        IndexIterator *ret = ctx.its[i];
-        for (size_t j = 0; j < ctx.nits; ++j) {
-          if (i != j && ctx.its[j]) {
-            ctx.its[j]->Free(ctx.its[j]);
-          }
-        }
-        rm_free(ctx.its);
-        return ret;
-      }
-    }
     return NewUnionIterator(ctx.its, ctx.nits, 1, lx->opts.weight, QN_LEXRANGE, NULL, q->config);
   }
 }
@@ -931,39 +883,8 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
   IndexIterator *ret;
 
   if (node->exact) {
-    bool all_wildcard = true;
-    bool all_non_empty = true;
-    size_t empty_idx = 0;
-    for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
-      if (!iters[ii] || !iters[ii]->type == EMPTY_ITERATOR) {
-        all_non_empty = false;
-        empty_idx = ii;
-        break;
-      }
-      if (iters[ii] && iters[ii]->type != WILDCARD_ITERATOR) {
-        all_wildcard = false;
-      }
-    }
-
-    if (!all_non_empty) {
-      for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
-        if (iters[ii] && ii != empty_idx) {
-          iters[ii]->Free(iters[ii]);
-        }
-      }
-      ret = iters[empty_idx];
-      rm_free(iters);
-    } else if (all_wildcard) {
-      for (size_t ii = 1; ii < QueryNode_NumChildren(qn); ++ii) {
-        if (iters[ii]) {
-          iters[ii]->Free(iters[ii]);
-        }
-      }
-      ret = iters[0];
-      rm_free(iters);
-    } else {
-      ret = NewIntersectIterator(iters, QueryNode_NumChildren(qn), q->docTable, EFFECTIVE_FIELDMASK(q, qn), 0, 1, qn->opts.weight);
-    }
+    ret = NewIntersectIterator(iters, QueryNode_NumChildren(qn), q->docTable,
+                              EFFECTIVE_FIELDMASK(q, qn), 0, 1, qn->opts.weight);
   } else {
     // Let the query node override the slop/order parameters
     int slop = qn->opts.maxSlop;
@@ -978,40 +899,9 @@ static IndexIterator *Query_EvalPhraseNode(QueryEvalCtx *q, QueryNode *qn) {
     if (inOrder && slop == -1) {
       slop = __INT_MAX__;
     }
-    bool all_wildcard = true;
-    bool all_non_empty = true;
-    size_t empty_idx = 0;
-    for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
-      if (!iters[ii] || !iters[ii]->type == EMPTY_ITERATOR) {
-        all_non_empty = false;
-        empty_idx = ii;
-        break;
-      }
-      if (iters[ii] && iters[ii]->type != WILDCARD_ITERATOR) {
-        all_wildcard = false;
-      }
-    }
 
-    if (!all_non_empty) {
-      for (size_t ii = 0; ii < QueryNode_NumChildren(qn); ++ii) {
-        if (iters[ii] && ii != empty_idx) {
-          iters[ii]->Free(iters[ii]);
-        }
-      }
-      ret = iters[empty_idx];
-      rm_free(iters);
-    } else if (all_wildcard) {
-      for (size_t ii = 1; ii < QueryNode_NumChildren(qn); ++ii) {
-        if (iters[ii]) {
-          iters[ii]->Free(iters[ii]);
-        }
-      }
-      ret = iters[0];
-      rm_free(iters);
-    } else {
-      ret = NewIntersectIterator(iters, QueryNode_NumChildren(qn), q->docTable,
-        EFFECTIVE_FIELDMASK(q, qn), slop, inOrder, qn->opts.weight);
-    }
+    ret = NewIntersectIterator(iters, QueryNode_NumChildren(qn), q->docTable,
+                              EFFECTIVE_FIELDMASK(q, qn), slop, inOrder, qn->opts.weight);
   }
   return ret;
 }
@@ -1026,30 +916,17 @@ static IndexIterator *Query_EvalWildcardNode(QueryEvalCtx *q, QueryNode *qn) {
 static IndexIterator *Query_EvalNotNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_NOT, "query node type should be not")
 
-  IndexIterator *child = Query_EvalNode(q, qn->children[0]);
-  if (!child) {
-    return NewWildcardIterator(q);
-  }
-  if (child->type == WILDCARD_ITERATOR) {
-    return NewEmptyIterator();
-  }
-  return NewNotIterator(child, q->docTable->maxDocId, qn->opts.weight, q->sctx->time.timeout, q);
+  return NewNotIterator(qn ? Query_EvalNode(q, qn->children[0]) : NULL,
+                        q->docTable->maxDocId, qn->opts.weight, q->sctx->time.timeout,
+                        q);
 }
 
 static IndexIterator *Query_EvalOptionalNode(QueryEvalCtx *q, QueryNode *qn) {
   RS_LOG_ASSERT(qn->type == QN_OPTIONAL, "query node type should be optional");
 
   RS_LOG_ASSERT(QueryNode_NumChildren(qn) == 1, "Optional node must have a single child");
-
-  IndexIterator *child = Query_EvalNode(q, qn->children[0]);
-  if (!child) {
-    // If the child is NULL, we return a wildcard iterator. (TODO: Joan) (Not sure if some weight needs to be added)
-    return NewWildcardIterator(q);
-  }
-  if (child->type == WILDCARD_ITERATOR) {
-    return child;
-  }
-  return NewOptionalIterator(child, q, qn->opts.weight);
+  return NewOptionalIterator(Query_EvalNode(q, qn->children[0]),
+                             q, qn->opts.weight);
 }
 
 static IndexIterator *Query_EvalNumericNode(QueryEvalCtx *q, QueryNode *node) {
@@ -1216,7 +1093,8 @@ static IndexIterator *Query_EvalUnionNode(QueryEvalCtx *q, QueryNode *qn) {
     return ret;
   }
 
-  return NewUnionIterator(iters, n, 0, qn->opts.weight, QN_UNION, NULL, q->config);
+  IndexIterator *ret = NewUnionIterator(iters, n, 0, qn->opts.weight, QN_UNION, NULL, q->config);
+  return ret;
 }
 
 typedef IndexIterator **IndexIteratorArray;
@@ -1299,18 +1177,6 @@ static IndexIterator *Query_EvalTagLexRangeNode(QueryEvalCtx *q, TagIndex *idx, 
     rm_free(ctx.its);
     return NULL;
   } else {
-    for (size_t i = 0; i < ctx.nits; ++i) {
-      if (ctx.its[i]->type == WILDCARD_ITERATOR) {
-        IndexIterator *ret = ctx.its[i];
-        for (size_t j = 0; j < ctx.nits; ++j) {
-          if (i != j && ctx.its[j]) {
-            ctx.its[j]->Free(ctx.its[j]);
-          }
-        }
-        rm_free(ctx.its);
-        return ret;
-      }
-    }
     return NewUnionIterator(ctx.its, ctx.nits, 1, qn->opts.weight, QN_LEXRANGE, NULL, q->config);
   }
 }
@@ -1414,18 +1280,6 @@ static IndexIterator *Query_EvalTagPrefixNode(QueryEvalCtx *q, TagIndex *idx, Qu
   }
 
   *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);
-  for (size_t i = 0; i < itsSz; ++i) {
-    if (its[i]->type == WILDCARD_ITERATOR) {
-      IndexIterator *ret = its[i];
-      for (size_t j = 0; j < itsSz; ++j) {
-        if (i != j && its[j]) {
-          its[j]->Free(its[j]);
-        }
-      }
-      rm_free(its);
-      return ret;
-    }
-  }
   return NewUnionIterator(its, itsSz, 1, weight, QN_PREFIX, qn->pfx.tok.str, q->config);
 }
 
@@ -1522,18 +1376,6 @@ static IndexIterator *Query_EvalTagWildcardNode(QueryEvalCtx *q, TagIndex *idx,
   }
 
   *iterout = array_ensure_append(*iterout, its, itsSz, IndexIterator *);
-  for (size_t i = 0; i < itsSz; ++i) {
-    if (its[i]->type == WILDCARD_ITERATOR) {
-      IndexIterator *ret = its[i];
-      for (size_t j = 0; j < itsSz; ++j) {
-        if (i != j && its[j]) {
-          its[j]->Free(its[j]);
-        }
-      }
-      rm_free(its);
-      return ret;
-    }
-  }
   return NewUnionIterator(its, itsSz, 1, weight, QN_WILDCARD_QUERY, qn->pfx.tok.str, q->config);
 }
 

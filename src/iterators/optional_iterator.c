@@ -173,10 +173,33 @@ static IteratorStatus OI_Read_NotOptimized(QueryIterator *base) {
   return ITERATOR_OK;
 }
 
+/**
+ * Reduce the optional iterator by applying these rules:
+ * 1. If the child is an empty iterator or NULL, return a wildcard iterator
+ * 2. If the child is a wildcard iterator, return it
+ * 3. Otherwise, return NULL and let the caller create the optional iterator
+ */
+static QueryIterator* OptionalIteratorReducer(QueryIterator *it, QueryEvalCtx *q, double weight) {
+  if (!it || it->type == EMPTY_ITERATOR) {
+    // If the child is NULL, we return a wildcard iterator. (TODO: Joan) (Not sure if some weight needs to be added)
+    bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+    if (optimized) {
+      return IT_V2(NewWildcardIterator_Optimized)(q->sctx);
+    }
+    return IT_V2(NewWildcardIterator)(q);
+  } else if (it && (it->type == WILDCARD_ITERATOR || it->type == READ_ITERATOR)) {
+    return it;
+  }
+  return NULL;
+}
+
 // Create a new OPTIONAL iterator - Non-Optimized version.
 QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, QueryEvalCtx *q, double weight) {
-  RS_ASSERT(it != NULL);
   RS_ASSERT(q && q->sctx && q->sctx->spec && q->docTable);
+  QueryIterator *ret = OptionalIteratorReducer(it, q, weight);
+  if (ret != NULL) {
+    return ret;
+  }
   OptionalIterator *oi = rm_calloc(1, sizeof(*oi));
   bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
   if (optimized) {
@@ -188,7 +211,7 @@ QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, QueryEvalCtx *q, do
   oi->virt->freq = 1;
   oi->weight = weight;
 
-  QueryIterator *ret = &oi->base;
+  ret = &oi->base;
   ret->type = OPTIONAL_ITERATOR;
   ret->atEOF = false;
   ret->lastDocId = 0;

@@ -226,10 +226,33 @@ static IteratorStatus NI_SkipTo_Optimized(QueryIterator *base, t_docId docId) {
   return rc;
 }
 
+/*
+ * Reduce the not iterator by applying these rules:
+ * 1. If the child is an empty iterator or NULL, return a wildcard iterator
+ * 2. If the child is a wildcard iterator, return an empty iterator
+ * 3. Otherwise, return NULL and let the caller create the not iterator
+ */
+static QueryIterator* NotIteratorReducer(QueryIterator *it, t_docId maxDocId, double weight, struct timespec timeout, QueryEvalCtx *q) {
+  if (!it || it->type == EMPTY_ITERATOR) {
+    bool optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+    if (optimized) {
+      return IT_V2(NewWildcardIterator_Optimized)(q->sctx);
+    }
+    return IT_V2(NewWildcardIterator)(q);
+  } else if (it && (it->type == WILDCARD_ITERATOR || it->type == READ_ITERATOR)) {
+    return IT_V2(NewEmptyIterator)();
+  }
+  return NULL;
+}
+
 QueryIterator *IT_V2(NewNotIterator)(QueryIterator *it, t_docId maxDocId, double weight, struct timespec timeout, QueryEvalCtx *q) {
+  QueryIterator *ret = NotIteratorReducer(it, maxDocId, weight, timeout, q);
+  if (ret != NULL) {
+    return ret;
+  }
   NotIterator *ni = rm_calloc(1, sizeof(*ni));
-  QueryIterator *ret = &ni->base;
-  bool optimized = q && q->sctx->spec->rule && q->sctx->spec->rule->index_all;
+  ret = &ni->base;
+  bool optimized = q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all;
   if (optimized) {
     ni->wcii = IT_V2(NewWildcardIterator_Optimized)(q->sctx);
   }
