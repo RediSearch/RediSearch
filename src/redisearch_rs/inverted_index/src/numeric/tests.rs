@@ -7,10 +7,10 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::io::Cursor;
-
 use crate::{Decoder, DecoderResult, Delta, Encoder, RSIndexResult, numeric::Numeric};
 use pretty_assertions::assert_eq;
+use proptest::prelude::*;
+use std::io::Cursor;
 
 /// Tests for integer values between 0 and 7 which should use the [TINY header](super#tiny-type) format.
 #[test]
@@ -438,6 +438,34 @@ fn numeric_float() {
         assert_eq!(buf, expected_buffer, "failed for value: {}", value);
 
         let prev_doc_id = u64::MAX - (delta as u64);
+        let DecoderResult::Record(record_decoded) = Numeric
+            .decode(buf.as_slice(), prev_doc_id)
+            .expect("to decode numeric record")
+            .expect("to read a record from the buffer")
+        else {
+            panic!("Record was filtered out incorrectly")
+        };
+
+        assert_eq!(record_decoded, record, "failed for value: {}", value);
+    }
+}
+
+proptest! {
+    #[test]
+    fn numeric_encode_decode(
+        delta in 0u64..72_057_594_037_927_935u64,
+        value in f64::MIN..f64::MAX,
+    ) {
+        let mut buf = Cursor::new(Vec::new());
+        let record = RSIndexResult::numeric(u64::MAX, value);
+
+        let _bytes_written =
+            Numeric::encode(&mut buf, Delta(delta as _), &record).expect("to encode numeric record");
+
+        let buf = buf.into_inner();
+
+        let prev_doc_id = u64::MAX - delta;
+
         let DecoderResult::Record(record_decoded) = Numeric
             .decode(buf.as_slice(), prev_doc_id)
             .expect("to decode numeric record")

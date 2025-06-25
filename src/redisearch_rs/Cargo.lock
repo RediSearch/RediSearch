@@ -651,6 +651,7 @@ dependencies = [
  "enumflags2",
  "ffi",
  "pretty_assertions",
+ "proptest",
 ]
 
 [[package]]
