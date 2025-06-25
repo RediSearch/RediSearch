@@ -240,11 +240,7 @@ impl Encoder for Numeric {
 
                 let header = Header {
                     delta_bytes: delta.len() as _,
-                    typ: HeaderType::Float {
-                        is_infinite: false,
-                        is_negative: false,
-                        is_f64: false,
-                    },
+                    typ: HeaderType::Float32Positive,
                 };
 
                 writer.write_vectored(&[
@@ -258,11 +254,7 @@ impl Encoder for Numeric {
 
                 let header = Header {
                     delta_bytes: delta.len() as _,
-                    typ: HeaderType::Float {
-                        is_infinite: false,
-                        is_negative: true,
-                        is_f64: false,
-                    },
+                    typ: HeaderType::Float32Negative,
                 };
 
                 writer.write_vectored(&[
@@ -276,11 +268,7 @@ impl Encoder for Numeric {
 
                 let header = Header {
                     delta_bytes: delta.len() as _,
-                    typ: HeaderType::Float {
-                        is_infinite: false,
-                        is_negative: false,
-                        is_f64: true,
-                    },
+                    typ: HeaderType::Float64Positive,
                 };
 
                 writer.write_vectored(&[
@@ -294,11 +282,7 @@ impl Encoder for Numeric {
 
                 let header = Header {
                     delta_bytes: delta.len() as _,
-                    typ: HeaderType::Float {
-                        is_infinite: false,
-                        is_negative: true,
-                        is_f64: true,
-                    },
+                    typ: HeaderType::Float64Negative,
                 };
 
                 writer.write_vectored(&[
@@ -310,11 +294,7 @@ impl Encoder for Numeric {
             FloatValue::Infinity => {
                 let header = Header {
                     delta_bytes: delta.len() as _,
-                    typ: HeaderType::Float {
-                        is_infinite: true,
-                        is_negative: false,
-                        is_f64: false,
-                    },
+                    typ: HeaderType::FloatInfinite,
                 };
 
                 writer.write_vectored(&[IoSlice::new(&header.pack()), IoSlice::new(delta)])?
@@ -322,11 +302,7 @@ impl Encoder for Numeric {
             FloatValue::NegInfinity => {
                 let header = Header {
                     delta_bytes: delta.len() as _,
-                    typ: HeaderType::Float {
-                        is_infinite: true,
-                        is_negative: true,
-                        is_f64: false,
-                    },
+                    typ: HeaderType::FloatNegInfinite,
                 };
 
                 writer.write_vectored(&[IoSlice::new(&header.pack()), IoSlice::new(delta)])?
@@ -458,11 +434,12 @@ impl From<f64> for FloatValue {
 
 enum HeaderType {
     Tiny(u8),
-    Float {
-        is_infinite: bool,
-        is_negative: bool,
-        is_f64: bool,
-    },
+    Float32Positive,
+    Float32Negative,
+    Float64Positive,
+    Float64Negative,
+    FloatInfinite,
+    FloatNegInfinite,
     PositiveInteger(u8),
     NegativeInteger(u8),
 }
@@ -473,13 +450,6 @@ struct Header {
     typ: HeaderType,
 }
 
-impl Header {
-    const TINY_TYPE: u8 = 0b00;
-    const FLOAT_TYPE: u8 = 0b01;
-    const POS_INT_TYPE: u8 = 0b10;
-    const NEG_INT_TYPE: u8 = 0b11;
-}
-
 impl ToFromBytes<1> for Header {
     #[inline(always)]
     fn pack(self) -> [u8; 1] {
@@ -488,33 +458,40 @@ impl ToFromBytes<1> for Header {
 
         match self.typ {
             HeaderType::Tiny(t) => {
-                packed |= Self::TINY_TYPE << 3; // 2 bits for type
+                packed |= Numeric::TINY_TYPE << 3; // 2 bits for type
                 packed |= (t & 0b111) << 5; // 3 bits for value
             }
             HeaderType::PositiveInteger(b) => {
-                packed |= Self::POS_INT_TYPE << 3; // 2 bits for type
+                packed |= Numeric::POS_INT_TYPE << 3; // 2 bits for type
                 packed |= (b & 0b111) << 5; // 3 bits for value bytes
             }
             HeaderType::NegativeInteger(b) => {
-                packed |= Self::NEG_INT_TYPE << 3; // 2 bits for type
+                packed |= Numeric::NEG_INT_TYPE << 3; // 2 bits for type
                 packed |= (b & 0b111) << 5; // 3 bits for value bytes
             }
-            HeaderType::Float {
-                is_infinite,
-                is_negative,
-                is_f64,
-            } => {
-                packed |= Self::FLOAT_TYPE << 3; // 2 bits for type
-
-                if is_infinite {
-                    packed |= 1 << 5;
-                }
-                if is_negative {
-                    packed |= 1 << 6;
-                }
-                if is_f64 {
-                    packed |= 1 << 7;
-                }
+            HeaderType::Float32Positive => {
+                packed |= Numeric::FLOAT_TYPE << 3; // 2 bits for type
+                packed |= 0b000 << 5; // 3 bits for small float
+            }
+            HeaderType::Float32Negative => {
+                packed |= Numeric::FLOAT_TYPE << 3; // 2 bits for type
+                packed |= 0b010 << 5; // 3 bits for small negative float
+            }
+            HeaderType::Float64Positive => {
+                packed |= Numeric::FLOAT_TYPE << 3; // 2 bits for type
+                packed |= 0b100 << 5; // 3 bits for big float
+            }
+            HeaderType::Float64Negative => {
+                packed |= Numeric::FLOAT_TYPE << 3; // 2 bits for type
+                packed |= 0b110 << 5; // 3 bits for big negative float
+            }
+            HeaderType::FloatInfinite => {
+                packed |= Numeric::FLOAT_TYPE << 3; // 2 bits for type
+                packed |= 0b001 << 5; // 3 bits for infinite
+            }
+            HeaderType::FloatNegInfinite => {
+                packed |= Numeric::FLOAT_TYPE << 3; // 2 bits for type
+                packed |= 0b011 << 5; // 3 bits for negative infinite
             }
         }
 
