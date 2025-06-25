@@ -19,6 +19,7 @@
 #include <pthread.h>
 #include "util/references.h"
 #include "hybrid_scoring.h"
+#include "src/util/likely.h"
 
 /*******************************************************************************************************************
  *  General Result Processor Helper functions
@@ -1695,6 +1696,10 @@ dictType dictTypeHybridSearchResult = {
  /* Yield phase - iterate through results and apply hybrid scoring */
  static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
    RPHybridMerger *self = (RPHybridMerger *)rp;
+   if (unlikely(!self->iterator)) {
+    // Initialize iterator for yield phase
+    self->iterator = dictGetIterator(self->hybridResults);
+   }
 
    // Get next entry from iterator
    dictEntry *entry = dictNext(self->iterator);
@@ -1740,15 +1745,14 @@ dictType dictTypeHybridSearchResult = {
         numConsumed++;
         continue;
       } else if (rc == RS_RESULT_TIMEDOUT){
-          rm_free(consumed);
           if (rp->parent->timeoutPolicy == TimeoutPolicy_Return) {
-            // Switch to yield phase and return immediately on timeout.
-            // Note: This may leave some ready results in other upstreams unconsumed.
+            // continue processing other upstreams since they might have available results
             self->timedOut = true;
-            self->iterator = dictGetIterator(self->hybridResults);
-            rp->Next = RPHybridMerger_Yield;
-            return rp->Next(rp, r);
+            consumed[i] = true;
+            numConsumed++;
+            continue;
           } else { // Strict
+            rm_free(consumed);
             return rc;
           }
       }
@@ -1757,9 +1761,6 @@ dictType dictTypeHybridSearchResult = {
 
   // Free the consumed tracking array
   rm_free(consumed);
-
-  // Initialize iterator for yield phase
-  self->iterator = dictGetIterator(self->hybridResults);
 
   // Switch to yield phase
   rp->Next = RPHybridMerger_Yield;

@@ -649,14 +649,14 @@ void SetupTimeoutTest(QueryIterator* qitr, RSTimeoutPolicy policy, RedisSearchCt
 }
 
 /*
- * Test that hybrid merger with timeout and return policy
+ * Test that hybrid merger with timeout and return policy - collect anything available
  *
  * Scoring function: Hybrid linear
  * Number of upstreams: 2
  * Intersection: No intersection (different documents from each upstream)
  * Emptiness: Both upstreams have documents
  * Timeout: Yes - first upstream times out after 2 results, return policy
- * Expected behavior: Return partial results (2 docs) then timeout, do not continue to next upstream
+ * Expected behavior: Collect anything available from all upstreams, score based on {1,2,11,12,13,14,15}
  */
 TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
   QueryIterator qitr = {0};
@@ -664,7 +664,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
   SetupTimeoutTest(&qitr, TimeoutPolicy_Return, &sctx);
 
   // Create upstreams: first times out after 2 docs, second has more docs
-  MockUpstream upstream1(2, {1.0, 1.0}, {1, 2}); // timeoutAfterCount=2
+  MockUpstream upstream1(2, {1.0, 1.0, 1.0}, {1, 2, 3}); // timeoutAfterCount=2
   MockUpstream upstream2(0, {2.0, 2.0, 2.0, 2.0, 2.0}, {11, 12, 13, 14, 15});
 
   // Create hybrid merger with linear scoring
@@ -674,23 +674,33 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
 
   QITR_PushRP(&qitr, hybridMerger);
 
-  // Process and verify results
-  size_t count = 0;
+  // Process and verify results - should collect anything available
+  std::vector<t_docId> receivedDocIds;
   SearchResult r = {0};
   ResultProcessor *rpTail = qitr.endProc;
   int rc;
 
-  // Should get some results before timeout
+  // Collect all available results from both upstreams
   while ((rc = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
-    count++;
     // Verify document metadata and key are set
     EXPECT_TRUE(r.dmd != nullptr);
     EXPECT_TRUE(r.dmd->keyPtr != nullptr);
+
+    // Store the document ID for verification
+    receivedDocIds.push_back(r.docId);
     SearchResult_Clear(&r);
   }
 
-  ASSERT_EQ(2, count);
-  // Final result should be timeout
+  // Should have collected documents from both upstreams: {1,2} from upstream1 and {11,12,13,14,15} from upstream2
+  std::vector<t_docId> expectedDocIds = {1, 2, 11, 12, 13, 14, 15};
+  ASSERT_EQ(expectedDocIds.size(), receivedDocIds.size());
+
+  // Sort both vectors for comparison since order may vary
+  std::sort(receivedDocIds.begin(), receivedDocIds.end());
+  std::sort(expectedDocIds.begin(), expectedDocIds.end());
+  EXPECT_EQ(expectedDocIds, receivedDocIds);
+
+  // Final result should be EOF after collecting everything available
   ASSERT_EQ(RS_RESULT_TIMEDOUT, rc);
 
   SearchResult_Destroy(&r);
