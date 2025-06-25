@@ -331,7 +331,6 @@ impl Decoder for Numeric {
         let delta = read_u64(&mut reader, delta_bytes as _)?;
 
         let num = match type_bits {
-            Self::TINY_TYPE => upper_bits as f64,
             Self::FLOAT_TYPE => match upper_bits {
                 0b000 => read_f32(&mut reader)? as _,
                 0b010 => read_f32(&mut reader)?.copysign(-1.0) as _,
@@ -341,6 +340,7 @@ impl Decoder for Numeric {
                 0b111 | 0b011 => f64::NEG_INFINITY,
                 _ => unreachable!("All upper bits combinations are covered"),
             },
+            Self::TINY_TYPE => upper_bits as f64,
             Self::POS_INT_TYPE => read_u64(&mut reader, upper_bits as usize + 1)? as _,
             Self::NEG_INT_TYPE => {
                 let v = read_u64(&mut reader, upper_bits as usize + 1)?;
