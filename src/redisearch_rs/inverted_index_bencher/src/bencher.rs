@@ -7,11 +7,11 @@
  * GNU Affero General Public License v3 (AGPLv3).
 */
 
-use std::{io::Cursor, ptr::NonNull, time::Duration};
+use std::{collections::HashMap, io::Cursor, ptr::NonNull, time::Duration};
 
 use buffer::{Buffer, BufferReader, BufferWriter};
 use criterion::{
-    BatchSize, BenchmarkGroup, Criterion, black_box,
+    BatchSize, BenchmarkGroup, BenchmarkId, Criterion, black_box,
     measurement::{Measurement, WallTime},
 };
 use inverted_index::{Decoder, Delta, Encoder, numeric::Numeric};
@@ -20,7 +20,7 @@ use itertools::Itertools;
 use crate::ffi::{TestBuffer, encode_numeric, read_numeric};
 
 pub struct NumericBencher {
-    test_values: Vec<BenchInputs>,
+    test_values: Vec<BenchGroup>,
 }
 
 impl NumericBencher {
@@ -45,35 +45,29 @@ impl NumericBencher {
     }
 
     pub fn encoding(&self, c: &mut Criterion) {
-        for BenchInputs {
-            group,
-            values,
-            n_bytes,
-        } in &self.test_values
-        {
-            let values: Vec<_> = values.iter().map(|v| (v.0, v.1)).collect();
-
+        for BenchGroup { group, inputs } in &self.test_values {
             let group = format!("Encode | {}", group);
             let mut group = self.benchmark_group(c, &group);
-            numeric_c_encode(&mut group, &values, *n_bytes);
-            numeric_rust_encode(&mut group, &values, *n_bytes);
+
+            for input in inputs {
+                numeric_c_encode(&mut group, input);
+                numeric_rust_encode(&mut group, input);
+            }
+
             group.finish();
         }
     }
 
     pub fn decoding(&self, c: &mut Criterion) {
-        for BenchInputs {
-            group,
-            values,
-            n_bytes,
-        } in &self.test_values
-        {
-            let values: Vec<_> = values.iter().map(|v| v.2.clone()).collect();
-
+        for BenchGroup { group, inputs } in &self.test_values {
             let group = format!("Decode | {}", group);
             let mut group = self.benchmark_group(c, &group);
-            numeric_c_decode(&mut group, &values, *n_bytes);
-            numeric_rust_decode(&mut group, &values, *n_bytes);
+
+            for input in inputs {
+                numeric_c_decode(&mut group, input);
+                numeric_rust_decode(&mut group, input);
+            }
+
             group.finish();
         }
     }
@@ -83,19 +77,26 @@ impl NumericBencher {
 struct BenchEncodingInputs<'a> {
     group: &'a str,
     values: Vec<f64>,
+    value_size_fn: fn(f64) -> usize,
 }
 
-struct BenchInputs {
+struct BenchGroup {
     group: String,
-    values: Vec<(f64, usize, Vec<u8>)>,
-    n_bytes: usize,
+    inputs: Vec<BenchInput>,
 }
 
-fn generate_test_values() -> Vec<BenchInputs> {
+struct BenchInput {
+    values: Vec<(f64, usize, Vec<u8>)>,
+    delta_size: usize,
+    value_size: usize,
+}
+
+fn generate_test_values() -> Vec<BenchGroup> {
     let encoding_values = vec![
         BenchEncodingInputs {
             group: "TinyInt",
             values: vec![0.0, 3.0, 7.0],
+            value_size_fn: |_| 0,
         },
         BenchEncodingInputs {
             group: "PosInt",
@@ -131,6 +132,7 @@ fn generate_test_values() -> Vec<BenchInputs> {
                 10_000_000_000_000_000_000.0,
                 u64::MAX as _,
             ],
+            value_size_fn: |n| ((n + 1.0).log2() / 8.0).ceil() as _,
         },
         BenchEncodingInputs {
             group: "NegInt",
@@ -166,30 +168,37 @@ fn generate_test_values() -> Vec<BenchInputs> {
                 -10_000_000_000_000_000_000.0,
                 -(u64::MAX as f64),
             ],
+            value_size_fn: |n| ((n.abs() + 1.0).log2() / 8.0).ceil() as _,
         },
         BenchEncodingInputs {
             group: "Float - Pos Inf",
             values: vec![f64::INFINITY],
+            value_size_fn: |_| 0,
         },
         BenchEncodingInputs {
             group: "Float - Neg Inf",
             values: vec![f64::NEG_INFINITY],
+            value_size_fn: |_| 0,
         },
         BenchEncodingInputs {
             group: "Float - Small Pos",
             values: vec![7.125, 15.75, 42.5],
+            value_size_fn: |_| 4,
         },
         BenchEncodingInputs {
             group: "Float - Small Neg",
             values: vec![-7.125, -15.75, -42.5],
+            value_size_fn: |_| 4,
         },
         BenchEncodingInputs {
             group: "Float - Big Pos",
             values: vec![1.1, 0.3, 12.999999999999998],
+            value_size_fn: |_| 8,
         },
         BenchEncodingInputs {
             group: "Float - Big Neg",
             values: vec![-1.1, -0.3, -12.999999999999998],
+            value_size_fn: |_| 8,
         },
     ];
 
@@ -215,109 +224,176 @@ fn generate_test_values() -> Vec<BenchInputs> {
     encoding_values
         .into_iter()
         .cartesian_product(deltas)
-        .map(|(BenchEncodingInputs { group, values }, delta)| {
-            values
-                .into_iter()
-                .map(|value| {
-                    let record = inverted_index::RSIndexResult::numeric(0, value);
-                    let mut buffer = Cursor::new(Vec::new());
-                    let _grew_size =
-                        Numeric::encode(&mut buffer, Delta::new(delta), &record).unwrap();
-                    let buffer = buffer.into_inner();
-                    (value, delta, buffer)
-                })
-                .chunk_by(|v| v.2.len())
-                .into_iter()
-                .map(|(n_bytes, values)| BenchInputs {
+        .map(
+            |(
+                BenchEncodingInputs {
+                    group,
+                    values,
+                    value_size_fn,
+                },
+                delta,
+            )| {
+                let inputs = values
+                    .into_iter()
+                    .map(|value| {
+                        let record = inverted_index::RSIndexResult::numeric(0, value);
+                        let mut buffer = Cursor::new(Vec::new());
+                        let _grew_size =
+                            Numeric::encode(&mut buffer, Delta::new(delta), &record).unwrap();
+                        let buffer = buffer.into_inner();
+
+                        (value, delta, buffer)
+                    })
+                    .map(|(value, delta, buffer)| {
+                        let value_size = value_size_fn(value);
+                        let delta_size = (((delta + 1) as f64).log2() / 8.0).ceil() as usize;
+
+                        assert_eq!(
+                            buffer.len(),
+                            1 + delta_size + value_size,
+                            "the wrong size calculation is used for group: {group}"
+                        );
+                        (value, delta, buffer, value_size, delta_size)
+                    })
+                    .fold(
+                        HashMap::new(),
+                        |mut map, (value, delta, buffer, value_size, delta_size)| {
+                            map.entry((value_size, delta_size))
+                                .or_insert(vec![])
+                                .push((value, delta, buffer));
+
+                            map
+                        },
+                    )
+                    .into_iter()
+                    .map(|((value_size, delta_size), values)| BenchInput {
+                        values,
+                        delta_size,
+                        value_size,
+                    })
+                    .collect();
+
+                BenchGroup {
                     group: group.to_string(),
-                    values: values.collect(),
-                    n_bytes,
-                })
-                .collect::<Vec<_>>()
-        })
-        .flatten()
+                    inputs,
+                }
+            },
+        )
         .collect()
 }
 
-fn numeric_c_encode<M: Measurement>(
-    group: &mut BenchmarkGroup<'_, M>,
-    values: &[(f64, usize)],
-    n_bytes: usize,
-) {
-    group.bench_function(format!("C | {n_bytes} buffer bytes"), |b| {
-        b.iter_batched(
-            || TestBuffer::with_capacity(64),
-            |mut buffer| {
-                for &(value, delta) in values {
-                    let mut record = inverted_index::RSIndexResult::numeric(0, value);
-                    let grew_size = encode_numeric(&mut buffer, &mut record, delta as _);
+fn numeric_c_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchInput) {
+    let BenchInput {
+        values,
+        delta_size,
+        value_size,
+    } = input;
 
-                    black_box(grew_size);
+    group.bench_function(
+        BenchmarkId::new(
+            "C",
+            format!("Value size: {value_size}/Delta size: {delta_size}"),
+        ),
+        |b| {
+            b.iter_batched(
+                || TestBuffer::with_capacity((1 + delta_size + value_size) * values.len()),
+                |mut buffer| {
+                    for (value, delta, _) in values {
+                        let mut record = inverted_index::RSIndexResult::numeric(0, *value);
+                        let grew_size = encode_numeric(&mut buffer, &mut record, *delta as _);
+
+                        black_box(grew_size);
+                    }
+                },
+                BatchSize::SmallInput,
+            );
+        },
+    );
+}
+
+fn numeric_c_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchInput) {
+    let BenchInput {
+        values,
+        delta_size,
+        value_size,
+    } = input;
+
+    group.bench_function(
+        BenchmarkId::new(
+            "C",
+            format!("Value size: {value_size}/Delta size: {delta_size}"),
+        ),
+        |b| {
+            b.iter(|| {
+                for (_, _, buffer) in values {
+                    let buffer_ptr = NonNull::new(buffer.as_ptr() as *mut _).unwrap();
+                    let mut buffer = unsafe { Buffer::new(buffer_ptr, buffer.len(), buffer.len()) };
+                    let (_filtered, result) = read_numeric(&mut buffer, 100);
+
+                    black_box(result);
                 }
-            },
-            BatchSize::SmallInput,
-        );
-    });
+            });
+        },
+    );
 }
 
-fn numeric_c_decode<M: Measurement>(
-    group: &mut BenchmarkGroup<'_, M>,
-    values: &[Vec<u8>],
-    n_bytes: usize,
-) {
-    group.bench_function(format!("C | {n_bytes} buffer bytes"), |b| {
-        b.iter(|| {
-            for value in values {
-                let buffer_ptr = NonNull::new(value.as_ptr() as *mut _).unwrap();
-                let mut buffer = unsafe { Buffer::new(buffer_ptr, value.len(), value.len()) };
-                let (_filtered, result) = read_numeric(&mut buffer, 100);
+fn numeric_rust_encode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchInput) {
+    let BenchInput {
+        values,
+        delta_size,
+        value_size,
+    } = input;
 
-                black_box(result);
-            }
-        });
-    });
+    group.bench_with_input(
+        BenchmarkId::new(
+            "Rust",
+            format!("Value size: {value_size}/Delta size: {delta_size}"),
+        ),
+        values,
+        |b, values| {
+            b.iter_batched(
+                || TestBuffer::with_capacity((1 + delta_size + value_size) * values.len()),
+                |mut buffer| {
+                    for (value, delta, _) in values {
+                        let buffer_writer = BufferWriter::new(&mut buffer.0);
+                        let record = inverted_index::RSIndexResult::numeric(0, *value);
+
+                        let grew_size =
+                            Numeric::encode(buffer_writer, Delta::new(*delta), &record).unwrap();
+
+                        black_box(grew_size);
+                    }
+                },
+                BatchSize::SmallInput,
+            );
+        },
+    );
 }
 
-fn numeric_rust_encode<M: Measurement>(
-    group: &mut BenchmarkGroup<'_, M>,
-    values: &[(f64, usize)],
-    n_bytes: usize,
-) {
-    group.bench_function(format!("Rust | {n_bytes} buffer bytes"), |b| {
-        b.iter_batched(
-            || TestBuffer::with_capacity(64),
-            |mut buffer| {
-                for &(value, delta) in values {
-                    let buffer_writer = BufferWriter::new(&mut buffer.0);
-                    let record = inverted_index::RSIndexResult::numeric(0, value);
+fn numeric_rust_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &BenchInput) {
+    let BenchInput {
+        values,
+        delta_size,
+        value_size,
+    } = input;
 
-                    let grew_size =
-                        Numeric::encode(buffer_writer, Delta::new(delta), &record).unwrap();
+    group.bench_function(
+        BenchmarkId::new(
+            "Rust",
+            format!("Value size: {value_size}/Delta size: {delta_size}"),
+        ),
+        |b| {
+            b.iter(|| {
+                for (_, _, buffer) in values {
+                    let buffer_ptr = NonNull::new(buffer.as_ptr() as *mut _).unwrap();
+                    let buffer = unsafe { Buffer::new(buffer_ptr, buffer.len(), buffer.len()) };
+                    let mut buffer_reader = BufferReader::new(&buffer);
 
-                    black_box(grew_size);
+                    let result = Numeric.decode(&mut buffer_reader, 100);
+
+                    let _ = black_box(result);
                 }
-            },
-            BatchSize::LargeInput,
-        );
-    });
-}
-
-fn numeric_rust_decode<M: Measurement>(
-    group: &mut BenchmarkGroup<'_, M>,
-    values: &[Vec<u8>],
-    n_bytes: usize,
-) {
-    group.bench_function(format!("Rust | {n_bytes} buffer bytes"), |b| {
-        b.iter(|| {
-            for value in values {
-                let buffer_ptr = NonNull::new(value.as_ptr() as *mut _).unwrap();
-                let buffer = unsafe { Buffer::new(buffer_ptr, value.len(), value.len()) };
-                let mut buffer_reader = BufferReader::new(&buffer);
-
-                let result = Numeric.decode(&mut buffer_reader, 100);
-
-                let _ = black_box(result);
-            }
-        });
-    });
+            });
+        },
+    );
 }
