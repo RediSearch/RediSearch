@@ -16,13 +16,20 @@ impl std::fmt::Debug for Token<'_> {
     // for easy comparison.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Token::Any => write!(f, "Token::Any"),
+            Token::TrailingAny => write!(f, "Token::Any"),
             Token::One => write!(f, "Token::One"),
             Token::Literal(chunk) => {
                 write!(
                     f,
                     r#"Token::Literal(br"{}")"#,
                     String::from_utf8_lossy(chunk)
+                )
+            }
+            Token::MatchUpTo(finder) => {
+                write!(
+                    f,
+                    r#"Token::MatchUpTo(br"{}")"#,
+                    String::from_utf8_lossy(finder.needle())
                 )
             }
         }
@@ -32,10 +39,13 @@ impl std::fmt::Debug for Token<'_> {
 impl std::fmt::Display for Token<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Token::Any => write!(f, "*"),
+            Token::TrailingAny => write!(f, "*"),
             Token::One => write!(f, "?"),
             Token::Literal(chunk) => {
                 write!(f, r#"{}"#, String::from_utf8_lossy(chunk))
+            }
+            Token::MatchUpTo(finder) => {
+                write!(f, r#"*{}"#, String::from_utf8_lossy(finder.needle()))
             }
         }
     }

@@ -14,22 +14,39 @@
 //! You can create a [`WildcardPattern`] from a pattern using [`WildcardPattern::parse`] and
 //! then rely on [`WildcardPattern::matches`] to determine if a string matches the pattern.
 
-use memchr::arch::all::is_prefix;
+use memchr::{arch::all::is_prefix, memmem::Finder};
 
 mod fmt;
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Clone)]
 /// A pattern token.
 pub enum Token<'pattern> {
     /// `*`. Matches zero or more characters.
-    Any,
+    TrailingAny,
     /// `?`. Matches exactly one character.
     One,
     /// One or more literal characters (e.g. `Literal("foo")`).
     ///
     /// It borrows from the original pattern.
     Literal(&'pattern [u8]),
+    /// Match zero or more characters, up to an occurrence of the
+    /// given literal pattern.
+    MatchUpTo(Finder<'pattern>),
 }
+
+impl<'pattern> PartialEq for Token<'pattern> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Token::TrailingAny, Token::TrailingAny) => true,
+            (Token::One, Token::One) => true,
+            (Token::Literal(a), Token::Literal(b)) => a == b,
+            (Token::MatchUpTo(a), Token::MatchUpTo(b)) => a.needle() == b.needle(),
+            _ => false,
+        }
+    }
+}
+
+impl<'pattern> Eq for Token<'pattern> {}
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum MatchOutcome {
@@ -144,11 +161,11 @@ impl<'pattern> WildcardPattern<'pattern> {
                         pattern_iter.next();
                     }
 
-                    tokens.push(Token::Any);
+                    tokens.push(Token::TrailingAny);
                     expected_length = None;
                 }
                 (b'*', _, false) => {
-                    tokens.push(Token::Any);
+                    tokens.push(Token::TrailingAny);
                     expected_length = None;
                 }
                 (b'?', _, false) => tokens.push(Token::One),
@@ -167,6 +184,28 @@ impl<'pattern> WildcardPattern<'pattern> {
                 },
             }
             escape_next = false;
+        }
+
+        // If there is an `Any` token followed by a `Literal` token, merge them into a single `MatchUpTo` token.
+        let mut i = 0;
+        while i + 1 < tokens.len() {
+            // Destructure using pattern matching and clone chunk for use
+            let replacement = if let Token::TrailingAny = tokens[i] {
+                if let Token::Literal(chunk) = tokens[i + 1] {
+                    Some(Token::MatchUpTo(Finder::new(chunk)))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some(tok) = replacement {
+                tokens[i] = tok;
+                tokens.remove(i + 1);
+            } else {
+                i += 1;
+            }
         }
 
         Self {
@@ -223,26 +262,16 @@ impl<'pattern> WildcardPattern<'pattern> {
             };
 
             match curr_token {
-                Token::Any => {
+                Token::MatchUpTo(finder) => {
+                    let Some(starts_at) = finder.find(&key[i_k..]) else {
+                        return MatchOutcome::PartialMatch;
+                    };
+                    bt_state = Some((i_t, i_k + starts_at));
+                    i_k += starts_at + finder.needle().len();
                     i_t += 1;
-                    if self.tokens.get(i_t).is_none() {
-                        // Pattern ends with a '*' wildcard.
-                        // We have a match, no matter what the rest of the key
-                        // looks like.
-                        return MatchOutcome::Match;
-                    }
-
-                    // A wildcard can match zero or more characters.
-                    // We start by capturing zero characters—i.e. we don't
-                    // increment `i_k`.
-                    // We keep track of where the wildcard appears in the pattern
-                    // using the backtrack state. In particular, we store the
-                    // index of the wildcard in the pattern and the index of the
-                    // key token right after the wildcard.
-                    // If we have to backtrack, we will then capture exactly one character.
-                    // If that doesn't work, we will try again by capturing two characters.
-                    // Rinse and repeat until we either find a match or run out of key.
-                    bt_state = Some((i_t, i_k));
+                }
+                Token::TrailingAny => {
+                    return MatchOutcome::Match;
                 }
                 Token::Literal(chunk) => {
                     let remaining_key_len = key.len() - i_k;
@@ -277,7 +306,7 @@ impl<'pattern> WildcardPattern<'pattern> {
         if i_t == self.tokens.len() {
             // If there are no more tokens left, we have a match
             MatchOutcome::Match
-        } else if i_t + 1 == self.tokens.len() && self.tokens[i_t] == Token::Any {
+        } else if i_t + 1 == self.tokens.len() && matches!(self.tokens[i_t], Token::TrailingAny) {
             // If there's only one token left, and it's a '*' token,
             // we have a match. Even if the key is empty, since '*' matches
             // zero or more characters.

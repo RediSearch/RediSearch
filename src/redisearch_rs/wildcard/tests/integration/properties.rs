@@ -87,11 +87,18 @@ fn generate_matching_keys(pattern: &[u8], num_keys: usize, rng: impl Rng) -> Vec
 
         for token in tokens.tokens() {
             match token {
-                Token::Any => {
+                Token::TrailingAny => {
                     let num_chars = rng.borrow_mut().random_range(1..=10);
                     for _ in 0..num_chars {
                         key.push(chars.next().unwrap());
                     }
+                }
+                Token::MatchUpTo(finder) => {
+                    let num_chars = rng.borrow_mut().random_range(1..=10);
+                    for _ in 0..num_chars {
+                        key.push(chars.next().unwrap());
+                    }
+                    key.extend_from_slice(finder.needle());
                 }
                 Token::One => {
                     key.push(chars.next().unwrap());
@@ -128,11 +135,11 @@ proptest! {
         for key in input.keys {
             let outcome = pattern.matches(&key);
             if wc_cf.is_match(&key) {
-                assert_eq!(outcome, wildcard::MatchOutcome::Match);
+                assert_eq!(outcome, wildcard::MatchOutcome::Match, "Cloudflare matches, but our implementation does not");
             } else {
                 // In this case, our implementation may return
                 // either `MatchOutcome::NoMatch` or `MatchOutcome::PartialMatch`.
-                assert_ne!(outcome, wildcard::MatchOutcome::Match);
+                assert_ne!(outcome, wildcard::MatchOutcome::Match, "Cloudflare does not match, but our implementation does");
             }
         }
     }

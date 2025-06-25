@@ -17,8 +17,7 @@ fn test_wildcard_pattern_debug() {
         r#"WildcardPattern {
     tokens: [
         Token::Literal(br"foo"),
-        Token::Any,
-        Token::Literal(br"bar"),
+        Token::MatchUpTo(br"bar"),
         Token::One,
         Token::Literal(br"baz"),
     ],
