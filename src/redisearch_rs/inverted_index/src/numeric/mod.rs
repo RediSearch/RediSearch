@@ -328,8 +328,7 @@ impl Decoder for Numeric {
         let type_bits = (header >> 3) & 0b11;
         let upper_bits = header >> 5;
 
-        let delta = read_usize(&mut reader, delta_bytes as _)?;
-        let delta = Delta(delta);
+        let delta = read_u64(&mut reader, delta_bytes as _)?;
 
         let num = match type_bits {
             Self::TINY_TYPE => upper_bits as f64,
@@ -350,17 +349,11 @@ impl Decoder for Numeric {
             _ => unreachable!("All four possible combinations are covered"),
         };
 
-        let doc_id = base + (delta.0 as u64);
+        let doc_id = base + delta;
         let record = RSIndexResult::numeric(doc_id, num);
 
         Ok(Some(DecoderResult::Record(record)))
     }
-}
-
-fn read_usize<R: Read>(reader: &mut R, len: usize) -> std::io::Result<usize> {
-    let mut bytes = [0; size_of::<usize>()];
-    reader.read_exact(&mut bytes[..len])?;
-    Ok(usize::from_le_bytes(bytes))
 }
 
 fn read_u64<R: Read>(reader: &mut R, len: usize) -> std::io::Result<u64> {
