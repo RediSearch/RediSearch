@@ -153,7 +153,6 @@ trait ToBytes<const N: usize> {
 }
 
 impl ToBytes<{ size_of::<usize>() }> for Delta {
-    #[inline(always)]
     fn pack(self) -> [u8; size_of::<usize>()] {
         let delta = self.0;
         delta.to_le_bytes()
@@ -537,7 +536,6 @@ const FLOAT_INFINITE: u8 = 0b001;
 const FLOAT_NEGATIVE_INFINITE: u8 = 0b011;
 
 impl ToBytes<1> for Header {
-    #[inline(always)]
     fn pack(self) -> [u8; 1] {
         let mut packed = 0;
         packed |= self.delta_bytes & 0b111; // 3 bits for delta bytes
