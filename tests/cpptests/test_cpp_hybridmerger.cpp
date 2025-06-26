@@ -172,9 +172,6 @@ class HybridMergerTest : public ::testing::Test {};
  */
 TEST_F(HybridMergerTest, testHybridMergerSameDocs) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
 
   // Create upstreams with same documents (full intersection)
   MockUpstream upstream1(0, {2.0, 2.0, 2.0}, {1, 2, 3});
@@ -225,9 +222,6 @@ TEST_F(HybridMergerTest, testHybridMergerSameDocs) {
  */
 TEST_F(HybridMergerTest, testHybridMergerDifferentDocuments) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
 
   // Create upstreams with different documents (no intersection)
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3});
@@ -282,9 +276,6 @@ TEST_F(HybridMergerTest, testHybridMergerDifferentDocuments) {
  */
 TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream1) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
 
   // Create upstreams: first empty, second with documents
   MockUpstream upstream1(0, {}, {}); // Empty scores and docIds
@@ -335,9 +326,6 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream1) {
  */
 TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream2) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
 
   // Create upstreams: first with documents, second empty
   MockUpstream upstream1(0, {7.0, 7.0, 7.0}, {1, 2, 3});
@@ -388,9 +376,6 @@ TEST_F(HybridMergerTest, testHybridMergerEmptyUpstream2) {
  */
 TEST_F(HybridMergerTest, testHybridMergerBothEmpty) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
 
   // Create both upstreams empty
   MockUpstream upstream1(0, {}, {}); // Empty scores and docIds
@@ -433,9 +418,6 @@ TEST_F(HybridMergerTest, testHybridMergerBothEmpty) {
  */
 TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
 
   // Create RRF upstreams with custom score arrays (already sorted descending for ranking)
   std::vector<double> scores1 = {0.9, 0.5, 0.1, 0.05, 0.01};
@@ -501,9 +483,6 @@ TEST_F(HybridMergerTest, testRRFScoringSmallWindow) {
  */
 TEST_F(HybridMergerTest, testHybridMergerLargeWindow) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
 
   // Create upstreams with same documents (full intersection) but different rankings
   // Upstream1 yields: doc1=0.9(rank1), doc2=0.5(rank2), doc3=0.1(rank3)
@@ -573,9 +552,6 @@ TEST_F(HybridMergerTest, testHybridMergerLargeWindow) {
  */
 TEST_F(HybridMergerTest, testHybridMergerUpstream1DepletesMore) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
 
   // Create upstreams with different depletion counts
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3}, 3); // depletionCount = 3
@@ -630,9 +606,6 @@ TEST_F(HybridMergerTest, testHybridMergerUpstream1DepletesMore) {
  */
 TEST_F(HybridMergerTest, testHybridMergerUpstream2DepletesMore) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
 
   // Create upstreams with different depletion counts
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3}, 1); // depletionCount = 1
@@ -695,9 +668,7 @@ void SetupTimeoutTest(QueryIterator* qitr, RSTimeoutPolicy policy, RedisSearchCt
  */
 TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
+
   RedisSearchCtx sctx;
   SetupTimeoutTest(&qitr, TimeoutPolicy_Return, &sctx);
 
@@ -757,9 +728,7 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutReturnPolicy) {
  */
 TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
+
   RedisSearchCtx sctx;
   SetupTimeoutTest(&qitr, TimeoutPolicy_Fail, &sctx);
 
@@ -806,9 +775,6 @@ TEST_F(HybridMergerTest, testHybridMergerTimeoutFailPolicy) {
  */
 TEST_F(HybridMergerTest, testRRFScoring) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
 
   // Create RRF upstreams with custom score arrays for intersection test
   // Upstream1 yields: doc1=0.7(rank1), doc2=0.5(rank2), doc3=0.1(rank3)
@@ -879,9 +845,6 @@ TEST_F(HybridMergerTest, testRRFScoring) {
  */
 TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
 
   // Create upstreams with different documents (no intersection)
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3});
@@ -938,9 +901,6 @@ TEST_F(HybridMergerTest, testHybridMergerLinear3Upstreams) {
  */
 TEST_F(HybridMergerTest, testHybridMergerPartialIntersection) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
 
   // Create upstreams with partial intersection: {1,2,3} and {2,3,4,5}, all with score 1
   MockUpstream upstream1(0, {1.0, 1.0, 1.0}, {1, 2, 3});
@@ -984,9 +944,6 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersection) {
  */
 TEST_F(HybridMergerTest, testHybridMergerPartialIntersectionRRF) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
 
   // Create upstreams with partial intersection: {1,2,3} and {2,3,4,5}
   // Using different scores to create different rankings
@@ -1041,9 +998,6 @@ TEST_F(HybridMergerTest, testHybridMergerPartialIntersectionRRF) {
  */
 TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
   QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
 
   // Create RRF upstreams with custom score arrays for intersection test
   // Upstream1 yields: doc1=0.9(rank1), doc2=0.5(rank2), doc3=0.1(rank3)
@@ -1107,55 +1061,43 @@ TEST_F(HybridMergerTest, testRRFScoring3Upstreams) {
 }
 
 /*
- * Test that hybrid merger correctly handles error precedence when query iterator has error set and upstreams return different states
+ * Test that hybrid merger correctly handles error precedence with three upstreams returning different states
  *
  * Scoring function: Hybrid linear
- * Number of upstreams: 2
+ * Number of upstreams: 3
  * Intersection: N/A (error handling test)
- * Emptiness: Mixed (one upstream times out, one returns EOF)
- * Timeout: Mixed (one upstream times out, one returns EOF)
- * Expected behavior: Return RS_RESULT_ERROR (most severe error) when query iterator has error set, regardless of upstream states
+ * Emptiness: Mixed (one upstream EOF, one timeout, one error)
+ * Timeout: Mixed (one upstream EOF, one timeout, one error)
+ * Expected behavior: Return RS_RESULT_ERROR (most severe error) when one upstream returns error, regardless of other upstream states
  */
-TEST_F(HybridMergerTest, testHybridMergerQueryIteratorErrorPrecedence) {
-  QueryIterator qitr = {0};
-  QueryError qerr;
-  QueryError_Init(&qerr);
-  qitr.err = &qerr;
-
-  // Set error in query iterator at the beginning
-  QueryError_SetError(&qerr, QUERY_EGENERIC, "Test error in query iterator");
-
+TEST_F(HybridMergerTest, testHybridMergerErrorPrecedence) {
   // Create upstreams with different behaviors:
-  // upstream1: returns RS_RESULT_TIMEDOUT after 1 call
-  // upstream2: returns RS_RESULT_EOF (empty upstream)
-  MockUpstream upstream1(1, {1.0, 2.0}, {1, 2}); // timeoutAfterCount=1 (timeout after 1 call)
-  MockUpstream upstream2(0, {}, {}); // empty upstream (returns EOF)
+  // upstream1: returns RS_RESULT_EOF (empty upstream)
+  // upstream2: returns RS_RESULT_TIMEDOUT after 1 call
+  // upstream3: returns RS_RESULT_ERROR after 1 call
+  MockUpstream upstream1(0, {}, {}); // empty upstream (returns EOF)
+  MockUpstream upstream2(1, {1.0, 2.0}, {1, 2}); // timeoutAfterCount=1 (timeout after 1 call)
+  MockUpstream upstream3(0, {3.0, 4.0}, {3, 4}, 0, 1); // errorAfterCount=1 (error after 1 call)
 
   // Create hybrid merger with linear scoring
-  ResultProcessor *upstreams[] = {&upstream1, &upstream2};
-  double weights[] = {0.5, 0.5};
-  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 2, weights);
-
-  QITR_PushRP(&qitr, hybridMerger);
+  ResultProcessor *upstreams[] = {&upstream1, &upstream2, &upstream3};
+  double weights[] = {0.33, 0.33, 0.34};
+  ResultProcessor *hybridMerger = CreateLinearHybridMerger(upstreams, 3, weights);
 
   // Process and verify that the most severe error (RS_RESULT_ERROR) is returned
   SearchResult r = {0};
-  ResultProcessor *rpTail = qitr.endProc;
   int result;
   size_t count = 0;
 
-  // Try to get results - should return error immediately due to query iterator error
-  while ((result = rpTail->Next(rpTail, &r)) == RS_RESULT_OK) {
+  // Try to get results - should return error due to upstream3 error
+  while ((result = hybridMerger->Next(hybridMerger, &r)) == RS_RESULT_OK) {
     count++;
     SearchResult_Clear(&r);
-    // Safety check to avoid infinite loop in case of unexpected behavior
-    if (count > 10) break;
   }
 
-  // Should return RS_RESULT_ERROR (most severe) even though upstreams have TIMEOUT and EOF
+  // Should return RS_RESULT_ERROR (most severe) even though other upstreams have TIMEOUT and EOF
   ASSERT_EQ(RS_RESULT_ERROR, result);
-  ASSERT_EQ(0, count); // Should not have processed any documents due to immediate error
 
   SearchResult_Destroy(&r);
-  QITR_FreeChain(&qitr);
+  hybridMerger->Free(hybridMerger);
 }

@@ -1650,7 +1650,8 @@ dictType dictTypeHybridSearchResult = {
    size_t numUpstreams;         // Number of upstream processors
    dict *hybridResults;  // keyPtr -> HybridSearchResult mapping
    dictIterator *iterator; // Iterator for yielding results
-   bool timedOut; // Flag to track if we timed out during accumulation
+   bool timedOut;
+   bool error;
  } RPHybridMerger;
 
  /* Helper function to store a result from an upstream into the hybrid merger's dictionary */
@@ -1697,19 +1698,7 @@ dictType dictTypeHybridSearchResult = {
  static int RPHybridMerger_Yield(ResultProcessor *rp, SearchResult *r) {
    RPHybridMerger *self = (RPHybridMerger *)rp;
 
-   if (QueryError_HasError(rp->parent->err)) {
-     return RS_RESULT_ERROR;
-   }
-
-   if (self->timedOut && rp->parent->timeoutPolicy == TimeoutPolicy_Fail){
-     return RS_RESULT_TIMEDOUT;
-   }
-
-   if (!self->iterator) {
-    // Initialize iterator for yield phase
-    self->iterator = dictGetIterator(self->hybridResults);
-   }
-
+   RS_ASSERT(self->iterator);
    // Get next entry from iterator
    dictEntry *entry = dictNext(self->iterator);
    if (!entry) {
@@ -1748,10 +1737,13 @@ dictType dictTypeHybridSearchResult = {
         // Upstream is still active but not ready to provide results. Skip to the next.
         continue;
       }
-      if (rc == RS_RESULT_TIMEDOUT){
+      // Currently continues processing other upstreams.
+      // TODO: Update logic to stop processing further results — we want to return immediately on timeout or error.
+      // Note: This processor might have rp_depleter as an upstream, which currently lacks a mechanism to stop its spawned thread before completion.
+      else if (rc == RS_RESULT_TIMEDOUT){
         self->timedOut = true;
-        // will continue processing other upstreams
-        // TODO: change to stop processing additional results
+      } else if (rc == RS_RESULT_ERROR){
+        self->error = true;
       }
       consumed[i] = true;
       numConsumed++;
@@ -1761,6 +1753,14 @@ dictType dictTypeHybridSearchResult = {
   // Free the consumed tracking array
   rm_free(consumed);
 
+  if (self->error) {
+    return RS_RESULT_ERROR;
+  } else if (self->timedOut && rp->parent->timeoutPolicy == TimeoutPolicy_Fail) {
+    return RS_RESULT_TIMEDOUT;
+  }
+
+  // Initialize iterator for yield phase
+  self->iterator = dictGetIterator(self->hybridResults);
   // Switch to yield phase
   rp->Next = RPHybridMerger_Yield;
   return rp->Next(rp, r);
