@@ -432,6 +432,20 @@ TEST_F(IntersectionIteratorReducerTest, TestIntersectionRemovesWildcardChildren)
   InvertedIndex_Free(idx);
 }
 
+TEST_F(IntersectionIteratorReducerTest, TestIntersectionAllWildCardChildren) {
+  QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
+  children[0] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
+  children[1] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
+  children[2] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
+  children[3] = IT_V2(NewWildcardIterator_NonOptimized)(30, 2, 1.0);
+
+  size_t num = 4;
+  QueryIterator *ii_base = NewIntersectionIterator(children, num, -1, false, 1.0);
+
+  ASSERT_EQ(ii_base->type, EMPTY_ITERATOR);
+  ii_base->Free(ii_base);
+}
+
 TEST_F(IntersectionIteratorReducerTest, TestIntersectionWithSingleChild) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 3);
   children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));

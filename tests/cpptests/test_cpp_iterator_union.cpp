@@ -297,6 +297,18 @@ TEST_F(UnionIteratorReducerTest, TestUnionRemovesEmptyChildren) {
   ui_base->Free(ui_base);
 }
 
+TEST_F(UnionIteratorReducerTest, TestUnionRemovesEmptyChildrenOnlyOneLeft) {
+  QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
+  children[0] = nullptr;
+  children[1] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
+  children[2] = IT_V2(NewEmptyIterator)();
+  children[3] = nullptr;
+  QueryIterator* expected_iter = children[1];
+  QueryIterator *ui_base = IT_V2(NewUnionIterator)(children, 4, false, 1.0, QN_UNION, NULL, &RSGlobalConfig.iteratorsConfigParams);
+  ASSERT_EQ(ui_base, expected_iter);
+  ui_base->Free(ui_base);
+}
+
 TEST_F(UnionIteratorReducerTest, TestUnionQuickWithWildcard) {
   QueryIterator **children = (QueryIterator **)rm_malloc(sizeof(QueryIterator *) * 4);
   children[0] = reinterpret_cast<QueryIterator *>(new MockIterator({1UL, 2UL, 3UL}));
