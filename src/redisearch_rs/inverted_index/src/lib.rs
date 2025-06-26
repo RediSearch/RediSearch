@@ -17,6 +17,7 @@ use std::{
 use enumflags2::{BitFlags, bitflags};
 pub use ffi::{RSDocumentMetadata, RSQueryTerm, RSYieldableMetric, t_docId, t_fieldMask};
 
+pub mod freqs_only;
 pub mod numeric;
 
 /// A delta is the difference between document IDs. It is mostly used to save space in the index
@@ -162,6 +163,24 @@ impl RSIndexResult {
                 num: ManuallyDrop::new(RSNumericRecord(num)),
             },
             result_type: RSResultType::Numeric,
+            is_copy: false,
+            metrics: std::ptr::null_mut(),
+            weight: 0.0,
+        }
+    }
+
+    /// Create a new freqs only index result with the given frequency.
+    pub fn freqs_only(doc_id: t_docId, freq: u32) -> Self {
+        Self {
+            doc_id,
+            dmd: std::ptr::null(),
+            field_mask: 0,
+            freq,
+            offsets_sz: 0,
+            data: RSIndexResultData {
+                virt: ManuallyDrop::new(RSVirtualResult),
+            },
+            result_type: RSResultType::Virtual,
             is_copy: false,
             metrics: std::ptr::null_mut(),
             weight: 0.0,

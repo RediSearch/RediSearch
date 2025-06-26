@@ -10,7 +10,7 @@
 //! Benchmarks the numeric encoding and decoding
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use inverted_index_bencher::benchers::numeric::Bencher;
+use inverted_index_bencher::benchers::{freqs_only::FreqsOnlyBencher, numeric::Bencher};
 
 fn benchmark_numeric(c: &mut Criterion) {
     let bencher = Bencher::new();
@@ -19,5 +19,14 @@ fn benchmark_numeric(c: &mut Criterion) {
     bencher.decoding(c);
 }
 
-criterion_group!(benches, benchmark_numeric);
+fn benchmark_freqs_only(c: &mut Criterion) {
+    let bencher = FreqsOnlyBencher::new();
+
+    bencher.encoding(c);
+    bencher.decoding(c);
+}
+
+// FIXME: should we move this to lib.rs? We can only have one criterion_main
+// and I'm not sure it's worth having a sub module for each type of benches.
+criterion_group!(benches, benchmark_numeric, benchmark_freqs_only);
 criterion_main!(benches);
