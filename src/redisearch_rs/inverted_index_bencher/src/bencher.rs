@@ -24,8 +24,8 @@ pub struct NumericBencher {
 }
 
 impl NumericBencher {
-    const MEASUREMENT_TIME: Duration = Duration::from_secs(10);
-    const WARMUP_TIME: Duration = Duration::from_secs(5);
+    const MEASUREMENT_TIME: Duration = Duration::from_secs(2);
+    const WARMUP_TIME: Duration = Duration::from_secs(1);
 
     pub fn new() -> Self {
         let test_values = generate_test_values();
