@@ -49,30 +49,7 @@ fn numeric_tiny_int() {
     ];
 
     for (delta, value, expected_bytes_written, expected_buffer) in inputs {
-        let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::numeric(u64::MAX, value);
-
-        let bytes_written =
-            Numeric::encode(&mut buf, Delta(delta), &record).expect("to encode numeric record");
-
-        let buf = buf.into_inner();
-        assert_eq!(
-            bytes_written, expected_bytes_written,
-            "failed for value: {}",
-            value
-        );
-        assert_eq!(buf, expected_buffer, "failed for value: {}", value);
-
-        let prev_doc_id = u64::MAX - (delta as u64);
-        let DecoderResult::Record(record_decoded) = Numeric
-            .decode(buf.as_slice(), prev_doc_id)
-            .expect("to decode numeric record")
-            .expect("to read a record from the buffer")
-        else {
-            panic!("Record was filtered out incorrectly")
-        };
-
-        assert_eq!(record_decoded, record, "failed for value: {}", value);
+        test_numeric_encode_decode(delta, value, expected_bytes_written, expected_buffer);
     }
 }
 
@@ -126,30 +103,7 @@ fn numeric_pos_int() {
     ];
 
     for (delta, value, expected_bytes_written, expected_buffer) in inputs {
-        let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::numeric(u64::MAX, value);
-
-        let bytes_written =
-            Numeric::encode(&mut buf, Delta(delta), &record).expect("to encode numeric record");
-
-        let buf = buf.into_inner();
-        assert_eq!(
-            bytes_written, expected_bytes_written,
-            "failed for value: {}",
-            value
-        );
-        assert_eq!(buf, expected_buffer, "failed for value: {}", value);
-
-        let prev_doc_id = u64::MAX - (delta as u64);
-        let DecoderResult::Record(record_decoded) = Numeric
-            .decode(buf.as_slice(), prev_doc_id)
-            .expect("to decode numeric record")
-            .expect("to read a record from the buffer")
-        else {
-            panic!("Record was filtered out incorrectly")
-        };
-
-        assert_eq!(record_decoded, record, "failed for value: {}", value);
+        test_numeric_encode_decode(delta, value, expected_bytes_written, expected_buffer);
     }
 }
 
@@ -203,30 +157,7 @@ fn numeric_neg_int() {
     ];
 
     for (delta, value, expected_bytes_written, expected_buffer) in inputs {
-        let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::numeric(u64::MAX, value);
-
-        let bytes_written =
-            Numeric::encode(&mut buf, Delta(delta), &record).expect("to encode numeric record");
-
-        let buf = buf.into_inner();
-        assert_eq!(
-            bytes_written, expected_bytes_written,
-            "failed for value: {}",
-            value
-        );
-        assert_eq!(buf, expected_buffer, "failed for value: {}", value);
-
-        let prev_doc_id = u64::MAX - (delta as u64);
-        let DecoderResult::Record(record_decoded) = Numeric
-            .decode(buf.as_slice(), prev_doc_id)
-            .expect("to decode numeric record")
-            .expect("to read a record from the buffer")
-        else {
-            panic!("Record was filtered out incorrectly")
-        };
-
-        assert_eq!(record_decoded, record, "failed for value: {}", value);
+        test_numeric_encode_decode(delta, value, expected_bytes_written, expected_buffer);
     }
 }
 
@@ -423,31 +354,40 @@ fn numeric_float() {
     ];
 
     for (delta, value, expected_bytes_written, expected_buffer) in inputs {
-        let mut buf = Cursor::new(Vec::new());
-        let record = RSIndexResult::numeric(u64::MAX, value);
-
-        let bytes_written =
-            Numeric::encode(&mut buf, Delta(delta), &record).expect("to encode numeric record");
-
-        let buf = buf.into_inner();
-        assert_eq!(
-            bytes_written, expected_bytes_written,
-            "failed for value: {}",
-            value
-        );
-        assert_eq!(buf, expected_buffer, "failed for value: {}", value);
-
-        let prev_doc_id = u64::MAX - (delta as u64);
-        let DecoderResult::Record(record_decoded) = Numeric
-            .decode(buf.as_slice(), prev_doc_id)
-            .expect("to decode numeric record")
-            .expect("to read a record from the buffer")
-        else {
-            panic!("Record was filtered out incorrectly")
-        };
-
-        assert_eq!(record_decoded, record, "failed for value: {}", value);
+        test_numeric_encode_decode(delta, value, expected_bytes_written, expected_buffer);
     }
+}
+
+fn test_numeric_encode_decode(
+    delta: usize,
+    value: f64,
+    expected_bytes_written: usize,
+    expected_buffer: Vec<u8>,
+) {
+    let mut buf = Cursor::new(Vec::new());
+    let record = RSIndexResult::numeric(u64::MAX, value);
+
+    let bytes_written =
+        Numeric::encode(&mut buf, Delta(delta), &record).expect("to encode numeric record");
+
+    let buf = buf.into_inner();
+    assert_eq!(
+        bytes_written, expected_bytes_written,
+        "failed for value: {}",
+        value
+    );
+    assert_eq!(buf, expected_buffer, "failed for value: {}", value);
+
+    let prev_doc_id = u64::MAX - (delta as u64);
+    let DecoderResult::Record(record_decoded) = Numeric
+        .decode(buf.as_slice(), prev_doc_id)
+        .expect("to decode numeric record")
+        .expect("to read a record from the buffer")
+    else {
+        panic!("Record was filtered out incorrectly")
+    };
+
+    assert_eq!(record_decoded, record, "failed for value: {}", value);
 }
 
 proptest! {
