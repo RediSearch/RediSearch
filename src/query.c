@@ -1844,7 +1844,6 @@ static int QueryNode_CheckIsValidAsVectorFilter(QueryNode *n, QueryError *status
       break;
     case QN_NULL:
     case QN_MISSING:
-    case QN_MAX:
       withChildren = 0;
       break;
     default:

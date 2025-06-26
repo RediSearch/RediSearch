@@ -34,8 +34,8 @@ TEST_F(VectorFilterTest, testVectorFilter) {
   // Create an index spec with a title field and a vector field
   static const char *args[] = {
     "SCHEMA",
-    "title", "text",
-    "body", "text",
+    "title", "text", "weight", "1.2",
+    "body", "text", "INDEXMISSING",
     "v", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2",
     "v2", "vector", "HNSW", "6", "TYPE", "FLOAT32", "DIM", "4", "DISTANCE_METRIC", "L2"};
 
@@ -78,6 +78,9 @@ TEST_F(VectorFilterTest, testVectorFilter) {
   assertValidVectorFilter("@title:hello world -@title:world", ctx);
   assertValidVectorFilter("@title:hello world -@title:world @title:hello", ctx);
   assertValidVectorFilter("( @title:(foo bar) @body:lol )=> {$slop:2; $inorder:true}", ctx);
+  assertValidVectorFilter("", ctx);
+  assertValidVectorFilter("such that their", ctx);
+  assertValidVectorFilter("ismissing(@body)", ctx);
 
   IndexSpec_RemoveFromGlobals(ref, false);
 }
