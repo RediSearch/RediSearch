@@ -77,6 +77,8 @@ typedef struct QueryAST {
 int QAST_Parse(QueryAST *dst, const RedisSearchCtx *sctx, const RSSearchOptions *sopts,
                const char *qstr, size_t len, unsigned int dialectVersion, QueryError *status);
 
+// Not subtree to indicate the Node evaluating is in a Not Subtree which could lead to some iterator level optimizations
+// Do not want to expose this in QueryEvalCtx
 IndexIterator *Query_EvalNode(QueryEvalCtx *q, QueryNode *n);
 
 /**
