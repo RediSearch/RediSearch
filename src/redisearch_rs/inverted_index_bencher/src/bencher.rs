@@ -46,7 +46,7 @@ impl NumericBencher {
 
     pub fn encoding(&self, c: &mut Criterion) {
         for BenchGroup { group, inputs } in &self.test_values {
-            let group = format!("Encode | {}", group);
+            let group = format!("Encode Numeric | {group}");
             let mut group = self.benchmark_group(c, &group);
 
             for input in inputs {
@@ -60,7 +60,7 @@ impl NumericBencher {
 
     pub fn decoding(&self, c: &mut Criterion) {
         for BenchGroup { group, inputs } in &self.test_values {
-            let group = format!("Decode | {}", group);
+            let group = format!("Decode Numeric | {group}");
             let mut group = self.benchmark_group(c, &group);
 
             for input in inputs {
