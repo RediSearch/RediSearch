@@ -295,7 +295,7 @@ TEST_F(AggTest, AvoidingCompleteResultStructOpt) {
   auto scenario = [&](QEFlags flags, auto... args) -> bool {
     QueryError qerr = {QueryErrorCode(0)};
     AREQ *rr = AREQ_New();
-    rr->reqflags = flags;
+    rr->pipeline.reqflags = flags;
     RMCK::ArgvList aggArgs(ctx, "*", args...);
     int rv = AREQ_Compile(rr, aggArgs, aggArgs.size(), &qerr);
     EXPECT_EQ(REDISMODULE_OK, rv) << QueryError_GetUserError(&qerr);

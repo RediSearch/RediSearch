@@ -77,9 +77,6 @@ typedef struct {
   // Last processor
   struct ResultProcessor *endProc;
 
-  // Concurrent search context for thread switching
-  ConcurrentSearchCtx *conc;
-
   // Contains our spec
   RedisSearchCtx *sctx;
 
@@ -168,7 +165,7 @@ typedef enum {
  */
 typedef struct ResultProcessor {
   // Reference to the parent structure
-  QueryIterator *parent;
+  QueryProcessingCtx *parent;
 
   // Previous result processor in the chain
   struct ResultProcessor *upstream;
@@ -194,6 +191,7 @@ typedef struct ResultProcessor {
   void (*Free)(struct ResultProcessor *self);
 } ResultProcessor;
 
+
 /**
  * This function allocates a new SearchResult, copies the data from `src` to it,
  * and returns it.
@@ -212,7 +210,7 @@ void SearchResult_Clear(SearchResult *r);
  */
 void SearchResult_Destroy(SearchResult *r);
 
-ResultProcessor *RPIndexIterator_New(IndexIterator *itr);
+ResultProcessor *RPIndexIterator_New(IndexIterator *itr, ConcurrentSearchCtx *conc);
 
 ResultProcessor *RPScorer_New(const ExtScoringFunctionCtx *funcs,
                               const ScoringFunctionArgs *fnargs,
@@ -255,10 +253,11 @@ ResultProcessor *RPPager_New(size_t offset, size_t limit);
  *
  *******************************************************************************************************************/
 struct AREQ;
-ResultProcessor *RPLoader_New(struct AREQ *r, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad);
+struct AggregationPipeline;
+ResultProcessor *RPLoader_New(struct AggregationPipeline *pipeline, RLookup *lk, const RLookupKey **keys, size_t nkeys, bool forceLoad);
 
-void SetLoadersForBG(struct AREQ *r);
-void SetLoadersForMainThread(struct AREQ *r);
+void SetLoadersForBG(QueryProcessingCtx *qctx);
+void SetLoadersForMainThread(QueryProcessingCtx *qctx);
 
 /** Creates a new Highlight processor */
 ResultProcessor *RPHighlighter_New(const RSSearchOptions *searchopts, const FieldList *fields,
@@ -272,7 +271,7 @@ void RP_DumpChain(const ResultProcessor *rp);
  * This processor collects time and count info about the performance of its upstream RP.
  *
  *******************************************************************************************************************/
-ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryIterator *qiter);
+ResultProcessor *RPProfile_New(ResultProcessor *rp, QueryProcessingCtx *qctx);
 
 
 /*******************************************************************************************************************
@@ -286,7 +285,7 @@ ResultProcessor *RPCounter_New();
 clock_t RPProfile_GetClock(ResultProcessor *rp);
 uint64_t RPProfile_GetCount(ResultProcessor *rp);
 
-void Profile_AddRPs(QueryIterator *qiter);
+void Profile_AddRPs(QueryProcessingCtx *qctx);
 
 // Return string for RPType
 const char *RPTypeToString(ResultProcessorType type);
