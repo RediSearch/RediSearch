@@ -284,14 +284,18 @@ fn numeric_c_decode<M: Measurement>(group: &mut BenchmarkGroup<'_, M>, input: &B
         ),
         |b| {
             for (_, _, buffer) in values {
-                let buffer_ptr = NonNull::new(buffer.as_ptr() as *mut _).unwrap();
-                let mut buffer = unsafe { Buffer::new(buffer_ptr, buffer.len(), buffer.len()) };
+                b.iter_batched(
+                    || {
+                        let buffer_ptr = NonNull::new(buffer.as_ptr() as *mut _).unwrap();
+                        unsafe { Buffer::new(buffer_ptr, buffer.len(), buffer.len()) }
+                    },
+                    |mut buffer| {
+                        let (_filtered, result) = read_numeric(&mut buffer, 100);
 
-                b.iter(|| {
-                    let (_filtered, result) = read_numeric(&mut buffer, 100);
-
-                    black_box(result);
-                });
+                        black_box(result);
+                    },
+                    BatchSize::SmallInput,
+                );
             }
         },
     );
