@@ -11,6 +11,7 @@
 #include "empty_iterator.h"
 #include "union_iterator.h"
 #include "index_result.h"
+#include "wildcard_iterator.h"
 
 /**************************** Read + SkipTo Helpers ****************************/
 
@@ -245,7 +246,6 @@ static void II_SetEstimation(IntersectionIterator *it) {
   }
 }
 
-
 /**
  * Reduce the intersection iterator by applying these rules:
  * 1. If any of the iterators is an empty iterator, return the empty iterator and update the number of children
@@ -262,44 +262,34 @@ static QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *n
   size_t empty_iterator_idx = 0;
   bool has_empty_iterator = false;
   for (size_t read_idx = 0; read_idx < current_size; read_idx++) {
-    if (its[read_idx] && (its[read_idx]->type != WILDCARD_ITERATOR && its[read_idx]->type != READ_ITERATOR)) {
-      // Keep non-wildcard iterators
-      its[write_idx] = its[read_idx];
-      if (its[read_idx]->type == EMPTY_ITERATOR) {
-        has_empty_iterator = true;
-        empty_iterator_idx = read_idx;
-        if (!its[empty_iterator_idx]) {
-          its[empty_iterator_idx] = IT_V2(NewEmptyIterator)();
-        }
-        break;
-      }
-      write_idx++;
-    } else if (its[read_idx] && (its[read_idx]->type == WILDCARD_ITERATOR || its[read_idx]->type == READ_ITERATOR)) {
-      // Free wildcard iterators since they're being removed
+    if (IsWildcardIterator(its[read_idx])) {
       its[read_idx]->Free(its[read_idx]);
+    } else {
+      its[write_idx++] = its[read_idx];
+    }
+  }
+  *num = write_idx;
+
+  for (size_t ii = 0; ii < write_idx; ++ii) {
+    if (!its[ii] || its[ii]->type == EMPTY_ITERATOR) {
+      has_empty_iterator = true;
+      empty_iterator_idx = ii;
+      if (!its[empty_iterator_idx]) {
+        its[empty_iterator_idx] = IT_V2(NewEmptyIterator)();
+      }
+
+      break;
     }
   }
 
   if (has_empty_iterator) {
-    for (size_t ii = 0; ii < current_size; ++ii) {
+    for (size_t ii = 0; ii < write_idx; ++ii) {
       if (its[ii] && ii != empty_iterator_idx) {
         its[ii]->Free(its[ii]);
       }
     }
     ret = its[empty_iterator_idx];
   } else {
-    // Update the count to reflect the new size after removing wildcards
-    *num = write_idx;
-
-    if (write_idx < current_size) {
-      // Compact the array in-place
-      for (size_t ii = write_idx; ii < current_size; ++ii) {
-        if (its[ii]) {
-          its[ii]->Free(its[ii]);
-        }
-      }
-    }
-
     // Handle edge cases after wildcard removal
     if (write_idx == 0) {
       // All iterators were wildcards, return NULL
@@ -308,6 +298,10 @@ static QueryIterator *IntersectionIteratorReducer(QueryIterator **its, size_t *n
       // Only one iterator left, return it directly
       ret = its[0];
     }
+  }
+
+  if (ret != NULL) {
+    rm_free(its);
   }
 
   return ret;

@@ -37,7 +37,7 @@ public:
 
     // Initialize iterators based on the test name
     if constexpr (std::is_same_v<IteratorType, QueryIterator>) {
-      iterator_base = IT_V2(NewWildcardIterator_NonOptimized)(maxDocId, numDocs);
+      iterator_base = IT_V2(NewWildcardIterator_NonOptimized)(maxDocId, numDocs, 1.0);
     } else {
       iterator_base = NewWildcardIterator_NonOptimized(maxDocId, numDocs);
     }

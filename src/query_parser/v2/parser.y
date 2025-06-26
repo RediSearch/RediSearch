@@ -156,7 +156,12 @@ static inline struct RSQueryNode* not_step(struct RSQueryNode* child) {
 
     // If the child is a NOT node, return its child (double negation elimination)
     if (child->type == QN_NOT && QueryNode_NumChildren(child) == 1) {
-        return child->children[0];
+        struct RSQueryNode* grandchild = child->children[0];
+        // Detach the grandchild from its parent to prevent it from being freed
+        child->children[0] = NULL;
+        // Free the NOT node (the parent)
+        QueryNode_Free(child);
+        return grandchild;
     }
 
     // Otherwise, create a new NOT node

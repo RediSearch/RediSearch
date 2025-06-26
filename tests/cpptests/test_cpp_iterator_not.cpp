@@ -16,6 +16,10 @@
 #include <vector>
 
 #include "src/iterators/not_iterator.h"
+#include "src/iterators/wildcard_iterator.h"
+#include "src/iterators/empty_iterator.h"
+#include "src/iterators/inverted_index_iterator.h"
+#include "src/inverted_index/inverted_index.h"
 
 class NotIteratorCommonTest : public ::testing::TestWithParam<std::tuple<std::vector<t_docId>, std::vector<t_docId>, std::optional<t_docId>, bool>> {
 protected:
@@ -634,4 +638,138 @@ TEST_F(NotIteratorNoChildTest, Rewind) {
     ASSERT_EQ(iterator_base->lastDocId, 0);
     ASSERT_FALSE(iterator_base->atEOF);
   }
+}
+
+class NotIteratorReducerTest : public ::testing::Test {};
+
+TEST_F(NotIteratorReducerTest, TestNotWithNullChild) {
+  // Test rule 1: If the child is NULL, return a wildcard iterator
+  struct timespec timeout = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+
+  // Create a mock QueryEvalCtx
+  IndexSpec *spec = (IndexSpec*)rm_calloc(1, sizeof(IndexSpec));
+  spec->rule = (SchemaRule*)rm_calloc(1, sizeof(SchemaRule));
+  spec->rule->index_all = false;
+
+  RedisSearchCtx* sctx = (RedisSearchCtx*)rm_calloc(1, sizeof(RedisSearchCtx));
+  sctx->spec = spec;
+
+  DocTable* docTable = (DocTable*)rm_calloc(1, sizeof(DocTable));
+  docTable->maxDocId = maxDocId;
+  docTable->size = maxDocId;
+
+  QueryEvalCtx* qctx = (QueryEvalCtx*)rm_calloc(1, sizeof(QueryEvalCtx));
+  qctx->sctx = sctx;
+  qctx->docTable = docTable;
+
+  QueryIterator *it = IT_V2(NewNotIterator)(nullptr, maxDocId, 1.0, timeout, qctx);
+
+  // Should return a wildcard iterator
+  ASSERT_EQ(it->type, WILDCARD_ITERATOR);
+  it->Free(it);
+  rm_free(qctx);
+  rm_free(docTable);
+  rm_free(sctx);
+  rm_free(spec->rule);
+  rm_free(spec);
+}
+
+TEST_F(NotIteratorReducerTest, TestNotWithEmptyChild) {
+  // Test rule 1: If the child is an empty iterator, return a wildcard iterator
+  struct timespec timeout = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+
+  // Create a mock QueryEvalCtx
+  IndexSpec *spec = (IndexSpec*)rm_calloc(1, sizeof(IndexSpec));
+  spec->rule = (SchemaRule*)rm_calloc(1, sizeof(SchemaRule));
+  spec->rule->index_all = false;
+
+  RedisSearchCtx* sctx = (RedisSearchCtx*)rm_calloc(1, sizeof(RedisSearchCtx));
+  sctx->spec = spec;
+
+  DocTable* docTable = (DocTable*)rm_calloc(1, sizeof(DocTable));
+  docTable->maxDocId = maxDocId;
+  docTable->size = maxDocId;
+
+  QueryEvalCtx* qctx = (QueryEvalCtx*)rm_calloc(1, sizeof(QueryEvalCtx));
+  qctx->sctx = sctx;
+  qctx->docTable = docTable;
+
+  QueryIterator *emptyChild = IT_V2(NewEmptyIterator)();
+  QueryIterator *it = IT_V2(NewNotIterator)(emptyChild, maxDocId, 1.0, timeout, qctx);
+
+  // Should return a wildcard iterator
+  ASSERT_EQ(it->type, WILDCARD_ITERATOR);
+  it->Free(it);
+  rm_free(qctx);
+  rm_free(docTable);
+  rm_free(sctx);
+  rm_free(spec->rule);
+  rm_free(spec);
+}
+
+TEST_F(NotIteratorReducerTest, TestNotWithWildcardChild) {
+  // Test rule 2: If the child is a wildcard iterator, return an empty iterator
+  struct timespec timeout = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+
+  // Create a mock QueryEvalCtx
+  IndexSpec *spec = (IndexSpec*)rm_calloc(1, sizeof(IndexSpec));
+  spec->rule = (SchemaRule*)rm_calloc(1, sizeof(SchemaRule));
+  spec->rule->index_all = true;
+
+  RedisSearchCtx* sctx = (RedisSearchCtx*)rm_calloc(1, sizeof(RedisSearchCtx));
+  sctx->spec = spec;
+
+  DocTable* docTable = (DocTable*)rm_calloc(1, sizeof(DocTable));
+  docTable->maxDocId = maxDocId;
+  docTable->size = maxDocId;
+
+  QueryEvalCtx* qctx = (QueryEvalCtx*)rm_calloc(1, sizeof(QueryEvalCtx));
+  qctx->sctx = sctx;
+  qctx->docTable = docTable;
+
+  QueryIterator *wildcardChild = IT_V2(NewWildcardIterator_NonOptimized)(maxDocId, maxDocId, 1.0);
+  QueryIterator *it = IT_V2(NewNotIterator)(wildcardChild, maxDocId, 1.0, timeout, qctx);
+
+  // Should return an empty iterator
+  ASSERT_EQ(it->type, EMPTY_ITERATOR);
+  it->Free(it);
+  rm_free(qctx);
+  rm_free(docTable);
+  rm_free(sctx);
+  rm_free(spec->rule);
+  rm_free(spec);
+}
+
+TEST_F(NotIteratorReducerTest, TestNotWithReaderWildcardChild) {
+  // Test rule 2: If the child is a wildcard iterator, return an empty iterator
+  struct timespec timeout = {LONG_MAX, 999999999};
+  t_docId maxDocId = 100;
+  size_t memsize;
+  InvertedIndex *idx = NewInvertedIndex(static_cast<IndexFlags>(INDEX_DEFAULT_FLAGS), 1, &memsize);
+  ASSERT_TRUE(idx != nullptr);
+  ASSERT_TRUE(InvertedIndex_GetDecoder(idx->flags).seeker != nullptr);
+  auto encoder = InvertedIndex_GetEncoder(idx->flags);
+  for (t_docId i = 1; i < 1000; ++i) {
+      auto res = (RSIndexResult) {
+          .docId = i,
+          .fieldMask = 1,
+          .freq = 1,
+          .type = RSResultType::RSResultType_Term,
+      };
+      InvertedIndex_WriteEntryGeneric(idx, encoder, i, &res);
+  }
+  // Create an iterator that reads only entries with field mask 2
+  QueryIterator *wildcardChild = NewInvIndIterator_TermQuery(idx, nullptr, {.isFieldMask = true, .value = {.mask = 2}}, nullptr, 1.0);
+  InvIndIterator* invIdxIt = (InvIndIterator *)wildcardChild;
+  invIdxIt->isWildcard = true;
+
+  QueryIterator *it = IT_V2(NewNotIterator)(wildcardChild, maxDocId, 1.0, timeout, nullptr);
+
+  // Should return an empty iterator
+  ASSERT_EQ(it->type, EMPTY_ITERATOR);
+  it->Free(it);
+  InvertedIndex_Free(idx);
 }

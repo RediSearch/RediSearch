@@ -9,6 +9,7 @@
 
 #include "optional_iterator.h"
 #include "wildcard_iterator.h"
+#include "inverted_index_iterator.h"
 
 static void OI_Free(QueryIterator *base) {
   OptionalIterator *oi = (OptionalIterator *)base;
@@ -180,17 +181,23 @@ static IteratorStatus OI_Read_NotOptimized(QueryIterator *base) {
  * 3. Otherwise, return NULL and let the caller create the optional iterator
  */
 static QueryIterator* OptionalIteratorReducer(QueryIterator *it, QueryEvalCtx *q, double weight) {
+  QueryIterator *ret = NULL;
   if (!it || it->type == EMPTY_ITERATOR) {
-    // If the child is NULL, we return a wildcard iterator. (TODO: Joan) (Not sure if some weight needs to be added)
+    // If the child is NULL, we return a wildcard iterator. All will be virtual hits
     bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
     if (optimized) {
-      return IT_V2(NewWildcardIterator_Optimized)(q->sctx);
+      ret = IT_V2(NewWildcardIterator_Optimized)(q->sctx, weight);
+    } else {
+      ret = IT_V2(NewWildcardIterator)(q, weight);
     }
-    return IT_V2(NewWildcardIterator)(q);
-  } else if (it && (it->type == WILDCARD_ITERATOR || it->type == READ_ITERATOR)) {
-    return it;
+    if (it) {
+      it->Free(it);
+    }
+  } else if (IsWildcardIterator(it)) {
+    // All will be real hits
+    ret = it;
   }
-  return NULL;
+  return ret;
 }
 
 // Create a new OPTIONAL iterator - Non-Optimized version.
@@ -203,7 +210,7 @@ QueryIterator *IT_V2(NewOptionalIterator)(QueryIterator *it, QueryEvalCtx *q, do
   OptionalIterator *oi = rm_calloc(1, sizeof(*oi));
   bool optimized = q->sctx->spec->rule && q->sctx->spec->rule->index_all;
   if (optimized) {
-    oi->wcii = IT_V2(NewWildcardIterator_Optimized)(q->sctx);
+    oi->wcii = IT_V2(NewWildcardIterator_Optimized)(q->sctx, weight);
   }
   oi->child = it;
   oi->virt = NewVirtualResult(weight, RS_FIELDMASK_ALL);

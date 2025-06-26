@@ -55,14 +55,25 @@ static void WI_Rewind(QueryIterator *base) {
   base->lastDocId = 0;
 }
 
+bool IsWildcardIterator(QueryIterator *it) {
+  if (it && it->type == WILDCARD_ITERATOR) {
+    return true;
+  }
+  if (it && it->type == READ_ITERATOR) {
+    InvIndIterator *invIdxIt = (InvIndIterator *)it;
+    return invIdxIt->isWildcard;
+  }
+  return false;
+}
+
 /* Create a new wildcard iterator */
-QueryIterator *IT_V2(NewWildcardIterator_NonOptimized)(t_docId maxId, size_t numDocs) {
+QueryIterator *IT_V2(NewWildcardIterator_NonOptimized)(t_docId maxId, size_t numDocs, double weight) {
   WildcardIterator *wi = rm_calloc(1, sizeof(*wi));
   wi->currentId = 0;
   wi->topId = maxId;
   wi->numDocs = numDocs;
   QueryIterator *ret = &wi->base;
-  ret->current = NewVirtualResult(1, RS_FIELDMASK_ALL);
+  ret->current = NewVirtualResult(weight, RS_FIELDMASK_ALL);
   ret->current->freq = 1;
   ret->atEOF = false;
   ret->lastDocId = 0;
@@ -75,24 +86,29 @@ QueryIterator *IT_V2(NewWildcardIterator_NonOptimized)(t_docId maxId, size_t num
   return ret;
 }
 
-QueryIterator *IT_V2(NewWildcardIterator_Optimized)(const RedisSearchCtx *sctx) {
+QueryIterator *IT_V2(NewWildcardIterator_Optimized)(const RedisSearchCtx *sctx, double weight) {
   RS_ASSERT(sctx->spec->rule->index_all);
+  QueryIterator *ret = NULL;
   if (sctx->spec->existingDocs) {
-    return NewInvIndIterator_GenericQuery(sctx->spec->existingDocs, sctx,
-                                          RS_INVALID_FIELD_INDEX, FIELD_EXPIRATION_DEFAULT);
+    ret = NewInvIndIterator_GenericQuery(sctx->spec->existingDocs, sctx,
+                                          RS_INVALID_FIELD_INDEX, FIELD_EXPIRATION_DEFAULT, weight);
+    InvIndIterator *it = (InvIndIterator *)ret;
+    it->isWildcard = true;
   } else {
-    return IT_V2(NewEmptyIterator)(); // Index all and no index, means the spec is currently empty.
+    ret = IT_V2(NewEmptyIterator)(); // Index all and no index, means the spec is currently empty.
   }
+  return ret;
 }
 
 // Returns a new wildcard iterator.
 // If the spec tracks all existing documents, it will return an iterator over those documents.
 // Otherwise, it will return a non-optimized wildcard iterator
-QueryIterator *IT_V2(NewWildcardIterator)(const QueryEvalCtx *q) {
-  if (q->sctx->spec->rule->index_all == true) {
-    return IT_V2(NewWildcardIterator_Optimized)(q->sctx);
+QueryIterator *IT_V2(NewWildcardIterator)(const QueryEvalCtx *q, double weight) {
+  QueryIterator *ret = NULL;
+  if (q && q->sctx && q->sctx->spec && q->sctx->spec->rule && q->sctx->spec->rule->index_all == true) {
+    return IT_V2(NewWildcardIterator_Optimized)(q->sctx, weight);
   } else {
     // Non-optimized wildcard iterator, using a simple doc-id increment as its base.
-    return IT_V2(NewWildcardIterator_NonOptimized)(q->docTable->maxDocId, q->docTable->size);
+    return IT_V2(NewWildcardIterator_NonOptimized)(q->docTable->maxDocId, q->docTable->size, weight);
   }
 }

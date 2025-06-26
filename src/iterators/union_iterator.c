@@ -8,6 +8,7 @@
 */
 
 #include "union_iterator.h"
+#include "wildcard_iterator.h"
 
 static inline int cmpLastDocId(const void *e1, const void *e2, const void *udata) {
   const QueryIterator *it1 = e1, *it2 = e2;
@@ -383,24 +384,21 @@ static QueryIterator *UnionIteratorReducer(QueryIterator **its, int *num, bool q
   // Let's remove all the empty iterators from the list
   size_t current_size = *num;
   size_t write_idx = 0;
-  for (size_t i = 0; i < *num; ++i) {
-    if (its[i] && its[i]->type != EMPTY_ITERATOR) {
-      its[write_idx++] = its[i];
-    } else {
-      its[i]->Free(its[i]);
+  for (size_t i = 0; i < current_size; ++i) {
+    if (its[i]) {
+      if (its[i]->type != EMPTY_ITERATOR) {
+        its[write_idx++] = its[i];
+      } else {
+        its[i]->Free(its[i]);
+      }
     }
   }
   *num = write_idx;
-  for (size_t i = write_idx; i < current_size; ++i) {
-    if (its[i]) {
-      its[i]->Free(its[i]);
-    }
-  }
   if (quickExit) {
-    for (size_t i = 0; i < *num; ++i) {
-      if (its[i]->type == WILDCARD_ITERATOR || its[i]->type == READ_ITERATOR) {
+    for (size_t i = 0; i < write_idx; ++i) {
+      if (IsWildcardIterator(its[i])) {
         ret = its[i];
-        for (size_t j = 0; j < num; ++j) {
+        for (size_t j = 0; j < write_idx; ++j) {
           if (i != j && its[j]) {
             its[j]->Free(its[j]);
           }
@@ -410,15 +408,17 @@ static QueryIterator *UnionIteratorReducer(QueryIterator **its, int *num, bool q
     }
   }
 
-  if (*num == 1) {
+  if (write_idx == 1) {
     ret = its[0];
+  }
+  if (ret != NULL) {
+    rm_free(its);
   }
   return ret;
 }
 
-
 QueryIterator *IT_V2(NewUnionIterator)(QueryIterator **its, int num, bool quickExit,
-                                double weight, QueryNodeType type, const char *q_str, IteratorsConfig *config) {
+                                      double weight, QueryNodeType type, const char *q_str, IteratorsConfig *config) {
 
   QueryIterator* ret = UnionIteratorReducer(its, &num, quickExit, weight, type, q_str, config);
   if (ret != NULL) {
