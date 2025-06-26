@@ -132,8 +132,7 @@ mod tests {
         for (input, delta, expected_encoding) in tests {
             let mut buffer = TestBuffer::with_capacity(16);
 
-            let mut record = inverted_index::RSIndexResult::numeric(0, input);
-            record.doc_id = 1_000;
+            let mut record = inverted_index::RSIndexResult::numeric(1_000, input);
 
             let _buffer_grew_size = encode_numeric(&mut buffer, &mut record, delta);
 
