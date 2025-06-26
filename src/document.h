@@ -8,14 +8,12 @@
 */
 #ifndef __RS_DOCUMENT_H__
 #define __RS_DOCUMENT_H__
-#include <pthread.h>
 #include "redismodule.h"
 #include "search_ctx.h"
 #include "redisearch.h"
 #include "tokenize.h"
 #include "concurrent_ctx.h"
 #include "byte_offsets.h"
-#include "rmutil/args.h"
 #include "query_error.h"
 #include "json.h"
 
