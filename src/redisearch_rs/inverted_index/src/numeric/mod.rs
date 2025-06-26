@@ -324,27 +324,61 @@ impl Decoder for Numeric {
         reader.read_exact(&mut header)?;
 
         let header = header[0];
-        let delta_bytes = header & 0b111;
+        let delta_bytes = (header & 0b111) as usize;
         let type_bits = (header >> 3) & 0b11;
         let upper_bits = header >> 5;
 
-        let delta = read_u64(&mut reader, delta_bytes as _)?;
+        let (delta, num) = match type_bits {
+            Self::TINY_TYPE => {
+                let delta = read_only_u64(&mut reader, delta_bytes)?;
+                let num = upper_bits;
 
-        let num = match type_bits {
+                (delta, num as f64)
+            }
             Self::FLOAT_TYPE => match upper_bits {
-                0b000 => read_f32(&mut reader)? as _,
-                0b010 => read_f32(&mut reader)?.copysign(-1.0) as _,
-                0b100 => read_f64(&mut reader)?,
-                0b110 => read_f64(&mut reader)?.copysign(-1.0),
-                0b101 | 0b001 => f64::INFINITY,
-                0b111 | 0b011 => f64::NEG_INFINITY,
+                0b000 => {
+                    let (delta, num) = read_u64_and_f32(&mut reader, delta_bytes)?;
+
+                    (delta, num as f64)
+                }
+                0b010 => {
+                    let (delta, num) = read_u64_and_f32(&mut reader, delta_bytes)?;
+
+                    (delta, num.copysign(-1.0) as f64)
+                }
+                0b100 => {
+                    let (delta, num) = read_u64_and_f64(&mut reader, delta_bytes)?;
+
+                    (delta, num)
+                }
+                0b110 => {
+                    let (delta, num) = read_u64_and_f64(&mut reader, delta_bytes)?;
+
+                    (delta, num.copysign(-1.0))
+                }
+                0b101 | 0b001 => {
+                    let delta = read_only_u64(&mut reader, delta_bytes)?;
+
+                    (delta, f64::INFINITY)
+                }
+                0b111 | 0b011 => {
+                    let delta = read_only_u64(&mut reader, delta_bytes)?;
+
+                    (delta, f64::NEG_INFINITY)
+                }
                 _ => unreachable!("All upper bits combinations are covered"),
             },
-            Self::TINY_TYPE => upper_bits as f64,
-            Self::POS_INT_TYPE => read_u64(&mut reader, upper_bits as usize + 1)? as _,
+            Self::POS_INT_TYPE => {
+                let (delta, num) =
+                    read_u64_and_u64(&mut reader, delta_bytes, upper_bits as usize + 1)?;
+
+                (delta, num as f64)
+            }
             Self::NEG_INT_TYPE => {
-                let v = read_u64(&mut reader, upper_bits as usize + 1)?;
-                (v as f64).copysign(-1.0)
+                let (delta, num) =
+                    read_u64_and_u64(&mut reader, delta_bytes, upper_bits as usize + 1)?;
+
+                (delta, (num as f64).copysign(-1.0))
             }
             _ => unreachable!("All four possible combinations are covered"),
         };
@@ -356,22 +390,68 @@ impl Decoder for Numeric {
     }
 }
 
-fn read_u64<R: Read>(reader: &mut R, len: usize) -> std::io::Result<u64> {
+fn read_only_u64<R: Read>(reader: &mut R, len: usize) -> std::io::Result<u64> {
     let mut bytes = [0; 8];
     reader.read_exact(&mut bytes[..len])?;
     Ok(u64::from_le_bytes(bytes))
 }
 
-fn read_f32<R: Read>(reader: &mut R) -> std::io::Result<f32> {
-    let mut bytes = [0; 4];
-    reader.read_exact(&mut bytes)?;
-    Ok(f32::from_le_bytes(bytes))
+fn read_u64_and_u64<R: Read>(
+    reader: &mut R,
+    first_bytes: usize,
+    second_bytes: usize,
+) -> std::io::Result<(u64, u64)> {
+    let mut buffer = [0; 16];
+    let total_bytes = first_bytes + second_bytes;
+
+    // Use one read since it is faster
+    reader.read_exact(&mut buffer[..total_bytes])?;
+
+    let mut first = [0; 8];
+    first[..first_bytes].copy_from_slice(&buffer[..first_bytes]);
+    let first = u64::from_le_bytes(first);
+
+    let mut second = [0; 8];
+    second.copy_from_slice(&buffer[first_bytes..first_bytes + 8]);
+    let second = u64::from_le_bytes(second);
+
+    Ok((first, second))
 }
 
-fn read_f64<R: Read>(reader: &mut R) -> std::io::Result<f64> {
-    let mut bytes = [0; 8];
-    reader.read_exact(&mut bytes)?;
-    Ok(f64::from_le_bytes(bytes))
+fn read_u64_and_f32<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Result<(u64, f32)> {
+    let mut buffer = [0; 12];
+    let total_bytes = first_bytes + 4;
+
+    // Use one read since it is faster
+    reader.read_exact(&mut buffer[..total_bytes])?;
+
+    let mut first = [0; 8];
+    first[..first_bytes].copy_from_slice(&buffer[..first_bytes]);
+    let first = u64::from_le_bytes(first);
+
+    let mut second = [0; 4];
+    second.copy_from_slice(&buffer[first_bytes..first_bytes + 4]);
+    let second = f32::from_le_bytes(second);
+
+    Ok((first, second))
+}
+
+fn read_u64_and_f64<R: Read>(reader: &mut R, first_bytes: usize) -> std::io::Result<(u64, f64)> {
+    let mut buffer = [0; 16];
+    let total_bytes = first_bytes + 8;
+
+    // Use one read since it is faster
+    reader.read_exact(&mut buffer[..total_bytes])?;
+
+    let mut first = [0; 8];
+    first[..first_bytes].copy_from_slice(&buffer[..first_bytes]);
+    let first = u64::from_le_bytes(first);
+
+    let mut second = [0; 8];
+    second.copy_from_slice(&buffer[first_bytes..first_bytes + 8]);
+    let second = f64::from_le_bytes(second);
+
+    Ok((first, second))
 }
 
 enum FloatValue {
